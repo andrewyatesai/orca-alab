@@ -1,0 +1,55 @@
+{
+  "module": "uri-component",
+  "source": "n/a (mirrors JS global encodeURIComponent / decodeURIComponent; no dedicated .ts file)",
+  "rustCrate": "orca-core::uri_component",
+  "cases": [
+    {
+      "function": "encodeURIComponent",
+      "note": "percent-escapes reserved bytes (space, slash, question mark)",
+      "input": "a b/c?d",
+      "expected": "a%20b%2Fc%3Fd"
+    },
+    {
+      "function": "encodeURIComponent",
+      "note": "keeps the unreserved set A-Za-z0-9 - _ . ! ~ * ' ( )",
+      "input": "keep-_.!~*'()",
+      "expected": "keep-_.!~*'()"
+    },
+    {
+      "function": "encodeURIComponent",
+      "note": "percent-escapes each UTF-8 byte of a multibyte char in uppercase hex",
+      "input": "café",
+      "expected": "caf%C3%A9"
+    },
+    {
+      "function": "encodeURIComponent",
+      "note": "empty string encodes to empty string",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "function": "decodeURIComponent",
+      "note": "round-trips a multibyte escape back to the original char",
+      "input": "caf%C3%A9",
+      "expected": "café"
+    },
+    {
+      "function": "decodeURIComponent",
+      "note": "decodes reserved-byte escapes",
+      "input": "a%20b%2Fc%3Fd",
+      "expected": "a b/c?d"
+    },
+    {
+      "function": "decodeURIComponent",
+      "note": "malformed %-escape passes through unchanged (TS try/catch returns original)",
+      "input": "%zz",
+      "expected": "%zz"
+    },
+    {
+      "function": "decodeURIComponent",
+      "note": "truncated trailing %-escape passes through unchanged",
+      "input": "trailing%2",
+      "expected": "trailing%2"
+    }
+  ]
+}

@@ -1,0 +1,238 @@
+{
+  "module": "commit-message-agent-spec",
+  "source": "src/shared/commit-message-agent-spec.ts",
+  "rustCrate": "orca-agents::commit_message_agent_spec",
+  "cases": [
+    {
+      "function": "isCustomAgentId",
+      "note": "the custom sentinel",
+      "input": "custom",
+      "expected": true
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "a real agent id is not the sentinel",
+      "input": "claude",
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "null (and undefined) are not the sentinel; undefined persists as null in JSON",
+      "input": null,
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "case-sensitive: uppercase is not the sentinel",
+      "input": "CUSTOM",
+      "expected": false
+    },
+    {
+      "function": "isCustomAgentId",
+      "note": "empty string is not the sentinel",
+      "input": "",
+      "expected": false
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "disabled default agent falls back to claude",
+      "input": { "configuredAgentId": null, "defaultTuiAgent": "codex", "disabledTuiAgents": ["codex"] },
+      "expected": "claude"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "disabled fallback claude yields null",
+      "input": { "configuredAgentId": null, "defaultTuiAgent": null, "disabledTuiAgents": ["claude"] },
+      "expected": null
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "explicit configured choice is returned verbatim even if listed disabled",
+      "input": { "configuredAgentId": "codex", "defaultTuiAgent": null, "disabledTuiAgents": ["codex"] },
+      "expected": "codex"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "enabled default agent with a commit-message spec is used",
+      "input": { "configuredAgentId": null, "defaultTuiAgent": "codex", "disabledTuiAgents": [] },
+      "expected": "codex"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "enabled default agent without a commit-message spec yields null (gemini has no spec)",
+      "input": { "configuredAgentId": null, "defaultTuiAgent": "gemini", "disabledTuiAgents": [] },
+      "expected": null
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "blank default preference skips to the claude fallback",
+      "input": { "configuredAgentId": null, "defaultTuiAgent": "blank", "disabledTuiAgents": [] },
+      "expected": "claude"
+    },
+    {
+      "function": "resolveCommitMessageAgentChoice",
+      "note": "configured custom sentinel is returned verbatim",
+      "input": { "configuredAgentId": "custom", "defaultTuiAgent": "codex", "disabledTuiAgents": ["custom"] },
+      "expected": "custom"
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "non-reasoning model omits thinking keys",
+      "input": { "agentId": "claude", "modelId": "haiku" },
+      "expected": { "id": "haiku", "label": "Haiku" }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "claude sonnet exposes the five claude thinking levels",
+      "input": { "agentId": "claude", "modelId": "sonnet" },
+      "expected": {
+        "id": "sonnet",
+        "label": "Sonnet",
+        "thinkingLevels": [
+          { "id": "low", "label": "Low" },
+          { "id": "medium", "label": "Medium" },
+          { "id": "high", "label": "High" },
+          { "id": "xhigh", "label": "Extra High" },
+          { "id": "max", "label": "Max" }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "codex spark variant keeps openai effort levels",
+      "input": { "agentId": "codex", "modelId": "gpt-5.3-codex-spark" },
+      "expected": {
+        "id": "gpt-5.3-codex-spark",
+        "label": "GPT-5.3 Codex Spark",
+        "thinkingLevels": [
+          { "id": "low", "label": "Low" },
+          { "id": "medium", "label": "Medium" },
+          { "id": "high", "label": "High" },
+          { "id": "xhigh", "label": "Extra High" }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "amp large model exposes the three basic thinking levels",
+      "input": { "agentId": "amp", "modelId": "large" },
+      "expected": {
+        "id": "large",
+        "label": "Large",
+        "thinkingLevels": [
+          { "id": "low", "label": "Low" },
+          { "id": "medium", "label": "Medium" },
+          { "id": "high", "label": "High" }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModel",
+      "note": "dynamic agent synthesizes an unknown model id (gpt-5* gains openai effort levels)",
+      "input": { "agentId": "codex", "modelId": "gpt-5.9-codex" },
+      "expected": {
+        "id": "gpt-5.9-codex",
+        "label": "GPT 5.9 Codex",
+        "thinkingLevels": [
+          { "id": "low", "label": "Low" },
+          { "id": "medium", "label": "Medium" },
+          { "id": "high", "label": "High" },
+          { "id": "xhigh", "label": "Extra High" }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "single-model dynamic agent capability without spawn details",
+      "input": { "agentId": "cursor" },
+      "expected": {
+        "id": "cursor",
+        "label": "Cursor",
+        "modelSource": "dynamic",
+        "defaultModelId": "auto",
+        "models": [{ "id": "auto", "label": "Auto" }]
+      }
+    },
+    {
+      "function": "getCommitMessageAgentCapability",
+      "note": "static agent capability copies model metadata, omitting binary/buildArgs",
+      "input": { "agentId": "claude" },
+      "expected": {
+        "id": "claude",
+        "label": "Claude",
+        "modelSource": "static",
+        "defaultModelId": "sonnet",
+        "models": [
+          { "id": "haiku", "label": "Haiku" },
+          {
+            "id": "sonnet",
+            "label": "Sonnet",
+            "thinkingLevels": [
+              { "id": "low", "label": "Low" },
+              { "id": "medium", "label": "Medium" },
+              { "id": "high", "label": "High" },
+              { "id": "xhigh", "label": "Extra High" },
+              { "id": "max", "label": "Max" }
+            ],
+            "defaultThinkingLevel": "low"
+          },
+          {
+            "id": "opus",
+            "label": "Opus",
+            "thinkingLevels": [
+              { "id": "low", "label": "Low" },
+              { "id": "medium", "label": "Medium" },
+              { "id": "high", "label": "High" },
+              { "id": "xhigh", "label": "Extra High" },
+              { "id": "max", "label": "Max" }
+            ],
+            "defaultThinkingLevel": "low"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getCommitMessageModelCapability",
+      "note": "codex mini capability carries openai effort levels",
+      "input": { "agentId": "codex", "modelId": "gpt-5.4-mini" },
+      "expected": {
+        "id": "gpt-5.4-mini",
+        "label": "GPT-5.4 Mini",
+        "thinkingLevels": [
+          { "id": "low", "label": "Low" },
+          { "id": "medium", "label": "Medium" },
+          { "id": "high", "label": "High" },
+          { "id": "xhigh", "label": "Extra High" }
+        ],
+        "defaultThinkingLevel": "low"
+      }
+    },
+    {
+      "function": "getCommitMessageModelCapability",
+      "note": "non-reasoning model capability omits thinking keys",
+      "input": { "agentId": "claude", "modelId": "haiku" },
+      "expected": { "id": "haiku", "label": "Haiku" }
+    },
+    {
+      "function": "getCommitMessageModelCapability",
+      "note": "copilot auto capability has no thinking levels",
+      "input": { "agentId": "copilot", "modelId": "auto" },
+      "expected": { "id": "auto", "label": "Auto" }
+    },
+    {
+      "function": "listCommitMessageAgentIds",
+      "note": "ordered agent ids with a non-interactive mode (custom is excluded)",
+      "input": null,
+      "expected": ["claude", "codex", "opencode", "pi", "amp", "cursor", "kimi", "copilot"]
+    },
+    {
+      "function": "listCommitMessageAgentCapabilities",
+      "note": "full capability list; golden omitted (large) — per-element shape is golden-checked via getCommitMessageAgentCapability, live TS<->Rust diff still validates",
+      "input": null
+    }
+  ]
+}

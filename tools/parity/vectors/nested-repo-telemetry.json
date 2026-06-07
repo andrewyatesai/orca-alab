@@ -1,0 +1,248 @@
+{
+  "module": "nested-repo-telemetry",
+  "source": "src/shared/nested-repo-telemetry.ts",
+  "rustCrate": "orca-core::nested_repo_telemetry",
+  "cases": [
+    {
+      "function": "capNestedRepoTelemetryCount",
+      "note": "negative counts clamp to 0",
+      "input": -1,
+      "expected": 0
+    },
+    {
+      "function": "capNestedRepoTelemetryCount",
+      "note": "fractional counts floor down",
+      "input": 2.9,
+      "expected": 2
+    },
+    {
+      "function": "capNestedRepoTelemetryCount",
+      "note": "NaN persists to JSON null; non-finite returns 0",
+      "input": null,
+      "expected": 0
+    },
+    {
+      "function": "capNestedRepoTelemetryCount",
+      "note": "above-max clamps to NESTED_REPO_TELEMETRY_MAX_REPO_COUNT (500)",
+      "input": 999,
+      "expected": 500
+    },
+    {
+      "function": "bucketNestedRepoTelemetryCount",
+      "note": "0 bucket",
+      "input": 0,
+      "expected": "0"
+    },
+    {
+      "function": "bucketNestedRepoTelemetryCount",
+      "note": "1 bucket",
+      "input": 1,
+      "expected": "1"
+    },
+    {
+      "function": "bucketNestedRepoTelemetryCount",
+      "note": "2-3 bucket upper boundary",
+      "input": 3,
+      "expected": "2-3"
+    },
+    {
+      "function": "bucketNestedRepoTelemetryCount",
+      "note": "4-7 bucket upper boundary",
+      "input": 7,
+      "expected": "4-7"
+    },
+    {
+      "function": "bucketNestedRepoTelemetryCount",
+      "note": "8-15 bucket upper boundary",
+      "input": 15,
+      "expected": "8-15"
+    },
+    {
+      "function": "bucketNestedRepoTelemetryCount",
+      "note": "16+ open-ended bucket",
+      "input": 16,
+      "expected": "16+"
+    },
+    {
+      "function": "shouldEmitNestedRepoImportSubmitTelemetry",
+      "note": "zero selection never emits",
+      "input": { "attemptId": "2fbac1e3-5094-45b4-80a6-90281e6e9e09", "selectedCount": 0 },
+      "expected": false
+    },
+    {
+      "function": "shouldEmitNestedRepoImportSubmitTelemetry",
+      "note": "busy submit never emits",
+      "input": { "attemptId": "2fbac1e3-5094-45b4-80a6-90281e6e9e09", "selectedCount": 1, "isBusy": true },
+      "expected": false
+    },
+    {
+      "function": "shouldEmitNestedRepoImportSubmitTelemetry",
+      "note": "non-busy selection with attempt id emits",
+      "input": { "attemptId": "2fbac1e3-5094-45b4-80a6-90281e6e9e09", "selectedCount": 1 },
+      "expected": true
+    },
+    {
+      "function": "shouldEmitNestedRepoImportSubmitTelemetry",
+      "note": "missing attempt id (null) never emits",
+      "input": { "attemptId": null, "selectedCount": 5 },
+      "expected": false
+    },
+    {
+      "function": "buildNestedRepoScanTelemetry",
+      "note": "scan with nested repos classifies as review_shown and includes selected_path_kind",
+      "input": {
+        "attemptId": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "onboarding",
+        "runtimeKind": "local",
+        "scan": {
+          "selectedPath": "/workspace/platform",
+          "selectedPathKind": "non_git_folder",
+          "repos": [
+            { "path": "/workspace/platform/apps/web", "displayName": "web", "depth": 2 },
+            { "path": "/workspace/platform/services/api", "displayName": "api", "depth": 2 },
+            { "path": "/workspace/platform/services/billing", "displayName": "billing", "depth": 2 }
+          ],
+          "truncated": false,
+          "timedOut": false,
+          "stopped": false,
+          "durationMs": 42,
+          "maxDepth": 3,
+          "maxRepos": 100,
+          "timeoutMs": null
+        }
+      },
+      "expected": {
+        "attempt_id": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "onboarding",
+        "runtime_kind": "local",
+        "result": "review_shown",
+        "selected_path_kind": "non_git_folder",
+        "found_count": 3,
+        "found_count_bucket": "2-3",
+        "truncated": false,
+        "timed_out": false
+      }
+    },
+    {
+      "function": "buildNestedRepoScanTelemetry",
+      "note": "null scan classifies as scan_failed and omits selected_path_kind (absent optional)",
+      "input": {
+        "attemptId": "d22bb9e0-b7f8-480a-8a2a-9b34f84f2c42",
+        "surface": "sidebar",
+        "runtimeKind": "ssh",
+        "scan": null
+      },
+      "expected": {
+        "attempt_id": "d22bb9e0-b7f8-480a-8a2a-9b34f84f2c42",
+        "surface": "sidebar",
+        "runtime_kind": "ssh",
+        "result": "scan_failed",
+        "found_count": 0,
+        "found_count_bucket": "0",
+        "truncated": false,
+        "timed_out": false
+      }
+    },
+    {
+      "function": "buildNestedRepoScanTelemetry",
+      "note": "git_repo selected path wins over found_count and propagates truncated/timed_out",
+      "input": {
+        "attemptId": "git-attempt",
+        "surface": "onboarding",
+        "runtimeKind": "runtime",
+        "scan": {
+          "selectedPath": "/workspace/repo",
+          "selectedPathKind": "git_repo",
+          "repos": [],
+          "truncated": true,
+          "timedOut": true,
+          "stopped": false,
+          "durationMs": 10,
+          "maxDepth": 3,
+          "maxRepos": 100,
+          "timeoutMs": null
+        }
+      },
+      "expected": {
+        "attempt_id": "git-attempt",
+        "surface": "onboarding",
+        "runtime_kind": "runtime",
+        "result": "git_repo",
+        "selected_path_kind": "git_repo",
+        "found_count": 0,
+        "found_count_bucket": "0",
+        "truncated": true,
+        "timed_out": true
+      }
+    },
+    {
+      "function": "buildNestedRepoImportActionTelemetry",
+      "note": "partial selection records buckets without raw path details",
+      "input": {
+        "attemptId": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "sidebar",
+        "runtimeKind": "ssh",
+        "action": "import_group",
+        "foundCount": 3,
+        "selectedCount": 2
+      },
+      "expected": {
+        "attempt_id": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "sidebar",
+        "runtime_kind": "ssh",
+        "action": "import_group",
+        "found_count": 3,
+        "found_count_bucket": "2-3",
+        "selected_count": 2,
+        "selected_count_bucket": "2-3",
+        "all_selected": false
+      }
+    },
+    {
+      "function": "buildNestedRepoImportActionTelemetry",
+      "note": "all_selected uses raw counts before caps; 600/500 caps to 500/500 but is not all-selected",
+      "input": {
+        "attemptId": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "sidebar",
+        "runtimeKind": "local",
+        "action": "import_group",
+        "foundCount": 600,
+        "selectedCount": 500
+      },
+      "expected": {
+        "attempt_id": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "sidebar",
+        "runtime_kind": "local",
+        "action": "import_group",
+        "found_count": 500,
+        "found_count_bucket": "16+",
+        "selected_count": 500,
+        "selected_count_bucket": "16+",
+        "all_selected": false
+      }
+    },
+    {
+      "function": "buildNestedRepoImportActionTelemetry",
+      "note": "selecting every found repo is all_selected",
+      "input": {
+        "attemptId": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "sidebar",
+        "runtimeKind": "local",
+        "action": "import_separate",
+        "foundCount": 3,
+        "selectedCount": 3
+      },
+      "expected": {
+        "attempt_id": "2fbac1e3-5094-45b4-80a6-90281e6e9e09",
+        "surface": "sidebar",
+        "runtime_kind": "local",
+        "action": "import_separate",
+        "found_count": 3,
+        "found_count_bucket": "2-3",
+        "selected_count": 3,
+        "selected_count_bucket": "2-3",
+        "all_selected": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "module": "wsl-paths",
+  "source": "src/shared/wsl-paths.ts",
+  "rustCrate": "orca-core::wsl_paths",
+  "cases": [
+    {
+      "function": "parseWslUncPath",
+      "note": "modern wsl.localhost UNC path",
+      "input": "\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo",
+      "expected": { "distro": "Ubuntu", "linuxPath": "/home/jin/repo" }
+    },
+    {
+      "function": "parseWslUncPath",
+      "note": "legacy wsl$ UNC path",
+      "input": "\\\\wsl$\\Debian\\home\\jin",
+      "expected": { "distro": "Debian", "linuxPath": "/home/jin" }
+    },
+    {
+      "function": "parseWslUncPath",
+      "note": "distro with no trailing path defaults linuxPath to /",
+      "input": "\\\\wsl.localhost\\Ubuntu",
+      "expected": { "distro": "Ubuntu", "linuxPath": "/" }
+    },
+    {
+      "function": "parseWslUncPath",
+      "note": "case-insensitive prefix with forward slashes, distro casing preserved",
+      "input": "//WSL.localhost/Arch/etc/fstab",
+      "expected": { "distro": "Arch", "linuxPath": "/etc/fstab" }
+    },
+    {
+      "function": "parseWslUncPath",
+      "note": "ordinary Windows path is not a WSL UNC path (null)",
+      "input": "C:\\Users\\jin",
+      "expected": null
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "rejects ordinary Windows path",
+      "input": "C:\\Users\\jin\\repo",
+      "expected": false
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "rejects ordinary POSIX path",
+      "input": "/home/jin/repo",
+      "expected": false
+    },
+    {
+      "function": "isWslUncPath",
+      "note": "accepts legacy wsl$ UNC path",
+      "input": "\\\\wsl$\\Ubuntu\\root",
+      "expected": true
+    }
+  ]
+}

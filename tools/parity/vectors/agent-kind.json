@@ -1,0 +1,67 @@
+{
+  "module": "agent-kind",
+  "source": "src/shared/agent-kind.ts",
+  "rustCrate": "orca-core::agent_kind",
+  "cases": [
+    {
+      "function": "tuiAgentToAgentKind",
+      "note": "uses the product id for Claude (claude -> claude-code)",
+      "input": { "agent": "claude" },
+      "expected": "claude-code"
+    },
+    {
+      "function": "tuiAgentToAgentKind",
+      "note": "uses the TuiAgent id for Pi",
+      "input": { "agent": "pi" },
+      "expected": "pi"
+    },
+    {
+      "function": "tuiAgentToAgentKind",
+      "note": "agent id equals kind id for gemini",
+      "input": { "agent": "gemini" },
+      "expected": "gemini"
+    },
+    {
+      "function": "tuiAgentToAgentKind",
+      "note": "kebab-cased agent id passes through unchanged",
+      "input": { "agent": "command-code" },
+      "expected": "command-code"
+    },
+    {
+      "function": "tuiAgentToAgentKind",
+      "note": "unknown agent falls back to the catch-all kind",
+      "input": { "agent": "definitely-not-an-agent" },
+      "expected": "other"
+    },
+    {
+      "function": "agentKindToTuiAgent",
+      "note": "reverses Claude's product id back to the TuiAgent id",
+      "input": { "kind": "claude-code" },
+      "expected": "claude"
+    },
+    {
+      "function": "agentKindToTuiAgent",
+      "note": "round-trips the pi kind back to its TuiAgent",
+      "input": { "kind": "pi" },
+      "expected": "pi"
+    },
+    {
+      "function": "agentKindToTuiAgent",
+      "note": "catch-all kind has no concrete TuiAgent (null)",
+      "input": { "kind": "other" },
+      "expected": null
+    },
+    {
+      "function": "agentKindToTuiAgent",
+      "note": "explicit null kind yields null",
+      "input": { "kind": null },
+      "expected": null
+    },
+    {
+      "function": "agentKindToTuiAgent",
+      "note": "missing key represents the TS undefined arg; yields null",
+      "input": {},
+      "expected": null
+    }
+  ]
+}

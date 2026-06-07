@@ -1,0 +1,17 @@
+[package]
+name = "orca-runtime"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Runtime orchestration for Orca: the multi-agent coordination store (messages, tasks, dispatch, gates), ported from src/main/runtime/orchestration."
+
+[dependencies]
+orca-store = { path = "../orca-store" }
+# Same vendored, bundled SQLite as orca-store (version-matched so the
+# libsqlite3-sys build is shared).
+rusqlite = { version = "0.31", default-features = false, features = ["bundled"] }
+
+[lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,21 @@
+[package]
+name = "orca-ffi"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Stable C ABI exposing the Orca Rust core to the thin native platform wrappers (Swift/SwiftUI on macOS, etc.)."
+
+[lib]
+# staticlib/cdylib so the Swift (and other) shells can link the core; rlib so
+# the rest of the workspace can use it too.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+orca-terminal = { path = "../orca-terminal" }
+orca-session = { path = "../orca-session" }
+
+# This crate is the FFI boundary: raw pointers + CString round-trips require
+# `unsafe`, so it is deliberately NOT under `forbid(unsafe_code)`. Unsafe is
+# confined here; every other crate forbids it.

@@ -1,0 +1,89 @@
+{
+  "module": "mcp-env",
+  "source": "src/shared/mcp-config.ts",
+  "rustCrate": "orca-text::mcp_env",
+  "cases": [
+    {
+      "function": "maskMcpEnv",
+      "note": "masks env values that look sensitive by key or value (verbatim from .test.ts)",
+      "input": {
+        "NORMAL": "visible",
+        "PASSWORD": "hunter2",
+        "MAYBE": "sk-abc123456789xyz"
+      },
+      "expected": {
+        "NORMAL": "visible",
+        "PASSWORD": "••••••••",
+        "MAYBE": "••••••••"
+      }
+    },
+    {
+      "function": "maskMcpEnv",
+      "note": "masks various sensitive key shapes case-insensitively; non-sensitive key+value stays visible",
+      "input": {
+        "API_KEY": "plainvalue",
+        "apikey": "plainvalue",
+        "AUTH": "plainvalue",
+        "github_token": "plainvalue",
+        "Session": "plainvalue",
+        "PRIVATE-KEY": "plainvalue",
+        "REGION": "us-east-1"
+      },
+      "expected": {
+        "API_KEY": "••••••••",
+        "apikey": "••••••••",
+        "AUTH": "••••••••",
+        "github_token": "••••••••",
+        "Session": "••••••••",
+        "PRIVATE-KEY": "••••••••",
+        "REGION": "us-east-1"
+      }
+    },
+    {
+      "function": "maskMcpEnv",
+      "note": "masks known token value shapes; too-short token-like values stay visible",
+      "input": {
+        "A": "ghp_0123456789abcdef",
+        "B": "xoxb-0123456789012",
+        "C": "sk-0123456789abcdefxyz",
+        "D": "sk-short"
+      },
+      "expected": {
+        "A": "••••••••",
+        "B": "••••••••",
+        "C": "••••••••",
+        "D": "sk-short"
+      }
+    },
+    {
+      "function": "maskMcpEnv",
+      "note": "value at the 12-char token boundary is masked even under a neutral key",
+      "input": {
+        "VAL": "sk-abcdefghijkl"
+      },
+      "expected": {
+        "VAL": "••••••••"
+      }
+    },
+    {
+      "function": "maskMcpEnv",
+      "note": "empty env yields empty masked record",
+      "input": {},
+      "expected": {}
+    },
+    {
+      "function": "maskMcpEnv",
+      "note": "mixed entries: sensitive key masked, plain key with plain value preserved",
+      "input": {
+        "HOME": "/Users/me",
+        "OPENAI_API_KEY": "sk-live-not-a-real-token",
+        "NODE_ENV": "production"
+      },
+      "expected": {
+        "HOME": "/Users/me",
+        "OPENAI_API_KEY": "••••••••",
+        "NODE_ENV": "production"
+      }
+    }
+  ]
+}

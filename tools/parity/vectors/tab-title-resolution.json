@@ -1,0 +1,77 @@
+{
+  "module": "tab-title-resolution",
+  "source": "src/shared/tab-title-resolution.ts",
+  "rustCrate": "orca-core::tab_title_resolution",
+  "cases": [
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "uses live terminal title when generated titles are disabled",
+      "input": {
+        "tab": { "customTitle": null, "generatedTitle": "Refactor auth", "title": "Claude working" },
+        "generatedTitlesEnabled": false,
+        "fallback": ""
+      },
+      "expected": "Claude working"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "generated title sits between manual and live when enabled (no custom title)",
+      "input": {
+        "tab": { "customTitle": null, "generatedTitle": "Refactor auth", "title": "Claude working" },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "manual custom title wins over generated and live when enabled",
+      "input": {
+        "tab": { "customTitle": "Payments", "generatedTitle": "Refactor auth", "title": "Claude working" },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Payments"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "whitespace-only values are blank, generated wins and is trimmed",
+      "input": {
+        "tab": { "customTitle": "   ", "generatedTitle": "  Refactor  ", "title": "Claude" },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "all candidates blank falls back to the fallback string",
+      "input": {
+        "tab": { "customTitle": null, "generatedTitle": null, "title": "   " },
+        "generatedTitlesEnabled": true,
+        "fallback": "Untitled"
+      },
+      "expected": "Untitled"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "unified labels use the same manual -> generated -> live priority when enabled",
+      "input": {
+        "tab": { "customLabel": null, "generatedLabel": "Fix flaky tests", "label": "Codex working" },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Fix flaky tests"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "undefined tab (persisted as null) resolves to the fallback",
+      "input": {
+        "tab": null,
+        "generatedTitlesEnabled": true,
+        "fallback": "New tab"
+      },
+      "expected": "New tab"
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "module": "git-remote-error",
+  "source": "src/shared/git-remote-error.ts",
+  "rustCrate": "orca-text::git_remote_error",
+  "cases": [
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "user:password@ on https is stripped, scheme + host kept",
+      "input": "remote: https://user:ghp_secret@github.com/o/r.git failed",
+      "expected": "remote: https://github.com/o/r.git failed"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "ssh://git@host user-info is required by the remote and kept intact",
+      "input": "ssh://git@github.com/o/r.git",
+      "expected": "ssh://git@github.com/o/r.git"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "https token-only user@ form is a credential and is scrubbed",
+      "input": "https://ghp_token@github.com/o/r.git",
+      "expected": "https://github.com/o/r.git"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "message with no URL is returned unchanged",
+      "input": "error: src refspec main does not match any",
+      "expected": "error: src refspec main does not match any"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "user:password@ stripped on ssh:// scheme (password redacted on any scheme)",
+      "input": "ssh://user:pass@github.com/o/r.git",
+      "expected": "ssh://github.com/o/r.git"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "user:password@ stripped on git:// scheme",
+      "input": "git://user:secret@example.com/repo.git",
+      "expected": "git://example.com/repo.git"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "compound scheme git+ssh:// still matches the userpass pattern",
+      "input": "git+ssh://user:pw@host.example/repo",
+      "expected": "git+ssh://host.example/repo"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "http token-only user@ form is scrubbed",
+      "input": "http://token@host/repo",
+      "expected": "http://host/repo"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "global flag scrubs every userpass URL in the message",
+      "input": "https://a:b@h1/r and https://c:d@h2/r",
+      "expected": "https://h1/r and https://h2/r"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "empty string is returned unchanged",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "scheme match is case-insensitive; uppercase HTTPS userpass is scrubbed",
+      "input": "HTTPS://user:pass@host/repo",
+      "expected": "HTTPS://host/repo"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "host port colon is preserved when stripping userpass",
+      "input": "https://user:pass@host:8080/repo",
+      "expected": "https://host:8080/repo"
+    },
+    {
+      "function": "stripCredentialsFromMessage",
+      "note": "mixed message: https userpass scrubbed while ssh git@ is kept",
+      "input": "clone https://u:p@h/r over ssh://git@h2/r2",
+      "expected": "clone https://h/r over ssh://git@h2/r2"
+    }
+  ]
+}

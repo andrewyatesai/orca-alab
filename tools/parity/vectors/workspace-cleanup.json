@@ -1,0 +1,351 @@
+{
+  "module": "workspace-cleanup",
+  "source": "src/shared/workspace-cleanup.ts",
+  "rustCrate": "orca-core::workspace_cleanup",
+  "cases": [
+    {
+      "function": "applyWorkspaceCleanupPolicy",
+      "note": "clean inactive workspace becomes ready and selected by default",
+      "input": {
+        "worktreeId": "repo-1::/tmp/feature",
+        "repoId": "repo-1",
+        "repoName": "Repo",
+        "connectionId": null,
+        "displayName": "feature",
+        "branch": "feature",
+        "path": "/tmp/feature",
+        "tier": "review",
+        "selectedByDefault": false,
+        "reasons": ["idle-clean"],
+        "blockers": [],
+        "lastActivityAt": 1700000000000,
+        "localContext": {
+          "terminalTabCount": 0,
+          "cleanEditorTabCount": 0,
+          "browserTabCount": 0,
+          "diffCommentCount": 0,
+          "newestDiffCommentAt": null,
+          "retainedDoneAgentCount": 0
+        },
+        "git": {
+          "clean": true,
+          "upstreamAhead": 0,
+          "upstreamBehind": 0,
+          "checkedAt": 1700000000000
+        },
+        "fingerprint": "fingerprint"
+      },
+      "expected": {
+        "worktreeId": "repo-1::/tmp/feature",
+        "repoId": "repo-1",
+        "repoName": "Repo",
+        "connectionId": null,
+        "displayName": "feature",
+        "branch": "feature",
+        "path": "/tmp/feature",
+        "tier": "ready",
+        "selectedByDefault": true,
+        "reasons": ["idle-clean"],
+        "blockers": [],
+        "lastActivityAt": 1700000000000,
+        "localContext": {
+          "terminalTabCount": 0,
+          "cleanEditorTabCount": 0,
+          "browserTabCount": 0,
+          "diffCommentCount": 0,
+          "newestDiffCommentAt": null,
+          "retainedDoneAgentCount": 0
+        },
+        "git": {
+          "clean": true,
+          "upstreamAhead": 0,
+          "upstreamBehind": 0,
+          "checkedAt": 1700000000000
+        },
+        "fingerprint": "fingerprint"
+      }
+    },
+    {
+      "function": "applyWorkspaceCleanupPolicy",
+      "note": "no inactivity reason keeps the candidate in review, not selected",
+      "input": {
+        "worktreeId": "repo-1::/tmp/feature",
+        "repoId": "repo-1",
+        "repoName": "Repo",
+        "connectionId": null,
+        "displayName": "feature",
+        "branch": "feature",
+        "path": "/tmp/feature",
+        "tier": "review",
+        "selectedByDefault": false,
+        "reasons": [],
+        "blockers": [],
+        "lastActivityAt": 1700000000000,
+        "localContext": {
+          "terminalTabCount": 0,
+          "cleanEditorTabCount": 0,
+          "browserTabCount": 0,
+          "diffCommentCount": 0,
+          "newestDiffCommentAt": null,
+          "retainedDoneAgentCount": 0
+        },
+        "git": {
+          "clean": true,
+          "upstreamAhead": 0,
+          "upstreamBehind": 0,
+          "checkedAt": 1700000000000
+        },
+        "fingerprint": "fingerprint"
+      },
+      "expected": {
+        "worktreeId": "repo-1::/tmp/feature",
+        "repoId": "repo-1",
+        "repoName": "Repo",
+        "connectionId": null,
+        "displayName": "feature",
+        "branch": "feature",
+        "path": "/tmp/feature",
+        "tier": "review",
+        "selectedByDefault": false,
+        "reasons": [],
+        "blockers": [],
+        "lastActivityAt": 1700000000000,
+        "localContext": {
+          "terminalTabCount": 0,
+          "cleanEditorTabCount": 0,
+          "browserTabCount": 0,
+          "diffCommentCount": 0,
+          "newestDiffCommentAt": null,
+          "retainedDoneAgentCount": 0
+        },
+        "git": {
+          "clean": true,
+          "upstreamAhead": 0,
+          "upstreamBehind": 0,
+          "checkedAt": 1700000000000
+        },
+        "fingerprint": "fingerprint"
+      }
+    },
+    {
+      "function": "applyWorkspaceCleanupPolicy",
+      "note": "a hard blocker forces protected tier and clears the default selection",
+      "input": {
+        "worktreeId": "repo-1::/tmp/feature",
+        "repoId": "repo-1",
+        "repoName": "Repo",
+        "connectionId": null,
+        "displayName": "feature",
+        "branch": "feature",
+        "path": "/tmp/feature",
+        "tier": "review",
+        "selectedByDefault": false,
+        "reasons": ["idle-clean"],
+        "blockers": ["unpushed-commits"],
+        "lastActivityAt": 1700000000000,
+        "localContext": {
+          "terminalTabCount": 0,
+          "cleanEditorTabCount": 0,
+          "browserTabCount": 0,
+          "diffCommentCount": 0,
+          "newestDiffCommentAt": null,
+          "retainedDoneAgentCount": 0
+        },
+        "git": {
+          "clean": true,
+          "upstreamAhead": 0,
+          "upstreamBehind": 0,
+          "checkedAt": 1700000000000
+        },
+        "fingerprint": "fingerprint"
+      },
+      "expected": {
+        "worktreeId": "repo-1::/tmp/feature",
+        "repoId": "repo-1",
+        "repoName": "Repo",
+        "connectionId": null,
+        "displayName": "feature",
+        "branch": "feature",
+        "path": "/tmp/feature",
+        "tier": "protected",
+        "selectedByDefault": false,
+        "reasons": ["idle-clean"],
+        "blockers": ["unpushed-commits"],
+        "lastActivityAt": 1700000000000,
+        "localContext": {
+          "terminalTabCount": 0,
+          "cleanEditorTabCount": 0,
+          "browserTabCount": 0,
+          "diffCommentCount": 0,
+          "newestDiffCommentAt": null,
+          "retainedDoneAgentCount": 0
+        },
+        "git": {
+          "clean": true,
+          "upstreamAhead": 0,
+          "upstreamBehind": 0,
+          "checkedAt": 1700000000000
+        },
+        "fingerprint": "fingerprint"
+      }
+    },
+    {
+      "function": "canSelectWorkspaceCleanupCandidate",
+      "note": "idle, git-clean, freshly checked, no hard blockers is selectable",
+      "input": {
+        "reasons": ["idle-clean"],
+        "blockers": [],
+        "git": { "clean": true, "checkedAt": 1700000000000 }
+      },
+      "expected": true
+    },
+    {
+      "function": "canSelectWorkspaceCleanupCandidate",
+      "note": "unknown git status (clean null, checkedAt null) is not selectable",
+      "input": {
+        "reasons": ["idle-clean"],
+        "blockers": [],
+        "git": { "clean": null, "checkedAt": null }
+      },
+      "expected": false
+    },
+    {
+      "function": "canQueueWorkspaceCleanupCandidate",
+      "note": "main worktree is a queue blocker even with an inactivity reason",
+      "input": {
+        "reasons": ["idle-clean"],
+        "blockers": ["main-worktree"]
+      },
+      "expected": false
+    },
+    {
+      "function": "canQueueWorkspaceCleanupCandidate",
+      "note": "unpushed-commits hard-blocks selection but is still queueable",
+      "input": {
+        "reasons": ["idle-clean"],
+        "blockers": ["unpushed-commits"]
+      },
+      "expected": true
+    },
+    {
+      "function": "shouldForceWorkspaceCleanupRemoval",
+      "note": "a force-remove blocker requires force even when git looks clean",
+      "input": {
+        "blockers": ["unpushed-commits"],
+        "git": { "clean": true, "checkedAt": 1700000000000 }
+      },
+      "expected": true
+    },
+    {
+      "function": "shouldForceWorkspaceCleanupRemoval",
+      "note": "clean, freshly checked, no force blockers does not need force",
+      "input": {
+        "blockers": [],
+        "git": { "clean": true, "checkedAt": 1700000000000 }
+      },
+      "expected": false
+    },
+    {
+      "function": "isWorkspaceCleanupHardBlocker",
+      "note": "pinned is a hard blocker",
+      "input": "pinned",
+      "expected": true
+    },
+    {
+      "function": "createWorkspaceCleanupFingerprint",
+      "note": "default classifier version, clean git, bucketed activity day",
+      "input": {
+        "branch": "feature",
+        "head": "abc123",
+        "gitClean": true,
+        "lastActivityAt": 1700000000000
+      },
+      "expected": "2|feature|abc123|clean|19675"
+    },
+    {
+      "function": "createWorkspaceCleanupFingerprint",
+      "note": "explicit classifier version and unknown (null) git cleanliness",
+      "input": {
+        "branch": "main",
+        "head": "def456",
+        "gitClean": null,
+        "lastActivityAt": 0,
+        "classifierVersion": 5
+      },
+      "expected": "5|main|def456|unknown|0"
+    },
+    {
+      "function": "getWorkspaceCleanupInactivityReasons",
+      "note": "archived past both thresholds yields archived and idle-clean",
+      "input": {
+        "workspace": { "isArchived": true, "lastActivityAt": 0 },
+        "scannedAt": 2592000000
+      },
+      "expected": ["archived", "idle-clean"]
+    },
+    {
+      "function": "getWorkspaceCleanupInactivityReasons",
+      "note": "not archived but past the idle threshold yields only idle-clean",
+      "input": {
+        "workspace": { "isArchived": false, "lastActivityAt": 0 },
+        "scannedAt": 2592000000
+      },
+      "expected": ["idle-clean"]
+    },
+    {
+      "function": "getWorkspaceCleanupInactivityReasons",
+      "note": "recently active workspace has no inactivity reasons",
+      "input": {
+        "workspace": { "isArchived": false, "lastActivityAt": 0 },
+        "scannedAt": 0
+      },
+      "expected": []
+    },
+    {
+      "function": "shouldHideWorkspaceCleanupCandidate",
+      "note": "matching worktree, fingerprint, and current classifier hides the candidate",
+      "input": {
+        "candidate": {
+          "worktreeId": "repo-1::/tmp/feature",
+          "fingerprint": "2|feature|abc123|clean|19675"
+        },
+        "dismissal": {
+          "worktreeId": "repo-1::/tmp/feature",
+          "dismissedAt": 1700000000000,
+          "fingerprint": "2|feature|abc123|clean|19675",
+          "classifierVersion": 2
+        }
+      },
+      "expected": true
+    },
+    {
+      "function": "shouldHideWorkspaceCleanupCandidate",
+      "note": "a changed fingerprint no longer matches the dismissal",
+      "input": {
+        "candidate": {
+          "worktreeId": "repo-1::/tmp/feature",
+          "fingerprint": "2|feature|abc123|clean|19675"
+        },
+        "dismissal": {
+          "worktreeId": "repo-1::/tmp/feature",
+          "dismissedAt": 1700000000000,
+          "fingerprint": "2|feature|abc123|clean|19675|changed",
+          "classifierVersion": 2
+        }
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldHideWorkspaceCleanupCandidate",
+      "note": "no dismissal (null/undefined) never hides the candidate",
+      "input": {
+        "candidate": {
+          "worktreeId": "repo-1::/tmp/feature",
+          "fingerprint": "2|feature|abc123|clean|19675"
+        },
+        "dismissal": null
+      },
+      "expected": false
+    }
+  ]
+}

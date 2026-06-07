@@ -1,0 +1,515 @@
+{
+  "module": "task-query",
+  "source": "src/shared/task-query.ts",
+  "rustCrate": "orca-core::task_query",
+  "cases": [
+    {
+      "function": "tokenizeSearchQuery",
+      "note": "splits on whitespace",
+      "input": "is:open assignee:@me foo",
+      "expected": ["is:open", "assignee:@me", "foo"]
+    },
+    {
+      "function": "tokenizeSearchQuery",
+      "note": "unwraps standalone double-quoted tokens",
+      "input": "\"needs review\" foo",
+      "expected": ["needs review", "foo"]
+    },
+    {
+      "function": "tokenizeSearchQuery",
+      "note": "unwraps standalone single-quoted tokens",
+      "input": "'with spaces' bar",
+      "expected": ["with spaces", "bar"]
+    },
+    {
+      "function": "tokenizeSearchQuery",
+      "note": "keeps quoted qualifier values as one token",
+      "input": "label:\"needs review\" author:alice",
+      "expected": ["label:needs review", "author:alice"]
+    },
+    {
+      "function": "tokenizeSearchQuery",
+      "note": "returns an empty list for an empty string",
+      "input": "",
+      "expected": []
+    },
+    {
+      "function": "tokenizeSearchQuery",
+      "note": "whitespace-only input yields no tokens",
+      "input": "   ",
+      "expected": []
+    },
+    {
+      "function": "tokenizeSearchQuery",
+      "note": "collapses runs of whitespace and ignores leading/trailing gaps",
+      "input": "  foo   bar  ",
+      "expected": ["foo", "bar"]
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "returns defaults for an empty query",
+      "input": "",
+      "expected": {
+        "scope": "all",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "parses is:issue and is:open",
+      "input": "is:issue is:open",
+      "expected": {
+        "scope": "issue",
+        "state": "open",
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "parses is:pull-request as a PR scope alias",
+      "input": "is:pull-request is:open",
+      "expected": {
+        "scope": "pr",
+        "state": "open",
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "widens scope to all when both is:issue and is:pr are present",
+      "input": "is:issue is:pr",
+      "expected": {
+        "scope": "all",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "widens scope to all regardless of issue and PR token order",
+      "input": "is:pr is:issue",
+      "expected": {
+        "scope": "all",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "is:draft forces scope to pr and state to open",
+      "input": "is:draft",
+      "expected": {
+        "scope": "pr",
+        "state": "open",
+        "draft": true,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "keeps draft scoped to open PRs even when a later token says issue",
+      "input": "is:draft is:issue",
+      "expected": {
+        "scope": "pr",
+        "state": "open",
+        "draft": true,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "is:pr is:open does not set draft",
+      "input": "is:pr is:open",
+      "expected": {
+        "scope": "pr",
+        "state": "open",
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "extracts assignee, author, label, and review qualifiers; review-requested forces pr",
+      "input": "assignee:@me author:alice review-requested:@me label:bug free text",
+      "expected": {
+        "scope": "pr",
+        "state": null,
+        "draft": false,
+        "assignee": "@me",
+        "author": "alice",
+        "reviewRequested": "@me",
+        "reviewedBy": null,
+        "labels": ["bug"],
+        "freeText": "free text"
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "keeps review qualifiers scoped to PRs even when a later token says issue",
+      "input": "review-requested:@me is:issue",
+      "expected": {
+        "scope": "pr",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": "@me",
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "leaves unknown qualifiers and bare words in freeText",
+      "input": "custom:value hello",
+      "expected": {
+        "scope": "all",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": "custom:value hello"
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "parses state:all for the Any state filter",
+      "input": "is:pr state:all",
+      "expected": {
+        "scope": "pr",
+        "state": "all",
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "is:merged forces pr scope after the loop",
+      "input": "is:merged",
+      "expected": {
+        "scope": "pr",
+        "state": "merged",
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "reviewed-by forces pr scope",
+      "input": "reviewed-by:bob",
+      "expected": {
+        "scope": "pr",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": "bob",
+        "labels": [],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "parseTaskQuery",
+      "note": "collects multiple labels including a quoted value",
+      "input": "label:bug label:\"needs review\"",
+      "expected": {
+        "scope": "all",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": ["bug", "needs review"],
+        "freeText": ""
+      }
+    },
+    {
+      "function": "serializeTaskQuery",
+      "note": "round-trips qualifiers and free text in serializer field order",
+      "input": {
+        "scope": "pr",
+        "state": "open",
+        "draft": false,
+        "assignee": null,
+        "author": "alice",
+        "reviewRequested": "bob",
+        "reviewedBy": null,
+        "labels": ["bug"],
+        "freeText": "hello world"
+      },
+      "expected": "is:pr is:open author:alice review-requested:bob label:bug hello world"
+    },
+    {
+      "function": "serializeTaskQuery",
+      "note": "quotes label values containing whitespace",
+      "input": {
+        "scope": "all",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": ["needs review"],
+        "freeText": ""
+      },
+      "expected": "label:\"needs review\""
+    },
+    {
+      "function": "serializeTaskQuery",
+      "note": "serializes all state so filter changes do not fall back to the default open state",
+      "input": {
+        "scope": "pr",
+        "state": "all",
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      },
+      "expected": "is:pr state:all"
+    },
+    {
+      "function": "serializeTaskQuery",
+      "note": "all-default query serializes to the empty string",
+      "input": {
+        "scope": "all",
+        "state": null,
+        "draft": false,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      },
+      "expected": ""
+    },
+    {
+      "function": "serializeTaskQuery",
+      "note": "emits is:draft for a draft query",
+      "input": {
+        "scope": "pr",
+        "state": "open",
+        "draft": true,
+        "assignee": null,
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      },
+      "expected": "is:pr is:open is:draft"
+    },
+    {
+      "function": "serializeTaskQuery",
+      "note": "quotes an assignee value containing whitespace under issue scope",
+      "input": {
+        "scope": "issue",
+        "state": "closed",
+        "draft": false,
+        "assignee": "octo cat",
+        "author": null,
+        "reviewRequested": null,
+        "reviewedBy": null,
+        "labels": [],
+        "freeText": ""
+      },
+      "expected": "is:issue is:closed assignee:\"octo cat\""
+    },
+    {
+      "function": "withQualifier",
+      "note": "sets the author qualifier without disturbing free text",
+      "input": { "rawQuery": "hello", "key": "author", "value": "alice" },
+      "expected": "author:alice hello"
+    },
+    {
+      "function": "withQualifier",
+      "note": "clears the author qualifier (null value) and keeps free text",
+      "input": { "rawQuery": "author:alice hello", "key": "author", "value": null },
+      "expected": "hello"
+    },
+    {
+      "function": "withQualifier",
+      "note": "replaces the labels list with the provided array",
+      "input": { "rawQuery": "label:bug label:enh", "key": "labels", "value": ["triage"] },
+      "expected": "label:triage"
+    },
+    {
+      "function": "withQualifier",
+      "note": "clears labels when given an empty array, preserving other scope",
+      "input": { "rawQuery": "label:bug is:pr", "key": "labels", "value": [] },
+      "expected": "is:pr"
+    },
+    {
+      "function": "withQualifier",
+      "note": "sets the all state filter",
+      "input": { "rawQuery": "is:pr is:open", "key": "state", "value": "all" },
+      "expected": "is:pr state:all"
+    },
+    {
+      "function": "withQualifier",
+      "note": "preserves quoted free-text tokens when applying a filter",
+      "input": {
+        "rawQuery": "\"exact phrase\" milestone:\"next release\"",
+        "key": "author",
+        "value": "alice"
+      },
+      "expected": "author:alice \"exact phrase\" milestone:\"next release\""
+    },
+    {
+      "function": "withQualifier",
+      "note": "draft=true forces pr scope and open state",
+      "input": { "rawQuery": "", "key": "draft", "value": "true" },
+      "expected": "is:pr is:open is:draft"
+    },
+    {
+      "function": "withQualifier",
+      "note": "state=merged forces pr scope",
+      "input": { "rawQuery": "", "key": "state", "value": "merged" },
+      "expected": "is:pr is:merged"
+    },
+    {
+      "function": "withQualifier",
+      "note": "reviewRequested forces pr scope",
+      "input": { "rawQuery": "", "key": "reviewRequested", "value": "@me" },
+      "expected": "is:pr review-requested:@me"
+    },
+    {
+      "function": "withQualifier",
+      "note": "draft filter forces a closed PR back to open",
+      "input": { "rawQuery": "is:pr is:closed", "key": "draft", "value": "true" },
+      "expected": "is:pr is:open is:draft"
+    },
+    {
+      "function": "withQualifier",
+      "note": "sets the assignee qualifier alongside an existing state token",
+      "input": { "rawQuery": "is:open", "key": "assignee", "value": "octocat" },
+      "expected": "is:open assignee:octocat"
+    },
+    {
+      "function": "withQualifier",
+      "note": "null state value clears the state qualifier",
+      "input": { "rawQuery": "is:pr is:open", "key": "state", "value": null },
+      "expected": "is:pr"
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "removes repo:owner/name tokens",
+      "input": "is:open repo:foo/bar assignee:@me",
+      "expected": "is:open assignee:@me"
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "is case-insensitive on the repo: key",
+      "input": "REPO:Foo/Bar is:open",
+      "expected": "is:open"
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "keeps other qualifiers intact",
+      "input": "label:bug repo:a/b",
+      "expected": "label:bug"
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "re-quotes a standalone token that contains whitespace",
+      "input": "\"needs review\" repo:x/y",
+      "expected": "\"needs review\""
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "re-quotes a qualifier value that contains whitespace",
+      "input": "label:\"needs review\" repo:a/b",
+      "expected": "label:\"needs review\""
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "returns empty string when only repo qualifiers are present",
+      "input": "repo:foo/bar repo:baz/qux",
+      "expected": ""
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "preserves a bare word containing no space",
+      "input": "hello repo:a/b world",
+      "expected": "hello world"
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "a repo token split by whitespace only drops the matching half",
+      "input": "repo:foo bar",
+      "expected": "bar"
+    },
+    {
+      "function": "stripRepoQualifiers",
+      "note": "empty input yields empty output",
+      "input": "",
+      "expected": ""
+    }
+  ]
+}

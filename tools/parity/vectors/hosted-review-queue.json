@@ -1,0 +1,221 @@
+{
+  "module": "hosted-review-queue",
+  "source": "src/shared/hosted-review-queue.ts",
+  "rustCrate": "orca-core::hosted_review_queue",
+  "cases": [
+    {
+      "function": "hostedReviewIdentityKey",
+      "note": "dotcom identity key",
+      "input": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 7 },
+      "expected": "github::github.com::acme::orca::7"
+    },
+    {
+      "function": "hostedReviewIdentityKey",
+      "note": "enterprise host differs from dotcom for the same owner/repo/number",
+      "input": { "provider": "github", "host": "github.acme.internal", "owner": "acme", "repo": "orca", "number": 7 },
+      "expected": "github::github.acme.internal::acme::orca::7"
+    },
+    {
+      "function": "hostedReviewIdentityKey",
+      "note": "host/owner/repo lowercased; provider and number kept verbatim",
+      "input": { "provider": "gitlab", "host": "GitLab.COM", "owner": "Acme", "repo": "Orca", "number": 1280 },
+      "expected": "gitlab::gitlab.com::acme::orca::1280"
+    },
+    {
+      "function": "reviewNeedsResponse",
+      "note": "unresolved review threads need a response",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "success",
+        "threadSummary": { "unresolvedCount": 1 }
+      },
+      "expected": true
+    },
+    {
+      "function": "reviewNeedsResponse",
+      "note": "failed checks need a response",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "failure",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": true
+    },
+    {
+      "function": "reviewNeedsResponse",
+      "note": "merge conflict needs a response",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "CONFLICTING",
+        "checksStatus": "success",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": true
+    },
+    {
+      "function": "reviewNeedsResponse",
+      "note": "remote updatedAt newer than lastViewedAt needs a response (lastViewedAt = Date.parse('2026-05-10T00:00:00.000Z'))",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-11T00:00:00.000Z",
+        "lastViewedAt": 1778371200000,
+        "mergeable": "MERGEABLE",
+        "checksStatus": "success",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": true
+    },
+    {
+      "function": "reviewNeedsResponse",
+      "note": "updatedAt alone does not mark needs-response when lastViewedAt is missing",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-11T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "success",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": false
+    },
+    {
+      "function": "reviewNeedsResponse",
+      "note": "merged reviews never need a response even with unresolved threads",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "merged",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "failure",
+        "threadSummary": { "unresolvedCount": 3 }
+      },
+      "expected": false
+    },
+    {
+      "function": "reviewReadyToMerge",
+      "note": "open, mergeable, successful checks, no unresolved threads is ready",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "success",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": true
+    },
+    {
+      "function": "reviewReadyToMerge",
+      "note": "drafts are not ready to merge",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "draft",
+        "draft": true,
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "success",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": false
+    },
+    {
+      "function": "reviewReadyToMerge",
+      "note": "pending checks are not ready to merge",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "pending",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": false
+    },
+    {
+      "function": "reviewReadyToMerge",
+      "note": "required review decision blocks merge",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "success",
+        "reviewDecision": "review_required",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": false
+    },
+    {
+      "function": "reviewReadyToMerge",
+      "note": "neutral checks are accepted when all other gates pass",
+      "input": {
+        "identity": { "provider": "github", "host": "github.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://github.com/acme/orca/pull/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "neutral",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": true
+    },
+    {
+      "function": "reviewReadyToMerge",
+      "note": "GitHub-only merge-state blockers are scoped to GitHub, so a GitLab BLOCKED stays ready",
+      "input": {
+        "identity": { "provider": "gitlab", "host": "gitlab.com", "owner": "acme", "repo": "orca", "number": 42 },
+        "title": "Improve checks panel",
+        "url": "https://gitlab.com/acme/orca/-/merge_requests/42",
+        "state": "open",
+        "author": { "login": "teammate" },
+        "updatedAt": "2026-05-10T00:00:00.000Z",
+        "mergeable": "MERGEABLE",
+        "checksStatus": "success",
+        "mergeStateStatus": "BLOCKED",
+        "threadSummary": { "unresolvedCount": 0 }
+      },
+      "expected": true
+    }
+  ]
+}

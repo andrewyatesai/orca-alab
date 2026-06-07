@@ -1,0 +1,49 @@
+{
+  "module": "effective-upstream",
+  "source": "src/shared/git-effective-upstream.ts",
+  "rustCrate": "orca-git::effective_upstream",
+  "cases": [
+    {
+      "function": "splitRemoteBranchName",
+      "note": "standard remote/branch splits on the first slash",
+      "input": "origin/main",
+      "expected": { "remoteName": "origin", "branchName": "main" }
+    },
+    {
+      "function": "splitRemoteBranchName",
+      "note": "branch name keeps trailing slashes (split only on first)",
+      "input": "origin/feature/x",
+      "expected": { "remoteName": "origin", "branchName": "feature/x" }
+    },
+    {
+      "function": "splitRemoteBranchName",
+      "note": "minimal single-char remote and branch",
+      "input": "a/b",
+      "expected": { "remoteName": "a", "branchName": "b" }
+    },
+    {
+      "function": "splitRemoteBranchName",
+      "note": "no slash yields null",
+      "input": "main",
+      "expected": null
+    },
+    {
+      "function": "splitRemoteBranchName",
+      "note": "leading slash (empty remote) yields null",
+      "input": "/leading",
+      "expected": null
+    },
+    {
+      "function": "splitRemoteBranchName",
+      "note": "trailing slash (empty branch) yields null",
+      "input": "trailing/",
+      "expected": null
+    },
+    {
+      "function": "splitRemoteBranchName",
+      "note": "empty string yields null",
+      "input": "",
+      "expected": null
+    }
+  ]
+}

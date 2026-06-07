@@ -1,0 +1,103 @@
+{
+  "module": "agent-recognition",
+  "source": "src/shared/agent-name-token-match.ts (+ agent-process-recognition.ts)",
+  "rustCrate": "orca-core::agent_recognition",
+  "cases": [
+    {
+      "function": "titleHasAgentName",
+      "note": "substring of another agent name is not a whole-token match",
+      "input": { "title": "openclaude", "name": "claude" },
+      "expected": false
+    },
+    {
+      "function": "titleHasAgentName",
+      "note": "hyphen compound (worktree title) is rejected by the boundary guard",
+      "input": { "title": "opencode-blinker", "name": "opencode" },
+      "expected": false
+    },
+    {
+      "function": "titleHasAgentName",
+      "note": "path-segment cwd title is rejected by the boundary guard",
+      "input": { "title": "~/opencode/working", "name": "opencode" },
+      "expected": false
+    },
+    {
+      "function": "titleHasAgentName",
+      "note": "whole token surrounded by spaces matches",
+      "input": { "title": "claude working", "name": "claude" },
+      "expected": true
+    },
+    {
+      "function": "titleHasAgentName",
+      "note": "whole token mid-string matches",
+      "input": { "title": "running codex now", "name": "codex" },
+      "expected": true
+    },
+    {
+      "function": "titleHasAgentName",
+      "note": "optional Windows .exe suffix is consumed before the right boundary",
+      "input": { "title": "claude.exe ready", "name": "claude" },
+      "expected": true
+    },
+    {
+      "function": "titleHasAgentName",
+      "note": "bare title equal to the name matches",
+      "input": { "title": "claude", "name": "claude" },
+      "expected": true
+    },
+    {
+      "function": "titleHasAgentName",
+      "note": "name not in AGENT_NAMES is never matched",
+      "input": { "title": "notanagent working", "name": "notanagent" },
+      "expected": false
+    },
+    {
+      "function": "titleHasAnyLegacyAgentName",
+      "note": "any AGENT_NAMES token in the title is detected",
+      "input": { "title": "codex • ~/repo" },
+      "expected": true
+    },
+    {
+      "function": "titleHasAnyLegacyAgentName",
+      "note": "no agent token present (timestamp contains no whole agent name)",
+      "input": { "title": "timestamp ready" },
+      "expected": false
+    },
+    {
+      "function": "titleHasAnyLegacyAgentName",
+      "note": "hyphen compound of an agent name does not count",
+      "input": { "title": "openclaude-blinker" },
+      "expected": false
+    },
+    {
+      "function": "isExpectedAgentProcess",
+      "note": "Windows path with .exe normalizes to the basename and matches",
+      "input": { "processName": "C:\\Users\\dev\\AppData\\Roaming\\npm\\claude.exe", "expectedProcess": "claude" },
+      "expected": true
+    },
+    {
+      "function": "isExpectedAgentProcess",
+      "note": "POSIX path normalizes to the basename and matches",
+      "input": { "processName": "/usr/local/bin/claude", "expectedProcess": "claude" },
+      "expected": true
+    },
+    {
+      "function": "isExpectedAgentProcess",
+      "note": "unrelated foreground process does not match",
+      "input": { "processName": "powershell.exe", "expectedProcess": "claude" },
+      "expected": false
+    },
+    {
+      "function": "isExpectedAgentProcess",
+      "note": "openclaude is a distinct basename, not a claude sub-variant",
+      "input": { "processName": "/usr/local/bin/openclaude", "expectedProcess": "claude" },
+      "expected": false
+    },
+    {
+      "function": "isExpectedAgentProcess",
+      "note": "null process name (TS null/undefined -> Rust None) yields false",
+      "input": { "processName": null, "expectedProcess": "claude" },
+      "expected": false
+    }
+  ]
+}

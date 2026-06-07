@@ -1,0 +1,12 @@
+# Vendored, offline-by-construction dependency sources. Every third-party crate
+# Orca uses is checked into rust/vendor (see docs/rust-migration/architecture.md
+# "Dependency vendoring & stripping policy"). Builds resolve crates from there,
+# never the network.
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "vendor"
+
+[net]
+offline = true

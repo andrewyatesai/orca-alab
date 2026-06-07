@@ -1,0 +1,97 @@
+{
+  "module": "browser-search",
+  "source": "src/shared/browser-url.ts",
+  "rustCrate": "orca-core::browser_search",
+  "cases": [
+    {
+      "function": "buildSearchUrl",
+      "note": "google search URL encodes the space",
+      "input": { "query": "hello world", "engine": "google" },
+      "expected": "https://www.google.com/search?q=hello%20world"
+    },
+    {
+      "function": "buildSearchUrl",
+      "note": "duckduckgo uses the ?q= base",
+      "input": { "query": "hello world", "engine": "duckduckgo" },
+      "expected": "https://duckduckgo.com/?q=hello%20world"
+    },
+    {
+      "function": "buildSearchUrl",
+      "note": "bing search base",
+      "input": { "query": "hello world", "engine": "bing" },
+      "expected": "https://www.bing.com/search?q=hello%20world"
+    },
+    {
+      "function": "buildSearchUrl",
+      "note": "kagi without a session link falls back to the plain query base (session-link variant is deferred in the Rust port)",
+      "input": { "query": "hello world", "engine": "kagi" },
+      "expected": "https://kagi.com/search?q=hello%20world"
+    },
+    {
+      "function": "buildSearchUrl",
+      "note": "absent engine defaults to google (engine = DEFAULT_SEARCH_ENGINE)",
+      "input": { "query": "hello world" },
+      "expected": "https://www.google.com/search?q=hello%20world"
+    },
+    {
+      "function": "buildSearchUrl",
+      "note": "reserved characters are percent-encoded by encodeURIComponent",
+      "input": { "query": "c++ & rust", "engine": "google" },
+      "expected": "https://www.google.com/search?q=c%2B%2B%20%26%20rust"
+    },
+    {
+      "function": "buildSearchUrl",
+      "note": "unreserved encodeURIComponent characters are kept verbatim",
+      "input": { "query": "a-_.!~*'()", "engine": "duckduckgo" },
+      "expected": "https://duckduckgo.com/?q=a-_.!~*'()"
+    },
+    {
+      "function": "looksLikeSearchQuery",
+      "note": "multi-word input is a search",
+      "input": "react hooks",
+      "expected": true
+    },
+    {
+      "function": "looksLikeSearchQuery",
+      "note": "another multi-word query",
+      "input": "what is typescript",
+      "expected": true
+    },
+    {
+      "function": "looksLikeSearchQuery",
+      "note": "bare single word with no dot/colon is a search",
+      "input": "singleword",
+      "expected": true
+    },
+    {
+      "function": "looksLikeSearchQuery",
+      "note": "domain-like token is a URL, not a search",
+      "input": "example.com",
+      "expected": false
+    },
+    {
+      "function": "looksLikeSearchQuery",
+      "note": "domain with path is a URL",
+      "input": "github.com/org/repo",
+      "expected": false
+    },
+    {
+      "function": "looksLikeSearchQuery",
+      "note": "multi-label TLD domain is a URL",
+      "input": "example.co.uk",
+      "expected": false
+    },
+    {
+      "function": "looksLikeSearchQuery",
+      "note": "IP-ish dotted token navigates, not searches (no letter TLD but contains a dot)",
+      "input": "1.2.3.4",
+      "expected": false
+    },
+    {
+      "function": "looksLikeSearchQuery",
+      "note": "host:port token navigates (contains a colon)",
+      "input": "host:8080",
+      "expected": false
+    }
+  ]
+}

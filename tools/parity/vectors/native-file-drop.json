@@ -1,0 +1,70 @@
+{
+  "module": "native-file-drop",
+  "source": "src/shared/native-file-drop.ts",
+  "rustCrate": "orca-core::native_file_drop",
+  "cases": [
+    {
+      "function": "hasNativeFileDragTypes",
+      "note": "accepts a genuine OS file drag carrying Files",
+      "input": ["Files"],
+      "expected": true
+    },
+    {
+      "function": "hasNativeFileDragTypes",
+      "note": "rejects Orca's own internal file move (also sets the internal drag type)",
+      "input": ["Files", "text/x-orca-file-path"],
+      "expected": false
+    },
+    {
+      "function": "hasNativeFileDragTypes",
+      "note": "rejects URL/text drags that do not carry Files",
+      "input": ["text/uri-list"],
+      "expected": false
+    },
+    {
+      "function": "hasNativeFileDragTypes",
+      "note": "null types (no DataTransfer) is treated as empty and rejected",
+      "input": null,
+      "expected": false
+    },
+    {
+      "function": "resolveNativeFileDropPath",
+      "note": "drops on the project sidebar route to the add-project surface",
+      "input": [{ "nativeFileDropTarget": "project-sidebar" }],
+      "expected": { "target": "project-sidebar" }
+    },
+    {
+      "function": "resolveNativeFileDropPath",
+      "note": "terminal drop preserves the originating tab id",
+      "input": [{ "nativeFileDropTarget": "terminal", "terminalTabId": "tab-1" }],
+      "expected": { "target": "terminal", "tabId": "tab-1" }
+    },
+    {
+      "function": "resolveNativeFileDropPath",
+      "note": "terminal drop without a tab id omits tabId (undefined → key absent)",
+      "input": [{ "nativeFileDropTarget": "terminal" }],
+      "expected": { "target": "terminal" }
+    },
+    {
+      "function": "resolveNativeFileDropPath",
+      "note": "uses the nearest (innermost) file-explorer destination directory",
+      "input": [
+        { "nativeFileDropDir": "/repo/src" },
+        { "nativeFileDropTarget": "file-explorer", "nativeFileDropDir": "/repo" }
+      ],
+      "expected": { "target": "file-explorer", "destinationDir": "/repo/src" }
+    },
+    {
+      "function": "resolveNativeFileDropPath",
+      "note": "file-explorer drop with no resolved directory fails closed (rejected)",
+      "input": [{ "nativeFileDropTarget": "file-explorer" }],
+      "expected": { "target": "rejected" }
+    },
+    {
+      "function": "resolveNativeFileDropPath",
+      "note": "no surface claims the drop → null",
+      "input": [{ "nativeFileDropDir": "/repo" }],
+      "expected": null
+    }
+  ]
+}

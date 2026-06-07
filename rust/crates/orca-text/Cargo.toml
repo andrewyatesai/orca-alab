@@ -1,0 +1,18 @@
+[package]
+name = "orca-text"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Text/parsing logic ported from src/shared that needs a regex engine (still pure: no IO)."
+
+[dependencies]
+# Stripped to essentials: std + perf literals + the unicode tables the ported
+# patterns actually need — case-insensitivity, `\s`/`\d` classes, and general
+# category (`\p{L}`/`\p{N}`, for tab-title text extraction). Other unicode
+# tables (age/script/segment) stay compiled out.
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl", "unicode-gencat"] }
+
+[lints.rust]
+unsafe_code = "forbid"

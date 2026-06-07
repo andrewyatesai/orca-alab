@@ -1,0 +1,84 @@
+{
+  "module": "feature-interactions",
+  "source": "src/shared/feature-interactions.ts",
+  "rustCrate": "orca-config::feature_interactions",
+  "cases": [
+    {
+      "function": "normalizeFeatureInteractions",
+      "note": "drops unknown ids and malformed values",
+      "input": {
+        "tasks": { "firstInteractedAt": 100 },
+        "browser": { "firstInteractedAt": null },
+        "automations": { "firstInteractedAt": 200, "interactionCount": 3 },
+        "browser-grab": { "firstInteractedAt": 250, "interactionCount": 0 },
+        "unknown": { "firstInteractedAt": 200 },
+        "voice-dictation": { "firstInteractedAt": 300 }
+      },
+      "expected": {
+        "tasks": { "firstInteractedAt": 100, "interactionCount": 1 },
+        "automations": { "firstInteractedAt": 200, "interactionCount": 3 },
+        "browser-grab": { "firstInteractedAt": 250, "interactionCount": 1 },
+        "voice-dictation": { "firstInteractedAt": 300, "interactionCount": 1 }
+      }
+    },
+    {
+      "function": "normalizeFeatureInteractions",
+      "note": "non-object input yields empty state",
+      "input": "nope",
+      "expected": {}
+    },
+    {
+      "function": "normalizeFeatureInteractions",
+      "note": "array input yields empty state",
+      "input": [1, 2, 3],
+      "expected": {}
+    },
+    {
+      "function": "normalizeFeatureInteractions",
+      "note": "negative firstInteractedAt rejected, fractional interactionCount defaults to 1",
+      "input": {
+        "ssh": { "firstInteractedAt": -5 },
+        "ports": { "firstInteractedAt": 10, "interactionCount": 2.5 }
+      },
+      "expected": {
+        "ports": { "firstInteractedAt": 10, "interactionCount": 1 }
+      }
+    },
+    {
+      "function": "hasFeatureInteraction",
+      "note": "valid known record is interacted",
+      "input": { "state": { "tasks": { "firstInteractedAt": 100, "interactionCount": 1 } }, "id": "tasks" },
+      "expected": true
+    },
+    {
+      "function": "hasFeatureInteraction",
+      "note": "absent record is not interacted",
+      "input": { "state": { "tasks": { "firstInteractedAt": 100, "interactionCount": 1 } }, "id": "browser" },
+      "expected": false
+    },
+    {
+      "function": "hasFeatureInteraction",
+      "note": "non-finite firstInteractedAt (persisted as null) rejected",
+      "input": { "state": { "tasks": { "firstInteractedAt": null, "interactionCount": 1 } }, "id": "tasks" },
+      "expected": false
+    },
+    {
+      "function": "isFeatureInteractionId",
+      "note": "known id",
+      "input": "tasks",
+      "expected": true
+    },
+    {
+      "function": "isFeatureInteractionId",
+      "note": "unknown id",
+      "input": "nope",
+      "expected": false
+    },
+    {
+      "function": "isFeatureInteractionId",
+      "note": "non-string is not an id",
+      "input": 42,
+      "expected": false
+    }
+  ]
+}

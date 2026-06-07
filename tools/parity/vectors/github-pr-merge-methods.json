@@ -1,0 +1,110 @@
+{
+  "module": "github-pr-merge-methods",
+  "source": "src/shared/github-pr-merge-methods.ts",
+  "rustCrate": "orca-core::github_pr_merge_methods",
+  "cases": [
+    {
+      "function": "resolveGitHubPRMergeMethods",
+      "note": "keeps the historical squash-first fallback when repository metadata is missing",
+      "input": null,
+      "expected": {
+        "defaultMethod": "squash",
+        "defaultLabel": "Squash and merge",
+        "methods": [
+          { "method": "squash", "label": "Squash and merge" },
+          { "method": "merge", "label": "Create merge commit" },
+          { "method": "rebase", "label": "Rebase and merge" }
+        ]
+      }
+    },
+    {
+      "function": "mapGitHubDefaultMergeMethod",
+      "note": "uppercase GitHub enum id maps to the lowercase method id",
+      "input": "MERGE",
+      "expected": "merge"
+    },
+    {
+      "function": "mapGitHubDefaultMergeMethod",
+      "note": "value is upper-cased before matching, so lowercase still resolves",
+      "input": "rebase",
+      "expected": "rebase"
+    },
+    {
+      "function": "mapGitHubDefaultMergeMethod",
+      "note": "unknown id yields null",
+      "input": "BOGUS",
+      "expected": null
+    },
+    {
+      "function": "normalizeGitHubPRMergeMethodSettings",
+      "note": "uses GitHub viewer default and records which methods the repo allows",
+      "input": {
+        "defaultMethod": "REBASE",
+        "mergeCommitAllowed": false,
+        "rebaseMergeAllowed": true,
+        "squashMergeAllowed": true
+      },
+      "expected": {
+        "defaultMethod": "rebase",
+        "allowedMethods": { "squash": true, "merge": false, "rebase": true }
+      }
+    },
+    {
+      "function": "resolveGitHubPRMergeMethods",
+      "note": "uses GitHub viewer default and hides methods disabled by the repository",
+      "input": {
+        "defaultMethod": "rebase",
+        "allowedMethods": { "squash": true, "merge": false, "rebase": true }
+      },
+      "expected": {
+        "defaultMethod": "rebase",
+        "defaultLabel": "Rebase and merge",
+        "methods": [
+          { "method": "rebase", "label": "Rebase and merge" },
+          { "method": "squash", "label": "Squash and merge" }
+        ]
+      }
+    },
+    {
+      "function": "normalizeGitHubPRMergeMethodSettings",
+      "note": "falls back to an allowed method when GitHub returns a disabled default",
+      "input": {
+        "defaultMethod": "SQUASH",
+        "mergeCommitAllowed": true,
+        "rebaseMergeAllowed": false,
+        "squashMergeAllowed": false
+      },
+      "expected": {
+        "defaultMethod": "merge",
+        "allowedMethods": { "squash": false, "merge": true, "rebase": false }
+      }
+    },
+    {
+      "function": "resolveGitHubPRMergeMethods",
+      "note": "single allowed method yields a one-entry presentation",
+      "input": {
+        "defaultMethod": "merge",
+        "allowedMethods": { "squash": false, "merge": true, "rebase": false }
+      },
+      "expected": {
+        "defaultMethod": "merge",
+        "defaultLabel": "Create merge commit",
+        "methods": [{ "method": "merge", "label": "Create merge commit" }]
+      }
+    },
+    {
+      "function": "normalizeGitHubPRMergeMethodSettings",
+      "note": "no method allowed but a mappable default keeps that default (firstAllowed ?? defaultMethod)",
+      "input": {
+        "defaultMethod": "MERGE",
+        "mergeCommitAllowed": false,
+        "rebaseMergeAllowed": false,
+        "squashMergeAllowed": false
+      },
+      "expected": {
+        "defaultMethod": "merge",
+        "allowedMethods": { "squash": false, "merge": false, "rebase": false }
+      }
+    }
+  ]
+}

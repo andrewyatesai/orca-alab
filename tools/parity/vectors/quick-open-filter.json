@@ -1,0 +1,494 @@
+{
+  "module": "quick-open-filter",
+  "source": "src/shared/quick-open-filter.ts",
+  "rustCrate": "orca-core::quick_open_filter",
+  "cases": [
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "normal source path is included",
+      "input": { "path": "src/index.ts" },
+      "expected": true
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "user-authored dotdir (.github) is included",
+      "input": { "path": ".github/workflows/ci.yml" },
+      "expected": true
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "novel dotfile (.env) is included",
+      "input": { "path": ".env" },
+      "expected": true
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "empty path has no blocklisted segment",
+      "input": { "path": "" },
+      "expected": true
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "node_modules at root is excluded",
+      "input": { "path": "node_modules/a/b.js" },
+      "expected": false
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "nested node_modules is excluded",
+      "input": { "path": "packages/x/node_modules/a.js" },
+      "expected": false
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": ".git is blocklisted",
+      "input": { "path": ".git/config" },
+      "expected": false
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "nested .cache is blocklisted",
+      "input": { "path": "foo/.cache/bar" },
+      "expected": false
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "generated npm cache dir is hidden",
+      "input": { "path": ".npm/pkg/index.js" },
+      "expected": false
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "GNOME virtual FS runtime mount is hidden",
+      "input": { "path": ".gvfs/mount/file" },
+      "expected": false
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": ".local/share runtime state is hidden (path blocklist)",
+      "input": { "path": ".local/share/app/state.db" },
+      "expected": false
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": "nested .local/share is hidden",
+      "input": { "path": "nested/.local/share/app/state.db" },
+      "expected": false
+    },
+    {
+      "function": "shouldIncludeQuickOpenPath",
+      "note": ".local/bin is NOT hidden (only .local/share is)",
+      "input": { "path": ".local/bin/tool" },
+      "expected": true
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "returns root-relative POSIX prefixes",
+      "input": {
+        "rootPath": "/home/u/repo",
+        "excludePaths": ["/home/u/repo/packages/app", "/home/u/repo/worktrees/b"]
+      },
+      "expected": ["packages/app", "worktrees/b"]
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "undefined excludePaths (key omitted) yields empty",
+      "input": { "rootPath": "/home/u/repo" },
+      "expected": []
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "non-array excludePaths yields empty",
+      "input": { "rootPath": "/home/u/repo", "excludePaths": "not-array" },
+      "expected": []
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "null/number/empty/outside entries are all dropped",
+      "input": { "rootPath": "/home/u/repo", "excludePaths": [null, 42, "", "/outside"] },
+      "expected": []
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "root-equal value is refused",
+      "input": { "rootPath": "/home/u/repo", "excludePaths": ["/home/u/repo"] },
+      "expected": []
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "outside-root value is dropped",
+      "input": { "rootPath": "/home/u/repo", "excludePaths": ["/home/u/other"] },
+      "expected": []
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "dotdot-prefixed child names kept; real parent escape rejected",
+      "input": {
+        "rootPath": "/home/u/repo",
+        "excludePaths": [
+          "/home/u/repo/..env",
+          "/home/u/repo/..workspace/app",
+          "/home/u/repo/../outside"
+        ]
+      },
+      "expected": ["..env", "..workspace/app"]
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "Windows drive root and backslash path",
+      "input": { "rootPath": "C:\\repo", "excludePaths": ["C:\\repo\\packages\\app"] },
+      "expected": ["packages/app"]
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "trailing slashes stripped",
+      "input": { "rootPath": "/r", "excludePaths": ["/r/a/", "/r/b///"] },
+      "expected": ["a", "b"]
+    },
+    {
+      "function": "buildExcludePathPrefixes",
+      "note": "single dotdot-prefixed child segment kept",
+      "input": { "rootPath": "/home/u/repo", "excludePaths": ["/home/u/repo/..fixtures"] },
+      "expected": ["..fixtures"]
+    },
+    {
+      "function": "shouldExcludeQuickOpenRelPath",
+      "note": "exact match is excluded",
+      "input": { "relPath": "packages/app", "excludePathPrefixes": ["packages/app"] },
+      "expected": true
+    },
+    {
+      "function": "shouldExcludeQuickOpenRelPath",
+      "note": "child under prefix is excluded",
+      "input": { "relPath": "packages/app/x.ts", "excludePathPrefixes": ["packages/app"] },
+      "expected": true
+    },
+    {
+      "function": "shouldExcludeQuickOpenRelPath",
+      "note": "sibling with shared string prefix not excluded",
+      "input": { "relPath": "packages/app2/x.ts", "excludePathPrefixes": ["packages/app"] },
+      "expected": false
+    },
+    {
+      "function": "shouldExcludeQuickOpenRelPath",
+      "note": "longer name sharing prefix not excluded",
+      "input": { "relPath": "packages/application", "excludePathPrefixes": ["packages/app"] },
+      "expected": false
+    },
+    {
+      "function": "buildHiddenDirExcludeGlobs",
+      "note": "node_modules + blocklist as directory-match globs, plus .local/share path",
+      "input": null,
+      "expected": [
+        "--glob", "!**/node_modules",
+        "--glob", "!**/.git",
+        "--glob", "!**/.next",
+        "--glob", "!**/.nuxt",
+        "--glob", "!**/.cache",
+        "--glob", "!**/.stably",
+        "--glob", "!**/.vscode",
+        "--glob", "!**/.idea",
+        "--glob", "!**/.yarn",
+        "--glob", "!**/.pnpm-store",
+        "--glob", "!**/.terraform",
+        "--glob", "!**/.docker",
+        "--glob", "!**/.husky",
+        "--glob", "!**/.npm",
+        "--glob", "!**/.npm-global",
+        "--glob", "!**/.gvfs",
+        "--glob", "!**/.local/share"
+      ]
+    },
+    {
+      "function": "buildRgArgsForQuickOpen",
+      "note": "no exclude prefixes, no slash forcing",
+      "input": { "searchRoot": "/root", "excludePathPrefixes": [], "forceSlashSeparator": false },
+      "expected": {
+        "primary": [
+          "--files", "--hidden",
+          "--glob", "!**/node_modules",
+          "--glob", "!**/.git",
+          "--glob", "!**/.next",
+          "--glob", "!**/.nuxt",
+          "--glob", "!**/.cache",
+          "--glob", "!**/.stably",
+          "--glob", "!**/.vscode",
+          "--glob", "!**/.idea",
+          "--glob", "!**/.yarn",
+          "--glob", "!**/.pnpm-store",
+          "--glob", "!**/.terraform",
+          "--glob", "!**/.docker",
+          "--glob", "!**/.husky",
+          "--glob", "!**/.npm",
+          "--glob", "!**/.npm-global",
+          "--glob", "!**/.gvfs",
+          "--glob", "!**/.local/share",
+          "/root"
+        ],
+        "ignoredPass": [
+          "--files", "--hidden", "--no-ignore-vcs",
+          "--glob", "!**/node_modules",
+          "--glob", "!**/.git",
+          "--glob", "!**/.next",
+          "--glob", "!**/.nuxt",
+          "--glob", "!**/.cache",
+          "--glob", "!**/.stably",
+          "--glob", "!**/.vscode",
+          "--glob", "!**/.idea",
+          "--glob", "!**/.yarn",
+          "--glob", "!**/.pnpm-store",
+          "--glob", "!**/.terraform",
+          "--glob", "!**/.docker",
+          "--glob", "!**/.husky",
+          "--glob", "!**/.npm",
+          "--glob", "!**/.npm-global",
+          "--glob", "!**/.gvfs",
+          "--glob", "!**/.local/share",
+          "/root"
+        ]
+      }
+    },
+    {
+      "function": "buildRgArgsForQuickOpen",
+      "note": "forceSlashSeparator emits --path-separator / right after --hidden",
+      "input": { "searchRoot": "/r", "excludePathPrefixes": [], "forceSlashSeparator": true },
+      "expected": {
+        "primary": [
+          "--files", "--hidden", "--path-separator", "/",
+          "--glob", "!**/node_modules",
+          "--glob", "!**/.git",
+          "--glob", "!**/.next",
+          "--glob", "!**/.nuxt",
+          "--glob", "!**/.cache",
+          "--glob", "!**/.stably",
+          "--glob", "!**/.vscode",
+          "--glob", "!**/.idea",
+          "--glob", "!**/.yarn",
+          "--glob", "!**/.pnpm-store",
+          "--glob", "!**/.terraform",
+          "--glob", "!**/.docker",
+          "--glob", "!**/.husky",
+          "--glob", "!**/.npm",
+          "--glob", "!**/.npm-global",
+          "--glob", "!**/.gvfs",
+          "--glob", "!**/.local/share",
+          "/r"
+        ],
+        "ignoredPass": [
+          "--files", "--hidden", "--no-ignore-vcs", "--path-separator", "/",
+          "--glob", "!**/node_modules",
+          "--glob", "!**/.git",
+          "--glob", "!**/.next",
+          "--glob", "!**/.nuxt",
+          "--glob", "!**/.cache",
+          "--glob", "!**/.stably",
+          "--glob", "!**/.vscode",
+          "--glob", "!**/.idea",
+          "--glob", "!**/.yarn",
+          "--glob", "!**/.pnpm-store",
+          "--glob", "!**/.terraform",
+          "--glob", "!**/.docker",
+          "--glob", "!**/.husky",
+          "--glob", "!**/.npm",
+          "--glob", "!**/.npm-global",
+          "--glob", "!**/.gvfs",
+          "--glob", "!**/.local/share",
+          "/r"
+        ]
+      }
+    },
+    {
+      "function": "buildRgArgsForQuickOpen",
+      "note": "exclude prefixes appended as directory globs with glob metachar escaping",
+      "input": {
+        "searchRoot": "/r",
+        "excludePathPrefixes": ["packages/app", "feature[1]"],
+        "forceSlashSeparator": false
+      },
+      "expected": {
+        "primary": [
+          "--files", "--hidden",
+          "--glob", "!**/node_modules",
+          "--glob", "!**/.git",
+          "--glob", "!**/.next",
+          "--glob", "!**/.nuxt",
+          "--glob", "!**/.cache",
+          "--glob", "!**/.stably",
+          "--glob", "!**/.vscode",
+          "--glob", "!**/.idea",
+          "--glob", "!**/.yarn",
+          "--glob", "!**/.pnpm-store",
+          "--glob", "!**/.terraform",
+          "--glob", "!**/.docker",
+          "--glob", "!**/.husky",
+          "--glob", "!**/.npm",
+          "--glob", "!**/.npm-global",
+          "--glob", "!**/.gvfs",
+          "--glob", "!**/.local/share",
+          "--glob", "!packages/app",
+          "--glob", "!packages/app/**",
+          "--glob", "!feature\\[1\\]",
+          "--glob", "!feature\\[1\\]/**",
+          "/r"
+        ],
+        "ignoredPass": [
+          "--files", "--hidden", "--no-ignore-vcs",
+          "--glob", "!**/node_modules",
+          "--glob", "!**/.git",
+          "--glob", "!**/.next",
+          "--glob", "!**/.nuxt",
+          "--glob", "!**/.cache",
+          "--glob", "!**/.stably",
+          "--glob", "!**/.vscode",
+          "--glob", "!**/.idea",
+          "--glob", "!**/.yarn",
+          "--glob", "!**/.pnpm-store",
+          "--glob", "!**/.terraform",
+          "--glob", "!**/.docker",
+          "--glob", "!**/.husky",
+          "--glob", "!**/.npm",
+          "--glob", "!**/.npm-global",
+          "--glob", "!**/.gvfs",
+          "--glob", "!**/.local/share",
+          "--glob", "!packages/app",
+          "--glob", "!packages/app/**",
+          "--glob", "!feature\\[1\\]",
+          "--glob", "!feature\\[1\\]/**",
+          "/r"
+        ]
+      }
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "absolute mode strips POSIX root prefix",
+      "input": { "rawLine": "/root/src/a.ts", "outputMode": { "kind": "absolute", "rootPath": "/root" } },
+      "expected": "src/a.ts"
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "absolute mode strips Windows drive root prefix",
+      "input": { "rawLine": "C:\\repo\\src\\a.ts", "outputMode": { "kind": "absolute", "rootPath": "C:\\repo" } },
+      "expected": "src/a.ts"
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "absolute mode preserves UNC root (no slash collapsing)",
+      "input": {
+        "rawLine": "\\\\server\\share\\repo\\src\\a.ts",
+        "outputMode": { "kind": "absolute", "rootPath": "\\\\server\\share\\repo" }
+      },
+      "expected": "src/a.ts"
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "cwd-relative mode strips ./ prefix",
+      "input": { "rawLine": "./src/a.ts", "outputMode": { "kind": "cwd-relative" } },
+      "expected": "src/a.ts"
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "cwd-relative keeps dotdot-prefixed child after stripping ./",
+      "input": { "rawLine": "./..fixtures/a.ts", "outputMode": { "kind": "cwd-relative" } },
+      "expected": "..fixtures/a.ts"
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "cwd-relative keeps bare dotdot-prefixed name",
+      "input": { "rawLine": "..env", "outputMode": { "kind": "cwd-relative" } },
+      "expected": "..env"
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "cwd-relative parent escape rejected (null)",
+      "input": { "rawLine": "../outside.ts", "outputMode": { "kind": "cwd-relative" } },
+      "expected": null
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "cwd-relative bare .. rejected (null)",
+      "input": { "rawLine": "..", "outputMode": { "kind": "cwd-relative" } },
+      "expected": null
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "absolute mode strips trailing CR (CRLF)",
+      "input": { "rawLine": "/root/a.ts\r", "outputMode": { "kind": "absolute", "rootPath": "/root" } },
+      "expected": "a.ts"
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "absolute path outside root rejected (null)",
+      "input": { "rawLine": "/other/a.ts", "outputMode": { "kind": "absolute", "rootPath": "/root" } },
+      "expected": null
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "empty line rejected (null)",
+      "input": { "rawLine": "", "outputMode": { "kind": "cwd-relative" } },
+      "expected": null
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "bare dot rejected (null)",
+      "input": { "rawLine": ".", "outputMode": { "kind": "cwd-relative" } },
+      "expected": null
+    },
+    {
+      "function": "normalizeQuickOpenRgLine",
+      "note": "cwd-relative ./.. escape rejected (null)",
+      "input": { "rawLine": "./../outside/a.ts", "outputMode": { "kind": "cwd-relative" } },
+      "expected": null
+    },
+    {
+      "function": "buildGitLsFilesArgsForQuickOpen",
+      "note": "no exclude prefixes (key omitted) gives plain NUL pathspec passes",
+      "input": {},
+      "expected": {
+        "primary": ["-z", "--cached", "--others", "--exclude-standard"],
+        "ignoredPass": ["-z", "--others", "--ignored", "--exclude-standard"]
+      }
+    },
+    {
+      "function": "buildGitLsFilesArgsForQuickOpen",
+      "note": "exclude prefix prepends positive . then exclude pathspecs",
+      "input": { "excludePathPrefixes": ["packages/app"] },
+      "expected": {
+        "primary": [
+          "-z", "--cached", "--others", "--exclude-standard",
+          "--", ".",
+          ":(exclude,glob)packages/app",
+          ":(exclude,glob)packages/app/**"
+        ],
+        "ignoredPass": [
+          "-z", "--others", "--ignored", "--exclude-standard",
+          "--", ".",
+          ":(exclude,glob)packages/app",
+          ":(exclude,glob)packages/app/**"
+        ]
+      }
+    },
+    {
+      "function": "buildGitLsFilesArgsForQuickOpen",
+      "note": "glob metachars in exclude prefix are escaped in pathspecs",
+      "input": { "excludePathPrefixes": ["packages/app", "feature[1]"] },
+      "expected": {
+        "primary": [
+          "-z", "--cached", "--others", "--exclude-standard",
+          "--", ".",
+          ":(exclude,glob)packages/app",
+          ":(exclude,glob)packages/app/**",
+          ":(exclude,glob)feature\\[1\\]",
+          ":(exclude,glob)feature\\[1\\]/**"
+        ],
+        "ignoredPass": [
+          "-z", "--others", "--ignored", "--exclude-standard",
+          "--", ".",
+          ":(exclude,glob)packages/app",
+          ":(exclude,glob)packages/app/**",
+          ":(exclude,glob)feature\\[1\\]",
+          ":(exclude,glob)feature\\[1\\]/**"
+        ]
+      }
+    }
+  ]
+}

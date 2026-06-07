@@ -1,0 +1,18 @@
+[package]
+name = "orca-terminal"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Headless terminal emulation for Orca (replaces @xterm/headless): grid, cursor, cwd/OSC-7 tracking, over a vendored vte ANSI parser. The aterm engine can later own/extend this."
+
+[dependencies]
+# Vendored, stripped ANSI/VT parser (the same parser family Alacritty uses).
+vte = "0.13"
+# Color-scheme (DEC mode 2031) sequence scanning. Literal/char-class matching
+# only — no unicode tables needed.
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
+
+[lints.rust]
+unsafe_code = "forbid"

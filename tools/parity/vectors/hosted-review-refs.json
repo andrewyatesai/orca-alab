@@ -1,0 +1,43 @@
+{
+  "module": "hosted-review-refs",
+  "source": "src/shared/hosted-review-refs.ts",
+  "rustCrate": "orca-core::hosted_review_refs",
+  "cases": [
+    {
+      "function": "normalizeHostedReviewHeadRef",
+      "note": "trims and strips refs/heads/ prefix",
+      "input": " refs/heads/feature/create-pr ",
+      "expected": "feature/create-pr"
+    },
+    {
+      "function": "normalizeHostedReviewHeadRef",
+      "note": "strips refs/remotes/<remote>/ prefix",
+      "input": "refs/remotes/origin/feature/create-pr",
+      "expected": "feature/create-pr"
+    },
+    {
+      "function": "normalizeHostedReviewHeadRef",
+      "note": "plain branch name is returned unchanged",
+      "input": "main",
+      "expected": "main"
+    },
+    {
+      "function": "normalizeHostedReviewBaseRef",
+      "note": "strips a leading origin/ prefix",
+      "input": "origin/main",
+      "expected": "main"
+    },
+    {
+      "function": "normalizeHostedReviewBaseRef",
+      "note": "strips refs/remotes/<remote>/ then is left as branch name",
+      "input": "refs/remotes/upstream/release/1.0",
+      "expected": "release/1.0"
+    },
+    {
+      "function": "normalizeHostedReviewBaseRef",
+      "note": "strips a leading upstream/ prefix",
+      "input": "upstream/develop",
+      "expected": "develop"
+    }
+  ]
+}

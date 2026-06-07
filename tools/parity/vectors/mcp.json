@@ -1,0 +1,290 @@
+{
+  "module": "mcp",
+  "source": "src/shared/mcp-config.ts",
+  "rustCrate": "orca-config::mcp",
+  "cases": [
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "null content reports a missing config (no error key)",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": null
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": false,
+        "status": "missing",
+        "servers": []
+      }
+    },
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "summarizes stdio, http, disabled, and invalid servers; masks sensitive env by key",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": "{\"mcpServers\":{\"filesystem\":{\"command\":\"npx\",\"args\":[\"-y\",\"@modelcontextprotocol/server-filesystem\"],\"env\":{\"NODE_ENV\":\"production\",\"API_TOKEN\":\"secret-token\"}},\"docs\":{\"type\":\"http\",\"url\":\"https://example.com/mcp\"},\"old\":{\"command\":\"node\",\"enabled\":false},\"broken\":{\"args\":[\"missing-command\"]}}}"
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": true,
+        "status": "valid",
+        "servers": [
+          {
+            "name": "filesystem",
+            "transport": "stdio",
+            "status": "enabled",
+            "command": "npx",
+            "env": { "NODE_ENV": "production", "API_TOKEN": "••••••••" }
+          },
+          {
+            "name": "docs",
+            "transport": "http",
+            "status": "enabled",
+            "url": "https://example.com/mcp"
+          },
+          {
+            "name": "old",
+            "transport": "stdio",
+            "status": "disabled",
+            "command": "node"
+          },
+          {
+            "name": "broken",
+            "transport": "unknown",
+            "status": "invalid",
+            "issue": "Missing command or URL."
+          }
+        ]
+      }
+    },
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "agent adapter shapes: array command takes first element, httpUrl resolves http transport",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": "{\"mcpServers\":{\"opencodeLocal\":{\"type\":\"local\",\"command\":[\"uvx\",\"server\"]},\"geminiRemote\":{\"httpUrl\":\"https://example.com/sse\"}}}"
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": true,
+        "status": "valid",
+        "servers": [
+          {
+            "name": "opencodeLocal",
+            "transport": "stdio",
+            "status": "enabled",
+            "command": "uvx"
+          },
+          {
+            "name": "geminiRemote",
+            "transport": "http",
+            "status": "enabled",
+            "url": "https://example.com/sse"
+          }
+        ]
+      }
+    },
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "declared transports without their target are invalid",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": "{\"mcpServers\":{\"remoteMissingUrl\":{\"type\":\"http\"},\"localMissingCommand\":{\"type\":\"local\"}}}"
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": true,
+        "status": "valid",
+        "servers": [
+          {
+            "name": "remoteMissingUrl",
+            "transport": "http",
+            "status": "invalid",
+            "issue": "Missing URL."
+          },
+          {
+            "name": "localMissingCommand",
+            "transport": "stdio",
+            "status": "invalid",
+            "issue": "Missing command."
+          }
+        ]
+      }
+    },
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "starter config (MCP_STARTER_CONFIG) is valid and empty",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": "{\n  \"mcpServers\": {}\n}\n"
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": true,
+        "status": "valid",
+        "servers": []
+      }
+    },
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "missing servers object at the candidate path is valid and empty",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": "{\"other\":1}"
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": true,
+        "status": "valid",
+        "servers": []
+      }
+    },
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "non-object server entry is invalid",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": "{\"mcpServers\":{\"weird\":\"nope\"}}"
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": true,
+        "status": "valid",
+        "servers": [
+          {
+            "name": "weird",
+            "transport": "unknown",
+            "status": "invalid",
+            "issue": "Server entry must be an object."
+          }
+        ]
+      }
+    },
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "servers path resolving to an array (not an object) is valid and empty",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": "{\"mcpServers\":[1,2,3]}"
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": true,
+        "status": "valid",
+        "servers": []
+      }
+    },
+    {
+      "function": "inspectMcpConfigContent",
+      "note": "disabled via disabled:true flag; env masked by sensitive value pattern (sk- token)",
+      "input": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "content": "{\"mcpServers\":{\"srv\":{\"command\":\"node\",\"disabled\":true,\"env\":{\"FINE\":\"ok\",\"MAYBE\":\"sk-abc123456789xyz\"}}}}"
+      },
+      "expected": {
+        "candidate": {
+          "format": "workspace",
+          "label": "Workspace",
+          "relativePath": ".mcp.json",
+          "serversPath": ["mcpServers"]
+        },
+        "exists": true,
+        "status": "valid",
+        "servers": [
+          {
+            "name": "srv",
+            "transport": "stdio",
+            "status": "disabled",
+            "command": "node",
+            "env": { "FINE": "ok", "MAYBE": "••••••••" }
+          }
+        ]
+      }
+    }
+  ]
+}

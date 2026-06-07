@@ -1,0 +1,37 @@
+{
+  "module": "commit-message-host-key",
+  "source": "src/shared/commit-message-host-key.ts",
+  "rustCrate": "orca-core::commit_message_host_key",
+  "cases": [
+    {
+      "function": "getCommitMessageModelDiscoveryHostKeyForScope",
+      "note": "absent scope key carries TS undefined (omit key); maps to unknown",
+      "input": {},
+      "expected": "unknown"
+    },
+    {
+      "function": "getCommitMessageModelDiscoveryHostKeyForScope",
+      "note": "explicit null is falsy in TS so maps to local (Rust folds null into the empty-string case)",
+      "input": { "scope": null },
+      "expected": "local"
+    },
+    {
+      "function": "getCommitMessageModelDiscoveryHostKeyForScope",
+      "note": "empty string maps to local",
+      "input": { "scope": "" },
+      "expected": "local"
+    },
+    {
+      "function": "getCommitMessageModelDiscoveryHostKeyForScope",
+      "note": "runtime-prefixed scope passes through unchanged",
+      "input": { "scope": "runtime:abc" },
+      "expected": "runtime:abc"
+    },
+    {
+      "function": "getCommitMessageModelDiscoveryHostKeyForScope",
+      "note": "non-empty non-runtime scope is namespaced as an ssh connection",
+      "input": { "scope": "conn-1" },
+      "expected": "ssh:conn-1"
+    }
+  ]
+}

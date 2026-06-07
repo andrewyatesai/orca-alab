@@ -1,0 +1,17 @@
+[package]
+name = "orca-pty"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Local PTY spawning for Orca (replaces node-pty), backed by vendored portable-pty."
+
+[dependencies]
+# default-features off keeps it stripped — notably excludes the optional `ssh`
+# feature (which would pull libssh2) and serde support. The native PTY system,
+# CommandBuilder, and Child are always available.
+portable-pty = { version = "0.8", default-features = false }
+
+[lints.rust]
+unsafe_code = "forbid"

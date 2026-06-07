@@ -1,0 +1,43 @@
+{
+  "module": "fetch-error-classification",
+  "source": "src/main/git/fetch-error-classification.ts",
+  "rustCrate": "orca-git::fetch_error_classification",
+  "cases": [
+    {
+      "function": "isMissingRemoteRefGitError",
+      "note": "matches 'could not find remote ref'; input is the error message string (TS does String(error), so a raw string is identical to new Error(message))",
+      "input": "fatal: could not find remote ref refs/heads/feature/test",
+      "expected": true
+    },
+    {
+      "function": "isMissingRemoteRefGitError",
+      "note": "matches the contraction \"couldn't find remote ref\"",
+      "input": "fatal: couldn't find remote ref refs/heads/feature/test",
+      "expected": true
+    },
+    {
+      "function": "isMissingRemoteRefGitError",
+      "note": "auth failure is not a missing-remote-ref error",
+      "input": "fatal: Authentication failed",
+      "expected": false
+    },
+    {
+      "function": "isMissingRemoteRefGitError",
+      "note": "network failure is not a missing-remote-ref error",
+      "input": "fatal: unable to access repo: Could not resolve host",
+      "expected": false
+    },
+    {
+      "function": "isMissingRemoteRefGitError",
+      "note": "edge: match is case-insensitive (message is lowercased before comparison)",
+      "input": "FATAL: COULD NOT FIND REMOTE REF refs/heads/x",
+      "expected": true
+    },
+    {
+      "function": "isMissingRemoteRefGitError",
+      "note": "edge: empty message matches neither phrase",
+      "input": "",
+      "expected": false
+    }
+  ]
+}

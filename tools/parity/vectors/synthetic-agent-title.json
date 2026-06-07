@@ -1,0 +1,94 @@
+{
+  "module": "synthetic-agent-title",
+  "source": "src/shared/synthetic-agent-title.ts",
+  "rustCrate": "orca-core::synthetic_agent_title",
+  "cases": [
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "codex carries synthesizeWorkingTitle: false (only terminal states synthesized)",
+      "input": "codex",
+      "expected": {
+        "workingLabel": "Codex",
+        "permissionLabel": "Codex - action required",
+        "idleLabel": "Codex ready",
+        "synthesizeWorkingTitle": false
+      }
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "cursor omits synthesizeWorkingTitle (undefined → key absent in JSON.stringify)",
+      "input": "cursor",
+      "expected": {
+        "workingLabel": "Cursor Agent",
+        "permissionLabel": "Cursor - action required",
+        "idleLabel": "Cursor ready"
+      }
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "unknown agent type has no profile",
+      "input": "claude",
+      "expected": null
+    },
+    {
+      "function": "getSyntheticAgentTitleProfile",
+      "note": "null agentType (also covers undefined) yields null",
+      "input": null,
+      "expected": null
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "codex done resolves to the idle label",
+      "input": { "agentType": "codex", "state": "done" },
+      "expected": "Codex ready"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "codex waiting resolves to the permission label",
+      "input": { "agentType": "codex", "state": "waiting" },
+      "expected": "Codex - action required"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "blocked also maps to the permission label",
+      "input": { "agentType": "hermes", "state": "blocked" },
+      "expected": "Hermes - action required"
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "working never gets a synthetic terminal title",
+      "input": { "agentType": "codex", "state": "working" },
+      "expected": null
+    },
+    {
+      "function": "getSyntheticAgentTerminalTitle",
+      "note": "no profile (unknown agent) yields null regardless of state",
+      "input": { "agentType": "claude", "state": "done" },
+      "expected": null
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "codex does not drive working titles over its native spinner",
+      "input": { "agentType": "codex", "state": "working" },
+      "expected": false
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "codex drives terminal-state titles from the hook",
+      "input": { "agentType": "codex", "state": "done" },
+      "expected": true
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "cursor (synthesizeWorkingTitle absent) drives even the working state",
+      "input": { "agentType": "cursor", "state": "working" },
+      "expected": true
+    },
+    {
+      "function": "shouldDriveSyntheticAgentTitleFromHook",
+      "note": "no profile means never drive from hook",
+      "input": { "agentType": "claude", "state": "done" },
+      "expected": false
+    }
+  ]
+}

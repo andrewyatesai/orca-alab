@@ -1,0 +1,31 @@
+{
+  "module": "git-publish-target-status",
+  "source": "src/shared/git-publish-target-status.ts",
+  "rustCrate": "orca-git::push_target",
+  "cases": [
+    {
+      "function": "getPublishTargetDisplayName",
+      "note": "remote/branch joined with a slash",
+      "input": { "remoteName": "origin", "branchName": "main" },
+      "expected": "origin/main"
+    },
+    {
+      "function": "getPublishTargetDisplayName",
+      "note": "branch name may itself contain slashes; remoteUrl is ignored",
+      "input": { "remoteName": "upstream", "branchName": "feature/foo", "remoteUrl": "git@github.com:me/repo.git" },
+      "expected": "upstream/feature/foo"
+    },
+    {
+      "function": "getPublishTargetRemoteRef",
+      "note": "qualified refs/remotes ref for the push target",
+      "input": { "remoteName": "origin", "branchName": "main" },
+      "expected": "refs/remotes/origin/main"
+    },
+    {
+      "function": "getPublishTargetRemoteRef",
+      "note": "slashed branch + optional remoteUrl present (does not affect output)",
+      "input": { "remoteName": "fork", "branchName": "wip/x", "remoteUrl": "https://example.com/me/repo.git" },
+      "expected": "refs/remotes/fork/wip/x"
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "module": "setup-runner-command",
+  "source": "src/shared/setup-runner-command.ts",
+  "rustCrate": "orca-core::setup_runner_command",
+  "cases": [
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "WSL UNC runner script (host casing ignored) rewritten to its Linux path and run under bash",
+      "input": {
+        "runnerScriptPath": "\\\\WSL.LOCALHOST\\Ubuntu\\home\\jin\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.sh",
+        "platform": "windows"
+      },
+      "expected": "bash /home/jin/repo/.git/worktrees/feature/orca/setup-runner.sh"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "plain posix path runs under bash unquoted (safe chars only)",
+      "input": { "runnerScriptPath": "/home/me/orca/setup-runner.sh", "platform": "posix" },
+      "expected": "bash /home/me/orca/setup-runner.sh"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "posix path with a space is single-quoted",
+      "input": { "runnerScriptPath": "/home/me/my repo/setup-runner.sh", "platform": "posix" },
+      "expected": "bash '/home/me/my repo/setup-runner.sh'"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "posix path with an embedded single quote uses '\\'' escaping",
+      "input": { "runnerScriptPath": "/home/me/it's a repo/run.sh", "platform": "posix" },
+      "expected": "bash '/home/me/it'\\''s a repo/run.sh'"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "plain windows drive path runs under cmd.exe with double-quoting",
+      "input": { "runnerScriptPath": "C:\\Users\\me\\orca\\setup-runner.cmd", "platform": "windows" },
+      "expected": "cmd.exe /c \"C:\\Users\\me\\orca\\setup-runner.cmd\""
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "windows path with an embedded double quote doubles the quote for cmd.exe",
+      "input": { "runnerScriptPath": "C:\\a\"b\\setup.cmd", "platform": "windows" },
+      "expected": "cmd.exe /c \"C:\\a\"\"b\\setup.cmd\""
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "posix-style absolute path on windows runs under bash, not cmd.exe",
+      "input": { "runnerScriptPath": "/mnt/c/orca/setup-runner.sh", "platform": "windows" },
+      "expected": "bash /mnt/c/orca/setup-runner.sh"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "WSL UNC with wsl$ host and only a distro (no trailing path) falls back to /",
+      "input": { "runnerScriptPath": "\\\\wsl$\\Ubuntu", "platform": "windows" },
+      "expected": "bash /"
+    }
+  ]
+}

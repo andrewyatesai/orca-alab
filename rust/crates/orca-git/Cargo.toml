@@ -1,0 +1,18 @@
+[package]
+name = "orca-git"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Git operations for Orca: a runner abstraction over the user's git, plus logic ported from src/main/git. Tests run against a mock runner."
+
+[dependencies]
+# The runner is a thin std::process shim over the user's git (as Orca does
+# today); a vendored gitoxide backend can replace it behind the same GitRunner
+# trait without touching call sites.
+orca-core = { path = "../orca-core" }
+orca-text = { path = "../orca-text" }
+
+[lints.rust]
+unsafe_code = "forbid"

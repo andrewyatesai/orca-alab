@@ -1,0 +1,73 @@
+{
+  "module": "git-cquoted-path",
+  "source": "src/shared/git-cquoted-path.ts",
+  "rustCrate": "orca-core::git_cquoted_path",
+  "cases": [
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "unquoted input is returned unchanged",
+      "input": "src/index.ts",
+      "expected": "src/index.ts"
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "empty string (length < 2) returned unchanged",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "a lone double-quote (length 1) is not a quoted path",
+      "input": "\"",
+      "expected": "\""
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "plain quoted path strips the surrounding quotes",
+      "input": "\"src/index.ts\"",
+      "expected": "src/index.ts"
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "named escape: tab",
+      "input": "\"a\\tb\"",
+      "expected": "a\tb"
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "named escape: literal backslash",
+      "input": "\"a\\\\b\"",
+      "expected": "a\\b"
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "named escape: embedded double-quote",
+      "input": "\"a\\\"b\"",
+      "expected": "a\"b"
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "named escape: bell maps to U+0007",
+      "input": "\"\\a\"",
+      "expected": "\u0007"
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "octal escapes for a UTF-8 'é' (git emits the bytes \\303\\251, decoded per-byte via fromCharCode)",
+      "input": "\"caf\\303\\251.txt\"",
+      "expected": "cafÃ©.txt"
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "single octal byte \\101 decodes to 'A'",
+      "input": "\"\\101\"",
+      "expected": "A"
+    },
+    {
+      "function": "decodeGitCQuotedPath",
+      "note": "unknown escape passes the escaped char through, dropping the backslash",
+      "input": "\"a\\zb\"",
+      "expected": "azb"
+    }
+  ]
+}

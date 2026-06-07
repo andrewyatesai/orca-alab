@@ -1,0 +1,67 @@
+{
+  "module": "linear-links",
+  "source": "src/shared/linear-links.ts",
+  "rustCrate": "orca-core::linear_links",
+  "cases": [
+    {
+      "function": "buildLinearTeamUrl",
+      "note": "builds team URL from workspace and team keys",
+      "input": { "organizationUrlKey": "acme", "teamKey": "ENG" },
+      "expected": "https://linear.app/acme/team/ENG/all"
+    },
+    {
+      "function": "buildLinearTeamUrl",
+      "note": "percent-encodes both path segments",
+      "input": { "organizationUrlKey": "acme inc", "teamKey": "A/B" },
+      "expected": "https://linear.app/acme%20inc/team/A%2FB/all"
+    },
+    {
+      "function": "buildLinearTeamUrl",
+      "note": "blank organization key yields null (whitespace trims to empty)",
+      "input": { "organizationUrlKey": "  ", "teamKey": "ENG" },
+      "expected": null
+    },
+    {
+      "function": "buildLinearTeamUrl",
+      "note": "absent team key yields null",
+      "input": { "organizationUrlKey": "acme" },
+      "expected": null
+    },
+    {
+      "function": "buildLinearPersonalApiKeySettingsUrl",
+      "note": "organization-scoped personal API key settings URL, key percent-encoded",
+      "input": "acme inc",
+      "expected": "https://linear.app/acme%20inc/settings/account/security"
+    },
+    {
+      "function": "buildLinearPersonalApiKeySettingsUrl",
+      "note": "no slug (null/undefined arg) falls back to global settings URL",
+      "input": null,
+      "expected": "https://linear.app/settings/account/security"
+    },
+    {
+      "function": "buildLinearWorkspaceApiSettingsUrl",
+      "note": "organization-scoped workspace API settings URL, slash encoded",
+      "input": "acme/inc",
+      "expected": "https://linear.app/acme%2Finc/settings/api"
+    },
+    {
+      "function": "buildLinearWorkspaceApiSettingsUrl",
+      "note": "whitespace-only slug falls back to global settings URL",
+      "input": "   ",
+      "expected": "https://linear.app/settings/api"
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "extracts the first path segment from a linear.app issue URL",
+      "input": "https://linear.app/acme/issue/ENG-1",
+      "expected": "acme"
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "non-Linear host yields null",
+      "input": "https://github.com/acme/repo",
+      "expected": null
+    }
+  ]
+}

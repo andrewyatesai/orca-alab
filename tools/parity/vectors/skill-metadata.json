@@ -1,0 +1,79 @@
+{
+  "module": "skill-metadata",
+  "source": "src/shared/skill-metadata.ts",
+  "rustCrate": "orca-text::skill_metadata",
+  "cases": [
+    {
+      "function": "summarizeSkillMarkdown",
+      "note": "reads name and folded (>-) description from YAML frontmatter",
+      "input": "---\nname: orca-cli\ndescription: >-\n  Use the orca CLI to drive a running editor;\n  keep worktree comments current.\n---\n\n# Orca CLI\n",
+      "expected": {
+        "name": "orca-cli",
+        "description": "Use the orca CLI to drive a running editor; keep worktree comments current."
+      }
+    },
+    {
+      "function": "summarizeSkillMarkdown",
+      "note": "falls back to heading and first paragraph when frontmatter is absent",
+      "input": "# Design Review\n\nUse when reviewing UI implementation quality.\n",
+      "expected": {
+        "name": "Design Review",
+        "description": "Use when reviewing UI implementation quality."
+      }
+    },
+    {
+      "function": "summarizeSkillMarkdown",
+      "note": "empty input yields null name and description (TS emits explicit null, not omitted)",
+      "input": "",
+      "expected": {
+        "name": null,
+        "description": null
+      }
+    },
+    {
+      "function": "summarizeSkillMarkdown",
+      "note": "plain body with no heading: name null, description from first paragraph",
+      "input": "Just some text here.\n",
+      "expected": {
+        "name": null,
+        "description": "Just some text here."
+      }
+    },
+    {
+      "function": "summarizeSkillMarkdown",
+      "note": "quoted scalar name; description falls back to first body paragraph past the heading",
+      "input": "---\nname: \"My Skill\"\n---\n\n# Heading Title\n\nBody paragraph text.\n",
+      "expected": {
+        "name": "My Skill",
+        "description": "Body paragraph text."
+      }
+    },
+    {
+      "function": "summarizeSkillMarkdown",
+      "note": "list-valued description is not a scalar, so description falls back to first paragraph",
+      "input": "---\nname: Listy\ndescription:\n  - first\n  - second\n---\n\n# Real Heading\n\nA fallback paragraph.\n",
+      "expected": {
+        "name": "Listy",
+        "description": "A fallback paragraph."
+      }
+    },
+    {
+      "function": "summarizeSkillMarkdown",
+      "note": "leading BOM is stripped before frontmatter parsing",
+      "input": "﻿---\nname: bom-skill\ndescription: With BOM\n---\n\n# Title\n",
+      "expected": {
+        "name": "bom-skill",
+        "description": "With BOM"
+      }
+    },
+    {
+      "function": "summarizeSkillMarkdown",
+      "note": "literal (|) block scalar description collapses its newlines to single spaces",
+      "input": "---\nname: block-skill\ndescription: |\n  Line one here.\n  Line two here.\n---\n",
+      "expected": {
+        "name": "block-skill",
+        "description": "Line one here. Line two here."
+      }
+    }
+  ]
+}

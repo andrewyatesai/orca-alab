@@ -1,0 +1,19 @@
+[package]
+name = "orca-relay"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Remote/mobile transport for Orca: the terminal binary-stream framing (replaces the ws relay), over vendored serde_json for JSON payloads."
+
+[dependencies]
+# Binary frame headers are hand-rolled bytes; JSON payloads ride the vendored
+# serde_json. `serde` is declared only for the Serialize/DeserializeOwned trait
+# bounds (no derive feature — payloads round-trip through serde_json::Value).
+serde = { version = "1", default-features = false, features = ["std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+orca-crypto = { path = "../orca-crypto" }
+
+[lints.rust]
+unsafe_code = "forbid"

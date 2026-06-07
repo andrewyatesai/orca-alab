@@ -1,0 +1,270 @@
+{
+  "module": "agent-status-types",
+  "source": "src/shared/agent-status-types.ts",
+  "rustCrate": "orca-agents::agent_status_types",
+  "cases": [
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "valid working payload with prompt + agentType",
+      "input": "{\"state\":\"working\",\"prompt\":\"Fix the flaky assertion\",\"agentType\":\"codex\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "Fix the flaky assertion",
+        "agentType": "codex"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "minimal blocked state defaults prompt to empty string",
+      "input": "{\"state\":\"blocked\"}",
+      "expected": {
+        "state": "blocked",
+        "prompt": ""
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "minimal waiting state defaults prompt to empty string",
+      "input": "{\"state\":\"waiting\"}",
+      "expected": {
+        "state": "waiting",
+        "prompt": ""
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "minimal done state defaults prompt to empty string",
+      "input": "{\"state\":\"done\"}",
+      "expected": {
+        "state": "done",
+        "prompt": ""
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "invalid state id returns null",
+      "input": "{\"state\":\"running\"}",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "empty-string state returns null",
+      "input": "{\"state\":\"\"}",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "non-string state (number) returns null",
+      "input": "{\"state\":123}",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "non-string state (null) returns null",
+      "input": "{\"state\":null}",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "invalid JSON returns null",
+      "input": "not json",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "empty input returns null",
+      "input": "",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "non-object JSON (number) returns null",
+      "input": "42",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "non-object JSON (array) returns null",
+      "input": "[]",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "non-object JSON (string) returns null",
+      "input": "\"just a string\"",
+      "expected": null
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "multiline prompt collapses to single line",
+      "input": "{\"state\":\"working\",\"prompt\":\"line one\\nline two\\nline three\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "line one line two line three"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "CRLF prompt collapses to single line",
+      "input": "{\"state\":\"working\",\"prompt\":\"line one\\r\\nline two\\r\\nline three\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "line one line two line three"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "prompt is trimmed",
+      "input": "{\"state\":\"working\",\"prompt\":\"  padded  \"}",
+      "expected": {
+        "state": "working",
+        "prompt": "padded"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "non-string prompt becomes empty string",
+      "input": "{\"state\":\"working\",\"prompt\":42}",
+      "expected": {
+        "state": "working",
+        "prompt": ""
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "prompt truncated to AGENT_STATUS_MAX_FIELD_LENGTH (200)",
+      "input": "{\"state\":\"working\",\"prompt\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "custom agentType accepted",
+      "input": "{\"state\":\"working\",\"agentType\":\"cursor\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "",
+        "agentType": "cursor"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "whitespace-only agentType dropped (omitted)",
+      "input": "{\"state\":\"working\",\"agentType\":\"   \"}",
+      "expected": {
+        "state": "working",
+        "prompt": ""
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "newline in agentType collapsed (single-line field)",
+      "input": "{\"state\":\"working\",\"agentType\":\"claude\\nrogue\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "",
+        "agentType": "claude rogue"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "toolName, toolInput, lastAssistantMessage parsed",
+      "input": "{\"state\":\"working\",\"toolName\":\"Edit\",\"toolInput\":\"/path/to/file.ts\",\"lastAssistantMessage\":\"Here is the edit I made.\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "",
+        "toolName": "Edit",
+        "toolInput": "/path/to/file.ts",
+        "lastAssistantMessage": "Here is the edit I made."
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "non-string optional fields dropped (omitted)",
+      "input": "{\"state\":\"working\",\"toolName\":42,\"toolInput\":null,\"lastAssistantMessage\":[]}",
+      "expected": {
+        "state": "working",
+        "prompt": ""
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "newline in toolInput collapsed (single-line preview)",
+      "input": "{\"state\":\"working\",\"toolInput\":\"line one\\nline two\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "",
+        "toolInput": "line one line two"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "paragraph breaks preserved in lastAssistantMessage (multiline field)",
+      "input": "{\"state\":\"done\",\"lastAssistantMessage\":\"Summary line.\\n\\nDetails paragraph.\"}",
+      "expected": {
+        "state": "done",
+        "prompt": "",
+        "lastAssistantMessage": "Summary line.\n\nDetails paragraph."
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "CRLF normalized and blank-line runs capped in lastAssistantMessage",
+      "input": "{\"state\":\"done\",\"lastAssistantMessage\":\"a\\r\\nb\\n\\n\\n\\nc\"}",
+      "expected": {
+        "state": "done",
+        "prompt": "",
+        "lastAssistantMessage": "a\nb\n\nc"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "Unicode line separators (U+2028) folded to newlines and capped in lastAssistantMessage",
+      "input": "{\"state\":\"done\",\"lastAssistantMessage\":\"a\\u2028\\u2028\\u2028\\u2028b\"}",
+      "expected": {
+        "state": "done",
+        "prompt": "",
+        "lastAssistantMessage": "a\n\nb"
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "interrupted=true preserved on done",
+      "input": "{\"state\":\"done\",\"interrupted\":true}",
+      "expected": {
+        "state": "done",
+        "prompt": "",
+        "interrupted": true
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "interrupted cleared on non-done state",
+      "input": "{\"state\":\"working\",\"interrupted\":true}",
+      "expected": {
+        "state": "working",
+        "prompt": ""
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "interrupted requires strict boolean true (string rejected)",
+      "input": "{\"state\":\"done\",\"interrupted\":\"true\"}",
+      "expected": {
+        "state": "done",
+        "prompt": ""
+      }
+    },
+    {
+      "function": "parseAgentStatusPayload",
+      "note": "surrogate-pair-safe truncation never leaves a lone high surrogate",
+      "input": "{\"state\":\"working\",\"prompt\":\"x\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\\ud83d\\ude00\"}",
+      "expected": {
+        "state": "working",
+        "prompt": "x\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"
+      }
+    }
+  ]
+}

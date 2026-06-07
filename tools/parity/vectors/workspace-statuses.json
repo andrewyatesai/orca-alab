@@ -1,0 +1,233 @@
+{
+  "module": "workspace-statuses",
+  "source": "src/shared/workspace-statuses.ts",
+  "rustCrate": "orca-config::workspace_statuses",
+  "cases": [
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "non-array input falls back to the default workflow columns",
+      "input": "nope",
+      "expected": [
+        { "id": "completed", "label": "Done", "color": "conductor-done", "icon": "conductor-done" },
+        { "id": "in-review", "label": "In review", "color": "conductor-review", "icon": "conductor-review" },
+        { "id": "in-progress", "label": "In progress", "color": "conductor-progress", "icon": "conductor-progress" },
+        { "id": "todo", "label": "Todo", "color": "neutral", "icon": "circle" }
+      ]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "empty array yields no valid statuses, so the defaults are restored",
+      "input": [],
+      "expected": [
+        { "id": "completed", "label": "Done", "color": "conductor-done", "icon": "conductor-done" },
+        { "id": "in-review", "label": "In review", "color": "conductor-review", "icon": "conductor-review" },
+        { "id": "in-progress", "label": "In progress", "color": "conductor-progress", "icon": "conductor-progress" },
+        { "id": "todo", "label": "Todo", "color": "neutral", "icon": "circle" }
+      ]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "preserves valid legacy visuals for default-label statuses at runtime (no migration)",
+      "input": [{ "id": "in-progress", "label": "In progress", "color": "blue", "icon": "circle-dot" }],
+      "expected": [{ "id": "in-progress", "label": "In progress", "color": "blue", "icon": "circle-dot" }]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "keeps intentional custom in-progress visuals",
+      "input": [{ "id": "in-progress", "label": "Doing", "color": "blue", "icon": "circle-dot" }],
+      "expected": [{ "id": "in-progress", "label": "Doing", "color": "blue", "icon": "circle-dot" }]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "invalid color/icon for a known default id fall back to that id's default visuals",
+      "input": [{ "id": "todo", "label": "Todo", "color": "bogus", "icon": "bogus" }],
+      "expected": [{ "id": "todo", "label": "Todo", "color": "neutral", "icon": "circle" }]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "unknown id with invalid color uses the index-based color and the circle-dot icon default",
+      "input": [{ "id": "custom", "label": "Custom", "color": "bogus", "icon": "bogus" }],
+      "expected": [{ "id": "custom", "label": "Custom", "color": "neutral", "icon": "circle-dot" }]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "missing id and label use the Status N fallback label, slugged into the id",
+      "input": [{}],
+      "expected": [{ "id": "status-1", "label": "Status 1", "color": "neutral", "icon": "circle-dot" }]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "duplicate ids are de-duplicated by re-deriving the second id from its label",
+      "input": [
+        { "id": "dup", "label": "First" },
+        { "id": "dup", "label": "Second" }
+      ],
+      "expected": [
+        { "id": "dup", "label": "First", "color": "neutral", "icon": "circle-dot" },
+        { "id": "second", "label": "Second", "color": "blue", "icon": "circle-dot" }
+      ]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "id is lowercased, non-id chars collapse to dashes, and edge dashes are trimmed",
+      "input": [{ "id": "  My ID!! ", "label": "Hi" }],
+      "expected": [{ "id": "my-id", "label": "Hi", "color": "neutral", "icon": "circle-dot" }]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "label is trimmed and internal whitespace runs collapse to single spaces",
+      "input": [{ "id": "x", "label": "  Hello   World  " }],
+      "expected": [{ "id": "x", "label": "Hello World", "color": "neutral", "icon": "circle-dot" }]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "label longer than 32 chars is truncated to 32",
+      "input": [{ "id": "k", "label": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJ" }],
+      "expected": [{ "id": "k", "label": "abcdefghijklmnopqrstuvwxyzABCDEF", "color": "neutral", "icon": "circle-dot" }]
+    },
+    {
+      "function": "normalizeWorkspaceStatuses",
+      "note": "non-object entries (null, number, string, nested array) are skipped",
+      "input": [null, 5, "str", [], { "id": "ok", "label": "OK" }],
+      "expected": [{ "id": "ok", "label": "OK", "color": "neutral", "icon": "circle-dot" }]
+    },
+    {
+      "function": "isWorkspaceStatusId",
+      "note": "id present in the status set",
+      "input": {
+        "value": "completed",
+        "statuses": [{ "id": "completed" }, { "id": "in-review" }, { "id": "in-progress" }, { "id": "todo" }]
+      },
+      "expected": true
+    },
+    {
+      "function": "isWorkspaceStatusId",
+      "note": "id absent from the status set",
+      "input": {
+        "value": "nope",
+        "statuses": [{ "id": "completed" }, { "id": "in-review" }, { "id": "in-progress" }, { "id": "todo" }]
+      },
+      "expected": false
+    },
+    {
+      "function": "isWorkspaceStatusId",
+      "note": "empty status set never matches",
+      "input": { "value": "todo", "statuses": [] },
+      "expected": false
+    },
+    {
+      "function": "isWorkspaceStatusId",
+      "note": "matches a single custom status id",
+      "input": { "value": "custom", "statuses": [{ "id": "custom" }] },
+      "expected": true
+    },
+    {
+      "function": "getDefaultWorkspaceStatusId",
+      "note": "default columns include in-progress, which is the preferred default",
+      "input": [{ "id": "completed" }, { "id": "in-review" }, { "id": "in-progress" }, { "id": "todo" }],
+      "expected": "in-progress"
+    },
+    {
+      "function": "getDefaultWorkspaceStatusId",
+      "note": "without in-progress, falls back to the first status id",
+      "input": [{ "id": "todo" }, { "id": "done" }],
+      "expected": "todo"
+    },
+    {
+      "function": "getDefaultWorkspaceStatusId",
+      "note": "empty set falls back to the in-progress constant",
+      "input": [],
+      "expected": "in-progress"
+    },
+    {
+      "function": "getDefaultWorkspaceStatusId",
+      "note": "in-progress anywhere in the set wins over the first status",
+      "input": [{ "id": "alpha" }, { "id": "in-progress" }, { "id": "beta" }],
+      "expected": "in-progress"
+    },
+    {
+      "function": "getWorkspaceStatusGroupKey",
+      "note": "plain id needs no escaping",
+      "input": "in-progress",
+      "expected": "workspace-status:in-progress"
+    },
+    {
+      "function": "getWorkspaceStatusGroupKey",
+      "note": "spaces are percent-encoded",
+      "input": "my status",
+      "expected": "workspace-status:my%20status"
+    },
+    {
+      "function": "getWorkspaceStatusGroupKey",
+      "note": "reserved chars (slash, hash) are percent-encoded",
+      "input": "a/b#c",
+      "expected": "workspace-status:a%2Fb%23c"
+    },
+    {
+      "function": "getWorkspaceStatusGroupKey",
+      "note": "non-ASCII is UTF-8 percent-encoded",
+      "input": "café",
+      "expected": "workspace-status:caf%C3%A9"
+    },
+    {
+      "function": "getWorkspaceStatusGroupKey",
+      "note": "encodeURIComponent unreserved set is left intact",
+      "input": "keep-_.!~*'()",
+      "expected": "workspace-status:keep-_.!~*'()"
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "valid prefixed key decodes to a known status id",
+      "input": {
+        "groupKey": "workspace-status:completed",
+        "statuses": [{ "id": "completed" }, { "id": "in-review" }, { "id": "in-progress" }, { "id": "todo" }]
+      },
+      "expected": "completed"
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "decoded id not in the status set yields null",
+      "input": {
+        "groupKey": "workspace-status:nope",
+        "statuses": [{ "id": "completed" }, { "id": "in-review" }, { "id": "in-progress" }, { "id": "todo" }]
+      },
+      "expected": null
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "wrong prefix yields null",
+      "input": {
+        "groupKey": "status:completed",
+        "statuses": [{ "id": "completed" }, { "id": "in-review" }, { "id": "in-progress" }, { "id": "todo" }]
+      },
+      "expected": null
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "in-progress decodes back to its own id",
+      "input": {
+        "groupKey": "workspace-status:in-progress",
+        "statuses": [{ "id": "completed" }, { "id": "in-review" }, { "id": "in-progress" }, { "id": "todo" }]
+      },
+      "expected": "in-progress"
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "percent-encoded segment decodes and matches a status id containing a space",
+      "input": {
+        "groupKey": "workspace-status:a%20b",
+        "statuses": [{ "id": "a b", "label": "AB", "color": "neutral", "icon": "circle" }]
+      },
+      "expected": "a b"
+    },
+    {
+      "function": "getWorkspaceStatusFromGroupKey",
+      "note": "malformed percent escape yields null (TS decodeURIComponent throws -> caught; Rust passes the raw '%' through, which matches no id)",
+      "input": {
+        "groupKey": "workspace-status:%",
+        "statuses": [{ "id": "completed" }, { "id": "in-review" }, { "id": "in-progress" }, { "id": "todo" }]
+      },
+      "expected": null
+    }
+  ]
+}

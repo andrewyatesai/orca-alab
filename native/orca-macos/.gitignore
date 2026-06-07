@@ -1,0 +1,4 @@
+# Swift Package Manager build products — not source.
+.build/
+.swiftpm/
+DerivedData/

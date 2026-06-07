@@ -1,0 +1,17 @@
+[package]
+name = "orca-store"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Persistence for Orca: a thin synchronous SQLite adapter (replaces node:sqlite), backed by vendored, bundled SQLite."
+
+[dependencies]
+# `bundled` vendors the SQLite C amalgamation into the source tree and compiles
+# it via cc — no system sqlite, fully offline. default-features off keeps the
+# surface stripped (no trace/hooks/serialization extras).
+rusqlite = { version = "0.31", default-features = false, features = ["bundled"] }
+
+[lints.rust]
+unsafe_code = "forbid"

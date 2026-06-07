@@ -1,0 +1,207 @@
+{
+  "module": "worktree-ownership",
+  "source": "src/shared/worktree-ownership.ts",
+  "rustCrate": "orca-core::worktree_ownership",
+  "cases": [
+    {
+      "function": "isLegacyRepoForExternalWorktreeVisibility",
+      "note": "persisted repo without explicit visibility is legacy for upgrade safety",
+      "input": { "path": "/repos/app", "addedAt": 1779494400001 },
+      "expected": true
+    },
+    {
+      "function": "isLegacyRepoForExternalWorktreeVisibility",
+      "note": "explicit legacy marker false wins after a visibility change",
+      "input": {
+        "path": "/repos/app",
+        "addedAt": 1779494400001,
+        "externalWorktreeVisibility": "hide",
+        "externalWorktreeVisibilityLegacy": false
+      },
+      "expected": false
+    },
+    {
+      "function": "isLegacyRepoForExternalWorktreeVisibility",
+      "note": "non-finite addedAt (Number.NaN persists as null) is treated as legacy",
+      "input": { "path": "/repos/app", "externalWorktreeVisibility": "show", "addedAt": null },
+      "expected": true
+    },
+    {
+      "function": "effectiveExternalWorktreeVisibility",
+      "note": "undefined visibility defaults to hide for new repos",
+      "input": { "repo": {}, "isLegacyRepoForVisibility": false },
+      "expected": "hide"
+    },
+    {
+      "function": "effectiveExternalWorktreeVisibility",
+      "note": "undefined visibility defaults to show for legacy repos",
+      "input": { "repo": {}, "isLegacyRepoForVisibility": true },
+      "expected": "show"
+    },
+    {
+      "function": "buildKnownOrcaWorkspaceLayouts",
+      "note": "absolute workspaceDir yields one layout carrying the global nest mode",
+      "input": {
+        "settings": { "workspaceDir": "/orca/workspaces", "nestWorkspaces": true, "workspaceDirHistory": [] },
+        "repo": { "path": "/repos/app" }
+      },
+      "expected": [{ "path": "/orca/workspaces", "nestWorkspaces": true }]
+    },
+    {
+      "function": "buildKnownOrcaWorkspaceLayouts",
+      "note": "no repo: workspaceDir is used verbatim, flat mode preserved",
+      "input": {
+        "settings": { "workspaceDir": "/orca/workspaces", "nestWorkspaces": false, "workspaceDirHistory": [] }
+      },
+      "expected": [{ "path": "/orca/workspaces", "nestWorkspaces": false }]
+    },
+    {
+      "function": "buildKnownOrcaWorkspaceLayouts",
+      "note": "remote repo (connectionId) drops an absolute local workspaceDir entirely",
+      "input": {
+        "settings": { "workspaceDir": "/orca/workspaces", "nestWorkspaces": true, "workspaceDirHistory": [] },
+        "repo": { "path": "/repos/app", "connectionId": "ssh-1" }
+      },
+      "expected": []
+    },
+    {
+      "function": "classifyWorktreeOwnership",
+      "note": "explicit Orca metadata is managed even outside any workspace root",
+      "input": {
+        "repo": { "path": "/repos/app" },
+        "worktree": { "path": "/tmp/outside", "isMainWorktree": true },
+        "meta": { "orcaCreatedAt": 1 },
+        "knownOrcaLayouts": [{ "path": "/orca/workspaces", "nestWorkspaces": true }]
+      },
+      "expected": "orca-managed"
+    },
+    {
+      "function": "classifyWorktreeOwnership",
+      "note": "nested repo-specific path shape is managed by path alone",
+      "input": {
+        "repo": { "path": "/repos/app" },
+        "worktree": { "path": "/orca/workspaces/app/feature", "isMainWorktree": false },
+        "knownOrcaLayouts": [{ "path": "/orca/workspaces", "nestWorkspaces": true }]
+      },
+      "expected": "orca-managed"
+    },
+    {
+      "function": "classifyWorktreeOwnership",
+      "note": "different repo folder under a nested root classifies as external",
+      "input": {
+        "repo": { "path": "/repos/app" },
+        "worktree": { "path": "/orca/workspaces/other/feature", "isMainWorktree": false },
+        "knownOrcaLayouts": [{ "path": "/orca/workspaces", "nestWorkspaces": true }]
+      },
+      "expected": "external"
+    },
+    {
+      "function": "classifyWorktreeOwnership",
+      "note": "no known layouts: an external-looking worktree stays unknown-legacy",
+      "input": {
+        "repo": { "path": "/repos/app" },
+        "worktree": { "path": "/some/external/path", "isMainWorktree": true },
+        "knownOrcaLayouts": []
+      },
+      "expected": "unknown-legacy"
+    },
+    {
+      "function": "toDetectedWorktree",
+      "note": "selected linked checkout stays visible even when external is hidden",
+      "input": {
+        "repo": { "path": "/repos/app-linked", "externalWorktreeVisibility": "hide", "addedAt": 1779494400001 },
+        "worktree": { "path": "/repos/app-linked", "isMainWorktree": false },
+        "knownOrcaLayouts": [{ "path": "/orca/workspaces", "nestWorkspaces": true }]
+      },
+      "expected": {
+        "path": "/repos/app-linked",
+        "isMainWorktree": false,
+        "ownership": "external",
+        "selectedCheckout": true,
+        "visible": true
+      }
+    },
+    {
+      "function": "toDetectedWorktree",
+      "note": "unselected git main-worktree is external and hidden when visibility is hide",
+      "input": {
+        "repo": { "path": "/repos/app-linked", "externalWorktreeVisibility": "hide", "addedAt": 1779494400001 },
+        "worktree": { "path": "/repos/app-main", "isMainWorktree": true },
+        "knownOrcaLayouts": [{ "path": "/orca/workspaces", "nestWorkspaces": true }]
+      },
+      "expected": {
+        "path": "/repos/app-main",
+        "isMainWorktree": true,
+        "ownership": "external",
+        "selectedCheckout": false,
+        "visible": false
+      }
+    },
+    {
+      "function": "shouldShowWorktree",
+      "note": "unknown-legacy rows stay visible for legacy repos after hiding external rows",
+      "input": {
+        "repo": { "externalWorktreeVisibility": "hide" },
+        "worktree": { "path": "/orca/workspaces/feature" },
+        "ownership": "unknown-legacy",
+        "isLegacyRepoForVisibility": true,
+        "isSelectedCheckout": false
+      },
+      "expected": true
+    },
+    {
+      "function": "shouldShowWorktree",
+      "note": "external row hidden for non-legacy repo whose visibility is hide",
+      "input": {
+        "repo": { "externalWorktreeVisibility": "hide" },
+        "worktree": { "path": "/orca/workspaces/feature" },
+        "ownership": "external",
+        "isLegacyRepoForVisibility": false,
+        "isSelectedCheckout": false
+      },
+      "expected": false
+    },
+    {
+      "function": "areRuntimePathsEqual",
+      "note": "trailing slash is ignored by comparison normalization",
+      "input": { "leftPath": "/repos/app/", "rightPath": "/repos/app" },
+      "expected": true
+    },
+    {
+      "function": "areRuntimePathsEqual",
+      "note": "distinct paths are not equal",
+      "input": { "leftPath": "/repos/app", "rightPath": "/repos/other" },
+      "expected": false
+    },
+    {
+      "function": "matchesStrongOrcaCreatePath",
+      "note": "two-segment <repoName>/<slug> under a nested root matches",
+      "input": {
+        "worktreePath": "/orca/workspaces/app/feature",
+        "knownOrcaLayouts": [{ "path": "/orca/workspaces", "nestWorkspaces": true }],
+        "repo": { "path": "/repos/app" }
+      },
+      "expected": true
+    },
+    {
+      "function": "matchesStrongOrcaCreatePath",
+      "note": "non-matching first segment does not match",
+      "input": {
+        "worktreePath": "/orca/workspaces/other/feature",
+        "knownOrcaLayouts": [{ "path": "/orca/workspaces", "nestWorkspaces": true }],
+        "repo": { "path": "/repos/app" }
+      },
+      "expected": false
+    },
+    {
+      "function": "matchesStrongOrcaCreatePath",
+      "note": "repo basename .git suffix is stripped before matching",
+      "input": {
+        "worktreePath": "/orca/workspaces/app/feature",
+        "knownOrcaLayouts": [{ "path": "/orca/workspaces", "nestWorkspaces": true }],
+        "repo": { "path": "/repos/app.git" }
+      },
+      "expected": true
+    }
+  ]
+}

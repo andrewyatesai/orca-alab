@@ -1,0 +1,94 @@
+{
+  "module": "open-in-applications",
+  "source": "src/shared/open-in-applications.ts",
+  "rustCrate": "orca-core::open_in_applications",
+  "cases": [
+    {
+      "function": "normalizeOpenInApplications",
+      "note": "trims fields, drops invalid rows, keeps first duplicate id, and caps list at 8",
+      "input": {
+        "value": [
+          { "id": "a", "label": " Cursor ", "command": " cursor " },
+          { "id": "a", "label": "Dup", "command": "dup" },
+          { "id": "b", "label": "   ", "command": "zed" },
+          { "id": "c", "label": "Zed", "command": "   " },
+          { "id": "d", "label": "D", "command": "d" },
+          { "id": "e", "label": "E", "command": "e" },
+          { "id": "f", "label": "F", "command": "f" },
+          { "id": "g", "label": "G", "command": "g" },
+          { "id": "h", "label": "H", "command": "h" },
+          { "id": "i", "label": "I", "command": "i" },
+          { "id": "j", "label": "J", "command": "j" }
+        ]
+      },
+      "expected": [
+        { "id": "a", "label": "Cursor", "command": "cursor" },
+        { "id": "d", "label": "D", "command": "d" },
+        { "id": "e", "label": "E", "command": "e" },
+        { "id": "f", "label": "F", "command": "f" },
+        { "id": "g", "label": "G", "command": "g" },
+        { "id": "h", "label": "H", "command": "h" },
+        { "id": "i", "label": "I", "command": "i" },
+        { "id": "j", "label": "J", "command": "j" }
+      ]
+    },
+    {
+      "function": "normalizeOpenInApplications",
+      "note": "generates ids for missing or blank ids via createId (createIds drives the id generator, popped in sequence)",
+      "input": {
+        "value": [
+          { "label": "Cursor", "command": "cursor" },
+          { "id": "   ", "label": "Zed", "command": "zed" }
+        ],
+        "createIds": ["gen-1", "gen-2"]
+      },
+      "expected": [
+        { "id": "gen-1", "label": "Cursor", "command": "cursor" },
+        { "id": "gen-2", "label": "Zed", "command": "zed" }
+      ]
+    },
+    {
+      "function": "normalizeOpenInApplications",
+      "note": "seeds defaults when the persisted field is missing (value key omitted = undefined)",
+      "input": {
+        "seedDefaults": true
+      },
+      "expected": [
+        { "id": "vscode", "label": "VS Code", "command": "code" }
+      ]
+    },
+    {
+      "function": "normalizeOpenInApplications",
+      "note": "empty array is a present (non-missing) value, so defaults are not seeded",
+      "input": {
+        "value": [],
+        "seedDefaults": true
+      },
+      "expected": []
+    },
+    {
+      "function": "normalizeOpenInApplications",
+      "note": "non-array value with seedDefaults falsy yields empty list",
+      "input": {
+        "value": "nope"
+      },
+      "expected": []
+    },
+    {
+      "function": "normalizeOpenInApplications",
+      "note": "skips non-object rows but keeps positional index, so blank id falls back to open-in-<index+1>",
+      "input": {
+        "value": [
+          null,
+          { "label": "NoId", "command": "noid" },
+          5,
+          { "id": "x", "label": "X", "command": "x" }
+        ]
+      },
+      "expected": [
+        { "id": "open-in-2", "label": "NoId", "command": "noid" },
+        { "id": "x", "label": "X", "command": "x" }
+      ]
+    }
+  ]
+}

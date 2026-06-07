@@ -1,0 +1,94 @@
+{
+  "module": "project-groups",
+  "source": "src/shared/project-groups.ts",
+  "rustCrate": "orca-config::project_groups",
+  "cases": [
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "trims surrounding whitespace, keeps content (default fallback unused)",
+      "input": { "name": "  Platform  " },
+      "expected": "Platform"
+    },
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "blank name falls back to the provided fallback",
+      "input": { "name": "   ", "fallback": "Existing" },
+      "expected": "Existing"
+    },
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "blank name with no fallback uses the default 'Untitled group'",
+      "input": { "name": "" },
+      "expected": "Untitled group"
+    },
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "tabs/newlines-only name is blank after trim, uses fallback",
+      "input": { "name": "\t\n ", "fallback": "Custom" },
+      "expected": "Custom"
+    },
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "already-clean name returned unchanged",
+      "input": { "name": "Backend Services" },
+      "expected": "Backend Services"
+    },
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "internal whitespace preserved, only the edges are trimmed",
+      "input": { "name": "  My   Group  " },
+      "expected": "My   Group"
+    },
+    {
+      "function": "getNextProjectGroupOrder",
+      "note": "next order inside a group ignores ungrouped repos",
+      "input": {
+        "repos": [
+          { "id": "a", "projectGroupId": "g", "projectGroupOrder": 2 },
+          { "id": "b", "projectGroupId": null, "projectGroupOrder": 9 }
+        ],
+        "groupId": "g"
+      },
+      "expected": 3
+    },
+    {
+      "function": "getNextProjectGroupOrder",
+      "note": "empty repo list yields 0",
+      "input": { "repos": [], "groupId": null },
+      "expected": 0
+    },
+    {
+      "function": "getNextProjectGroupOrder",
+      "note": "null group computes from null-group repos only",
+      "input": {
+        "repos": [
+          { "id": "a", "projectGroupId": null, "projectGroupOrder": 4 },
+          { "id": "b", "projectGroupId": "g", "projectGroupOrder": 10 }
+        ],
+        "groupId": null
+      },
+      "expected": 5
+    },
+    {
+      "function": "getNextProjectGroupOrder",
+      "note": "no repos in the target group yields 0",
+      "input": {
+        "repos": [{ "id": "a", "projectGroupId": "other", "projectGroupOrder": 7 }],
+        "groupId": "g"
+      },
+      "expected": 0
+    },
+    {
+      "function": "getNextProjectGroupOrder",
+      "note": "non-finite order (NaN/Infinity persist as null) is ignored; max of finite orders + 1",
+      "input": {
+        "repos": [
+          { "id": "a", "projectGroupId": "g", "projectGroupOrder": null },
+          { "id": "b", "projectGroupId": "g", "projectGroupOrder": 2 }
+        ],
+        "groupId": "g"
+      },
+      "expected": 3
+    }
+  ]
+}

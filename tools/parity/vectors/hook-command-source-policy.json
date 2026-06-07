@@ -1,0 +1,49 @@
+{
+  "module": "hook-command-source-policy",
+  "source": "src/shared/hook-command-source-policy.ts",
+  "rustCrate": "orca-core::hook_command_source_policy",
+  "cases": [
+    {
+      "function": "normalizeHookCommandSourcePolicy",
+      "note": "unknown/legacy persisted value (the removed shared-first mode) falls back to the committed shared-only policy",
+      "input": "shared-first",
+      "expected": "shared-only"
+    },
+    {
+      "function": "normalizeHookCommandSourcePolicy",
+      "note": "explicit local-only is preserved",
+      "input": "local-only",
+      "expected": "local-only"
+    },
+    {
+      "function": "normalizeHookCommandSourcePolicy",
+      "note": "explicit run-both is preserved",
+      "input": "run-both",
+      "expected": "run-both"
+    },
+    {
+      "function": "normalizeHookCommandSourcePolicy",
+      "note": "explicit shared-only is preserved",
+      "input": "shared-only",
+      "expected": "shared-only"
+    },
+    {
+      "function": "normalizeHookCommandSourcePolicy",
+      "note": "arbitrary unknown string falls back to shared-only",
+      "input": "totally-unknown",
+      "expected": "shared-only"
+    },
+    {
+      "function": "normalizeHookCommandSourcePolicy",
+      "note": "non-string input (number) falls back to shared-only",
+      "input": 42,
+      "expected": "shared-only"
+    },
+    {
+      "function": "normalizeHookCommandSourcePolicy",
+      "note": "null (the persisted JSON form of an absent/undefined value) falls back to shared-only",
+      "input": null,
+      "expected": "shared-only"
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "module": "repo-icon",
+  "source": "src/shared/repo-icon.ts",
+  "rustCrate": "orca-config::repo_icon",
+  "cases": [
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "valid lucide icon",
+      "input": { "type": "lucide", "name": "Folder" },
+      "expected": { "type": "lucide", "name": "Folder" }
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "lucide name is trimmed",
+      "input": { "type": "lucide", "name": "  Folder  " },
+      "expected": { "type": "lucide", "name": "Folder" }
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "lucide name with non-alphanumeric char rejected; undefined encoded as sentinel",
+      "input": { "type": "lucide", "name": "my-icon" },
+      "expected": "__undefined__"
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "valid emoji icon",
+      "input": { "type": "emoji", "emoji": "🚀" },
+      "expected": { "type": "emoji", "emoji": "🚀" }
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "blank emoji rejected; undefined encoded as sentinel",
+      "input": { "type": "emoji", "emoji": "   " },
+      "expected": "__undefined__"
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "supported github image with label",
+      "input": {
+        "type": "image",
+        "src": "https://github.com/stablyai.png?size=64",
+        "source": "github",
+        "label": "stablyai/orca"
+      },
+      "expected": {
+        "type": "image",
+        "src": "https://github.com/stablyai.png?size=64",
+        "source": "github",
+        "label": "stablyai/orca"
+      }
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "supported favicon image, no label omits the key",
+      "input": {
+        "type": "image",
+        "src": "https://www.google.com/s2/favicons?domain=example.com&sz=64",
+        "source": "favicon"
+      },
+      "expected": {
+        "type": "image",
+        "src": "https://www.google.com/s2/favicons?domain=example.com&sz=64",
+        "source": "favicon"
+      }
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "supported upload data:image/png base64",
+      "input": { "type": "image", "src": "data:image/png;base64,aGVsbG8=", "source": "upload" },
+      "expected": { "type": "image", "src": "data:image/png;base64,aGVsbG8=", "source": "upload" }
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "explicit null is a reset (kept as null, distinct from undefined)",
+      "input": null,
+      "expected": null
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "non-https javascript: src rejected; undefined encoded as sentinel",
+      "input": { "type": "image", "src": "javascript:alert(1)", "source": "favicon" },
+      "expected": "__undefined__"
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "non-png data url rejected for upload; undefined encoded as sentinel",
+      "input": { "type": "image", "src": "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=", "source": "upload" },
+      "expected": "__undefined__"
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "github source must be github.com host; undefined encoded as sentinel",
+      "input": { "type": "image", "src": "https://example.com/icon.png", "source": "github" },
+      "expected": "__undefined__"
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "unknown icon type rejected; undefined encoded as sentinel",
+      "input": { "type": "svg", "data": "x" },
+      "expected": "__undefined__"
+    },
+    {
+      "function": "sanitizeRepoIcon",
+      "note": "non-object value rejected; undefined encoded as sentinel",
+      "input": "hello",
+      "expected": "__undefined__"
+    },
+    {
+      "function": "faviconUrlFromWebsite",
+      "note": "bare host gets https:// prefix and a favicon url",
+      "input": "example.com",
+      "expected": "https://www.google.com/s2/favicons?domain=example.com&sz=64"
+    },
+    {
+      "function": "faviconUrlFromWebsite",
+      "note": "blank input yields null",
+      "input": "   ",
+      "expected": null
+    },
+    {
+      "function": "faviconUrlFromWebsite",
+      "note": "non-http(s) scheme yields null",
+      "input": "ftp://example.com",
+      "expected": null
+    },
+    {
+      "function": "faviconUrlFromWebsite",
+      "note": "host is lowercased",
+      "input": "http://Example.COM/path",
+      "expected": "https://www.google.com/s2/favicons?domain=example.com&sz=64"
+    },
+    {
+      "function": "githubAvatarIcon",
+      "note": "builds the default github owner-avatar icon",
+      "input": { "owner": "stablyai", "repo": "orca" },
+      "expected": {
+        "type": "image",
+        "src": "https://github.com/stablyai.png?size=64",
+        "source": "github",
+        "label": "stablyai/orca"
+      }
+    },
+    {
+      "function": "githubAvatarIcon",
+      "note": "owner is percent-encoded in src; raw in label",
+      "input": { "owner": "a b", "repo": "r" },
+      "expected": {
+        "type": "image",
+        "src": "https://github.com/a%20b.png?size=64",
+        "source": "github",
+        "label": "a b/r"
+      }
+    }
+  ]
+}

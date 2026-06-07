@@ -1,0 +1,49 @@
+{
+  "module": "terminal-fonts",
+  "source": "src/shared/terminal-fonts.ts",
+  "rustCrate": "orca-core::terminal_fonts",
+  "cases": [
+    {
+      "function": "normalizeTerminalFontWeight",
+      "note": "missing value (TS undefined persists to null) falls back to the Orca default 500",
+      "input": null,
+      "expected": 500
+    },
+    {
+      "function": "normalizeTerminalFontWeight",
+      "note": "below-range weight clamps to xterm minimum 100",
+      "input": 10,
+      "expected": 100
+    },
+    {
+      "function": "normalizeTerminalFontWeight",
+      "note": "above-range weight clamps to xterm maximum 900",
+      "input": 1200,
+      "expected": 900
+    },
+    {
+      "function": "normalizeTerminalFontWeight",
+      "note": "fractional weight rounds to nearest integer (250.4 -> 250)",
+      "input": 250.4,
+      "expected": 250
+    },
+    {
+      "function": "resolveTerminalFontWeights",
+      "note": "base 500 keeps bold at 700",
+      "input": 500,
+      "expected": { "fontWeight": 500, "fontWeightBold": 700 }
+    },
+    {
+      "function": "resolveTerminalFontWeights",
+      "note": "base 800 raises bold to the clamped maximum 900",
+      "input": 800,
+      "expected": { "fontWeight": 800, "fontWeightBold": 900 }
+    },
+    {
+      "function": "resolveTerminalFontWeights",
+      "note": "missing value (null) defaults to 500 and bold floor 700",
+      "input": null,
+      "expected": { "fontWeight": 500, "fontWeightBold": 700 }
+    }
+  ]
+}

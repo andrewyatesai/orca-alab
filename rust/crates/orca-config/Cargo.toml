@@ -1,0 +1,18 @@
+[package]
+name = "orca-config"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Config inspection/parsing for Orca (MCP server configs, …) over vendored serde_json. JSON is the shared format for configs and IPC."
+
+[dependencies]
+# preserve_order keeps object key order (matters for listing servers in file
+# order); stripped to just the Value/parse surface we use.
+serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
+orca-core = { path = "../orca-core" }
+orca-text = { path = "../orca-text" }
+
+[lints.rust]
+unsafe_code = "forbid"

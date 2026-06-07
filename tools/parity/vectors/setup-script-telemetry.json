@@ -1,0 +1,146 @@
+{
+  "module": "setup-script-telemetry",
+  "source": "src/shared/setup-script-telemetry.ts",
+  "rustCrate": "orca-core::setup_script_telemetry",
+  "cases": [
+    {
+      "function": "buildSetupScriptPromptTelemetry",
+      "note": "no candidate: configure_needed mode, zero buckets, provider key omitted",
+      "input": { "candidate": null, "hasSharedHooks": true },
+      "expected": {
+        "mode": "configure_needed",
+        "file_count_bucket": "0",
+        "unsupported_field_count_bucket": "0",
+        "has_shared_hooks": true
+      }
+    },
+    {
+      "function": "buildSetupScriptPromptTelemetry",
+      "note": "candidate buckets file/unsupported counts and keeps only the provider enum",
+      "input": {
+        "candidate": {
+          "provider": "codex",
+          "label": "Codex",
+          "files": ["one", "two", "three"],
+          "setup": "npm install",
+          "unsupportedFields": ["a", "b", "c", "d"]
+        },
+        "hasSharedHooks": false
+      },
+      "expected": {
+        "mode": "import_available",
+        "file_count_bucket": "2-3",
+        "unsupported_field_count_bucket": "4+",
+        "has_shared_hooks": false,
+        "provider": "codex"
+      }
+    },
+    {
+      "function": "buildSetupScriptPromptTelemetry",
+      "note": "candidate with empty files and absent unsupportedFields still maps to import_available with zero buckets",
+      "input": {
+        "candidate": {
+          "provider": "superset",
+          "label": "Superset",
+          "files": [],
+          "setup": ""
+        },
+        "hasSharedHooks": true
+      },
+      "expected": {
+        "mode": "import_available",
+        "file_count_bucket": "0",
+        "unsupported_field_count_bucket": "0",
+        "has_shared_hooks": true,
+        "provider": "superset"
+      }
+    },
+    {
+      "function": "buildSetupScriptPromptActionTelemetry",
+      "note": "adds the action without changing bucketed context; absent editedBeforeSave omits the key",
+      "input": {
+        "action": "import_completed",
+        "candidate": {
+          "provider": "conductor",
+          "label": "Conductor",
+          "files": ["conductor.json"],
+          "setup": "pnpm install"
+        },
+        "hasSharedHooks": true
+      },
+      "expected": {
+        "mode": "import_available",
+        "file_count_bucket": "1",
+        "unsupported_field_count_bucket": "0",
+        "has_shared_hooks": true,
+        "provider": "conductor",
+        "action": "import_completed"
+      }
+    },
+    {
+      "function": "buildSetupScriptPromptActionTelemetry",
+      "note": "no-candidate action telemetry: configure_needed, provider omitted, editedBeforeSave omitted",
+      "input": {
+        "action": "configure_clicked",
+        "candidate": null,
+        "hasSharedHooks": false
+      },
+      "expected": {
+        "mode": "configure_needed",
+        "file_count_bucket": "0",
+        "unsupported_field_count_bucket": "0",
+        "has_shared_hooks": false,
+        "action": "configure_clicked"
+      }
+    },
+    {
+      "function": "buildSetupScriptPromptActionTelemetry",
+      "note": "editedBeforeSave true is carried through as edited_before_save",
+      "input": {
+        "action": "save_detected_setup_completed",
+        "candidate": {
+          "provider": "package-manager",
+          "label": "Node.js",
+          "files": ["package.json"],
+          "setup": "npm install"
+        },
+        "hasSharedHooks": false,
+        "editedBeforeSave": true
+      },
+      "expected": {
+        "mode": "import_available",
+        "file_count_bucket": "1",
+        "unsupported_field_count_bucket": "0",
+        "has_shared_hooks": false,
+        "provider": "package-manager",
+        "action": "save_detected_setup_completed",
+        "edited_before_save": true
+      }
+    },
+    {
+      "function": "buildSetupScriptPromptActionTelemetry",
+      "note": "editedBeforeSave false is still present (only undefined omits the key); 5 files -> 4+, 2 unsupported -> 2-3",
+      "input": {
+        "action": "import_completed",
+        "candidate": {
+          "provider": "cmux",
+          "label": "cmux",
+          "files": ["a", "b", "c", "d", "e"],
+          "setup": "x",
+          "unsupportedFields": ["one", "two"]
+        },
+        "hasSharedHooks": true,
+        "editedBeforeSave": false
+      },
+      "expected": {
+        "mode": "import_available",
+        "file_count_bucket": "4+",
+        "unsupported_field_count_bucket": "2-3",
+        "has_shared_hooks": true,
+        "provider": "cmux",
+        "action": "import_completed",
+        "edited_before_save": false
+      }
+    }
+  ]
+}

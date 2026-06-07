@@ -1,0 +1,11 @@
+[package]
+name = "orca-net"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Network tier for Orca: proxy settings (URL normalize/redact, env precedence, configured-proxy env), later HTTP clients + rate limiting. std-only, no IO."
+
+[lints.rust]
+unsafe_code = "forbid"

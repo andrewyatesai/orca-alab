@@ -1,0 +1,49 @@
+{
+  "module": "base-ref-search-result",
+  "source": "src/shared/base-ref-search-result.ts",
+  "rustCrate": "orca-core::base_ref_search_result",
+  "cases": [
+    {
+      "function": "deriveLegacyLocalBranchName",
+      "note": "strips known origin/ remote prefix",
+      "input": "origin/feature/something",
+      "expected": "feature/something"
+    },
+    {
+      "function": "deriveLegacyLocalBranchName",
+      "note": "strips known upstream/ remote prefix",
+      "input": "upstream/release/1.2",
+      "expected": "release/1.2"
+    },
+    {
+      "function": "deriveLegacyLocalBranchName",
+      "note": "unknown prefix left unchanged",
+      "input": "feature/something",
+      "expected": "feature/something"
+    },
+    {
+      "function": "deriveLegacyLocalBranchName",
+      "note": "bare prefix with no remainder is not stripped (length must exceed prefix)",
+      "input": "origin/",
+      "expected": "origin/"
+    },
+    {
+      "function": "legacyBaseRefSearchResult",
+      "note": "keeps local branch refs unchanged when a remote prefix is not known",
+      "input": "feature/something",
+      "expected": {
+        "refName": "feature/something",
+        "localBranchName": "feature/something"
+      }
+    },
+    {
+      "function": "legacyBaseRefSearchResult",
+      "note": "derives local branch name from a known remote ref",
+      "input": "origin/main",
+      "expected": {
+        "refName": "origin/main",
+        "localBranchName": "main"
+      }
+    }
+  ]
+}

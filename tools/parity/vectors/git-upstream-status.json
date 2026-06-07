@@ -1,0 +1,67 @@
+{
+  "module": "git-upstream-status",
+  "source": "src/shared/git-upstream-status.ts",
+  "rustCrate": "orca-core::git_upstream_status",
+  "cases": [
+    {
+      "function": "shouldForcePushWithLeaseForUpstream",
+      "note": "diverged (ahead and behind) with patch-equivalent behind commits forces a lease-protected push",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 2,
+        "behind": 3,
+        "behindCommitsArePatchEquivalent": true
+      },
+      "expected": true
+    },
+    {
+      "function": "shouldForcePushWithLeaseForUpstream",
+      "note": "behind commits are NOT patch-equivalent, so pulling is correct, not force push",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 2,
+        "behind": 3,
+        "behindCommitsArePatchEquivalent": false
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldForcePushWithLeaseForUpstream",
+      "note": "only ahead (behind 0) is not divergence, so no force push",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 2,
+        "behind": 0,
+        "behindCommitsArePatchEquivalent": true
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldForcePushWithLeaseForUpstream",
+      "note": "undefined status (persisted as null) short-circuits via optional chaining to false",
+      "input": null,
+      "expected": false
+    },
+    {
+      "function": "shouldForcePushWithLeaseForUpstream",
+      "note": "no upstream means ahead/behind are placeholder zeros, never a force push",
+      "input": {
+        "hasUpstream": false,
+        "ahead": 2,
+        "behind": 3,
+        "behindCommitsArePatchEquivalent": true
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldForcePushWithLeaseForUpstream",
+      "note": "absent behindCommitsArePatchEquivalent (undefined) fails the strict === true check",
+      "input": {
+        "hasUpstream": true,
+        "ahead": 2,
+        "behind": 3
+      },
+      "expected": false
+    }
+  ]
+}

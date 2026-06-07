@@ -1,0 +1,250 @@
+{
+  "module": "commit-message-prompt",
+  "source": "src/shared/commit-message-prompt.ts",
+  "rustCrate": "orca-agents::commit_message_prompt",
+  "cases": [
+    {
+      "function": "buildCommitPrompt",
+      "note": "test: embeds the diff into the base prompt, no suffix",
+      "input": {
+        "diff": "diff --git a/foo b/foo\n+hello",
+        "suffix": ""
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\ndiff --git a/foo b/foo\n+hello\n```\n"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "test: appends a custom suffix when non-empty",
+      "input": {
+        "diff": "diff",
+        "suffix": "Use Conventional Commits."
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\ndiff\n```\n\n\nAdditional user prompt:\nUse Conventional Commits."
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "test: whitespace-only suffix is not appended",
+      "input": {
+        "diff": "diff",
+        "suffix": "   \n  "
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\ndiff\n```\n"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "edge: empty diff and empty suffix",
+      "input": {
+        "diff": "",
+        "suffix": ""
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\n\n```\n"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "edge: suffix trimmed before appending",
+      "input": {
+        "diff": "x",
+        "suffix": "  gitmoji please  "
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\nx\n```\n\n\nAdditional user prompt:\ngitmoji please"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "edge: multiline suffix appended verbatim after trim",
+      "input": {
+        "diff": "a",
+        "suffix": "Line1\nLine2"
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\na\n```\n\n\nAdditional user prompt:\nLine1\nLine2"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "edge: a literal {{DIFF}} in the diff stays literal (single placeholder replaced)",
+      "input": {
+        "diff": "before {{DIFF}} after",
+        "suffix": ""
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\nbefore {{DIFF}} after\n```\n"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "edge: unicode in diff preserved",
+      "input": {
+        "diff": "diff with — em dash and 日本語",
+        "suffix": ""
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\ndiff with — em dash and 日本語\n```\n"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "edge: newline-only suffix is whitespace, not appended",
+      "input": {
+        "diff": "d",
+        "suffix": "\n"
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\nd\n```\n"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "edge: diff with trailing newline",
+      "input": {
+        "diff": "line1\nline2\n",
+        "suffix": ""
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\nline1\nline2\n\n```\n"
+    },
+    {
+      "function": "buildCommitPrompt",
+      "note": "edge: suffix with leading/trailing tabs trimmed",
+      "input": {
+        "diff": "q",
+        "suffix": "\tConventional Commits\t"
+      },
+      "expected": "You are generating a single git commit message.\nRead the staged diff below and produce the message.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then wrapped at 72 chars explaining WHY.\n- Output ONLY the commit message - no preamble, no code fences, no quotes.\n- Do not include \"Co-authored-by\" trailers - Orca appends them after generation when configured.\n\nStaged diff:\n```diff\nq\n```\n\n\nAdditional user prompt:\nConventional Commits"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "test: trims whitespace",
+      "input": "  feat: hello  \n",
+      "expected": "feat: hello"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "test: strips a single enclosing fenced code block",
+      "input": "```\nfeat: hello\n```",
+      "expected": "feat: hello"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "test: strips a fenced block with a language tag",
+      "input": "```text\nfix: bug\n```",
+      "expected": "fix: bug"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "test: drops a leading 'Generating' preamble line",
+      "input": "Generating…\nfeat: hello world",
+      "expected": "feat: hello world"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "test: normalizes CRLF line endings",
+      "input": "feat: a\r\nbody line\r\n",
+      "expected": "feat: a\nbody line"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "test: strips a leading bullet list marker",
+      "input": "● Add Copilot entry to agent results",
+      "expected": "Add Copilot entry to agent results"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "test: strips a leading numbered list marker",
+      "input": "1. Add numbered entry",
+      "expected": "Add numbered entry"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "test: whitespace-only input yields empty string",
+      "input": "   \n\t",
+      "expected": ""
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: empty string stays empty",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: already-clean subject unchanged",
+      "input": "fix: simple bug",
+      "expected": "fix: simple bug"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: drops a leading 'Thinking...' preamble line",
+      "input": "Thinking...\nreal commit",
+      "expected": "real commit"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: drops a lone ellipsis preamble line",
+      "input": "...\nactual message",
+      "expected": "actual message"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: strips a leading dash list marker",
+      "input": "- dash item",
+      "expected": "dash item"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: strips a leading star list marker",
+      "input": "* star item",
+      "expected": "star item"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: strips a paren-numbered list marker",
+      "input": "2) paren numbered",
+      "expected": "paren numbered"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: 'Generated' is not the preamble word, line kept",
+      "input": "Generated the changes\nbody",
+      "expected": "Generated the changes\nbody"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: multiline fenced block content preserved",
+      "input": "```js\nconst a = 1\nconst b = 2\n```",
+      "expected": "const a = 1\nconst b = 2"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: CRLF inside fence normalized then stripped",
+      "input": "```\r\nfeat: hi\r\n```",
+      "expected": "feat: hi"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: non-enclosing fence is left untouched",
+      "input": "text before\n```\ncode\n```",
+      "expected": "text before\n```\ncode\n```"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: list marker stripped, following body kept",
+      "input": "- Add feature\nbody text",
+      "expected": "Add feature\nbody text"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: dash without a trailing space is not a marker",
+      "input": "-nospace here",
+      "expected": "-nospace here"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: number without . or ) is not a marker",
+      "input": "1 thing here",
+      "expected": "1 thing here"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: preamble line then fenced block",
+      "input": "Generating…\n```\nfeat: combined\n```",
+      "expected": "feat: combined"
+    },
+    {
+      "function": "cleanGeneratedCommitMessage",
+      "note": "edge: empty fenced block yields empty string",
+      "input": "```\n\n```",
+      "expected": ""
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+[package]
+name = "orca-core"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure cross-cutting logic for Orca, ported faithfully from src/shared (no IO, no platform deps)."
+
+[dependencies]
+# Intentionally zero dependencies: this crate is the pure-logic core and must
+# build offline with nothing vendored. Anything needing a crate belongs in a
+# higher tier (orca-git, orca-runtime, ...).
+
+[lints.rust]
+unsafe_code = "forbid"

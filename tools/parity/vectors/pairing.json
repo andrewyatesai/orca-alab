@@ -1,0 +1,156 @@
+{
+  "module": "pairing",
+  "source": "src/shared/pairing.ts",
+  "rustCrate": "orca-relay::pairing",
+  "cases": [
+    {
+      "function": "encodePairingOffer",
+      "note": "encodes an offer into an orca://pair?code=<base64url> deep link",
+      "input": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "abcdef1234567890abcdef1234567890abcdef1234567890",
+        "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk"
+      },
+      "expected": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ"
+    },
+    {
+      "function": "encodePairingOffer",
+      "note": "encodes the paste-flow offer (base64url has no +, /, or = chars)",
+      "input": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "token-abc",
+        "publicKeyB64": "pubkey-xyz"
+      },
+      "expected": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoifQ"
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "round-trips a full ?code= URL back to the offer",
+      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "expected": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "abcdef1234567890abcdef1234567890abcdef1234567890",
+        "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk"
+      }
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "decodes a legacy #fragment URL",
+      "input": "orca://pair#eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "expected": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "abcdef1234567890abcdef1234567890abcdef1234567890",
+        "publicKeyB64": "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk"
+      }
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "wrong scheme throws in TS; adapter maps the throw to null",
+      "input": "https://example.com#abc",
+      "expected": null
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "orca://pair without a code throws; maps to null",
+      "input": "orca://pair",
+      "expected": null
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "orca://pairing is outside the exact pair route; throws -> null",
+      "input": "orca://pairing?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "expected": null
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "payload missing deviceToken/publicKeyB64 fails schema; throws -> null",
+      "input": "orca://pair#eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vaG9zdDoxMjM0In0=",
+      "expected": null
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "payload with wrong version (v=1) fails schema; throws -> null",
+      "input": "orca://pair#eyJ2IjoxLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ==",
+      "expected": null
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "payload missing publicKeyB64 fails schema; throws -> null",
+      "input": "orca://pair#eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vaG9zdDoxMjM0IiwiZGV2aWNlVG9rZW4iOiJ0b2sifQ==",
+      "expected": null
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "parses a full orca://pair URL",
+      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoifQ",
+      "expected": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "token-abc",
+        "publicKeyB64": "pubkey-xyz"
+      }
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "parses a bare base64url payload without the scheme prefix",
+      "input": "eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoifQ",
+      "expected": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "token-abc",
+        "publicKeyB64": "pubkey-xyz"
+      }
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "tolerates surrounding clipboard whitespace",
+      "input": "  orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoifQ\n",
+      "expected": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "token-abc",
+        "publicKeyB64": "pubkey-xyz"
+      }
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "empty input returns null",
+      "input": "",
+      "expected": null
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "whitespace-only input returns null",
+      "input": "   ",
+      "expected": null
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "garbage input returns null",
+      "input": "not a pairing code",
+      "expected": null
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "non-orca URL returns null",
+      "input": "https://example.com",
+      "expected": null
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "orca host with an extra suffix is rejected (returns null)",
+      "input": "orca://pair-extra?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6ImFiY2RlZjEyMzQ1Njc4OTBhYmNkZWYxMjM0NTY3ODkwYWJjZGVmMTIzNDU2Nzg5MCIsInB1YmxpY0tleUI2NCI6ImRHVnpkQzF3ZFdKc2FXTXRhMlY1TFdKaGMyVTJOQzFsYm1OdlpHVmsifQ",
+      "expected": null
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "valid base64 of unrelated JSON returns null",
+      "input": "eyJoZWxsbyI6IndvcmxkIn0=",
+      "expected": null
+    }
+  ]
+}

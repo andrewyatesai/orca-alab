@@ -1,0 +1,100 @@
+{
+  "module": "task-providers",
+  "source": "src/shared/task-providers.ts",
+  "rustCrate": "orca-core::task_providers",
+  "cases": [
+    {
+      "function": "normalizeVisibleTaskProviders",
+      "note": "keeps supported ids in order, dedupes, drops unknowns",
+      "input": ["gitlab", "unknown", "gitlab", "linear"],
+      "expected": ["gitlab", "linear"]
+    },
+    {
+      "function": "normalizeVisibleTaskProviders",
+      "note": "empty list falls back to all providers",
+      "input": [],
+      "expected": ["github", "gitlab", "linear", "jira"]
+    },
+    {
+      "function": "normalizeVisibleTaskProviders",
+      "note": "non-array input falls back to all providers",
+      "input": "nope",
+      "expected": ["github", "gitlab", "linear", "jira"]
+    },
+    {
+      "function": "normalizeTaskProviderSettings",
+      "note": "restores a valid saved default when the visible list drifted",
+      "input": { "visibleTaskProviders": ["linear"], "defaultTaskSource": "github" },
+      "expected": { "defaultTaskSource": "github", "visibleTaskProviders": ["github", "linear"] }
+    },
+    {
+      "function": "normalizeTaskProviderSettings",
+      "note": "invalid saved default normalizes to the first visible provider",
+      "input": { "visibleTaskProviders": ["gitlab"], "defaultTaskSource": "bitbucket" },
+      "expected": { "defaultTaskSource": "gitlab", "visibleTaskProviders": ["gitlab"] }
+    },
+    {
+      "function": "normalizeTaskProviderSettings",
+      "note": "non-array visible + missing default falls back to all providers and github",
+      "input": { "visibleTaskProviders": "nope", "defaultTaskSource": null },
+      "expected": {
+        "defaultTaskSource": "github",
+        "visibleTaskProviders": ["github", "gitlab", "linear", "jira"]
+      }
+    },
+    {
+      "function": "resolveVisibleTaskProvider",
+      "note": "hidden preferred resolves to the first visible provider",
+      "input": { "preferred": "github", "visibleProviders": ["linear"] },
+      "expected": "linear"
+    },
+    {
+      "function": "resolveVisibleTaskProvider",
+      "note": "null preferred with empty visible list falls back to github",
+      "input": { "preferred": null, "visibleProviders": [] },
+      "expected": "github"
+    },
+    {
+      "function": "restoreAvailableDefaultTaskProvider",
+      "note": "keeps an available saved default visible when visibility drifted",
+      "input": {
+        "visibleProviders": ["linear"],
+        "availability": { "gitlabInstalled": false, "linearConnected": true },
+        "preferredProvider": "github"
+      },
+      "expected": ["github", "linear"]
+    },
+    {
+      "function": "restoreAvailableDefaultTaskProvider",
+      "note": "does not restore an unavailable saved default",
+      "input": {
+        "visibleProviders": ["linear"],
+        "availability": { "gitlabInstalled": false, "linearConnected": true },
+        "preferredProvider": "gitlab"
+      },
+      "expected": ["linear"]
+    },
+    {
+      "function": "restoreAvailableDefaultTaskProvider",
+      "note": "ignores an invalid saved default while restoring available providers",
+      "input": {
+        "visibleProviders": ["gitlab"],
+        "availability": { "gitlabInstalled": false, "linearConnected": true },
+        "preferredProvider": "bitbucket"
+      },
+      "expected": ["github"]
+    },
+    {
+      "function": "isTaskProvider",
+      "note": "known provider id",
+      "input": "github",
+      "expected": true
+    },
+    {
+      "function": "isTaskProvider",
+      "note": "non-string is not a provider",
+      "input": 42,
+      "expected": false
+    }
+  ]
+}

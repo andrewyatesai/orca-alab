@@ -1,0 +1,181 @@
+{
+  "module": "worktree",
+  "source": "src/main/git/worktree.ts",
+  "rustCrate": "orca-git::worktree",
+  "cases": [
+    {
+      "function": "parseWorktreeList",
+      "note": "parses regular and bare worktree blocks from porcelain output (leading blank line)",
+      "input": {
+        "output": "\nworktree /repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /repo-feature\nHEAD def456\nbranch refs/heads/feature/test\n\nworktree /repo-bare\nHEAD 0000000\nbare\n"
+      },
+      "expected": [
+        {
+          "path": "/repo",
+          "head": "abc123",
+          "branch": "refs/heads/main",
+          "isBare": false,
+          "isMainWorktree": true
+        },
+        {
+          "path": "/repo-feature",
+          "head": "def456",
+          "branch": "refs/heads/feature/test",
+          "isBare": false,
+          "isMainWorktree": false
+        },
+        {
+          "path": "/repo-bare",
+          "head": "0000000",
+          "branch": "",
+          "isBare": true,
+          "isMainWorktree": false
+        }
+      ]
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "empty string input yields empty array",
+      "input": {
+        "output": ""
+      },
+      "expected": []
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "whitespace-only input yields empty array",
+      "input": {
+        "output": "   \n\n  \n  "
+      },
+      "expected": []
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "single worktree block is the main worktree",
+      "input": {
+        "output": "worktree /single-repo\nHEAD aaa111\nbranch refs/heads/main\n"
+      },
+      "expected": [
+        {
+          "path": "/single-repo",
+          "head": "aaa111",
+          "branch": "refs/heads/main",
+          "isBare": false,
+          "isMainWorktree": true
+        }
+      ]
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "detached HEAD worktree (no branch line) yields empty branch",
+      "input": {
+        "output": "worktree /repo-detached\nHEAD abc123\ndetached\n"
+      },
+      "expected": [
+        {
+          "path": "/repo-detached",
+          "head": "abc123",
+          "branch": "",
+          "isBare": false,
+          "isMainWorktree": true
+        }
+      ]
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "extra blank lines between blocks are collapsed",
+      "input": {
+        "output": "worktree /repo-a\nHEAD aaa111\nbranch refs/heads/main\n\n\nworktree /repo-b\nHEAD bbb222\nbranch refs/heads/dev\n"
+      },
+      "expected": [
+        {
+          "path": "/repo-a",
+          "head": "aaa111",
+          "branch": "refs/heads/main",
+          "isBare": false,
+          "isMainWorktree": true
+        },
+        {
+          "path": "/repo-b",
+          "head": "bbb222",
+          "branch": "refs/heads/dev",
+          "isBare": false,
+          "isMainWorktree": false
+        }
+      ]
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "missing HEAD line yields empty head",
+      "input": {
+        "output": "worktree /repo-no-head\nbranch refs/heads/main\n"
+      },
+      "expected": [
+        {
+          "path": "/repo-no-head",
+          "head": "",
+          "branch": "refs/heads/main",
+          "isBare": false,
+          "isMainWorktree": true
+        }
+      ]
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "captures a worktree path containing spaces",
+      "input": {
+        "output": "worktree /path/to/my worktree\nHEAD ccc333\nbranch refs/heads/main\n"
+      },
+      "expected": [
+        {
+          "path": "/path/to/my worktree",
+          "head": "ccc333",
+          "branch": "refs/heads/main",
+          "isBare": false,
+          "isMainWorktree": true
+        }
+      ]
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "NUL-delimited porcelain output preserves newline-containing paths",
+      "input": {
+        "output": "worktree /repo\u0000HEAD abc123\u0000branch refs/heads/main\u0000\u0000worktree /repo/linked\nworktree\u0000HEAD def456\u0000branch refs/heads/feature/newline\u0000",
+        "nulDelimited": true
+      },
+      "expected": [
+        {
+          "path": "/repo",
+          "head": "abc123",
+          "branch": "refs/heads/main",
+          "isBare": false,
+          "isMainWorktree": true
+        },
+        {
+          "path": "/repo/linked\nworktree",
+          "head": "def456",
+          "branch": "refs/heads/feature/newline",
+          "isBare": false,
+          "isMainWorktree": false
+        }
+      ]
+    },
+    {
+      "function": "parseWorktreeList",
+      "note": "sparse line adds isSparse:true; non-sparse entries omit the key entirely",
+      "input": {
+        "output": "worktree /repo\nHEAD abc\nbranch refs/heads/main\nsparse\n"
+      },
+      "expected": [
+        {
+          "path": "/repo",
+          "head": "abc",
+          "branch": "refs/heads/main",
+          "isBare": false,
+          "isSparse": true,
+          "isMainWorktree": true
+        }
+      ]
+    }
+  ]
+}

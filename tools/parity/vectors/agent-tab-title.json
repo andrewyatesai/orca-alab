@@ -1,0 +1,67 @@
+{
+  "module": "agent-tab-title",
+  "source": "src/shared/agent-tab-title.ts",
+  "rustCrate": "orca-text::agent_tab_title",
+  "cases": [
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "derives a short title from the first useful clause, stripping leading 'can you please' filler and the trailing question",
+      "input": "Can you please refactor the auth middleware to use JWT tokens?",
+      "expected": "Refactor the auth middleware to use JWT"
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "strips markup, links, emoji, and punctuation; first clause ends at the '.' inside src/auth.ts",
+      "input": "Please fix `src/auth.ts`!!! https://example.com 🔥 then add tests",
+      "expected": "Fix src auth"
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "keeps useful text after common issue prefixes",
+      "input": "Issue #2056: Opt-in generated tab titles for agents",
+      "expected": "Opt in generated tab titles for agents"
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "bounds titles to GENERATED_TAB_TITLE_MAX_LENGTH (40) by truncating at a word boundary",
+      "input": "I want to replace the terminal reconnection hydration flow with a safer retry path",
+      "expected": "Replace the terminal reconnection"
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "returns null (JSON null) when the prompt has no useful title text after filler removal",
+      "input": "please!!!",
+      "expected": null
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "empty prompt yields null",
+      "input": "",
+      "expected": null
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "whitespace-only prompt yields null",
+      "input": "   ",
+      "expected": null
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "capitalizes the first letter of a plain clause",
+      "input": "fix the bug",
+      "expected": "Fix the bug"
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "splits on sentence punctuation and keeps only the first clause",
+      "input": "Add tests. Then refactor.",
+      "expected": "Add tests"
+    },
+    {
+      "function": "deriveGeneratedTabTitle",
+      "note": "strips leading \"let's\" filler",
+      "input": "Let's build a parser",
+      "expected": "Build a parser"
+    }
+  ]
+}

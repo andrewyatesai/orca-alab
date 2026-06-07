@@ -1,0 +1,86 @@
+{
+  "module": "commit-message-generation",
+  "source": "src/shared/commit-message-generation.ts",
+  "rustCrate": "orca-agents::commit_message_generation",
+  "cases": [
+    {
+      "function": "buildCommitMessagePrompt",
+      "note": "builds prompt from staged context; empty custom prompt omits the additional section (test verbatim)",
+      "input": {
+        "context": {
+          "branch": "feature/commit-drafts",
+          "stagedSummary": "M\tsrc/main/ipc/filesystem.ts",
+          "stagedPatch": "diff --git a/src/main/ipc/filesystem.ts b/src/main/ipc/filesystem.ts\n+hello"
+        },
+        "customPrompt": ""
+      },
+      "expected": "You are generating a single git commit message.\nReturn only the commit message text. Do not include a preamble, quotes, or code fences.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then short wrapped bullet points or prose explaining WHY.\n- Capture the primary user-visible or developer-visible change.\n- Use only the staged changes below as context.\n- Do not include \"Co-authored-by\" or other git trailers.\n\nBranch: feature/commit-drafts\n\nStaged files:\nM\tsrc/main/ipc/filesystem.ts\n\nStaged patch:\n```diff\ndiff --git a/src/main/ipc/filesystem.ts b/src/main/ipc/filesystem.ts\n+hello\n```"
+    },
+    {
+      "function": "buildCommitMessagePrompt",
+      "note": "null branch renders (detached); non-empty custom prompt added in a bounded section (test verbatim)",
+      "input": {
+        "context": {
+          "branch": null,
+          "stagedSummary": "A\tREADME.md",
+          "stagedPatch": "+docs"
+        },
+        "customPrompt": "Use Conventional Commits."
+      },
+      "expected": "You are generating a single git commit message.\nReturn only the commit message text. Do not include a preamble, quotes, or code fences.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then short wrapped bullet points or prose explaining WHY.\n- Capture the primary user-visible or developer-visible change.\n- Use only the staged changes below as context.\n- Do not include \"Co-authored-by\" or other git trailers.\n\nBranch: (detached)\n\nStaged files:\nA\tREADME.md\n\nStaged patch:\n```diff\n+docs\n```\n\nAdditional user prompt:\nUse Conventional Commits."
+    },
+    {
+      "function": "buildCommitMessagePrompt",
+      "note": "whitespace-only custom prompt is trimmed away (no Additional user prompt section); multiline summary and patch",
+      "input": {
+        "context": {
+          "branch": "main",
+          "stagedSummary": "M\tsrc/app.ts\nA\tsrc/new.ts",
+          "stagedPatch": "diff --git a/src/app.ts b/src/app.ts\n-old\n+new"
+        },
+        "customPrompt": "   \n  "
+      },
+      "expected": "You are generating a single git commit message.\nReturn only the commit message text. Do not include a preamble, quotes, or code fences.\n\nRules:\n- First line: imperative mood, <= 72 chars, no trailing period.\n- Optional body: blank line, then short wrapped bullet points or prose explaining WHY.\n- Capture the primary user-visible or developer-visible change.\n- Use only the staged changes below as context.\n- Do not include \"Co-authored-by\" or other git trailers.\n\nBranch: main\n\nStaged files:\nM\tsrc/app.ts\nA\tsrc/new.ts\n\nStaged patch:\n```diff\ndiff --git a/src/app.ts b/src/app.ts\n-old\n+new\n```"
+    },
+    {
+      "function": "splitGeneratedCommitMessage",
+      "note": "normalizes subject (strips trailing period) and preserves body text (test verbatim)",
+      "input": "Fix source control generation.\n\n- Move planning into main",
+      "expected": {
+        "subject": "Fix source control generation",
+        "body": "- Move planning into main",
+        "message": "Fix source control generation\n\n- Move planning into main"
+      }
+    },
+    {
+      "function": "splitGeneratedCommitMessage",
+      "note": "strips a single enclosing fenced code block with a language tag; no body",
+      "input": "```text\nfix: resolve startup crash\n```",
+      "expected": {
+        "subject": "fix: resolve startup crash",
+        "body": "",
+        "message": "fix: resolve startup crash"
+      }
+    },
+    {
+      "function": "splitGeneratedCommitMessage",
+      "note": "drops a leading Generating preamble line and a leading list marker",
+      "input": "Generating…\n● Add telemetry opt-out toggle",
+      "expected": {
+        "subject": "Add telemetry opt-out toggle",
+        "body": "",
+        "message": "Add telemetry opt-out toggle"
+      }
+    },
+    {
+      "function": "splitGeneratedCommitMessage",
+      "note": "whitespace-only input falls back to the default subject with empty body",
+      "input": "   \n\t",
+      "expected": {
+        "subject": "Update project files",
+        "body": "",
+        "message": "Update project files"
+      }
+    }
+  ]
+}

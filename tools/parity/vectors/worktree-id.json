@@ -1,0 +1,172 @@
+{
+  "module": "worktree-id",
+  "source": "src/shared/worktree-id.ts",
+  "rustCrate": "orca-core::worktree_id",
+  "cases": [
+    {
+      "function": "getRepoIdFromWorktreeId",
+      "note": "returns the repo id for a canonical worktree id",
+      "input": "repo-123::/abs/path",
+      "expected": "repo-123"
+    },
+    {
+      "function": "getRepoIdFromWorktreeId",
+      "note": "returns the whole input when there is no separator",
+      "input": "just-a-repo-id",
+      "expected": "just-a-repo-id"
+    },
+    {
+      "function": "getRepoIdFromWorktreeId",
+      "note": "returns the empty string for an empty input",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "function": "getRepoIdFromWorktreeId",
+      "note": "returns an empty repo id for a bare separator",
+      "input": "::",
+      "expected": ""
+    },
+    {
+      "function": "getRepoIdFromWorktreeId",
+      "note": "returns an empty repo id for a leading separator",
+      "input": "::path",
+      "expected": ""
+    },
+    {
+      "function": "getRepoIdFromWorktreeId",
+      "note": "returns the repo id when only a trailing separator is present",
+      "input": "repo::",
+      "expected": "repo"
+    },
+    {
+      "function": "getRepoIdFromWorktreeId",
+      "note": "splits on the first separator when the path itself contains '::'",
+      "input": "repo::a::b",
+      "expected": "repo"
+    },
+    {
+      "function": "getRepoIdFromWorktreeId",
+      "note": "extra: only the first '::' is honored across many separators",
+      "input": "a::b::c::d",
+      "expected": "a"
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "splits a canonical worktree id into repo id and path",
+      "input": "repo-123::/abs/path",
+      "expected": { "repoId": "repo-123", "worktreePath": "/abs/path" }
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "returns null when there is no separator",
+      "input": "just-a-repo-id",
+      "expected": null
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "returns null for an empty input",
+      "input": "",
+      "expected": null
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "returns empty repo id and empty path for a bare separator",
+      "input": "::",
+      "expected": { "repoId": "", "worktreePath": "" }
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "returns an empty repo id when the separator is leading",
+      "input": "::path",
+      "expected": { "repoId": "", "worktreePath": "path" }
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "returns an empty path when the separator is trailing",
+      "input": "repo::",
+      "expected": { "repoId": "repo", "worktreePath": "" }
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "splits on the first separator when the path itself contains '::'",
+      "input": "repo::a::b",
+      "expected": { "repoId": "repo", "worktreePath": "a::b" }
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "preserves folder workspace instance suffixes in the literal parsed path",
+      "input": "repo::/folder::workspace:123e4567-e89b-12d3-a456-426614174000",
+      "expected": {
+        "repoId": "repo",
+        "worktreePath": "/folder::workspace:123e4567-e89b-12d3-a456-426614174000"
+      }
+    },
+    {
+      "function": "splitWorktreeId",
+      "note": "extra: plain absolute path without a suffix",
+      "input": "repo::/folder",
+      "expected": { "repoId": "repo", "worktreePath": "/folder" }
+    },
+    {
+      "function": "splitWorktreeIdForFilesystem",
+      "note": "strips folder workspace instance suffixes from the parsed path",
+      "input": "repo::/folder::workspace:123e4567-e89b-12d3-a456-426614174000",
+      "expected": { "repoId": "repo", "worktreePath": "/folder" }
+    },
+    {
+      "function": "splitWorktreeIdForFilesystem",
+      "note": "extra: returns null when there is no separator",
+      "input": "just-a-repo-id",
+      "expected": null
+    },
+    {
+      "function": "splitWorktreeIdForFilesystem",
+      "note": "extra: leaves a path without an instance suffix unchanged",
+      "input": "repo::/plain/path",
+      "expected": { "repoId": "repo", "worktreePath": "/plain/path" }
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "returns the path basename for POSIX worktree ids",
+      "input": "repo-123::/abs/path/nightly-checks",
+      "expected": "nightly-checks"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "returns the path basename for Windows worktree ids",
+      "input": "repo-123::C:\\workspaces\\nightly-checks",
+      "expected": "nightly-checks"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "returns the real folder basename for folder workspace instance ids",
+      "input": "repo-123::/abs/project::workspace:123e4567-e89b-12d3-a456-426614174000",
+      "expected": "project"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "returns null when no separator yields a worktree path",
+      "input": "repo-123",
+      "expected": null
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "returns null when the worktree path is empty",
+      "input": "repo-123::",
+      "expected": null
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "extra: trailing slashes are trimmed before taking the basename",
+      "input": "repo-123::/abs/path/foo/",
+      "expected": "foo"
+    },
+    {
+      "function": "getWorktreePathBasenameFromId",
+      "note": "extra: a whitespace-only path normalizes to empty and returns null",
+      "input": "repo-123::   ",
+      "expected": null
+    }
+  ]
+}

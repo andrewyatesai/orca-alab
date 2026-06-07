@@ -1,0 +1,125 @@
+{
+  "module": "gitlab-projects",
+  "source": "src/shared/gitlab-projects.ts",
+  "rustCrate": "orca-core::gitlab_projects",
+  "cases": [
+    {
+      "function": "computeNextGitLabRecents",
+      "note": "prepends a fresh entry to an empty list; nowIso is the TS Date round-tripped via toISOString()",
+      "input": {
+        "existing": [],
+        "host": "gitlab.com",
+        "path": "g/p",
+        "nowIso": "2026-05-08T10:00:00.000Z",
+        "max": 10
+      },
+      "expected": [
+        { "host": "gitlab.com", "path": "g/p", "lastOpenedAt": "2026-05-08T10:00:00.000Z" }
+      ]
+    },
+    {
+      "function": "computeNextGitLabRecents",
+      "note": "moves an existing entry to the front (dedupes by host + path)",
+      "input": {
+        "existing": [
+          { "host": "gitlab.com", "path": "a/b", "lastOpenedAt": "2026-05-07" },
+          { "host": "gitlab.com", "path": "g/p", "lastOpenedAt": "2026-05-06" },
+          { "host": "gitlab.com", "path": "c/d", "lastOpenedAt": "2026-05-05" }
+        ],
+        "host": "gitlab.com",
+        "path": "g/p",
+        "nowIso": "2026-05-08T10:00:00.000Z",
+        "max": 10
+      },
+      "expected": [
+        { "host": "gitlab.com", "path": "g/p", "lastOpenedAt": "2026-05-08T10:00:00.000Z" },
+        { "host": "gitlab.com", "path": "a/b", "lastOpenedAt": "2026-05-07" },
+        { "host": "gitlab.com", "path": "c/d", "lastOpenedAt": "2026-05-05" }
+      ]
+    },
+    {
+      "function": "computeNextGitLabRecents",
+      "note": "treats different hosts at the same path as distinct entries",
+      "input": {
+        "existing": [
+          { "host": "gitlab.example.com", "path": "g/p", "lastOpenedAt": "2026-05-07" }
+        ],
+        "host": "gitlab.com",
+        "path": "g/p",
+        "nowIso": "2026-05-08T10:00:00.000Z",
+        "max": 10
+      },
+      "expected": [
+        { "host": "gitlab.com", "path": "g/p", "lastOpenedAt": "2026-05-08T10:00:00.000Z" },
+        { "host": "gitlab.example.com", "path": "g/p", "lastOpenedAt": "2026-05-07" }
+      ]
+    },
+    {
+      "function": "computeNextGitLabRecents",
+      "note": "caps the list at GITLAB_RECENTS_MAX (10); oldest tail entry g/p9 falls off after prepend",
+      "input": {
+        "existing": [
+          { "host": "gitlab.com", "path": "g/p0", "lastOpenedAt": "2026-05-00" },
+          { "host": "gitlab.com", "path": "g/p1", "lastOpenedAt": "2026-05-01" },
+          { "host": "gitlab.com", "path": "g/p2", "lastOpenedAt": "2026-05-02" },
+          { "host": "gitlab.com", "path": "g/p3", "lastOpenedAt": "2026-05-03" },
+          { "host": "gitlab.com", "path": "g/p4", "lastOpenedAt": "2026-05-04" },
+          { "host": "gitlab.com", "path": "g/p5", "lastOpenedAt": "2026-05-05" },
+          { "host": "gitlab.com", "path": "g/p6", "lastOpenedAt": "2026-05-06" },
+          { "host": "gitlab.com", "path": "g/p7", "lastOpenedAt": "2026-05-07" },
+          { "host": "gitlab.com", "path": "g/p8", "lastOpenedAt": "2026-05-08" },
+          { "host": "gitlab.com", "path": "g/p9", "lastOpenedAt": "2026-05-09" }
+        ],
+        "host": "gitlab.com",
+        "path": "g/new",
+        "nowIso": "2026-05-08T10:00:00.000Z",
+        "max": 10
+      },
+      "expected": [
+        { "host": "gitlab.com", "path": "g/new", "lastOpenedAt": "2026-05-08T10:00:00.000Z" },
+        { "host": "gitlab.com", "path": "g/p0", "lastOpenedAt": "2026-05-00" },
+        { "host": "gitlab.com", "path": "g/p1", "lastOpenedAt": "2026-05-01" },
+        { "host": "gitlab.com", "path": "g/p2", "lastOpenedAt": "2026-05-02" },
+        { "host": "gitlab.com", "path": "g/p3", "lastOpenedAt": "2026-05-03" },
+        { "host": "gitlab.com", "path": "g/p4", "lastOpenedAt": "2026-05-04" },
+        { "host": "gitlab.com", "path": "g/p5", "lastOpenedAt": "2026-05-05" },
+        { "host": "gitlab.com", "path": "g/p6", "lastOpenedAt": "2026-05-06" },
+        { "host": "gitlab.com", "path": "g/p7", "lastOpenedAt": "2026-05-07" },
+        { "host": "gitlab.com", "path": "g/p8", "lastOpenedAt": "2026-05-08" }
+      ]
+    },
+    {
+      "function": "computeNextGitLabRecents",
+      "note": "edge: max=1 truncates to just the freshly prepended entry",
+      "input": {
+        "existing": [
+          { "host": "gitlab.com", "path": "a/b", "lastOpenedAt": "2026-05-07" },
+          { "host": "gitlab.com", "path": "c/d", "lastOpenedAt": "2026-05-06" }
+        ],
+        "host": "gitlab.com",
+        "path": "g/p",
+        "nowIso": "2026-05-08T10:00:00.000Z",
+        "max": 1
+      },
+      "expected": [
+        { "host": "gitlab.com", "path": "g/p", "lastOpenedAt": "2026-05-08T10:00:00.000Z" }
+      ]
+    },
+    {
+      "function": "computeNextGitLabRecents",
+      "note": "edge: re-opening the only existing entry keeps a single deduped record at the front",
+      "input": {
+        "existing": [
+          { "host": "gitlab.com", "path": "g/p", "lastOpenedAt": "2026-05-07" }
+        ],
+        "host": "gitlab.com",
+        "path": "g/p",
+        "nowIso": "2026-05-08T10:00:00.000Z",
+        "max": 10
+      },
+      "expected": [
+        { "host": "gitlab.com", "path": "g/p", "lastOpenedAt": "2026-05-08T10:00:00.000Z" }
+      ]
+    }
+  ]
+}

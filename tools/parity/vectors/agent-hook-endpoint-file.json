@@ -1,0 +1,43 @@
+{
+  "module": "agent-hook-endpoint-file",
+  "source": "src/shared/agent-hook-endpoint-file.ts",
+  "rustCrate": "orca-core::agent_hook_endpoint_file",
+  "cases": [
+    {
+      "function": "isAgentHookEndpointFileName",
+      "note": "recognizes the POSIX endpoint.env file name",
+      "input": "endpoint.env",
+      "expected": true
+    },
+    {
+      "function": "isAgentHookEndpointFileName",
+      "note": "recognizes the Windows endpoint.cmd file name",
+      "input": "endpoint.cmd",
+      "expected": true
+    },
+    {
+      "function": "isAgentHookEndpointFileName",
+      "note": "rejects an unrelated extension (endpoint.ps1)",
+      "input": "endpoint.ps1",
+      "expected": false
+    },
+    {
+      "function": "isAgentHookEndpointFileName",
+      "note": "empty string is not an endpoint file name",
+      "input": "",
+      "expected": false
+    },
+    {
+      "function": "isAgentHookEndpointFileName",
+      "note": "match is case sensitive (endpoint.ENV)",
+      "input": "endpoint.ENV",
+      "expected": false
+    },
+    {
+      "function": "isAgentHookEndpointFileName",
+      "note": "trailing whitespace is not trimmed before comparison",
+      "input": "endpoint.env ",
+      "expected": false
+    }
+  ]
+}

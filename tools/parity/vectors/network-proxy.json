@@ -1,0 +1,127 @@
+{
+  "module": "network-proxy",
+  "source": "src/shared/network-proxy.ts",
+  "rustCrate": "orca-net::network_proxy",
+  "cases": [
+    {
+      "function": "normalizeProxyUrl",
+      "note": "strips path/query/fragment and trims; keeps auth and non-default port",
+      "input": " https://user:pass@proxy.example.com:8443/path?q=1#secret ",
+      "expected": { "ok": true, "value": "https://user:pass@proxy.example.com:8443" }
+    },
+    {
+      "function": "normalizeProxyUrl",
+      "note": "plain http proxy without credentials",
+      "input": "http://proxy.example:8080",
+      "expected": { "ok": true, "value": "http://proxy.example:8080" }
+    },
+    {
+      "function": "normalizeProxyUrl",
+      "note": "socks5 proxy (non-special scheme) keeps host:port verbatim",
+      "input": "socks5://127.0.0.1:1080",
+      "expected": { "ok": true, "value": "socks5://127.0.0.1:1080" }
+    },
+    {
+      "function": "normalizeProxyUrl",
+      "note": "unsupported scheme rejected before host check",
+      "input": "file:///tmp/proxy",
+      "expected": { "ok": false, "value": "", "message": "Use an http, https, socks, socks4, or socks5 proxy URL." }
+    },
+    {
+      "function": "normalizeProxyUrl",
+      "note": "unparseable input rejected",
+      "input": "not-a-url",
+      "expected": { "ok": false, "value": "", "message": "Enter a valid proxy URL." }
+    },
+    {
+      "function": "normalizeProxyUrl",
+      "note": "non-string input is treated as unset (ok with empty value); JSON number 42 stands in for any non-string",
+      "input": 42,
+      "expected": { "ok": true, "value": "" }
+    },
+    {
+      "function": "normalizeProxyBypassRules",
+      "note": "splits on comma/semicolon/newline, trims, rejoins with semicolons",
+      "input": "localhost, 127.0.0.1; *.internal\n<local>",
+      "expected": "localhost;127.0.0.1;*.internal;<local>"
+    },
+    {
+      "function": "normalizeProxyBypassRules",
+      "note": "empty segments are dropped",
+      "input": "a;;b",
+      "expected": "a;b"
+    },
+    {
+      "function": "normalizeProxyBypassRules",
+      "note": "non-string input yields empty string; JSON null stands in for any non-string",
+      "input": null,
+      "expected": ""
+    },
+    {
+      "function": "buildConfiguredProxyEnv",
+      "note": "explicit settings populate all proxy keys; bypass rules become comma-joined NO_PROXY",
+      "input": { "httpProxyUrl": "http://proxy.example:8080", "httpProxyBypassRules": "localhost;*.internal" },
+      "expected": {
+        "HTTP_PROXY": "http://proxy.example:8080",
+        "HTTPS_PROXY": "http://proxy.example:8080",
+        "ALL_PROXY": "http://proxy.example:8080",
+        "http_proxy": "http://proxy.example:8080",
+        "https_proxy": "http://proxy.example:8080",
+        "all_proxy": "http://proxy.example:8080",
+        "NO_PROXY": "localhost,*.internal",
+        "no_proxy": "localhost,*.internal"
+      }
+    },
+    {
+      "function": "buildConfiguredProxyEnv",
+      "note": "empty proxy url yields no env at all",
+      "input": { "httpProxyUrl": "" },
+      "expected": {}
+    },
+    {
+      "function": "buildConfiguredProxyEnv",
+      "note": "null settings yields no env",
+      "input": null,
+      "expected": {}
+    },
+    {
+      "function": "buildConfiguredProxyEnv",
+      "note": "valid proxy with no bypass rules clears NO_PROXY to empty string",
+      "input": { "httpProxyUrl": "socks5://127.0.0.1:1080" },
+      "expected": {
+        "HTTP_PROXY": "socks5://127.0.0.1:1080",
+        "HTTPS_PROXY": "socks5://127.0.0.1:1080",
+        "ALL_PROXY": "socks5://127.0.0.1:1080",
+        "http_proxy": "socks5://127.0.0.1:1080",
+        "https_proxy": "socks5://127.0.0.1:1080",
+        "all_proxy": "socks5://127.0.0.1:1080",
+        "NO_PROXY": "",
+        "no_proxy": ""
+      }
+    },
+    {
+      "function": "redactProxyUrl",
+      "note": "masks username and password",
+      "input": "http://user:pass@proxy.example:8080",
+      "expected": "http://***:***@proxy.example:8080"
+    },
+    {
+      "function": "redactProxyUrl",
+      "note": "username-only credential masks to a single token",
+      "input": "https://user@secure.example:8443",
+      "expected": "https://***@secure.example:8443"
+    },
+    {
+      "function": "redactProxyUrl",
+      "note": "credential-free url is returned unchanged",
+      "input": "http://proxy.example:8080",
+      "expected": "http://proxy.example:8080"
+    },
+    {
+      "function": "redactProxyUrl",
+      "note": "invalid url redacts to empty string",
+      "input": "not-a-url",
+      "expected": ""
+    }
+  ]
+}

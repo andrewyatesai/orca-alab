@@ -1,0 +1,17 @@
+[package]
+name = "orca-agents"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Agent-CLI domain for Orca: commit-message prompt/plan building, provider specs, error extraction. Pure logic over vendored regex + serde_json."
+
+[dependencies]
+# Stripped: regex for the clean/extract heuristics, serde_json for parsing the
+# JSON error payloads agent CLIs emit.
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+
+[lints.rust]
+unsafe_code = "forbid"

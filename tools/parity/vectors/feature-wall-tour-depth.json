@@ -1,0 +1,122 @@
+{
+  "module": "feature-wall-tour-depth",
+  "source": "src/shared/feature-wall-tour-depth.ts",
+  "rustCrate": "orca-core::feature_wall_tour_depth",
+  "cases": [
+    {
+      "function": "getFeatureWallTourDepthStep",
+      "note": "top-level workflow maps to its own depth step",
+      "input": { "workflowId": "workspaces" },
+      "expected": "workspaces"
+    },
+    {
+      "function": "getFeatureWallTourDepthStep",
+      "note": "agents-orchestration nested agent step",
+      "input": { "workflowId": "agents-orchestration", "agentStepId": "usage" },
+      "expected": "agents_usage"
+    },
+    {
+      "function": "getFeatureWallTourDepthStep",
+      "note": "workbench nested step",
+      "input": { "workflowId": "workbench", "workbenchStepId": "browser" },
+      "expected": "workbench_browser"
+    },
+    {
+      "function": "getFeatureWallTourDepthStep",
+      "note": "review nested step",
+      "input": { "workflowId": "review", "reviewStepId": "ship" },
+      "expected": "review_ship"
+    },
+    {
+      "function": "getFeatureWallTourDepthStep",
+      "note": "agents-orchestration without agentStepId defaults to statuses",
+      "input": { "workflowId": "agents-orchestration" },
+      "expected": "agents_statuses"
+    },
+    {
+      "function": "getFeatureWallTourDepthStep",
+      "note": "workbench without workbenchStepId defaults to terminal",
+      "input": { "workflowId": "workbench" },
+      "expected": "workbench_terminal"
+    },
+    {
+      "function": "buildFeatureWallTourDepthSummary",
+      "note": "session-local counts and furthest step from visited sets",
+      "input": {
+        "visitedWorkflows": ["workspaces", "workbench"],
+        "visitedAgentSteps": [],
+        "visitedWorkbenchSteps": ["terminal", "editor"],
+        "visitedReviewSteps": [],
+        "workflowDone": {
+          "workspaces": true,
+          "tasks": false,
+          "agents-orchestration": false,
+          "workbench": false,
+          "review": false
+        },
+        "agentStepDone": { "statuses": false, "usage": false, "orchestration": false },
+        "workbenchStepDone": { "terminal": true, "editor": true, "browser": false },
+        "reviewStepDone": { "notes": false, "pr-view": false, "ship": false },
+        "lastGroupId": "workbench"
+      },
+      "expected": {
+        "furthest_step": "workbench_editor",
+        "last_group_id": "workbench",
+        "visited_workflow_count": 2,
+        "visited_substep_count": 2,
+        "completed_workflow_count": 1,
+        "completed_substep_count": 2
+      }
+    },
+    {
+      "function": "buildFeatureWallTourDepthSummary",
+      "note": "empty visited sets and null lastGroupId omit both optional keys",
+      "input": {
+        "visitedWorkflows": [],
+        "visitedAgentSteps": [],
+        "visitedWorkbenchSteps": [],
+        "visitedReviewSteps": [],
+        "workflowDone": {},
+        "agentStepDone": {},
+        "workbenchStepDone": {},
+        "reviewStepDone": {},
+        "lastGroupId": null
+      },
+      "expected": {
+        "visited_workflow_count": 0,
+        "visited_substep_count": 0,
+        "completed_workflow_count": 0,
+        "completed_substep_count": 0
+      }
+    },
+    {
+      "function": "buildFeatureWallTourDepthSummary",
+      "note": "all substeps visited puts furthest at review_ship",
+      "input": {
+        "visitedWorkflows": ["workspaces", "tasks"],
+        "visitedAgentSteps": ["statuses", "usage", "orchestration"],
+        "visitedWorkbenchSteps": ["terminal", "editor", "browser"],
+        "visitedReviewSteps": ["notes", "pr-view", "ship"],
+        "workflowDone": {
+          "workspaces": true,
+          "tasks": true,
+          "agents-orchestration": false,
+          "workbench": false,
+          "review": false
+        },
+        "agentStepDone": { "statuses": true, "usage": false, "orchestration": false },
+        "workbenchStepDone": { "terminal": false, "editor": false, "browser": false },
+        "reviewStepDone": { "notes": true, "pr-view": true, "ship": false },
+        "lastGroupId": "review"
+      },
+      "expected": {
+        "furthest_step": "review_ship",
+        "last_group_id": "review",
+        "visited_workflow_count": 2,
+        "visited_substep_count": 9,
+        "completed_workflow_count": 2,
+        "completed_substep_count": 3
+      }
+    }
+  ]
+}

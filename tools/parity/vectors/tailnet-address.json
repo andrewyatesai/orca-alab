@@ -1,0 +1,73 @@
+{
+  "module": "tailnet-address",
+  "source": "src/shared/tailnet-address.ts",
+  "rustCrate": "orca-core::tailnet_address",
+  "cases": [
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "lowest address in the 100.64.0.0/10 tailnet range",
+      "input": "100.64.0.1",
+      "expected": true
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "address inside the tailnet range",
+      "input": "100.102.47.57",
+      "expected": true
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "highest second octet (127) still in range",
+      "input": "100.127.255.254",
+      "expected": true
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "second octet 63 falls below the /10 range",
+      "input": "100.63.255.255",
+      "expected": false
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "second octet 128 falls above the /10 range",
+      "input": "100.128.0.1",
+      "expected": false
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "ordinary LAN address is not a tailnet address",
+      "input": "192.168.1.24",
+      "expected": false
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "IPv6 address has the wrong shape",
+      "input": "fd7a:115c:a1e0::ce33:2f3a",
+      "expected": false
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "only three octets is malformed",
+      "input": "100.102.47",
+      "expected": false
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "edge: octet greater than 255 is rejected",
+      "input": "256.64.0.1",
+      "expected": false
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "edge: 100.64.0.0 sits at the bottom of the range",
+      "input": "100.64.0.0",
+      "expected": true
+    },
+    {
+      "function": "isTailnetIPv4Address",
+      "note": "edge: empty string splits to a single part, not four",
+      "input": "",
+      "expected": false
+    }
+  ]
+}

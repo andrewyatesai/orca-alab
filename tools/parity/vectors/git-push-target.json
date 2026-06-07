@@ -1,0 +1,55 @@
+{
+  "module": "git-push-target",
+  "source": "src/shared/git-push-target-validation.ts",
+  "rustCrate": "orca-core::git_push_target",
+  "cases": [
+    {
+      "function": "assertGitPushTargetShape",
+      "note": "accepts slash-separated remote and branch names (no remote URL)",
+      "input": { "remoteName": "foo/bar", "branchName": "feature/fix" },
+      "expected": { "ok": true }
+    },
+    {
+      "function": "assertGitPushTargetShape",
+      "note": "rejects remote names with an empty segment",
+      "input": { "remoteName": "foo//bar", "branchName": "feature/fix" },
+      "expected": { "ok": false, "error": "Invalid git remote name: foo//bar" }
+    },
+    {
+      "function": "assertGitPushTargetShape",
+      "note": "rejects remote names with a parent-dir segment",
+      "input": { "remoteName": "foo/../bar", "branchName": "feature/fix" },
+      "expected": { "ok": false, "error": "Invalid git remote name: foo/../bar" }
+    },
+    {
+      "function": "assertGitPushTargetShape",
+      "note": "rejects dash-leading branch names (looks like a git flag)",
+      "input": { "remoteName": "origin", "branchName": "-rf" },
+      "expected": { "ok": false, "error": "Invalid git branch name: -rf" }
+    },
+    {
+      "function": "assertGitPushTargetShape",
+      "note": "rejects empty branch name; message keeps the trailing space from interpolating the empty value",
+      "input": { "remoteName": "origin", "branchName": "" },
+      "expected": { "ok": false, "error": "Invalid git branch name: " }
+    },
+    {
+      "function": "assertGitPushTargetShape",
+      "note": "accepts a valid GitHub https clone URL",
+      "input": { "remoteName": "origin", "branchName": "main", "remoteUrl": "https://github.com/owner/repo.git" },
+      "expected": { "ok": true }
+    },
+    {
+      "function": "assertGitPushTargetShape",
+      "note": "accepts a valid GitHub ssh URL",
+      "input": { "remoteName": "origin", "branchName": "main", "remoteUrl": "git@github.com:owner/repo.git" },
+      "expected": { "ok": true }
+    },
+    {
+      "function": "assertGitPushTargetShape",
+      "note": "rejects a non-GitHub remote URL",
+      "input": { "remoteName": "origin", "branchName": "main", "remoteUrl": "https://evil.com/owner/repo.git" },
+      "expected": { "ok": false, "error": "Invalid PR push target remote URL." }
+    }
+  ]
+}

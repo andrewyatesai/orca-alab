@@ -1,0 +1,15 @@
+[package]
+name = "orca-ssh"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SSH remote-runtime support for Orca. This first cut is the pure OpenSSH config parsing (ssh config / `ssh -G`); the transport will add a vendored SSH crate behind a connection boundary."
+
+[dependencies]
+# Pure parsing for now — std only. The transport tier (a vendored SSH crate)
+# is added behind a Connection trait, like orca-git's GitRunner.
+
+[lints.rust]
+unsafe_code = "forbid"

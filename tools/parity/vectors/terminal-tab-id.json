@@ -1,0 +1,49 @@
+{
+  "module": "terminal-tab-id",
+  "source": "src/shared/terminal-tab-id.ts",
+  "rustCrate": "orca-core::terminal_tab_id",
+  "cases": [
+    {
+      "function": "isValidTerminalTabId",
+      "note": "plain id with no colon is valid",
+      "input": "plain-tab",
+      "expected": true
+    },
+    {
+      "function": "isValidTerminalTabId",
+      "note": "empty string is rejected",
+      "input": "",
+      "expected": false
+    },
+    {
+      "function": "isValidTerminalTabId",
+      "note": "colon-bearing id is rejected (reserved tab/leaf delimiter)",
+      "input": "host-tab::leaf",
+      "expected": false
+    },
+    {
+      "function": "isValidTerminalTabId",
+      "note": "web-terminal surface id has no colon so it passes the base check",
+      "input": "web-terminal-abc",
+      "expected": true
+    },
+    {
+      "function": "isValidHostTerminalTabId",
+      "note": "plain id is a valid host tab id",
+      "input": "plain-tab",
+      "expected": true
+    },
+    {
+      "function": "isValidHostTerminalTabId",
+      "note": "web-terminal surface id is renderer-local, not a host tab",
+      "input": "web-terminal-abc",
+      "expected": false
+    },
+    {
+      "function": "isValidHostTerminalTabId",
+      "note": "colon-bearing id fails the base validity check",
+      "input": "a:b",
+      "expected": false
+    }
+  ]
+}

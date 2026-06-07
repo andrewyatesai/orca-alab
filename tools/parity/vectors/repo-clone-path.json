@@ -1,0 +1,79 @@
+{
+  "module": "repo-clone-path",
+  "source": "src/main/git/repo-clone-path.ts",
+  "rustCrate": "orca-git::repo_clone_path",
+  "cases": [
+    {
+      "function": "deriveValidatedClonePath",
+      "note": "allows safe repo names starting with two dots",
+      "input": { "url": "https://example.com/..repo.git", "destination": "/tmp/orca-test" },
+      "expected": { "clonePath": "/tmp/orca-test/..repo" }
+    },
+    {
+      "function": "deriveValidatedClonePath",
+      "note": "derives the normal repo name and strips the .git suffix",
+      "input": { "url": "https://github.com/owner/repo.git", "destination": "/home/me/src" },
+      "expected": { "clonePath": "/home/me/src/repo" }
+    },
+    {
+      "function": "deriveValidatedClonePath",
+      "note": "rejects a Windows drive-letter destination on a posix host",
+      "input": { "url": "https://example.com/orca.git", "destination": "C:\\Users\\me\\src" },
+      "expected": { "error": "Clone destination must be an absolute path" }
+    },
+    {
+      "function": "deriveValidatedClonePath",
+      "note": "rejects a UNC backslash destination on a posix host",
+      "input": { "url": "https://example.com/orca.git", "destination": "\\\\server\\share" },
+      "expected": { "error": "Clone destination must be an absolute path" }
+    },
+    {
+      "function": "deriveValidatedClonePath",
+      "note": "rejects a // UNC-like destination even though posix treats it absolute",
+      "input": { "url": "https://example.com/orca.git", "destination": "//server/share" },
+      "expected": { "error": "Clone destination must be an absolute path" }
+    },
+    {
+      "function": "deriveValidatedClonePath",
+      "note": "rejects a relative destination",
+      "input": { "url": "https://example.com/orca.git", "destination": "relative/path" },
+      "expected": { "error": "Clone destination must be an absolute path" }
+    },
+    {
+      "function": "deriveValidatedClonePath",
+      "note": "rejects a URL whose derived repo name is '..'",
+      "input": { "url": "..", "destination": "/home/me/src" },
+      "expected": { "error": "Invalid repository name derived from URL" }
+    },
+    {
+      "function": "getClonePathComparisonKey",
+      "note": "WSL localhost UNC folds the distro alias but not the Linux path case",
+      "input": { "clonePath": "\\\\wsl.localhost\\Ubuntu\\home\\User\\repo" },
+      "expected": "//wsl/ubuntu/home/User/repo"
+    },
+    {
+      "function": "getClonePathComparisonKey",
+      "note": "wsl$ alias canonicalizes to the same key as wsl.localhost",
+      "input": { "clonePath": "\\\\wsl$\\ubuntu\\home\\User\\repo" },
+      "expected": "//wsl/ubuntu/home/User/repo"
+    },
+    {
+      "function": "getClonePathComparisonKey",
+      "note": "trailing separator on a WSL UNC path is ignored",
+      "input": { "clonePath": "\\\\wsl.localhost\\Ubuntu\\home\\User\\repo\\" },
+      "expected": "//wsl/ubuntu/home/User/repo"
+    },
+    {
+      "function": "getClonePathComparisonKey",
+      "note": "Linux path casing under a WSL UNC path is significant",
+      "input": { "clonePath": "\\\\wsl$\\ubuntu\\home\\user\\repo" },
+      "expected": "//wsl/ubuntu/home/user/repo"
+    },
+    {
+      "function": "getClonePathComparisonKey",
+      "note": "Windows drive path is lowercased with the trailing slash trimmed",
+      "input": { "clonePath": "C:\\Repo\\Sub\\" },
+      "expected": "c:/repo/sub"
+    }
+  ]
+}

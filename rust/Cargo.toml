@@ -1,0 +1,46 @@
+# Orca native Rust workspace.
+#
+# Target architecture (see docs/rust-migration/architecture.md):
+#   - orca-core      : pure cross-cutting logic ported from src/shared (no IO)
+#   - orca-terminal  : headless terminal emulation via vendored alacritty_terminal
+#   - orca-git, orca-scm, orca-runtime, ... : IO/service tiers (added per migration phase)
+#   - thin Swift/SwiftUI shell on macOS links the core over a C ABI / UniFFI
+#
+# All third-party dependencies are vendored under rust/vendor and stripped to
+# essential functionality; the workspace builds offline (see .cargo/config.toml
+# once vendoring is wired up).
+[workspace]
+resolver = "2"
+members = [
+    "crates/orca-agents",
+    "crates/orca-config",
+    "crates/orca-core",
+    "crates/orca-crypto",
+    "crates/orca-ffi",
+    "crates/orca-git",
+    "crates/orca-net",
+    "crates/orca-parity",
+    "crates/orca-pty",
+    "crates/orca-relay",
+    "crates/orca-runtime",
+    "crates/orca-session",
+    "crates/orca-ssh",
+    "crates/orca-store",
+    "crates/orca-terminal",
+    "crates/orca-text",
+]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.96"
+license = "MIT"
+repository = "https://github.com/stablyai/orca"
+
+[profile.release]
+# Native binaries ship stripped and LTO'd for size — the app replaces a
+# multi-hundred-MB Electron bundle, so size discipline is a primary goal.
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

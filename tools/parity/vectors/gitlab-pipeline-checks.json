@@ -1,0 +1,141 @@
+{
+  "module": "gitlab-pipeline-checks",
+  "source": "src/shared/gitlab-pipeline-checks.ts",
+  "rustCrate": "orca-core::gitlab_pipeline_checks",
+  "cases": [
+    {
+      "function": "gitLabPipelineJobsToPRChecks",
+      "note": "maps GitLab pipeline jobs into right-panel check rows (verbatim from .test.ts)",
+      "input": [
+        {
+          "id": 1,
+          "name": "unit",
+          "stage": "test",
+          "status": "failed",
+          "webUrl": "https://gitlab.com/acme/orca/-/jobs/1",
+          "duration": 12
+        },
+        {
+          "id": 2,
+          "name": "deploy",
+          "stage": "deploy",
+          "status": "manual",
+          "webUrl": "",
+          "duration": null
+        },
+        {
+          "id": 3,
+          "name": "delayed deploy",
+          "stage": "deploy",
+          "status": "scheduled",
+          "webUrl": "https://gitlab.com/acme/orca/-/jobs/3",
+          "duration": null
+        },
+        {
+          "id": 4,
+          "name": "external callback",
+          "stage": "integration",
+          "status": "waiting_for_callback",
+          "webUrl": "https://gitlab.com/acme/orca/-/jobs/4",
+          "duration": null
+        }
+      ],
+      "expected": [
+        {
+          "name": "test: unit",
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://gitlab.com/acme/orca/-/jobs/1"
+        },
+        {
+          "name": "deploy: deploy",
+          "status": "completed",
+          "conclusion": "neutral",
+          "url": null
+        },
+        {
+          "name": "deploy: delayed deploy",
+          "status": "queued",
+          "conclusion": "pending",
+          "url": "https://gitlab.com/acme/orca/-/jobs/3"
+        },
+        {
+          "name": "integration: external callback",
+          "status": "queued",
+          "conclusion": "pending",
+          "url": "https://gitlab.com/acme/orca/-/jobs/4"
+        }
+      ]
+    },
+    {
+      "function": "gitLabPipelineJobsToPRChecks",
+      "note": "empty stage omits the prefix; empty webUrl becomes null; unknown status is completed with null conclusion",
+      "input": [
+        {
+          "id": 9,
+          "name": "lint",
+          "stage": "",
+          "status": "bogus",
+          "webUrl": "",
+          "duration": null
+        }
+      ],
+      "expected": [
+        {
+          "name": "lint",
+          "status": "completed",
+          "conclusion": null,
+          "url": null
+        }
+      ]
+    },
+    {
+      "function": "gitLabPipelineJobsToPRChecks",
+      "note": "empty input yields empty array",
+      "input": [],
+      "expected": []
+    },
+    {
+      "function": "mapGitLabPipelineJobStatusToCheckStatus",
+      "note": "case-insensitive running maps to in_progress",
+      "input": "RUNNING",
+      "expected": "in_progress"
+    },
+    {
+      "function": "mapGitLabPipelineJobStatusToCheckStatus",
+      "note": "preparing maps to queued",
+      "input": "preparing",
+      "expected": "queued"
+    },
+    {
+      "function": "mapGitLabPipelineJobStatusToCheckStatus",
+      "note": "unknown status falls through to completed",
+      "input": "bogus",
+      "expected": "completed"
+    },
+    {
+      "function": "mapGitLabPipelineJobStatusToConclusion",
+      "note": "case-insensitive success maps to success",
+      "input": "Success",
+      "expected": "success"
+    },
+    {
+      "function": "mapGitLabPipelineJobStatusToConclusion",
+      "note": "canceling maps to cancelled",
+      "input": "canceling",
+      "expected": "cancelled"
+    },
+    {
+      "function": "mapGitLabPipelineJobStatusToConclusion",
+      "note": "manual maps to neutral so the Checks tab does not look stuck",
+      "input": "manual",
+      "expected": "neutral"
+    },
+    {
+      "function": "mapGitLabPipelineJobStatusToConclusion",
+      "note": "unknown status returns null (top-level null, not omitted)",
+      "input": "bogus",
+      "expected": null
+    }
+  ]
+}

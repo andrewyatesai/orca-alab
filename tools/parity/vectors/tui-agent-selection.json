@@ -1,0 +1,79 @@
+{
+  "module": "tui-agent-selection",
+  "source": "src/shared/tui-agent-selection.ts",
+  "rustCrate": "orca-agents::tui_agent_selection",
+  "cases": [
+    {
+      "function": "pickTuiAgent",
+      "note": "uses an installed preferred agent",
+      "input": { "preferred": "codex", "detected": ["claude", "codex"] },
+      "expected": "codex"
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "falls back in catalog order when preference is absent",
+      "input": { "preferred": null, "detected": ["cursor", "codex"] },
+      "expected": "codex"
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "falls back in catalog order when preference is stale (not detected)",
+      "input": { "preferred": "gemini", "detected": ["cursor", "codex"] },
+      "expected": "codex"
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "catalog order picks command-code before continue",
+      "input": { "preferred": null, "detected": ["continue", "command-code"] },
+      "expected": "command-code"
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "explicit blank preference yields no agent",
+      "input": { "preferred": "blank", "detected": ["cursor", "claude"] },
+      "expected": null
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "disabled preferred falls back to next enabled detected agent",
+      "input": { "preferred": "codex", "detected": ["claude", "codex"], "disabled": ["codex"] },
+      "expected": "claude"
+    },
+    {
+      "function": "pickTuiAgent",
+      "note": "all detected agents disabled yields no agent",
+      "input": { "preferred": null, "detected": ["claude", "codex"], "disabled": ["claude", "codex"] },
+      "expected": null
+    },
+    {
+      "function": "normalizeDisabledTuiAgents",
+      "note": "dedupes supported ids and drops unsupported values (null persists as JSON null)",
+      "input": ["codex", "unknown", "codex", null, "claude"],
+      "expected": ["codex", "claude"]
+    },
+    {
+      "function": "normalizeDisabledTuiAgents",
+      "note": "non-array input yields empty list",
+      "input": "nope",
+      "expected": []
+    },
+    {
+      "function": "isTuiAgentEnabled",
+      "note": "agent present in disabled list is not enabled",
+      "input": { "agent": "codex", "disabled": ["codex"] },
+      "expected": false
+    },
+    {
+      "function": "isTuiAgentEnabled",
+      "note": "agent absent from disabled list is enabled",
+      "input": { "agent": "codex", "disabled": ["claude"] },
+      "expected": true
+    },
+    {
+      "function": "filterEnabledTuiAgents",
+      "note": "removes disabled agents, preserves input order",
+      "input": { "agents": ["claude", "codex", "grok"], "disabled": ["codex"] },
+      "expected": ["claude", "grok"]
+    }
+  ]
+}

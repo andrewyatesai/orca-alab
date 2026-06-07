@@ -1,0 +1,61 @@
+{
+  "module": "repo-badge-color",
+  "source": "src/shared/repo-badge-color.ts",
+  "rustCrate": "orca-core::repo_badge_color",
+  "cases": [
+    {
+      "function": "normalizeRepoBadgeColor",
+      "note": "six-digit hex with surrounding whitespace and no leading #, lowercased",
+      "input": { "value": " ABCDEF " },
+      "expected": "#abcdef"
+    },
+    {
+      "function": "normalizeRepoBadgeColor",
+      "note": "six-digit hex with leading # is lowercased",
+      "input": { "value": "#ABCDEF" },
+      "expected": "#abcdef"
+    },
+    {
+      "function": "normalizeRepoBadgeColor",
+      "note": "shorthand hex is expanded to six digits",
+      "input": { "value": "#abc" },
+      "expected": "#aabbcc"
+    },
+    {
+      "function": "normalizeRepoBadgeColor",
+      "note": "non-hex word rejected (TS returns null, persisted as null)",
+      "input": { "value": "blue" },
+      "expected": null
+    },
+    {
+      "function": "normalizeRepoBadgeColor",
+      "note": "css/script smuggling rejected (TS returns null)",
+      "input": { "value": "url(javascript:alert(1))" },
+      "expected": null
+    },
+    {
+      "function": "normalizeRepoBadgeColor",
+      "note": "invalid hex digits rejected (TS returns null)",
+      "input": { "value": "#12zz12" },
+      "expected": null
+    },
+    {
+      "function": "normalizeRepoBadgeColor",
+      "note": "extra: a palette member normalizes to the same value membership leaves output unchanged",
+      "input": { "value": "#EAB308" },
+      "expected": "#eab308"
+    },
+    {
+      "function": "resolveRepoBadgeColor",
+      "note": "invalid input falls back to DEFAULT_REPO_BADGE_COLOR (#737373)",
+      "input": { "value": "blue" },
+      "expected": "#737373"
+    },
+    {
+      "function": "resolveRepoBadgeColor",
+      "note": "extra: valid shorthand passes through resolve unchanged",
+      "input": { "value": "#abc" },
+      "expected": "#aabbcc"
+    }
+  ]
+}

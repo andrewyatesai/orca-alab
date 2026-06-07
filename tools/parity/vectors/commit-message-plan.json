@@ -1,0 +1,248 @@
+{
+  "module": "commit-message-plan",
+  "source": "src/shared/commit-message-plan.ts",
+  "rustCrate": "orca-agents::commit_message_plan",
+  "cases": [
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "Claude: prompt on stdin only (stdinPayload set, args carry no positional prompt)",
+      "input": {
+        "planInput": { "agentId": "claude", "model": "sonnet", "thinkingLevel": "high" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "claude",
+          "args": [
+            "-p",
+            "--output-format",
+            "text",
+            "--model",
+            "sonnet",
+            "--permission-mode",
+            "plan",
+            "--effort",
+            "high"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Claude"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "OpenCode: prompt in argv, stdinPayload is explicit null (not omitted)",
+      "input": {
+        "planInput": { "agentId": "opencode", "model": "opencode/gpt-5.4-mini", "thinkingLevel": "high" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "opencode",
+          "args": [
+            "run",
+            "--model",
+            "opencode/gpt-5.4-mini",
+            "--agent",
+            "build",
+            "--format",
+            "default",
+            "--variant",
+            "high",
+            "PROMPT"
+          ],
+          "stdinPayload": null,
+          "label": "OpenCode"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "Cursor dynamic model not in seed catalog is accepted",
+      "input": {
+        "planInput": { "agentId": "cursor", "model": "gpt-5.2", "thinkingLevel": "xhigh" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "cursor-agent",
+          "args": [
+            "--print",
+            "--mode",
+            "ask",
+            "--trust",
+            "--output-format",
+            "text",
+            "--model",
+            "gpt-5.2",
+            "PROMPT"
+          ],
+          "stdinPayload": null,
+          "label": "Cursor"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "Codex exec read-only, prompt on stdin only",
+      "input": {
+        "planInput": { "agentId": "codex", "model": "gpt-5.4-mini", "thinkingLevel": "medium" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.4-mini",
+            "-c",
+            "model_reasoning_effort=medium"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "preset agentCommandOverride becomes the spawn prefix; spec args follow",
+      "input": {
+        "planInput": { "agentId": "codex", "model": "gpt-5.4-mini", "agentCommandOverride": "npx codex" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "npx",
+          "args": [
+            "codex",
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.4-mini"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "invalid override (unclosed quote) is rejected before spawning",
+      "input": {
+        "planInput": { "agentId": "claude", "model": "haiku", "agentCommandOverride": "claude \"unterminated" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": false,
+        "error": "Agent command override is invalid: Unclosed quote in command template."
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "custom agent with {prompt} placeholder substitutes into argv, stdinPayload null, binary doubles as label",
+      "input": {
+        "planInput": { "agentId": "custom", "model": "ignored", "customAgentCommand": "ollama run llama3 {prompt}" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "ollama",
+          "args": ["run", "llama3", "PROMPT"],
+          "stdinPayload": null,
+          "label": "ollama"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "custom agent without placeholder delivers prompt via stdin",
+      "input": {
+        "planInput": { "agentId": "custom", "model": "ignored", "customAgentCommand": "ollama run llama3" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "ollama",
+          "args": ["run", "llama3"],
+          "stdinPayload": "PROMPT",
+          "label": "ollama"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "custom agent with empty command is rejected",
+      "input": {
+        "planInput": { "agentId": "custom", "model": "ignored" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": false,
+        "error": "Custom command is empty. Add one in Settings → Git → AI Commit Messages."
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "unknown agent id is rejected",
+      "input": {
+        "planInput": { "agentId": "bogus", "model": "anything" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": false,
+        "error": "Agent \"bogus\" does not support AI commit messages."
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "model not in a static agent's catalog is rejected with the agent label",
+      "input": {
+        "planInput": { "agentId": "claude", "model": "gpt-4" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": false,
+        "error": "Model \"gpt-4\" is not available for Claude."
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "thinking level on a model without an effort selector is rejected (uses model label)",
+      "input": {
+        "planInput": { "agentId": "claude", "model": "haiku", "thinkingLevel": "high" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": false,
+        "error": "Model \"Haiku\" does not support a thinking effort level."
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "thinking level not in the model's level list is rejected (uses model label)",
+      "input": {
+        "planInput": { "agentId": "claude", "model": "sonnet", "thinkingLevel": "ultra" },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": false,
+        "error": "Thinking level \"ultra\" is not valid for Sonnet."
+      }
+    }
+  ]
+}

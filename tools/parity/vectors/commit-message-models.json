@@ -1,0 +1,134 @@
+{
+  "module": "commit-message-models",
+  "source": "src/shared/commit-message-agent-spec.ts",
+  "rustCrate": "orca-agents::commit_message_models",
+  "cases": [
+    {
+      "function": "parseCodexModels",
+      "note": "Codex JSON with reasoning levels (xhigh relabels to Extra High)",
+      "input": "{\"models\":[{\"slug\":\"gpt-5.5\",\"display_name\":\"GPT-5.5\",\"default_reasoning_level\":\"low\",\"supported_reasoning_levels\":[{\"effort\":\"low\"},{\"effort\":\"high\"}]}]}",
+      "expected": [
+        {
+          "id": "gpt-5.5",
+          "label": "GPT-5.5",
+          "thinkingLevels": [
+            { "id": "low", "label": "Low" },
+            { "id": "high", "label": "High" }
+          ],
+          "defaultThinkingLevel": "low"
+        }
+      ]
+    },
+    {
+      "function": "parseCodexModels",
+      "note": "invalid JSON yields empty list (catch path)",
+      "input": "not json",
+      "expected": []
+    },
+    {
+      "function": "parseCodexModels",
+      "note": "drops entries missing slug/display_name; no reasoning levels omits thinking keys",
+      "input": "{\"models\":[{\"slug\":\"o3\",\"display_name\":\"O3\"},{\"slug\":\"\",\"display_name\":\"Empty\"},{\"display_name\":\"NoSlug\"}]}",
+      "expected": [{ "id": "o3", "label": "O3" }]
+    },
+    {
+      "function": "parseLineModels",
+      "note": "one model per line; blank lines skipped; gpt-5 ids gain OpenAI thinking levels",
+      "input": "opencode/gpt-5.4-mini\n\nopenai/gpt-5.5\n",
+      "expected": [
+        {
+          "id": "opencode/gpt-5.4-mini",
+          "label": "Opencode GPT 5.4 Mini",
+          "thinkingLevels": [
+            { "id": "low", "label": "Low" },
+            { "id": "medium", "label": "Medium" },
+            { "id": "high", "label": "High" },
+            { "id": "xhigh", "label": "Extra High" }
+          ],
+          "defaultThinkingLevel": "low"
+        },
+        {
+          "id": "openai/gpt-5.5",
+          "label": "Openai GPT 5.5",
+          "thinkingLevels": [
+            { "id": "low", "label": "Low" },
+            { "id": "medium", "label": "Medium" },
+            { "id": "high", "label": "High" },
+            { "id": "xhigh", "label": "Extra High" }
+          ],
+          "defaultThinkingLevel": "low"
+        }
+      ]
+    },
+    {
+      "function": "parseLineModels",
+      "note": "trims, drops lines with spaces, dedups by id; non-OpenAI ids omit thinking keys",
+      "input": "claude\nclaude\nhas space\n  sonnet  \n",
+      "expected": [
+        { "id": "claude", "label": "Claude" },
+        { "id": "sonnet", "label": "Sonnet" }
+      ]
+    },
+    {
+      "function": "parsePiModels",
+      "note": "Pi whitespace table; header row dropped; thinking=yes gives Pi effort levels",
+      "input": "provider        model                   context  max-out  thinking  images\ngithub-copilot  gpt-5.4-mini            400K     128K     yes       yes\ngithub-copilot  gpt-4o                  128K     4.1K     no        yes",
+      "expected": [
+        {
+          "id": "github-copilot/gpt-5.4-mini",
+          "label": "Github Copilot GPT 5.4 Mini",
+          "thinkingLevels": [
+            { "id": "off", "label": "Off" },
+            { "id": "low", "label": "Low" },
+            { "id": "medium", "label": "Medium" },
+            { "id": "high", "label": "High" },
+            { "id": "xhigh", "label": "Extra High" }
+          ],
+          "defaultThinkingLevel": "low"
+        },
+        {
+          "id": "github-copilot/gpt-4o",
+          "label": "Github Copilot GPT 4O"
+        }
+      ]
+    },
+    {
+      "function": "parseCursorModels",
+      "note": "Cursor `id - Label` lines; codex/gpt-5 ids gain OpenAI thinking levels",
+      "input": "auto - Auto\ngpt-5.2 - GPT-5.2\n",
+      "expected": [
+        { "id": "auto", "label": "Auto" },
+        {
+          "id": "gpt-5.2",
+          "label": "GPT-5.2",
+          "thinkingLevels": [
+            { "id": "low", "label": "Low" },
+            { "id": "medium", "label": "Medium" },
+            { "id": "high", "label": "High" },
+            { "id": "xhigh", "label": "Extra High" }
+          ],
+          "defaultThinkingLevel": "low"
+        }
+      ]
+    },
+    {
+      "function": "parseCursorModels",
+      "note": "strips trailing (default)/(current); non-matching lines dropped",
+      "input": "sonnet - Claude Sonnet (default)\ngpt-5.3-codex - GPT 5.3 Codex (current)\nnomatch line\n",
+      "expected": [
+        { "id": "sonnet", "label": "Claude Sonnet" },
+        {
+          "id": "gpt-5.3-codex",
+          "label": "GPT 5.3 Codex",
+          "thinkingLevels": [
+            { "id": "low", "label": "Low" },
+            { "id": "medium", "label": "Medium" },
+            { "id": "high", "label": "High" },
+            { "id": "xhigh", "label": "Extra High" }
+          ],
+          "defaultThinkingLevel": "low"
+        }
+      ]
+    }
+  ]
+}

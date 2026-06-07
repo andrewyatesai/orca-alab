@@ -1,0 +1,15 @@
+[package]
+name = "orca-session"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A terminal session: spawns a PTY (orca-pty) and streams its output into a headless terminal (orca-terminal) for rendering — the unit the UI drives."
+
+[dependencies]
+orca-pty = { path = "../orca-pty" }
+orca-terminal = { path = "../orca-terminal" }
+
+[lints.rust]
+unsafe_code = "forbid"

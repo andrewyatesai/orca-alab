@@ -1,0 +1,22 @@
+[package]
+name = "orca-parity"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Differential parity harness: runs the fresh Rust ports over a shared JSON vector corpus, self-checks against TS-derived golden values, and emits rust_outputs.json for cross-checking against the live TypeScript reference (see tools/parity)."
+
+[dependencies]
+serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
+orca-core = { path = "../orca-core" }
+orca-config = { path = "../orca-config" }
+orca-agents = { path = "../orca-agents" }
+orca-text = { path = "../orca-text" }
+orca-git = { path = "../orca-git" }
+orca-relay = { path = "../orca-relay" }
+orca-net = { path = "../orca-net" }
+orca-crypto = { path = "../orca-crypto" }
+
+[lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,17 @@
+[package]
+name = "orca-crypto"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "NaCl box (X25519 + XSalsa20-Poly1305) for Orca's E2EE remote-runtime transport, wire-compatible with tweetnacl. Over vendored, stripped crypto_box."
+
+[dependencies]
+# NaCl `box`, wire-compatible with tweetnacl/libsodium. Stripped: no getrandom
+# (nonces/seeds are injected at the IO edge), no std/serde — just the alloc AEAD
+# API + the salsa (XSalsa20-Poly1305) box.
+crypto_box = { version = "0.9", default-features = false, features = ["alloc", "salsa20"] }
+
+[lints.rust]
+unsafe_code = "forbid"

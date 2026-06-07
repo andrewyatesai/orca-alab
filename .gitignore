@@ -84,6 +84,9 @@ docs/**
 docs/reference/react-performance-audit.md
 !docs/STYLEGUIDE.md
 !docs/mobile-terminal-shortcut-bar.md
+# Native-Rust migration docs are durable reference material.
+!docs/rust-migration/
+!docs/rust-migration/**
 
 # Stably CLI (only docs/ are tracked)
 .stably/*
@@ -104,3 +107,8 @@ playwright-report/
 
 # Agent hook runtime endpoints (machine-local secrets)
 /agent-hooks/
+
+# Rust native workspace build artifacts
+/rust/target/
+# rust/vendor is intentionally tracked: dependencies are vendored in-tree
+# (offline, reproducible, stripped builds) per the native-Rust migration goal.

@@ -1,0 +1,93 @@
+{
+  "module": "stable-pane-id",
+  "source": "src/shared/stable-pane-id.ts",
+  "rustCrate": "orca-core::stable_pane_id",
+  "cases": [
+    {
+      "function": "isStablePaneId",
+      "note": "lowercase v4 UUID leaf id is a stable pane id",
+      "input": "11111111-1111-4111-8111-111111111111",
+      "expected": true
+    },
+    {
+      "function": "isStablePaneId",
+      "note": "rejects a version-6 UUID (only versions 1-5 allowed)",
+      "input": "11111111-1111-6111-8111-111111111111",
+      "expected": false
+    },
+    {
+      "function": "isStablePaneId",
+      "note": "rejects legacy numeric and colon-bearing ids",
+      "input": "pane:1",
+      "expected": false
+    },
+    {
+      "function": "isStablePaneId",
+      "note": "rejects empty string",
+      "input": "",
+      "expected": false
+    },
+    {
+      "function": "isTerminalLeafId",
+      "note": "terminal leaf id check aliases the stable pane id check",
+      "input": "11111111-1111-4111-8111-111111111111",
+      "expected": true
+    },
+    {
+      "function": "parsePaneKey",
+      "note": "splits tabId:uuid, stablePaneId aliases the leaf id",
+      "input": "tab-1:11111111-1111-4111-8111-111111111111",
+      "expected": {
+        "tabId": "tab-1",
+        "leafId": "11111111-1111-4111-8111-111111111111",
+        "stablePaneId": "11111111-1111-4111-8111-111111111111"
+      }
+    },
+    {
+      "function": "parsePaneKey",
+      "note": "rejects a legacy numeric leaf id",
+      "input": "tab-1:1",
+      "expected": null
+    },
+    {
+      "function": "parsePaneKey",
+      "note": "rejects a key with multiple colons",
+      "input": "tab:1:11111111-1111-4111-8111-111111111111",
+      "expected": null
+    },
+    {
+      "function": "parsePaneKey",
+      "note": "rejects an empty tab id",
+      "input": ":11111111-1111-4111-8111-111111111111",
+      "expected": null
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "trims and splits a legacy tabId:numeric alias",
+      "input": " tab-1:12 ",
+      "expected": {
+        "tabId": "tab-1",
+        "numericPaneId": "12",
+        "paneKey": "tab-1:12"
+      }
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "rejects a UUID leaf id (not a legacy numeric key)",
+      "input": "tab-1:11111111-1111-4111-8111-111111111111",
+      "expected": null
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "rejects a key with multiple colons",
+      "input": "tab:1:12",
+      "expected": null
+    },
+    {
+      "function": "parseLegacyNumericPaneKey",
+      "note": "non-string input is not a legacy key (returns null)",
+      "input": 42,
+      "expected": null
+    }
+  ]
+}

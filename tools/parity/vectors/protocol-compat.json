@@ -1,0 +1,246 @@
+{
+  "module": "protocol-compat",
+  "source": "src/shared/protocol-compat.ts",
+  "rustCrate": "orca-core::protocol_compat",
+  "cases": [
+    {
+      "function": "evaluateCompat",
+      "note": "ok when both desktop fields undefined (persisted as null) and constants wide-open",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopProtocolVersion": null,
+        "desktopMinCompatibleMobileVersion": null
+      },
+      "expected": { "kind": "ok" }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "ok when desktop reports version equal to mobile",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopProtocolVersion": 1,
+        "desktopMinCompatibleMobileVersion": 0
+      },
+      "expected": { "kind": "ok" }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "ok when desktop reports a newer version (additive changes assumed safe)",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopProtocolVersion": 6,
+        "desktopMinCompatibleMobileVersion": 0
+      },
+      "expected": { "kind": "ok" }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "with minCompatibleDesktopVersion = 0 even a far-newer desktop passes",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopProtocolVersion": 99,
+        "desktopMinCompatibleMobileVersion": 0
+      },
+      "expected": { "kind": "ok" }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "blocks mobile-too-old when desktop requires a newer mobile",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopProtocolVersion": 5,
+        "desktopMinCompatibleMobileVersion": 2
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "mobile-too-old",
+        "desktopVersion": 5,
+        "requiredMobileVersion": 2
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "coerces undefined desktopVersion (null) to 0 in the blocked payload",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 0,
+        "desktopProtocolVersion": null,
+        "desktopMinCompatibleMobileVersion": 2
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "mobile-too-old",
+        "desktopVersion": 0,
+        "requiredMobileVersion": 2
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "blocks desktop-too-old when desktop reports below the local minimum",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 5,
+        "desktopProtocolVersion": 3,
+        "desktopMinCompatibleMobileVersion": 0
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "desktop-too-old",
+        "desktopVersion": 3,
+        "requiredDesktopVersion": 5
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "mobile-too-old wins precedence when both constraints would fire (negative desktop)",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 99,
+        "desktopProtocolVersion": -1,
+        "desktopMinCompatibleMobileVersion": 2
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "mobile-too-old",
+        "desktopVersion": -1,
+        "requiredMobileVersion": 2
+      }
+    },
+    {
+      "function": "evaluateCompat",
+      "note": "hard-blocks protocol-1 mobile for the binary terminal stream cutover (DESKTOP_PROTOCOL_VERSION=3, MIN_COMPATIBLE_MOBILE_VERSION=2)",
+      "input": {
+        "mobileProtocolVersion": 1,
+        "minCompatibleDesktopVersion": 3,
+        "desktopProtocolVersion": 3,
+        "desktopMinCompatibleMobileVersion": 2
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "mobile-too-old",
+        "desktopVersion": 3,
+        "requiredMobileVersion": 2
+      }
+    },
+    {
+      "function": "evaluateRuntimeCompat",
+      "note": "current client and server self-compatible (RUNTIME=3, MIN_SERVER=2, MIN_CLIENT=2)",
+      "input": {
+        "clientProtocolVersion": 3,
+        "minCompatibleServerProtocolVersion": 2,
+        "serverProtocolVersion": 3,
+        "serverMinCompatibleClientProtocolVersion": 2
+      },
+      "expected": {
+        "kind": "ok",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 3
+      }
+    },
+    {
+      "function": "evaluateRuntimeCompat",
+      "note": "allows app-version skew when protocol ranges overlap (server newer, requires older client)",
+      "input": {
+        "clientProtocolVersion": 3,
+        "minCompatibleServerProtocolVersion": 2,
+        "serverProtocolVersion": 6,
+        "serverMinCompatibleClientProtocolVersion": 2
+      },
+      "expected": {
+        "kind": "ok",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 6
+      }
+    },
+    {
+      "function": "evaluateRuntimeCompat",
+      "note": "blocks client-too-old when the server requires a newer client protocol",
+      "input": {
+        "clientProtocolVersion": 3,
+        "minCompatibleServerProtocolVersion": 2,
+        "serverProtocolVersion": 4,
+        "serverMinCompatibleClientProtocolVersion": 4
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "client-too-old",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 4,
+        "requiredClientProtocolVersion": 4
+      }
+    },
+    {
+      "function": "evaluateRuntimeCompat",
+      "note": "blocks server-too-old when the server protocol is below the client minimum",
+      "input": {
+        "clientProtocolVersion": 3,
+        "minCompatibleServerProtocolVersion": 3,
+        "serverProtocolVersion": 2,
+        "serverMinCompatibleClientProtocolVersion": 0
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "server-too-old",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 2,
+        "requiredServerProtocolVersion": 3
+      }
+    },
+    {
+      "function": "evaluateRuntimeCompat",
+      "note": "treats missing server fields (null) as protocol 0, then blocks server-too-old",
+      "input": {
+        "clientProtocolVersion": 3,
+        "minCompatibleServerProtocolVersion": 1,
+        "serverProtocolVersion": null,
+        "serverMinCompatibleClientProtocolVersion": null
+      },
+      "expected": {
+        "kind": "blocked",
+        "reason": "server-too-old",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 0,
+        "requiredServerProtocolVersion": 1
+      }
+    },
+    {
+      "function": "describeRuntimeCompatBlock",
+      "note": "ok verdict yields the compatible message",
+      "input": {
+        "kind": "ok",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 3
+      },
+      "expected": "Runtime client and server are compatible."
+    },
+    {
+      "function": "describeRuntimeCompatBlock",
+      "note": "client-too-old verdict yields the update-this-machine message",
+      "input": {
+        "kind": "blocked",
+        "reason": "client-too-old",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 4,
+        "requiredClientProtocolVersion": 4
+      },
+      "expected": "This Orca client is too old for the selected server. Update Orca on this machine. Client protocol 3, server requires client protocol 4."
+    },
+    {
+      "function": "describeRuntimeCompatBlock",
+      "note": "server-too-old verdict yields the update-the-server message",
+      "input": {
+        "kind": "blocked",
+        "reason": "server-too-old",
+        "clientProtocolVersion": 3,
+        "serverProtocolVersion": 2,
+        "requiredServerProtocolVersion": 3
+      },
+      "expected": "The selected Orca server is too old for this client. Update Orca on the server. Server protocol 2, client requires server protocol 3."
+    }
+  ]
+}

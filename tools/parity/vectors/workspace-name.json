@@ -1,0 +1,133 @@
+{
+  "module": "workspace-name",
+  "source": "src/shared/workspace-name.ts",
+  "rustCrate": "orca-text::workspace_name",
+  "cases": [
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "strips path-traversal dots, emoji, and uppercases to a git-ref-safe seed",
+      "input": "../../Fix mobile Tasks 🚀",
+      "expected": "fix-mobile-tasks"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "slash and whitespace both collapse to single dashes",
+      "input": "feature/add issue drawer",
+      "expected": "feature-add-issue-drawer"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "truncates to the 48-char workspace-name limit",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "empty string stays empty",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "whitespace-only trims to empty",
+      "input": "   ",
+      "expected": ""
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "lowercases and dashes a simple title",
+      "input": "Hello World",
+      "expected": "hello-world"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "collapses consecutive dots to one (git rejects '..')",
+      "input": "foo..bar",
+      "expected": "foo.bar"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "leading/trailing dot runs collapse then trim away",
+      "input": "...test...",
+      "expected": "test"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "leading/trailing dashes are trimmed and collapsed",
+      "input": "--leading-dashes--",
+      "expected": "leading-dashes"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "non-ascii (CJK) characters are stripped to dashes then collapsed",
+      "input": "Tokyo 日本 Test",
+      "expected": "tokyo-test"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "underscores survive lowercasing",
+      "input": "UPPER_case_Name",
+      "expected": "upper_case_name"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "runs of whitespace collapse to a single dash after trim",
+      "input": "  Multiple   Spaces  ",
+      "expected": "multiple-spaces"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "digits are preserved",
+      "input": "123 numbers 456",
+      "expected": "123-numbers-456"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "single dots between segments are kept",
+      "input": "a.b.c",
+      "expected": "a.b.c"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "trailing dot is trimmed by the dot/dash trim step",
+      "input": "end.with.dot.",
+      "expected": "end.with.dot"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "all-punctuation input reduces to empty",
+      "input": "!!!@@@###",
+      "expected": ""
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "emoji-only input reduces to empty",
+      "input": "🚀🎉",
+      "expected": ""
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "truncation that lands on a dash gets the final trailing dash/dot/underscore trim",
+      "input": "aaaaaaa bbbbbbb ccccccc ddddddd eeeeeee fffffff ggggggg",
+      "expected": "aaaaaaa-bbbbbbb-ccccccc-ddddddd-eeeeeee-fffffff"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "trailing underscore is removed only by the final trim, not the dot/dash trim",
+      "input": "name_",
+      "expected": "name"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "mixed forward and back slashes both become dashes",
+      "input": "a/b\\c",
+      "expected": "a-b-c"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "interleaved dot/dash runs at both ends are trimmed",
+      "input": ".-.-.foo.-.-.",
+      "expected": "foo"
+    }
+  ]
+}

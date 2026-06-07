@@ -1,0 +1,127 @@
+{
+  "module": "pi-agent-kind",
+  "source": "src/shared/pi-agent-kind.ts",
+  "rustCrate": "orca-text::pi_agent_kind",
+  "cases": [
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "undefined command (TS undefined persists as JSON null) defaults to pi",
+      "input": null,
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "empty string defaults to pi",
+      "input": "",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "bare pi launch",
+      "input": "pi",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "pi with a flag",
+      "input": "pi --resume",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "bare omp launch",
+      "input": "omp",
+      "expected": "omp"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "omp with a short flag (trailing boundary)",
+      "input": "omp -v",
+      "expected": "omp"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "omp.sh script suffix",
+      "input": "omp.sh",
+      "expected": "omp"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "omp via absolute path",
+      "input": "/usr/local/bin/omp",
+      "expected": "omp"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "omp.sh via home-relative path",
+      "input": "~/bin/omp.sh",
+      "expected": "omp"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "omp via dot-relative path prefix",
+      "input": "./omp",
+      "expected": "omp"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "omp after a shell separator",
+      "input": "foo && omp",
+      "expected": "omp"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "pi via absolute path",
+      "input": "/usr/local/bin/pi",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "pip is not pi (word-boundary guard)",
+      "input": "pip install foo",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "mpirun is not pi (word-boundary guard)",
+      "input": "mpirun -n 4 ./app",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "python is not pi (word-boundary guard)",
+      "input": "python3 script.py",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "compile is not omp (word-boundary guard), falls back to pi",
+      "input": "compile this",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "pomp is not omp (leading-boundary guard), falls back to pi",
+      "input": "pomp.exe",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "somp is not omp (no slash prefix), falls back to pi",
+      "input": "somp",
+      "expected": "pi"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "case-insensitive Windows omp executable",
+      "input": "OMP.EXE",
+      "expected": "omp"
+    },
+    {
+      "function": "detectPiAgentKindFromCommand",
+      "note": "case-insensitive Windows pi executable",
+      "input": "PI.CMD",
+      "expected": "pi"
+    }
+  ]
+}

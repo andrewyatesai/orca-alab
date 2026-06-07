@@ -1,0 +1,56 @@
+{
+  "module": "pi-overlay-ui-settings",
+  "source": "src/shared/pi-overlay-ui-settings.ts",
+  "rustCrate": "orca-config::pi_overlay_ui_settings",
+  "cases": [
+    {
+      "function": "mergePiOverlayUiSettings",
+      "note": "preserves user settings while forcing Orca-only Pi UI safety settings",
+      "input": {
+        "defaultProvider": "amazon-bedrock",
+        "hideThinkingBlock": false,
+        "packages": ["npm:pi-web-access"],
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": false
+        }
+      },
+      "expected": {
+        "defaultProvider": "amazon-bedrock",
+        "hideThinkingBlock": true,
+        "packages": ["npm:pi-web-access"],
+        "terminal": {
+          "showImages": false,
+          "clearOnShrink": true
+        }
+      }
+    },
+    {
+      "function": "mergePiOverlayUiSettings",
+      "note": "null input creates a valid settings object from malformed shape",
+      "input": null,
+      "expected": {
+        "hideThinkingBlock": true,
+        "terminal": { "clearOnShrink": true }
+      }
+    },
+    {
+      "function": "mergePiOverlayUiSettings",
+      "note": "non-object terminal is replaced with the forced overrides",
+      "input": { "terminal": "compact" },
+      "expected": {
+        "hideThinkingBlock": true,
+        "terminal": { "clearOnShrink": true }
+      }
+    },
+    {
+      "function": "mergePiOverlayUiSettings",
+      "note": "array input is not a plain record, yields defaults only",
+      "input": [1, 2, 3],
+      "expected": {
+        "hideThinkingBlock": true,
+        "terminal": { "clearOnShrink": true }
+      }
+    }
+  ]
+}

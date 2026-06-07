@@ -1,0 +1,157 @@
+{
+  "module": "cross-platform-path",
+  "source": "src/shared/cross-platform-path.ts",
+  "rustCrate": "orca-core::cross_platform_path",
+  "cases": [
+    {
+      "function": "isWindowsAbsolutePathLike",
+      "note": "drive-letter prefix is windows-absolute-like",
+      "input": { "value": "C:\\foo" },
+      "expected": true
+    },
+    {
+      "function": "isWindowsAbsolutePathLike",
+      "note": "plain posix path is not",
+      "input": { "value": "/usr/local" },
+      "expected": false
+    },
+    {
+      "function": "normalizeRuntimePathSeparators",
+      "note": "UNC backslashes collapse to a // root",
+      "input": { "value": "\\\\Server\\Share" },
+      "expected": "//Server/Share"
+    },
+    {
+      "function": "normalizeRuntimePathSeparators",
+      "note": "repeated posix slashes collapse to one",
+      "input": { "value": "/a//b///c" },
+      "expected": "/a/b/c"
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "windows path lowercased and trailing slash trimmed",
+      "input": { "value": "C:\\Repo\\" },
+      "expected": "c:/repo"
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "posix path preserves case",
+      "input": { "value": "/Repo/App/" },
+      "expected": "/Repo/App"
+    },
+    {
+      "function": "resolveRuntimePath",
+      "note": "posix relative target resolves against base without cwd",
+      "input": { "basePath": "/repos/app/repo", "targetPath": "../worktrees/feature" },
+      "expected": "/repos/app/worktrees/feature"
+    },
+    {
+      "function": "resolveRuntimePath",
+      "note": "posix absolute target replaces the base",
+      "input": { "basePath": "/repos/app/repo", "targetPath": "/custom/worktrees" },
+      "expected": "/custom/worktrees"
+    },
+    {
+      "function": "resolveRuntimePath",
+      "note": "windows relative target resolves with windows semantics",
+      "input": { "basePath": "C:\\Repos\\app\\repo", "targetPath": "..\\worktrees\\feature" },
+      "expected": "C:/Repos/app/worktrees/feature"
+    },
+    {
+      "function": "resolveRuntimePath",
+      "note": "windows absolute drive target replaces the base",
+      "input": { "basePath": "C:\\Repos\\app\\repo", "targetPath": "D:\\worktrees" },
+      "expected": "D:/worktrees"
+    },
+    {
+      "function": "getRuntimePathBasename",
+      "note": "strips trailing posix separator",
+      "input": { "value": "/repo/app/" },
+      "expected": "app"
+    },
+    {
+      "function": "getRuntimePathBasename",
+      "note": "strips trailing windows separators",
+      "input": { "value": "C:\\repo\\app\\\\" },
+      "expected": "app"
+    },
+    {
+      "function": "getRuntimePathBasename",
+      "note": "empty string yields empty basename",
+      "input": { "value": "" },
+      "expected": ""
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "exact match is inside",
+      "input": { "rootPath": "/repo/app", "candidatePath": "/repo/app" },
+      "expected": true
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "nested posix path is inside",
+      "input": { "rootPath": "/repo/app", "candidatePath": "/repo/app/src/index.ts" },
+      "expected": true
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "sibling prefix is not inside",
+      "input": { "rootPath": "/repo/app", "candidatePath": "/repo/application/src/index.ts" },
+      "expected": false
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "windows drive containment is case-insensitive",
+      "input": { "rootPath": "C:\\Repo", "candidatePath": "c:\\repo\\src\\index.ts" },
+      "expected": true
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "different drive is not inside",
+      "input": { "rootPath": "C:\\Repo", "candidatePath": "D:\\Repo\\src\\index.ts" },
+      "expected": false
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "UNC root with trailing slash and mixed separators is inside",
+      "input": { "rootPath": "\\\\Server\\Share\\Repo\\", "candidatePath": "//server/share/repo/src" },
+      "expected": true
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "UNC sibling repo is not inside",
+      "input": { "rootPath": "\\\\Server\\Share\\Repo", "candidatePath": "\\\\server\\share\\repo2" },
+      "expected": false
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "posix relative path inside root",
+      "input": { "rootPath": "/repo/app/", "candidatePath": "/repo/app/src/index.ts" },
+      "expected": "src/index.ts"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "windows relative path inside root, original case preserved in result",
+      "input": { "rootPath": "C:\\Repo", "candidatePath": "c:\\repo\\src\\index.ts" },
+      "expected": "src/index.ts"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "windows drive root contains everything below it",
+      "input": { "rootPath": "C:\\", "candidatePath": "c:\\repo\\src\\index.ts" },
+      "expected": "repo/src/index.ts"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "UNC root with mixed separators",
+      "input": { "rootPath": "\\\\Server\\Share\\Repo\\", "candidatePath": "//server/share/repo/src" },
+      "expected": "src"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "sibling prefix is not contained, returns null",
+      "input": { "rootPath": "/repo/app", "candidatePath": "/repo/application" },
+      "expected": null
+    }
+  ]
+}

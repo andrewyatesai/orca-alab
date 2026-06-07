@@ -1,0 +1,55 @@
+{
+  "module": "terminal-surface-id",
+  "source": "src/shared/terminal-surface-id.ts",
+  "rustCrate": "orca-core::terminal_surface_id",
+  "cases": [
+    {
+      "function": "toWebTerminalSurfaceTabId",
+      "note": "percent-encodes the :: host separator so it survives pane-key ':' delimiting",
+      "input": "host-tab-1::leaf-9",
+      "expected": "web-terminal-host-tab-1%3A%3Aleaf-9"
+    },
+    {
+      "function": "toWebTerminalSurfaceTabId",
+      "note": "also encodes slashes and spaces in the host surface id",
+      "input": "host-tab-1::/repo/path leaf",
+      "expected": "web-terminal-host-tab-1%3A%3A%2Frepo%2Fpath%20leaf"
+    },
+    {
+      "function": "toHostSessionTabId",
+      "note": "round-trips a wrapped id back to the original host surface id",
+      "input": "web-terminal-host-tab-1%3A%3Aleaf-9",
+      "expected": "host-tab-1::leaf-9"
+    },
+    {
+      "function": "toHostSessionTabId",
+      "note": "non-prefixed id passes through unchanged",
+      "input": "plain-tab",
+      "expected": "plain-tab"
+    },
+    {
+      "function": "toHostSessionTabId",
+      "note": "host separator without the web-terminal prefix is not decoded",
+      "input": "host-tab::leaf",
+      "expected": "host-tab::leaf"
+    },
+    {
+      "function": "toHostSessionTabId",
+      "note": "prefixed but malformed percent-escape: TS catch returns the full original tabId, the Rust port returns the decoded slice",
+      "input": "web-terminal-%zz",
+      "allowDivergence": "On a malformed decode, TS returns the full original tabId ('web-terminal-%zz') while orca_core::terminal_surface_id::to_host_session_tab_id returns the encoded slice ('%zz')."
+    },
+    {
+      "function": "isWebTerminalSurfaceTabId",
+      "note": "prefixed id is a web-terminal surface tab id",
+      "input": "web-terminal-abc",
+      "expected": true
+    },
+    {
+      "function": "isWebTerminalSurfaceTabId",
+      "note": "host separator without the prefix is not a web-terminal surface tab id",
+      "input": "host-tab::leaf",
+      "expected": false
+    }
+  ]
+}

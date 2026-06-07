@@ -1,0 +1,64 @@
+{
+  "module": "source-control-ai",
+  "source": "src/shared/source-control-ai.ts",
+  "rustCrate": "orca-git::source_control_ai",
+  "cases": [
+    {
+      "function": "normalizeRepoSourceControlAiOverrides",
+      "note": "normalizes repo overrides defensively and preserves explicit inherit sentinels",
+      "input": {
+        "modelOverridesByOperation": {
+          "commitMessage": {
+            "selectedModelByAgent": { "codex": "gpt-5.4", "claude": 42, "constructor": "polluted" },
+            "selectedModelByAgentByHost": {
+              "local": { "codex": "gpt-5.4" },
+              "ssh:conn-1": { "codex": "remote-model", "claude": false },
+              "malformed": "not-a-record",
+              "prototype": { "codex": "polluted" }
+            },
+            "selectedThinkingByModel": {
+              "gpt-5.4": "xhigh",
+              "remote-model": "high",
+              "bad": true,
+              "constructor": "polluted"
+            }
+          },
+          "pullRequest": { "selectedModelByAgent": [] },
+          "branchName": { "selectedModelByAgent": { "codex": "gpt-5.4" } },
+          "unknown": { "selectedModelByAgent": { "codex": "ignored" } }
+        },
+        "instructionsByOperation": {
+          "commitMessage": null,
+          "pullRequest": "",
+          "branchName": "branch style",
+          "unknown": "ignored"
+        },
+        "prCreationDefaults": {
+          "draft": true,
+          "useTemplate": null,
+          "generateDetailsOnOpen": "yes",
+          "openAfterCreate": false
+        }
+      },
+      "expected": {
+        "modelOverridesByOperation": {
+          "commitMessage": {
+            "selectedModelByAgent": { "codex": "gpt-5.4" },
+            "selectedModelByAgentByHost": {
+              "local": { "codex": "gpt-5.4" },
+              "ssh:conn-1": { "codex": "remote-model" }
+            },
+            "selectedThinkingByModel": { "gpt-5.4": "xhigh", "remote-model": "high" }
+          },
+          "branchName": { "selectedModelByAgent": { "codex": "gpt-5.4" } }
+        },
+        "instructionsByOperation": {
+          "commitMessage": null,
+          "pullRequest": "",
+          "branchName": "branch style"
+        },
+        "prCreationDefaults": { "draft": true, "useTemplate": null, "openAfterCreate": false }
+      }
+    }
+  ]
+}

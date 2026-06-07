@@ -12,7 +12,7 @@ Authoritative inventory of what each subsystem does lives in `functional-map.md`
    panic-free (so Trust can discharge panic-safety obligations).
 5. Record it here; mark the owning subsystem in `functional-map.md` when fully covered.
 
-## `orca-config` — project/config tier (7 modules, 43 tests, clippy clean)
+## `orca-config` — project/config tier (14 modules, 113 tests, clippy clean)
 
 JSON-backed config inspection on **vendored `serde_json`** (`preserve_order`,
 so servers list in file order). `mcp` ports `inspectMcpConfigContent` +
@@ -32,7 +32,7 @@ unblocks a broad class of future ports.
 | `workspace_statuses` | `workspace-statuses.ts` (+`-defaults`/`-default-migration`) | status-column normalize (sanitize id/label/color/icon, dedupe, cap) + one-shot legacy-default-visual + reversed-order migrations; clamp board width/opacity; group-key encode/decode |
 | `feature_interactions` | `feature-interactions.ts` | 37-id feature-interaction catalog + `normalizeFeatureInteractions`/`hasFeatureInteraction` over untrusted persisted JSON (drop unknown ids, reject non-finite/negative `firstInteractedAt`, integer>0 `interactionCount` else 1). Reassigned from orca-core (needs `serde_json::Value`). TS repo-writer meta-test skipped (asserts the TS app, not this logic) |
 
-## `orca-agents` — agent-CLI tier (8 modules, 89 tests, clippy clean)
+## `orca-agents` — agent-CLI tier (11 modules, 115 tests, clippy clean)
 
 Seeds the agent-CLI domain (commit-message generation, provider specs, output
 parsing). `commit_message_prompt` ports `commit-message-prompt.ts`: the base
@@ -86,7 +86,7 @@ guarantee than the original had.
 | --- | --- | --- |
 | `nacl_box` | `e2ee-crypto.ts` | X25519 keypair-from-seed + shared-box precompute + seal/open; canonical NaCl `box` KAT (`tweetnacl` wire-compat), peer interop round-trip, tamper/short/bad-length rejection |
 
-## `orca-relay` — remote/mobile transport tier (3 modules + base64, 39 tests, clippy clean)
+## `orca-relay` — remote/mobile transport tier (4 modules + base64, 46 tests, clippy clean)
 
 The remote/mobile transport (replaces the `ws`-based relay). `terminal_stream`
 is the binary framing it multiplexes terminal traffic over; `pairing` is the
@@ -108,7 +108,7 @@ the handshake state machine is fully unit-testable with no IO.
 | `e2ee_channel` | `runtime/rpc/e2ee-channel.ts` | NaCl-box handshake state machine (hello→auth→ready) + transparent encrypt/decrypt; token-auth + nonce RNG injected; consecutive-decrypt-failure cap, handshake timeout, destroy-safety. 16 cases (the 1 cross-compat sanity case lives in `orca-crypto`'s interop test) |
 | `base64` (priv) | — | standard (`+/=`) + url-safe-no-pad encode, lenient decode; shared by pairing + e2ee_channel |
 
-## `orca-core` — done (47 modules, 262 tests, clippy clean)
+## `orca-core` — done (49 modules, 271 tests, clippy clean)
 
 | Rust module | Source (`src/shared/`) | Notes |
 | --- | --- | --- |
@@ -175,7 +175,7 @@ zero-dependency.
 | `agent_tab_title` | `agent-tab-title.ts` | prompt → short tab title: first clause, leading-filler/markup/link/punctuation strip, `\p{L}`/`\p{N}` cleanup, capitalize, word-boundary truncate (needs `unicode-gencat`) |
 | `workspace_name` | `workspace-name.ts` | git-ref-safe slugify + work-item intent name (action detection w/ `[^a-z0-9_-]` boundaries so slugs aren't mistaken for actions, compact title, Linear/Jira identity), create-name resolve |
 
-## `orca-git` — IO tier (15 modules, 73 tests, clippy clean)
+## `orca-git` — IO tier (21 modules, 113 tests, clippy clean)
 
 Git logic generic over a `GitRunner` boundary (`runner.rs`): real
 `ProcessGitRunner` shells the user's `git` via `std::process` (Orca's current

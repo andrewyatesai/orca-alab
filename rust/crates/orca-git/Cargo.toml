@@ -13,6 +13,10 @@ description = "Git operations for Orca: a runner abstraction over the user's git
 # trait without touching call sites.
 orca-core = { path = "../orca-core" }
 orca-text = { path = "../orca-text" }
+# source-control-ai reuses the commit-message model shape from orca-agents.
+orca-agents = { path = "../orca-agents" }
+serde_json = { version = "1", default-features = false, features = ["std"] }
 
 [lints.rust]
 unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trust_verify)'] }

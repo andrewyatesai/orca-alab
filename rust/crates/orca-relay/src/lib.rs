@@ -19,3 +19,9 @@ pub use terminal_stream::{
     encode_terminal_stream_frame, encode_terminal_stream_json, encode_terminal_stream_text,
     TerminalStreamFrame, TerminalStreamOpcode,
 };
+
+
+// --- ported user-story slice (workflow w8rbqzuzc) ---
+pub mod browser_screencast_protocol;
+
+pub use browser_screencast_protocol::{decode_browser_screencast_frame, encode_browser_screencast_frame, BrowserScreencastFormat, BrowserScreencastFrame, BrowserScreencastOpcode};

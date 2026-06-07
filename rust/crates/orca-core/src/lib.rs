@@ -56,3 +56,8 @@ pub mod worktree_base_ref;
 pub mod worktree_id;
 pub mod worktree_ownership;
 pub mod wsl_paths;
+
+
+// --- ported user-story slice (workflow w8rbqzuzc) ---
+pub mod browser_grab_types;
+pub mod browser_viewport_presets;

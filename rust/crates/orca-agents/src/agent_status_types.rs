@@ -48,6 +48,10 @@ pub struct ParsedAgentStatusPayload {
 
 /// Truncate to `max_length` UTF-16 code units, dropping a trailing lone high
 /// surrogate so the result is always valid UTF-16 (no replacement glyph).
+// Trust contract: inert under stock cargo, proved under `--cfg trust_verify`.
+// Postcondition — the result never exceeds the cap in UTF-16 code units (the
+// "no lone surrogate" property is asserted by the tests pending a Trust predicate).
+#[cfg_attr(trust_verify, trust::ensures(|out: &String| out.encode_utf16().count() <= max_length))]
 fn truncate_preserving_surrogates(value: &str, max_length: usize) -> String {
     let units: Vec<u16> = value.encode_utf16().collect();
     if units.len() <= max_length {

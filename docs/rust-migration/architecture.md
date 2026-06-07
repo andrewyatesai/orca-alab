@@ -170,7 +170,7 @@ The detailed, dependency-ordered plan is in `migration-plan.md`.
 
 ## Proof of pipeline (done)
 
-Fifteen crates are ported and green offline (`cargo test`: **604 passed**,
+Fifteen crates are ported and green offline (`cargo test`: **738 passed**,
 clippy clean), each module carrying its **original test cases translated
 verbatim** — so `cargo test` is the behavioural-parity gate:
 
@@ -256,8 +256,8 @@ each output against the transcribed golden and runs with **only the Rust
 toolchain** (no Node), so it is verifiable in a headless/offline environment; the
 vitest leg (`parity.test.ts`) closes the TS side on a machine with Node.
 
-**Coverage:** 71 of the ~88 ported logic modules have parity adapters —
-**938 vectors, 936 golden checks green offline** (`cargo run -p orca-parity`).
+**Coverage:** 81 of the ported logic modules have parity adapters —
+**1043 vectors, 1041 golden checks green offline** (`cargo run -p orca-parity`).
 The other 17 are honestly out of differential scope and logged: io-edge functions
 that only run via injected fs/exec/clock/socket closures (`git::remote`,
 `git::status`, `git::branch_cleanup`, `relay::e2ee_channel`, …), modules sourced

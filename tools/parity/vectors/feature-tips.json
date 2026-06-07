@@ -1,0 +1,129 @@
+{
+  "module": "feature-tips",
+  "source": "src/shared/feature-tips.ts",
+  "rustCrate": "orca-config::feature_tips",
+  "cases": [
+    {
+      "function": "getOrderedUnseenFeatureTips",
+      "note": "orders new unseen tips before older unseen tips",
+      "input": { "seenTipIds": [] },
+      "expected": [
+        {
+          "id": "orca-cli",
+          "priority": "new",
+          "eyebrow": "Tip",
+          "title": "Let agents drive Orca with the Orca CLI",
+          "description": "Enable agents to coordinate child worktrees and communicate between worktrees.",
+          "action": "setup-cli",
+          "ctaLabel": "Install CLI & Skills",
+          "completedByFeatureInteractions": []
+        },
+        {
+          "id": "voice-dictation",
+          "priority": "unseen",
+          "eyebrow": "Tip",
+          "title": "Voice Dictation is here",
+          "description": "Speak into any focused pane and Orca will transcribe it. Press the dictation shortcut to start and stop.",
+          "action": "enable-voice",
+          "ctaLabel": "Set Up Voice",
+          "completedByFeatureInteractions": ["voice-dictation"]
+        }
+      ]
+    },
+    {
+      "function": "getOrderedUnseenFeatureTips",
+      "note": "skips tips the user has already seen",
+      "input": { "seenTipIds": ["voice-dictation", "orca-cli"] },
+      "expected": []
+    },
+    {
+      "function": "getOrderedUnseenFeatureTips",
+      "note": "skips tips for features the user has already completed",
+      "input": { "seenTipIds": [], "completedTipIds": ["orca-cli", "voice-dictation"] },
+      "expected": []
+    },
+    {
+      "function": "getOrderedUnseenFeatureTips",
+      "note": "skips the CLI tip when the CLI is already installed",
+      "input": { "seenTipIds": ["voice-dictation"], "completedTipIds": ["orca-cli"] },
+      "expected": []
+    },
+    {
+      "function": "getOrderedUnseenFeatureTips",
+      "note": "skips tips for completed features, leaving the CLI tip",
+      "input": { "seenTipIds": [], "completedTipIds": ["voice-dictation"] },
+      "expected": [
+        {
+          "id": "orca-cli",
+          "priority": "new",
+          "eyebrow": "Tip",
+          "title": "Let agents drive Orca with the Orca CLI",
+          "description": "Enable agents to coordinate child worktrees and communicate between worktrees.",
+          "action": "setup-cli",
+          "ctaLabel": "Install CLI & Skills",
+          "completedByFeatureInteractions": []
+        }
+      ]
+    },
+    {
+      "function": "getCompletedFeatureTipIds",
+      "note": "cli installed and voice enabled complete both tips",
+      "input": { "cliInstalled": true, "voiceDictationEnabled": true },
+      "expected": ["orca-cli", "voice-dictation"]
+    },
+    {
+      "function": "getCompletedFeatureTipIds",
+      "note": "cli installed completes only the CLI tip",
+      "input": { "cliInstalled": true, "voiceDictationEnabled": false },
+      "expected": ["orca-cli"]
+    },
+    {
+      "function": "getCompletedFeatureTipIds",
+      "note": "voice-dictation feature interaction completes the voice tip",
+      "input": {
+        "cliInstalled": false,
+        "voiceDictationEnabled": false,
+        "featureInteractions": {
+          "voice-dictation": { "firstInteractedAt": 100, "interactionCount": 1 }
+        }
+      },
+      "expected": ["voice-dictation"]
+    },
+    {
+      "function": "getCompletedFeatureTipIds",
+      "note": "no completion signals yields no completed tips",
+      "input": { "cliInstalled": false, "voiceDictationEnabled": false },
+      "expected": []
+    },
+    {
+      "function": "normalizeFeatureTipIds",
+      "note": "drops unknowns and dedupes in first-seen order",
+      "input": ["feature-tour", "orca-cli", "bogus", "voice-dictation"],
+      "expected": ["orca-cli", "voice-dictation"]
+    },
+    {
+      "function": "normalizeFeatureTipIds",
+      "note": "non-array input yields empty list",
+      "input": "nope",
+      "expected": []
+    },
+    {
+      "function": "isFeatureTipId",
+      "note": "known id",
+      "input": "orca-cli",
+      "expected": true
+    },
+    {
+      "function": "isFeatureTipId",
+      "note": "unknown id",
+      "input": "bogus",
+      "expected": false
+    },
+    {
+      "function": "isFeatureTipId",
+      "note": "non-string is not an id",
+      "input": 42,
+      "expected": false
+    }
+  ]
+}

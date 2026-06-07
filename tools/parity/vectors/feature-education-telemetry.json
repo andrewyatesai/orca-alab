@@ -1,0 +1,61 @@
+{
+  "module": "feature-education-telemetry",
+  "source": "src/shared/feature-education-telemetry.ts",
+  "rustCrate": "orca-config::feature_education_telemetry",
+  "cases": [
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "known source is preserved",
+      "input": "tasks_open",
+      "expected": "tasks_open"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "agent-sessions source is preserved",
+      "input": "workspace_agent_sessions_visible",
+      "expected": "workspace_agent_sessions_visible"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "setup-guide parallel-work source is preserved",
+      "input": "setup_guide_parallel_work",
+      "expected": "setup_guide_parallel_work"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "off-table url falls back to unknown",
+      "input": "https://example.com/private",
+      "expected": "unknown"
+    },
+    {
+      "function": "normalizeFeatureEducationSource",
+      "note": "null falls back to unknown",
+      "input": null,
+      "expected": "unknown"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "sidebar source is preserved",
+      "input": "sidebar",
+      "expected": "sidebar"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "settings source is preserved",
+      "input": "settings",
+      "expected": "settings"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "help-menu source is preserved",
+      "input": "help_menu",
+      "expected": "help_menu"
+    },
+    {
+      "function": "normalizeSetupGuideSource",
+      "note": "off-table source falls back to unknown",
+      "input": "private-source",
+      "expected": "unknown"
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "module": "browser-screencast-protocol",
+  "source": "src/shared/browser-screencast-protocol.ts",
+  "rustCrate": "orca-relay::browser_screencast_protocol",
+  "cases": [
+    {
+      "function": "encodeBrowserScreencastFrame",
+      "note": "16-byte LE header (kind|version|opcode|format, u32 seq, u32 metaLen, u32 reserved=0) then compact-JSON metadata then image",
+      "input": {
+        "seq": 42,
+        "format": "jpeg",
+        "metadata": { "deviceWidth": 1280, "deviceHeight": 720, "pageScaleFactor": 1, "timestamp": 123 },
+        "image": [1, 2, 3, 4]
+      },
+      "expected": [98, 1, 1, 1, 42, 0, 0, 0, 75, 0, 0, 0, 0, 0, 0, 0, 123, 34, 100, 101, 118, 105, 99, 101, 87, 105, 100, 116, 104, 34, 58, 49, 50, 56, 48, 44, 34, 100, 101, 118, 105, 99, 101, 72, 101, 105, 103, 104, 116, 34, 58, 55, 50, 48, 44, 34, 112, 97, 103, 101, 83, 99, 97, 108, 101, 70, 97, 99, 116, 111, 114, 34, 58, 49, 44, 34, 116, 105, 109, 101, 115, 116, 97, 109, 112, 34, 58, 49, 50, 51, 125, 1, 2, 3, 4]
+    },
+    {
+      "function": "encodeBrowserScreencastFrame",
+      "note": "png format encodes the format byte as 2; empty metadata is the two-byte object {}",
+      "input": { "seq": 7, "format": "png", "metadata": {}, "image": [9, 9] },
+      "expected": [98, 1, 1, 2, 7, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 123, 125, 9, 9]
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "valid frame round-trips opcode, seq, format, metadata, and trailing image bytes",
+      "input": { "bytes": [98, 1, 1, 1, 42, 0, 0, 0, 75, 0, 0, 0, 0, 0, 0, 0, 123, 34, 100, 101, 118, 105, 99, 101, 87, 105, 100, 116, 104, 34, 58, 49, 50, 56, 48, 44, 34, 100, 101, 118, 105, 99, 101, 72, 101, 105, 103, 104, 116, 34, 58, 55, 50, 48, 44, 34, 112, 97, 103, 101, 83, 99, 97, 108, 101, 70, 97, 99, 116, 111, 114, 34, 58, 49, 44, 34, 116, 105, 109, 101, 115, 116, 97, 109, 112, 34, 58, 49, 50, 51, 125, 1, 2, 3, 4] },
+      "expected": {
+        "opcode": 1,
+        "seq": 42,
+        "format": "jpeg",
+        "metadata": { "deviceWidth": 1280, "deviceHeight": 720, "pageScaleFactor": 1, "timestamp": 123 },
+        "image": [1, 2, 3, 4]
+      }
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "unrelated short buffer is rejected (null)",
+      "input": { "bytes": [0, 1, 2, 3] },
+      "expected": null
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "unsupported version byte is rejected (null)",
+      "input": { "bytes": [98, 2, 1, 1, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 123, 125, 1] },
+      "expected": null
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "unsupported opcode byte is rejected (null)",
+      "input": { "bytes": [98, 1, 9, 1, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 123, 125, 1] },
+      "expected": null
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "unsupported format byte is rejected (null)",
+      "input": { "bytes": [98, 1, 1, 9, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 123, 125, 1] },
+      "expected": null
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "metadata length exceeding the payload is rejected (null)",
+      "input": { "bytes": [98, 1, 1, 1, 1, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 123, 125, 1] },
+      "expected": null
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "nonzero reserved header word is rejected (null)",
+      "input": { "bytes": [98, 1, 1, 1, 1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 123, 125, 1] },
+      "expected": null
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "non-object metadata (a JSON array) is rejected (null)",
+      "input": { "bytes": [98, 1, 1, 1, 1, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 91, 93, 1] },
+      "expected": null
+    },
+    {
+      "function": "decodeBrowserScreencastFrame",
+      "note": "keeps only finite numeric known-key metadata (string/null/unknown dropped)",
+      "input": { "bytes": [98, 1, 1, 1, 1, 0, 0, 0, 94, 0, 0, 0, 0, 0, 0, 0, 123, 34, 100, 101, 118, 105, 99, 101, 87, 105, 100, 116, 104, 34, 58, 34, 49, 50, 56, 48, 34, 44, 34, 100, 101, 118, 105, 99, 101, 72, 101, 105, 103, 104, 116, 34, 58, 55, 50, 48, 44, 34, 112, 97, 103, 101, 83, 99, 97, 108, 101, 70, 97, 99, 116, 111, 114, 34, 58, 110, 117, 108, 108, 44, 34, 115, 99, 114, 111, 108, 108, 79, 102, 102, 115, 101, 116, 88, 34, 58, 49, 53, 44, 34, 101, 120, 116, 114, 97, 34, 58, 52, 50, 125, 1] },
+      "expected": {
+        "opcode": 1,
+        "seq": 1,
+        "format": "jpeg",
+        "metadata": { "deviceHeight": 720, "scrollOffsetX": 15 },
+        "image": [1]
+      }
+    }
+  ]
+}

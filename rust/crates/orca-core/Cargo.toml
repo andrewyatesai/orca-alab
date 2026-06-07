@@ -14,3 +14,4 @@ description = "Pure cross-cutting logic for Orca, ported faithfully from src/sha
 
 [lints.rust]
 unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trust_verify)'] }

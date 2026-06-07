@@ -150,6 +150,14 @@ Eight cohesive waves over the 22 high-priority modules. Each wave names its co-p
 Tick modules off here as they land (keep in sync with `ported-modules.md`).
 
 - **In scope:** 74 modules (30 tested, ~264 cases).
-- **Ported so far this milestone:** 1 / 74.
-  - ✅ `feature-interactions` (order 12) → **`orca-config`** `feature_interactions` (3 of 4 tests; the 4th is a TS-repo writer-call-site meta-test that asserts the TS app, not this module — out of scope). **Crate reassignment:** classified `orca-core`/none, but `normalizeFeatureInteractions` consumes untrusted persisted JSON (`serde_json::Value`), which zero-dep `orca-core` can't host — so the feature-education cluster will land in `orca-config`. NaN/Infinity inputs (not representable in JSON) are translated to their on-disk form `null`; behavior identical.
-- **Next up:** rest of Wave 3 — `feature-tips` (uses `hasFeatureInteraction`) → `contextual-tours` → `feature-education-telemetry`, all now targeting `orca-config` for the same JSON-state reason.
+- **Ported so far this milestone:** 21 / 74 (workspace **738 tests**; 81 modules parity-verified).
+  - ✅ `feature-interactions` → `orca-config::feature_interactions`.
+  - ✅ **Review & ship (git-history):** `git-history-types`, `git-history-log-parser`, `git-history-graph`, `git-history-boundary-rows`, `git-history` (io-edge, injected executor) → `orca-git`.
+  - ✅ **Review & ship (SC-AI):** `source-control-ai` (+types) → `orca-git` (21 tests).
+  - ✅ **Run any agent:** `tui-agent-config`, `tui-agent-startup`, `terminal-quick-commands` → `orca-agents`.
+  - ✅ **Session:** `workspace-session-schema`, `workspace-session-terminal-buffers` → `orca-config`.
+  - ✅ **Browser:** `browser-grab-types`, `browser-viewport-presets` → `orca-core`; `browser-screencast-protocol` → `orca-relay`.
+  - ✅ **Onboarding:** `feature-tips`, `contextual-tours`, `feature-education-telemetry` → `orca-config`.
+  - ✅ **Setup:** `setup-script-import-codex-environment`, `setup-script-imports` → `orca-config`.
+  - Each carries verbatim tests + (where a clean postcondition exists) a Trust contract + a parity adapter.
+- **Next up:** fleet-visibility remainder (`agent-status-identity`, `agent-detection`, `agent-hook-listener`), `automation-schedules` (needs a vendored date-time crate), and the remaining browser/runtime-rpc slices.

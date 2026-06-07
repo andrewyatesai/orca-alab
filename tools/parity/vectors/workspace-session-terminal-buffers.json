@@ -1,0 +1,368 @@
+{
+  "module": "workspace-session-terminal-buffers",
+  "source": "src/shared/workspace-session-terminal-buffers.ts",
+  "rustCrate": "orca-config::workspace_session_terminal_buffers",
+  "cases": [
+    {
+      "function": "shouldPreserveTerminalScrollbackBuffers",
+      "note": "local worktree (null connectionId) does not need renderer scrollback",
+      "input": {
+        "worktreeId": "local-repo::/local/worktree",
+        "repos": [
+          { "id": "local-repo", "connectionId": null },
+          { "id": "remote-repo", "connectionId": "ssh-target-1" }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldPreserveTerminalScrollbackBuffers",
+      "note": "SSH worktree keeps renderer scrollback",
+      "input": {
+        "worktreeId": "remote-repo::/remote/worktree",
+        "repos": [
+          { "id": "local-repo", "connectionId": null },
+          { "id": "remote-repo", "connectionId": "ssh-target-1" }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "function": "shouldPreserveTerminalScrollbackBuffers",
+      "note": "floating terminal worktree is always local",
+      "input": {
+        "worktreeId": "global-floating-terminal",
+        "repos": [
+          { "id": "local-repo", "connectionId": null },
+          { "id": "remote-repo", "connectionId": "ssh-target-1" }
+        ]
+      },
+      "expected": false
+    },
+    {
+      "function": "shouldPreserveTerminalScrollbackBuffers",
+      "note": "unhydrated repo catalog preserves until classifiable",
+      "input": {
+        "worktreeId": "unknown-repo::/maybe-remote/worktree",
+        "repos": [
+          { "id": "local-repo", "connectionId": null },
+          { "id": "remote-repo", "connectionId": "ssh-target-1" }
+        ]
+      },
+      "expected": true
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "drops local scrollback while preserving SSH scrollback and PTY bindings",
+      "input": {
+        "session": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {
+            "local-repo::/local/worktree": [
+              {
+                "id": "local-tab",
+                "title": "local",
+                "customTitle": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1,
+                "ptyId": "local-pty",
+                "worktreeId": "local-repo::/local/worktree"
+              }
+            ],
+            "remote-repo::/remote/worktree": [
+              {
+                "id": "remote-tab",
+                "title": "remote",
+                "customTitle": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1,
+                "ptyId": "remote-pty",
+                "worktreeId": "remote-repo::/remote/worktree"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "local-tab": {
+              "root": null,
+              "activeLeafId": null,
+              "expandedLeafId": null,
+              "buffersByLeafId": { "pane:1": "local-scrollback" },
+              "scrollbackRefsByLeafId": { "pane:1": "v1-local" },
+              "ptyIdsByLeafId": { "pane:1": "local-pty" }
+            },
+            "remote-tab": {
+              "root": null,
+              "activeLeafId": null,
+              "expandedLeafId": null,
+              "buffersByLeafId": { "pane:1": "remote-scrollback" },
+              "scrollbackRefsByLeafId": { "pane:1": "v1-remote" },
+              "ptyIdsByLeafId": { "pane:1": "remote-pty" }
+            }
+          }
+        },
+        "repos": [
+          { "id": "local-repo", "connectionId": null },
+          { "id": "remote-repo", "connectionId": "ssh-target-1" }
+        ]
+      },
+      "expected": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {
+          "local-repo::/local/worktree": [
+            {
+              "id": "local-tab",
+              "title": "local",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1,
+              "ptyId": "local-pty",
+              "worktreeId": "local-repo::/local/worktree"
+            }
+          ],
+          "remote-repo::/remote/worktree": [
+            {
+              "id": "remote-tab",
+              "title": "remote",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1,
+              "ptyId": "remote-pty",
+              "worktreeId": "remote-repo::/remote/worktree"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "local-tab": {
+            "root": null,
+            "activeLeafId": null,
+            "expandedLeafId": null,
+            "ptyIdsByLeafId": { "pane:1": "local-pty" }
+          },
+          "remote-tab": {
+            "root": null,
+            "activeLeafId": null,
+            "expandedLeafId": null,
+            "buffersByLeafId": { "pane:1": "remote-scrollback" },
+            "scrollbackRefsByLeafId": { "pane:1": "v1-remote" },
+            "ptyIdsByLeafId": { "pane:1": "remote-pty" }
+          }
+        }
+      }
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "drops floating terminal buffers even though the synthetic worktree has no repo",
+      "input": {
+        "session": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {
+            "global-floating-terminal": [
+              {
+                "id": "floating-tab",
+                "title": "floating",
+                "customTitle": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1,
+                "ptyId": "floating-pty",
+                "worktreeId": "global-floating-terminal"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "floating-tab": {
+              "root": null,
+              "activeLeafId": null,
+              "expandedLeafId": null,
+              "buffersByLeafId": { "pane:1": "floating-scrollback" },
+              "ptyIdsByLeafId": { "pane:1": "floating-pty" }
+            }
+          }
+        },
+        "repos": []
+      },
+      "expected": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {
+          "global-floating-terminal": [
+            {
+              "id": "floating-tab",
+              "title": "floating",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1,
+              "ptyId": "floating-pty",
+              "worktreeId": "global-floating-terminal"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "floating-tab": {
+            "root": null,
+            "activeLeafId": null,
+            "expandedLeafId": null,
+            "ptyIdsByLeafId": { "pane:1": "floating-pty" }
+          }
+        }
+      }
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "treats orphaned layouts as local and prunes their buffers",
+      "input": {
+        "session": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {
+            "local-repo::/local/worktree": [
+              {
+                "id": "local-tab",
+                "title": "local",
+                "customTitle": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1,
+                "ptyId": "local-pty",
+                "worktreeId": "local-repo::/local/worktree"
+              }
+            ],
+            "remote-repo::/remote/worktree": [
+              {
+                "id": "remote-tab",
+                "title": "remote",
+                "customTitle": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1,
+                "ptyId": "remote-pty",
+                "worktreeId": "remote-repo::/remote/worktree"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "orphan-tab": {
+              "root": null,
+              "activeLeafId": null,
+              "expandedLeafId": null,
+              "buffersByLeafId": { "pane:1": "orphan-scrollback" }
+            }
+          }
+        },
+        "repos": [{ "id": "remote-repo", "connectionId": "ssh-target-1" }]
+      },
+      "expected": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {
+          "local-repo::/local/worktree": [
+            {
+              "id": "local-tab",
+              "title": "local",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1,
+              "ptyId": "local-pty",
+              "worktreeId": "local-repo::/local/worktree"
+            }
+          ],
+          "remote-repo::/remote/worktree": [
+            {
+              "id": "remote-tab",
+              "title": "remote",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1,
+              "ptyId": "remote-pty",
+              "worktreeId": "remote-repo::/remote/worktree"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "orphan-tab": {
+            "root": null,
+            "activeLeafId": null,
+            "expandedLeafId": null
+          }
+        }
+      }
+    },
+    {
+      "function": "pruneLocalTerminalScrollbackBuffers",
+      "note": "preserves buffers for unresolved repo catalogs until worktrees can be classified",
+      "input": {
+        "session": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {
+            "remote-repo::/remote/worktree": [
+              {
+                "id": "remote-tab",
+                "title": "remote",
+                "customTitle": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1,
+                "ptyId": "remote-pty",
+                "worktreeId": "remote-repo::/remote/worktree"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "remote-tab": {
+              "root": null,
+              "activeLeafId": null,
+              "expandedLeafId": null,
+              "buffersByLeafId": { "pane:1": "maybe-remote-scrollback" }
+            }
+          }
+        },
+        "repos": []
+      },
+      "expected": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {
+          "remote-repo::/remote/worktree": [
+            {
+              "id": "remote-tab",
+              "title": "remote",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1,
+              "ptyId": "remote-pty",
+              "worktreeId": "remote-repo::/remote/worktree"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "remote-tab": {
+            "root": null,
+            "activeLeafId": null,
+            "expandedLeafId": null,
+            "buffersByLeafId": { "pane:1": "maybe-remote-scrollback" }
+          }
+        }
+      }
+    }
+  ]
+}

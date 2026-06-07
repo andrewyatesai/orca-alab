@@ -1,0 +1,161 @@
+{
+  "module": "git-history-log-parser",
+  "source": "src/shared/git-history-log-parser.ts",
+  "rustCrate": "orca-git::git_history_log_parser",
+  "cases": [
+    {
+      "function": "parseGitHistoryLog",
+      "note": "parses a VS Code-compatible record with decorations and a multiline message",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nAda Lovelace\nada@example.com\n1700000000\n1700000000\ncccccccccccccccccccccccccccccccccccccccc\nHEAD -> refs/heads/feature, refs/remotes/origin/HEAD -> refs/remotes/origin/feature, refs/remotes/origin/feature, tag: refs/tags/v1.0.0\nfeat: add graph\n\nbody line\u0000",
+      "expected": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "parentIds": [
+            "cccccccccccccccccccccccccccccccccccccccc"
+          ],
+          "subject": "feat: add graph",
+          "message": "feat: add graph\n\nbody line",
+          "author": "Ada Lovelace",
+          "authorEmail": "ada@example.com",
+          "displayId": "aaaaaaa",
+          "timestamp": 1700000000000,
+          "references": [
+            {
+              "id": "refs/heads/feature",
+              "name": "feature",
+              "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "category": "branches"
+            },
+            {
+              "id": "refs/remotes/origin/feature",
+              "name": "origin/feature",
+              "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "category": "remote branches"
+            },
+            {
+              "id": "refs/tags/v1.0.0",
+              "name": "v1.0.0",
+              "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "category": "tags"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "function": "parseGitHistoryLog",
+      "note": "preserves commas inside branch and tag decoration names via the unit-separator split",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nAda Lovelace\nada@example.com\n1700000000\n1700000000\n\nHEAD -> refs/heads/feat,one\u001ftag: refs/tags/v1,0\u001frefs/heads/master\ninitial\u0000",
+      "expected": [
+        {
+          "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "parentIds": [],
+          "subject": "initial",
+          "message": "initial",
+          "author": "Ada Lovelace",
+          "authorEmail": "ada@example.com",
+          "displayId": "aaaaaaa",
+          "timestamp": 1700000000000,
+          "references": [
+            {
+              "id": "refs/heads/feat,one",
+              "name": "feat,one",
+              "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "category": "branches"
+            },
+            {
+              "id": "refs/heads/master",
+              "name": "master",
+              "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "category": "branches"
+            },
+            {
+              "id": "refs/tags/v1,0",
+              "name": "v1,0",
+              "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "category": "tags"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "function": "parseGitHistoryLog",
+      "note": "skips records whose first line is not a 40-64 char hex hash",
+      "input": "not-a-hash\nAda Lovelace\nada@example.com\n1700000000\n1700000000\n\n\nbroken\u0000",
+      "expected": []
+    },
+    {
+      "function": "shortGitHash",
+      "note": "first seven characters of a full hash",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "aaaaaaa"
+    },
+    {
+      "function": "shortGitHash",
+      "note": "returns the whole string when shorter than seven characters",
+      "input": "abc",
+      "expected": "abc"
+    },
+    {
+      "function": "gitHistoryRefFromFullName",
+      "note": "branch full name",
+      "input": {
+        "fullName": "refs/heads/main",
+        "fallbackName": "main",
+        "revision": "abc123"
+      },
+      "expected": {
+        "id": "refs/heads/main",
+        "name": "main",
+        "revision": "abc123",
+        "category": "branches"
+      }
+    },
+    {
+      "function": "gitHistoryRefFromFullName",
+      "note": "remote-tracking full name",
+      "input": {
+        "fullName": "refs/remotes/origin/main",
+        "fallbackName": "origin/main",
+        "revision": "ffffffffffffffffffffffffffffffffffffffff"
+      },
+      "expected": {
+        "id": "refs/remotes/origin/main",
+        "name": "origin/main",
+        "revision": "ffffffffffffffffffffffffffffffffffffffff",
+        "category": "remote branches"
+      }
+    },
+    {
+      "function": "gitHistoryRefFromFullName",
+      "note": "tag full name",
+      "input": {
+        "fullName": "refs/tags/v2.0",
+        "fallbackName": "v2.0",
+        "revision": "deadbee"
+      },
+      "expected": {
+        "id": "refs/tags/v2.0",
+        "name": "v2.0",
+        "revision": "deadbee",
+        "category": "tags"
+      }
+    },
+    {
+      "function": "gitHistoryRefFromFullName",
+      "note": "null full name falls back to a commit ref",
+      "input": {
+        "fullName": null,
+        "fallbackName": "abcdef",
+        "revision": "1234567890abcdef"
+      },
+      "expected": {
+        "id": "abcdef",
+        "name": "abcdef",
+        "revision": "1234567890abcdef",
+        "category": "commits"
+      }
+    }
+  ]
+}

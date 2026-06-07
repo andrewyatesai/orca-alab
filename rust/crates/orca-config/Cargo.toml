@@ -13,6 +13,9 @@ description = "Config inspection/parsing for Orca (MCP server configs, …) over
 serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
 orca-core = { path = "../orca-core" }
 orca-text = { path = "../orca-text" }
+# feature-tips / session schema reuse agent-domain shapes from orca-agents.
+orca-agents = { path = "../orca-agents" }
 
 [lints.rust]
 unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trust_verify)'] }

@@ -1,0 +1,121 @@
+{
+  "module": "contextual-tours",
+  "source": "src/shared/contextual-tours.ts",
+  "rustCrate": "orca-config::contextual_tours",
+  "cases": [
+    {
+      "function": "normalizeContextualTourIds",
+      "note": "removes unknowns and duplicates in first-seen order",
+      "input": [
+        "tasks",
+        "unknown",
+        "workspace-agent-sessions",
+        "browser",
+        "tasks",
+        null,
+        "workspace-creation"
+      ],
+      "expected": ["tasks", "workspace-agent-sessions", "browser", "workspace-creation"]
+    },
+    {
+      "function": "normalizeContextualTourIds",
+      "note": "non-array input yields empty list",
+      "input": "nope",
+      "expected": []
+    },
+    {
+      "function": "isContextualTourId",
+      "note": "known id",
+      "input": "tasks",
+      "expected": true
+    },
+    {
+      "function": "isContextualTourId",
+      "note": "unknown id",
+      "input": "unknown",
+      "expected": false
+    },
+    {
+      "function": "isContextualTourId",
+      "note": "non-string is not an id",
+      "input": null,
+      "expected": false
+    },
+    {
+      "function": "getContextualTour",
+      "note": "automations tour: minimal optional fields",
+      "input": "automations",
+      "expected": {
+        "id": "automations",
+        "steps": [
+          {
+            "title": "What is an automation?",
+            "body": "Automations run agent work on a schedule. Add an automation by clicking this button.",
+            "targetSelector": "[data-contextual-tour-target=\"automations-create\"]",
+            "requiredForStart": true
+          },
+          {
+            "title": "Find the results",
+            "body": "Runs show when automations executed, what happened, and where to inspect their output.",
+            "targetSelector": "[data-contextual-tour-target=\"automations-runs\"]"
+          }
+        ]
+      }
+    },
+    {
+      "function": "getContextualTour",
+      "note": "workspace-agent-sessions tour: primary action, placement, pulse, advance-on-interaction",
+      "input": "workspace-agent-sessions",
+      "expected": {
+        "id": "workspace-agent-sessions",
+        "steps": [
+          {
+            "title": "Split a terminal pane",
+            "body": "Open a second terminal pane with {terminal.splitRight}, or right-click the pane for split options.",
+            "targetSelector": "[data-contextual-tour-target=\"terminal-pane-split-target\"], [data-contextual-tour-target=\"workspace-agent-terminal-tip\"]",
+            "requiredForStart": true,
+            "preferredPlacement": "bottom",
+            "primaryAction": { "kind": "split-terminal-pane", "label": "Split terminal" },
+            "advanceOnFeatureInteraction": "terminal-pane-split"
+          },
+          {
+            "title": "Start another task in parallel",
+            "body": "Each worktree gets its own branch, so parallel work stays separate.",
+            "targetSelector": "[data-contextual-tour-target=\"workspace-create-control\"]",
+            "preferredPlacement": "right",
+            "targetPulse": true,
+            "hidePrimaryAction": true
+          }
+        ]
+      }
+    },
+    {
+      "function": "getContextualTour",
+      "note": "workspace-creation tour: allowedActiveModals and step control",
+      "input": "workspace-creation",
+      "expected": {
+        "id": "workspace-creation",
+        "allowedActiveModals": ["new-workspace-composer"],
+        "steps": [
+          {
+            "title": "Pick a project",
+            "body": "Orca isolates each task in its own worktree, branched off your base.",
+            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-project\"]",
+            "requiredForStart": true
+          },
+          {
+            "title": "Name it, or start from existing work",
+            "body": "Start from a linked task for a short issue or PR name. Or leave it blank to auto-name it from your first agent message.",
+            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-name\"]",
+            "control": { "kind": "auto-rename-branch-from-work" }
+          },
+          {
+            "title": "Choose what agent starts the work",
+            "body": "Pick the agent that should be opened when this worktree is created.",
+            "targetSelector": "[data-contextual-tour-target=\"workspace-creation-agent\"]"
+          }
+        ]
+      }
+    }
+  ]
+}

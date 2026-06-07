@@ -362,6 +362,7 @@ dependencies = [
 name = "orca-config"
 version = "0.0.1"
 dependencies = [
+ "orca-agents",
  "orca-core",
  "orca-text",
  "serde_json",
@@ -390,8 +391,10 @@ dependencies = [
 name = "orca-git"
 version = "0.0.1"
 dependencies = [
+ "orca-agents",
  "orca-core",
  "orca-text",
+ "serde_json",
 ]
 
 [[package]]

@@ -44,3 +44,28 @@ pub use tui_agent_selection::{
     filter_enabled_tui_agents, is_tui_agent, is_tui_agent_enabled, normalize_disabled_tui_agents,
     pick_tui_agent, TUI_AGENT_AUTO_PICK_ORDER,
 };
+
+
+// --- ported user-story slice (workflow w8rbqzuzc) ---
+pub mod tui_agent_config;
+pub mod tui_agent_startup;
+pub mod terminal_quick_commands;
+
+pub use tui_agent_config::{
+    get_tui_agent_detect_commands, tui_agent_config, AgentPromptInjectionMode,
+    DraftPasteReadySignal, PreflightTrust, TuiAgentConfig, TUI_AGENT_CONFIG,
+};
+pub use tui_agent_startup::{
+    build_agent_draft_launch_plan, build_agent_startup_plan, AgentDraftLaunchArgs,
+    AgentDraftLaunchPlan, AgentStartupPlan, AgentStartupPlanArgs, AgentStartupShell,
+};
+pub use terminal_quick_commands::{
+    build_terminal_quick_command_input, flatten_terminal_quick_command,
+    get_default_terminal_quick_commands, get_terminal_quick_command_action,
+    get_terminal_quick_command_body, get_terminal_quick_command_scope,
+    is_terminal_agent_quick_command, is_terminal_quick_command_complete,
+    normalize_terminal_quick_command_scope, normalize_terminal_quick_commands,
+    supports_terminal_agent_quick_command, terminal_quick_command_matches_repo,
+    TerminalAgentQuickCommand, TerminalCommandQuickCommand, TerminalQuickCommand,
+    TerminalQuickCommandAction, TerminalQuickCommandScope,
+};

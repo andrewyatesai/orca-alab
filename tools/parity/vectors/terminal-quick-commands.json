@@ -1,0 +1,181 @@
+{
+  "module": "terminal-quick-commands",
+  "source": "src/shared/terminal-quick-commands.ts",
+  "rustCrate": "orca-agents::terminal_quick_commands",
+  "cases": [
+    {
+      "function": "normalizeTerminalQuickCommands",
+      "note": "non-array input yields the empty defaults (null stands in for undefined)",
+      "input": null,
+      "expected": []
+    },
+    {
+      "function": "getDefaultTerminalQuickCommands",
+      "note": "no built-in defaults",
+      "input": null,
+      "expected": []
+    },
+    {
+      "function": "normalizeTerminalQuickCommands",
+      "note": "keeps an intentionally empty command list",
+      "input": [],
+      "expected": []
+    },
+    {
+      "function": "normalizeTerminalQuickCommands",
+      "note": "removes quick commands from the abandoned preset rollout",
+      "input": [
+        { "id": "default-pwd", "label": "Print Working Directory", "command": "pwd", "appendEnter": true },
+        { "id": "default-git-status", "label": "Git Status", "command": "git status", "appendEnter": true }
+      ],
+      "expected": []
+    },
+    {
+      "function": "normalizeTerminalQuickCommands",
+      "note": "drops malformed entries and normalizes valid commands and drafts",
+      "input": [
+        null,
+        { "id": "status", "label": "  Status  ", "command": "git status\n", "appendEnter": false },
+        { "id": "empty-command", "label": "Empty", "command": "   " },
+        { "id": "status", "label": "Duplicate", "command": "pwd" },
+        { "label": "No ID", "command": "date" }
+      ],
+      "expected": [
+        { "id": "status", "label": "Status", "action": "terminal-command", "command": "git status", "appendEnter": false, "scope": { "type": "global" } },
+        { "id": "empty-command", "label": "Empty", "action": "terminal-command", "command": "", "appendEnter": true, "scope": { "type": "global" } },
+        { "id": "status-2", "label": "Duplicate", "action": "terminal-command", "command": "pwd", "appendEnter": true, "scope": { "type": "global" } },
+        { "id": "quick-command-4", "label": "No ID", "action": "terminal-command", "command": "date", "appendEnter": true, "scope": { "type": "global" } }
+      ]
+    },
+    {
+      "function": "normalizeTerminalQuickCommands",
+      "note": "normalizes repository scoped commands and falls back to global for invalid scopes",
+      "input": [
+        { "id": "repo-dev", "label": "Dev", "command": "pnpm dev", "scope": { "type": "repo", "repoId": " repo-1 " } },
+        { "id": "bad-repo", "label": "Bad", "command": "echo bad", "scope": { "type": "repo", "repoId": "   " } }
+      ],
+      "expected": [
+        { "id": "repo-dev", "label": "Dev", "action": "terminal-command", "command": "pnpm dev", "appendEnter": true, "scope": { "type": "repo", "repoId": "repo-1" } },
+        { "id": "bad-repo", "label": "Bad", "action": "terminal-command", "command": "echo bad", "appendEnter": true, "scope": { "type": "global" } }
+      ]
+    },
+    {
+      "function": "normalizeTerminalQuickCommands",
+      "note": "normalizes agent prompt commands without storing generated shell text",
+      "input": [
+        {
+          "id": "agent-review",
+          "label": "Review",
+          "action": "agent-prompt",
+          "agent": "codex",
+          "prompt": "  Review this diff\n",
+          "command": "codex 'old workaround'"
+        },
+        { "id": "unknown-agent", "label": "Unknown", "action": "agent-prompt", "agent": "not-real", "prompt": "Do work" },
+        { "id": "post-start-agent", "label": "Aider", "action": "agent-prompt", "agent": "aider", "prompt": "Do work" }
+      ],
+      "expected": [
+        { "id": "agent-review", "label": "Review", "action": "agent-prompt", "agent": "codex", "prompt": "  Review this diff", "scope": { "type": "global" } }
+      ]
+    },
+    {
+      "function": "terminalQuickCommandMatchesRepo",
+      "note": "global commands match everywhere (no repo context)",
+      "input": {
+        "command": { "id": "global", "label": "Global", "command": "date", "appendEnter": true, "scope": { "type": "global" } },
+        "repoId": null
+      },
+      "expected": true
+    },
+    {
+      "function": "terminalQuickCommandMatchesRepo",
+      "note": "repo commands match their own repo",
+      "input": {
+        "command": { "id": "repo", "label": "Repo", "command": "pnpm dev", "appendEnter": true, "scope": { "type": "repo", "repoId": "repo-1" } },
+        "repoId": "repo-1"
+      },
+      "expected": true
+    },
+    {
+      "function": "terminalQuickCommandMatchesRepo",
+      "note": "repo commands do not match a different repo",
+      "input": {
+        "command": { "id": "repo", "label": "Repo", "command": "pnpm dev", "appendEnter": true, "scope": { "type": "repo", "repoId": "repo-1" } },
+        "repoId": "repo-2"
+      },
+      "expected": false
+    },
+    {
+      "function": "buildTerminalQuickCommandInput",
+      "note": "appends CR when appendEnter is set",
+      "input": { "id": "status", "label": "Status", "command": "git status", "appendEnter": true },
+      "expected": "git status\r"
+    },
+    {
+      "function": "buildTerminalQuickCommandInput",
+      "note": "no CR when appendEnter is false",
+      "input": { "id": "status", "label": "Status", "command": "git status", "appendEnter": false },
+      "expected": "git status"
+    },
+    {
+      "function": "getTerminalQuickCommandAction",
+      "note": "terminal command action",
+      "input": { "id": "status", "label": "Status", "command": "git status", "appendEnter": true },
+      "expected": "terminal-command"
+    },
+    {
+      "function": "getTerminalQuickCommandBody",
+      "note": "terminal command body is its command",
+      "input": { "id": "status", "label": "Status", "command": "git status", "appendEnter": true },
+      "expected": "git status"
+    },
+    {
+      "function": "isTerminalQuickCommandComplete",
+      "note": "terminal command with label and body is complete",
+      "input": { "id": "status", "label": "Status", "command": "git status", "appendEnter": true },
+      "expected": true
+    },
+    {
+      "function": "getTerminalQuickCommandAction",
+      "note": "agent prompt action",
+      "input": { "id": "agent", "label": "Agent", "action": "agent-prompt", "agent": "claude", "prompt": "Fix the tests" },
+      "expected": "agent-prompt"
+    },
+    {
+      "function": "getTerminalQuickCommandBody",
+      "note": "agent prompt body is its prompt",
+      "input": { "id": "agent", "label": "Agent", "action": "agent-prompt", "agent": "claude", "prompt": "Fix the tests" },
+      "expected": "Fix the tests"
+    },
+    {
+      "function": "isTerminalQuickCommandComplete",
+      "note": "agent prompt with label and body is complete",
+      "input": { "id": "agent", "label": "Agent", "action": "agent-prompt", "agent": "claude", "prompt": "Fix the tests" },
+      "expected": true
+    },
+    {
+      "function": "supportsTerminalAgentQuickCommand",
+      "note": "argv agent supported",
+      "input": "claude",
+      "expected": true
+    },
+    {
+      "function": "supportsTerminalAgentQuickCommand",
+      "note": "flag-prompt-interactive agent supported",
+      "input": "gemini",
+      "expected": true
+    },
+    {
+      "function": "supportsTerminalAgentQuickCommand",
+      "note": "stdin-after-start agent not supported",
+      "input": "aider",
+      "expected": false
+    },
+    {
+      "function": "supportsTerminalAgentQuickCommand",
+      "note": "unknown agent not supported",
+      "input": "not-real",
+      "expected": false
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+{
+  "module": "browser-viewport-presets",
+  "source": "src/shared/browser-viewport-presets.ts",
+  "rustCrate": "orca-core::browser_viewport_presets",
+  "cases": [
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "resolves the 'mobile-s' preset row",
+      "input": "mobile-s",
+      "expected": {
+        "id": "mobile-s",
+        "label": "Mobile S — 320 × 568",
+        "width": 320,
+        "height": 568,
+        "deviceScaleFactor": 2,
+        "mobile": true
+      }
+    },
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "resolves the 'mobile-m' preset row",
+      "input": "mobile-m",
+      "expected": {
+        "id": "mobile-m",
+        "label": "Mobile M — 375 × 667",
+        "width": 375,
+        "height": 667,
+        "deviceScaleFactor": 2,
+        "mobile": true
+      }
+    },
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "resolves the 'mobile-l' preset row",
+      "input": "mobile-l",
+      "expected": {
+        "id": "mobile-l",
+        "label": "Mobile L — 425 × 812",
+        "width": 425,
+        "height": 812,
+        "deviceScaleFactor": 2,
+        "mobile": true
+      }
+    },
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "resolves the 'tablet' preset row",
+      "input": "tablet",
+      "expected": {
+        "id": "tablet",
+        "label": "Tablet — 768 × 1024",
+        "width": 768,
+        "height": 1024,
+        "deviceScaleFactor": 2,
+        "mobile": true
+      }
+    },
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "resolves the 'laptop' preset row",
+      "input": "laptop",
+      "expected": {
+        "id": "laptop",
+        "label": "Laptop — 1024 × 768",
+        "width": 1024,
+        "height": 768,
+        "deviceScaleFactor": 1,
+        "mobile": false
+      }
+    },
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "resolves the 'laptop-l' preset row",
+      "input": "laptop-l",
+      "expected": {
+        "id": "laptop-l",
+        "label": "Laptop L — 1440 × 900",
+        "width": 1440,
+        "height": 900,
+        "deviceScaleFactor": 1,
+        "mobile": false
+      }
+    },
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "resolves the 'desktop' preset row",
+      "input": "desktop",
+      "expected": {
+        "id": "desktop",
+        "label": "Desktop — 1920 × 1080",
+        "width": 1920,
+        "height": 1080,
+        "deviceScaleFactor": 1,
+        "mobile": false
+      }
+    },
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "null id resolves to null",
+      "input": null,
+      "expected": null
+    },
+    {
+      "function": "getBrowserViewportPreset",
+      "note": "unknown id resolves to null",
+      "input": "nope",
+      "expected": null
+    },
+    {
+      "function": "browserViewportPresetToOverride",
+      "note": "maps the 'tablet' preset onto a CDP override",
+      "input": {
+        "id": "tablet",
+        "label": "Tablet — 768 × 1024",
+        "width": 768,
+        "height": 1024,
+        "deviceScaleFactor": 2,
+        "mobile": true
+      },
+      "expected": {
+        "width": 768,
+        "height": 1024,
+        "deviceScaleFactor": 2,
+        "mobile": true
+      }
+    },
+    {
+      "function": "browserViewportPresetToOverride",
+      "note": "maps the 'desktop' preset onto a CDP override",
+      "input": {
+        "id": "desktop",
+        "label": "Desktop — 1920 × 1080",
+        "width": 1920,
+        "height": 1080,
+        "deviceScaleFactor": 1,
+        "mobile": false
+      },
+      "expected": {
+        "width": 1920,
+        "height": 1080,
+        "deviceScaleFactor": 1,
+        "mobile": false
+      }
+    }
+  ]
+}

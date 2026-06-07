@@ -19,3 +19,12 @@ pub mod status;
 pub mod status_parse;
 pub mod upstream;
 pub mod worktree;
+
+
+// --- ported user-story slice (workflow w8rbqzuzc) ---
+pub mod git_history_types;
+pub mod git_history_log_parser;
+pub mod git_history_graph;
+pub mod git_history_boundary_rows;
+pub mod git_history;
+pub mod source_control_ai;

@@ -17,3 +17,4 @@ orca-crypto = { path = "../orca-crypto" }
 
 [lints.rust]
 unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(trust_verify)'] }

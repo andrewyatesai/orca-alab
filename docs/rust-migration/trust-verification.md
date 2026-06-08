@@ -335,6 +335,30 @@ function counts):
 Either mechanism is a focused multi-increment effort with a ~20-min rebuild per
 batch; both are now ordinary engineering, not core-verifier research.
 
+**Increment landed (2026-06-08): total-no-panic call summaries (mechanism B, first
+slice).** `total_no_panic_call_summary` + the `Terminator::Call` branch model a
+curated allowlist of cannot-panic core/std functions (`Vec`/`HashMap`/`HashSet::new`,
+`str::{len,is_empty,as_bytes,trim,trim_start,trim_end}`) as a fresh unconstrained
+result (`Inst::Undef` → fresh symbolic). Recognizer strips impl/generic segments
+(`core::str::<impl str>::len`, `std::vec::Vec::<T>::new`). Soundness control passes
+(indexing by a havoc'd `len` stays `unknown`). **orca-core: 167→193 proved,
+142→168 functions fully proved, 0 failed** (commit `8f1dbf62ce`). Modest because a
+function only fully proves when its *entire* call set is covered *and* its
+obligations don't depend on the havoc'd values.
+
+**Refined next-lever priority (after the summary slice):**
+- **`address-of Field projection` (377 — now the #1 specific lowering gap)** —
+  mechanism (A); needs a struct-field-address path (field-index GEP, trust-mc
+  consumer resolves the layout offset, mirror of the working `Inst::ExtractField`).
+  Unblocks derived `Clone`/`Default`/`PartialEq` bodies. Highest single lever.
+- **Value postconditions on existing summaries** — `str::len ≤ isize::MAX`,
+  `as_bytes().len()==self.len()`, `Vec::new().len()==0` (emit an `Assume` after the
+  havoc) so value-dependent arithmetic/bounds obligations on already-lowered
+  functions prove. Sound (the facts are true).
+- **Soundness-tricky calls** (`Default::default` hand-impls, `to_lowercase`/`Vec::with_capacity`
+  alloc-panic, `Option::map`/`str::find/split` closure/pattern panic, `Try::branch`
+  control-flow) — each needs closure-aware / OOM-model / derived-only analysis.
+
 **Path B progress (2026-06-08).** *Edit A landed & compiling* (committed
 `trust-certify` `61430af5a5`): `recheck_cleancic(term, context, lineage,
 obligation_violation)` — the consumer-side soundness gate that independently

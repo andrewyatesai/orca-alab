@@ -369,15 +369,25 @@ hit the *next* blocker — trait-method calls.
 
 ### KEY STRUCTURAL FINDING — the remaining blockers split into two kinds
 
-After the field-op lands, the top remaining call targets are **generic trait
-methods**, shown un-monomorphized: `std::clone::Clone::clone` (154),
-`std::default::Default::default` (134), `std::cmp::PartialEq::eq` (90),
-`std::string::ToString::to_string` (28) — ~406 obligations. These are **not soundly
-summarizable**: a generic `T::clone` can panic iff `T`'s (possibly hand-written)
-impl panics, so assuming no-panic would be unsound. They need a real verification
-capability — **monomorphized verification at concrete call sites, or a trait-
-totality bound/contract** (`where T: …` total) — not a modeled summary. This is the
-deeper Gap-3 sub-problem and the gating item for orca-core's *zero*-unknown.
+After the field-op lands, the top remaining call targets are unresolved trait
+methods: `std::clone::Clone::clone` (154), `std::default::Default::default` (134),
+`std::cmp::PartialEq::eq` (90), `std::string::ToString::to_string` (28) — ~406
+obligations. **Crucially, the functions hitting them are CONCRETE derived impls**
+(`<agent_hook_endpoint_file::AgentHookEndpoint as Clone>::clone`,
+`<worktree_ownership::Worktree as Clone>::clone`, …) — *not* generic code. The
+blocker is that inside a derived `Clone`, the per-**field** clone calls appear as
+the unresolved trait method `std::clone::Clone::clone` rather than the field type's
+concrete impl. So the fix is **trait-method resolution by receiver type at the call
+site**, not deep monomorphization:
+- `Clone::clone` / `PartialEq::eq` on a `Copy`/primitive field → model as the
+  identity / a pure comparison (sound *and precise*: Copy clone returns the value,
+  cannot panic);
+- on a concrete std type (`String`, `Vec`) → concrete-total summary (OOM excluded);
+- on a local struct → resolve to that struct's (in-module) derived impl and lower
+  it recursively (already works now that address-of-field lowers).
+This is ordinary compiler engineering (resolve `<receiver_ty as Trait>::method` from
+the call's receiver operand), and it is the gating item for orca-core's
+*zero*-unknown — but bounded and tractable, not open-ended research.
 
 Allocation note: `is_panic_call` recognizes only explicit panic intrinsics, **not**
 OOM/`handle_alloc_error` — i.e. Trust's panic model treats allocation as infallible

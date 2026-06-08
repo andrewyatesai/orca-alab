@@ -90,5 +90,47 @@ verifier runs. Each row is a candidate **Trust improvement** driven by Orca.
 4. Improve Trust (and/or `first-party/ty`, currently an empty slot — candidate home
    for Orca's reusable verified domain specs); re-verify.
 
-This file is the durable record of that loop; update the gap log with real
-verifier output once stage2 is built.
+This file is the durable record of that loop.
+
+## Real findings — Trust built + run on Orca (2026-06-07)
+
+Trust stage2 was built locally and run on Orca's crates. The build and first
+verification runs immediately surfaced real Trust issues — the co-evolution loop
+working as intended. Build recipe (sandbox disabled): `brew install cmake ninja`;
+`recreate_bootstrap.py --stage 2` (genesis stage0 from local rustc 1.96.0);
+clone `first-party/*` submodules over the `gh` token
+(`git config --global url."https://github.com/".insteadOf "git@github.com:"` +
+`git submodule update --init --recursive`); `./x.py build --stage 2`
+(`download-ci-llvm=false` → LLVM from source, ~28 min).
+
+**Bug 1 (fixed).** The local genesis stage0 wraps stock rustc, but bootstrap
+passed it the Trust-only flag `-Zno-trust-verify` → "unknown unstable option",
+so Trust couldn't build with a stock stage0 at all. Fixed
+`scripts/create_local_genesis_stage0.py` — the generated `bin/trustc` wrapper now
+strips `-Z*trust*` flags before exec'ing stock rustc.
+
+**Bug 2 (fixed; rebuilding to confirm).** `tcargo trust check` returned
+`0 proved / transport:missing-json` for **everything** — Trust's own
+`examples/midpoint.rs` *and* Orca crates. Root cause (found via `TRUST_DYN_PROBE=1`):
+the verify pass skipped every function with `Skip(ExternalDependencyScope)`.
+`should_skip_external_dep_body` (`compiler/.../trust_verify.rs`) skipped **local**
+MIR (the crate being compiled) unless `TRUST_VERIFY_POLICY=verify-example-corpus`
+was set — i.e. first-party verification was hidden by default. Fixed so a local
+body is never treated as an external dependency. No-rebuild workaround:
+`TRUST_VERIFY_POLICY=verify-example-corpus` (confirmed: `decision=Verify`, emits
+`TRUST_JSON`).
+
+**Gap 3 (open Trust ticket).** With verification enabled, the **full verifier
+can't lower calls to core/std functions** into TrustIr — even `u32::wrapping_add`
+yields `unknown` ("Call target `core::num::<impl u32>::wrapping_add` is not
+present in the TrustIr module"). Real-world Rust (Orca's String/Vec/serde-heavy
+logic) calls std/core everywhere, so this is the main blocker to actually
+*proving* Orca's obligations. Improvement target: TrustIr lowering of
+core/intrinsic call targets (or a modeled-summary library for them).
+
+**Gap 4 (open).** `tcargo trust check`'s pipeline does not honor the scope the
+way a direct `trustc` invocation does (the env workaround worked via `trustc`
+directly but not through the check pipeline), so the pipeline needs to pass the
+local-scope policy through to its trustc subprocess.
+
+Update this section as the loop continues (re-run after the Bug-2 rebuild lands).

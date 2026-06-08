@@ -359,6 +359,49 @@ obligations don't depend on the havoc'd values.
   alloc-panic, `Option::map`/`str::find/split` closure/pattern panic, `Try::branch`
   control-flow) — each needs closure-aware / OOM-model / derived-only analysis.
 
+**Increment landed (2026-06-08): address-of-Field-projection MIR op.** `&place.field`
+(refused as "requires layout-aware field offsets", 377 obligations) now lowers to a
+GEP advancing the pointer to the field, mirroring the existing array-index address
+path; the trust-mc consumer havocs GEP results (sound). Soundness control passes
+(`*(&s.a)+1` overflow correctly *failed*, not falsely proved). orca-core 193→196
+proved, 168→171 functions (commit `5c319cae7d`). Small gain because functions then
+hit the *next* blocker — trait-method calls.
+
+### KEY STRUCTURAL FINDING — the remaining blockers split into two kinds
+
+After the field-op lands, the top remaining call targets are **generic trait
+methods**, shown un-monomorphized: `std::clone::Clone::clone` (154),
+`std::default::Default::default` (134), `std::cmp::PartialEq::eq` (90),
+`std::string::ToString::to_string` (28) — ~406 obligations. These are **not soundly
+summarizable**: a generic `T::clone` can panic iff `T`'s (possibly hand-written)
+impl panics, so assuming no-panic would be unsound. They need a real verification
+capability — **monomorphized verification at concrete call sites, or a trait-
+totality bound/contract** (`where T: …` total) — not a modeled summary. This is the
+deeper Gap-3 sub-problem and the gating item for orca-core's *zero*-unknown.
+
+Allocation note: `is_panic_call` recognizes only explicit panic intrinsics, **not**
+OOM/`handle_alloc_error` — i.e. Trust's panic model treats allocation as infallible
+(the standard verification choice). So *specific concrete* allocating-but-logically-
+total functions (`str::to_lowercase`, `String`/`Vec::clone`, `ToString` impls for
+concrete types) **are** summarizable within the model; only the *generic* trait
+dispatch is not.
+
+**So the road to zero-unknown for the pure crates is now fully mapped:**
+1. continue incremental MIR-op + concrete-total-call lowering (each sound, ~+small,
+   like address-of-field and the str/Vec summaries) — clears the long tail;
+2. add **generic-trait-method verification** (monomorphization or trait-totality
+   contracts) — clears the ~406 `Clone`/`Default`/`PartialEq`/`ToString` core of the
+   remaining unknowns. This is the one genuinely new Trust capability still needed;
+   it is ordinary compiler engineering (resolve the concrete impl per call /
+   thread a totality bound), not the open-ended core-verifier research the pre-
+   breakthrough analysis feared.
+
+**Session end state: orca-core 196 proved / 171 functions / 0 failed (from 0);**
+native full-verifier route working and sound end-to-end; five sound Trust commits
+on `trust-gap3-wrapping-add` (identity fixes, trust-wp schema, call summaries,
+address-of-field). Zero-unknown remains a multi-session target via the mapped
+path above — no longer gated on a "multi-month wall".
+
 **Path B progress (2026-06-08).** *Edit A landed & compiling* (committed
 `trust-certify` `61430af5a5`): `recheck_cleancic(term, context, lineage,
 obligation_violation)` — the consumer-side soundness gate that independently

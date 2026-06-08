@@ -120,13 +120,235 @@ body is never treated as an external dependency. No-rebuild workaround:
 `TRUST_VERIFY_POLICY=verify-example-corpus` (confirmed: `decision=Verify`, emits
 `TRUST_JSON`).
 
-**Gap 3 (open Trust ticket).** With verification enabled, the **full verifier
-can't lower calls to core/std functions** into TrustIr — even `u32::wrapping_add`
-yields `unknown` ("Call target `core::num::<impl u32>::wrapping_add` is not
-present in the TrustIr module"). Real-world Rust (Orca's String/Vec/serde-heavy
-logic) calls std/core everywhere, so this is the main blocker to actually
-*proving* Orca's obligations. Improvement target: TrustIr lowering of
-core/intrinsic call targets (or a modeled-summary library for them).
+**Gap 3 (in progress — first slice landed & validated 2026-06-08).** The verifier
+couldn't lower calls to core/std into TrustIr. **`wrapping_add` is now fixed
+end-to-end** (commits pending across the trust-ir + trust-mc submodules + the
+bridge): the bridge lowers `core::num::<impl uN>::wrapping_add` to a modular
+TrustIr `BinOp` tagged with the new `ProofAnnotation::Wrapping`, and the trust-mc
+CHC translator skips the no-overflow obligation for `Wrapping` ops. Validated on
+the rebuilt stage2: `fn rank(x:u32)->u32 { x.wrapping_add(1) }` verifies with
+**0 obligations (exit 0)** in CHC mode (`-Z trust-verify -Z trust-verify-level=2`);
+the control `fn plain(x:u32)->u32 { x + 1 }` still carries its 1 overflow
+obligation. (Edit sites: `proof.rs`/`binary.rs`/`diff.rs`/`parser.rs` for the
+annotation; `trust-ir-bridge/src/lower.rs` `core_int_arith_intrinsic` + the
+`Terminator::Call` arm; `trust-mc-trust-bmc/src/translate_chc.rs` the two
+no-overflow guard sites.)
+
+Remaining Gap-3 work: (a) **`wrapping_sub`/`wrapping_mul` now lowered too**
+(2026-06-08): `core_int_arith_intrinsic` recognizes all three of
+`wrapping_{add,sub,mul}` → modular `BinOp::{Add,Sub,Mul}` tagged `Wrapping`
+(`checked_*`/`overflowing_*`/`saturating_*` still deferred — they need an
+`Inst::Overflow` consumer); (b) the slice/`Vec`/`String` index+len and
+`Option`/`Result`/derived `Clone` families that Orca's crates actually call;
+(c) the **`-Z trust-verify-full` native-evidence path** is a *separate, stricter*
+admission than the CHC backend — it returns `unknown` wanting
+`ContractPredicate::MathIr/CanonicalJson` even for the now-lowered wrapping ops,
+so it needs its own bridge from the lowered TrustIr to that evidence form.
+
+**Unsize cast (282 — the biggest single lowering gap) — precise sound plan.**
+The native route refuses *all* Unsize coercions at
+`crates/trust-mir-extract/src/convert.rs:667` (`unsupported_rvalue`, exact reason
+string matching the survey). Sibling coercions (ReifyFnPointer, MutToConstPointer,
+…) are modeled as a plain `Rvalue::Cast(operand, target_ty)` because they're
+value-preserving; Unsize is *not* (it adds metadata: a slice length or a vtable),
+so it can't reuse that as-is. The fail-closed VC gate
+(`trust-vcgen/src/generate.rs:1057 collect_cast_relation_unsupported`) would also
+reject array-ref→slice-ref even if it were emitted as a Cast. Sound 3-site fix:
+1. `convert.rs:667` — for `PointerCoercion::Unsize` with source `&[T;N]`/`*[T;N]`
+   and a matching slice-ref/ptr target, emit a modeled rvalue carrying the known
+   array length `N`; leave other Unsize forms (trait objects) refused (sound) or
+   model them as an opaque well-typed value.
+2. `generate.rs:1057` — allow the array-ref→slice-ref shape.
+3. `generate.rs:2031 v2_build_cast_vc` — define the result slice's length = `N`
+   so downstream bounds/`len` obligations can discharge against it.
+Soundness: representing the result as a fresh slice of the target type with
+length pinned to `N` is faithful for the array→slice case; any obligation that
+doesn't depend on the (unmodeled) data-pointer stays at worst `unknown`, never
+falsely `proved`. This is the validated-per-slice next increment after the
+wrapping family.
+
+### orca-core verification triage (2026-06-08, no-rebuild survey)
+
+`trustc -Z trust-verify -Z trust-verify-level=2 -Z trust-verify-output=json` over
+`orca-core/src/lib.rs` (zero-dep, compiles standalone): **697 functions, 2362
+obligations, 2296 unknown.** The unknowns, by reason (the prioritized backlog to
+reach "zero unknown"):
+
+| Count | Reason | Category |
+| --- | --- | --- |
+| 334 | "solver proof lacks artifact-backed full-verifier evidence" | **mode/admission** — already SOLVER-PROVED, downgraded because non-full mode isn't artifact-backed (`trust_verify.rs:7158-7181`) |
+| 282 | `CastKind::PointerCoercion::Unsize` not lowered | cast lowering |
+| 106 | `Clone::clone` call | std/core call lowering |
+| 103 | `ToString::to_string` | std/core call lowering |
+| 81 | `PartialEq::eq` | std/core call lowering |
+| 80+33 | `fmt::rt::Argument::new_display` / `Arguments::new` | fmt machinery |
+| 60+23 | `Vec::push` / `Vec::len` | collection modeling |
+| 51+22 | `Deref::deref` | std/core call lowering |
+| 47 | `Default::default` | std/core call lowering |
+| 29+27 | `Iterator::next` / `IntoIterator::into_iter` | iterator modeling |
+
+**Survey mode landed (objective #3, 2026-06-08).** Added `TRUST_VERIFY_SURVEY=1`:
+forces the artifact-backed full route but decouples `fail_closed()` from
+`is_full_verification()` (new `survey` field on `TrustVerifyPolicy`), so a whole
+crate is surveyed without aborting on the first unproved obligation. Validated:
+`trustc` exits 0 across all 697 orca-core functions instead of aborting.
+
+**DECISIVE finding from the full-mode survey (the real core blocker).** With
+survey mode, the artifact-backed **native full-verifier route proves 0 / 3241**
+orca-core obligations — every one is `native full verifier evidence status:
+Unsupported`. Contrast: the **CHC solver** (non-full mode) proves ~334 but those
+are downgraded (not artifact-backed). So the two backends are disjoint in the
+worst way: the backend that *can* prove real obligations (CHC) is not admitted as
+evidence, and the backend that *is* admitted (native TrustIr full verifier) is
+Unsupported for essentially all real Rust. **This — not call-family lowering — is
+the central blocker.** The realistic paths are both core Trust-verifier research:
+(A) implement native-route verification for real obligation/MIR shapes, or
+(B) make the CHC/PDR solver emit a checkable proof certificate that counts as
+artifact-backed evidence (likely more tractable: the solver already proves 334;
+it needs a certificate + checker so `artifact_backed_proofs` can admit it). This
+is multi-month core-compiler work, not call-family slices.
+
+**Path B progress (2026-06-08).** *Edit A landed & compiling* (committed
+`trust-certify` `61430af5a5`): `recheck_cleancic(term, context, lineage,
+obligation_violation)` — the consumer-side soundness gate that independently
+re-runs the clean-CIC kernel check (term proves `False` under the obligation's
+Int env) + re-binds the lineage to the obligation; fail-closed. This is the
+re-check the `ImportProofCertificates` path lacks (it admits on producer trust).
+
+*H1 RESOLVED (2026-06-08) — carrier identified, slice-1 fully designed.*
+`ProofFormula` (`trust-ir/src/proof.rs:404`) already has `payload: String`
+("opaque formula payload in the named schema") + optional `smtlib`/`sort`, and a
+`ProofFormula` travels with every obligation. So no bundle-schema change is
+needed: stamp the **serialized violation `Formula`** into `payload`
+(schema `trust-types.Formula@1`). `ObligationIdentity::from_violation` binds
+`violation = format!("{violation:?}")` and nothing else (function/kind/location
+empty, `trust-certify/src/lib.rs:91-98`), so the importer can fully reconstruct
+both the kernel `var_names` AND the lineage identity from the deserialized
+payload.
+
+Slice-1 implementation plan (next, one rebuild):
+- **H1a (carrier):** define `payload` schema `trust-types.Formula@1` = serialized
+  `trust_types::Formula`; confirm `Formula: Serialize/Deserialize`.
+- **Edit C (produce):** at `trust_verify.rs:3559-3603`, on the BoundsCheck
+  fallback, `certify_violation(&formula)` → on `Some(CleanCic)` push the
+  `ProofCertificate` (status `Discharged`) AND set the obligation's
+  `ProofFormula.payload` to the serialized `formula`.
+- **Edit B (admission gate):** in `build_certificate_evidence`
+  (`native_trust_ir_bundle.rs:852`) deserialize the `Formula` from
+  `obligation.formula.payload`, and for a `CleanCic` certificate call
+  `trust_certify::recheck_cleancic(term, context, lineage, &formula)`; admit only
+  if it passes, else add an `EvidenceCheckFailed` rejection (fail-closed). Thread
+  the same gate through the bridge admission (`native_artifact.rs:828` /
+  `lib.rs:1369`) that actually emits `Proved` (H2). Add `trust-certify` as a dep
+  of `trust-vc-trust-engine` (verify no cycle).
+- **Test:** one BoundsCheck under `TRUST_VERIFY_SURVEY=1` flips `unknown→proved`;
+  negative control (corrupt one `term` byte or repoint `payload`) reverts to
+  `unknown` w/ `EvidenceCheckFailed`.
+*Edit A (`recheck_cleancic`) already landed/committed (`61430af5a5`) — it's the
+re-check this plan calls.*
+
+*Exact Proved-gate sites (traced 2026-06-08 — the precise implementation handoff):*
+The `Proved` `ObligationEvidence` is emitted by
+`TrustVcTrustEngine::convert_native_trust_ir_bundle_evidence`
+(`crates/trust-vc-bridge/src/lib.rs:397`, `status: EvidenceStatus::Proved` at
+`:447`), right after `validate_trust_vc_native_trust_ir_import_matches_obligation`
+(`:423`). The gate goes at `:423`: for a `CleanCic` import, call
+`trust_certify::recheck_cleancic(term, context, lineage, &formula)` and return a
+non-`Proved` (Unknown/`EvidenceCheckFailed`) on failure. BUT the imported artifact
+type `TrustVcNativeTrustIrImportedProofArtifact` (built by `from_native`,
+`lib.rs:~1369`, from the engine's `build_certificate_evidence`) currently carries
+only digests/identities — **not** the raw `CleanCic` `term`/`context`/`lineage`
+nor the obligation `Formula`. So the focused remaining slice = (1) extend
+`TrustVcNativeTrustIrImportedProofArtifact` (+ `from_native` + the engine
+`build_certificate_evidence` source) to carry `term`/`context`/`lineage` +
+serialized obligation `Formula` (from `ProofFormula.payload`); (2) add the
+`recheck_cleancic` gate at `lib.rs:423`; (3) add `trust-certify` dep to
+`trust-vc-bridge` (verify no cycle); (4) Edit C producer stamps the certificate +
+`ProofFormula.payload`; (5) one rebuild + survey test. All host-cargo-buildable
+except the producer (compiler) + final rebuild. This is a focused multi-crate,
+soundness-critical implementation — fully specified, ready to execute.
+
+*Dedicated-run finding (2026-06-08 — the TRUE bottom of path B).* The
+compiler-side producer (`trust_vc_native_trust_ir_certificate_import`,
+`trust_verify.rs:3620`) and its `ProofFormula` only carry **identity/source
+metadata** (`native_trust_ir_obligation_source_formula:3824` → JSON
+source_id/span/obligation_id), NOT a logical formula — so `certify_violation`
+cannot run there. The structured obligation lives one layer deeper: the **engine**
+`TrustObligation` (`trust-vc-trust-engine/src/lib.rs:3370`) carries
+`expr: String` + `typed_expr: Option<TrustExpr>`, and `to_trust_vc_typed_obligation`
+(`:3661`) lowers `typed_expr` via `expr.to_trust_vc_expr()` into a
+`TypedProofObligation` for the trust-vc solver. **So the real path-B integration
+point is the engine's typed-obligation verification**, and the one missing piece
+is a sound `TypedProofObligation`/`TrustExpr` → `trust_types::Formula` (violation
+form) conversion to feed `trust_certify::certify_violation`, mint a `CleanCic`,
+and emit it as artifact-backed evidence. Building blocks exist (`to_trust_vc_expr`;
+trust-wp `to_trust_formula_payload`/`to_trust_formula_value` in
+`trust-wp-core/.../trust_tmir.rs:347`). The engine does NOT yet depend on
+`trust-certify`. This conversion + engine wiring IS the core verifier work —
+multi-day, soundness-critical (a wrong lowering = unsound proofs), and the
+genuine substance of "make Trust prove real Rust". `recheck_cleancic` (Edit A,
+committed) remains the consumer-side re-check for the serialized case. There is
+**no shorter sound path**: the compiler producer lacks the formula, the CHC
+backend that proves the 334 is trust-mc (no import path), and the trust-vc native
+route is Unsupported until this lowering exists.
+
+*Deepest finding (2026-06-08 — decisive).* Even the engine's `typed_expr`
+(`TrustExpr`, `trust-vc-trust-engine/lib.rs:2616`: Bool/Int/Var/Arith/Compare/
+Logic/Not/Implies/Call/Quantifier) is only the obligation's **goal**, not the
+verification condition. `certify_violation` needs the **violation** =
+`(in-scope assumptions) ∧ ¬goal`; certifying `¬goal` alone proves only
+*tautologies* (goals true regardless of context), which real obligations are not.
+The assumption set is assembled **inside the trust-vc solver's VC construction**
+(where the solver gathers preconditions/path facts before solving). So a sound
+`CleanCic` for a real obligation must be minted there — at the solver's core VC
+assembly — not from the standalone obligation expression. **Conclusion: path B's
+sound implementation is core trust-vc-solver-internals work** (gather the VC →
+`certify_violation` on it → mint+emit `CleanCic`), multi-day-to-multi-month and
+soundness-critical. No contained single-edit slice reaches a real `proved`; the
+foundational fixes, survey mode, `wrapping_add` lowering, and the
+`recheck_cleancic` primitive are the in-session-achievable sound increments, all
+delivered.
+
+**Path B mechanism (mapped 2026-06-08 — the concrete route to admit CHC proofs).**
+Trust already has the certificate machinery; path B is wiring it, not inventing it:
+- `ProofCertificate { obligation: ProofId, prover, evidence: ProofEvidence }` +
+  `module.proof_certificates` + `ProofLineageManifest`
+  (`first-party/trust-mc/.../tests.rs:239-264`).
+- `NativeVerificationRequest::TrustVc { mode: TrustVcVerificationMode::ImportProofCertificates,
+  obligations, certificates, lineage_roots, … }` — in this mode the native
+  verifier **admits/checks pre-computed certificates** instead of re-proving
+  (`tests.rs:317-329`).
+- The `ay` solver emits proof artifacts (`first-party/ay/src/proof_artifact.rs`,
+  `chc_runner.rs`, `api/proofs.rs`).
+
+Path B = bridge those: when the CHC/`ay` solver proves an obligation, capture its
+artifact (inductive invariant), package it as a `ProofCertificate` (evidence =
+the invariant/`ay` proof), attach it to the `NativeVerificationBundle` with an
+`ImportProofCertificates` request, and let the native verifier **check** it (must
+check, not trust — else unsound) → `full_verification` reports it proved →
+`artifact_backed_proofs` admits it → `proved`. **First slice:** make ONE simple
+obligation the CHC solver already proves (e.g. a bounds/`wrapping_add` arith
+check) flow a *checked* certificate end-to-end so it reports `proved` under
+`TRUST_VERIFY_SURVEY=1`. Investigate: bundle construction in `trust_verify.rs`
+(~3060-3096, where `full_result` is built), the `ay`-artifact→`ProofEvidence`
+conversion, and the `ImportProofCertificates` checker in `trust-vc`/`trust-mc`.
+Substantial (multi-day subsystem integration) but bounded — the pieces exist.
+
+**Key insight & honest scope.** The biggest bucket (334) is *not* a lowering
+gap — those obligations are already proved by the solver and only downgraded
+because `artifact_backed_proofs = full_verification.is_some()` is false outside
+full mode (reporting them "proved" without backing would be unsound). So
+"orca-core verifies clean (proved, zero unknown)" requires **full mode's
+artifact-backed evidence path working for ALL obligations** — i.e. the native
+TrustIr evidence bridge (objective-1 lowering) for every family above + the Unsize
+cast, **plus** a non-aborting full mode (objective #3), **plus** Gap 4 for the
+`tcargo trust check` entry point. This is a multi-week Trust compiler effort
+across ~12 lowering families + the cast + the evidence/mode policy; it is
+delivered as validated per-slice increments (wrapping_add is slice #1), not in one
+pass. Recommended next slices by leverage: the non-aborting + artifact-backed
+*survey* mode (unblocks reporting the 334 as proved once their evidence lands),
+then `Unsize` cast lowering (282), then the `Clone`/`PartialEq`/`Deref`/`Default`
+call families (derived/std impls whose bodies ARE local or in core).
 
 **Gap 4 (open).** `tcargo trust check`'s pipeline does not honor the scope the
 way a direct `trustc` invocation does (the env workaround worked via `trustc`

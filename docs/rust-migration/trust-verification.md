@@ -193,7 +193,10 @@ forces the artifact-backed full route but decouples `fail_closed()` from
 crate is surveyed without aborting on the first unproved obligation. Validated:
 `trustc` exits 0 across all 697 orca-core functions instead of aborting.
 
-**DECISIVE finding from the full-mode survey (the real core blocker).** With
+**DECISIVE finding from the full-mode survey (the real core blocker).**
+**[SUPERSEDED 2026-06-08 by the BREAKTHROUGH below — the "0/3241, multi-month
+wall" was an identity-string bug, now fixed; the native route proves QF_LIA
+soundly.]** With
 survey mode, the artifact-backed **native full-verifier route proves 0 / 3241**
 orca-core obligations — every one is `native full verifier evidence status:
 Unsupported`. Contrast: the **CHC solver** (non-full mode) proves ~334 but those
@@ -207,6 +210,82 @@ the central blocker.** The realistic paths are both core Trust-verifier research
 artifact-backed evidence (likely more tractable: the solver already proves 334;
 it needs a certificate + checker so `artifact_backed_proofs` can admit it). This
 is multi-month core-compiler work, not call-family slices.
+
+**UPDATE (2026-06-08) — part of the native-route "Unsupported" is a fixable
+identity bug, not fundamental.** Traced a single QF_LIA obligation
+(`x < 100 => x+1` no-overflow) through the full-mode native route. The compiler
+*does* run the real trust-mc engine in-process: `collect_full_verification_artifacts`
+→ `FullVerificationEngine::with_required_native_stubs()` →
+`NativeTrustMcTrustIrEngine` (a thin wrapper over the **real** `trust_bmc::
+TrustMcVerifierApiAdapter`, not a no-op stub; the genuine stubs are trust-wp/
+trust-vc/TY). The adapter rejected the obligation at its **first gate** — the
+obligation-identity match (`verifier_api.rs:1163`,
+`trust_mc_obligation_identity_matches`) — with: input names
+`trust_ir-native-trust`**`-`**`mc-request-2-proof-2` (hyphen) but adapter expects
+`trust_ir-native-trust`**`_`**`mc-request-2-proof-2` (underscore). Root cause: the
+**compiler** builds the id as the crate name `trust-mc` (hyphen,
+`trust_verify.rs:5016`) while the **adapter** hardcodes the identifier form
+`trust_mc` (underscore, `verifier_api.rs:3640`) — two conventions colliding at
+the boundary, so genuinely-matching native CHC/PDR evidence is rejected before
+the solver ever runs. **Fix:** canonicalize the separator in
+`trust_mc_obligation_identity_matches` (`candidate.replace('-',"_") ==
+native_id.replace('-',"_")`); sound because request/proof ids are numeric so no
+distinct obligations collide, and the identity check is a *precondition* gate —
+it does not bypass any proof-evidence validation. Rebuilding stage2 to measure
+how many of the 3241 "Unsupported" this clears vs. how many hit the *next* gate
+(native solver actually proving + emitting transcript/replay/checked-report
+artifacts). Either way it converts a "fundamental wall" assumption into a
+concrete, ticketed bug — exactly the co-evolution loop.
+
+**🟢 BREAKTHROUGH (2026-06-08) — the native full-verifier route works; the "wall"
+was the identity bug.** After fixing the identity mismatch at **all three**
+native-id comparison gates (the suite token is the crate name `trust-mc`/hyphen
+on the compiler side but the identifier form `trust_mc`/underscore on the
+trust-mc side):
+- `crates/trust-bmc/src/verifier_api.rs` — `trust_mc_obligation_identity_matches`
+  (typed-input gate), the binding-metadata gate (~1898), the proof-transport gate
+  (~3462);
+- `first-party/trust-mc/trust-mc-core/src/evidence.rs` — the proof-grade metadata
+  gate (~419);
+each fixed with `a.replace('-',"_") == b.replace('-',"_")` (sound: request/proof
+ids are numeric, so canonicalizing the separator can't merge distinct obligations;
+distinct suites trust-mc/trust-wp stay distinct; these are precondition gates that
+don't bypass proof validation). Committed: trust-bmc `ade0610b51`, submodule
+trust-mc-core `eaca4b299`.
+
+**Validated on rebuilt stage2.** A QF_LIA probe now proves end-to-end through the
+native route with the **full proof-grade artifact chain**: `status=Proved`,
+`strength=PdrInvariant`, `assurance=Sound`, artifacts `SolverTranscript` +
+`ProofCertificate` (pdr-invariant-model) + `ProofCheckReport` (checked-proof-report)
++ `ReplayLog`, replay/check `Replayed/Accepted`, artifact policy `satisfied=true`.
+**Soundness control passes:** `fn bounded(x){if x<100 {x+1} else {0}}` → proved=2;
+`fn unbounded(a,b){a+b}` → the overflow obligation **fails** (refuted), exit 1.
+The verifier discriminates provable from unprovable — it is not rubber-stamping.
+
+**orca-core full-mode survey, after the fix (was 0/3241):**
+**697 functions, 3241 obligations → proved=167, unknown=3074, failed=0;
+142 functions fully proved** (machine-proved panic/overflow safety, sound). The
+artifact-backed admission path (a.k.a. "path B") is therefore **DONE** — it was
+the identity bug, not multi-month core research. This also dissolves the earlier
+"lowering only reclassifies unknowns" worry: with admission working, **every
+lowered obligation now converts straight to `proved`.**
+
+**Remaining orca-core unknowns by cause (the now-tractable backlog to zero):**
+| Count | Cause | Category |
+| --- | --- | --- |
+| ~2805 | bridge "failed to lower `<…>::clone`/`::default` and local callees: unsupported operation: Call target `std…`" / "address-of Field projection .0" | **Gap 3 — TrustIr bridge lowering** (core/std call targets + MIR ops). Dominant blocker; each lowering now converts directly to proved. |
+| 167 | (proved) | ✅ native route, QF_LIA arithmetic safety |
+| 130 | `Deref::deref` | bridge call lowering |
+| 50 | trust-wp formula payload schema rejected (`trust-wp.trust-formula.v1` ≠ `TrustWpPureExprV1`/`trust_wp.trust-formula.v1`/`trust-types.Formula@1`) | trust-wp engine schema mismatch — **likely another quick name-normalization bug** |
+| 26 | `CastKind::PointerCoercion::Unsize` | bridge cast lowering (3-site plan above) |
+| 26 | native solver does not prove | needs better encoding / genuinely hard |
+| 21/8/6 | `IntoIterator`/`ToString`/`fmt` | bridge call lowering |
+
+**Net:** the done-criterion ("zero unknown for the pure crates") is no longer
+gated on multi-month core research — it is gated on **incremental TrustIr-bridge
+lowering** (Gap 3), where each family/op now pays off directly through the proven
+native route. The single biggest lever is lowering the core/std **call targets**
++ the **address-of-field-projection** MIR op (together ~2805).
 
 **Path B progress (2026-06-08).** *Edit A landed & compiling* (committed
 `trust-certify` `61430af5a5`): `recheck_cleancic(term, context, lineage,

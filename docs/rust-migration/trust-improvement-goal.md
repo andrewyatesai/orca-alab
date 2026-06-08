@@ -98,12 +98,23 @@ count drop.
 
 ## Progress (2026-06-08)
 
-- **Obj 1 (Gap 3, core lowering):** PARTIAL — `wrapping_add` lowers + CHC-proves;
-  the rest (`Clone`/`PartialEq`/`Vec`/`str`/`Option`/`Result`/Unsize…) is the
-  multi-month core. The true integration locus is pinned: the engine's
-  `to_trust_vc_typed_obligation` needs a sound `TrustExpr`→`trust_types::Formula`
-  (violation = assumptions ∧ ¬goal) to feed `certify_violation`. See
-  `trust-verification.md`.
+- **🟢 BREAKTHROUGH (2026-06-08): the artifact-backed admission path ("path B") is
+  DONE — it was an identity-string bug, not multi-month core research.** The native
+  full-verifier route refused every obligation because the compiler emits the suite
+  token as crate-name `trust-mc` (hyphen) while trust-mc native ids use `trust_mc`
+  (underscore); three+1 comparison gates compared the raw strings and never matched.
+  Fixed (separator-canonicalized, sound). Rebuilt stage2 now **proves QF_LIA
+  arithmetic-safety obligations end-to-end** with full proof-grade evidence
+  (PdrInvariant + transcript + replay + checked-report, assurance=Sound), and
+  correctly **fails** unprovable ones. **orca-core full-mode: 0 → 167 proved
+  obligations, 142/697 functions fully proved, 0 failed.** Commits: trust-bmc
+  `ade0610b51`, trust-mc-core submodule `eaca4b299`.
+- **Obj 1 (Gap 3, core lowering): now the PRIMARY tractable lever (no longer
+  multi-month).** With admission working, each lowered family converts unknowns
+  directly to `proved`. `wrapping_{add,sub,mul}` lower; the dominant remaining
+  blocker is the TrustIr **bridge** failing to lower core/std **call targets**
+  (`Clone`/`Default`/`Deref`/`ToString`/iterator…) + the **address-of-field
+  projection** MIR op (~2805 of 3074 unknowns). See `trust-verification.md`.
 - **Obj 2 (Gap 4, pipeline scope):** ✅ FUNCTIONAL — `tcargo trust check -p orca-core`
   runs per-function (697 fns / 3346 obligations), not a synthetic probe.
 - **Obj 3 (survey mode):** ✅ DONE — `--survey` flag + `TRUST_VERIFY_SURVEY`

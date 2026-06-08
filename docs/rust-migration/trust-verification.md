@@ -287,6 +287,54 @@ lowering** (Gap 3), where each family/op now pays off directly through the prove
 native route. The single biggest lever is lowering the core/std **call targets**
 + the **address-of-field-projection** MIR op (together ~2805).
 
+**Second systemic identity-bug fixed (2026-06-08): trust-wp formula schema.** Same
+class as the trust-mc id bug. The compiler stamped trust-wp native formula
+payloads with `trust-wp.trust-formula.v1` (hyphen) but the acceptor uses the
+canonical trust-types tag `trust_wp.trust-formula.v1` (underscore) → every payload
+rejected at the schema gate. Fixed by referencing
+`trust_types::trust_formula_v1::TRUST_WP_TRUST_FORMULA_SCHEMA_VERSION` (commit
+`b32deec3f9`). Validated: payloads are now *consumed* (was schema-rejected). The
+remaining 50 trust-wp unknowns are now the deductive engine's *coverage* (derived
+`PartialOrd`/`cmp`), a separate engine concern — not a gate bug.
+
+### Next phase — the TrustIr-bridge lowering library (precise, prioritized)
+
+Top unlowered call targets in orca-core (count = obligations blocked; note a whole
+function fails to lower on its **first** unsupported call, so unblocking a
+*function* needs its **entire** call set covered — partial coverage moves few
+function counts):
+
+| n | callee | sound summary | soundness note |
+| --- | --- | --- | --- |
+| 289 | `Vec::new` | fresh empty vec, len 0, **no panic** | total |
+| 135 | `Box::new_uninit` | fresh box, **no panic** | total |
+| 134 | `Default::default` | fresh `T`, no panic for derived/primitive | careful: a hand `Default` impl can panic — allowlist derived/std only |
+| 97 | `str::to_lowercase` | fresh `String` | allocates → OOM; safe only if Trust's panic model excludes OOM (verify) |
+| 72/38 | `Option::map`/`map_or` | maps option | **NOT unconditionally no-panic** — panics iff the closure does; needs closure-aware modeling |
+| 65 | `Try::branch` (`?`) | control-flow desugar | model as branch, not a call summary |
+| ~500 | `core::str::{len,is_empty,as_bytes,chars,find,split,trim,split_once,strip_suffix}` | fresh result + length facts (`as_bytes().len()==self.len()`), **no panic** | total — the highest-value clean batch |
+| 31 | `HashMap::new` | fresh empty map, **no panic** | total |
+| 28/26 | `ToString::to_string`/`PartialEq::eq` | fresh `String` / `bool`, no panic for derived | derived/primitive allowlist |
+
+**Two complementary mechanisms** (both feed the now-working native route):
+- **(B) Modeled call summaries** — extend the bridge's `Terminator::Call` arm (the
+  same site as `core_int_arith_intrinsic`) to recognize an allowlist of total
+  no-panic core/std functions and emit a **havoc result of the correct type** (+
+  no-panic for the call) instead of refusing. Sound by over-approximation: the
+  result is unconstrained, so value-dependent obligations stay `unknown` (never
+  falsely proved); the no-panic fact is sound *only* for the curated total set.
+  Start with the clean total batch (`str::{len,is_empty,as_bytes,…}`, `Vec::new`,
+  `HashMap::new`) — no closures, no allocation-panic ambiguity.
+- **(A) `address-of Field projection` MIR op** (229 + part of the 851
+  compiler-`Unsupported`) — `lower.rs:902` refuses `&place.field` because TrustIr
+  GEP is array-stride, not struct-field-offset. Needs a struct-field-address path
+  (field-index GEP with the trust-mc consumer resolving the layout offset, mirror
+  of the working `Inst::ExtractField` value path). Enables lowering local derived
+  `Clone`/`Default`/`PartialEq` bodies (vs. summarizing them).
+
+Either mechanism is a focused multi-increment effort with a ~20-min rebuild per
+batch; both are now ordinary engineering, not core-verifier research.
+
 **Path B progress (2026-06-08).** *Edit A landed & compiling* (committed
 `trust-certify` `61430af5a5`): `recheck_cleancic(term, context, lineage,
 obligation_violation)` — the consumer-side soundness gate that independently

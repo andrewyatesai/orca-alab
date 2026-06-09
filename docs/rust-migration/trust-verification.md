@@ -610,3 +610,42 @@ real obligation proving on a real function AND its buggy mutant failing. The ear
 real (the engine proves/refutes real obligations on probes), but on orca-core the
 real obligations are all `unknown` because the functions don't fully lower. Lowering
 is genuine groundwork but moved zero real obligations so far.
+
+---
+
+## 🎯 #1 LEVER (2026-06-08): unsigned-64-bit (u64/usize) arithmetic is unverifiable
+
+**Discovered while trying to land the str::len postcondition.** Isolated with width
+probes (`x + 200` per type):
+
+| type | outcome |
+| --- | --- |
+| i32, u32, i64, isize | **prove/fail correctly** |
+| **u64, usize** | **`unknown` ("typed CHC absent")** |
+
+So **64-bit UNSIGNED specifically** doesn't verify — and `usize` is *the* type for
+lengths/indices/counts/capacities, so this single gate blocks a large share of
+orca-core's real arithmetic obligations (and is why the `str::len` postcondition —
+`str::len` returns usize — could not land). **Confirmed NOT unsound** (`u64_unsafe`
+is `unknown`, never falsely `proved`); just incomplete.
+
+**Mechanism (traced):** the bridge emits `Inst::Overflow` + `ProofAnnotation::NoOverflow`;
+the overflow obligation is encoded as a **bitvector no-overflow predicate**
+(`ExprValue::BvAddNoOverflowUnsigned` for unsigned, `…Signed` for signed, in
+`trust-mc-core`). The failure is specific to the **unsigned-64-bit BV no-overflow**
+path (signed-64 `i64`/`isize` work; unsigned-32 `u32` works). **Ruled out:**
+`trust_verify.rs:6000` (trust-formula `IntLiteral` parsed as i64 — a real latent bug
+for the `u64::MAX` bound, but fixing it did NOT move u64; reverted as unvalidated),
+`:4846` (typed-CHC `int_const` uses the string value — fine), and shift-by-64
+overflow (none found in the bridge/trust-mc).
+
+**Fix (the ticket):** the unsigned-64-bit `BvAddNoOverflowUnsigned` (and sub/mul)
+construction or its ay-solver evaluation. Soundness-critical (the overflow bound
+must be exact) and validatable by the width probe (`u64_unsafe` must FAIL, never
+falsely prove). This is the single highest-leverage orca-core fix — landing it
+should make many real `usize` arithmetic obligations prove/fail at once.
+
+**Also landed this round (sound):** postcondition-summary capability — the bridge
+now emits `Inst::Assume` for a function's range postcondition (`str::len ≤ isize::MAX`),
+wiring reusable infrastructure for bounded-result summaries (commit `ba2d2d93a8`).
+Moot until the usize bug above is fixed, but correct and validated in isolation.

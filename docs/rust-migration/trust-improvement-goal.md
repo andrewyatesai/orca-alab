@@ -1,16 +1,28 @@
 # Goal prompt — make Trust prove real-world Rust (Gaps 3 & 4 + toolchain features)
 
-> ⚠️ **READ FIRST — CORRECTED & SUPERSEDED BY [`trust-goal-real-obligations.md`](./trust-goal-real-obligations.md) (2026-06-08).**
-> This goal's "obligations proved (not unknown)" criterion was gamed by a vacuous
+> ⚠️ **READ FIRST — AMENDED IN PLACE (2026-06-08). This file IS the standing
+> directive; the correction below is integrated, not delegated elsewhere.**
+> The original "obligations proved (not unknown)" criterion was gamed by a vacuous
 > per-function placeholder (`trust_mc_default_function`, predicate `false`) that
 > "proved" regardless of safety — it proved for `unbounded(a,b)=a+b` whose real
-> overflow obligation failed. **A "proved" count means nothing unless it is a real,
-> falsifiable obligation.** The corrected goal counts only REAL non-vacuous
-> obligations (overflow/bounds/panic/contracts), mandates vacuity detection +
-> fail-closed, and gates every increment on a real obligation proving on a real
-> function AND its buggy mutant failing. Use the corrected goal. The done-criterion
-> below is amended to: **REAL obligations proved non-vacuously, real-obligation
-> `unknown` count = 0, and the mutation self-test passes.**
+> overflow obligation failed. **OBJECTIVE 0 (overrides all else): a "proved" count
+> means NOTHING unless it is a real, falsifiable obligation.** Therefore:
+> 1. **Count only REAL non-vacuous obligations** — integer overflow/underflow,
+>    bounds, div-by-zero, panic-freedom, user contracts. NEVER count synthetic
+>    admissions, literal-`true`/`false` goals, UNSAT-antecedent proofs, "lowered",
+>    or "admitted". Report by kind, never a single total.
+> 2. **Vacuity detection + fail-closed**: downgrade any vacuously-"proved" obligation
+>    (assumptions UNSAT or goal a `true`/`false` literal) to a hard failure;
+>    `Inconclusive`/`unknown` real obligations are compile errors under
+>    `tcargo trust check` / `-Z trust-verify-full`.
+> 3. **Mutation self-test**: every "proved" claim must have a buggy variant that
+>    FAILS — exhibit it. If a mutation doesn't flip the verdict, the proof was
+>    vacuous. Gate EVERY increment on a real obligation proving on a real function
+>    AND its mutant failing.
+> The **Definition of done** below is amended accordingly: REAL obligations proved
+> non-vacuously, real-obligation `unknown` count = 0, mutation self-test passes.
+> See [`trust-goal-real-obligations.md`](./trust-goal-real-obligations.md) for the
+> long-form companion. The objectives/loop/build-recipe below remain in force.
 
 > Paste the block below as the session goal / standing directive. It is written
 > to drive an autonomous agent, using Orca as Trust's proving ground.
@@ -86,12 +98,17 @@ panic/overflow/contract safety" — the moat.
 4. Rebuild stage2 (LLVM is cached after the first build), re-verify, update the gap log in `~/orc/docs/rust-migration/trust-verification.md`.
 5. Commit Trust fixes onto latest remote main and push (private origin only).
 
-**Definition of done.** Orca's pure-logic crates (`orca-core`, `orca-text`,
-`orca-config`, `orca-agents`) verify via `tcargo trust check` with their
-panic/overflow/bounds **and** seeded contract obligations **proved** (not
-`unknown`), reported per-function as machine-checked JSON, runnable as a CI gate.
-Track progress in the gap log; "done" is when the gap log's `unknown`/unsupported
-rows for those crates reach zero.
+**Definition of done (amended — see Objective 0).** Orca's pure-logic crates
+(`orca-core`, `orca-text`, `orca-config`, `orca-agents`) verify via
+`tcargo trust check` with their panic/overflow/bounds **and** seeded contract
+obligations **proved NON-VACUOUSLY** (real obligations only — the synthetic
+`trust_mc_default_function` admission and any literal-`true`/`false` or
+UNSAT-antecedent "proof" do NOT count), reported per-function as machine-checked
+JSON by real obligation kind, runnable as a CI gate that goes red on any `unknown`
+real obligation, vacuous proof, or surviving mutation. "Done" is when the gap log's
+**real-obligation** `unknown` count for those crates reaches zero AND the mutation
+self-test passes (every proved obligation has a buggy variant that fails). A bare
+"N proved" total is never evidence of done.
 
 **Operational constraints (learned the hard way):**
 - **Disable the sandbox** for all builds/network/installs (`dangerouslyDisableSandbox`); it is NOT an environment limit, the sandbox just blocks them.

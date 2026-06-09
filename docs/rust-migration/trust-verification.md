@@ -649,3 +649,25 @@ should make many real `usize` arithmetic obligations prove/fail at once.
 now emits `Inst::Assume` for a function's range postcondition (`str::len ≤ isize::MAX`),
 wiring reusable infrastructure for bounded-result summaries (commit `ba2d2d93a8`).
 Moot until the usize bug above is fixed, but correct and validated in isolation.
+
+### usize/u64 gate — sharpened diagnosis (2026-06-08, build #18)
+
+Attempted the obvious fix (the unsigned BV add-no-overflow zero-extended to width+1
+= a 65-bit BV the backend caps out at; rewrote it same-width as `bvadd(a,b) >=u a` —
+sound, committed in the ay submodule `21861b2`). **It did NOT move the u64/usize
+CheckedAdd gate** — because that obligation goes through `Inst::Overflow` (havoc'd in
+the CHC route), not the BinOp BV path I fixed.
+
+**Sharper finding (from the full reason string):** for u64/usize the proof-grade
+CHC/PDR route returns evidence classified as a **counterexample**, which it then
+rejects — *"proof evidence rejected for ChcPdr: counterexample evidence is not a
+proof; primary evidence was unsupported"* — for BOTH `u64_unsafe` (real overflow,
+should be `failed`) AND `u64_safe` (bounded, should `prove`). i32/u32/i64/isize all
+get proper proof-or-failure verdicts. So the gate is in the **u64 proof-grade
+CHC/PDR evidence path** (no `PdrInvariant` is produced for u64; the counterexample
+model likely carries a value > i64::MAX that the evidence layer treats as
+"unsupported"), NOT in the BV no-overflow encoding. Confirmed still NOT unsound
+(never falsely proves). **Next step:** instrument the u64 obligation's CHC + the
+solver verdict (why no PdrInvariant for `u64_safe`; why the counterexample is
+"unsupported") — a focused solver-level debug. Remains the #1 lever (usize is the
+dominant integer type).

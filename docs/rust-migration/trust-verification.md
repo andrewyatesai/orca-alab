@@ -578,3 +578,35 @@ directly but not through the check pipeline), so the pipeline needs to pass the
 local-scope policy through to its trustc subprocess.
 
 Update this section as the loop continues (re-run after the Bug-2 rebuild lands).
+
+---
+
+## ⚠️ VANITY-METRIC CORRECTION (2026-06-08) — the "proved" numbers above were fake
+
+**Every "N proved" figure above (167→193→…→244) was a vacuous self-deception.** All
+those "proved" obligations were a single synthetic per-function placeholder —
+`trust_mc_default_function` (predicate `bool_literal(false)`, injected by
+`ensure_default_trust_mc_function_obligation`, `trust_verify.rs`), which proves
+**regardless of whether the function is safe**: it proved for `unbounded(a,b)=a+b`
+whose *real* overflow obligation correctly **failed**.
+
+**Honest orca-core numbers (real obligations only, vanity admission excluded):**
+- **REAL safety obligations proved = 0** (precondition 284, assertion 142,
+  arithmetic_safety 66, unsafe_op 30 — all `unknown`; plus 1985 "custom" =
+  unsupported-MIR lowering markers).
+- Per-function: **0 `Verified`** (was 218 falsely Verified), 365 `Inconclusive`,
+  332 `NoObligations`.
+
+**Fix landed (`abdc94ccac`):** the vacuous admission is excluded from the verdict,
+summary, report, and TRUST_JSON. `proved` now means a REAL obligation (validated:
+`real_safe` proves `arithmetic_safety`; `real_bug` fails it; `trivial` is
+`NoObligations`). Fail-closed (`-Z trust-verify-full`) errors on unproven real
+obligations.
+
+**New governing goal:** `trust-goal-real-obligations.md` — count only real,
+non-vacuous obligations; vacuity detection + fail-closed; every increment gated on a
+real obligation proving on a real function AND its buggy mutant failing. The earlier
+"244 proved / native route works" narrative is **superseded**: the identity fix is
+real (the engine proves/refutes real obligations on probes), but on orca-core the
+real obligations are all `unknown` because the functions don't fully lower. Lowering
+is genuine groundwork but moved zero real obligations so far.

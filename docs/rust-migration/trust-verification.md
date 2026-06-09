@@ -975,6 +975,99 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### P0 SOUNDNESS HOLE found+fixed: shadowed param transfers requires-bound to wrong variable (build #32, 2026-06-09)
+
+**Context (E0 probe, current merged main):** the contracts body-assumption is ALREADY live — the owner's
+parallel lane delivers `#[trust::requires]` conjuncts into VC formulas via `func.preconditions` →
+`conjoin_live_preconditions` (trust-vcgen generate.rs:2007/4329). Probes: `p_add/p_sub/p_div/p_mul`
+(direct-param arithmetic with honest bounds) all PROVE their body op. The remaining contract noise: each
+contracted fn gets +4 spurious obligations (3 failed + 1 unrouted) of pure bookkeeping.
+
+**P0 (probe `t_shadow`):** `#[trust::requires(x > 0 && x < 10)] fn t_shadow(x: i64, z: i64) { let x = z;
+x * 2 }` — the body mul PROVED. Formula dump shows why: the VC variable namespace is debug names and
+`build_debug_name_map` (trust-mir-extract lib.rs:1281) is last-write-wins, so the precondition's `x`
+and the mul operand `__trust_ovf_bv_lhs_x` (the SHADOWED x = unconstrained z) unify → bound transfers
+to the wrong variable → **false PROVE on overflowable code**. Confirmed also: `t_mut` (param
+reassignment) is correctly caught by the existing kill-set; `t_vacuous` (contradictory requires)
+happens not to prove but had no principled gate.
+
+**Fix (build #32, trust-mir-extract):** new `contract_assumption_gate.rs` applied at the single
+chokepoint where contract preconditions enter `func.preconditions` (lib.rs, before the enum-discriminant
+extend; trust_verify.rs reads only the gated list — verified). Gates: (1) v1 syntax allowlist
+(int/bool fragment; Div/Bv/quantifiers → skip); (2) every free var must be a parameter debug name;
+(3) **ShadowedParamName**: any body local sharing a referenced param's debug name → drop (the P0 fix);
+(4) **ground-witness vacuity gate**: exact i128 evaluation over candidate assignments (literals ±1, 0,
+±1; capped 4096) — no witness → no assumption (a found witness is a model, can't false-positive).
+Failure drops the assumption with a compiler warning, NEVER the function (assume-nothing is sound:
+only weakens PROVE toward FAIL). Call-site Precondition VCs are generated from a separate re-parse and
+stay ungated (callers prove the FULL predicate). 6 unit tests in the module.
+
+**Also in build #32:**
+- **Bookkeeping exclusion (task #18 class):** the 3 definition-site `Bool(false)` Precondition VCs per
+  requires (emitted by contracts.rs/spec_parser.rs/generate.rs for legacy counting, designed to prove
+  trivially) were misread by the native lane as CLAIMS ("typed predicate is false") → 3 spurious FAILED
+  per contracted fn. Now excluded from the native bundle at `function_to_verifier_api_bundle`
+  (verifier_api.rs) with a bundle-metadata count — never silent. Remaining known noise: 1
+  `Custom{trust.contract,"unsupported"}` unrouted obligation per fn (v2).
+- **len-assume fix (task #15):** root cause confirmed = the TrustIr `Inst::Assume` is invisible to the
+  formula lane that produces verdicts. Fix: shared matcher `trust_types::total_call_summaries::
+  total_summary_len_bound` (drift-proof, used by BOTH lanes) + the formula-lane mirror in
+  `build_semantic_guard_map` (generate.rs: `0 <= len_dest <= isize::MAX` semantic guard pushed after the
+  terminator kill). 1911 vcgen tests pass.
+
+**Validation suite staged** (`/tmp/validate_32.sh`): t_shadow must STOP proving; t_control keeps proving;
+p_* keep proving with bookkeeping gone; len_add proves / len_sub stays refuted; era_calc sub/div prove
+(mul = known derived-operand limitation, v2); all still_unsafe anchors keep failing.
+
+**build #32 VALIDATED (exit 0, 21:21) — everything works EXCEPT one case → build #33:**
+- ✅ Bookkeeping exclusion: contract overhead 4→1 obligations/fn (3 false-FAILs GONE); body ops keep
+  proving (p_add/sub/div/mul = 1 proved 0 failed; p_noop = just the 1 unrouted Custom). Task #18 core done.
+- ✅ len fix: `len_add`/`vlen_add` FULLY PROVE (the build #30 false counterexample is gone); `len_sub`
+  (underflow) correctly still refutes — no over-discharge. Task #15 done.
+- ✅ era_calc: sub+div PROVE under the requires (2 proved); mul still fails (derived-operand `era`, v2);
+  era_calc_unsafe + all still_unsafe anchors keep failing; t_vacuous correctly dropped (witness gate
+  fired, warning emitted); t_mut correctly refuted.
+- ❌ **t_shadow STILL false-proved.** Diagnosis: optimized-MIR **copy-prop** moves the shadowed binding's
+  debug entry onto `z`'s PARAM local (`let x = z;` → debug "x" → _2), so the collapsed per-local name map
+  shows no body-indexed local named "x" — the index-based shadow check can't see it; the collision hides
+  INSIDE the param range. **Fix (build #33):** gate on the RAW `var_debug_info` name→locals multimap
+  (`build_debug_name_multimap`): a referenced name must map to EXACTLY ONE local and it must be the
+  matching parameter; any multiplicity (classic shadow `[1,2]`, copy-prop alias, param carrying two
+  names) → drop the assumption. Also drops `days_from_civil`-style self-shadowing
+  (`let year = year - 1;`) — CORRECT, since the param bound differs from the shifted value; orc-side
+  contracts will rename such bindings. 8 unit tests incl. both regression shapes.
+
+**builds #33-#34 VALIDATED + LANDED ON MAIN (trust 946bb7a74d):** t_shadow now REFUTES (proved=0,
+the multimap gate fires, 3 skip-warnings); t_control/p_add/sub/div/mul keep proving; len/era/anchor
+results unchanged. Build #34 re-validated the combined state after rebasing onto the owner's 6 parallel
+commits ("native trust-mc proves arithmetic end-to-end", literal-width adoption, fail-closed binop
+lowering) — identical full pass; pushed. **The contracts body-assumption capability (Obj 4 core) is
+sound, validated, and on main.** Next: orc-side contracts — days_from_civil (rename shadowed binding +
+ISO-bounds requires) and parse_iso8601_utc_ms (validate-then-compute range guard, a genuine safety fix)
+→ first real Orca functions proved under documented preconditions.
+
+### MERGED-MAIN RE-BASELINE: parallel main work landed; contracts payoff quantified (2026-06-09, post-align)
+
+All builds #29–#31 work was rebased onto the owner's moving `origin/main` (which independently
+reworked the precondition lane) and fast-forwarded; every repo's main now carries the merged state,
+build-verified + soundness-probed. Fresh survey on the merged toolchain:
+
+**orca-core: 1280 obligations → 1003 unknown + 205 failed + 72 design_requirements + 0 proved**
+(publication gate still requires solver-transcript artifacts). vs build #31 (1209 unknown + 71
+failed): the owner's parallel commits moved −206 unknown and introduced a new
+`design_requirements` category (72) — the new lane where contract obligations land. The
+`"not MIR-derived; router placeholders"` rejection message is GONE from the era_calc probe
+(plumbing reworked), but **the core gap is unchanged: a `#[trust::requires]` predicate still does
+not constrain body verification** — era_calc still refutes its bounded arithmetic.
+
+**The 205 failed quantify the contracts (Obj 4) payoff:** 130 are REAL arithmetic refutations
+(add 86 / mul 16 / sub 28) on input-dependent functions awaiting preconditions —
+`days_from_civil` (24), `parse_iso8601_utc_ms` (18), `title_has_token` (12),
+`decode_uri_component` (8), `build_feature_wall_tour_depth_summary` (8) … — exactly what the
+body-assumption capability converts to PROVED. The other 75 are assertions, of which 48 are the
+derived-`PartialEq::eq` placeholder class (vacuity-exclusion ticket). Verdict flipped to
+`HasViolations` (70 functions) — honest: these functions genuinely can overflow for extreme inputs.
+
 ### trust-wp schema fix LANDED + contracts frontier SCOPED (build #31, 2026-06-09)
 
 **trust-wp schema separator fix (build #31, exit 0):** separator-canonicalized BOTH the decoder

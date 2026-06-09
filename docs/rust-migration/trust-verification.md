@@ -406,11 +406,29 @@ dispatch is not.
    thread a totality bound), not the open-ended core-verifier research the pre-
    breakthrough analysis feared.
 
-**Session end state: orca-core 196 proved / 171 functions / 0 failed (from 0);**
-native full-verifier route working and sound end-to-end; five sound Trust commits
-on `trust-gap3-wrapping-add` (identity fixes, trust-wp schema, call summaries,
-address-of-field). Zero-unknown remains a multi-session target via the mapped
-path above — no longer gated on a "multi-month wall".
+**Progress update (continued same session): orca-core 244 proved / 218 functions
+/ 0 failed (from 0).** Landed, all sound (soundness controls pass each time):
+- **Trait-method resolution + summaries** (`8d0a99e346`): resolve
+  `Clone`/`PartialEq`/`Default` by the governing operand type; primitive/std-type
+  leaves → fresh-symbolic summary; local ADTs → resolve to the in-module impl.
+- **Inter-procedural derived-impl verification** (`4eeb8b9f9b`): the native callee
+  closure now resolves trait-method calls (`ty::Instance::try_resolve`) so a derived
+  impl's field-clone of a *local* type bundles `<Inner as Clone>::clone` and is
+  verified inter-procedurally. SOUND: a hand-written `panic!`-ing `Clone` is NOT
+  falsely proved panic-free (callee panic propagates). `Clone`/`Default` dropped off
+  the top blockers.
+
+**Unsupported-op breakdown after the above** (the real remaining backlog, finally
+visible under the umbrella): `unknown constant variant` **590** = unhandled
+`ConstValue::Str` (`&str` literals) — *being fixed now* (model as opaque slice fat
+pointer); `Call target` ~971 (str methods `to_lowercase`/`find`/`split`/`chars` +
+`Box::new_uninit` + `Try::branch` + `Option::map`); opaque terminators for
+`Deref`/`Clone`/`Default` on non-local/generic types; `unsupported constant` 259.
+
+Seven sound Trust commits on `trust-gap3-wrapping-add` (identity fixes, trust-wp
+schema, call/trait summaries, address-of-field, inter-procedural resolution).
+Zero-unknown remains a multi-session target via the mapped path — ordinary
+incremental lowering, no "multi-month wall".
 
 **Path B progress (2026-06-08).** *Edit A landed & compiling* (committed
 `trust-certify` `61430af5a5`): `recheck_cleancic(term, context, lineage,

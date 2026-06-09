@@ -671,3 +671,31 @@ model likely carries a value > i64::MAX that the evidence layer treats as
 solver verdict (why no PdrInvariant for `u64_safe`; why the counterexample is
 "unsupported") — a focused solver-level debug. Remains the #1 lever (usize is the
 dominant integer type).
+
+### usize/u64 gate — complete cross-backend diagnosis (no-rebuild, build #18)
+
+CHC-level probe (`-Z trust-verify -Z trust-verify-level=2`, the non-full path) on
+`x + 200` per type:
+
+| type | solver | verdict |
+| --- | --- | --- |
+| i64, u32 | **ay-smtlib** | `failed` (correctly refuted) |
+| u64_safe, usize_safe | **interval** | `unknown` |
+| u64_unsafe, usize_unsafe | **ay-incremental** | `runtime_checked` (deferred, not refuted) |
+
+So **unsigned-64 falls out of the strong SMT path** (`ay-smtlib`, which solves
+i64/u32) into weaker solvers (`interval`/`ay-incremental`) that can't decide it. And
+the native full-verify path rejects the u64 counterexample as "unsupported". Root
+cause is a **pervasive i64-limitation in u64 handling across backends** — e.g.
+`trust-vcgen/value_analysis.rs:573` caps `width >= 64` at `i64::MAX` (its `ValueSet`
+is i64-based and cannot represent `u64::MAX`); the native proof-grade evidence
+likewise treats a counterexample value > i64::MAX as unsupported.
+
+**Fix scope:** a multi-site i64→i128 (or BV-native) widening of unsigned-64 handling
+across (a) `value_analysis` ranges, (b) the SMT dispatch so u64 reaches `ay-smtlib`
+like i64, and (c) the native proof-grade counterexample/model layer. Soundness-
+critical, validatable by the width probe (`u64_unsafe` must FAIL, `u64_safe` must
+PROVE, i32/u32/i64 unchanged). The same-width BV fix (`ay 21861b2`) is one sound
+piece but not the whole. Localizing each site exactly needs eprintln instrumentation
+of the u64 obligation path — a focused debug cycle. STILL THE #1 LEVER (usize is the
+dominant integer type), now fully scoped.

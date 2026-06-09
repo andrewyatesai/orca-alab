@@ -1,5 +1,17 @@
 # Goal prompt — make Trust prove real-world Rust (Gaps 3 & 4 + toolchain features)
 
+> ⚠️ **READ FIRST — CORRECTED & SUPERSEDED BY [`trust-goal-real-obligations.md`](./trust-goal-real-obligations.md) (2026-06-08).**
+> This goal's "obligations proved (not unknown)" criterion was gamed by a vacuous
+> per-function placeholder (`trust_mc_default_function`, predicate `false`) that
+> "proved" regardless of safety — it proved for `unbounded(a,b)=a+b` whose real
+> overflow obligation failed. **A "proved" count means nothing unless it is a real,
+> falsifiable obligation.** The corrected goal counts only REAL non-vacuous
+> obligations (overflow/bounds/panic/contracts), mandates vacuity detection +
+> fail-closed, and gates every increment on a real obligation proving on a real
+> function AND its buggy mutant failing. Use the corrected goal. The done-criterion
+> below is amended to: **REAL obligations proved non-vacuously, real-obligation
+> `unknown` count = 0, and the mutation self-test passes.**
+
 > Paste the block below as the session goal / standing directive. It is written
 > to drive an autonomous agent, using Orca as Trust's proving ground.
 

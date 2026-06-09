@@ -138,3 +138,56 @@ count drop.
 Obj 1 (Gap 3 core verifier work). Committed: scope/genesis fixes (Trust main),
 `wrapping_add`, survey mode, `recheck_cleancic`, `--survey` flag (branch
 `trust-gap3-wrapping-add`).
+
+## Progress (2026-06-09, builds #19–#31) — supersedes the 2026-06-08 block above
+
+Full detail in [`trust-verification.md`](./trust-verification.md) (gap log) and the
+`trust-verifying-compiler` memory. Current accurate state:
+
+- **Obj 1 (Gap 3 lowering): the analyzability frontier is largely cleared; the count
+  is now gated by CONTRACTS, not lowering.** Landed + mutant-validated sound:
+  u64/usize add/sub overflow (BV re-encode, 0→26 proved); reference-to-aggregate
+  constants (`&[&str]` tables → OpaqueConst, 1364→1280); `str::*` total summaries;
+  `Deref`/`ToString`/`Try::branch` (`?`) type-gated totals; cleanup-edge drop;
+  **NoOverflow predicates** (all 8 BV overflow predicates — signed div/neg/add/sub/mul
+  — exact two's-complement expansions in `typed_chc_ay.rs`; `safe_div`/`safe_neg`
+  PROVE, mutants REFUTED); **Tier-1 call-peel** (Option/String/Vec/slice structural
+  accessors + primitive predicates as fresh-symbolic). These made orca-core's
+  arithmetic/derived obligations ANALYZABLE — but they now correctly REFUTE for
+  extreme inputs (e.g. `days_from_civil`'s `year_of_era*365`, timestamp deltas), so
+  PROVING them needs preconditions (→ Obj 4). Remaining HARD lowering frontier:
+  `Unsize`→`&dyn` (274, #1), closure-bearing combinators (~150, unsound to fake),
+  `Box::new_uninit`/`Formatter` (~130), and `TyKind::Alias` projection-normalize
+  (111 — DEFERRED: 4 attempts incl. the `adt_arg_depth` guard all hit E0275
+  trait-solver overflow on typenum/zlib-rs, even during the stage2 build).
+- **Obj 2 (Gap 4): ✅ DONE + DETERMINISTIC.** `tcargo-trust` now force-cleans the
+  target package before verify so trustc re-emits per-function `TRUST_JSON` every
+  run (the `transport:missing-json` degradation was an intermittent cargo cache hit).
+  A survey yields a 7.8 MB per-function/per-obligation JSON with exact blocking
+  reasons.
+- **Obj 3 (survey mode): ✅ DONE** (`TRUST_VERIFY_SURVEY=1`, non-aborting per-function
+  proved/unknown/failed + reason).
+- **Obj 4 (contracts): SCOPED precisely; the schema-decode layer is cleared, the
+  body-assumption capability remains.** Fixed the trust-wp formula-schema separator
+  bug (`trust_wp.` underscore emitted vs `trust-wp.` hyphen decoded) → derived-PartialEq
+  preconditions now DECODE and reach the prover. But a `#[trust::requires(P)]`
+  predicate still reaches trust-mc as a `router_placeholder` (`predicate=false`),
+  rejected by the "not MIR-derived; router placeholders are not proof input" gate —
+  so P never constrains the body. **THE remaining Obj-4 capability:** lower the
+  requires predicate into a MIR-derived typed CHC and CONJOIN it as a body-assumption
+  hypothesis. Contract opt-in confirmed: `#![feature(register_tool)]` +
+  `#![register_tool(trust)]` + `--cfg trust_verify`.
+- **Obj 5 (CI-grade JSON): ✅ DONE** (deterministic per-function rows; removed a stray
+  `DEBUG: prove_native_pure_predicate` stdout print that polluted `--format json`).
+- **Obj 6 (bootstrap): ✅ DONE** (`scripts/dev-bootstrap.sh`).
+- **Obj 7 (`ty` domain-spec layer): TODO.**
+
+**Honest count (orca-core, build #31):** 1280 obligations, 0 publishable-proved (the
+hardened gate requires solver-transcript artifacts the BV route doesn't yet emit —
+a separate sound future win), ~1209 unknown + 71 failed (67 of the "failed" are
+vacuous `predicate=false` placeholder preconditions exposed by the schema fix —
+should be excluded from the honest count, same class as the `trust_mc_default_function`
+admission). **Reaching zero unknown across all four crates is a multi-session program;
+the validated next lever is the contracts body-assumption capability (Obj 4), then
+the hard lowering frontier (Unsize/dyn, closures).** All changes uncommitted on the
+working tree (NoOverflow, schema fix, Tier-1, constants, Gap-4); nothing pushed.

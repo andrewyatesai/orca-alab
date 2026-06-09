@@ -699,3 +699,576 @@ PROVE, i32/u32/i64 unchanged). The same-width BV fix (`ay 21861b2`) is one sound
 piece but not the whole. Localizing each site exactly needs eprintln instrumentation
 of the u64 obligation path — a focused debug cycle. STILL THE #1 LEVER (usize is the
 dominant integer type), now fully scoped.
+
+### usize/u64 gate — ROOT-CAUSED EXACTLY (2026-06-09, build #19, instrumented)
+
+Added two env-gated probes (`TRUST_FORMULA_DEBUG` in `trust-mir-extract::vc_formula_payload`;
+`TRUST_CHC_LOWER_DEBUG` wrapping `trust_verify.rs::trust_mc_typed_chc_lowering_for_obligation`),
+rebuilt stage2, and re-ran the width probe in full survey mode. The output is unambiguous and
+**overturns the build #18 "counterexample unsupported" framing**:
+
+1. **The typed-CHC lowering SUCCEEDS for u64** — `SUPPORTED`, `has_payload=true`,
+   `typed_lowered=true`. The obligation is *not* dropped at lowering (the build #18
+   "native_trust_ir present:false / unsupported MIR" is downstream fallout, not the cause).
+2. **The overflow VC is encoded in LIA (Int), not BV.** Probe smtlib for `u64_unsafe`:
+   `… (or (< (+ x 200) 0) (> (+ x 200) 18446744073709551615))`. The bound
+   `18446744073709551615` = `u64::MAX` = 2^64−1, **> i64::MAX**. `u32`/`i64` work *only*
+   because their type bounds fit i64.
+3. **The choke point is one line:** `first-party/trust-mc/trust-mc-driver/src/native/typed_chc_ay.rs:146`
+   lowers `IntConst` as `ChcExpr::Int(parse_i64(value)?)`; `parse_i64` (line 289) errors on any
+   literal > i64::MAX → `NativeSolveError::InvalidInput` → `trust-bmc/verifier_api.rs:2494` maps
+   it to `EvidenceStatus::Unsupported` → `unknown`. `ChcExpr::Int` is `i64` across **2029 sites**
+   in ay-chc (`SmtValue::Int` 666 more; enum defs at ay-chc `expr/types.rs:266`,
+   `smt/types.rs:212`, `problem/mod.rs:30`).
+
+**Why LIA and not BV:** `trust-vcgen/generate.rs:2603-2606` *deliberately* routes add/sub through
+the LIA path (only `mul`→BV) so the conjoined guards/preconditions (`v2_formula_with_block_defs`,
+`input_range_constraint`) survive — the existing fresh-operand BV path
+(`v2_unsigned_bv_overflow_formula`) drops them and would false-Fail guarded-safe code.
+
+**Two real fixes:**
+- **(A) Widen ay-chc `Int` i64→i128.** Principled root fix, but ~2700 soundness-critical sites
+  (`ChcExpr`/`SmtValue`/`problem` + all arithmetic/model-extraction). Multi-week; still misses u128.
+- **(B) BV-encode wide add/sub overflow *with guards*** ← recommended next implementation. The BV
+  path in `typed_chc_ay` is complete and proven (all BV ops lower; `BvConst`→`parse_u128` handles
+  u64::MAX). **Key insight: in BV the type-range bound is implicit in the bit-width, so the
+  oversized `u64::MAX` literal disappears.** For `u64_safe`: `bvult(x,1000) ∧ bvult(bvadd(x,200),x)`
+  → UNSAT → PROVED; `u64_unsafe`: `bvult(bvadd(x,200),x)` → SAT → FAILED. Both correct, sound,
+  complete. The bounded-but-real work is consistently BV-encoding the block-def guards (the
+  soundness-sensitive piece — must not drop or mistranslate a guard).
+
+Validate either fix with `/tmp/u64fix_probe.rs`: `u64_unsafe` must FAIL, `u64_safe` must PROVE,
+i32/u32/i64 unchanged. The instrumentation lives in the working tree (uncommitted, env-gated,
+inert under normal runs) and is baked into the current stage2 binary for reproduction.
+
+**Fix (B) DE-RISKED — no stage2 rebuild needed (2026-06-09).** Added a direct ay-chc crate test
+(`first-party/ay/crates/ay-chc/tests/u64_overflow_bv_derisk.rs`, uncommitted, passing) that builds
+the exact width-64 single-step CHCs fix (B) would emit and solves them via `AdaptivePortfolio`:
+
+| query (BitVec 64) | verdict | meaning |
+| --- | --- | --- |
+| `reach :- bvult(x,1000) ∧ bvult(bvadd(x,200),x)` (guarded) | **Safe (PROVED)**, `AlgebraicClosedForm`, 0.05s | proving guarded-safe u64 works at 64-bit, no bit-blast blowup |
+| `reach :- bvult(bvadd(x,200),x)` (unguarded) | **Unknown** (sound; never Safe) | raw ay-chc returns Unknown on BV refutation |
+
+So the **hard direction — proving safe code at width 64 — works and is fast** (the #6848 BV-loop perf
+regression does *not* bite this loop-free overflow VC). The `Unsafe` witness for the unguarded case
+is produced one layer up by the trust-mc typed full-verification direct-SMT acyclic-error shortcut
+(proven at 8-bit by `native_typed_chc_pdr_solver_refutes_bitvector_add_overflow_with_witness`).
+
+**Remaining work for (B)** is purely in trust-vcgen's overflow-VC builder (`generate.rs`): emit the BV
+wrap idiom for wide-type add/sub AND consistently BV-translate the block-def guards (needs a BV-aware
+`v2_formula_with_block_defs`), bailing to the LIA path — today's sound `unknown` — on any guard
+outside the safe fragment (arithmetic-in-guard, out-of-`[0,2^w)` literal, sign mismatch). It is
+soundness-sensitive (a mistranslated guard could yield a false PROVE); gate every increment on the
+width probe plus a buggy mutant that must FAIL.
+
+### 🟢 usize/u64 gate CLOSED for add/sub overflow — fix (B) LANDED + validated (2026-06-09, build #21)
+
+Implemented as a single post-hoc BV re-encoding at the FINAL lowering boundary,
+`trust-mir-extract::verifier_api.rs::vc_formula_payload` (NOT trust-vcgen — a first attempt there ran
+too early: four downstream passes plus trust-router's `mir_router` re-wrap the formula with Int
+ranges, and the full-verify formula is only complete at `vc_formula_payload`). `try_widen_unsigned_overflow_vc_to_bv`
+recognizes the Int overflow disjunction `Or([Lt(a±b, 0), Gt(a±b, u64::MAX)])`, replaces it with the
+exact unsigned wrap idiom (`bvult(bvadd(a,b), a)` / `bvult(a, b)`), translates the relational
+guards/ranges to unsigned BV, and drops the now-implicit `[0, 2^w)` bounds. It **bails to the sound Int
+formula** on anything outside the relational+overflow fragment, and only triggers on the `u64::MAX`
+literal (width 64) — i64 (`lo = i64::MIN < 0`) and u32 (`hi = u32::MAX ≠ u64::MAX`) never match, so
+they are untouched.
+
+**Width-probe (`/tmp/u64fix_probe.rs`) — all 9 correct, soundness mutants included:**
+
+| function | verdict | expected |
+| --- | --- | --- |
+| `u64_safe`, `usize_safe`, `u64_safe_sub` | **PROVED** (proof-grade, fail-closed) | prove |
+| `u64_unsafe`, `usize_unsafe`, `u64_unsafe_sub` | **FAILED** | not prove |
+| `u64_insufficient_guard` (`if x<u64::MAX {x+200}`) | **FAILED** | not prove (soundness mutant) |
+| `i64_unsafe`, `u32_unsafe` | **FAILED** (unchanged) | unchanged |
+
+Non-vacuity is proven by the mutant discrimination: a vacuous prover could not prove `u64_safe` while
+*failing* the insufficient-guard mutant.
+
+**orca-core impact (native survey):** real obligations **proved 0 → 26** (0 failed). The dominant
+remaining blocker is unchanged — **3113 unsupported**, overwhelmingly derived-`Clone`/`Debug`/`fmt` and
+dyn-dispatch lowering (Gap 3's bulk), not arithmetic. So zero-unknown is still far off, but the #1
+*arithmetic* lever (u64/usize add/sub) is closed soundly.
+
+**Still open for full usize closure:** `mul` (NIA; a separate fresh-operand BV path exists), `u128`,
+signed-wide (`i128`), and guards outside the relational fragment (e.g. preconditions containing
+arithmetic) — all remain sound `unknown`. Changes are uncommitted in the working tree
+(`trust-mir-extract/verifier_api.rs`); the `ay-chc` de-risk test and the env-gated `TRUST_FORMULA_DEBUG`
+probe are also uncommitted.
+
+### NEXT #1 BLOCKER (scoped) — cleanup-edge calls → `Opaque` blocks derived Clone/Debug/fmt (2026-06-09)
+
+With the arithmetic lever closed, orca-core's dominant blocker is **3113 unsupported**, overwhelmingly
+`failed to lower <T as Clone>::clone` / `<T as Debug>::fmt` and dyn-dispatch. Root cause located:
+`trust-mir-extract/src/convert.rs:118` forces ANY `Call` whose successors exceed its normal return
+target — i.e. any call carrying an **unwind/cleanup edge** (drop-on-panic) — to `Terminator::Opaque`,
+which `trust-ir-bridge/src/lower.rs:4637` refuses. Derived `Clone::clone` calls its fields' `clone`
+(each a call with a drop-on-panic unwind edge), so it's forced to `Opaque` and the bridge's existing
+Clone/Default/PartialEq resolution (`resolve_local_trait_impl`, `total_trait_call_on_total_type`,
+lower.rs:4563/4583) never runs.
+
+**Fix design (sound):** in convert.rs, preserve cleanup-carrying calls as `Terminator::Call` (normal
+target) instead of `Opaque`, so the bridge can apply its totality/resolution logic. Dropping the unwind
+edge is sound ONLY when the callee cannot panic; the bridge's `total_trait_call_on_total_type`
+(fresh-symbolic) and `resolve_local_trait_impl` (inter-procedural — callee panic IS verified) handle
+that, but the **generic fallback** (lower.rs:4596, plain `Inst::Call` to an unresolved callee) must
+**refuse** a cleanup-carrying call (else a panicking external call is verified as total — unsound).
+That needs a `has_cleanup` signal on `Terminator::Call` (most of the 76 match sites use `{ .. }` and
+are unaffected; only construction sites change).
+
+**Deeper finding (completed scoping, 2026-06-09):** the call-Opaque gate is only part 1. The cleanup
+BLOCKS themselves (reachable only via the unwind edge) contain non-trivial `Drop` terminators (e.g.
+dropping a partially-cloned `String` field during unwind), which the bridge ALSO refuses
+(lower.rs:4628 `is_trivially_no_drop_ty`). They sink to `Terminator::Resume` (already a no-obligation
+sink). So derived `Clone`/`Debug` for any struct with droppable fields (String/Vec/…) — i.e. most of
+orca-core — is blocked by the whole cleanup CFG, not just the call.
+
+**Sound 3-part fix (the unwinding path carries none of the per-operation overflow/bounds obligations
+we claim, so it can be dropped soundly — we simply don't verify drop-glue safety, an honest separate
+concern):**
+1. `trust-types` `BasicBlock`: add `is_cleanup: bool` (rustc's `bb_data.is_cleanup`, available in
+   convert.rs:20 but currently unused).
+2. `convert.rs`: set `is_cleanup`; for a call whose only extra successor is a cleanup block, emit
+   `Terminator::Call` with the normal target (drop the unwind edge).
+3. bridge: lower cleanup-block `Drop`s as no-ops and emit no obligations for cleanup blocks (they are
+   the unwinding path).
+
+Soundness rests on "cleanup blocks carry no per-operation obligation we claim" — validate carefully
+(don't skip a real obligation that lands in a cleanup block). Gate every increment on a derived
+`Clone` over a `String`-field struct that PROVES + a hand-written panicking `Clone` mutant that must
+NOT prove. This is a substantial multi-crate, soundness-sensitive capability — a focused effort, not a
+session-tail add-on.
+
+**SOUNDNESS LANDMINE (found while scoping the minimal convert.rs-only variant, 2026-06-09):** a
+tempting minimal fix is (a) drop the unwind edge for direct calls (`convert.rs`: change the Opaque
+condition to `func_name=="<indirect>" || target.is_none()`) and (b) stub each `is_cleanup` block to an
+empty `Terminator::Resume` in `convert_block`. The CALL part looks sound (the unwinding path carries
+none of the per-operation overflow/bounds obligations). BUT stubbing cleanup blocks is **NOT trivially
+sound**: `Terminator::Drop` generates obligations — `trust-vcgen/memory_provenance.rs:334` (drop
+provenance) and `ownership.rs:299` (ownership) build VCs from drops. Emptying cleanup blocks silently
+drops those drop-safety obligations, which could make a function falsely clean on the
+provenance/ownership dimension. So the fix MUST first establish which obligation dimensions the
+native full-verify route actually claims for cleanup-path drops, and either preserve or honestly
+exclude them. **Resolve the drop/provenance/ownership obligation model BEFORE implementing.** (The
+arithmetic-lever fix this session had no such landmine — its fragment was provably equisatisfiable;
+this one is not, hence the extra care.)
+
+### DETERMINISTIC per-obligation histogram OBTAINED (Obj 5 ✓) + Tier-1 total-summaries batch (build #29, 2026-06-09)
+
+**Objective 5 (CI-grade per-function JSON with reasons) is effectively ACHIEVED.** Ran the *fixed*
+standalone `tcargo-trust` (Gap-4 force-clean) in survey/warning mode:
+`TRUST_VERIFY_SURVEY=1 tcargo-trust trust check -p orca-core --format json --allow-l0-gaps`. It emitted
+**7.8 MB of deterministic per-function rows** (287 fns, 1280 obligations) — NOT the degraded
+`transport:missing-json` probe. Each obligation row carries `description` + `outcome.reason` with the
+precise blocking MIR op. The Gap-4 fix WORKS end-to-end. (`tcargo-trust` confirmed it targets the
+repo-local stage2 trustc.)
+
+**The accounting "bug" from #28 is NOT a bug — it is SOUND.** The survey reports
+`0/181 hardened obligations have publishable native proof evidence` and `total_proved=0`. The #28
+`proved=1` was the *raw native-engine status*, not the publication-grade manifest disposition. The
+manifest gate (`trust-verifier-api/src/lib.rs:2340 evidence_disposition`) requires non-bounded +
+sufficient-strength + proof artifacts (`replay_or_check`/`solver_transcript`); the proof_evidence shows
+`proof artifact policy satisfied=false; replay_or_check=false; solver_transcript=false`. So
+`full_verification_legacy_result_for_obligation` (trust_verify.rs:6688) correctly downgrades it to
+Unknown when it isn't in `strict_accepted_ids`. NOTHING to "fix" there — doing so would be unsound. The
+real latent gap (separate, deferred): genuine BV-route proofs don't emit solver-transcript artifacts, so
+even the 26 arithmetic proofs aren't *publishable*. Attaching real transcripts is a sound future win.
+
+**Deterministic blocker histogram (1280 obligations, FIRST-blocker per obligation):**
+
+| count | blocking op | family |
+| --- | --- | --- |
+| 679 | `Call target … not present in the TrustIr module` (ALL std/core/alloc; ZERO local) | needs modeled summary |
+| 274 | `CastKind::PointerCoercion::Unsize` (→ `&dyn`) + `Transmute` | dyn dispatch |
+| 39 | `Drop` opaque terminator | drop |
+| 38 | `unsupported operand Const` | constants |
+
+Top std/core call targets (the 679; `not present in module`), ranked:
+`Index::index` 68 · `Formatter::write_str` 59+13 · `Box::new_uninit` 58 · `Iterator::collect` 42 ·
+`IntoIterator::into_iter` 41 · `Option::unwrap_or` 38 · `ToString::to_string` 37 · `slice::iter` 34 ·
+`Vec::with_capacity` 31 · `PartialEq::eq` 31 · `Option::map` 27 · `Option::map_or` 24 ·
+`is_ascii_*` 23 · `Option::and_then` 20 · `f64::is_finite` 14 · `String::new` 11 · others ≤8.
+
+**KEY: histogram is FIRST-blocker-per-obligation** → it OVERSTATES any single capability's yield (the
+multi-link chain reality, now quantified). Clearing one op peels to the next.
+
+**Tier split by soundness:**
+- **Tier 1 (sound modeled-summary — runs NO user code, cannot panic):** `Option`/`Result` structural
+  selectors (`unwrap_or`/`is_none`/`as_ref`/…), `String`/`Vec` inherent accessors
+  (`new`/`len`/`is_empty`/`with_capacity`/`push`/…), `slice::len`/`is_empty`/`iter`/`first`/`last`,
+  primitive `Copy` predicates (`f64::is_finite`, `u8::is_ascii_*`). LANDED in build #29
+  (`total_no_panic_call_summary`, lower.rs ~2455). ALSO generalized the sound `len ≤ isize::MAX` assume
+  from `str::len` to `String`/`Vec`/`slice` len so `container.len()+k` proves.
+- **STRICTLY EXCLUDED as unsound-to-fake (dispatch to user code → can panic):** `HashMap::get`/
+  `HashSet::contains` (Hash+Eq on key), `slice::contains`/`to_vec` (Eq/Clone on elements),
+  `Option::map`/`and_then`/`filter`/`map_or`/`unwrap_or_else`/`as_deref` (closure/Deref), `IntoIterator`/
+  `Iterator::collect`/`next`/`any`, `Ord::clamp`, `ToString::to_string`, `PartialEq::eq` (already
+  type-gated). These need closure-panic or type-gated modeling — Tier 2.
+- **Structural (real obligations, not fakes):** `Index::index` (68; emits a real bounds VC — high VALUE,
+  but only proves when the bound is derivable, so count-flat in isolation), `Box::new_uninit`,
+  `Formatter::write_str`, `Unsize`→`&dyn`.
+
+**Validation pending (build #29 rebuilding):** `/tmp/total_probe.rs` — (A) `str/String/Vec/slice .len()+1`
+must PROVE (len-assume), (C/D) `o.unwrap_or(0)+200` and `v.len()+k` must stay UNKNOWN (soundness anchors).
+Then re-survey orca-core to MEASURE the real count drop (expect a peel, flip on pure-Tier-1 functions).
+
+**Estimated yield (from the deterministic survey, before rebuild):** only **9 functions / 30 obligations**
+have ALL first-blockers in the Tier-1 set — the optimistic upper bound on this build's count drop. The
+layer-peel wall, now precisely measured: the vast majority wedge on a non-Tier-1 first-blocker
+(`Unsize`/`Index`/closures/fmt/`Box`/`Drop`). Tier-1 is sound and correct but modest.
+
+**Higher-value frontier found in the same survey — the 240 obligations that LOWERED (reached the solver,
+not lowering failures):** **111** fail on `TyKind::Alias` "Projection was not normalized"
+(`ty_convert.rs:444`) — the single biggest lever, but a RESEARCH problem: 4 prior `try_normalize_erasing_
+regions` attempts (incl. roadmap §1's `adt_arg_depth<=16` guard) caused E0275 trait-solver overflow on
+typenum/zlib-rs even during the stage2 build → DEFERRED, no safe approach yet. **46** fail on
+`BvSdivNoOverflow` "unsupported expression for native typed ay-chc lowering" (`days_from_civil` date math)
+— REAL signed-div overflow obligations that reached the solver. **~50** derived `PartialEq::eq`
+preconditions hit a trust-wp "unsupported trust formula schema".
+
+### NoOverflow predicate expansions LANDED + build #29 torn-read failure → combined build #30 (2026-06-09)
+
+**build #29 FAILED (torn read, not a real bug):** editing `typed_chc_ay.rs` mid-build (to batch NoOverflow
+into the Tier-1 build) caused cargo to compile `trust-mc-driver` from a snapshot taken BETWEEN the two
+edits (match-arms present, helper fns not yet) → `E0425 cannot find function lower_no_overflow_*`, whole
+build aborted (no new trustc, Tier-1 not built either). **Lesson: never edit a source file while a build
+that compiles it is running.** Both files (`lower.rs` Tier-1, `typed_chc_ay.rs` NoOverflow) re-validated
+standalone (`cargo check`); build #30 rebuilds with BOTH.
+
+**NoOverflow capability (Obj 1, build #30):** added exact, sound two's-complement expansions for ALL 8
+bit-vector overflow PREDICATES in `typed_chc_ay.rs lower_expr` (ay-chc has no native overflow op, so they
+fell to the `unsupported_expr` catch-all → blocked the 46 `days_from_civil` obligations). Each predicate
+is TRUE iff NO overflow (ay-bindings `test_bv.rs`: "returns true if no overflow"). Expansions:
+`BvSdivNoOverflow(a,b)`=`¬(a=MIN ∧ b=-1)`; `BvNegNoOverflow(a)`=`a≠MIN`;
+`BvSubNoUnderflowUnsigned(a,b)`=`bvule(b,a)`; `BvAddNoOverflowUnsigned(a,b)`=`bvule(b,¬a)`;
+`BvAdd/SubNoOverflowSigned`=sign-extend by 1, top two result bits equal; `BvMulNoOverflow{Unsigned,Signed}`=
+extend to 2w, multiply, high half zero / equals sign-extension of low w. All equisatisfiable → never
+false-PROVE/false-FAIL. Validate `/tmp/overflow_probe.rs`: `safe_div(x)=x/4`/`safe_neg` (bounded) must
+PROVE; `still_unsafe_div(x,y)=x/y`/`still_unsafe_neg(x)=-x` must stay UNKNOWN.
+
+**build #30 VALIDATED (2026-06-09, exit 0, 18:43):**
+- **NoOverflow SOUND + non-vacuous ✓:** `safe_div(x)=x/4` and `safe_neg` (bounded) → PROVED;
+  `still_unsafe_div(x,y)=x/y` (div-overflow + div-by-zero), `still_unsafe_neg(x)=-x`, `still_unsafe`
+  (unwrap_or+200) → all correctly REFUTED, NONE falsely proved. Signed-div/neg/add/sub overflow
+  predicates now lower and prove/refute correctly.
+- **Tier-1 len-assume BROKEN (false-FAIL, not unsound):** `str/String/Vec/slice .len()+1` gets a FALSE
+  counterexample — the `len<=isize::MAX` assume (ICmp Ule) does NOT constrain the BV-encoded overflow
+  check (mixed Int/BV; likely a build #21 u64-BV-fix regression: overflow moved LIA→BV, assume stayed
+  LIA). Over-conservative, sound. Follow-up (task): BV-translate the assume guard into the overflow VC.
+- **orca-core count ~FLAT (1280 unknown → 1276 unknown + 4 failed) — for the RIGHT reason.** NoOverflow
+  made `days_from_civil`'s `BvSdivNoOverflow(year, 400)` (leap-year `/400`) and workspace_cleanup's
+  `scanned_at - last_activity_at` (i64 sub) ANALYZABLE: moved from "unsupported expression" →
+  "counterexample". The counterexamples are LEGITIMATE: `days_from_civil` does `year_of_era*365`,
+  `era*146097`, `153*month` on raw i64 (overflows for extreme inputs); the i64 timestamp sub overflows
+  for extreme values. **These need PRECONDITIONS (`#[requires]`) to prove — a Contracts (Obj 4) signal,
+  not a lowering gap.** (tcargo `total_proved` is publication-gated to 0; native BV proofs of safe
+  arithmetic don't show there — use direct trustc survey.)
+
+**STRATEGIC PIVOT (data-driven, build #30):** the lowering-capability campaign (u64 ✓, constants ✓,
+str/Deref/`?` ✓, NoOverflow ✓, Tier-1-call-peel ✓) made the arithmetic/derived obligations ANALYZABLE —
+but the dominant frontier for PROVING orca-core's real obligations is now **CONTRACTS (Obj 4)**:
+arithmetic-heavy functions are only safe for valid inputs, so absent `#[trust::requires]` the verifier
+correctly refuses. **Prerequisite found: the trust-wp formula-schema separator bug** (`trust_wp.`
+underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks BOTH derived-PartialEq
+preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
+(separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
+
+### trust-wp schema fix LANDED + contracts frontier SCOPED (build #31, 2026-06-09)
+
+**trust-wp schema separator fix (build #31, exit 0):** separator-canonicalized BOTH the decoder
+(`trust-wp-core/.../verify_bundle/trust_formula.rs:61`, `schema.replace('_',"-") != …`) AND the router
+(`trust-wp-lib/.../trust_ir_native.rs:927 claim_format_for_tmir_schema`, `match
+schema.replace('_',"-")…`). Sound (only `_`↔`-` normalized; distinct schemas like `…pure-expr.v1` stay
+distinct). **Measured: the "unsupported trust formula schema" errors went to ZERO** (was ~50), and
+**orca-core moved 1276 unknown + 4 failed → 1209 unknown + 71 failed** — 67 derived-PartialEq precondition
+obligations now DECODE and reach the prover.
+
+**But they FAIL (vacuously), not prove — and that exposes the REAL contracts gap.** The 67 are all
+derived-`<Enum as PartialEq>::eq` precondition obligations; they arrive at trust-wp's prover with
+`predicate=false` (a PLACEHOLDER, not the real predicate) → `prove(false)` fails → "failed". The contract
+probe (`/tmp/contract_probe.rs`, `era_calc` with `#[trust::requires(y∈[-262143,262143])]`) confirms the
+mechanism: the precondition is rejected as **"typed trust_mc CHC/PDR input is not MIR-derived; router
+placeholders are not proof input"** (`trust-mc-driver/native.rs`, `MirChcPdrObligation::router_placeholder`
+gate). So `era_calc`'s bounded arithmetic still FAILS with a counterexample — the precondition is NOT
+conjoined into the body's MIR-derived VC as an assumption.
+
+**Contract attribute opt-in (learned):** `#![feature(register_tool)]` + `#![register_tool(trust)]` at the
+crate root + `--cfg trust_verify`; then `#[trust::requires(<bool expr over params>)]` /
+`#[trust::ensures(|ret| …)]`. tcargo injects this; a bare probe must add it.
+
+**THE contracts capability (Obj 4), now precisely scoped — the validated next major ticket:**
+1. **Precondition-as-body-assumption (what `era_calc` needs):** lower the `#[requires(P)]` predicate into a
+   typed CHC formula in the SAME MIR-derived representation as the body's VC, and CONJOIN it as a
+   hypothesis when discharging the body's obligations. Today P is a disconnected router-placeholder
+   (`predicate=false`), so it never constrains the body. This is substantial (THIR/AST predicate →
+   MIR-derived typed CHC + assumption wiring), careful, multi-build — do NOT rush at a session tail.
+2. Call-site precondition proof already has scaffolding (`generate_callsite_precondition_vcs`,
+   fail-closed `Bool(true)` when param-name mapping is incomplete).
+- **Honesty note:** the 67 placeholder-`false` precondition obligations are VACUOUS (same class as the
+  excluded `trust_mc_default_function` admission). The schema fix moved them unknown→failed; until real
+  precondition lowering lands, they should be EXCLUDED from the honest count (a `predicate==false`
+  placeholder precondition is not a real obligation). Either exclude them or land MIR-derived predicates.
+
+**Stray DEBUG defect (FOUND + removed in tree, awaiting next build):** an unconditional
+`println!("DEBUG: prove_native_pure_predicate: predicate={}")` (`trust-wp-core/.../verify_bundle/proof.rs:95`)
+polluted stdout → broke `--format json` (Obj 5 deliverable) once preconditions reach the prover. Removed.
+Workaround until next build: `grep -v '^DEBUG:'` the survey JSON.
+
+**Session net (builds #29–#31):** NoOverflow ✓ (sound capability, all 8 BV overflow predicates),
+trust-wp schema ✓ (decode layer cleared), Objective 5 ✓ (deterministic per-fn JSON). The lowering
+campaign has made orca-core's arithmetic/derived obligations ANALYZABLE; the count stays ~flat because
+the remaining proofs need CONTRACTS (precondition-as-MIR-assumption) — the clearly-identified next lever.
+
+### Gap-4 reporting fix IMPLEMENTED + a native-proved-vs-skipped accounting bug SURFACED (build #28, 2026-06-09)
+
+**Gap-4 fix (Obj 2) implemented** in `tcargo-trust/src/pipeline/run.rs` (`run_compiler` + new
+`cargo_package_args`): a verification run now force-cleans the target package(s) (`cargo clean -p <pkg>`,
+package-only) before the build, so trustc re-runs and re-emits per-function `TRUST_JSON` every time
+instead of intermittently degrading to the synthetic `transport:missing-json` probe on a build-cache
+hit. `tcargo-trust` is a STANDALONE workspace (path/vendor deps, not rustc-internal) — it builds in ~12s
+with plain cargo, INDEPENDENT of the 22-min compiler. Built at `tcargo-trust/target/debug/tcargo-trust`;
+NOT deployed to `build/.../stage2/bin/tcargo` (that needs an x.py rebuild). Found the degradation is
+INTERMITTENT (old tcargo gave 287 fns this run, 1 earlier) — the fix makes it deterministic.
+
+**Bug it surfaced (the real find):** running the fixed tcargo fresh-verifies, and on the derived
+`<AgentHookEndpoint as Clone>::clone` the accounting is INCONSISTENT:
+`native full verifier status: Proved; requested=1, proved=1, skipped=0` — the native verifier PROVES the
+derived Clone (the cleanup-edge work pays off) — but the legacy summary reports `1 skipped out of 0` and
+`-Z trust-verify-full` fail-closes ("skipped verification artifacts are not permitted"). So a
+**natively-proved derived-Clone obligation is mis-counted as "skipped"** in the legacy reconciliation
+(`trust_verify.rs:1634-1657`: `index_run_result_obligations` / `full_verification_legacy_result_for_obligation`
+puts a proved obligation into `skipped_by_id` / returns Unknown). This (a) makes fail-closed `trust check`
+abort on orca-core, and (b) means some surveyed `unknown` obligations may actually be native-PROVED but
+mis-accounted. **Next ticket:** fix the reconciliation so a native-proof-grade obligation counts as
+Proved (not skipped) — likely an obligation-ID match issue between the native run's evidence and the
+requested-obligation list (echoes the earlier trust-mc identity-string bug). Modest-but-real count
+impact (derived-Clone obligations) + unblocks fail-closed `trust check`. Caveat: the Gap-4 fix as-is
+makes fail-closed `trust check` surface this abort — land the accounting fix WITH it.
+
+### trust-wp metadata-dedup infra bug FIXED (build #27, 2026-06-09)
+
+Fixed the active fail-closed duplicate check at `first-party/trust-wp/crates/trust-wp-core/src/
+verify_bundle/metadata.rs:359` (`insert_singleton_metadata`): now tolerates an IDENTICAL duplicate
+singleton-metadata entry and rejects only a CONFLICTING value (sound either way — identical entries
+carry one unambiguous fact). This was the active variant (the survey's "singleton metadata key" wording;
+the cfg-gated `verifier_api.rs` 2449/2576 copies were NOT the live path). Result: the `?`-generated
+precondition obligations no longer fail closed on the metadata bug — they now REACH the trust-wp pure
+verifier. Soundness held (`still_unsafe`→FAILED).
+
+**Count still 1280** — the precondition now wedges one layer deeper: trust-wp "native pure verifier
+returned no result for obligation `…:precondition:2`" (it can't PROVE the precondition — likely needs
+inter-procedural callee-contract reasoning), plus the Custom-obligation no-primary-owner routing gap for
+the function's other obligations. So `?` is a deep chain: `Try::branch` (#26) → metadata-dedup (#27) →
+precondition-proving + a residual lowering op (open). Each fix peels one layer.
+
+**Correction (build #27 follow-up):** the "Custom-obligation routing gap" is NOT a fix — those obligations
+are `Custom { namespace: "trust.vc", name: "unsupported_mir" }`, i.e. legitimately-unsupported MIR
+markers (a `?` op still doesn't lower). So `?` has a residual LOWERING gap beyond `Try::branch`, but its
+specific op is OBSCURED in the survey output (only the `unsupported_mir` marker shows, not the op) — a
+diagnostic-reporting limitation that ties back to the Gap-4/Obj-5 work (surface per-obligation op
+detail). Pinning the residual `?` op needs added instrumentation in `convert.rs`/the bridge before the
+next `?` fix.
+
+### `?`/`Try::branch` lowering LANDED — but exposes infra bugs, not lowering gaps (build #26, 2026-06-09)
+
+Added `Try::branch` + `FromResidual::from_residual` to the receiver/dest-governed total-trait path
+(type-gated: std `Result`/`Option` → total; custom `Try` falls through, sound). The `?` desugar now
+LOWERS — `Try::branch` is gone from both the probe and orca-core (117→0); `from_residual` + the
+`ControlFlow` match/downcast are handled by the bridge's normal enum lowering. Soundness held
+(`still_unsafe`→FAILED).
+
+**But the count stayed 1280** — and the residual is NOT a lowering gap, it's verifier INFRA bugs the `?`
+preconditions now hit:
+1. **trust-wp duplicate-metadata fail-closed:** `trust_wp_native_origin_from_metadata`
+   (`crates/trust-wp/src/verifier_api.rs:2576`, and the generic helper at 2449) ERRORS if the
+   `trust.trust_wp.native-origin.v1` key appears more than once on an obligation — and the `?`-generated
+   `precondition` obligations carry it twice. **Sound fix:** tolerate IDENTICAL duplicates, reject only
+   CONFLICTING ones (safe either way). Caveat: these fns are cfg-gated (`trust_wp_proof_transport_api`
+   etc., set by `build.rs`) with multiple variants — fix the ACTIVE variant.
+2. **Custom-obligation routing gap:** "no full-verification primary owner is defined for obligation kind
+   `Custom { namespace: … }`" — some obligation kinds have no native full-verifier owner.
+
+These are infra/routing tickets (not Gap-3 lowering). They gate the `?` and table-accessor obligations.
+Next-after-those: the genuinely hard `Unsize`→dyn (274, still #1), `Formatter`/fmt (59), closure-bearing
+`Option::map`/`into_iter`.
+
+### 🟢 Aggregate-constant modeling LANDED — FIRST count drop since arithmetic (build #25, 2026-06-09)
+
+Added `ConstValue::OpaqueConst` (trust-types): a reference-to-slice/array constant (`&[&str]`/`&[T]`/
+`&[…;N]` static tables) lowers to a fresh-symbolic opaque slice fat pointer (reusing the `&str`
+pattern — bridge `emit_const`; `convert.rs` produces it for `TyKind::Ref(Slice|Array)`). Sound
+over-approximation (contents unconstrained → value-dependent obligations stay `unknown`, never proved).
+`ConstValue` is `#[non_exhaustive]`, so only ONE internal match needed an arm (`patterns.rs`
+`operand_ty_hint` → neutral `Unit`).
+
+**RESULT — the count moved for the first time since the arithmetic fix:**
+- orca-core unknown obligations: **1364 → 1280 (−84)**; "unsupported constant" blocker **211 → 38**.
+- SOUND: probe `still_unsafe(x)=x+200` still **FAILED** (the opaque-const change proves nothing it
+  shouldn't); table-accessor probes lower past the constant (residual = a separate "Custom obligation
+  kind has no full-verification primary owner" routing gap, not the constant).
+- Clearing the constant let functions lower deeper, EXPOSING more obligations — `Unsize`/dyn jumped
+  **140 → 274** (now #1). Net still −84.
+
+**Lesson refined:** unlike pure layer-peels (cleanup-edge/str/Deref held the count flat), an
+opaque-modelable blocker that is some functions' LAST lowering obstacle gets REMOVED, dropping the
+count. So the campaign does drive the count down — each opaque/total capability removes its share, even
+as deeper obligations surface. Current top blockers: `Unsize`→dyn (274, hard), `Try::branch`/`?` (117),
+`Formatter`/fmt (59), `Box::new_uninit` (58), `Option::map` (51, closure), slice methods (46),
+`into_iter` (41, closure), remaining constants (38), `ToString` (37), `PartialEq::eq` (25).
+
+### HARD FRONTIER REACHED — easy total-summary layers exhausted (build #24, 2026-06-09)
+
+Added `Deref::deref` + `ToString::to_string` to the receiver-governed total-trait path (type-gated:
+std/primitive → total, custom → unsupported, sound). Result: **Deref cleared (92→0)**; ToString
+only partially (std-Adt receivers clear; `str`/custom receivers fall through — `str` isn't in
+`is_primitive_copy_ty` nor an `Adt`, so it stays unsupported, sound). **Count STILL 1364 unknown / 0
+newly proved** — the 4th flat-count build in a row.
+
+**Conclusion (data-proven across 4 builds): the easy total-summary layers are exhausted.** arithmetic
+(moved 0→26), `str::*`, and `Deref` are landed and validated; each peeled a layer but the count is
+pinned at 1364 because EVERY remaining orca-core function has ≥1 HARD blocker, none of which is a
+total-summary:
+- **unsupported constants (211)** — `&[&str]`/`&[Enum]` aggregate consts; needs a new `ConstValue`
+  opaque-aggregate representation + bridge lowering (convert.rs:1083). Tractable-ish but non-trivial;
+  MIGHT move the count for closure/dyn-free table-ACCESSOR fns (`fn x()->&[&str]{&[...]}`).
+- **`Unsize`→`&dyn` (140), `Formatter`/fmt (59)** — dyn dispatch + fmt machinery. Hard.
+- **`Try::branch`/`?` (120)** — `?` desugar: `Try::branch`→`ControlFlow` match→`from_residual` return.
+  Total (no closure) so summarizable IN PRINCIPLE, but needs the ControlFlow enum + match + from_residual
+  modeled together. Medium.
+- **`Option::map` (57), `into_iter` (45)** — closure-bearing; modeling as total is UNSOUND (hides the
+  closure's panic). Need real inter-procedural closure verification + iterator desugar. Hard.
+- **`Box::new_uninit` (61)** — uninit alloc. Hard.
+
+No more easy wins: count-movement now requires these substantial, soundness-sensitive capabilities. The
+next single fix with a CHANCE of moving the count is the `&[&str]` constant modeling (closure/dyn-free
+table accessors); everything else is multi-capability hard frontier. (3 more crates — orca-text/config/
+agents — untouched; same blocker families expected.)
+
+### str-method summaries LANDED + validated; chain depth QUANTIFIED (build #23, 2026-06-09)
+
+Added the inherent `str::*` total-summaries (`find/rfind/contains/starts_with/ends_with/split_once/
+strip_*/replace/replacen/to_lowercase/to_uppercase/chars/char_indices/bytes/lines/split*/trim_*matches/
+repeat`) to `total_no_panic_call_summary` (lower.rs). All total (no panic; OOM excluded), modeled as
+fresh-symbolic results. **Validated:** a probe returning each method's result directly (`Option<usize>`,
+`String`, `Option<(&str,&str)>`, `bool`) lowers cleanly — so `map_type_ctx` DOES map those result types
+(the campaign's key uncertainty, resolved). orca-core: the str-method blockers (~180) are GONE from the
+histogram.
+
+**But the count is flat (1364 unknown) — clearing the str layer EXPOSED the next layer** (whole-function
+lowering; functions now wedge deeper):
+
+| blocker | build #22 | build #23 |
+| --- | --- | --- |
+| `str::*` methods (~180) | present | **gone** |
+| `Try::branch` (`?` operator) | 31 | **113** |
+| `Deref::deref` | 45 | **92** |
+| `Option::<T>::map` | 33 | **57** |
+| `ToString::to_string` | 32 | **37** |
+| unsupported constant / `Unsize` / `Box::new_uninit` / `Formatter` | 211/140/61/59 | unchanged |
+
+**Quantified lesson:** orca-core's string-processing functions are ~6-8 capability layers deep
+(`str::*` → `?`/`Deref`/`Option::map` → constants/iterators → …); the unknown count only drops when a
+function's ENTIRE stack clears. Next tractable total-summary layer: `Deref::deref` (92, total for
+std/Copy types). The HARD layers are closure/control-flow-bearing and NOT total summaries: `Try::branch`
+(`?` desugar — early-return control flow), `Option::map`/`into_iter` (call a closure → propagate its
+panic, so modeling as total would be UNSOUND). These need real lowering (the `?`/iterator desugar +
+inter-procedural closure verification), which is the substantive remaining capability work.
+
+### DATA-DRIVEN RANKED BLOCKER QUEUE + Gap-4 root cause confirmed (2026-06-09)
+
+**Gap-4 root cause CONFIRMED + fix located.** The `--format json` degradation to a single
+`transport:missing-json` row happens on a cargo CACHE HIT: `tcargo trust check` runs `cargo build`
+(run.rs:213), so when the target crate is already built with the trust RUSTFLAGS, trustc does NOT
+re-run, emits no `TRUST_JSON`, and `transport.rs:430 missing_structured_transport_result` fires. Proof:
+`cargo clean -p orca-core` before the survey yields **301 real per-function rows** (1364 obligations)
+instead of 1 transport row. **Fix (Obj 2/4):** make the check pipeline force trustc to re-run/emit
+(e.g. clean the target package, or a cache-busting cfg/flag) before aggregating. Reporting-only, no
+soundness risk.
+
+**Ranked blocker histogram (301 fns / 1364 obligations, all `unknown`, post cleanup-edge fix):**
+
+| count | blocker | family |
+| --- | --- | --- |
+| 211 | `unsupported constant` — **150 are `&[&str]`** (slice-of-str-literal tables), rest `&[Enum]`, `&RangeInclusive`, `&Option<bool>` | reference-to-aggregate CONSTANTS (`convert.rs:1083`) |
+| 140 | `CastKind::PointerCoercion::Unsize` (→ `&dyn`) | dyn dispatch |
+| 61 | `Box::<T>::new_uninit` | alloc |
+| 59 | `Formatter::write_str` | fmt machinery |
+| ~200 | `str::split_once/find/replace/chars/to_lowercase`, `ToString::to_string` | str modeled-summaries |
+| 45 | `IntoIterator::into_iter` | iterators |
+| 45 | `Deref::deref` | deref |
+| 33 | `Option::<T>::map` | Option/Result combinators |
+| 31 | `Try::branch` | `?` operator |
+| 27 | `PartialEq::eq` | derived PartialEq |
+
+**Strategic plan (the loop's actionable queue).** These blockers CO-OCCUR in function families — a
+string-processing fn uses a `&[&str]` table AND `str::find` AND `into_iter`, so clearing one alone
+doesn't flip it (the multi-link reality, confirmed twice now). So the campaign is per-FAMILY, batching
+co-occurring capabilities:
+- **Family A — string/table processing (largest):** `&[&str]`/`&[T]` constants + `str::*` summaries +
+  `into_iter`/`Option::map`/`Try::branch`. Land together → unblocks the 211-constant + ~200-str-method
+  bulk.
+- **Family B — derived `PartialEq`/`Clone`:** `PartialEq::eq` + the clone-internal modeling (cleanup-edge ✓).
+- **Family C — fmt/dyn:** `Formatter::write_str` + `Unsize`→`&dyn` (the hardest; deferred).
+Each capability is a modeled-summary (sound fresh-symbolic / total) gated on a real-obligation-proves +
+mutant-fails test. Highest-leverage first fix: model reference-to-aggregate constants (`&[&str]` etc.)
+as opaque/fresh-symbolic at `convert.rs:1083`, co-landed with the str-method summaries.
+
+### DIAGNOSTIC-TOOLING GAP is now the bottleneck (2026-06-09) — Objectives 2 & 5
+
+Peeling the remaining orca-core blockers requires a reliable per-obligation REASON, but the reporting
+can't supply one: `tcargo trust check -p orca-core --format json` flakily degrades to a single
+`<transport>` `transport:missing-json` row (Gap 4) instead of the 365-function rows it sometimes
+emits; `--format terminal` prints only `native verifier status: …; unsupported=N` counts (no reasons);
+warning mode emits nothing. Net: I can get COUNTS (26 proved / 3113 unsupported) but not a stable
+reason histogram, so I can't cheaply rank "which single capability unblocks the most functions."
+**This makes Gap 4 / Objective 5 (stable per-function rows: function, obligation, kind, outcome,
+REASON) the highest-leverage next ticket — it unblocks efficient diagnosis of everything else.** It's
+a reporting fix (no soundness risk): make `tcargo trust check --format json` deterministically
+aggregate the per-function `TRUST_JSON` rows (with the native evidence reason) instead of the synthetic
+transport probe. Until then, blocker-peeling is guesswork-by-rebuild, which wastes 22-min cycles.
+
+### Cleanup-edge fix LANDED, but ZERO standalone orca-core impact (2026-06-09, build #22)
+
+Implemented the minimal sound version entirely in `trust-mir-extract/src/convert.rs`: for a direct
+`Call` with a normal-return target, emit `Terminator::Call` with that target and DROP the unwind/cleanup
+edge (don't go `Opaque`); same for `Assert`. The cleanup blocks become unreachable and the bridge
+already prunes them (`reachable_block_ids`, lower.rs:2888), so the refused cleanup-block `Drop`s are
+never reached. NO `is_cleanup` field, NO bridge change. Soundness: removing a CFG edge cannot introduce
+a false PROVE (no assumption added; normal-path obligations still checked); the native route emits no
+obligation from cleanup-path drops.
+
+**Validation:** u64 width-probe still all-9-correct (no regression). The derived `Endpoint::clone`
+(String+u64) probe no longer hits "Call::clone cannot be soundly lowered" — the cleanup-edge gate is
+cleared. The panicking-`Clone` mutant (`Bomb`) correctly stays `unknown` (its `panic!`→`begin_panic` is
+a diverging `target=None` call, still `Opaque`). No false-proves.
+
+**But the orca-core impact is NIL:** native survey is UNCHANGED — proved **26** (not up), failed 0,
+unsupported 3113; "failed to lower `Clone::clone`" count 39 → 39. Reason: orca-core's derived-Clone
+functions are over richer types (nested structs, Vec, enums, String) whose clone INTERNALS hit the
+NEXT blocker (String/Vec/enum clone semantics, aggregate construction) once the cleanup-edge gate is
+cleared — so they remain `unsupported`, just one step later. The change is correct, sound, and neutral
+(no verdict flipped either way), and is a necessary PREREQUISITE for derived-Clone verification, but it
+does not move the metric alone. (Earlier "3256 → 0" was a measurement error: that survey's JSON had
+degraded to the Gap-4 `transport:missing-json` probe; the authoritative err-file aggregate is
+unchanged.) **Lesson: orca-core functions have multi-link blocker chains; the metric only moves when a
+function's WHOLE chain is cleared. Derived-Clone needs the cleanup-edge fix AND String/Vec/enum clone
+modeling AND aggregate lowering, landed together.** Changes uncommitted (`convert.rs`); kept as the
+prerequisite for the coordinated derived-Clone effort.
+
+---
+
+**Resolution of the landmine (analysis, 2026-06-09).** orca-core's obligations include provenance
+(295), drop (81), ownership (13) descriptions — all tied to `Drop`. Key facts: (1) a value's drop has
+terminators on BOTH the normal exit and the unwind path; stubbing only the `is_cleanup` blocks loses
+the **unwind-path** drop obligations only (normal-path drops keep their terminators and obligations);
+(2) but unwind-only temporaries (e.g. a partially-cloned `String` dropped only if a later field-clone
+panics) have their drop ONLY in cleanup — silently stubbing those is a **silent verification gap**,
+which violates the no-bullshit/no-silent-gap bar. **Correct design:** don't stub silently — lower
+cleanup-path drops as EXPLICIT ASSUMPTIONS via the existing `TreatedAsAssumption` third state
+(`trust_verify.rs`), so the dropped coverage is recorded in the crate's trust base and surfaced in the
+report, never hidden. Then: drop the call unwind edge (sound) + record cleanup-block drops as
+assumptions (honest) → derived `Clone` verifies on the normal path with the cleanup coverage
+explicitly assumed. Validate: derived `Clone` over a `String`-field struct verifies (with the
+cleanup-drop assumption listed); a hand-written panicking `Clone` mutant must NOT verify clean.

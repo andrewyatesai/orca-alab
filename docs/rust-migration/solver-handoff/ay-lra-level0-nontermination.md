@@ -109,6 +109,17 @@ and intentional; the LRA propagation just has to terminate on it.
 *also* about the solver actually deciding these linear u64 formulas, which today it cannot because it
 hangs. Fix the propagation termination first; the verifiability follows on the same obligations.)
 
+## Likely a regression (worth bisecting)
+
+The same `orca-core` crate surveyed **clean to completion at gap-log build #29** (2026-06-09): 287
+functions, 1280 obligations, 7.8 MB of deterministic per-obligation JSON, no hang. It hangs now (build
+#39, 2026-06-14). Between those points the solver core advanced ~133 commits (the unsigned/signed
+BV-mul overflow migration and associated LRA/propagation tuning — `#8003/#8187/#8255/#8256/#8707/#8810`
+markers are all in this window). The `build_agent_notification_id`-class functions are not new, so the
+non-termination most likely entered with that recent arithmetic-encoding / LRA-propagation work rather
+than being a longstanding limitation. A bisect across that range against the repro below should localize
+the regressing commit quickly.
+
 ## Reproduce
 
 ```

@@ -9,6 +9,12 @@
 //! Written verifier-friendly for Trust (`#![forbid(unsafe_code)]`, panic-free):
 //! the pure-logic surface is the first target for `tcargo trust check`.
 
+// Trust contracts: the `trust` tool namespace only exists under `trustc`
+// (`--cfg trust_verify`); inert under stock cargo so the crate stays
+// dual-buildable.
+#![cfg_attr(trust_verify, feature(register_tool))]
+#![cfg_attr(trust_verify, register_tool(trust))]
+
 pub mod agent_hook_endpoint_file;
 pub mod agent_kind;
 pub mod agent_notification_id;

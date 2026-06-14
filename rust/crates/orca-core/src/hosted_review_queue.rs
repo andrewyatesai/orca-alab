@@ -201,6 +201,19 @@ fn parse_iso8601_utc_ms(value: &str) -> Option<i64> {
     let minute: i64 = hms_parts.next()?.parse().ok()?;
     let second: i64 = hms_parts.next().unwrap_or("0").parse().ok()?;
 
+    // Range-validate like `Date.parse` (out-of-range components → NaN). Also
+    // discharges `days_from_civil`'s precondition and bounds the epoch-math
+    // below, so the arithmetic is provably overflow-free.
+    if !(0..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || !(0..=23).contains(&hour)
+        || !(0..=59).contains(&minute)
+        || !(0..=60).contains(&second)
+    {
+        return None;
+    }
+
     let mut millis: i64 = 0;
     for (index, digit) in frac.chars().take(3).enumerate() {
         millis += i64::from(digit.to_digit(10)?) * 10i64.pow(2 - index as u32);
@@ -211,10 +224,18 @@ fn parse_iso8601_utc_ms(value: &str) -> Option<i64> {
 }
 
 /// Days since 1970-01-01 (Howard Hinnant's `days_from_civil`; integer, panic-free).
+// Trust contract: the caller range-validates the parsed components, so every
+// intermediate is bounded and overflow-free. The shifted year binding is
+// deliberately NOT named `year`: the verifier assumes the precondition about
+// the *parameter*, and a shadowing binding would (correctly) make it refuse
+// the assumption.
+#[cfg_attr(trust_verify, trust::requires(
+    year >= 0 && year <= 9999 && month >= 1 && month <= 12 && day >= 1 && day <= 31
+))]
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let year = if month <= 2 { year - 1 } else { year };
-    let era = (if year >= 0 { year } else { year - 399 }) / 400;
-    let year_of_era = year - era * 400;
+    let adjusted_year = if month <= 2 { year - 1 } else { year };
+    let era = (if adjusted_year >= 0 { adjusted_year } else { adjusted_year - 399 }) / 400;
+    let year_of_era = adjusted_year - era * 400;
     let day_of_year = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     era * 146_097 + day_of_era - 719_468

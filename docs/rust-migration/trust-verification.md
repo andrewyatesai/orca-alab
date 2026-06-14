@@ -975,6 +975,32 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### build #39: hang REPRODUCED + ROOT-CAUSED — ay-lra level-0 non-termination on u64-overflow atoms (2026-06-14)
+
+Rebuilt stage2 with the watchdog (#38) and ran the bounded survey (`tools/trust-survey/survey-orca-verify.sh`).
+The watchdog did NOT stop the hang — because the hang is on a **direct `check_sat`** path
+(`ay_bindings::execute_direct → run_check_sat → Solver::check_sat_with_details`), not the typed-CHC/PDR
+path the watchdog wraps. Caught it live (trustc pinned 100% CPU) and **sampled the stuck process** —
+exact, owner-actionable diagnosis in `docs/rust-migration/solver-handoff/`:
+
+- **Loop:** `ay_dpll::extension::propagate_impl` re-asserts the SAME theory atoms at **decision level 0**
+  forever; `ay_sat::cdcl_loop_impl` never advances. Hot spot = `ay_lra::implied_bounds::compute_implied_bounds`
+  + `run_post_simplex_propagation`, spilling into bignum (`Rational::to_big`).
+- **Trigger:** every looping atom is an **unsigned-64-bit overflow obligation** — `(<= _43 Int(18446744073709551615))`
+  (u64::MAX), `(< (+ start _43) Int(0))`, `(< Int(u64::MAX) (+ start _43))`. The `start + len` wrap check
+  is encoded in **LIA (unbounded int) with a u64::MAX literal** instead of the finite **bit-vector** theory.
+- **Why pervasive:** any orca-core fn doing usize string/slice-offset arithmetic emits this shape (the
+  looping formula had THREE distinct `start` SSA vars), so skip-iterate won't scale — orca-core is
+  fundamentally un-surveyable until the encoding changes.
+
+**This unifies the hang with the gap-log #1 lever (u64/usize arithmetic unverifiable):** the SAME wrong
+choice — LIA-with-u64::MAX-literal instead of BV — both hangs the LRA solver AND makes unsigned arithmetic
+unprovable. **The real fix routes u64/usize add/sub overflow obligations to the BV theory** (the mul lane
+already uses BV via `v2_bv_mul_dominating_guard_constraints`); that cures the hang and unblocks the #1
+frontier in one move. Owner-side companion fix (their core): a fixpoint/`should_stop` guard in
+`compute_implied_bounds`/`propagate_var_atoms` so a non-converging level-0 propagation degrades to Unknown
+instead of spinning. Full hand-off: `solver-handoff/ay-lra-level0-nontermination.md`.
+
 ### build #38: typed-CHC watchdog LANDED on main; stage2 rebuild to exercise it (2026-06-14)
 
 Implemented the watchdog (task #21): `run_native_solve_within_deadline<T,F: FnOnce()->T+Send, T: Send>`

@@ -1,0 +1,43 @@
+# Deduplicated hot frames (sample counts) from trustc-sample-99221.txt
+# Full raw sample retained at /tmp during the session; this is the actionable subset.
+
+   3279  ay_core11panic_utils15catch_ay_panicsINtNtCshaekKealwif_4core6result6ResultNtNtNtNtCs45VB3
+   3279  ay_dpll3api5types12verification12SolveDetailsNtNtNtCsd8H8ffp4Ufh_11ay_bindings14execute_di
+   3279  ay_dpll3api7solving8controlsNtB6_6Solver22check_sat_with_details
+   3279  ay_dpll3api7solving5checkNtB6_6Solver9check_sat
+   3279  ay_dpll8executor9check_satNtB4_8Executor9check_sat
+   3279  ay_dpll8executor9check_satNtB4_8Executor17check_sat_guarded
+   3279  ay_dpll8executor9check_satNtB4_8Executor18check_sat_internal
+   3279  ay_dpll8executor9check_satNtB4_8Executor48solve_current_assertions_with_quantifier_support
+   3279  ay_dpll8executor8theories3liaNtB6_8Executor21solve_lia_incremental
+   3279  ay_dpll8executor8theories3liaNtB6_8Executor27solve_lia_incremental_inner
+   3279  ay_sat6solver5solve15extension_entryNtNtB7_5state6Solver38solve_interruptible_with_extensi
+   3279  ay_sat6solver5solve14theory_backendNtNtB7_5state6Solver14cdcl_loop_implKb1_NtNtB5_15theory
+   2958  ay_dpll9extension9propagateINtNtB4_5types15TheoryExtensionNtNtCs3APoCUxOYn5_6ay_lia5types9
+   2885  ay_lia11theory_implNtNtB4_5types9LiaSolverNtNtCsf9YKWkPqnfk_7ay_core6theory12TheorySolver2
+   2345  ay_sat6solver5solve15theory_callbackNtB5_17ExtensionCallbackNtB5_14TheoryCallback9propagat
+   2013  ay_lra13theory_solverNtB4_9LraSolverNtNtCsf9YKWkPqnfk_7ay_core6theory12TheorySolver22check
+   1139  ay_lra14implied_boundsNtB4_9LraSolver22compute_implied_bounds
+    702  ay_lra
+    698  ay_lra11check_atomsNtB4_9LraSolver28run_post_simplex_propagation
+    654  ay_lra8rationalNtB2_8Rational6to_big
+    616  ay_sat6solver5solve15theory_callbackNtB5_17ExtensionCallbackNtB5_14TheoryCallback15propaga
+    409  ay_lra11check_atomsNtB4_9LraSolver25process_check_atoms_inner
+    387  ay_lra11propagation12solver_hooksNtB6_9LraSolver35guard_sat_current_assignment_bounds
+    351  ay_lra11propagation12solver_hooksNtB6_9LraSolver29debug_assert_bounds_satisfied
+    351  ay_lia
+    323  ay_lia7modularNtNtB4_5types9LiaSolver41check_single_equality_modular_constraints
+    294  ay_dpll9extensionINtNtB2_5types15TheoryExtensionNtNtCs3APoCUxOYn5_6ay_lia5types9LiaSolverE
+    265  ay_lia3gcdNtNtB4_5types9LiaSolver8gcd_test
+    261  ay_liaNtNtB2_5types9LiaSolver29check_integer_bounds_conflict
+    216  ay_lra8rationalNtB2_8Rational6to_rug
+    206  ay_lia14linear_collect20collect_linear_termsNtNtCskS7bFpKbYmM_10num_bigint6bigint6BigIntNt
+    204  ay_lra12rational_opsNtNtB7_8rational8Rational14mul_add_assign
+    203  ay_lia7parsingNtNtB4_5types9LiaSolver27parse_linear_expr_with_vars
+    194  ay_lra8rationalNtB2_8Rational8from_big
+    190  ay_lra11infrationalNtB2_11InfRational13from_rational
+    165  ay_lra7simplex5solveNtB6_9LraSolver22dual_simplex_propagate
+    164  ay_lra7simplex5solveNtB6_9LraSolver27dual_simplex_with_max_iters
+    149  ay_lia3gcdNtNtB4_5types9LiaSolver19effective_int_upper
+    149  ay_sat6solver5solve15theory_callbackNtB5_17ExtensionCallbackNtB5_14TheoryCallback18seed_th
+    133  ay_lra12rational_opsRNtNtB7_8rational8RationalNtNtNtCshaekKealwif_4core3ops5arith3Add3add

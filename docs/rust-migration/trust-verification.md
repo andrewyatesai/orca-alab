@@ -975,6 +975,35 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### build #41: HANG FIXED + orca-core UNBLOCKED — first full gap count since the regression (2026-06-14)
+
+**The survey completes again.** Validated fix (build #40, ay branch `survey-execute-direct-timeout`,
+patch in `solver-handoff/execute-direct-timeout-fix.patch`): `execute_direct`'s `ExecutionContext::new`
+reads `AY_DIRECT_SOLVE_TIMEOUT_MS` and calls `solver.set_timeout`, enabling the ay solver's OWN
+deadline→should_stop→`theory_backend.rs:531` abort (no solver-logic change; env-gated; Unknown on
+timeout, never Proved). **Proof = a clean control:** same build #40 binary + same source — env set →
+survey COMPLETES (927 obligations, 2m46s); env unset → `trustc` spins 100% CPU 84s+ in
+`ay_lra::compute_implied_bounds` (sampled). Only variable is the env var. (The earlier watchdog #38
+covers the typed-CHC path; this covers the *direct* `check_sat` path it missed.)
+
+**First complete orca-core gap count since the hang (260 fns, 927 obligations):**
+
+| outcome | count |
+| --- | --- |
+| proved | 68 |
+| failed (refuted) | 124 |
+| unknown | 579 |
+| design_requirement | 156 |
+| **GAP (not proved)** | **859** |
+
+**Top blocking reasons:** 539 `#[trust(static)]` "solver returned unknown: nat" (the u64/nat arithmetic
+— gap-log lever #1, now Unknown not hanging); 82 Add-overflow, 24 Sub, 8 Mul; ~120 hardened-boundary
+unsafe_operation (FFI/unsafe). **Work-list (most-unproved fns):** `days_from_civil` (46),
+`parse_iso8601_utc_ms` (25), then the string-index family — `title_has_token` (15),
+`decode_uri_component` (15), `decode_git_cquoted_path` (15), `build_rg_args_for_quick_open` (20). The
+string-index functions are the slice/index-length lever (task #20); the date functions are the contract
++ u64-decision frontier. Tooling: `tools/trust-survey/{survey-orca-verify.sh,survey-summary.py}`.
+
 ### build #39: hang REPRODUCED + ROOT-CAUSED — ay-lra level-0 non-termination on u64-overflow atoms (2026-06-14)
 
 Rebuilt stage2 with the watchdog (#38) and ran the bounded survey (`tools/trust-survey/survey-orca-verify.sh`).

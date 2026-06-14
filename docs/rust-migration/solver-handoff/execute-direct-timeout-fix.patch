@@ -1,0 +1,55 @@
+From acee85156eea075dfc147add64d6dc152d6272d1 Mon Sep 17 00:00:00 2001
+From: Andrew Yates <ayates@m10-MacBook-M4-Max-36GB-1TB.local>
+Date: Sun, 14 Jun 2026 01:36:17 -0700
+Subject: [PATCH] feat(execute_direct): opt-in AY_DIRECT_SOLVE_TIMEOUT_MS
+ wall-clock deadline
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The direct-SMT path (ExecutionContext) created its Solver with no timeout, so
+check_sat's deadline was None and the theory_backend wall-clock should_stop budget
+check (added for theory-heavy QF_LRA) could never fire — a non-converging LRA
+propagation spins forever. Reading an env-gated timeout and calling set_timeout
+enables the solver's OWN deadline->should_stop abort, degrading such a solve to
+Unknown (sound: never Proved). Default behavior unchanged when the env is unset.
+
+Validated against the Orca orca-core workload: without it, trustc spins 100% CPU
+in ay_lra::compute_implied_bounds on u64 start+len overflow obligations; with it,
+the survey completes (hard obligations -> Unknown).
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+---
+ crates/ay-bindings/src/execute_direct/context.rs | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/crates/ay-bindings/src/execute_direct/context.rs b/crates/ay-bindings/src/execute_direct/context.rs
+index d26ac40..8247e5a 100644
+--- a/crates/ay-bindings/src/execute_direct/context.rs
++++ b/crates/ay-bindings/src/execute_direct/context.rs
+@@ -32,7 +32,21 @@ pub(super) struct ExecutionContext {
+ impl ExecutionContext {
+     /// Create a new execution context with the specified logic.
+     pub(super) fn new(logic: Logic) -> Result<Self, ExecuteError> {
+-        let solver = Solver::try_new(logic).map_err(|e| ExecuteError::SolverInit(e.to_string()))?;
++        let mut solver =
++            Solver::try_new(logic).map_err(|e| ExecuteError::SolverInit(e.to_string()))?;
++
++        // The direct-SMT path otherwise runs unbounded: a theory-heavy QF_LRA
++        // formula whose propagation does not reach a fixpoint spins forever (the
++        // wall-clock `should_stop` check at theory_backend.rs only fires when a
++        // timeout is configured). Opt in via env so default behavior is unchanged;
++        // a set deadline degrades such a solve to Unknown instead of hanging.
++        if let Some(ms) = std::env::var("AY_DIRECT_SOLVE_TIMEOUT_MS")
++            .ok()
++            .and_then(|s| s.parse::<u64>().ok())
++            .filter(|ms| *ms > 0)
++        {
++            solver.set_timeout(Some(std::time::Duration::from_millis(ms)));
++        }
+ 
+         Ok(Self {
+             solver,
+-- 
+2.50.1 (Apple Git-155)
+

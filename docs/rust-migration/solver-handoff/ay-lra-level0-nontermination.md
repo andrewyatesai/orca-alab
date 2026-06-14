@@ -1,10 +1,31 @@
 # ay-lra / ay-lia level-0 propagation non-termination on u64-overflow atoms
 
+> **THE HANG IS RESOLVED (validated 2026-06-14, build #40).** A small, sound, opt-in fix makes the
+> direct-SMT path bound itself: `execute_direct`'s `ExecutionContext::new` now reads
+> `AY_DIRECT_SOLVE_TIMEOUT_MS` and calls `solver.set_timeout`, which enables the ay solver's OWN
+> deadline→`should_stop`→`theory_backend.rs:531` abort (that budget check was added specifically for
+> theory-heavy QF_LRA). A non-converging propagation degrades to **Unknown** instead of spinning —
+> sound (never Proved). **Default behavior unchanged when the env is unset.** Patch:
+> `execute-direct-timeout-fix.patch` (committed to ay branch `survey-execute-direct-timeout`, base
+> `beeb0d6`). **Proof:** same build #40 binary + same source — with the env set, the orca-core survey
+> COMPLETES (927 obligations, 2m46s); with it unset, `trustc` spins 100% CPU for 84s+ stuck in
+> `ay_lra::compute_implied_bounds` (sampled). The only variable is the env var.
+>
+> Two things remain OWNER-SIDE (this fix bounds the symptom, soundly, but does not cure them):
+> 1. **The propagation still doesn't converge** — `compute_implied_bounds`/`run_post_simplex_propagation`
+>    should reach a fixpoint (or poll `should_stop`) so the deadline isn't the only thing that stops it.
+> 2. **u64/usize overflow still can't be PROVED** (gap-log lever #1) — it now times out to Unknown
+>    rather than proving; deciding these linear u64 formulas is the real capability gap.
+>
+> NOT recommended (and still rejected by design): routing add/sub overflow to BV (completeness loss,
+> see below). Pushing the timeout fix to ay origin main / advancing the trust→ay pin is deferred — ay
+> is pinned 89 commits behind its own main, so advancing it is a separate, riskier decision.
+
 **Status:** owner-side core-solver bug (ay-dpll / ay-lra / ay-lia). Reproduced deterministically
 against the Orca workload on Trust stage2 built 2026-06-14 00:27 (trust-mc `be05d7f14`).
 **Impact:** a single obligation can spin `trustc` at 100% CPU indefinitely (observed >23h in an
 earlier run) — a verifier must never be able to hang on one obligation, so this is a
-correctness-of-the-tool invariant, not just a performance issue.
+correctness-of-the-tool invariant, not just a performance issue. **Now bounded by the fix above.**
 
 ## Symptom
 

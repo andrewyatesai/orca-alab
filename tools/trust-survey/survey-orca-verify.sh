@@ -80,6 +80,13 @@ echo "bounds       : obl=${OBL_TIMEOUT_MS}ms fn=${FN_BUDGET_MS}ms run=${RUN_TIME
 echo "json         : $JSON"                                | tee -a "$LOG"
 echo "start        : $(date '+%H:%M:%S')"                  | tee -a "$LOG"
 
+# Bust cargo's build cache for the crate — verification runs DURING compilation, so a
+# cached (unchanged) crate makes trustc skip re-verifying and tcargo emits a degraded
+# empty/transport probe. Touching the crate root forces a recompile + re-verify.
+CRATE_DIR="$WS/crates/${CRATE#orca-}"
+[ -d "$WS/crates/$CRATE" ] && CRATE_DIR="$WS/crates/$CRATE"
+if [ -f "$CRATE_DIR/src/lib.rs" ]; then touch "$CRATE_DIR/src/lib.rs"; fi
+
 # perl alarm = process-level backstop (no timeout(1) on macOS). Run from the workspace
 # root so cargo resolves the manifest; --manifest-path alone doesn't fix cwd-relative probes.
 perl -e 'chdir $ENV{WS} or die "chdir $ENV{WS}: $!"; alarm shift; exec @ARGV' "$RUN_TIMEOUT_S" \

@@ -975,6 +975,31 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### slice/index lever: SOUNDNESS CATCH — rejected an unsound blueprint; corrected design (2026-06-14)
+
+Ran a research workflow to design the index-bound lever. It mapped the mechanism well (loop_invariant.rs
+is DEAD CODE for VC discharge; `build_semantic_guard_map` is the only lane reaching VCs; mirror the
+`len()` total-summary at total_call_summaries.rs:17-23 + generate.rs:186-200 + lower.rs:4746-4758). **But
+its proposed "minimal sound subset" was UNSOUND and I rejected it.** It claimed a `usize`-range `next()`
+payload satisfies `0 ≤ i ≤ isize::MAX` unconditionally — FALSE: `for i in 0..n` with `n > isize::MAX`
+(a valid `usize`) yields `i > isize::MAX`, so the fact would FALSE-PROVE `i + 2` overflow (real overflow
+at `i = usize::MAX-1` hidden). The blueprint even stated the false premise ("a range over `0..len` yields
+offsets `< len`") — it silently assumed every range is length-bounded, but the matcher fires on ANY range.
+**Sound design instead:** attach `payload < range.end` (Range) / `≤` (RangeInclusive), correlating the
+`Some`-payload to the range aggregate's `end` operand (recoverable via `extract_block_definitions` +
+ADT-aggregate field match, guards.rs:710/1277), and compose with the EXISTING len summary (`end ≤
+isize::MAX` only when `end` is a `.len()`). For `0..s.len()` it proves; for `0..n` arbitrary it correctly
+stays unproved. Soundness-critical (cross-block aggregate tracking + RangeInclusive's exhausted-flag repr)
+→ careful focused impl + anti-vacuity regression tests, NOT rushed at a session tail. (This catch is the
+point: improving what Trust *proves* must never come at the cost of a false Proved.)
+
+**Build-mechanics note (for the next session):** the current stage2 is the no-fix clean-beeb0d6 binary —
+x.py force-resets the ay submodule and WIPES a `git checkout <branch> -- file` overlay (staged), though a
+direct unstaged working-tree edit survived for build #40. RELIABLE path to a fixed stage2 without pulling
+owner WIP: create a beeb0d6+fix commit (apply `solver-handoff/execute-direct-timeout-fix.patch`), push it
+to ay origin as a branch for reachability, bump the trust→ay gitlink to it, rebuild. The validated fix is
+preserved 3 ways: ay origin main (136ba1d), the ay branch, and the orc patch.
+
 ### build #42/#43: pin-advance DECIDED-AGAINST; slice/index lever needs sound loop-invariant work (2026-06-14)
 
 **Pin advance (trust→ay) abandoned, with rationale.** Tried advancing trust's ay pin to ay origin/main

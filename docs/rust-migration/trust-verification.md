@@ -975,6 +975,19 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### ZST false-PROVE FIXED + LANDED on trust main `fb7e4972a6` (build #47, autonomous) (2026-06-14)
+
+After confirming (build #46) the ZST false-PROVE was still live and the hand-off hadn't been applied, fixed
+it directly and pushed to trust main. `conjoin_slice_len_bounds` (generate.rs:3107) bounded every
+`__slice_len` by `isize::MAX` unconditionally — unsound for ZST-element slices (a `&[()]` length can reach
+`usize::MAX`). The fix keeps the lower bound `0<=len` unconditional and **gates the upper bound
+`len<=isize::MAX` on a provably-non-ZST element** (`ty_is_definitely_non_zst`, recursing Adt/Tuple/Array so
+`&[Struct]` is covered). **Validated:** `zst_slice_overflow(&[()])` now FAILS (false-PROVE gone), non-ZST
+slices (`&[char]/&[u8]/&[i64]`, Vec, str) still PROVE, **orca-core proved count UNCHANGED at 98 (zero
+regression** on the owner's range/slice gains), 1954 trust-vcgen tests + a new soundness-gate test pass.
+Rebased cleanly past the owner's concurrent pushes. A real, landed soundness improvement to Trust — the
+co-evolution loop closing a confirmed false-PROVE it surfaced.
+
 ### autonomous re-measure on owner main `3e89a47627` (build #46): orca-core flat; ZST bug STILL LIVE (2026-06-14)
 
 Owner pushed 3 commits since build #45 (postcondition-return contract fix `5e5014d713`; `model slice-length

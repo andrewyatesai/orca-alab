@@ -1,8 +1,11 @@
 # SOUNDNESS BUG: `conjoin_slice_len_bounds` false-PROVEs overflow for ZST-element slices
 
-> **STILL LIVE as of trust origin/main `3e89a47627` (build #46, 2026-06-14 10:19).** Re-confirmed after the
-> owner's `model slice-length metadata bounded` trust-mc bump (`42677fe814`): `zst_slice_overflow(s: &[()])
-> { s.len()+2 }` still PROVES. The gate fix below has not been integrated; the false-PROVE remains.
+> **FIXED + LANDED on trust main `fb7e4972a6` (build #47, 2026-06-14).** The gate below was implemented
+> surgically on `conjoin_slice_len_bounds` (keep `0<=len` unconditional, gate `len<=isize::MAX` on a
+> provably-non-ZST element, recursing Adt/Tuple/Array) and pushed. Validated end-to-end: `zst_slice_overflow(s:
+> &[()]) { s.len()+2 }` now FAILS (false-PROVE gone), non-ZST slices still PROVE, orca-core proved count
+> UNCHANGED at 98 (no regression on the owner's gains), 1954 trust-vcgen tests + a soundness-gate test pass.
+> History below retained for the diagnosis.
 
 **Where:** `crates/trust-vcgen/src/generate.rs:3107` `fn conjoin_slice_len_bounds` (origin/main,
 introduced with `b8c461932f "vcgen: prove i+=1 cannot overflow in slice-bounded loops (len <= isize::MAX)"`).

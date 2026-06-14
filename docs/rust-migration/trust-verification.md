@@ -975,6 +975,18 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### autonomous re-measure on owner main `3e89a47627` (build #46): orca-core flat; ZST bug STILL LIVE (2026-06-14)
+
+Owner pushed 3 commits since build #45 (postcondition-return contract fix `5e5014d713`; `model slice-length
+metadata bounded` trust-mc bump `42677fe814`; ay pin advanced to `7346834` with deadline/interrupt fixes —
+but NOT my execute_direct timeout, so the direct-path hang persists and the overlay is still required).
+Rebuilt (#46, owner main + overlay) and re-checked:
+- **orca-core unchanged at 98 proved / 829 gap** — the contract fix targets postcondition-with-return VCs,
+  which orca-core functions don't use (only `days_from_civil` has a precondition), so no movement here.
+- **The ZST false-PROVE is STILL LIVE** — `zst_slice_overflow(s: &[()]) { s.len()+2 }` still PROVES on the
+  owner's latest, after their slice-len-metadata work. The non-ZST gate fix (handed off) is not integrated;
+  the false-PROVE remains a live soundness bug. Re-flagged in `solver-handoff/slice-len-zst-false-prove.md`.
+
 ### full-goal re-measure: owner's range work moved ALL 4 crates, total 11514→11419 (+95 proved) (2026-06-14)
 
 Re-surveyed all four goal crates on the owner's origin/main range work (build #45). The proved count rose

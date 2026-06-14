@@ -66,6 +66,10 @@ export TRUST_VERIFY_SURVEY=1
 export TRUST_VERIFY_POLICY="verify-example-corpus"
 export TRUST_VERIFY_FN_BUDGET_MS="$FN_BUDGET_MS"
 export TRUST_TIMEOUT_MS="$OBL_TIMEOUT_MS"
+# Bound the direct-SMT (execute_direct) path too — it otherwise runs unbounded and a
+# non-converging QF_LRA propagation spins forever (the typed-CHC watchdog doesn't cover
+# it). Enables the ay solver's own deadline->should_stop->budget-check abort.
+export AY_DIRECT_SOLVE_TIMEOUT_MS="$OBL_TIMEOUT_MS"
 [ -n "$SKIP" ] && export TRUST_SKIP_FUNCTIONS="$SKIP"
 [ "$CONTRACTS" = 1 ] && export RUSTFLAGS="${RUSTFLAGS:-} --cfg trust_verify"
 

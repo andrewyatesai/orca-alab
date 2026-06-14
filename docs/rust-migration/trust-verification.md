@@ -975,6 +975,25 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### lever found + root-blocked: `Range::contains` guards unmodeled → blocked by promoted-const eval (2026-06-14)
+
+Drilled into the #1 user-logic unproved fn `parse_iso8601_utc_ms` (25 obl, 8 Add + 8 Mul + 2 Sub overflow).
+It ALREADY range-validates every component (`if !(0..=9999).contains(&year) { return None }`), yet the
+bounded epoch arithmetic doesn't prove. Root: **`RangeInclusive::contains` / `Range::contains` guards are
+not modeled.** Probe: `if (0..=100).contains(&x) { x*2 }` FAILS, but `if x>=0 && x<=100 { x*2 }` PROVES —
+the explicit-comparison guard works, the idiomatic `.contains()` guard doesn't. This is a common
+input-validation pattern across Orca, and the fix is exactly sound (`(a..=b).contains(&x) ⟺ a<=x<=b`).
+
+**But it's root-BLOCKED, not a quick win.** The MIR shows a literal `0..=100` is a PROMOTED CONSTANT
+(`_3 = const g::promoted[0]`), not an inline aggregate — so the owner's `trace_local_to_range_aggregate`
+can't recover the bounds, and trust's `ConstValue` (model.rs:4312) has ONLY scalar variants (Bool/Int/
+Uint/Float/Str) — **no struct/aggregate const**, so the promoted `RangeInclusive` value is opaque; `0` and
+`9999` are locked in a promoted MIR body trust doesn't evaluate. Modeling `contains` for the common
+literal-range case therefore needs **promoted/struct-const evaluation** (recover the RangeInclusive value),
+owner-core const-handling territory. (Non-literal `a..=b` IS recoverable via the inline aggregate — a
+narrower win the owner could add with their existing range machinery; callee = `std::ops::RangeInclusive::
+<Idx>::contains`.) Handed off; the precise blocker is the deliverable.
+
 ### builds #44/#45: proved count MOVES (859→829) + a CONFIRMED soundness bug in the owner's lever (2026-06-14)
 
 **The number moved.** orca-core proved 68→**98** (gap 859→**829**, +30 obligations). The gain is the

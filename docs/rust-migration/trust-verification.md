@@ -975,6 +975,29 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### builds #44/#45: proved count MOVES (859→829) + a CONFIRMED soundness bug in the owner's lever (2026-06-14)
+
+**The number moved.** orca-core proved 68→**98** (gap 859→**829**, +30 obligations). The gain is the
+OWNER's concurrent range-yield work (origin/main +23 commits: `prove i+=1 cannot overflow in slice-bounded
+loops`, `Rev<Range> yield invariant`, `chunks/windows slice index bounds`) — the co-evolution loop working,
+the owner driving the proving frontier. (My own slice-len lever, build #44, was REDUNDANT — the owner
+shipped the same idea — and didn't move orca-core: its failed-overflows are the loop-index pattern the
+owner's range work targets, not direct `slice.len()+k`.)
+
+**CONFIRMED SOUNDNESS BUG found in the owner's just-shipped code (the session's real contribution).** Their
+`conjoin_slice_len_bounds` (generate.rs:3107) bounds EVERY `__slice_len` by `isize::MAX` UNCONDITIONALLY.
+Empirically demonstrated (build #45): `zst_slice_overflow(s: &[()]) { s.len()+2 }` PROVES — but a ZST-element
+slice length can reach `usize::MAX`, so that add CAN overflow → **false-PROVE** (cardinal verifier error).
+Their comment's premise "every element occupies >= 1 byte" is false for ZSTs. **Fix (validated build #44):
+gate on a provably-non-ZST element type** (`slice_elem_known_non_zst`). Full report + repro + ready fix:
+`solver-handoff/slice-len-zst-false-prove.md`. Handed off (not pushed into the owner's actively-churning
+function — same call as the ay-lra hand-off; the report carries the validated gate). This is the loop's
+value: the Orca workload + a soundness check surfaced a live false-PROVE in Trust's fresh code.
+
+**Frontier now (orca-core 829 gap):** 552 `nat solver returned unknown` (u64/nat decision — lever #1, the
+deep one), 71 Add / 20 Sub / 8 Mul overflow (shrinking as the owner's range work lands), ~120
+hardened-boundary unsafe_operation (need design specs). The u64/nat bucket dominates and is the hardest.
+
 ### slice/index lever: SOUNDNESS CATCH — rejected an unsound blueprint; corrected design (2026-06-14)
 
 Ran a research workflow to design the index-bound lever. It mapped the mechanism well (loop_invariant.rs

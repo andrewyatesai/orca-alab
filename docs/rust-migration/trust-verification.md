@@ -1004,6 +1004,22 @@ unsafe_operation (FFI/unsafe). **Work-list (most-unproved fns):** `days_from_civ
 string-index functions are the slice/index-length lever (task #20); the date functions are the contract
 + u64-decision frontier. Tooling: `tools/trust-survey/{survey-orca-verify.sh,survey-summary.py}`.
 
+**FULL-GOAL BASELINE — all 4 goal crates now surveyable (the fix generalizes; NO hangs anywhere):**
+
+| crate | fns | obligations | proved | failed | unknown | design_req | GAP (not proved) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| orca-core | 260 | 927 | 68 | 124 | 579 | 156 | 859 |
+| orca-config | 889 | 4366 | 255 | 496 | 2333 | 1282 | 4111 |
+| orca-text | 574 | 2389 | 76 | 197 | 1111 | 1005 | 2313 |
+| orca-agents | 1018 | 4437 | 206 | 430 | 2534 | 1267 | 4231 |
+| **TOTAL** | **2741** | **12119** | **605** | **1247** | **6557** | **3710** | **11514** |
+
+This is the standing-goal metric (gap → 0): **11514 not-proved across 12119 obligations (~5% proved
+today).** The dominant buckets are `unknown` (6557 — mostly u64/nat arithmetic + unsupported std calls,
+lever #1) and `design_requirement` (3710 — hardened/unsafe boundaries needing design-level specs). The
+co-evolution levers (slice/index reasoning, u64 decision, contracts) target converting unknown/failed →
+proved. The fix that made this measurable is on ay origin main (136ba1d).
+
 ### build #39: hang REPRODUCED + ROOT-CAUSED — ay-lra level-0 non-termination on u64-overflow atoms (2026-06-14)
 
 Rebuilt stage2 with the watchdog (#38) and ran the bounded survey (`tools/trust-survey/survey-orca-verify.sh`).

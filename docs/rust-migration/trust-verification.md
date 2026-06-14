@@ -975,6 +975,109 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### build #38: typed-CHC watchdog LANDED on main; stage2 rebuild to exercise it (2026-06-14)
+
+Implemented the watchdog (task #21): `run_native_solve_within_deadline<T,F: FnOnce()->T+Send, T: Send>`
+(native.rs:1326) = `thread::spawn` + `rx.recv_timeout(deadline)`, applied in `solve_typed_chc_pdr_full_with_ay`
+around BOTH the acyclic-direct SMT counterexample and `solve_pdr_proof`; `watchdog_ceiling =
+timeout.saturating_add(2s)` (default 120s); on timeout returns `FullVerificationVerdict::Unknown` (not a hang,
+not a false-PROVE). Mirrors the existing SMT-LIB BMC watchdog (native.rs:1712). **Landed: trust-mc `be05d7f14`
+→ parent gitlink `aaffe3b879`, pushed, trust 0/0 aligned.**
+
+**Key build-topology finding:** `trust-mc-driver` is linked as a LIBRARY (feature `native-typed-chc-pdr`)
+into the compiler via `trust-bmc` → `rustc_mir_transform`, so the watchdog lives inside `librustc_driver`.
+The stale stage2 (Jun 13 23:28) PREDATED the watchdog commit (Jun 14 00:04) → **a full stage2 rebuild (#38)
+is required to exercise it.** Rebuilding now.
+
+**Honest scope (still PARTIAL):** this watchdog covers the trust-mc typed-CHC/PDR path only. The earlier
+survey #7 hang reached an `ay_dpll` level-0 propagation loop via an *uncovered* engine path (trust-vc /
+trust-wp / BMC-no-timeout); engines are non-Send borrowed trait objects, so a single clean router-level
+thread-watchdog isn't available. **Decision: after #38 finishes, empirically test days_from_civil/orca_core
+under a PROCESS-level perl-alarm timeout. If the watchdog now catches the hang → survey unblocked. If it
+still hangs on the uncovered path → build an engine-agnostic process-level per-function survey harness so the
+orca-core gap count is measurable regardless of any single hang, and hand the precise ay_dpll loop diagnosis
+to the owner (their core-solver territory; don't keep chasing engine paths in actively-churning code).**
+
+### CRITICAL: 23h solver HANG found + un-hung; native typed-CHC has no watchdog (builds #36-#37, 2026-06-13)
+
+The build #36 orca-core survey HUNG — a `trustc --crate-name orca_core` process spun at 98% CPU for ~23
+hours. Root: my conjunctive-precondition→BV-mul flatten (build #36) made `days_from_civil`'s bound reach
+its 4+ i64 muls (128-bit BV products), turning a fast-Fail into a provable-in-principle but intractable
+formula — and **the native typed-CHC/PDR solve path (`solve_typed_chc_with_adaptive_portfolio`,
+native.rs:1536) runs ay_chc::AdaptivePortfolio IN-THREAD with NO wall-clock watchdog** (only the SMT-LIB
+BMC path, native.rs:1712, has `thread::spawn`+`recv_timeout`). So a hard obligation has no deadline and
+spins forever (the ay-chc `solve_timeout` isn't checked during bit-blast). Single-mul contract cases
+(`t_control`/`p_mul`) proved fast; only mul/div-heavy functions blew up.
+
+**Mitigation (pushed, b604686446):** REVERTED the flatten (restores build-#35 fast-Fail; the
+definition-site requires-marker exclusion / Custom-fix is KEPT — orthogonal + hang-free). Rebuilt (#37).
+**The watchdog gap is a HIGH-priority systemic robustness ticket (task #21, owner's solver territory —
+coordinate): wrap the typed solve in spawn+recv_timeout so any hard obligation returns Timeout=Unknown
+instead of hanging.** That is the prerequisite to safely re-enable contract bounds on mul-heavy
+functions (days_from_civil would then time-out gracefully). Lesson: a verifier MUST never be able to
+hang on one obligation — a per-obligation deadline is a correctness-of-the-tool invariant, not a nicety.
+
+### build #35 MEASURED + mul-precondition regression FIXED (build #36, 2026-06-12)
+
+**build #35 (latest main + my Custom-fix) measured:** Custom-fix WORKS (unsupported=0 everywhere — the
+Custom{trust.contract,unsupported} marker no longer fail-closes requires-bearing fns). Contract add/sub/div
+PROVE (p_add/p_sub/p_div clean); len_add/vlen_add PROVE; all soundness anchors hold (still_unsafe,
+era_calc_unsafe, p_mul_unsafe, len_sub refute); the 3 traps refute with skip-warnings.
+
+**But a REGRESSION surfaced: contract-bounded MUL false-Fails (t_control `x*2` under requires(x>0&&x<10)
+PROVED in build #34, FAILS in #35).** Formula dump showed the precondition bounds the Int var `x` but the
+mul overflow check uses a fresh BV operand `__trust_ovf_bv_lhs_x` never linked to it. Root cause: the
+owner's 133 commits migrated mul-overflow to a fresh-BV-operand lane (9fabe9ab5b) with a reconnection
+fn `v2_bv_mul_dominating_guard_constraints`, but its precondition loop called `v2_linear_var_const_fact`
+on each WHOLE `func.preconditions` entry — and a real `#[requires(a && b)]` is ONE `And` formula, which
+that fn rejects (returns None). The owner's regression test used two SEPARATE flat preconditions, so the
+conjunctive (real-source) shape was never exercised. **Fix (build #36, generate.rs): `v2_flatten_conjuncts`
+flattens `And` before extracting var-const facts** — sound (only surfaces more genuine caller-discharged
+bounds → can't false-PROVE). Companion test `conjunctive_contract_precondition_reaches_bv_mul_operand`
+(one-And shape) + the owner's flat test both pass. Co-evolution: extends the owner's recent fn; coordinate.
+
+**Scope of the flatten fix:** enables DIRECT-param contract-mul (t_control, p_mul) + restores the
+regression. Does NOT cover DERIVED-operand muls (era_calc's `era*146097` where era=y/400;
+days_from_civil's `era*146097`, `year_of_era*365`, `153*(month±)`) — the BV mul lane binds a precondition
+fact only to an operand whose NAME matches the param; a derived operand needs block-def bound propagation
+(relate era=year/400 to year's bound). **That derived-operand-mul propagation is the next sub-lever for
+days_from_civil** (owner's BV-mul territory — coordinate), alongside the slice/len reasoning (task #20).
+
+### Multi-day re-align + latest features + contracts finished (builds #35, 2026-06-12)
+
+Returned after ~4 days; owner advanced origin/main +133 commits. **My gate commit (946bb7a) is an
+ancestor — all soundness work (contract_assumption_gate, multimap shadow-detection, bookkeeping
+exclusion, len mirror) survived intact.** Fast-forwarded trust local main to b030100324 (clean, 0
+ahead), submodules updated; orc 0/0. Rebuilding stage2 (#35) to use the latest features.
+
+**Co-evolution convergence:** the owner's commits directly complete my contracts work —
+`9fabe9ab5b vcgen: BV-encode GATED contract preconditions into the mul overflow formula` explicitly
+composes with my contract_assumption_gate (it says "holds only GATED assumptions ... coordinating with
+the parallel session"), resolving the era_calc/days_from_civil **mul** limitation I'd deferred to v2.
+Also `dbc4c454fd` (Neg-wrapped literals in BV precondition translation — my negative bounds) and
+`a511ce9c8` (BoundsCheck→trust-vc — native bounds proofs count).
+
+**Last contract blocker FIXED (build #35, reviewed):** every `#[requires]`-bearing fn emitted a
+`Custom{trust.contract,unsupported}` definition-site obligation with NO full-verification owner
+(engine/mod.rs:163) → fail-close. A requires is the CALLER's burden (call-site VCs) + ASSUMED in the
+body (my gate) — so it must not emit a provable definition-site obligation. Fix (verifier_api.rs,
+symmetric to the existing Bool(false)-Precondition exclusion): for `api_kind == Requires` skip the
+unsupported marker + record a `definition_site_requires_markers_excluded` metadata count.
+Ensures/Assert markers UNTOUCHED (still surface as gaps). The router-owner alternative was rejected as
+unsound (would swallow ensures gaps; trivial-pass blocked by the artifact policy anyway). 2 regression
+tests (requires-skips + ensures-still-surfaces).
+
+**SCOUT (strategic pivot for orca-core contracts):** of the ~130 arithmetic-refuting obligations, only
+`days_from_civil` (24) + `parse_iso8601_utc_ms` (18) are clean scalar-param contract candidates — BOTH
+done this session (ISO-bounds requires with the shadow-rename the gate demands; validate-then-compute
+hardening). **The other 7 refuting fns have NO bounded scalar param** — their overflows derive from
+`&str`/`Vec`/`Vec<char>` `.len()` (title_has_token, decode_uri_component, build_feature_wall_tour_depth_
+summary, the stable_pane_id/quick_open_filter parsers) or a struct-field delta (workspace_cleanup). They
+need a **slice/index-length reasoning capability** (relate an index `i` to the container's `len()` so
+`i+k`/`len-k`/`i-1` prove), NOT contracts. **That is the next lever** — and it co-evolves with the
+owner's BoundsCheck→trust-vc + aterm spatial-bounds work. After build #35 measures the contract slice,
+the loop turns to slice/len reasoning.
+
 ### P0 SOUNDNESS HOLE found+fixed: shadowed param transfers requires-bound to wrong variable (build #32, 2026-06-09)
 
 **Context (E0 probe, current merged main):** the contracts body-assumption is ALREADY live — the owner's

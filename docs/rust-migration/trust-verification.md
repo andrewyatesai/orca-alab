@@ -1020,6 +1020,15 @@ lever #1) and `design_requirement` (3710 — hardened/unsafe boundaries needing 
 co-evolution levers (slice/index reasoning, u64 decision, contracts) target converting unknown/failed →
 proved. The fix that made this measurable is on ay origin main (136ba1d).
 
+**The `failed` (refuted) bucket is verifier incompleteness, NOT real bugs.** Spot-checked `title_has_token`:
+`for start in 0..=(haystack.len() - needle.len())` makes `start + needle.len() ≤ haystack.len() ≤
+isize::MAX` — the Add-overflow it refutes is impossible. The verifier refutes only because it treats the
+loop index as unbounded usize. The whole Add/Sub-overflow-on-string-index family (`title_has_token`,
+`normalize_process_n`, `strip_collision`, `decode_uri_component`, …) is the same false-refute pattern →
+this is exactly the slice/index-length lever (task #20: conjoin `index ≤ len` from the loop/guard AND
+`len ≤ isize::MAX` from the len summary into the overflow VC). No genuine overflow bugs surfaced in the
+sampled functions.
+
 ### build #39: hang REPRODUCED + ROOT-CAUSED — ay-lra level-0 non-termination on u64-overflow atoms (2026-06-14)
 
 Rebuilt stage2 with the watchdog (#38) and ran the bounded survey (`tools/trust-survey/survey-orca-verify.sh`).

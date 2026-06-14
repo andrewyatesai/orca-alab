@@ -993,13 +993,19 @@ exact, owner-actionable diagnosis in `docs/rust-migration/solver-handoff/`:
   looping formula had THREE distinct `start` SSA vars), so skip-iterate won't scale — orca-core is
   fundamentally un-surveyable until the encoding changes.
 
-**This unifies the hang with the gap-log #1 lever (u64/usize arithmetic unverifiable):** the SAME wrong
-choice — LIA-with-u64::MAX-literal instead of BV — both hangs the LRA solver AND makes unsigned arithmetic
-unprovable. **The real fix routes u64/usize add/sub overflow obligations to the BV theory** (the mul lane
-already uses BV via `v2_bv_mul_dominating_guard_constraints`); that cures the hang and unblocks the #1
-frontier in one move. Owner-side companion fix (their core): a fixpoint/`should_stop` guard in
-`compute_implied_bounds`/`propagate_var_atoms` so a non-converging level-0 propagation degrades to Unknown
-instead of spinning. Full hand-off: `solver-handoff/ay-lra-level0-nontermination.md`.
+**The fix is OWNER-SIDE (corrected after reading generate.rs:2554-2582).** First instinct was "route
+add/sub overflow to BV" — but Trust *deliberately* keeps unsigned add/sub on Int/LIA (only MUL goes BV)
+because the Int path conjoins operand preconditions/guards/block-defs that let a precondition-bounded
+add/sub PROVE; BV uses fresh unconstrained operands and would false-Fail provably-safe code. So
+BV-routing add/sub would trade a solver bug for a pervasive completeness regression — the encoding is
+sound and intentional. **The actual fix: a same-decision-level no-progress/round cap (or `should_stop`
+poll) in the `ay_sat::cdcl_loop ↔ ay_dpll::extension::propagate_impl ↔ ay_lra::check_during_propagate`
+handshake** so a non-converging level-0 propagation degrades to Unknown instead of spinning. The owner
+already uses caps of this flavor nearby (`dual_simplex_with_max_iters`, `MAX_RECURSIVE_CALLS=256`, the
+`#8256` fixpoint count, `expr_split_seen_count>=50`). This spans ay_sat/ay-dpll/ay-lra (their actively-
+tuned core) — handed off, not patched here. Lever #1 (u64 unverifiable) is downstream of the SAME bug:
+the solver can't decide these linear u64 formulas because it hangs on them. Full hand-off:
+`solver-handoff/ay-lra-level0-nontermination.md`.
 
 ### build #38: typed-CHC watchdog LANDED on main; stage2 rebuild to exercise it (2026-06-14)
 

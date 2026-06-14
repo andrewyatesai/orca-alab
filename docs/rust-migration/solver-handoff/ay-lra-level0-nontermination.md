@@ -80,17 +80,34 @@ simplex makes `propagate_var_atoms` chase a bound it can tighten forever (`start
   callback — but `propagate_impl` / `propagate_var_atoms` do **not poll `should_stop`** between
   iterations, so even the interruptible entry point can't break this loop.
 
-## Two independent fixes
+## The fix is owner-side (ay-dpll ↔ ay-lra propagation termination)
 
-1. **Owner-side (ay-lra/ay-dpll), the real bug:** give `propagate_var_atoms` /
-   `check_during_propagate` a fixpoint/no-progress guard, and/or poll `should_stop` inside the
-   propagation loop so the existing interruption mechanism can fire. A non-converging theory
-   propagation at level 0 should degrade to Unknown/Timeout, never spin.
-2. **Verifier-side (Trust, and the higher-value lever):** route **u64/usize overflow obligations to
-   the bit-vector theory**, not LIA-with-a-u64::MAX-literal. This both avoids the loop *and* unblocks
-   the #1 frontier from the gap log (unsigned-64-bit arithmetic is currently unverifiable). The BV
-   `bvadd`-overflow encoding is finite and the dominating-guard machinery already exists for the mul
-   lane (`v2_bv_mul_dominating_guard_constraints`).
+**The right fix is a no-progress/round guard in the theory-propagation handshake**, NOT a change to
+how the verifier encodes the obligation. Concretely: the `ay_sat::cdcl_loop_impl → TheoryCallback::
+propagate → ay_dpll::extension::propagate_impl → ay_lra::check_during_propagate` round loop must
+detect that it is re-asserting atoms already assigned at the current decision level (the WARN dump
+shows duplicate `TermId`s) and stop — degrading to Unknown/Timeout rather than spinning. The codebase
+already uses caps of exactly this flavor nearby (`dual_simplex_with_max_iters`, `MAX_RECURSIVE_CALLS
+= 256`, the `#8256` propagation-fixpoint count at `theory_solver/propagation.rs:595`, and
+`expr_split_seen_count >= 50` in `extension/propagate.rs`); this handshake needs an analogous
+same-level round cap and/or a `should_stop` poll inside the loop (`propagate_impl` /
+`propagate_var_atoms` currently never poll the `make_should_stop` callback they are handed).
+
+### Why NOT to "just route add/sub to the BV theory"
+
+Tempting, but wrong — and the Trust verifier already deliberately rejects it. `trust-vcgen`
+generate.rs:2554-2582 routes **only MUL** to the BV lane and keeps unsigned **add/sub on the
+Int/LIA path on purpose**, because the Int path conjoins the operands' preconditions, dominating
+guards, and block-defs (`input_range_constraint`, `v2_formula_with_block_defs`,
+`conjoin_arg_type_ranges`) — which let a *precondition-bounded* add/sub PROVE. The BV
+`v2_unsigned_bv_overflow_formula` uses FRESH unconstrained operands (`__trust_ovf_bv_*`, sorts must
+not collide), so those guards are dropped and provably-safe code false-FAILs. So BV-routing add/sub
+would trade a solver-termination bug for a pervasive completeness regression. The encoding is sound
+and intentional; the LRA propagation just has to terminate on it.
+
+(The connection to gap-log lever #1 — "u64/usize arithmetic unverifiable" — stands, but the lever is
+*also* about the solver actually deciding these linear u64 formulas, which today it cannot because it
+hangs. Fix the propagation termination first; the verifiability follows on the same obligations.)
 
 ## Reproduce
 

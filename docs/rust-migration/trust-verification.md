@@ -975,6 +975,25 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### full-goal re-measure: owner's range work moved ALL 4 crates, total 11514→11419 (+95 proved) (2026-06-14)
+
+Re-surveyed all four goal crates on the owner's origin/main range work (build #45). The proved count rose
+across the board:
+
+| crate | obligations | proved (was) | GAP (was) |
+| --- | --- | --- | --- |
+| orca-core | 927 | 98 (68) | 829 (859) |
+| orca-config | 4366 | 295 (255) | 4071 (4111) |
+| orca-text | 2389 | 87 (76) | 2302 (2313) |
+| orca-agents | 4437 | 220 (206) | 4217 (4231) |
+| **TOTAL** | **12119** | **700 (605)** | **11419 (11514)** |
+
+So the standing-goal metric moved **11514 → 11419 (+95 proved)** from the owner's range-yield/slice-bounded-
+loop/chunks-windows work — measured by the survey tooling. The loop is advancing, owner-driven on the
+capability side. The remaining ~11419 is dominated by the deep buckets mapped below (dyn-dispatch derived
+boilerplate, promoted-const `contains`-guard validation, `Rvalue::Cast`/hardened-mode on safe MIR, u64) —
+all owner-core verifier capability, none a tractable sound solo lever.
+
 ### lever found + root-blocked: `Range::contains` guards unmodeled → blocked by promoted-const eval (2026-06-14)
 
 Drilled into the #1 user-logic unproved fn `parse_iso8601_utc_ms` (25 obl, 8 Add + 8 Mul + 2 Sub overflow).

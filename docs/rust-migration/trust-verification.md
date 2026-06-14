@@ -994,9 +994,19 @@ gate on a provably-non-ZST element type** (`slice_elem_known_non_zst`). Full rep
 function — same call as the ay-lra hand-off; the report carries the validated gate). This is the loop's
 value: the Orca workload + a soundness check surfaced a live false-PROVE in Trust's fresh code.
 
-**Frontier now (orca-core 829 gap):** 552 `nat solver returned unknown` (u64/nat decision — lever #1, the
-deep one), 71 Add / 20 Sub / 8 Mul overflow (shrinking as the owner's range work lands), ~120
-hardened-boundary unsafe_operation (need design specs). The u64/nat bucket dominates and is the hardest.
+**Frontier now (orca-core 829 gap) — CORRECTED characterization.** The 552 `solver returned unknown: nat`
+is NOT u64-decision (earlier mislabel). Real breakdown of the unknown bucket: **251 `CastKind::Pointer
+Coercion::Unsize`** (`&T→&dyn` trait-object coercion — `convert.rs:727` bails; the `&[T;N]→&[T]` array-slice
+case IS handled at `:722`), **142 `unreachable code reached`** MIR assertions, ~30 real Add/Sub/Mul + Cast.
+**By scope (the useful split): 312 of the 829 gap are compiler-DERIVED trait impls** (`<X as Debug>::fmt`
+etc.) — ALL unproved, fundamentally dyn-dispatch (the coercion + std `Formatter` calls "not present in
+module" + `unreachable` arms); known-safe boilerplate, hard (needs dyn-dispatch + std-`Formatter` modeling,
+or an `#[automatically_derived]` scoping policy). **The other 517 are USER logic** — the genuine frontier:
+date arithmetic (`parse_iso8601_utc_ms` 25, `days_from_civil` 18 — u64 + contracts), string build/index
+(`build_rg_args_for_quick_open` 20, `decode_git_cquoted_path` 15, `title_has_token` 15 — the owner's range
+work is chipping these), telemetry builders. No single tractable SOLO lever remains: the user-logic
+overflow/range frontier is the owner's active territory; the derived-boilerplate needs deep dyn-dispatch /
+std-`Formatter` modeling (or a scoping decision on whether compiler-generated impls count toward the goal).
 
 ### slice/index lever: SOUNDNESS CATCH — rejected an unsound blueprint; corrected design (2026-06-14)
 

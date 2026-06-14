@@ -975,6 +975,28 @@ underscore emitted vs `trust-wp.` hyphen decoded at trust_formula.rs:62) blocks 
 preconditions (~50) AND user `#[requires]` claims (both route through trust-wp formula claims). Fixing it
 (separator-canonicalize the decoder, like the trust-mc identity fix) is build #31 and unblocks contracts.
 
+### build #42/#43: pin-advance DECIDED-AGAINST; slice/index lever needs sound loop-invariant work (2026-06-14)
+
+**Pin advance (trust→ay) abandoned, with rationale.** Tried advancing trust's ay pin to ay origin/main
+(which carries my fix at 136ba1d) so the fix is in the pinned build. Found: (1) `x.py` force-resets the
+submodule to the gitlink during build — build #42 silently compiled clean beeb0d6, not my checkout —
+so advancing requires committing a gitlink bump onto ~100 commits of the owner's ACTIVE ay WIP (ay main
+moved +11 mid-session); (2) the dep graph showed version skew (`ay-sys` lock disambiguation); (3) the
+owner pins beeb0d6 deliberately. Since the fix is ALREADY on ay origin main for the owner to integrate,
+trust stays pinned at beeb0d6 and carries the fix as a **build-time overlay** (uncommitted context.rs at
+beeb0d6 — x.py preserves same-HEAD dirty edits; this is exactly how the validated build #40 was made).
+trust 0/0, no owner WIP pulled. Build #43 restores the fixed stage2 this way.
+
+**Slice/index-length lever (task #20) — precise blocker found.** The `failed` Add/Sub-overflow bucket is
+false-refutation on loop indices (`title_has_token`: `start + needle.len()` where `start ∈ 0..=(len -
+needle.len())`). trust-vcgen already threads path guards + assert-passed semantic guards, but
+**deliberately drops guards at loop joins for soundness** — conjoining `H ⇒ vc` when `H` isn't a
+universal path condition is UNSOUND (vacuous-implication false-proved). So naive loop-guard threading is
+out. The SOUND tractable path (like the len total-summaries): model the std `Range`/`RangeInclusive`
+iterator contract — a value yielded by `for i in a..b` provably satisfies `a ≤ i < b` — recognize the
+range-iterator MIR pattern and emit `i < b` as a summary fact, then compose with `len ≤ isize::MAX`.
+High-stakes (unsound if the pattern match is wrong) → focused implementation + unit tests, not rushed.
+
 ### build #41: HANG FIXED + orca-core UNBLOCKED — first full gap count since the regression (2026-06-14)
 
 **The survey completes again.** Validated fix (build #40, ay branch `survey-execute-direct-timeout`,

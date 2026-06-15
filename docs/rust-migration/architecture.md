@@ -31,8 +31,12 @@ platform-specific native wrappers**. All third-party dependencies are
   against Alacritty. `orca-terminal` is wired to it as a thin adapter over
   `aterm-core::Terminal` (branch `aterm-integration`): the `HeadlessTerminal`
   surface, `orca-ffi` C ABI, and `orca-session` are unchanged — only the engine
-  underneath the adapter changed from the `vte` subset to aterm. Productionising
-  pins an aterm git rev and vendors its stripped dep-closure into `rust/vendor`.
+  underneath the adapter changed from the `vte` subset to aterm. The build is
+  fully offline and self-contained: aterm's source is vendored in-repo at
+  `third_party/aterm` (its own workspace, outside `rust/`; only the
+  `aterm-core` closure compiles) and its crates.io dep-closure is vendored
+  under `rust/vendor`. A later cleanup can swap the in-repo copy for an aterm
+  git-rev pin once that repo is pushed.
 
 ## Layering
 

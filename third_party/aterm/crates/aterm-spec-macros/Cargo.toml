@@ -1,0 +1,18 @@
+# Copyright 2026 The aterm Authors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "aterm-spec-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Proc macros for aterm TLA+ refinement mapping"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"

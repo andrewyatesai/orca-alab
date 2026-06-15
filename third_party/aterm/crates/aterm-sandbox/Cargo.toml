@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+[package]
+name = "aterm-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Resource sandbox for spawned children (ATERM_DESIGN WS-G): POSIX rlimits applied before exec, gated on an aterm-cap capability."
+
+[dependencies]
+aterm-cap = { workspace = true }
+libc = { workspace = true }

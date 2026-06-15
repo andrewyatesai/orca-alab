@@ -1,0 +1,36 @@
+# Copyright 2026 The aterm Authors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "aterm-types"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared types for aterm terminal engine (Rgb, CursorStyle, BiDiMode, ColorPalette)"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[features]
+default = []
+serde = ["dep:serde"]
+# K-2: map winit's platform `Key`/`NamedKey`/`PhysicalKey` into the engine's
+# bridge-agnostic `keyboard::Key`/`NamedKey`. Off by default so the FFI/bridge
+# consumers of aterm-types never pull winit; the GUI (and the future native
+# shell, which can map its own platform enum the same way) opts in.
+winit-keymap = ["dep:winit"]
+
+[dependencies]
+aterm-alloc = { workspace = true }
+aterm-error = { workspace = true }
+# F11-4 (#7941): MutexExt::lock_or_recover logs poison recoveries so
+# silently-recovered poisoning is never invisible to observability.
+aterm-log = { workspace = true }
+serde = { workspace = true, optional = true }
+# K-2 (winit-keymap feature only): the GUI's platform keyboard enums, mapped
+# into the engine's `keyboard::Key`. Optional so non-GUI consumers stay winit-free.
+winit = { workspace = true, optional = true }
+
+[dev-dependencies]
+aterm-spec = { workspace = true }

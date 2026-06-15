@@ -1,0 +1,59 @@
+# Copyright 2026 The aterm Authors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "aterm-scrollback"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tiered scrollback storage with LZ4/Zstd compression and disk offload"
+
+[features]
+# Default = headless hot(RAM)+warm(LZ4) scrollback. NO libc / zstd / std::fs in
+# the dependency closure (the §2.7 "no-platform" engine invariant). The disk and
+# zstd tiers are opt-in below; the warm tier's LZ4 path is the default fallback
+# for what would otherwise be the zstd-compressed cold tier.
+default = []
+fuzz = []
+testing = []
+# Opt-in zstd-compressed cold tier (default = LZ4-only). Gates the `zstd` dep and
+# all of its encode/decode sites. Off by default to keep the engine pure-Rust.
+zstd = ["dep:zstd"]
+# Opt-in disk-backed cold tier: pulls in `libc` (mmap/munmap/msync), `std::fs`,
+# and the memory-mapped `.dtrm` cold store. Implies `zstd` because the on-disk
+# page format is zstd-compressed. Off by default per §2.7.
+disk-tier = ["dep:libc", "zstd"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(fuzzing)'] }
+
+[dependencies]
+aterm-rle = { workspace = true }
+aterm-types = { workspace = true }
+aterm-error = { workspace = true }
+aterm-alloc = { workspace = true }
+aterm-lz4 = { workspace = true }
+zstd = { workspace = true, optional = true }
+libc = { workspace = true, optional = true }
+aterm-log = { workspace = true }
+
+[dev-dependencies]
+aterm-tempfile = { workspace = true }
+proptest = { workspace = true }
+criterion = "0.5"
+
+[[bench]]
+name = "remove_newest"
+harness = false
+# Exercises the disk-backed cold tier; only buildable with the opt-in feature.
+required-features = ["disk-tier"]
+
+[[bench]]
+name = "push_line"
+harness = false
+
+[[bench]]
+name = "truncate"
+harness = false

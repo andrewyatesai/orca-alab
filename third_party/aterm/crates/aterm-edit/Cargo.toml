@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+[package]
+name = "aterm-edit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A rope-backed editable text buffer with a cursor (ATERM_DESIGN M4): insert/delete + char/line cursor navigation over aterm-rope."
+
+[dependencies]
+aterm-rope = { workspace = true }

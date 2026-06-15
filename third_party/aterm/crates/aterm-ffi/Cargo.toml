@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+[package]
+name = "aterm-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "C ABI embedding surface for the aterm engine (ATERM_DESIGN WS-D): feed VT bytes, read the screen, from C or any FFI-capable language."
+
+[lib]
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[dependencies]
+aterm-core = { workspace = true }

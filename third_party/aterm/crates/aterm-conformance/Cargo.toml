@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+
+[package]
+name = "aterm-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "aterm VT conformance + integration tests, founded on the engine read API (feed -> read screen -> assert). The screen-reading oracle IS the introspection API."
+
+[dependencies]
+aterm-core = { workspace = true }
+
+[dev-dependencies]
+aterm-types = { workspace = true }
+proptest = { workspace = true }

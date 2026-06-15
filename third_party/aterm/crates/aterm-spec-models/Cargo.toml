@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+
+[package]
+name = "aterm-spec-models"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "TLA+ models of aterm's kernel/security/concurrency invariants (ROADMAP WS-I), model-checked by `ty` from the test suite."
+
+# No code deps: the model-check test (tests/model_check.rs) shells out to the
+# `ty` TLA+ checker over the specs in `specs/`. The .tla/.cfg files ARE the crate.

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+[package]
+name = "aterm-pty"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "aterm's single PTY spawn + IO seam (ATERM_DESIGN WS-G): all raw libc forkpty/read/write/ioctl contained in one auditable place."
+
+[dependencies]
+aterm-cap = { workspace = true }
+aterm-sandbox = { workspace = true }
+libc = { workspace = true }

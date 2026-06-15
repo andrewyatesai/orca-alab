@@ -1,0 +1,20 @@
+# Copyright 2026 The aterm Authors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "aterm-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "VT terminal escape sequence parser with SIMD fast-path"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[dependencies]
+aterm-alloc = { workspace = true }
+aterm-provenance = { workspace = true }
+
+[dev-dependencies]
+aterm-spec = { workspace = true }

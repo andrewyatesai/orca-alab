@@ -585,6 +585,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "orca-aterm-demo"
+version = "0.0.1"
+dependencies = [
+ "orca-pty",
+ "orca-session",
+ "orca-terminal",
+]
+
+[[package]]
 name = "orca-config"
 version = "0.0.1"
 dependencies = [

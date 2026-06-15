@@ -13,6 +13,7 @@
 resolver = "2"
 members = [
     "crates/orca-agents",
+    "crates/orca-aterm-demo",
     "crates/orca-config",
     "crates/orca-core",
     "crates/orca-crypto",

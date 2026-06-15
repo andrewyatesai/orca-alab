@@ -1,0 +1,20 @@
+[package]
+name = "orca-aterm-demo"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Runnable proof of the aterm integration: spawns a live PTY whose output is emulated by the aterm engine (through orca-session) and renders the resulting grid."
+
+[[bin]]
+name = "orca-aterm-demo"
+path = "src/main.rs"
+
+[dependencies]
+orca-session = { path = "../orca-session" }
+orca-terminal = { path = "../orca-terminal" }
+orca-pty = { path = "../orca-pty" }
+
+[lints.rust]
+unsafe_code = "forbid"

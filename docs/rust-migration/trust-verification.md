@@ -12,6 +12,46 @@ contract pre/postconditions.
   "unsupported MIR / can't prove this true obligation" is a concrete Trust ticket.
   Orca is the test that tells us whether Trust's design works and where it doesn't.
 
+## 🟢 2026-06-15 (build #67) — orca-core survey CONVERGES; the chronic hang is gone
+
+The orca-core survey is no longer uncompletable. Build #67 (stage2 `trustc` from trust
+branch `ay-contains-lever-unsize-fix` = owner `origin/main` + var×const/Unsize `db8302ad7e`
++ Zeno-ay pin `84a4d86d08`; submodules ay `1bc24189af82`, trust-wp `bfaaa1f`) runs the full
+crate in **8.1s of verify time, 0 timed_out**, with the AY direct-solve timeout **disabled**
+— i.e. convergence by the algorithm, not by a wall-clock kill.
+
+**The load-bearing fix is the OWNER's Zeno cascade throttle (#8857), not my budget.** A/B on
+the same binary: `AY_IMPLIED_BUDGET=0` (my entry-guard disabled) also converges in 105s with
+the identical histogram. My entry-guard budget never trips and is **redundant/dormant** (kept
+as a sound off-by-default backstop only; default 4M effectively never fires). The earlier
+"Zeno still hangs" reports (build #66) were a **gitlink artifact** — #67 is the first clean
+build with the Zeno ay actually compiled in. Root-cause + the principled (unused) refinement:
+`docs/rust-migration/solver-handoff/lra-zeno-rootcause-and-budget.md`.
+
+**Authoritative gap (orca-core, as-written, no contracts) — 882 obligations:**
+
+| outcome | count | notes |
+|---|---|---|
+| proved | 98 | incl. var×const + array→slice Unsize levers |
+| unknown | 520 | 302 `unsupported_mir` (**280 = derived `Debug::fmt` `&dyn Trait` Unsize boilerplate**), 142 Assertion, 39 assertion, 33 ArithmeticSafety, 4 other |
+| failed | 108 | 72 overflow(Add) + 20 overflow(Sub) + 16 assertion — **user-logic u64/i64** (top fns `days_from_civil`, `parse_iso8601_utc_ms`, `title_has_token`) |
+| design_requirement | 156 | `#[trust(static)]` — genuinely design-level |
+| timed_out | **0** | ← convergence |
+
+**Next levers, ranked:**
+1. **origin/main +14 verifier commits** (prove reverse/two-pointer/downward loops by default,
+   lower division/modulo + integer negation in contract predicates, gate con/disjunctive
+   postconditions) directly target the 108 failed + the assertion unknowns. BUT origin/main
+   still pins **pre-Zeno ay `7346834`**, so picking them up requires re-applying the ay↔trust-wp
+   pin migration on the owner's newer trust-wp `b73e43011c` (the owner has NOT integrated the
+   Zeno ay on main). This is the co-evolution merge point.
+2. **Derived `Debug::fmt` classification** (~280 unknown): these are compiler-derived boilerplate
+   (`&self → &dyn Debug` vtable coercion), not user logic. The honest gap metric should split
+   them out (matches the 312-derived / 517-user-logic frontier). Either model `&dyn Trait` Unsize
+   or exclude derive-generated impls from the user-logic count.
+3. **u64/i64 overflow** (the 108 failed): the documented #1 lever — needs contracts (`#[requires]`
+   bounds) or the unsigned-64-bit BV no-overflow path.
+
 ## Current state (be honest)
 
 - Trust is **proof-aware, not proof-complete**. No stage2 `trustc` is built in the

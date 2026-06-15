@@ -66,12 +66,40 @@ the tractable mechanical levers (var×const, Unsize array→slice, ZST) are land
 | `Rvalue::Cast` int↔float | 28 | FP-theory lowering of `i64→f64`/`f64→int` (verifier supports only bool/int-int/ptr casts) | no (soundness-delicate) |
 | `#[trust(static)]` | 39 | genuinely design-level | n/a |
 
-**Conclusion:** the survey-convergence blocker is resolved and the gap is fully mapped, but
-closing it is now the owner's deep verifier-capability frontier (overflow-interval propagation,
-dyn-dispatch, std-library summaries, FP casts) — there is no remaining soundness-safe mechanical
-lever to land orc-side. The one orc-side path that helps is **more `#[requires]` contracts** on
-bounded-input arithmetic, but it's blocked behind the same overflow-interval-propagation gap
-(days_from_civil proves it: the contract is consumed, the mul-chain still can't be discharged).
+**Conclusion (orca-core):** the survey-convergence blocker is resolved and the gap is fully
+mapped, but closing it is now the owner's deep verifier-capability frontier (overflow-interval
+propagation, dyn-dispatch, std-library summaries, FP casts) — there is no remaining
+soundness-safe mechanical lever to land orc-side. The one orc-side path that helps is **more
+`#[requires]` contracts** on bounded-input arithmetic, but it's blocked behind the same
+overflow-interval-propagation gap (days_from_civil proves it: the contract is consumed, the
+mul-chain still can't be discharged).
+
+### builds #69/#70 — ALL FOUR standing-goal crates now survey + converge
+
+Previously only orca-core was measurable; text/config/agents were 100% blocked (all depend on
+`regex → regex-syntax 0.8.10`, which trustc can't compile under `-Z trust-verify` — E0391
+MIR-opt query cycle, see `solver-handoff/regex-syntax-e0391-and-bool-sort-ice.md`). Two fixes
+unblocked them:
+1. **`TRUST_VERIFY_PRIMARY_ONLY`** (trustc, build #70): verify only the cargo-primary package
+   so deps compile with stock MIR-opt, dodging the cycle. Opt-in, sound, default-unchanged.
+2. **`register_tool(trust)`** (orc, all crates with `trust::` annotations): orca-agents/config/git
+   carried `#[cfg_attr(trust_verify, trust::ensures/requires)]` annotations but lacked the
+   `#![cfg_attr(trust_verify, register_tool(trust))]` declaration orca-core has, so they failed
+   E0433 under verification. Added it (inert under stock cargo).
+
+**First full cross-crate gap (as-written, no contracts; all 0 timed_out):**
+
+| crate | obligations | proved | unknown | failed | user-logic gap | derived-boilerplate |
+|---|---|---|---|---|---|---|
+| orca-core | 882 | 98 | 520 | 108 | 347 | 288 |
+| orca-config | 1334 | 103 | 770 | 154 | 530 | 394 |
+| orca-agents | 498 | 8 | 213 | 44 | 160 | 97 |
+| orca-text | 99 | 0 | 63 | 12 | 60 | 15 |
+| **total** | **2813** | **209** | **1566** | **318** | **1097** | **794** |
+
+Same frontier shape as orca-core: ~28% of all unknowns are derived `&dyn Trait` boilerplate;
+the user-logic gap is overflow + library-internal unreachables + design-requirements. Measure
+any crate via `tools/trust-survey/survey-orca-verify.sh <crate>` + `classify-gap.py`.
 
 ## Current state (be honest)
 

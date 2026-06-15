@@ -1,0 +1,446 @@
+From db8302ad7e4da92334c3d013fb81df9a20113dba Mon Sep 17 00:00:00 2001
+From: Andrew Yates <ayates@m10-MacBook-M4-Max-36GB-1TB.local>
+Date: Sun, 14 Jun 2026 21:57:30 -0700
+Subject: [PATCH] =?UTF-8?q?verify:=20prove=20range-validated=20`x=20op=20k?=
+ =?UTF-8?q?`=20+=20model=20array=E2=86=92slice=20unsize?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two sound, independent verify-capability additions (validated by probes; the
+soundness gates all correctly FAIL — no false-PROVE):
+
+1. Range::contains validation-guard lever (var×const).
+   - trust-mir-extract: rewrite_range_contains_calls lowers
+     `_r = (L..=U).contains(&x)` (and exclusive Range) to `x>=L & x<=U` from the
+     range constant's valtree (ref-peeled; fail-closed on any non-unique /
+     non-constant / non-integer operand, so it can never invent a bound).
+   - trust-vcgen guards.rs: latest_same_block_bool_definition unfolds BitAnd/BitOr
+     of bools to And/Or of recursively-resolved operands, and follows a single
+     bare-Goto predecessor (which strictly dominates) so the contains-rewrite's
+     `dest=BitAnd` in the CALL block resolves from the switch in the Goto-target
+     block. Sound: the def dominates the use; a true added hypothesis can only
+     flip a false-FAIL to PROVE, never mask an overflow.
+   - trust-vcgen generate.rs: v2_flatten_guard_conjuncts flattens an And(Ge,Le)
+     dominating guard so BOTH bounds bind to a BV multiply operand
+     (post-intersection ⇒ only facts true on every dominating path).
+   Effect: `if !(0..=23).contains(&h) {return} h*3600` and `h*h`-style
+   range-validated arithmetic now PROVE; `no_guard`, `wrong_var`, and
+   `wide_range` (true i64::MAX bound) all correctly FAIL.
+
+2. array→slice unsize (`&[T;N] -> &[T]`) modeled at the two cast-emission sites
+   (generate.rs v2_build_cast_vc, chc.rs cast_to_formula_checked) that the primary
+   gate missed — the metadata-only coercion carries no runtime obligation, so the
+   spurious `unsupported_mir` UNKNOWN is removed (slice len stays a fresh symbolic
+   ≥0, so downstream s[i] errs safe, never false-PROVEs).
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/trust-mir-extract/src/convert.rs | 200 ++++++++++++++++++++++++
+ crates/trust-mir-extract/src/lib.rs     |   6 +-
+ crates/trust-vcgen/src/chc.rs           |   7 +
+ crates/trust-vcgen/src/generate.rs      |  43 ++++-
+ crates/trust-vcgen/src/guards.rs        |  66 +++++++-
+ 5 files changed, 312 insertions(+), 10 deletions(-)
+
+diff --git a/crates/trust-mir-extract/src/convert.rs b/crates/trust-mir-extract/src/convert.rs
+index ced7c84a34..e0facb95ff 100644
+--- a/crates/trust-mir-extract/src/convert.rs
++++ b/crates/trust-mir-extract/src/convert.rs
+@@ -1327,6 +1327,206 @@ fn const_operand_value<'tcx>(
+     }
+ }
+ 
++/// Read a scalar valtree leaf as a typed `ConstValue` (`idx_ty` gives the sign/width).
++/// Returns None for anything not a plain integer leaf — fail-closed (never a guessed
++/// bound), so the caller leaves the `contains` call opaque instead of a wrong bound.
++fn scalar_valtree_to_const_value<'tcx>(
++    c: ty::Const<'tcx>,
++    idx_ty: ty::Ty<'tcx>,
++    tcx: TyCtxt<'tcx>,
++) -> Option<ConstValue> {
++    let leaf = c.try_to_leaf()?;
++    match idx_ty.kind() {
++        ty::TyKind::Int(int_ty) => {
++            let width = crate::ty_convert::int_width_from_int_ty(int_ty, tcx);
++            let size = rustc_abi::Size::from_bits(width as u64);
++            let bits = leaf.to_bits(size);
++            Some(ConstValue::Int(size.sign_extend(bits) as i128))
++        }
++        ty::TyKind::Uint(uint_ty) => {
++            let width = crate::ty_convert::uint_width_from_uint_ty(uint_ty, tcx);
++            let size = rustc_abi::Size::from_bits(width as u64);
++            Some(ConstValue::Uint(leaf.to_bits(size), width))
++        }
++        _ => None,
++    }
++}
++
++/// `(start, end)` const values of a `Range<Idx>` / `RangeInclusive<Idx>` compile-time
++/// constant, read from its valtree (`Branch([start, end, ..])`). None unless both are
++/// integer leaves of the recovered `Idx` type — fail-closed.
++fn range_const_bounds<'tcx>(
++    tcx: TyCtxt<'tcx>,
++    const_op: &mir::ConstOperand<'tcx>,
++) -> Option<(ConstValue, ConstValue)> {
++    let value = const_operand_value(tcx, const_op)?;
++    // `contains` takes `&self`, so the const is `&Range<Idx>` — peel references
++    // (the valtree is transparent across `&`) to reach the Range adt and its `Idx`.
++    let mut adt_ty = value.ty;
++    while let ty::TyKind::Ref(_, inner, _) = adt_ty.kind() {
++        adt_ty = *inner;
++    }
++    let idx_ty = match adt_ty.kind() {
++        ty::TyKind::Adt(_, args) => args.type_at(0),
++        _ => return None,
++    };
++    let branch = value.valtree.try_to_branch()?;
++    if branch.len() < 2 {
++        return None;
++    }
++    let start = scalar_valtree_to_const_value(branch[0], idx_ty, tcx);
++    let end = scalar_valtree_to_const_value(branch[1], idx_ty, tcx);
++    Some((start?, end?))
++}
++
++/// The UNIQUE whole-local definition of `local`, or None if it has zero or multiple
++/// assignments (ambiguous — fail-closed, never a guessed value).
++fn unique_whole_local_def<'a, 'tcx>(
++    mir_body: &'a mir::Body<'tcx>,
++    local: mir::Local,
++) -> Option<&'a mir::Rvalue<'tcx>> {
++    let mut found = None;
++    for bb_data in mir_body.basic_blocks.iter() {
++        for stmt in &bb_data.statements {
++            if let mir::StatementKind::Assign(box (lhs, rvalue)) = &stmt.kind {
++                if lhs.local == local && lhs.projection.is_empty() {
++                    if found.is_some() {
++                        return None;
++                    }
++                    found = Some(rvalue);
++                }
++            }
++        }
++    }
++    found
++}
++
++/// The whole-local of an operand, hopping through `Use(copy/move)` chains, or None.
++fn whole_local_through_copies<'a, 'tcx>(
++    mir_body: &'a mir::Body<'tcx>,
++    mut local: mir::Local,
++) -> Option<(mir::Local, &'a mir::Rvalue<'tcx>)> {
++    for _ in 0..16 {
++        let def = unique_whole_local_def(mir_body, local)?;
++        match def {
++            mir::Rvalue::Use(mir::Operand::Copy(p) | mir::Operand::Move(p))
++                if p.projection.is_empty() =>
++            {
++                local = p.local;
++            }
++            other => return Some((local, other)),
++        }
++    }
++    None
++}
++
++fn operand_whole_local(arg: &mir::Operand<'_>) -> Option<mir::Local> {
++    match arg {
++        mir::Operand::Copy(p) | mir::Operand::Move(p) if p.projection.is_empty() => Some(p.local),
++        _ => None,
++    }
++}
++
++/// The range arg is a const, spelled `_t = const promoted[..]; contains(move _t, ..)`.
++/// Trace through copy chains to the constant. None unless it resolves to one.
++fn trace_operand_to_const<'a, 'tcx>(
++    mir_body: &'a mir::Body<'tcx>,
++    arg: &'a mir::Operand<'tcx>,
++) -> Option<&'a mir::ConstOperand<'tcx>> {
++    if let mir::Operand::Constant(box c) = arg {
++        return Some(c);
++    }
++    let (_, def) = whole_local_through_copies(mir_body, operand_whole_local(arg)?)?;
++    match def {
++        mir::Rvalue::Use(mir::Operand::Constant(box c)) => Some(c),
++        _ => None,
++    }
++}
++
++/// `contains` takes `&x`; trace the reference (through copy chains) to its pointee `x`
++/// so the synthesized bound constrains the actual variable. None on any other shape.
++fn contains_value_operand<'tcx>(
++    tcx: TyCtxt<'tcx>,
++    mir_body: &mir::Body<'tcx>,
++    arg: &mir::Operand<'tcx>,
++) -> Option<Operand> {
++    let (_, def) = whole_local_through_copies(mir_body, operand_whole_local(arg)?)?;
++    match def {
++        mir::Rvalue::Ref(_, _, pointee) => Some(Operand::Copy(convert_place(tcx, pointee))),
++        _ => None,
++    }
++}
++
++/// Rewrite `r = <Range|RangeInclusive>::contains(const_range, &x)` into native
++/// comparisons `r = (x >= start) & (x <(=) end)`, so a `(L..=U).contains(&x)` input-
++/// validation guard establishes `L <= x <= U` for the guarded arithmetic that follows.
++/// SOUND: exactly `contains`' semantics; bounds are read from the range's compile-time
++/// constant valtree (type-aware); any range/value we cannot read precisely is left as
++/// the original opaque call (fail-closed — never a wrong bound). Only const ranges are
++/// rewritten (the dominant idiom, e.g. `(0..=9999).contains(&year)`).
++pub(crate) fn rewrite_range_contains_calls<'tcx>(
++    tcx: TyCtxt<'tcx>,
++    mir_body: &mir::Body<'tcx>,
++    vbody: &mut VerifiableBody,
++) {
++    let mut next_local =
++        vbody.locals.iter().map(|l| l.index).max().map_or(0, |m| m + 1);
++    for (bb, bb_data) in mir_body.basic_blocks.iter_enumerated() {
++        let mir::TerminatorKind::Call { func, args, destination, target: Some(target), .. } =
++            &bb_data.terminator().kind
++        else {
++            continue;
++        };
++        if args.len() != 2 {
++            continue;
++        }
++        let name = func_operand_name(tcx, func);
++        if !name.ends_with("::contains") {
++            continue;
++        }
++        let inclusive = name.contains("RangeInclusive");
++        let exclusive = !inclusive && name.contains("ops::") && name.contains("Range");
++        if !(inclusive || exclusive) {
++            continue;
++        }
++        let Some(const_op) = trace_operand_to_const(mir_body, &args[0].node) else { continue };
++        let Some((start_cv, end_cv)) = range_const_bounds(tcx, const_op) else { continue };
++        let Some(value_op) = contains_value_operand(tcx, mir_body, &args[1].node) else { continue };
++
++        let block = &mut vbody.blocks[bb.as_usize()];
++        let span = SourceSpan::default();
++        let t1 = next_local;
++        let t2 = next_local + 1;
++        next_local += 2;
++        vbody.locals.push(LocalDecl { index: t1, ty: Ty::Bool, name: None });
++        vbody.locals.push(LocalDecl { index: t2, ty: Ty::Bool, name: None });
++        block.stmts.push(Statement::Assign {
++            place: Place::local(t1),
++            rvalue: Rvalue::BinaryOp(BinOp::Ge, value_op.clone(), Operand::Constant(start_cv)),
++            span: span.clone(),
++        });
++        block.stmts.push(Statement::Assign {
++            place: Place::local(t2),
++            rvalue: Rvalue::BinaryOp(
++                if inclusive { BinOp::Le } else { BinOp::Lt },
++                value_op,
++                Operand::Constant(end_cv),
++            ),
++            span: span.clone(),
++        });
++        block.stmts.push(Statement::Assign {
++            place: convert_place(tcx, destination),
++            rvalue: Rvalue::BinaryOp(
++                BinOp::BitAnd,
++                Operand::Copy(Place::local(t1)),
++                Operand::Copy(Place::local(t2)),
++            ),
++            span,
++        });
++        block.terminator = Terminator::Goto(BlockId(target.as_usize()));
++    }
++}
++
+ fn convert_mir_const_value_to_operand<'tcx>(
+     tcx: TyCtxt<'tcx>,
+     value: mir::ConstValue,
+diff --git a/crates/trust-mir-extract/src/lib.rs b/crates/trust-mir-extract/src/lib.rs
+index 205e3fa3b9..02eee7cdec 100644
+--- a/crates/trust-mir-extract/src/lib.rs
++++ b/crates/trust-mir-extract/src/lib.rs
+@@ -1299,7 +1299,11 @@ fn extract_body<'tcx>(tcx: TyCtxt<'tcx>, body: &mir::Body<'tcx>) -> VerifiableBo
+     let return_ty =
+         ty_convert::convert_ty_in_env(tcx, typing_env, body.local_decls[mir::RETURN_PLACE].ty);
+ 
+-    VerifiableBody { locals, blocks, arg_count: body.arg_count, return_ty }
++    let mut vbody = VerifiableBody { locals, blocks, arg_count: body.arg_count, return_ty };
++    // Lower `(L..=U).contains(&x)` validation guards to native comparisons so the
++    // const range bound reaches the guarded arithmetic (sound: exact semantics).
++    convert::rewrite_range_contains_calls(tcx, body, &mut vbody);
++    vbody
+ }
+ 
+ /// Build the RAW debug-info name → locals multimap (no last-write-wins
+diff --git a/crates/trust-vcgen/src/chc.rs b/crates/trust-vcgen/src/chc.rs
+index 11598f04dc..2fab777da4 100644
+--- a/crates/trust-vcgen/src/chc.rs
++++ b/crates/trust-vcgen/src/chc.rs
+@@ -661,6 +661,13 @@ fn cast_to_formula_checked(
+         return operand_to_formula_checked(func, op);
+     }
+ 
++    // `&[T; N] -> &[T]` unsize is a metadata-only coercion: the reference value
++    // flows through identically (slice len is the array's static N), so it lowers
++    // to the source operand's formula and introduces no new obligation.
++    if crate::is_array_to_slice_ref_cast(&from_ty, to_ty) {
++        return operand_to_formula_checked(func, op);
++    }
++
+     Err(unsupported_chc_lowering(
+         "Rvalue::Cast",
+         format!(
+diff --git a/crates/trust-vcgen/src/generate.rs b/crates/trust-vcgen/src/generate.rs
+index ae1d360355..80952f4ec8 100644
+--- a/crates/trust-vcgen/src/generate.rs
++++ b/crates/trust-vcgen/src/generate.rs
+@@ -3948,6 +3948,20 @@ enum BvGuardCmp {
+ /// Try to read a path fact as `<var> CMP <integer constant>` (either argument
+ /// order; one level of `Not(...)` normalized by comparison inversion).
+ #[cfg(feature = "pipeline-v2")]
++/// Flatten a dominating-guard fact into its leaf comparison facts, recursing
++/// through `And`. A `(L..=U).contains(&x)` validation guard resolves to a single
++/// `And(Ge, Le)`; without flattening, `v2_linear_var_const_fact` drops it (no
++/// `And` arm) and both bounds are lost. Non-conjunctive facts pass through.
++#[cfg(feature = "pipeline-v2")]
++fn v2_flatten_guard_conjuncts(fact: &Formula) -> Vec<&Formula> {
++    match fact {
++        Formula::And(conjuncts) => {
++            conjuncts.iter().flat_map(v2_flatten_guard_conjuncts).collect()
++        }
++        other => vec![other],
++    }
++}
++
+ fn v2_linear_var_const_fact(fact: &Formula) -> Option<(&str, BvGuardCmp, i128)> {
+     use BvGuardCmp::{Eq, Ge, Gt, Le, Lt};
+     let invert = |cmp: BvGuardCmp| match cmp {
+@@ -4122,14 +4136,23 @@ fn v2_bv_mul_dominating_guard_constraints(
+         if !rest.iter().all(|path| path.contains(fact)) {
+             continue;
+         }
+-        let Some((name, cmp, c)) = v2_linear_var_const_fact(fact) else {
+-            continue;
+-        };
+-        for (base, bv_name) in &targets {
+-            if base == name
+-                && let Some(constraint) = v2_bv_guard_constraint(bv_name, cmp, c, width, signed)
+-            {
+-                constraints.push(constraint);
++        // A range-validation guard `(L..=U).contains(&x)` resolves to a single
++        // `And(Ge(x,L), Le(x,U))` (the rewrite's `BitAnd`), unlike a hand-written
++        // `&&` guard which splits into two single-fact switches. Flatten conjuncts
++        // so BOTH bounds bind to the BV operand; otherwise a range-validated
++        // `x * <const>` false-FAILs. Post-intersection, so only facts true on EVERY
++        // dominating path are flattened (sound). GUARD lane only — distinct from the
++        // precondition `And`-flatten reverted above for the days_from_civil spin.
++        for leaf in v2_flatten_guard_conjuncts(fact) {
++            let Some((name, cmp, c)) = v2_linear_var_const_fact(leaf) else {
++                continue;
++            };
++            for (base, bv_name) in &targets {
++                if base == name
++                    && let Some(constraint) = v2_bv_guard_constraint(bv_name, cmp, c, width, signed)
++                {
++                    constraints.push(constraint);
++                }
+             }
+         }
+     }
+@@ -5218,6 +5241,10 @@ fn v2_build_cast_vc(
+     if crate::is_thin_pointer_identity_cast(&from_ty, to_ty)
+         || crate::is_fn_pointer_identity_cast(&from_ty, to_ty)
+         || crate::is_callable_reification_cast(&from_ty, to_ty)
++        // `&[T; N] -> &[T]` unsize is a metadata-only coercion (slice len is the
++        // array's static N); it carries no arithmetic/bounds obligation, so it is
++        // modeled with no VC, mirroring the primary cast-relation gate.
++        || crate::is_array_to_slice_ref_cast(&from_ty, to_ty)
+     {
+         return None;
+     }
+diff --git a/crates/trust-vcgen/src/guards.rs b/crates/trust-vcgen/src/guards.rs
+index 2faafa1027..565adfb654 100644
+--- a/crates/trust-vcgen/src/guards.rs
++++ b/crates/trust-vcgen/src/guards.rs
+@@ -193,6 +193,24 @@ fn latest_same_block_bool_definition(
+         let Rvalue::BinaryOp(op, lhs, rhs) = rvalue else {
+             return None;
+         };
++        // Logical AND/OR of bools, e.g. the `(L..=U).contains(&x)` rewrite's
++        // `dest = (x>=L) & (x<=U)`. Recurse so the guard resolves to the conjoined
++        // comparison facts (`And(Ge,Le)`) instead of an opaque bool temp — without
++        // this, downstream lanes (BV mul dominating-guard) lose both bounds and a
++        // range-validated `x * <const>` false-FAILs. A short-circuit `&&` is NOT
++        // this shape (it splits into two switches); only an explicit single-block
++        // BitAnd/BitOr of bools reaches here. Semantically faithful: `dest==true`
++        // iff `lhs && rhs`.
++        if matches!(op, BinOp::BitAnd | BinOp::BitOr)
++            && crate::operand_ty(func, lhs).as_ref().is_some_and(|ty| matches!(ty, Ty::Bool))
++        {
++            let lf = resolve_same_block_bool_operand(func, block, lhs);
++            let rf = resolve_same_block_bool_operand(func, block, rhs);
++            return Some(match op {
++                BinOp::BitAnd => Formula::And(vec![lf, rf]),
++                _ => Formula::Or(vec![lf, rf]),
++            });
++        }
+         if !matches!(op, BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge) {
+             return None;
+         }
+@@ -213,7 +231,53 @@ fn latest_same_block_bool_definition(
+         return crate::chc::try_binop_to_formula(*op, lhs_f, rhs_f, width, signed).ok();
+     }
+ 
+-    None
++    // No definition in this block. The `(L..=U).contains(&x)` rewrite leaves
++    // `dest = BitAnd(..)` in the CALL block and unconditionally `Goto`s to the
++    // SwitchInt block that consumes it, so the bool def is one block back. A local
++    // with a single static definition dominates all its uses (MIR never reads an
++    // uninitialized local), so resolve the UNIQUE defining block when it flows
++    // forward unconditionally (`Goto`). Fail-closed on 0 or >1 defining blocks: a
++    // multiply-assigned local's reaching def is path-dependent and may not
++    // dominate. Bounded recursion: the unique block is necessarily not `block`
++    // (which has no def for `local`), and resolves the def directly there.
++    let mut defining: Option<&BasicBlock> = None;
++    for candidate in &func.body.blocks {
++        let defines_here = candidate.stmts.iter().any(|stmt| {
++            matches!(stmt, Statement::Assign { place, .. }
++                if place.local == local && place.projections.is_empty())
++        });
++        if defines_here {
++            if defining.is_some() {
++                return None;
++            }
++            defining = Some(candidate);
++        }
++    }
++    match defining {
++        Some(b) if matches!(b.terminator, Terminator::Goto(_)) => {
++            latest_same_block_bool_definition(func, b, local)
++        }
++        _ => None,
++    }
++}
++
++/// Resolve a bool operand to a formula, recursing through a same-block temp
++/// definition (`_t = x >= L`) so a `BitAnd`/`BitOr` of bools unfolds to its leaf
++/// comparisons. Falls back to the operand's own formula (an opaque bool var or
++/// a bool constant) when there is no same-block comparison/logical definition —
++/// fail-soft: a less precise hypothesis only makes proofs harder, never unsound.
++fn resolve_same_block_bool_operand(
++    func: &VerifiableFunction,
++    block: &BasicBlock,
++    operand: &Operand,
++) -> Formula {
++    if let Operand::Copy(place) | Operand::Move(place) = operand
++        && place.projections.is_empty()
++        && let Some(formula) = latest_same_block_bool_definition(func, block, place.local)
++    {
++        return formula;
++    }
++    operand_to_formula(func, operand)
+ }
+ 
+ /// Resolve a plain-local comparison operand through its latest SAME-BLOCK
+-- 
+2.50.1 (Apple Git-155)
+

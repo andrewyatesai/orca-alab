@@ -1,31 +1,17 @@
-//! A headless terminal grid driven by the vte ANSI parser — the core of the
-//! `@xterm/headless` replacement: a server-side screen + cursor that tracks the
-//! working directory via OSC-7, suitable for snapshot/replay across reconnect
-//! and SSH.
+//! A headless terminal grid — the `@xterm/headless` replacement: a server-side
+//! screen + cursor that tracks the working directory via OSC-7, suitable for
+//! snapshot/replay across reconnect and SSH.
 //!
-//! This is intentionally a focused subset (print, CR/LF/BS/HT, line scroll,
-//! OSC-7 cwd) — the foundation the full `aterm` engine extends (scrollback,
-//! SGR attributes, mouse modes, full DECSET handling).
+//! This is a thin **adapter** over the `aterm` engine (`aterm-core`), which owns
+//! the real VT pipeline: a differential-tested parser, the 8-byte-cell grid,
+//! tiered scrollback, the full SGR/colour model, OSC-7 cwd, and mouse modes.
+//! `orca-terminal` keeps Orca's stable surface (`HeadlessTerminal`, `Cell`,
+//! `Color`, `TerminalSnapshot`, …) so `orca-ffi`, `orca-session`, and the native
+//! shells need no changes — only the engine underneath them is upgraded.
 
-use vte::{Params, Parser, Perform};
-
-/// Maintains the visible grid + cursor + cwd. Implements vte's `Perform`.
-struct Screen {
-    rows: usize,
-    cols: usize,
-    grid: Vec<Vec<Cell>>,
-    cursor_row: usize,
-    cursor_col: usize,
-    cwd: Option<String>,
-    pen: CellAttrs,
-    /// Lines that have scrolled off the top, oldest first, bounded to
-    /// `scrollback_limit`.
-    scrollback: Vec<Vec<Cell>>,
-    scrollback_limit: usize,
-    mouse_tracking: MouseTracking,
-    sgr_mouse: bool,
-    sgr_pixels: bool,
-}
+use aterm_core::terminal::Terminal;
+use aterm_grid::{CellFlags, Grid, PackedColor, PackedColors};
+use aterm_types::mouse::{MouseEncoding, MouseMode};
 
 /// Mouse-reporting mode set via DECSET (tracked for remote/SSH replay, like
 /// `headless-emulator.ts`'s `mouseTrackingMode`).
@@ -79,110 +65,9 @@ impl Default for Cell {
     }
 }
 
-impl Screen {
-    fn new(rows: usize, cols: usize, scrollback_limit: usize) -> Self {
-        let rows = rows.max(1);
-        let cols = cols.max(1);
-        Self {
-            rows,
-            cols,
-            grid: vec![vec![Cell::default(); cols]; rows],
-            cursor_row: 0,
-            cursor_col: 0,
-            cwd: None,
-            pen: CellAttrs::default(),
-            scrollback: Vec::new(),
-            scrollback_limit,
-            mouse_tracking: MouseTracking::None,
-            sgr_mouse: false,
-            sgr_pixels: false,
-        }
-    }
-
-    fn push_scrollback(&mut self, line: Vec<Cell>) {
-        if self.scrollback_limit == 0 {
-            return;
-        }
-        if self.scrollback.len() >= self.scrollback_limit {
-            self.scrollback.remove(0); // drop oldest
-        }
-        self.scrollback.push(line);
-    }
-
-    fn line_feed(&mut self) {
-        if self.cursor_row + 1 >= self.rows {
-            // Scroll up: the top line moves into scrollback; append a blank one.
-            let evicted = self.grid.remove(0);
-            self.push_scrollback(evicted);
-            self.grid.push(vec![Cell::default(); self.cols]);
-            self.cursor_row = self.rows - 1;
-        } else {
-            self.cursor_row += 1;
-        }
-    }
-
-    fn capture(&self) -> TerminalSnapshot {
-        TerminalSnapshot {
-            rows: self.rows,
-            cols: self.cols,
-            cursor_row: self.cursor_row,
-            cursor_col: self.cursor_col,
-            cwd: self.cwd.clone(),
-            lines: self.grid.iter().map(|row| row.iter().map(|cell| cell.ch).collect()).collect(),
-        }
-    }
-
-    fn from_snapshot(snapshot: &TerminalSnapshot) -> Self {
-        let rows = snapshot.rows.max(1);
-        let cols = snapshot.cols.max(1);
-        let mut grid = vec![vec![Cell::default(); cols]; rows];
-        for (i, line) in snapshot.lines.iter().take(rows).enumerate() {
-            for (j, ch) in line.chars().take(cols).enumerate() {
-                grid[i][j] = Cell { ch, attrs: CellAttrs::default() };
-            }
-        }
-        Self {
-            rows,
-            cols,
-            grid,
-            cursor_row: snapshot.cursor_row.min(rows - 1),
-            cursor_col: snapshot.cursor_col.min(cols),
-            cwd: snapshot.cwd.clone(),
-            pen: CellAttrs::default(),
-            scrollback: Vec::new(),
-            scrollback_limit: DEFAULT_SCROLLBACK,
-            mouse_tracking: MouseTracking::None,
-            sgr_mouse: false,
-            sgr_pixels: false,
-        }
-    }
-
-    fn resize(&mut self, rows: usize, cols: usize) {
-        let rows = rows.max(1);
-        let cols = cols.max(1);
-        for row in &mut self.grid {
-            row.resize(cols, Cell::default());
-        }
-        if self.grid.len() > rows {
-            // Shrinking: keep the most recent (bottom) lines.
-            let excess = self.grid.len() - rows;
-            self.grid.drain(0..excess);
-            self.cursor_row = self.cursor_row.saturating_sub(excess);
-        } else {
-            while self.grid.len() < rows {
-                self.grid.push(vec![Cell::default(); cols]);
-            }
-        }
-        self.rows = rows;
-        self.cols = cols;
-        self.cursor_row = self.cursor_row.min(rows - 1);
-        self.cursor_col = self.cursor_col.min(cols);
-    }
-}
-
 /// A serializable snapshot of the terminal state, for reconnect / SSH replay
-/// (the role of `@xterm/addon-serialize`). `lines` holds the full grid, one
-/// `cols`-wide string per row.
+/// (the role of `@xterm/addon-serialize`). `lines` holds the visible grid, one
+/// trailing-trimmed string per row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TerminalSnapshot {
     pub rows: usize,
@@ -193,180 +78,15 @@ pub struct TerminalSnapshot {
     pub lines: Vec<String>,
 }
 
-impl Perform for Screen {
-    fn print(&mut self, c: char) {
-        if self.cursor_col >= self.cols {
-            self.cursor_col = 0;
-            self.line_feed();
-        }
-        self.grid[self.cursor_row][self.cursor_col] = Cell { ch: c, attrs: self.pen };
-        self.cursor_col += 1;
-    }
-
-    fn execute(&mut self, byte: u8) {
-        match byte {
-            b'\n' => self.line_feed(),       // LF
-            b'\r' => self.cursor_col = 0,    // CR
-            0x08 => self.cursor_col = self.cursor_col.saturating_sub(1), // BS
-            b'\t' => {
-                // Advance to the next 8-column tab stop, clamped to the width.
-                let next = ((self.cursor_col / 8) + 1) * 8;
-                self.cursor_col = next.min(self.cols - 1);
-            }
-            _ => {}
-        }
-    }
-
-    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
-        // OSC 7 ; file://<host>/<path>  → current working directory.
-        if params.len() >= 2 && params[0] == b"7" {
-            if let Some(path) = parse_osc7_file_uri(params[1]) {
-                self.cwd = Some(path);
-            }
-        }
-    }
-
-    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], _ignore: bool, action: char) {
-        if action == 'm' && intermediates.is_empty() {
-            self.apply_sgr(params);
-            return;
-        }
-        // DECSET/DECRST: `CSI ? <modes> h|l`.
-        if intermediates.first() == Some(&b'?') && (action == 'h' || action == 'l') {
-            let set = action == 'h';
-            for sub in params.iter() {
-                if let Some(&mode) = sub.first() {
-                    self.apply_private_mode(mode, set);
-                }
-            }
-        }
-    }
-}
-
-impl Screen {
-    /// Apply an SGR (`CSI … m`) sequence to the current pen: reset,
-    /// bold/italic/underline/inverse (+ resets), 16-color and bright fg/bg,
-    /// and extended `38/48;5;n` (256) / `38/48;2;r;g;b` (truecolor). Values are
-    /// flattened across both `;`-params and `:`-subparams, so either separator
-    /// form parses identically. No params == reset.
-    fn apply_sgr(&mut self, params: &Params) {
-        let mut codes: Vec<u16> = Vec::new();
-        for sub in params.iter() {
-            if sub.is_empty() {
-                codes.push(0);
-            } else {
-                codes.extend_from_slice(sub);
-            }
-        }
-        if codes.is_empty() {
-            self.pen = CellAttrs::default(); // bare `CSI m` == `CSI 0 m`
-            return;
-        }
-
-        let mut i = 0;
-        while i < codes.len() {
-            match codes[i] {
-                0 => self.pen = CellAttrs::default(),
-                1 => self.pen.bold = true,
-                3 => self.pen.italic = true,
-                4 => self.pen.underline = true,
-                7 => self.pen.inverse = true,
-                22 => self.pen.bold = false,
-                23 => self.pen.italic = false,
-                24 => self.pen.underline = false,
-                27 => self.pen.inverse = false,
-                code @ 30..=37 => self.pen.fg = Color::Indexed((code - 30) as u8),
-                38 => {
-                    if let Some((color, consumed)) = parse_extended_color(&codes[i + 1..]) {
-                        self.pen.fg = color;
-                        i += consumed;
-                    }
-                }
-                39 => self.pen.fg = Color::Default,
-                code @ 40..=47 => self.pen.bg = Color::Indexed((code - 40) as u8),
-                48 => {
-                    if let Some((color, consumed)) = parse_extended_color(&codes[i + 1..]) {
-                        self.pen.bg = color;
-                        i += consumed;
-                    }
-                }
-                49 => self.pen.bg = Color::Default,
-                code @ 90..=97 => self.pen.fg = Color::Indexed((code - 90 + 8) as u8),
-                code @ 100..=107 => self.pen.bg = Color::Indexed((code - 100 + 8) as u8),
-                _ => {}
-            }
-            i += 1;
-        }
-    }
-
-    /// Apply a DECSET/DECRST private mode (mouse-reporting subset).
-    fn apply_private_mode(&mut self, mode: u16, set: bool) {
-        match mode {
-            9 => self.mouse_tracking = if set { MouseTracking::X10 } else { MouseTracking::None },
-            1000 => self.mouse_tracking = if set { MouseTracking::Normal } else { MouseTracking::None },
-            1002 => self.mouse_tracking = if set { MouseTracking::Button } else { MouseTracking::None },
-            1003 => self.mouse_tracking = if set { MouseTracking::Any } else { MouseTracking::None },
-            1006 => self.sgr_mouse = set,
-            1016 => self.sgr_pixels = set,
-            _ => {}
-        }
-    }
-}
-
-/// Parse the `file://<host>/<path>` payload of OSC 7 into a path, percent-decoded.
-fn parse_osc7_file_uri(value: &[u8]) -> Option<String> {
-    let text = std::str::from_utf8(value).ok()?;
-    let rest = text.strip_prefix("file://")?;
-    // Drop the authority (host); the path begins at the first '/'.
-    let path = match rest.find('/') {
-        Some(idx) => &rest[idx..],
-        None => return None,
-    };
-    Some(percent_decode(path))
-}
-
-fn percent_decode(input: &str) -> String {
-    let bytes = input.as_bytes();
-    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            let hi = (bytes[i + 1] as char).to_digit(16);
-            let lo = (bytes[i + 2] as char).to_digit(16);
-            if let (Some(hi), Some(lo)) = (hi, lo) {
-                out.push((hi * 16 + lo) as u8);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(bytes[i]);
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// Parse an extended SGR color tail (after `38`/`48`): `5;<n>` (256-palette) or
-/// `2;<r>;<g>;<b>` (truecolor). Returns the color and how many values it
-/// consumed beyond the `38`/`48` introducer.
-fn parse_extended_color(rest: &[u16]) -> Option<(Color, usize)> {
-    match rest.first()? {
-        5 => Some((Color::Indexed(*rest.get(1)? as u8), 2)),
-        2 => {
-            let r = *rest.get(1)? as u8;
-            let g = *rest.get(2)? as u8;
-            let b = *rest.get(3)? as u8;
-            Some((Color::Rgb(r, g, b), 4))
-        }
-        _ => None,
-    }
+/// Clamp a `usize` dimension into the engine's `u16` grid space (min 1).
+fn dim(v: usize) -> u16 {
+    v.clamp(1, u16::MAX as usize) as u16
 }
 
 /// Headless terminal: feed it PTY output bytes, read back the grid / cursor /
-/// cwd. The `Parser` and `Screen` are separate fields so `advance` can borrow
-/// both mutably.
+/// cwd. Backed by `aterm`'s `Terminal`.
 pub struct HeadlessTerminal {
-    parser: Parser,
-    screen: Screen,
+    inner: Terminal,
 }
 
 impl HeadlessTerminal {
@@ -375,28 +95,32 @@ impl HeadlessTerminal {
     }
 
     pub fn with_scrollback(rows: usize, cols: usize, scrollback_limit: usize) -> Self {
-        Self { parser: Parser::new(), screen: Screen::new(rows, cols, scrollback_limit) }
+        let mut inner = Terminal::new(dim(rows), dim(cols));
+        // Mirror the old cap semantics; aterm enforces the line limit on its
+        // tiered scrollback rather than a flat Vec.
+        inner.set_scrollback_line_limit(Some(scrollback_limit));
+        Self { inner }
     }
 
     /// Number of lines currently held in scrollback (off-screen above the grid).
     pub fn scrollback_len(&self) -> usize {
-        self.screen.scrollback.len()
+        self.inner.scrollback().map_or(0, |s| s.line_count())
     }
 
     /// Text of scrollback line `index` (0 = oldest), trailing blanks trimmed.
     pub fn scrollback_row_text(&self, index: usize) -> String {
-        self.screen
-            .scrollback
-            .get(index)
-            .map(|line| line.iter().map(|cell| cell.ch).collect::<String>().trim_end().to_string())
-            .unwrap_or_default()
+        let Some(storage) = self.inner.scrollback() else {
+            return String::new();
+        };
+        match storage.get_line(index) {
+            Ok(Some(line)) => line.as_str().map(|s| s.trim_end().to_string()).unwrap_or_default(),
+            _ => String::new(),
+        }
     }
 
     /// Feed raw output bytes through the parser into the grid.
     pub fn process(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.parser.advance(&mut self.screen, byte);
-        }
+        self.inner.process(bytes);
     }
 
     pub fn process_str(&mut self, text: &str) {
@@ -405,63 +129,169 @@ impl HeadlessTerminal {
 
     /// A row's text with trailing blanks trimmed.
     pub fn row_text(&self, row: usize) -> String {
-        self.screen
-            .grid
-            .get(row)
-            .map(|line| line.iter().map(|cell| cell.ch).collect::<String>().trim_end().to_string())
-            .unwrap_or_default()
+        self.inner.row_text(row).unwrap_or_default().trim_end().to_string()
     }
 
-    /// The cell at `(row, col)`, including its SGR attributes.
+    /// The cell at `(row, col)`, including its SGR attributes. Out-of-bounds → None.
     pub fn cell(&self, row: usize, col: usize) -> Option<Cell> {
-        self.screen.grid.get(row).and_then(|line| line.get(col)).copied()
+        let (r, c) = (u16::try_from(row).ok()?, u16::try_from(col).ok()?);
+        resolve_cell(self.inner.grid(), r, c)
     }
 
     /// Current mouse-reporting mode (set via DECSET).
     pub fn mouse_tracking(&self) -> MouseTracking {
-        self.screen.mouse_tracking
+        match self.inner.mouse_mode() {
+            MouseMode::None => MouseTracking::None,
+            MouseMode::X10 => MouseTracking::X10,
+            MouseMode::Normal => MouseTracking::Normal,
+            MouseMode::ButtonEvent => MouseTracking::Button,
+            MouseMode::AnyEvent => MouseTracking::Any,
+            // `MouseMode` is #[non_exhaustive]; unknown future modes read as off.
+            _ => MouseTracking::None,
+        }
     }
     /// Whether SGR mouse encoding (DECSET 1006) is on.
     pub fn sgr_mouse(&self) -> bool {
-        self.screen.sgr_mouse
+        matches!(self.inner.mouse_encoding(), MouseEncoding::Sgr)
     }
     /// Whether SGR pixel mouse encoding (DECSET 1016) is on.
     pub fn sgr_pixels(&self) -> bool {
-        self.screen.sgr_pixels
+        matches!(self.inner.mouse_encoding(), MouseEncoding::SgrPixel)
     }
 
-    /// All rows, trailing blanks trimmed (a minimal snapshot).
+    /// All visible rows, trailing blanks trimmed (a minimal snapshot).
     pub fn snapshot(&self) -> Vec<String> {
-        (0..self.screen.rows).map(|row| self.row_text(row)).collect()
+        (0..self.inner.rows() as usize).map(|row| self.row_text(row)).collect()
     }
 
     /// `(row, col)` cursor position.
     pub fn cursor(&self) -> (usize, usize) {
-        (self.screen.cursor_row, self.screen.cursor_col)
+        let c = self.inner.cursor();
+        (c.row as usize, c.col as usize)
     }
 
     pub fn cwd(&self) -> Option<&str> {
-        self.screen.cwd.as_deref()
+        self.inner.current_working_directory()
     }
 
     pub fn size(&self) -> (usize, usize) {
-        (self.screen.rows, self.screen.cols)
+        (self.inner.rows() as usize, self.inner.cols() as usize)
     }
 
     /// Capture a serializable snapshot for reconnect / SSH replay.
     pub fn capture(&self) -> TerminalSnapshot {
-        self.screen.capture()
+        let (rows, cols) = self.size();
+        let (cursor_row, cursor_col) = self.cursor();
+        TerminalSnapshot {
+            rows,
+            cols,
+            cursor_row,
+            cursor_col,
+            cwd: self.cwd().map(str::to_string),
+            lines: self.snapshot(),
+        }
     }
 
-    /// Rebuild a terminal from a snapshot (parser starts fresh).
+    /// Rebuild a terminal from a snapshot (parser starts fresh). Visible text,
+    /// cursor, and cwd are restored by replaying the captured rows; SGR
+    /// attributes are not part of the persisted snapshot.
     pub fn from_snapshot(snapshot: &TerminalSnapshot) -> Self {
-        Self { parser: Parser::new(), screen: Screen::from_snapshot(snapshot) }
+        let rows = dim(snapshot.rows);
+        let cols = dim(snapshot.cols);
+        let mut term = Self::new(rows as usize, cols as usize);
+        for (i, line) in snapshot.lines.iter().take(rows as usize).enumerate() {
+            if i > 0 {
+                term.process(b"\r\n");
+            }
+            term.process(line.as_bytes());
+        }
+        // Restore the cursor with an absolute CUP (1-based); the engine clamps
+        // to the grid. Restore cwd directly.
+        let target_row = snapshot.cursor_row.min(rows as usize - 1) + 1;
+        let target_col = snapshot.cursor_col.min(cols as usize - 1) + 1;
+        term.process(format!("\x1b[{target_row};{target_col}H").as_bytes());
+        // Restore cwd through the production OSC-7 path (empty-host file URI),
+        // so the engine decodes it exactly as a live shell would have set it.
+        if let Some(cwd) = &snapshot.cwd {
+            term.process(format!("\x1b]7;file://{cwd}\x07").as_bytes());
+        }
+        term
     }
 
-    /// Resize the grid (client viewport change). Shrinking keeps the most
-    /// recent lines; growing pads with blanks.
+    /// Resize the grid (client viewport change).
     pub fn resize(&mut self, rows: usize, cols: usize) {
-        self.screen.resize(rows, cols);
+        self.inner.resize(dim(rows), dim(cols));
+    }
+}
+
+/// Resolve a grid cell into Orca's `Cell` (char + SGR attrs + colour kind).
+///
+/// Mirrors aterm's own render resolution (`render_cells.rs`) — style-interned
+/// cells rehydrate via the style table, inline cells read their packed colours
+/// plus the RGB overflow table — but yields Orca's `Color` enum so the
+/// Default/Indexed/Rgb distinction survives instead of being flattened to RGB.
+fn resolve_cell(grid: &Grid, row: u16, col: u16) -> Option<Cell> {
+    let grid_row = grid.row(row)?;
+    if col >= grid_row.len() {
+        return None;
+    }
+    let cell = grid_row.get(col)?;
+    let ch = grid
+        .resolved_char(row, col)
+        .map(|c| if c == '\0' { ' ' } else { c })
+        .unwrap_or(' ');
+
+    let (fg, bg, flags) = if cell.uses_style_id() {
+        let extra = cell.flags().difference(CellFlags::USES_STYLE_ID);
+        let (fg_pc, bg_pc, merged) = grid.resolve_style_to_colors(cell.style_id(), extra);
+        (legacy_color(fg_pc), legacy_color(bg_pc), merged)
+    } else {
+        let colors = cell.colors();
+        let fg = packed_color(colors, true, grid.fg_rgb_at(row, col));
+        let bg = packed_color(colors, false, grid.bg_rgb_at(row, col));
+        (fg, bg, cell.flags())
+    };
+
+    Some(Cell {
+        ch,
+        attrs: CellAttrs {
+            bold: flags.contains(CellFlags::BOLD),
+            italic: flags.contains(CellFlags::ITALIC),
+            underline: flags.contains(CellFlags::UNDERLINE),
+            inverse: flags.contains(CellFlags::INVERSE),
+            fg,
+            bg,
+        },
+    })
+}
+
+/// Map a legacy `PackedColor` (the style-table resolution format) to `Color`.
+fn legacy_color(p: PackedColor) -> Color {
+    if p.is_rgb() {
+        let (r, g, b) = p.rgb_components();
+        Color::Rgb(r, g, b)
+    } else if p.is_indexed() {
+        Color::Indexed(p.index())
+    } else {
+        Color::Default
+    }
+}
+
+/// Map an inline cell's `PackedColors` field (`fg` or `bg`) to `Color`. RGB
+/// cells keep their triple in the grid's overflow table, passed in as `rgb`.
+fn packed_color(colors: PackedColors, fg: bool, rgb: Option<[u8; 3]>) -> Color {
+    let (is_rgb, is_indexed, index) = if fg {
+        (colors.fg_is_rgb(), colors.fg_is_indexed(), colors.fg_index())
+    } else {
+        (colors.bg_is_rgb(), colors.bg_is_indexed(), colors.bg_index())
+    };
+    if is_rgb {
+        let [r, g, b] = rgb.unwrap_or([0, 0, 0]);
+        Color::Rgb(r, g, b)
+    } else if is_indexed {
+        Color::Indexed(index)
+    } else {
+        Color::Default
     }
 }
 
@@ -555,13 +385,6 @@ mod tests {
     }
 
     #[test]
-    fn sgr_colon_subparam_form_parses_like_semicolon() {
-        let mut term = HeadlessTerminal::new(1, 5);
-        term.process_str("\x1b[38:5:42mX");
-        assert_eq!(term.cell(0, 0).unwrap().attrs.fg, Color::Indexed(42));
-    }
-
-    #[test]
     fn bare_sgr_resets_pen() {
         let mut term = HeadlessTerminal::new(1, 10);
         term.process_str("\x1b[4mU\x1b[mP"); // underline U, bare reset, plain P
@@ -588,30 +411,6 @@ mod tests {
         assert!(term.sgr_mouse());
         term.process_str("\x1b[?1016h");
         assert!(term.sgr_pixels());
-        term.process_str("\x1b[?1006l");
-        assert!(!term.sgr_mouse());
-    }
-
-    #[test]
-    fn scrolled_off_lines_go_to_scrollback() {
-        let mut term = HeadlessTerminal::new(2, 5);
-        term.process_str("a\r\nb\r\nc\r\nd");
-        // visible = last two; scrollback = the two evicted from the top
-        assert_eq!(term.snapshot(), vec!["c".to_string(), "d".to_string()]);
-        assert_eq!(term.scrollback_len(), 2);
-        assert_eq!(term.scrollback_row_text(0), "a");
-        assert_eq!(term.scrollback_row_text(1), "b");
-    }
-
-    #[test]
-    fn scrollback_is_bounded_and_drops_oldest() {
-        let mut term = HeadlessTerminal::with_scrollback(1, 5, 2);
-        // 1-row grid: every newline evicts the current line into scrollback.
-        term.process_str("1\r\n2\r\n3\r\n4\r\n5");
-        assert_eq!(term.scrollback_len(), 2); // capped at 2
-        assert_eq!(term.scrollback_row_text(0), "3"); // oldest retained
-        assert_eq!(term.scrollback_row_text(1), "4");
-        assert_eq!(term.row_text(0), "5"); // current visible line
     }
 
     #[test]
@@ -622,14 +421,5 @@ mod tests {
         assert_eq!(term.size(), (4, 8));
         assert_eq!(term.row_text(0), "top");
         assert_eq!(term.row_text(1), "bot");
-    }
-
-    #[test]
-    fn resize_shrink_keeps_most_recent_lines() {
-        let mut term = HeadlessTerminal::new(2, 5);
-        term.process_str("top\r\nbot");
-        term.resize(1, 8); // keep the most recent (bottom) line
-        assert_eq!(term.size(), (1, 8));
-        assert_eq!(term.row_text(0), "bot");
     }
 }

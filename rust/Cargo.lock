@@ -40,10 +40,201 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "arrayvec"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+name = "aterm-alloc"
+version = "0.1.0"
+
+[[package]]
+name = "aterm-bits"
+version = "0.1.0"
+
+[[package]]
+name = "aterm-codec"
+version = "0.1.0"
+
+[[package]]
+name = "aterm-containment"
+version = "0.1.0"
+dependencies = [
+ "aterm-error",
+ "aterm-log",
+ "libc",
+]
+
+[[package]]
+name = "aterm-core"
+version = "0.1.0"
+dependencies = [
+ "aterm-alloc",
+ "aterm-bits",
+ "aterm-codec",
+ "aterm-containment",
+ "aterm-error",
+ "aterm-ffi-types",
+ "aterm-grapheme",
+ "aterm-grid",
+ "aterm-hash",
+ "aterm-log",
+ "aterm-parser",
+ "aterm-policy",
+ "aterm-provenance",
+ "aterm-rle",
+ "aterm-scrollback",
+ "aterm-search",
+ "aterm-selection",
+ "aterm-shell-integration",
+ "aterm-tempfile",
+ "aterm-types",
+ "aterm-vi",
+]
+
+[[package]]
+name = "aterm-error"
+version = "0.1.0"
+dependencies = [
+ "aterm-error-derive",
+]
+
+[[package]]
+name = "aterm-error-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "aterm-ffi-types"
+version = "0.1.0"
+dependencies = [
+ "aterm-log",
+ "aterm-types",
+]
+
+[[package]]
+name = "aterm-grapheme"
+version = "0.1.0"
+dependencies = [
+ "aterm-types",
+]
+
+[[package]]
+name = "aterm-grid"
+version = "0.1.0"
+dependencies = [
+ "aterm-alloc",
+ "aterm-error",
+ "aterm-grapheme",
+ "aterm-hash",
+ "aterm-log",
+ "aterm-rle",
+ "aterm-scrollback",
+ "aterm-tempfile",
+ "aterm-types",
+]
+
+[[package]]
+name = "aterm-hash"
+version = "0.1.0"
+
+[[package]]
+name = "aterm-log"
+version = "0.1.0"
+
+[[package]]
+name = "aterm-lz4"
+version = "0.1.0"
+
+[[package]]
+name = "aterm-parser"
+version = "0.1.0"
+dependencies = [
+ "aterm-alloc",
+ "aterm-provenance",
+]
+
+[[package]]
+name = "aterm-policy"
+version = "0.1.0"
+dependencies = [
+ "aterm-error",
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "aterm-provenance"
+version = "0.1.0"
+dependencies = [
+ "aterm-error",
+]
+
+[[package]]
+name = "aterm-rle"
+version = "0.1.0"
+
+[[package]]
+name = "aterm-scrollback"
+version = "0.1.0"
+dependencies = [
+ "aterm-alloc",
+ "aterm-error",
+ "aterm-log",
+ "aterm-lz4",
+ "aterm-rle",
+ "aterm-types",
+ "libc",
+ "zstd",
+]
+
+[[package]]
+name = "aterm-search"
+version = "0.1.0"
+dependencies = [
+ "aterm-error",
+ "aterm-grapheme",
+ "aterm-hash",
+ "aterm-log",
+ "aterm-types",
+ "regex",
+]
+
+[[package]]
+name = "aterm-selection"
+version = "0.1.0"
+dependencies = [
+ "aterm-ffi-types",
+ "aterm-grapheme",
+ "aterm-types",
+ "regex",
+]
+
+[[package]]
+name = "aterm-shell-integration"
+version = "0.1.0"
+dependencies = [
+ "rand_core",
+]
+
+[[package]]
+name = "aterm-tempfile"
+version = "0.1.0"
+
+[[package]]
+name = "aterm-types"
+version = "0.1.0"
+dependencies = [
+ "aterm-alloc",
+ "aterm-error",
+ "aterm-log",
+]
+
+[[package]]
+name = "aterm-vi"
+version = "0.1.0"
+dependencies = [
+ "aterm-types",
+]
 
 [[package]]
 name = "autocfg"
@@ -70,6 +261,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "556e016178bb5662a08681bbe0f00f8e17631781a4dfc8c45e466e4b185ec27f"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex",
 ]
 
@@ -223,6 +416,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "getrandom"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "wasi",
+]
+
+[[package]]
+name = "getrandom"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "r-efi",
+ "wasip2",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -279,6 +495,16 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "jobserver"
+version = "0.1.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9afb3de4395d6b3e67a780b6de64b51c978ecf11cb9a462c66be7d4ca9039d33"
+dependencies = [
+ "getrandom 0.3.4",
+ "libc",
+]
 
 [[package]]
 name = "lazy_static"
@@ -463,8 +689,10 @@ dependencies = [
 name = "orca-terminal"
 version = "0.0.1"
 dependencies = [
+ "aterm-core",
+ "aterm-grid",
+ "aterm-types",
  "regex",
- "vte",
 ]
 
 [[package]]
@@ -534,6 +762,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "r-efi"
+version = "5.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
+
+[[package]]
+name = "rand_core"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+dependencies = [
+ "getrandom 0.2.17",
 ]
 
 [[package]]
@@ -610,6 +853,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -644,6 +888,15 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_spanned"
+version = "0.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -763,6 +1016,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "toml"
+version = "0.8.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
+dependencies = [
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_edit",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.6.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22cddaf88f4fbc13c51aebbf5f8eceb5c7c5a9da2ac40a13519eb5b0a0e8f11c"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "toml_edit"
+version = "0.22.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_spanned",
+ "toml_datetime",
+ "toml_write",
+ "winnow",
+]
+
+[[package]]
+name = "toml_write"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -785,12 +1079,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "utf8parse"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
-
-[[package]]
 name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -803,24 +1091,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
-name = "vte"
-version = "0.13.1"
+name = "wasi"
+version = "0.11.1+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a0b683b20ef64071ff03745b14391751f6beab06a54347885459b77a3f2caa5"
-dependencies = [
- "arrayvec",
- "utf8parse",
- "vte_generate_state_changes",
-]
+checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
-name = "vte_generate_state_changes"
-version = "0.1.2"
+name = "wasip2"
+version = "1.0.3+wasi-0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e369bee1b05d510a7b4ed645f5faa90619e05437111783ea5848f28d97d3c2e"
+checksum = "20064672db26d7cdc89c7798c48a0fdfac8213434a1186e5ef29fd560ae223d6"
 dependencies = [
- "proc-macro2",
- "quote",
+ "wit-bindgen",
 ]
 
 [[package]]
@@ -846,6 +1128,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
+name = "winnow"
+version = "0.7.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "winreg"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -853,6 +1144,12 @@ checksum = "80d0f4e272c85def139476380b12f9ac60926689dd2e01d4923222f40580869d"
 dependencies = [
  "winapi",
 ]
+
+[[package]]
+name = "wit-bindgen"
+version = "0.57.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "zerocopy"
@@ -885,3 +1182,31 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.16+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+dependencies = [
+ "cc",
+ "pkg-config",
+]

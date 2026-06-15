@@ -3,7 +3,8 @@
 //! The native replacement for the `@xterm/headless`-based
 //! `src/main/daemon/headless-emulator.ts`: maintains a server-side grid +
 //! cursor and tracks the working directory via OSC-7, so terminal sessions
-//! survive reconnect / SSH replay. Built on a vendored `vte` ANSI parser.
+//! survive reconnect / SSH replay. A thin adapter over the `aterm` engine,
+//! which owns the VT parser, grid, scrollback, and SGR/colour model.
 
 pub mod color_scheme_protocol;
 pub mod headless;

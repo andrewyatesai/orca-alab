@@ -5,11 +5,18 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Headless terminal emulation for Orca (replaces @xterm/headless): grid, cursor, cwd/OSC-7 tracking, over a vendored vte ANSI parser. The aterm engine can later own/extend this."
+description = "Headless terminal emulation for Orca (replaces @xterm/headless): grid, cursor, cwd/OSC-7 tracking. A thin adapter over the aterm engine, which owns the VT parser, grid, scrollback, and SGR/colour model."
 
 [dependencies]
-# Vendored, stripped ANSI/VT parser (the same parser family Alacritty uses).
-vte = "0.13"
+# The aterm terminal engine (github.com/andrewyatesai/aterm) owns the headless
+# VT pipeline: parser, grid, scrollback, SGR/colour model, OSC-7 cwd, mouse
+# modes. `orca-terminal` is the anti-corruption layer that re-exposes aterm's
+# `Terminal` under Orca's stable `HeadlessTerminal` surface so `orca-ffi` /
+# `orca-session` and the native shells are unchanged. Path deps for the fork;
+# productionising pins a git rev + vendors aterm's stripped dep-closure.
+aterm-core = { path = "../../../../aterm/crates/aterm-core" }
+aterm-grid = { path = "../../../../aterm/crates/aterm-grid" }
+aterm-types = { path = "../../../../aterm/crates/aterm-types" }
 # Color-scheme (DEC mode 2031) sequence scanning. Literal/char-class matching
 # only — no unicode tables needed.
 regex = { version = "1", default-features = false, features = ["std", "perf"] }

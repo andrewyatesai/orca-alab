@@ -25,9 +25,14 @@ platform-specific native wrappers**. All third-party dependencies are
   platform-specific and need not be Rust. macOS → **SwiftUI** for a true native
   feel; Linux/Windows → their own thin native shells over the same core.
 - **Terminal = `aterm`** (`~/aterm`, `github.com/andrewyatesai/aterm`), the
-  owner's terminal project — we port/build the terminal there and embed it.
-  ⚠️ `aterm` is currently an empty repo (initial commit + `.gitignore` only), so
-  there is no source to copy yet — see "Terminal strategy".
+  owner's terminal project — we embed its headless engine. ✅ `aterm` is now a
+  full ~45-crate engine (parser, grid, tiered scrollback, SGR/colour model,
+  OSC-7, mouse modes, search/selection, shell integration), differential-tested
+  against Alacritty. `orca-terminal` is wired to it as a thin adapter over
+  `aterm-core::Terminal` (branch `aterm-integration`): the `HeadlessTerminal`
+  surface, `orca-ffi` C ABI, and `orca-session` are unchanged — only the engine
+  underneath the adapter changed from the `vte` subset to aterm. Productionising
+  pins an aterm git rev and vendors its stripped dep-closure into `rust/vendor`.
 
 ## Layering
 

@@ -174,6 +174,22 @@ produce the proof-grade `ChcPdr` evidence the gate demands. That is core proof-c
 architecture, not a surface lever — and it touches the never-false-prove line, so it is owner work,
 not an autonomous guess. Co-evolution output: the precise Trust capability the workload demands.
 
+### builds #73/#74 — EMPIRICALLY confirmed: the blocker is proof-grade evidence, not preconditions
+
+To test whether the discriminant-`unreachable` was blocked merely by a *missing precondition* in the
+native bundle, I implemented the precondition-propagation fix in both lanes: #73 emitted the
+native-bundle `Inst::Assume` (`lower_function_into`), #74 added the matching formula-lane guard
+(`trust-vcgen build_semantic_guard_map`, threading `_d ∈ {tags}` from its defining block — the
+established len/min/max-bound pattern). **Both gate-GREEN (sound), both ZERO survey effect**
+(886→886, proved 212→212); the obligation's `reason` was *byte-identical* across #72/#73/#74
+(*"native CHC/PDR proof evidence required: ChcPdrProofKind… ContractPredicate…"*). So a structural
+`unreachable`'s full-verification verdict does **not** come from a formula-lane guard or a native
+Assume — it requires a **typed-CHC `ContractPredicate` obligation** (`typed_chc_pdr_obligation_for`
+needs `obligation.contract_id`, which structural obligations lack) **plus** native `ChcPdr` proof
+evidence. Precondition propagation is the wrong layer; both experiment commits were reverted (inert).
+This **empirically confirms** the floor above: the residual needs owner native CHC/PDR proof
+*emission* for non-contract obligations, not a precondition or surface lever.
+
 ## Current state (be honest)
 
 - Trust is **proof-aware, not proof-complete**. A stage2 `trustc` IS now built and run

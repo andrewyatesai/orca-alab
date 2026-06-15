@@ -156,6 +156,24 @@ next; the net movement per sound surface lever is now small. Closing the gap is 
 owner native-verifier layers, not one fix. The `write_str` change is kept (sound, correct, and
 compounds once the CHC/PDR-evidence layer is addressed).
 
+### The floor: full-verification demands PROOF-GRADE native evidence (not a soundness gap in Orca)
+
+`trust-bmc::verifier_api` (REQUIRED_CHC_PDR_EVIDENCE_SHAPE) accepts a `proved` only as
+`FullProofEvidence::ChcPdr` with SHA-256 input hash + non-empty transcript / replay / checked-report
+artifact hashes + native TrustIr metadata. So full-verification "clean" means an actual native
+CHC/PDR proof (with replayable artifacts) per obligation. The discriminant `unreachable` is
+**soundly provable at level-1** (a direct `trustc -Z trust-verify-level=1` repro PROVES it) — but
+the survey's policy forces full mode (`TRUST_VERIFY_MAX_LEVEL=1` vs `2` gives the IDENTICAL 275),
+which won't accept a level-1 proof. So:
+
+**The residual 886 are NOT a soundness gap in Orca's code — the code is largely sound-verifiable.
+They are a proof-grade-native-evidence capability gap in Trust's full-verification.** Reaching
+unknown→0 under full mode requires the owner completing **native CHC/PDR proof emission** for the
+residual obligation classes (discriminant-unreachable, external-`Call`, overflow-interval) so they
+produce the proof-grade `ChcPdr` evidence the gate demands. That is core proof-carrying
+architecture, not a surface lever — and it touches the never-false-prove line, so it is owner work,
+not an autonomous guess. Co-evolution output: the precise Trust capability the workload demands.
+
 ## Current state (be honest)
 
 - Trust is **proof-aware, not proof-complete**. A stage2 `trustc` IS now built and run

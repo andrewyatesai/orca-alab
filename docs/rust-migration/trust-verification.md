@@ -138,6 +138,24 @@ the `&mut`/global havoc is soundness-critical (omit it → false-PROVE), so it's
 verifier architecture, not a safe autonomous change. Full ticket:
 `solver-handoff/lever-1-uninterpreted-external-calls.md`.
 
+### build #72 — `Formatter::write_str` total-allowlist: sound, but the gap is LAYERED
+
+Added `::Formatter::write_str`/`write_char` to `total_no_panic_call_summary` (the bounded,
+clearly-sound subset of lever #1: non-dispatching total writers that fieldless-enum/unit derived
+`Debug` calls — unlike `write_fmt`/`DebugStruct::field`, which dispatch). Gate GREEN, proved-only
+movement (sound). But net **889 → 886 (−3)**: the allowlist fired (the fieldless-enum `Debug`
+functions now *lower* past the call), yet their `unreachable` obligations hit the **next** native
+layer — `reason` changed to *"direct typed trust_mc CHC/PDR input required as
+ContractPredicate::MathIr/CanonicalJson/TrustIr…"*. I.e. full-verification mode demands **native
+CHC/PDR proof evidence**, and the discriminant `unreachable` (provable by abstract-interp/level-1,
+as a minimal repro confirms) doesn't emit that evidence form → still Unknown.
+
+**Lesson: the residual gap is multi-layered.** Each surface blocker (call-lowering) sits atop a
+deeper one (native CHC/PDR evidence format), atop overflow-interval, etc. Peeling one reveals the
+next; the net movement per sound surface lever is now small. Closing the gap is a sequence of
+owner native-verifier layers, not one fix. The `write_str` change is kept (sound, correct, and
+compounds once the CHC/PDR-evidence layer is addressed).
+
 ## Current state (be honest)
 
 - Trust is **proof-aware, not proof-complete**. A stage2 `trustc` IS now built and run

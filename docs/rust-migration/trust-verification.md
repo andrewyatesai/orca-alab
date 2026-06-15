@@ -101,6 +101,32 @@ Same frontier shape as orca-core: ~28% of all unknowns are derived `&dyn Trait` 
 the user-logic gap is overflow + library-internal unreachables + design-requirements. Measure
 any crate via `tools/trust-survey/survey-orca-verify.sh <crate>` + `classify-gap.py`.
 
+### build #71 — `&dyn Trait` unsize → OpaqueConst: cross-crate unknown −43% (SOUND)
+
+The derived `&dyn Trait` Unsize (`&self.field as &dyn Debug` in derived `Debug::fmt`/`Hash`/…)
+fell through to `unsupported_mir`, wedging the whole obligation at Unknown — that was ~50% of
+the cross-crate unknown count. But the coercion is **infallible** (vtable attach; no panic/
+overflow/alloc), so it carries no safety obligation. Lower its result to the owner's existing
+sound `OpaqueConst` over-approximation (the one used for unmodelable constants, with the
+documented guarantee "never falsely Proved") instead of refusing. trustc
+`crates/trust-mir-extract/src/convert.rs`, branch `co-evo-main-rebase`.
+
+**Cross-crate unknown 1566 → 889 (−677, −43%):**
+
+| crate | unknown #70→#71 | proved | failed | user-logic unknown (unchanged) |
+|---|---|---|---|---|
+| orca-core | 520 → 276 | 98 (=) | 108 (=) | 239 |
+| orca-config | 770 → 432 | 103 (=) | 154 (=) | 376 |
+| orca-agents | 213 → 130 | 8 (=) | 44 (=) | 116 |
+| orca-text | 63 → 51 | 0 (=) | 12 (=) | 48 |
+
+**Validated sound:** the falsification gate (`scripts/trust_falsification_gate.sh`) stays GREEN
+(7 proved fixtures verify, 28 mutants all fail-closed); every crate's `proved` and `failed`
+counts are **unchanged** (no false-prove, no hidden failure); the reduction is entirely derived
+boilerplate (794 → 110), user-logic unknown is byte-identical. The remaining gap is now
+**779 user-logic + 110 derived residual** — the user-logic frontier (overflow-interval, library
+unreachables, FP) is the owner's deep-capability work.
+
 ## Current state (be honest)
 
 - Trust is **proof-aware, not proof-complete**. A stage2 `trustc` IS now built and run

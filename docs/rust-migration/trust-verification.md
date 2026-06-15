@@ -123,9 +123,20 @@ documented guarantee "never falsely Proved") instead of refusing. trustc
 **Validated sound:** the falsification gate (`scripts/trust_falsification_gate.sh`) stays GREEN
 (7 proved fixtures verify, 28 mutants all fail-closed); every crate's `proved` and `failed`
 counts are **unchanged** (no false-prove, no hidden failure); the reduction is entirely derived
-boilerplate (794 → 110), user-logic unknown is byte-identical. The remaining gap is now
-**779 user-logic + 110 derived residual** — the user-logic frontier (overflow-interval, library
-unreachables, FP) is the owner's deep-capability work.
+boilerplate (794 → 110), user-logic unknown is byte-identical.
+
+### #1 lever diagnosed — 83% of the residual gap is one mechanism
+
+Bucketing the 889 residual unknowns by `outcome.reason`: **740 (83%) are native full-verifier
+`lower-fail: Call`** — `trust-ir-bridge::resolve_call` fails closed on any call to a callee not
+in the local bundle (every `Formatter`/std/external call), degrading the WHOLE function's
+obligations to Unknown (even ones that don't depend on the call — a minimal derived-enum
+`unreachable` PROVES on its own via the level-1 path, but the full-verifier rejects the function
+for its `Formatter` calls first). The sound fix is to model a contract-free external call as an
+**uninterpreted function** (opaque return + havoc `&mut` args) instead of failing closed — but
+the `&mut`/global havoc is soundness-critical (omit it → false-PROVE), so it's owner native-
+verifier architecture, not a safe autonomous change. Full ticket:
+`solver-handoff/lever-1-uninterpreted-external-calls.md`.
 
 ## Current state (be honest)
 

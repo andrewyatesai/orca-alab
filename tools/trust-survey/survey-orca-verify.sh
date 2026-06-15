@@ -66,6 +66,11 @@ export TRUST_VERIFY_SURVEY=1
 export TRUST_VERIFY_POLICY="verify-example-corpus"
 export TRUST_VERIFY_FN_BUDGET_MS="$FN_BUDGET_MS"
 export TRUST_TIMEOUT_MS="$OBL_TIMEOUT_MS"
+# Verify ONLY the surveyed crate, not its deps. Per-crate is the survey's whole point, and
+# it dodges trustc MIR-opt query cycles in vendored deps (regex-syntax E0391 blocks
+# orca-text/config/agents — every regex-dependent crate). Set TRUST_VERIFY_PRIMARY_ONLY=0 to
+# restore whole-dependency-graph verification.
+export TRUST_VERIFY_PRIMARY_ONLY="${TRUST_VERIFY_PRIMARY_ONLY:-1}"
 # Bound the direct-SMT (execute_direct) path too — a defense-in-depth backstop.
 # The ay-lra implied-bound propagation now has a per-state no-progress guard that
 # makes it CONVERGE BY DEFAULT, so this deadline should never fire on a solvable

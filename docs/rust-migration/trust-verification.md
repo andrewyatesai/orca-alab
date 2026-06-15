@@ -174,6 +174,33 @@ produce the proof-grade `ChcPdr` evidence the gate demands. That is core proof-c
 architecture, not a surface lever — and it touches the never-false-prove line, so it is owner work,
 not an autonomous guess. Co-evolution output: the precise Trust capability the workload demands.
 
+### 🟢 build #75 (ULTRACODE) — native CHC switch-exhaustiveness: FIRST deep-core fix to move the gap
+
+The first proof-carrying-core improvement to land and reduce the gap past the surface levers. The
+native CHC solver now **discharges structural enum-match `unreachable` obligations** (previously
+the entire derived-`Debug`/enum class returned Unknown for lack of proof-grade evidence).
+
+**Designed via 3 chained multi-agent workflows** (mapping → soundness-refine → exact-impl), which
+pinpointed the root cause, **caught a false-prove hole** in the naive fix (plain-integer
+`unreachable_unchecked`), and discovered that the enum tag set is *erased* before the native lane —
+so the determination must live in `trust-mir-extract` (with `TyCtxt`). Final design:
+- `trust-mir-extract::mark_exhaustive_enum_unreachable_switches` flags a `SwitchInt` only when
+  (TyCtxt-vetted) the selector is a discriminant temp, single-assigned, integer-sorted, the cases
+  == the enum's **full** `adt_def.discriminants` tag set, and the otherwise target is `Unreachable`.
+- The flag rides `Terminator::SwitchInt` → `trust-ir Inst::Switch` (v9 codec) → native
+  `translate_switch`, which conjoins `selector ∈ {case_guards}` into the default→Unreachable arm.
+  `(¬gᵢ) ∧ (⋁gⱼ)` is **structurally UNSAT** → the unreachable proves with `ChcPdr` evidence.
+
+**Validated sound 4 ways:** falsification gate GREEN incl. a new `mutant/partial_int_unreachable.rs`
+(plain-int `unreachable()` over a partial space correctly fail-closed); direct test `color_name`
+(exhaustive enum) → Proved, `classify(u8 partial)` → Failed (catches `x=2` reaches it); survey
+`failed` counts UNCHANGED everywhere (no hidden failure / over-rejection); reduction is purely
+unknown→proved. **Result: cross-crate unknown 886 → 861 (−25), proved 212 → 237 (+25)** (orca-core
+−9, orca-config −16; agents/text unchanged — not this shape, or dyn-Trait-blocked). Commits:
+trust-ir `547086e`, trust-mc `d5f4540c2`, trust-cg `4953ec5`, ty `09071e00`, main `2607193081`
+(branches `exhaustive-switch-flag` / `co-evo-main-rebase`). The proof-carrying core IS extensible
+soundly — the same flag-from-trust-mir-extract pattern can carry other TyCtxt-vetted facts.
+
 ### builds #73/#74 — EMPIRICALLY confirmed: the blocker is proof-grade evidence, not preconditions
 
 To test whether the discriminant-`unreachable` was blocked merely by a *missing precondition* in the

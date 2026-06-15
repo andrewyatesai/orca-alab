@@ -3,6 +3,12 @@
 //! JSON-backed config handling (over vendored `serde_json`), starting with MCP
 //! server config inspection ported from `src/main`/`src/shared` `mcp-config.ts`.
 
+// Trust contracts: the `trust` tool namespace only exists under `trustc`
+// (`--cfg trust_verify`); inert under stock cargo so the crate stays
+// dual-buildable.
+#![cfg_attr(trust_verify, feature(register_tool))]
+#![cfg_attr(trust_verify, register_tool(trust))]
+
 pub mod feature_interactions;
 pub mod mcp;
 pub mod pi_overlay_ui_settings;

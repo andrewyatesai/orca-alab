@@ -4,6 +4,12 @@
 //! local worktrees, SSH worktrees, or a mock in tests. Modules are faithful
 //! ports of `src/main/git/*`, each carrying its original test cases.
 
+// Trust contracts: the `trust` tool namespace only exists under `trustc`
+// (`--cfg trust_verify`); inert under stock cargo so the crate stays
+// dual-buildable.
+#![cfg_attr(trust_verify, feature(register_tool))]
+#![cfg_attr(trust_verify, register_tool(trust))]
+
 pub mod branch_cleanup;
 pub mod branch_rename;
 pub mod check_ignored_paths;

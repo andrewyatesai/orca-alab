@@ -9,7 +9,7 @@
 //! `Color`, `TerminalSnapshot`, …) so `orca-ffi`, `orca-session`, and the native
 //! shells need no changes — only the engine underneath them is upgraded.
 
-use aterm_core::terminal::Terminal;
+use aterm_core::terminal::{Terminal, TerminalBuilder};
 use aterm_grid::{CellFlags, Grid, PackedColor, PackedColors};
 use aterm_types::mouse::{MouseEncoding, MouseMode};
 
@@ -95,26 +95,28 @@ impl HeadlessTerminal {
     }
 
     pub fn with_scrollback(rows: usize, cols: usize, scrollback_limit: usize) -> Self {
-        let mut inner = Terminal::new(dim(rows), dim(cols));
-        // Mirror the old cap semantics; aterm enforces the line limit on its
-        // tiered scrollback rather than a flat Vec.
-        inner.set_scrollback_line_limit(Some(scrollback_limit));
+        // `ring_buffer_size` sizes the scrolled-off history ring; capping it at
+        // the requested limit mirrors the old engine's bounded scrollback (the
+        // `Terminal::new` default would otherwise keep 10k lines).
+        let inner = TerminalBuilder::new()
+            .size(dim(rows), dim(cols))
+            .ring_buffer_size(scrollback_limit.max(1))
+            .build();
         Self { inner }
     }
 
     /// Number of lines currently held in scrollback (off-screen above the grid).
     pub fn scrollback_len(&self) -> usize {
-        self.inner.scrollback().map_or(0, |s| s.line_count())
+        // Total history = ring buffer + tiered scrollback. (`Terminal::scrollback()`
+        // alone sees only the tiered tier, which is empty under a ring config.)
+        self.inner.grid().scrollback_lines()
     }
 
     /// Text of scrollback line `index` (0 = oldest), trailing blanks trimmed.
     pub fn scrollback_row_text(&self, index: usize) -> String {
-        let Some(storage) = self.inner.scrollback() else {
-            return String::new();
-        };
-        match storage.get_line(index) {
-            Ok(Some(line)) => line.as_str().map(|s| s.trim_end().to_string()).unwrap_or_default(),
-            _ => String::new(),
+        match self.inner.grid().get_history_line(index) {
+            Some(line) => line.as_str().map(|s| s.trim_end().to_string()).unwrap_or_default(),
+            None => String::new(),
         }
     }
 
@@ -411,6 +413,27 @@ mod tests {
         assert!(term.sgr_mouse());
         term.process_str("\x1b[?1016h");
         assert!(term.sgr_pixels());
+    }
+
+    #[test]
+    fn scrollback_retains_scrolled_off_lines() {
+        // Regression: the engine must actually keep history scrolled above the
+        // viewport (an earlier adapter wired the wrong accessor and reported 0).
+        let mut term = HeadlessTerminal::with_scrollback(2, 16, 100);
+        for i in 0..10 {
+            term.process_str(&format!("line{i}\r\n"));
+        }
+        assert!(term.scrollback_len() >= 7, "scrollback_len={}", term.scrollback_len());
+        assert_eq!(term.scrollback_row_text(0), "line0"); // oldest retained
+    }
+
+    #[test]
+    fn scrollback_is_bounded_by_the_limit() {
+        let mut term = HeadlessTerminal::with_scrollback(1, 8, 3);
+        for i in 0..20 {
+            term.process_str(&format!("L{i}\r\n"));
+        }
+        assert!(term.scrollback_len() <= 3, "exceeded cap: {}", term.scrollback_len());
     }
 
     #[test]

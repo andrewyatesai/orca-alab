@@ -45,3 +45,24 @@ lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# The aterm terminal engine is on the hot path (parse PTY output -> grid), and
+# is tiny relative to the app. `opt-level="z"` was cutting its throughput ~2.6x
+# (165 -> 430 MB/s on a 16 MB ANSI corpus, identical output). Build the engine
+# crates for SPEED while the rest of the app stays size-optimized.
+[profile.release.package.aterm-core]
+opt-level = 3
+[profile.release.package.aterm-grid]
+opt-level = 3
+[profile.release.package.aterm-parser]
+opt-level = 3
+[profile.release.package.aterm-scrollback]
+opt-level = 3
+[profile.release.package.aterm-grapheme]
+opt-level = 3
+[profile.release.package.aterm-vi]
+opt-level = 3
+[profile.release.package.aterm-selection]
+opt-level = 3
+[profile.release.package.aterm-search]
+opt-level = 3

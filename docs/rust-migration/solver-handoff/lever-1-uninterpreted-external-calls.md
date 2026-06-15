@@ -49,13 +49,48 @@ memory/aliasing semantics, which is core-architecture territory.
 For callees **with** a `#[trust::requires]`, the call must instead emit the precondition as a
 caller obligation (already the contract path) — not havoc.
 
-## Why this is not an autonomous change
+## The primitives already exist (it's a wiring task, not new architecture)
 
-It is architecturally central (the `NativeVerificationBundle` lowering) and soundness-critical
-(the `&mut`/global havoc). A wrong havoc is a false-PROVE — the one hard line. The falsification
-gate (`scripts/trust_falsification_gate.sh`) would not necessarily catch a call-aliasing
-unsoundness (its mutants are bounds/overflow). So this needs the owner's design of the
-uninterpreted-call + havoc semantics, then validation with new aliasing mutants.
+`trust-ir-bridge` already has what an uninterpreted call needs:
+- **`trust_types::Operand::Symbolic(Formula)`** (model.rs:4299) — a fresh symbolic value. The
+  call's return → a `Symbolic` of the return sort.
+- **`SYMBOLIC_MEMORY_STATE_OP` / `emit_symbolic_memory_state_formula`** (lower.rs:30, 1236-1247)
+  and **`local_is_lifted_memory_state_carrier`** (lower.rs:790) — the existing symbolic
+  *memory-state* threading. A call's frame effect → emit a fresh memory_state after the call.
+
+So `resolve_call`'s fail-closed branch (lower.rs ~1018) becomes, for a contract-free callee:
+emit `dest = Symbolic(<return sort>)` + a fresh memory_state for the `&mut`-reachable carriers,
+and continue — instead of `Err(UnsupportedOp("Call"))`.
+
+## The soundness crux — memory-state threading
+
+The danger is NOT aliasing in the Rust sense (`&mut` exclusivity already guarantees no live
+alias of a `&mut` arg, so havoc-ing its place is complete). The danger is the **memory-state
+threading**: after the fresh memory_state, every later read of a `&mut`-reachable place must pick
+up the havoc'd state, and every prior learned fact about it must be dropped. If a stale fact
+survives the call, that's a false-PROVE. Getting which locals are "memory-state carriers" and how
+the fresh state supersedes prior ones requires the owner's symbolic-execution model — that's the
+one piece an autonomous change can't safely guess, and the falsification gate's bounds/overflow
+mutants would not catch a stale-memory-fact unsoundness.
+
+## Validation plan (do this FIRST, before implementing)
+
+Add `mutant/` fixtures that false-PROVE iff the call-havoc threading is wrong, e.g.:
+```rust
+// MUTANT: f(&mut i) may set i out of bounds; without post-call havoc the verifier
+// keeps the pre-call `i < len` fact and falsely proves arr[i]. MUST fail (exit 1).
+fn m(arr: &[u32; 4], i: &mut usize, f: fn(&mut usize)) -> u32 { f(i); arr[*i] }
+```
+plus a `proved/` twin where the index is re-clamped after the call. Then implement, and require
+the new mutants flip to FAILED. Only green-on-the-new-aliasing-mutants makes the lever safe.
+
+## Why I did not ship it autonomously
+
+The user's hard line is "never produce unsound proved." The memory-state threading is core
+symbolic-execution machinery I can't validate to that bar without the owner's model knowledge and
+the new aliasing mutants above — so shipping a guess would risk exactly the failure the hard line
+forbids. The diagnosis, the primitives, the exact edit site, the soundness crux, and the
+validation plan are all here; the remaining step is the owner's (or a guided session's).
 
 ## Smaller, possibly-safe sub-levers (for a future pass)
 

@@ -66,10 +66,18 @@ export TRUST_VERIFY_SURVEY=1
 export TRUST_VERIFY_POLICY="verify-example-corpus"
 export TRUST_VERIFY_FN_BUDGET_MS="$FN_BUDGET_MS"
 export TRUST_TIMEOUT_MS="$OBL_TIMEOUT_MS"
-# Bound the direct-SMT (execute_direct) path too — it otherwise runs unbounded and a
-# non-converging QF_LRA propagation spins forever (the typed-CHC watchdog doesn't cover
-# it). Enables the ay solver's own deadline->should_stop->budget-check abort.
-export AY_DIRECT_SOLVE_TIMEOUT_MS="$OBL_TIMEOUT_MS"
+# Bound the direct-SMT (execute_direct) path too — a defense-in-depth backstop.
+# The ay-lra implied-bound propagation now has a per-state no-progress guard that
+# makes it CONVERGE BY DEFAULT, so this deadline should never fire on a solvable
+# obligation. SURVEY_NO_AY_TIMEOUT=1 disables it to PROVE convergence-by-default
+# (the typed-CHC watchdog via TRUST_TIMEOUT_MS stays on, so a non-LRA path can't
+# masquerade as an LRA hang).
+if [ "${SURVEY_NO_AY_TIMEOUT:-0}" = 1 ]; then
+  unset AY_DIRECT_SOLVE_TIMEOUT_MS
+  echo "AY direct-solve : timeout DISABLED (convergence-by-default proof mode)" | tee -a "$LOG"
+else
+  export AY_DIRECT_SOLVE_TIMEOUT_MS="$OBL_TIMEOUT_MS"
+fi
 [ -n "$SKIP" ] && export TRUST_SKIP_FUNCTIONS="$SKIP"
 [ "$CONTRACTS" = 1 ] && export RUSTFLAGS="${RUSTFLAGS:-} --cfg trust_verify"
 

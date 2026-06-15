@@ -38,28 +38,50 @@ build with the Zeno ay actually compiled in. Root-cause + the principled (unused
 | design_requirement | 156 | `#[trust(static)]` — genuinely design-level |
 | timed_out | **0** | ← convergence |
 
-**Next levers, ranked:**
-1. **origin/main +14 verifier commits** (prove reverse/two-pointer/downward loops by default,
-   lower division/modulo + integer negation in contract predicates, gate con/disjunctive
-   postconditions) directly target the 108 failed + the assertion unknowns. BUT origin/main
-   still pins **pre-Zeno ay `7346834`**, so picking them up requires re-applying the ay↔trust-wp
-   pin migration on the owner's newer trust-wp `b73e43011c` (the owner has NOT integrated the
-   Zeno ay on main). This is the co-evolution merge point.
-2. **Derived `Debug::fmt` classification** (~280 unknown): these are compiler-derived boilerplate
-   (`&self → &dyn Debug` vtable coercion), not user logic. The honest gap metric should split
-   them out (matches the 312-derived / 517-user-logic frontier). Either model `&dyn Trait` Unsize
-   or exclude derive-generated impls from the user-logic count.
-3. **u64/i64 overflow** (the 108 failed): the documented #1 lever — needs contracts (`#[requires]`
-   bounds) or the unsigned-64-bit BV no-overflow path.
+### build #68 — rebased onto owner origin/main (+14 commits): NEUTRAL on orca-core
+
+Rebased my branch onto owner `origin/main` (+14 verifier commits: prove reverse/two-pointer/
+downward loops by default, lower division/modulo + integer negation in contract predicates,
+gate con/disjunctive postconditions), carrying var×const/Unsize + the Zeno ay pin. Clean
+rebase (0 conflicts; lever content byte-identical), built clean (`co-evo-main-rebase`,
+21min). **Result: orca-core gap unchanged** — proved 98→98, failed 108→108, total 882→889
+(+7 unknown from minor lowering drift). The owner's +14 are corpus-driven (validated on new
+synthetic test fixtures: `converging_pointer_bound.rs`, `two_pointer_mir.json`, …); orca-core's
+as-written obligations don't match those exact loop/contract shapes. trust-wp `bfaaa1f` =
+owner main trust-wp `b73e43011c` + 1 migration commit (so the pin is compatible with main).
+
+### Exhaustive frontier diagnosis (build #68, `classify-gap.py`)
+
+The honest **user-logic gap is 347** (239 unknown + 108 failed across 162 hand-written fns;
++ 288 derived-boilerplate, separate). Every remaining category is hard owner-capability work —
+the tractable mechanical levers (var×const, Unsize array→slice, ZST) are landed and prove only
+*synthetic* cases; orca-core's real obligations combine validated bounds with unbounded operands:
+
+| category | count | what it needs | tractable solo? |
+|---|---|---|---|
+| derived `Debug::fmt` `&dyn Trait` Unsize | 288 | dyn-dispatch/vtable modeling OR `#[automatically_derived]` exclude | no (deep) / metric-only |
+| "unreachable code reached" | 105 | **NOT enum-exhaustiveness** (owner already handles that) — these are library-internal: iterator combinators (`.find().map()`), `?`/`Option` desugaring, slice-iter bounds → std-library summaries | no (owner std-modeling) |
+| arithmetic overflow (failed) | 92 | i64/u64 interval propagation through mul-chains. `days_from_civil` HAS `#[requires(year≤9999…)]` yet 10 still fail — bounds don't propagate through `era*146097`, `year_of_era*365`. The documented #1 lever | no (owner overflow capability) |
+| ArithmeticSafety + overflow-boundary | 54 | same overflow capability | no |
+| `Rvalue::Cast` int↔float | 28 | FP-theory lowering of `i64→f64`/`f64→int` (verifier supports only bool/int-int/ptr casts) | no (soundness-delicate) |
+| `#[trust(static)]` | 39 | genuinely design-level | n/a |
+
+**Conclusion:** the survey-convergence blocker is resolved and the gap is fully mapped, but
+closing it is now the owner's deep verifier-capability frontier (overflow-interval propagation,
+dyn-dispatch, std-library summaries, FP casts) — there is no remaining soundness-safe mechanical
+lever to land orc-side. The one orc-side path that helps is **more `#[requires]` contracts** on
+bounded-input arithmetic, but it's blocked behind the same overflow-interval-propagation gap
+(days_from_civil proves it: the contract is consumed, the mul-chain still can't be discharged).
 
 ## Current state (be honest)
 
-- Trust is **proof-aware, not proof-complete**. No stage2 `trustc` is built in the
-  Orca dev sandbox (it's offline, lacks cmake/ninja, and the stage0 bootstrap
-  payloads aren't present), so **verification can't run here yet** — it must run on
-  a machine with the toolchain built.
-- Orca crates stay **Trust-ready** meanwhile: `forbid(unsafe)`, panic-free, and
-  (incrementally) annotated with contracts that are inert under stock cargo.
+- Trust is **proof-aware, not proof-complete**. A stage2 `trustc` IS now built and run
+  here (`~/trust`, builds #67/#68); the orca-core survey converges and is re-measurable
+  on demand (`tools/trust-survey/survey-orca-verify.sh` + `classify-gap.py`). (This bullet
+  previously said verification "can't run here yet" — that's no longer true.)
+- Orca crates stay **Trust-ready**: `forbid(unsafe)`, panic-free, and (incrementally)
+  annotated with `#[cfg_attr(trust_verify, trust::requires/ensures(..))]` contracts that
+  are inert under stock cargo.
 
 ## Build + verify (on a capable machine)
 

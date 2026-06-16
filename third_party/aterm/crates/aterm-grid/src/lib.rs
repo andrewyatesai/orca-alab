@@ -51,6 +51,7 @@ mod mem_measure_tests;
 
 // Re-export Grid and related types at crate root.
 pub use grid::Grid;
+pub use grid::scroll_convert::{scrollback_text_only, set_scrollback_text_only};
 pub use grid::{MaterializedRow, materialize_from_line};
 
 // Re-export scrollback budget types.

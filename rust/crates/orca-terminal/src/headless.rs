@@ -95,6 +95,12 @@ impl HeadlessTerminal {
     }
 
     pub fn with_scrollback(rows: usize, cols: usize, scrollback_limit: usize) -> Self {
+        // Orca reads scrollback as TEXT only (snapshot / serialize_ansi /
+        // row_text), never its colour. Enable aterm's headless
+        // scrollback-text-only fast path so the scroll hot path skips per-cell
+        // extras extraction (~10% faster on colour-heavy floods); the visible
+        // grid keeps full colour. Global + idempotent.
+        aterm_grid::set_scrollback_text_only(true);
         // `ring_buffer_size` sizes the scrolled-off history ring; capping it at
         // the requested limit mirrors the old engine's bounded scrollback (the
         // `Terminal::new` default would otherwise keep 10k lines).

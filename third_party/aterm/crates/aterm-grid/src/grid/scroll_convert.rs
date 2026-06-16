@@ -30,6 +30,28 @@ use crate::Row;
 use crate::StyleTable;
 use crate::{CellCoord, CellExtras};
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Process-global "headless scrollback-text-only" toggle (default off). When on,
+/// the scroll path skips per-cell extras extraction so scrollback keeps text but
+/// not colour/style — a ~10% throughput win for headless embeddings that read
+/// scrollback as text. Process-global (not per-grid) because an embedding is
+/// uniformly headless or GUI; aterm's GUI never enables it.
+static SCROLLBACK_TEXT_ONLY: AtomicBool = AtomicBool::new(false);
+
+/// Enable/disable the headless scrollback-text-only fast path (see
+/// [`SCROLLBACK_TEXT_ONLY`]). Off by default, so the GUI and the differential
+/// oracle keep full-fidelity scrollback.
+pub fn set_scrollback_text_only(enabled: bool) {
+    SCROLLBACK_TEXT_ONLY.store(enabled, Ordering::Relaxed);
+}
+
+/// Whether the headless scrollback-text-only fast path is active.
+#[must_use]
+pub fn scrollback_text_only() -> bool {
+    SCROLLBACK_TEXT_ONLY.load(Ordering::Relaxed)
+}
+
 /// Whether `cells[idx]` is a genuine wide-character continuation spacer (the
 /// blank right half of a CJK glyph), as opposed to a DECSCA-protected cell.
 ///
@@ -539,6 +561,15 @@ impl Grid {
         styles: &StyleTable,
     ) {
         result.clear();
+        // Headless scrollback-text-only mode (opt-in, default off): skip
+        // per-cell extras extraction on scroll, so scrollback retains TEXT but
+        // not colour/hyperlink/style. ~10% faster on colour-heavy floods. Only
+        // for embeddings that read scrollback as text (e.g. Orca's text-only
+        // serialize_ansi). The visible grid is untouched, so visible_sha and the
+        // differential oracle (which compare the visible screen) are unaffected.
+        if scrollback_text_only() {
+            return;
+        }
         let len = row.len() as usize;
         if len == 0 {
             return;

@@ -49,10 +49,16 @@ fn run(path: &str, out: Option<String>, iters: usize) {
     // For profiling, loop the whole parse `iters` times (fresh terminal each)
     // so the process runs long enough to sample. Timing covers all iterations;
     // throughput is normalized to one pass.
+    // Measurement toggle for the scrollback-text-only optimization:
+    // with_scrollback enables it; ATERM_SB_TEXT_ONLY=0 turns it back off so both
+    // can be timed interleaved in one binary.
+    let text_only = std::env::var("ATERM_SB_TEXT_ONLY").map(|v| v != "0").unwrap_or(true);
     let mut term = HeadlessTerminal::with_scrollback(ROWS, COLS, SCROLLBACK);
+    aterm_grid::set_scrollback_text_only(text_only);
     let start = Instant::now();
     for _ in 0..iters {
         term = HeadlessTerminal::with_scrollback(ROWS, COLS, SCROLLBACK);
+        aterm_grid::set_scrollback_text_only(text_only);
         for chunk in corpus.chunks(CHUNK) {
             term.process(chunk);
         }

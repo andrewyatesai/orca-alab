@@ -1,5 +1,5 @@
 /* oxlint-disable max-lines */
-import { HeadlessEmulator } from './headless-emulator'
+import { createHeadlessEmulator, type TerminalEmulator } from './headless-emulator-factory'
 import { isValidPtySize, normalizePtySize } from './daemon-pty-size'
 import { PostReadyFlushGate } from './post-ready-flush-gate'
 import type { SessionState, ShellReadyState, TerminalSnapshot } from './types'
@@ -48,7 +48,7 @@ export class Session {
   private _exitCode: number | null = null
   private _isTerminating = false
   private _disposed = false
-  private emulator: HeadlessEmulator
+  private emulator: TerminalEmulator
   private subprocess: SubprocessHandle
   private attachedClients: AttachedClient[] = []
   private preReadyStdinQueue: string[] = []
@@ -61,7 +61,7 @@ export class Session {
     this.sessionId = opts.sessionId
     this.subprocess = opts.subprocess
     const size = normalizePtySize(opts.cols, opts.rows)
-    this.emulator = new HeadlessEmulator({
+    this.emulator = createHeadlessEmulator({
       cols: size.cols,
       rows: size.rows,
       scrollback: opts.scrollback

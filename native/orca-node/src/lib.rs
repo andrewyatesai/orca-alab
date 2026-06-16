@@ -75,12 +75,14 @@ impl JsHeadlessTerminal {
     #[napi]
     pub fn mouse_tracking(&self) -> String {
         use orca_terminal::MouseTracking::{Any, Button, Normal, None as MtNone, X10};
+        // Capitalised variant names — the daemon factory's RUST_MOUSE_MODE map
+        // keys on these (None/X10/Normal/Button/Any).
         match self.inner.mouse_tracking() {
-            MtNone => "none",
-            X10 => "x10",
-            Normal => "normal",
-            Button => "button",
-            Any => "any",
+            MtNone => "None",
+            X10 => "X10",
+            Normal => "Normal",
+            Button => "Button",
+            Any => "Any",
         }
         .to_string()
     }

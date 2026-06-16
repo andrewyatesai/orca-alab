@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "ignoreDeprecations": "6.0",
+    "types": ["node"],
+    "baseUrl": "/Users/ayates/orc",
+    "paths": {
+      "@xterm/headless": [
+        "tools/terminal-bench/node_modules/@xterm/headless/typings/xterm-headless.d.ts"
+      ],
+      "@xterm/addon-serialize": [
+        "tools/terminal-bench/node_modules/@xterm/addon-serialize/typings/addon-serialize.d.ts"
+      ]
+    },
+    "typeRoots": ["/Users/ayates/orc/tools/terminal-bench/node_modules/@types"]
+  },
+  "files": [
+    "/Users/ayates/orc/src/main/daemon/rust-terminal-addon.ts",
+    "/Users/ayates/orc/src/main/daemon/headless-emulator-factory.ts"
+  ]
+}

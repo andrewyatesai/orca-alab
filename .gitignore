@@ -112,3 +112,6 @@ playwright-report/
 /rust/target/
 # rust/vendor is intentionally tracked: dependencies are vendored in-tree
 # (offline, reproducible, stripped builds) per the native-Rust migration goal.
+
+# trustc (Trust compiler) ICE crash dumps — build noise, never source
+rust/vendor/**/trustc-ice-*.txt

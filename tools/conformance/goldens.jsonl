@@ -1,0 +1,71 @@
+{"id":"cup-basic","grid":["","","    X","","",""],"attrs":null}
+{"id":"cup-clamp","grid":["","","","","","                   X"],"attrs":null}
+{"id":"cuu-cud","grid":["   U","","  m","    D","",""],"attrs":null}
+{"id":"cuf-cub","grid":["X    ZY","","","","",""],"attrs":null}
+{"id":"cnl-cpl","grid":["UPc","LOW","","","",""],"attrs":null}
+{"id":"cha","grid":["abXdef","","","","",""],"attrs":null}
+{"id":"hpa-vpa","grid":["","","","     X","",""],"attrs":null}
+{"id":"hvp","grid":[""," X","","","",""],"attrs":null}
+{"id":"hpr-vpr","grid":["X   Y","","     Z","","",""],"attrs":null}
+{"id":"ht-default","grid":["a       b       c","","","","",""],"attrs":null}
+{"id":"hts-tbc0","grid":["  X","","","","",""],"attrs":null}
+{"id":"tbc3","grid":["                   X",""],"attrs":null}
+{"id":"cht-cbt","grid":["                Y","","","","",""],"attrs":null}
+{"id":"ed0","grid":["L1","","",""],"attrs":null}
+{"id":"ed1","grid":["","","L3",""],"attrs":null}
+{"id":"ed2","grid":["","","",""],"attrs":null}
+{"id":"ed3","grid":["A","","",""],"attrs":null}
+{"id":"el0","grid":["abc",""],"attrs":null}
+{"id":"el1","grid":["   def",""],"attrs":null}
+{"id":"el2","grid":["      X",""],"attrs":null}
+{"id":"ech","grid":["a   ef",""],"attrs":null}
+{"id":"ich","grid":["ab  cdef",""],"attrs":null}
+{"id":"dch","grid":["abef",""],"attrs":null}
+{"id":"il","grid":["A","","B","C"],"attrs":null}
+{"id":"dl","grid":["B","C","",""],"attrs":null}
+{"id":"irm","grid":["ABC12345",""],"attrs":null}
+{"id":"irm-off","grid":["ABC45",""],"attrs":null}
+{"id":"su","grid":["A","","","D",""],"attrs":null}
+{"id":"sd","grid":["","A","B","C"],"attrs":null}
+{"id":"region-lf","grid":["","C","D","",""],"attrs":null}
+{"id":"ri-top","grid":["X","","A","B"],"attrs":null}
+{"id":"autowrap-on","grid":["AAAAAAAAAAAAAAAAAAAA","AAAAAB",""],"attrs":null}
+{"id":"autowrap-off","grid":["AAAAAAAAAAAAAAAAAAAB","",""],"attrs":null}
+{"id":"deferred-wrap","grid":["ZAAAAAAAAAAAAAAAAAAA","",""],"attrs":null}
+{"id":"decom","grid":["","","","X","","","","","",""],"attrs":null}
+{"id":"decstr","grid":["X","","","","","","","","",""],"attrs":null}
+{"id":"decsc-decrc","grid":["","","    X","","",""],"attrs":null}
+{"id":"decrc-nosave","grid":["Z","","",""],"attrs":null}
+{"id":"alt-savecur","grid":["","","","","","","","                                       H","","","","","","","","","","","","","","","",""],"attrs":null}
+{"id":"altscreen","grid":["primary","","",""],"attrs":null}
+{"id":"altscreen-1047","grid":["abc  Z","",""],"attrs":null}
+{"id":"decgraphics","grid":["┌───┐",""],"attrs":null}
+{"id":"si-so","grid":["─│AB",""],"attrs":null}
+{"id":"g2-ls2","grid":["┌─┐",""],"attrs":null}
+{"id":"g3-ls3","grid":["┌─┐",""],"attrs":null}
+{"id":"sl","grid":["CDEFGH","KLMNOP",""],"attrs":null}
+{"id":"sr","grid":["  ABCDEFGH","  IJKLMNOP",""],"attrs":null}
+{"id":"decic","grid":["AB  CDEFGH","IJ  KLMNOP",""],"attrs":null}
+{"id":"decdc","grid":["ABEFGH","IJMNOP",""],"attrs":null}
+{"id":"wide-cjk","grid":["中a中",""],"attrs":null}
+{"id":"wide-wrap","grid":["aaaaaaaaaaaaaaaaaaa","中",""],"attrs":null}
+{"id":"wide-overwrite","grid":[" X",""],"attrs":null}
+{"id":"combining","grid":["café!",""],"attrs":null}
+{"id":"combining-cjk","grid":["中́x",""],"attrs":null}
+{"id":"emoji-width","grid":["A🐋B",""],"attrs":null}
+{"id":"crlf","grid":["hello","world","",""],"attrs":null}
+{"id":"bs","grid":["aXc",""],"attrs":null}
+{"id":"vt-ff","grid":["A"," B","  C",""],"attrs":null}
+{"id":"nel","grid":["abc","def",""],"attrs":null}
+{"id":"decaln","grid":["EEEEEEEE","EEEEEEEE","EEEEEEEE"],"attrs":null}
+{"id":"rep","grid":["AAAAAA",""],"attrs":null}
+{"id":"sgr-16color","grid":["XY",""],"attrs":"/p1/p4;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-bright","grid":["XY",""],"attrs":"/p10/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-256","grid":["X",""],"attrs":"/p208/p22;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-truecolor","grid":["X",""],"attrs":"/r10,20,30/r200,100,50;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-styles","grid":["ABCD",""],"attrs":"b/d/d;bd/d/d;bdi/d/d;bdiu/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-blink-inv","grid":["ABCD",""],"attrs":"k/d/d;kv/d/d;kvc/d/d;kvcs/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-overline","grid":["X",""],"attrs":"o/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-resets","grid":["AB",""],"attrs":"biuvs/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-colon-rgb","grid":["X",""],"attrs":"/r10,20,30/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}
+{"id":"sgr-default-fg","grid":["XY",""],"attrs":"/p1/p4;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d\n/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d;/d/d"}

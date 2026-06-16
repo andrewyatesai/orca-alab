@@ -1,0 +1,16 @@
+{
+  "name": "orca-terminal-bench",
+  "private": true,
+  "description": "Head-to-head: @xterm/headless (shipped) vs orca-terminal (Rust) on an identical ANSI corpus.",
+  "type": "module",
+  "dependencies": {
+    "@xterm/headless": "6.1.0-beta.220",
+    "node-pty": "^1.1.0",
+    "tsx": "^4.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "@xterm/addon-serialize": "^0.14.0",
+    "typescript": "^6.0.3"
+  }
+}

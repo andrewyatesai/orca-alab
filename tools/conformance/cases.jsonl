@@ -1,0 +1,71 @@
+{"id":"cup-basic","cat":"cursor","feature":"CUP absolute position","spec":"ECMA-48 8.3.21","xterm":"cursorPosition (H)","cols":20,"rows":6,"bytesHex":"1b5b333b354858"}
+{"id":"cup-clamp","cat":"cursor","feature":"CUP clamps past edges","spec":"ECMA-48 8.3.21","xterm":"cursorPosition (H)","cols":20,"rows":6,"bytesHex":"1b5b39393b39394858"}
+{"id":"cuu-cud","cat":"cursor","feature":"CUU/CUD up/down","spec":"ECMA-48 8.3.22/8.3.19","xterm":"cursorUp/Down (A/B)","cols":20,"rows":6,"bytesHex":"1b5b333b33486d1b5b3241551b5b334244"}
+{"id":"cuf-cub","cat":"cursor","feature":"CUF/CUB right/left","spec":"ECMA-48 8.3.20/8.3.18","xterm":"cursorForward/Backward (C/D)","cols":20,"rows":6,"bytesHex":"581b5b3543591b5b32445a"}
+{"id":"cnl-cpl","cat":"cursor","feature":"CNL/CPL next/prev line col0","spec":"ECMA-48 8.3.16/8.3.13","xterm":"cursorNextLine/PrecedingLine (E/F)","cols":20,"rows":6,"bytesHex":"6162631b5b454c4f571b5b465550"}
+{"id":"cha","cat":"cursor","feature":"CHA column absolute","spec":"ECMA-48 8.3.9","xterm":"cursorCharAbsolute (G)","cols":20,"rows":6,"bytesHex":"6162636465661b5b334758"}
+{"id":"hpa-vpa","cat":"cursor","feature":"HPA/VPA absolute","spec":"ECMA-48 8.3.57/8.3.66","xterm":"charPosAbsolute/linePosAbsolute (`/d)","cols":20,"rows":6,"bytesHex":"1b5b34641b5b366058"}
+{"id":"hvp","cat":"cursor","feature":"HVP position (f)","spec":"ECMA-48 8.3.63","xterm":"hVPosition (f)","cols":20,"rows":6,"bytesHex":"1b5b323b326658"}
+{"id":"hpr-vpr","cat":"cursor","feature":"HPR/VPR relative","spec":"ECMA-48 8.3.59/8.3.68","xterm":"hPositionRelative/vPositionRelative (a/e)","cols":20,"rows":6,"bytesHex":"581b5b3361591b5b32655a"}
+{"id":"ht-default","cat":"tabs","feature":"HT to next 8-col stop","spec":"ECMA-48 8.3.60","xterm":"tab (HT)","cols":20,"rows":6,"bytesHex":"6109620963"}
+{"id":"hts-tbc0","cat":"tabs","feature":"HTS set + TBC clear-at-cursor","spec":"ECMA-48 8.3.62/8.3.154","xterm":"tabSet/tabClear (H/g)","cols":20,"rows":6,"bytesHex":"1b5b33471b481b5b31470958"}
+{"id":"tbc3","cat":"tabs","feature":"TBC clear-all then HT to last col","spec":"ECMA-48 8.3.154","xterm":"tabClear (3 g)","cols":20,"rows":2,"bytesHex":"1b5b33670958"}
+{"id":"cht-cbt","cat":"tabs","feature":"CHT/CBT forward/back tab","spec":"ECMA-48 8.3.10/8.3.7","xterm":"cursorForward/BackwardTab (I/Z)","cols":20,"rows":6,"bytesHex":"1b5b3249581b5b315a59"}
+{"id":"ed0","cat":"erase","feature":"ED cursor→end","spec":"ECMA-48 8.3.39","xterm":"eraseInDisplay (0 J)","cols":20,"rows":4,"bytesHex":"4c310d0a4c320d0a4c331b5b323b31481b5b304a"}
+{"id":"ed1","cat":"erase","feature":"ED start→cursor","spec":"ECMA-48 8.3.39","xterm":"eraseInDisplay (1 J)","cols":20,"rows":4,"bytesHex":"4c310d0a4c320d0a4c331b5b323b32481b5b314a"}
+{"id":"ed2","cat":"erase","feature":"ED whole display","spec":"ECMA-48 8.3.39","xterm":"eraseInDisplay (2 J)","cols":20,"rows":4,"bytesHex":"4c310d0a4c320d0a4c331b5b324a"}
+{"id":"ed3","cat":"erase","feature":"ED 3 clears scrollback, keeps grid","spec":"xterm","xterm":"eraseInDisplay (3 J)","cols":20,"rows":4,"bytesHex":"411b5b334a"}
+{"id":"el0","cat":"erase","feature":"EL cursor→end of line","spec":"ECMA-48 8.3.41","xterm":"eraseInLine (0 K)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b34481b5b304b"}
+{"id":"el1","cat":"erase","feature":"EL start→cursor","spec":"ECMA-48 8.3.41","xterm":"eraseInLine (1 K)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b33481b5b314b"}
+{"id":"el2","cat":"erase","feature":"EL whole line","spec":"ECMA-48 8.3.41","xterm":"eraseInLine (2 K)","cols":20,"rows":2,"bytesHex":"6162636465661b5b324b58"}
+{"id":"ech","cat":"erase","feature":"ECH erase n chars in place","spec":"ECMA-48 8.3.38","xterm":"eraseChars (X)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b32481b5b3358"}
+{"id":"ich","cat":"edit","feature":"ICH insert blanks","spec":"ECMA-48 8.3.64","xterm":"insertChars (@)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b33481b5b3240"}
+{"id":"dch","cat":"edit","feature":"DCH delete chars","spec":"ECMA-48 8.3.26","xterm":"deleteChars (P)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b33481b5b3250"}
+{"id":"il","cat":"edit","feature":"IL insert lines","spec":"ECMA-48 8.3.67","xterm":"insertLines (L)","cols":20,"rows":4,"bytesHex":"410d0a420d0a431b5b323b31481b5b314c"}
+{"id":"dl","cat":"edit","feature":"DL delete lines","spec":"ECMA-48 8.3.32","xterm":"deleteLines (M)","cols":20,"rows":4,"bytesHex":"410d0a420d0a431b5b313b31481b5b314d"}
+{"id":"irm","cat":"edit","feature":"IRM insert mode shifts right","spec":"ECMA-48 8.3.36","xterm":"setMode (4 h)","cols":20,"rows":2,"bytesHex":"31323334351b5b313b31481b5b3468414243"}
+{"id":"irm-off","cat":"edit","feature":"replace mode overwrites","spec":"ECMA-48","xterm":"resetMode (4 l)","cols":20,"rows":2,"bytesHex":"31323334351b5b313b3148414243"}
+{"id":"su","cat":"scroll","feature":"SU scroll up in region","spec":"ECMA-48 8.3.147","xterm":"scrollUp (S)","cols":20,"rows":5,"bytesHex":"410d0a420d0a430d0a441b5b323b33721b5b3253"}
+{"id":"sd","cat":"scroll","feature":"SD scroll down in region","spec":"ECMA-48 8.3.145","xterm":"scrollDown (T)","cols":20,"rows":4,"bytesHex":"410d0a420d0a430d0a441b5b313b34721b5b3154"}
+{"id":"region-lf","cat":"scroll","feature":"LF scrolls within DECSTBM region","spec":"DEC STD 070","xterm":"setScrollRegion (r)+IND","cols":20,"rows":5,"bytesHex":"1b5b323b33721b5b323b3148410d0a420d0a430d0a44"}
+{"id":"ri-top","cat":"scroll","feature":"RI scrolls region down at top","spec":"ECMA-48 8.3.27","xterm":"reverseIndex (ESC M)","cols":20,"rows":4,"bytesHex":"410d0a420d0a431b5b313b31481b4d1b4d58"}
+{"id":"autowrap-on","cat":"wrap","feature":"DECAWM on wraps at margin","spec":"DEC DECAWM","xterm":"setModePrivate (?7h)","cols":20,"rows":3,"bytesHex":"1b5b3f37684141414141414141414141414141414141414141414141414142"}
+{"id":"autowrap-off","cat":"wrap","feature":"DECAWM off overwrites last col","spec":"DEC DECAWM","xterm":"resetModePrivate (?7l)","cols":20,"rows":3,"bytesHex":"1b5b3f376c4141414141414141414141414141414141414141414141414142"}
+{"id":"deferred-wrap","cat":"wrap","feature":"deferred wrap: full row then CR","spec":"VT100 autowrap","xterm":"pending wrap","cols":20,"rows":3,"bytesHex":"41414141414141414141414141414141414141410d5a"}
+{"id":"decom","cat":"mode","feature":"DECOM region-relative CUP","spec":"DEC DECOM","xterm":"setModePrivate (?6h)","cols":10,"rows":10,"bytesHex":"1b5b3f36681b5b343b37721b5b313b314858"}
+{"id":"decstr","cat":"mode","feature":"DECSTR soft reset clears origin/region","spec":"VT220 DECSTR","xterm":"softReset (!p)","cols":10,"rows":10,"bytesHex":"1b5b3f36681b5b343b37721b5b21701b5b313b314858"}
+{"id":"decsc-decrc","cat":"savecur","feature":"DECSC/DECRC save+restore","spec":"DEC","xterm":"saveCursor/restoreCursor (ESC 7/8)","cols":20,"rows":6,"bytesHex":"1b5b333b35481b371b5b313b31481b3858"}
+{"id":"decrc-nosave","cat":"savecur","feature":"DECRC with no save homes","spec":"xterm","xterm":"restoreCursor (ESC 8)","cols":20,"rows":4,"bytesHex":"0a1b385a"}
+{"id":"alt-savecur","cat":"savecur","feature":"independent saved cursor in alt screen","spec":"xterm","xterm":"altscreen + DECSC","cols":80,"rows":24,"bytesHex":"1b5b383b3430481b371b5b3f31303439681b5b32303b3630481b5b731b5b3f313034396c1b3848"}
+{"id":"altscreen","cat":"altscreen","feature":"1049 enter/exit preserves primary","spec":"xterm","xterm":"setModePrivate (?1049)","cols":20,"rows":4,"bytesHex":"7072696d6172791b5b3f31303439681b5b313b3148414c541b5b3f313034396c"}
+{"id":"altscreen-1047","cat":"altscreen","feature":"1047 alt without save/restore","spec":"xterm","xterm":"setModePrivate (?1047)","cols":20,"rows":3,"bytesHex":"6162631b5b3f313034376858591b5b3f313034376c5a"}
+{"id":"decgraphics","cat":"charset","feature":"DEC special graphics line-drawing","spec":"DEC","xterm":"selectCharset (ESC ( 0)","cols":20,"rows":2,"bytesHex":"1b28306c7171716b1b2842"}
+{"id":"si-so","cat":"charset","feature":"SI/SO invoke G0/G1","spec":"ECMA-48","xterm":"shiftOut/shiftIn (SO/SI)","cols":20,"rows":2,"bytesHex":"1b29300e71780f4142"}
+{"id":"g2-ls2","cat":"charset","feature":"G2 line-drawing via LS2 (ESC n)","spec":"ECMA-48","xterm":"selectCharset(G2)+setgLevel(2)","cols":20,"rows":2,"bytesHex":"1b2a301b6e6c716b"}
+{"id":"g3-ls3","cat":"charset","feature":"G3 line-drawing via LS3 (ESC o)","spec":"ECMA-48","xterm":"selectCharset(G3)+setgLevel(3)","cols":20,"rows":2,"bytesHex":"1b2b301b6f6c716b"}
+{"id":"sl","cat":"colops","feature":"SL scroll left (CSI SP @)","spec":"ECMA-48 8.3.121","xterm":"scrollLeft (SP @)","cols":20,"rows":3,"bytesHex":"41424344454647480d0a494a4b4c4d4e4f501b5b322040"}
+{"id":"sr","cat":"colops","feature":"SR scroll right (CSI SP A)","spec":"ECMA-48 8.3.135","xterm":"scrollRight (SP A)","cols":20,"rows":3,"bytesHex":"41424344454647480d0a494a4b4c4d4e4f501b5b322041"}
+{"id":"decic","cat":"colops","feature":"DECIC insert columns","spec":"VT510","xterm":"insertColumns (’})","cols":20,"rows":3,"bytesHex":"41424344454647480d0a494a4b4c4d4e4f501b5b313b33481b5b32277d"}
+{"id":"decdc","cat":"colops","feature":"DECDC delete columns","spec":"VT510","xterm":"deleteColumns (’~)","cols":20,"rows":3,"bytesHex":"41424344454647480d0a494a4b4c4d4e4f501b5b313b33481b5b32277e"}
+{"id":"wide-cjk","cat":"unicode","feature":"double-width CJK advances 2 cols","spec":"UAX#11","xterm":"wcwidth","cols":20,"rows":2,"bytesHex":"e4b8ad61e4b8ad"}
+{"id":"wide-wrap","cat":"unicode","feature":"wide glyph wraps at last column","spec":"UAX#11","xterm":"wcwidth wrap","cols":20,"rows":3,"bytesHex":"61616161616161616161616161616161616161e4b8ad"}
+{"id":"wide-overwrite","cat":"unicode","feature":"overwriting wide half orphans to space","spec":"xterm","xterm":"wide-cell split","cols":20,"rows":2,"bytesHex":"e4b8ad1b5b313b324858"}
+{"id":"combining","cat":"unicode","feature":"combining mark composes onto base","spec":"UAX#15","xterm":"combining cell","cols":20,"rows":2,"bytesHex":"63616665cc8121"}
+{"id":"combining-cjk","cat":"unicode","feature":"combining on wide base","spec":"UAX#15","xterm":"combining cell","cols":20,"rows":2,"bytesHex":"e4b8adcc8178"}
+{"id":"emoji-width","cat":"unicode","feature":"astral emoji width (xterm default = 1)","spec":"wcwidth","xterm":"wcwidth","cols":20,"rows":2,"bytesHex":"41f09f908b42"}
+{"id":"crlf","cat":"ctrl","feature":"CR/LF basics","spec":"ASCII","xterm":"carriageReturn/lineFeed","cols":20,"rows":4,"bytesHex":"68656c6c6f0d0a776f726c64"}
+{"id":"bs","cat":"ctrl","feature":"BS moves left","spec":"ASCII","xterm":"backspace","cols":20,"rows":2,"bytesHex":"616263080858"}
+{"id":"vt-ff","cat":"ctrl","feature":"VT/FF act as LF","spec":"ASCII","xterm":"lineFeed","cols":20,"rows":4,"bytesHex":"410b420c43"}
+{"id":"nel","cat":"ctrl","feature":"NEL newline (ESC E)","spec":"ECMA-48","xterm":"nextLine (ESC E)","cols":20,"rows":3,"bytesHex":"6162631b45646566"}
+{"id":"decaln","cat":"ctrl","feature":"DECALN fills screen with E","spec":"DEC","xterm":"screenAlignmentPattern (ESC # 8)","cols":8,"rows":3,"bytesHex":"1b2338"}
+{"id":"rep","cat":"ctrl","feature":"REP repeat last glyph","spec":"ECMA-48 8.3.103","xterm":"repeatPrecedingCharacter (b)","cols":20,"rows":2,"bytesHex":"411b5b3562"}
+{"id":"sgr-16color","cat":"sgr-attr","feature":"16-color fg/bg","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (31;44)","cols":20,"rows":2,"bytesHex":"1b5b33313b34346d581b5b306d59"}
+{"id":"sgr-bright","cat":"sgr-attr","feature":"bright fg (90-97)","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (92)","cols":20,"rows":2,"bytesHex":"1b5b39326d581b5b306d59"}
+{"id":"sgr-256","cat":"sgr-attr","feature":"256-color fg+bg","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (38;5/48;5)","cols":20,"rows":2,"bytesHex":"1b5b33383b353b3230383b34383b353b32326d58"}
+{"id":"sgr-truecolor","cat":"sgr-attr","feature":"24-bit truecolor","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (38;2)","cols":20,"rows":2,"bytesHex":"1b5b33383b323b31303b32303b33303b34383b323b3230303b3130303b35306d58"}
+{"id":"sgr-styles","cat":"sgr-attr","feature":"bold/dim/italic/underline","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (1;2;3;4)","cols":20,"rows":2,"bytesHex":"1b5b316d411b5b326d421b5b336d431b5b346d44"}
+{"id":"sgr-blink-inv","cat":"sgr-attr","feature":"blink/inverse/conceal/strike","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (5;7;8;9)","cols":20,"rows":2,"bytesHex":"1b5b356d411b5b376d421b5b386d431b5b396d44"}
+{"id":"sgr-overline","cat":"sgr-attr","feature":"overline 53","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (53)","cols":20,"rows":2,"bytesHex":"1b5b35336d58"}
+{"id":"sgr-resets","cat":"sgr-attr","feature":"resets 22/23/24/27/29","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (resets)","cols":20,"rows":2,"bytesHex":"1b5b313b333b343b373b396d411b5b32323b32333b32343b32373b32396d42"}
+{"id":"sgr-colon-rgb","cat":"sgr-attr","feature":"colon-form truecolor 38:2","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (38:2)","cols":20,"rows":2,"bytesHex":"1b5b33383a323a3a31303a32303a33306d58"}
+{"id":"sgr-default-fg","cat":"sgr-attr","feature":"default fg/bg reset 39/49","spec":"ECMA-48 8.3.117 (SGR)","xterm":"charAttributes (39;49)","cols":20,"rows":2,"bytesHex":"1b5b33313b34346d581b5b33393b34396d59"}

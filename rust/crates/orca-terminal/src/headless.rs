@@ -41,13 +41,18 @@ pub enum Color {
     Rgb(u8, u8, u8),
 }
 
-/// SGR cell attributes.
+/// SGR cell attributes (the full xterm-conformance set).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CellAttrs {
     pub bold: bool,
+    pub dim: bool,
     pub italic: bool,
     pub underline: bool,
+    pub blink: bool,
     pub inverse: bool,
+    pub conceal: bool,
+    pub strike: bool,
+    pub overline: bool,
     pub fg: Color,
     pub bg: Color,
 }
@@ -144,6 +149,47 @@ impl HeadlessTerminal {
     pub fn cell(&self, row: usize, col: usize) -> Option<Cell> {
         let (r, c) = (u16::try_from(row).ok()?, u16::try_from(col).ok()?);
         resolve_cell(self.inner.grid(), r, c)
+    }
+
+    /// Compact fingerprint of a cell's SGR attributes + colours, for the xterm
+    /// conformance harness (`examples/conformance.rs`). Format matches the goldens.
+    pub fn cell_attr_fingerprint(&self, row: usize, col: usize) -> String {
+        let cell = self.cell(row, col).unwrap_or_default();
+        let a = cell.attrs;
+        let color = |c: Color| match c {
+            Color::Default => "d".to_string(),
+            Color::Indexed(n) => format!("p{n}"),
+            Color::Rgb(r, g, b) => format!("r{r},{g},{b}"),
+        };
+        let mut f = String::new();
+        if a.bold {
+            f.push('b');
+        }
+        if a.dim {
+            f.push('d');
+        }
+        if a.italic {
+            f.push('i');
+        }
+        if a.underline {
+            f.push('u');
+        }
+        if a.blink {
+            f.push('k');
+        }
+        if a.inverse {
+            f.push('v');
+        }
+        if a.conceal {
+            f.push('c');
+        }
+        if a.strike {
+            f.push('s');
+        }
+        if a.overline {
+            f.push('o');
+        }
+        format!("{f}/{}/{}", color(a.fg), color(a.bg))
     }
 
     /// Current mouse-reporting mode (set via DECSET).
@@ -344,9 +390,14 @@ fn resolve_cell(grid: &Grid, row: u16, col: u16) -> Option<Cell> {
         ch,
         attrs: CellAttrs {
             bold: flags.contains(CellFlags::BOLD),
+            dim: flags.contains(CellFlags::DIM),
             italic: flags.contains(CellFlags::ITALIC),
             underline: flags.contains(CellFlags::UNDERLINE),
+            blink: flags.contains(CellFlags::BLINK),
             inverse: flags.contains(CellFlags::INVERSE),
+            conceal: flags.contains(CellFlags::HIDDEN),
+            strike: flags.contains(CellFlags::STRIKETHROUGH),
+            overline: flags.contains(CellFlags::OVERLINE),
             fg,
             bg,
         },

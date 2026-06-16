@@ -17,7 +17,59 @@
 
 use std::process::Command;
 
+/// Declared minimum optimization floor for this hot-path crate.
+///
+/// Prototype of the Trust feature `#![trust::min_opt_level(3)]`. aterm-core sits
+/// on the terminal's hot path; building it at a low/size opt-level (e.g. `s`/`z`)
+/// silently drops throughput ~2.6x (measured: 165 -> ~430 MB/s regression when a
+/// host workspace's `[profile.release] opt-level = "z"` leaked into the engine).
+///
+/// Override with `ATERM_MIN_OPT_LEVEL` (set to `0` to disable the guard entirely).
+const MIN_OPT_LEVEL_FLOOR: u8 = 3;
+
+/// Guard: in release builds, fail loudly if the active `opt-level` is below the
+/// declared floor. Cargo exposes the resolved level via `OPT_LEVEL` and the
+/// profile via `PROFILE`. Debug builds are intentionally unaffected.
+fn check_min_opt_level() {
+    println!("cargo:rerun-if-env-changed=ATERM_MIN_OPT_LEVEL");
+
+    // Only enforce in release builds; debug/dev builds are intentionally exempt.
+    if std::env::var("PROFILE").as_deref() != Ok("release") {
+        return;
+    }
+
+    // Read the declared floor (env-overridable). `0` disables the guard.
+    let floor: u8 = std::env::var("ATERM_MIN_OPT_LEVEL")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(MIN_OPT_LEVEL_FLOOR);
+    if floor == 0 {
+        return;
+    }
+
+    // OPT_LEVEL is one of "0".."3" or "s"/"z". The size-optimized levels ("s"/"z")
+    // are the regression we guard against, so they always count as below the floor.
+    let opt = std::env::var("OPT_LEVEL").unwrap_or_default();
+    let too_low = match opt.as_str() {
+        "s" | "z" => true,
+        n => n.parse::<u8>().map(|lvl| lvl < floor).unwrap_or(false),
+    };
+
+    if too_low {
+        panic!(
+            "aterm-core is on the hot path but is being compiled at opt-level={opt}; \
+             terminal throughput drops ~2.6x. Set opt-level={floor} for this crate \
+             (e.g. add to your top-level Cargo.toml:\n\n    \
+             [profile.release.package.aterm-core]\n    opt-level = {floor}\n\n\
+             To override the declared floor, set ATERM_MIN_OPT_LEVEL (0 disables the guard)."
+        );
+    }
+}
+
 fn main() {
+    // Hot-path optimization-level guard (prototype of `#![trust::min_opt_level]`).
+    check_min_opt_level();
+
     // Re-run when git HEAD changes
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/refs/");

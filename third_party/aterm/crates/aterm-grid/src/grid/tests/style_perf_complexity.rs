@@ -360,6 +360,90 @@ fn scroll_single_line_constant_time() {
     );
 }
 
+/// Cost-contract invariant: scrolling plain short text does ZERO extras-shift
+/// ops, and row->scrollback-line conversion is O(content), NOT O(grid width).
+///
+/// This is the prototype of a Trust cost-contract. It guards against the class
+/// of regression where per-scroll bookkeeping silently does work proportional
+/// to the grid width (or scrollback depth) on plain text. A row with no extras
+/// and no style-id must shift in O(1) (offset bump, 0 ops), and the lazy
+/// promotion must materialize only the occupied cells (`row.len()`), not the
+/// full allocated width.
+#[test]
+fn plain_text_scroll_is_zero_extras_shift_and_o_content_conversion() {
+    let rows = 24u16;
+    let cols = 120u16; // WIDE grid
+    let content = "hi"; // short pure text: no colors/RGB/wide chars/links/styles
+    let content_width = content.chars().count(); // 2
+    let scroll_count = 200usize;
+
+    // Ring-buffer scrollback of 1000 lines (third arg). Reading a ring history
+    // line drives the counted `row_to_line_with_stored_extras` conversion.
+    let mut grid = Grid::with_scrollback(rows, cols, 1000);
+
+    // Reset the extras-shift counter AFTER setup so we measure only the scroll path.
+    take_extras_shift_ops();
+
+    // Each iteration: write a short plain line on the TOP row (row 0 — the row
+    // scroll_up evicts into scrollback), then scroll it up. The evicted line
+    // carries only `content`, so it occupies `content_width` cells, not `cols`.
+    for _ in 0..scroll_count {
+        grid.set_cursor(0, 0);
+        for ch in content.chars() {
+            grid.write_char(ch);
+        }
+        grid.scroll_up(1);
+    }
+
+    // Capture extras-shift cost accumulated by the scroll path itself.
+    let extras_shift_ops = take_extras_shift_ops();
+
+    // Now drive the row->scrollback-line conversion by reading every evicted
+    // line out of the ring buffer. Reset the cell counter immediately before so
+    // we measure only the conversion of the N evicted plain-text lines.
+    let history = grid.history_line_count();
+    take_row_to_line_cells();
+    for idx in 0..history {
+        let _ = grid.get_history_line(idx);
+    }
+    let row_to_line_cells = take_row_to_line_cells();
+    assert!(
+        history >= scroll_count,
+        "expected at least {scroll_count} history lines, got {history}"
+    );
+
+    eprintln!(
+        "COST-CONTRACT MEASURED: grid={rows}x{cols} scrolls={scroll_count} content_width={content_width} \
+         => extras_shift_ops={extras_shift_ops} row_to_line_cells={row_to_line_cells} \
+         (O(content) bound N*8={}, O(width) figure N*cols={})",
+        scroll_count * 8,
+        scroll_count * cols as usize
+    );
+
+    // INVARIANT 1: zero extras-shift work for plain text (O(1) offset bumps).
+    assert_eq!(
+        extras_shift_ops, 0,
+        "plain-text scroll must do 0 extras-shift ops (O(1) offset amortization), got {extras_shift_ops}"
+    );
+
+    // INVARIANT 2: conversion is O(content), NOT O(grid width).
+    // Each materialized line should process ~content_width cells (occupied len),
+    // not `cols`. Bound generously at N * 8 to stay robust to spacer/trailing
+    // accounting, while still being far below the O(width) figure of N * 120.
+    let o_content_bound = scroll_count * 8;
+    let o_width_figure = scroll_count * cols as usize;
+    assert!(
+        row_to_line_cells <= o_content_bound,
+        "row_to_line must be O(content): got {row_to_line_cells} cells, expected <= {o_content_bound} \
+         (content_width={content_width}); O(width) would be ~{o_width_figure}"
+    );
+    // Sanity: we actually materialized something (not a no-op that vacuously passes).
+    assert!(
+        row_to_line_cells >= scroll_count,
+        "expected to materialize at least 1 cell per scrolled line ({scroll_count}), got {row_to_line_cells}"
+    );
+}
+
 /// Verify row_to_line_with_hyperlinks extracts hyperlink spans correctly.
 #[test]
 fn row_to_line_extracts_hyperlinks() {

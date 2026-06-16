@@ -10,7 +10,7 @@ cargo run --release --example conformance -p orca-terminal
 The goldens are not hand-authored — they are whatever xterm.js renders for each
 case (visible grid **and** per-cell SGR attributes). The runner replays each case
 through the Rust engine and diffs against the golden, exiting non-zero on any
-divergence. Current result: **72/72 cases match xterm.js**
+divergence. Current result: **74/74 cases match xterm.js**
 (10 with full attribute fingerprints).
 
 ## Coverage vs the full xterm.js handler registry
@@ -99,7 +99,7 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 > because this is a headless state emulator — it must never send replies (DA/DSR/etc.)
 > or it would race the renderer's xterm.
 
-## Conformance cases (72)
+## Conformance cases (74)
 
 ### cursor
 
@@ -136,6 +136,8 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 | `el1` | EL start→cursor | `eraseInLine (1 K)` | ECMA-48 8.3.41 |
 | `el2` | EL whole line | `eraseInLine (2 K)` | ECMA-48 8.3.41 |
 | `ech` | ECH erase n chars in place | `eraseChars (X)` | ECMA-48 8.3.38 |
+| `el-pending-wrap` | EL-to-end keeps the parked last cell on a pending wrap | `eraseInLine (0 K) + deferred wrap` | VT100 autowrap |
+| `ed-pending-wrap` | ED-to-end keeps the parked last cell on a pending wrap | `eraseInDisplay (0 J) + deferred wrap` | VT100 autowrap |
 
 ### edit
 

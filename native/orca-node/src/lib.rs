@@ -54,9 +54,10 @@ impl JsHeadlessTerminal {
         self.inner.clear_scrollback();
     }
 
-    /// Replayable ANSI for the snapshot (scrollback + visible grid).
+    /// Replayable ANSI for the snapshot (scrollback + visible grid). `&mut` so
+    /// the adapter can memoise the result by content-generation + cursor.
     #[napi]
-    pub fn serialize_ansi(&self) -> String {
+    pub fn serialize_ansi(&mut self) -> String {
         self.inner.serialize_ansi()
     }
 

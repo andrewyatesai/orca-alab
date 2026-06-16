@@ -92,6 +92,10 @@ fn dim(v: usize) -> u16 {
 /// cwd. Backed by `aterm`'s `Terminal`.
 pub struct HeadlessTerminal {
     inner: Terminal,
+    /// Cache for `serialize_ansi`, keyed by (grid content-generation, cursor).
+    /// The checkpoint (every 5s/session) and reconnect paths call it repeatedly;
+    /// an idle pane hits the cache and skips the grid+scrollback walk.
+    serialize_cache: Option<(u64, (usize, usize), String)>,
 }
 
 impl HeadlessTerminal {
@@ -113,7 +117,7 @@ impl HeadlessTerminal {
             .size(dim(rows), dim(cols))
             .ring_buffer_size(scrollback_limit.max(1))
             .build();
-        Self { inner }
+        Self { inner, serialize_cache: None }
     }
 
     /// Number of lines currently held in scrollback (off-screen above the grid).
@@ -304,7 +308,19 @@ impl HeadlessTerminal {
     /// wide-char (CJK/emoji) continuation correctly and emits minimal,
     /// change-based SGR (vs a full reset+colour per cell). Scrollback is
     /// text-only (the headless scrollback-text-only mode drops history colour).
-    pub fn serialize_ansi(&self) -> String {
+    pub fn serialize_ansi(&mut self) -> String {
+        let key = (self.inner.grid().content_gen(), self.cursor());
+        if let Some((gen, cursor, ref cached)) = self.serialize_cache {
+            if (gen, cursor) == key {
+                return cached.clone();
+            }
+        }
+        let out = self.serialize_ansi_uncached();
+        self.serialize_cache = Some((key.0, key.1, out.clone()));
+        out
+    }
+
+    fn serialize_ansi_uncached(&self) -> String {
         let mut out = String::from("\x1b[0m");
         let history = self.scrollback_len();
         for i in 0..history {
@@ -569,6 +585,21 @@ mod tests {
         let mut restored = HeadlessTerminal::new(2, 20);
         restored.process_str(&ansi);
         assert_eq!(restored.row_text(0), "日本X");
+    }
+
+    #[test]
+    fn serialize_ansi_caches_and_invalidates_on_change() {
+        let mut term = HeadlessTerminal::new(4, 20);
+        term.process_str("hello");
+        let a = term.serialize_ansi();
+        assert_eq!(a, term.serialize_ansi(), "unchanged grid -> cache hit, identical output");
+        term.process_str("X"); // content_gen bumps
+        let b = term.serialize_ansi();
+        assert_ne!(a, b, "content change -> cache miss, fresh serialization");
+        // replay fidelity is preserved through the cache path
+        let mut restored = HeadlessTerminal::new(4, 20);
+        restored.process_str(&b);
+        assert_eq!(restored.row_text(0), "helloX");
     }
 
     #[test]

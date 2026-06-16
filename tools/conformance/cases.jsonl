@@ -19,6 +19,8 @@
 {"id":"el1","cat":"erase","feature":"EL start→cursor","spec":"ECMA-48 8.3.41","xterm":"eraseInLine (1 K)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b33481b5b314b"}
 {"id":"el2","cat":"erase","feature":"EL whole line","spec":"ECMA-48 8.3.41","xterm":"eraseInLine (2 K)","cols":20,"rows":2,"bytesHex":"6162636465661b5b324b58"}
 {"id":"ech","cat":"erase","feature":"ECH erase n chars in place","spec":"ECMA-48 8.3.38","xterm":"eraseChars (X)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b32481b5b3358"}
+{"id":"el-pending-wrap","cat":"erase","feature":"EL-to-end keeps the parked last cell on a pending wrap","spec":"VT100 autowrap","xterm":"eraseInLine (0 K) + deferred wrap","cols":4,"rows":2,"bytesHex":"414243441b5b304b"}
+{"id":"ed-pending-wrap","cat":"erase","feature":"ED-to-end keeps the parked last cell on a pending wrap","spec":"VT100 autowrap","xterm":"eraseInDisplay (0 J) + deferred wrap","cols":4,"rows":2,"bytesHex":"414243441b5b304a"}
 {"id":"ich","cat":"edit","feature":"ICH insert blanks","spec":"ECMA-48 8.3.64","xterm":"insertChars (@)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b33481b5b3240"}
 {"id":"dch","cat":"edit","feature":"DCH delete chars","spec":"ECMA-48 8.3.26","xterm":"deleteChars (P)","cols":20,"rows":2,"bytesHex":"6162636465661b5b313b33481b5b3250"}
 {"id":"il","cat":"edit","feature":"IL insert lines","spec":"ECMA-48 8.3.67","xterm":"insertLines (L)","cols":20,"rows":4,"bytesHex":"410d0a420d0a431b5b323b31481b5b314c"}

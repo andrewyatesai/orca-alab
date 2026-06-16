@@ -124,6 +124,18 @@ dim 20 2
 bytes 6162636465661b5b313b32481b5b3358
 grid 6120202065660a
 end
+id el-pending-wrap
+cat erase
+dim 4 2
+bytes 414243441b5b304b
+grid 414243440a
+end
+id ed-pending-wrap
+cat erase
+dim 4 2
+bytes 414243441b5b304a
+grid 414243440a
+end
 id ich
 cat edit
 dim 20 2

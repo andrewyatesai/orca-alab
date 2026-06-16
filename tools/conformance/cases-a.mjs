@@ -184,6 +184,26 @@ add(
   20,
   2
 )
+add(
+  'el-pending-wrap',
+  'erase',
+  'EL-to-end keeps the parked last cell on a pending wrap',
+  'VT100 autowrap',
+  'eraseInLine (0 K) + deferred wrap',
+  b(`ABCD${E}[0K`),
+  4,
+  2
+)
+add(
+  'ed-pending-wrap',
+  'erase',
+  'ED-to-end keeps the parked last cell on a pending wrap',
+  'VT100 autowrap',
+  'eraseInDisplay (0 J) + deferred wrap',
+  b(`ABCD${E}[0J`),
+  4,
+  2
+)
 
 // ─── Editing ────────────────────────────────────────────────────────────────
 add(

@@ -19,6 +19,8 @@
 {"id":"el1","grid":["   def",""],"attrs":null}
 {"id":"el2","grid":["      X",""],"attrs":null}
 {"id":"ech","grid":["a   ef",""],"attrs":null}
+{"id":"el-pending-wrap","grid":["ABCD",""],"attrs":null}
+{"id":"ed-pending-wrap","grid":["ABCD",""],"attrs":null}
 {"id":"ich","grid":["ab  cdef",""],"attrs":null}
 {"id":"dch","grid":["abef",""],"attrs":null}
 {"id":"il","grid":["A","","B","C"],"attrs":null}

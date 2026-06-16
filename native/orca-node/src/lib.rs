@@ -1,7 +1,8 @@
 //! Node-API addon exposing the ATERM-backed `orca_terminal::HeadlessTerminal`
-//! to Node/Electron. This is the real shipping drop-in path (JS -> napi ->
-//! aterm); the bench measures whether the engine's throughput win survives the
-//! napi marshalling boundary. Surface mirrors what addon-bench.mjs exercises.
+//! to the Electron main/daemon process. Mirrors the surface
+//! `src/main/daemon/headless-emulator.ts` needs (write / resize / snapshot /
+//! cwd / cursor / mouse-modes / serialize) so it can be swapped in behind the
+//! `ORCA_RUST_TERMINAL` flag. This is the real JS -> napi -> aterm path.
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 
@@ -46,6 +47,67 @@ impl JsHeadlessTerminal {
     #[napi]
     pub fn scrollback_len(&self) -> u32 {
         self.inner.scrollback_len() as u32
+    }
+
+    #[napi]
+    pub fn clear_scrollback(&mut self) {
+        self.inner.clear_scrollback();
+    }
+
+    /// Replayable ANSI for the snapshot (scrollback + visible grid).
+    #[napi]
+    pub fn serialize_ansi(&self) -> String {
+        self.inner.serialize_ansi()
+    }
+
+    #[napi]
+    pub fn cwd(&self) -> Option<String> {
+        self.inner.cwd().map(str::to_string)
+    }
+
+    /// `[row, col]` cursor position.
+    #[napi]
+    pub fn cursor(&self) -> Vec<u32> {
+        let (r, c) = self.inner.cursor();
+        vec![r as u32, c as u32]
+    }
+
+    #[napi]
+    pub fn mouse_tracking(&self) -> String {
+        use orca_terminal::MouseTracking::{Any, Button, Normal, None as MtNone, X10};
+        match self.inner.mouse_tracking() {
+            MtNone => "none",
+            X10 => "x10",
+            Normal => "normal",
+            Button => "button",
+            Any => "any",
+        }
+        .to_string()
+    }
+
+    #[napi]
+    pub fn sgr_mouse(&self) -> bool {
+        self.inner.sgr_mouse()
+    }
+
+    #[napi]
+    pub fn sgr_pixels(&self) -> bool {
+        self.inner.sgr_pixels()
+    }
+
+    #[napi]
+    pub fn is_alternate_screen(&self) -> bool {
+        self.inner.is_alternate_screen()
+    }
+
+    #[napi]
+    pub fn bracketed_paste(&self) -> bool {
+        self.inner.bracketed_paste()
+    }
+
+    #[napi]
+    pub fn application_cursor(&self) -> bool {
+        self.inner.application_cursor()
     }
 }
 

@@ -224,6 +224,86 @@ impl HeadlessTerminal {
     pub fn resize(&mut self, rows: usize, cols: usize) {
         self.inner.resize(dim(rows), dim(cols));
     }
+
+    /// Drop all scrollback history (keeps the visible grid).
+    pub fn clear_scrollback(&mut self) {
+        self.inner.clear_scrollback();
+    }
+
+    /// Whether the alternate screen buffer (DECSET 1049) is active.
+    pub fn is_alternate_screen(&self) -> bool {
+        self.inner.is_alternate_screen()
+    }
+
+    /// Whether bracketed-paste mode (DECSET 2004) is on.
+    pub fn bracketed_paste(&self) -> bool {
+        self.inner.modes().bracketed_paste()
+    }
+
+    /// Whether application-cursor-keys mode (DECCKM) is on.
+    pub fn application_cursor(&self) -> bool {
+        self.inner.modes().application_cursor_keys()
+    }
+
+    /// Replayable ANSI for the snapshot: scrollback history (as flowing text)
+    /// then each visible row placed with absolute CUP + erase-line so a
+    /// full-width row can't autowrap on replay, then the cursor restored. The
+    /// visible grid keeps full per-cell SGR; scrollback is text-only (history
+    /// attrs are not re-emitted — a deliberate v1 limitation).
+    pub fn serialize_ansi(&self) -> String {
+        let mut out = String::from("\x1b[0m");
+        let history = self.scrollback_len();
+        for i in 0..history {
+            out.push_str(&self.scrollback_row_text(i));
+            out.push_str("\r\n");
+        }
+        out.push_str("\x1b[H");
+        let (rows, _cols) = self.size();
+        for r in 0..rows {
+            out.push_str(&format!("\x1b[{};1H\x1b[K", r + 1));
+            let width = self.row_text(r).chars().count();
+            for c in 0..width {
+                if let Some(cell) = self.cell(r, c) {
+                    out.push_str(&sgr_for_cell(&cell));
+                    out.push(cell.ch);
+                }
+            }
+            out.push_str("\x1b[0m");
+        }
+        let (cr, cc) = self.cursor();
+        out.push_str(&format!("\x1b[{};{}H", cr + 1, cc + 1));
+        out
+    }
+}
+
+/// Build the SGR escape (`\x1b[...m`) that reproduces a cell's attributes, for
+/// `serialize_ansi` replay.
+fn sgr_for_cell(cell: &Cell) -> String {
+    let mut codes: Vec<String> = vec!["0".to_string()];
+    if cell.attrs.bold {
+        codes.push("1".into());
+    }
+    if cell.attrs.italic {
+        codes.push("3".into());
+    }
+    if cell.attrs.underline {
+        codes.push("4".into());
+    }
+    if cell.attrs.inverse {
+        codes.push("7".into());
+    }
+    codes.push(sgr_color(cell.attrs.fg, true));
+    codes.push(sgr_color(cell.attrs.bg, false));
+    format!("\x1b[{}m", codes.join(";"))
+}
+
+fn sgr_color(color: Color, fg: bool) -> String {
+    let (d, idx, rgb) = if fg { (39, 38, 38) } else { (49, 48, 48) };
+    match color {
+        Color::Default => d.to_string(),
+        Color::Indexed(n) => format!("{idx};5;{n}"),
+        Color::Rgb(r, g, b) => format!("{rgb};2;{r};{g};{b}"),
+    }
 }
 
 /// Resolve a grid cell into Orca's `Cell` (char + SGR attrs + colour kind).
@@ -434,6 +514,33 @@ mod tests {
             term.process_str(&format!("L{i}\r\n"));
         }
         assert!(term.scrollback_len() <= 3, "exceeded cap: {}", term.scrollback_len());
+    }
+
+    #[test]
+    fn serialize_ansi_round_trips_visible_grid_with_attrs() {
+        let mut term = HeadlessTerminal::new(4, 20);
+        term.process_str("\x1b[1;32mhello\x1b[0m\r\nworld");
+        let ansi = term.serialize_ansi();
+
+        let mut restored = HeadlessTerminal::new(4, 20);
+        restored.process_str(&ansi);
+        assert_eq!(restored.row_text(0), "hello");
+        assert_eq!(restored.row_text(1), "world");
+        // visible-grid SGR survives the replay
+        let h = restored.cell(0, 0).unwrap();
+        assert!(h.attrs.bold);
+        assert_eq!(h.attrs.fg, Color::Indexed(2));
+        assert_eq!(restored.cursor(), term.cursor());
+    }
+
+    #[test]
+    fn mode_getters_track_decset() {
+        let mut term = HeadlessTerminal::new(4, 10);
+        assert!(!term.is_alternate_screen() && !term.bracketed_paste() && !term.application_cursor());
+        term.process_str("\x1b[?1049h\x1b[?2004h\x1b[?1h");
+        assert!(term.is_alternate_screen());
+        assert!(term.bracketed_paste());
+        assert!(term.application_cursor());
     }
 
     #[test]

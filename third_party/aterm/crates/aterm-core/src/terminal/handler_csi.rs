@@ -51,6 +51,22 @@ impl TerminalHandler<'_> {
                 }
                 return true;
             }
+            // SL / SR — Scroll Left / Right (CSI Ps SP @ / CSI Ps SP A). Not in
+            // the z4 dispatch table; handled inline until table regen (same
+            // pattern as DECSACE above).
+            if intermediates == [b' '] {
+                match final_byte {
+                    b'@' => {
+                        self.cursor_state().handle_sl(params);
+                        return true;
+                    }
+                    b'A' => {
+                        self.cursor_state().handle_sr(params);
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
             return false;
         };
         self.dispatch_csi_handler(cap, handler, params, final_byte);
@@ -537,16 +553,14 @@ impl TerminalHandler<'_> {
                 self.grid.unscroll_from_scrollback(n);
             }
             CsiHandler::Decic => {
-                // DECIC requires DECLRMM (mode 69) to be active.
-                if self.modes.left_right_margin_mode {
-                    self.cursor_state().handle_decic(params);
-                }
+                // DECIC operates within the horizontal margins; with DECLRMM
+                // (mode 69) off the margins are the full width, so it still
+                // applies (matches xterm + DEC STD 070). insert_columns enforces
+                // the cursor-in-margins bound internally.
+                self.cursor_state().handle_decic(params);
             }
             CsiHandler::Decdc => {
-                // DECDC requires DECLRMM (mode 69) to be active.
-                if self.modes.left_right_margin_mode {
-                    self.cursor_state().handle_decdc(params);
-                }
+                self.cursor_state().handle_decdc(params);
             }
         }
     }

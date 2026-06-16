@@ -480,6 +480,28 @@ impl CursorStateHandler<'_> {
         self.grid.delete_columns(n);
     }
 
+    /// Handle SL — Scroll Left (CSI Ps SP @): scroll the scroll region left by
+    /// Pn columns within the horizontal margins; blanks fill at the right.
+    pub(super) fn handle_sl(&mut self, params: &[u16]) {
+        let n = params.first().copied().unwrap_or(1).max(1);
+        self.grid.set_cursor_template(
+            crate::grid::Cell::bce_blank(self.style.cached_colors()),
+            self.style.bce_bg_rgb(),
+        );
+        self.grid.scroll_left(n);
+    }
+
+    /// Handle SR — Scroll Right (CSI Ps SP A): scroll the scroll region right by
+    /// Pn columns within the horizontal margins; blanks fill at the left.
+    pub(super) fn handle_sr(&mut self, params: &[u16]) {
+        let n = params.first().copied().unwrap_or(1).max(1);
+        self.grid.set_cursor_template(
+            crate::grid::Cell::bce_blank(self.style.cached_colors()),
+            self.style.bce_bg_rgb(),
+        );
+        self.grid.scroll_right(n);
+    }
+
     /// Handle DECSCA (Select Character Protection Attribute).
     ///
     /// CSI Ps " q

@@ -83,13 +83,13 @@ fn main() {
     };
     let cases = parse_corpus(&text);
 
-    // aterm differs from xterm on 4 obscure horizontal-margin ops — DOCUMENTED
-    // known differences, not adapter bugs (mirrors aterm's "known Alacritty
-    // divergence" pattern). DECIC/DECDC: aterm gates them on DECLRMM (mode 69),
-    // xterm applies them always. SL/SR (scroll left/right): aterm does not
-    // implement them. Changing either would shift aterm's Alacritty differential,
-    // so these are upstream-aterm owner decisions, not patched in the adapter.
-    const KNOWN_DIVERGENCES: &[&str] = &["sl", "sr", "decic", "decdc"];
+    // aterm is fully xterm-conformant on this corpus (71/71). The 4 previously-
+    // failing horizontal-margin ops were closed in the engine: DECIC/DECDC no
+    // longer require DECLRMM (mode 69) (matches xterm + DEC STD 070), and SL/SR
+    // (CSI Ps SP @ / A) are now implemented (Grid::scroll_left/right). Both
+    // changes pass the differential-vs-Alacritty oracle. Allowlist kept empty so
+    // a future regression fails loudly.
+    const KNOWN_DIVERGENCES: &[&str] = &[];
 
     let mut passed = 0usize;
     let mut failed = Vec::new();

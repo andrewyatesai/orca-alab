@@ -721,6 +721,77 @@ impl Grid {
             .mark_rows(region.top, region.bottom.saturating_add(1));
     }
 
+    /// SL — Scroll Left (CSI Ps SP @): scroll the content of the scroll region
+    /// left by `count` columns within the horizontal margins; blank columns
+    /// appear at the right margin. Anchored at the LEFT MARGIN (independent of
+    /// the cursor) — the only difference from `delete_columns`. Uses the current
+    /// `cursor_template` as the BCE fill (set by the caller).
+    pub fn scroll_left(&mut self, count: u16) {
+        self.storage.clear_pending_wrap();
+        if count == 0 {
+            return;
+        }
+        let region = self.storage.scroll_region;
+        let margins = self.storage.horizontal_margins();
+        let effective_cols = self.storage.cols;
+        let left = margins.left;
+        let right_bound = margins.right.saturating_add(1).min(effective_cols);
+        let count = count.min(right_bound.saturating_sub(left));
+        if count == 0 {
+            return;
+        }
+        let fill = self.storage.cursor_template;
+        for row_idx in region.top..=region.bottom {
+            if let Some(row) = self.row_mut(row_idx) {
+                row.delete_chars_bounded_fill(left, count, right_bound, fill);
+                row.fixup_wide_boundary(
+                    usize::from(margins.left),
+                    usize::from(margins.right),
+                    usize::from(effective_cols),
+                );
+            }
+            self.storage.extras.shift_cols_left(row_idx, left, count, right_bound);
+            self.fill_bce_rgb_range(row_idx, right_bound - count, right_bound);
+        }
+        self.storage.content_scroll_delta = i32::MAX;
+        self.storage.damage.mark_rows(region.top, region.bottom.saturating_add(1));
+    }
+
+    /// SR — Scroll Right (CSI Ps SP A): scroll the content of the scroll region
+    /// right by `count` columns within the horizontal margins; blank columns
+    /// appear at the left margin. Anchored at the LEFT MARGIN — the only
+    /// difference from `insert_columns`.
+    pub fn scroll_right(&mut self, count: u16) {
+        self.storage.clear_pending_wrap();
+        if count == 0 {
+            return;
+        }
+        let region = self.storage.scroll_region;
+        let margins = self.storage.horizontal_margins();
+        let effective_cols = self.storage.cols;
+        let left = margins.left;
+        let right_bound = margins.right.saturating_add(1).min(effective_cols);
+        let count = count.min(right_bound.saturating_sub(left));
+        if count == 0 {
+            return;
+        }
+        let fill = self.storage.cursor_template;
+        for row_idx in region.top..=region.bottom {
+            if let Some(row) = self.row_mut(row_idx) {
+                row.insert_chars_bounded_fill(left, count, right_bound, fill);
+                row.fixup_wide_boundary(
+                    usize::from(margins.left),
+                    usize::from(margins.right),
+                    usize::from(effective_cols),
+                );
+            }
+            self.storage.extras.shift_cols_right(row_idx, left, count, right_bound);
+            self.fill_bce_rgb_range(row_idx, left, left + count);
+        }
+        self.storage.content_scroll_delta = i32::MAX;
+        self.storage.damage.mark_rows(region.top, region.bottom.saturating_add(1));
+    }
+
     // -------------------------------------------------------------------------
     // Single-column scroll operations (DECBI / DECFI — VT420+)
     // -------------------------------------------------------------------------

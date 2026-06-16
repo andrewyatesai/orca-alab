@@ -1,9 +1,0 @@
-# SPDX-License-Identifier: Apache-2.0
-# Copyright 2026 The aterm Authors
-[package]
-name = "aterm-rope"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-repository.workspace = true
-description = "A correctness-first Unicode rope — the text substrate for aterm's edit path (ATERM_DESIGN M4). char-indexed insert/delete/slice with O(log n) structure."

@@ -1,0 +1,22 @@
+[package]
+name = "orca-node"
+version = "0.0.1"
+edition = "2021"
+description = "Node-API addon exposing the aterm-backed orca-terminal HeadlessTerminal to Electron — the real JS->napi->aterm drop-in path, for measuring the marshalling cost."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "3", default-features = false, features = ["napi8"] }
+napi-derive = "3"
+orca-terminal = { path = "../../rust/crates/orca-terminal" }
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

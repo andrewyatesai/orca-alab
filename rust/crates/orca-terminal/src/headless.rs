@@ -300,8 +300,10 @@ impl HeadlessTerminal {
     /// Replayable ANSI for the snapshot: scrollback history (as flowing text)
     /// then each visible row placed with absolute CUP + erase-line so a
     /// full-width row can't autowrap on replay, then the cursor restored. The
-    /// visible grid keeps full per-cell SGR; scrollback is text-only (history
-    /// attrs are not re-emitted — a deliberate v1 limitation).
+    /// visible grid is emitted via aterm's `Grid::row_ansi_text` — which handles
+    /// wide-char (CJK/emoji) continuation correctly and emits minimal,
+    /// change-based SGR (vs a full reset+colour per cell). Scrollback is
+    /// text-only (the headless scrollback-text-only mode drops history colour).
     pub fn serialize_ansi(&self) -> String {
         let mut out = String::from("\x1b[0m");
         let history = self.scrollback_len();
@@ -310,51 +312,17 @@ impl HeadlessTerminal {
             out.push_str("\r\n");
         }
         out.push_str("\x1b[H");
-        let (rows, _cols) = self.size();
-        for r in 0..rows {
+        let grid = self.inner.grid();
+        for r in 0..self.inner.rows() {
             out.push_str(&format!("\x1b[{};1H\x1b[K", r + 1));
-            let width = self.row_text(r).chars().count();
-            for c in 0..width {
-                if let Some(cell) = self.cell(r, c) {
-                    out.push_str(&sgr_for_cell(&cell));
-                    out.push(cell.ch);
-                }
+            if let Some(row_ansi) = grid.row_ansi_text(r) {
+                out.push_str(&row_ansi);
             }
             out.push_str("\x1b[0m");
         }
         let (cr, cc) = self.cursor();
         out.push_str(&format!("\x1b[{};{}H", cr + 1, cc + 1));
         out
-    }
-}
-
-/// Build the SGR escape (`\x1b[...m`) that reproduces a cell's attributes, for
-/// `serialize_ansi` replay.
-fn sgr_for_cell(cell: &Cell) -> String {
-    let mut codes: Vec<String> = vec!["0".to_string()];
-    if cell.attrs.bold {
-        codes.push("1".into());
-    }
-    if cell.attrs.italic {
-        codes.push("3".into());
-    }
-    if cell.attrs.underline {
-        codes.push("4".into());
-    }
-    if cell.attrs.inverse {
-        codes.push("7".into());
-    }
-    codes.push(sgr_color(cell.attrs.fg, true));
-    codes.push(sgr_color(cell.attrs.bg, false));
-    format!("\x1b[{}m", codes.join(";"))
-}
-
-fn sgr_color(color: Color, fg: bool) -> String {
-    let (d, idx, rgb) = if fg { (39, 38, 38) } else { (49, 48, 48) };
-    match color {
-        Color::Default => d.to_string(),
-        Color::Indexed(n) => format!("{idx};5;{n}"),
-        Color::Rgb(r, g, b) => format!("{rgb};2;{r};{g};{b}"),
     }
 }
 
@@ -588,6 +556,19 @@ mod tests {
         assert!(h.attrs.bold);
         assert_eq!(h.attrs.fg, Color::Indexed(2));
         assert_eq!(restored.cursor(), term.cursor());
+    }
+
+    #[test]
+    fn serialize_ansi_preserves_wide_chars() {
+        // Regression: the old per-cell loop indexed physical columns by logical
+        // char count, so a CJK row "日本X" (3 chars / 5 cols) replayed as "日 本".
+        // Delegating to Grid::row_ansi_text handles wide-continuation correctly.
+        let mut term = HeadlessTerminal::new(2, 20);
+        term.process_str("日本X");
+        let ansi = term.serialize_ansi();
+        let mut restored = HeadlessTerminal::new(2, 20);
+        restored.process_str(&ansi);
+        assert_eq!(restored.row_text(0), "日本X");
     }
 
     #[test]

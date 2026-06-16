@@ -44,6 +44,31 @@ use crate::{Wake, term_lock};
 /// The containment subsystem name used in audit denials from this socket.
 const AUDIT_SUBSYSTEM: &str = "control_socket";
 
+/// The currently-ACTIVE tab's engine + PTY master, shared with the GUI so the
+/// control socket's verbs follow tab switches instead of being pinned to the
+/// session that happened to exist at startup. The GUI updates this on every tab
+/// switch / open / close (`App::sync_active_session`); each request resolves the
+/// current target from it ([`resolve_active`]). This changes ONLY which session a
+/// verb targets — the auth gates (peer-uid + per-launch token) are untouched.
+pub struct ActiveSession {
+    pub term: Arc<Mutex<Terminal>>,
+    pub master: i32,
+    /// The active session's stable id, so a control verb that DIRECTLY mutates the
+    /// engine (scroll/select) can request a repaint of the right tab.
+    pub id: u64,
+}
+
+/// Shared handle to the [`ActiveSession`]; cloned into the control thread.
+pub type ActiveHandle = Arc<Mutex<ActiveSession>>;
+
+/// Snapshot the current active engine + PTY master + id for one request.
+/// Poison-recovery (matches `term_lock`): a panicked GUI thread must not wedge
+/// introspection.
+fn resolve_active(active: &ActiveHandle) -> (Arc<Mutex<Terminal>>, i32, u64) {
+    let g = active.lock().unwrap_or_else(|p| p.into_inner());
+    (g.term.clone(), g.master, g.id)
+}
+
 /// A request for the MAIN thread to render the live screen to a PNG.
 ///
 /// The control thread fills the CONFINED target (a canonical dir + single
@@ -73,8 +98,7 @@ pub type ImageQueue = Arc<Mutex<VecDeque<ImageReq>>>;
 /// any verb runs. If the token cannot be provisioned we FAIL CLOSED — the
 /// socket is never bound, so it cannot be driven without auth.
 pub fn spawn(
-    term: Arc<Mutex<Terminal>>,
-    master: i32,
+    active: ActiveHandle,
     proxy: EventLoopProxy<Wake>,
     queue: ImageQueue,
     plan: control_auth::SocketPlan,
@@ -150,13 +174,13 @@ pub fn spawn(
             }
             // One thread per connection so a client that holds the socket open
             // (serving many commands) never blocks other clients.
-            let term = term.clone();
+            let active = active.clone();
             let proxy = proxy.clone();
             let queue = queue.clone();
             let token = token.clone();
             let sock_dir = sock_dir.clone();
             std::thread::spawn(move || {
-                serve(stream, &term, master, &proxy, &queue, cell_size, &token, &sock_dir);
+                serve(stream, &active, &proxy, &queue, cell_size, &token, &sock_dir);
             });
         }
     });
@@ -172,8 +196,7 @@ pub fn spawn(
 #[allow(clippy::too_many_arguments)]
 fn serve(
     stream: UnixStream,
-    term: &Arc<Mutex<Terminal>>,
-    master: i32,
+    active: &ActiveHandle,
     proxy: &EventLoopProxy<Wake>,
     queue: &ImageQueue,
     cell_size: (u32, u32),
@@ -211,7 +234,10 @@ fn serve(
     // A folded-in verb runs first (empty tail = bare TOKEN line, just an ack).
     if let Some(verb) = inline_verb {
         if !verb.is_empty() {
-            let resp = handle(&verb, term, master, proxy, queue, cell_size, sock_dir);
+            // Resolve the ACTIVE tab per request so a long-lived connection
+            // follows tab switches.
+            let (term, master, sid) = resolve_active(active);
+            let resp = handle(&verb, &term, master, sid, proxy, queue, cell_size, sock_dir);
             if writer.write_all(resp.as_bytes()).is_err() {
                 return;
             }
@@ -224,7 +250,8 @@ fn serve(
             Ok(l) => l,
             Err(_) => break,
         };
-        let resp = handle(&line, term, master, proxy, queue, cell_size, sock_dir);
+        let (term, master, sid) = resolve_active(active);
+        let resp = handle(&line, &term, master, sid, proxy, queue, cell_size, sock_dir);
         // A dead client (broken pipe) must not crash the app — just drop it.
         if writer.write_all(resp.as_bytes()).is_err() {
             break;
@@ -240,6 +267,7 @@ fn handle(
     line: &str,
     term: &Arc<Mutex<Terminal>>,
     master: i32,
+    session: u64,
     proxy: &EventLoopProxy<Wake>,
     queue: &ImageQueue,
     cell_size: (u32, u32),
@@ -265,7 +293,7 @@ fn handle(
         "paste" => cmd_paste(term, master, rest),
         "image" => cmd_image(proxy, queue, rest, sock_dir),
         "resize" => cmd_resize(proxy, rest),
-        "scroll" => cmd_scroll(term, proxy, rest),
+        "scroll" => cmd_scroll(term, proxy, session, rest),
         "dims" => cmd_dims(term, cell_size),
         "lines" => cmd_lines(term),
         "line" => cmd_line(term, rest),
@@ -276,7 +304,7 @@ fn handle(
         "blocktext" => cmd_blocktext(term, rest),
         "wait" => cmd_wait(term, rest),
         "colors" => cmd_colors(term),
-        "select" => cmd_select(term, proxy, rest),
+        "select" => cmd_select(term, proxy, session, rest),
         "selection" => cmd_selection(term),
         "copy" => cmd_copy(term),
         _ => "ERR unknown verb\n".to_string(),
@@ -497,7 +525,12 @@ fn attrs_string(flags: CellFlags) -> String {
 /// `N` moves N lines into history (negative = toward the live bottom). With no
 /// argument it just reports the current position. After moving it nudges a
 /// windowed session to repaint (no-op when headless).
-fn cmd_scroll(term: &Arc<Mutex<Terminal>>, proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
+fn cmd_scroll(
+    term: &Arc<Mutex<Terminal>>,
+    proxy: &EventLoopProxy<Wake>,
+    session: u64,
+    rest: &str,
+) -> String {
     let mut t = term_lock(term);
     let page = i32::from(t.rows()).max(1);
     match rest.trim() {
@@ -514,7 +547,7 @@ fn cmd_scroll(term: &Arc<Mutex<Terminal>>, proxy: &EventLoopProxy<Wake>, rest: &
     let offset = t.grid().display_offset();
     let max = t.grid().scrollback_lines();
     drop(t);
-    let _ = proxy.send_event(Wake::Output);
+    let _ = proxy.send_event(Wake::Output { session });
     format!("OK {offset} {max}\n")
 }
 
@@ -1187,14 +1220,19 @@ pub(crate) fn select_line(t: &mut Terminal, row: i32) {
 /// live screen and NEGATIVE rows address scrollback (`-1` = the most recently
 /// scrolled-off line). All forms nudge a windowed session to repaint the
 /// highlight and reply `OK\n`.
-fn cmd_select(term: &Arc<Mutex<Terminal>>, proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
+fn cmd_select(
+    term: &Arc<Mutex<Terminal>>,
+    proxy: &EventLoopProxy<Wake>,
+    session: u64,
+    rest: &str,
+) -> String {
     const USAGE: &str = "ERR usage: select <r1> <c1> <r2> <c2> | select word <r> <c> | \
                          select line <r> | select block <r1> <c1> <r2> <c2> | \
                          select extend <r> <c> | select clear\n";
     let rest = rest.trim();
     if rest == "clear" {
         term_lock(term).text_selection_mut().clear();
-        let _ = proxy.send_event(Wake::Output);
+        let _ = proxy.send_event(Wake::Output { session });
         return "OK\n".to_string();
     }
     let mut it = rest.split_whitespace();
@@ -1288,7 +1326,7 @@ fn cmd_select(term: &Arc<Mutex<Terminal>>, proxy: &EventLoopProxy<Wake>, rest: &
             sel.complete_selection();
         }
     }
-    let _ = proxy.send_event(Wake::Output);
+    let _ = proxy.send_event(Wake::Output { session });
     "OK\n".to_string()
 }
 
@@ -1439,6 +1477,36 @@ mod tests {
     use super::*;
     use std::io::Read;
     use std::os::unix::io::FromRawFd;
+
+    /// The control socket follows the ACTIVE tab: `resolve_active` snapshots
+    /// whatever the shared `ActiveHandle` currently points at, so after the GUI
+    /// updates it on a tab switch, the next request targets the new session.
+    #[test]
+    fn resolve_active_follows_handle_updates() {
+        let term_a = Arc::new(Mutex::new(Terminal::new(24, 80)));
+        let term_b = Arc::new(Mutex::new(Terminal::new(24, 80)));
+        let active: ActiveHandle = Arc::new(Mutex::new(ActiveSession {
+            term: term_a.clone(),
+            master: 11,
+            id: 0,
+        }));
+
+        let (t, m, id) = resolve_active(&active);
+        assert!(Arc::ptr_eq(&t, &term_a) && m == 11 && id == 0, "tab 0 active");
+
+        // GUI switches to a new tab (sync_active_session).
+        {
+            let mut g = active.lock().unwrap();
+            g.term = term_b.clone();
+            g.master = 22;
+            g.id = 3;
+        }
+        let (t, m, id) = resolve_active(&active);
+        assert!(
+            Arc::ptr_eq(&t, &term_b) && m == 22 && id == 3,
+            "resolve_active must track the switch to tab 3",
+        );
+    }
 
     /// Run `cmd_paste` against the write end of a pipe (standing in for the
     /// PTY master) and return the bytes that reached it.

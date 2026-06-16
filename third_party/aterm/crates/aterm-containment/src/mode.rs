@@ -13,17 +13,25 @@ use std::fmt;
 
 /// The 4 containment modes, ordered by decreasing capability.
 ///
-/// These describe the POLICY intent per mode. The OS-level ENFORCEMENT of the
-/// Containment policy (a real network/filesystem sandbox) is the deferred
-/// actuator (see [`crate::actuator`] / `ATERM_DESIGN` §5.6), not yet implemented;
-/// today the policy is actuated as the spawn-seam capability gate plus rlimits.
+/// These describe the POLICY intent per mode. As of the OS-sandbox actuator
+/// increment, the Containment policy's NETWORK denial AND a conservative
+/// SECRET-directory read/write denial are OS-ENFORCED on macOS (a real Seatbelt
+/// `(deny network*)` + `(deny file-read* file-write* …)` over `~/.ssh`, `~/.aws`,
+/// `~/.gnupg`, `~/.config/gh`, `~/.config/aterm`, `~/.netrc`, applied via
+/// `sandbox-exec`; see [`crate::actuator`] / [`crate::sbpl`] / `ATERM_DESIGN`
+/// §5.6). GENERAL OS FILESYSTEM scoping (beyond that secret set) is still a
+/// follow-up; the other axes (fork, MCP, plugins, I/O) remain spawn-seam
+/// capability-gate + rlimit posture in this crate.
 ///
 /// - **Master**: Full trust — developer mode. All capabilities unrestricted.
 /// - **User**: Normal usage — standard safeguards. Output shadow-scanned.
 /// - **Safety**: Reduced capability — allowlisted operations only.
 /// - **Containment**: Hostile agent — most restrictive POLICY: no network, no
-///   fork, filtered I/O, no MCP, no plugins (policy data model; OS enforcement
-///   of these is the deferred Seatbelt actuator).
+///   fork, filtered I/O, no MCP, no plugins. The NO-NETWORK part AND a conservative
+///   SECRET-directory read/write deny are OS-enforced on macOS (Seatbelt `deny
+///   network*` + `deny file-read*/file-write*` over the credential set); the rest
+///   is the policy data model + the capability gate (GENERAL OS filesystem scoping
+///   is the deferred follow-up).
 ///
 /// Mode is set ONLY by the launcher (env var `ATERM_CONTAINMENT_MODE` or
 /// CLI `--mode`). aterm cannot upgrade its own mode. Mode is immutable
@@ -32,8 +40,11 @@ use std::fmt;
 #[repr(u8)]
 #[non_exhaustive]
 pub enum ContainmentMode {
-    /// Hostile agent — most restrictive policy (OS enforcement is deferred; see
-    /// the enum-level doc and [`crate::actuator`]).
+    /// Hostile agent — most restrictive policy. Network denial AND a conservative
+    /// secret-directory read/write denial are OS-enforced on macOS (Seatbelt `deny
+    /// network*` + `deny file-read*/file-write*` over the credential set); GENERAL
+    /// filesystem scoping is the deferred follow-up. See the enum-level doc and
+    /// [`crate::actuator`] / [`crate::sbpl`].
     Containment = 0,
     /// Reduced capability — allowlisted operations only.
     Safety = 1,

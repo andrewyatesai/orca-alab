@@ -60,6 +60,13 @@ impl Grid {
             row.write_char_packed(cursor_col, c, colors, flags);
         }
         self.remove_stale_extras_pair(cursor_row, cursor_col, stale);
+        // Drop a stale dense-RGB-ring entry before overwriting. The ring is a
+        // SECOND truecolor store, populated only by the fast bulk paths and the
+        // BCE/erase path — never by this slow per-character path, which routes
+        // the new cell's RGB through the HashMap (`apply_cell_extras_preflagged`).
+        // Reads consult the ring FIRST, so a leftover ring color would shadow
+        // the freshly-written HashMap color. Mirrors the stale-HashMap drop above.
+        self.storage.extras.clear_rgb_ring_cell(cursor_row, cursor_col, 1);
         self.storage.damage.mark_cell(cursor_row, cursor_col);
     }
 
@@ -117,6 +124,10 @@ impl Grid {
             && row.write_wide_char_packed(cursor_col, c, colors, flags)
         {
             self.remove_stale_extras_pair(cursor_row, cursor_col, stale);
+            // Drop stale dense-RGB-ring entries for both wide halves before the
+            // overwrite shows through. See `write_char_at_cursor_packed` for why
+            // the slow path must clear this second truecolor store.
+            self.storage.extras.clear_rgb_ring_cell(cursor_row, cursor_col, 2);
             self.storage.damage.mark_wide_cell(cursor_row, cursor_col);
             return true;
         }

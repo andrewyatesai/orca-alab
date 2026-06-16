@@ -1018,6 +1018,25 @@ impl CellExtras {
         }
     }
 
+    /// Clear the dense RGB-ring fg/bg entries for a `width`-cell span starting
+    /// at `(row, col)`, if a ring exists.
+    ///
+    /// Used by the per-character ("slow") write-split path to drop stale
+    /// truecolor overflow when overwriting an already-occupied cell. The fast
+    /// bulk paths and the BCE/erase path populate the ring directly
+    /// (`set_rgb_ring_range`), but the slow path applies the *new* cell's RGB
+    /// via the HashMap (`apply_cell_extras_preflagged`). Since reads consult
+    /// the ring FIRST (`bg_rgb_for`/`render_data_for_cell`), a leftover ring
+    /// entry would shadow the freshly-written HashMap color. Clearing the ring
+    /// slot here mirrors the stale-HashMap-entry drop already done on overwrite
+    /// (#7456), keeping the two truecolor stores consistent.
+    #[inline]
+    pub(crate) fn clear_rgb_ring_cell(&mut self, row: u16, col: u16, width: u16) {
+        if let Some(ring) = &mut self.rgb_ring {
+            ring.clear_range(row, col, col.saturating_add(width));
+        }
+    }
+
     /// Look up fg RGB: ring buffer first (O(1)), then HashMap.
     #[inline]
     pub fn fg_rgb_for(&self, row: u16, col: u16) -> Option<[u8; 3]> {

@@ -922,102 +922,69 @@ impl Renderer {
         let (rows, cols) = (input.rows, input.cols);
         let (w, h) = self.frame_size(rows, cols);
 
-        // Decide whether the cached frame can be reused. The full-render path is
-        // taken (and the cache rebuilt) on the first frame, on any geometry /
-        // scrollback / selection change, or on any double-HEIGHT row — DECDHL
+        // Decide whether the cached frame can be reused, and if so which rows are
+        // dirty, via the ONE shared `compute_dirty_rows` — the SAME function the
+        // GPU scissored repaint consults, so the CPU and GPU dirty sets cannot
+        // diverge. The full-render path is taken (and the cache rebuilt) on the
+        // first frame (no cache) and on any `FullRepaint` verdict (geometry /
+        // scrollback / selection change, or any double-HEIGHT row — DECDHL
         // top/bottom halves clip a 2× glyph across two row bands, so a single
-        // dirty row can't be repainted in isolation without risking a seam.
-        let reusable = match &self.cache {
-            Some(c) => {
-                c.width == w
-                    && c.height == h
-                    && c.input.rows == rows
-                    && c.input.cols == cols
-                    && c.input.display_offset == input.display_offset
-                    && c.input.selection == input.selection
-                    && !any_double_height(&c.input.line_sizes)
-                    && !any_double_height(&input.line_sizes)
-            }
-            None => false,
+        // dirty row can't be repainted in isolation without risking a seam).
+        //
+        // `compute_dirty_rows` compares rows/cols (which fix the pixel dims) for
+        // its reusable precheck; that subsumes the old explicit `c.width == w &&
+        // c.height == h` check, since `w`/`h` are a pure function of rows/cols and
+        // the renderer's fixed cell metrics.
+        let decision = match &self.cache {
+            // The cached pixel dims must also match `(w, h)`. `compute_dirty_rows`
+            // already requires equal rows/cols (which fix the dims under the fixed
+            // cell metrics), but guard the cached buffer explicitly so a stale-dims
+            // cache can never reach the in-place repaint below.
+            Some(c) if c.width == w && c.height == h => compute_dirty_rows(
+                &c.input,
+                input,
+                c.cursor_blink_phase,
+                c.cursor_style_override,
+                self.cursor_blink_phase,
+                self.cursor_style_override,
+            ),
+            _ => DirtyDecision::FullRepaint,
         };
-        if !reusable {
-            self.full_render(input, w, h);
-            return self.cached_view(w, h);
-        }
+        let dirty_rows = match decision {
+            DirtyDecision::FullRepaint => {
+                self.full_render(input, w, h);
+                return self.cached_view(w, h);
+            }
+            DirtyDecision::Rows(d) => d,
+        };
 
         // DAMAGED PATH. Reuse the cached framebuffer in place — no allocation.
         // Take the cache out so the per-row helpers can borrow `self` mutably
         // (glyph rasterization caches mutate `self`); restored before return.
         let mut cache = self.cache.take().expect("reusable implies Some");
         debug_assert_eq!(cache.pixels.len(), w * h);
-
-        // The dirty row set: any row whose render-relevant inputs differ from
-        // the cached frame, UNION the previous and current cursor rows (only
-        // when the cursor is/was actually shown — an invisible cursor paints
-        // nothing, so its row needs no repaint on that account).
-        let prev = &cache.input;
-        let mut dirty = vec![false; rows];
-        let mut any_dirty = false;
-        for r in 0..rows {
-            if row_differs(input, prev, r) {
-                dirty[r] = true;
-                any_dirty = true;
-            }
-        }
-        // Cursor: where it was last frame and where it is this frame. Mark each
-        // for repaint so the old cursor is erased and the new one drawn. Use the
-        // SAME shown-test the overlay uses (style override + blink phase).
-        let prev_style = cache.cursor_style_override.unwrap_or(prev.cursor_style);
-        let prev_shown = prev.cursor_row < rows
-            && prev.cursor_col < cols
-            && prev.cursor_visible
-            && cursor_shown(prev_style, cache.cursor_blink_phase);
-        let cur_style = self.cursor_style_override.unwrap_or(input.cursor_style);
-        let cur_shown = input.cursor_row < rows
-            && input.cursor_col < cols
-            && input.cursor_visible
-            && cursor_shown(cur_style, self.cursor_blink_phase);
-        // The cursor cell's own glyph/colours feed the block "cut-out", but a
-        // change there is already a row-content change caught by `row_differs`,
-        // so we only track the cursor's position / style / shown-ness here.
-        let cursor_changed = prev_shown != cur_shown
-            || (cur_shown
-                && (prev.cursor_row != input.cursor_row
-                    || prev.cursor_col != input.cursor_col
-                    || prev_style != cur_style));
-        if prev_shown {
-            mark(&mut dirty, prev.cursor_row);
-        }
-        if cur_shown {
-            mark(&mut dirty, input.cursor_row);
-        }
+        let dirty = dirty_rows.dirty;
 
         // DIRTY-GATE: nothing to draw — no dirty rows, the cursor is in the same
-        // place/state, and the blink phase is unchanged — so the cached pixels
-        // are already exactly this frame. Hand them back with zero rendering.
-        //
-        // The decision delegates to the shared `is_unchanged_frame` predicate so
-        // the CPU gate and the GPU dirty-gate are ONE source of truth and cannot
-        // diverge. `dirty`/`cursor_changed` above remain the implementation of
-        // the MISS path (which rows to repaint); the predicate is a strict
-        // function of the same inputs, so its verdict matches `!any_dirty &&
-        // !cursor_changed && blink/override unchanged` exactly. (Asserted in
-        // debug builds.)
-        let gate_hit = is_unchanged_frame(
-            prev,
-            cache.cursor_blink_phase,
-            cache.cursor_style_override,
-            input,
-            self.cursor_blink_phase,
-            self.cursor_style_override,
-        );
+        // place/state, and the blink/override is unchanged — so the cached pixels
+        // are already exactly this frame. Hand them back with zero rendering. The
+        // verdict is `DirtyRows::is_gate_hit`, which is exactly the shared
+        // `is_unchanged_frame` predicate (both derive from `compute_dirty_rows`),
+        // so the CPU gate and the GPU dirty-gate are ONE source of truth.
+        let gate_hit = dirty_rows.any_dirty == false
+            && dirty_rows.cursor_changed == false
+            && dirty_rows.blink_or_override_changed == false;
         debug_assert_eq!(
             gate_hit,
-            !any_dirty
-                && !cursor_changed
-                && cache.cursor_blink_phase == self.cursor_blink_phase
-                && cache.cursor_style_override == self.cursor_style_override,
-            "is_unchanged_frame must agree with the inline dirty/cursor gate"
+            is_unchanged_frame(
+                &cache.input,
+                cache.cursor_blink_phase,
+                cache.cursor_style_override,
+                input,
+                self.cursor_blink_phase,
+                self.cursor_style_override,
+            ),
+            "DirtyRows::is_gate_hit must agree with is_unchanged_frame"
         );
         if gate_hit {
             self.cache = Some(cache);
@@ -1566,6 +1533,144 @@ fn mark(dirty: &mut [bool], r: usize) {
     }
 }
 
+/// The verdict of [`compute_dirty_rows`]: whether the frame can reuse the prior
+/// frame's pixels row-by-row, and if so, exactly which rows differ.
+///
+/// This is THE single source of truth for the dirty row set, shared by the CPU
+/// damage path ([`Renderer::render_input_cached`]) and the GPU scissored repaint
+/// ([`aterm_gpu::GpuRenderer::present_input`]) so the two CANNOT diverge: a row
+/// the CPU repaints is exactly a row the GPU re-encodes, and a row either skips
+/// is provably pixel-identical to the prior frame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DirtyDecision {
+    /// The frame is NOT reusable: geometry / scrollback / selection changed, or
+    /// either frame has a double-HEIGHT row (a DECDHL glyph spans two row bands,
+    /// so per-row reuse risks a seam). Caller must do a FULL repaint — the always-
+    /// correct path. (The "first frame, no prior" case is handled by the caller,
+    /// which passes no prior input and treats it as `FullRepaint`.)
+    FullRepaint,
+    /// The frame IS reusable. `dirty[r]` is true iff row `r` must be repainted:
+    /// any render-relevant per-row difference UNION the previous/current cursor
+    /// rows (when shown). All-false with `!blink_or_override_changed` means the
+    /// frame is pixel-identical to the prior one (a gate hit — nothing to draw).
+    Rows(DirtyRows),
+}
+
+/// The reusable-frame dirty set + the auxiliary flags both the CPU gate and the
+/// GPU scissor read. Fields mirror the inline computation that used to live in
+/// [`Renderer::render_input_cached`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirtyRows {
+    /// Per-row repaint flags (length == rows). Includes the prev/cur cursor rows.
+    pub dirty: Vec<bool>,
+    /// Whether ANY row's render-relevant inputs differ (cursor rows excluded —
+    /// this is `row_differs` only). Mirrors the old `any_dirty`.
+    pub any_dirty: bool,
+    /// Whether the cursor's shown-ness / position / effective style changed.
+    pub cursor_changed: bool,
+    /// Whether the blink phase OR the cursor-style override changed between the
+    /// two frames. Even with no dirty rows + no cursor change, a blink/override
+    /// flip means the prior frame was drawn under a DIFFERENT renderer state, so
+    /// the gate must NOT fire (the conservative path re-renders — a no-op here,
+    /// but it keeps the gate predicate exact). Mirrors the old equality checks.
+    pub blink_or_override_changed: bool,
+}
+
+impl DirtyRows {
+    /// True iff the frame is pixel-identical to the prior one: no dirty row, no
+    /// cursor change, and the same blink/override state. This is exactly the
+    /// CPU/GPU gate-hit condition.
+    #[must_use]
+    pub fn is_gate_hit(&self) -> bool {
+        !self.any_dirty && !self.cursor_changed && !self.blink_or_override_changed
+    }
+}
+
+/// THE shared dirty-row computation. Decides whether `input` (to be drawn at
+/// `cur_blink_phase` / `cur_cursor_style_override`) can reuse the frame previously
+/// rendered from `prev_input` (at `prev_blink_phase` / `prev_cursor_style_
+/// override`) row-by-row, and if so, exactly which rows differ.
+///
+/// The result is consumed by BOTH renderers:
+///   * the CPU damage path repaints the `dirty` rows into its cached framebuffer,
+///   * the GPU scissored path re-encodes ONLY the `dirty` rows into the persistent
+///     offscreen (LoadOp::Load + a scissor over the dirty band(s)),
+/// so they share one dirty set and cannot drift. `FullRepaint` is the always-safe
+/// fallback (whole-frame Clear + all rows), taken whenever reuse is unsafe.
+///
+/// Caller responsibility: the FIRST frame (no prior input) is treated as
+/// `FullRepaint` by the caller — this function assumes a prior frame exists.
+#[must_use]
+pub fn compute_dirty_rows(
+    prev_input: &RenderInput,
+    input: &RenderInput,
+    prev_blink_phase: bool,
+    prev_cursor_style_override: Option<CursorStyle>,
+    cur_blink_phase: bool,
+    cur_cursor_style_override: Option<CursorStyle>,
+) -> DirtyDecision {
+    let (rows, cols) = (input.rows, input.cols);
+
+    // REUSABLE precheck — IDENTICAL to `render_input_cached`'s `reusable` and to
+    // `is_unchanged_frame`'s clause 1: same geometry (rows/cols fix the pixel
+    // dims), same scrollback offset, same selection, and NO double-HEIGHT row in
+    // either frame. A double-height (DECDHL) glyph clips a 2× glyph across two row
+    // bands, so a single dirty row can't be repainted in isolation without risking
+    // a seam — any double-height row forces the full path. (DECDWL double-WIDTH is
+    // safe: it stays within one row band, so it rides the normal per-row path.)
+    let reusable = prev_input.rows == rows
+        && prev_input.cols == cols
+        && prev_input.display_offset == input.display_offset
+        && prev_input.selection == input.selection
+        && !any_double_height(&prev_input.line_sizes)
+        && !any_double_height(&input.line_sizes);
+    if !reusable {
+        return DirtyDecision::FullRepaint;
+    }
+
+    // The dirty row set: any row whose render-relevant inputs differ from the
+    // prior frame, UNION the previous and current cursor rows (only when the
+    // cursor is/was actually shown — an invisible cursor paints nothing). This is
+    // byte-for-byte the computation `render_input_cached` used inline.
+    let mut dirty = vec![false; rows];
+    let mut any_dirty = false;
+    for r in 0..rows {
+        if row_differs(input, prev_input, r) {
+            dirty[r] = true;
+            any_dirty = true;
+        }
+    }
+    // Cursor: where it was last frame and where it is this frame. Use the SAME
+    // shown-test the overlay uses (effective style = override ?? DECSCUSR, gated
+    // by DECTCEM + blink phase).
+    let prev_style = prev_cursor_style_override.unwrap_or(prev_input.cursor_style);
+    let prev_shown = prev_input.cursor_row < rows
+        && prev_input.cursor_col < cols
+        && prev_input.cursor_visible
+        && cursor_shown(prev_style, prev_blink_phase);
+    let cur_style = cur_cursor_style_override.unwrap_or(input.cursor_style);
+    let cur_shown = input.cursor_row < rows
+        && input.cursor_col < cols
+        && input.cursor_visible
+        && cursor_shown(cur_style, cur_blink_phase);
+    let cursor_changed = prev_shown != cur_shown
+        || (cur_shown
+            && (prev_input.cursor_row != input.cursor_row
+                || prev_input.cursor_col != input.cursor_col
+                || prev_style != cur_style));
+    if prev_shown {
+        mark(&mut dirty, prev_input.cursor_row);
+    }
+    if cur_shown {
+        mark(&mut dirty, input.cursor_row);
+    }
+
+    let blink_or_override_changed = prev_blink_phase != cur_blink_phase
+        || prev_cursor_style_override != cur_cursor_style_override;
+
+    DirtyDecision::Rows(DirtyRows { dirty, any_dirty, cursor_changed, blink_or_override_changed })
+}
+
 /// THE full-frame gate-hit predicate: is `input` (to be drawn at `cur_blink_phase`
 /// / `cur_cursor_style_override`) PIXEL-IDENTICAL to a frame previously rendered
 /// from `prev_input` (at `prev_blink_phase` / `prev_cursor_style_override`)?
@@ -1595,50 +1700,21 @@ pub fn is_unchanged_frame(
     cur_blink_phase: bool,
     cur_cursor_style_override: Option<CursorStyle>,
 ) -> bool {
-    let (rows, cols) = (input.rows, input.cols);
-
-    // 1. REUSABLE: geometry / scrollback / selection equal, no double-height.
-    // Equal rows/cols ⇒ equal pixel dims (dims are a pure fn of rows/cols and the
-    // renderer's fixed cell metrics), so comparing rows/cols matches the
-    // width/height check in `render_input_cached`'s `reusable`.
-    let reusable = prev_input.rows == rows
-        && prev_input.cols == cols
-        && prev_input.display_offset == input.display_offset
-        && prev_input.selection == input.selection
-        && !any_double_height(&prev_input.line_sizes)
-        && !any_double_height(&input.line_sizes);
-    if !reusable {
-        return false;
+    // Delegate to the ONE shared dirty-row computation so this predicate and the
+    // CPU/GPU dirty sets cannot diverge: the frame is unchanged iff it is reusable
+    // (clause 1) AND every row matches with no cursor/blink/override change (a
+    // gate hit). `FullRepaint` (not reusable) is never an unchanged frame.
+    match compute_dirty_rows(
+        prev_input,
+        input,
+        prev_blink_phase,
+        prev_cursor_style_override,
+        cur_blink_phase,
+        cur_cursor_style_override,
+    ) {
+        DirtyDecision::FullRepaint => false,
+        DirtyDecision::Rows(d) => d.is_gate_hit(),
     }
-
-    // 2. NO DIRTY ROW: any render-relevant per-row difference forces a repaint.
-    for r in 0..rows {
-        if row_differs(input, prev_input, r) {
-            return false;
-        }
-    }
-
-    // 3. CURSOR / BLINK / OVERRIDE UNCHANGED. Use the SAME shown-test the overlay
-    // uses (effective style = override ?? DECSCUSR, gated by blink phase).
-    let prev_style = prev_cursor_style_override.unwrap_or(prev_input.cursor_style);
-    let prev_shown = prev_input.cursor_row < rows
-        && prev_input.cursor_col < cols
-        && prev_input.cursor_visible
-        && cursor_shown(prev_style, prev_blink_phase);
-    let cur_style = cur_cursor_style_override.unwrap_or(input.cursor_style);
-    let cur_shown = input.cursor_row < rows
-        && input.cursor_col < cols
-        && input.cursor_visible
-        && cursor_shown(cur_style, cur_blink_phase);
-    let cursor_changed = prev_shown != cur_shown
-        || (cur_shown
-            && (prev_input.cursor_row != input.cursor_row
-                || prev_input.cursor_col != input.cursor_col
-                || prev_style != cur_style));
-
-    !cursor_changed
-        && prev_blink_phase == cur_blink_phase
-        && prev_cursor_style_override == cur_cursor_style_override
 }
 
 /// How a glyph is enlarged for a DEC line-size row: `xs`/`ys` are NEAREST

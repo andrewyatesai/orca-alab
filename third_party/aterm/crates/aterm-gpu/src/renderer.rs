@@ -33,8 +33,8 @@ use std::collections::{BTreeSet, HashMap};
 
 use aterm_core::terminal::{CursorStyle, Terminal, UnderlineStyle};
 use aterm_render::{
-    is_unchanged_frame, Frame, GlyphImage, GlyphKey, RenderInput, RenderView, Rasterizer, Renderer,
-    Theme,
+    compute_dirty_rows, is_unchanged_frame, DirtyDecision, Frame, GlyphImage, GlyphKey,
+    RenderInput, RenderView, Rasterizer, Renderer, Theme,
 };
 
 use crate::GpuContext;
@@ -524,6 +524,22 @@ pub struct GpuRenderer {
     // capacity, and only recreate (grow) the buffer when they don't. Capacities
     // are tracked alongside so we know when a grow is needed.
     vbufs: VertexBuffers,
+    // Persistent per-frame instance streams + glyph-key set. Cleared (capacity
+    // retained) at the top of each `encode_frame` instead of re-allocated. See
+    // `Instances`.
+    inst: Instances,
+    // The resident offscreen render target + its blit-source bind group. `None`
+    // until the first frame; reused at the same `(w, h)`, recreated only on a
+    // dimension change. See `Offscreen`.
+    offscreen: Option<Offscreen>,
+    // Last `(w, h)` written into the screen uniform. `Uniforms.screen` is a pure
+    // function of the frame size, so it only needs (re)writing on the first frame
+    // and on a resize — NOT every frame. `None` forces the first write.
+    uniform_dims: Option<(u32, u32)>,
+    // Last invert flag written into the blit uniform. The blit uniform is a pure
+    // function of `invert`, so it is rewritten only when the flag changes. `None`
+    // forces the first write.
+    blit_invert: Option<bool>,
     // DIRTY-GATE cache for the per-frame PRESENTATION hot path
     // (`render_input_cached`). Holds the previous frame's input + cursor state +
     // the pixels that were read back for it. When the next frame is PIXEL-
@@ -535,6 +551,53 @@ pub struct GpuRenderer {
     // test). Counts gate-hits and gate-misses through `render_input_cached`.
     gate_hits: u64,
     gate_misses: u64,
+    // SCISSORED DIRTY-ROW REPAINT (the window present path). Holds the PREVIOUS
+    // presented frame's input + the renderer cursor state it was drawn with, so
+    // `present_input` can consult `compute_dirty_rows` against it and re-encode
+    // only the dirty rows (LoadOp::Load + a scissor over the dirty band) into the
+    // persistent offscreen — which still holds that prior frame. `None` until the
+    // first present (forces a full repaint), and reset on any geometry change
+    // (the offscreen is recreated, so its prior contents are gone). See
+    // `encode_frame` / `RepaintScope`.
+    present_prev: Option<PresentPrev>,
+    // TEST/DIAGNOSTIC counters: how many `present_input` frames took the SCISSOR
+    // (dirty-row) path vs a FULL repaint. The byte-identity test asserts the
+    // scissor path is actually exercised on typing/cursor frames and that
+    // DECDHL/DECDWL... no: DECDWL is safe; DECDHL/selection/scroll frames fall
+    // back to full.
+    scissor_taken: u64,
+    full_repaints: u64,
+    // TEST/DIAGNOSTIC: total instances built in the LAST `encode_frame` (sum of
+    // all eight streams). A scissored 1-row frame builds ~`1/rows` of a full
+    // frame's instances — the proportional-to-dirty-rows win the benchmark
+    // reports.
+    last_instances: usize,
+}
+
+/// The previous presented frame's state, for the scissored dirty-row repaint.
+/// The persistent offscreen still holds this frame's pixels, so the next present
+/// can update only the rows that differ from it.
+struct PresentPrev {
+    /// The previous presented frame's input snapshot (cloned), for
+    /// `compute_dirty_rows`.
+    input: RenderInput,
+    /// The blink phase that frame was drawn with.
+    blink_phase: bool,
+    /// The cursor-style override that frame was drawn with.
+    cursor_style_override: Option<CursorStyle>,
+}
+
+/// What portion of the offscreen `encode_frame` must repaint:
+///   * `Full` — clear the whole target and draw every row (the always-correct
+///     path; byte-identical to the original encode).
+///   * `Dirty(dirty)` — the persistent offscreen already holds the prior frame;
+///     preserve it (`LoadOp::Load`), scissor to the dirty rows' bounding band, and
+///     draw ONLY the dirty rows (`dirty[r]`). A re-shaded dirty row gets the
+///     IDENTICAL instances the full path would build for it, so its pixels are
+///     bit-identical; untouched rows are preserved by Load.
+enum RepaintScope {
+    Full,
+    Dirty(Vec<bool>),
 }
 
 /// The GPU dirty-gate cache: the previous frame's `render_input_cached` inputs
@@ -553,6 +616,56 @@ struct GpuGateCache {
     /// gate re-presents verbatim on a hit). Byte-identical to what the GPU would
     /// re-render for an unchanged input.
     frame: Frame,
+}
+
+/// The persistent offscreen render target (the frame the GPU draws into and the
+/// blit samples from). Previously a fresh `Rgba8Unorm` texture + view was created
+/// EVERY presented frame (~6.4 MB at 1080p), and the blit-source view + blit bind
+/// group were rebuilt EVERY present. Now they are resident: a frame at the same
+/// `(w, h)` reuses `tex`/`view`/`blit_bind` untouched; only a `None` field or a
+/// dimension change (resize) recreates them. Lifetime-only change — the same draws
+/// land in the same texture, so the swapchain blit stays byte-identical.
+struct Offscreen {
+    tex: wgpu::Texture,
+    view: wgpu::TextureView,
+    /// The blit-source bind group (samples `tex` into the swapchain). Built ONCE
+    /// when the offscreen is (re)created and reused every present.
+    blit_bind: wgpu::BindGroup,
+    w: u32,
+    h: u32,
+}
+
+/// The persistent per-frame instance streams + glyph-key set. Previously fresh
+/// `Vec`s and a `BTreeSet` were allocated EVERY `encode_frame`; now they are
+/// hoisted and `.clear()`ed (capacity retained) at the start of each frame, so the
+/// steady state does zero heap allocation for them. Identical contents built in
+/// identical order → byte-identical. Field order mirrors `VertexBuffers`.
+#[derive(Default)]
+struct Instances {
+    keys: BTreeSet<GlyphKey>,
+    bg: Vec<BgInstance>,
+    glyph: Vec<GlyphInstance>,
+    color: Vec<GlyphInstance>,
+    cursor: Vec<BgInstance>,
+    deco: Vec<BgInstance>,
+    cursor_block: Vec<BgInstance>,
+    cursor_glyph: Vec<GlyphInstance>,
+    cursor_color: Vec<GlyphInstance>,
+}
+
+impl Instances {
+    /// Empty all streams (retaining capacity) for a fresh frame.
+    fn clear(&mut self) {
+        self.keys.clear();
+        self.bg.clear();
+        self.glyph.clear();
+        self.color.clear();
+        self.cursor.clear();
+        self.deco.clear();
+        self.cursor_block.clear();
+        self.cursor_glyph.clear();
+        self.cursor_color.clear();
+    }
 }
 
 /// The eight persistent per-frame vertex streams (one `VertexBuffer` each).
@@ -910,9 +1023,17 @@ impl GpuRenderer {
             resident_keys: BTreeSet::new(),
             atlas_tex_creations: 0,
             vbufs,
+            inst: Instances::default(),
+            offscreen: None,
+            uniform_dims: None,
+            blit_invert: None,
             gate_cache: None,
             gate_hits: 0,
             gate_misses: 0,
+            present_prev: None,
+            scissor_taken: 0,
+            full_repaints: 0,
+            last_instances: 0,
         })
     }
 
@@ -930,6 +1051,33 @@ impl GpuRenderer {
     #[must_use]
     pub fn gate_misses(&self) -> u64 {
         self.gate_misses
+    }
+
+    /// TEST/DIAGNOSTIC: number of `present_input` frames that took the SCISSORED
+    /// dirty-row repaint (LoadOp::Load + scissor over the dirty band, only dirty
+    /// rows re-encoded) instead of a full Clear+all-rows repaint.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn scissor_taken(&self) -> u64 {
+        self.scissor_taken
+    }
+
+    /// TEST/DIAGNOSTIC: number of `present_input` frames that did a FULL repaint
+    /// (Clear + all rows) — the first frame, a geometry/scrollback/selection
+    /// change, a double-HEIGHT row, etc. (the conservative always-correct path).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn full_repaints(&self) -> u64 {
+        self.full_repaints
+    }
+
+    /// TEST/DIAGNOSTIC: total instances built in the LAST encoded frame (sum of
+    /// the eight per-frame streams). The scissored path builds ~`dirty_rows/rows`
+    /// of a full frame's instances.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn last_instances(&self) -> usize {
+        self.last_instances
     }
 
     /// Cell size (pixels), straight from the CPU renderer so geometry matches.
@@ -1169,7 +1317,14 @@ impl GpuRenderer {
     /// with no `&Terminal` borrow, so the frontend renders after dropping the
     /// lock.
     pub fn render_input(&mut self, input: &RenderInput) -> Frame {
-        let (tex, w, h) = self.encode_frame(input);
+        // FULL repaint (Clear + all rows) — the snapshot / readback / oracle path.
+        // It overwrites the offscreen with this (possibly unrelated) input, so it
+        // invalidates the scissored present sequence's prior-frame tracking: a
+        // subsequent `present_input` must NOT diff against a frame it never drew.
+        self.present_prev = None;
+        let (w, h) = self.encode_frame(input, &RepaintScope::Full);
+        // The freshly rendered target is resident on `self.offscreen`.
+        let tex = self.offscreen.as_ref().expect("encode_frame sets offscreen").tex.clone();
         self.ctx.read_back(&tex, w, h)
     }
 
@@ -1240,8 +1395,16 @@ impl GpuRenderer {
     /// the GPU by blitting that texture into `surf`'s swapchain — no CPU readback,
     /// no softbuffer copy. `invert` flips RGB for the visual-bell flash.
     pub fn present_input(&mut self, surf: &mut GpuSurface, input: &RenderInput, invert: bool) {
-        // 1. Offscreen render (submits) — IDENTICAL to the readback/snapshot path.
-        let (tex, _w, _h) = self.encode_frame(input);
+        // 1. Offscreen render (submits). SCISSORED DIRTY-ROW REPAINT: when the
+        //    persistent offscreen still holds the prior presented frame and only
+        //    some rows differ, re-encode ONLY those rows (LoadOp::Load + a scissor
+        //    over the dirty band) — proportional to the change, not the screen.
+        //    Otherwise a full Clear+all-rows repaint (the always-correct path).
+        //    The rendered target + its blit-source bind group are resident on
+        //    `self.offscreen` (built once, reused across presents at the same
+        //    dimensions; rebuilt only on a resize), so this present allocates no
+        //    per-frame texture / view / blit bind group.
+        self.encode_present_frame(input);
 
         // 2. Acquire the next swapchain texture. On Outdated/Lost the surface
         //    config no longer matches; reconfigure and skip this frame (the next
@@ -1262,28 +1425,20 @@ impl GpuRenderer {
         self.ensure_blit_pipeline(format);
         let pipeline = &self.blit_pipelines[&format];
 
-        // 4. Write the invert flag and bind the offscreen texture as the source.
-        self.ctx.queue.write_buffer(
-            &self.blit_uniform_buf,
-            0,
-            bytemuck::bytes_of(&BlitUniform { flag: invert as u32, _pad: [0; 3] }),
-        );
-        let src_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind = self.ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("aterm-gpu blit bg"),
-            layout: &self.blit_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&src_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
-                },
-                wgpu::BindGroupEntry { binding: 2, resource: self.blit_uniform_buf.as_entire_binding() },
-            ],
-        });
+        // 4. Write the invert flag ONLY when it changes (the blit uniform is a
+        //    pure function of `invert`; the steady-state present otherwise
+        //    re-uploaded an unchanged 4-byte buffer each frame). The offscreen
+        //    texture is already bound as the blit source by the resident
+        //    `blit_bind` (built in `encode_frame` when the target was created).
+        if self.blit_invert != Some(invert) {
+            self.ctx.queue.write_buffer(
+                &self.blit_uniform_buf,
+                0,
+                bytemuck::bytes_of(&BlitUniform { flag: invert as u32, _pad: [0; 3] }),
+            );
+            self.blit_invert = Some(invert);
+        }
+        let bind = &self.offscreen.as_ref().expect("encode_frame sets offscreen").blit_bind;
 
         // 5. One blit pass: fullscreen triangle covers every pixel, so Clear is
         //    just the (overwritten) initial value.
@@ -1309,11 +1464,94 @@ impl GpuRenderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &bind, &[]);
+            pass.set_bind_group(0, bind, &[]);
             pass.draw(0..3, 0..1);
         }
         self.ctx.queue.submit([enc.finish()]);
         frame.present();
+    }
+
+    /// Compute the SCISSORED dirty-row scope for THIS presented frame against the
+    /// previous one (the persistent offscreen still holds it), encode it, then
+    /// record this frame as the new `present_prev`. Shared by `present_input` (the
+    /// window blit path) and the readback test helper, so the scissor decision is
+    /// computed in exactly one place.
+    ///
+    /// The cardinal rule: when in ANY doubt, FULL REPAINT. The scissor activates
+    /// ONLY when a prior presented frame exists, the offscreen still holds it at
+    /// the right dims, and `compute_dirty_rows` says the frame is reusable with a
+    /// non-empty dirty set. Everything else (first frame, resize, scrollback /
+    /// selection / double-height change) falls back to the full Clear+all-rows
+    /// path — byte-identical to the original encode.
+    fn encode_present_frame(&mut self, input: &RenderInput) -> (u32, u32) {
+        let cur_blink = self.cpu.cursor_blink_phase();
+        let cur_override = self.cpu.cursor_style_override();
+        let (cw, ch) = self.cpu.cell_size();
+        let (w, h) = ((input.cols * cw) as u32, (input.rows * ch) as u32);
+
+        // The offscreen must already hold the previous frame at THESE dims for a
+        // scissored Load to be safe. A dimension change recreates the texture
+        // (its prior contents are gone), so any dims mismatch forces Full.
+        let offscreen_holds_prev = matches!(&self.offscreen, Some(o) if o.w == w && o.h == h);
+
+        let scope = match (&self.present_prev, offscreen_holds_prev) {
+            (Some(prev), true) => match compute_dirty_rows(
+                &prev.input,
+                input,
+                prev.blink_phase,
+                prev.cursor_style_override,
+                cur_blink,
+                cur_override,
+            ) {
+                // Reusable: scissor the dirty band. The zero-dirty-row case (a
+                // gate-class idle frame) is handled correctly downstream — Load
+                // preserves the prior frame and the empty dirty set draws nothing,
+                // the cheapest possible encode.
+                DirtyDecision::Rows(d) => RepaintScope::Dirty(d.dirty),
+                // Not reusable (geometry / scrollback / selection / double-height):
+                // the conservative full repaint.
+                DirtyDecision::FullRepaint => RepaintScope::Full,
+            },
+            // No prior frame, or the offscreen no longer holds it: full repaint.
+            _ => RepaintScope::Full,
+        };
+
+        match &scope {
+            RepaintScope::Dirty(_) => self.scissor_taken += 1,
+            RepaintScope::Full => self.full_repaints += 1,
+        }
+        let dims = self.encode_frame(input, &scope);
+
+        // This frame is now resident on the offscreen; remember it (+ the state it
+        // was drawn with) so the NEXT present can diff against it.
+        self.present_prev = Some(PresentPrev {
+            input: input.clone(),
+            blink_phase: cur_blink,
+            cursor_style_override: cur_override,
+        });
+        dims
+    }
+
+    /// TEST HELPER (byte-identity gate): run the SCISSORED present-path encode for
+    /// `input` exactly as [`present_input`](Self::present_input) does — same
+    /// `compute_dirty_rows` decision, same `present_prev` tracking, same persistent
+    /// offscreen — then read the offscreen back into a [`Frame`]. This is the path
+    /// the `scissor_repaint` test asserts is byte-identical to a fresh full render.
+    #[doc(hidden)]
+    pub fn present_input_readback(&mut self, input: &RenderInput) -> Frame {
+        let (w, h) = self.encode_present_frame(input);
+        let tex = self.offscreen.as_ref().expect("encode_frame sets offscreen").tex.clone();
+        self.ctx.read_back(&tex, w, h)
+    }
+
+    /// TEST/BENCH HELPER: run the SCISSORED present-path encode for `input` and
+    /// BLOCK until the GPU finishes, but do NOT read the pixels back. Isolates the
+    /// changed-frame ENCODE + instance-build + GPU fill cost (the readback, which
+    /// is identical for any scope, would otherwise swamp the scissor's saving).
+    #[doc(hidden)]
+    pub fn present_encode_poll(&mut self, input: &RenderInput) {
+        let _ = self.encode_present_frame(input);
+        self.ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("GPU poll failed");
     }
 
     /// Build + cache the blit render pipeline for a swapchain `format` if absent.
@@ -1432,19 +1670,42 @@ impl GpuRenderer {
     /// adds on top is pure verification overhead. Returns nothing; time the call.
     pub fn render_no_readback(&mut self, term: &Terminal, rows: usize, cols: usize) {
         let input = Self::extract(term, rows, cols);
-        let _ = self.encode_frame(&input);
+        self.present_prev = None;
+        let _ = self.encode_frame(&input, &RepaintScope::Full);
         self.ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("GPU poll failed");
     }
 
-    /// Build the atlas + instances, encode the two render passes onto a fresh
-    /// offscreen target, and submit. Returns the rendered texture (caller decides
-    /// whether to read it back or present it).
-    fn encode_frame(&mut self, input: &RenderInput) -> (wgpu::Texture, u32, u32) {
+    /// Build the atlas + instances, encode the single render pass onto the
+    /// RESIDENT offscreen target (`self.offscreen`, reused at the same `(w, h)`
+    /// and rebuilt only on a resize), and submit. Returns the frame's `(w, h)`;
+    /// the rendered texture (+ its blit-source bind group) live on
+    /// `self.offscreen` for the caller to read back or present.
+    ///
+    /// `scope` selects FULL (Clear + every row — the always-correct path,
+    /// byte-identical to the original encode) or SCISSORED (`RepaintScope::Dirty`):
+    /// the offscreen already holds the prior frame, so we preserve it with
+    /// `LoadOp::Load`, build instances ONLY for the dirty rows, and scissor the
+    /// pass to the dirty rows' bounding band. A re-shaded dirty row gets the
+    /// IDENTICAL instances (same values, same order) the full path would build for
+    /// it, and rows are disjoint vertical bands (double-HEIGHT, the only cross-band
+    /// case, forces FULL), so the scissored band is bit-identical to a full render
+    /// and the untouched rows are preserved verbatim.
+    fn encode_frame(&mut self, input: &RenderInput, scope: &RepaintScope) -> (u32, u32) {
         let (rows, cols) = (input.rows, input.cols);
         let (cw, ch) = self.cpu.cell_size();
         let baseline = self.cpu.baseline();
         let w = (cols * cw) as u32;
         let h = (rows * ch) as u32;
+
+        // Which rows to (re)build instances for. FULL: every row. Dirty: only the
+        // flagged rows (others are preserved on the offscreen by LoadOp::Load).
+        // A closure over the scope so every per-row loop below shares ONE filter.
+        let row_active = |r: usize| -> bool {
+            match scope {
+                RepaintScope::Full => true,
+                RepaintScope::Dirty(dirty) => dirty.get(r).copied().unwrap_or(false),
+            }
+        };
 
         // Visible rows, already resolved by `extract` under the lock.
         let rendered: &[Vec<aterm_core::terminal::RenderCell>] = &input.cells;
@@ -1461,10 +1722,18 @@ impl GpuRenderer {
         let block_cursor =
             cursor_drawn && matches!(style, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock);
 
+        // Reset the persistent per-frame instance streams + key set (capacity
+        // retained — no per-frame allocation in the steady state). They are
+        // rebuilt below with identical contents in identical order.
+        self.inst.clear();
+
         // Atlas for every drawable glyph across the grid: each char resolves
         // to its full glyph identity (face/style/size) via the CPU renderer's
-        // cached dispatch, so the set — and the packing — is per-glyph.
-        let mut keys: BTreeSet<GlyphKey> = BTreeSet::new();
+        // cached dispatch, so the set — and the packing — is per-glyph. The set
+        // is moved OUT of `self.inst` (swapping in an empty placeholder) so the
+        // `self.cell_key`/`self.cpu.glyph_key` calls below can borrow `self`
+        // freely; it is moved back before being read.
+        let mut keys = std::mem::take(&mut self.inst.keys);
         for (r, cells) in rendered.iter().enumerate() {
             for (c, cell) in cells.iter().take(cols).enumerate() {
                 if Self::drawable(cell) {
@@ -1486,8 +1755,11 @@ impl GpuRenderer {
         // groups untouched; a miss grows them incrementally; only genuine
         // overflow recreates a texture. This is the G-1 fix — no per-frame
         // rebuild/re-upload. After this, `mono_res`/`color_res` are Some and hold
-        // every key in `keys`.
+        // every key in `keys`. (`keys` is still the moved-out local here, so
+        // `ensure_atlases`' `&mut self` doesn't alias it; it returns to
+        // `self.inst.keys` right after.)
         self.ensure_atlases(&keys);
+        self.inst.keys = keys;
         let mono_res = self.mono_res.as_ref().expect("ensure_atlases sets mono_res");
         let color_res = self.color_res.as_ref().expect("ensure_atlases sets color_res");
         let atlas = &mono_res.atlas;
@@ -1511,15 +1783,22 @@ impl GpuRenderer {
         // drawable glyph. A BLOCK cursor cell's glyph is drawn in the cell's bg
         // colour (cut out), and its bg fill (cursor colour) is appended LAST so
         // it overwrites the normal fill in the opaque bg pass — exactly the CPU.
-        let mut bg_inst: Vec<BgInstance> = Vec::with_capacity(rows * cols);
-        let mut glyph_inst: Vec<GlyphInstance> = Vec::new();
-        let mut color_inst: Vec<GlyphInstance> = Vec::new();
-        // The block-cursor cell's OWN glyph is held out of the main passes and
-        // drawn AFTER the cursor fill (so the fill covers any neighbour glyph
-        // overflow first, exactly like the CPU paints the block cursor last).
-        let mut cursor_glyph_inst: Vec<GlyphInstance> = Vec::new();
-        let mut cursor_color_inst: Vec<GlyphInstance> = Vec::new();
+        // These now push into the persistent (cleared) streams on `self.inst`;
+        // disjoint-field borrows keep them split from `self.cpu`/`self.theme`/
+        // `self.mono_res`/`self.color_res` used in the same loop. The block-
+        // cursor cell's OWN glyph is held out of the main passes and drawn AFTER
+        // the cursor fill (so the fill covers any neighbour glyph overflow first,
+        // exactly like the CPU paints the block cursor last).
+        let bg_inst = &mut self.inst.bg;
+        let glyph_inst = &mut self.inst.glyph;
+        let color_inst = &mut self.inst.color;
+        let cursor_glyph_inst = &mut self.inst.cursor_glyph;
+        let cursor_color_inst = &mut self.inst.cursor_color;
+        let theme_bg = rgb4_u32(self.theme.bg);
         for (r, cells) in rendered.iter().enumerate() {
+            if !row_active(r) {
+                continue;
+            }
             let y0 = (r * ch) as f32;
             let sel_row = r as i32 - display_offset;
             // DEC line size (DECDWL/DECDHL): the cell advance, glyph NEAREST
@@ -1528,6 +1807,17 @@ impl GpuRenderer {
             let line_size = input.line_sizes[r];
             let rcw = aterm_render::row_cell_w(line_size, cw);
             let (scale, anchor_y) = aterm_render::row_scale(line_size, r * ch, ch);
+            // SCISSORED PATH ONLY: a FULL-ROW-WIDTH theme-bg quad FIRST, so the
+            // band is fully re-established from background even if the per-cell
+            // fills below leave any sliver (degenerate cols). bg is REPLACE and the
+            // per-cell quads fully tile [0, w) (single: cols·cw == w; double-width:
+            // cols·2cw ⊇ w), so this quad is entirely overwritten — byte-identical
+            // to the FULL path's `LoadOp::Clear(theme.bg)` for this band, with no
+            // seam and no stale contamination. (FULL path keeps the pass Clear, so
+            // it does NOT emit this — its whole-target clear already covers it.)
+            if matches!(scope, RepaintScope::Dirty(_)) {
+                bg_inst.push(BgInstance { rect: [0.0, y0, w as f32, ch as f32], color: theme_bg });
+            }
             for (c, cell) in cells.iter().take(cols).enumerate() {
                 let x0 = (c * rcw) as f32;
                 // A lead cell is wide iff the NEXT cell is its continuation.
@@ -1588,7 +1878,7 @@ impl GpuRenderer {
         // the cell foreground — appended AFTER the bases so they draw on top,
         // matching the CPU's mark-after-base blit order.
         for (r, cells) in rendered.iter().enumerate() {
-            if input.combining[r].is_empty() {
+            if !row_active(r) || input.combining[r].is_empty() {
                 continue;
             }
             let line_size = input.line_sizes[r];
@@ -1624,21 +1914,27 @@ impl GpuRenderer {
         // bg pass) so it covers any neighbour glyph overflow into the cursor
         // cell, exactly as the CPU paints the block cursor last. The cell's own
         // glyph is then re-drawn over it (cut-out) from cursor_glyph/color_inst.
-        let cursor_block_inst: Vec<BgInstance> = if block_cursor {
-            vec![BgInstance {
+        // (Pushed into the cleared persistent `cursor_block` stream: an empty
+        // stream == the old `Vec::new()`, a single push == the old one-elem vec.)
+        // (`row_active(cr)` is always true here in the scissored path — the cursor
+        // row is in the dirty set whenever the cursor is shown — but guard it
+        // explicitly so no cursor instance can ever leak outside the dirty band.)
+        if block_cursor && row_active(cr) {
+            self.inst.cursor_block.push(BgInstance {
                 rect: [(cc * cur_cw) as f32, (cr * ch) as f32, cur_cw as f32, ch as f32],
                 color: rgb4_u32(self.theme.cursor),
-            }]
-        } else {
-            Vec::new()
-        };
+            });
+        }
 
         // Line decorations (underline / strikethrough / overline) OVER the
         // glyphs — same rects as the CPU Pass 3 (`aterm_render::underline_rects`
         // / `strike_overline_rects`), drawn as opaque quads in a pass after the
         // glyphs so CPU and GPU produce identical pixels.
-        let mut deco_inst: Vec<BgInstance> = Vec::new();
+        let deco_inst = &mut self.inst.deco;
         for (r, cells) in rendered.iter().enumerate() {
+            if !row_active(r) {
+                continue;
+            }
             let y0 = r * ch;
             let rcw = aterm_render::row_cell_w(input.line_sizes[r], cw);
             for (c, cell) in cells.iter().take(cols).enumerate() {
@@ -1680,47 +1976,137 @@ impl GpuRenderer {
         // Underline/bar/hollow cursors paint OVER the glyph (the CPU fills
         // them after its glyph blits), so their quads form a third pass that
         // runs after the glyph pass. Same rects as the CPU: `cursor_rects`.
-        let cursor_inst: Vec<BgInstance> = if cursor_drawn && !block_cursor {
-            aterm_render::cursor_rects(style, cc * cur_cw, cr * ch, cur_cw, ch)
-                .into_iter()
-                .map(|[x, y, rw, rh]| BgInstance {
-                    rect: [x as f32, y as f32, rw as f32, rh as f32],
-                    color: rgb4_u32(self.theme.cursor),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+        // (Extends the cleared persistent `cursor` stream — identical contents
+        // in identical order to the old `.collect()`.)
+        if cursor_drawn && !block_cursor && row_active(cr) {
+            let cursor_color = rgb4_u32(self.theme.cursor);
+            self.inst.cursor.extend(
+                aterm_render::cursor_rects(style, cc * cur_cw, cr * ch, cur_cw, ch).into_iter().map(
+                    |[x, y, rw, rh]| BgInstance {
+                        rect: [x as f32, y as f32, rw as f32, rh as f32],
+                        color: cursor_color,
+                    },
+                ),
+            );
+        }
 
-        // Upload uniforms + instances.
-        self.ctx.queue.write_buffer(
-            &self.uniform_buf,
-            0,
-            bytemuck::bytes_of(&Uniforms { screen: [w as f32, h as f32], _pad: [0.0, 0.0] }),
-        );
+        // Upload uniforms. `Uniforms.screen` is a pure function of the frame
+        // size, so it is rewritten ONLY on the first frame and on a resize — not
+        // every frame (the steady-state present otherwise re-uploaded an unchanged
+        // 16-byte buffer each frame). The bytes are byte-identical to the old
+        // every-frame write for the same `(w, h)`.
+        if self.uniform_dims != Some((w, h)) {
+            self.ctx.queue.write_buffer(
+                &self.uniform_buf,
+                0,
+                bytemuck::bytes_of(&Uniforms { screen: [w as f32, h as f32], _pad: [0.0, 0.0] }),
+            );
+            self.uniform_dims = Some((w, h));
+        }
         // Per-frame vertex streams now reuse persistent buffers (grow-only), so
         // there is no per-frame allocation in the common case — only a
         // `write_buffer` copy. `upload` returns `None` for an empty stream,
-        // exactly like the old `Option<Buffer>` gating: an EMPTY `bg_inst` (e.g. a
-        // degenerate/zero-cell frame) draws nothing, and the bg pass still CLEARS
-        // the target (LoadOp::Clear) — matching the CPU's all-background frame. We
-        // also slice each buffer to EXACTLY this frame's byte length so stale tail
-        // bytes from a larger previous frame are never bound or drawn.
+        // exactly like the old `Option<Buffer>` gating: an EMPTY `bg` stream (e.g.
+        // a degenerate/zero-cell frame) draws nothing, and the bg pass still
+        // CLEARS the target (LoadOp::Clear) — matching the CPU's all-background
+        // frame. We also slice each buffer to EXACTLY this frame's byte length so
+        // stale tail bytes from a larger previous frame are never bound or drawn.
         let (device, queue) = (&self.ctx.device, &self.ctx.queue);
-        let bg_buf = self.vbufs.bg.upload(device, queue, bytemuck::cast_slice(&bg_inst));
-        let glyph_buf = self.vbufs.glyph.upload(device, queue, bytemuck::cast_slice(&glyph_inst));
-        let color_buf = self.vbufs.color.upload(device, queue, bytemuck::cast_slice(&color_inst));
-        let cursor_buf = self.vbufs.cursor.upload(device, queue, bytemuck::cast_slice(&cursor_inst));
-        let deco_buf = self.vbufs.deco.upload(device, queue, bytemuck::cast_slice(&deco_inst));
+        let bg_buf = self.vbufs.bg.upload(device, queue, bytemuck::cast_slice(&self.inst.bg));
+        let glyph_buf = self.vbufs.glyph.upload(device, queue, bytemuck::cast_slice(&self.inst.glyph));
+        let color_buf = self.vbufs.color.upload(device, queue, bytemuck::cast_slice(&self.inst.color));
+        let cursor_buf = self.vbufs.cursor.upload(device, queue, bytemuck::cast_slice(&self.inst.cursor));
+        let deco_buf = self.vbufs.deco.upload(device, queue, bytemuck::cast_slice(&self.inst.deco));
         let cursor_block_buf =
-            self.vbufs.cursor_block.upload(device, queue, bytemuck::cast_slice(&cursor_block_inst));
+            self.vbufs.cursor_block.upload(device, queue, bytemuck::cast_slice(&self.inst.cursor_block));
         let cursor_glyph_buf =
-            self.vbufs.cursor_glyph.upload(device, queue, bytemuck::cast_slice(&cursor_glyph_inst));
+            self.vbufs.cursor_glyph.upload(device, queue, bytemuck::cast_slice(&self.inst.cursor_glyph));
         let cursor_color_buf =
-            self.vbufs.cursor_color.upload(device, queue, bytemuck::cast_slice(&cursor_color_inst));
+            self.vbufs.cursor_color.upload(device, queue, bytemuck::cast_slice(&self.inst.cursor_color));
 
-        let tex = self.ctx.offscreen_texture(w, h);
-        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        // Resident offscreen target: reuse the texture + view when `(w, h)` is
+        // unchanged; (re)create them only on the first frame or a resize. On a
+        // (re)create the previous target (and the blit-source bind group built
+        // from it in `present_input`) is replaced — including the per-format blit
+        // PIPELINES staying valid (they key on swapchain format, not this view),
+        // so no stale resource survives a dimension change. Usage is unchanged
+        // (`RENDER_ATTACHMENT | COPY_SRC | TEXTURE_BINDING`).
+        let recreate = match &self.offscreen {
+            Some(o) => o.w != w || o.h != h,
+            None => true,
+        };
+        if recreate {
+            let tex = self.ctx.offscreen_texture(w, h);
+            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            // The blit-source bind group samples this exact `tex` into the
+            // swapchain. Built ONCE here (and reused every present) instead of
+            // per-present. `present_input` only writes the per-frame invert flag.
+            let src_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            let blit_bind = self.ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("aterm-gpu blit bg"),
+                layout: &self.blit_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&src_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.blit_uniform_buf.as_entire_binding(),
+                    },
+                ],
+            });
+            self.offscreen = Some(Offscreen { tex, view, blit_bind, w, h });
+        }
+
+        // SCISSORED PATH: the load op + the scissor band. FULL clears the whole
+        // target (== CPU `vec![theme.bg]`); SCISSORED loads the prior frame
+        // (preserving every untouched row) and clips the pass to the dirty rows'
+        // bounding band so only those pixels are written. The dirty-row instances
+        // we built above are the ONLY draws, and rows are disjoint vertical bands,
+        // so the band is bit-identical to a full render and the rest is verbatim.
+        //
+        // Load on a JUST-(re)created texture would read undefined tiles — but the
+        // scissor path is only chosen by `encode_present_frame` when the offscreen
+        // already held the prior frame at these dims (so `recreate` is false).
+        // Assert that invariant, and fall back to Clear if it is ever violated.
+        let (load_op, scissor) = match &scope {
+            RepaintScope::Dirty(dirty) if !recreate => {
+                // Bounding band [y0, y1) over all dirty rows, clamped to the frame.
+                let mut first = None;
+                let mut last = 0usize;
+                for (r, &d) in dirty.iter().enumerate() {
+                    if d {
+                        first.get_or_insert(r);
+                        last = r;
+                    }
+                }
+                match first {
+                    Some(f) => {
+                        let y0 = (f * ch) as u32;
+                        let y1 = (((last + 1) * ch) as u32).min(h);
+                        (wgpu::LoadOp::Load, Some((0u32, y0, w, y1.saturating_sub(y0))))
+                    }
+                    // Reusable but zero dirty rows: nothing to draw. Load preserves
+                    // the prior frame; a degenerate 0-height scissor draws nothing.
+                    None => (wgpu::LoadOp::Load, Some((0, 0, 0, 0))),
+                }
+            }
+            // FULL (or the can't-happen Dirty-after-recreate): clear everything.
+            _ => {
+                debug_assert!(
+                    matches!(scope, RepaintScope::Full),
+                    "scissored Load requires the prior frame resident (no recreate)"
+                );
+                (wgpu::LoadOp::Clear(theme_color(self.theme.bg)), None)
+            }
+        };
+
+        let view = &self.offscreen.as_ref().expect("offscreen set above").view;
         let mut enc = self
             .ctx
             .device
@@ -1754,11 +2140,11 @@ impl GpuRenderer {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("aterm-gpu frame pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(theme_color(self.theme.bg)),
+                        load: load_op,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -1767,6 +2153,14 @@ impl GpuRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            // SCISSORED PATH: clip the pass to the dirty rows' bounding band so
+            // only those pixels are written; the LoadOp::Load above preserves the
+            // rest. A `(_, _, 0, 0)` rect (zero dirty rows) draws nothing — the
+            // prior frame is re-presented verbatim. FULL leaves the default
+            // full-target scissor.
+            if let Some((sx, sy, sw, sh)) = scissor {
+                pass.set_scissor_rect(sx, sy, sw, sh);
+            }
             // Bind group 0 is shared (same `uniform_bg`, same layout slot) by
             // every pipeline — set once for the whole pass.
             pass.set_bind_group(0, &self.uniform_bg, &[]);
@@ -1812,11 +2206,11 @@ impl GpuRenderer {
 
             // bg: cell background fills (REPLACE). The pass already cleared the
             // target, so an empty frame stays the theme bg.
-            draw_stream!(bg_buf, bg_inst, Pipe::Bg, &self.bg_pipeline, None::<(Atlas, &wgpu::BindGroup)>);
+            draw_stream!(bg_buf, self.inst.bg, Pipe::Bg, &self.bg_pipeline, None::<(Atlas, &wgpu::BindGroup)>);
             // glyph: mono glyphs, alpha-blended over the bg.
             draw_stream!(
                 glyph_buf,
-                glyph_inst,
+                self.inst.glyph,
                 Pipe::Glyph,
                 &self.glyph_pipeline,
                 Some((Atlas::Mono, atlas_bind))
@@ -1824,18 +2218,18 @@ impl GpuRenderer {
             // color: colour-emoji glyphs (straight RGBA, alpha-blended).
             draw_stream!(
                 color_buf,
-                color_inst,
+                self.inst.color,
                 Pipe::Color,
                 &self.color_glyph_pipeline,
                 Some((Atlas::Color, color_bind))
             );
             // deco: line decorations (underline/strike/overline), opaque, over
             // the glyphs and before the cursor.
-            draw_stream!(deco_buf, deco_inst, Pipe::Bg, &self.bg_pipeline, None::<(Atlas, &wgpu::BindGroup)>);
+            draw_stream!(deco_buf, self.inst.deco, Pipe::Bg, &self.bg_pipeline, None::<(Atlas, &wgpu::BindGroup)>);
             // cursor_block: block-cursor fill, opaque over the glyphs/deco.
             draw_stream!(
                 cursor_block_buf,
-                cursor_block_inst,
+                self.inst.cursor_block,
                 Pipe::Bg,
                 &self.bg_pipeline,
                 None::<(Atlas, &wgpu::BindGroup)>
@@ -1844,7 +2238,7 @@ impl GpuRenderer {
             // cell bg colour over the fill.
             draw_stream!(
                 cursor_glyph_buf,
-                cursor_glyph_inst,
+                self.inst.cursor_glyph,
                 Pipe::Glyph,
                 &self.glyph_pipeline,
                 Some((Atlas::Mono, atlas_bind))
@@ -1852,7 +2246,7 @@ impl GpuRenderer {
             // cursor_color: a colour-emoji cursor cell glyph over the fill.
             draw_stream!(
                 cursor_color_buf,
-                cursor_color_inst,
+                self.inst.cursor_color,
                 Pipe::Color,
                 &self.color_glyph_pipeline,
                 Some((Atlas::Color, color_bind))
@@ -1861,7 +2255,7 @@ impl GpuRenderer {
             // opaque over the glyphs — painted last, like the CPU.
             draw_stream!(
                 cursor_buf,
-                cursor_inst,
+                self.inst.cursor,
                 Pipe::Bg,
                 &self.bg_pipeline,
                 None::<(Atlas, &wgpu::BindGroup)>
@@ -1872,7 +2266,21 @@ impl GpuRenderer {
         }
 
         self.ctx.queue.submit([enc.finish()]);
-        (tex, w, h)
+        // Record the total instances built this frame (diagnostic). In the
+        // scissored path this is ~proportional to the dirty-row count, not the
+        // screen — the headline win.
+        self.last_instances = self.inst.bg.len()
+            + self.inst.glyph.len()
+            + self.inst.color.len()
+            + self.inst.cursor.len()
+            + self.inst.deco.len()
+            + self.inst.cursor_block.len()
+            + self.inst.cursor_glyph.len()
+            + self.inst.cursor_color.len();
+        // The rendered target lives on `self.offscreen` (resident across frames);
+        // callers read it from there (`render_input` for readback, `present_input`
+        // for the blit source).
+        (w, h)
     }
 }
 

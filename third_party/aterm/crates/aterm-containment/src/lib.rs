@@ -8,24 +8,50 @@
 //!
 //! ## Honest scope (`ATERM_DESIGN` §0.1)
 //!
-//! This crate is a **policy data model plus a spawn-seam actuator stub** — NOT a
-//! delivered OS isolation mechanism. It maps a [`ContainmentMode`] to a
-//! [`Capabilities`] set, records the chosen mode at the spawn seam, and is the
-//! place a real OS sandbox would be installed. The mode→capability MAPPING is
-//! TLA+-checked for non-escalation/monotonicity; that is a property of the
-//! mapping, not a proof that the operating system enforces anything.
+//! This crate is a **policy data model plus a spawn-seam actuator**. It maps a
+//! [`ContainmentMode`] to a [`Capabilities`] set, records the chosen mode at the
+//! spawn seam, and — as of this increment — actuates a REAL OS sandbox (macOS
+//! Seatbelt `(deny network*)` PLUS a conservative `(deny file-read* file-write*)`
+//! over the user's secret-credential directories, via `sandbox-exec`) for
+//! `Containment` mode; GENERAL OS filesystem scoping remains a follow-up. The
+//! mode→capability MAPPING is
+//! DESIGNED for non-escalation/monotonicity and encodes those as Kani proof
+//! harnesses ([`kani_proofs`]); that is a property of the mapping, not a proof
+//! that the operating system enforces anything. (The harnesses are opt-in — see
+//! `scripts/verify-kani-proofs.sh` — and a TLA+ model is the intended formal
+//! spec but is NOT yet in-tree.)
 //!
 //! What is actuated TODAY (see [`actuator`]):
 //! - the spawn seam consults [`actuator::decide`] before forking the shell;
 //! - the chosen mode and the OS-sandbox posture are written to the audit log;
 //! - resource limits (`setrlimit`) are installed fail-closed by `aterm-sandbox`
-//!   / `aterm-pty` in the child before exec.
+//!   / `aterm-pty` in the child before exec;
+//! - **OS NETWORK + SECRET-FS sandbox (macOS).** In `Containment` mode the spawn
+//!   is wrapped with `/usr/bin/sandbox-exec -p <SBPL>` applying the per-user
+//!   profile from [`sbpl::profile_for`] — `(version 1)(allow default)(deny
+//!   network*)` PLUS a conservative `(deny file-read* file-write* …)` over the
+//!   secret-credential set under `$HOME` (`.ssh`, `.aws`, `.gnupg`, `.config/gh`,
+//!   `.config/aterm`, `.netrc`). So the kernel Seatbelt DENIES all network AND
+//!   read/write of those credential stores to the child shell, while the rest of
+//!   the filesystem stays usable so a normal `$SHELL` works.
+//!   [`actuator::os_sandbox_actuated`] is `true` on macOS and
+//!   [`actuator::network_sandbox_actuated`] reports it per-mode; both the network
+//!   deny and the secret deny are verified by the actuator's enforcement-proof
+//!   tests. The launcher fails CLOSED if the wrapper is missing (it refuses to
+//!   spawn an unsandboxed shell when the policy demands the sandbox).
 //!
-//! What is **deferred** (deny-and-log honest, NOT a verified guarantee):
-//! - a real macOS Seatbelt (`sandbox_init` SBPL) / Endpoint Security profile that
-//!   denies network and scopes the filesystem per mode. [`actuator::os_sandbox_actuated`]
-//!   returns `false` and the actuator logs that the OS sandbox is not in force, so
-//!   an unconfined posture is an explicit, audited choice — never a silent claim.
+//! What is still **deferred** (honest, NOT yet a guarantee):
+//! - **GENERAL OS FILESYSTEM scoping.** Beyond the conservative secret set above,
+//!   the Seatbelt profile is `(allow default)` for the filesystem (a blanket `(deny
+//!   file-*)` base tight enough to matter also breaks a normal `$SHELL`); scoping
+//!   the WHOLE filesystem per [`FsCapability`] is an explicit FOLLOW-UP. The audit
+//!   log and `os_sandbox_actuated`/`network_sandbox_actuated` say exactly this —
+//!   network enforced, secret-dir read/write enforced, general filesystem not yet
+//!   scoped.
+//! - **Network ENFORCEMENT off macOS** (a Linux seccomp/Landlock lane) and
+//!   **allowlist-mode** network scoping (`Safety`) — both follow-ups; there
+//!   `os_sandbox_actuated` is `false` and the actuator logs the unconfined posture
+//!   explicitly, so it is an audited choice, never a silent claim.
 //!
 //! aterm operates in one of four containment modes, set once by the launcher:
 //!
@@ -34,7 +60,7 @@
 //! | **Master** | Full | Developer mode — all capabilities unrestricted |
 //! | **User** | Normal | Standard safeguards — output shadow-scanned |
 //! | **Safety** | Reduced | Allowlisted operations only |
-//! | **Containment** | Hostile | Most restrictive POLICY (no network, filtered I/O) — note: the OS-level enforcement of this policy is the deferred Seatbelt actuator, not yet implemented |
+//! | **Containment** | Hostile | Most restrictive POLICY (no network, filtered I/O) — the NO-NETWORK part AND a conservative SECRET-directory read/write deny (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.config/aterm`, `~/.netrc`) are OS-enforced on macOS (Seatbelt `deny network*` + `deny file-read*/file-write*` via `sandbox-exec`); GENERAL OS filesystem scoping is the deferred follow-up |
 //!
 //! ## Core Axiom
 //!
@@ -42,10 +68,12 @@
 //! instruction to an AI agent. The containment system treats all external
 //! data as untrusted by default.
 //!
-//! ## Safety Properties (TLA+ verified — of the POLICY MAPPING)
+//! ## Safety Properties (of the POLICY MAPPING — Kani harnesses; TLA+ model planned)
 //!
-//! These are properties of the mode→capability mapping in `tla/Containment.tla`,
-//! NOT of any OS enforcement:
+//! These are properties of the mode→capability mapping, encoded as Kani proof
+//! harnesses in [`kani_proofs`] (a `tla/Containment.tla` model is the intended
+//! formal spec but is not yet in-tree). They are properties of the mapping data
+//! model, NOT of any OS enforcement:
 //!
 //! - **`NonEscalation`** — mode never increases in capability
 //! - **`CapabilitiesMatchMode`** — capabilities always consistent with mode
@@ -68,7 +96,8 @@
 //! let caps = ContainmentPolicy::capabilities(mode);
 //! ```
 //!
-//! See `tla/Containment.tla` for the formal specification.
+//! The intended formal spec is a `tla/Containment.tla` model (planned, NOT yet
+//! in-tree); the in-tree checks are the [`kani_proofs`] harnesses.
 
 #![deny(missing_docs)]
 #![deny(clippy::all)]
@@ -96,8 +125,11 @@ mod kani_proofs;
 pub(crate) mod mode;
 pub(crate) mod output_filter;
 pub(crate) mod policy;
+pub mod sbpl;
 
-pub use actuator::{SpawnDecision, decide as decide_spawn, os_sandbox_actuated};
+pub use actuator::{
+    SpawnDecision, decide as decide_spawn, network_sandbox_actuated, os_sandbox_actuated,
+};
 #[cfg(unix)]
 pub use allowlist::verify_executable_fd;
 pub use allowlist::{
@@ -112,6 +144,7 @@ pub use capability::{
 pub use mode::{ContainmentMode, ParseModeError};
 pub use output_filter::OutputSanitizer;
 pub use policy::{Capabilities, ContainmentPolicy};
+pub use sbpl::{NETWORK_DENY_PROFILE, SANDBOX_EXEC_PATH, profile_for as sbpl_profile_for};
 
 use std::sync::OnceLock;
 

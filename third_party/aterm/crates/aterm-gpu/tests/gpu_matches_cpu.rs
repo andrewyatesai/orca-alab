@@ -697,3 +697,63 @@ fn combining_marks_gpu_match_cpu() {
     assert!(cpu_acc.pixels != cpu_bare.pixels, "CPU: combining marks not drawn (accented == bare)");
     assert!(gpu_acc.pixels != cpu_bare.pixels, "GPU: combining marks not drawn (accented == bare)");
 }
+
+/// OFFSCREEN-PERSISTENCE GATE: a renderer REUSED across CHANGING dimensions must
+/// produce frames BYTE-IDENTICAL to a FRESH renderer rendering the same frame.
+///
+/// The persistent offscreen render target (texture + view + blit-source bind
+/// group) and the gated screen-uniform write are reused across presents at one
+/// dimension and rebuilt only on a resize. A stale-resource bug (e.g. a frame
+/// reusing a previous, differently-sized texture/view, or skipping a needed
+/// uniform rewrite) would silently corrupt a resized frame — yet might still pass
+/// the CPU<=8-LSB parity bound. This drives a SINGLE reused renderer through a
+/// grow -> shrink -> grow -> same dimension sweep and asserts each frame equals
+/// EXACTLY (every pixel) what a renderer constructed fresh for that frame
+/// produces, so any cross-dimension resource staleness is caught.
+#[test]
+fn reused_renderer_across_dims_matches_fresh_render() {
+    let theme = Theme::default();
+    let px = 16.0;
+    let mut reused = match aterm_gpu::GpuRenderer::new(px, theme) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("SKIP: no GPU/font available: {e}");
+            return;
+        }
+    };
+
+    // Content per cell-size, deliberately glyph-rich (mono + CJK + colour emoji +
+    // combining + decorations) so the full pass set runs. CJK/emoji are written as
+    // literal `\u{..}` chars (a `&str` `\xNN` escape is ASCII-only).
+    let content: &[u8] = "\u{1b}[31mRR\u{1b}[0m \u{1b}[44mbg\u{1b}[0m \u{65e5}\u{672c} \
+\u{2764}\u{fe0f} e\u{0301} \u{1b}[4;9mUu\u{1b}[0m".as_bytes();
+
+    // grow -> shrink -> grow, then REPEAT a prior dimension (24x80 appears twice)
+    // so we exercise: first-create, grow, shrink (smaller than resident), grow
+    // again, and a same-as-an-earlier-frame dimension reusing a now-resident size.
+    let dims: &[(usize, usize)] = &[(6, 16), (24, 80), (3, 8), (24, 80), (12, 40), (6, 16)];
+
+    for (i, &(rows, cols)) in dims.iter().enumerate() {
+        let mut term = Terminal::new(rows as u16, cols as u16);
+        term.process(content);
+
+        // A fresh renderer is the oracle: it has no resident resources, so its
+        // frame is the canonical full render for these exact dimensions.
+        let mut fresh = aterm_gpu::GpuRenderer::new(px, theme)
+            .expect("fresh GPU renderer (device already proven above)");
+
+        let reused_frame = reused.render(&term, rows, cols);
+        let fresh_frame = fresh.render(&term, rows, cols);
+
+        assert_eq!(
+            (reused_frame.width, reused_frame.height),
+            (fresh_frame.width, fresh_frame.height),
+            "frame {i} ({rows}x{cols}): reused-renderer dimensions diverge from fresh",
+        );
+        assert_eq!(
+            reused_frame.pixels, fresh_frame.pixels,
+            "frame {i} ({rows}x{cols}): reused renderer (resized) is NOT byte-identical to a fresh render \
+             — stale offscreen/uniform resource",
+        );
+    }
+}

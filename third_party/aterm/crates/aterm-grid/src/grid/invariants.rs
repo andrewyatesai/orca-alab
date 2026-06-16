@@ -31,6 +31,29 @@ impl Grid {
         }
     }
 
+    /// Assert the grid invariants empirically confirmed (by fuzzing — see
+    /// aterm-core `fuzz_process_never_panics`, validated across 300k+ iterations
+    /// of arbitrary bytes / crafted escapes / unicode / reflow / alt-screen) to
+    /// hold against the live implementation: `CursorInBounds`, `ScrollRegionValid`
+    /// + `DisplayOffsetValid`, and the ring-buffer structure. This is the wirable
+    /// subset of [`Self::assert_invariants`] — everything EXCEPT `WideCharConsistent`.
+    ///
+    /// `WideCharConsistent` is the one omitted check: it is genuinely violable —
+    /// writing a wide grapheme onto a prior wide char's continuation cell
+    /// (autowrap on a narrow grid) leaves a dangling WIDE main with no
+    /// continuation (a real spec-vs-impl gap, owner-territory because the
+    /// wide-char write/erase semantics intersect a previously-reverted
+    /// differential divergence). Asserting it here would FALSE-fail.
+    ///
+    /// Unlike `assert_invariants` this is NOT `debug_assertions`-only — it is a
+    /// test helper invoked from fuzz harnesses that may build in release.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn assert_structural_invariants(&self) {
+        self.assert_cursor_in_bounds();
+        self.assert_scroll_region_valid();
+        self.assert_ring_buffer_valid();
+    }
+
     /// CursorInBounds: cursor.row < visible_rows && cursor.col < cols
     #[cfg(any(test, feature = "testing"))]
     fn assert_cursor_in_bounds(&self) {

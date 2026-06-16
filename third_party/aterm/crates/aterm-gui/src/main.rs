@@ -82,6 +82,12 @@ struct Config {
     columns: Option<u16>,
     /// Initial window height in rows (default 24, clamped 5..=300).
     lines: Option<u16>,
+    /// How many scrollback lines back Cmd-F find scans, plus the live screen
+    /// (default 5000 = [`MAX_SEARCH_HISTORY`]). Raise it to search deeper history;
+    /// the cost is that each keystroke re-scans up to this many lines, so very
+    /// large values can make the find box feel sluggish on a huge scrollback. 0 =
+    /// live screen only. Clamped to `i32::MAX`.
+    search_history_lines: Option<u32>,
 }
 
 impl Config {
@@ -454,12 +460,21 @@ fn should_repaint(prev: Option<RepaintKey>, cur: RepaintKey) -> bool {
 /// exactly what is on the terminal without any OS screen-recording.
 #[derive(Debug, Clone, Copy)]
 enum Wake {
-    Output,
-    Exit,
+    /// A session's PTY produced output. `session` is the stable [`Session::id`]
+    /// of the tab that produced it, so `user_event` feeds the right engine and
+    /// only requests a redraw when that tab is the ACTIVE one.
+    Output { session: u64 },
+    /// A session's PTY hit EOF (its shell/`-e` command exited). `session`
+    /// identifies the tab to close; the app exits only when it was the LAST tab
+    /// (and `--hold` keeps even the last tab's window open). With one tab this is
+    /// exactly the old single-session "close the app" behavior.
+    Exit { session: u64 },
     Snapshot,
-    /// The engine saw BEL (0x07): flash the frame, beep (rate-limited), and
-    /// request user attention when the window is unfocused.
-    Bell,
+    /// The engine saw BEL (0x07) on a session: flash the frame, beep
+    /// (rate-limited), and request user attention when the window is unfocused.
+    /// `session` is the originating tab; a background tab's bell still flashes
+    /// the (shared) window — the standard "bell on activity" affordance.
+    Bell { session: u64 },
     /// The control thread queued one or more `ImageReq`s and needs the main
     /// thread (which owns the renderer) to render and reply.
     Control,
@@ -537,7 +552,144 @@ impl Backend {
     }
 }
 
+/// One in-window TAB: an independent shell session (its own PTY master, engine
+/// `Terminal`, reader thread, policy engine, OSC52 authorization, and — when
+/// shell integration is on — its own FRESH capability nonce). The window,
+/// renderer, and surface are shared across all sessions; only this per-session
+/// state is multiplexed. `App` keeps the ACTIVE session's `term`/`master` mirrored
+/// into its own fields (a cheap `Arc` clone + an `i32`) so the ~44 existing
+/// `self.term`/`self.master` call sites and their disjoint-field borrows are
+/// UNCHANGED; a tab switch just re-mirrors from `sessions[active]`.
+struct Session {
+    /// Stable identity used to route [`Wake`] events from this session's reader
+    /// thread (NOT the Vec index, which shifts when an earlier tab closes).
+    id: u64,
+    term: Arc<Mutex<Terminal>>,
+    master: i32,
+}
+
+impl Drop for Session {
+    /// Close this tab's PTY master fd when the `Session` is dropped (a tab closed,
+    /// or the app exited and `sessions` is being torn down). Closing the master
+    /// tears the pty down: the slave hangs up so the shell receives SIGHUP and
+    /// exits, and this session's reader thread — blocked in `read(master)` —
+    /// returns and ends. Without this, closing a tab would leak the fd, leave the
+    /// reader thread blocked forever, and orphan the shell process.
+    ///
+    /// `App.master`/`App.term` only MIRROR the active session, so the integer fd
+    /// lives canonically in exactly one `Session` and is closed exactly once here.
+    /// (The reader thread shares the integer but only ever reads it; the brief
+    /// close-vs-blocked-read window is the standard pty-teardown race and the
+    /// reader exits on the next `read` return.)
+    fn drop(&mut self) {
+        if self.master >= 0 {
+            // SAFETY: `master` is this Session's own pty master fd from
+            // `spawn_shell`, owned solely by this Session; closed once on drop.
+            unsafe {
+                libc::close(self.master);
+            }
+        }
+    }
+}
+
+/// Pure tab-index state machine, factored out of `App` so the add/switch/cycle/
+/// close logic is unit-testable headlessly (no window / PTY / event loop). Holds
+/// ONLY the active index and the live session count; `App` owns the actual
+/// `Vec<Session>` and applies the same operations to it. Every method keeps
+/// `active < count` (the single invariant the renderer relies on) as long as
+/// `count >= 1`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TabIndex {
+    active: usize,
+    count: usize,
+}
+
+impl TabIndex {
+    fn new(active: usize, count: usize) -> Self {
+        TabIndex { active, count }
+    }
+
+    /// A tab was appended: the new tab (last index) becomes active, the standard
+    /// "open a tab and switch to it" behavior. Returns the new active index.
+    fn add(&mut self) -> usize {
+        self.count += 1;
+        self.active = self.count - 1;
+        self.active
+    }
+
+    /// Switch to tab `i` if it exists (Cmd-1..Cmd-9). No-op (returns the current
+    /// active) when `i` is out of range, so Cmd-5 in a 3-tab window does nothing.
+    fn switch_to(&mut self, i: usize) -> usize {
+        if i < self.count {
+            self.active = i;
+        }
+        self.active
+    }
+
+    /// Cycle to the next (`forward`) / previous tab, WRAPPING at the ends
+    /// (Cmd-Shift-] / Cmd-Shift-[). No-op with zero/one tab. Returns the new active.
+    fn cycle(&mut self, forward: bool) -> usize {
+        if self.count <= 1 {
+            return self.active;
+        }
+        self.active = if forward {
+            (self.active + 1) % self.count
+        } else {
+            (self.active + self.count - 1) % self.count
+        };
+        self.active
+    }
+
+    /// Close the tab at index `i`. Returns `true` iff that was the LAST tab (so
+    /// the caller exits the app). Otherwise decrements `count` and CLAMPS `active`:
+    /// closing a tab before the active one shifts the active index down by one so
+    /// it still points at the SAME session; closing the active (or any later) tab
+    /// clamps `active` into the new range (so closing the last-in-list active tab
+    /// moves focus to the new last tab). The caller removes element `i` from its
+    /// `Vec<Session>` in lockstep so indices stay aligned.
+    fn close(&mut self, i: usize) -> bool {
+        if i >= self.count {
+            return false; // out of range: nothing to close
+        }
+        if self.count <= 1 {
+            return true; // closing the last tab → exit the app
+        }
+        self.count -= 1;
+        if i < self.active {
+            // An EARLIER tab closed: the active session shifted down one slot.
+            self.active -= 1;
+        } else if self.active >= self.count {
+            // The active (or a later) tab closed and active now points past the
+            // end: clamp to the new last tab.
+            self.active = self.count - 1;
+        }
+        false
+    }
+}
+
 struct App {
+    /// All in-window tabs (≥1). Index `active` is the visible session; its
+    /// `term`/`master` are mirrored into the fields below for the existing call
+    /// sites (see [`Session`]). `tabs` tracks the active index + count.
+    sessions: Vec<Session>,
+    tabs: TabIndex,
+    /// Monotonic id source for new sessions ([`Session::id`]); never reused, so a
+    /// late `Wake` from a just-closed tab's reader can never address a live tab.
+    next_session_id: u64,
+    /// `--hold`: keep the window open after a session's command exits instead of
+    /// closing its tab on EOF (mirrors the single-session behavior, per-tab).
+    hold: bool,
+    /// Captured startup inputs for spawning a NEW tab's session ([`spawn_session`]):
+    /// the by-reference spawn/sandbox caps (the SINGLE root authority, minted once
+    /// in `main` — never re-minted), the baseline child environment, the engine
+    /// config, the shell-integration decision, and the working directory.
+    session_factory: SessionFactory,
+    /// Proxy for spawning a Cmd-T tab's reader/bell `Wake`s back to this loop.
+    proxy: EventLoopProxy<Wake>,
+    /// Shared pointer to the ACTIVE session's `term`+`master` that the control
+    /// socket reads, kept in sync by `sync_active_session` so introspection follows
+    /// tab switches. Always present (cheap) even when the socket is disabled.
+    active_handle: control::ActiveHandle,
     term: Arc<Mutex<Terminal>>,
     /// The single resident renderer (CPU or GPU) — see [`Backend`]. EXACTLY ONE
     /// is held: the GPU `GpuRenderer` (wgpu/Metal) when `ATERM_GPU` is live (and
@@ -651,6 +803,9 @@ struct App {
     /// `None` when not searching. While `Some`, keystrokes edit the query instead
     /// of going to the PTY.
     search: Option<SearchState>,
+    /// Cmd-F find scan depth, in scrollback lines (config `search_history_lines`,
+    /// default [`MAX_SEARCH_HISTORY`]). Read by `search_recompute`.
+    search_history_lines: i32,
     /// Set by Cmd-W (close window) in `on_key`; `window_event` exits the loop after
     /// the handler returns (on_key has no `ActiveEventLoop` to call `el.exit()`).
     should_exit: bool,
@@ -688,6 +843,129 @@ impl App {
                     | CursorStyle::BlinkingUnderline
                     | CursorStyle::BlinkingBar
             )
+    }
+
+    /// Re-mirror the ACTIVE session's `term`/`master` into `App`'s own fields, the
+    /// single source of truth for the ~44 existing `self.term`/`self.master` call
+    /// sites (kept as fields, not accessors, so their disjoint-field borrows still
+    /// compile). Called after every tab add/switch/cycle/close. Cheap: an `Arc`
+    /// clone + an `i32` copy. `last_present = None` forces the next redraw to paint
+    /// the newly-active grid (the D-1 early-out otherwise compares to the old tab's
+    /// presented key). Repaints + refreshes the title to the new tab.
+    fn sync_active_session(&mut self) {
+        let s = &self.sessions[self.tabs.active];
+        self.term = s.term.clone();
+        self.master = s.master;
+        // Point the control socket at the new active session so its text/drive/
+        // scroll verbs follow tab switches (and don't break when an earlier tab,
+        // incl. tab 0, closes). Auth is unaffected — only the target moves.
+        {
+            let mut g = self.active_handle.lock().unwrap_or_else(|p| p.into_inner());
+            g.term = self.term.clone();
+            g.master = self.master;
+            g.id = s.id;
+        }
+        // A switch changes which engine drives the screen; force a real paint and
+        // clear any in-flight selection/find state that belonged to the old tab.
+        self.last_present = None;
+        self.search = None;
+        self.selecting = false;
+        self.gesture = None;
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+        // The window title (incl. the [active/total] tab indicator) is refreshed
+        // on the next redraw via `apply_title`; nudge it now too so a switch with
+        // no pending output still updates the chrome immediately.
+        if let Some(w) = self.window.clone() {
+            let title = term_lock(&self.term).title().to_string();
+            self.apply_title(&w, &title);
+        }
+    }
+
+    /// Cmd-T: open a new tab — a fresh shell session in the SAME window — and
+    /// switch to it. Spawns the session via the factory (its own PTY/engine/policy/
+    /// OSC52/reader + a FRESH shell-integration nonce) at the current grid size. A
+    /// spawn failure is logged and ignored (the existing tabs survive); it does NOT
+    /// take down the window, unlike a fatal session-0 failure at startup.
+    fn open_tab(&mut self) {
+        let id = self.next_session_id;
+        match spawn_session(id, self.rows, self.cols, &self.session_factory, &self.proxy) {
+            Ok(session) => {
+                self.next_session_id += 1;
+                self.sessions.push(session);
+                self.tabs.add();
+                self.sync_active_session();
+            }
+            Err(e) => eprintln!("aterm-gui: could not open a new tab: {e}"),
+        }
+    }
+
+    /// Cmd-1..Cmd-9: switch to tab index `i` (0-based) if it exists. No-op (and no
+    /// repaint) when `i` is already active or out of range.
+    fn switch_tab(&mut self, i: usize) {
+        if i == self.tabs.active || i >= self.sessions.len() {
+            return;
+        }
+        self.tabs.switch_to(i);
+        self.sync_active_session();
+    }
+
+    /// Cmd-Shift-] / Cmd-Shift-[: cycle to the next/previous tab, wrapping. No-op
+    /// with a single tab.
+    fn cycle_tab(&mut self, forward: bool) {
+        if self.sessions.len() <= 1 {
+            return;
+        }
+        self.tabs.cycle(forward);
+        self.sync_active_session();
+    }
+
+    /// Cmd-W: close the ACTIVE tab. Returns `true` iff that was the LAST tab, in
+    /// which case the caller exits the app (the close-the-window behavior). For any
+    /// non-last tab, the session is dropped (its PTY master closed, which makes its
+    /// reader thread's `read` return EOF and exit) and focus moves to the clamped
+    /// neighbor. Honors `--hold` ONLY for the implicit close on a session's own EOF
+    /// (see `close_session`); an explicit Cmd-W always closes the active tab.
+    fn close_active_tab(&mut self) -> bool {
+        self.close_tab_at(self.tabs.active)
+    }
+
+    /// Close the tab holding session `id` (its reader hit EOF). With `--hold`, the
+    /// tab is KEPT so the final output stays visible (the user closes it with
+    /// Cmd-W). Returns `true` iff the app should now exit (the last tab closed and
+    /// `--hold` is off). A `Wake::Exit` for an already-closed/unknown session is a
+    /// no-op (stale event from a just-closed tab's reader).
+    fn close_session(&mut self, id: u64) -> bool {
+        if self.hold {
+            return false; // keep the window/tab open after the command exits
+        }
+        match self.sessions.iter().position(|s| s.id == id) {
+            Some(i) => self.close_tab_at(i),
+            None => false, // already closed / unknown id → ignore
+        }
+    }
+
+    /// Close the tab at `Vec` index `i`, keeping `sessions` and `tabs` aligned, and
+    /// re-mirror the new active session. Returns `true` iff that was the last tab
+    /// (caller exits the app). Dropping the removed `Session` closes its PTY master,
+    /// so its reader thread's next `read` returns EOF and the thread exits.
+    fn close_tab_at(&mut self, i: usize) -> bool {
+        if i >= self.sessions.len() {
+            return false;
+        }
+        if self.tabs.close(i) {
+            return true; // last tab → exit the app
+        }
+        self.sessions.remove(i);
+        self.sync_active_session();
+        false
+    }
+
+    /// Whether session `id` is the currently ACTIVE (visible) tab — used to gate a
+    /// background tab's output from forcing a repaint of the screen it isn't on.
+    fn is_active_session(&self, id: u64) -> bool {
+        self.sessions.get(self.tabs.active).is_some_and(|s| s.id == id)
     }
 
     /// The glyph cell size in pixels, from the live rasterizer (GPU's internal
@@ -740,11 +1018,14 @@ impl App {
         }
     }
 
-    /// BEL reached the engine: audible beep (rate-limited), visual flash
-    /// (repaint now; `about_to_wait` arms the un-flash wake), and — unfocused —
-    /// ask the OS to mark the window urgent (Dock bounce / taskbar highlight),
-    /// the tmux bell-on-activity flow.
-    fn on_bell(&mut self) {
+    /// BEL reached a tab's engine: audible beep (rate-limited), visual flash
+    /// (repaint now; `about_to_wait` arms the un-flash wake), and ask the OS to
+    /// mark the window urgent (Dock bounce / taskbar highlight) when the bell
+    /// can't otherwise be seen — the tmux bell-on-activity flow. `session` is the
+    /// originating tab: attention is requested when the window is unfocused OR the
+    /// bell came from a BACKGROUND tab (its flash isn't on the visible screen), so
+    /// a background tab's activity still surfaces even on a focused window.
+    fn on_bell(&mut self, session: u64) {
         let now = Instant::now();
         if self.bell_beep.try_fire(now) {
             // The user's configured macOS alert sound. AppKit is already
@@ -754,10 +1035,11 @@ impl App {
                 objc2_app_kit::NSBeep();
             }
         }
+        let background = !self.is_active_session(session);
         if let Some(w) = &self.window {
             self.bell_flash.ring(now);
             w.request_redraw();
-            if !self.focused {
+            if !self.focused || background {
                 w.request_user_attention(Some(UserAttentionType::Informational));
             }
         }
@@ -774,13 +1056,21 @@ impl App {
     /// IME/dead-key composition is active and what it currently holds. Because
     /// this runs on the early-out path too, the indicator follows the
     /// composition without forcing a full pixel repaint.
+    ///
+    /// TABS: with more than one in-window tab, a ` — [active/total]` indicator is
+    /// appended (e.g. `aterm — [2/3]`) so the (visual-tab-bar-less) tab state is
+    /// visible in the window chrome. A single tab shows no indicator, so a
+    /// one-session window's title is byte-identical to before.
     fn apply_title(&mut self, window: &Window, title: &str) {
         let base = if title.is_empty() { "aterm" } else { title };
-        let desired = if self.preedit.is_empty() {
+        let mut desired = if self.preedit.is_empty() {
             base.to_string()
         } else {
             format!("{base} [‹{}›]", self.preedit)
         };
+        if self.sessions.len() > 1 {
+            desired.push_str(&format!(" — [{}/{}]", self.tabs.active + 1, self.sessions.len()));
+        }
         if desired != self.current_title {
             window.set_title(&desired);
             self.current_title.clear();
@@ -1074,7 +1364,7 @@ impl App {
             // Scrollback (negative rows) oldest→newest, bounded; then the live screen.
             let mut hist: Vec<(i32, String)> = Vec::new();
             let mut r = -1;
-            while r >= -MAX_SEARCH_HISTORY {
+            while r >= -self.search_history_lines {
                 match term.get_line_text(r, None) {
                     Some(t) => hist.push((r, t)),
                     None => break, // past the top of history
@@ -1167,18 +1457,56 @@ impl App {
         }
         // Typing makes the cursor solid and restarts the blink period.
         self.reset_blink();
-        // Cmd-N opens a new window (a fresh, independent aterm-gui process — the
-        // standard macOS "new window", distinct from in-window tabs). Cmd-W closes
-        // this window (the keyboard equivalent of the close button).
+        // Cmd-Shift-] / Cmd-Shift-[ cycle to the next / previous in-window TAB
+        // (wrapping). Handled FIRST among the Cmd combos because they need Shift,
+        // which the `!shift_key()` block below excludes. On a US layout Shift maps
+        // `]`/`[` to `}`/`{`, so both forms are accepted.
+        if self.mods.super_key() && self.mods.shift_key() {
+            if let Key::Character(s) = &ev.logical_key {
+                match s.as_str() {
+                    "]" | "}" => {
+                        self.cycle_tab(true);
+                        return;
+                    }
+                    "[" | "{" => {
+                        self.cycle_tab(false);
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Cmd-N opens a new WINDOW (a fresh, independent aterm-gui process — the
+        // standard macOS "new window"). Cmd-T opens a new in-window TAB (a fresh
+        // shell session sharing this window). Cmd-W closes the ACTIVE TAB and exits
+        // the app only when the LAST tab closes (so a single-tab window still closes
+        // like before). Cmd-1..Cmd-9 jump straight to that tab (1-based).
         if self.mods.super_key() && !self.mods.shift_key() {
             if let Key::Character(s) = &ev.logical_key {
-                match s.to_ascii_lowercase().as_str() {
+                let lc = s.to_ascii_lowercase();
+                match lc.as_str() {
                     "n" => {
                         open_new_window();
                         return;
                     }
+                    "t" => {
+                        self.open_tab();
+                        return;
+                    }
                     "w" => {
-                        self.should_exit = true;
+                        // Close the active tab; only the LAST tab's close exits the
+                        // app (via should_exit → el.exit() after on_key returns —
+                        // on_key has no ActiveEventLoop to call el.exit() itself).
+                        if self.close_active_tab() {
+                            self.should_exit = true;
+                        }
+                        return;
+                    }
+                    // Cmd-1..Cmd-9 → switch to that tab (1-based → 0-based index).
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => {
+                        if let Some(d) = lc.chars().next().and_then(|c| c.to_digit(10)) {
+                            self.switch_tab(d as usize - 1);
+                        }
                         return;
                     }
                     _ => {}
@@ -1776,6 +2104,12 @@ impl App {
     /// (the geometry the main thread owns). The CPU softbuffer resizes itself in
     /// `redraw` from the Frame dims. No-op when the geometry is unchanged. Shared
     /// by the window `Resized` path and the control-socket resize (RES-1).
+    ///
+    /// TABS: rows/cols are WINDOW-level, so a resize is applied to EVERY tab's
+    /// engine + PTY (not just the active one) — a background tab kept at the old
+    /// size would reflow wrongly the moment it became visible, and its app
+    /// (vim/htop) would see a stale `SIGWINCH` geometry. With one tab this is the
+    /// same single resize as before.
     fn apply_term_resize(&mut self, rows: u16, cols: u16) -> bool {
         if (rows, cols) == (self.rows, self.cols) {
             return false;
@@ -1783,8 +2117,11 @@ impl App {
         let (cw, ch) = self.cell_size();
         self.rows = rows;
         self.cols = cols;
-        term_lock(&self.term).resize(rows, cols);
-        aterm_pty::resize(self.master, rows, cols);
+        // Resize ALL sessions' engines + PTYs (window-level geometry).
+        for s in &self.sessions {
+            term_lock(&s.term).resize(rows, cols);
+            aterm_pty::resize(s.master, rows, cols);
+        }
         // GPU mode: reconfigure the swapchain to the new framebuffer pixel size
         // (rows/cols x cell size) so the blit target matches the frame.
         if let (Some(gpu), Some(gpu_surface)) =
@@ -1985,20 +2322,44 @@ impl ApplicationHandler<Wake> for App {
 
     fn user_event(&mut self, el: &ActiveEventLoop, ev: Wake) {
         match ev {
-            Wake::Output => {
-                if let Some(w) = &self.window {
-                    w.request_redraw();
+            // A tab produced output. Its reader thread already fed the matching
+            // engine (it holds that session's own `term`); the main thread only
+            // needs to repaint, and ONLY when the producing tab is the ACTIVE
+            // (visible) one — a background tab's output updates its off-screen grid
+            // silently. With one tab this is identical to the old unconditional
+            // request_redraw.
+            Wake::Output { session } => {
+                if self.is_active_session(session) {
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
                 }
             }
-            Wake::Exit => el.exit(),
+            // A tab's shell/`-e` command exited. Close only THAT tab; exit the app
+            // only when it was the last (and `--hold` keeps even that open). With
+            // one tab and no `--hold`, this exits the app exactly as before.
+            Wake::Exit { session } => {
+                if self.close_session(session) {
+                    el.exit();
+                }
+            }
             Wake::Snapshot => self.snapshot(),
-            Wake::Bell => self.on_bell(),
+            // BEL on any tab flashes the (shared) window — the standard
+            // "bell on activity" affordance; a background tab's bell additionally
+            // requests user attention so off-screen activity still surfaces.
+            Wake::Bell { session } => self.on_bell(session),
             Wake::Control => {
                 // Drain off-lock so the control thread can keep queuing, then
                 // render each request and reply with the frame dimensions. A
                 // dropped receiver (dead client) just makes send() fail; ignore.
-                let reqs: Vec<control::ImageReq> =
-                    self.image_queue.lock().unwrap().drain(..).collect();
+                // Poison-recovery (matches `term_lock`): a panicked control thread
+                // must not abort the whole GUI — recover the queue and drain it.
+                let reqs: Vec<control::ImageReq> = self
+                    .image_queue
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .drain(..)
+                    .collect();
                 for req in reqs {
                     let dims = self.render_image(&req.target);
                     let _ = req.reply.send(dims);
@@ -2117,6 +2478,203 @@ fn prepare_shell_integration() -> Option<(Vec<(String, String)>, Option<Vec<Stri
     Some((injection.env_add, injection.argv_override, nonce.into_parts().0))
 }
 
+/// Everything `spawn_session` needs to stand up a NEW tab's shell session,
+/// captured ONCE at startup. The spawn/sandbox caps are the SINGLE root authority
+/// minted in `main` (held by clone — cloning a `Cap` does NOT re-mint authority;
+/// there is exactly one `unsafe Authority::root_authority()` in the product). The
+/// baseline `env_add` is the terminal-identity env WITHOUT shell-integration vars
+/// (those carry a per-tab nonce and are added fresh inside `spawn_session`).
+struct SessionFactory {
+    spawn_cap: aterm_cap::Cap<aterm_cap::effects::Spawn>,
+    sandbox_cap: aterm_cap::Cap<aterm_sandbox::Sandbox>,
+    /// Terminal-identity env (TERM/COLORTERM/LANG/…) shared by every tab; the
+    /// shell-integration loader vars (which embed the per-tab nonce) are appended
+    /// per session inside `spawn_session`, never here, so each tab's nonce is its own.
+    env_add: Vec<(String, String)>,
+    /// `-e <cmd>`: run this instead of `$SHELL` (also disables shell integration).
+    exec_command: Option<Vec<String>>,
+    /// `-d <dir>`: working directory for every tab's shell.
+    cwd: Option<String>,
+    /// OS-sandbox wrap (macOS Seatbelt SBPL). `Some(profile)` ONLY in `Containment`
+    /// mode on macOS — every tab's `spawn_shell` is then wrapped in `sandbox-exec
+    /// -p <profile>` to deny network at the OS level (fail-closed if the wrapper is
+    /// missing). `None` in every other mode → byte-identical, unwrapped spawn.
+    /// Resolved ONCE from the containment decision in `main` so all tabs match.
+    sandbox_wrap: Option<String>,
+    /// Engine config (scrollback/cursor/theme/palette) applied to each tab's
+    /// `Terminal`, byte-identical to the single-session path.
+    terminal_config: Option<aterm_core::config::TerminalConfig>,
+    /// Whether to inject OSC 133/633 shell integration. When true, EACH tab gets
+    /// a FRESH CSPRNG nonce (a reused nonce would let one tab's output forge
+    /// another tab's shell-integration marks), authorized + required on its own
+    /// engine. False when `-e` runs a command or integration is opted out.
+    integrate: bool,
+    /// Latency self-introspection state shared across tabs (see `App::trace_latency`).
+    trace_latency: bool,
+    lat_epoch: Instant,
+    last_output_ns: Arc<AtomicU64>,
+}
+
+/// Stand up one tab's shell session and start its PTY reader thread — the
+/// security-critical factory shared by session 0 (so startup is byte-identical)
+/// and every Cmd-T tab. Each session gets, INDEPENDENTLY:
+///   * its OWN PTY master via `aterm_pty::spawn_shell`, using the SAME
+///     by-reference spawn/sandbox caps (no second authority mint);
+///   * a FRESH shell-integration nonce when `integrate` is on — generated HERE,
+///     per call, then `authorize_shell_integration` + `set_require_…(true)` — so
+///     one tab's output can never forge another tab's OSC 133/633 marks;
+///   * its OWN OSC 52 clipboard authorization (WRITE only; QUERY denied) + a
+///     dedicated pbcopy thread + callback;
+///   * its OWN `standard`-profile policy engine;
+///   * its OWN PTY reader thread, which tags every `Wake` (Output/Exit/Bell) with
+///     this session's `id` so `user_event` routes it to the right engine.
+/// Returns the `Session` (id + term + master) or a spawn error (caller decides
+/// fatal-at-startup vs. log-and-ignore for a Cmd-T failure).
+fn spawn_session(
+    id: u64,
+    rows: u16,
+    cols: u16,
+    factory: &SessionFactory,
+    proxy: &EventLoopProxy<Wake>,
+) -> std::io::Result<Session> {
+    // Per-tab shell integration: a FRESH nonce per session. Reusing a nonce
+    // across tabs would let tab A's (untrusted) output emit tab B's authorized
+    // OSC 133/633 marks; a distinct nonce per engine prevents that cross-tab
+    // forgery. Computed only when integration is enabled (never under `-e`).
+    let (env_add, argv_override, shell_nonce) = if factory.integrate {
+        match prepare_shell_integration() {
+            Some((si_env, argv_override, nonce)) => {
+                let mut env = factory.env_add.clone();
+                env.extend(si_env);
+                (env, argv_override, Some(nonce))
+            }
+            None => (factory.env_add.clone(), None, None),
+        }
+    } else {
+        (factory.env_add.clone(), None, None)
+    };
+
+    let master = aterm_pty::spawn_shell(
+        rows,
+        cols,
+        &factory.spawn_cap,
+        &factory.sandbox_cap,
+        &env_add,
+        argv_override.as_deref(),
+        factory.exec_command.as_deref(),
+        factory.cwd.as_deref(),
+        factory.sandbox_wrap.as_deref(),
+    )?;
+
+    let term = {
+        let mut t = Terminal::new(rows, cols);
+        // Engine-side config (scrollback, cursor, theme, palette) BEFORE the reader
+        // thread starts, byte-identical to the single-session startup.
+        if let Some(tc) = &factory.terminal_config {
+            t.apply_config(tc);
+        }
+        Arc::new(Mutex::new(t))
+    };
+
+    // Trust ONLY this tab's command marks: install its FRESH nonce and require it.
+    if let Some(nonce) = shell_nonce {
+        let mut t = term_lock(&term);
+        t.authorize_shell_integration(nonce);
+        t.set_require_shell_integration_nonce(true);
+    }
+
+    // OSC 52 clipboard: WRITE authorized (pbcopy on a dedicated thread so the
+    // blocking subprocess never runs under the Terminal lock), QUERY denied —
+    // handing the user's clipboard back to a program stays off. Each tab gets its
+    // own authorization + callback so a background tab's yank still reaches pbcopy.
+    {
+        let (clip_tx, clip_rx) = std::sync::mpsc::channel::<String>();
+        std::thread::spawn(move || {
+            while let Ok(content) = clip_rx.recv() {
+                control::pbcopy(&content);
+            }
+        });
+        let mut t = term_lock(&term);
+        t.authorize_clipboard_access(ClipboardAccess::Write);
+        t.set_clipboard_callback(move |op| {
+            match op {
+                ClipboardOperation::Set { content, .. } => {
+                    let _ = clip_tx.send(content);
+                }
+                ClipboardOperation::Clear { .. } => {
+                    let _ = clip_tx.send(String::new());
+                }
+                ClipboardOperation::Query { .. } => {}
+            }
+            None
+        });
+    }
+
+    // POL-1: this tab's OWN `standard`-profile policy engine, installed BEFORE its
+    // reader thread produces any bytes (same fail-closed posture as session 0).
+    term_lock(&term).apply_policy_engine(aterm_policy::engine::PolicyEngine::new(
+        aterm_policy::profiles::standard(),
+    ));
+
+    // BEL → Wake::Bell{id}. Fires inside `process()` on this tab's reader thread,
+    // under the Terminal lock, so it only wakes the UI; the main thread beeps/flashes.
+    {
+        let proxy = proxy.clone();
+        term_lock(&term).set_bell_callback(move || {
+            let _ = proxy.send_event(Wake::Bell { session: id });
+        });
+    }
+
+    // PTY reader thread for THIS session: read → feed this engine → wake UI with
+    // this session's id so `user_event` routes the output/EOF to the right tab.
+    {
+        let term = term.clone();
+        let proxy = proxy.clone();
+        let trace_latency = factory.trace_latency;
+        let lat_epoch = factory.lat_epoch;
+        let last_output_ns = factory.last_output_ns.clone();
+        std::thread::spawn(move || {
+            let bufsz = std::env::var("ATERM_PTY_READ_BUF")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|n| (4096..=4 * 1024 * 1024).contains(n))
+                .unwrap_or(65536);
+            let mut buf = vec![0u8; bufsz];
+            loop {
+                let r = aterm_pty::read(master, &mut buf);
+                if r <= 0 {
+                    // This tab's PTY closed (its shell/`-e` command exited). Route
+                    // an Exit for THIS session; the main thread closes only this
+                    // tab and exits the app only if it was the last (honoring
+                    // `--hold`, which suppresses the close on the main thread).
+                    let _ = proxy.send_event(Wake::Exit { session: id });
+                    break;
+                }
+                let response = {
+                    let mut t = term_lock(&term);
+                    t.process(&buf[..r as usize]);
+                    t.take_response()
+                };
+                if let Some(resp) = response {
+                    aterm_pty::write_all(master, &resp);
+                }
+                if trace_latency {
+                    let now = lat_epoch.elapsed().as_nanos() as u64;
+                    let _ = last_output_ns.compare_exchange(
+                        0,
+                        now.max(1),
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    );
+                }
+                let _ = proxy.send_event(Wake::Output { session: id });
+            }
+        });
+    }
+
+    Ok(Session { id, term, master })
+}
+
 /// Parsed CLI: the `-e` command to run instead of `$SHELL` (if any), the
 /// `--working-directory` to start it in (if any), and whether to `--hold` the
 /// window open after the command exits.
@@ -2159,7 +2717,11 @@ fn parse_cli() -> Cli {
                         "    Cmd-= / Cmd--     Zoom the font in / out.   Cmd-0  Reset zoom.\n",
                         "    Cmd-click         Open a hyperlink / detected URL (http/https/mailto).\n",
                         "    Cmd-F             Find (screen + scrollback): type, Enter/Shift-Enter, Esc.\n",
-                        "    Cmd-N / Cmd-W     Open a new window / close this window.\n\n",
+                        "    Cmd-N             Open a new window (separate process).\n",
+                        "    Cmd-T             Open a new tab (new shell, same window).\n",
+                        "    Cmd-W             Close the active tab; closing the last tab quits.\n",
+                        "    Cmd-Shift-] / [   Next / previous tab (wraps).   Cmd-1..9  Nth tab.\n",
+                        "                      Tab state shows in the title as [active/total].\n\n",
                         "ENVIRONMENT:\n",
                         "    ATERM_GPU=1       GPU (Metal) rendering.\n",
                         "    ATERM_FONT_PX=N   Glyph size in physical pixels.\n",
@@ -2170,7 +2732,8 @@ fn parse_cli() -> Cli {
                         "                                background, cursor_color,\n",
                         "                                selection_color [#RRGGBB],\n",
                         "                                palette [array of #RRGGBB],\n",
-                        "                                columns, lines [initial size]).\n",
+                        "                                columns, lines [initial size],\n",
+                        "                                search_history_lines [Cmd-F depth]).\n",
                     )
                 );
                 std::process::exit(0);
@@ -2315,34 +2878,41 @@ fn main() {
     // injected when there is no interactive user to surprise — headless — or on
     // explicit $ATERM_SHELL_INTEGRATION; $ATERM_NO_SHELL_INTEGRATION always opts
     // out. The shell sources the user's own rc and adds the marks; its loader
-    // vars are appended after the baseline (no collision with TERM/LANG/…).
-    // No shell integration when `-e` runs a command directly: there is no
-    // interactive shell to inject OSC 133/633 marks into.
+    // vars are appended (per session, with a FRESH per-tab nonce) inside
+    // `spawn_session`. No shell integration when `-e` runs a command directly:
+    // there is no interactive shell to inject OSC 133/633 marks into.
     let integrate = exec_command.is_none()
         && std::env::var_os("ATERM_NO_SHELL_INTEGRATION").is_none()
         && (headless || std::env::var_os("ATERM_SHELL_INTEGRATION").is_some());
-    let (argv_override, shell_nonce) = match integrate.then(prepare_shell_integration).flatten() {
-        Some((si_env, argv_override, nonce)) => {
-            env_add.extend(si_env);
-            (argv_override, Some(nonce))
-        }
-        None => (None, None),
-    };
-    // SEC-1: gate the single spawn seam on the containment decision. The mode
-    // was resolved once at startup (`init_mode_from_env`, see `main`); here we
-    // ask the actuator whether the initial shell may spawn for that mode, which
-    // ALSO audits the chosen mode and the (honest) fact that no OS-level sandbox
-    // is actuated yet — so an unconfined posture is a logged, explicit choice,
-    // not a silent gap. A `Deny` fails closed (no shell).
+    // SEC-1 + OS-sandbox actuator: gate the single spawn seam on the containment
+    // decision. The mode was resolved once at startup (`init_mode_from_env`, see
+    // `main`); here we ask the actuator whether the initial shell may spawn for
+    // that mode. For `Containment` on macOS the decision carries an SBPL profile
+    // (`sbpl`) — the launcher MUST wrap the spawn in `sandbox-exec` to deny network
+    // at the OS level; that profile is threaded into the `SessionFactory` so EVERY
+    // tab (session 0 + Cmd-T) is wrapped identically. For every other mode `sbpl`
+    // is `None` and the spawn is byte-identical to before (no sandbox-exec). The
+    // decision also audits the (now honest) OS-sandbox posture. A `Deny` fails
+    // closed (no shell). The PTY seam ALSO fails closed if a demanded wrapper is
+    // missing (it refuses to spawn an unsandboxed shell) — defence in depth.
     let mode = aterm_containment::mode_or_containment();
-    match aterm_containment::decide_spawn(mode) {
-        aterm_containment::SpawnDecision::Permit { os_sandbox, .. } => {
-            if !os_sandbox {
+    let sandbox_wrap: Option<String> = match aterm_containment::decide_spawn(mode) {
+        aterm_containment::SpawnDecision::Permit { os_sandbox, sbpl, .. } => {
+            if os_sandbox {
+                eprintln!(
+                    "aterm-gui: containment mode {mode}: OS sandbox ACTUATED \
+                     (sandbox-exec '(deny network*)' + conservative secret-dir read/write deny \
+                     ~/.ssh ~/.aws ~/.gnupg ~/.config/gh ~/.config/aterm ~/.netrc); \
+                     general filesystem NOT scoped (follow-up)"
+                );
+            } else {
                 eprintln!(
                     "aterm-gui: containment mode {mode}: OS sandbox NOT actuated \
                      (rlimits + capability gate only); see aterm-containment::actuator"
                 );
             }
+            // `sbpl` is the per-user owned profile string; take it as-is.
+            sbpl
         }
         // Deny — or any future non-exhaustive variant — fails closed: no shell.
         other => {
@@ -2353,7 +2923,7 @@ fn main() {
             );
             std::process::exit(1);
         }
-    }
+    };
     // The process minting authority is created ONCE here, in the trusted
     // launcher, before any untrusted input is processed. It is the SINGLE
     // `unsafe` root-authority mint in the product (CAP-1): trusted-launcher mint,
@@ -2364,83 +2934,12 @@ fn main() {
     let authority = unsafe { aterm_cap::Authority::root_authority() };
     let spawn_cap = authority.grant::<aterm_cap::effects::Spawn>(aterm_cap::Tier::Trusted);
     let sandbox_cap = authority.grant::<aterm_sandbox::Sandbox>(aterm_cap::Tier::Trusted);
-    let master =
-        aterm_pty::spawn_shell(rows, cols, &spawn_cap, &sandbox_cap, &env_add, argv_override.as_deref(), exec_command.as_deref(), cwd.as_deref())
-            .unwrap_or_else(|e| {
-                eprintln!("aterm-gui: spawn failed: {e}");
-                std::process::exit(1);
-            });
-    let term = {
-        let mut t = Terminal::new(rows, cols);
-        // Apply engine-side config (scrollback, …) before the reader thread starts.
-        if let Some(tc) = config.terminal_config() {
-            t.apply_config(&tc);
-        }
-        Arc::new(Mutex::new(t))
-    };
-    // Trust ONLY this shell's command marks: install its nonce and require it.
-    if let Some(nonce) = shell_nonce {
-        let mut t = term.lock().unwrap();
-        t.authorize_shell_integration(nonce);
-        t.set_require_shell_integration_nonce(true);
-    }
 
-    // OSC 52 system-clipboard integration: programs (tmux `set-clipboard on`,
-    // vim, an ssh+tmux yank) place text on the clipboard via `ESC]52;c;<base64>`.
-    // The engine decodes it and invokes this callback; we forward WRITES to
-    // pbcopy on a dedicated thread so the blocking subprocess never runs under
-    // the Terminal lock (the callback fires inside `process()`). READS (Query)
-    // are denied — returning the user's clipboard to a program is a security
-    // risk and stays off (gated separately by `allow_osc52_query`, default off).
-    {
-        let (clip_tx, clip_rx) = std::sync::mpsc::channel::<String>();
-        std::thread::spawn(move || {
-            while let Ok(content) = clip_rx.recv() {
-                control::pbcopy(&content);
-            }
-        });
-        let mut t = term_lock(&term);
-        // Opt into OSC 52 WRITE (revoked by default). Write is the expected,
-        // useful path (tmux/vim set the clipboard); the lower risk is clipboard
-        // injection. QUERY (read) stays revoked — handing the user's clipboard
-        // back to a program is the dangerous capability and is left off.
-        t.authorize_clipboard_access(ClipboardAccess::Write);
-        t.set_clipboard_callback(move |op| {
-            match op {
-                ClipboardOperation::Set { content, .. } => {
-                    let _ = clip_tx.send(content);
-                }
-                ClipboardOperation::Clear { .. } => {
-                    let _ = clip_tx.send(String::new());
-                }
-                ClipboardOperation::Query { .. } => {}
-            }
-            None
-        });
-    }
-
-    // POL-1: install the DEFAULT OSC / escape-sequence policy profile so the
-    // profile-based policy engine is LIVE (not just the legacy allow_* booleans).
-    // It was built + wired into core but no product ever installed it, leaving
-    // the enforcement path dead. Installed HERE — before the PTY reader thread
-    // spawns and produces any bytes — so every PTY byte is evaluated against it.
-    //
-    // The `standard` profile is the sensible interactive default and stays
-    // FAIL-CLOSED: the deny-by-default capability gates (OSC 52 clipboard,
-    // XTWINOPS) fall back to the legacy authorization bits when no specific rule
-    // matches a PTY-origin sequence (`engine_decision_deny_by_default_capability`
-    // returns `Fallback`), so the GUI's explicit `authorize_clipboard_access`
-    // above still governs clipboard writes — the policy only ADDS enforcement
-    // (CSI t dropped for host-origin, notification/palette/response rate limits)
-    // on top of the existing posture, never widens it.
-    term_lock(&term).apply_policy_engine(aterm_policy::engine::PolicyEngine::new(
-        aterm_policy::profiles::standard(),
-    ));
-
-    // Block SIGUSR1 process-wide (in the main thread, before spawning any thread,
+    // Block SIGUSR1 process-wide (in the main thread, BEFORE spawning any thread,
     // so all threads inherit the block) — a dedicated thread sigwait()s it and
     // requests a self-introspection snapshot. Default SIGUSR1 action would kill
-    // the process, so blocking is required.
+    // the process, so blocking is required. This MUST precede `spawn_session`,
+    // which spawns the (per-tab) reader + clipboard threads.
     unsafe {
         let mut set: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut set);
@@ -2451,16 +2950,41 @@ fn main() {
     let event_loop = EventLoop::<Wake>::with_user_event().build().expect("event loop");
     let proxy: EventLoopProxy<Wake> = event_loop.create_proxy();
 
-    // BEL -> Wake::Bell. The callback fires inside `process()` on the PTY
-    // reader thread, under the Terminal lock, so it must only wake the UI;
-    // the main thread does the beep/flash/attention. The engine throttles
-    // the callback itself (one per 100ms) against BEL floods.
-    {
-        let proxy = event_loop.create_proxy();
-        term_lock(&term).set_bell_callback(move || {
-            let _ = proxy.send_event(Wake::Bell);
-        });
-    }
+    // Latency self-introspection state (see App::trace_latency). The epoch is a
+    // shared monotonic origin so each tab's reader thread and the UI thread
+    // produce comparable nanosecond stamps.
+    let trace_latency = std::env::var_os("ATERM_TRACE_LATENCY").is_some();
+    let lat_epoch = Instant::now();
+    let last_output_ns = Arc::new(AtomicU64::new(0));
+
+    // The session factory captures everything a NEW tab's `spawn_session` needs
+    // (the by-reference spawn/sandbox caps from the SINGLE root authority above,
+    // the baseline env, the engine config, the shell-integration decision, the
+    // cwd, and the latency state). `spawn_session` stands up the PTY + engine +
+    // policy + OSC52 + reader thread per tab; session 0 is created the same way so
+    // the single-session startup is byte-identical to the old inline code.
+    let session_factory = SessionFactory {
+        spawn_cap,
+        sandbox_cap,
+        env_add,
+        exec_command,
+        cwd,
+        sandbox_wrap,
+        terminal_config: config.terminal_config(),
+        integrate,
+        trace_latency,
+        lat_epoch,
+        last_output_ns: last_output_ns.clone(),
+    };
+
+    // Session 0: the first tab. A spawn failure here is fatal (no shell to show);
+    // a Cmd-T failure later is logged and ignored (the existing tabs survive).
+    let session0 = spawn_session(0, rows, cols, &session_factory, &proxy).unwrap_or_else(|e| {
+        eprintln!("aterm-gui: spawn failed: {e}");
+        std::process::exit(1);
+    });
+    let term = session0.term.clone();
+    let master = session0.master;
 
     // SIGUSR1 listener -> Wake::Snapshot (introspect the live screen to PNG+txt).
     {
@@ -2494,12 +3018,21 @@ fn main() {
     // aterm.sock symlink, so concurrent instances never collide.
     // $ATERM_CONTROL_SOCK overrides the path, or disables the socket entirely
     // with `0`/`off` ($ATERM_NO_CONTROL_SOCK=1 works too).
+    //
+    // TABS: the control socket FOLLOWS THE ACTIVE TAB. It holds a shared
+    // `ActiveHandle` (active session's `term` + `master`) that `sync_active_session`
+    // updates on every tab switch / open / close; each request resolves the current
+    // target, so text/drive/scroll verbs act on whatever tab is active and never
+    // break when an earlier tab (incl. tab 0) closes. `image`/`dims` already render
+    // the active tab via the shared renderer. The socket's auth (peer-uid + per-launch
+    // token) is unchanged — only the target session follows the UI.
+    let active_handle: control::ActiveHandle =
+        Arc::new(Mutex::new(control::ActiveSession { term: term.clone(), master, id: 0 }));
     let image_queue: control::ImageQueue = Arc::new(Mutex::new(VecDeque::new()));
     let sock_plan = match control_auth::resolve_socket_plan() {
         control_auth::SocketResolution::Enabled(plan) => {
             control::spawn(
-                term.clone(),
-                master,
+                active_handle.clone(),
                 event_loop.create_proxy(),
                 image_queue.clone(),
                 plan.clone(),
@@ -2520,75 +3053,14 @@ fn main() {
         }
     };
 
-    // Latency self-introspection state (see App::trace_latency). The epoch is a
-    // shared monotonic origin so the reader thread and the UI thread produce
-    // comparable nanosecond stamps.
-    let trace_latency = std::env::var_os("ATERM_TRACE_LATENCY").is_some();
-    let lat_epoch = Instant::now();
-    let last_output_ns = Arc::new(AtomicU64::new(0));
-
-    // PTY reader thread: read -> feed engine -> wake UI.
-    {
-        let term = term.clone();
-        let alive = Arc::new(AtomicBool::new(true));
-        let _alive = alive.clone();
-        let last_output_ns = last_output_ns.clone();
-        std::thread::spawn(move || {
-            // PTY read buffer. The macOS PTY output queue holds far more than the
-            // old 8 KiB, so draining it in one syscall (instead of 8×) cuts read
-            // round-trips on a heavy output burst — the dominant cost when the
-            // engine keeps up and the reader is otherwise read()-blocked.
-            // $ATERM_PTY_READ_BUF (bytes, 4 KiB..=4 MiB) overrides for tuning.
-            let bufsz = std::env::var("ATERM_PTY_READ_BUF")
-                .ok()
-                .and_then(|s| s.parse::<usize>().ok())
-                .filter(|n| (4096..=4 * 1024 * 1024).contains(n))
-                .unwrap_or(65536);
-            let mut buf = vec![0u8; bufsz];
-            loop {
-                let r = aterm_pty::read(master, &mut buf);
-                if r <= 0 {
-                    // PTY closed (the `-e` command or the shell exited). Normally
-                    // close the app; with `--hold`, keep the window so the final
-                    // output stays visible — the user closes it themselves
-                    // (WindowEvent::CloseRequested → el.exit()).
-                    if !hold {
-                        let _ = proxy.send_event(Wake::Exit);
-                    }
-                    break;
-                }
-                let response = {
-                    let mut t = term_lock(&term);
-                    t.process(&buf[..r as usize]);
-                    t.take_response()
-                };
-                // Terminal query REPLIES (DSR cursor position, primary/secondary
-                // DA, OSC color/theme queries, DECRQM mode reports) must be
-                // written back to the program as if typed — apps that query and
-                // WAIT for the answer (zsh prompts, fzf, vim theme/cursor probes,
-                // readline) otherwise hang or mis-detect. take_response() returns
-                // the whole buffer; write it to the PTY master, off the lock.
-                if let Some(resp) = response {
-                    aterm_pty::write_all(master, &resp);
-                }
-                // Stamp only the LEADING edge of a burst (set iff currently 0):
-                // the first unrendered output marks when content became ready;
-                // redraw() clears it after present. Cheap; gated by the reader.
-                if trace_latency {
-                    let now = lat_epoch.elapsed().as_nanos() as u64;
-                    let _ = last_output_ns.compare_exchange(
-                        0,
-                        now.max(1),
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                    );
-                }
-                let _ = proxy.send_event(Wake::Output);
-            }
-        });
-    }
-
     let mut app = App {
+        sessions: vec![session0],
+        tabs: TabIndex::new(0, 1),
+        next_session_id: 1,
+        hold,
+        session_factory,
+        proxy: proxy.clone(),
+        active_handle,
         term,
         backend,
         font_px,
@@ -2627,6 +3099,9 @@ fn main() {
         last_present: None,
         preedit: String::new(),
         search: None,
+        search_history_lines: config
+            .search_history_lines
+            .map_or(MAX_SEARCH_HISTORY, |n| n.min(i32::MAX as u32) as i32),
         should_exit: false,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -2635,6 +3110,110 @@ fn main() {
     // Crash exits are covered by the stale sweep at the next spawn.
     if let Some(plan) = &sock_plan {
         control_auth::cleanup_socket(plan);
+    }
+}
+
+#[cfg(test)]
+mod tab_index_tests {
+    use super::TabIndex;
+
+    /// Adding a tab appends it and makes it active (open-and-switch), and the
+    /// count grows by one each time.
+    #[test]
+    fn add_switches_to_new_tab() {
+        let mut t = TabIndex::new(0, 1);
+        assert_eq!(t.add(), 1); // second tab → active index 1
+        assert_eq!(t, TabIndex { active: 1, count: 2 });
+        assert_eq!(t.add(), 2); // third tab → active index 2
+        assert_eq!(t, TabIndex { active: 2, count: 3 });
+    }
+
+    /// Cmd-1..9: switch to an existing tab; out-of-range is a no-op.
+    #[test]
+    fn switch_to_clamps_to_range() {
+        let mut t = TabIndex::new(2, 3); // tabs 0,1,2; active 2
+        assert_eq!(t.switch_to(0), 0);
+        assert_eq!(t.switch_to(1), 1);
+        // Out of range (Cmd-5 in a 3-tab window): no change.
+        assert_eq!(t.switch_to(9), 1);
+        assert_eq!(t.active, 1);
+    }
+
+    /// Cmd-Shift-]/[ cycles with WRAP; single/zero tab is a no-op.
+    #[test]
+    fn cycle_wraps_both_directions() {
+        let mut t = TabIndex::new(0, 3);
+        assert_eq!(t.cycle(true), 1);
+        assert_eq!(t.cycle(true), 2);
+        assert_eq!(t.cycle(true), 0); // wrap forward 2 → 0
+        assert_eq!(t.cycle(false), 2); // wrap backward 0 → 2
+        assert_eq!(t.cycle(false), 1);
+        // One tab: cycling is a no-op in either direction.
+        let mut one = TabIndex::new(0, 1);
+        assert_eq!(one.cycle(true), 0);
+        assert_eq!(one.cycle(false), 0);
+        assert_eq!(one, TabIndex { active: 0, count: 1 });
+    }
+
+    /// Closing the LAST tab signals exit (returns true) without mutating state.
+    #[test]
+    fn close_last_tab_signals_exit() {
+        let mut t = TabIndex::new(0, 1);
+        assert!(t.close(0), "closing the only tab must signal exit");
+        // Out-of-range close is a no-op that does NOT signal exit.
+        let mut t2 = TabIndex::new(0, 2);
+        assert!(!t2.close(5));
+        assert_eq!(t2, TabIndex { active: 0, count: 2 });
+    }
+
+    /// Closing a tab BEFORE the active one shifts the active index down so it
+    /// still points at the same session.
+    #[test]
+    fn close_before_active_shifts_active_down() {
+        let mut t = TabIndex::new(2, 3); // tabs 0,1,2; active 2
+        assert!(!t.close(0)); // remove tab 0
+        assert_eq!(t, TabIndex { active: 1, count: 2 }); // old tab 2 is now index 1
+    }
+
+    /// Closing the ACTIVE tab clamps active into the new range (closing the
+    /// last-in-list active tab moves focus to the new last tab).
+    #[test]
+    fn close_active_clamps_into_range() {
+        // Active is the last tab: closing it moves focus to the new last.
+        let mut t = TabIndex::new(2, 3);
+        assert!(!t.close(2));
+        assert_eq!(t, TabIndex { active: 1, count: 2 });
+        // Active is a middle tab: closing it keeps the index (now points at the
+        // tab that shifted into this slot).
+        let mut m = TabIndex::new(1, 3);
+        assert!(!m.close(1));
+        assert_eq!(m, TabIndex { active: 1, count: 2 });
+    }
+
+    /// Closing a tab AFTER the active one leaves the active index unchanged.
+    #[test]
+    fn close_after_active_keeps_active() {
+        let mut t = TabIndex::new(0, 3);
+        assert!(!t.close(2));
+        assert_eq!(t, TabIndex { active: 0, count: 2 });
+    }
+
+    /// Repeated add/close keeps `active < count` (the invariant the renderer
+    /// relies on) at every step.
+    #[test]
+    fn add_close_cycle_keeps_active_in_range() {
+        let mut t = TabIndex::new(0, 1);
+        t.add(); // 2 tabs, active 1
+        t.add(); // 3 tabs, active 2
+        t.add(); // 4 tabs, active 3
+        assert!(t.active < t.count);
+        t.switch_to(1); // active 1 of 4
+        assert!(!t.close(0)); // remove tab 0 → active shifts to 0, count 3
+        assert!(t.active < t.count, "active {} count {}", t.active, t.count);
+        assert!(!t.close(t.active)); // close active → clamp
+        assert!(t.active < t.count);
+        t.cycle(true);
+        assert!(t.active < t.count);
     }
 }
 
@@ -2793,6 +3372,19 @@ mod tests {
         // Initial size.
         let c: Config = toml::from_str("columns = 120\nlines = 40").unwrap();
         assert_eq!((c.columns, c.lines), (Some(120), Some(40)));
+        // Search depth: parses; the App clamp maps None -> default, Some(n) -> n
+        // (saturated to i32::MAX) — mirror that clamp here.
+        let depth = |cfg: &Config| {
+            cfg.search_history_lines
+                .map_or(super::MAX_SEARCH_HISTORY, |n| n.min(i32::MAX as u32) as i32)
+        };
+        assert_eq!(depth(&Config::default()), super::MAX_SEARCH_HISTORY); // unset → default
+        let c: Config = toml::from_str("search_history_lines = 50000").unwrap();
+        assert_eq!((c.search_history_lines, depth(&c)), (Some(50_000), 50_000));
+        let c: Config = toml::from_str("search_history_lines = 0").unwrap();
+        assert_eq!(depth(&c), 0); // 0 → live screen only
+        let c: Config = toml::from_str("search_history_lines = 5000000").unwrap();
+        assert_eq!(depth(&c), 5_000_000); // well within i32::MAX, no saturation
         // Theme colours: hex parses; bad hex warns + is skipped (no crash).
         use super::parse_hex_color;
         assert_eq!(parse_hex_color("#FF8800"), super::Rgb::new(0xFF, 0x88, 0x00).into());

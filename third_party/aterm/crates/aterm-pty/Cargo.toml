@@ -12,3 +12,9 @@ description = "aterm's single PTY spawn + IO seam (ATERM_DESIGN WS-G): all raw l
 aterm-cap = { workspace = true }
 aterm-sandbox = { workspace = true }
 libc = { workspace = true }
+
+[dev-dependencies]
+# Test-only: lock this seam's inlined SANDBOX_EXEC_PATH against the canonical one
+# in the policy crate, and reuse the network-deny profile in the OS-sandbox-wrap
+# enforcement test. NOT a build dependency of the lean seam.
+aterm-containment = { workspace = true }

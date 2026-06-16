@@ -549,11 +549,13 @@ impl Terminal {
 
     /// Install or replace the OSC / escape-sequence policy engine (#7996).
     ///
-    /// Called by the FFI shim `aterm_terminal_apply_policy` after parsing
-    /// a TOML policy document. The handler-side wiring that actually
-    /// consults `policy_engine.evaluate(...)` lands in #7994; for now the
-    /// engine is stored so the FFI surface compiles and round-trips
-    /// without behavioral change.
+    /// Called by the FFI shim `aterm_terminal_apply_policy` after parsing a TOML
+    /// policy document, and by the GUI at startup. The stored engine is LIVE and
+    /// ENFORCING: the handler-side wiring consults
+    /// `policy_engine.evaluate(sequence, origin)` at the OSC 52 / XTWINOPS /
+    /// response / rate-limit gates (see `policy_bridge.rs`), so installing an
+    /// engine changes behavior — it ADDS enforcement on top of the legacy
+    /// `authorize_*` bits, never widening it.
     pub fn apply_policy_engine(&mut self, engine: aterm_policy::engine::PolicyEngine) {
         self.policy_engine = Some(engine);
     }

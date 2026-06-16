@@ -2126,6 +2126,71 @@ fn aterm_bug_no_bce_on_1049_enter() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// FIXED ATERM BUGS (regression pins) — differential findings 231 & 233, surfaced
+// by a deep `differential_collect` sweep (PROPTEST_CASES=3000), root-caused and
+// FIXED 2026-06-15.
+//
+// ROOT CAUSE (both): overwriting an ALREADY-OCCUPIED truecolor-bg cell via the
+// SLOW per-character write path kept the PRIOR background. The bg is stored in TWO
+// places — the dense `rgb_ring` (a flat O(1) overflow array) and the `CellExtras`
+// HashMap. The FAST bulk path and the BCE/erase path populate the ring directly
+// (`set_rgb_ring_range`); the slow path (taken on a charset shift SO → GL not
+// ASCII-passthrough, or autowrap off `CSI ?7l`) routes the NEW cell's RGB through
+// the HashMap (`apply_cell_extras_preflagged`). But render-time bg resolution
+// (`bg_rgb_for`/`render_data_for_cell`) reads the ring FIRST, so a leftover ring
+// color from a prior fast-path/erase write SHADOWED the freshly-written HashMap
+// color. FIX (crates/aterm-grid): `CellExtras::clear_rgb_ring_cell` is now called
+// from both slow write-split primitives (`write_char_at_cursor_packed`,
+// `write_wide_char_at_cursor_packed_ecols`) right after the existing stale-HashMap
+// drop (#7456), keeping the two truecolor stores consistent. alacritty is correct;
+// aterm now MATCHES. (The differential oracle normalizes color away, so these pin
+// the corrected bg directly via render_row AND assert diff_screens()==None — the
+// repros agree on text+cursor, so color is the only effect they exercise. When the
+// fix regresses, the assertion flips and the test fails loudly.)
+// ---------------------------------------------------------------------------
+
+/// Finding 231 (FIXED): bg-A, `CSI ?1049h` (fills the alt screen with bg-A via
+/// BCE), bg-B, SO, `x`. The `x` overwrites a bg-A cell via the slow (charset) path.
+#[test]
+fn aterm_bug_truecolor_overwrite_slow_path_charset() {
+    let correct = [43u8, 163, 98]; // bg-B — xterm/alacritty, and now aterm
+    let input = b"\x1b[48;2;244;75;233m\x1b[?1049h\x1b[48;2;43;163;98m\x0ex";
+    assert_eq!(
+        aterm_cell_bg(input, 0, 0),
+        Some(correct),
+        "FIXED: the slow (charset) path must overwrite the truecolor bg, not keep the prior one",
+    );
+    // The fast path (no SO) was always correct — parity guard.
+    assert_eq!(
+        aterm_cell_bg(b"\x1b[48;2;244;75;233m\x1b[?1049h\x1b[48;2;43;163;98mx", 0, 0),
+        Some(correct),
+        "fast bulk path overwrites the truecolor bg correctly",
+    );
+    // Engines now agree (text + cursor; the oracle normalizes color away).
+    assert!(diff_screens(input).is_none(), "engines agree after the ring-clear fix");
+}
+
+/// Finding 233 (FIXED): bg-A, CUP, `x`, `CSI ?7l` (autowrap off), CR, bg-B, `x`.
+/// The second `x` overwrites the first via the slow (no-autowrap) path.
+#[test]
+fn aterm_bug_truecolor_overwrite_slow_path_nowrap() {
+    let correct = [178u8, 62, 127]; // bg-B
+    let input = b"\x1b[48;2;55;7;8m\x1b[18;0fx\x1b[?7l\r\x1b[48;2;178;62;127mx";
+    assert_eq!(
+        aterm_cell_bg(input, 17, 0),
+        Some(correct),
+        "FIXED: the slow (no-autowrap) path must overwrite the truecolor bg",
+    );
+    // The fast path (autowrap on) was always correct — parity guard.
+    assert_eq!(
+        aterm_cell_bg(b"\x1b[48;2;55;7;8m\x1b[18;0fx\r\x1b[48;2;178;62;127mx", 17, 0),
+        Some(correct),
+        "fast bulk path overwrites the truecolor bg correctly",
+    );
+    assert!(diff_screens(input).is_none(), "engines agree after the ring-clear fix");
+}
+
 /// Triage aid: print the diff for each pinned KNOWN-ALACRITTY smoke repro.
 #[test]
 #[ignore = "prints pinned alacritty-divergence diffs; run with --ignored"]

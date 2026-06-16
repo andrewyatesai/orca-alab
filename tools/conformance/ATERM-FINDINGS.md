@@ -25,6 +25,26 @@ cursor is logically past the row), but aterm erased the parked cell.
   cursor are still cleared by ED-0. Verified: conformance 74/74, and the class no
   longer surfaces in `hunt.mjs` (4000 trials).
 
+### 3. Vertical cursor clamping in a scroll region (CUU / CUD / CNL / VPR)  ✅ FIXED
+Relative vertical moves clamped on the wrong condition. aterm only clamped to a
+margin when the cursor was *fully inside* the region; xterm clamps on the near
+margin alone (`CursorUp: min = cur<top ? 0 : top`, `CursorDown: max = cur>bot ?
+screen : bot`). So a cursor *above* the region moving down sailed past the bottom
+margin, and one *below* moving up sailed past the top margin. VPR was also routed
+through CUD and wrongly bottom-margin-clamped — it is page-relative and stops at
+the screen edge.
+- Repro (6×8): `\x1b[2;3r\x1b[1;1HX\x1b[3BY` (CUD from above the region) → xterm
+  stops at the bottom margin, aterm ran to the last line. Symmetric for CUU from
+  below, plus VPR/CNL.
+- Fix (`aterm-grid/src/grid/cursor_ops.rs`): `cursor_up`/`cursor_down` clamp on the
+  near margin only; new `line_position_relative` for VPR clamps to the screen edge.
+- Locked in by `cud-above-region-clamp`, `cuu-below-region-clamp`,
+  `cnl-above-region-clamp`, `vpr-ignores-region` (suite 78/78). The focused reducer
+  `focus-region.mjs` now reports **zero** non-origin divergences across all
+  region/op/count combinations; the residual divergences are all **origin-mode**,
+  where xterm itself is off (`XTERM-DEVIATIONS.md`: cuu/cud/vpr-*-under-origin) and
+  aterm matches ECMA-48.
+
 ## Open
 
 ### 2. Wide-char editing at the cursor
@@ -34,14 +54,6 @@ Editing ops interacting with a double-width glyph drop/shift a cell.
 - `…\x1b[8X\x1b[4h\x1b[1K中…` → a digit adjacent to a wide glyph is lost.
 - Fix shape: orphan the *other half* of a wide pair to a space when an edit/erase
   splits it (BS-onto-continuation, ECH/ICH/DCH across a wide boundary).
-
-### 3. Vertical cursor clamping in a scroll region (CUU / CPL / SD / VPR)
-Multi-op sequences that move the cursor vertically within a DECSTBM region land a
-row off in aterm. Minimal repros from `hunt.mjs` shapes [1],[3],[6] — e.g. a
-region + `SD` + `VPR`/`CUU` leaves content one row higher/lower than xterm.
-- Needs per-op triage: CUU/CPL clamp to the *top margin*, CUD/CNL to the *bottom
-  margin*, VPR/VPA to the *screen edge* (the distinction the `cud-margin-clamp`
-  case already locks in for CUD).
 
 ## Reproduce
 

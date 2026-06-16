@@ -36,6 +36,30 @@ export const DEVIATIONS = [
     xterm: 6,
     correct: 3,
     note: 'With origin mode + a scroll region, xterm moves the cursor downward instead of clamping it to the top margin. No real program relies on this; the engine clamps per spec.'
+  },
+  {
+    id: 'cud-overshoots-under-origin',
+    title: 'CUD moves one row too far under origin mode',
+    bytes: `${E}[?6h${E}[2;6r${E}[1;1H${E}[3B`,
+    cols: 6,
+    rows: 8,
+    spec: 'ECMA-48 §8.3.19 (CUD): the active position moves DOWN by n lines. From the top margin (row 1) with n=3 the spec position is row 4.',
+    probe: 'cursor row after the sequence',
+    xterm: 5,
+    correct: 4,
+    note: 'Same origin-mode root cause as CUU: xterm miscomputes the region-relative base for vertical motion and overshoots by one. The engine moves exactly n rows per spec.'
+  },
+  {
+    id: 'vpr-overshoots-under-origin',
+    title: 'VPR moves one row too far under origin mode',
+    bytes: `${E}[?6h${E}[2;6r${E}[1;1H${E}[3e`,
+    cols: 6,
+    rows: 8,
+    spec: 'ECMA-48 §8.3.68 (VPR): the active position moves DOWN by n lines (page-relative). From row 1 with n=3 the spec position is row 4.',
+    probe: 'cursor row after the sequence',
+    xterm: 5,
+    correct: 4,
+    note: 'Origin-mode vertical-motion class (see CUU/CUD entries). VPR is page-relative — the engine moves exactly n and clamps only at the screen edge; xterm overshoots by one under origin mode.'
   }
 ]
 

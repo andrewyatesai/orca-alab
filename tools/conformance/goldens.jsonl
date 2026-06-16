@@ -31,6 +31,10 @@
 {"id":"sd","grid":["","A","B","C"],"attrs":null}
 {"id":"region-lf","grid":["","C","D","",""],"attrs":null}
 {"id":"cud-margin-clamp","grid":["","","","X","",""],"attrs":null}
+{"id":"cud-above-region-clamp","grid":["X",""," Y","","","","",""],"attrs":null}
+{"id":"cuu-below-region-clamp","grid":[""," Y","","X","","","",""],"attrs":null}
+{"id":"cnl-above-region-clamp","grid":["X","","Y","","","","",""],"attrs":null}
+{"id":"vpr-ignores-region","grid":["X","","","","",""," Y",""],"attrs":null}
 {"id":"ri-top","grid":["X","","A","B"],"attrs":null}
 {"id":"autowrap-on","grid":["AAAAAAAAAAAAAAAAAAAA","AAAAAB",""],"attrs":null}
 {"id":"autowrap-off","grid":["AAAAAAAAAAAAAAAAAAAB","",""],"attrs":null}

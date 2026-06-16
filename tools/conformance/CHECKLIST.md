@@ -10,7 +10,7 @@ cargo run --release --example conformance -p orca-terminal
 The goldens are not hand-authored — they are whatever xterm.js renders for each
 case (visible grid **and** per-cell SGR attributes). The runner replays each case
 through the Rust engine and diffs against the golden, exiting non-zero on any
-divergence. Current result: **74/74 cases match xterm.js**
+divergence. Current result: **78/78 cases match xterm.js**
 (10 with full attribute fingerprints).
 
 ## Coverage vs the full xterm.js handler registry
@@ -99,7 +99,7 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 > because this is a headless state emulator — it must never send replies (DA/DSR/etc.)
 > or it would race the renderer's xterm.
 
-## Conformance cases (74)
+## Conformance cases (78)
 
 ### cursor
 
@@ -158,6 +158,10 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 | `sd` | SD scroll down in region | `scrollDown (T)` | ECMA-48 8.3.145 |
 | `region-lf` | LF scrolls within DECSTBM region | `setScrollRegion (r)+IND` | DEC STD 070 |
 | `cud-margin-clamp` | CUD stops at the bottom margin (VPR stops at the screen edge) | `cursorDown (B) margin-clamped` | ECMA-48 8.3.19 (CUD) |
+| `cud-above-region-clamp` | CUD from above the region still stops at the bottom margin | `cursorDown (B): max = cur>bot ? screen : bot` | ECMA-48 8.3.19 (CUD) |
+| `cuu-below-region-clamp` | CUU from below the region still stops at the top margin | `cursorUp (A): min = cur<top ? 0 : top` | ECMA-48 8.3.22 (CUU) |
+| `cnl-above-region-clamp` | CNL from above the region stops at the bottom margin, col 0 | `cursorNextLine (E) margin-clamped` | ECMA-48 8.3.16 (CNL) |
+| `vpr-ignores-region` | VPR moves down to the screen edge, ignoring the bottom margin | `vPositionRelative (e): page-relative, not region` | ECMA-48 8.3.68 (VPR) |
 | `ri-top` | RI scrolls region down at top | `reverseIndex (ESC M)` | ECMA-48 8.3.27 |
 
 ### wrap

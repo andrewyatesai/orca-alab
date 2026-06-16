@@ -308,6 +308,49 @@ add(
   8,
   6
 )
+// Clamp depends only on the near margin (xterm CursorDown/Up), so a cursor
+// OUTSIDE the region on the far side still stops at the near margin. aterm used
+// to require the cursor to be fully inside the region, overshooting past it.
+add(
+  'cud-above-region-clamp',
+  'scroll',
+  'CUD from above the region still stops at the bottom margin',
+  'ECMA-48 8.3.19 (CUD)',
+  'cursorDown (B): max = cur>bot ? screen : bot',
+  b(`${E}[2;3r${E}[1;1HX${E}[3BY`),
+  6,
+  8
+)
+add(
+  'cuu-below-region-clamp',
+  'scroll',
+  'CUU from below the region still stops at the top margin',
+  'ECMA-48 8.3.22 (CUU)',
+  'cursorUp (A): min = cur<top ? 0 : top',
+  b(`${E}[2;3r${E}[4;1HX${E}[3AY`),
+  6,
+  8
+)
+add(
+  'cnl-above-region-clamp',
+  'scroll',
+  'CNL from above the region stops at the bottom margin, col 0',
+  'ECMA-48 8.3.16 (CNL)',
+  'cursorNextLine (E) margin-clamped',
+  b(`${E}[2;3r${E}[1;1HX${E}[3EY`),
+  6,
+  8
+)
+add(
+  'vpr-ignores-region',
+  'scroll',
+  'VPR moves down to the screen edge, ignoring the bottom margin',
+  'ECMA-48 8.3.68 (VPR)',
+  'vPositionRelative (e): page-relative, not region',
+  b(`${E}[1;2r${E}[1;1HX${E}[6eY`),
+  6,
+  8
+)
 add(
   'ri-top',
   'scroll',

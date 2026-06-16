@@ -196,6 +196,30 @@ dim 8 6
 bytes 1b5b323b34721b5b323b31481b5b364258
 grid 0a0a0a580a0a
 end
+id cud-above-region-clamp
+cat scroll
+dim 6 8
+bytes 1b5b323b33721b5b313b3148581b5b334259
+grid 580a0a20590a0a0a0a0a
+end
+id cuu-below-region-clamp
+cat scroll
+dim 6 8
+bytes 1b5b323b33721b5b343b3148581b5b334159
+grid 0a20590a0a580a0a0a0a
+end
+id cnl-above-region-clamp
+cat scroll
+dim 6 8
+bytes 1b5b323b33721b5b313b3148581b5b334559
+grid 580a0a590a0a0a0a0a
+end
+id vpr-ignores-region
+cat scroll
+dim 6 8
+bytes 1b5b313b32721b5b313b3148581b5b366559
+grid 580a0a0a0a0a0a20590a
+end
 id ri-top
 cat scroll
 dim 20 4

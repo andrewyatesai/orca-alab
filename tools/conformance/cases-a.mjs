@@ -279,6 +279,16 @@ add(
   5
 )
 add(
+  'cud-margin-clamp',
+  'scroll',
+  'CUD stops at the bottom margin (VPR stops at the screen edge)',
+  'ECMA-48 8.3.19 (CUD)',
+  'cursorDown (B) margin-clamped',
+  b(`${E}[2;4r${E}[2;1H${E}[6BX`),
+  8,
+  6
+)
+add(
   'ri-top',
   'scroll',
   'RI scrolls region down at top',

@@ -28,6 +28,7 @@
 {"id":"su","grid":["A","","","D",""],"attrs":null}
 {"id":"sd","grid":["","A","B","C"],"attrs":null}
 {"id":"region-lf","grid":["","C","D","",""],"attrs":null}
+{"id":"cud-margin-clamp","grid":["","","","X","",""],"attrs":null}
 {"id":"ri-top","grid":["X","","A","B"],"attrs":null}
 {"id":"autowrap-on","grid":["AAAAAAAAAAAAAAAAAAAA","AAAAAB",""],"attrs":null}
 {"id":"autowrap-off","grid":["AAAAAAAAAAAAAAAAAAAB","",""],"attrs":null}

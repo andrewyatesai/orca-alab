@@ -10,7 +10,7 @@ cargo run --release --example conformance -p orca-terminal
 The goldens are not hand-authored — they are whatever xterm.js renders for each
 case (visible grid **and** per-cell SGR attributes). The runner replays each case
 through the Rust engine and diffs against the golden, exiting non-zero on any
-divergence. Current result: **71/71 cases match xterm.js**
+divergence. Current result: **72/72 cases match xterm.js**
 (10 with full attribute fingerprints).
 
 ## Coverage vs the full xterm.js handler registry
@@ -99,7 +99,7 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 > because this is a headless state emulator — it must never send replies (DA/DSR/etc.)
 > or it would race the renderer's xterm.
 
-## Conformance cases (71)
+## Conformance cases (72)
 
 ### cursor
 
@@ -155,6 +155,7 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 | `su` | SU scroll up in region | `scrollUp (S)` | ECMA-48 8.3.147 |
 | `sd` | SD scroll down in region | `scrollDown (T)` | ECMA-48 8.3.145 |
 | `region-lf` | LF scrolls within DECSTBM region | `setScrollRegion (r)+IND` | DEC STD 070 |
+| `cud-margin-clamp` | CUD stops at the bottom margin (VPR stops at the screen edge) | `cursorDown (B) margin-clamped` | ECMA-48 8.3.19 (CUD) |
 | `ri-top` | RI scrolls region down at top | `reverseIndex (ESC M)` | ECMA-48 8.3.27 |
 
 ### wrap

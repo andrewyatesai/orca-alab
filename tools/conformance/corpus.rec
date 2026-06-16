@@ -178,6 +178,12 @@ dim 20 5
 bytes 1b5b323b33721b5b323b3148410d0a420d0a430d0a44
 grid 0a430a440a0a
 end
+id cud-margin-clamp
+cat scroll
+dim 8 6
+bytes 1b5b323b34721b5b323b31481b5b364258
+grid 0a0a0a580a0a
+end
 id ri-top
 cat scroll
 dim 20 4

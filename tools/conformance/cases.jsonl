@@ -28,6 +28,7 @@
 {"id":"su","cat":"scroll","feature":"SU scroll up in region","spec":"ECMA-48 8.3.147","xterm":"scrollUp (S)","cols":20,"rows":5,"bytesHex":"410d0a420d0a430d0a441b5b323b33721b5b3253"}
 {"id":"sd","cat":"scroll","feature":"SD scroll down in region","spec":"ECMA-48 8.3.145","xterm":"scrollDown (T)","cols":20,"rows":4,"bytesHex":"410d0a420d0a430d0a441b5b313b34721b5b3154"}
 {"id":"region-lf","cat":"scroll","feature":"LF scrolls within DECSTBM region","spec":"DEC STD 070","xterm":"setScrollRegion (r)+IND","cols":20,"rows":5,"bytesHex":"1b5b323b33721b5b323b3148410d0a420d0a430d0a44"}
+{"id":"cud-margin-clamp","cat":"scroll","feature":"CUD stops at the bottom margin (VPR stops at the screen edge)","spec":"ECMA-48 8.3.19 (CUD)","xterm":"cursorDown (B) margin-clamped","cols":8,"rows":6,"bytesHex":"1b5b323b34721b5b323b31481b5b364258"}
 {"id":"ri-top","cat":"scroll","feature":"RI scrolls region down at top","spec":"ECMA-48 8.3.27","xterm":"reverseIndex (ESC M)","cols":20,"rows":4,"bytesHex":"410d0a420d0a431b5b313b31481b4d1b4d58"}
 {"id":"autowrap-on","cat":"wrap","feature":"DECAWM on wraps at margin","spec":"DEC DECAWM","xterm":"setModePrivate (?7h)","cols":20,"rows":3,"bytesHex":"1b5b3f37684141414141414141414141414141414141414141414141414142"}
 {"id":"autowrap-off","cat":"wrap","feature":"DECAWM off overwrites last col","spec":"DEC DECAWM","xterm":"resetModePrivate (?7l)","cols":20,"rows":3,"bytesHex":"1b5b3f376c4141414141414141414141414141414141414141414141414142"}

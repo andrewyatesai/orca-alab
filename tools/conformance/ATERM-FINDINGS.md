@@ -8,16 +8,24 @@ were found here and already fixed → 72/72 on those).
 Origin-mode divergences are tracked separately in `XTERM-DEVIATIONS.md` (those are
 **xterm** spec bugs, not aterm bugs).
 
-## Open
+## Fixed
 
-### 1. ED/EL at a pending wrap drops the last cell  ⟶ cases `el-pending-wrap`, `ed-pending-wrap`
+### 1. ED/EL at a pending wrap drops the last cell  ⟶ cases `el-pending-wrap`, `ed-pending-wrap`  ✅ FIXED
 Filling a row to the last column arms a deferred wrap; the cursor parks on the
 last glyph. Erase-to-end (`CSI 0 K` / `CSI 0 J`) must then erase *nothing* (the
-cursor is logically past the row), but aterm erases the parked cell.
-- Repro (4×2): `ABCD\x1b[0K` → xterm `"ABCD"`, aterm `"ABC"`. Same for `\x1b[0J`.
-- Also drops a line-drawing glyph at the margin: `AB\x1b(0q\x1b(B\x1b[0K` (3 cols) →
-  xterm `"AB─"`, aterm `"AB"`.
-- Fix shape: in the erase handler, start the erase at `col + 1` when a wrap is pending.
+cursor is logically past the row), but aterm erased the parked cell.
+- Repro (4×2): `ABCD\x1b[0K` → xterm `"ABCD"`, aterm was `"ABC"`. Same for `\x1b[0J`.
+- Root cause: xterm.js encodes pending-wrap as `x==cols`, so EL-0/ED-0 erase the
+  empty range `[cols, cols)` and leave both the parked glyph and the wrap intact.
+  aterm parked the cursor at `last_col` + a flag, then cleared the flag and erased
+  from `last_col` — clobbering the cell.
+- Fix (`aterm-grid/src/grid/erase.rs`): `erase_to_end_of_line` / `erase_to_end_of_screen`
+  short-circuit when `pending_wrap` is set — erase nothing on the current row and
+  preserve the wrap (a later glyph still wraps, matching xterm.js). Rows below the
+  cursor are still cleared by ED-0. Verified: conformance 74/74, and the class no
+  longer surfaces in `hunt.mjs` (4000 trials).
+
+## Open
 
 ### 2. Wide-char editing at the cursor
 Editing ops interacting with a double-width glyph drop/shift a cell.

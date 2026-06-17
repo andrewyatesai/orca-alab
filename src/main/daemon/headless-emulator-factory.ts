@@ -136,6 +136,22 @@ class RustHeadlessEmulator implements TerminalEmulator {
  *  battle-tested TypeScript HeadlessEmulator. Safe by default. */
 let loggedSelection = false
 
+function markEngine(engine: string): void {
+  // Diagnostic: the daemon runs with stdio 'ignore', so console.log is
+  // invisible. When ORCA_ENGINE_MARKER is set, record the selected engine to
+  // that file so an E2E harness can prove which emulator went live (and catch a
+  // silent TS fallback). Gated on the env var; no effect in normal runs.
+  const marker = process.env.ORCA_ENGINE_MARKER
+  if (!marker) {
+    return
+  }
+  try {
+    require('fs').appendFileSync(marker, `${engine}\n`)
+  } catch {
+    // diagnostic only — never break session creation
+  }
+}
+
 export function createHeadlessEmulator(opts: HeadlessEmulatorOptions): TerminalEmulator {
   if (process.env.ORCA_RUST_TERMINAL === '1') {
     const binding = loadRustTerminalBinding()
@@ -145,6 +161,7 @@ export function createHeadlessEmulator(opts: HeadlessEmulatorOptions): TerminalE
         // One-time proof, in the daemon log, that the native engine is live.
         console.log(`[orca] terminal engine: Rust (${binding.engine()}) via ORCA_RUST_TERMINAL`)
       }
+      markEngine(`rust:${binding.engine()}`)
       return new RustHeadlessEmulator(binding.HeadlessTerminal, opts)
     }
     if (!loggedSelection) {
@@ -153,6 +170,9 @@ export function createHeadlessEmulator(opts: HeadlessEmulatorOptions): TerminalE
         '[orca] ORCA_RUST_TERMINAL=1 but the Rust addon did not load; using the TS emulator'
       )
     }
+    markEngine('ts-fallback')
+    return new HeadlessEmulator(opts)
   }
+  markEngine('ts')
   return new HeadlessEmulator(opts)
 }

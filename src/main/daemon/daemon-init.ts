@@ -74,6 +74,38 @@ function getDaemonEntryPath(): string {
   return join(basePath, 'out', 'main', 'daemon-entry.js')
 }
 
+/**
+ * Resolve the Rust (aterm) terminal-engine native addon for the daemon.
+ *
+ * Why: the daemon is forked with `cwd: userData` (so it survives worktree
+ * deletion), so the addon loader's `process.cwd()/native/...` candidate never
+ * resolves — without an absolute path, ORCA_RUST_TERMINAL=1 silently falls back
+ * to the TypeScript emulator. The main process knows the app root, so it resolves
+ * the addon here and passes it to the daemon via ORCA_RUST_TERMINAL_ADDON.
+ * Returns null if the addon isn't present (dev tree without a built .node).
+ */
+function getRustTerminalAddonPath(): string | null {
+  const explicit = process.env.ORCA_RUST_TERMINAL_ADDON
+  if (explicit && existsSync(explicit)) {
+    return explicit
+  }
+  // Try every plausible root: app.getAppPath() (repo root or out/main depending
+  // on launch), the main process cwd (repo root under `pnpm dev`/playwright),
+  // and the packaged resources dir. The main process — unlike the forked daemon
+  // — has a valid cwd at the repo root in dev.
+  // app.getAppPath() can be the repo root OR out/main depending on launch, and
+  // the daemon's own cwd is unusable — so also try the main process cwd (the
+  // repo root under dev) and the packaged resources dir.
+  const devName = join('native', 'orca-node', 'orca_node.node')
+  const candidates = [
+    join(app.getAppPath(), devName),
+    join(app.getAppPath(), '..', devName),
+    join(process.cwd(), devName),
+    join(process.resourcesPath ?? '', 'orca_node.node')
+  ]
+  return candidates.find((p) => existsSync(p)) ?? null
+}
+
 // Why: before spawning a new daemon, check if an existing one is alive by
 // attempting a TCP connection to the socket. If it connects, the daemon
 // survived from a previous app session — reuse it instead of spawning.
@@ -164,6 +196,7 @@ async function shouldPreserveDaemonWithLiveSessions(
 function createOutOfProcessLauncher(runtimeDir: string): DaemonLauncher {
   return async (socketPath, tokenPath) => {
     const entryPath = getDaemonEntryPath()
+    const rustTerminalAddonPath = getRustTerminalAddonPath()
     const healthy = await healthCheckDaemon(socketPath, tokenPath)
     if (healthy) {
       const resolverHealth = await getMacDaemonSystemResolverHealth(socketPath, tokenPath)
@@ -234,7 +267,12 @@ function createOutOfProcessLauncher(runtimeDir: string): DaemonLauncher {
         ELECTRON_RUN_AS_NODE: '1',
         // Why: the detached daemon is plain Node and cannot call Electron's
         // app.getPath(), but shell-ready rcfiles must live outside swept tmp.
-        ORCA_USER_DATA_PATH: userDataPath
+        ORCA_USER_DATA_PATH: userDataPath,
+        // Why: the daemon's cwd is userData, so the addon loader's cwd-relative
+        // candidate can't find the Rust (aterm) engine — resolve it absolutely
+        // here so ORCA_RUST_TERMINAL=1 actually loads it instead of silently
+        // falling back to the TS emulator. Omitted when no addon is present.
+        ...(rustTerminalAddonPath ? { ORCA_RUST_TERMINAL_ADDON: rustTerminalAddonPath } : {})
       }
     })
 

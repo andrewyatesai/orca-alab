@@ -10,7 +10,7 @@ cargo run --release --example conformance -p orca-terminal
 The goldens are not hand-authored — they are whatever xterm.js renders for each
 case (visible grid **and** per-cell SGR attributes). The runner replays each case
 through the Rust engine and diffs against the golden, exiting non-zero on any
-divergence. Current result: **83/83 cases match xterm.js**
+divergence. Current result: **84/84 cases match xterm.js**
 (10 with full attribute fingerprints).
 
 ## Coverage vs the full xterm.js handler registry
@@ -99,7 +99,7 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 > because this is a headless state emulator — it must never send replies (DA/DSR/etc.)
 > or it would race the renderer's xterm.
 
-## Conformance cases (83)
+## Conformance cases (84)
 
 ### cursor
 
@@ -176,6 +176,7 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 | `autowrap-off` | DECAWM off overwrites last col | `resetModePrivate (?7l)` | DEC DECAWM |
 | `wide-wrap-blanks-last-cell` | wide glyph wrapping off the last column blanks the skipped cell | `double-width autowrap at the right edge` | VT220 wide chars + DECAWM |
 | `deferred-wrap` | deferred wrap: full row then CR | `pending wrap` | VT100 autowrap |
+| `lf-at-pending-wrap-bottom-scrolls-once` | LF at a pending wrap on the bottom row scrolls once and clears the wrap | `deferred wrap consumed by line feed` | VT100 autowrap + IND |
 
 ### mode
 

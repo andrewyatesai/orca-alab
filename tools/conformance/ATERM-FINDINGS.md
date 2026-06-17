@@ -98,14 +98,29 @@ left the old content there.
   advancing. Locked in by `wide-wrap-blanks-last-cell` (83/83); `focus-wide.mjs`
   and the deviation-filtered fuzzer no longer surface it.
 
+### 6. Deferred wrap + line feed double-scrolled at the bottom row  ✅ FIXED
+The "content a row or two off" shapes were a deferred-wrap/LF interaction. `line_feed`
+at the bottom margin reused `scroll_region_up`, which preserves the pending wrap for
+the explicit SU/SD ops — but LF is a cursor-down and must reset the wrap (xterm
+CursorDown ResetWrap). The stale wrap then made the next glyph trigger a SECOND
+scroll.
+- Repro (4×3): `\x1b[3;1Habcd\nZ` → xterm scrolls once (abcd row 1, Z at last col);
+  aterm scrolled twice (abcd to row 0, Z at col 0).
+- Fix (`aterm-grid/src/grid/cursor_ops.rs`): clear pending_wrap after the at-bottom
+  scroll in `line_feed`; the explicit SU/SD path is untouched and still preserves it.
+- Locked in by `lf-at-pending-wrap-bottom-scrolls-once` (84/84). The deviation-
+  filtered fuzzer dropped from 8 distinct shapes to 1.
+
 ## Open
 
-### 6. Scroll-amount errors within a region (SU / SD / IND / RI)
-With the DECRC-scroll deviation filtered out, the dominant remaining fuzzer class
-is content landing one+ rows off after scroll ops inside (or interacting with) a
-DECSTBM region — e.g. `\x1b[2T` (SD) / `\x1b[8T` / `\x1b[2S` sequences shift the
-grid by a different amount than xterm. Needs a focused reducer like the others
-(per-op: SU/SD count, region clamping of the scrolled band, cursor row after).
+### 7. Lone combining mark at column 0 after backspace (esoteric; ~1 in 15k)
+The last fuzzer shape. A combining mark (e.g. U+0301) with the cursor at column 0
+and no base to its left: xterm.js writes the mark as a bare standalone cell,
+*clobbering* whatever was there (`a\b́` → xterm loses the `a`, leaving an empty
+cell). aterm keeps the base char and drops the orphan mark — the data-preserving
+choice. No governing spec for an unattached combining mark, so this is a deliberate,
+documented difference rather than a bug to "fix" by adopting xterm's data loss.
+Revisit only if a real workload depends on xterm's behavior.
 
 ## Reproduce
 

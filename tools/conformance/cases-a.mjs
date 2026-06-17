@@ -451,6 +451,20 @@ add(
   20,
   3
 )
+// LF is a cursor-down and resets the deferred wrap even when it scrolls at the
+// bottom row; otherwise the next glyph triggers a SECOND scroll. Fill the bottom
+// row (arming the wrap), LF (one scroll), then a glyph: it overwrites the last
+// column rather than wrapping into another scroll.
+add(
+  'lf-at-pending-wrap-bottom-scrolls-once',
+  'wrap',
+  'LF at a pending wrap on the bottom row scrolls once and clears the wrap',
+  'VT100 autowrap + IND',
+  'deferred wrap consumed by line feed',
+  b(`${E}[3;1Habcd\nZ`),
+  4,
+  3
+)
 
 // ─── Origin mode + soft reset ───────────────────────────────────────────────
 add(

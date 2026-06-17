@@ -44,6 +44,7 @@
 {"id":"autowrap-off","cat":"wrap","feature":"DECAWM off overwrites last col","spec":"DEC DECAWM","xterm":"resetModePrivate (?7l)","cols":20,"rows":3,"bytesHex":"1b5b3f376c4141414141414141414141414141414141414141414141414142"}
 {"id":"wide-wrap-blanks-last-cell","cat":"wrap","feature":"wide glyph wrapping off the last column blanks the skipped cell","spec":"VT220 wide chars + DECAWM","xterm":"double-width autowrap at the right edge","cols":4,"rows":3,"bytesHex":"414243441b5b313b3448e4b8ad"}
 {"id":"deferred-wrap","cat":"wrap","feature":"deferred wrap: full row then CR","spec":"VT100 autowrap","xterm":"pending wrap","cols":20,"rows":3,"bytesHex":"41414141414141414141414141414141414141410d5a"}
+{"id":"lf-at-pending-wrap-bottom-scrolls-once","cat":"wrap","feature":"LF at a pending wrap on the bottom row scrolls once and clears the wrap","spec":"VT100 autowrap + IND","xterm":"deferred wrap consumed by line feed","cols":4,"rows":3,"bytesHex":"1b5b333b3148616263640a5a"}
 {"id":"decom","cat":"mode","feature":"DECOM region-relative CUP","spec":"DEC DECOM","xterm":"setModePrivate (?6h)","cols":10,"rows":10,"bytesHex":"1b5b3f36681b5b343b37721b5b313b314858"}
 {"id":"decstr","cat":"mode","feature":"DECSTR soft reset clears origin/region","spec":"VT220 DECSTR","xterm":"softReset (!p)","cols":10,"rows":10,"bytesHex":"1b5b3f36681b5b343b37721b5b21701b5b313b314858"}
 {"id":"decsc-decrc","cat":"savecur","feature":"DECSC/DECRC save+restore","spec":"DEC","xterm":"saveCursor/restoreCursor (ESC 7/8)","cols":20,"rows":6,"bytesHex":"1b5b333b35481b371b5b313b31481b3858"}

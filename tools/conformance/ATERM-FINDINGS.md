@@ -87,16 +87,31 @@ row; aterm already does this.
 - Note: `hunt.mjs` still reports these as raw-grid mismatches; they are known
   deviations, not bugs (the fuzzer is oblivious to the registry).
 
+### 5. Wide glyph wrapping off the last column stranded the skipped cell  ✅ FIXED
+The "extra trailing cell" shapes (`"…┴─"` vs `"…┴─A"`) were a wide-glyph wrap edge:
+a width-2 glyph placed at the last column (no wrap pending) can't fit and wraps to
+the next line. xterm blanks the skipped cell with the current BCE background; aterm
+left the old content there.
+- Repro (4×2): `ABCD\x1b[1;4H中` → xterm `"ABC"`+`"中"`, aterm kept `"ABCD"`+`"中"`.
+- Fix (`aterm-grid/src/grid/write_split.rs`, `aterm-core/.../handler_write.rs`): the
+  wide pre-wrap step blanks the skipped tail (`blank_wide_wrap_tail`) before
+  advancing. Locked in by `wide-wrap-blanks-last-cell` (83/83); `focus-wide.mjs`
+  and the deviation-filtered fuzzer no longer surface it.
+
 ## Open
 
-### 5. Trailing glyph after a charset switch / at the wrap column
-Minor: `…\x1b(0q\x1b(B中` style streams occasionally keep one extra trailing cell
-in aterm (`"…┴─" ` vs `"…┴─A"`), a wrap/width edge at the last column with the DEC
-special-graphics charset active.
+### 6. Scroll-amount errors within a region (SU / SD / IND / RI)
+With the DECRC-scroll deviation filtered out, the dominant remaining fuzzer class
+is content landing one+ rows off after scroll ops inside (or interacting with) a
+DECSTBM region — e.g. `\x1b[2T` (SD) / `\x1b[8T` / `\x1b[2S` sequences shift the
+grid by a different amount than xterm. Needs a focused reducer like the others
+(per-op: SU/SD count, region clamping of the scrolled band, cursor row after).
 
 ## Reproduce
 
 ```sh
-node hunt.mjs 4000 1 8     # fuzz + auto-minimize, 8 distinct shapes
-node bisect.mjs <hex> <c> <r>
+node hunt.mjs 15000 1 12   # fuzz + auto-minimize; DECRC-scroll deviation skipped
+node focus-region.mjs      # vertical moves in a region
+node focus-restore.mjs     # DECSC/DECRC across scroll (the documented deviation)
+node focus-wide.mjs        # wide-glyph edit/erase/wrap edges
 ```

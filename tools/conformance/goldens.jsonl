@@ -42,6 +42,7 @@
 {"id":"ri-top","grid":["X","","A","B"],"attrs":null}
 {"id":"autowrap-on","grid":["AAAAAAAAAAAAAAAAAAAA","AAAAAB",""],"attrs":null}
 {"id":"autowrap-off","grid":["AAAAAAAAAAAAAAAAAAAB","",""],"attrs":null}
+{"id":"wide-wrap-blanks-last-cell","grid":["ABC","中",""],"attrs":null}
 {"id":"deferred-wrap","grid":["ZAAAAAAAAAAAAAAAAAAA","",""],"attrs":null}
 {"id":"decom","grid":["","","","X","","","","","",""],"attrs":null}
 {"id":"decstr","grid":["X","","","","","","","","",""],"attrs":null}

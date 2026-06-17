@@ -42,6 +42,7 @@
 {"id":"ri-top","cat":"scroll","feature":"RI scrolls region down at top","spec":"ECMA-48 8.3.27","xterm":"reverseIndex (ESC M)","cols":20,"rows":4,"bytesHex":"410d0a420d0a431b5b313b31481b4d1b4d58"}
 {"id":"autowrap-on","cat":"wrap","feature":"DECAWM on wraps at margin","spec":"DEC DECAWM","xterm":"setModePrivate (?7h)","cols":20,"rows":3,"bytesHex":"1b5b3f37684141414141414141414141414141414141414141414141414142"}
 {"id":"autowrap-off","cat":"wrap","feature":"DECAWM off overwrites last col","spec":"DEC DECAWM","xterm":"resetModePrivate (?7l)","cols":20,"rows":3,"bytesHex":"1b5b3f376c4141414141414141414141414141414141414141414141414142"}
+{"id":"wide-wrap-blanks-last-cell","cat":"wrap","feature":"wide glyph wrapping off the last column blanks the skipped cell","spec":"VT220 wide chars + DECAWM","xterm":"double-width autowrap at the right edge","cols":4,"rows":3,"bytesHex":"414243441b5b313b3448e4b8ad"}
 {"id":"deferred-wrap","cat":"wrap","feature":"deferred wrap: full row then CR","spec":"VT100 autowrap","xterm":"pending wrap","cols":20,"rows":3,"bytesHex":"41414141414141414141414141414141414141410d5a"}
 {"id":"decom","cat":"mode","feature":"DECOM region-relative CUP","spec":"DEC DECOM","xterm":"setModePrivate (?6h)","cols":10,"rows":10,"bytesHex":"1b5b3f36681b5b343b37721b5b313b314858"}
 {"id":"decstr","cat":"mode","feature":"DECSTR soft reset clears origin/region","spec":"VT220 DECSTR","xterm":"softReset (!p)","cols":10,"rows":10,"bytesHex":"1b5b3f36681b5b343b37721b5b21701b5b313b314858"}

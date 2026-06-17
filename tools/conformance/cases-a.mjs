@@ -429,6 +429,18 @@ add(
   20,
   3
 )
+// A wide glyph that won't fit at the last column wraps to the next line; xterm
+// blanks the skipped last cell rather than leaving its old content stranded.
+add(
+  'wide-wrap-blanks-last-cell',
+  'wrap',
+  'wide glyph wrapping off the last column blanks the skipped cell',
+  'VT220 wide chars + DECAWM',
+  'double-width autowrap at the right edge',
+  b(`ABCD${E}[1;4H中`),
+  4,
+  3
+)
 add(
   'deferred-wrap',
   'wrap',

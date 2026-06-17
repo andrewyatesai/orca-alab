@@ -2,6 +2,13 @@
 // divergence binary-searches the shortest diverging prefix, dedups by "shape",
 // and prints clean minimal repros of DISTINCT root causes. Origin mode (?6h) is
 // excluded — those are the documented xterm-deviation class, tracked separately.
+//
+// Repros containing DECSC/DECRC (ESC 7 / ESC 8) are skipped too: when a scroll
+// happens between save and restore, xterm.js follows the scrolled content while
+// the engine restores the saved screen row (DEC spec). That is the documented
+// `decrc-tracks-scroll` deviation (see XTERM-DEVIATIONS.md); save/restore is
+// otherwise covered exhaustively by focus-restore.mjs. Skipping them here keeps
+// the general fuzzer focused on undocumented divergences.
 //   node hunt.mjs [trials] [seed] [maxShapes]
 import { createRequire } from 'node:module'
 import xpkg from '@xterm/headless'
@@ -111,6 +118,7 @@ async function minimize(bytes, cols, rows) {
 
 const seen = new Set()
 let mism = 0
+let deviation = 0
 for (let i = 0; i < TRIALS && seen.size < MAX_SHAPES; i++) {
   const rand = rng(BASE + i)
   const cols = 6 + Math.floor(rand() * 30)
@@ -122,6 +130,11 @@ for (let i = 0; i < TRIALS && seen.size < MAX_SHAPES; i++) {
   mism++
   const min = await minimize(bytes, cols, rows)
   const repr = min.toString('latin1')
+  // Skip the documented DECSC/DECRC-across-scroll deviation (see header).
+  if (repr.includes('\x1b7') || repr.includes('\x1b8')) {
+    deviation++
+    continue
+  }
   const shape = repr.replace(/[0-9]+/g, '#').replace(/[A-Za-z]{2,}/g, 'T') // crude dedup key
   if (seen.has(shape)) {
     continue
@@ -136,4 +149,7 @@ for (let i = 0; i < TRIALS && seen.size < MAX_SHAPES; i++) {
     }
   }
 }
-console.log(`\n${seen.size} distinct shapes from ${mism} mismatches in ${TRIALS} trials`)
+console.log(
+  `\n${seen.size} distinct shapes from ${mism} mismatches in ${TRIALS} trials ` +
+    `(${deviation} skipped as the documented DECRC-scroll deviation)`
+)

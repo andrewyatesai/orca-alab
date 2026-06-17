@@ -21,6 +21,7 @@ export type RustHeadlessTerminalHandle = {
   bracketedPaste(): boolean
   applicationCursor(): boolean
   serializeAnsi(): string
+  serializeScrollbackAnsi(): string
 }
 
 export type RustHeadlessTerminalCtor = new (

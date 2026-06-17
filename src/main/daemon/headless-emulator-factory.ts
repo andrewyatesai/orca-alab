@@ -58,7 +58,11 @@ class RustHeadlessEmulator implements TerminalEmulator {
     const modes = this.getModes()
     return {
       snapshotAnsi: this.term.serializeAnsi(),
-      scrollbackAnsi: '',
+      // Scrollback-only history so alt-screen sessions (vim/htop/less) restore
+      // their scrollback on cold restart — the visible snapshotAnsi is the alt
+      // buffer, not the user's history, so without this the alt-screen
+      // cold-restore path resolves '' and is skipped (blank terminal).
+      scrollbackAnsi: this.term.serializeScrollbackAnsi?.() ?? '',
       rehydrateSequences: this.buildRehydrateSequences(modes),
       cwd: this.term.cwd(),
       modes,

@@ -21,7 +21,11 @@
 {"id":"ech","grid":["a   ef",""],"attrs":null}
 {"id":"el-pending-wrap","grid":["ABCD",""],"attrs":null}
 {"id":"ed-pending-wrap","grid":["ABCD",""],"attrs":null}
+{"id":"el1-pending-wrap-wraps","grid":["","Z"],"attrs":null}
+{"id":"el2-pending-wrap-wraps","grid":["","Z"],"attrs":null}
+{"id":"ed2-pending-wrap-wraps","grid":["","Z"],"attrs":null}
 {"id":"ich","grid":["ab  cdef",""],"attrs":null}
+{"id":"wide-insert-split","grid":[" e#",""],"attrs":null}
 {"id":"dch","grid":["abef",""],"attrs":null}
 {"id":"il","grid":["A","","B","C"],"attrs":null}
 {"id":"dl","grid":["B","C","",""],"attrs":null}

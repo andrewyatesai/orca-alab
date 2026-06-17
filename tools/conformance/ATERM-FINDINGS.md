@@ -25,6 +25,33 @@ cursor is logically past the row), but aterm erased the parked cell.
   cursor are still cleared by ED-0. Verified: conformance 74/74, and the class no
   longer surfaces in `hunt.mjs` (4000 trials).
 
+### 1b. ALL erases must preserve the pending wrap, not just EL-0/ED-0  ✅ FIXED
+The fix above covered erase-*to-end*, but the deeper rule is broader: in xterm an
+erase clears cells **without ever resetting `wrapnext`** — only ECH and cursor
+moves do. aterm cleared the flag in every other erase (EL1/EL2, ED1/ED2/ED3,
+selective DECSEL/DECSED, rectangular DECERA/DECFRA/DECSERA, even DECCARA/DECCRA).
+- Repro (4×2): `ABCD\x1b[1KZ` → xterm `"·Z"` (Z wraps to row 1), aterm put `Z` back
+  on row 0. Same for `\x1b[2K`, `\x1b[2J`, etc. (probe: cursorX stays at `cols`
+  across all six EL/ED variants).
+- Fix (`aterm-grid/src/grid/erase.rs`): removed `clear_pending_wrap()` from every
+  erase/fill/selective/rect/attr/copy path; only DECALN (which homes the cursor)
+  still clears it. Flipped the matching `*_clears_pending_wrap` unit tests to
+  `*_keeps_pending_wrap`. Locked in by `el1/el2/ed2-pending-wrap-wraps` (82/82).
+
+### 2. Wide-char editing — IRM insert onto a wide continuation cell  ✅ FIXED
+Inserting (IRM or ICH) at the continuation cell of a double-width pair bisects the
+pair. aterm orphaned only the WIDE *head* to a blank but left the continuation
+cell's stale `WIDE_CONTINUATION` flag; the shift moved that stale cell right, and
+a later insert/erase there treated its unrelated left neighbour as a wide head and
+cleared it.
+- Repro (8×2): `中\b\x1b[4he#` → xterm `" e#"`, aterm was `"  #"` (the inserted `e`
+  was lost). Backspace parks the cursor on the continuation cell, then two IRM
+  inserts trigger the stale-flag clobber.
+- Fix (`aterm-grid/src/grid/row/char_ops.rs`): `insert_chars_fill` orphans BOTH
+  halves of the split pair to `fill`, so the shifted cell carries no stale flag.
+  Locked in by `wide-insert-split` (82/82); `focus-wide.mjs` reports zero
+  divergences.
+
 ### 3. Vertical cursor clamping in a scroll region (CUU / CUD / CNL / VPR)  ✅ FIXED
 Relative vertical moves clamped on the wrong condition. aterm only clamped to a
 margin when the cursor was *fully inside* the region; xterm clamps on the near
@@ -47,13 +74,19 @@ the screen edge.
 
 ## Open
 
-### 2. Wide-char editing at the cursor
-Editing ops interacting with a double-width glyph drop/shift a cell.
-- `中\b\x1b[4he#` (region/insert context) → xterm `" qVP e#"`, aterm `" qVP  #"` (an
-  `e` becomes a space).
-- `…\x1b[8X\x1b[4h\x1b[1K中…` → a digit adjacent to a wide glyph is lost.
-- Fix shape: orphan the *other half* of a wide pair to a space when an edit/erase
-  splits it (BS-onto-continuation, ECH/ICH/DCH across a wide boundary).
+### 4. Save/restore cursor (DECSC/DECRC) across a scroll region or scroll
+The dominant class the fuzzer surfaces after the fixes above. Sequences that save
+the cursor (`\x1b7`), scroll or set a DECSTBM region, then restore (`\x1b8`) and
+print leave the printed glyph one or more rows off vs xterm.
+- e.g. shapes ending `…\x1b8\x1b[0J3` and `…\x1b8\x1b[3T3` put the trailing char a
+  couple rows lower in aterm than in xterm.
+- Needs triage: whether DECRC re-clamps the restored row to the (possibly changed)
+  region, and how a saved position interacts with intervening scrolls.
+
+### 5. Trailing glyph after a charset switch / at the wrap column
+Minor: `…\x1b(0q\x1b(B中` style streams occasionally keep one extra trailing cell
+in aterm (`"…┴─" ` vs `"…┴─A"`), a wrap/width edge at the last column with the DEC
+special-graphics charset active.
 
 ## Reproduce
 

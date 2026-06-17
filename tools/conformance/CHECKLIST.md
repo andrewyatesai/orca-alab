@@ -10,7 +10,7 @@ cargo run --release --example conformance -p orca-terminal
 The goldens are not hand-authored — they are whatever xterm.js renders for each
 case (visible grid **and** per-cell SGR attributes). The runner replays each case
 through the Rust engine and diffs against the golden, exiting non-zero on any
-divergence. Current result: **78/78 cases match xterm.js**
+divergence. Current result: **82/82 cases match xterm.js**
 (10 with full attribute fingerprints).
 
 ## Coverage vs the full xterm.js handler registry
@@ -99,7 +99,7 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 > because this is a headless state emulator — it must never send replies (DA/DSR/etc.)
 > or it would race the renderer's xterm.
 
-## Conformance cases (78)
+## Conformance cases (82)
 
 ### cursor
 
@@ -138,12 +138,16 @@ cursor shape / input-only modes — no visible-grid or attribute effect) · **GA
 | `ech` | ECH erase n chars in place | `eraseChars (X)` | ECMA-48 8.3.38 |
 | `el-pending-wrap` | EL-to-end keeps the parked last cell on a pending wrap | `eraseInLine (0 K) + deferred wrap` | VT100 autowrap |
 | `ed-pending-wrap` | ED-to-end keeps the parked last cell on a pending wrap | `eraseInDisplay (0 J) + deferred wrap` | VT100 autowrap |
+| `el1-pending-wrap-wraps` | EL-from-start clears cells but keeps the pending wrap; next glyph wraps | `eraseInLine (1 K) + deferred wrap` | VT100 autowrap |
+| `el2-pending-wrap-wraps` | EL-whole-line clears cells but keeps the pending wrap; next glyph wraps | `eraseInLine (2 K) + deferred wrap` | VT100 autowrap |
+| `ed2-pending-wrap-wraps` | ED-whole-display clears cells but keeps the pending wrap; next glyph wraps | `eraseInDisplay (2 J) + deferred wrap` | VT100 autowrap |
 
 ### edit
 
 | id | feature | xterm handler | spec |
 |----|----|----|----|
 | `ich` | ICH insert blanks | `insertChars (@)` | ECMA-48 8.3.64 |
+| `wide-insert-split` | IRM insert onto a wide continuation cell orphans cleanly (no stale half) | `insert mode split of a double-width pair` | VT220 wide chars + IRM |
 | `dch` | DCH delete chars | `deleteChars (P)` | ECMA-48 8.3.26 |
 | `il` | IL insert lines | `insertLines (L)` | ECMA-48 8.3.67 |
 | `dl` | DL delete lines | `deleteLines (M)` | ECMA-48 8.3.32 |

@@ -136,11 +136,35 @@ dim 4 2
 bytes 414243441b5b304a
 grid 414243440a
 end
+id el1-pending-wrap-wraps
+cat erase
+dim 4 2
+bytes 414243441b5b314b5a
+grid 0a5a
+end
+id el2-pending-wrap-wraps
+cat erase
+dim 4 2
+bytes 414243441b5b324b5a
+grid 0a5a
+end
+id ed2-pending-wrap-wraps
+cat erase
+dim 4 2
+bytes 414243441b5b324a5a
+grid 0a5a
+end
 id ich
 cat edit
 dim 20 2
 bytes 6162636465661b5b313b33481b5b3240
 grid 61622020636465660a
+end
+id wide-insert-split
+cat edit
+dim 8 2
+bytes e4b8ad081b5b34686523
+grid 2065230a
 end
 id dch
 cat edit

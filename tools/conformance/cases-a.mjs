@@ -204,6 +204,39 @@ add(
   4,
   2
 )
+// Erasing cells never resets the deferred wrap (xterm: only ECH/cursor moves do).
+// After EL1/EL2/ED2 the cursor is still parked past the last column, so the
+// next glyph wraps to the next row instead of overwriting the last cell.
+add(
+  'el1-pending-wrap-wraps',
+  'erase',
+  'EL-from-start clears cells but keeps the pending wrap; next glyph wraps',
+  'VT100 autowrap',
+  'eraseInLine (1 K) + deferred wrap',
+  b(`ABCD${E}[1KZ`),
+  4,
+  2
+)
+add(
+  'el2-pending-wrap-wraps',
+  'erase',
+  'EL-whole-line clears cells but keeps the pending wrap; next glyph wraps',
+  'VT100 autowrap',
+  'eraseInLine (2 K) + deferred wrap',
+  b(`ABCD${E}[2KZ`),
+  4,
+  2
+)
+add(
+  'ed2-pending-wrap-wraps',
+  'erase',
+  'ED-whole-display clears cells but keeps the pending wrap; next glyph wraps',
+  'VT100 autowrap',
+  'eraseInDisplay (2 J) + deferred wrap',
+  b(`ABCD${E}[2JZ`),
+  4,
+  2
+)
 
 // ─── Editing ────────────────────────────────────────────────────────────────
 add(
@@ -214,6 +247,19 @@ add(
   'insertChars (@)',
   b(`abcdef${E}[1;3H${E}[2@`),
   20,
+  2
+)
+// Inserting onto the continuation cell of a wide pair must orphan BOTH halves to
+// blanks — leaving a stale WIDE_CONTINUATION flag on the shifted cell made a
+// later insert clobber an unrelated neighbour (the first inserted char was lost).
+add(
+  'wide-insert-split',
+  'edit',
+  'IRM insert onto a wide continuation cell orphans cleanly (no stale half)',
+  'VT220 wide chars + IRM',
+  'insert mode split of a double-width pair',
+  b(`中\b${E}[4he#`),
+  8,
   2
 )
 add(

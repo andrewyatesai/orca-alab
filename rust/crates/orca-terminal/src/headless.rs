@@ -320,10 +320,41 @@ impl HeadlessTerminal {
         out
     }
 
+    /// Scrollback history ONLY (the off-screen lines above the viewport), as
+    /// flowing text + CRLF — no cursor/grid framing. The daemon stores this in
+    /// `scrollbackAnsi`; on cold-restore of an alternate-screen session (vim,
+    /// htop, less) it is the ONLY recoverable history, since the visible
+    /// `snapshotAnsi` is the TUI/alt buffer, not the user's scrollback.
+    ///
+    /// Reads the MAIN buffer's scrollback (`aterm` keeps it in the inactive grid
+    /// while the alt screen is active), so an in-alt-screen snapshot still
+    /// recovers the pre-TUI history. Empty when there is no scrollback.
+    pub fn serialize_scrollback_ansi(&self) -> String {
+        let grid = self.inner.main_grid();
+        let history = grid.scrollback_lines();
+        if history == 0 {
+            return String::new();
+        }
+        let mut out = String::new();
+        for i in 0..history {
+            let line = grid
+                .get_history_line(i)
+                .and_then(|l| l.as_str().map(|s| s.trim_end().to_string()))
+                .unwrap_or_default();
+            out.push_str(&line);
+            out.push_str("\r\n");
+        }
+        out
+    }
+
     fn serialize_ansi_uncached(&self) -> String {
         let mut out = String::from("\x1b[0m");
-        let history = self.scrollback_len();
-        for i in 0..history {
+        // The full visible snapshot uses the ACTIVE grid's scrollback (which for
+        // an alt-screen session is empty — the alt buffer has no scrollback);
+        // the main-buffer history is carried separately by
+        // `serialize_scrollback_ansi` for the alt cold-restore path.
+        let active_history = self.scrollback_len();
+        for i in 0..active_history {
             out.push_str(&self.scrollback_row_text(i));
             out.push_str("\r\n");
         }
@@ -585,6 +616,23 @@ mod tests {
         let mut restored = HeadlessTerminal::new(2, 20);
         restored.process_str(&ansi);
         assert_eq!(restored.row_text(0), "日本X");
+    }
+
+    #[test]
+    fn serialize_scrollback_ansi_is_history_only() {
+        // 1-row grid: each newline evicts the prior line into scrollback.
+        let mut term = HeadlessTerminal::with_scrollback(1, 20, 100);
+        term.process_str("alpha\r\nbravo\r\ncharlie");
+        let sb = term.serialize_scrollback_ansi();
+        // History (alpha, bravo) is present; the VISIBLE line (charlie) is not,
+        // and there's no cursor/grid framing.
+        assert!(sb.contains("alpha") && sb.contains("bravo"), "sb={sb:?}");
+        assert!(!sb.contains("charlie"), "scrollback must exclude the visible row");
+        assert!(!sb.contains('\x1b'), "scrollback is plain text, no escapes: {sb:?}");
+        // Empty when there is no scrollback.
+        let mut fresh = HeadlessTerminal::new(24, 80);
+        fresh.process_str("just one line");
+        assert_eq!(fresh.serialize_scrollback_ansi(), "");
     }
 
     #[test]

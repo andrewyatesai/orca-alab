@@ -61,6 +61,13 @@ impl JsHeadlessTerminal {
         self.inner.serialize_ansi()
     }
 
+    /// Scrollback history only (no grid/cursor framing) — what the daemon stores
+    /// in `scrollbackAnsi` so alt-screen sessions restore their scrollback.
+    #[napi]
+    pub fn serialize_scrollback_ansi(&self) -> String {
+        self.inner.serialize_scrollback_ansi()
+    }
+
     #[napi]
     pub fn cwd(&self) -> Option<String> {
         self.inner.cwd().map(str::to_string)

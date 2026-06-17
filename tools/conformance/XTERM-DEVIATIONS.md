@@ -5,6 +5,15 @@ from ECMA-48 / DEC specs, found by the differential fuzzer. The engine follows
 the spec in each case. Re-verify with `node deviations.mjs` — entries are rejected
 if xterm no longer deviates or the engine no longer matches the spec.
 
+## DECRC restores the cursor one row too high after an intervening scroll
+
+- **Repro** (6×8): `1b5b353b32481b370a0a0a0a1b38`
+- **Spec**: DEC STD 070 / VT520 (DECSC/DECRC): the saved cursor is a screen coordinate; DECRC restores that absolute row. Intervening scrolls do not move it.
+- **Probe**: cursor row after the sequence
+- **xterm.js**: 3 (deviates)
+- **Spec-correct / engine**: 4
+- Save at row 4, four line feeds (one scroll), restore. xterm.js stores the saved cursor as an absolute scrollback position, so DECRC follows the scrolled content one row up. Real VT terminals (and xterm-C) restore to the saved screen row; the engine matches the spec.
+
 ## CUU moves the cursor DOWN, away from the top margin (origin mode)
 
 - **Repro** (17×19): `1b5b3f36681b5b343b3137721b5b3841`

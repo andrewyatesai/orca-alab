@@ -26,6 +26,18 @@ const E = '\x1b'
 // so xterm's wrong value and the spec-correct value are concrete.
 export const DEVIATIONS = [
   {
+    id: 'decrc-tracks-scroll',
+    title: 'DECRC restores the cursor one row too high after an intervening scroll',
+    bytes: `${E}[5;2H${E}7\n\n\n\n${E}8`,
+    cols: 6,
+    rows: 8,
+    spec: 'DEC STD 070 / VT520 (DECSC/DECRC): the saved cursor is a screen coordinate; DECRC restores that absolute row. Intervening scrolls do not move it.',
+    probe: 'cursor row after the sequence',
+    xterm: 3,
+    correct: 4,
+    note: 'Save at row 4, four line feeds (one scroll), restore. xterm.js stores the saved cursor as an absolute scrollback position, so DECRC follows the scrolled content one row up. Real VT terminals (and xterm-C) restore to the saved screen row; the engine matches the spec.'
+  },
+  {
     id: 'cuu-down-from-top-margin-under-origin',
     title: 'CUU moves the cursor DOWN, away from the top margin (origin mode)',
     bytes: `${E}[?6h${E}[4;17r${E}[8A`,

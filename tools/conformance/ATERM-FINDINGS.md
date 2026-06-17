@@ -72,16 +72,22 @@ the screen edge.
   where xterm itself is off (`XTERM-DEVIATIONS.md`: cuu/cud/vpr-*-under-origin) and
   aterm matches ECMA-48.
 
-## Open
+### 4. Save/restore cursor (DECSC/DECRC) across a scroll  ✅ RESOLVED — xterm deviation
+The dominant class the fuzzer surfaced after the fixes above turned out to be an
+**xterm.js** quirk, not an aterm bug. When a scroll happens between `\x1b7` (DECSC)
+and `\x1b8` (DECRC), xterm.js restores the cursor one row higher per scrolled line
+— it stores the saved cursor as an absolute scrollback position, so DECRC follows
+the scrolled content. Real VT terminals (and xterm-C) restore to the saved *screen*
+row; aterm already does this.
+- Repro (6×8): `\x1b[5;2H\x1b7\n\n\n\n\x1b8` → xterm cursor row 3, aterm row 4 (one
+  scroll between save and restore). `focus-restore.mjs` shows the whole class is
+  exactly "a scroll between DECSC and DECRC" (region-set / CUP between them match).
+- Resolution: documented in `XTERM-DEVIATIONS.md` as `decrc-tracks-scroll`
+  (self-verifying: xterm=3, engine=4). No engine change — aterm matches the spec.
+- Note: `hunt.mjs` still reports these as raw-grid mismatches; they are known
+  deviations, not bugs (the fuzzer is oblivious to the registry).
 
-### 4. Save/restore cursor (DECSC/DECRC) across a scroll region or scroll
-The dominant class the fuzzer surfaces after the fixes above. Sequences that save
-the cursor (`\x1b7`), scroll or set a DECSTBM region, then restore (`\x1b8`) and
-print leave the printed glyph one or more rows off vs xterm.
-- e.g. shapes ending `…\x1b8\x1b[0J3` and `…\x1b8\x1b[3T3` put the trailing char a
-  couple rows lower in aterm than in xterm.
-- Needs triage: whether DECRC re-clamps the restored row to the (possibly changed)
-  region, and how a saved position interacts with intervening scrolls.
+## Open
 
 ### 5. Trailing glyph after a charset switch / at the wrap column
 Minor: `…\x1b(0q\x1b(B中` style streams occasionally keep one extra trailing cell

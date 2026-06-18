@@ -527,6 +527,7 @@
       },
       "useIpcEvents": {
         "0e3cf53060": "Browser tab {{value0}} not found",
+        "2f6637fe6c": "Browser tab {{value0}} is pinned",
         "a8d2bf8e9e": "No active browser tab to close",
         "291c8ed902": "Browser tabs are unavailable while a remote runtime is active",
         "f45fa2b03c": "Browser profiles are unavailable while a remote runtime is active",
@@ -2353,6 +2354,13 @@
                 }
               }
             }
+          },
+          "PinnedTabCloseDialog": {
+            "6c190f295a": "Close pinned tab?",
+            "0d1963f4a6": "This tab is pinned. Are you sure you want to close it?",
+            "dont_ask_again": "Don't ask again for pinned tabs",
+            "0b38ee2f86": "Cancel",
+            "c337c9d75c": "Close"
           }
         }
       },
@@ -4784,6 +4792,8 @@
         },
         "GeneralPane": {
           "d58fccfd84": "Navigation",
+          "5cb5475664": "Confirm before closing pinned tabs",
+          "36b2a5dc6d": "Show a confirmation dialog before a pinned tab is closed.",
           "projectRuntime": "Project Runtime",
           "projectRuntimeDescription": "Default runtime for local Windows projects that do not override it."
         },
@@ -6991,6 +7001,8 @@
             "7baf524b04": "workspace",
             "d0bc793689": "Root directory where workspace folders are created.",
             "4c95d08fa2": "Workspace Directory",
+            "161a86a9da": "Confirm before closing pinned tabs",
+            "8e593f04fc": "Show a confirmation dialog before a pinned tab is closed.",
             "defaultProjectRuntime": "Default Project Runtime",
             "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects."
           }

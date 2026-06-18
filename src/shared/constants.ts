@@ -310,6 +310,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     agentYoloDefaultsMigrated: true,
     agentStatusHooksEnabled: true,
     tabAutoGenerateTitle: false,
+    confirmClosePinnedTab: true,
     keepComputerAwakeWhileAgentsRun: false,
     // Why: 'auto' runs a layout-aware probe at boot (see
     // src/renderer/src/lib/keyboard-layout/*) that picks 'true' for US and

@@ -527,6 +527,7 @@
       },
       "useIpcEvents": {
         "0e3cf53060": "ブラウザタブ {{value0}} が見つかりません",
+        "2f6637fe6c": "ブラウザタブ {{value0}} はピン留めされています",
         "a8d2bf8e9e": "閉じるためのアクティブなブラウザ タブがありません",
         "291c8ed902": "リモート ランタイムがアクティブな間はブラウザ タブは使用できません",
         "f45fa2b03c": "リモート ランタイムがアクティブな間はブラウザ プロファイルを使用できません",
@@ -2353,6 +2354,13 @@
                 }
               }
             }
+          },
+          "PinnedTabCloseDialog": {
+            "6c190f295a": "ピン留めしたタブを閉じますか？",
+            "0d1963f4a6": "このタブはピン留めされています。本当に閉じますか？",
+            "dont_ask_again": "ピン留めしたタブについて今後確認しない",
+            "0b38ee2f86": "キャンセル",
+            "c337c9d75c": "閉じる"
           }
         }
       },
@@ -4769,6 +4777,8 @@
         },
         "GeneralPane": {
           "d58fccfd84": "ナビゲーション",
+          "5cb5475664": "ピン留めしたタブを閉じる前に確認",
+          "36b2a5dc6d": "ピン留めしたタブを閉じる前に確認ダイアログを表示します。",
           "projectRuntime": "Project Runtime",
           "projectRuntimeDescription": "Default runtime for local Windows projects that do not override it."
         },
@@ -6976,6 +6986,8 @@
             "7baf524b04": "ワークスペース",
             "d0bc793689": "ワークスペースフォルダーが作成されるルートディレクトリ。",
             "4c95d08fa2": "ワークスペースディレクトリ",
+            "161a86a9da": "ピン留めしたタブを閉じる前に確認",
+            "8e593f04fc": "ピン留めしたタブを閉じる前に確認ダイアログを表示します。",
             "defaultProjectRuntime": "Default Project Runtime",
             "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects."
           }

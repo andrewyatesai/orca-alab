@@ -527,6 +527,7 @@
       },
       "useIpcEvents": {
         "0e3cf53060": "未找到浏览器选项卡 {{value0}}",
+        "2f6637fe6c": "浏览器选项卡 {{value0}} 已固定",
         "a8d2bf8e9e": "没有可关闭的活动浏览器选项卡",
         "291c8ed902": "当远程运行时处于活动状态时，浏览器选项卡不可用",
         "f45fa2b03c": "当远程运行时处于活动状态时，浏览器配置文件不可用",
@@ -2353,6 +2354,13 @@
                 }
               }
             }
+          },
+          "PinnedTabCloseDialog": {
+            "6c190f295a": "关闭固定的标签页？",
+            "0d1963f4a6": "此标签页已固定。确定要关闭它吗？",
+            "dont_ask_again": "固定标签页不再询问",
+            "0b38ee2f86": "取消",
+            "c337c9d75c": "关闭"
           }
         }
       },
@@ -4769,6 +4777,8 @@
         },
         "GeneralPane": {
           "d58fccfd84": "导航",
+          "5cb5475664": "关闭固定标签页前确认",
+          "36b2a5dc6d": "关闭固定标签页前显示确认对话框。",
           "projectRuntime": "Project Runtime",
           "projectRuntimeDescription": "Default runtime for local Windows projects that do not override it."
         },
@@ -6939,6 +6949,8 @@
             "7baf524b04": "工作区",
             "d0bc793689": "创建工作区文件夹的根目录。",
             "4c95d08fa2": "工作区目录",
+            "161a86a9da": "关闭固定标签页前确认",
+            "8e593f04fc": "关闭固定标签页前显示确认对话框。",
             "defaultProjectRuntime": "Default Project Runtime",
             "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects."
           }

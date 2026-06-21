@@ -9,6 +9,7 @@ type MockAgentOptions = {
   paneKey?: string
   tabId?: string
   agentType?: string
+  rowSource?: DashboardAgentRowData['rowSource']
   state?: string
   startedAt?: number
   prompt?: string
@@ -32,6 +33,7 @@ function mockAgent({
   paneKey = 'tab-1:1',
   tabId = paneKey.split(':')[0],
   agentType,
+  rowSource,
   state = 'working',
   startedAt,
   prompt,
@@ -45,6 +47,7 @@ function mockAgent({
     paneKey,
     tab: { id: tabId },
     agentType,
+    rowSource,
     state,
     startedAt,
     entry: {
@@ -63,6 +66,15 @@ function mockAgent({
 let mockAgents: unknown[] = [mockAgent()]
 let mockFocusedAgentPaneKey: string | null = null
 let mockAgentActivityDisplayMode: 'compact' | 'full' | undefined
+let capturedRowActivations: {
+  paneKey: string
+  onActivate: (tabId: string, paneKey: string) => void
+}[] = []
+
+const activationMocks = vi.hoisted(() => ({
+  activateAndRevealWorktree: vi.fn(),
+  activateTabAndFocusPane: vi.fn()
+}))
 
 vi.mock('@/store', () => ({
   useAppStore: (selector: (state: unknown) => unknown) =>
@@ -78,6 +90,14 @@ vi.mock('@/store', () => ({
       terminalLayoutsByTabId: {},
       sendPromptToSidebarAgentTarget: vi.fn()
     })
+}))
+
+vi.mock('@/lib/worktree-activation', () => ({
+  activateAndRevealWorktree: activationMocks.activateAndRevealWorktree
+}))
+
+vi.mock('@/lib/activate-tab-and-focus-pane', () => ({
+  activateTabAndFocusPane: activationMocks.activateTabAndFocusPane
 }))
 
 vi.mock('./useWorktreeAgentRows', () => ({
@@ -98,7 +118,8 @@ vi.mock('@/components/dashboard/DashboardAgentRow', () => ({
     childAgentCount,
     childAgentsExpanded,
     onToggleChildAgents,
-    reserveDisclosureGutter
+    reserveDisclosureGutter,
+    onActivate
   }: {
     agent: { paneKey: string }
     isFocusedPane?: boolean
@@ -109,31 +130,35 @@ vi.mock('@/components/dashboard/DashboardAgentRow', () => ({
     childAgentsExpanded?: boolean
     onToggleChildAgents?: () => void
     reserveDisclosureGutter?: boolean
-  }) => (
-    <div
-      data-testid="agent-row"
-      data-focused={isFocusedPane ? 'true' : 'false'}
-      data-agent-send-target={sendTargetStatus}
-      data-disabled-reason={sendTargetDisabledReason}
-      data-has-send-handler={typeof onSendTargetClick === 'function' ? 'true' : 'false'}
-      data-pane-key={agent.paneKey}
-      data-reserve-disclosure-gutter={reserveDisclosureGutter ? 'true' : 'false'}
-    >
-      {agent.paneKey}
-      {typeof childAgentCount === 'number' && childAgentCount > 0 ? (
-        <button
-          type="button"
-          aria-label={`${childAgentsExpanded ? 'Hide' : 'Show'} ${childAgentCount} child ${
-            childAgentCount === 1 ? 'agent' : 'agents'
-          }`}
-          aria-expanded={childAgentsExpanded ?? false}
-          onClick={onToggleChildAgents}
-        >
-          +{childAgentCount}
-        </button>
-      ) : null}
-    </div>
-  )
+    onActivate: (tabId: string, paneKey: string) => void
+  }) => {
+    capturedRowActivations.push({ paneKey: agent.paneKey, onActivate })
+    return (
+      <div
+        data-testid="agent-row"
+        data-focused={isFocusedPane ? 'true' : 'false'}
+        data-agent-send-target={sendTargetStatus}
+        data-disabled-reason={sendTargetDisabledReason}
+        data-has-send-handler={typeof onSendTargetClick === 'function' ? 'true' : 'false'}
+        data-pane-key={agent.paneKey}
+        data-reserve-disclosure-gutter={reserveDisclosureGutter ? 'true' : 'false'}
+      >
+        {agent.paneKey}
+        {typeof childAgentCount === 'number' && childAgentCount > 0 ? (
+          <button
+            type="button"
+            aria-label={`${childAgentsExpanded ? 'Hide' : 'Show'} ${childAgentCount} child ${
+              childAgentCount === 1 ? 'agent' : 'agents'
+            }`}
+            aria-expanded={childAgentsExpanded ?? false}
+            onClick={onToggleChildAgents}
+          >
+            +{childAgentCount}
+          </button>
+        ) : null}
+      </div>
+    )
+  }
 }))
 
 vi.mock('./focused-agent-row-highlight', () => ({
@@ -152,6 +177,7 @@ describe('WorktreeCardAgents', () => {
     mockAgents = [mockAgent()]
     mockFocusedAgentPaneKey = null
     mockAgentActivityDisplayMode = undefined
+    capturedRowActivations = []
   })
 
   it('renders ordinary rows in full mode without a child disclosure', async () => {
@@ -165,7 +191,7 @@ describe('WorktreeCardAgents', () => {
     expect(markup).toContain('data-testid="agent-row"')
     expect(markup).not.toContain('<button')
     expect(markup).not.toContain('aria-expanded')
-  })
+  }, 30_000)
 
   it('uses compact mode when the display preference is absent', async () => {
     mockAgents = [mockAgent({ agentType: 'codex', startedAt: 1000, prompt: 'Run tests' })]
@@ -177,6 +203,47 @@ describe('WorktreeCardAgents', () => {
     expect(markup).toContain('Run tests')
     expect(markup).toContain('title="Codex"')
     expect(markup).not.toContain('data-testid="agent-row"')
+  })
+
+  it('dims non-focused compact agent row text', async () => {
+    mockAgentActivityDisplayMode = 'compact'
+    mockAgents = [
+      mockAgent({
+        agentType: 'codex',
+        startedAt: 1000,
+        prompt: 'Run tests',
+        lastAssistantMessage: 'Inspecting changes'
+      })
+    ]
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('<span class="text-muted-foreground/90">Run tests</span>')
+    expect(markup).toContain('<span class="text-muted-foreground/65"> - Inspecting changes</span>')
+    expect(markup).not.toContain('data-focused-agent-pane="true"')
+    expect(markup).not.toContain('<span class="text-foreground">Run tests</span>')
+  })
+
+  it('keeps focused compact agent row text legible', async () => {
+    mockAgentActivityDisplayMode = 'compact'
+    mockFocusedAgentPaneKey = 'tab-1:1'
+    mockAgents = [
+      mockAgent({
+        agentType: 'codex',
+        startedAt: 1000,
+        prompt: 'Focused prompt',
+        lastAssistantMessage: 'Reading output'
+      })
+    ]
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    const markup = renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+
+    expect(markup).toContain('data-focused-agent-pane="true"')
+    expect(markup).toContain('<span class="text-foreground">Focused prompt</span>')
+    expect(markup).toContain('<span class="text-foreground/70"> - Reading output</span>')
+    expect(markup).not.toContain('<span class="text-muted-foreground/90">Focused prompt</span>')
   })
 
   it('marks only the focused agent row', async () => {
@@ -191,6 +258,19 @@ describe('WorktreeCardAgents', () => {
     expect(markup).toContain('data-pane-key="tab-1:1"')
     expect(markup).toContain('data-focused="true"')
     expect(markup).toContain('data-pane-key="tab-1:2"')
+  })
+
+  it('keeps retained completion rows passive when activated', async () => {
+    mockAgentActivityDisplayMode = 'full'
+    mockAgents = [mockAgent({ rowSource: 'retained', state: 'done' })]
+    const { default: WorktreeCardAgents } = await import('./WorktreeCardAgents')
+
+    renderToStaticMarkup(<WorktreeCardAgents worktreeId="wt-1" />)
+    expect(capturedRowActivations).toHaveLength(1)
+    capturedRowActivations[0].onActivate('tab-1', 'tab-1:1')
+
+    expect(activationMocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+    expect(activationMocks.activateTabAndFocusPane).not.toHaveBeenCalled()
   })
 
   it('shows orchestration child agent rows under their parent by default', async () => {
@@ -484,6 +564,27 @@ describe('WorktreeCardAgents', () => {
     expect(iconTitles).toEqual([])
     expect(markup).not.toContain('>5 working<')
     expect(markup).toContain('>+2<')
+  })
+
+  it('rotates the compact summary chevron when collapsed', async () => {
+    const { CompactAgentSummaryButton } = await import('./worktree-card-compact-agents')
+    const agents = [
+      mockAgent({ paneKey: 'tab-1:1', agentType: 'codex', startedAt: 1000, prompt: 'One' })
+    ] as DashboardAgentRowData[]
+
+    const markup = renderToStaticMarkup(
+      <CompactAgentSummaryButton
+        agents={agents}
+        subjectLabel="1 agent"
+        expanded={false}
+        onToggle={vi.fn()}
+      />
+    )
+
+    expect(markup).toContain('aria-expanded="false"')
+    expect(markup).toContain(
+      'lucide-chevron-down size-3 shrink-0 transition-transform duration-150 -rotate-90'
+    )
   })
 
   it('uses a neutral compact summary label while expanded', async () => {

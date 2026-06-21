@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+
+[package]
+name = "aterm-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "aterm GPU renderer (wgpu/Metal): glyph-atlas + instanced cell quads. Renders the terminal grid on the GPU; offscreen render-to-texture readback for headless verification."
+
+[features]
+default = []
+# TRUST_NATIVE_TLA Phase 2: compile the source↔spec `#[refines]` anchors binding the
+# bg-instance build/slice path (→ external `GpuEncode.tla`). OFF by default
+# (byte-identical production renderer, no `aterm-spec`/`inventory`); aterm-gui's
+# `spec_xref_closure` gate enables it to COLLECT the anchors cross-crate.
+spec-anchors = ["dep:aterm-spec"]
+
+[dependencies]
+aterm-core = { workspace = true }
+aterm-render = { workspace = true }
+aterm-render-api = { workspace = true }
+wgpu = "29"
+pollster = "0.3"
+bytemuck = { version = "1", features = ["derive"] }
+# Optional: only pulled in by the off-by-default `spec-anchors` feature.
+aterm-spec = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion = "0.5"
+# Inline-image (OSC 1337) parity tests: encode test PNGs + base64 payloads.
+png = "0.17"
+aterm-codec = { workspace = true }
+# Test-only: Tier-1 `GpuEncode.tla` conformance (`tests/conformance_gpuencode.rs`)
+# drives the real slice-precondition decision over the bg-instance count.
+aterm-spec = { workspace = true }
+aterm-spec-models = { workspace = true }
+# Test-only: build a TerminalConfig from a named ColorScheme for the named-theme
+# GPU/CPU parity test (tests/gpu_matches_cpu.rs).
+aterm-types = { workspace = true }
+
+[[bench]]
+name = "gpu_frame"
+harness = false

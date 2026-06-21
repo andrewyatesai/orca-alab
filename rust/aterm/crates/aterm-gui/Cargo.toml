@@ -1,0 +1,125 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+
+[package]
+name = "aterm-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "aterm — a native windowed terminal: winit + softbuffer presenting the aterm-render framebuffer over a real PTY shell."
+
+[[bin]]
+name = "aterm-gui"
+path = "src/main.rs"
+
+[features]
+default = []
+# Opt-in macOS NSAccessibility publishing (accessibility.rs): publishes the
+# visible grid text / role / label to the content NSView so VoiceOver can read
+# the terminal. OFF by default — the pure accessibility snapshot builder always
+# compiles (and is unit-tested), but the AppKit imperative wiring + its extra
+# objc2 bindings are only built when this is enabled, so the default GUI build is
+# byte-identical and carries no per-frame a11y publish cost. (objc2 +
+# objc2-foundation themselves are now always-on macOS deps for the menu bar, so
+# this feature only adds the extra NSAccessibility binding set.)
+a11y-appkit = [
+    "objc2-app-kit/NSAccessibility",
+    "objc2-app-kit/NSAccessibilityProtocols",
+    "objc2-app-kit/NSAccessibilityConstants",
+]
+
+[dependencies]
+aterm-core = { workspace = true }
+aterm-buffer = { path = "../aterm-buffer" }
+aterm-codec = { workspace = true }
+aterm-pty = { workspace = true }
+aterm-session = { workspace = true }
+aterm-cap = { workspace = true }
+aterm-sandbox = { workspace = true }
+aterm-containment = { workspace = true }
+aterm-log = { workspace = true }
+aterm-render = { workspace = true }
+aterm-gpu = { workspace = true }
+# build_info: FxHash the running binary into a content signature (no crypto dep).
+aterm-hash = { workspace = true }
+# K-2: enable the winit→engine key map so the GUI and the future native shell
+# share one table instead of an inline match. POL-1: install a default OSC policy.
+aterm-types = { workspace = true, features = ["winit-keymap"] }
+aterm-policy = { workspace = true }
+libc = { workspace = true }
+winit = { workspace = true }
+softbuffer = "0.4"
+# Config file parsing. Both crates are ALREADY in this binary's tree (via the
+# engine's config + policy crates), so this adds bindings, not weight.
+serde = { workspace = true }
+toml = { workspace = true }
+# PNG encode for the control-socket `window` verb (the macOS full-window capture):
+# it draws the front NSWindow's on-screen pixels into a tightly-packed RGBA8 buffer
+# and encodes them here. Same crate (and version) aterm-render already uses for the
+# `image` verb's framebuffer PNG, so this adds bindings, not a new dep to the tree.
+png = "0.17"
+
+[dev-dependencies]
+# Tier-1 conformance: bind the real `App` window lifecycle to the ty-proven
+# `window_routing_model()`. Same model that is Tier-0 `ty check`ed in
+# aterm-spec, so the spec the conformance test writes cannot drift from it.
+aterm-spec = { workspace = true }
+# TRUST_NATIVE_TLA Phase 2: the relocated `spec_xref_closure` gate lives in this
+# binary's TEST build (`#[cfg(test)] mod spec_xref_gate` in main.rs). It collects
+# the ISOLATION-family `#[refines]`/`#[spec_unmodeled]` anchors via `inventory`, so
+# every anchor-bearing crate must be LINKED WITH ITS `spec-anchors` FEATURE ON in
+# this test build. Re-declaring these (already normal `[dependencies]`) here with
+# `features = ["spec-anchors"]` turns the anchors on ONLY for aterm-gui's test/bench
+# build (Cargo unifies dev-dep features into the test build) — the production
+# `cargo build -p aterm-gui` stays byte-identical (feature OFF). aterm-core supplies
+# the `terminal_modes` + `alt_screen` anchors, aterm-sandbox the `sandbox`, aterm-pty
+# the `write_all` + `fork_exec`, aterm-gpu the `gpu_encode`; aterm-gui's own
+# `path_confine` anchor expands via this crate's `cfg(test)` directly.
+aterm-core = { workspace = true, features = ["spec-anchors"] }
+aterm-sandbox = { workspace = true, features = ["spec-anchors"] }
+aterm-pty = { workspace = true, features = ["spec-anchors"] }
+aterm-gpu = { workspace = true, features = ["spec-anchors"] }
+# aterm-session supplies the `fd_lifecycle` anchors (the SinkWriter PTY-master
+# fd-lifecycle: UseFd #[refines] on master()/write_frame + Clone/DropClone RAII
+# waivers). Re-declared here with `spec-anchors` ON so `inventory` collects them
+# into this gate's test binary (initiative A7, WS-G).
+aterm-session = { workspace = true, features = ["spec-anchors"] }
+# TRUST_NATIVE_TLA §4 (Phase 4): the PROOF-anchor (kani-half) crates. Linked into this
+# test build with `spec-anchors` ON so `inventory` collects their `proof_anchor!`
+# records (Ring/EvictFull/TierResidency) for the unified verifier ledger. These are NOT
+# normal `[dependencies]` of aterm-gui, so the production binary never links them — the
+# ledger is a test-build artifact, exactly like the ISOLATION anchors above.
+aterm-scrollback = { workspace = true, features = ["spec-anchors"] }
+aterm-grid = { workspace = true, features = ["spec-anchors"] }
+# Resolve external ISOLATION `.tla` machine names (obligation 4) against the
+# committed specs in this crate; test-only, out of the production closure.
+aterm-spec-models = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# NSBeep for the audible bell + NSWindow.setColorSpace to drop the per-frame
+# CoreAnimation colour-space conversion (see main.rs), plus the always-on native
+# menu bar (menu.rs): NSApplication/NSMenu/NSMenuItem build + install the Apple
+# main menu, NSEvent supplies the key-equivalent modifier flags. NSToolbar/
+# NSToolbarItem back the per-window native COMPACT chrome (toolbar.rs): a single
+# UnifiedCompact-style toolbar row (NSWindowToolbarStyle::UnifiedCompact +
+# setTitleVisibility hidden) whose ONE custom-view item is the Ghostty-style
+# full-width tab strip. That strip is an NSView container holding one custom
+# NSView (ATermTabView) PER tab — each with an NSTextField title label
+# (NSText/NSTextField), an NSFont, an NSColor accent/dim treatment, a close ×
+# NSButton, and an NSTrackingArea for hover-reveal — plus a trailing "+" New Tab
+# NSButton (NSImage = the add template). NSGraphics also gives the NSRectFill the
+# per-tab drawRect: uses to paint the active accent. (NSSegmentedControl /
+# NSSegmentedCell / NSAnimation are now vestigial — the strip was an
+# NSSegmentedControl before the view-based rewrite — but are kept to avoid
+# churning the build surface.) AppKit (objc2-app-kit 0.2) is already linked
+# in-process via softbuffer/winit; these add bindings, not a dep.
+objc2-app-kit = { version = "0.2", features = ["NSGraphics", "NSColorSpace", "NSColor", "NSWindow", "NSView", "NSResponder", "NSApplication", "NSMenu", "NSMenuItem", "NSEvent", "NSRunningApplication", "NSToolbar", "NSToolbarItem", "NSImage", "NSControl", "NSCell", "NSButton", "NSText", "NSTextField", "NSFont", "NSTrackingArea", "NSSegmentedControl", "NSSegmentedCell", "NSAnimation", "NSAppearance"] }
+# objc2 + objc2-foundation are now ALWAYS built on macOS (not just the optional
+# `a11y-appkit` feature): menu.rs declares an NSObject action target (objc2's
+# declare_class!) and uses NSString/MainThreadMarker for the menu. Both are
+# already in the tree transitively via objc2-app-kit, so this adds bindings only.
+# (The `a11y-appkit` feature below just enables the extra NSAccessibility
+# bindings; the base crates are no longer gated behind it.)
+objc2-foundation = { version = "0.2", features = ["NSString", "NSGeometry"] }
+objc2 = { version = "0.5" }

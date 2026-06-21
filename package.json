@@ -42,6 +42,7 @@
     "build:computer-macos": "node config/scripts/build-computer-macos.mjs",
     "build:native": "node config/scripts/build-native-for-platform.mjs",
     "build:terminal-addon": "node config/scripts/build-terminal-addon.mjs",
+    "vendor:aterm": "node config/scripts/vendor-aterm.mjs",
     "smoke:computer": "node config/scripts/computer-use-smoke.mjs",
     "verify:computer-native": "node config/scripts/verify-computer-native.mjs",
     "verify:cli-bin": "node config/scripts/verify-cli-bin.mjs",

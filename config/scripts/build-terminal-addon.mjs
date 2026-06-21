@@ -48,7 +48,10 @@ function newestMtime() {
     resolve(addonDir, 'src'),
     resolve(addonDir, 'Cargo.toml'),
     resolve(projectDir, 'rust/crates/orca-terminal/src'),
-    resolve(projectDir, 'rust/crates/orca-terminal/Cargo.toml')
+    resolve(projectDir, 'rust/crates/orca-terminal/Cargo.toml'),
+    // Re-vendoring aterm rewrites this marker; cheap proxy for the whole engine
+    // tree so a fresh engine triggers a rebuild without walking 900+ files.
+    resolve(projectDir, 'rust/aterm/VENDORED_REV.txt')
   ]
   let newest = 0
   const walk = (p) => {

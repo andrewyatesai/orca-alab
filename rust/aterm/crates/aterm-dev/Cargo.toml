@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+
+[package]
+name = "aterm-dev"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "aterm-dev — one discoverable, AI-friendly CLI front door to all the project's dev/ops utility scripts (package, release, audit, verify, setup)."
+
+[[bin]]
+name = "aterm-dev"
+path = "src/main.rs"
+
+[dependencies]

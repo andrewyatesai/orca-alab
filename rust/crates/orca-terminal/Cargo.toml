@@ -12,13 +12,14 @@ description = "Headless terminal emulation for Orca (replaces @xterm/headless): 
 # VT pipeline: parser, grid, scrollback, SGR/colour model, OSC-7 cwd, mouse
 # modes. `orca-terminal` is the anti-corruption layer that re-exposes aterm's
 # `Terminal` under Orca's stable `HeadlessTerminal` surface so `orca-ffi` /
-# `orca-session` and the native shells are unchanged. DEV references the LIVE
-# `~/aterm` checkout (latest engine) so orca tracks every aterm improvement;
-# aterm's crates.io closure is vendored under `rust/vendor` (offline). Release
-# re-vendors the aterm source (or pins a git rev) for a self-contained build.
-aterm-core = { path = "../../../../aterm/crates/aterm-core" }
-aterm-grid = { path = "../../../../aterm/crates/aterm-grid" }
-aterm-types = { path = "../../../../aterm/crates/aterm-types" }
+# `orca-session` and the native shells are unchanged. The aterm SOURCE is
+# vendored in-tree under `rust/aterm` (rev in rust/aterm/VENDORED_REV.txt) so
+# clean-machine and packaged builds are self-contained — no `~/aterm` checkout
+# required. Refresh with `pnpm vendor:aterm`. aterm's crates.io closure stays
+# vendored under `rust/vendor` (offline).
+aterm-core = { path = "../../aterm/crates/aterm-core" }
+aterm-grid = { path = "../../aterm/crates/aterm-grid" }
+aterm-types = { path = "../../aterm/crates/aterm-types" }
 # Color-scheme (DEC mode 2031) sequence scanning. Literal/char-class matching
 # only — no unicode tables needed.
 regex = { version = "1", default-features = false, features = ["std", "perf"] }

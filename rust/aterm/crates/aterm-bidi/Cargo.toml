@@ -1,0 +1,22 @@
+# Copyright 2026 The aterm Authors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "aterm-bidi"
+description = "Unicode Bidirectional Algorithm (UAX #9) implicit line reordering for the terminal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[features]
+default = []
+
+[dependencies]
+
+[dev-dependencies]
+proptest = { workspace = true }

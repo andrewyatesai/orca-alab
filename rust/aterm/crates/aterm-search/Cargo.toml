@@ -1,0 +1,29 @@
+# Copyright 2026 The aterm Authors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "aterm-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Search primitives for aterm terminal content"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
+[features]
+default = []
+# Enables regex-mode scrollback search (SearchIndex::search_*_opts with
+# is_regex = true). Left opt-in here; a later slice flips it on for the GUI.
+regex = ["dep:regex"]
+
+[dependencies]
+aterm-types = { workspace = true }
+aterm-error = { workspace = true }
+aterm-hash = { workspace = true }
+# Required (not optional): the index emits a one-time eviction warning so
+# truncated search results are observable rather than silent (DL-2).
+aterm-log = { workspace = true }
+aterm-grapheme = { workspace = true }
+regex = { workspace = true, optional = true }

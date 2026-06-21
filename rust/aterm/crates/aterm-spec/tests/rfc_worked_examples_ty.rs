@@ -1,0 +1,193 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 The aterm Authors
+//
+//! RFC worked examples: "models come out runnable."
+//!
+//! The aterm/Trust RFC claims that a defect found in the real renderer/GUI can be
+//! written as a `ty_model!` bounded state machine, and that the SAME `ty` binary
+//! that gates the committed specs will (a) PROVE the invariant at the committed
+//! `Buggy = 0`, and (b) find a COUNTEREXAMPLE at `Buggy = 1` — so the model is a
+//! genuine, non-vacuous catch of the real bug, not a tautology. This file makes
+//! that claim concrete for three shipped fixes:
+//!
+//!   * **AtlasPack (Bug 3)** — the glyph-atlas height accumulator in
+//!     `aterm-gpu/src/renderer.rs::build_kind`: `occupied_height()` is grown in a
+//!     loop and any glyph that would push it past `cap_h` (the device's max 2D
+//!     texture dimension) is ROLLED BACK and packing stops. Abstracted to a bounded
+//!     counter `h` capped at `Cap`; the `Buggy` flip inflates the growth step so the
+//!     cap is overrun — exactly the unbounded pack the rollback guards against.
+//!
+//!   * **ReloadFrame (Bug 4)** — `aterm-gui/src/main.rs::reload_config`: on a HiDPI
+//!     display the AUTO default font is `round(FONT_PX · scale)`; editing an
+//!     UNRELATED config key must re-derive that SCALED default, never shrink the
+//!     font back to the 16px `FONT_PX` base. Modelled WITHOUT multiplication — the
+//!     scaled default `Target` and the unscaled `Base` are constants. `Buggy = 1`
+//!     reloads to the unscaled `Base` (the shrink bug); `Buggy = 0` re-pins `Target`.
+//!
+//!   * **MarkRowOrigin (Bug 6)** — `aterm-gpu/src/renderer.rs` (~line 2452): the
+//!     combining-mark row origin must be `pad + r·ch` to MATCH the base-glyph loop;
+//!     an earlier version used `r·ch` (no `pad`), rendering decomposed marks `pad`
+//!     px too high — a CPU/GPU divergence for NFD sequences. With the `r = 0`
+//!     witness the `r·ch` term drops out, so the divergence is purely the missing
+//!     `pad`: correct `mark = pad`, buggy `mark = 0`, versus the base `pad`.
+//!
+//! Each model is checked by `assert_proves_and_catches` (the same harness shape as
+//! `tests/derived_ring_ty.rs`): clean at `Buggy = 0`, counterexample at `Buggy = 1`.
+//! Under `ATERM_REQUIRE_TRUST=1` an absent `ty` is FATAL, so a green run here proves
+//! `ty` actually model-checked all six configs.
+
+use aterm_spec::derive::Model;
+use aterm_spec::ty_model;
+use aterm_spec::verify::ty_or_skip;
+use std::path::PathBuf;
+use std::process::Command;
+
+/// A `Buggy`-convention model: `ty` must PROVE the invariant at the committed
+/// `Buggy = 0`, and find a COUNTEREXAMPLE at `Buggy = 1` (the cfg flips only the
+/// `Buggy` constant). Mirrors `tests/derived_ring_ty.rs::assert_proves_and_catches`.
+fn assert_proves_and_catches(ty: &PathBuf, m: &Model) {
+    let dir = std::env::temp_dir().join(format!("aterm-rfc-{}-{}", m.name, std::process::id()));
+    std::fs::create_dir_all(&dir).expect("mk tempdir");
+    let spec = dir.join(format!("{}.tla", m.name));
+    std::fs::write(&spec, m.to_tla()).expect("write spec");
+
+    let run = |cfg_name: &str, cfg: String| -> (bool, String) {
+        let cfgp = dir.join(cfg_name);
+        std::fs::write(&cfgp, cfg).expect("write cfg");
+        let out = Command::new(ty)
+            .arg("check")
+            .arg(&spec)
+            .arg("--config")
+            .arg(&cfgp)
+            .output()
+            .expect("run ty check");
+        let combined = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (out.status.success(), combined)
+    };
+
+    let (ok, out) = run("ok.cfg", m.to_cfg());
+    assert!(ok, "derived {} (Buggy=0) must model-check clean\n{out}", m.name);
+    let (bug_ok, bug_out) = run("bug.cfg", m.to_cfg_with(&[("Buggy", 1)]));
+    assert!(!bug_ok, "{} (Buggy=1) MUST yield a counterexample\n{bug_out}", m.name);
+
+    let _ = std::fs::remove_dir_all(&dir);
+    eprintln!(
+        "RFC {}: invariant proven (Buggy=0) and caught (Buggy=1 -> counterexample).",
+        m.name
+    );
+}
+
+/// Bug 3 — the glyph-atlas height accumulator (`build_kind`'s `occupied_height()`
+/// grown in a loop, capped at the device's `cap_h`). `h` is the packed height; the
+/// guard only lets `Grow` fire while a step still FITS under `Cap`. At `Buggy = 0`
+/// the step is `Step`, so from the guard boundary `h` lands exactly on `Cap` and
+/// stays bounded. At `Buggy = 1` the step is inflated to `Step + Step + Step` (the
+/// unbounded pack with no rollback): even from the EMPTY atlas (`h = 0`, where
+/// `Grow` is enabled) it overshoots to `6 > Cap` — the
+/// texture-taller-than-the-GPU-allows overflow the real rollback prevents (the
+/// fits-the-pre-state guard cannot save you once a single step alone exceeds the
+/// cap). `ty` proves `Bounded` (Buggy=0) and catches the overflow (Buggy=1). No
+/// multiplication: the inflated step is `Step + Step + Step`.
+fn atlas_pack_model() -> Model {
+    ty_model! {
+        AtlasPack {
+            const Cap = 4;
+            const Step = 2;
+            const Buggy = 0;
+            // The packed atlas height (occupied_height()), starting empty.
+            var h = 0;
+            // Pack one more glyph only while a step still fits under the cap. The
+            // correct step is `Step`; the buggy pack inflates it past the cap.
+            action Grow when (h <= Cap - Step) {
+                h = h + if Buggy == 1 { Step + Step + Step } else { Step };
+            }
+            // The texture height never exceeds the device limit `cap_h` (= Cap).
+            invariant Bounded: h <= Cap;
+        }
+    }
+}
+
+/// Bug 4 — `reload_config`'s AUTO-default-font re-derivation on a HiDPI display.
+/// `font` starts at the SCALED default `Target` (= round(FONT_PX·scale)), so the
+/// invariant holds before any reload. A `Reload` re-derives the auto default: at
+/// `Buggy = 0` it re-pins `Target` (the unchanged-config no-op must not shrink the
+/// font), at `Buggy = 1` it shrinks to the UNSCALED `Base` (= FONT_PX), the defect.
+/// `ty` proves `FontIsScaledDefault` (Buggy=0) and catches the shrink (Buggy=1).
+/// No multiplication: `Target` and `Base` are constants (32 = round(16·2), 16).
+fn reload_frame_model() -> Model {
+    ty_model! {
+        ReloadFrame {
+            const Target = 32;
+            const Base = 16;
+            const Buggy = 0;
+            // The live font size, initialized to the scaled HiDPI default.
+            var font = 32;
+            // Reload re-derives the auto default. Correct: re-pin the scaled
+            // Target. Buggy: shrink back to the unscaled Base (the 16px regression).
+            action Reload {
+                font = if Buggy == 1 { Base } else { Target };
+            }
+            // After a reload of an unrelated key, the font is still the scaled
+            // default — it never shrinks back to the base size.
+            invariant FontIsScaledDefault: font == Target;
+        }
+    }
+}
+
+/// Bug 6 — the combining-mark row origin vs the base-glyph row origin. With the
+/// `r = 0` witness, the base-glyph origin `pad + r·ch` collapses to `Pad`, and the
+/// correct mark origin (also `pad + r·ch`) collapses to `Pad` too — so they align.
+/// The bug used `r·ch` (no `pad`) for the mark, which collapses to `0`: the mark is
+/// rendered `pad` px too high. `Step` computes both origins; at `Buggy = 0` they
+/// agree (both `Pad`), at `Buggy = 1` the mark drops the pad (`0`) and diverges.
+/// `ty` proves `Aligned` (Buggy=0) and catches the divergence (Buggy=1). The cell
+/// height `ch` drops out at `r = 0`, so no multiplication is needed.
+fn mark_row_origin_model() -> Model {
+    ty_model! {
+        MarkRowOrigin {
+            const Pad = 1;
+            const Buggy = 0;
+            // The base-glyph row top and the combining-mark row top (r=0 witness:
+            // both are `pad + r*ch` = `pad`). Equal until a buggy Step drops the pad.
+            var base = 0;
+            var mark = 0;
+            // Base origin = pad (+ r*ch, r=0). Mark origin: correct = pad; the bug
+            // omits the pad (uses r*ch = 0), so the mark sits `pad` px too high.
+            action Step {
+                base = Pad;
+                mark = if Buggy == 1 { 0 } else { Pad };
+            }
+            // The combining mark shares the base glyph's row origin (no CPU/GPU
+            // y divergence for NFD sequences).
+            invariant Aligned: base == mark;
+        }
+    }
+}
+
+#[test]
+fn rfc_atlas_pack_proves_and_catches_overflow() {
+    let Some(ty) = ty_or_skip("RFC AtlasPack (Bug 3) spec") else {
+        return;
+    };
+    assert_proves_and_catches(&ty, &atlas_pack_model());
+}
+
+#[test]
+fn rfc_reload_frame_proves_and_catches_font_shrink() {
+    let Some(ty) = ty_or_skip("RFC ReloadFrame (Bug 4) spec") else {
+        return;
+    };
+    assert_proves_and_catches(&ty, &reload_frame_model());
+}
+
+#[test]
+fn rfc_mark_row_origin_proves_and_catches_y_divergence() {
+    let Some(ty) = ty_or_skip("RFC MarkRowOrigin (Bug 6) spec") else {
+        return;
+    };
+    assert_proves_and_catches(&ty, &mark_row_origin_model());
+}

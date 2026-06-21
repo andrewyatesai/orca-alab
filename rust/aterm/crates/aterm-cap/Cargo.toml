@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+[package]
+name = "aterm-cap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Owns-correctness capabilities (ATERM_DESIGN WS-G): an UNFORGEABLE sealed-mint capability + trust tier + effect-gating layer."

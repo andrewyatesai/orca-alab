@@ -119,11 +119,11 @@ impl HeadlessTerminal {
     }
 
     pub fn with_scrollback(rows: usize, cols: usize, scrollback_limit: usize) -> Self {
-        // Orca reads scrollback as TEXT only (snapshot / serialize_ansi /
-        // row_text), never its colour. Enable aterm's headless
-        // scrollback-text-only fast path so the scroll hot path skips per-cell
-        // extras extraction (~10% faster on colour-heavy floods); the visible
-        // grid keeps full colour. Global + idempotent.
+        // Orca reads scrollback as TEXT (+ OSC-8 links), never its colour. Enable
+        // aterm's headless scrollback-text-only fast path so the scroll hot path
+        // skips per-cell COLOUR/STYLE extraction (faster on colour-heavy floods)
+        // while still retaining hyperlink spans; the visible grid keeps full
+        // colour. Global + idempotent.
         aterm_grid::set_scrollback_text_only(true);
         // `ring_buffer_size` sizes the scrolled-off history ring; capping it at
         // the requested limit mirrors the old engine's bounded scrollback (the
@@ -376,9 +376,8 @@ impl HeadlessTerminal {
     /// `collectHeadlessOscLinkRanges`: consecutive cells sharing a URL coalesce
     /// into one run; `row` is 0-based from the window top; `end_col` is exclusive.
     ///
-    /// History-line links are only present when the engine retains hyperlink spans
-    /// on scroll; the headless scrollback-text-only fast path drops them, so in
-    /// practice this returns the VISIBLE grid's links (the ones the user can see).
+    /// Covers BOTH the visible grid and scrollback history — aterm retains
+    /// hyperlink spans on scroll even under the headless text-only fast path.
     pub fn osc_link_ranges(&self, scrollback_rows: Option<usize>) -> Vec<OscLinkRange> {
         let mut ranges = Vec::new();
         let hist = self.scrollback_len();
@@ -776,6 +775,25 @@ mod tests {
         assert_eq!(r.row, 0);
         assert_eq!(r.start_col, 2); // after "a "
         assert_eq!(r.end_col, 6); // "link" is [2, 6), end exclusive
+    }
+
+    #[test]
+    fn osc_link_ranges_captures_scrolled_off_history_links() {
+        // A linked word that scrolls into history stays recoverable (aterm keeps
+        // hyperlink spans on scroll even in the headless text-only mode), but is
+        // excluded when scrollback rows are clipped to the viewport.
+        let mut term = HeadlessTerminal::with_scrollback(2, 80, 10);
+        term.process_str("\x1b]8;;https://example.com/old\x07old\x1b]8;;\x07\r\nplain\r\nvisible");
+        let all = term.osc_link_ranges(None);
+        assert!(
+            all.iter().any(|r| r.uri == "https://example.com/old"),
+            "scrolled-off link should be captured: {all:?}"
+        );
+        let viewport = term.osc_link_ranges(Some(0));
+        assert!(
+            !viewport.iter().any(|r| r.uri == "https://example.com/old"),
+            "viewport-only must exclude the scrolled-off link: {viewport:?}"
+        );
     }
 
     #[test]

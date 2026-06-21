@@ -562,12 +562,14 @@ impl Grid {
     ) {
         result.clear();
         // Headless scrollback-text-only mode (opt-in, default off): skip
-        // per-cell extras extraction on scroll, so scrollback retains TEXT but
-        // not colour/hyperlink/style. ~10% faster on colour-heavy floods. Only
-        // for embeddings that read scrollback as text (e.g. Orca's text-only
-        // serialize_ansi). The visible grid is untouched, so visible_sha and the
-        // differential oracle (which compare the visible screen) are unaffected.
+        // per-cell colour/style extraction on scroll. ~faster on colour-heavy
+        // floods. Only for embeddings that read scrollback as text (e.g. Orca's
+        // text-only serialize_ansi). OSC-8 hyperlink spans are STILL collected
+        // (a cheap hyperlink-only pass) so links that scroll off-screen remain
+        // recoverable from scrollback. The visible grid is untouched, so
+        // visible_sha and the differential oracle are unaffected.
         if scrollback_text_only() {
+            Self::extract_hyperlinks_only_into(result, row, extras, row_idx);
             return;
         }
         let len = row.len() as usize;
@@ -716,6 +718,59 @@ impl Grid {
             }
         }
 
+        if let Some((start, url, id)) = current_span {
+            let end_col = u16::try_from(len).unwrap_or(u16::MAX);
+            result
+                .hyperlinks
+                .push(HyperlinkSpan::with_id(start, end_col, url, id));
+        }
+    }
+
+    /// Hyperlink-only extraction for the scrollback-text-only fast path: coalesce
+    /// runs of cells sharing an OSC-8 url+id into [`HyperlinkSpan`]s (end_col
+    /// exclusive), skipping the colour/style/complex/rgb work the full path does.
+    /// Mirrors the hyperlink coalescing in [`Self::extract_row_extras_into`].
+    fn extract_hyperlinks_only_into(
+        result: &mut ScrolledRowExtras,
+        row: &Row,
+        extras: &CellExtras,
+        row_idx: u16,
+    ) {
+        let len = row.len() as usize;
+        if len == 0 || !extras.has_any_data() {
+            return;
+        }
+        // Open hyperlink span: (start_col, url, id).
+        let mut current_span: Option<(u16, Arc<str>, Option<Arc<str>>)> = None;
+        let cells = &row.as_slice()[..len];
+        for physical_col in 0..len {
+            if is_spacer(cells, physical_col) {
+                continue;
+            }
+            let col_u16 = u16::try_from(physical_col).unwrap_or(u16::MAX);
+            let coord = CellCoord::new(row_idx, col_u16);
+            let url = extras.get(coord).and_then(|e| e.hyperlink().cloned());
+            let id = extras.get(coord).and_then(|e| e.hyperlink_id().cloned());
+            match (&current_span, url) {
+                (None, Some(new_url)) => {
+                    current_span = Some((col_u16, new_url, id));
+                }
+                // Same url pointer AND same id → extend; differing id is a
+                // distinct link and must not coalesce.
+                (Some((_, prev_url, prev_id)), Some(ref new_url))
+                    if Arc::ptr_eq(prev_url, new_url) && *prev_id == id => {}
+                (Some((start, prev_url, prev_id)), next) => {
+                    result.hyperlinks.push(HyperlinkSpan::with_id(
+                        *start,
+                        col_u16,
+                        prev_url.clone(),
+                        prev_id.clone(),
+                    ));
+                    current_span = next.map(|u| (col_u16, u, id));
+                }
+                (None, None) => {}
+            }
+        }
         if let Some((start, url, id)) = current_span {
             let end_col = u16::try_from(len).unwrap_or(u16::MAX);
             result

@@ -165,8 +165,8 @@ export class HeadlessEmulator {
   }
 
   private collectOscLinks(scrollbackRows?: number): TerminalOscLinkRange[] {
-    // Live links come from aterm's visible grid (scrolled-off history links are
-    // dropped by the headless scrollback-text-only fast path; see the engine).
+    // Live links come from aterm — both the visible grid and scrollback history
+    // (aterm retains hyperlink spans on scroll).
     const live = this.term.oscLinkRanges(scrollbackRows)
     if (this.restoredOscLinks.length === 0) {
       return live

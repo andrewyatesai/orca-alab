@@ -67,18 +67,19 @@ describe('HeadlessEmulator', () => {
       ])
     })
 
-    it('drops OSC 8 ranges that scroll into history (headless scrollback is text-only)', async () => {
+    it('captures scrollback OSC 8 ranges in unrestricted snapshots', async () => {
       emulator = new HeadlessEmulator({ cols: 80, rows: 2, scrollback: 10 })
-      // 'old' is linked, then scrolls off into history. aterm's headless
-      // scrollback retains TEXT only (a deliberate perf trade-off), so its
-      // hyperlink spans are not recoverable; only visible-grid links are
-      // captured (see the previous test). Restored links from a checkpoint still
-      // survive via setRestoredOscLinks (see the next test).
+      // 'old' is linked, then scrolls off into history. aterm retains hyperlink
+      // spans in scrollback, so the link stays recoverable in an unrestricted
+      // snapshot but is excluded when scrollback rows are clipped.
       await emulator.write('\x1b]8;;https://example.com/old\x07old\x1b]8;;\x07\r\nplain\r\nvisible')
 
-      expect(
-        emulator.getSnapshot().oscLinks?.some((link) => link.uri === 'https://example.com/old')
-      ).toBe(false)
+      expect(emulator.getSnapshot().oscLinks).toContainEqual({
+        row: 0,
+        startCol: 0,
+        endCol: 3,
+        uri: 'https://example.com/old'
+      })
       expect(
         emulator
           .getSnapshot({ scrollbackRows: 0 })

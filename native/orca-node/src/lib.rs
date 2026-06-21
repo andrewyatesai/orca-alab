@@ -8,6 +8,17 @@ use napi_derive::napi;
 
 const DEFAULT_SCROLLBACK: u32 = 5000;
 
+/// One OSC-8 hyperlink run in a snapshot. Field names marshal to camelCase
+/// (`startCol`/`endCol`), matching the renderer's `TerminalOscLinkRange`.
+/// `endCol` is exclusive.
+#[napi(object)]
+pub struct JsOscLinkRange {
+    pub row: u32,
+    pub start_col: u32,
+    pub end_col: u32,
+    pub uri: String,
+}
+
 #[napi(js_name = "HeadlessTerminal")]
 pub struct JsHeadlessTerminal {
     inner: orca_terminal::HeadlessTerminal,
@@ -56,16 +67,43 @@ impl JsHeadlessTerminal {
 
     /// Replayable ANSI for the snapshot (scrollback + visible grid). `&mut` so
     /// the adapter can memoise the result by content-generation + cursor.
+    /// `scrollbackRows` caps the prepended history (omit = all, 0 = viewport-only),
+    /// matching `@xterm/addon-serialize`'s `serialize({scrollback})`.
     #[napi]
-    pub fn serialize_ansi(&mut self) -> String {
-        self.inner.serialize_ansi()
+    pub fn serialize_ansi(&mut self, scrollback_rows: Option<u32>) -> String {
+        self.inner.serialize_ansi(scrollback_rows.map(|n| n as usize))
     }
 
     /// Scrollback history only (no grid/cursor framing) — what the daemon stores
     /// in `scrollbackAnsi` so alt-screen sessions restore their scrollback.
+    /// `maxRows` caps to the most-recent N history lines (omit = all).
     #[napi]
-    pub fn serialize_scrollback_ansi(&self) -> String {
-        self.inner.serialize_scrollback_ansi()
+    pub fn serialize_scrollback_ansi(&self, max_rows: Option<u32>) -> String {
+        self.inner.serialize_scrollback_ansi(max_rows.map(|n| n as usize))
+    }
+
+    /// OSC-8 hyperlink ranges over the serialized window (the same `scrollbackRows`
+    /// of history `serializeAnsi` prepends, then the visible grid), so restored
+    /// snapshots keep clickable links.
+    #[napi]
+    pub fn osc_link_ranges(&self, scrollback_rows: Option<u32>) -> Vec<JsOscLinkRange> {
+        self.inner
+            .osc_link_ranges(scrollback_rows.map(|n| n as usize))
+            .into_iter()
+            .map(|r| JsOscLinkRange {
+                row: r.row as u32,
+                start_col: r.start_col as u32,
+                end_col: r.end_col as u32,
+                uri: r.uri,
+            })
+            .collect()
+    }
+
+    /// Window title (OSC 0/2), or null when unset — feeds the snapshot's
+    /// `lastTitle` for agent detection.
+    #[napi]
+    pub fn title(&self) -> Option<String> {
+        self.inner.title()
     }
 
     #[napi]

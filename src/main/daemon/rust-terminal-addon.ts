@@ -1,6 +1,7 @@
 import { createRequire } from 'module'
 import { join } from 'path'
 import { existsSync } from 'fs'
+import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 
 // Typed surface of the napi addon built from native/orca-node (the Rust
 // `orca_terminal::HeadlessTerminal`). Node-API is ABI-stable, so the same
@@ -20,8 +21,16 @@ export type RustHeadlessTerminalHandle = {
   isAlternateScreen(): boolean
   bracketedPaste(): boolean
   applicationCursor(): boolean
-  serializeAnsi(): string
-  serializeScrollbackAnsi(): string
+  /** Window title (OSC 0/2), or null when unset. */
+  title(): string | null
+  /** Replayable ANSI: `scrollbackRows` caps the prepended history (omit = all,
+   *  0 = viewport-only), matching `@xterm/addon-serialize`'s scrollback option. */
+  serializeAnsi(scrollbackRows?: number): string
+  /** Scrollback history only; `maxRows` caps to the most-recent N lines. */
+  serializeScrollbackAnsi(maxRows?: number): string
+  /** OSC-8 hyperlink ranges over the serialized window (matches the renderer's
+   *  `TerminalOscLinkRange`; `endCol` exclusive). */
+  oscLinkRanges(scrollbackRows?: number): TerminalOscLinkRange[]
 }
 
 export type RustHeadlessTerminalCtor = new (

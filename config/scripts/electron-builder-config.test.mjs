@@ -63,6 +63,24 @@ describe('electron-builder config', () => {
     )
   })
 
+  it('ships the terminal addon to the resources root on every platform', () => {
+    // Why: the daemon loads the native terminal engine from
+    // process.resourcesPath/orca_node.node in packaged apps on mac/linux/win.
+    const terminalAddon = expect.objectContaining({
+      from: 'native/orca-node/orca_node.node',
+      to: 'orca_node.node'
+    })
+    expect(electronBuilderConfig.mac.extraResources).toEqual(
+      expect.arrayContaining([terminalAddon])
+    )
+    expect(electronBuilderConfig.linux.extraResources).toEqual(
+      expect.arrayContaining([terminalAddon])
+    )
+    expect(electronBuilderConfig.win.extraResources).toEqual(
+      expect.arrayContaining([terminalAddon])
+    )
+  })
+
   it('uses the multi-size icon source for Linux packages', () => {
     expect(electronBuilderConfig.linux.icon).toBe('resources/build/icon.icns')
   })

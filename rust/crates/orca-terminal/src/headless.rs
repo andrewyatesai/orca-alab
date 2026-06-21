@@ -13,6 +13,19 @@ use aterm_core::terminal::{Terminal, TerminalBuilder};
 use aterm_grid::{CellFlags, Grid, PackedColor, PackedColors};
 use aterm_types::mouse::{MouseEncoding, MouseMode};
 
+/// A run of columns on one row that share an OSC-8 hyperlink URL. Mirrors the
+/// renderer's `TerminalOscLinkRange` (`src/shared/terminal-osc-link-ranges.ts`)
+/// so restored snapshots keep clickable links. `end_col` is EXCLUSIVE, matching
+/// the TS/xterm convention. `row` is 0-based from the top of the serialized
+/// window (prepended scrollback rows first, then the visible grid).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OscLinkRange {
+    pub row: usize,
+    pub start_col: usize,
+    pub end_col: usize,
+    pub uri: String,
+}
+
 /// Mouse-reporting mode set via DECSET (tracked for remote/SSH replay, like
 /// `headless-emulator.ts`'s `mouseTrackingMode`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -92,10 +105,12 @@ fn dim(v: usize) -> u16 {
 /// cwd. Backed by `aterm`'s `Terminal`.
 pub struct HeadlessTerminal {
     inner: Terminal,
-    /// Cache for `serialize_ansi`, keyed by (grid content-generation, cursor).
-    /// The checkpoint (every 5s/session) and reconnect paths call it repeatedly;
-    /// an idle pane hits the cache and skips the grid+scrollback walk.
-    serialize_cache: Option<(u64, (usize, usize), String)>,
+    /// Cache for `serialize_ansi`, keyed by (grid content-generation, cursor,
+    /// scrollback-row cap). The checkpoint (every 5s/session) and reconnect
+    /// paths call it repeatedly; an idle pane hits the cache and skips the
+    /// grid+scrollback walk. The cap is part of the key so a viewport-only
+    /// (cap=0) request and a full-history request don't alias.
+    serialize_cache: Option<(u64, (usize, usize), Option<usize>, String)>,
 }
 
 impl HeadlessTerminal {
@@ -308,15 +323,19 @@ impl HeadlessTerminal {
     /// wide-char (CJK/emoji) continuation correctly and emits minimal,
     /// change-based SGR (vs a full reset+colour per cell). Scrollback is
     /// text-only (the headless scrollback-text-only mode drops history colour).
-    pub fn serialize_ansi(&mut self) -> String {
+    /// `scrollback_rows` caps how many of the most-recent active-history rows are
+    /// prepended before the visible grid: `None` prepends ALL history (the
+    /// session/reconnect default), `Some(0)` is viewport-only, `Some(n)` keeps the
+    /// last `n` rows — matching `@xterm/addon-serialize`'s `serialize({scrollback})`.
+    pub fn serialize_ansi(&mut self, scrollback_rows: Option<usize>) -> String {
         let key = (self.inner.grid().content_gen(), self.cursor());
-        if let Some((gen, cursor, ref cached)) = self.serialize_cache {
-            if (gen, cursor) == key {
+        if let Some((gen, cursor, cap, ref cached)) = self.serialize_cache {
+            if (gen, cursor) == key && cap == scrollback_rows {
                 return cached.clone();
             }
         }
-        let out = self.serialize_ansi_uncached();
-        self.serialize_cache = Some((key.0, key.1, out.clone()));
+        let out = self.serialize_ansi_uncached(scrollback_rows);
+        self.serialize_cache = Some((key.0, key.1, scrollback_rows, out.clone()));
         out
     }
 
@@ -329,14 +348,18 @@ impl HeadlessTerminal {
     /// Reads the MAIN buffer's scrollback (`aterm` keeps it in the inactive grid
     /// while the alt screen is active), so an in-alt-screen snapshot still
     /// recovers the pre-TUI history. Empty when there is no scrollback.
-    pub fn serialize_scrollback_ansi(&self) -> String {
+    /// `max_rows` caps the history to its last `n` lines (`None` = all). Used by
+    /// the daemon to bound the persisted `scrollbackAnsi` payload.
+    pub fn serialize_scrollback_ansi(&self, max_rows: Option<usize>) -> String {
         let grid = self.inner.main_grid();
         let history = grid.scrollback_lines();
         if history == 0 {
             return String::new();
         }
+        let take = max_rows.map_or(history, |n| n.min(history));
+        let start = history - take;
         let mut out = String::new();
-        for i in 0..history {
+        for i in start..history {
             let line = grid
                 .get_history_line(i)
                 .and_then(|l| l.as_str().map(|s| s.trim_end().to_string()))
@@ -347,14 +370,85 @@ impl HeadlessTerminal {
         out
     }
 
-    fn serialize_ansi_uncached(&self) -> String {
+    /// OSC-8 hyperlink ranges over the serialized window (the same `scrollback_rows`
+    /// of history that `serialize_ansi` prepends, then the visible grid), so a
+    /// restored snapshot keeps clickable links. Mirrors the TS
+    /// `collectHeadlessOscLinkRanges`: consecutive cells sharing a URL coalesce
+    /// into one run; `row` is 0-based from the window top; `end_col` is exclusive.
+    ///
+    /// History-line links are only present when the engine retains hyperlink spans
+    /// on scroll; the headless scrollback-text-only fast path drops them, so in
+    /// practice this returns the VISIBLE grid's links (the ones the user can see).
+    pub fn osc_link_ranges(&self, scrollback_rows: Option<usize>) -> Vec<OscLinkRange> {
+        let mut ranges = Vec::new();
+        let hist = self.scrollback_len();
+        let take = scrollback_rows.map_or(hist, |n| n.min(hist));
+        let first_hist = hist - take;
+
+        let main = self.inner.main_grid();
+        for i in first_hist..hist {
+            let Some(line) = main.get_history_line(i) else { continue };
+            let Some(spans) = line.hyperlinks() else { continue };
+            for span in spans {
+                ranges.push(OscLinkRange {
+                    row: i - first_hist,
+                    start_col: span.start_col as usize,
+                    end_col: span.end_col as usize,
+                    uri: span.url.to_string(),
+                });
+            }
+        }
+
+        let grid = self.inner.grid();
+        let rows = self.inner.rows();
+        let cols = self.inner.cols();
+        for r in 0..rows {
+            let mut run_start: Option<usize> = None;
+            let mut run_uri: Option<&str> = None;
+            for c in 0..cols {
+                let uri = grid.cell_extra(r, c).and_then(|e| e.hyperlink()).map(|u| u.as_ref());
+                if uri != run_uri {
+                    if let (Some(start), Some(prev)) = (run_start, run_uri) {
+                        ranges.push(OscLinkRange {
+                            row: take + r as usize,
+                            start_col: start,
+                            end_col: c as usize,
+                            uri: prev.to_string(),
+                        });
+                    }
+                    run_start = uri.map(|_| c as usize);
+                    run_uri = uri;
+                }
+            }
+            if let (Some(start), Some(prev)) = (run_start, run_uri) {
+                ranges.push(OscLinkRange {
+                    row: take + r as usize,
+                    start_col: start,
+                    end_col: cols as usize,
+                    uri: prev.to_string(),
+                });
+            }
+        }
+        ranges
+    }
+
+    /// The window title (OSC 0/2). `None` when unset — feeds the snapshot's
+    /// `lastTitle`, which Orca uses for agent detection.
+    pub fn title(&self) -> Option<String> {
+        let title = self.inner.title();
+        if title.is_empty() { None } else { Some(title.to_string()) }
+    }
+
+    fn serialize_ansi_uncached(&self, scrollback_rows: Option<usize>) -> String {
         let mut out = String::from("\x1b[0m");
         // The full visible snapshot uses the ACTIVE grid's scrollback (which for
         // an alt-screen session is empty — the alt buffer has no scrollback);
         // the main-buffer history is carried separately by
-        // `serialize_scrollback_ansi` for the alt cold-restore path.
+        // `serialize_scrollback_ansi` for the alt cold-restore path. `scrollback_rows`
+        // caps the prepended history to its last `n` lines (the most recent).
         let active_history = self.scrollback_len();
-        for i in 0..active_history {
+        let take = scrollback_rows.map_or(active_history, |n| n.min(active_history));
+        for i in (active_history - take)..active_history {
             out.push_str(&self.scrollback_row_text(i));
             out.push_str("\r\n");
         }
@@ -592,7 +686,7 @@ mod tests {
     fn serialize_ansi_round_trips_visible_grid_with_attrs() {
         let mut term = HeadlessTerminal::new(4, 20);
         term.process_str("\x1b[1;32mhello\x1b[0m\r\nworld");
-        let ansi = term.serialize_ansi();
+        let ansi = term.serialize_ansi(None);
 
         let mut restored = HeadlessTerminal::new(4, 20);
         restored.process_str(&ansi);
@@ -612,7 +706,7 @@ mod tests {
         // Delegating to Grid::row_ansi_text handles wide-continuation correctly.
         let mut term = HeadlessTerminal::new(2, 20);
         term.process_str("日本X");
-        let ansi = term.serialize_ansi();
+        let ansi = term.serialize_ansi(None);
         let mut restored = HeadlessTerminal::new(2, 20);
         restored.process_str(&ansi);
         assert_eq!(restored.row_text(0), "日本X");
@@ -623,7 +717,7 @@ mod tests {
         // 1-row grid: each newline evicts the prior line into scrollback.
         let mut term = HeadlessTerminal::with_scrollback(1, 20, 100);
         term.process_str("alpha\r\nbravo\r\ncharlie");
-        let sb = term.serialize_scrollback_ansi();
+        let sb = term.serialize_scrollback_ansi(None);
         // History (alpha, bravo) is present; the VISIBLE line (charlie) is not,
         // and there's no cursor/grid framing.
         assert!(sb.contains("alpha") && sb.contains("bravo"), "sb={sb:?}");
@@ -632,17 +726,17 @@ mod tests {
         // Empty when there is no scrollback.
         let mut fresh = HeadlessTerminal::new(24, 80);
         fresh.process_str("just one line");
-        assert_eq!(fresh.serialize_scrollback_ansi(), "");
+        assert_eq!(fresh.serialize_scrollback_ansi(None), "");
     }
 
     #[test]
     fn serialize_ansi_caches_and_invalidates_on_change() {
         let mut term = HeadlessTerminal::new(4, 20);
         term.process_str("hello");
-        let a = term.serialize_ansi();
-        assert_eq!(a, term.serialize_ansi(), "unchanged grid -> cache hit, identical output");
+        let a = term.serialize_ansi(None);
+        assert_eq!(a, term.serialize_ansi(None), "unchanged grid -> cache hit, identical output");
         term.process_str("X"); // content_gen bumps
-        let b = term.serialize_ansi();
+        let b = term.serialize_ansi(None);
         assert_ne!(a, b, "content change -> cache miss, fresh serialization");
         // replay fidelity is preserved through the cache path
         let mut restored = HeadlessTerminal::new(4, 20);
@@ -668,5 +762,42 @@ mod tests {
         assert_eq!(term.size(), (4, 8));
         assert_eq!(term.row_text(0), "top");
         assert_eq!(term.row_text(1), "bot");
+    }
+
+    #[test]
+    fn osc_link_ranges_captures_visible_hyperlinks() {
+        let mut term = HeadlessTerminal::new(2, 40);
+        // OSC-8: ESC]8;;URL BEL  text  ESC]8;; BEL
+        term.process_str("a \x1b]8;;https://example.com\x07link\x1b]8;;\x07 b");
+        let ranges = term.osc_link_ranges(None);
+        assert_eq!(ranges.len(), 1, "ranges={ranges:?}");
+        let r = &ranges[0];
+        assert_eq!(r.uri, "https://example.com");
+        assert_eq!(r.row, 0);
+        assert_eq!(r.start_col, 2); // after "a "
+        assert_eq!(r.end_col, 6); // "link" is [2, 6), end exclusive
+    }
+
+    #[test]
+    fn serialize_scrollback_ansi_respects_max_rows() {
+        let mut term = HeadlessTerminal::with_scrollback(1, 20, 100);
+        term.process_str("a\r\nb\r\nc\r\nd"); // a,b,c -> history; d visible
+        let all = term.serialize_scrollback_ansi(None);
+        assert!(all.contains('a') && all.contains('b') && all.contains('c'));
+        let last_two = term.serialize_scrollback_ansi(Some(2));
+        assert!(last_two.contains('b') && last_two.contains('c'), "last_two={last_two:?}");
+        assert!(!last_two.contains('a'), "max_rows=2 keeps only the last 2 lines: {last_two:?}");
+    }
+
+    #[test]
+    fn serialize_ansi_scrollback_rows_caps_prepended_history() {
+        let mut term = HeadlessTerminal::with_scrollback(1, 20, 100);
+        term.process_str("h0\r\nh1\r\nh2\r\nvis");
+        let viewport_only = term.serialize_ansi(Some(0));
+        assert!(viewport_only.contains("vis"));
+        assert!(!viewport_only.contains("h0") && !viewport_only.contains("h2"));
+        let with_one = term.serialize_ansi(Some(1));
+        assert!(with_one.contains("h2"), "1 prepended history row expected: {with_one:?}");
+        assert!(!with_one.contains("h1"));
     }
 }

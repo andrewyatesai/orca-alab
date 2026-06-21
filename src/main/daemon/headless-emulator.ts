@@ -1,8 +1,5 @@
-import './xterm-env-polyfill'
-import { Terminal } from '@xterm/headless'
-import { SerializeAddon } from '@xterm/addon-serialize'
+import { loadRustTerminalBinding, type RustHeadlessTerminalHandle } from './rust-terminal-addon'
 import { extractLastOscTitle } from '../../shared/agent-detection'
-import { collectHeadlessOscLinkRanges } from './headless-osc-link-ranges'
 import { extractOscScanTail, scanOsc7Uris } from './osc7-uri-extraction'
 import { parseFileUriPath } from './osc7-file-uri'
 import type { TerminalSnapshot, TerminalModes } from './types'
@@ -14,12 +11,6 @@ export type HeadlessEmulatorOptions = {
   scrollback?: number
 }
 
-type TerminalWithSynchronousWrite = Terminal & {
-  _core?: {
-    writeSync?: (data: string) => void
-  }
-}
-
 const DEFAULT_SCROLLBACK = 5000
 const OSC_SCAN_TAIL_LIMIT = 4096
 // Why: PTY/SSH chunks can split a long combined DECSET before the final h/l.
@@ -27,9 +18,26 @@ const OSC_SCAN_TAIL_LIMIT = 4096
 const PRIVATE_MODE_SCAN_TAIL_LIMIT = 4096
 type MouseTrackingMode = NonNullable<TerminalModes['mouseTrackingMode']>
 
+const linkKey = (r: TerminalOscLinkRange): string => `${r.row}:${r.startCol}:${r.endCol}:${r.uri}`
+
+/**
+ * Server-side terminal-state emulator (snapshots, cwd, mode flags, OSC-8 links)
+ * for snapshot/replay across reconnect and SSH. Backed by the aterm engine via
+ * the native addon — the replacement for the former `@xterm/headless` engine.
+ * aterm owns the VT parser, grid, tiered scrollback, SGR/colour model, and
+ * OSC-8 hyperlinks; cwd (OSC-7), window title (OSC 0/2) and mouse modes are
+ * scanned here from the raw byte stream (engine-independent) so Orca's
+ * Windows-path normalisation, 8-bit C1 handling, and split-sequence tolerance
+ * are preserved exactly.
+ *
+ * Why no query replies: this exists purely for state tracking and MUST NOT
+ * answer DA/DSR/OSC-color queries — the renderer's xterm is the authoritative
+ * responder. aterm's headless engine emits no replies.
+ */
 export class HeadlessEmulator {
-  private terminal: Terminal
-  private serializer: SerializeAddon
+  private term: RustHeadlessTerminalHandle
+  private cols: number
+  private rows: number
   private cwd: string | null = null
   private lastTitle: string | null = null
   private oscScanTail = ''
@@ -41,126 +49,82 @@ export class HeadlessEmulator {
   private disposed = false
 
   constructor(opts: HeadlessEmulatorOptions) {
-    this.terminal = new Terminal({
-      cols: opts.cols,
-      rows: opts.rows,
-      scrollback: opts.scrollback ?? DEFAULT_SCROLLBACK,
-      allowProposedApi: true,
-      logLevel: 'off'
-    })
-
-    this.serializer = new SerializeAddon()
-    this.terminal.loadAddon(this.serializer)
-
-    // Why no onData wiring: this emulator exists purely for state tracking
-    // (snapshots, cwd, mode flags). It MUST NOT respond to terminal query
-    // sequences (DA1/DA2, DSR, OSC 10/11/12, DECRPM). The emulator parses
-    // data in-process synchronously before `handleSubprocessData` forwards
-    // it to the renderer over IPC, so any reply it emits would land on the
-    // shell's stdin ahead of the renderer's xterm reply and win the race.
-    // The renderer is the authoritative responder (it has the real theme,
-    // cursor position, and paste mode); a daemon-side reply would be a
-    // double-reply with wrong values. OSC 11 was the visible casualty:
-    // Claude Code's /theme auto always saw the emulator's default-black
-    // background regardless of Orca's configured terminal theme.
+    const binding = loadRustTerminalBinding()
+    if (!binding) {
+      // No silent xterm fallback: aterm is the sole headless engine. A missing
+      // addon is a build/packaging fault that must surface, not degrade quietly.
+      throw new Error(
+        '[orca] aterm terminal addon (orca_node.node) failed to load — run ' +
+          '`pnpm build:terminal-addon` for dev, or check that packaging ships it.'
+      )
+    }
+    this.cols = opts.cols
+    this.rows = opts.rows
+    this.term = new binding.HeadlessTerminal(opts.cols, opts.rows, opts.scrollback ?? DEFAULT_SCROLLBACK)
   }
 
   write(data: string): Promise<void> {
-    if (this.disposed) {
-      return Promise.resolve()
+    if (!this.disposed) {
+      this.writeBytes(data)
     }
-
-    if (this.tryWriteSync(data)) {
-      return Promise.resolve()
-    }
-    this.scanInputForOscState(data)
-    return new Promise<void>((resolve) => {
-      this.terminal.write(data, () => {
-        // Why: snapshots combine serialized xterm state with mirrored mouse
-        // modes. Commit the mirror only after xterm has parsed the same bytes.
-        this.scanPrivateModes(data)
-        resolve()
-      })
-    })
+    return Promise.resolve()
   }
 
-  /** Synchronous write used by cold-restore log replay, where a snapshot is
-   *  taken immediately after the last record and queued async writes would
-   *  serialize a half-applied stream. Returns false when xterm's synchronous
-   *  write path is unavailable — callers must then abandon the replay. */
+  /** Synchronous write for cold-restore log replay. aterm parses bytes
+   *  synchronously, so unlike the old xterm sync path this never fails. */
   writeSync(data: string): boolean {
     if (this.disposed) {
       return false
     }
-    return this.tryWriteSync(data)
-  }
-
-  private tryWriteSync(data: string): boolean {
-    const writeSync = (this.terminal as TerminalWithSynchronousWrite)._core?.writeSync
-    if (typeof writeSync !== 'function') {
-      return false
-    }
-    this.scanInputForOscState(data)
-    // Why: hidden renderer restore snapshots are requested immediately after
-    // PTY bursts; queued headless writes can snapshot half-cleared TUI rows.
-    writeSync.call((this.terminal as TerminalWithSynchronousWrite)._core, data)
-    this.scanPrivateModes(data)
+    this.writeBytes(data)
     return true
   }
 
-  private scanInputForOscState(data: string): void {
-    const oscInput = this.oscScanTail + data
-    this.oscScanTail = this.extractOscScanTail(oscInput)
-    this.scanOsc7(oscInput)
-    const lastTitle = extractLastOscTitle(oscInput)
-    if (lastTitle !== null) {
-      this.lastTitle = lastTitle
-    }
+  private writeBytes(data: string): void {
+    this.scanInputForOscState(data)
+    // aterm's parser consumes bytes; re-encode the daemon's decoded string.
+    // Valid UTF-8 round-trips exactly. aterm writes synchronously.
+    this.term.write(Buffer.from(data, 'utf8'))
+    this.scanPrivateModes(data)
   }
 
   resize(cols: number, rows: number): void {
     if (this.disposed) {
       return
     }
+    this.cols = cols
+    this.rows = rows
     this.restoredOscLinks = []
-    this.terminal.resize(cols, rows)
+    this.term.resize(cols, rows)
   }
 
   getSnapshot(opts: { scrollbackRows?: number } = {}): TerminalSnapshot {
     const modes = this.getModes()
-    const snapshotAnsi = this.normalizeSnapshotAnsiForModes(
-      this.serializer.serialize({ scrollback: opts.scrollbackRows }),
-      modes
-    )
+    const scrollbackRows = opts.scrollbackRows
     return {
-      snapshotAnsi,
-      scrollbackAnsi: '',
-      oscLinks: collectHeadlessOscLinkRanges(
-        this.terminal,
-        opts.scrollbackRows,
-        this.restoredOscLinks
-      ),
+      snapshotAnsi: this.term.serializeAnsi(scrollbackRows),
+      // SPLIT shape: the visible viewport lives in snapshotAnsi, history in
+      // scrollbackAnsi (independent of scrollbackRows). The alt-screen
+      // cold-restore path needs this — the alt buffer has no scrollback, so its
+      // pre-TUI history is only recoverable here.
+      scrollbackAnsi: this.term.serializeScrollbackAnsi(),
+      oscLinks: this.collectOscLinks(scrollbackRows),
       rehydrateSequences: this.buildRehydrateSequences(modes),
       cwd: this.cwd,
       modes,
-      cols: this.terminal.cols,
-      rows: this.terminal.rows,
-      scrollbackLines: this.terminal.buffer.normal.length - this.terminal.rows,
+      cols: this.cols,
+      rows: this.rows,
+      scrollbackLines: this.term.scrollbackLen(),
       lastTitle: this.lastTitle ?? undefined
     }
   }
 
   get isAlternateScreen(): boolean {
-    return this.terminal.buffer.active.type === 'alternate'
+    return this.term.isAlternateScreen()
   }
 
   getVisibleLines(): string[] {
-    const buffer = this.terminal.buffer.active
-    const lines: string[] = []
-    for (let row = buffer.viewportY; row < buffer.viewportY + this.terminal.rows; row += 1) {
-      lines.push(buffer.getLine(row)?.translateToString(true) ?? '')
-    }
-    return lines
+    return this.term.snapshot()
   }
 
   getCwd(): string | null {
@@ -181,22 +145,81 @@ export class HeadlessEmulator {
 
   clearScrollback(): void {
     this.restoredOscLinks = []
-    this.terminal.clear()
+    // Match the former @xterm/headless clear(): keep the cursor's current line
+    // as the new first row, discarding everything above/below it and all
+    // scrollback. Orca's "clear" action and cold-restore 'clear' records relied
+    // on this semantic, not a bare history drop.
+    const [cursorRow, cursorCol] = this.term.cursor()
+    const line = this.term.snapshot()[cursorRow] ?? ''
+    this.term.clearScrollback()
+    this.term.write(Buffer.from('\x1b[H\x1b[2J', 'utf8'))
+    if (line) {
+      this.term.write(Buffer.from(line, 'utf8'))
+    }
+    this.term.write(Buffer.from(`\x1b[1;${cursorCol + 1}H`, 'utf8'))
   }
 
   dispose(): void {
+    // The native handle is freed when GC collects it; nothing to release here.
     this.disposed = true
-    this.terminal.dispose()
   }
 
-  private scanOsc7(data: string): void {
-    scanOsc7Uris(data, (uri) => {
-      this.parseOsc7Uri(uri)
-    })
+  private collectOscLinks(scrollbackRows?: number): TerminalOscLinkRange[] {
+    // Live links come from aterm's visible grid (scrolled-off history links are
+    // dropped by the headless scrollback-text-only fast path; see the engine).
+    const live = this.term.oscLinkRanges(scrollbackRows)
+    if (this.restoredOscLinks.length === 0) {
+      return live
+    }
+    // Merge checkpoint-restored links with live ones, clamped to the current
+    // width and de-duplicated, so a restored buffer keeps clickable links.
+    const merged = [...live]
+    const seen = new Set(live.map(linkKey))
+    for (const link of this.restoredOscLinks) {
+      const clamped: TerminalOscLinkRange = {
+        ...link,
+        startCol: Math.min(link.startCol, this.cols),
+        endCol: Math.min(link.endCol, this.cols)
+      }
+      const key = linkKey(clamped)
+      if (!seen.has(key)) {
+        seen.add(key)
+        merged.push(clamped)
+      }
+    }
+    return merged
   }
 
-  private extractOscScanTail(input: string): string {
-    return extractOscScanTail(input, OSC_SCAN_TAIL_LIMIT)
+  private getModes(): TerminalModes {
+    return {
+      // Screen/input modes come straight from the aterm engine…
+      bracketedPaste: this.term.bracketedPaste(),
+      applicationCursor: this.term.applicationCursor(),
+      alternateScreen: this.term.isAlternateScreen(),
+      // …mouse modes are scanned here so 8-bit C1 CSI and split sequences match
+      // the old emulator (aterm does not parse 8-bit C1 controls).
+      mouseTracking: this.mouseTrackingMode !== 'none',
+      mouseTrackingMode: this.mouseTrackingMode,
+      sgrMouseMode: this.sgrMouseMode,
+      sgrMousePixelsMode: this.sgrMousePixelsMode
+    }
+  }
+
+  private scanInputForOscState(data: string): void {
+    const oscInput = this.oscScanTail + data
+    this.oscScanTail = extractOscScanTail(oscInput, OSC_SCAN_TAIL_LIMIT)
+    scanOsc7Uris(oscInput, (uri) => this.parseOsc7Uri(uri))
+    const lastTitle = extractLastOscTitle(oscInput)
+    if (lastTitle !== null) {
+      this.lastTitle = lastTitle
+    }
+  }
+
+  private parseOsc7Uri(uri: string): void {
+    const parsed = parseFileUriPath(uri)
+    if (parsed) {
+      this.cwd = parsed
+    }
   }
 
   private scanPrivateModes(data: string): void {
@@ -271,45 +294,10 @@ export class HeadlessEmulator {
     return /^[0-9;]*$/.test(params)
   }
 
-  private normalizeSnapshotAnsiForModes(snapshotAnsi: string, modes: TerminalModes): string {
-    if (!modes.alternateScreen) {
-      return snapshotAnsi
-    }
-    const alternateScreenMarker = '\x1b[?1049h'
-    const start = snapshotAnsi.lastIndexOf(alternateScreenMarker)
-    if (start === -1) {
-      return snapshotAnsi
-    }
-    // Why: rehydrateSequences already enters the alternate screen and restores
-    // mouse modes. Dropping SerializeAddon's duplicate ?1049h keeps mobile's
-    // "slice from last alt-screen marker" replay from discarding those modes.
-    return snapshotAnsi.slice(start + alternateScreenMarker.length)
-  }
-
-  private parseOsc7Uri(uri: string): void {
-    const parsed = parseFileUriPath(uri)
-    if (parsed) {
-      this.cwd = parsed
-    }
-  }
-
-  private getModes(): TerminalModes {
-    const buffer = this.terminal.buffer.active
-    const mouseTrackingMode = this.mouseTrackingMode
-    return {
-      bracketedPaste: this.terminal.modes.bracketedPasteMode,
-      mouseTracking: mouseTrackingMode !== 'none',
-      mouseTrackingMode,
-      sgrMouseMode: this.sgrMouseMode,
-      sgrMousePixelsMode: this.sgrMousePixelsMode,
-      applicationCursor:
-        buffer.type === 'normal' ? this.terminal.modes.applicationCursorKeysMode : false,
-      alternateScreen: buffer.type === 'alternate'
-    }
-  }
-
   private buildRehydrateSequences(modes: TerminalModes): string {
     const seqs: string[] = []
+    // Restore screen/input modes on reconnect so a replay re-enters the
+    // alternate screen and re-arms paste / app-cursor / mouse reporting.
     if (modes.alternateScreen) {
       seqs.push('\x1b[?1049h')
     }
@@ -319,8 +307,6 @@ export class HeadlessEmulator {
     if (modes.applicationCursor) {
       seqs.push('\x1b[?1h')
     }
-    // Why: mobile alt-screen scroll gestures need xterm's mouse mode restored
-    // from cold snapshots; OpenCode/OpenTUI enables scrollable panes this way.
     switch (modes.mouseTracking ? (modes.mouseTrackingMode ?? 'vt200') : 'none') {
       case 'x10':
         seqs.push('\x1b[?9h')
@@ -337,8 +323,8 @@ export class HeadlessEmulator {
       case 'none':
         break
     }
-    // Why: xterm tracks the mouse protocol and SGR encoding as independent
-    // modes, so snapshots must preserve the encoding even when reporting is off.
+    // xterm tracks the mouse protocol and SGR encoding independently, so a
+    // snapshot must preserve the encoding even when reporting is off.
     if (modes.sgrMousePixelsMode) {
       seqs.push('\x1b[?1016h')
     } else if (modes.sgrMouseMode) {

@@ -26,7 +26,20 @@ const relayExtraResource = {
 // do not fall through to a developer checkout's node_modules.
 const packagedRuntimeNodeModuleResources = createPackagedRuntimeNodeModuleResources()
 
-const commonExtraResources = [relayExtraResource, ...packagedRuntimeNodeModuleResources]
+// Why: the daemon's terminal addon loader resolves the native engine from
+// process.resourcesPath/orca_node.node in packaged apps (see
+// rust-terminal-addon.ts and daemon-init.ts), so ship the prebuilt .node to the
+// resources root rather than inside app.asar where dlopen() cannot reach it.
+const terminalAddonResource = {
+  from: 'native/orca-node/orca_node.node',
+  to: 'orca_node.node'
+}
+
+const commonExtraResources = [
+  relayExtraResource,
+  terminalAddonResource,
+  ...packagedRuntimeNodeModuleResources
+]
 const macSpeechNativeResource = {
   from: 'node_modules/sherpa-onnx-darwin-${arch}',
   to: 'node_modules/sherpa-onnx-darwin-${arch}'

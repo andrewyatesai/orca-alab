@@ -3,7 +3,7 @@
  *
  * SessionIds are minted fresh per pane and never reused, so a `TerminalHost`
  * that never removes exited sessions from its `sessions` map leaks one dead
- * `Session` — each pinning a `@xterm/headless` emulator with ~5000 rows of
+ * `Session` — each pinning an aterm-backed emulator with ~5000 rows of
  * scrollback — per terminal for the lifetime of the long-lived daemon process.
  *
  * The fix wires a Session `onExit` hook to `TerminalHost.reapSession`, which

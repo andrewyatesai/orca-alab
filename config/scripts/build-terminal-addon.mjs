@@ -23,14 +23,13 @@ const force = process.argv.includes('--force')
 function cdylibName() {
   // cargo's `cdylib` output name differs per platform; the loader requires the
   // single fixed name, so we copy/rename after the build.
-  switch (process.platform) {
-    case 'darwin':
-      return 'liborca_node.dylib'
-    case 'win32':
-      return 'orca_node.dll'
-    default:
-      return 'liborca_node.so'
+  if (process.platform === 'darwin') {
+    return 'liborca_node.dylib'
   }
+  if (process.platform === 'win32') {
+    return 'orca_node.dll'
+  }
+  return 'liborca_node.so'
 }
 
 function cargoEnv() {

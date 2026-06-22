@@ -16,6 +16,8 @@ export type AtermPaneController = {
 
 const MIN_GRID_COLS = 1
 const MIN_GRID_ROWS = 1
+const DEFAULT_GRID_COLS = 80
+const DEFAULT_GRID_ROWS = 24
 
 function computeGrid(
   container: HTMLElement,
@@ -25,6 +27,12 @@ function computeGrid(
 ): { cols: number; rows: number } {
   const deviceWidth = container.clientWidth * dpr
   const deviceHeight = container.clientHeight * dpr
+  // Container not laid out yet (hidden/background pane, pre-mount): render a
+  // standard 80x24 so the terminal is usable; the ResizeObserver corrects it
+  // once the pane has real dimensions. Never render a 1x1 terminal.
+  if (deviceWidth < cellWidth || deviceHeight < cellHeight) {
+    return { cols: DEFAULT_GRID_COLS, rows: DEFAULT_GRID_ROWS }
+  }
   const cols = Math.max(MIN_GRID_COLS, Math.floor(deviceWidth / cellWidth))
   const rows = Math.max(MIN_GRID_ROWS, Math.floor(deviceHeight / cellHeight))
   return { cols, rows }
@@ -36,6 +44,7 @@ export async function createAtermPaneController(
   onResize: AtermPaneResizeSink
 ): Promise<AtermPaneController> {
   const canvas = document.createElement('canvas')
+  canvas.dataset.testid = 'aterm-canvas' // e2e locator for the aterm-rendered pane
   // Fill the pane; pixelated keeps the CPU-rasterized framebuffer crisp when
   // the device-pixel canvas is scaled to CSS pixels.
   canvas.style.width = '100%'
@@ -71,10 +80,10 @@ export async function createAtermPaneController(
   let rows = initialGrid.rows
 
   const draw = (): void => {
-    drawScheduled = false
-    if (disposed || !ctx) {
+    if (disposed || !drawScheduled || !ctx) {
       return
     }
+    drawScheduled = false
     term.render()
     const width = term.width
     const height = term.height
@@ -92,6 +101,9 @@ export async function createAtermPaneController(
     }
     drawScheduled = true
     requestAnimationFrame(draw)
+    // rAF is paused for hidden/occluded windows; a timer guarantees the draw
+    // still lands (background panes, headless e2e). `draw` is idempotent.
+    setTimeout(draw, 33)
   }
 
   const process = (data: string): void => {

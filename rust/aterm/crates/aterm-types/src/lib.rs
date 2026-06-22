@@ -45,9 +45,9 @@ pub use time::duration_to_nanos;
 
 pub mod color_math;
 mod color_palette;
-pub mod scheme;
 pub mod control_socket;
 pub mod fs_restricted;
+pub mod scheme;
 mod x11_colors;
 // Re-export cursor style at crate root (was inline, extracted for file size).
 pub use cursor::CursorStyle;

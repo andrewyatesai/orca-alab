@@ -34,7 +34,10 @@ fn window_routing_twin_holds_invariants_over_all_reachable_states() {
 
     let init = m.init_state();
     for inv in invariants {
-        assert!(m.check_invariant(inv, &init), "{inv} violated in the init state {init:?}");
+        assert!(
+            m.check_invariant(inv, &init),
+            "{inv} violated in the init state {init:?}"
+        );
     }
 
     // BFS over the reachable state graph through the executable interpreter. The
@@ -72,6 +75,9 @@ fn window_routing_twin_holds_invariants_over_all_reachable_states() {
 
     // The graph must be non-trivial: at minimum init + a create + a close are
     // reachable. (Guards an accidentally-inert model from passing vacuously.)
-    assert!(states >= 3, "reachable graph too small ({states}); model may be inert");
+    assert!(
+        states >= 3,
+        "reachable graph too small ({states}); model may be inert"
+    );
     eprintln!("WindowRouting twin: {states} reachable states, all invariants hold.");
 }

@@ -9,7 +9,7 @@ use aterm_alloc::ArrayVec;
 use aterm_provenance::pty_wrap_ref;
 
 use super::table::{ActionType, TRANSITIONS};
-use super::{ActionSink, Parser, State, MAX_OSC_DATA, MAX_OSC_PARAMS};
+use super::{ActionSink, MAX_OSC_DATA, MAX_OSC_PARAMS, Parser, State};
 
 // `BatchActionSink` is only referenced by the test-only batch path
 // (`advance_batch`/`process_byte_batch`), so its import is `#[cfg(test)]` too.
@@ -59,11 +59,17 @@ macro_rules! process_byte_impl {
             let transition = TRANSITIONS[$self.state as usize][$byte as usize];
             let prev_state = $self.state;
 
-            // Handle DCS unhook when leaving DcsPassthrough
+            // Handle DCS unhook when leaving DcsPassthrough. CAN (0x18) and SUB
+            // (0x1A) CANCEL the control string (VT500 "anywhere" transition to
+            // Ground via Execute), so the sink must be told to DISCARD rather
+            // than finalize — otherwise a half-decoded Sixel would be rendered.
+            // ESC (a real `ESC \` ST, or an ESC that breaks out) and 0x9C ST are
+            // legitimate terminators (canceled = false).
             if prev_state == State::DcsPassthrough && transition.next_state != State::DcsPassthrough
             {
                 if $self.dcs_active {
-                    $sink.dcs_unhook();
+                    let canceled = $byte == 0x18 || $byte == 0x1A;
+                    $sink.dcs_unhook(canceled);
                     $self.dcs_active = false;
                 }
             }

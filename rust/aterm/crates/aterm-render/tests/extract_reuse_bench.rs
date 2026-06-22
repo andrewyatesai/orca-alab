@@ -67,7 +67,11 @@ fn counted<R>(f: impl FnOnce() -> R) -> (R, u64, u64) {
     ACTIVE.store(true, Ordering::Relaxed);
     let r = f();
     ACTIVE.store(false, Ordering::Relaxed);
-    (r, ALLOCS.load(Ordering::Relaxed), BYTES.load(Ordering::Relaxed))
+    (
+        r,
+        ALLOCS.load(Ordering::Relaxed),
+        BYTES.load(Ordering::Relaxed),
+    )
 }
 
 /// A representative full screen: every row filled with text + a cursor move, so
@@ -96,10 +100,14 @@ fn extract_into_old(scratch: &mut RenderInput, term: &Terminal, rows: usize, col
     scratch.cells.extend((0..rows).map(|r| term.render_row(r)));
 
     scratch.clusters.clear();
-    scratch.clusters.extend((0..rows).map(|r| term.cluster_row(r)));
+    scratch
+        .clusters
+        .extend((0..rows).map(|r| term.cluster_row(r)));
 
     scratch.combining.clear();
-    scratch.combining.extend((0..rows).map(|r| term.combining_row(r)));
+    scratch
+        .combining
+        .extend((0..rows).map(|r| term.combining_row(r)));
 
     scratch.line_sizes.clear();
     scratch.line_sizes.extend((0..rows).map(|r| {
@@ -158,7 +166,10 @@ fn bench_extract_perrow_reuse() {
     });
 
     // Same data — the optimization is allocation-only, not semantic.
-    assert_eq!(old_scratch, new_scratch, "old and new extract paths must be byte-identical");
+    assert_eq!(
+        old_scratch, new_scratch,
+        "old and new extract paths must be byte-identical"
+    );
 
     // Timing, separate loops (no allocator counting).
     let t_old = {
@@ -185,7 +196,11 @@ fn bench_extract_perrow_reuse() {
         "  allocs/frame:  before={per_old:.1}  after={per_new:.1}  \
          (saved {:.1}/frame, {:.1}%)",
         per_old - per_new,
-        if per_old > 0.0 { (per_old - per_new) / per_old * 100.0 } else { 0.0 }
+        if per_old > 0.0 {
+            (per_old - per_new) / per_old * 100.0
+        } else {
+            0.0
+        }
     );
     eprintln!(
         "  bytes/frame:   before={:.0}  after={:.0}  (saved {:.0}/frame)",
@@ -250,7 +265,11 @@ fn bench_extract_alloc_count() {
         "extract allocs/frame:        fresh={per_fresh:.1}  reuse={per_reuse:.1}  \
          (saved {:.1}/frame, {:.1}%)",
         per_fresh - per_reuse,
-        if per_fresh > 0.0 { (per_fresh - per_reuse) / per_fresh * 100.0 } else { 0.0 }
+        if per_fresh > 0.0 {
+            (per_fresh - per_reuse) / per_fresh * 100.0
+        } else {
+            0.0
+        }
     );
     eprintln!(
         "extract bytes/frame:         fresh={:.0}  reuse={:.0}  (saved {:.0}/frame)",
@@ -304,8 +323,11 @@ fn bench_extract_time() {
         "extract time/frame:          fresh={per_fresh:.2} us  reuse={per_reuse:.2} us  \
          (saved {:.2} us/frame, {:.1}%)",
         per_fresh - per_reuse,
-        if per_fresh > 0.0 { (per_fresh - per_reuse) / per_fresh * 100.0 } else { 0.0 }
+        if per_fresh > 0.0 {
+            (per_fresh - per_reuse) / per_fresh * 100.0
+        } else {
+            0.0
+        }
     );
     eprintln!("  ({rows}x{cols} grid, {iters} frames, warm scratch)");
 }
-

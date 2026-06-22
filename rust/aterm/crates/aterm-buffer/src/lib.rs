@@ -169,7 +169,10 @@ pub enum Op {
     Reply(BlobId),
     /// The terminal was resized to `rows`×`cols` (reflow is path-dependent, so
     /// resize is a recorded event, never re-ordered — B.2.3).
-    Resize { rows: u16, cols: u16 },
+    Resize {
+        rows: u16,
+        cols: u16,
+    },
     /// A keyframe (serialized `TerminalCheckpoint`) was taken at a parser-ground
     /// boundary (B.3.3); referenced by [`KeyframeId`] in the keyframe store.
     Keyframe(KeyframeId),
@@ -233,7 +236,9 @@ pub struct Cursor {
 pub enum SubUpdate {
     Events(Vec<Event>),
     /// The cursor fell behind the live ring; re-pull state via `read_text`.
-    Gap { resync_to: Seq },
+    Gap {
+        resync_to: Seq,
+    },
 }
 
 /// Hard ceilings (§3.4): the log is bounded; old events behind the horizon are
@@ -371,7 +376,11 @@ impl Surface {
                 out.push('\n');
             }
         }
-        TextWithOrigin { text: out, origin: OriginTag::Source, seq: self.seq() }
+        TextWithOrigin {
+            text: out,
+            origin: OriginTag::Source,
+            seq: self.seq(),
+        }
     }
 
     /// READ — content/structure fold (§4.2). Returns the addresses of committed
@@ -415,7 +424,10 @@ impl Surface {
     /// COMPOSE — O(1)-COW snapshot (§4.2). First slice is a cheap clone behind a
     /// SnapshotId; the structural-sharing COW lands with the grid integration.
     pub fn snapshot(&self, _c: &ReadCap) -> Snapshot {
-        Snapshot { at: self.seq(), surface: self.clone() }
+        Snapshot {
+            at: self.seq(),
+            surface: self.clone(),
+        }
     }
 
     // ===== STRUCTURE ===== one anchored typed-span primitive (§4.2).
@@ -430,19 +442,28 @@ impl Surface {
     ) -> SpanId {
         let id = SpanId(self.next_span);
         self.next_span += 1;
-        self.spans.push(Span { id, surface: self.id, extent, kind, payload });
+        self.spans.push(Span {
+            id,
+            surface: self.id,
+            extent,
+            kind,
+            payload,
+        });
         self.log.append(Op::SpanDefine(id));
         id
     }
 
     /// Resolve a span to its public view, or `None` if dropped/unknown.
     pub fn span_resolve(&self, _c: &ReadCap, id: SpanId) -> Option<ResolvedSpan> {
-        self.spans.iter().find(|s| s.id == id).map(|s| ResolvedSpan {
-            id: s.id,
-            extent: s.extent,
-            kind: s.kind,
-            payload: s.payload.clone(),
-        })
+        self.spans
+            .iter()
+            .find(|s| s.id == id)
+            .map(|s| ResolvedSpan {
+                id: s.id,
+                extent: s.extent,
+                kind: s.kind,
+                payload: s.payload.clone(),
+            })
     }
 
     /// Query spans of a kind overlapping a line range (§4.2). The span/query fold
@@ -495,11 +516,20 @@ impl Surface {
         let head = self.seq();
         // Did we fall behind the ring? The oldest still-live event has a seq; if
         // it is newer than cursor.at + 1, events in between were evicted.
-        if self.log.live().next().is_some_and(|oldest| oldest.seq.0 > cursor.at.0 + 1) {
+        if self
+            .log
+            .live()
+            .next()
+            .is_some_and(|oldest| oldest.seq.0 > cursor.at.0 + 1)
+        {
             return (SubUpdate::Gap { resync_to: head }, Cursor { at: head });
         }
-        let events: Vec<Event> =
-            self.log.live().filter(|e| e.seq.0 > cursor.at.0).cloned().collect();
+        let events: Vec<Event> = self
+            .log
+            .live()
+            .filter(|e| e.seq.0 > cursor.at.0)
+            .cloned()
+            .collect();
         (SubUpdate::Events(events), Cursor { at: head })
     }
 
@@ -582,7 +612,13 @@ mod tests {
         let mut s = Surface::new(sid(1));
         s.apply(&WriteCap, Edit::AppendLine("hello".into()));
         s.apply(&WriteCap, Edit::AppendLine("world".into()));
-        let got = s.read_text(&ReadCap, Range { start: LineId(0), end: LineId(2) });
+        let got = s.read_text(
+            &ReadCap,
+            Range {
+                start: LineId(0),
+                end: LineId(2),
+            },
+        );
         assert_eq!(got.text, "hello\nworld\n");
         assert_eq!(got.origin, OriginTag::Source);
         assert_eq!(got.seq, Seq(2));
@@ -593,9 +629,15 @@ mod tests {
         let mut s = Surface::new(sid(1));
         s.apply(&WriteCap, Edit::AppendLine("x".into()));
         // A live line resolves.
-        assert!(matches!(s.resolve(Addr::Line(sid(1), LineId(0))), Resolution::Resolved(..)));
+        assert!(matches!(
+            s.resolve(Addr::Line(sid(1), LineId(0))),
+            Resolution::Resolved(..)
+        ));
         // A wrong surface never silently succeeds.
-        assert_eq!(s.resolve(Addr::Line(sid(2), LineId(0))), Resolution::Invalidated);
+        assert_eq!(
+            s.resolve(Addr::Line(sid(2), LineId(0))),
+            Resolution::Invalidated
+        );
         // A not-yet line is a first-class status, never a wrong cell.
         assert!(matches!(
             s.resolve(Addr::Line(sid(1), LineId(99))),
@@ -610,8 +652,24 @@ mod tests {
         let snap = s.snapshot(&ReadCap);
         s.apply(&WriteCap, Edit::AppendLine("after".into()));
         // The snapshot sees the frozen world; the live surface moved on.
-        let snap_text = snap.read_text(&ReadCap, Range { start: LineId(0), end: LineId(9) }).text;
-        let live_text = s.read_text(&ReadCap, Range { start: LineId(0), end: LineId(9) }).text;
+        let snap_text = snap
+            .read_text(
+                &ReadCap,
+                Range {
+                    start: LineId(0),
+                    end: LineId(9),
+                },
+            )
+            .text;
+        let live_text = s
+            .read_text(
+                &ReadCap,
+                Range {
+                    start: LineId(0),
+                    end: LineId(9),
+                },
+            )
+            .text;
         assert_eq!(snap_text, "frozen\n");
         assert_eq!(live_text, "frozen\nafter\n");
         assert_eq!(snap.at, Seq(1));
@@ -626,7 +684,10 @@ mod tests {
         let before = s.seq().0;
         let id = s.span_define(
             &WriteCap,
-            Extent { start: LineId(1), end: LineId(3) },
+            Extent {
+                start: LineId(1),
+                end: LineId(3),
+            },
             SpanKind::Region,
             "bold".into(),
         );
@@ -639,17 +700,38 @@ mod tests {
 
         // query by kind + range overlap
         assert_eq!(
-            s.span_query(&ReadCap, Range { start: LineId(0), end: LineId(2) }, SpanKind::Region),
+            s.span_query(
+                &ReadCap,
+                Range {
+                    start: LineId(0),
+                    end: LineId(2)
+                },
+                SpanKind::Region
+            ),
             vec![id]
         );
         assert!(
-            s.span_query(&ReadCap, Range { start: LineId(0), end: LineId(2) }, SpanKind::Block)
-                .is_empty(),
+            s.span_query(
+                &ReadCap,
+                Range {
+                    start: LineId(0),
+                    end: LineId(2)
+                },
+                SpanKind::Block
+            )
+            .is_empty(),
             "wrong kind"
         );
         assert!(
-            s.span_query(&ReadCap, Range { start: LineId(3), end: LineId(5) }, SpanKind::Region)
-                .is_empty(),
+            s.span_query(
+                &ReadCap,
+                Range {
+                    start: LineId(3),
+                    end: LineId(5)
+                },
+                SpanKind::Region
+            )
+            .is_empty(),
             "non-overlapping range"
         );
 
@@ -689,7 +771,10 @@ mod tests {
             s.apply(&WriteCap, Edit::AppendLine(format!("{i}")));
         }
         let (upd, _cur) = s.poll(cur);
-        assert!(matches!(upd, SubUpdate::Gap { .. }), "fell behind horizon -> gap, not block");
+        assert!(
+            matches!(upd, SubUpdate::Gap { .. }),
+            "fell behind horizon -> gap, not block"
+        );
     }
 
     #[test]
@@ -700,10 +785,16 @@ mod tests {
         s.apply(&WriteCap, Edit::AppendLine("error: again".into()));
         let hits = s.query(
             &ReadCap,
-            Range { start: LineId(0), end: LineId(9) },
+            Range {
+                start: LineId(0),
+                end: LineId(9),
+            },
             &Predicate::TextContains("error".into()),
         );
-        assert_eq!(hits, vec![Addr::Line(sid(1), LineId(0)), Addr::Line(sid(1), LineId(2))]);
+        assert_eq!(
+            hits,
+            vec![Addr::Line(sid(1), LineId(0)), Addr::Line(sid(1), LineId(2))]
+        );
     }
 
     #[test]
@@ -720,7 +811,14 @@ mod tests {
         );
         assert_eq!(out, TxnOutcome::Committed(Seq(3)));
         assert_eq!(
-            s.read_text(&ReadCap, Range { start: LineId(0), end: LineId(9) }).text,
+            s.read_text(
+                &ReadCap,
+                Range {
+                    start: LineId(0),
+                    end: LineId(9)
+                }
+            )
+            .text,
             "base\na\nb\n"
         );
 

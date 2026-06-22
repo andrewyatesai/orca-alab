@@ -48,7 +48,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, LockResult, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -168,7 +168,8 @@ impl SubscriberRegistry {
     /// while they already hold the lock, so it can never disagree across a mutation.
     /// `Release` so the matching `Acquire` in [`Self::any`] sees the map mutation.
     fn refresh_any(&self, set: &SubscriberSet) {
-        self.any.store(!set.by_session.is_empty(), Ordering::Release);
+        self.any
+            .store(!set.by_session.is_empty(), Ordering::Release);
     }
 }
 
@@ -241,10 +242,10 @@ impl SubscriberSet {
         let token = g.next_token;
         g.next_token = g.next_token.wrapping_add(1);
         for &sid in sessions {
-            g.by_session
-                .entry(sid)
-                .or_default()
-                .push(SubscriberHandle { token, notify: tx.clone() });
+            g.by_session.entry(sid).or_default().push(SubscriberHandle {
+                token,
+                notify: tx.clone(),
+            });
         }
         registry.refresh_any(&g);
         drop(g);
@@ -337,7 +338,11 @@ fn read_screen(term: &Arc<Mutex<Terminal>>) -> (u64, Vec<String>) {
 fn read_cursor(term: &Arc<Mutex<Terminal>>) -> (u16, u16, &'static str) {
     let t = crate::term_lock(term);
     let c = t.cursor();
-    (c.row, c.col, crate::control::cursor_style_name(t.cursor_style()))
+    (
+        c.row,
+        c.col,
+        crate::control::cursor_style_name(t.cursor_style()),
+    )
 }
 
 /// Format a full screen DELTA for `sid` at `seq`: a header line followed by one
@@ -544,7 +549,11 @@ pub fn push_loop<W: Write>(
             last_block_id: initial_block_watermark(term, streams),
             // Register on the byte fan-out ONLY when `bytes` is requested, so an
             // idle/unsubscribed session pays nothing for the live byte channel.
-            byte_sub: if streams.bytes { Some(fanout.subscribe()) } else { None },
+            byte_sub: if streams.bytes {
+                Some(fanout.subscribe())
+            } else {
+                None
+            },
             non_coalesced,
         })
         .collect();
@@ -622,7 +631,10 @@ fn initial_block_watermark(term: &Arc<Mutex<Terminal>>, streams: Streams) -> Opt
         return None;
     }
     let t = crate::term_lock(term);
-    t.all_blocks().filter(|b| b.is_complete()).map(|b| b.id).max()
+    t.all_blocks()
+        .filter(|b| b.is_complete())
+        .map(|b| b.id)
+        .max()
 }
 
 /// Drop any watched target whose session has been DEREGISTERED from the store
@@ -648,7 +660,10 @@ mod tests {
 
         // A notify on an unrelated session does not wake us.
         reg.lock().unwrap().notify(99);
-        assert!(!sub.wait(Duration::from_millis(20)), "unrelated notify must not wake");
+        assert!(
+            !sub.wait(Duration::from_millis(20)),
+            "unrelated notify must not wake"
+        );
 
         // A notify on our session wakes us.
         reg.lock().unwrap().notify(7);
@@ -671,7 +686,10 @@ mod tests {
         }
         // Exactly one wake is pending (coalesced); the second wait times out.
         assert!(sub.wait(Duration::from_millis(200)), "first wake delivered");
-        assert!(!sub.wait(Duration::from_millis(20)), "flood coalesced to one wake");
+        assert!(
+            !sub.wait(Duration::from_millis(20)),
+            "flood coalesced to one wake"
+        );
     }
 
     /// A notify to a session with a DROPPED subscriber is a no-op and the registry
@@ -684,7 +702,11 @@ mod tests {
             let _sub = SubscriberSet::register(&reg, &[5]);
             assert_eq!(reg.lock().unwrap().watched_sessions(), 1);
         } // _sub dropped here
-        assert_eq!(reg.lock().unwrap().watched_sessions(), 0, "deregistered on drop");
+        assert_eq!(
+            reg.lock().unwrap().watched_sessions(),
+            0,
+            "deregistered on drop"
+        );
         // Still a safe no-op.
         reg.lock().unwrap().notify(5);
     }
@@ -700,7 +722,10 @@ mod tests {
             reg.lock().unwrap().notify(3);
         }
         // If notify blocked on a full slot this would never finish; assert it is fast.
-        assert!(start.elapsed() < Duration::from_secs(5), "producer not blocked by stall");
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "producer not blocked by stall"
+        );
     }
 
     /// Multiplex: one subscription watching two sessions is woken by EITHER.
@@ -709,25 +734,47 @@ mod tests {
         let reg = new_registry();
         let sub = SubscriberSet::register(&reg, &[10, 20]);
         reg.lock().unwrap().notify(20);
-        assert!(sub.wait(Duration::from_millis(200)), "woken by either watched session");
+        assert!(
+            sub.wait(Duration::from_millis(200)),
+            "woken by either watched session"
+        );
     }
 
     /// Stream parsing: a subset of the known streams parses; an empty list or a
     /// typo fails closed (so a bad request never silently subscribes to nothing).
     #[test]
     fn streams_parse_subset_and_fail_closed() {
-        assert_eq!(Streams::parse("screen"), Some(Streams { screen: true, ..Default::default() }));
+        assert_eq!(
+            Streams::parse("screen"),
+            Some(Streams {
+                screen: true,
+                ..Default::default()
+            })
+        );
         assert_eq!(
             Streams::parse("screen,cursor,events"),
-            Some(Streams { screen: true, cursor: true, events: true, ..Default::default() }),
+            Some(Streams {
+                screen: true,
+                cursor: true,
+                events: true,
+                ..Default::default()
+            }),
         );
         assert_eq!(
             Streams::parse("cursor screen"),
-            Some(Streams { screen: true, cursor: true, ..Default::default() }),
+            Some(Streams {
+                screen: true,
+                cursor: true,
+                ..Default::default()
+            }),
         );
         assert_eq!(Streams::parse(""), None, "empty fails closed");
         assert_eq!(Streams::parse("bogus"), None, "unknown stream fails closed");
-        assert_eq!(Streams::parse("screen,bogus"), None, "one bad token fails the whole list");
+        assert_eq!(
+            Streams::parse("screen,bogus"),
+            None,
+            "one bad token fails the whole list"
+        );
     }
 
     /// CORE coalescing claim at the FRAME level: a screen DELTA is emitted only when
@@ -737,15 +784,28 @@ mod tests {
     #[test]
     fn screen_delta_on_content_change_none_on_viewport_scroll() {
         let term = Arc::new(Mutex::new(Terminal::new(24, 80)));
-        let streams = Streams { screen: true, ..Default::default() };
-        let mut w = Watch { local_id: 4, term: term.clone(), last_sent_seq: 0, last_block_id: None, byte_sub: None, non_coalesced: false };
+        let streams = Streams {
+            screen: true,
+            ..Default::default()
+        };
+        let mut w = Watch {
+            local_id: 4,
+            term: term.clone(),
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: false,
+        };
 
         // First wake on a fresh engine: content_seq is already > 0 (the engine
         // initialized its grid), so an immediate catch-up DELTA is produced, tagged
         // with our sid (4).
         crate::term_lock(&term).process(b"hello");
         let f1 = frames_for_watch(&mut w, streams);
-        assert!(f1.starts_with("DELTA 4 seq="), "sid-tagged screen delta: {f1:?}");
+        assert!(
+            f1.starts_with("DELTA 4 seq="),
+            "sid-tagged screen delta: {f1:?}"
+        );
         assert!(f1.contains("hello"), "delta carries the live screen text");
         let seq_after_write = w.last_sent_seq;
         assert!(seq_after_write > 0);
@@ -755,13 +815,22 @@ mod tests {
         crate::term_lock(&term).scroll_display(1);
         let f2 = frames_for_watch(&mut w, streams);
         assert!(f2.is_empty(), "viewport scroll produces no delta: {f2:?}");
-        assert_eq!(w.last_sent_seq, seq_after_write, "seq unchanged by a scroll");
+        assert_eq!(
+            w.last_sent_seq, seq_after_write,
+            "seq unchanged by a scroll"
+        );
 
         // A real content change DOES advance the seq and re-emits a delta.
         crate::term_lock(&term).process(b" world");
         let f3 = frames_for_watch(&mut w, streams);
-        assert!(f3.starts_with("DELTA 4 seq="), "content change re-emits: {f3:?}");
-        assert!(w.last_sent_seq > seq_after_write, "seq advanced on real content");
+        assert!(
+            f3.starts_with("DELTA 4 seq="),
+            "content change re-emits: {f3:?}"
+        );
+        assert!(
+            w.last_sent_seq > seq_after_write,
+            "seq advanced on real content"
+        );
     }
 
     /// MULTIPLEX: two distinct watches produce frames tagged with their OWN sid, so
@@ -772,9 +841,26 @@ mod tests {
         let term_b = Arc::new(Mutex::new(Terminal::new(24, 80)));
         crate::term_lock(&term_a).process(b"alpha");
         crate::term_lock(&term_b).process(b"bravo");
-        let streams = Streams { screen: true, ..Default::default() };
-        let mut wa = Watch { local_id: 1, term: term_a, last_sent_seq: 0, last_block_id: None, byte_sub: None, non_coalesced: false };
-        let mut wb = Watch { local_id: 2, term: term_b, last_sent_seq: 0, last_block_id: None, byte_sub: None, non_coalesced: false };
+        let streams = Streams {
+            screen: true,
+            ..Default::default()
+        };
+        let mut wa = Watch {
+            local_id: 1,
+            term: term_a,
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: false,
+        };
+        let mut wb = Watch {
+            local_id: 2,
+            term: term_b,
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: false,
+        };
 
         let fa = frames_for_watch(&mut wa, streams);
         let fb = frames_for_watch(&mut wb, streams);
@@ -790,8 +876,18 @@ mod tests {
     fn cursor_delta_reports_position_and_style() {
         let term = Arc::new(Mutex::new(Terminal::new(24, 80)));
         crate::term_lock(&term).process(b"abc");
-        let streams = Streams { cursor: true, ..Default::default() };
-        let mut w = Watch { local_id: 9, term, last_sent_seq: 0, last_block_id: None, byte_sub: None, non_coalesced: false };
+        let streams = Streams {
+            cursor: true,
+            ..Default::default()
+        };
+        let mut w = Watch {
+            local_id: 9,
+            term,
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: false,
+        };
         let f = frames_for_watch(&mut w, streams);
         // "abc" advances the cursor to col 3 on row 0.
         assert!(f.contains("DELTA 9 seq="), "sid-tagged cursor delta: {f:?}");
@@ -807,16 +903,34 @@ mod tests {
         let term = Arc::new(Mutex::new(Terminal::new(24, 80)));
         crate::term_lock(&term).process(b"state");
         let cur = crate::term_lock(&term).content_seq();
-        let streams = Streams { screen: true, ..Default::default() };
+        let streams = Streams {
+            screen: true,
+            ..Default::default()
+        };
 
         // since == current seq: caught up, no catch-up frame.
-        let mut caught_up =
-            Watch { local_id: 1, term: term.clone(), last_sent_seq: cur, last_block_id: None, byte_sub: None, non_coalesced: false };
-        assert!(frames_for_watch(&mut caught_up, streams).is_empty(), "no frame when caught up");
+        let mut caught_up = Watch {
+            local_id: 1,
+            term: term.clone(),
+            last_sent_seq: cur,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: false,
+        };
+        assert!(
+            frames_for_watch(&mut caught_up, streams).is_empty(),
+            "no frame when caught up"
+        );
 
         // since below current seq: an immediate catch-up DELTA fires.
-        let mut behind =
-            Watch { local_id: 1, term, last_sent_seq: cur - 1, last_block_id: None, byte_sub: None, non_coalesced: false };
+        let mut behind = Watch {
+            local_id: 1,
+            term,
+            last_sent_seq: cur - 1,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: false,
+        };
         assert!(
             frames_for_watch(&mut behind, streams).starts_with("DELTA 1 "),
             "catch-up delta when content advanced past since",
@@ -827,11 +941,28 @@ mod tests {
     /// existing screen/cursor/events).
     #[test]
     fn streams_parse_accepts_cells_and_bytes() {
-        assert_eq!(Streams::parse("cells"), Some(Streams { cells: true, ..Default::default() }));
-        assert_eq!(Streams::parse("bytes"), Some(Streams { bytes: true, ..Default::default() }));
+        assert_eq!(
+            Streams::parse("cells"),
+            Some(Streams {
+                cells: true,
+                ..Default::default()
+            })
+        );
+        assert_eq!(
+            Streams::parse("bytes"),
+            Some(Streams {
+                bytes: true,
+                ..Default::default()
+            })
+        );
         assert_eq!(
             Streams::parse("cells,bytes,screen"),
-            Some(Streams { cells: true, bytes: true, screen: true, ..Default::default() }),
+            Some(Streams {
+                cells: true,
+                bytes: true,
+                screen: true,
+                ..Default::default()
+            }),
         );
     }
 
@@ -841,15 +972,25 @@ mod tests {
     fn cells_delta_carries_styled_payload() {
         let term = Arc::new(Mutex::new(Terminal::new(2, 4)));
         crate::term_lock(&term).process(b"\x1b[1mhi");
-        let streams = Streams { cells: true, ..Default::default() };
+        let streams = Streams {
+            cells: true,
+            ..Default::default()
+        };
         let mut w = Watch {
-            local_id: 5, term, last_sent_seq: 0, last_block_id: None,
-            byte_sub: None, non_coalesced: false,
+            local_id: 5,
+            term,
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: false,
         };
         let f = frames_for_watch(&mut w, streams);
         assert!(f.starts_with("DELTA 5 seq="), "sid-tagged cells delta: {f}");
         assert!(f.contains(" cells "), "is a cells frame: {f}");
-        assert!(f.contains("\"rows\":[["), "carries the styled frame payload: {f}");
+        assert!(
+            f.contains("\"rows\":[["),
+            "carries the styled frame payload: {f}"
+        );
         assert!(f.contains("\"bold\""), "carries resolved decorations: {f}");
         // The length prefix matches the JSON body byte length.
         let header = f.lines().next().unwrap();
@@ -868,8 +1009,12 @@ mod tests {
         fan.tee(&Arc::from(&b"\x1b[31m"[..]));
         fan.tee(&Arc::from(&[0x80u8, 0x00][..])); // non-UTF-8 + NUL
         let mut w = Watch {
-            local_id: 7, term, last_sent_seq: 0, last_block_id: None,
-            byte_sub: Some(bs), non_coalesced: false,
+            local_id: 7,
+            term,
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: Some(bs),
+            non_coalesced: false,
         };
         let out = drain_bytes_frames(&mut w);
         let mut expected: Vec<u8> = Vec::new();
@@ -889,11 +1034,18 @@ mod tests {
             fan.tee(&Arc::from(&b"abcd"[..]));
         }
         let mut w = Watch {
-            local_id: 7, term, last_sent_seq: 0, last_block_id: None,
-            byte_sub: Some(bs), non_coalesced: false,
+            local_id: 7,
+            term,
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: Some(bs),
+            non_coalesced: false,
         };
         let out = String::from_utf8_lossy(&drain_bytes_frames(&mut w)).into_owned();
-        assert!(out.starts_with("GAP 7 bytes-dropped="), "gap precedes bursts: {out}");
+        assert!(
+            out.starts_with("GAP 7 bytes-dropped="),
+            "gap precedes bursts: {out}"
+        );
         assert!(out.contains("BYTES 7 4\n"), "newest burst survives: {out}");
     }
 
@@ -903,18 +1055,32 @@ mod tests {
     fn every_frame_reemits_cells_on_unchanged_seq() {
         let term = Arc::new(Mutex::new(Terminal::new(2, 4)));
         crate::term_lock(&term).process(b"x");
-        let streams = Streams { cells: true, ..Default::default() };
+        let streams = Streams {
+            cells: true,
+            ..Default::default()
+        };
         // Coalesced: second call on unchanged seq emits nothing.
         let mut w = Watch {
-            local_id: 1, term: term.clone(), last_sent_seq: 0, last_block_id: None,
-            byte_sub: None, non_coalesced: false,
+            local_id: 1,
+            term: term.clone(),
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: false,
         };
         assert!(frames_for_watch(&mut w, streams).starts_with("DELTA 1 "));
-        assert!(frames_for_watch(&mut w, streams).is_empty(), "coalesced: no re-emit on unchanged seq");
+        assert!(
+            frames_for_watch(&mut w, streams).is_empty(),
+            "coalesced: no re-emit on unchanged seq"
+        );
         // every-frame: re-emits cells on unchanged seq.
         let mut w2 = Watch {
-            local_id: 1, term, last_sent_seq: 0, last_block_id: None,
-            byte_sub: None, non_coalesced: true,
+            local_id: 1,
+            term,
+            last_sent_seq: 0,
+            last_block_id: None,
+            byte_sub: None,
+            non_coalesced: true,
         };
         assert!(frames_for_watch(&mut w2, streams).starts_with("DELTA 1 "));
         assert!(

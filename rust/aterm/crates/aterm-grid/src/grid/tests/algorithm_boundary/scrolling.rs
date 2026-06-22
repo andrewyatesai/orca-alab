@@ -422,7 +422,11 @@ fn write_char_wrap_below_scroll_region_at_screen_bottom_does_not_scroll() {
     grid.write_char_wrap('Z');
     grid.resolve_pending_wrap();
 
-    assert_eq!(grid.scrollback_lines(), 0, "no scrollback: display must not scroll");
+    assert_eq!(
+        grid.scrollback_lines(),
+        0,
+        "no scrollback: display must not scroll"
+    );
     for (row, ch) in ['A', 'B', 'C', 'D', 'E'].into_iter().enumerate() {
         assert_eq!(
             grid.cell(row as u16, 0).unwrap().char(),

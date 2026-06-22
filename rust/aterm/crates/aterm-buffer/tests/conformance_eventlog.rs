@@ -88,13 +88,19 @@ fn transition_trace(prev: (u64, u64), next: (u64, u64)) -> String {
 /// the cfg pins it to `prev` and overrides the bounds to the real ring (`Cap` =
 /// `MAX_LOG_EVENTS`, `MaxSeq` large enough that the action's guard never blocks a
 /// real transition).
-fn validate_transition(ty: &Path, dir: &Path, prev: (u64, u64), next: (u64, u64)) -> (bool, String) {
+fn validate_transition(
+    ty: &Path,
+    dir: &Path,
+    prev: (u64, u64),
+    next: (u64, u64),
+) -> (bool, String) {
     let m = ring_model();
     let spec = dir.join("Ring.tla");
     let cfg = dir.join("Ring.cfg");
     let trace = dir.join("t.json");
-    let init: BTreeMap<&'static str, i64> =
-        [("seq", prev.0 as i64), ("lo", prev.1 as i64)].into_iter().collect();
+    let init: BTreeMap<&'static str, i64> = [("seq", prev.0 as i64), ("lo", prev.1 as i64)]
+        .into_iter()
+        .collect();
     std::fs::write(&spec, m.transition_spec()).expect("write spec");
     std::fs::write(
         &cfg,
@@ -134,15 +140,25 @@ fn drive_real_eventlog(n: u64) -> Vec<(u64, u64)> {
 
 #[test]
 fn real_eventlog_conforms_to_ring_spec() {
-    let Some(ty) = ty_or_skip("EventLog conformance") else { return; };
+    let Some(ty) = ty_or_skip("EventLog conformance") else {
+        return;
+    };
 
     let dir = std::env::temp_dir().join(format!("aterm-conf-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mk tempdir");
 
     // Drive the genuine shipping EventLog (no-eviction regime: 200 < Cap).
     let states = drive_real_eventlog(200);
-    assert_eq!(states.first(), Some(&(0u64, 1u64)), "initial projected state must be Init (seq=0, lo=1)");
-    assert_eq!(states.last(), Some(&(200u64, 1u64)), "after 200 appends (< Cap): seq=200, lo=1 (no eviction)");
+    assert_eq!(
+        states.first(),
+        Some(&(0u64, 1u64)),
+        "initial projected state must be Init (seq=0, lo=1)"
+    );
+    assert_eq!(
+        states.last(),
+        Some(&(200u64, 1u64)),
+        "after 200 appends (< Cap): seq=200, lo=1 (no eviction)"
+    );
 
     // POSITIVE: a spread of real transitions must each strictly conform to Next.
     // (In the no-eviction regime every transition has the same shape, so a spread
@@ -153,7 +169,8 @@ fn real_eventlog_conforms_to_ring_spec() {
         assert!(
             ok,
             "real transition #{i} {:?} -> {:?} must conform to Ring spec\n--- ty ---\n{out}",
-            states[i], states[i + 1]
+            states[i],
+            states[i + 1]
         );
     }
 
@@ -162,9 +179,15 @@ fn real_eventlog_conforms_to_ring_spec() {
     let prev = states[100];
     let (seq, lo) = states[101];
     let (bad_seq_ok, o1) = validate_transition(&ty, &dir, prev, (seq + 7, lo)); // seq skip
-    assert!(!bad_seq_ok, "corrupted transition (skipped seq) MUST fail conformance\n{o1}");
+    assert!(
+        !bad_seq_ok,
+        "corrupted transition (skipped seq) MUST fail conformance\n{o1}"
+    );
     let (bad_lo_ok, o2) = validate_transition(&ty, &dir, prev, (seq, lo + 9)); // wrong ring head
-    assert!(!bad_lo_ok, "corrupted transition (wrong lo) MUST fail conformance\n{o2}");
+    assert!(
+        !bad_lo_ok,
+        "corrupted transition (wrong lo) MUST fail conformance\n{o2}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
     eprintln!(
@@ -183,7 +206,9 @@ fn real_eventlog_conforms_to_ring_spec() {
 fn real_eventlog_eviction_conforms_to_ring_spec() {
     // Check for `ty` BEFORE the heavy drive so a no-`ty` run fails cheaply,
     // without first driving CAP+4 appends.
-    let Some(ty) = ty_or_skip("EventLog eviction conformance") else { return; };
+    let Some(ty) = ty_or_skip("EventLog eviction conformance") else {
+        return;
+    };
 
     let dir = std::env::temp_dir().join(format!("aterm-evict-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mk tempdir");
@@ -195,7 +220,11 @@ fn real_eventlog_eviction_conforms_to_ring_spec() {
     // The real eviction discipline, observed: lo stays 1 up to and including
     // seq == Cap (ring exactly full), then advances 1-per-append as the oldest
     // events are popped (lo == seq - Cap + 1 once over the cap).
-    assert_eq!(states[CAP as usize], (CAP, 1), "at seq=Cap the ring is exactly full, lo=1");
+    assert_eq!(
+        states[CAP as usize],
+        (CAP, 1),
+        "at seq=Cap the ring is exactly full, lo=1"
+    );
     assert_eq!(
         states[(CAP + 1) as usize],
         (CAP + 1, 2),
@@ -215,7 +244,8 @@ fn real_eventlog_eviction_conforms_to_ring_spec() {
         assert!(
             ok,
             "eviction transition #{i} {:?} -> {:?} must conform\n--- ty ---\n{out}",
-            states[i], states[i + 1]
+            states[i],
+            states[i + 1]
         );
     }
 

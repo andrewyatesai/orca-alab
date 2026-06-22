@@ -178,21 +178,37 @@ mod tests {
         let rows = t.rows() as usize;
         let mut search = TerminalSearch::new();
         let history: Vec<String> = (0..scrollback)
-            .map(|i| grid.get_history_line(i).map(|l| l.to_string()).unwrap_or_default())
+            .map(|i| {
+                grid.get_history_line(i)
+                    .map(|l| l.to_string())
+                    .unwrap_or_default()
+            })
             .collect();
         let hist_base = usize::try_from(oldest).unwrap_or(usize::MAX);
         search.index_visible_content(hist_base, &history);
-        let visible: Vec<String> =
-            (0..rows).map(|r| t.get_line_text(r as i32, None).unwrap_or_default()).collect();
+        let visible: Vec<String> = (0..rows)
+            .map(|r| t.get_line_text(r as i32, None).unwrap_or_default())
+            .collect();
         let vis_base = hist_base.saturating_add(scrollback);
         search.index_visible_content(vis_base, &visible);
-        let res = search.search_results_opts(pat, false, false).expect("search ok");
-        res.matches.iter().map(|m| (m.line, m.start_col, m.len())).collect()
+        let res = search
+            .search_results_opts(pat, false, false)
+            .expect("search ok");
+        res.matches
+            .iter()
+            .map(|m| (m.line, m.start_col, m.len()))
+            .collect()
     }
 
     fn cached_results(t: &mut Terminal, pat: &str) -> Vec<(usize, usize, usize)> {
-        let res = t.indexed_search().search_results_opts(pat, false, false).expect("search ok");
-        res.matches.iter().map(|m| (m.line, m.start_col, m.len())).collect()
+        let res = t
+            .indexed_search()
+            .search_results_opts(pat, false, false)
+            .expect("search ok");
+        res.matches
+            .iter()
+            .map(|m| (m.line, m.start_col, m.len()))
+            .collect()
     }
 
     /// Two consecutive identical searches with NO content change between them
@@ -217,7 +233,11 @@ mod tests {
             before + 1,
             "first search must rebuild the index once"
         );
-        assert_eq!(r1, legacy_results(&t, "NEEDLE_alpha"), "results must match the legacy index");
+        assert_eq!(
+            r1,
+            legacy_results(&t, "NEEDLE_alpha"),
+            "results must match the legacy index"
+        );
         assert_eq!(r1.len(), 1, "the scrolled-off needle is found exactly once");
 
         // Second IDENTICAL search, no content change -> cache HIT, NO rebuild,
@@ -229,7 +249,10 @@ mod tests {
             rebuilds_after_first,
             "the repeat search must REUSE the cache (no rebuild) — the O(1) win"
         );
-        assert_eq!(r1, r2, "reused-cache results must be identical to the first search");
+        assert_eq!(
+            r1, r2,
+            "reused-cache results must be identical to the first search"
+        );
 
         // A DIFFERENT pattern still reuses the SAME index (the per-query pattern
         // is independent of the indexed content) — still no rebuild.

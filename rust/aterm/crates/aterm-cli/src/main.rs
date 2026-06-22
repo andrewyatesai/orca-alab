@@ -19,8 +19,8 @@
 //!
 //! Containment mode is launcher-owned (`ATERM_CONTAINMENT_MODE`, ATERM_DESIGN §5):
 //! the default is `User` — no OS sandbox, so the daily-driver shell keeps full
-//! network/credential access and behaves as before, now confined by the cap gate
-//! + resource limits. `ATERM_CONTAINMENT_MODE=containment` opts into the macOS
+//! network/credential access and behaves as before, now confined by the cap gate +
+//! resource limits. `ATERM_CONTAINMENT_MODE=containment` opts into the macOS
 //! Seatbelt sandbox (deny network + credential/private-data reads); a malformed
 //! value fails CLOSED to Containment.
 
@@ -235,7 +235,9 @@ fn parse_args() {
             std::process::exit(2);
         }
         CliAction::Run { containment: None } => {}
-        CliAction::Run { containment: Some(val) } => {
+        CliAction::Run {
+            containment: Some(val),
+        } => {
             // Hand the selection to the init funnel by setting the env var it reads:
             // explicit flag thus beats any pre-existing $ATERM_CONTAINMENT_MODE, and a
             // bad value fails CLOSED through the exact same `init_mode_from_env` path.
@@ -268,9 +270,7 @@ fn main() {
     // Containment (never silently disables confinement).
     let mode = aterm_containment::init_mode_from_env(aterm_containment::ContainmentMode::User)
         .unwrap_or_else(|e| {
-            eprintln!(
-                "aterm: invalid ATERM_CONTAINMENT_MODE ({e}); failing closed to Containment"
-            );
+            eprintln!("aterm: invalid ATERM_CONTAINMENT_MODE ({e}); failing closed to Containment");
             let _ = aterm_containment::init_mode(aterm_containment::ContainmentMode::Containment);
             aterm_containment::ContainmentMode::Containment
         });
@@ -281,7 +281,10 @@ fn main() {
     let sandbox_wrap: Option<String> = match aterm_containment::decide_spawn(mode) {
         aterm_containment::SpawnDecision::Permit { sbpl, .. } => sbpl,
         other => {
-            debug_assert!(matches!(other, aterm_containment::SpawnDecision::Deny { .. }));
+            debug_assert!(matches!(
+                other,
+                aterm_containment::SpawnDecision::Deny { .. }
+            ));
             eprintln!(
                 "aterm: containment mode {mode} denies spawning a shell (fail-closed); \
                  refusing to start an unconfined child"
@@ -308,10 +311,10 @@ fn main() {
         cols,
         &spawn_cap,
         &sandbox_cap,
-        &[],   // env_add: none — transparent passthrough
-        None,  // argv_override
-        None,  // exec_command — interactive $SHELL
-        None,  // cwd — inherit
+        &[],  // env_add: none — transparent passthrough
+        None, // argv_override
+        None, // exec_command — interactive $SHELL
+        None, // cwd — inherit
         sandbox_wrap.as_deref(),
     )
     .unwrap_or_else(|e| {
@@ -321,18 +324,35 @@ fn main() {
 
     // PARENT.
     let stdin_is_tty = unsafe { libc::isatty(libc::STDIN_FILENO) } == 1;
-    let orig = if stdin_is_tty { Some(set_raw(libc::STDIN_FILENO)) } else { None };
+    let orig = if stdin_is_tty {
+        Some(set_raw(libc::STDIN_FILENO))
+    } else {
+        None
+    };
     // Cast through a function pointer (not a direct fn-item-to-int cast) so the
     // `fn_to_numeric_cast` lint is satisfied while still yielding the address
     // libc::signal expects as its sighandler_t.
-    unsafe { libc::signal(libc::SIGWINCH, on_winch as extern "C" fn(libc::c_int) as usize) };
+    unsafe {
+        libc::signal(
+            libc::SIGWINCH,
+            on_winch as extern "C" fn(libc::c_int) as usize,
+        )
+    };
 
     let mut engine = Terminal::new(rows, cols);
     let mut bytes_in: u64 = 0;
 
     let mut fds = [
-        libc::pollfd { fd: libc::STDIN_FILENO, events: libc::POLLIN, revents: 0 },
-        libc::pollfd { fd: master, events: libc::POLLIN, revents: 0 },
+        libc::pollfd {
+            fd: libc::STDIN_FILENO,
+            events: libc::POLLIN,
+            revents: 0,
+        },
+        libc::pollfd {
+            fd: master,
+            events: libc::POLLIN,
+            revents: 0,
+        },
     ];
     let mut buf = [0u8; 8192];
 
@@ -356,7 +376,11 @@ fn main() {
         // host keystrokes -> the shell.
         if fds[0].revents & libc::POLLIN != 0 {
             let r = unsafe {
-                libc::read(libc::STDIN_FILENO, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
+                libc::read(
+                    libc::STDIN_FILENO,
+                    buf.as_mut_ptr() as *mut libc::c_void,
+                    buf.len(),
+                )
             };
             if r < 0 && eintr() {
                 // retry next iteration
@@ -369,8 +393,7 @@ fn main() {
 
         // shell output -> host terminal (passthrough) AND the engine (model).
         if fds[1].revents & (libc::POLLIN | libc::POLLHUP) != 0 {
-            let r =
-                unsafe { libc::read(master, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+            let r = unsafe { libc::read(master, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
             if r < 0 && eintr() {
                 continue;
             }
@@ -399,13 +422,17 @@ fn main() {
     if std::env::var_os("ATERM_VERBOSE").is_some() {
         eprintln!("\r\n[aterm] session ended — engine processed {bytes_in} bytes via the VT core.");
     }
-    let code = if libc::WIFEXITED(status) { libc::WEXITSTATUS(status) } else { 1 };
+    let code = if libc::WIFEXITED(status) {
+        libc::WEXITSTATUS(status)
+    } else {
+        1
+    };
     std::process::exit(code);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{decide_args, CliAction};
+    use super::{CliAction, decide_args};
 
     fn decide(args: &[&str]) -> CliAction {
         decide_args(args.iter().map(|s| s.to_string()))
@@ -431,7 +458,9 @@ mod tests {
     fn containment_space_form() {
         assert_eq!(
             decide(&["--containment", "master"]),
-            CliAction::Run { containment: Some("master".into()) }
+            CliAction::Run {
+                containment: Some("master".into())
+            }
         );
     }
 
@@ -440,7 +469,9 @@ mod tests {
         // `=` syntax must be accepted and carried through identically to the space form.
         assert_eq!(
             decide(&["--containment=user"]),
-            CliAction::Run { containment: Some("user".into()) }
+            CliAction::Run {
+                containment: Some("user".into())
+            }
         );
     }
 
@@ -450,7 +481,9 @@ mod tests {
         // exactly like an invalid mode; it must NOT be silently dropped.
         assert_eq!(
             decide(&["--containment="]),
-            CliAction::Run { containment: Some(String::new()) }
+            CliAction::Run {
+                containment: Some(String::new())
+            }
         );
     }
 
@@ -470,7 +503,9 @@ mod tests {
         // init funnel, which fails CLOSED. So decide_args still returns Run(Some(..)).
         assert_eq!(
             decide(&["--containment", "xyz"]),
-            CliAction::Run { containment: Some("xyz".into()) }
+            CliAction::Run {
+                containment: Some("xyz".into())
+            }
         );
     }
 
@@ -478,11 +513,15 @@ mod tests {
     fn sandbox_and_no_sandbox_map_to_modes() {
         assert_eq!(
             decide(&["--sandbox"]),
-            CliAction::Run { containment: Some("containment".into()) }
+            CliAction::Run {
+                containment: Some("containment".into())
+            }
         );
         assert_eq!(
             decide(&["--no-sandbox"]),
-            CliAction::Run { containment: Some("user".into()) }
+            CliAction::Run {
+                containment: Some("user".into())
+            }
         );
     }
 
@@ -491,15 +530,21 @@ mod tests {
         // Documented precedence among flags: last on the line wins.
         assert_eq!(
             decide(&["--sandbox", "--containment", "user"]),
-            CliAction::Run { containment: Some("user".into()) }
+            CliAction::Run {
+                containment: Some("user".into())
+            }
         );
         assert_eq!(
             decide(&["--containment", "user", "--sandbox"]),
-            CliAction::Run { containment: Some("containment".into()) }
+            CliAction::Run {
+                containment: Some("containment".into())
+            }
         );
         assert_eq!(
             decide(&["--no-sandbox", "--sandbox"]),
-            CliAction::Run { containment: Some("containment".into()) }
+            CliAction::Run {
+                containment: Some("containment".into())
+            }
         );
     }
 
@@ -519,7 +564,9 @@ mod tests {
         // Flags BEFORE `--` still apply.
         assert_eq!(
             decide(&["--sandbox", "--"]),
-            CliAction::Run { containment: Some("containment".into()) }
+            CliAction::Run {
+                containment: Some("containment".into())
+            }
         );
     }
 

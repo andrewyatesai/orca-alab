@@ -289,7 +289,10 @@ impl SpecModule {
 /// after stripping `_`, so `"terminal_modes"` ⟺ `"TerminalModes"`.
 pub fn machine_matches(anchor_machine: &str, module_name: &str) -> bool {
     fn norm(s: &str) -> String {
-        s.chars().filter(|c| *c != '_').flat_map(|c| c.to_lowercase()).collect()
+        s.chars()
+            .filter(|c| *c != '_')
+            .flat_map(|c| c.to_lowercase())
+            .collect()
     }
     norm(anchor_machine) == norm(module_name)
 }
@@ -390,13 +393,14 @@ pub fn verifier_ledger(modules: &[SpecModule]) -> Vec<LedgerEntry> {
     for m in modules {
         let canon = m.name().to_string();
         for action in m.action_names() {
-            rows.entry((canon.clone(), action.clone())).or_insert_with(|| LedgerEntry {
-                machine: canon.clone(),
-                action: action.clone(),
-                ty: false,
-                kani: false,
-                proofs: BTreeSet::new(),
-            });
+            rows.entry((canon.clone(), action.clone()))
+                .or_insert_with(|| LedgerEntry {
+                    machine: canon.clone(),
+                    action: action.clone(),
+                    ty: false,
+                    kani: false,
+                    proofs: BTreeSet::new(),
+                });
         }
     }
 
@@ -409,30 +413,30 @@ pub fn verifier_ledger(modules: &[SpecModule]) -> Vec<LedgerEntry> {
 
     // ty half: refinements and machine+action waivers mark `ty` for their action.
     for r in refinements() {
-        if let Some(canon) = resolve(r.machine) {
-            if let Some(e) = rows.get_mut(&(canon, r.action.to_string())) {
-                e.ty = true;
-            }
+        if let Some(canon) = resolve(r.machine)
+            && let Some(e) = rows.get_mut(&(canon, r.action.to_string()))
+        {
+            e.ty = true;
         }
     }
     for w in waivers() {
         if w.machine.is_empty() || w.action.is_empty() {
             continue;
         }
-        if let Some(canon) = resolve(w.machine) {
-            if let Some(e) = rows.get_mut(&(canon, w.action.to_string())) {
-                e.ty = true;
-            }
+        if let Some(canon) = resolve(w.machine)
+            && let Some(e) = rows.get_mut(&(canon, w.action.to_string()))
+        {
+            e.ty = true;
         }
     }
 
     // kani half: each proof anchor marks `kani` and records the harness name.
     for p in proof_anchors() {
-        if let Some(canon) = resolve(p.machine) {
-            if let Some(e) = rows.get_mut(&(canon, p.action.to_string())) {
-                e.kani = true;
-                e.proofs.insert(p.proof_name.to_string());
-            }
+        if let Some(canon) = resolve(p.machine)
+            && let Some(e) = rows.get_mut(&(canon, p.action.to_string()))
+        {
+            e.kani = true;
+            e.proofs.insert(p.proof_name.to_string());
         }
     }
 
@@ -464,6 +468,11 @@ pub fn verifier_ledger(modules: &[SpecModule]) -> Vec<LedgerEntry> {
 /// the `trust-ir` symbol resolution of Phase 3. The Phase-0 aterm-local gate proves
 /// 1/3/4 (the linkage/coverage closure); behavioural alignment is the separate
 /// Tier-1 conformance layer (already green for window_routing).
+/// One module's three indexed namespaces, keyed by its declared machine name:
+/// `(machine name, action set, invariant-def set, coverage-action set)`. They
+/// coincide for embedded models and diverge for external `.tla` (see [`check_closure`]).
+type ModuleActionIndex = (String, BTreeSet<String>, BTreeSet<String>, BTreeSet<String>);
+
 pub fn check_closure(modules: &[SpecModule]) -> ClosureReport {
     let mut violations = Vec::new();
 
@@ -478,7 +487,7 @@ pub fn check_closure(modules: &[SpecModule]) -> ClosureReport {
     // set (so an invariant naming `TypeOK` resolves but a `#[refines]` naming it does
     // NOT — the alignment with Trust's already-strict artifact).
     // (machine name as declared, action set, invariant-def set, coverage-action set)
-    let module_actions: Vec<(String, BTreeSet<String>, BTreeSet<String>, BTreeSet<String>)> = modules
+    let module_actions: Vec<ModuleActionIndex> = modules
         .iter()
         .map(|m| {
             (
@@ -490,8 +499,10 @@ pub fn check_closure(modules: &[SpecModule]) -> ClosureReport {
         })
         .collect();
 
-    let resolve = |anchor_machine: &str| -> Option<&(String, BTreeSet<String>, BTreeSet<String>, BTreeSet<String>)> {
-        module_actions.iter().find(|(name, _, _, _)| machine_matches(anchor_machine, name))
+    let resolve = |anchor_machine: &str| -> Option<&ModuleActionIndex> {
+        module_actions
+            .iter()
+            .find(|(name, _, _, _)| machine_matches(anchor_machine, name))
     };
 
     // ---- Obligation 4 + 1 for refinements ----
@@ -626,7 +637,10 @@ pub fn check_closure(modules: &[SpecModule]) -> ClosureReport {
 
     for r in refinements() {
         if let Some((name, _, _, _)) = resolve(r.machine) {
-            bound.entry(name.clone()).or_default().insert(r.action.to_string());
+            bound
+                .entry(name.clone())
+                .or_default()
+                .insert(r.action.to_string());
         }
     }
     for w in waivers() {
@@ -634,7 +648,10 @@ pub fn check_closure(modules: &[SpecModule]) -> ClosureReport {
             continue;
         }
         if let Some((name, _, _, _)) = resolve(w.machine) {
-            waived.entry(name.clone()).or_default().insert(w.action.to_string());
+            waived
+                .entry(name.clone())
+                .or_default()
+                .insert(w.action.to_string());
         }
     }
 
@@ -648,8 +665,7 @@ pub fn check_closure(modules: &[SpecModule]) -> ClosureReport {
         let wv = waived.get(name).cloned().unwrap_or_default();
         let active = !b.is_empty();
         let covered: BTreeSet<String> = b.union(&wv).cloned().collect();
-        let uncovered: BTreeSet<String> =
-            actions.difference(&covered).cloned().collect();
+        let uncovered: BTreeSet<String> = actions.difference(&covered).cloned().collect();
         let mc = MachineCoverage {
             machine: name.clone(),
             total_actions: actions.len(),
@@ -677,7 +693,10 @@ pub fn check_closure(modules: &[SpecModule]) -> ClosureReport {
         coverage.push(mc);
     }
 
-    ClosureReport { violations, coverage }
+    ClosureReport {
+        violations,
+        coverage,
+    }
 }
 
 #[cfg(test)]
@@ -698,7 +717,10 @@ mod tests {
         let spec = TlaSpec::parse_str(tla, "Fix.tla").expect("parse");
         let m = SpecModule::External(spec);
         // Next-only action set: Apply yes, TypeOK no.
-        assert!(m.action_names().contains("Apply"), "Apply is a Next disjunct");
+        assert!(
+            m.action_names().contains("Apply"),
+            "Apply is a Next disjunct"
+        );
         assert!(
             !m.action_names().contains("TypeOK"),
             "TypeOK must NOT be a valid action target (Next-only) — the finding-4 narrowing"
@@ -708,26 +730,48 @@ mod tests {
             m.invariant_names().contains("TypeOK"),
             "TypeOK must resolve as an invariant id (the full def set)"
         );
-        assert!(m.invariant_names().contains("Apply"), "the def set is a superset of actions");
+        assert!(
+            m.invariant_names().contains("Apply"),
+            "the def set is a superset of actions"
+        );
     }
 
     // A real proof_anchor! invocation at module level (the kani-half of the ledger).
     // Submitted into the inventory slice for this crate's own unit-test binary, so the
     // collection / resolution / ledger path is exercised in aterm-spec itself (NOT inside
     // any #[cfg(kani)] block — that is the whole point of the decoupling).
-    crate::proof_anchor!(machine = "Ring", action = "Push", proof = "aterm_spec_self_test_ring_push");
-    crate::proof_anchor!(machine = "Cursor", action = "Grow", proof = "aterm_spec_self_test_cursor_grow");
+    crate::proof_anchor!(
+        machine = "Ring",
+        action = "Push",
+        proof = "aterm_spec_self_test_ring_push"
+    );
+    crate::proof_anchor!(
+        machine = "Cursor",
+        action = "Grow",
+        proof = "aterm_spec_self_test_cursor_grow"
+    );
 
     #[test]
     fn proof_anchor_macro_submits_a_collectable_kani_record() {
         let mine: Vec<_> = proof_anchors()
             .filter(|p| p.proof_name.starts_with("aterm_spec_self_test_"))
             .collect();
-        assert_eq!(mine.len(), 2, "both self-test proof anchors should be collected");
+        assert_eq!(
+            mine.len(),
+            2,
+            "both self-test proof anchors should be collected"
+        );
         assert!(mine.iter().all(|p| p.kind == ProofKind::Kani));
-        let ring = mine.iter().find(|p| p.machine == "Ring").expect("ring anchor");
+        let ring = mine
+            .iter()
+            .find(|p| p.machine == "Ring")
+            .expect("ring anchor");
         assert_eq!(ring.action, "Push");
-        assert!(ring.location.contains("xref.rs"), "location is file:line: {}", ring.location);
+        assert!(
+            ring.location.contains("xref.rs"),
+            "location is file:line: {}",
+            ring.location
+        );
     }
 
     #[test]
@@ -735,7 +779,10 @@ mod tests {
         // The proof anchors above name (Ring, Push) and (Cursor, Grow) — both REAL model
         // actions, so check_closure must NOT flag them (Ob.1/Ob.4 satisfied). We isolate
         // the proof-anchor obligations by checking no violation mentions a self-test proof.
-        let modules = vec![SpecModule::Embedded(ring_model()), SpecModule::Embedded(cursor_model())];
+        let modules = vec![
+            SpecModule::Embedded(ring_model()),
+            SpecModule::Embedded(cursor_model()),
+        ];
         let report = check_closure(&modules);
         for v in &report.violations {
             assert!(
@@ -749,23 +796,40 @@ mod tests {
 
     #[test]
     fn verifier_ledger_marks_kani_for_proof_anchored_actions() {
-        let modules = vec![SpecModule::Embedded(ring_model()), SpecModule::Embedded(cursor_model())];
+        let modules = vec![
+            SpecModule::Embedded(ring_model()),
+            SpecModule::Embedded(cursor_model()),
+        ];
         let ledger = verifier_ledger(&modules);
         // Ring::Push is proof-anchored (kani=✓) by the self-test above.
         let ring_push = ledger
             .iter()
             .find(|e| e.machine == "Ring" && e.action == "Push")
             .expect("Ring::Push row");
-        assert!(ring_push.kani, "Ring::Push must be kani-discharged in the ledger");
+        assert!(
+            ring_push.kani,
+            "Ring::Push must be kani-discharged in the ledger"
+        );
         assert!(ring_push.proofs.contains("aterm_spec_self_test_ring_push"));
         // Cursor::Deliver is NOT proof-anchored here (kani=–).
         let deliver = ledger
             .iter()
             .find(|e| e.machine == "Cursor" && e.action == "Deliver")
             .expect("Cursor::Deliver row");
-        assert!(!deliver.kani, "Cursor::Deliver has no proof anchor — kani must be –");
+        assert!(
+            !deliver.kani,
+            "Cursor::Deliver has no proof anchor — kani must be –"
+        );
         // The render is the per-(machine,action) ledger line shape.
-        assert!(ring_push.render().contains("kani=✓  Ring::Push"), "{}", ring_push.render());
-        assert!(deliver.render().contains("kani=–  Cursor::Deliver"), "{}", deliver.render());
+        assert!(
+            ring_push.render().contains("kani=✓  Ring::Push"),
+            "{}",
+            ring_push.render()
+        );
+        assert!(
+            deliver.render().contains("kani=–  Cursor::Deliver"),
+            "{}",
+            deliver.render()
+        );
     }
 }

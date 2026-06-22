@@ -74,8 +74,14 @@ fn real_cell_frame_seq_is_monotone_isolated_and_stale_detectable() {
     // 2. SNAPSHOT INTERNAL-CONSISTENCY / NO TORN READ: the already-emitted snapshot
     //    is frozen — neither its seq stamp nor its rendered cells changed despite
     //    the later writes.
-    assert_eq!(snap.snapshot_seq, snap_seq, "held snapshot's seq must not change after later writes");
-    assert_eq!(snap.cells, snap_cells, "held snapshot's cells must not change after later writes");
+    assert_eq!(
+        snap.snapshot_seq, snap_seq,
+        "held snapshot's seq must not change after later writes"
+    );
+    assert_eq!(
+        snap.cells, snap_cells,
+        "held snapshot's cells must not change after later writes"
+    );
 
     // Project the observed outcome onto the model vars and check its REAL
     // invariants. `snapped = 1` (a snapshot was taken), `torn = 0` (no leak),
@@ -83,7 +89,10 @@ fn real_cell_frame_seq_is_monotone_isolated_and_stale_detectable() {
     let observed: BTreeMap<&'static str, i64> = [
         ("epoch", i64::try_from(live_after).expect("epoch fits i64")),
         ("snapped", 1),
-        ("snap_seq", i64::try_from(snap_seq).expect("snap_seq fits i64")),
+        (
+            "snap_seq",
+            i64::try_from(snap_seq).expect("snap_seq fits i64"),
+        ),
         ("torn", 0),
     ]
     .into_iter()
@@ -103,7 +112,10 @@ fn real_cell_frame_seq_is_monotone_isolated_and_stale_detectable() {
     let torn_state: BTreeMap<&'static str, i64> = [
         ("epoch", i64::try_from(live_after).expect("epoch fits i64")),
         ("snapped", 1),
-        ("snap_seq", i64::try_from(live_after).expect("epoch fits i64")),
+        (
+            "snap_seq",
+            i64::try_from(live_after).expect("epoch fits i64"),
+        ),
         ("torn", 1),
     ]
     .into_iter()
@@ -132,12 +144,18 @@ fn noop_process_does_not_advance_snapshot_seq() {
     // visible is consumed without a cell change). The epoch must not advance.
     term.process(b"\x1b");
     let live_after = term.damage_epoch();
-    assert_eq!(live_after, snap_seq, "a no-op process must not advance the damage epoch");
+    assert_eq!(
+        live_after, snap_seq,
+        "a no-op process must not advance the damage epoch"
+    );
 
     let observed: BTreeMap<&'static str, i64> = [
         ("epoch", i64::try_from(live_after).expect("epoch fits i64")),
         ("snapped", 1),
-        ("snap_seq", i64::try_from(snap_seq).expect("snap_seq fits i64")),
+        (
+            "snap_seq",
+            i64::try_from(snap_seq).expect("snap_seq fits i64"),
+        ),
         ("torn", 0),
     ]
     .into_iter()

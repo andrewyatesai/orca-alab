@@ -643,7 +643,10 @@ mod eviction_tests {
     fn evicted_block_returns_evicted_marker_retained_block_returns_true_output() {
         // 4 visible rows + only 6 lines of ring scrollback: a tight cap so a few
         // commands push the earliest block off the top.
-        let mut term = TerminalBuilder::new().size(4, 40).ring_buffer_size(6).build();
+        let mut term = TerminalBuilder::new()
+            .size(4, 40)
+            .ring_buffer_size(6)
+            .build();
 
         // Block 0: the one we will force out of scrollback.
         run_block(&mut term, "first", &["EVICT-ME-0", "EVICT-ME-1"]);
@@ -662,8 +665,14 @@ mod eviction_tests {
         }
 
         // Re-read after eviction. block_by_id clones so we own the blocks.
-        let evict_block = term.block_by_id(evict_id).cloned().expect("evicted block id still tracked");
-        let keep_block = term.block_by_id(keep_id).cloned().expect("retained block id still tracked");
+        let evict_block = term
+            .block_by_id(evict_id)
+            .cloned()
+            .expect("evicted block id still tracked");
+        let keep_block = term
+            .block_by_id(keep_id)
+            .cloned()
+            .expect("retained block id still tracked");
 
         // The OLD block's output rows are now older than the oldest retained row:
         // it must return the EVICTED marker, NOT shifted/empty text.
@@ -714,7 +723,10 @@ mod eviction_tests {
     /// the eviction counter — guards against false-positive eviction reporting.
     #[test]
     fn retained_block_before_eviction_reads_true_output() {
-        let mut term = TerminalBuilder::new().size(4, 40).ring_buffer_size(100).build();
+        let mut term = TerminalBuilder::new()
+            .size(4, 40)
+            .ring_buffer_size(100)
+            .build();
         run_block(&mut term, "echo", &["HELLO-WORLD"]);
         let block = term.all_blocks().next().cloned().expect("one block");
         let out = term.block_output_text(&block);

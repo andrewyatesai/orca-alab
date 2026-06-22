@@ -38,7 +38,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
-use aterm_spec::derive::{fd_lifecycle_model, Model};
+use aterm_spec::derive::{Model, fd_lifecycle_model};
 use aterm_spec::verify::ty_or_skip;
 
 /// The sibling `aterm-spec-models` `specs/` directory. aterm-spec must NOT depend on
@@ -57,7 +57,10 @@ fn run_ty(ty: &PathBuf, m: &Model, cfg_overrides: &[(&'static str, i64)]) -> (bo
         "aterm-fdlc-{}-{}-{}",
         m.name,
         std::process::id(),
-        cfg_overrides.iter().map(|(_, v)| v.to_string()).collect::<String>()
+        cfg_overrides
+            .iter()
+            .map(|(_, v)| v.to_string())
+            .collect::<String>()
     ));
     std::fs::create_dir_all(&dir).expect("mk tempdir");
     let spec = dir.join(format!("{}.tla", m.name));
@@ -144,8 +147,13 @@ fn derived_fd_lifecycle_interpreter_holds_invariants_over_reachable_states() {
             }
         }
     }
-    assert!(checked > 1, "interpreter explored too few states ({checked})");
-    eprintln!("derived FdLifecycle interpreter: both invariants hold over all {checked} reachable states (Buggy=0).");
+    assert!(
+        checked > 1,
+        "interpreter explored too few states ({checked})"
+    );
+    eprintln!(
+        "derived FdLifecycle interpreter: both invariants hold over all {checked} reachable states (Buggy=0)."
+    );
 }
 
 #[test]

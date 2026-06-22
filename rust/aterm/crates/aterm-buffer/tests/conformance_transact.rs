@@ -32,9 +32,14 @@ fn surface(id: u64) -> Surface {
 /// (Heads are kept small so the model's exhaustive-bound guard `seq <= MaxSeq - K`
 /// does not interfere — the discipline under test is `seq == tbase`.)
 fn attempting(seq: u64, tbase: u64) -> BTreeMap<&'static str, i64> {
-    [("seq", seq as i64), ("tbase", tbase as i64), ("active", 1), ("lost", 0)]
-        .into_iter()
-        .collect()
+    [
+        ("seq", seq as i64),
+        ("tbase", tbase as i64),
+        ("active", 1),
+        ("lost", 0),
+    ]
+    .into_iter()
+    .collect()
 }
 
 #[test]
@@ -44,8 +49,14 @@ fn real_transact_clean_commit_matches_model() {
     let base = s.seq(); // read the head; no concurrent write follows
     let st = attempting(s.seq().0, base.0); // seq == tbase
 
-    assert!(m.action_enabled("CommitClean", &st), "model: clean commit enabled when seq == base");
-    assert!(!m.action_enabled("Abort", &st), "model: abort disabled when there is no conflict");
+    assert!(
+        m.action_enabled("CommitClean", &st),
+        "model: clean commit enabled when seq == base"
+    );
+    assert!(
+        !m.action_enabled("Abort", &st),
+        "model: abort disabled when there is no conflict"
+    );
 
     let outcome = s.transact(&WriteCap, base, vec![Edit::AppendLine("x".into())]);
     assert!(
@@ -63,8 +74,14 @@ fn real_transact_conflict_aborts_no_lost_update() {
     s.apply(&WriteCap, Edit::AppendLine("concurrent".into()));
     let st = attempting(s.seq().0, base.0); // seq > tbase
 
-    assert!(m.action_enabled("Abort", &st), "model: a conflict must abort (seq > tbase)");
-    assert!(!m.action_enabled("CommitClean", &st), "model: a conflict must not clean-commit");
+    assert!(
+        m.action_enabled("Abort", &st),
+        "model: a conflict must abort (seq > tbase)"
+    );
+    assert!(
+        !m.action_enabled("CommitClean", &st),
+        "model: a conflict must not clean-commit"
+    );
 
     let head_before = s.seq().0;
     let outcome = s.transact(&WriteCap, base, vec![Edit::AppendLine("txn".into())]);

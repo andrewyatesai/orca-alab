@@ -70,9 +70,17 @@ fn assert_proves_and_catches(ty: &PathBuf, m: &Model) {
     };
 
     let (ok, out) = run("ok.cfg", m.to_cfg());
-    assert!(ok, "derived {} (Buggy=0) must model-check clean\n{out}", m.name);
+    assert!(
+        ok,
+        "derived {} (Buggy=0) must model-check clean\n{out}",
+        m.name
+    );
     let (bug_ok, bug_out) = run("bug.cfg", m.to_cfg_with(&[("Buggy", 1)]));
-    assert!(!bug_ok, "{} (Buggy=1) MUST yield a counterexample\n{bug_out}", m.name);
+    assert!(
+        !bug_ok,
+        "{} (Buggy=1) MUST yield a counterexample\n{bug_out}",
+        m.name
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
     eprintln!(

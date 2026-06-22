@@ -109,8 +109,20 @@ pub(crate) struct HyperlinkData {
 /// PNG is decoded today; an unknown format degrades to drawing nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ImageFormat {
-    /// PNG (`\x89PNG\r\n…`). The one format the renderer decodes.
+    /// PNG (`\x89PNG\r\n…`). The one container format the renderer decodes.
     Png,
+    /// Already-decoded, packed RGBA8 pixels (`[r, g, b, a]` per pixel,
+    /// row-major over `width`). Used by the sixel path, which decodes the
+    /// raster in the engine (the `aterm-sixel` crate) since sixel has no
+    /// container the renderer's PNG decoder could read. `ImageData.bytes` then
+    /// holds exactly `4 * width * height` bytes; the renderer resamples them to
+    /// the footprint directly (no codec). This keeps the engine codec-free.
+    RawRgba8 {
+        /// Source raster width in pixels.
+        width: u16,
+        /// Source raster height in pixels.
+        height: u16,
+    },
     /// Anything else (JPEG, GIF, …) — kept verbatim but not drawn yet.
     Unknown,
 }

@@ -15,10 +15,10 @@ use self::reflow_map::{
 use super::row_u16;
 use super::{CellCoord, CellExtras, Grid};
 use crate::Damage;
-use crate::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use crate::LineSize;
 use crate::PageStore;
 use crate::Row;
+use crate::{MAX_GRID_COLS, MAX_GRID_ROWS};
 
 /// Selects whether resize should reflow wrapped content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

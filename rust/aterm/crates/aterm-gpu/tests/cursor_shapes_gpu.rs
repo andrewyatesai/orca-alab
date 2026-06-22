@@ -39,7 +39,9 @@ fn max_channel_delta(a: &Frame, b: &Frame) -> i32 {
 
 /// Per-channel closeness to a packed `0x00RRGGBB` colour (1-LSB rounding).
 fn near_cursor(p: u32) -> bool {
-    (rr(p) - rr(CURSOR)).abs() <= 1 && (gg(p) - gg(CURSOR)).abs() <= 1 && (bb(p) - bb(CURSOR)).abs() <= 1
+    (rr(p) - rr(CURSOR)).abs() <= 1
+        && (gg(p) - gg(CURSOR)).abs() <= 1
+        && (bb(p) - bb(CURSOR)).abs() <= 1
 }
 
 /// All (x, y) positions whose pixel is the cursor colour (within 1 LSB).
@@ -84,7 +86,13 @@ fn term_with(bytes: &[u8]) -> Terminal {
 /// Render `term` on both paths and assert pixel parity (1-LSB fills, the
 /// glyph blend within the usual gpu_matches_cpu tolerance). Returns the GPU
 /// frame for the pattern assertions.
-fn parity(cpu: &mut Renderer, gpu: &mut aterm_gpu::GpuRenderer, win: &mut aterm_gpu::WindowGpu, term: &mut Terminal, label: &str) -> Frame {
+fn parity(
+    cpu: &mut Renderer,
+    gpu: &mut aterm_gpu::GpuRenderer,
+    win: &mut aterm_gpu::WindowGpu,
+    term: &mut Terminal,
+    label: &str,
+) -> Frame {
     // A-3: the engine builds the snapshot; both renderers consume the same value.
     let input = term.cell_frame(2, 4);
     let cpu_frame = cpu.render_input(&input);
@@ -96,7 +104,10 @@ fn parity(cpu: &mut Renderer, gpu: &mut aterm_gpu::GpuRenderer, win: &mut aterm_
     );
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("{label}: GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "{label}: GPU/CPU pixels diverge (delta {delta} > 8)");
+    assert!(
+        delta <= 8,
+        "{label}: GPU/CPU pixels diverge (delta {delta} > 8)"
+    );
     // The cursor-coloured pattern itself must agree EXACTLY (fills are flat
     // colour on both paths; 1 LSB covers Rgba8 round-tripping).
     assert_eq!(
@@ -109,7 +120,9 @@ fn parity(cpu: &mut Renderer, gpu: &mut aterm_gpu::GpuRenderer, win: &mut aterm_
 
 #[test]
 fn gpu_block_cursor_matches_cpu() {
-    let Some((mut cpu, mut gpu)) = renderers() else { return };
+    let Some((mut cpu, mut gpu)) = renderers() else {
+        return;
+    };
     let mut win = aterm_gpu::WindowGpu::new();
     let (cw, ch) = cpu.cell_size();
     let mut term = term_with(b"\x1b[2 q"); // steady block
@@ -117,20 +130,33 @@ fn gpu_block_cursor_matches_cpu() {
     let pos = cursor_positions(&f);
     // The block fill covers the cell except the glyph cut-out; well over half
     // the cell stays cursor-coloured and nothing outside the cell does.
-    assert!(pos.len() > cw * ch / 2, "block: too few cursor pixels ({})", pos.len());
-    assert!(pos.iter().all(|&(x, y)| x < cw && y < ch), "block: cursor pixels outside cell");
+    assert!(
+        pos.len() > cw * ch / 2,
+        "block: too few cursor pixels ({})",
+        pos.len()
+    );
+    assert!(
+        pos.iter().all(|&(x, y)| x < cw && y < ch),
+        "block: cursor pixels outside cell"
+    );
 }
 
 #[test]
 fn gpu_underline_cursor_matches_cpu() {
-    let Some((mut cpu, mut gpu)) = renderers() else { return };
+    let Some((mut cpu, mut gpu)) = renderers() else {
+        return;
+    };
     let mut win = aterm_gpu::WindowGpu::new();
     let (cw, ch) = cpu.cell_size();
     let mut term = term_with(b"\x1b[4 q"); // steady underline
     let f = parity(&mut cpu, &mut gpu, &mut win, &mut term, "underline");
     let t = (ch / 8).max(2);
     let pos = cursor_positions(&f);
-    assert_eq!(pos.len(), cw * t, "underline: should fill exactly the bottom strip");
+    assert_eq!(
+        pos.len(),
+        cw * t,
+        "underline: should fill exactly the bottom strip"
+    );
     assert!(
         pos.iter().all(|&(x, y)| x < cw && y >= ch - t && y < ch),
         "underline: cursor pixels outside the bottom strip"
@@ -139,7 +165,9 @@ fn gpu_underline_cursor_matches_cpu() {
 
 #[test]
 fn gpu_bar_cursor_matches_cpu() {
-    let Some((mut cpu, mut gpu)) = renderers() else { return };
+    let Some((mut cpu, mut gpu)) = renderers() else {
+        return;
+    };
     let mut win = aterm_gpu::WindowGpu::new();
     let (cw, ch) = cpu.cell_size();
     let mut term = term_with(b"\x1b[6 q"); // steady bar
@@ -149,12 +177,17 @@ fn gpu_bar_cursor_matches_cpu() {
     // The bar strip may cross the glyph's left edge: every strip pixel is
     // cursor-coloured and no cursor colour leaks outside the strip.
     assert_eq!(pos.len(), t * ch, "bar: should fill exactly the left strip");
-    assert!(pos.iter().all(|&(x, y)| x < t && y < ch), "bar: cursor pixels outside the left strip");
+    assert!(
+        pos.iter().all(|&(x, y)| x < t && y < ch),
+        "bar: cursor pixels outside the left strip"
+    );
 }
 
 #[test]
 fn gpu_hollow_block_matches_cpu() {
-    let Some((mut cpu, mut gpu)) = renderers() else { return };
+    let Some((mut cpu, mut gpu)) = renderers() else {
+        return;
+    };
     let mut win = aterm_gpu::WindowGpu::new();
     let (cw, ch) = cpu.cell_size();
     cpu.set_cursor_style_override(Some(CursorStyle::HollowBlock));
@@ -164,14 +197,23 @@ fn gpu_hollow_block_matches_cpu() {
     let t = (ch / 16).max(1);
     let border = 2 * cw * t + 2 * t * (ch - 2 * t);
     let pos = cursor_positions(&f);
-    assert_eq!(pos.len(), border, "hollow: should paint exactly the outline");
+    assert_eq!(
+        pos.len(),
+        border,
+        "hollow: should paint exactly the outline"
+    );
     let (mx, my) = (cw / 2, ch / 2);
-    assert!(!near_cursor(f.pixels[my * f.width + mx]), "hollow: center must stay unfilled");
+    assert!(
+        !near_cursor(f.pixels[my * f.width + mx]),
+        "hollow: center must stay unfilled"
+    );
 }
 
 #[test]
 fn gpu_blink_phase_and_hidden_suppress_cursor() {
-    let Some((mut cpu, mut gpu)) = renderers() else { return };
+    let Some((mut cpu, mut gpu)) = renderers() else {
+        return;
+    };
     let mut win = aterm_gpu::WindowGpu::new();
 
     // Blinking block, phase off: no cursor pixels on either path.
@@ -179,16 +221,25 @@ fn gpu_blink_phase_and_hidden_suppress_cursor() {
     cpu.set_cursor_blink_phase(false);
     gpu.set_cursor_blink_phase(false);
     let f = parity(&mut cpu, &mut gpu, &mut win, &mut term, "blink-off");
-    assert!(cursor_positions(&f).is_empty(), "blink phase off -> no cursor pixels");
+    assert!(
+        cursor_positions(&f).is_empty(),
+        "blink phase off -> no cursor pixels"
+    );
 
     // Phase back on: the cursor returns.
     cpu.set_cursor_blink_phase(true);
     gpu.set_cursor_blink_phase(true);
     let f = parity(&mut cpu, &mut gpu, &mut win, &mut term, "blink-on");
-    assert!(!cursor_positions(&f).is_empty(), "blink phase on -> cursor drawn");
+    assert!(
+        !cursor_positions(&f).is_empty(),
+        "blink phase on -> cursor drawn"
+    );
 
     // DECTCEM hidden: no cursor pixels regardless of style or phase.
     let mut term = term_with(b"\x1b[?25l");
     let f = parity(&mut cpu, &mut gpu, &mut win, &mut term, "hidden");
-    assert!(cursor_positions(&f).is_empty(), "DECTCEM off -> no cursor pixels");
+    assert!(
+        cursor_positions(&f).is_empty(),
+        "DECTCEM off -> no cursor pixels"
+    );
 }

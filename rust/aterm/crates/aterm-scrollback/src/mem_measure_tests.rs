@@ -65,7 +65,7 @@ fn mem_measure_scrollback_mixed() {
             }
             // Wider / fuller line (closer to terminal width).
             _ => {
-                let text: String = std::iter::repeat('x').take(80).collect();
+                let text: String = "x".repeat(80);
                 let mut rle: Rle<CellAttrs> = Rle::new();
                 rle.extend_with(CellAttrs::new(0x01_AABBCC, 0x01_112233, 0), 80);
                 sb.push_line(Line::with_attrs(&text, rle));

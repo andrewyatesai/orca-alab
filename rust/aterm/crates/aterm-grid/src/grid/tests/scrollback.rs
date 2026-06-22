@@ -563,17 +563,16 @@ fn height_decrease_preserves_extras_on_pushed_rows() {
     for rev_idx in 0..sb_lines {
         if let Some(line) = grid.history_line_rev(rev_idx) {
             let text = line.as_str().unwrap_or("");
-            if text.contains("Hello") {
-                if let Some(spans) = line.hyperlinks() {
-                    if !spans.is_empty() {
-                        assert_eq!(
-                            &*spans[0].url, "https://example.com/7783",
-                            "hyperlink URL should be preserved"
-                        );
-                        found_hyperlink = true;
-                        break;
-                    }
-                }
+            if text.contains("Hello")
+                && let Some(spans) = line.hyperlinks()
+                && !spans.is_empty()
+            {
+                assert_eq!(
+                    &*spans[0].url, "https://example.com/7783",
+                    "hyperlink URL should be preserved"
+                );
+                found_hyperlink = true;
+                break;
             }
         }
     }

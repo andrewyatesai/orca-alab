@@ -34,8 +34,8 @@ impl Grid {
     /// Assert the grid invariants empirically confirmed (by fuzzing — see
     /// aterm-core `fuzz_process_never_panics`, validated across 300k+ iterations
     /// of arbitrary bytes / crafted escapes / unicode / reflow / alt-screen) to
-    /// hold against the live implementation: `CursorInBounds`, `ScrollRegionValid`
-    /// + `DisplayOffsetValid`, and the ring-buffer structure. This is the wirable
+    /// hold against the live implementation: `CursorInBounds`, `ScrollRegionValid` +
+    /// `DisplayOffsetValid`, and the ring-buffer structure. This is the wirable
     /// subset of [`Self::assert_invariants`] — everything EXCEPT `WideCharConsistent`.
     ///
     /// `WideCharConsistent` is the one omitted check: it is genuinely violable —

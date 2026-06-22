@@ -13,7 +13,7 @@
 //!   * the `>` operator in a guard, and `-`/`+` arithmetic in updates.
 
 use aterm_spec::derive::{
-    add, cst, gt, if_, le, sub, var, Action, Invariant, Model, StateVar, Update,
+    Action, Invariant, Model, StateVar, Update, add, cst, gt, if_, le, sub, var,
 };
 use aterm_spec::ty_model;
 use std::collections::BTreeMap;
@@ -28,20 +28,32 @@ fn cursor_unguarded_hand() -> Model {
         name: "CursorU",
         consts: vec![("MaxSeq", 4)],
         vars: vec![
-            StateVar { name: "seq", init: 0 },
-            StateVar { name: "cursor", init: 0 },
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "cursor",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
             Action {
                 name: "Grow",
                 guard: Some(le(var("seq"), sub(cst("MaxSeq"), int_lit(1)))),
-                updates: vec![Update { var: "seq", expr: add(var("seq"), int_lit(1)) }],
+                updates: vec![Update {
+                    var: "seq",
+                    expr: add(var("seq"), int_lit(1)),
+                }],
             },
             Action {
                 name: "Deliver",
                 guard: None, // no `when` clause
-                updates: vec![Update { var: "cursor", expr: var("seq") }],
+                updates: vec![Update {
+                    var: "cursor",
+                    expr: var("seq"),
+                }],
             },
         ],
         invariants: vec![Invariant {
@@ -81,7 +93,11 @@ fn macro_unguarded_action_matches_hand_built_tla() {
     // generated TLA+ text — the source of truth that `ty` consumes.
     let m = cursor_unguarded_macro();
     let h = cursor_unguarded_hand();
-    assert_eq!(m.to_tla(), h.to_tla(), "macro must desugar to the same TLA+");
+    assert_eq!(
+        m.to_tla(),
+        h.to_tla(),
+        "macro must desugar to the same TLA+"
+    );
 }
 
 #[test]
@@ -107,7 +123,10 @@ fn macro_unguarded_action_is_always_enabled_in_interpreter() {
     // Deliver has no guard -> always enabled, even from the initial state.
     assert!(m.action_enabled("Deliver", &st));
     assert!(m.fire("Deliver", &mut st));
-    assert_eq!(st[&"cursor"], 0, "Deliver catches cursor up to seq (still 0)");
+    assert_eq!(
+        st[&"cursor"], 0,
+        "Deliver catches cursor up to seq (still 0)"
+    );
     // Grow advances seq; Deliver then catches cursor up to it.
     assert!(m.fire("Grow", &mut st));
     assert!(m.fire("Deliver", &mut st));
@@ -127,14 +146,20 @@ fn tiered_hand() -> Model {
         consts: vec![],
         vars: vec![
             StateVar { name: "n", init: 0 },
-            StateVar { name: "level", init: 0 },
+            StateVar {
+                name: "level",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
             Action {
                 name: "Step",
                 guard: Some(le(var("n"), int_lit(5))),
-                updates: vec![Update { var: "n", expr: add(var("n"), int_lit(1)) }],
+                updates: vec![Update {
+                    var: "n",
+                    expr: add(var("n"), int_lit(1)),
+                }],
             },
             Action {
                 name: "Bump",
@@ -181,10 +206,15 @@ fn macro_nested_if_else_matches_hand_built() {
 fn macro_nested_if_else_renders_nested_tla() {
     let tla = tiered_macro().to_tla();
     // No CONSTANT line (no consts declared).
-    assert!(!tla.contains("CONSTANT"), "no consts -> no CONSTANT line: {tla}");
+    assert!(
+        !tla.contains("CONSTANT"),
+        "no consts -> no CONSTANT line: {tla}"
+    );
     // The nested IF/THEN/ELSE renders with both arms parenthesized.
     assert!(
-        tla.contains("Bump == level' = (IF n > 4 THEN 2 ELSE (IF n > 2 THEN 1 ELSE 0)) /\\ UNCHANGED << n >>"),
+        tla.contains(
+            "Bump == level' = (IF n > 4 THEN 2 ELSE (IF n > 2 THEN 1 ELSE 0)) /\\ UNCHANGED << n >>"
+        ),
         "{tla}"
     );
 }
@@ -236,9 +266,15 @@ fn macro_paren_and_gt_in_guard() {
     assert!(tla.contains("Tick == n - 1 > 0 /\\ n' = n + 1"), "{tla}");
     // Interpreter: guard `(n-1) > 0` is false at n=0 and n=1, true from n=2.
     let mut st = m.init_state();
-    assert!(!m.action_enabled("Tick", &st), "n=0: (n-1)>0 is -1>0 = false");
+    assert!(
+        !m.action_enabled("Tick", &st),
+        "n=0: (n-1)>0 is -1>0 = false"
+    );
     st.insert("n", 1);
-    assert!(!m.action_enabled("Tick", &st), "n=1: (n-1)>0 is 0>0 = false");
+    assert!(
+        !m.action_enabled("Tick", &st),
+        "n=1: (n-1)>0 is 0>0 = false"
+    );
     st.insert("n", 2);
     assert!(m.action_enabled("Tick", &st), "n=2: (n-1)>0 is 1>0 = true");
 }

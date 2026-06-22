@@ -52,7 +52,12 @@ fn bb(p: u32) -> u32 {
 /// Render `input` to the renderer's offscreen, capture those pixels (the existing
 /// readback — the SINGLE SOURCE OF TRUTH), then run the REAL blit (`invert`) into
 /// a readable target and read it back. Returns `(offscreen_source, blit_output)`.
-fn source_and_blit(gpu: &mut GpuRenderer, win: &mut aterm_gpu::WindowGpu, input: &RenderInput, invert: bool) -> (Frame, Frame) {
+fn source_and_blit(
+    gpu: &mut GpuRenderer,
+    win: &mut aterm_gpu::WindowGpu,
+    input: &RenderInput,
+    invert: bool,
+) -> (Frame, Frame) {
     // `render_input` does a FULL repaint into the resident offscreen and reads it
     // back: that returned Frame IS the offscreen the present path blits.
     let source = gpu.render_input(win, input);
@@ -188,7 +193,10 @@ fn blit_invert_hits_range_anchors() {
     // complement across whatever range the frame spans, including dark bg and
     // bright glyphs / saturated SGR colours).
     let (_src2, inv2) = source_and_blit(&mut gpu, &mut win, &input, true);
-    assert_eq!(inv.pixels, inv2.pixels, "invert must be deterministic across runs");
+    assert_eq!(
+        inv.pixels, inv2.pixels,
+        "invert must be deterministic across runs"
+    );
 
     let mut spanned_low = false; // saw a channel <= 8 (near black -> ~255 out)
     let mut spanned_high = false; // saw a channel >= 247 (near white -> ~0 out)
@@ -205,10 +213,14 @@ fn blit_invert_hits_range_anchors() {
             spanned_mid |= (96..=160).contains(&sc);
         }
     }
-    assert!(spanned_low, "frame should contain near-black channels (theme bg / cut-outs)");
-    assert!(spanned_high, "frame should contain near-white channels (bright glyph coverage)");
-    let _ = spanned_mid; // mid-grey is opportunistic (anti-aliased glyph edges)
-    eprintln!(
-        "blit invert range anchors: low={spanned_low} mid={spanned_mid} high={spanned_high}"
+    assert!(
+        spanned_low,
+        "frame should contain near-black channels (theme bg / cut-outs)"
     );
+    assert!(
+        spanned_high,
+        "frame should contain near-white channels (bright glyph coverage)"
+    );
+    let _ = spanned_mid; // mid-grey is opportunistic (anti-aliased glyph edges)
+    eprintln!("blit invert range anchors: low={spanned_low} mid={spanned_mid} high={spanned_high}");
 }

@@ -22,3 +22,9 @@ libc = { workspace = true }
 # Reuse the single source-of-truth private-dir ownership predicate (no drift with
 # the control socket's Application Support hardening).
 aterm-types = { workspace = true }
+# Route updater diagnostics through the global logger aterm-gui installs, so they
+# land in the app log file (visible for a Finder-launched .app, unlike stderr).
+aterm-log = { workspace = true }
+
+[lints]
+workspace = true

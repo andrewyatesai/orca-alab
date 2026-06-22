@@ -126,7 +126,10 @@ impl Terminal {
     ///
     /// Used by checkpoint restore to recreate terminal state.
     #[must_use]
-    #[allow(dead_code, reason = "checkpoint-restore constructor consumed by the checkpoint test-support layer")]
+    #[allow(
+        dead_code,
+        reason = "checkpoint-restore constructor consumed by the checkpoint test-support layer"
+    )]
     pub(crate) fn from_grid(grid: Grid) -> Self {
         Self::with_grid(grid)
     }
@@ -135,7 +138,10 @@ impl Terminal {
     ///
     /// Used by checkpoint restore to recreate terminal state with scrollback history.
     #[must_use]
-    #[allow(dead_code, reason = "checkpoint-restore constructor consumed by the checkpoint test-support layer")]
+    #[allow(
+        dead_code,
+        reason = "checkpoint-restore constructor consumed by the checkpoint test-support layer"
+    )]
     pub(crate) fn from_grid_and_scrollback(mut grid: Grid, scrollback: Scrollback) -> Self {
         grid.attach_scrollback(scrollback);
         Self::with_grid(grid)

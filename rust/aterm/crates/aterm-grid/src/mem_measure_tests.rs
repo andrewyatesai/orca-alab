@@ -60,11 +60,7 @@ fn mem_measure_truecolor_screen() {
                 c,
                 c + 1,
                 Some([v, v.wrapping_add(1), v.wrapping_add(2)]),
-                Some([
-                    v.wrapping_add(3),
-                    v.wrapping_add(4),
-                    v.wrapping_add(5),
-                ]),
+                Some([v.wrapping_add(3), v.wrapping_add(4), v.wrapping_add(5)]),
                 rows,
                 cols,
             );
@@ -75,10 +71,7 @@ fn mem_measure_truecolor_screen() {
     let cells = usize::from(rows) * usize::from(cols);
     println!("=== (a) true-color screen {rows}x{cols} = {cells} cells ===");
     println!("  total grid.memory_used() = {total} bytes");
-    println!(
-        "  per-cell = {:.2} bytes",
-        total as f64 / cells as f64
-    );
+    println!("  per-cell = {:.2} bytes", total as f64 / cells as f64);
 }
 
 /// (c) A screen with combining marks / wide chars.
@@ -107,10 +100,7 @@ fn mem_measure_combining_wide_screen() {
     let cells = usize::from(rows) * usize::from(cols);
     println!("=== (c) combining/wide screen {rows}x{cols} = {cells} cells ===");
     println!("  total grid.memory_used() = {total} bytes");
-    println!(
-        "  per-cell = {:.2} bytes",
-        total as f64 / cells as f64
-    );
+    println!("  per-cell = {:.2} bytes", total as f64 / cells as f64);
 }
 
 /// Startup resident bytes for a freshly-constructed grid (perf-grid-startup).
@@ -130,9 +120,18 @@ fn mem_measure_startup_footprint() {
         println!("=== startup footprint {rows}x{cols} ===");
         println!("  size_of::<Row>()         = {row_struct} bytes");
         println!("  ring Vec capacity        = {ring_cap_entries} entries");
-        println!("  ring Vec capacity bytes  = {ring_cap_bytes} ({:.1} KB)", ring_cap_bytes as f64 / 1024.0);
-        println!("  page-store total_memory  = {pages_bytes} ({:.1} KB)", pages_bytes as f64 / 1024.0);
-        println!("  grid.memory_used()       = {total} ({:.1} KB)", total as f64 / 1024.0);
+        println!(
+            "  ring Vec capacity bytes  = {ring_cap_bytes} ({:.1} KB)",
+            ring_cap_bytes as f64 / 1024.0
+        );
+        println!(
+            "  page-store total_memory  = {pages_bytes} ({:.1} KB)",
+            pages_bytes as f64 / 1024.0
+        );
+        println!(
+            "  grid.memory_used()       = {total} ({:.1} KB)",
+            total as f64 / 1024.0
+        );
     }
 }
 

@@ -37,9 +37,21 @@
 
 // EvictFull::Push — the bounded live-window discipline (counting accuracy / hot bound /
 // line-limit enforcement: the local BMC form of EvictOldestContiguous over Push).
-aterm_spec::proof_anchor!(machine = "EvictFull", action = "Push", proof = "line_count_accurate");
-aterm_spec::proof_anchor!(machine = "EvictFull", action = "Push", proof = "hot_bounded");
-aterm_spec::proof_anchor!(machine = "EvictFull", action = "Push", proof = "line_limit_enforced");
+aterm_spec::proof_anchor!(
+    machine = "EvictFull",
+    action = "Push",
+    proof = "line_count_accurate"
+);
+aterm_spec::proof_anchor!(
+    machine = "EvictFull",
+    action = "Push",
+    proof = "hot_bounded"
+);
+aterm_spec::proof_anchor!(
+    machine = "EvictFull",
+    action = "Push",
+    proof = "line_limit_enforced"
+);
 
 // TierResidency::Push — cold push + drop preserves the tier-sum (the spill-on-evict
 // path's count consistency).

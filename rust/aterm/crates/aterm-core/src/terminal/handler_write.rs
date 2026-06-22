@@ -138,11 +138,19 @@ impl TerminalHandler<'_> {
     // drives. L2 requires the projection NAME be present (Trust does not execute it).
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "alt_screen", action = "WriteMain", project = "aterm_core::terminal::project_altscreen")
+        aterm_spec::refines(
+            machine = "alt_screen",
+            action = "WriteMain",
+            project = "aterm_core::terminal::project_altscreen"
+        )
     )]
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "alt_screen", action = "Scribble", project = "aterm_core::terminal::project_altscreen")
+        aterm_spec::refines(
+            machine = "alt_screen",
+            action = "Scribble",
+            project = "aterm_core::terminal::project_altscreen"
+        )
     )]
     pub(super) fn write_char(&mut self, c: char) {
         // Translate character through the active character set
@@ -192,9 +200,7 @@ impl TerminalHandler<'_> {
         // Regional-indicator pairs (U+1F1E6-U+1F1FF) form ONE flag glyph: combine
         // the 2nd RI of a pair into the 1st RI's cell so `🇺🇸` is a single 2-cell
         // grapheme. The colour font has a bitmap for the PAIR, not single RIs.
-        if is_regional_indicator(translated)
-            && self.try_combine_regional_indicator(translated)
-        {
+        if is_regional_indicator(translated) && self.try_combine_regional_indicator(translated) {
             return;
         }
 
@@ -346,9 +352,7 @@ impl TerminalHandler<'_> {
                         continue;
                     }
                     // Regional-indicator pairs form one flag glyph (see write_char).
-                    if is_regional_indicator(c)
-                        && self.try_combine_regional_indicator(c)
-                    {
+                    if is_regional_indicator(c) && self.try_combine_regional_indicator(c) {
                         self.transient.last_combining_was_zwj = false;
                         i += 1;
                         continue;
@@ -961,12 +965,10 @@ impl TerminalHandler<'_> {
         }
         // Already a complete pair (its combining store holds an RI)? Then this
         // RI begins a NEW pair in its own cell rather than extending the old one.
-        let already_paired = self.grid.cell_extra(row, col).is_some_and(|e| {
-            e.combining()
-                .iter()
-                .copied()
-                .any(is_regional_indicator)
-        });
+        let already_paired = self
+            .grid
+            .cell_extra(row, col)
+            .is_some_and(|e| e.combining().iter().copied().any(is_regional_indicator));
         if already_paired {
             return false;
         }

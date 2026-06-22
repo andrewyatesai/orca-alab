@@ -158,7 +158,10 @@ mod clipboard {
         ///
         /// Read by the OSC 1337 CopyToClipboard executor in the FFI layer
         /// (ffi_bridge/); inert in the default lib build.
-        #[allow(dead_code, reason = "copy target read by the OSC 1337 CopyToClipboard FFI executor")]
+        #[allow(
+            dead_code,
+            reason = "copy target read by the OSC 1337 CopyToClipboard FFI executor"
+        )]
         pub pasteboard: String,
         /// Accumulated text content.
         pub content: String,
@@ -171,7 +174,10 @@ mod clipboard {
 
     impl CopyToClipboardState {
         /// Create a new capture state for the given pasteboard name.
-        #[allow(dead_code, reason = "constructor consumed by the OSC 1337 CopyToClipboard FFI layer")]
+        #[allow(
+            dead_code,
+            reason = "constructor consumed by the OSC 1337 CopyToClipboard FFI layer"
+        )]
         pub fn new(pasteboard: String) -> Self {
             Self {
                 pasteboard,
@@ -201,7 +207,5 @@ mod clipboard {
 // ============================================================================
 
 pub(super) use aterm_types::TerminalCapabilities;
-pub(super) use aterm_types::osc::{
-    Notification, TaskbarProgress, TextSizingOperation,
-};
+pub(super) use aterm_types::osc::{Notification, TaskbarProgress, TextSizingOperation};
 pub(super) use clipboard::CopyToClipboardState;

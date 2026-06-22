@@ -29,7 +29,7 @@ mod edge;
 mod id;
 pub mod sink;
 
-pub use edge::{decide_edge, Edge, EdgeDecision, EdgeTable, EdgeToken, Op};
+pub use edge::{Edge, EdgeDecision, EdgeTable, EdgeToken, Op, decide_edge};
 pub use id::{LaunchNonce, SessionId};
 
 /// Lowercase-hex encode. No dependency — ids/tokens are short and fixed-length.

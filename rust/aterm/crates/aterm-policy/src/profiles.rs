@@ -414,6 +414,9 @@ mod tests {
     fn unmatched_response_accessors_mirror_builtin_defaults() {
         assert_eq!(hardened_unmatched_response(), hardened().defaults.unmatched);
         assert_eq!(standard_unmatched_response(), standard().defaults.unmatched);
-        assert_eq!(permissive_unmatched_response(), permissive().defaults.unmatched);
+        assert_eq!(
+            permissive_unmatched_response(),
+            permissive().defaults.unmatched
+        );
     }
 }

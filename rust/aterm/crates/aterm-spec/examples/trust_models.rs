@@ -27,9 +27,9 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
 use aterm_spec::derive::{
-    cursor_model, evict_full_model, kernel_model, read_image_seq_model, recording_model,
+    Model, cursor_model, evict_full_model, kernel_model, read_image_seq_model, recording_model,
     ring_model, snapshot_model, subscribe_model, tier_residency_model, transact_model,
-    window_routing_model, Model,
+    window_routing_model,
 };
 
 /// Locate the embedded ty checker (same precedence as the derived-ty test).
@@ -52,7 +52,11 @@ fn find_ty() -> Option<PathBuf> {
             }
         }
     }
-    let out = Command::new("sh").arg("-c").arg("command -v ty").output().ok()?;
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg("command -v ty")
+        .output()
+        .ok()?;
     if out.status.success() {
         let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if !p.is_empty() {
@@ -87,7 +91,12 @@ impl Verdict {
 
 /// Run `ty check spec --config cfg`, returning combined stdout+stderr.
 fn run_ty(ty: &PathBuf, spec: &PathBuf, cfg: &PathBuf) -> std::io::Result<String> {
-    let out = Command::new(ty).arg("check").arg(spec).arg("--config").arg(cfg).output()?;
+    let out = Command::new(ty)
+        .arg("check")
+        .arg(spec)
+        .arg("--config")
+        .arg(cfg)
+        .output()?;
     Ok(format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),
@@ -98,7 +107,8 @@ fn run_ty(ty: &PathBuf, spec: &PathBuf, cfg: &PathBuf) -> std::io::Result<String
 /// Model-check one model: prove at the committed config, and (if it declares a
 /// `Buggy` dial) require a counterexample at `Buggy = 1`. Fail-closed.
 fn check_model(ty: &PathBuf, m: &Model) -> Verdict {
-    let dir = std::env::temp_dir().join(format!("aterm-temporal-{}-{}", m.name, std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("aterm-temporal-{}-{}", m.name, std::process::id()));
     if std::fs::create_dir_all(&dir).is_err() {
         return Verdict::Unknown("could not create temp dir".into());
     }
@@ -115,7 +125,11 @@ fn check_model(ty: &PathBuf, m: &Model) -> Verdict {
         Err(e) => return Verdict::Unknown(format!("ty spawn failed: {e}")),
     };
     if invariant_violated(&ok) {
-        let inv = m.invariants.first().map(|i| i.name.to_string()).unwrap_or_default();
+        let inv = m
+            .invariants
+            .first()
+            .map(|i| i.name.to_string())
+            .unwrap_or_default();
         return Verdict::Failed(inv);
     }
     if !proved_exhaustive(&ok) {
@@ -167,10 +181,17 @@ fn main() -> ExitCode {
         let v = check_model(&ty, m);
         let ok = v.is_proved();
         all_ok &= ok;
-        eprintln!("  {} {:<22} {v:?}", if ok { "ok  " } else { "FAIL" }, m.name);
+        eprintln!(
+            "  {} {:<22} {v:?}",
+            if ok { "ok  " } else { "FAIL" },
+            m.name
+        );
     }
     if all_ok {
-        eprintln!("aterm temporal gate: all {} model(s) PROVED by embedded ty.", models.len());
+        eprintln!(
+            "aterm temporal gate: all {} model(s) PROVED by embedded ty.",
+            models.len()
+        );
         ExitCode::SUCCESS
     } else {
         eprintln!(

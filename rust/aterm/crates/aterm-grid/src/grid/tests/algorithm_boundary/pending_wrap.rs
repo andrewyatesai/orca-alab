@@ -272,7 +272,10 @@ fn line_feed_always_clears_pending_wrap() {
 
     let mut grid = grid_with_pending_wrap(1, 5); // cursor at region bottom
     grid.line_feed();
-    assert!(!grid.pending_wrap(), "scrolling LF must clear pending_wrap too");
+    assert!(
+        !grid.pending_wrap(),
+        "scrolling LF must clear pending_wrap too"
+    );
 }
 
 /// DECSC/DECRC round-trip the deferred wrap flag.

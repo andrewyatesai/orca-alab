@@ -51,11 +51,16 @@ pub fn init() {
     let file = match open_log_file(&path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("aterm-gui: cannot open {}: {e}; logging disabled", path.display());
+            eprintln!(
+                "aterm-gui: cannot open {}: {e}; logging disabled",
+                path.display()
+            );
             return;
         }
     };
-    let logger: &'static FileLogger = Box::leak(Box::new(FileLogger { file: Mutex::new(file) }));
+    let logger: &'static FileLogger = Box::leak(Box::new(FileLogger {
+        file: Mutex::new(file),
+    }));
     if aterm_log::set_logger(logger).is_ok() {
         aterm_log::set_max_level(level);
     }
@@ -84,7 +89,9 @@ fn write_crash_report(
     info: &dyn std::fmt::Display,
     backtrace: &dyn std::fmt::Display,
 ) -> std::io::Result<()> {
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
     let mut f = open_0600(path, true)?;
     writeln!(
         f,
@@ -143,7 +150,10 @@ impl Log for FileLogger {
     fn log(&self, record: &Record<'_>) {
         let body = record.args().to_string();
         let line = format_record(
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis(),
             record.level(),
             record.target(),
             &body,
@@ -183,7 +193,10 @@ mod tests {
         ensure_private_dir(&dir).unwrap();
         let path = dir.join("aterm.log");
         open_log_file(&path).unwrap().write_all(b"first\n").unwrap();
-        open_log_file(&path).unwrap().write_all(b"second\n").unwrap();
+        open_log_file(&path)
+            .unwrap()
+            .write_all(b"second\n")
+            .unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "first\nsecond\n");

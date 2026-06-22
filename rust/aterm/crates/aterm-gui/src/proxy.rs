@@ -173,12 +173,11 @@ pub fn sweep_stale_graph(sock_dir: &Path) {
     };
     for ent in entries.flatten() {
         let path = ent.path();
-        if let Ok(body) = std::fs::read_to_string(&path) {
-            if let Some((sock, _nonce)) = parse_graph_entry(&body) {
-                if !crate::control_auth::socket_is_live(&sock) {
-                    let _ = std::fs::remove_file(&path);
-                }
-            }
+        if let Ok(body) = std::fs::read_to_string(&path)
+            && let Some((sock, _nonce)) = parse_graph_entry(&body)
+            && !crate::control_auth::socket_is_live(&sock)
+        {
+            let _ = std::fs::remove_file(&path);
         }
     }
 }
@@ -420,8 +419,19 @@ mod tests {
 
     #[test]
     fn parse_graph_entry_rejects_malformed() {
-        assert!(parse_graph_entry("sock /a/b.sock\nnonce deadbeef\n").is_none(), "short nonce");
-        assert!(parse_graph_entry("nonce {}\n".replace("{}", &LaunchNonce::generate().to_hex()).as_str()).is_none(), "no sock");
+        assert!(
+            parse_graph_entry("sock /a/b.sock\nnonce deadbeef\n").is_none(),
+            "short nonce"
+        );
+        assert!(
+            parse_graph_entry(
+                "nonce {}\n"
+                    .replace("{}", &LaunchNonce::generate().to_hex())
+                    .as_str()
+            )
+            .is_none(),
+            "no sock"
+        );
         let good = format!("sock /x.sock\nnonce {}\n", LaunchNonce::generate().to_hex());
         assert!(parse_graph_entry(&good).is_some());
     }
@@ -442,7 +452,10 @@ mod tests {
 
     #[test]
     fn forward_first_line_presents_token_and_verb() {
-        assert_eq!(forward_first_line("abcd", "@. screen"), "TOKEN abcd @. screen\n");
+        assert_eq!(
+            forward_first_line("abcd", "@. screen"),
+            "TOKEN abcd @. screen\n"
+        );
     }
 
     /// The relay carries an arbitrary request → response (incl. a multi-line body
@@ -464,7 +477,10 @@ mod tests {
             let mut rdr = BufReader::new(conn.try_clone().unwrap());
             let mut first = String::new();
             rdr.read_line(&mut first).unwrap();
-            assert!(first.starts_with("TOKEN tok-hex screen"), "handshake: {first:?}");
+            assert!(
+                first.starts_with("TOKEN tok-hex screen"),
+                "handshake: {first:?}"
+            );
             conn.write_all(b"OK 1\n{\"k\":1}\n").unwrap();
             conn.write_all(&[0xffu8, b'\n']).unwrap();
             conn.flush().unwrap();
@@ -534,10 +550,17 @@ mod tests {
         let first = read_edge_tokens(&path);
         let second = read_edge_tokens(&path);
         assert_eq!(first, Some((r.clone(), w.clone(), s.clone())), "first read");
-        assert_eq!(second, Some((r, w, s)), "second read still succeeds (persists)");
+        assert_eq!(
+            second,
+            Some((r, w, s)),
+            "second read still succeeds (persists)"
+        );
         // The parent owns removal, keyed by child sid; after it the file is gone.
         remove_edge_tokens(&dir, &sid);
-        assert!(read_edge_tokens(&path).is_none(), "removed by owning parent");
+        assert!(
+            read_edge_tokens(&path).is_none(),
+            "removed by owning parent"
+        );
         // A different child's sid is a no-op (removes only its own file).
         remove_edge_tokens(&dir, &SessionId::generate());
         let _ = std::fs::remove_dir_all(&dir);
@@ -552,7 +575,10 @@ mod tests {
     fn drain_buffered_never_blocks_on_empty_buffer() {
         let (a, _b) = UnixStream::pair().expect("pair"); // _b stays open + silent
         let mut r = std::io::BufReader::new(a);
-        assert!(drain_buffered(&mut r).is_empty(), "empty buffer drains to nothing, no block");
+        assert!(
+            drain_buffered(&mut r).is_empty(),
+            "empty buffer drains to nothing, no block"
+        );
     }
 
     /// `drain_buffered` returns exactly the bytes PIPELINED past the request line

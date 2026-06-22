@@ -171,7 +171,11 @@ fn cell_extra_with_image() {
         cols: 3,
         rows: 2,
     });
-    extra.set_image(Some(ImageRef { image: Arc::clone(&image), cell_row: 1, cell_col: 2 }));
+    extra.set_image(Some(ImageRef {
+        image: Arc::clone(&image),
+        cell_row: 1,
+        cell_col: 2,
+    }));
 
     assert!(extra.has_data(), "an image makes the extra non-empty");
     let got = extra.image().expect("image set");

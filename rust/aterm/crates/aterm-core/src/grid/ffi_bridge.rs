@@ -21,7 +21,10 @@ mod types;
 // These FFI ABI types are constructed/used by the cfg(test) `ffi_impl`
 // module below, the test_support FFI helpers, and the out-of-crate FFI
 // extraction (aterm-core-ffi); they are dead only in the default lib build.
-#[allow(unused_imports, reason = "FFI ABI types consumed by the test/FFI layer")]
+#[allow(
+    unused_imports,
+    reason = "FFI ABI types consumed by the test/FFI layer"
+)]
 pub use types::{AtermCell, AtermGrid, AtermResolvedStyle};
 
 // =============================================================================

@@ -90,12 +90,18 @@ enum PositionalError {
 
 #[test]
 fn positional_both_fields() {
-    assert_eq!(PositionalError::Expected(1, 2).to_string(), "expected 1 found 2");
+    assert_eq!(
+        PositionalError::Expected(1, 2).to_string(),
+        "expected 1 found 2"
+    );
 }
 
 #[test]
 fn positional_only_one_referenced_field() {
-    assert_eq!(PositionalError::SecondOnly(9, 5).to_string(), "second only: 5");
+    assert_eq!(
+        PositionalError::SecondOnly(9, 5).to_string(),
+        "second only: 5"
+    );
 }
 
 // ── Name-value form `#[error(name = "literal")]` ─────────────────────────────

@@ -9,9 +9,6 @@ license.workspace = true
 repository.workspace = true
 description = "Shell integration (OSC 7/133/633) — extracted from aterm-core for independent verification"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [features]
 default = []
 local-pty = ["dep:aterm-containment"]
@@ -22,3 +19,6 @@ rand_core = { workspace = true }
 
 [dev-dependencies]
 aterm-tempfile = { workspace = true }
+
+[lints]
+workspace = true

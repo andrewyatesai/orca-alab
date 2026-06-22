@@ -29,10 +29,21 @@ fn next(state: &mut u64) -> u32 {
 /// Invariants that must hold no matter what bytes were fed.
 fn check_invariants(term: &Terminal) {
     let (rows, cols) = (term.rows(), term.cols());
-    assert!(rows > 0 && cols > 0, "dimensions must stay positive, got {rows}x{cols}");
+    assert!(
+        rows > 0 && cols > 0,
+        "dimensions must stay positive, got {rows}x{cols}"
+    );
     let cur = term.cursor();
-    assert!(cur.row < rows, "cursor row {} escaped bounds (rows {rows})", cur.row);
-    assert!(cur.col <= cols, "cursor col {} escaped bounds (cols {cols})", cur.col);
+    assert!(
+        cur.row < rows,
+        "cursor row {} escaped bounds (rows {rows})",
+        cur.row
+    );
+    assert!(
+        cur.col <= cols,
+        "cursor col {} escaped bounds (cols {cols})",
+        cur.col
+    );
     // Wire in the engine's OWN formal invariants (cursor bounds, scroll-region,
     // ring-buffer structure — everything except the violable WideCharConsistent),
     // which were written (grid/invariants.rs) but never called anywhere. This
@@ -88,7 +99,7 @@ fn process_crafted_escape_sequences_never_panics() {
         term.process(&buf);
         check_invariants(&term);
         // Occasionally resize to exercise reflow against pathological state.
-        if next(&mut s) % 64 == 0 {
+        if next(&mut s).is_multiple_of(64) {
             let r = (1 + next(&mut s) % 60) as u16;
             let c = (1 + next(&mut s) % 160) as u16;
             term.resize(r, c);
@@ -109,18 +120,18 @@ fn process_unicode_edges_never_panics() {
         b"\xe6\x97\xa5",
         b"\xe6\x9c\xac", // CJK 日本
         b"\xf0\x9f\x9a\x80",
-        b"\xf0\x9f\x91\x8d",       // 🚀 👍
-        "\u{1f3fd}".as_bytes(),    // skin-tone modifier
-        "\u{200d}".as_bytes(),     // ZWJ
-        "\u{1f1fa}".as_bytes(),    // regional indicator U
-        "\u{1f1f8}".as_bytes(),    // regional indicator S
-        "\u{0301}".as_bytes(),     // combining acute
-        "\u{fe0f}".as_bytes(),     // VS16
-        "\u{fe0e}".as_bytes(),     // VS15
-        b"\xf0",                   // truncated 4-byte lead
-        b"\xe6\x97",               // truncated 3-byte
-        b"\x80",                   // lone continuation
-        b"\xff",                   // invalid
+        b"\xf0\x9f\x91\x8d",    // 🚀 👍
+        "\u{1f3fd}".as_bytes(), // skin-tone modifier
+        "\u{200d}".as_bytes(),  // ZWJ
+        "\u{1f1fa}".as_bytes(), // regional indicator U
+        "\u{1f1f8}".as_bytes(), // regional indicator S
+        "\u{0301}".as_bytes(),  // combining acute
+        "\u{fe0f}".as_bytes(),  // VS16
+        "\u{fe0e}".as_bytes(),  // VS15
+        b"\xf0",                // truncated 4-byte lead
+        b"\xe6\x97",            // truncated 3-byte
+        b"\x80",                // lone continuation
+        b"\xff",                // invalid
     ];
     let mut buf: Vec<u8> = Vec::with_capacity(128);
     for _ in 0..100_000u32 {
@@ -129,10 +140,10 @@ fn process_unicode_edges_never_panics() {
         for _ in 0..n {
             let pick = (next(&mut s) as usize) % samples.len();
             buf.extend_from_slice(samples[pick]);
-            if next(&mut s) % 5 == 0 {
+            if next(&mut s).is_multiple_of(5) {
                 buf.push(b'\n');
             }
-            if next(&mut s) % 7 == 0 {
+            if next(&mut s).is_multiple_of(7) {
                 buf.push(b'\r');
             }
         }
@@ -263,7 +274,7 @@ fn reflow_wide_char_resize_never_panics() {
         term.process(&buf);
         check_invariants_reflow(&term);
         // Resize ~1/3 of iterations to drive reflow against wide-char state.
-        if next(&mut s) % 3 == 0 {
+        if next(&mut s).is_multiple_of(3) {
             let (r, c) = next_dim_pair(&mut s);
             term.resize(r, c);
             check_invariants_reflow(&term);
@@ -286,8 +297,12 @@ fn alt_screen_resize_never_panics() {
     let mut in_alt = false;
     for _ in 0..40_000u32 {
         buf.clear();
-        if next(&mut s) % 8 == 0 {
-            buf.extend_from_slice(if in_alt { b"\x1b[?1049l" } else { b"\x1b[?1049h" });
+        if next(&mut s).is_multiple_of(8) {
+            buf.extend_from_slice(if in_alt {
+                b"\x1b[?1049l"
+            } else {
+                b"\x1b[?1049h"
+            });
             in_alt = !in_alt;
         }
         let chunks = 1 + next(&mut s) % 8;
@@ -296,7 +311,7 @@ fn alt_screen_resize_never_panics() {
         }
         term.process(&buf);
         check_invariants(&term);
-        if next(&mut s) % 3 == 0 {
+        if next(&mut s).is_multiple_of(3) {
             let (r, c) = next_dim_pair(&mut s);
             term.resize(r, c);
             check_invariants(&term);
@@ -314,7 +329,7 @@ fn emit_escape(s: &mut u64, buf: &mut Vec<u8>) {
             // CSI: optional private marker, random params (`;`/`:`-separated),
             // random intermediates, a final byte in 0x40..=0x7e.
             buf.push(b'[');
-            if next(s) % 4 == 0 {
+            if next(s).is_multiple_of(4) {
                 buf.push(b'?');
             }
             let np = next(s) % 6;
@@ -322,7 +337,11 @@ fn emit_escape(s: &mut u64, buf: &mut Vec<u8>) {
                 for d in next(s).to_string().bytes() {
                     buf.push(d);
                 }
-                buf.push(if next(s) % 4 == 0 { b':' } else { b';' });
+                buf.push(if next(s).is_multiple_of(4) {
+                    b':'
+                } else {
+                    b';'
+                });
             }
             let ni = next(s) % 3;
             for _ in 0..ni {

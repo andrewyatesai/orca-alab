@@ -18,7 +18,10 @@ fn main() {
         corpus.extend_from_slice(unit);
     }
 
-    let iters: usize = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(4000);
+    let iters: usize = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4000);
     let mut term = Terminal::new(24, 80);
     let mut sink = 0u64;
     for _ in 0..iters {

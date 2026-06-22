@@ -14,7 +14,7 @@
 
 use aterm_core::terminal::Terminal;
 use aterm_render::{Renderer, Theme};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 /// A busy grid: every cell filled with cycling glyphs + a colour run per row.
 fn busy_term(rows: usize, cols: usize) -> Terminal {

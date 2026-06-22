@@ -108,12 +108,11 @@ fn item_fn_ident(item: &proc_macro2::TokenStream) -> proc_macro2::Ident {
     // The attribute is applied to a fn; find the `fn <ident>` token pair.
     let mut iter = item.clone().into_iter().peekable();
     while let Some(tok) = iter.next() {
-        if let proc_macro2::TokenTree::Ident(id) = &tok {
-            if id == "fn" {
-                if let Some(proc_macro2::TokenTree::Ident(name)) = iter.peek() {
-                    return name.clone();
-                }
-            }
+        if let proc_macro2::TokenTree::Ident(id) = &tok
+            && id == "fn"
+            && let Some(proc_macro2::TokenTree::Ident(name)) = iter.peek()
+        {
+            return name.clone();
         }
     }
     format_ident!("anon")
@@ -126,7 +125,9 @@ fn sanitize_ident(s: &str) -> String {
     if s.is_empty() {
         return "none".to_string();
     }
-    s.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect()
+    s.chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect()
 }
 
 #[proc_macro_attribute]
@@ -139,8 +140,11 @@ pub fn refines(attr: TokenStream, item: TokenStream) -> TokenStream {
     // drain loop is both `Progress` and `Interrupted`), so two `#[refines]` on the
     // same fn must emit two DISTINCTLY-NAMED consts (a bare `__aterm_spec_refines_
     // <fn>` would collide). `sanitize_ident` keeps the suffix a legal identifier.
-    let const_name =
-        format_ident!("__aterm_spec_refines_{}_{}", fn_ident, sanitize_ident(&meta.action));
+    let const_name = format_ident!(
+        "__aterm_spec_refines_{}_{}",
+        fn_ident,
+        sanitize_ident(&meta.action)
+    );
     let rust_method = fn_ident.to_string();
     let machine = meta.machine;
     let action = meta.action;
@@ -447,7 +451,11 @@ impl syn::parse::Parse for ModelDef {
                         ab.parse::<syn::Token![;]>()?;
                         updates.push((lhs, rhs));
                     }
-                    actions.push(ActionDef { name: aname, guard, updates });
+                    actions.push(ActionDef {
+                        name: aname,
+                        guard,
+                        updates,
+                    });
                 }
                 "invariant" => {
                     let iname: syn::Ident = body.parse()?;
@@ -464,7 +472,13 @@ impl syn::parse::Parse for ModelDef {
                 }
             }
         }
-        Ok(ModelDef { name, consts, vars, actions, invariants })
+        Ok(ModelDef {
+            name,
+            consts,
+            vars,
+            actions,
+            invariants,
+        })
     }
 }
 
@@ -529,12 +543,18 @@ fn block_tail(block: &syn::Block) -> syn::Result<&syn::Expr> {
     if let [syn::Stmt::Expr(e, None)] = block.stmts.as_slice() {
         Ok(e)
     } else {
-        Err(syn::Error::new_spanned(block, "if/else branch must be a single expression"))
+        Err(syn::Error::new_spanned(
+            block,
+            "if/else branch must be a single expression",
+        ))
     }
 }
 
 /// Translate the else branch (a `{ block }` or a nested `if`) to an `Expr`.
-fn tr_else(e: &syn::Expr, consts: &std::collections::HashSet<String>) -> syn::Result<proc_macro2::TokenStream> {
+fn tr_else(
+    e: &syn::Expr,
+    consts: &std::collections::HashSet<String>,
+) -> syn::Result<proc_macro2::TokenStream> {
     match e {
         syn::Expr::Block(b) => tr_expr(block_tail(&b.block)?, consts),
         _ => tr_expr(e, consts),
@@ -542,9 +562,15 @@ fn tr_else(e: &syn::Expr, consts: &std::collections::HashSet<String>) -> syn::Re
 }
 
 /// Translate a restricted `syn::Expr` to `aterm_spec::derive::Expr` builder calls.
-fn tr_expr(e: &syn::Expr, consts: &std::collections::HashSet<String>) -> syn::Result<proc_macro2::TokenStream> {
+fn tr_expr(
+    e: &syn::Expr,
+    consts: &std::collections::HashSet<String>,
+) -> syn::Result<proc_macro2::TokenStream> {
     match e {
-        syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Int(i), .. }) => {
+        syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Int(i),
+            ..
+        }) => {
             let v: i64 = i.base10_parse()?;
             Ok(quote! { ::aterm_spec::derive::int(#v) })
         }
@@ -582,13 +608,19 @@ fn tr_expr(e: &syn::Expr, consts: &std::collections::HashSet<String>) -> syn::Re
         }
         syn::Expr::If(ifx) => {
             let Some((_, else_expr)) = &ifx.else_branch else {
-                return Err(syn::Error::new_spanned(e, "`if` must have an `else` branch"));
+                return Err(syn::Error::new_spanned(
+                    e,
+                    "`if` must have an `else` branch",
+                ));
             };
             let c = tr_expr(&ifx.cond, consts)?;
             let t = tr_expr(block_tail(&ifx.then_branch)?, consts)?;
             let f = tr_else(else_expr, consts)?;
             Ok(quote! { ::aterm_spec::derive::if_(#c, #t, #f) })
         }
-        other => Err(syn::Error::new_spanned(other, "unsupported expression in ty_model!")),
+        other => Err(syn::Error::new_spanned(
+            other,
+            "unsupported expression in ty_model!",
+        )),
     }
 }

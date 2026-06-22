@@ -24,9 +24,14 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
 
 fn main() {
     // Git commit (short, 12 hex) + a "-dirty" suffix when the tree isn't clean.
-    let commit = run("git", &["rev-parse", "--short=12", "HEAD"]).unwrap_or_else(|| "unknown".into());
+    let commit =
+        run("git", &["rev-parse", "--short=12", "HEAD"]).unwrap_or_else(|| "unknown".into());
     let dirty = run("git", &["status", "--porcelain"]).is_some_and(|s| !s.is_empty());
-    let commit = if commit != "unknown" && dirty { format!("{commit}-dirty") } else { commit };
+    let commit = if commit != "unknown" && dirty {
+        format!("{commit}-dirty")
+    } else {
+        commit
+    };
     println!("cargo:rustc-env=ATERM_GIT_COMMIT={commit}");
 
     // Monotonic build number = commit depth (`git rev-list --count HEAD`). A later
@@ -39,9 +44,7 @@ fn main() {
     // Build timestamp (UTC, RFC3339). Honour SOURCE_DATE_EPOCH for reproducible
     // builds when set; otherwise stamp the current wall clock.
     let build_time = match std::env::var("SOURCE_DATE_EPOCH") {
-        Ok(epoch) if !epoch.is_empty() => {
-            run("date", &["-u", "-r", &epoch, "+%Y-%m-%dT%H:%M:%SZ"])
-        }
+        Ok(epoch) if !epoch.is_empty() => run("date", &["-u", "-r", &epoch, "+%Y-%m-%dT%H:%M:%SZ"]),
         _ => run("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]),
     }
     .unwrap_or_else(|| "unknown".into());

@@ -22,7 +22,11 @@ pub struct Screen {
 
 impl Screen {
     pub fn new(rows: u16, cols: u16) -> Self {
-        Screen { term: Terminal::new(rows, cols), rows, cols }
+        Screen {
+            term: Terminal::new(rows, cols),
+            rows,
+            cols,
+        }
     }
 
     /// Feed input bytes through the VT engine.
@@ -33,7 +37,11 @@ impl Screen {
 
     /// Text of a visible row (row 0 = top), trailing blanks trimmed.
     pub fn row(&self, r: usize) -> String {
-        self.term.row_text(r).unwrap_or_default().trim_end().to_string()
+        self.term
+            .row_text(r)
+            .unwrap_or_default()
+            .trim_end()
+            .to_string()
     }
 
     /// Cursor position as (row, col), 0-based.
@@ -75,7 +83,9 @@ impl Screen {
         };
         if cell.uses_style_id() {
             let extra = cell.flags().difference(CellFlags::USES_STYLE_ID);
-            grid.resolve_style_to_colors(cell.style_id(), extra).2.bits()
+            grid.resolve_style_to_colors(cell.style_id(), extra)
+                .2
+                .bits()
         } else {
             cell.flags().bits()
         }
@@ -107,6 +117,18 @@ impl Screen {
         self.take_response()
             .map(|b| String::from_utf8_lossy(&b).into_owned())
             .unwrap_or_default()
+    }
+
+    /// Inline-image references placed on visible row `r` (0-based), as
+    /// `(col, ImageRef)` pairs in column order.
+    ///
+    /// The image observability oracle: an inline image (iTerm2 OSC 1337 `File=`
+    /// or a decoded sixel) lives in per-cell image extras, NOT in glyph cells,
+    /// so `row()`/`screen()` stay empty for it. This surfaces the same
+    /// `ImageRef`s the renderer blits, exposing `ImageData.{format, bytes, cols,
+    /// rows}` for placement + pixel assertions.
+    pub fn images_row(&self, r: usize) -> Vec<(usize, aterm_core::grid::extra::ImageRef)> {
+        self.term.images_row(r)
     }
 }
 

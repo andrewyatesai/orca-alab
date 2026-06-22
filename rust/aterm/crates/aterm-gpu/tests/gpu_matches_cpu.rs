@@ -21,9 +21,15 @@ use aterm_render::{Frame, Renderer, Theme};
 
 const BG: u32 = 0x0011_1318; // Theme::default().bg
 
-fn rr(p: u32) -> i32 { ((p >> 16) & 0xff) as i32 }
-fn gg(p: u32) -> i32 { ((p >> 8) & 0xff) as i32 }
-fn bb(p: u32) -> i32 { (p & 0xff) as i32 }
+fn rr(p: u32) -> i32 {
+    ((p >> 16) & 0xff) as i32
+}
+fn gg(p: u32) -> i32 {
+    ((p >> 8) & 0xff) as i32
+}
+fn bb(p: u32) -> i32 {
+    (p & 0xff) as i32
+}
 
 fn dist(a: u32, c: u32) -> i32 {
     (rr(a) - rr(c)).abs() + (gg(a) - gg(c)).abs() + (bb(a) - bb(c)).abs()
@@ -94,13 +100,24 @@ fn gpu_matches_cpu() {
     let gpu_frame = gpu.render_input(&mut win, &input);
 
     // 1. identical dimensions
-    assert_eq!((gpu_frame.width, gpu_frame.height), (cpu_frame.width, cpu_frame.height), "dimensions differ");
-    assert_eq!((gpu_frame.width, gpu_frame.height), (cols * cw, rows * ch), "unexpected frame size");
+    assert_eq!(
+        (gpu_frame.width, gpu_frame.height),
+        (cpu_frame.width, cpu_frame.height),
+        "dimensions differ"
+    );
+    assert_eq!(
+        (gpu_frame.width, gpu_frame.height),
+        (cols * cw, rows * ch),
+        "unexpected frame size"
+    );
 
     // 2. near-identical pixels: geometry + blend match, so only rounding differs.
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU pixels diverge: max per-channel delta {delta} > 8"
+    );
 
     // 3. semantic checks (same as aterm-render's visual_regression) on the GPU frame.
     // red 'R' cell (0,0)
@@ -111,17 +128,31 @@ fn gpu_matches_cpu() {
 
     // blue-bg space cell (1,0)
     let blue_px = cell_pixels(&gpu_frame, cw, ch, 1, 0);
-    let blue = blue_px.iter().filter(|&&p| bb(p) > 110 && rr(p) < 90).count();
-    assert!(blue > blue_px.len() / 2, "GPU: expected blue background in cell (1,0) ({}/{})", blue, blue_px.len());
+    let blue = blue_px
+        .iter()
+        .filter(|&&p| bb(p) > 110 && rr(p) < 90)
+        .count();
+    assert!(
+        blue > blue_px.len() / 2,
+        "GPU: expected blue background in cell (1,0) ({}/{})",
+        blue,
+        blue_px.len()
+    );
 
     // CJK 日 cell (2,0): non-blank via font fallback
     let cjk = non_bg_count(&cell_pixels(&gpu_frame, cw, ch, 2, 0));
-    assert!(cjk > 12, "GPU: CJK cell (2,0) is blank ({cjk} non-bg pixels)");
+    assert!(
+        cjk > 12,
+        "GPU: CJK cell (2,0) is blank ({cjk} non-bg pixels)"
+    );
 
     // blank cell (5,8): stays background
     let blank_px = cell_pixels(&gpu_frame, cw, ch, 5, 8);
     let blank_non_bg = non_bg_count(&blank_px);
-    assert!(blank_non_bg < blank_px.len() / 20, "GPU: blank cell (5,8) should be background ({blank_non_bg} non-bg)");
+    assert!(
+        blank_non_bg < blank_px.len() / 20,
+        "GPU: blank cell (5,8) should be background ({blank_non_bg} non-bg)"
+    );
 }
 
 /// Interior padding holds GPU/CPU parity: with the SAME `pad` set on both
@@ -172,17 +203,32 @@ fn gpu_matches_cpu_with_padding() {
     // Grid pixels match within the AA tolerance (same as the unpadded test).
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("padded GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "padded GPU/CPU pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "padded GPU/CPU pixels diverge: max per-channel delta {delta} > 8"
+    );
 
     // The padding border is theme bg on BOTH (exact): top row + left column.
     for x in 0..gpu_frame.width {
-        assert_eq!(gpu_frame.pixels[x], BG, "GPU top padding row not bg at x={x}");
-        assert_eq!(cpu_frame.pixels[x], BG, "CPU top padding row not bg at x={x}");
+        assert_eq!(
+            gpu_frame.pixels[x], BG,
+            "GPU top padding row not bg at x={x}"
+        );
+        assert_eq!(
+            cpu_frame.pixels[x], BG,
+            "CPU top padding row not bg at x={x}"
+        );
     }
     for y in 0..gpu_frame.height {
         let i = y * gpu_frame.width;
-        assert_eq!(gpu_frame.pixels[i], BG, "GPU left padding col not bg at y={y}");
-        assert_eq!(cpu_frame.pixels[i], BG, "CPU left padding col not bg at y={y}");
+        assert_eq!(
+            gpu_frame.pixels[i], BG,
+            "GPU left padding col not bg at y={y}"
+        );
+        assert_eq!(
+            cpu_frame.pixels[i], BG,
+            "CPU left padding col not bg at y={y}"
+        );
     }
 }
 
@@ -237,7 +283,10 @@ fn gpu_matches_cpu_after_dynamic_osc_colors() {
     );
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("dynamic-color GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU diverge after OSC recolor: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU diverge after OSC recolor: max per-channel delta {delta} > 8"
+    );
 
     // 3. the OSC changes actually landed on the GPU frame (non-vacuous):
     // OSC 4 — cell (0,0) 'A' is now GREEN (red was remapped), not red.
@@ -258,8 +307,15 @@ fn gpu_matches_cpu_after_dynamic_osc_colors() {
     // cells, where the dynamic colors demonstrably resolve.
     let a = cell_pixels(&gpu_frame, cw, ch, 0, 0);
     // OSC 11 — the written cell's default background is now NAVY (#000080).
-    let a_navy = a.iter().filter(|&&p| rr(p) < 40 && gg(p) < 40 && (96..=160).contains(&bb(p))).count();
-    assert!(a_navy > a.len() / 2, "OSC11 default-bg not applied: 'A' cell bg not navy ({a_navy}/{})", a.len());
+    let a_navy = a
+        .iter()
+        .filter(|&&p| rr(p) < 40 && gg(p) < 40 && (96..=160).contains(&bb(p)))
+        .count();
+    assert!(
+        a_navy > a.len() / 2,
+        "OSC11 default-bg not applied: 'A' cell bg not navy ({a_navy}/{})",
+        a.len()
+    );
     // OSC 10 — cell (0,1) 'B' glyph uses the new default fg (MAGENTA).
     let b = cell_pixels(&gpu_frame, cw, ch, 0, 1);
     assert!(
@@ -293,10 +349,12 @@ fn gpu_matches_cpu_with_named_theme() {
     let mut win = aterm_gpu::WindowGpu::new();
     // Apply Dracula exactly as the GUI does: engine default fg/bg + the 16-slot palette.
     let scheme = aterm_types::scheme::builtin("Dracula").expect("Dracula builtin");
-    let mut tc = aterm_core::config::TerminalConfig::default();
-    tc.default_foreground = scheme.foreground;
-    tc.default_background = scheme.background;
-    tc.custom_palette = Some(scheme.to_color_palette());
+    let tc = aterm_core::config::TerminalConfig {
+        default_foreground: scheme.foreground,
+        default_background: scheme.background,
+        custom_palette: Some(scheme.to_color_palette()),
+        ..Default::default()
+    };
 
     let (rows, cols) = (2usize, 8usize);
     let mut term = Terminal::new(rows as u16, cols as u16);
@@ -315,16 +373,30 @@ fn gpu_matches_cpu_with_named_theme() {
     );
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("named-theme GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU diverge under a named theme: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU diverge under a named theme: max per-channel delta {delta} > 8"
+    );
 
     // The Dracula palette actually reached the GPU frame (non-vacuous): R = red
     // #ff5555, G = green #50fa7b, B = blue #bd93f9.
     let r = cell_pixels(&gpu_frame, cw, ch, 0, 0);
-    assert!(r.iter().any(|&p| rr(p) > 200 && gg(p) < 120 && bb(p) < 120), "R not Dracula red");
+    assert!(
+        r.iter().any(|&p| rr(p) > 200 && gg(p) < 120 && bb(p) < 120),
+        "R not Dracula red"
+    );
     let gc = cell_pixels(&gpu_frame, cw, ch, 0, 1);
-    assert!(gc.iter().any(|&p| gg(p) > 180 && rr(p) < 130 && bb(p) < 160), "G not Dracula green");
+    assert!(
+        gc.iter()
+            .any(|&p| gg(p) > 180 && rr(p) < 130 && bb(p) < 160),
+        "G not Dracula green"
+    );
     let bc = cell_pixels(&gpu_frame, cw, ch, 0, 2);
-    assert!(bc.iter().any(|&p| bb(p) > 180 && (120..220).contains(&rr(p)) && gg(p) < 180), "B not Dracula blue");
+    assert!(
+        bc.iter()
+            .any(|&p| bb(p) > 180 && (120..220).contains(&rr(p)) && gg(p) < 180),
+        "B not Dracula blue"
+    );
 }
 
 /// EXACT parity on procedural cells: box-drawing / block / braille glyphs are
@@ -381,14 +453,23 @@ fn procedural_cells_match_cpu_exactly() {
     // red-dominant pixels). Guards a false pass on an all-background frame.
     let dfg = term.default_foreground();
     let dfg = (u32::from(dfg.r) << 16) | (u32::from(dfg.g) << 8) | u32::from(dfg.b);
-    assert!(cpu_frame.pixels.iter().any(|&p| p == dfg), "no default-fg glyph pixels");
     assert!(
-        cpu_frame.pixels.iter().any(|&p| rr(p) > 100 && rr(p) > gg(p) && rr(p) > bb(p)),
+        cpu_frame.pixels.contains(&dfg),
+        "no default-fg glyph pixels"
+    );
+    assert!(
+        cpu_frame
+            .pixels
+            .iter()
+            .any(|&p| rr(p) > 100 && rr(p) > gg(p) && rr(p) > bb(p)),
         "no red glyph pixels from the SGR run"
     );
 
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
-    assert_eq!(delta, 0, "procedural cells must match EXACTLY between CPU and GPU");
+    assert_eq!(
+        delta, 0,
+        "procedural cells must match EXACTLY between CPU and GPU"
+    );
 }
 
 /// Colour-emoji parity: the GPU must reproduce the CPU's RGBA emoji blit, not
@@ -455,7 +536,10 @@ fn colour_emoji_gpu_matches_cpu() {
     // edge alpha-blend rounding differs — the same <=8 LSB the mono path allows.
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("colour-emoji GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU emoji pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU emoji pixels diverge: max per-channel delta {delta} > 8"
+    );
 
     // The emoji are genuinely colourful (not a mono fallback rendered identically
     // on both): the row has pixels from clearly different hues.
@@ -466,9 +550,14 @@ fn colour_emoji_gpu_matches_cpu() {
         }
         v
     };
-    let reddish = row0.iter().any(|&p| rr(p) > 140 && rr(p) > gg(p) + 30 && rr(p) > bb(p) + 30);
+    let reddish = row0
+        .iter()
+        .any(|&p| rr(p) > 140 && rr(p) > gg(p) + 30 && rr(p) > bb(p) + 30);
     let other = row0.iter().any(|&p| gg(p) > 120 || bb(p) > 120);
-    assert!(reddish && other, "GPU emoji row is not multi-coloured (reddish={reddish}, other={other})");
+    assert!(
+        reddish && other,
+        "GPU emoji row is not multi-coloured (reddish={reddish}, other={other})"
+    );
 }
 
 /// VS16 emoji-presentation parity end-to-end: `❤️` (U+2764 + VS16) has a
@@ -522,11 +611,17 @@ fn vs16_emoji_gpu_matches_cpu() {
         eprintln!("SKIP: no colour ❤ on this host (CPU heart is not red)");
         return;
     }
-    assert!(red(&gpu_frame) > 0, "GPU did not render the VS16 ❤️ in colour (emoji_presentation ignored)");
+    assert!(
+        red(&gpu_frame) > 0,
+        "GPU did not render the VS16 ❤️ in colour (emoji_presentation ignored)"
+    );
 
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("VS16 emoji GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU VS16 emoji pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU VS16 emoji pixels diverge: max per-channel delta {delta} > 8"
+    );
 }
 
 /// Emoji grapheme-CLUSTER parity end-to-end: a ZWJ family (👨‍👩‍👧), a skin-tone
@@ -590,7 +685,10 @@ fn cluster_emoji_gpu_matches_cpu() {
 
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("cluster emoji GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU cluster emoji pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU cluster emoji pixels diverge: max per-channel delta {delta} > 8"
+    );
 }
 
 /// Line decorations (underline / strikethrough / double underline) are drawn as
@@ -618,7 +716,10 @@ fn decorations_gpu_match_cpu() {
 
     let (rows, cols) = (3usize, 8usize);
     let mut win = aterm_gpu::WindowGpu::new();
-    let render = |cpu: &mut Renderer, gpu: &mut aterm_gpu::GpuRenderer, win: &mut aterm_gpu::WindowGpu, bytes: &[u8]| {
+    let render = |cpu: &mut Renderer,
+                  gpu: &mut aterm_gpu::GpuRenderer,
+                  win: &mut aterm_gpu::WindowGpu,
+                  bytes: &[u8]| {
         let mut term = Terminal::new(rows as u16, cols as u16);
         term.process(bytes);
         let input = term.cell_frame(rows, cols);
@@ -626,7 +727,12 @@ fn decorations_gpu_match_cpu() {
     };
 
     // Underlined, strikethrough, double-underlined rows.
-    let (cpu_deco, gpu_deco) = render(&mut cpu, &mut gpu, &mut win, b"\x1b[4mUU\x1b[0m\r\n\x1b[9mSS\x1b[0m\r\n\x1b[21mDD\x1b[0m");
+    let (cpu_deco, gpu_deco) = render(
+        &mut cpu,
+        &mut gpu,
+        &mut win,
+        b"\x1b[4mUU\x1b[0m\r\n\x1b[9mSS\x1b[0m\r\n\x1b[21mDD\x1b[0m",
+    );
     // Same glyphs, no decorations.
     let (cpu_plain, _) = render(&mut cpu, &mut gpu, &mut win, b"UU\r\nSS\r\nDD");
 
@@ -639,7 +745,10 @@ fn decorations_gpu_match_cpu() {
     // GPU reproduces the CPU decorated frame (hard rects + glyph AA <= 8).
     let delta = max_channel_delta(&cpu_deco, &gpu_deco);
     eprintln!("decorations GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU decorated pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU decorated pixels diverge: max per-channel delta {delta} > 8"
+    );
 
     // The decorations are actually drawn: the decorated frame differs from the
     // plain one, on BOTH paths (so neither silently skips the lines).
@@ -676,7 +785,10 @@ fn bold_italic_gpu_match_cpu() {
 
     let (rows, cols) = (3usize, 8usize);
     let mut win = aterm_gpu::WindowGpu::new();
-    let render = |cpu: &mut Renderer, gpu: &mut aterm_gpu::GpuRenderer, win: &mut aterm_gpu::WindowGpu, bytes: &[u8]| {
+    let render = |cpu: &mut Renderer,
+                  gpu: &mut aterm_gpu::GpuRenderer,
+                  win: &mut aterm_gpu::WindowGpu,
+                  bytes: &[u8]| {
         let mut term = Terminal::new(rows as u16, cols as u16);
         term.process(bytes);
         let input = term.cell_frame(rows, cols);
@@ -701,7 +813,10 @@ fn bold_italic_gpu_match_cpu() {
     );
     let delta = max_channel_delta(&cpu_styled, &gpu_styled);
     eprintln!("bold/italic GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU bold-italic pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU bold-italic pixels diverge: max per-channel delta {delta} > 8"
+    );
 
     assert!(
         cpu_styled.pixels != cpu_plain.pixels,
@@ -736,7 +851,10 @@ fn decdwl_double_width_gpu_matches_cpu() {
 
     let (rows, cols) = (1usize, 16usize);
     let mut win = aterm_gpu::WindowGpu::new();
-    let render = |cpu: &mut Renderer, gpu: &mut aterm_gpu::GpuRenderer, win: &mut aterm_gpu::WindowGpu, bytes: &[u8]| {
+    let render = |cpu: &mut Renderer,
+                  gpu: &mut aterm_gpu::GpuRenderer,
+                  win: &mut aterm_gpu::WindowGpu,
+                  bytes: &[u8]| {
         let mut term = Terminal::new(rows as u16, cols as u16);
         term.process(bytes);
         let input = term.cell_frame(rows, cols);
@@ -748,17 +866,27 @@ fn decdwl_double_width_gpu_matches_cpu() {
     let (cpu_dw, gpu_dw) = render(&mut cpu, &mut gpu, &mut win, b"\x1b[?25l\x1b#6ABCD");
     let (cpu_sw, _) = render(&mut cpu, &mut gpu, &mut win, b"\x1b[?25lABCD");
 
-    assert_eq!((gpu_dw.width, gpu_dw.height), (cpu_dw.width, cpu_dw.height), "dims");
+    assert_eq!(
+        (gpu_dw.width, gpu_dw.height),
+        (cpu_dw.width, cpu_dw.height),
+        "dims"
+    );
     let delta = max_channel_delta(&cpu_dw, &gpu_dw);
     eprintln!("DECDWL GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU double-width pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU double-width pixels diverge: max per-channel delta {delta} > 8"
+    );
 
     // The 'C' (col 2) sits at single-width col 2 but double-width col 2*2=4.
     // The double-width cell (0,4) is non-blank; the single-width frame's col 4
     // is already past "ABCD" (blank) — so the row is genuinely twice as wide.
     let dw_at4 = non_bg_count(&cell_pixels(&cpu_dw, cw, ch, 0, 4));
     let sw_at4 = non_bg_count(&cell_pixels(&cpu_sw, cw, ch, 0, 4));
-    assert!(dw_at4 > 12 && sw_at4 < 12, "DECDWL not 2× wide (dw col4={dw_at4}, sw col4={sw_at4})");
+    assert!(
+        dw_at4 > 12 && sw_at4 < 12,
+        "DECDWL not 2× wide (dw col4={dw_at4}, sw col4={sw_at4})"
+    );
 }
 
 /// DECDHL double-height lines (`ESC # 3`/`# 4`): the same text on two rows forms
@@ -785,7 +913,10 @@ fn decdhl_double_height_gpu_matches_cpu() {
 
     let (rows, cols) = (2usize, 16usize);
     let mut win = aterm_gpu::WindowGpu::new();
-    let render = |cpu: &mut Renderer, gpu: &mut aterm_gpu::GpuRenderer, win: &mut aterm_gpu::WindowGpu, bytes: &[u8]| {
+    let render = |cpu: &mut Renderer,
+                  gpu: &mut aterm_gpu::GpuRenderer,
+                  win: &mut aterm_gpu::WindowGpu,
+                  bytes: &[u8]| {
         let mut term = Terminal::new(rows as u16, cols as u16);
         term.process(bytes);
         let input = term.cell_frame(rows, cols);
@@ -793,15 +924,30 @@ fn decdhl_double_height_gpu_matches_cpu() {
     };
 
     // DECDHL top + bottom halves vs the same text plain (cursor hidden).
-    let (cpu_dh, gpu_dh) = render(&mut cpu, &mut gpu, &mut win, b"\x1b[?25l\x1b#3BIG\r\n\x1b#4BIG");
+    let (cpu_dh, gpu_dh) = render(
+        &mut cpu,
+        &mut gpu,
+        &mut win,
+        b"\x1b[?25l\x1b#3BIG\r\n\x1b#4BIG",
+    );
     let (cpu_plain, _) = render(&mut cpu, &mut gpu, &mut win, b"\x1b[?25lBIG\r\nBIG");
 
-    assert_eq!((gpu_dh.width, gpu_dh.height), (cpu_dh.width, cpu_dh.height), "dims");
+    assert_eq!(
+        (gpu_dh.width, gpu_dh.height),
+        (cpu_dh.width, cpu_dh.height),
+        "dims"
+    );
     let delta = max_channel_delta(&cpu_dh, &gpu_dh);
     eprintln!("DECDHL GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU double-height pixels diverge: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU double-height pixels diverge: max per-channel delta {delta} > 8"
+    );
     // Double-height is genuinely different from the plain duplicated text.
-    assert!(cpu_dh.pixels != cpu_plain.pixels, "DECDHL renders the same as plain text");
+    assert!(
+        cpu_dh.pixels != cpu_plain.pixels,
+        "DECDHL renders the same as plain text"
+    );
 }
 
 /// Powerline separators (U+E0B0–E0B7) are synthesized as procedural hard
@@ -836,13 +982,23 @@ fn powerline_cells_match_cpu_exactly() {
     let cpu_frame = cpu.render_input(&input);
     let gpu_frame = gpu.render_input(&mut win, &input);
 
-    assert_eq!((gpu_frame.width, gpu_frame.height), (cpu_frame.width, cpu_frame.height), "dims");
+    assert_eq!(
+        (gpu_frame.width, gpu_frame.height),
+        (cpu_frame.width, cpu_frame.height),
+        "dims"
+    );
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
-    assert_eq!(delta, 0, "Powerline procedural cells must match CPU EXACTLY, got delta {delta}");
+    assert_eq!(
+        delta, 0,
+        "Powerline procedural cells must match CPU EXACTLY, got delta {delta}"
+    );
     // Each separator actually drew ink (the solid triangle/cap cells especially).
     for col in [0usize, 2, 4, 6] {
         let n = non_bg_count(&cell_pixels(&cpu_frame, cw, ch, 0, col));
-        assert!(n > 12, "Powerline cell (0,{col}) is blank ({n} non-bg) — not synthesized");
+        assert!(
+            n > 12,
+            "Powerline cell (0,{col}) is blank ({n} non-bg) — not synthesized"
+        );
     }
 }
 
@@ -877,10 +1033,17 @@ fn block_cursor_over_glyph_overflow_matches_cpu() {
     let cpu_frame = cpu.render_input(&input);
     let gpu_frame = gpu.render_input(&mut win, &input);
 
-    assert_eq!((gpu_frame.width, gpu_frame.height), (cpu_frame.width, cpu_frame.height), "dims");
+    assert_eq!(
+        (gpu_frame.width, gpu_frame.height),
+        (cpu_frame.width, cpu_frame.height),
+        "dims"
+    );
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("cursor-over-overflow GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "block cursor vs glyph overflow diverges: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "block cursor vs glyph overflow diverges: max per-channel delta {delta} > 8"
+    );
 }
 
 /// Combining diacritics (é = e + U+0301, …) are overlaid as extra mono-glyph
@@ -906,7 +1069,10 @@ fn combining_marks_gpu_match_cpu() {
 
     let (rows, cols) = (1usize, 8usize);
     let mut win = aterm_gpu::WindowGpu::new();
-    let render = |cpu: &mut Renderer, gpu: &mut aterm_gpu::GpuRenderer, win: &mut aterm_gpu::WindowGpu, bytes: &[u8]| {
+    let render = |cpu: &mut Renderer,
+                  gpu: &mut aterm_gpu::GpuRenderer,
+                  win: &mut aterm_gpu::WindowGpu,
+                  bytes: &[u8]| {
         let mut term = Terminal::new(rows as u16, cols as u16);
         term.process(bytes);
         let input = term.cell_frame(rows, cols);
@@ -914,16 +1080,33 @@ fn combining_marks_gpu_match_cpu() {
     };
 
     // é ñ å — base + combining mark.
-    let (cpu_acc, gpu_acc) =
-        render(&mut cpu, &mut gpu, &mut win, "\x1b[?25le\u{0301}n\u{0303}a\u{030A}".as_bytes());
+    let (cpu_acc, gpu_acc) = render(
+        &mut cpu,
+        &mut gpu,
+        &mut win,
+        "\x1b[?25le\u{0301}n\u{0303}a\u{030A}".as_bytes(),
+    );
     let (cpu_bare, _) = render(&mut cpu, &mut gpu, &mut win, b"\x1b[?25lena");
 
-    assert_eq!((gpu_acc.width, gpu_acc.height), (cpu_acc.width, cpu_acc.height), "dimensions differ");
+    assert_eq!(
+        (gpu_acc.width, gpu_acc.height),
+        (cpu_acc.width, cpu_acc.height),
+        "dimensions differ"
+    );
     let delta = max_channel_delta(&cpu_acc, &gpu_acc);
     eprintln!("combining marks GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU combining-mark pixels diverge: max per-channel delta {delta} > 8");
-    assert!(cpu_acc.pixels != cpu_bare.pixels, "CPU: combining marks not drawn (accented == bare)");
-    assert!(gpu_acc.pixels != cpu_bare.pixels, "GPU: combining marks not drawn (accented == bare)");
+    assert!(
+        delta <= 8,
+        "GPU/CPU combining-mark pixels diverge: max per-channel delta {delta} > 8"
+    );
+    assert!(
+        cpu_acc.pixels != cpu_bare.pixels,
+        "CPU: combining marks not drawn (accented == bare)"
+    );
+    assert!(
+        gpu_acc.pixels != cpu_bare.pixels,
+        "GPU: combining marks not drawn (accented == bare)"
+    );
 }
 
 /// OFFSCREEN-PERSISTENCE GATE: a renderer REUSED across CHANGING dimensions must
@@ -955,7 +1138,8 @@ fn reused_renderer_across_dims_matches_fresh_render() {
     // combining + decorations) so the full pass set runs. CJK/emoji are written as
     // literal `\u{..}` chars (a `&str` `\xNN` escape is ASCII-only).
     let content: &[u8] = "\u{1b}[31mRR\u{1b}[0m \u{1b}[44mbg\u{1b}[0m \u{65e5}\u{672c} \
-\u{2764}\u{fe0f} e\u{0301} \u{1b}[4;9mUu\u{1b}[0m".as_bytes();
+\u{2764}\u{fe0f} e\u{0301} \u{1b}[4;9mUu\u{1b}[0m"
+        .as_bytes();
 
     // grow -> shrink -> grow, then REPEAT a prior dimension (24x80 appears twice)
     // so we exercise: first-create, grow, shrink (smaller than resident), grow

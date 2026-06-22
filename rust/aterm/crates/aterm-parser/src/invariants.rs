@@ -3,9 +3,9 @@
 
 //! TLA+ invariant assertions for the parser state machine.
 
+use crate::Parser;
 #[cfg(debug_assertions)]
 use crate::state::State;
-use crate::Parser;
 #[cfg(debug_assertions)]
 use crate::{MAX_INTERMEDIATES, MAX_PARAMS};
 
@@ -198,8 +198,7 @@ impl Parser {
             // though it is omitted from the Kani `type_invariant` for now (it
             // overflows the model checker's memory — see invariants.rs note).
             assert!(
-                self.state == State::Ground
-                    || (self.utf8_len == 0 && self.utf8_expected == 0),
+                self.state == State::Ground || (self.utf8_len == 0 && self.utf8_expected == 0),
                 "TLA+ Utf8StateConsistent violated: utf8_len={} utf8_expected={} but state={:?}",
                 self.utf8_len,
                 self.utf8_expected,

@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use aterm_cap::{Authority, Cap, Tier};
-use aterm_sandbox::{apply_step, Limits, Sandbox};
+use aterm_sandbox::{Limits, Sandbox, apply_step};
 use aterm_spec::verify::ty_or_skip;
 
 /// `K` from `Sandbox.cfg` — the number of restriction slots the bounded model uses.
@@ -50,8 +50,9 @@ const K: usize = 4;
 
 /// Encode a `[bool; K]` as `ty`'s function-value JSON (`[1..K -> BOOLEAN]`).
 fn func_json(bits: &[bool]) -> String {
-    let domain: Vec<String> =
-        (1..=bits.len()).map(|n| format!("{{\"type\":\"int\",\"value\":{n}}}")).collect();
+    let domain: Vec<String> = (1..=bits.len())
+        .map(|n| format!("{{\"type\":\"int\",\"value\":{n}}}"))
+        .collect();
     let mapping: Vec<String> = bits
         .iter()
         .enumerate()
@@ -74,7 +75,12 @@ fn func_json(bits: &[bool]) -> String {
 /// all-FALSE, done=FALSE) must match `Init`; step 1 (applied set, done=TRUE) must
 /// match the `Apply` action. Module name is `Sandbox` (must match the committed
 /// `---- MODULE Sandbox ----`).
-fn apply_trace(requested: &[bool], supported: &[bool], applied0: &[bool], applied1: &[bool]) -> String {
+fn apply_trace(
+    requested: &[bool],
+    supported: &[bool],
+    applied0: &[bool],
+    applied1: &[bool],
+) -> String {
     let st = |req: &[bool], sup: &[bool], app: &[bool], done: bool| {
         format!(
             "{{\"requested\":{},\"supported\":{},\"applied\":{},\"done\":{{\"type\":\"bool\",\"value\":{}}}}}",
@@ -96,12 +102,22 @@ fn apply_trace(requested: &[bool], supported: &[bool], applied0: &[bool], applie
 }
 
 /// Validate one real `Init -> Apply` transition against the COMMITTED `Sandbox.tla`.
-fn validate(ty: &Path, dir: &Path, requested: &[bool], supported: &[bool], applied1: &[bool]) -> (bool, String) {
+fn validate(
+    ty: &Path,
+    dir: &Path,
+    requested: &[bool],
+    supported: &[bool],
+    applied1: &[bool],
+) -> (bool, String) {
     let spec = manifest_spec("Sandbox.tla");
     let cfg = manifest_spec("Sandbox.cfg");
     let applied0 = vec![false; K];
     let trace = dir.join("t.json");
-    std::fs::write(&trace, apply_trace(requested, supported, &applied0, applied1)).expect("write trace");
+    std::fs::write(
+        &trace,
+        apply_trace(requested, supported, &applied0, applied1),
+    )
+    .expect("write trace");
     let out = Command::new(ty)
         .arg("trace")
         .arg("validate")
@@ -131,7 +147,9 @@ fn manifest_spec(name: &str) -> PathBuf {
 
 #[test]
 fn real_sandbox_apply_conforms_to_sandbox_spec() {
-    let Some(ty) = ty_or_skip("Sandbox apply conformance") else { return; };
+    let Some(ty) = ty_or_skip("Sandbox apply conformance") else {
+        return;
+    };
     let dir = std::env::temp_dir().join(format!("aterm-sandbox-conf-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mk tempdir");
 
@@ -198,13 +216,21 @@ fn real_sandbox_apply_conforms_to_sandbox_spec() {
     let auth = unsafe { Authority::root_authority() };
     let cap: Cap<Sandbox> = auth.grant(Tier::Certified);
     let target = 256u64;
-    Limits { open_files: Some(target), ..Default::default() }.apply(&cap).expect("apply NOFILE");
-    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    Limits {
+        open_files: Some(target),
+        ..Default::default()
+    }
+    .apply(&cap)
+    .expect("apply NOFILE");
+    let mut lim = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
     // SAFETY: valid resource id + out-param.
     let rc = unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) };
     assert_eq!(rc, 0, "getrlimit failed");
     assert_eq!(
-        lim.rlim_cur as u64, target,
+        lim.rlim_cur, target,
         "the REAL apply must install a requested∧supported restriction (RLIMIT_NOFILE) — \
          the AllSupportedApplied guarantee, end-to-end"
     );

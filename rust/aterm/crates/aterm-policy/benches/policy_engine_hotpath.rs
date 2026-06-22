@@ -24,7 +24,7 @@
 //!   * `policy/<profile>/osc4_query`   — palette color query
 //!   * `policy/<profile>/osc9`         — Terminal-style notification
 //!   * `policy/<profile>/osc_unknown`  — unknown major (exercises the
-//!                                        default / wildcard path)
+//!     default / wildcard path)
 //!   * `policy/<profile>/csi_window_op` — CSI t 20 (window op)
 //!
 //! The comparison baseline for the <=2% regression gate is
@@ -75,11 +75,7 @@ fn bench_profile(c: &mut Criterion, profile_name: &str, eng: PolicyEngine) {
     });
 
     // CSI 20 t — window op.
-    let seq = DispatchedSequence::csi(
-        Some(20),
-        't',
-        core::iter::empty::<String>().map(String::from),
-    );
+    let seq = DispatchedSequence::csi(Some(20), 't', core::iter::empty::<String>());
     c.bench_function(&format!("policy/{profile_name}/csi_window_op"), |b| {
         b.iter(|| {
             black_box(eng.evaluate(black_box(&seq), black_box(OriginTag::Host)));

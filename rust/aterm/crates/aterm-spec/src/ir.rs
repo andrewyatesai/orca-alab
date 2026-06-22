@@ -46,7 +46,7 @@
 use std::collections::BTreeSet;
 
 use crate::derive::Model;
-use crate::xref::{machine_matches, ProofAnchor, ProofKind, RefinementAnchor, SpecModule, Waiver};
+use crate::xref::{ProofAnchor, ProofKind, RefinementAnchor, SpecModule, Waiver, machine_matches};
 
 /// Render a free-form string as a `trust-ir` text-format quoted token: Rust `{:?}`
 /// escaping (`"`→`\"`, `\`→`\\`, newline→`\n`, tab→`\t`), which is byte-identical to
@@ -211,7 +211,9 @@ pub fn lower_to_ir(
         let my_waivers: Vec<&Waiver> = waivers
             .iter()
             .copied()
-            .filter(|w| !w.machine.is_empty() && !w.action.is_empty() && machine_matches(w.machine, canon))
+            .filter(|w| {
+                !w.machine.is_empty() && !w.action.is_empty() && machine_matches(w.machine, canon)
+            })
             .collect();
         // Proof anchors whose `machine` resolves to THIS module (canonicalized like
         // anchors). A proof naming no registered machine is dropped — aterm's own gate
@@ -222,7 +224,12 @@ pub fn lower_to_ir(
             .filter(|p| machine_matches(p.machine, canon))
             .collect();
         out.push('\n');
-        out.push_str(&lower_module_block(module, &my_anchors, &my_waivers, &my_proofs));
+        out.push_str(&lower_module_block(
+            module,
+            &my_anchors,
+            &my_waivers,
+            &my_proofs,
+        ));
     }
 
     out
@@ -230,7 +237,10 @@ pub fn lower_to_ir(
 
 /// The set of canonical module names referenced by `anchors` that resolve to one of
 /// `modules` — a small helper for the gate's reporting (e.g. "N machines lowered").
-pub fn lowered_machine_names(modules: &[SpecModule], anchors: &[&RefinementAnchor]) -> BTreeSet<String> {
+pub fn lowered_machine_names(
+    modules: &[SpecModule],
+    anchors: &[&RefinementAnchor],
+) -> BTreeSet<String> {
     let mut names = BTreeSet::new();
     for a in anchors {
         for m in modules {
@@ -255,11 +265,23 @@ mod tests {
         loc: &'static str,
         project: &'static str,
     ) -> RefinementAnchor {
-        RefinementAnchor { machine, action, rust_method: rust, location: loc, project }
+        RefinementAnchor {
+            machine,
+            action,
+            rust_method: rust,
+            location: loc,
+            project,
+        }
     }
 
     fn waiver(machine: &'static str, action: &'static str, reason: &'static str) -> Waiver {
-        Waiver { machine, action, reason, rust_method: "test", location: "test:1" }
+        Waiver {
+            machine,
+            action,
+            reason,
+            rust_method: "test",
+            location: "test:1",
+        }
     }
 
     fn proof(machine: &'static str, action: &'static str, name: &'static str) -> ProofAnchor {
@@ -275,14 +297,23 @@ mod tests {
     #[test]
     fn header_is_v1_canonical() {
         let txt = lower_to_ir("aterm_spec_xref", &[], &[], &[], &[]);
-        assert!(txt.starts_with("; TrustIr text format v1\nmodule \"aterm_spec_xref\"\n"), "{txt}");
+        assert!(
+            txt.starts_with("; TrustIr text format v1\nmodule \"aterm_spec_xref\"\n"),
+            "{txt}"
+        );
     }
 
     #[test]
     fn embedded_block_emits_vars_actions_invariants_and_canonicalizes_machine() {
         let modules = vec![SpecModule::Embedded(ring_model())];
         // Anchor uses the lower convention "ring"; Model::name is "Ring".
-        let a = anchor("ring", "Push", "aterm_buffer::Ring::push", "ring.rs:1:1", "Ring::project");
+        let a = anchor(
+            "ring",
+            "Push",
+            "aterm_buffer::Ring::push",
+            "ring.rs:1:1",
+            "Ring::project",
+        );
         let w = waiver("ring", "Push", "test waiver");
         let txt = lower_to_ir("m", &modules, &[&a], &[&w], &[]);
         // Canonical name "Ring" used everywhere in the block.
@@ -291,13 +322,19 @@ mod tests {
         assert!(txt.contains("  var \"seq\" : \"Int\"\n"), "{txt}");
         assert!(txt.contains("  var \"lo\" : \"Int\"\n"), "{txt}");
         assert!(txt.contains("  action \"Push\"\n"), "{txt}");
-        assert!(txt.contains("  invariant \"LenBounded\" : \"seq - lo + 1 =< Cap\"\n"), "{txt}");
+        assert!(
+            txt.contains("  invariant \"LenBounded\" : \"seq - lo + 1 =< Cap\"\n"),
+            "{txt}"
+        );
         // Anchor + waiver machine REWRITTEN to canonical "Ring" (exact-match for trust-ir).
         assert!(
             txt.contains("  anchor machine \"Ring\" action \"Push\" rust \"aterm_buffer::Ring::push\" span \"ring.rs:1:1\" project \"Ring::project\"\n"),
             "{txt}"
         );
-        assert!(txt.contains("  waiver machine \"Ring\" action \"Push\" reason \"test waiver\"\n"), "{txt}");
+        assert!(
+            txt.contains("  waiver machine \"Ring\" action \"Push\" reason \"test waiver\"\n"),
+            "{txt}"
+        );
     }
 
     #[test]
@@ -306,7 +343,9 @@ mod tests {
         let a = anchor("ring", "Push", "r::push", "r.rs:1:1", ""); // empty project
         let txt = lower_to_ir("m", &modules, &[&a], &[], &[]);
         assert!(
-            txt.contains("  anchor machine \"Ring\" action \"Push\" rust \"r::push\" span \"r.rs:1:1\"\n"),
+            txt.contains(
+                "  anchor machine \"Ring\" action \"Push\" rust \"r::push\" span \"r.rs:1:1\"\n"
+            ),
             "no project clause: {txt}"
         );
         assert!(!txt.contains("project"), "{txt}");
@@ -318,7 +357,10 @@ mod tests {
         let dangling = anchor("no_such_machine", "X", "r", "r:1", "");
         let bare = waiver("", "", "bypass-setter"); // empty machine
         let txt = lower_to_ir("m", &modules, &[&dangling], &[&bare], &[]);
-        assert!(!txt.contains("no_such_machine"), "dangling anchor dropped: {txt}");
+        assert!(
+            !txt.contains("no_such_machine"),
+            "dangling anchor dropped: {txt}"
+        );
         assert!(!txt.contains("bypass-setter"), "bare waiver dropped: {txt}");
     }
 
@@ -339,7 +381,10 @@ mod tests {
         let modules = vec![SpecModule::Embedded(ring_model())];
         let p = proof("no_such_machine", "Push", "ghost_harness");
         let txt = lower_to_ir("m", &modules, &[], &[], &[&p]);
-        assert!(!txt.contains("ghost_harness"), "proof for a dangling machine is dropped: {txt}");
+        assert!(
+            !txt.contains("ghost_harness"),
+            "proof for a dangling machine is dropped: {txt}"
+        );
     }
 
     #[test]

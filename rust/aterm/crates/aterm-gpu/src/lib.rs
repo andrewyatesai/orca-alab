@@ -67,16 +67,15 @@ impl GpuContext {
         }))
         .map_err(|e| format!("no GPU adapter available: {e}"))?;
         let info = adapter.get_info();
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                label: Some("aterm-gpu device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                memory_hints: wgpu::MemoryHints::Performance,
-                trace: wgpu::Trace::Off,
-            }))
-            .map_err(|e| e.to_string())?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("aterm-gpu device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::Performance,
+            trace: wgpu::Trace::Off,
+        }))
+        .map_err(|e| e.to_string())?;
         Ok(Self {
             device,
             queue,
@@ -95,7 +94,11 @@ impl GpuContext {
     pub fn offscreen_texture(&self, width: u32, height: u32) -> wgpu::Texture {
         self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("aterm-gpu offscreen"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -120,7 +123,9 @@ impl GpuContext {
         });
         let mut enc = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("readback") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("readback"),
+            });
         enc.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture,
@@ -136,13 +141,19 @@ impl GpuContext {
                     rows_per_image: Some(height),
                 },
             },
-            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
         );
         self.queue.submit([enc.finish()]);
 
         let slice = buffer.slice(..);
         slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device.poll(wgpu::PollType::wait_indefinitely()).expect("GPU poll failed");
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("GPU poll failed");
         let data = slice.get_mapped_range();
 
         let mut pixels = Vec::with_capacity(w * h);
@@ -156,7 +167,11 @@ impl GpuContext {
         }
         drop(data);
         buffer.unmap();
-        Frame { width: w, height: h, pixels }
+        Frame {
+            width: w,
+            height: h,
+            pixels,
+        }
     }
 
     /// Phase-1 proof of life: clear an offscreen target to a colour and read it
@@ -166,7 +181,9 @@ impl GpuContext {
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let mut enc = self
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("clear") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("clear"),
+            });
         {
             let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("clear pass"),

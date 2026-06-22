@@ -12,9 +12,10 @@
 #![cfg_attr(trust_verify, register_tool(trust))]
 #![cfg_attr(not(trust_verify), allow(unexpected_cfgs))]
 #![deny(unsafe_op_in_unsafe_fn)]
-// F11-4 (#7941): production unwrap()/expect() forbidden; tests opt out
-// per `#[allow(clippy::unwrap_used)]` at their module boundary.
+// F11-4 (#7941): production unwrap() is forbidden; tests opt out uniformly at the
+// crate root so a missing per-module allow can't silently slip past clippy.
 #![deny(clippy::unwrap_used)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 //! Tiered scrollback storage for terminal emulators.
 //!

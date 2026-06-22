@@ -368,10 +368,18 @@ fn real_main() -> io::Result<ExitCode> {
     }
 
     let Some(verb) = forwarded_verb(&request_parts) else {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("usage: {SYNOPSIS}")));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("usage: {SYNOPSIS}"),
+        ));
     };
 
-    let path = resolve_path(sock, pid, env::var(SOCK_ENV).ok(), env::var(NO_SOCK_ENV).ok())?;
+    let path = resolve_path(
+        sock,
+        pid,
+        env::var(SOCK_ENV).ok(),
+        env::var(NO_SOCK_ENV).ok(),
+    )?;
 
     // One request per line: "VERB [args...]\n". Args are joined with single
     // spaces; for `send`/`search` this reconstructs the free-form rest-of-line
@@ -449,10 +457,19 @@ fn exchange(path: &str, request: &str, verb: &str) -> io::Result<ExitCode> {
     // proxied `@child image read` is still recognized (its arg-1 is `read`).
     let req_no_sel = request
         .strip_prefix('@')
-        .and_then(|r| r.splitn(2, ' ').nth(1))
+        .and_then(|r| r.split_once(' ').map(|x| x.1))
         .unwrap_or(request);
     let image_read = verb == "image" && req_no_sel.split_whitespace().nth(1) == Some("read");
-    if verb == "text" || verb == "screen" || verb == "search" || verb == "modes" || verb == "selection" || verb == "blocks" || verb == "blocktext" || verb == "chrome" || image_read {
+    if verb == "text"
+        || verb == "screen"
+        || verb == "search"
+        || verb == "modes"
+        || verb == "selection"
+        || verb == "blocks"
+        || verb == "blocktext"
+        || verb == "chrome"
+        || image_read
+    {
         let count: usize = tail.trim().parse().map_err(|_| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -489,9 +506,15 @@ mod tests {
     fn forwarded_verb_skips_proxy_selector() {
         let p = |s: &str| s.split_whitespace().map(String::from).collect::<Vec<_>>();
         assert_eq!(forwarded_verb(&p("screen")).as_deref(), Some("screen"));
-        assert_eq!(forwarded_verb(&p("@s-abc screen")).as_deref(), Some("screen"));
+        assert_eq!(
+            forwarded_verb(&p("@s-abc screen")).as_deref(),
+            Some("screen")
+        );
         assert_eq!(forwarded_verb(&p("@. text")).as_deref(), Some("text"));
-        assert_eq!(forwarded_verb(&p("@s-abc image read")).as_deref(), Some("image"));
+        assert_eq!(
+            forwarded_verb(&p("@s-abc image read")).as_deref(),
+            Some("image")
+        );
         assert_eq!(forwarded_verb(&p("send hi there")).as_deref(), Some("send"));
         assert_eq!(forwarded_verb(&[]), None);
         // Degenerate bare selector: falls back to it (the server then errors).
@@ -512,17 +535,19 @@ mod tests {
 
     #[test]
     fn resolve_flag_beats_environment() {
-        let path =
-            resolve_path(Some("/tmp/a.sock".into()), None, Some("/elsewhere.sock".into()), None)
-                .unwrap();
+        let path = resolve_path(
+            Some("/tmp/a.sock".into()),
+            None,
+            Some("/elsewhere.sock".into()),
+            None,
+        )
+        .unwrap();
         assert_eq!(path, "/tmp/a.sock");
     }
 
     #[test]
     fn resolve_honours_environment_disable_keywords() {
-        for (env_sock, env_kill) in
-            [(Some("0"), None), (Some("off"), None), (None, Some("1"))]
-        {
+        for (env_sock, env_kill) in [(Some("0"), None), (Some("off"), None), (None, Some("1"))] {
             let err = resolve_path(
                 None,
                 None,
@@ -545,10 +570,23 @@ mod tests {
         // A representative sampling across the VERBS reference — the help is the
         // full verb list, mirroring the crate doc-comment.
         for verb in [
-            "text", "cursor", "cell", "search", "send", "key", "image", "resize",
-            "select", "selection", "copy", "tab",
+            "text",
+            "cursor",
+            "cell",
+            "search",
+            "send",
+            "key",
+            "image",
+            "resize",
+            "select",
+            "selection",
+            "copy",
+            "tab",
         ] {
-            assert!(HELP.contains(verb), "help should document the `{verb}` verb");
+            assert!(
+                HELP.contains(verb),
+                "help should document the `{verb}` verb"
+            );
         }
         // And the socket-resolution rule the doc-comment specifies.
         assert!(HELP.contains("$ATERM_CONTROL_SOCK"));

@@ -162,8 +162,7 @@ impl TemporalRecorder {
         let id = KeyframeId(self.next_keyframe);
         self.next_keyframe += 1;
         // A keyframe is large; charge its grid bytes against the budget.
-        self.used += checkpoint.grid.len()
-            + checkpoint.alt_grid.as_ref().map_or(0, Vec::len);
+        self.used += checkpoint.grid.len() + checkpoint.alt_grid.as_ref().map_or(0, Vec::len);
         self.keyframes.push_back((id, checkpoint));
         self.append(Op::Keyframe(id), ts);
         self.enforce_budget();
@@ -174,7 +173,9 @@ impl TemporalRecorder {
         let id = BlobId(self.next_blob);
         self.next_blob += 1;
         self.used += bytes.len();
-        self.blobs.push_back(Blob { bytes: bytes.to_vec() });
+        self.blobs.push_back(Blob {
+            bytes: bytes.to_vec(),
+        });
         id
     }
 
@@ -258,7 +259,11 @@ mod tests {
         // Empty reply is a no-op (no spurious event).
         r.record_reply(b"");
 
-        assert_eq!(r.total_events(), 3, "raw_in + reply + resize (empty reply skipped)");
+        assert_eq!(
+            r.total_events(),
+            3,
+            "raw_in + reply + resize (empty reply skipped)"
+        );
         assert_eq!(r.live_events(), 3);
         assert_eq!(r.spilled_events(), 0, "nothing evicted under capacity");
         assert_eq!(r.dropped_events(), 0);
@@ -299,7 +304,11 @@ mod tests {
         // The spine counted every event...
         assert_eq!(r.total_events(), 1000);
         // ...while retained payload bytes stayed bounded.
-        assert!(r.used <= r.budget + 64, "payload bytes bounded: used={}", r.used);
+        assert!(
+            r.used <= r.budget + 64,
+            "payload bytes bounded: used={}",
+            r.used
+        );
         // Blobs were reclaimed under budget (far fewer than 1000 retained).
         assert!(r.blobs.len() < 1000);
     }

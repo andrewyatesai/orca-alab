@@ -52,7 +52,7 @@ pub mod streaming;
 mod types;
 
 pub use bloom::BloomFilter;
-pub use index::{SearchIndex, SearchOptionsError, DEFAULT_MAX_CACHED_LINES};
+pub use index::{DEFAULT_MAX_CACHED_LINES, SearchIndex, SearchOptionsError};
 pub use types::{SearchDirection, SearchMatch, SearchResults};
 
 #[cfg(test)]

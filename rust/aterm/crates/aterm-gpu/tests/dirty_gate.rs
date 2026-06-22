@@ -92,7 +92,13 @@ fn gpu_dirty_gate_byte_identical() {
         override_: Option<CursorStyle>,
         expect_hit: Option<bool>,
     ) -> Step {
-        Step { desc, act: Box::new(act), blink, override_, expect_hit }
+        Step {
+            desc,
+            act: Box::new(act),
+            blink,
+            override_,
+            expect_hit,
+        }
     }
 
     let steps = vec![
@@ -135,9 +141,21 @@ fn gpu_dirty_gate_byte_identical() {
         // 10. Idle — hit.
         step("idle after output", |_| {}, true, None, Some(true)),
         // 11. Style override (unfocused HollowBlock) — cursor style changes, miss.
-        step("focus lost", |_| {}, true, Some(CursorStyle::HollowBlock), Some(false)),
+        step(
+            "focus lost",
+            |_| {},
+            true,
+            Some(CursorStyle::HollowBlock),
+            Some(false),
+        ),
         // 12. Idle unfocused — hit.
-        step("idle unfocused", |_| {}, true, Some(CursorStyle::HollowBlock), Some(true)),
+        step(
+            "idle unfocused",
+            |_| {},
+            true,
+            Some(CursorStyle::HollowBlock),
+            Some(true),
+        ),
         // 13. Focus regained — override cleared, miss.
         step("focus gained", |_| {}, true, None, Some(false)),
         // 14. Start a selection — selection changes, miss.
@@ -156,15 +174,39 @@ fn gpu_dirty_gate_byte_identical() {
         // 15. Idle with selection — hit.
         step("idle selected", |_| {}, true, None, Some(true)),
         // 16. Clear selection — miss.
-        step("clear selection", |t| t.text_selection_mut().clear(), true, None, Some(false)),
+        step(
+            "clear selection",
+            |t| t.text_selection_mut().clear(),
+            true,
+            None,
+            Some(false),
+        ),
         // 17. Scroll back into history — display_offset changes, miss.
-        step("scroll back", |t| t.scroll_display(1), true, None, Some(false)),
+        step(
+            "scroll back",
+            |t| t.scroll_display(1),
+            true,
+            None,
+            Some(false),
+        ),
         // 18. Idle scrolled — hit.
         step("idle scrolled", |_| {}, true, None, Some(true)),
         // 19. Scroll to bottom — miss.
-        step("scroll to bottom", |t| t.scroll_display(-1), true, None, Some(false)),
+        step(
+            "scroll to bottom",
+            |t| t.scroll_display(-1),
+            true,
+            None,
+            Some(false),
+        ),
         // 20. Full repaint of a new screen — miss.
-        step("clear + new screen", |t| t.process(b"\x1b[2J\x1b[Hready> "), true, None, Some(false)),
+        step(
+            "clear + new screen",
+            |t| t.process(b"\x1b[2J\x1b[Hready> "),
+            true,
+            None,
+            Some(false),
+        ),
         // 21. Idle on new screen — hit.
         step("idle new screen", |_| {}, true, None, Some(true)),
     ];
@@ -190,14 +232,24 @@ fn gpu_dirty_gate_byte_identical() {
         let took_gate = gpu.gate_hits() > hits_before;
 
         // Dimensions are fixed for the whole sequence.
-        assert_eq!((gw, gh), (COLS * gpu.cell_size().0, ROWS * gpu.cell_size().1), "step {i} ({}): bad dims", s.desc);
+        assert_eq!(
+            (gw, gh),
+            (COLS * gpu.cell_size().0, ROWS * gpu.cell_size().1),
+            "step {i} ({}): bad dims",
+            s.desc
+        );
 
         // (a) BYTE-IDENTITY: whether this frame hit or missed, the pixels handed
         // back MUST equal a fresh full GPU render of the SAME input + cursor
         // state. On a hit this proves the cache is not stale; on a miss it proves
         // the gate's stored frame is the real render.
         let oracle = fresh_render(&input, s.blink, s.override_);
-        assert_eq!(got.len(), oracle.len(), "step {i} ({}): pixel count differs", s.desc);
+        assert_eq!(
+            got.len(),
+            oracle.len(),
+            "step {i} ({}): pixel count differs",
+            s.desc
+        );
         assert!(
             got == oracle,
             "step {i} ({}): gate {} pixels are NOT byte-identical to a fresh GPU render",
@@ -208,11 +260,19 @@ fn gpu_dirty_gate_byte_identical() {
         // (b) the gate must fire exactly where the test says it should.
         match s.expect_hit {
             Some(true) => {
-                assert!(took_gate, "step {i} ({}): expected GATE-HIT but it missed", s.desc);
+                assert!(
+                    took_gate,
+                    "step {i} ({}): expected GATE-HIT but it missed",
+                    s.desc
+                );
                 gate_hit_frames += 1;
             }
             Some(false) => {
-                assert!(!took_gate, "step {i} ({}): expected a MISS but it took the gate", s.desc);
+                assert!(
+                    !took_gate,
+                    "step {i} ({}): expected a MISS but it took the gate",
+                    s.desc
+                );
             }
             None => {}
         }
@@ -231,13 +291,23 @@ fn gpu_dirty_gate_byte_identical() {
 
     // The optimisation must actually be EXERCISED: we asserted several
     // `Some(true)` frames above, so the gate genuinely fired on real frames.
-    assert!(hits_seen >= 1, "the dirty-gate never fired — optimisation not exercised");
+    assert!(
+        hits_seen >= 1,
+        "the dirty-gate never fired — optimisation not exercised"
+    );
     assert_eq!(
         hits_seen as usize, gate_hit_frames,
         "every counted hit should correspond to an expected-hit frame",
     );
-    assert_eq!(gpu.gate_hits(), hits_seen, "gate_hits counter disagrees with observed hits");
-    eprintln!("dirty-gate: {hits_seen} gate-hits across {} frames", steps.len());
+    assert_eq!(
+        gpu.gate_hits(),
+        hits_seen,
+        "gate_hits counter disagrees with observed hits"
+    );
+    eprintln!(
+        "dirty-gate: {hits_seen} gate-hits across {} frames",
+        steps.len()
+    );
 }
 
 /// A gate-hit followed by a ONE-CELL change must repaint correctly: the changed
@@ -265,9 +335,15 @@ fn gpu_dirty_gate_one_cell_change_after_hit() {
     let v2 = gpu.render_input_cached(&mut win, &in2);
     let got2 = v2.pixels().to_vec();
     drop(v2);
-    assert!(gpu.gate_hits() > hits_before, "second (unchanged) frame must take the gate");
+    assert!(
+        gpu.gate_hits() > hits_before,
+        "second (unchanged) frame must take the gate"
+    );
     // Hit pixels equal a fresh render of the unchanged input.
-    assert!(got2 == fresh_render(&in2, true, None), "gate-hit pixels diverge from fresh render");
+    assert!(
+        got2 == fresh_render(&in2, true, None),
+        "gate-hit pixels diverge from fresh render"
+    );
 
     // Frame 3: change ONE cell ('C' → 'D'). Must MISS and match a fresh render
     // of the CHANGED input — not the stale "ABC" frame.
@@ -277,10 +353,19 @@ fn gpu_dirty_gate_one_cell_change_after_hit() {
     let v3 = gpu.render_input_cached(&mut win, &in3);
     let got3 = v3.pixels().to_vec();
     drop(v3);
-    assert!(gpu.gate_misses() > misses_before, "one-cell change must MISS the gate");
-    assert!(got3 == fresh_render(&in3, true, None), "post-change pixels diverge from fresh render");
+    assert!(
+        gpu.gate_misses() > misses_before,
+        "one-cell change must MISS the gate"
+    );
+    assert!(
+        got3 == fresh_render(&in3, true, None),
+        "post-change pixels diverge from fresh render"
+    );
     // And the changed frame is genuinely different from the prior cached frame.
-    assert!(got3 != got2, "one-cell change produced an identical framebuffer (suspicious)");
+    assert!(
+        got3 != got2,
+        "one-cell change produced an identical framebuffer (suspicious)"
+    );
 
     // Frame 4: idle on the changed screen → GATE-HIT again, byte-identical.
     let in4 = term.cell_frame(ROWS, COLS);
@@ -288,9 +373,18 @@ fn gpu_dirty_gate_one_cell_change_after_hit() {
     let v4 = gpu.render_input_cached(&mut win, &in4);
     let got4 = v4.pixels().to_vec();
     drop(v4);
-    assert!(gpu.gate_hits() > hits_before, "idle after change must take the gate");
-    assert!(got4 == got3, "re-presented frame differs from the frame it cached");
-    assert!(got4 == fresh_render(&in4, true, None), "post-change gate-hit diverges from fresh render");
+    assert!(
+        gpu.gate_hits() > hits_before,
+        "idle after change must take the gate"
+    );
+    assert!(
+        got4 == got3,
+        "re-presented frame differs from the frame it cached"
+    );
+    assert!(
+        got4 == fresh_render(&in4, true, None),
+        "post-change gate-hit diverges from fresh render"
+    );
 }
 
 /// Diagnostic (run with `--ignored --nocapture`): measure the per-frame cost of
@@ -327,7 +421,11 @@ fn gpu_dirty_gate_idle_cost() {
         std::hint::black_box(v.pixels().len());
     }
     let after_us = t.elapsed().as_secs_f64() * 1e6 / f64::from(N);
-    assert_eq!(gpu.gate_hits() - hits0, u64::from(N), "all idle frames should hit the gate");
+    assert_eq!(
+        gpu.gate_hits() - hits0,
+        u64::from(N),
+        "all idle frames should hit the gate"
+    );
 
     eprintln!(
         "idle frame cost: BEFORE (encode+readback) = {before_us:.1} us/frame, \

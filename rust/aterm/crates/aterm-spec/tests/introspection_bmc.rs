@@ -50,7 +50,11 @@ fn bmc(m: &Model) -> Result<usize, (BTreeMap<&'static str, i64>, &'static str)> 
     let mut n = 0usize;
     while let Some(st) = q.pop_front() {
         n += 1;
-        assert!(n < 100_000, "{} state space unexpectedly large — tighten bounds", m.name);
+        assert!(
+            n < 100_000,
+            "{} state space unexpectedly large — tighten bounds",
+            m.name
+        );
         for inv in &m.invariants {
             if !m.check_invariant(inv.name, &st) {
                 return Err((st, inv.name));
@@ -72,7 +76,10 @@ fn bmc(m: &Model) -> Result<usize, (BTreeMap<&'static str, i64>, &'static str)> 
 /// counterexample is reachable at `Buggy = 1`.
 fn proves_and_catches(m: &Model) {
     match bmc(&with_buggy(m, 0)) {
-        Ok(n) => eprintln!("{}: invariant proven over {n} reachable states (Buggy=0).", m.name),
+        Ok(n) => eprintln!(
+            "{}: invariant proven over {n} reachable states (Buggy=0).",
+            m.name
+        ),
         Err((st, inv)) => panic!("{} invariant `{inv}` VIOLATED at {st:?} (Buggy=0)", m.name),
     }
     match bmc(&with_buggy(m, 1)) {
@@ -82,7 +89,10 @@ fn proves_and_catches(m: &Model) {
             m.name
         ),
         Err((st, inv)) => {
-            eprintln!("{}: invariant `{inv}` correctly CAUGHT at {st:?} (Buggy=1).", m.name)
+            eprintln!(
+                "{}: invariant `{inv}` correctly CAUGHT at {st:?} (Buggy=1).",
+                m.name
+            )
         }
     }
 }
@@ -143,8 +153,16 @@ fn property_classes_prove_and_catch_under_bmc() {
                     inst.model.name
                 );
                 let wedge = find_deadlock(&with_buggy(&inst.model, 1), is_final);
-                assert!(wedge.is_some(), "{} Buggy=1 must reach a wedge", inst.model.name);
-                eprintln!("{}: wedge caught at {:?} (Buggy=1).", inst.model.name, wedge.unwrap());
+                assert!(
+                    wedge.is_some(),
+                    "{} Buggy=1 must reach a wedge",
+                    inst.model.name
+                );
+                eprintln!(
+                    "{}: wedge caught at {:?} (Buggy=1).",
+                    inst.model.name,
+                    wedge.unwrap()
+                );
             }
         }
     }

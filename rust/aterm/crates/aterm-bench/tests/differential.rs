@@ -177,7 +177,11 @@ fn aterm_screen(input: &[u8]) -> Screen {
             let row: Vec<CellProj> = cells
                 .iter()
                 .map(|cell| CellProj {
-                    ch: if cell.wide { ' ' } else { normalize_char(cell.ch) },
+                    ch: if cell.wide {
+                        ' '
+                    } else {
+                        normalize_char(cell.ch)
+                    },
                     fg: cell.fg,
                     bg: cell.bg,
                     bold: cell.bold,
@@ -242,7 +246,11 @@ fn ala_raw_rgb(color: AlaColor, pal: &AtermPalette, is_fg: bool) -> [u8; 3] {
             NamedColor::Background => pal.default_bg,
             // Defensive: not generated, but keep the projection total.
             NamedColor::BrightForeground | NamedColor::DimForeground | NamedColor::Cursor => {
-                if is_fg { pal.default_fg } else { pal.default_bg }
+                if is_fg {
+                    pal.default_fg
+                } else {
+                    pal.default_bg
+                }
             }
             // Black..BrightWhite and the Dim* names are < 256 as discriminants
             // only for 0..=15; map the 16 base/bright slots, fold dim->base.
@@ -273,7 +281,11 @@ fn ala_raw_rgb(color: AlaColor, pal: &AtermPalette, is_fg: bool) -> [u8; 3] {
                     NamedColor::DimCyan => 6,
                     NamedColor::DimWhite => 7,
                     _ => {
-                        return if is_fg { pal.default_fg } else { pal.default_bg };
+                        return if is_fg {
+                            pal.default_fg
+                        } else {
+                            pal.default_bg
+                        };
                     }
                 };
                 pal.palette[idx]
@@ -376,7 +388,11 @@ fn alacritty_screen(input: &[u8]) -> Screen {
                         .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER);
                     let (fg, bg) = ala_resolve(cell, &pal);
                     CellProj {
-                        ch: if is_spacer { ' ' } else { normalize_char(cell.c) },
+                        ch: if is_spacer {
+                            ' '
+                        } else {
+                            normalize_char(cell.c)
+                        },
                         fg,
                         bg,
                         bold: cell.flags.contains(Flags::BOLD),
@@ -418,7 +434,11 @@ fn escape_bytes(input: &[u8]) -> String {
 }
 
 fn hex_bytes(input: &[u8]) -> String {
-    input.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ")
+    input
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// The glyph string of a projected row (for the readable summary line).
@@ -477,11 +497,21 @@ fn diff_screens(input: &[u8]) -> Option<String> {
     if let Some(&first) = differing.first() {
         report.push_str(&format!(
             "differing rows: {} (first: {first})\n",
-            differing.iter().map(usize::to_string).collect::<Vec<_>>().join(",")
+            differing
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
         ));
         for &r in differing.iter().take(4) {
-            report.push_str(&format!("row {r:2} aterm     glyphs: {:?}\n", row_glyphs(&a.rows[r])));
-            report.push_str(&format!("row {r:2} alacritty glyphs: {:?}\n", row_glyphs(&b.rows[r])));
+            report.push_str(&format!(
+                "row {r:2} aterm     glyphs: {:?}\n",
+                row_glyphs(&a.rows[r])
+            ));
+            report.push_str(&format!(
+                "row {r:2} alacritty glyphs: {:?}\n",
+                row_glyphs(&b.rows[r])
+            ));
             // Name the first few cells that differ on this row, glyph or
             // rendition, so an SGR-only divergence (identical glyphs) is visible.
             let width = a.rows[r].len().max(b.rows[r].len());
@@ -513,11 +543,17 @@ fn diff_screens(input: &[u8]) -> Option<String> {
                 shown += 1;
             }
             if shown > 6 {
-                report.push_str(&format!("  ... {} more differing cells on row {r}\n", shown - 6));
+                report.push_str(&format!(
+                    "  ... {} more differing cells on row {r}\n",
+                    shown - 6
+                ));
             }
         }
         if differing.len() > 4 {
-            report.push_str(&format!("... {} more differing rows elided\n", differing.len() - 4));
+            report.push_str(&format!(
+                "... {} more differing rows elided\n",
+                differing.len() - 4
+            ));
         }
     } else {
         report.push_str("rows: identical\n");
@@ -596,7 +632,10 @@ fn divergence_signature(input: &[u8]) -> Option<String> {
     let cursor = if a.cursor == b.cursor {
         String::new()
     } else {
-        format!("cur:A({},{})L({},{})", a.cursor.0, a.cursor.1, b.cursor.0, b.cursor.1)
+        format!(
+            "cur:A({},{})L({},{})",
+            a.cursor.0, a.cursor.1, b.cursor.0, b.cursor.1
+        )
     };
 
     if cells.is_empty() && cursor.is_empty() {
@@ -835,6 +874,7 @@ fn is_dec_graphics_glyph_divergence(input: &[u8]) -> bool {
 ///   - underline: aterm DOUBLE vs alacritty None/Single (a pre-existing SGR 4),
 ///   - bold: aterm keeps it vs alacritty cancelled it — which also flips the
 ///     bold-to-bright fg (e.g. #ff0000 vs #cd0000) for an indexed 0–7 fg.
+///
 /// Same glyph, same bg/italic/strike. aterm matches xterm. Requires SGR 21 to
 /// be present in the input, and cursors to agree.
 fn is_sgr21_double_underline_divergence(input: &[u8]) -> bool {
@@ -850,7 +890,9 @@ fn is_sgr21_double_underline_divergence(input: &[u8]) -> bool {
     }
     // Every diff is the SGR-21 per-cell signature (delegates to the shared
     // classifier with the SGR-21 gate already satisfied above).
-    diffs.iter().all(|d| cell_diff_is_classifiable(d, true, false))
+    diffs
+        .iter()
+        .all(|d| cell_diff_is_classifiable(d, true, false))
 }
 
 /// True if `input` has a `CSI … m` (SGR) whose parameter list contains the exact
@@ -896,14 +938,26 @@ fn sgr_contains_param(input: &[u8], param: u16) -> bool {
 /// and is NOT suppressed; a pure cursor bug (no content) is caught by the
 /// cursor-only path. So an EQUAL-multiset positional divergence is always an
 /// alacritty cursor/wrap quirk — suppress regardless of the final cursor.
+type NonblankCell = (char, [u8; 3], [u8; 3], bool, bool, Underline, bool);
+
 fn is_cursor_cascade_content_shift(input: &[u8]) -> bool {
     let a = aterm_screen(input);
     let b = alacritty_screen(input);
-    let nonblank = |s: &Screen| -> Vec<(char, [u8; 3], [u8; 3], bool, bool, Underline, bool)> {
+    let nonblank = |s: &Screen| -> Vec<NonblankCell> {
         let mut v: Vec<_> = (0..ROWS)
-            .flat_map(|r| s.rows[r].iter().copied().collect::<Vec<_>>())
+            .flat_map(|r| s.rows[r].to_vec())
             .filter(|c| !(c.ch == ' ' && c.bg == s.default_bg))
-            .map(|c| (c.ch, c.fg, c.bg, c.bold, c.italic, c.underline, c.strikethrough))
+            .map(|c| {
+                (
+                    c.ch,
+                    c.fg,
+                    c.bg,
+                    c.bold,
+                    c.italic,
+                    c.underline,
+                    c.strikethrough,
+                )
+            })
             .collect();
         v.sort_by(|x, y| format!("{x:?}").cmp(&format!("{y:?}")));
         v
@@ -925,11 +979,9 @@ fn is_cursor_cascade_content_shift(input: &[u8]) -> bool {
 fn is_clear_bce_or_above_divergence(input: &[u8]) -> bool {
     // Require the input to actually contain an ED/EL op.
     let has_ed_el = input.windows(2).any(|w| w == b"[J" || w == b"[K")
-        || input.windows(3).any(|w| {
-            w[0] == b'['
-                && (w[1].is_ascii_digit())
-                && (w[2] == b'J' || w[2] == b'K')
-        })
+        || input
+            .windows(3)
+            .any(|w| w[0] == b'[' && (w[1].is_ascii_digit()) && (w[2] == b'J' || w[2] == b'K'))
         || input.windows(4).any(|w| w[0] == b'[' && w[3] == b'J')
         || input.windows(2).any(|w| w[1] == b'J' || w[1] == b'K');
     if !has_ed_el {
@@ -1021,7 +1073,9 @@ fn is_composable_cell_divergence(input: &[u8]) -> bool {
     }
     let has_sgr21 = sgr_contains_param(input, 21);
     let has_clear = input.windows(2).any(|w| w[1] == b'J' || w[1] == b'K');
-    diffs.iter().all(|d| cell_diff_is_classifiable(d, has_sgr21, has_clear))
+    diffs
+        .iter()
+        .all(|d| cell_diff_is_classifiable(d, has_sgr21, has_clear))
 }
 
 /// Class predicate: a CONTENT cascade rooted in one of the documented
@@ -1048,6 +1102,7 @@ fn is_composable_cell_divergence(input: &[u8]) -> bool {
 ///     with ResetWrap on xterm; alacritty keeps the pending wrap, so the next
 ///     printable wraps instead of overstriking (pinned "moving LF clears wrap
 ///     flag").
+///
 /// These cascade into CONTENT (overwrite, extra/fewer repeats, different scroll
 /// fill, blanked-left cells, column-shifted print), so the content multisets
 /// need not match and the cursor may even end up equal. The
@@ -1148,8 +1203,7 @@ fn has_margin_filling_run_then_moving_lf(input: &[u8]) -> bool {
     }
     // A moving LF / IND / NEL appears after the filling run.
     let tail = &input[run_end..];
-    tail.contains(&b'\n')
-        || tail.windows(2).any(|w| w == b"\x1bD" || w == b"\x1bE")
+    tail.contains(&b'\n') || tail.windows(2).any(|w| w == b"\x1bD" || w == b"\x1bE")
 }
 
 /// Comprehensive class predicate for a divergence with BOTH a cursor difference
@@ -1487,7 +1541,6 @@ fn contains_scosc_scorc(input: &[u8]) -> bool {
     input.windows(3).any(|w| w == b"\x1b[s" || w == b"\x1b[u")
 }
 
-
 /// Integrity check for the pin table: every pinned repro must STILL diverge
 /// (alacritty hasn't fixed its bug; aterm hasn't regressed into matching it)
 /// and must self-match. A pin whose repro no longer diverges is stale — it
@@ -1547,7 +1600,11 @@ fn basic_control() -> impl Strategy<Value = Vec<u8>> {
 
 /// CSI cursor movement: CUU/CUD/CUF/CUB/CNL/CPL/CHA/VPA + CUP/HVP.
 fn csi_cursor() -> impl Strategy<Value = Vec<u8>> {
-    let single = (proptest::sample::select(b"ABCDEFG`d".to_vec()), 0u16..=30, any::<bool>())
+    let single = (
+        proptest::sample::select(b"ABCDEFG`d".to_vec()),
+        0u16..=30,
+        any::<bool>(),
+    )
         .prop_map(|(fin, n, omit)| {
             if omit {
                 format!("\x1b[{}", fin as char).into_bytes()
@@ -1555,7 +1612,11 @@ fn csi_cursor() -> impl Strategy<Value = Vec<u8>> {
                 format!("\x1b[{n}{}", fin as char).into_bytes()
             }
         });
-    let cup = (proptest::sample::select(b"Hf".to_vec()), 0u16..=30, 0u16..=90)
+    let cup = (
+        proptest::sample::select(b"Hf".to_vec()),
+        0u16..=30,
+        0u16..=90,
+    )
         .prop_map(|(fin, r, c)| format!("\x1b[{r};{c}{}", fin as char).into_bytes());
     prop_oneof![3 => single, 2 => cup]
 }
@@ -1563,12 +1624,21 @@ fn csi_cursor() -> impl Strategy<Value = Vec<u8>> {
 /// CSI editing: ED/EL 0-2, ICH/DCH/IL/DL/ECH and SU/SD with small params.
 fn csi_edit() -> impl Strategy<Value = Vec<u8>> {
     prop_oneof![
-        (proptest::sample::select(b"JK".to_vec()), 0u16..=2)
-            .prop_map(|(fin, n)| format!("\x1b[{n}{}", fin as char).into_bytes()),
-        (proptest::sample::select(b"@PLMX".to_vec()), 0u16..=10)
-            .prop_map(|(fin, n)| format!("\x1b[{n}{}", fin as char).into_bytes()),
-        (proptest::sample::select(b"ST".to_vec()), 0u16..=5)
-            .prop_map(|(fin, n)| format!("\x1b[{n}{}", fin as char).into_bytes()),
+        (proptest::sample::select(b"JK".to_vec()), 0u16..=2).prop_map(|(fin, n)| format!(
+            "\x1b[{n}{}",
+            fin as char
+        )
+        .into_bytes()),
+        (proptest::sample::select(b"@PLMX".to_vec()), 0u16..=10).prop_map(|(fin, n)| format!(
+            "\x1b[{n}{}",
+            fin as char
+        )
+        .into_bytes()),
+        (proptest::sample::select(b"ST".to_vec()), 0u16..=5).prop_map(|(fin, n)| format!(
+            "\x1b[{n}{}",
+            fin as char
+        )
+        .into_bytes()),
     ]
 }
 
@@ -1581,8 +1651,8 @@ fn csi_edit() -> impl Strategy<Value = Vec<u8>> {
 /// valid simple codes and remain.
 fn sgr() -> impl Strategy<Value = Vec<u8>> {
     const SIMPLE: &[u16] = &[
-        0, 1, 2, 3, 4, 5, 7, 8, 9, 21, 22, 23, 24, 25, 27, 28, 29, 30, 31, 34, 37, 39, 40, 42,
-        47, 49, 90, 97, 100, 107,
+        0, 1, 2, 3, 4, 5, 7, 8, 9, 21, 22, 23, 24, 25, 27, 28, 29, 30, 31, 34, 37, 39, 40, 42, 47,
+        49, 90, 97, 100, 107,
     ];
     prop_oneof![
         4 => proptest::collection::vec(proptest::sample::select(SIMPLE.to_vec()), 1..4)
@@ -1617,19 +1687,19 @@ fn scroll_ops() -> impl Strategy<Value = Vec<u8>> {
 /// DECSC/DECRC, DECOM, DECAWM, IRM, alt screen 1049, DECALN.
 fn state_ops() -> impl Strategy<Value = Vec<u8>> {
     prop_oneof![
-        Just(b"\x1b7".to_vec()),      // DECSC
-        Just(b"\x1b8".to_vec()),      // DECRC
-        Just(b"\x1b[?6h".to_vec()),   // DECOM set
-        Just(b"\x1b[?6l".to_vec()),   // DECOM reset
-        Just(b"\x1b[?7h".to_vec()),   // DECAWM set
-        Just(b"\x1b[?7l".to_vec()),   // DECAWM reset
-        Just(b"\x1b[4h".to_vec()),    // IRM set (insert mode) — both engines implement
-        Just(b"\x1b[4l".to_vec()),    // IRM reset (replace mode)
-        Just(b"\x1b[s".to_vec()),     // SCOSC (save cursor, ANSI.SYS) — no DECLRMM here
-        Just(b"\x1b[u".to_vec()),     // SCORC (restore cursor)
+        Just(b"\x1b7".to_vec()),       // DECSC
+        Just(b"\x1b8".to_vec()),       // DECRC
+        Just(b"\x1b[?6h".to_vec()),    // DECOM set
+        Just(b"\x1b[?6l".to_vec()),    // DECOM reset
+        Just(b"\x1b[?7h".to_vec()),    // DECAWM set
+        Just(b"\x1b[?7l".to_vec()),    // DECAWM reset
+        Just(b"\x1b[4h".to_vec()),     // IRM set (insert mode) — both engines implement
+        Just(b"\x1b[4l".to_vec()),     // IRM reset (replace mode)
+        Just(b"\x1b[s".to_vec()),      // SCOSC (save cursor, ANSI.SYS) — no DECLRMM here
+        Just(b"\x1b[u".to_vec()),      // SCORC (restore cursor)
         Just(b"\x1b[?1049h".to_vec()), // alt screen enter
         Just(b"\x1b[?1049l".to_vec()), // alt screen exit
-        Just(b"\x1b#8".to_vec()),     // DECALN
+        Just(b"\x1b#8".to_vec()),      // DECALN
     ]
 }
 
@@ -1963,9 +2033,9 @@ fn cbt_bounds_at_column_zero() {
 #[test]
 fn scosc_scorc_equals_decsc_decrc() {
     let cases: &[&[u8]] = &[
-        b"\x1b)0\x0e\x1b[s\x0f\x1b[uqx",          // charset GL-shift save/restore
-        b"\x1b(0\x1b[s\x1b(B\x1b[uq",             // G0 designation save/restore
-        b"\x1b[0;16r\x1b[?6h\x1b[u\x1b[19;84f",   // SCORC under origin mode + margins
+        b"\x1b)0\x0e\x1b[s\x0f\x1b[uqx", // charset GL-shift save/restore
+        b"\x1b(0\x1b[s\x1b(B\x1b[uq",    // G0 designation save/restore
+        b"\x1b[0;16r\x1b[?6h\x1b[u\x1b[19;84f", // SCORC under origin mode + margins
         b"\x1b[10;20r\x1b[?6h\x1b[u\x1b[30;10f",
         b"\x1b[?6h\x1b[s\x1b[?6l\x1b[u\x1b[5;5Hz", // origin-mode save/restore
     ];
@@ -1989,8 +2059,14 @@ fn scosc_scorc_equals_decsc_decrc() {
         }
         let via_csi = aterm_screen(case);
         let via_esc = aterm_screen(&subst);
-        assert_eq!(via_csi.rows, via_esc.rows, "CSI s/u must equal DECSC/DECRC: {case:?}");
-        assert_eq!(via_csi.cursor, via_esc.cursor, "cursor must match DECSC/DECRC: {case:?}");
+        assert_eq!(
+            via_csi.rows, via_esc.rows,
+            "CSI s/u must equal DECSC/DECRC: {case:?}"
+        );
+        assert_eq!(
+            via_csi.cursor, via_esc.cursor,
+            "cursor must match DECSC/DECRC: {case:?}"
+        );
     }
 }
 
@@ -2163,12 +2239,19 @@ fn aterm_bug_truecolor_overwrite_slow_path_charset() {
     );
     // The fast path (no SO) was always correct — parity guard.
     assert_eq!(
-        aterm_cell_bg(b"\x1b[48;2;244;75;233m\x1b[?1049h\x1b[48;2;43;163;98mx", 0, 0),
+        aterm_cell_bg(
+            b"\x1b[48;2;244;75;233m\x1b[?1049h\x1b[48;2;43;163;98mx",
+            0,
+            0
+        ),
         Some(correct),
         "fast bulk path overwrites the truecolor bg correctly",
     );
     // Engines now agree (text + cursor; the oracle normalizes color away).
-    assert!(diff_screens(input).is_none(), "engines agree after the ring-clear fix");
+    assert!(
+        diff_screens(input).is_none(),
+        "engines agree after the ring-clear fix"
+    );
 }
 
 /// Finding 233 (FIXED): bg-A, CUP, `x`, `CSI ?7l` (autowrap off), CR, bg-B, `x`.
@@ -2184,11 +2267,18 @@ fn aterm_bug_truecolor_overwrite_slow_path_nowrap() {
     );
     // The fast path (autowrap on) was always correct — parity guard.
     assert_eq!(
-        aterm_cell_bg(b"\x1b[48;2;55;7;8m\x1b[18;0fx\r\x1b[48;2;178;62;127mx", 17, 0),
+        aterm_cell_bg(
+            b"\x1b[48;2;55;7;8m\x1b[18;0fx\r\x1b[48;2;178;62;127mx",
+            17,
+            0
+        ),
         Some(correct),
         "fast bulk path overwrites the truecolor bg correctly",
     );
-    assert!(diff_screens(input).is_none(), "engines agree after the ring-clear fix");
+    assert!(
+        diff_screens(input).is_none(),
+        "engines agree after the ring-clear fix"
+    );
 }
 
 /// Triage aid: print the diff for each pinned KNOWN-ALACRITTY smoke repro.
@@ -2199,31 +2289,10 @@ fn differential_show_known_alacritty() {
         println!("==== {} ====\nwhy: {}", pin.name, pin.why);
         match diff_screens(pin.input) {
             Some(report) => println!("{report}"),
-            None => println!("NO DIVERGENCE (stale pin?): {:?}\n", escape_bytes(pin.input)),
+            None => println!(
+                "NO DIVERGENCE (stale pin?): {:?}\n",
+                escape_bytes(pin.input)
+            ),
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

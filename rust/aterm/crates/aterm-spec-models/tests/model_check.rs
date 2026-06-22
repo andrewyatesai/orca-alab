@@ -28,7 +28,9 @@ fn specs_dir() -> PathBuf {
 
 #[test]
 fn ty_model_checks_every_spec() {
-    let Some(ty) = ty_or_skip("specs") else { return; };
+    let Some(ty) = ty_or_skip("specs") else {
+        return;
+    };
 
     let dir = specs_dir();
     let mut checked = 0usize;
@@ -66,7 +68,10 @@ fn ty_model_checks_every_spec() {
             String::from_utf8_lossy(&out.stdout),
             String::from_utf8_lossy(&out.stderr),
         );
-        eprintln!("ty: {} — invariants hold", path.file_name().unwrap().to_string_lossy());
+        eprintln!(
+            "ty: {} — invariants hold",
+            path.file_name().unwrap().to_string_lossy()
+        );
         names.push(path.file_name().unwrap().to_string_lossy().into_owned());
         checked += 1;
     }
@@ -82,20 +87,30 @@ fn ty_model_checks_every_spec() {
         "AltScreen.tla",   // alternate-screen save/restore
         "GpuEncode.tla",   // GPU encode pipeline ordering
     ] {
-        assert!(names.iter().any(|n| n == required), "required ISOLATION spec missing: {required}");
+        assert!(
+            names.iter().any(|n| n == required),
+            "required ISOLATION spec missing: {required}"
+        );
     }
     // The kernel-family specs (Kernel/Subscribe/Snapshot/Transact/Evict) are
     // SUPERSEDED by drift-free derived twins (aterm-spec::derive) and were
     // quarantined into specs/legacy/ in Phase 1 — they are intentionally NOT in the
     // checked set here. Their derived twins ARE exhaustively `ty check`ed in
     // aterm-spec/tests/derived_ring_ty.rs (one source of truth).
-    for retired in
-        ["Kernel.tla", "Subscribe.tla", "Snapshot.tla", "Transact.tla", "Evict.tla", "FdLifecycle.tla"]
-    {
+    for retired in [
+        "Kernel.tla",
+        "Subscribe.tla",
+        "Snapshot.tla",
+        "Transact.tla",
+        "Evict.tla",
+        "FdLifecycle.tla",
+    ] {
         assert!(
             !names.iter().any(|n| n == retired),
             "spec {retired} must be quarantined to specs/legacy/ (Phase 1), not in the active checked set"
         );
     }
-    eprintln!("ty model-checked {checked} active ISOLATION spec(s); kernel family is derived (legacy/ quarantined)");
+    eprintln!(
+        "ty model-checked {checked} active ISOLATION spec(s); kernel family is derived (legacy/ quarantined)"
+    );
 }

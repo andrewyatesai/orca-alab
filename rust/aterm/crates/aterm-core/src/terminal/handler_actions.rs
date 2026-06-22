@@ -398,9 +398,13 @@ impl ActionSink for TerminalHandler<'_> {
     ///
     /// DCS unhook may produce responses for DECRQSS/XTGETTCAP; mint a
     /// capability here so downstream handlers can thread it.
-    fn dcs_unhook(&mut self) {
+    ///
+    /// `canceled` is `true` for a CAN/SUB abort: the Sixel branch then DISCARDS
+    /// the half-decoded image rather than rendering it (DECRQSS/XTGETTCAP are
+    /// unaffected — their finalization is idempotent on an empty buffer).
+    fn dcs_unhook(&mut self, canceled: bool) {
         let cap = super::super::response_capability::ResponseCapability::mint_for_dispatch();
-        self.dcs_unhook_inner(&cap);
+        self.dcs_unhook_inner(&cap, canceled);
     }
 
     fn apc_start(&mut self) {

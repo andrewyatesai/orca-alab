@@ -9,11 +9,11 @@ license.workspace = true
 repository.workspace = true
 description = "Smart semantic selection and text selection state machines for terminal text"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [dependencies]
 aterm-ffi-types = { workspace = true }
 aterm-grapheme = { workspace = true }
 aterm-types = { workspace = true }
 regex = { workspace = true }
+
+[lints]
+workspace = true

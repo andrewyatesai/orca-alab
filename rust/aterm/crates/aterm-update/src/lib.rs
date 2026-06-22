@@ -147,13 +147,16 @@ pub fn spawn_background_check(_current_build: u64, _current_version: &'static st
 
 /// Emit an informational updater line to stderr (captured by the GUI's logger).
 /// Kept deliberately low-volume: silent operation means most runs print nothing.
+/// Routed through `aterm_log` (the global logger `aterm-gui` installs before the
+/// updater runs), so it lands in the app log FILE — visible for a Finder-launched
+/// `.app`, unlike stderr. A no-op if no logger is installed (e.g. a dev harness).
 #[cfg(target_os = "macos")]
 pub(crate) fn log(msg: &str) {
-    eprintln!("aterm-update: {msg}");
+    aterm_log::info!("aterm-update: {msg}");
 }
 
-/// Emit a non-fatal updater warning to stderr.
+/// Emit a non-fatal updater warning to the app log (see [`log`]).
 #[cfg(target_os = "macos")]
 pub(crate) fn warn(msg: &str) {
-    eprintln!("aterm-update: WARNING: {msg}");
+    aterm_log::warn!("aterm-update: {msg}");
 }

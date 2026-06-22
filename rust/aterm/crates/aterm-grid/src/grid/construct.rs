@@ -14,11 +14,11 @@ use super::scroll_convert::LazyBuffer;
 use super::state::{GridCursorState, GridPresentationState, GridStorage};
 use super::{Cell, Grid, HorizontalMargins, PAGE_SIZE, PageStore, ScrollRegion};
 use crate::CellExtras;
-use crate::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use crate::Damage;
 use crate::GenerationTracker;
 use crate::Row;
 use crate::StyleTable;
+use crate::{MAX_GRID_COLS, MAX_GRID_ROWS};
 use std::collections::VecDeque;
 
 impl Grid {

@@ -59,7 +59,11 @@ impl Lcg {
 /// so the check itself can never overflow, and that sum never exceeds
 /// `u32::MAX`.
 fn assert_invariant(rle: &Rle<u8>) {
-    let sum: u64 = rle.runs().iter().map(|r: &Run<u8>| u64::from(r.length)).sum();
+    let sum: u64 = rle
+        .runs()
+        .iter()
+        .map(|r: &Run<u8>| u64::from(r.length))
+        .sum();
     assert!(
         sum <= u64::from(u32::MAX),
         "run length sum {sum} exceeded u32::MAX — checked_run_length_sum would panic"

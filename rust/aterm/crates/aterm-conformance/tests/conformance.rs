@@ -110,7 +110,7 @@ fn tab_advances_to_next_8col_stop() {
 
 #[test]
 fn autowrap_wraps_at_the_right_margin() {
-    let mut input: Vec<u8> = std::iter::repeat(b'a').take(80).collect();
+    let mut input: Vec<u8> = std::iter::repeat_n(b'a', 80).collect();
     input.push(b'b');
     let s = run(&input);
     assert_eq!(s.row(0).len(), 80);

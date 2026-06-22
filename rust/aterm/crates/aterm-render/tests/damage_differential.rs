@@ -39,7 +39,10 @@ struct RState {
 
 impl Default for RState {
     fn default() -> Self {
-        RState { blink_phase: true, cursor_override: None }
+        RState {
+            blink_phase: true,
+            cursor_override: None,
+        }
     }
 }
 
@@ -68,7 +71,11 @@ fn assert_identical(
 
     assert_eq!(dmg.width, full.width, "width mismatch @ {label}");
     assert_eq!(dmg.height, full.height, "height mismatch @ {label}");
-    assert_eq!(dmg.pixels.len(), full.pixels.len(), "pixel-count mismatch @ {label}");
+    assert_eq!(
+        dmg.pixels.len(),
+        full.pixels.len(),
+        "pixel-count mismatch @ {label}"
+    );
 
     if dmg.pixels != full.pixels {
         // Pinpoint the first divergent pixel for a useful failure.
@@ -80,7 +87,12 @@ fn assert_identical(
                 break;
             }
         }
-        let n_diff = dmg.pixels.iter().zip(full.pixels.iter()).filter(|(a, b)| a != b).count();
+        let n_diff = dmg
+            .pixels
+            .iter()
+            .zip(full.pixels.iter())
+            .filter(|(a, b)| a != b)
+            .count();
         panic!(
             "DAMAGE != FULL @ {label}: {n_diff} differing pixels; first {first:?} \
              (index, x, y, damaged, full)"
@@ -151,9 +163,15 @@ fn damage_path_is_byte_identical_to_full_repaint() {
     // First make the cursor a blinking style so the phase matters.
     term.process(b"\x1b[1 q"); // DECSCUSR 1 = blinking block
     term.process(b"\x1b[1;1H");
-    let st_off = RState { blink_phase: false, ..st };
+    let st_off = RState {
+        blink_phase: false,
+        ..st
+    };
     assert_identical(&mut dmg, rows, cols, &mut term, st_off, "blink off");
-    let st_on = RState { blink_phase: true, ..st };
+    let st_on = RState {
+        blink_phase: true,
+        ..st
+    };
     assert_identical(&mut dmg, rows, cols, &mut term, st_on, "blink on");
     // Toggle again from the warm cache to exercise the gate's phase tracking.
     assert_identical(&mut dmg, rows, cols, &mut term, st_off, "blink off 2");
@@ -163,14 +181,31 @@ fn damage_path_is_byte_identical_to_full_repaint() {
     assert_identical(&mut dmg, rows, cols, &mut term, st_on, "no-op gate 2");
 
     // --- Cursor-style override (frontend forces HollowBlock while unfocused). ---
-    let st_hollow = RState { cursor_override: Some(CursorStyle::HollowBlock), ..st_on };
-    assert_identical(&mut dmg, rows, cols, &mut term, st_hollow, "override hollow");
+    let st_hollow = RState {
+        cursor_override: Some(CursorStyle::HollowBlock),
+        ..st_on
+    };
+    assert_identical(
+        &mut dmg,
+        rows,
+        cols,
+        &mut term,
+        st_hollow,
+        "override hollow",
+    );
     // Back to no override.
     assert_identical(&mut dmg, rows, cols, &mut term, st_on, "override cleared");
 
     // --- Steady block cursor over a glyph (block "cut-out" path). ---
     term.process(b"\x1b[2 q\x1b[1;1H"); // steady block at home, over 'h' (or current)
-    assert_identical(&mut dmg, rows, cols, &mut term, st, "steady block over glyph");
+    assert_identical(
+        &mut dmg,
+        rows,
+        cols,
+        &mut term,
+        st,
+        "steady block over glyph",
+    );
 
     // --- DECTCEM hide / show cursor. ---
     term.process(b"\x1b[?25l"); // hide
@@ -323,6 +358,13 @@ fn warm_single_cell_typing_is_identical() {
             break;
         }
         term.process(&[ch]);
-        assert_identical(&mut dmg, rows, cols, &mut term, st, &format!("warm:type[{i}]"));
+        assert_identical(
+            &mut dmg,
+            rows,
+            cols,
+            &mut term,
+            st,
+            &format!("warm:type[{i}]"),
+        );
     }
 }

@@ -186,8 +186,7 @@ fn hardened_fails_closed_on_unknown_for_untrusted_origins() {
     // sparse high points), excluding the majors any default profile rules on.
     use super::selector::DispatchedSequence;
     let hardened = PolicyEngine::new(profiles::hardened());
-    let ruled: std::collections::BTreeSet<u32> =
-        [4, 8, 9, 52, 99, 777, 1337].into_iter().collect();
+    let ruled: std::collections::BTreeSet<u32> = [4, 8, 9, 52, 99, 777, 1337].into_iter().collect();
     let untrusted: Vec<OriginTag> = ALL_ORIGINS
         .into_iter()
         .filter(|&o| o != OriginTag::Host)
@@ -663,7 +662,11 @@ fn trust_rank_is_a_bijection_onto_0_through_7() {
     // gaps. A collision would make two origins indistinguishable to `dominates`.
     let mut ranks: Vec<u8> = ALL_ORIGINS.iter().map(|o| o.trust_rank()).collect();
     ranks.sort_unstable();
-    assert_eq!(ranks, (0..8).collect::<Vec<_>>(), "trust_rank must biject onto 0..8");
+    assert_eq!(
+        ranks,
+        (0..8).collect::<Vec<_>>(),
+        "trust_rank must biject onto 0..8"
+    );
 }
 
 #[test]
@@ -709,7 +712,10 @@ fn host_is_the_top_and_networkuntrusted_is_the_bottom() {
     // `origin_min = NetworkUntrusted` as the "allow from any origin" floor. If this
     // inverts, those rules silently change meaning — this is the tripwire.
     for &o in &ALL_ORIGINS {
-        assert!(OriginTag::Host.dominates(o), "Host must dominate {o:?} (top)");
+        assert!(
+            OriginTag::Host.dominates(o),
+            "Host must dominate {o:?} (top)"
+        );
         assert!(
             o.dominates(OriginTag::NetworkUntrusted),
             "{o:?} must dominate NetworkUntrusted (bottom / allow-all floor)"

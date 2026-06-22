@@ -127,3 +127,6 @@ objc2-app-kit = { version = "0.2", features = ["NSGraphics", "NSColorSpace", "NS
 # bindings; the base crates are no longer gated behind it.)
 objc2-foundation = { version = "0.2", features = ["NSString", "NSGeometry"] }
 objc2 = { version = "0.5" }
+
+[lints]
+workspace = true

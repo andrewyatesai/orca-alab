@@ -44,9 +44,15 @@ fn corpus(kind: &str) -> Vec<u8> {
 /// 24x80 viewport, no extra history, for alacritty_terminal's grid.
 struct Dims;
 impl alacritty_terminal::grid::Dimensions for Dims {
-    fn total_lines(&self) -> usize { 24 }
-    fn screen_lines(&self) -> usize { 24 }
-    fn columns(&self) -> usize { 80 }
+    fn total_lines(&self) -> usize {
+        24
+    }
+    fn screen_lines(&self) -> usize {
+        24
+    }
+    fn columns(&self) -> usize {
+        80
+    }
 }
 
 fn comparative(c: &mut Criterion) {
@@ -65,10 +71,10 @@ fn comparative(c: &mut Criterion) {
 
         // --- alacritty_terminal: full engine (parser + grid + state) ---
         group.bench_with_input(BenchmarkId::new("alacritty", kind), &data, |b, data| {
+            use alacritty_terminal::Term;
             use alacritty_terminal::event::VoidListener;
             use alacritty_terminal::term::Config;
             use alacritty_terminal::vte::ansi::Processor;
-            use alacritty_terminal::Term;
             let mut term = Term::new(Config::default(), &Dims, VoidListener);
             // Pin the defaulted Timeout type param (StdSyncHandler).
             let mut parser: Processor = Processor::new();
@@ -78,23 +84,31 @@ fn comparative(c: &mut Criterion) {
         });
 
         // --- vte: Alacritty's parser ONLY, no-op sink (floor / reference) ---
-        group.bench_with_input(BenchmarkId::new("vte-parser-only", kind), &data, |b, data| {
-            let mut parser = vte::Parser::new();
-            let mut sink = NullPerform;
-            b.iter(|| {
-                parser.advance(&mut sink, black_box(data));
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("vte-parser-only", kind),
+            &data,
+            |b, data| {
+                let mut parser = vte::Parser::new();
+                let mut sink = NullPerform;
+                b.iter(|| {
+                    parser.advance(&mut sink, black_box(data));
+                });
+            },
+        );
 
         // --- termwiz: WezTerm's parser ONLY, no-op callback (floor / reference) ---
         // WezTerm's full engine (wezterm-term) is not published on crates.io, so
         // only its parser layer is comparable in-process — a floor, like vte.
-        group.bench_with_input(BenchmarkId::new("termwiz-parser-only", kind), &data, |b, data| {
-            let mut parser = termwiz::escape::parser::Parser::new();
-            b.iter(|| {
-                parser.parse(black_box(data), |_action| {});
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("termwiz-parser-only", kind),
+            &data,
+            |b, data| {
+                let mut parser = termwiz::escape::parser::Parser::new();
+                b.iter(|| {
+                    parser.parse(black_box(data), |_action| {});
+                });
+            },
+        );
     }
     group.finish();
 }

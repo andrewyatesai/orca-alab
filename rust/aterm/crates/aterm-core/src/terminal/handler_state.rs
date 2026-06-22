@@ -145,7 +145,7 @@ impl CursorStateHandler<'_> {
         let n = params.first().copied().unwrap_or(1).max(1);
 
         match final_byte {
-            b'A' => self.grid.cursor_up(n), // Cursor Up - respects top margin
+            b'A' => self.grid.cursor_up(n),   // Cursor Up - respects top margin
             b'B' => self.grid.cursor_down(n), // Cursor Down - respects bottom margin
             b'e' => self.grid.line_position_relative(n), // VPR - clamps to screen edge, not margin
             b'C' | b'a' => {
@@ -586,7 +586,11 @@ impl CursorStateHandler<'_> {
     /// CSI Ps SP q
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetCursorStyle", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetCursorStyle",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     pub(super) fn handle_decscusr(&mut self, params: &[u16]) {
         let mode = params.first().copied().unwrap_or(0);

@@ -348,18 +348,39 @@ mod tests {
     /// Modifier aliases (super/win/meta → cmd; opt/option → alt; control → ctrl).
     #[test]
     fn modifier_aliases() {
-        assert_eq!(Chord::parse("super+a").unwrap(), Chord::parse("cmd+a").unwrap());
-        assert_eq!(Chord::parse("option+a").unwrap(), Chord::parse("alt+a").unwrap());
-        assert_eq!(Chord::parse("control+a").unwrap(), Chord::parse("ctrl+a").unwrap());
+        assert_eq!(
+            Chord::parse("super+a").unwrap(),
+            Chord::parse("cmd+a").unwrap()
+        );
+        assert_eq!(
+            Chord::parse("option+a").unwrap(),
+            Chord::parse("alt+a").unwrap()
+        );
+        assert_eq!(
+            Chord::parse("control+a").unwrap(),
+            Chord::parse("ctrl+a").unwrap()
+        );
     }
 
     /// Named keys parse to their `NamedKey`, with common aliases.
     #[test]
     fn named_keys_parse() {
-        assert_eq!(Chord::parse("ctrl+enter").unwrap().key, KeyToken::Named(NamedKey::Enter));
-        assert_eq!(Chord::parse("cmd+up").unwrap().key, KeyToken::Named(NamedKey::ArrowUp));
-        assert_eq!(Chord::parse("alt+f4").unwrap().key, KeyToken::Named(NamedKey::F4));
-        assert_eq!(Chord::parse("esc").unwrap().key, KeyToken::Named(NamedKey::Escape));
+        assert_eq!(
+            Chord::parse("ctrl+enter").unwrap().key,
+            KeyToken::Named(NamedKey::Enter)
+        );
+        assert_eq!(
+            Chord::parse("cmd+up").unwrap().key,
+            KeyToken::Named(NamedKey::ArrowUp)
+        );
+        assert_eq!(
+            Chord::parse("alt+f4").unwrap().key,
+            KeyToken::Named(NamedKey::F4)
+        );
+        assert_eq!(
+            Chord::parse("esc").unwrap().key,
+            KeyToken::Named(NamedKey::Escape)
+        );
     }
 
     /// Malformed chords are rejected with a reason (the loader warns + skips).
@@ -377,7 +398,10 @@ mod tests {
     #[test]
     fn action_names_parse() {
         assert_eq!(Action::parse("new_tab"), Some(Action::NewTab));
-        assert_eq!(Action::parse("split_horizontal"), Some(Action::SplitHorizontal));
+        assert_eq!(
+            Action::parse("split_horizontal"),
+            Some(Action::SplitHorizontal)
+        );
         assert_eq!(Action::parse("switch_tab_3"), Some(Action::SwitchTab(3)));
         assert_eq!(Action::parse("copy"), Some(Action::Copy));
         assert_eq!(Action::parse("unknown_action"), None);
@@ -402,7 +426,9 @@ mod tests {
     /// A bare modifier press (no key) is not a chord.
     #[test]
     fn bare_modifier_event_is_none() {
-        assert!(Chord::from_event(&WinitKey::Named(NamedKey::Shift), ModifiersState::SHIFT).is_none());
+        assert!(
+            Chord::from_event(&WinitKey::Named(NamedKey::Shift), ModifiersState::SHIFT).is_none()
+        );
     }
 
     /// An EMPTY table is a no-op map: `is_empty` is true and every lookup misses,
@@ -428,7 +454,10 @@ mod tests {
             kb.lookup(&ch("n"), ModifiersState::SUPER | ModifiersState::SHIFT),
             Some(Action::NewTab)
         );
-        assert_eq!(kb.lookup(&ch("a"), ModifiersState::CONTROL), Some(Action::Find));
+        assert_eq!(
+            kb.lookup(&ch("a"), ModifiersState::CONTROL),
+            Some(Action::Find)
+        );
         // An unbound chord misses → on_key falls through to its hardcoded match.
         assert_eq!(kb.lookup(&ch("t"), ModifiersState::SUPER), None);
     }
@@ -442,7 +471,10 @@ mod tests {
         table.insert("garbage++".to_string(), "find".to_string()); // bad chord
         table.insert("cmd+x".to_string(), "no_such_action".to_string()); // bad action
         let kb = Keybindings::from_config(Some(&table));
-        assert_eq!(kb.lookup(&ch("t"), ModifiersState::SUPER), Some(Action::NewTab));
+        assert_eq!(
+            kb.lookup(&ch("t"), ModifiersState::SUPER),
+            Some(Action::NewTab)
+        );
         assert_eq!(kb.lookup(&ch("x"), ModifiersState::SUPER), None); // skipped
         // Only the one valid binding survived.
         assert_eq!(kb.map.len(), 1);

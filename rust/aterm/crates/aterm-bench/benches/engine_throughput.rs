@@ -15,7 +15,9 @@ fn corpus(kind: &str) -> Vec<u8> {
         // Plain printable ASCII lines (the easy, fastest path).
         "ascii" => b"the quick brown fox jumps over the lazy dog 0123456789\r\n".to_vec(),
         // SGR-dense: lots of colour/style escape sequences (parser-heavy).
-        "sgr" => b"\x1b[1;38;5;202mfox\x1b[0m \x1b[4;48;5;19mbar\x1b[0m \x1b[7mx\x1b[27m\r\n".to_vec(),
+        "sgr" => {
+            b"\x1b[1;38;5;202mfox\x1b[0m \x1b[4;48;5;19mbar\x1b[0m \x1b[7mx\x1b[27m\r\n".to_vec()
+        }
         // CJK: wide graphemes (width + grapheme path).
         "cjk" => "日本語のテキストをここに置く、端末エンジンの処理速度を測る。\r\n"
             .as_bytes()

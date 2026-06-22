@@ -35,15 +35,17 @@ fn responses_accumulate_until_drained_then_buffer_is_empty() {
 #[test]
 fn da1_reports_vt420_with_capabilities() {
     // VT510 DA1 format: CSI ? Pc ; Ps.. c. 64/6/22/28 (VT420 level, selective
-    // erase, ANSI color, rectangular editing) is the engine's documented
-    // identity constant (handler_report.rs), not spec-forced values.
-    assert_eq!(resp(b"\x1b[c"), "\x1b[?64;6;22;28c");
+    // erase, ANSI color, rectangular editing) plus 4 (sixel) — the engine's
+    // documented identity constant (handler_report.rs). Code 4 is advertised
+    // because aterm-conformance builds aterm-core with the `sixel` feature on,
+    // so the live decode/render path exists.
+    assert_eq!(resp(b"\x1b[c"), "\x1b[?64;6;22;28;4c");
 }
 
 #[test]
 fn da1_with_explicit_zero_param_is_same_as_omitted() {
     // xterm: CSI 0 c is equivalent to CSI c (Ps = 0 or omitted requests DA1).
-    assert_eq!(resp(b"\x1b[0c"), "\x1b[?64;6;22;28c");
+    assert_eq!(resp(b"\x1b[0c"), "\x1b[?64;6;22;28;4c");
 }
 
 #[test]
@@ -185,7 +187,10 @@ fn decrqss_decscl_reports_level_and_fixed_7bit_c1() {
     // the report must come back 7-bit (;2). The set-side deliberately ignores the
     // C1 mode and the report mirrors the real, invariant state — not a placeholder.
     // Set VT520 (Pl = 65) with 8-bit C1 requested, then query DECSCL.
-    assert_eq!(resp(b"\x1b[65;1\"p\x1bP$q\"p\x1b\\"), "\x1bP1$r65;2\"p\x1b\\");
+    assert_eq!(
+        resp(b"\x1b[65;1\"p\x1bP$q\"p\x1b\\"),
+        "\x1bP1$r65;2\"p\x1b\\"
+    );
 }
 
 #[test]

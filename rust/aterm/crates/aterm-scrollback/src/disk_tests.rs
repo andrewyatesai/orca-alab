@@ -42,10 +42,7 @@ impl DiskColdTier {
 
     /// Test-only: invoke the page decompression path directly.
     #[cfg(test)]
-    fn decompress_page_for_test(
-        &self,
-        page_idx: usize,
-    ) -> Result<Vec<Line>, ScrollbackError> {
+    fn decompress_page_for_test(&self, page_idx: usize) -> Result<Vec<Line>, ScrollbackError> {
         self.decompress_page(page_idx)
     }
 }
@@ -1043,10 +1040,7 @@ fn disk_cold_decompress_external_truncation_returns_err() {
 
     // Simulate an out-of-band truncation by another process: shrink the file
     // to just the header while the mapping still records the original length.
-    let truncator = std::fs::OpenOptions::new()
-        .write(true)
-        .open(&path)
-        .unwrap();
+    let truncator = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
     truncator.set_len(HEADER_SIZE as u64).unwrap();
     drop(truncator);
 

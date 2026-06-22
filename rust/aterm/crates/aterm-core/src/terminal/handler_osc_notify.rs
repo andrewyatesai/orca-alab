@@ -391,7 +391,11 @@ mod tests {
         );
         term.process(b"\x1b]99;i=42:p=body:d=1;My Body\x07");
 
-        let got = captured.lock().expect("poisoned").clone().expect("dispatched");
+        let got = captured
+            .lock()
+            .expect("poisoned")
+            .clone()
+            .expect("dispatched");
         assert_eq!(got.id.as_deref(), Some("42"));
         assert_eq!(got.title.as_deref(), Some("My Title"));
         assert_eq!(got.body.as_deref(), Some("My Body"));
@@ -409,7 +413,11 @@ mod tests {
 
         term.process(b"\x1b]777;notify;Title Here;Body Here\x07");
 
-        let got = captured.lock().expect("poisoned").clone().expect("dispatched");
+        let got = captured
+            .lock()
+            .expect("poisoned")
+            .clone()
+            .expect("dispatched");
         assert_eq!(got.title.as_deref(), Some("Title Here"));
         assert_eq!(got.body.as_deref(), Some("Body Here"));
     }

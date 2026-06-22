@@ -160,7 +160,11 @@ pub fn reorder_cells(
     base: BaseDirection,
 ) -> Vec<usize> {
     let n = cell_chars.len();
-    debug_assert_eq!(n, is_wide_continuation.len(), "parallel slices must match length");
+    debug_assert_eq!(
+        n,
+        is_wide_continuation.len(),
+        "parallel slices must match length"
+    );
 
     // 1. Fold cells into logical characters: each non-continuation cell starts a
     //    character that also owns the immediately-following continuation cell.
@@ -279,7 +283,7 @@ pub fn reorder_from_levels(levels: &[u8]) -> Vec<usize> {
 
 #[inline]
 fn dir_of_level(level: u8) -> BidiClass {
-    if level % 2 == 0 { L } else { R }
+    if level.is_multiple_of(2) { L } else { R }
 }
 
 fn paragraph_level_from_classes(classes: &[BidiClass], base: BaseDirection) -> u8 {
@@ -511,7 +515,13 @@ pub fn bidi_class(c: char) -> BidiClass {
         // European number separators (+ -).
         0x002B | 0x002D | 0x207A | 0x207B | 0x208A | 0x208B | 0x2212 => ES,
         // European number terminators (# $ % currencies ° ± ‰).
-        0x0023..=0x0025 | 0x00A2..=0x00A5 | 0x00B0 | 0x00B1 | 0x066A | 0x2030 | 0x2031
+        0x0023..=0x0025
+        | 0x00A2..=0x00A5
+        | 0x00B0
+        | 0x00B1
+        | 0x066A
+        | 0x2030
+        | 0x2031
         | 0x20A0..=0x20BF => ET,
 
         // Arabic numbers (must precede the Arabic-letter block below).
@@ -553,8 +563,9 @@ pub fn bidi_class(c: char) -> BidiClass {
         0x0590..=0x05FF | 0x07C0..=0x089F | 0xFB1D..=0xFB4F => R,
 
         // Arabic letters (Arabic, Syriac-adjacent, extended, presentation forms).
-        0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0xFB50..=0xFDFF
-        | 0xFE70..=0xFEFF => AL,
+        0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFF => {
+            AL
+        }
 
         // Everything else: ASCII/Latin-1 punctuation & the general-punctuation /
         // symbol blocks are Other Neutral; all remaining letters/CJK are L.
@@ -564,7 +575,9 @@ pub fn bidi_class(c: char) -> BidiClass {
 
 fn default_class(u: u32) -> BidiClass {
     match u {
-        0x0021 | 0x0022 | 0x0026..=0x002A
+        0x0021
+        | 0x0022
+        | 0x0026..=0x002A
         | 0x003B..=0x0040
         | 0x005B..=0x0060
         | 0x007B..=0x007E
@@ -618,7 +631,10 @@ mod tests {
     #[test]
     fn pure_ltr_is_identity() {
         assert_eq!(reorder_str("abc", BaseDirection::Auto), vec![0, 1, 2]);
-        assert_eq!(reorder_str("hello world", BaseDirection::Auto), (0..11).collect::<Vec<_>>());
+        assert_eq!(
+            reorder_str("hello world", BaseDirection::Auto),
+            (0..11).collect::<Vec<_>>()
+        );
         assert!(!has_bidi(&chars("hello world 123")));
     }
 
@@ -634,13 +650,19 @@ mod tests {
         let t = chars("\u{05D0}\u{05D1}\u{05D2}"); // ALEF BET GIMEL
         assert!(has_bidi(&t));
         assert_eq!(paragraph_level(&t, BaseDirection::Auto), 1);
-        assert_eq!(reorder_visual_to_logical(&t, BaseDirection::Auto), vec![2, 1, 0]);
+        assert_eq!(
+            reorder_visual_to_logical(&t, BaseDirection::Auto),
+            vec![2, 1, 0]
+        );
     }
 
     #[test]
     fn arabic_pure_rtl_reverses() {
         let t = chars("\u{0627}\u{0628}"); // AR_ALEF AR_BEH
-        assert_eq!(reorder_visual_to_logical(&t, BaseDirection::Auto), vec![1, 0]);
+        assert_eq!(
+            reorder_visual_to_logical(&t, BaseDirection::Auto),
+            vec![1, 0]
+        );
     }
 
     #[test]
@@ -651,7 +673,10 @@ mod tests {
         assert_eq!(paragraph_level(&t, BaseDirection::Auto), 0);
         // logical: 0='a' 1=' ' 2=ALEF 3=BET
         // visual : a, space, BET, ALEF  → [0,1,3,2]
-        assert_eq!(reorder_visual_to_logical(&t, BaseDirection::Auto), vec![0, 1, 3, 2]);
+        assert_eq!(
+            reorder_visual_to_logical(&t, BaseDirection::Auto),
+            vec![0, 1, 3, 2]
+        );
     }
 
     #[test]
@@ -662,7 +687,10 @@ mod tests {
         // logical 0=ALEF 1='1' 2='2'; levels: ALEF=1, digits get level 2 (EN at
         // odd base → +1 = 2). L2 → visual [1,2,0] = "12" then ALEF.
         assert_eq!(resolve_levels(&t, BaseDirection::Auto), vec![1, 2, 2]);
-        assert_eq!(reorder_visual_to_logical(&t, BaseDirection::Auto), vec![1, 2, 0]);
+        assert_eq!(
+            reorder_visual_to_logical(&t, BaseDirection::Auto),
+            vec![1, 2, 0]
+        );
     }
 
     #[test]
@@ -682,7 +710,10 @@ mod tests {
         // N1 makes it R; whole run reverses together.
         let t = chars("\u{05D0}-\u{05D1}");
         assert_eq!(resolve_levels(&t, BaseDirection::Auto), vec![1, 1, 1]);
-        assert_eq!(reorder_visual_to_logical(&t, BaseDirection::Auto), vec![2, 1, 0]);
+        assert_eq!(
+            reorder_visual_to_logical(&t, BaseDirection::Auto),
+            vec![2, 1, 0]
+        );
     }
 
     #[test]
@@ -750,22 +781,35 @@ mod tests {
         let cc = vec![ALEF, CJK, ' '];
         let wide = vec![false, false, true];
         // visual: 中-lead(1), 中-cont(2), ALEF(0)
-        assert_eq!(reorder_cells(&cc, &wide, BaseDirection::Auto), vec![1, 2, 0]);
+        assert_eq!(
+            reorder_cells(&cc, &wide, BaseDirection::Auto),
+            vec![1, 2, 0]
+        );
     }
 
     #[test]
     fn reorder_cells_is_always_a_permutation() {
         let cases: &[(Vec<char>, Vec<bool>)] = &[
             (vec![CJK, ' ', ALEF, '1'], vec![false, true, false, false]),
-            (vec![ALEF, CJK, ' ', '!', 'a'], vec![false, false, true, false, false]),
+            (
+                vec![ALEF, CJK, ' ', '!', 'a'],
+                vec![false, false, true, false, false],
+            ),
             // "ab中 cd" as CELLS: 中's continuation space is an explicit cell.
-            (vec!['a', 'b', CJK, ' ', ' ', 'c', 'd'], vec![false, false, false, true, false, false, false]),
+            (
+                vec!['a', 'b', CJK, ' ', ' ', 'c', 'd'],
+                vec![false, false, false, true, false, false, false],
+            ),
         ];
         for (cc, wide) in cases {
             let order = reorder_cells(cc, wide, BaseDirection::Auto);
             let mut seen = order.clone();
             seen.sort_unstable();
-            assert_eq!(seen, (0..cc.len()).collect::<Vec<_>>(), "not a permutation: {cc:?}");
+            assert_eq!(
+                seen,
+                (0..cc.len()).collect::<Vec<_>>(),
+                "not a permutation: {cc:?}"
+            );
         }
     }
 
@@ -784,12 +828,21 @@ mod tests {
     #[test]
     fn permutation_is_always_valid() {
         // Whatever the input, the result must be a permutation of 0..n.
-        for s in ["abc", "\u{05D0}\u{05D1}1 2", "a\u{0628}c\u{0627}!", "12.34 \u{05D0}"] {
+        for s in [
+            "abc",
+            "\u{05D0}\u{05D1}1 2",
+            "a\u{0628}c\u{0627}!",
+            "12.34 \u{05D0}",
+        ] {
             let t = chars(s);
             let order = reorder_visual_to_logical(&t, BaseDirection::Auto);
             let mut seen = order.clone();
             seen.sort_unstable();
-            assert_eq!(seen, (0..t.len()).collect::<Vec<_>>(), "not a permutation for {s:?}");
+            assert_eq!(
+                seen,
+                (0..t.len()).collect::<Vec<_>>(),
+                "not a permutation for {s:?}"
+            );
         }
     }
 
@@ -799,7 +852,10 @@ mod tests {
         // never reorder (no odd level), so it stays in logical order.
         let t = chars("1+2=3");
         assert!(!has_bidi(&t));
-        assert_eq!(reorder_visual_to_logical(&t, BaseDirection::Auto), vec![0, 1, 2, 3, 4]);
+        assert_eq!(
+            reorder_visual_to_logical(&t, BaseDirection::Auto),
+            vec![0, 1, 2, 3, 4]
+        );
     }
 
     #[test]
@@ -821,7 +877,10 @@ mod tests {
         // digits keep logical order and sit to the LEFT of the letter visually.
         let t = chars("\u{0627}\u{0660}\u{0661}"); // ALEF, Arabic-Indic 0, 1
         assert_eq!(resolve_levels(&t, BaseDirection::Auto), vec![1, 2, 2]);
-        assert_eq!(reorder_visual_to_logical(&t, BaseDirection::Auto), vec![1, 2, 0]);
+        assert_eq!(
+            reorder_visual_to_logical(&t, BaseDirection::Auto),
+            vec![1, 2, 0]
+        );
     }
 
     #[test]
@@ -853,9 +912,9 @@ mod proptests {
     /// directional marks.
     fn bidi_char() -> impl Strategy<Value = char> {
         prop::sample::select(vec![
-            'a', 'Z', '5', '0', '+', '-', '$', '%', ',', '.', ':', '/', ' ', '\t', '\n',
-            '!', '(', ')', '\u{05D0}', '\u{05D1}', '\u{05EA}', '\u{0627}', '\u{0628}',
-            '\u{0660}', '\u{0669}', '\u{200F}', '\u{200E}',
+            'a', 'Z', '5', '0', '+', '-', '$', '%', ',', '.', ':', '/', ' ', '\t', '\n', '!', '(',
+            ')', '\u{05D0}', '\u{05D1}', '\u{05EA}', '\u{0627}', '\u{0628}', '\u{0660}',
+            '\u{0669}', '\u{200F}', '\u{200E}',
         ])
     }
 

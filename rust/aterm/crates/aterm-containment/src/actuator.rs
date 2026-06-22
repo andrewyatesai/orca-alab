@@ -195,7 +195,11 @@ pub fn decide(mode: ContainmentMode) -> SpawnDecision {
     } else {
         None
     };
-    debug_assert_eq!(sbpl.is_some(), os_sandbox, "sbpl must be Some iff os_sandbox");
+    debug_assert_eq!(
+        sbpl.is_some(),
+        os_sandbox,
+        "sbpl must be Some iff os_sandbox"
+    );
 
     // Audit the OS-sandbox posture for the chosen mode through the containment
     // audit target so operators see one stream.
@@ -221,15 +225,22 @@ pub fn decide(mode: ContainmentMode) -> SpawnDecision {
     }
     match process_cap {
         // Every currently-defined capability permits the INITIAL shell.
-        ProcessCapability::Full
-        | ProcessCapability::Restricted
-        | ProcessCapability::NoFork => {
-            SpawnDecision::Permit { mode, os_sandbox, sbpl }
+        ProcessCapability::Full | ProcessCapability::Restricted | ProcessCapability::NoFork => {
+            SpawnDecision::Permit {
+                mode,
+                os_sandbox,
+                sbpl,
+            }
         }
         // Defensive default: any future, more-restrictive variant fails closed.
         #[allow(unreachable_patterns)]
         _ => {
-            log_denial(SUBSYSTEM, "spawn initial shell", mode, "process capability denies fork/exec");
+            log_denial(
+                SUBSYSTEM,
+                "spawn initial shell",
+                mode,
+                "process capability denies fork/exec",
+            );
             SpawnDecision::Deny { mode }
         }
     }
@@ -297,7 +308,11 @@ mod tests {
         ] {
             let expect_os = network_sandbox_actuated(mode);
             match decide(mode) {
-                SpawnDecision::Permit { mode: m, os_sandbox, sbpl } => {
+                SpawnDecision::Permit {
+                    mode: m,
+                    os_sandbox,
+                    sbpl,
+                } => {
                     assert_eq!(m, mode);
                     assert_eq!(os_sandbox, expect_os, "os_sandbox posture for {mode}");
                     assert_eq!(
@@ -329,7 +344,9 @@ mod tests {
             ContainmentMode::Master,
         ] {
             match decide(mode) {
-                SpawnDecision::Permit { os_sandbox, sbpl, .. } => {
+                SpawnDecision::Permit {
+                    os_sandbox, sbpl, ..
+                } => {
                     assert!(!os_sandbox, "{mode} must not be OS-sandboxed");
                     assert!(sbpl.is_none(), "{mode} must carry no SBPL (no wrap)");
                 }
@@ -340,13 +357,20 @@ mod tests {
 
     #[test]
     fn decision_is_permitted_helper_matches_variant() {
-        assert!(SpawnDecision::Permit {
-            mode: ContainmentMode::User,
-            os_sandbox: false,
-            sbpl: None,
-        }
-        .is_permitted());
-        assert!(!SpawnDecision::Deny { mode: ContainmentMode::Containment }.is_permitted());
+        assert!(
+            SpawnDecision::Permit {
+                mode: ContainmentMode::User,
+                os_sandbox: false,
+                sbpl: None,
+            }
+            .is_permitted()
+        );
+        assert!(
+            !SpawnDecision::Deny {
+                mode: ContainmentMode::Containment
+            }
+            .is_permitted()
+        );
     }
 
     // ===================================================================
@@ -382,7 +406,12 @@ mod tests {
 
         // The exact profile the actuator hands the launcher for Containment.
         let sbpl = decide(ContainmentMode::Containment);
-        let SpawnDecision::Permit { os_sandbox: true, sbpl: Some(profile), .. } = sbpl else {
+        let SpawnDecision::Permit {
+            os_sandbox: true,
+            sbpl: Some(profile),
+            ..
+        } = sbpl
+        else {
             panic!("Containment on macOS must actuate the network sandbox; got {sbpl:?}");
         };
         // The full per-user profile begins with the exact network deny (it may also
@@ -465,7 +494,8 @@ mod tests {
         let path = dir.join(format!("aterm-sbpl-enforce-{}.txt", std::process::id()));
         {
             let mut f = std::fs::File::create(&path).expect("create temp file");
-            f.write_all(b"SECRET-ENFORCE-PROBE").expect("write temp file");
+            f.write_all(b"SECRET-ENFORCE-PROBE")
+                .expect("write temp file");
         }
         let canon = std::fs::canonicalize(&path).expect("canonicalize temp path");
         let canon_s = canon.to_str().expect("utf8 path").to_string();
@@ -484,9 +514,8 @@ mod tests {
 
         // SANDBOXED: deny read of the canonical path → cat fails with EPERM, and
         // the kernel/`cat` reports "Operation not permitted" on stderr.
-        let profile = format!(
-            "(version 1)(allow default)(deny file-read* (literal \"{canon_s}\"))"
-        );
+        let profile =
+            format!("(version 1)(allow default)(deny file-read* (literal \"{canon_s}\"))");
         let sandboxed = sandbox_wrap(&profile, "/bin/cat", &[canon_s.as_str()])
             .output()
             .expect("run cat under sandbox-exec");
@@ -523,7 +552,12 @@ mod tests {
     #[test]
     fn shell_compat_full_containment_profile_keeps_a_normal_shell_working() {
         let decision = decide(ContainmentMode::Containment);
-        let SpawnDecision::Permit { os_sandbox: true, sbpl: Some(profile), .. } = decision else {
+        let SpawnDecision::Permit {
+            os_sandbox: true,
+            sbpl: Some(profile),
+            ..
+        } = decision
+        else {
             panic!("Containment on macOS must actuate the OS sandbox; got {decision:?}");
         };
         // It is the network deny PLUS a file deny — never a blanket FS deny.
@@ -535,7 +569,10 @@ mod tests {
         let out = sandbox_wrap(
             &profile,
             "/bin/sh",
-            &["-c", "echo hi; pwd >/dev/null; ls / >/dev/null; cat /etc/hosts >/dev/null && echo done"],
+            &[
+                "-c",
+                "echo hi; pwd >/dev/null; ls / >/dev/null; cat /etc/hosts >/dev/null && echo done",
+            ],
         )
         .output()
         .expect("run /bin/sh under the full Containment profile");
@@ -578,7 +615,12 @@ mod tests {
         }
 
         let decision = decide(ContainmentMode::Containment);
-        let SpawnDecision::Permit { os_sandbox: true, sbpl: Some(profile), .. } = decision else {
+        let SpawnDecision::Permit {
+            os_sandbox: true,
+            sbpl: Some(profile),
+            ..
+        } = decision
+        else {
             panic!("Containment on macOS must actuate the OS sandbox; got {decision:?}");
         };
 
@@ -591,7 +633,8 @@ mod tests {
         let secret_probe = secret_dir.join(format!("aterm_probe_{}", std::process::id()));
         {
             let mut f = std::fs::File::create(&secret_probe).expect("create secret probe");
-            f.write_all(b"SECRET-DENY-PROBE").expect("write secret probe");
+            f.write_all(b"SECRET-DENY-PROBE")
+                .expect("write secret probe");
         }
         let secret_probe_s = secret_probe.to_str().expect("utf8 path").to_string();
 
@@ -624,7 +667,10 @@ mod tests {
             let _ = std::fs::remove_dir(&secret_dir);
         }
 
-        assert!(control_ok, "CONTROL FAILED: unsandboxed cat must read the probe");
+        assert!(
+            control_ok,
+            "CONTROL FAILED: unsandboxed cat must read the probe"
+        );
         // (a) secret denied with EPERM.
         assert!(
             !denied.status.success(),

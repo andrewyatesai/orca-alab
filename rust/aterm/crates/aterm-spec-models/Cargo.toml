@@ -17,3 +17,6 @@ description = "TLA+ models of aterm's kernel/security/concurrency invariants (RO
 # fatal under ATERM_REQUIRE_TRUST=1). Test-only so the production crate stays
 # dep-free — the .tla/.cfg files remain the whole crate.
 aterm-spec = { workspace = true }
+
+[lints]
+workspace = true

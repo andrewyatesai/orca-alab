@@ -9,9 +9,6 @@ license.workspace = true
 repository.workspace = true
 description = "Search primitives for aterm terminal content"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [features]
 default = []
 # Enables regex-mode scrollback search (SearchIndex::search_*_opts with
@@ -27,3 +24,6 @@ aterm-hash = { workspace = true }
 aterm-log = { workspace = true }
 aterm-grapheme = { workspace = true }
 regex = { workspace = true, optional = true }
+
+[lints]
+workspace = true

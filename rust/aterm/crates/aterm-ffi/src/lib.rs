@@ -27,7 +27,7 @@
 //! pointer-returning functions, `()` for the rest) instead of unwinding. The
 //! success-path signature and semantics of each function are unchanged.
 
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 
 use aterm_core::terminal::Terminal;
 use aterm_ffi_types::aterm_ffi_catch_unwind;
@@ -152,7 +152,11 @@ pub unsafe extern "C" fn aterm_engine_free(engine: *mut Terminal) {
 /// Convert an owned `String` to a heap C string. Interior NULs (impossible in a C
 /// string) are stripped so the conversion never fails; the screen text is UTF-8.
 fn to_c_string(s: String) -> *mut c_char {
-    let cleaned = if s.as_bytes().contains(&0) { s.replace('\0', "") } else { s };
+    let cleaned = if s.as_bytes().contains(&0) {
+        s.replace('\0', "")
+    } else {
+        s
+    };
     CString::new(cleaned).map_or(std::ptr::null_mut(), CString::into_raw)
 }
 
@@ -175,14 +179,18 @@ mod tests {
 
             let screen = aterm_engine_visible_content(eng);
             assert!(!screen.is_null());
-            let text = std::ffi::CStr::from_ptr(screen).to_string_lossy().into_owned();
+            let text = std::ffi::CStr::from_ptr(screen)
+                .to_string_lossy()
+                .into_owned();
             assert!(text.contains("hello"), "screen was: {text:?}");
             assert!(text.contains("world"), "screen was: {text:?}");
             aterm_string_free(screen);
 
             let row0 = aterm_engine_row_text(eng, 0);
             assert!(!row0.is_null());
-            let r0 = std::ffi::CStr::from_ptr(row0).to_string_lossy().into_owned();
+            let r0 = std::ffi::CStr::from_ptr(row0)
+                .to_string_lossy()
+                .into_owned();
             assert!(r0.contains("helloworld"), "row 0 was: {r0:?}");
             aterm_string_free(row0);
 
@@ -222,7 +230,10 @@ mod tests {
             assert!(!eng.is_null());
             aterm_engine_feed(eng, std::ptr::null(), 5); // no-op: null ptr guard
             let screen = aterm_engine_visible_content(eng);
-            assert!(!screen.is_null(), "engine must stay usable after a null-ptr feed");
+            assert!(
+                !screen.is_null(),
+                "engine must stay usable after a null-ptr feed"
+            );
             aterm_string_free(screen);
             aterm_engine_free(eng);
         }
@@ -248,7 +259,10 @@ mod tests {
                 assert!(!p.is_null(), "row {r} should be in range");
                 aterm_string_free(p);
             }
-            assert!(aterm_engine_row_text(eng, 3).is_null(), "row == rows is out of range");
+            assert!(
+                aterm_engine_row_text(eng, 3).is_null(),
+                "row == rows is out of range"
+            );
             assert!(
                 aterm_engine_row_text(eng, usize::MAX).is_null(),
                 "a huge row index must return null, not OOB-read or panic",
@@ -274,7 +288,9 @@ mod tests {
 
             let screen = aterm_engine_visible_content(eng);
             assert!(!screen.is_null());
-            let text = std::ffi::CStr::from_ptr(screen).to_string_lossy().into_owned();
+            let text = std::ffi::CStr::from_ptr(screen)
+                .to_string_lossy()
+                .into_owned();
             assert!(text.contains("abcdef"), "screen after resize was: {text:?}");
             aterm_string_free(screen);
 
@@ -322,6 +338,9 @@ mod tests {
         let ptr: *mut c_char = aterm_ffi_catch_unwind!(std::ptr::null_mut(), {}, {
             panic!("boom from a pointer-returning FFI body");
         });
-        assert!(ptr.is_null(), "panicking FFI body must yield the null sentinel");
+        assert!(
+            ptr.is_null(),
+            "panicking FFI body must yield the null sentinel"
+        );
     }
 }

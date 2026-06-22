@@ -79,13 +79,19 @@ pub struct BellRateLimiter {
 impl BellRateLimiter {
     /// A gate that allows at most one firing per `interval`.
     pub fn new(interval: Duration) -> Self {
-        Self { interval, last: None }
+        Self {
+            interval,
+            last: None,
+        }
     }
 
     /// Whether a beep may fire at `now`; records the firing when allowed.
     /// The first call always fires.
     pub fn try_fire(&mut self, now: Instant) -> bool {
-        if self.last.is_some_and(|l| now.duration_since(l) < self.interval) {
+        if self
+            .last
+            .is_some_and(|l| now.duration_since(l) < self.interval)
+        {
             return false;
         }
         self.last = Some(now);

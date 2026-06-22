@@ -99,7 +99,12 @@ pub fn layout_segments(cols: u16, tab_count: usize, _active: usize) -> Vec<TabSe
             // Draw a close `x` only when the segment is wide enough to also show a
             // title; its column is the last cell minus the trailing pad.
             let close_col = (seg_w >= MIN_SEG_WITH_CLOSE).then(|| end - 2);
-            segs.push(TabSegment { start_col: start, end_col: end, close_col, kind: TabHit::Select(i) });
+            segs.push(TabSegment {
+                start_col: start,
+                end_col: end,
+                close_col,
+                kind: TabHit::Select(i),
+            });
             x = end;
         }
     }
@@ -124,10 +129,10 @@ pub fn layout_segments(cols: u16, tab_count: usize, _active: usize) -> Vec<TabSe
 pub fn hit_test(segments: &[TabSegment], col: u16) -> Option<TabHit> {
     for seg in segments {
         if col >= seg.start_col && col < seg.end_col {
-            if let (Some(cx), TabHit::Select(i)) = (seg.close_col, seg.kind) {
-                if col == cx {
-                    return Some(TabHit::Close(i));
-                }
+            if let (Some(cx), TabHit::Select(i)) = (seg.close_col, seg.kind)
+                && col == cx
+            {
+                return Some(TabHit::Close(i));
             }
             return Some(seg.kind);
         }
@@ -177,7 +182,13 @@ struct StripColors {
 /// The `strip_contrast_meets_wcag_aa` test guards every builtin so a light theme that
 /// breaks chrome contrast is caught at add-time.
 fn strip_colors(theme: Theme) -> StripColors {
-    let rgb = |c: u32| [((c >> 16) & 0xff) as u8, ((c >> 8) & 0xff) as u8, (c & 0xff) as u8];
+    let rgb = |c: u32| {
+        [
+            ((c >> 16) & 0xff) as u8,
+            ((c >> 8) & 0xff) as u8,
+            (c & 0xff) as u8,
+        ]
+    };
     // Linear blend of two packed-RGB theme colours: `a` toward `b` by `t` ∈ [0,1].
     let blend = |a: u32, b: u32, t: f32| -> [u8; 3] {
         let (a, b) = (rgb(a), rgb(b));
@@ -209,7 +220,12 @@ fn strip_cell(ch: char, colors: &StripColors, role: StripRole) -> RenderCell {
     // seam between the active tab and the terminal content directly below it.
     let (fg, bg, bold, underline) = match role {
         StripRole::Active => (colors.fg, colors.active_bg, false, UnderlineStyle::Single),
-        StripRole::Inactive => (colors.inactive_fg, colors.body_bg, false, UnderlineStyle::None),
+        StripRole::Inactive => (
+            colors.inactive_fg,
+            colors.body_bg,
+            false,
+            UnderlineStyle::None,
+        ),
         StripRole::NewTab => (colors.fg, colors.body_bg, false, UnderlineStyle::None),
     };
     RenderCell {
@@ -278,7 +294,11 @@ pub fn paint_strip(
     }
     for seg in segments {
         let is_active = matches!(seg.kind, TabHit::Select(i) if i == active);
-        let tab_role = if is_active { StripRole::Active } else { StripRole::Inactive };
+        let tab_role = if is_active {
+            StripRole::Active
+        } else {
+            StripRole::Inactive
+        };
         let put = |row: &mut [RenderCell], col: u16, ch: char, role: StripRole| {
             if let Some(slot) = row.get_mut(col as usize) {
                 *slot = strip_cell(ch, &colors, role);
@@ -300,13 +320,11 @@ pub fn paint_strip(
                 let avail = title_end.saturating_sub(title_start);
                 let raw = titles.get(i).map(String::as_str).unwrap_or("");
                 let label = truncate_title(raw, avail as usize);
-                let mut col = title_start;
-                for ch in label.chars() {
+                for (col, ch) in (title_start..).zip(label.chars()) {
                     if col >= title_end {
                         break;
                     }
                     put(row, col, strip_char(ch), tab_role);
-                    col += 1;
                 }
                 if let Some(cx) = seg.close_col {
                     // ✕ (U+2715 MULTIPLICATION X) reads as a real close affordance vs.
@@ -380,10 +398,16 @@ mod tests {
     #[test]
     fn three_tabs_disjoint_ordered() {
         let segs = layout_segments(60, 3, 1);
-        let tabs: Vec<_> = segs.iter().filter(|s| matches!(s.kind, TabHit::Select(_))).collect();
+        let tabs: Vec<_> = segs
+            .iter()
+            .filter(|s| matches!(s.kind, TabHit::Select(_)))
+            .collect();
         assert_eq!(tabs.len(), 3);
         for w in tabs.windows(2) {
-            assert!(w[0].end_col <= w[1].start_col, "segments are disjoint + ordered");
+            assert!(
+                w[0].end_col <= w[1].start_col,
+                "segments are disjoint + ordered"
+            );
         }
         assert!(matches!(segs.last().unwrap().kind, TabHit::NewTab));
     }
@@ -415,7 +439,10 @@ mod tests {
     fn narrow_tab_drops_close_but_selectable() {
         // 9 cols, 3 tabs → each tab is (9-3)/3 = 2 cells wide: too narrow for a close x.
         let segs = layout_segments(9, 3, 0);
-        let tabs: Vec<_> = segs.iter().filter(|s| matches!(s.kind, TabHit::Select(_))).collect();
+        let tabs: Vec<_> = segs
+            .iter()
+            .filter(|s| matches!(s.kind, TabHit::Select(_)))
+            .collect();
         assert!(!tabs.is_empty());
         for t in &tabs {
             assert!(t.close_col.is_none(), "narrow tab has no close x: {t:?}");
@@ -461,14 +488,23 @@ mod tests {
         let t0 = &segs[0];
         // Tab 0 is active → a light raised button (bg stepped above the body),
         // full-strength fg text, with an underline accent (not bold).
-        assert_ne!(row[t0.start_col as usize].bg, bg_rgb, "active tab bg is raised above the body");
-        assert_eq!(row[t0.start_col as usize].fg, fg_rgb, "active tab fg = full-strength theme fg");
+        assert_ne!(
+            row[t0.start_col as usize].bg, bg_rgb,
+            "active tab bg is raised above the body"
+        );
+        assert_eq!(
+            row[t0.start_col as usize].fg, fg_rgb,
+            "active tab fg = full-strength theme fg"
+        );
         assert_eq!(
             row[t0.start_col as usize].underline,
             UnderlineStyle::Single,
             "active tab carries the underline accent"
         );
-        assert!(!row[t0.start_col as usize].bold, "active tab text is not bold (lighter, native-style)");
+        assert!(
+            !row[t0.start_col as usize].bold,
+            "active tab text is not bold (lighter, native-style)"
+        );
         // The title 'z','s','h' appears starting at the leading pad.
         let ts = (t0.start_col + 1) as usize;
         assert_eq!(row[ts].ch, 'z');
@@ -480,9 +516,18 @@ mod tests {
         // Tab 1 is inactive → recedes onto the body background (distinct from the
         // active button) and is NOT bold.
         let t1 = &segs[1];
-        assert_eq!(row[t1.start_col as usize].bg, bg_rgb, "inactive tab bg = body (recedes)");
-        assert_ne!(row[t1.start_col as usize].bg, row[t0.start_col as usize].bg, "inactive differs from active");
-        assert!(!row[t1.start_col as usize].bold, "inactive tab text is not bold");
+        assert_eq!(
+            row[t1.start_col as usize].bg, bg_rgb,
+            "inactive tab bg = body (recedes)"
+        );
+        assert_ne!(
+            row[t1.start_col as usize].bg, row[t0.start_col as usize].bg,
+            "inactive differs from active"
+        );
+        assert!(
+            !row[t1.start_col as usize].bold,
+            "inactive tab text is not bold"
+        );
     }
 
     /// A long title is truncated INSIDE the segment, never overflowing into the
@@ -537,12 +582,23 @@ mod tests {
         for name in aterm_types::scheme::builtin_names() {
             let s = aterm_types::scheme::builtin(name).expect("builtin exists");
             let tp = s.to_theme_parts();
-            let theme = Theme { fg: tp.fg, bg: tp.bg, cursor: tp.cursor, selection: tp.selection };
+            let theme = Theme {
+                fg: tp.fg,
+                bg: tp.bg,
+                cursor: tp.cursor,
+                selection: tp.selection,
+            };
             let c = strip_colors(theme);
             let active = rgb(c.fg).contrast(rgb(c.active_bg));
             let new_tab = rgb(c.fg).contrast(rgb(c.body_bg));
-            assert!(active >= 3.0, "{name}: active-tab text contrast {active:.2} < 3.0:1");
-            assert!(new_tab >= 3.0, "{name}: '+' affordance contrast {new_tab:.2} < 3.0:1");
+            assert!(
+                active >= 3.0,
+                "{name}: active-tab text contrast {active:.2} < 3.0:1"
+            );
+            assert!(
+                new_tab >= 3.0,
+                "{name}: '+' affordance contrast {new_tab:.2} < 3.0:1"
+            );
         }
     }
 }

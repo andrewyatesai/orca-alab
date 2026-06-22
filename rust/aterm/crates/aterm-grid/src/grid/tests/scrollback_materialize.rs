@@ -106,16 +106,20 @@ fn materialize_drops_spacer_but_keeps_protected_neighbor() {
     grid.row_mut(0)
         .unwrap()
         .set(0, Cell::with_style('世', fg, bg, CellFlags::WIDE));
-    grid.row_mut(0)
-        .unwrap()
-        .set(1, Cell::with_style(' ', fg, bg, CellFlags::WIDE_CONTINUATION));
+    grid.row_mut(0).unwrap().set(
+        1,
+        Cell::with_style(' ', fg, bg, CellFlags::WIDE_CONTINUATION),
+    );
     grid.row_mut(0)
         .unwrap()
         .set(2, Cell::with_style('!', fg, bg, CellFlags::PROTECTED));
     let row = grid.row(0).unwrap();
     let line = Grid::row_to_line_static(row);
     let text: String = line.to_string().chars().take_while(|c| *c != ' ').collect();
-    assert_eq!(text, "世!", "drop the real spacer, keep the protected glyph");
+    assert_eq!(
+        text, "世!",
+        "drop the real spacer, keep the protected glyph"
+    );
 }
 
 #[test]

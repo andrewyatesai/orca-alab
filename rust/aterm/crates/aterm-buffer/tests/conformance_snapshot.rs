@@ -18,7 +18,10 @@ use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 
 fn full_range() -> Range {
-    Range { start: LineId(0), end: LineId(u64::MAX) }
+    Range {
+        start: LineId(0),
+        end: LineId(u64::MAX),
+    }
 }
 
 #[test]
@@ -40,17 +43,25 @@ fn real_snapshot_isolated_from_later_writes() {
 
     // Isolation: the snapshot's view is unchanged by the later write, and differs
     // from the surface's new view. In the derived model this is exactly `leaked = 0`.
-    assert_eq!(snap_after, captured, "snapshot view must be isolated from later writes (no leak)");
+    assert_eq!(
+        snap_after, captured,
+        "snapshot view must be isolated from later writes (no leak)"
+    );
     assert_ne!(
         snap_after, surface_now,
         "the later write is visible on the surface but NOT in the isolated snapshot"
     );
-    assert_eq!(snap_at, 2, "snapshot captured the head at snapshot time (seq = 2)");
+    assert_eq!(
+        snap_at, 2,
+        "snapshot captured the head at snapshot time (seq = 2)"
+    );
     assert_eq!(s.seq().0, 3, "the surface advanced past the snapshot");
 
     // Tie the observed no-leak outcome to the model's actual invariant.
     let observed: BTreeMap<&'static str, i64> =
-        [("seq", s.seq().0 as i64), ("snapped", 1), ("leaked", 0)].into_iter().collect();
+        [("seq", s.seq().0 as i64), ("snapped", 1), ("leaked", 0)]
+            .into_iter()
+            .collect();
     assert!(
         m.check_invariant("SnapshotIsolated", &observed),
         "the observed no-leak state satisfies the model's SnapshotIsolated invariant"

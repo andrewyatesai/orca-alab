@@ -13,7 +13,7 @@
 //! returned event (the legacy drop-on-evict path) DOES lose seqs — i.e. the seam
 //! is load-bearing, not decorative.
 
-use aterm_buffer::{BlobId, Event, EventLog, KeyframeId, Op, Ticks, MAX_LOG_EVENTS};
+use aterm_buffer::{BlobId, Event, EventLog, KeyframeId, MAX_LOG_EVENTS, Op, Ticks};
 
 /// `append_at` assigns a monotone gap-free Seq and records the tick + op handle.
 #[test]
@@ -24,8 +24,15 @@ fn append_at_records_seq_tick_and_op() {
     let (s3, ev3) = log.append_at(Op::Resize { rows: 24, cols: 80 }, Ticks(150));
     let (s4, _ev4) = log.append_at(Op::Keyframe(KeyframeId(1)), Ticks(200));
 
-    assert_eq!((s1.0, s2.0, s3.0, s4.0), (1, 2, 3, 4), "monotone gap-free seq");
-    assert!(ev1.is_none() && ev2.is_none() && ev3.is_none(), "no eviction under capacity");
+    assert_eq!(
+        (s1.0, s2.0, s3.0, s4.0),
+        (1, 2, 3, 4),
+        "monotone gap-free seq"
+    );
+    assert!(
+        ev1.is_none() && ev2.is_none() && ev3.is_none(),
+        "no eviction under capacity"
+    );
 
     let live: Vec<&Event> = log.live().collect();
     assert_eq!(live.len(), 4);
@@ -56,12 +63,19 @@ fn append_at_spills_every_evicted_event_no_silent_loss() {
 
     // Live ring saturates at the cap; the rest spilled to the tier.
     let live: Vec<Event> = log.live().cloned().collect();
-    assert_eq!(live.len(), MAX_LOG_EVENTS, "live ring saturates at MAX_LOG_EVENTS");
-    assert_eq!(tiered.len(), overflow, "every over-cap event was spilled (not dropped)");
+    assert_eq!(
+        live.len(),
+        MAX_LOG_EVENTS,
+        "live ring saturates at MAX_LOG_EVENTS"
+    );
+    assert_eq!(
+        tiered.len(),
+        overflow,
+        "every over-cap event was spilled (not dropped)"
+    );
 
     // NoSilentLoss: tiered (oldest) then live (newest) == 1..=total, contiguous.
-    let mut all_seqs: Vec<u64> =
-        tiered.iter().chain(live.iter()).map(|e| e.seq.0).collect();
+    let mut all_seqs: Vec<u64> = tiered.iter().chain(live.iter()).map(|e| e.seq.0).collect();
     let reconstructed = all_seqs.clone();
     all_seqs.sort_unstable();
     all_seqs.dedup();
@@ -74,7 +88,11 @@ fn append_at_spills_every_evicted_event_no_silent_loss() {
         "tiered++live is the contiguous spine in order"
     );
     // Ticks rode along on the spilled events too (replay needs them).
-    assert_eq!(tiered[0].ts, Ticks(0), "oldest spilled event keeps its tick");
+    assert_eq!(
+        tiered[0].ts,
+        Ticks(0),
+        "oldest spilled event keeps its tick"
+    );
 }
 
 /// NEGATIVE CONTROL: the spill seam is load-bearing. A caller that DROPS the
@@ -94,7 +112,11 @@ fn dropping_the_evicted_event_loses_seqs_control() {
     // The oldest `overflow` seqs are gone from the live ring and (since we
     // dropped them) from anywhere — exactly the loss the spill seam prevents.
     assert_eq!(live.len(), MAX_LOG_EVENTS);
-    assert_eq!(live.first().unwrap().seq.0, overflow as u64 + 1, "oldest live seq advanced past the dropped prefix");
+    assert_eq!(
+        live.first().unwrap().seq.0,
+        overflow as u64 + 1,
+        "oldest live seq advanced past the dropped prefix"
+    );
     assert!(
         !live.iter().any(|e| e.seq.0 <= overflow as u64),
         "the dropped prefix is unrecoverable without the spill seam (control)"

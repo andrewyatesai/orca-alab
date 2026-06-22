@@ -83,10 +83,10 @@ fn engine_memory_comparison() {
     // --- fresh engines (the base grid allocation) ---
     let (aterm_fresh, aterm_t) = retained(|| aterm_core::terminal::Terminal::new(24, 80));
     let (alac_fresh, (alac_t, alac_p)) = retained(|| {
+        use alacritty_terminal::Term;
         use alacritty_terminal::event::VoidListener;
         use alacritty_terminal::term::Config;
         use alacritty_terminal::vte::ansi::Processor;
-        use alacritty_terminal::Term;
         let t = Term::new(Config::default(), &Dims, VoidListener);
         let p: Processor = Processor::new();
         (t, p)
@@ -101,10 +101,10 @@ fn engine_memory_comparison() {
         t
     });
     let (alac_full, holder) = retained(|| {
+        use alacritty_terminal::Term;
         use alacritty_terminal::event::VoidListener;
         use alacritty_terminal::term::Config;
         use alacritty_terminal::vte::ansi::Processor;
-        use alacritty_terminal::Term;
         let mut t = Term::new(Config::default(), &Dims, VoidListener);
         let mut p: Processor = Processor::new();
         p.advance(&mut t, &corpus);
@@ -124,6 +124,12 @@ fn engine_memory_comparison() {
     );
 
     // Sanity only: both engines genuinely retained heap for a real grid.
-    assert!(aterm_fresh > 0 && alac_fresh > 0, "both engines should allocate a grid");
-    assert!(aterm_full > 0 && alac_full > 0, "both engines should retain a filled grid");
+    assert!(
+        aterm_fresh > 0 && alac_fresh > 0,
+        "both engines should allocate a grid"
+    );
+    assert!(
+        aterm_full > 0 && alac_full > 0,
+        "both engines should retain a filled grid"
+    );
 }

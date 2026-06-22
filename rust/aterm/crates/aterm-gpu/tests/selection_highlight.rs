@@ -91,12 +91,18 @@ fn selection_highlight_gpu_matches_cpu() {
     );
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     eprintln!("selection: GPU vs CPU max per-channel delta = {delta}");
-    assert!(delta <= 8, "GPU/CPU pixels diverge with selection: max per-channel delta {delta} > 8");
+    assert!(
+        delta <= 8,
+        "GPU/CPU pixels diverge with selection: max per-channel delta {delta} > 8"
+    );
 
     for (name, f) in [("cpu", &cpu_frame), ("gpu", &gpu_frame)] {
         // (i) a selected cell's dominant background is ~theme.selection.
         let sel_px = cell_pixels(f, cw, ch, 0, 2); // selected 'l'
-        let n_sel = sel_px.iter().filter(|&&p| near(p, theme.selection, 8)).count();
+        let n_sel = sel_px
+            .iter()
+            .filter(|&&p| near(p, theme.selection, 8))
+            .count();
         assert!(
             n_sel > sel_px.len() / 2,
             "{name}: selected cell (0,2) should be selection-coloured ({n_sel}/{})",
@@ -113,8 +119,14 @@ fn selection_highlight_gpu_matches_cpu() {
         );
         for (row, col) in [(0usize, 0usize), (0, 4), (1, 2), (0, 8)] {
             let px_cell = cell_pixels(f, cw, ch, row, col);
-            let stray = px_cell.iter().filter(|&&p| near(p, theme.selection, 8)).count();
-            assert_eq!(stray, 0, "{name}: unselected cell ({row},{col}) shows selection colour");
+            let stray = px_cell
+                .iter()
+                .filter(|&&p| near(p, theme.selection, 8))
+                .count();
+            assert_eq!(
+                stray, 0,
+                "{name}: unselected cell ({row},{col}) shows selection colour"
+            );
         }
     }
 }

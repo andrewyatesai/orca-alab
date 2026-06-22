@@ -9,9 +9,6 @@ license.workspace = true
 repository.workspace = true
 description = "Shared types for aterm terminal engine (Rgb, CursorStyle, BiDiMode, ColorPalette)"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [features]
 default = []
 serde = ["dep:serde"]
@@ -34,3 +31,6 @@ winit = { workspace = true, optional = true }
 
 [dev-dependencies]
 aterm-spec = { workspace = true }
+
+[lints]
+workspace = true

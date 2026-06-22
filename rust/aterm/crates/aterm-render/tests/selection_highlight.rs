@@ -78,7 +78,10 @@ fn selected_cells_get_selection_background() {
     // The glyph is still drawn in the (light) foreground over the highlight.
     let px = cell_pixels(&f, cw, ch, 0, 2); // 'l'
     let fg_drawn = px.iter().any(|&p| r(p) > 150 && g(p) > 150 && b(p) > 150);
-    assert!(fg_drawn, "selected cell (0,2) should keep its foreground glyph");
+    assert!(
+        fg_drawn,
+        "selected cell (0,2) should keep its foreground glyph"
+    );
 }
 
 #[test]
@@ -105,7 +108,11 @@ fn unselected_cells_keep_their_background() {
     }
     // The blank unselected cell is pure theme background.
     let blank = cell_pixels(&f, cw, ch, 0, 8);
-    assert_eq!(count_eq(&blank, theme.bg), blank.len(), "blank cell (0,8) should stay theme bg");
+    assert_eq!(
+        count_eq(&blank, theme.bg),
+        blank.len(),
+        "blank cell (0,8) should stay theme bg"
+    );
 
     // Clearing the selection restores the unhighlighted frame exactly.
     term.text_selection_mut().clear();
@@ -113,7 +120,10 @@ fn unselected_cells_keep_their_background() {
     let mut plain_term = Terminal::new(4, 10);
     plain_term.process(b"hello\r\nworld");
     let plain = rend.render_input(&plain_term.cell_frame(4, 10));
-    assert_eq!(cleared.pixels, plain.pixels, "no selection must render exactly as before");
+    assert_eq!(
+        cleared.pixels, plain.pixels,
+        "no selection must render exactly as before"
+    );
 }
 
 #[test]
@@ -155,7 +165,10 @@ fn scrolled_viewport_maps_selection_rows() {
     };
     let (cw, ch) = rend.cell_size();
     // 3 visible rows + scrollback; 4 lines pushes "aa" off the live screen.
-    let mut term = TerminalBuilder::new().size(3, 8).ring_buffer_size(64).build();
+    let mut term = TerminalBuilder::new()
+        .size(3, 8)
+        .ring_buffer_size(64)
+        .build();
     term.process(b"aa\r\nbb\r\ncc\r\ndd");
     // Select live row 0 ("bb"), cols 0..=1.
     let sel = term.text_selection_mut();
@@ -166,14 +179,32 @@ fn scrolled_viewport_maps_selection_rows() {
 
     // Live view: the highlight sits on viewport row 0.
     let live = rend.render_input(&term.cell_frame(3, 8));
-    assert!(count_eq(&cell_pixels(&live, cw, ch, 0, 0), selc) > 0, "live: highlight on row 0");
-    assert_eq!(count_eq(&cell_pixels(&live, cw, ch, 1, 0), selc), 0, "live: row 1 clean");
+    assert!(
+        count_eq(&cell_pixels(&live, cw, ch, 0, 0), selc) > 0,
+        "live: highlight on row 0"
+    );
+    assert_eq!(
+        count_eq(&cell_pixels(&live, cw, ch, 1, 0), selc),
+        0,
+        "live: row 1 clean"
+    );
 
     // Scroll back one line: viewport row 0 now shows scrollback ("aa"), and the
     // selected live row 0 is displayed at viewport row 1.
     term.grid_mut().scroll_display(1);
-    assert_eq!(term.grid().display_offset(), 1, "scrollback should be active");
+    assert_eq!(
+        term.grid().display_offset(),
+        1,
+        "scrollback should be active"
+    );
     let back = rend.render_input(&term.cell_frame(3, 8));
-    assert_eq!(count_eq(&cell_pixels(&back, cw, ch, 0, 0), selc), 0, "scrolled: row 0 clean");
-    assert!(count_eq(&cell_pixels(&back, cw, ch, 1, 0), selc) > 0, "scrolled: highlight on row 1");
+    assert_eq!(
+        count_eq(&cell_pixels(&back, cw, ch, 0, 0), selc),
+        0,
+        "scrolled: row 0 clean"
+    );
+    assert!(
+        count_eq(&cell_pixels(&back, cw, ch, 1, 0), selc) > 0,
+        "scrolled: highlight on row 1"
+    );
 }

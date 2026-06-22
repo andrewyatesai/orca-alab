@@ -10,3 +10,6 @@ repository.workspace = true
 description = "Zero-dependency temporary files and directories with RAII cleanup"
 
 [dependencies]
+
+[lints]
+workspace = true

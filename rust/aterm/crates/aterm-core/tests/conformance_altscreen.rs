@@ -54,12 +54,12 @@ const MAXVAL: i64 = 2;
 /// The abstract spec state — the projection target.
 #[derive(Clone, PartialEq, Debug)]
 struct AltState {
-    active_alt: bool,        // active = "alt" (else "main")
-    main: [i64; CELLS],      // mainCell
-    alt: [i64; CELLS],       // altCell
-    cursor: i64,             // 0..Cells
-    saved_cursor: i64,       // savedCursor
-    entered: bool,           // entered
+    active_alt: bool,         // active = "alt" (else "main")
+    main: [i64; CELLS],       // mainCell
+    alt: [i64; CELLS],        // altCell
+    cursor: i64,              // 0..Cells
+    saved_cursor: i64,        // savedCursor
+    entered: bool,            // entered
     main_saved: [i64; CELLS], // mainSaved (ghost)
 }
 
@@ -94,13 +94,18 @@ fn fn_literal(vals: &[i64]) -> String {
 
 /// A function VALUE in `ty`'s trace JSON form `{type:function,value:{domain,mapping}}`.
 fn fn_json(vals: &[i64]) -> String {
-    let domain: Vec<String> =
-        (1..=vals.len()).map(|n| format!("{{\"type\":\"int\",\"value\":{n}}}")).collect();
+    let domain: Vec<String> = (1..=vals.len())
+        .map(|n| format!("{{\"type\":\"int\",\"value\":{n}}}"))
+        .collect();
     let mapping: Vec<String> = vals
         .iter()
         .enumerate()
         .map(|(i, v)| {
-            format!("[{{\"type\":\"int\",\"value\":{}}},{{\"type\":\"int\",\"value\":{}}}]", i + 1, v)
+            format!(
+                "[{{\"type\":\"int\",\"value\":{}}},{{\"type\":\"int\",\"value\":{}}}]",
+                i + 1,
+                v
+            )
         })
         .collect();
     format!(
@@ -139,13 +144,25 @@ fn pinned_spec(committed: &str, prev: &AltState) -> String {
         if line.starts_with("Init ==") {
             skipping_init = true;
             out.push_str("Init ==\n");
-            out.push_str(&format!("    /\\ active = \"{}\"\n", if prev.active_alt { "alt" } else { "main" }));
-            out.push_str(&format!("    /\\ mainCell = ({})\n", fn_literal(&prev.main)));
+            out.push_str(&format!(
+                "    /\\ active = \"{}\"\n",
+                if prev.active_alt { "alt" } else { "main" }
+            ));
+            out.push_str(&format!(
+                "    /\\ mainCell = ({})\n",
+                fn_literal(&prev.main)
+            ));
             out.push_str(&format!("    /\\ altCell = ({})\n", fn_literal(&prev.alt)));
             out.push_str(&format!("    /\\ cursor = {}\n", prev.cursor));
             out.push_str(&format!("    /\\ savedCursor = {}\n", prev.saved_cursor));
-            out.push_str(&format!("    /\\ entered = {}\n", if prev.entered { "TRUE" } else { "FALSE" }));
-            out.push_str(&format!("    /\\ mainSaved = ({})\n", fn_literal(&prev.main_saved)));
+            out.push_str(&format!(
+                "    /\\ entered = {}\n",
+                if prev.entered { "TRUE" } else { "FALSE" }
+            ));
+            out.push_str(&format!(
+                "    /\\ mainSaved = ({})\n",
+                fn_literal(&prev.main_saved)
+            ));
             continue;
         }
         if skipping_init {
@@ -184,7 +201,14 @@ fn transition_trace(prev: &AltState, next: &AltState, action: &str) -> String {
     )
 }
 
-fn validate(ty: &Path, dir: &Path, committed: &str, prev: &AltState, next: &AltState, action: &str) -> (bool, String) {
+fn validate(
+    ty: &Path,
+    dir: &Path,
+    committed: &str,
+    prev: &AltState,
+    next: &AltState,
+    action: &str,
+) -> (bool, String) {
     let spec_f = dir.join("AltScreen.tla");
     let cfg_f = dir.join("AltScreen.cfg");
     let trace_f = dir.join("t.json");
@@ -219,8 +243,11 @@ fn validate(ty: &Path, dir: &Path, committed: &str, prev: &AltState, next: &AltS
 
 #[test]
 fn real_altscreen_roundtrip_conforms_to_altscreen_spec() {
-    let Some(ty) = ty_or_skip("AltScreen conformance") else { return; };
-    let committed = std::fs::read_to_string(spec_path("AltScreen.tla")).expect("read AltScreen.tla");
+    let Some(ty) = ty_or_skip("AltScreen conformance") else {
+        return;
+    };
+    let committed =
+        std::fs::read_to_string(spec_path("AltScreen.tla")).expect("read AltScreen.tla");
     let dir = std::env::temp_dir().join(format!("aterm-altscreen-conf-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mk tempdir");
 
@@ -240,7 +267,10 @@ fn real_altscreen_roundtrip_conforms_to_altscreen_spec() {
         entered: false,
         main_saved: [0; CELLS],
     };
-    assert!(!st.active_alt && st.main == [0, 0, 0] && st.cursor == 0, "fresh terminal projects to Init");
+    assert!(
+        !st.active_alt && st.main == [0, 0, 0] && st.cursor == 0,
+        "fresh terminal projects to Init"
+    );
 
     let mut validated = 0usize;
 
@@ -251,7 +281,10 @@ fn real_altscreen_roundtrip_conforms_to_altscreen_spec() {
     st.main = read_cells(&term);
     st.cursor = 1; // wrote cell index 1 (1-based), matching WriteMain's cursor'=c
     let (ok, out) = validate(&ty, &dir, &committed, &prev, &st, "WriteMain");
-    assert!(ok, "real WriteMain {prev:?} -> {st:?} must conform\n--- ty ---\n{out}");
+    assert!(
+        ok,
+        "real WriteMain {prev:?} -> {st:?} must conform\n--- ty ---\n{out}"
+    );
     validated += 1;
 
     // --- Enter (CSI ?1049h): save cursor, switch to alt, clear alt, snapshot main.
@@ -264,9 +297,16 @@ fn real_altscreen_roundtrip_conforms_to_altscreen_spec() {
     st.entered = true;
     // The real cursor is shared/unchanged on enter (xterm srm_OPT_ALTBUF_CURSOR).
     assert!(st.active_alt, "Enter must switch to the alt buffer");
-    assert_eq!(st.alt, [0, 0, 0], "alt buffer is cleared to blanks on Enter");
+    assert_eq!(
+        st.alt,
+        [0, 0, 0],
+        "alt buffer is cleared to blanks on Enter"
+    );
     let (ok, out) = validate(&ty, &dir, &committed, &prev, &st, "Enter");
-    assert!(ok, "real Enter {prev:?} -> {st:?} must conform\n--- ty ---\n{out}");
+    assert!(
+        ok,
+        "real Enter {prev:?} -> {st:?} must conform\n--- ty ---\n{out}"
+    );
     validated += 1;
 
     // --- Scribble(c=2, v=2): print 'B' at alt col 1 → altCell[2]=2, cursor=2; main
@@ -278,7 +318,10 @@ fn real_altscreen_roundtrip_conforms_to_altscreen_spec() {
     st.cursor = 2; // wrote alt cell index 2
     assert_eq!(st.alt, [0, 2, 0], "scribble lands in alt[2]");
     let (ok, out) = validate(&ty, &dir, &committed, &prev, &st, "Scribble");
-    assert!(ok, "real Scribble {prev:?} -> {st:?} must conform\n--- ty ---\n{out}");
+    assert!(
+        ok,
+        "real Scribble {prev:?} -> {st:?} must conform\n--- ty ---\n{out}"
+    );
     validated += 1;
 
     // --- Leave (CSI ?1049l): switch back to main, restore cursor to savedCursor.
@@ -289,9 +332,15 @@ fn real_altscreen_roundtrip_conforms_to_altscreen_spec() {
     st.cursor = prev.saved_cursor; // cursor' = savedCursor (the restore)
     assert!(!st.active_alt, "Leave switches back to main");
     // The real main cells survived the alt round-trip untouched.
-    assert_eq!(st.main, st.main_saved, "main cells must be restored unchanged (MainRestoredAfterRoundTrip)");
+    assert_eq!(
+        st.main, st.main_saved,
+        "main cells must be restored unchanged (MainRestoredAfterRoundTrip)"
+    );
     let (ok, out) = validate(&ty, &dir, &committed, &prev, &st, "Leave");
-    assert!(ok, "real Leave {prev:?} -> {st:?} must conform\n--- ty ---\n{out}");
+    assert!(
+        ok,
+        "real Leave {prev:?} -> {st:?} must conform\n--- ty ---\n{out}"
+    );
     validated += 1;
 
     // NEGATIVE CONTROL — the Buggy defect: a `Leave` that does NOT restore the cursor

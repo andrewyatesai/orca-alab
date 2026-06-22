@@ -55,8 +55,7 @@ pub mod extra {
     #[cfg(test)]
     pub use aterm_grid::extra::is_combining_mark;
     pub use aterm_grid::extra::{
-        CellCoord, CellExtra, ImageData, ImageFormat, ImageRef, KittyPlaceholderData,
-        UniformExtras,
+        CellCoord, CellExtra, ImageData, ImageFormat, ImageRef, KittyPlaceholderData, UniformExtras,
     };
     pub use aterm_grid::extra_collection::CellExtras;
 }
@@ -93,7 +92,10 @@ pub use extra::{CellCoord, CellExtra, CellExtras, KittyPlaceholderData, UniformE
 // `crate::grid::PAGE_SIZE` is the flat re-export consumed by the FFI safe-helper
 // layer (ffi_bridge/safe_helpers.rs compile-time size guard); in-crate code
 // reaches it via `grid::page::PAGE_SIZE`.
-#[allow(unused_imports, reason = "flat re-export consumed by the FFI/verification layer")]
+#[allow(
+    unused_imports,
+    reason = "flat re-export consumed by the FFI/verification layer"
+)]
 pub(crate) use page::PAGE_SIZE;
 pub use page::PageStore;
 pub use row::{LineSize, Row, RowFlags};

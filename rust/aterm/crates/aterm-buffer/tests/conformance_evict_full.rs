@@ -55,7 +55,10 @@ fn real_eventlog_live_set_is_contiguous_window() {
     }
 
     // Eviction genuinely happened, and the live set is exactly the window size.
-    assert!(lo > 1, "expected eviction past the cap (lo advanced beyond 1), got lo={lo}");
+    assert!(
+        lo > 1,
+        "expected eviction past the cap (lo advanced beyond 1), got lo={lo}"
+    );
     assert_eq!(seq, n_appends, "seq == total appends");
     assert_eq!(
         live.len() as u64,

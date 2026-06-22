@@ -37,8 +37,8 @@ use std::sync::Mutex;
 
 use aterm_core::selection::SelectionSide;
 use aterm_core::terminal::Terminal;
-use aterm_session::sink::SinkWriter;
 use aterm_session::Op;
+use aterm_session::sink::SinkWriter;
 use aterm_types::keyboard::{Key, Modifiers};
 use aterm_types::mouse::MouseButton;
 
@@ -122,7 +122,11 @@ pub enum InputEvent {
     /// new size and re-`request_inner_size`-ing it would fight an interactive
     /// edge-drag (the RES-1 regression). It is keyed on WHERE the geometry came
     /// from, identical for a human-issued vs controller-issued `resize` verb.
-    Resize { rows: u16, cols: u16, echo_to_window: bool },
+    Resize {
+        rows: u16,
+        cols: u16,
+        echo_to_window: bool,
+    },
     /// Focus gained/lost — DEC 1004 focus reporting (kills j). `true` = focus-in.
     Focus(bool),
 }
@@ -246,7 +250,12 @@ pub enum Egress {
 /// state) stay in `App::input`, which calls this and then runs those.
 pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -> Egress {
     match ev {
-        InputEvent::Key { key, mods, base_layout, event_type } => {
+        InputEvent::Key {
+            key,
+            mods,
+            base_layout,
+            event_type,
+        } => {
             let bytes = {
                 let t = term_lock(term);
                 let mode = t.keyboard_mode();
@@ -278,7 +287,14 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
             }
             Egress::Reported(d)
         }
-        InputEvent::MouseButton { button, pressed, row, col, mods, .. } => {
+        InputEvent::MouseButton {
+            button,
+            pressed,
+            row,
+            col,
+            mods,
+            ..
+        } => {
             let report = {
                 let t = term_lock(term);
                 if t.mouse_tracking_enabled() {
@@ -299,10 +315,19 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
                     };
                     Egress::Reported(d)
                 }
-                None => Egress::TrackingOff { wheel_lines: 0, wheel_up: false },
+                None => Egress::TrackingOff {
+                    wheel_lines: 0,
+                    wheel_up: false,
+                },
             }
         }
-        InputEvent::MouseMove { buttons, row, col, mods, .. } => {
+        InputEvent::MouseMove {
+            buttons,
+            row,
+            col,
+            mods,
+            ..
+        } => {
             let report = {
                 let t = term_lock(term);
                 if t.mouse_tracking_enabled() {
@@ -319,10 +344,19 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
                     };
                     Egress::Reported(d)
                 }
-                None => Egress::TrackingOff { wheel_lines: 0, wheel_up: false },
+                None => Egress::TrackingOff {
+                    wheel_lines: 0,
+                    wheel_up: false,
+                },
             }
         }
-        InputEvent::Wheel { dir_up, lines, row, col, mods } => {
+        InputEvent::Wheel {
+            dir_up,
+            lines,
+            row,
+            col,
+            mods,
+        } => {
             // The invariant lives HERE: clamp `lines` to >= 1 so a non-positive
             // count (a future verb/grammar bug) cannot silently emit zero reports
             // for one source and N for another. on_mouse_wheel already guarantees
@@ -349,7 +383,10 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
                     }
                     Egress::Reported(d)
                 }
-                None => Egress::TrackingOff { wheel_lines: lines, wheel_up: *dir_up },
+                None => Egress::TrackingOff {
+                    wheel_lines: lines,
+                    wheel_up: *dir_up,
+                },
             }
         }
         InputEvent::Paste(text) => {
@@ -431,7 +468,10 @@ mod tests {
             base_layout: None,
             event_type: KeyEventType::Press,
         };
-        assert_eq!(seam_egress(&term, &sink, &press), Egress::Reported(Delivery::Failed));
+        assert_eq!(
+            seam_egress(&term, &sink, &press),
+            Egress::Reported(Delivery::Failed)
+        );
 
         let release = InputEvent::Key {
             key: Key::Named(NamedKey::ArrowUp),
@@ -439,7 +479,10 @@ mod tests {
             base_layout: None,
             event_type: KeyEventType::Release, // legacy: encodes to nothing
         };
-        assert_eq!(seam_egress(&term, &sink, &release), Egress::Reported(Delivery::Full));
+        assert_eq!(
+            seam_egress(&term, &sink, &release),
+            Egress::Reported(Delivery::Full)
+        );
     }
 
     /// A `Terminal` with the given mode-enabling sequences fed in (DECCKM, Kitty,
@@ -469,16 +512,16 @@ mod tests {
     #[test]
     fn bytes_human_eq_controller() {
         use aterm_types::keyboard::{Key, Modifiers, NamedKey};
-        use aterm_types::mouse::{MouseButton, CTRL_MASK, SHIFT_MASK};
+        use aterm_types::mouse::{CTRL_MASK, MouseButton, SHIFT_MASK};
 
         // Keyboard modes: legacy, DECCKM (app cursor keys), Kitty disambiguate +
         // REPORT_ALTERNATE_KEYS (proves base_layout flows identically — divergence
         // h). Mouse modes: off, Normal(1000), Button(1002), Any(1003) + SGR(1006).
         let kbd_modes: &[&[&[u8]]] = &[
-            &[],                               // legacy
-            &[b"\x1b[?1h"],                    // DECCKM
-            &[b"\x1b[>1u"],                    // Kitty disambiguate
-            &[b"\x1b[>5u"],                    // Kitty disambiguate + report-alternate
+            &[],            // legacy
+            &[b"\x1b[?1h"], // DECCKM
+            &[b"\x1b[>1u"], // Kitty disambiguate
+            &[b"\x1b[>5u"], // Kitty disambiguate + report-alternate
         ];
         let mouse_modes: &[&[&[u8]]] = &[
             &[],                               // tracking off
@@ -494,21 +537,67 @@ mod tests {
                 base_layout: Some('a'),
                 event_type: aterm_types::keyboard::KeyEventType::Press,
             },
-            InputEvent::Key { key: Key::Named(NamedKey::ArrowUp), mods: Modifiers::empty(), base_layout: None, event_type: aterm_types::keyboard::KeyEventType::Press },
-            InputEvent::Key { key: Key::Named(NamedKey::Enter), mods: Modifiers::empty(), base_layout: None, event_type: aterm_types::keyboard::KeyEventType::Press },
+            InputEvent::Key {
+                key: Key::Named(NamedKey::ArrowUp),
+                mods: Modifiers::empty(),
+                base_layout: None,
+                event_type: aterm_types::keyboard::KeyEventType::Press,
+            },
+            InputEvent::Key {
+                key: Key::Named(NamedKey::Enter),
+                mods: Modifiers::empty(),
+                base_layout: None,
+                event_type: aterm_types::keyboard::KeyEventType::Press,
+            },
             InputEvent::Text("héllo 日本".to_string()),
             InputEvent::MouseButton {
-                button: MouseButton::Left, pressed: true, row: 5, col: 9,
-                mods: SHIFT_MASK | CTRL_MASK, click_count: 2, side: SelectionSide::Right, block: true,
+                button: MouseButton::Left,
+                pressed: true,
+                row: 5,
+                col: 9,
+                mods: SHIFT_MASK | CTRL_MASK,
+                click_count: 2,
+                side: SelectionSide::Right,
+                block: true,
             },
             InputEvent::MouseButton {
-                button: MouseButton::Right, pressed: false, row: 5, col: 9,
-                mods: 0, click_count: 1, side: SelectionSide::Left, block: false,
+                button: MouseButton::Right,
+                pressed: false,
+                row: 5,
+                col: 9,
+                mods: 0,
+                click_count: 1,
+                side: SelectionSide::Left,
+                block: false,
             },
-            InputEvent::MouseMove { buttons: 0, row: 7, col: 3, mods: 0, side: SelectionSide::Left },
-            InputEvent::MouseMove { buttons: 3, row: 7, col: 3, mods: 0, side: SelectionSide::Left },
-            InputEvent::Wheel { dir_up: true, lines: 3, row: 2, col: 4, mods: 0 },
-            InputEvent::Wheel { dir_up: false, lines: 1, row: 2, col: 4, mods: 0 },
+            InputEvent::MouseMove {
+                buttons: 0,
+                row: 7,
+                col: 3,
+                mods: 0,
+                side: SelectionSide::Left,
+            },
+            InputEvent::MouseMove {
+                buttons: 3,
+                row: 7,
+                col: 3,
+                mods: 0,
+                side: SelectionSide::Left,
+            },
+            InputEvent::Wheel {
+                dir_up: true,
+                lines: 3,
+                row: 2,
+                col: 4,
+                mods: 0,
+            },
+            InputEvent::Wheel {
+                dir_up: false,
+                lines: 1,
+                row: 2,
+                col: 4,
+                mods: 0,
+            },
             InputEvent::Paste("rm -rf safe".to_string()),
             InputEvent::Focus(true),
             InputEvent::Focus(false),
@@ -552,7 +641,9 @@ mod tests {
     /// `seam_egress` gives identical bytes.
     #[test]
     fn builders_converge() {
-        use aterm_types::keyboard::{base_layout_key_for, map_logical_key, Key, Modifiers, NamedKey};
+        use aterm_types::keyboard::{
+            Key, Modifiers, NamedKey, base_layout_key_for, map_logical_key,
+        };
         use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey as WinitNamed, PhysicalKey};
 
         // --- "press the Up arrow" --------------------------------------------
@@ -560,14 +651,27 @@ mod tests {
         let human_up = {
             let key = map_logical_key(&WinitKey::Named(WinitNamed::ArrowUp)).expect("up maps");
             let base = base_layout_key_for(PhysicalKey::Code(KeyCode::ArrowUp));
-            InputEvent::Key { key, mods: Modifiers::empty(), base_layout: base, event_type: aterm_types::keyboard::KeyEventType::Press }
+            InputEvent::Key {
+                key,
+                mods: Modifiers::empty(),
+                base_layout: base,
+                event_type: aterm_types::keyboard::KeyEventType::Press,
+            }
         };
         // Controller: the real `key up` parser.
         let ctrl_up = crate::control::parse_key("up").expect("key up parses");
-        assert_eq!(human_up, ctrl_up, "human `Up` builder != controller `key up` builder");
+        assert_eq!(
+            human_up, ctrl_up,
+            "human `Up` builder != controller `key up` builder"
+        );
         assert_eq!(
             human_up,
-            InputEvent::Key { key: Key::Named(NamedKey::ArrowUp), mods: Modifiers::empty(), base_layout: None, event_type: aterm_types::keyboard::KeyEventType::Press },
+            InputEvent::Key {
+                key: Key::Named(NamedKey::ArrowUp),
+                mods: Modifiers::empty(),
+                base_layout: None,
+                event_type: aterm_types::keyboard::KeyEventType::Press
+            },
         );
 
         // --- "Ctrl+C" --------------------------------------------------------
@@ -575,7 +679,12 @@ mod tests {
         let human_ctrl_c = {
             let key = map_logical_key(&WinitKey::Character("c".into())).expect("c maps");
             let base = base_layout_key_for(PhysicalKey::Code(KeyCode::KeyC));
-            InputEvent::Key { key, mods: Modifiers::CTRL, base_layout: base, event_type: aterm_types::keyboard::KeyEventType::Press }
+            InputEvent::Key {
+                key,
+                mods: Modifiers::CTRL,
+                base_layout: base,
+                event_type: aterm_types::keyboard::KeyEventType::Press,
+            }
         };
         let ctrl_ctrl_c = crate::control::parse_ctrl("c").expect("ctrl c parses");
         // Both encode Ctrl+c; the human path carries the physical base_layout, the
@@ -600,16 +709,25 @@ mod tests {
         // count=2 from the streak FSM, side=Right (cell half), block from alt held.
         let human_press = InputEvent::MouseButton {
             button: aterm_types::mouse::MouseButton::Left,
-            pressed: true, row: 5, col: 9,
-            mods: aterm_types::mouse::SHIFT_MASK, click_count: 2,
-            side: SelectionSide::Right, block: true,
+            pressed: true,
+            row: 5,
+            col: 9,
+            mods: aterm_types::mouse::SHIFT_MASK,
+            click_count: 2,
+            side: SelectionSide::Right,
+            block: true,
         };
         assert_eq!(human_press, ctrl_press, "mouse-press builder mismatch");
 
         // --- "wheel up, 1 notch" ---------------------------------------------
         let ctrl_wheel = crate::control::parse_mouse("wheelup left 2 4").expect("wheelup parses");
-        let human_wheel =
-            InputEvent::Wheel { dir_up: true, lines: 1, row: 2, col: 4, mods: 0 };
+        let human_wheel = InputEvent::Wheel {
+            dir_up: true,
+            lines: 1,
+            row: 2,
+            col: 4,
+            mods: 0,
+        };
         assert_eq!(human_wheel, ctrl_wheel, "wheel builder mismatch");
     }
 
@@ -622,14 +740,33 @@ mod tests {
     fn buggy_source_branch_is_detectable() {
         use aterm_types::keyboard::{Key, Modifiers};
 
-        fn buggy_key_bytes(term: &Mutex<Terminal>, ev: &InputEvent, is_controller: bool) -> Vec<u8> {
-            let InputEvent::Key { key, mods, base_layout, event_type } = ev else { return Vec::new() };
+        fn buggy_key_bytes(
+            term: &Mutex<Terminal>,
+            ev: &InputEvent,
+            is_controller: bool,
+        ) -> Vec<u8> {
+            let InputEvent::Key {
+                key,
+                mods,
+                base_layout,
+                event_type,
+            } = ev
+            else {
+                return Vec::new();
+            };
             // THE BUG: a behavioural branch on the source.
-            let mods = if is_controller { Modifiers::empty() } else { *mods };
+            let mods = if is_controller {
+                Modifiers::empty()
+            } else {
+                *mods
+            };
             let t = term_lock(term);
             aterm_types::keyboard::encode_key_with_layout(
-                key, mods, t.keyboard_mode(),
-                *event_type, *base_layout,
+                key,
+                mods,
+                t.keyboard_mode(),
+                *event_type,
+                *base_layout,
             )
         }
 
@@ -648,7 +785,11 @@ mod tests {
              indistinguishability test has no teeth"
         );
         // And the CORRECT, source-blind path agrees for the same event.
-        assert_eq!(egress_bytes(&term, &ev), human, "source-blind == human path");
+        assert_eq!(
+            egress_bytes(&term, &ev),
+            human,
+            "source-blind == human path"
+        );
     }
 
     /// The wheel-line clamp guards the human/controller asymmetry the critique
@@ -658,10 +799,31 @@ mod tests {
     #[test]
     fn wheel_lines_clamped_to_one() {
         let term = term_with(&[b"\x1b[?1000h", b"\x1b[?1006h"]); // Normal + SGR tracking
-        let one = egress_bytes(&term, &InputEvent::Wheel { dir_up: true, lines: 1, row: 2, col: 4, mods: 0 });
+        let one = egress_bytes(
+            &term,
+            &InputEvent::Wheel {
+                dir_up: true,
+                lines: 1,
+                row: 2,
+                col: 4,
+                mods: 0,
+            },
+        );
         for bad in [0, -1, -3] {
-            let got = egress_bytes(&term, &InputEvent::Wheel { dir_up: true, lines: bad, row: 2, col: 4, mods: 0 });
-            assert_eq!(got, one, "wheel lines={bad} must clamp to exactly one report");
+            let got = egress_bytes(
+                &term,
+                &InputEvent::Wheel {
+                    dir_up: true,
+                    lines: bad,
+                    row: 2,
+                    col: 4,
+                    mods: 0,
+                },
+            );
+            assert_eq!(
+                got, one,
+                "wheel lines={bad} must clamp to exactly one report"
+            );
         }
     }
 }

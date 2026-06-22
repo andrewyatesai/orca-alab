@@ -256,6 +256,7 @@ dependencies = [
  "aterm-search",
  "aterm-selection",
  "aterm-shell-integration",
+ "aterm-sixel",
  "aterm-spec",
  "aterm-spec-models",
  "aterm-tempfile",
@@ -541,6 +542,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "aterm-sixel"
+version = "0.1.0"
+
+[[package]]
 name = "aterm-spec"
 version = "0.1.0"
 dependencies = [
@@ -586,6 +591,7 @@ dependencies = [
 name = "aterm-update"
 version = "0.1.0"
 dependencies = [
+ "aterm-log",
  "aterm-types",
  "libc",
  "serde",

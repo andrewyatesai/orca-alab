@@ -11,7 +11,9 @@ use aterm_core::terminal::Terminal;
 use aterm_render::{Renderer, Theme};
 
 fn main() {
-    let path = std::env::args().nth(1).unwrap_or_else(|| "/tmp/aterm_shot.png".to_string());
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/tmp/aterm_shot.png".to_string());
     let (rows, cols) = (16u16, 72u16);
 
     let mut term = Terminal::new(rows, cols);
@@ -26,8 +28,8 @@ fn main() {
 $ ";
     term.process(demo);
 
-    let mut r = Renderer::from_system(18.0, Theme::default())
-        .expect("no system monospace font found");
+    let mut r =
+        Renderer::from_system(18.0, Theme::default()).expect("no system monospace font found");
     let frame = r.render_input(&term.cell_frame(rows as usize, cols as usize));
     std::fs::write(&path, frame.to_png()).expect("write png");
     eprintln!("wrote {path} ({}x{} px)", frame.width, frame.height);

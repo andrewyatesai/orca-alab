@@ -94,7 +94,10 @@ impl PaneTree {
     /// layout). Focus is that one session.
     #[must_use]
     pub fn new(session: u64) -> Self {
-        PaneTree { root: PaneNode::Leaf { session }, focus: session }
+        PaneTree {
+            root: PaneNode::Leaf { session },
+            focus: session,
+        }
     }
 
     /// The currently FOCUSED session id (the pane keyboard input + the control
@@ -202,7 +205,9 @@ impl PaneTree {
                     dir,
                     ratio: DEFAULT_RATIO,
                     first: Box::new(PaneNode::Leaf { session: original }),
-                    second: Box::new(PaneNode::Leaf { session: new_session }),
+                    second: Box::new(PaneNode::Leaf {
+                        session: new_session,
+                    }),
                 };
                 true
             }
@@ -247,7 +252,11 @@ impl PaneTree {
         )
     )]
     pub fn close_pane(&mut self, session: u64) -> CloseOutcome {
-        let closed = if self.contains(session) { session } else { self.focus };
+        let closed = if self.contains(session) {
+            session
+        } else {
+            self.focus
+        };
         // The only pane in the tab: nothing to collapse into; the tab closes.
         if matches!(self.root, PaneNode::Leaf { .. }) {
             return CloseOutcome::LastPane { closed };
@@ -356,9 +365,20 @@ impl CloseOutcome {
 fn layout_into(node: &PaneNode, r0: u16, c0: u16, rows: u16, cols: u16, out: &mut Vec<PaneRect>) {
     match node {
         PaneNode::Leaf { session } => {
-            out.push(PaneRect { session: *session, row_off: r0, col_off: c0, rows, cols });
+            out.push(PaneRect {
+                session: *session,
+                row_off: r0,
+                col_off: c0,
+                rows,
+                cols,
+            });
         }
-        PaneNode::Split { dir, ratio, first, second } => match dir {
+        PaneNode::Split {
+            dir,
+            ratio,
+            first,
+            second,
+        } => match dir {
             SplitDir::Vertical => {
                 // Split the COLUMNS: [first | divider(1) | second].
                 let (a, b) = split_extent(cols, *ratio);
@@ -410,7 +430,16 @@ mod tests {
         assert_eq!(t.focus(), 7);
         let rects = t.compute_layout(24, 80);
         assert_eq!(rects.len(), 1);
-        assert_eq!(rects[0], PaneRect { session: 7, row_off: 0, col_off: 0, rows: 24, cols: 80 });
+        assert_eq!(
+            rects[0],
+            PaneRect {
+                session: 7,
+                row_off: 0,
+                col_off: 0,
+                rows: 24,
+                cols: 80
+            }
+        );
     }
 
     /// Cmd-D vertical split: two panes side by side, a 1-cell divider column
@@ -424,11 +453,33 @@ mod tests {
         rects.sort_by_key(|r| r.col_off);
         assert_eq!(rects.len(), 2);
         // Left pane: session 1, cols 0..40.
-        assert_eq!(rects[0], PaneRect { session: 1, row_off: 0, col_off: 0, rows: 24, cols: 40 });
+        assert_eq!(
+            rects[0],
+            PaneRect {
+                session: 1,
+                row_off: 0,
+                col_off: 0,
+                rows: 24,
+                cols: 40
+            }
+        );
         // Right pane: session 2, starts after 40 + 1-cell divider = col 41, 39 wide.
-        assert_eq!(rects[1], PaneRect { session: 2, row_off: 0, col_off: 41, rows: 24, cols: 39 });
+        assert_eq!(
+            rects[1],
+            PaneRect {
+                session: 2,
+                row_off: 0,
+                col_off: 41,
+                rows: 24,
+                cols: 39
+            }
+        );
         // The divider column (40) is covered by NO rect.
-        assert!(rects.iter().all(|r| !(r.col_off..r.col_off + r.cols).contains(&40)));
+        assert!(
+            rects
+                .iter()
+                .all(|r| !(r.col_off..r.col_off + r.cols).contains(&40))
+        );
     }
 
     /// Cmd-Shift-D horizontal split: two panes stacked, a 1-cell divider row
@@ -440,9 +491,31 @@ mod tests {
         let mut rects = t.compute_layout(24, 80);
         rects.sort_by_key(|r| r.row_off);
         assert_eq!(rects.len(), 2);
-        assert_eq!(rects[0], PaneRect { session: 1, row_off: 0, col_off: 0, rows: 12, cols: 80 });
-        assert_eq!(rects[1], PaneRect { session: 2, row_off: 13, col_off: 0, rows: 11, cols: 80 });
-        assert!(rects.iter().all(|r| !(r.row_off..r.row_off + r.rows).contains(&12)));
+        assert_eq!(
+            rects[0],
+            PaneRect {
+                session: 1,
+                row_off: 0,
+                col_off: 0,
+                rows: 12,
+                cols: 80
+            }
+        );
+        assert_eq!(
+            rects[1],
+            PaneRect {
+                session: 2,
+                row_off: 13,
+                col_off: 0,
+                rows: 11,
+                cols: 80
+            }
+        );
+        assert!(
+            rects
+                .iter()
+                .all(|r| !(r.row_off..r.row_off + r.rows).contains(&12))
+        );
     }
 
     /// A 2x2 golden: vertical split, then horizontally split the (focused) right
@@ -484,7 +557,10 @@ mod tests {
         assert_eq!(t.sessions(), vec![1], "the sibling survives");
         assert_eq!(t.focus(), 1, "focus re-seats on the survivor");
         // And the survivor lays out full-window again — byte-identical to fresh.
-        assert_eq!(t.compute_layout(24, 80), PaneTree::new(1).compute_layout(24, 80));
+        assert_eq!(
+            t.compute_layout(24, 80),
+            PaneTree::new(1).compute_layout(24, 80)
+        );
     }
 
     /// Closing the focused pane in a deeper tree collapses only its parent; the
@@ -578,7 +654,10 @@ mod tests {
         let mut t = PaneTree::new(1);
         t.split_focused(SplitDir::Vertical, 2);
         for rect in t.compute_layout(1, 2) {
-            assert!(rect.rows >= 1 && rect.cols >= 1, "no 0-extent pane: {rect:?}");
+            assert!(
+                rect.rows >= 1 && rect.cols >= 1,
+                "no 0-extent pane: {rect:?}"
+            );
         }
     }
 

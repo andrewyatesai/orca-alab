@@ -925,7 +925,10 @@ mod osc_color_response_cap_tests {
         term.process(b"X");
         term.take_damage();
         let epoch0 = term.damage_epoch();
-        assert!(!term.has_damage(), "damage consumed by the simulated present");
+        assert!(
+            !term.has_damage(),
+            "damage consumed by the simulated present"
+        );
 
         // A bare OSC 11 (set default background) with NO accompanying grid write.
         term.process(b"\x1b]11;rgb:0000/0000/8080\x1b\\");
@@ -963,7 +966,14 @@ mod osc_color_response_cap_tests {
         term.take_damage();
         let e1 = term.damage_epoch();
         term.process(b"\x1b[6 q");
-        assert!(term.has_damage(), "DECSCUSR shape change must mark grid damage");
-        assert_eq!(term.damage_epoch(), e1 + 1, "shape change advances damage_epoch");
+        assert!(
+            term.has_damage(),
+            "DECSCUSR shape change must mark grid damage"
+        );
+        assert_eq!(
+            term.damage_epoch(),
+            e1 + 1,
+            "shape change advances damage_epoch"
+        );
     }
 }

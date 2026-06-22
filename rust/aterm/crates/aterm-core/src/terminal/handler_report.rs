@@ -53,7 +53,11 @@ impl TerminalHandler<'_> {
     /// - Working directory
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SoftReset", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SoftReset",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     pub(super) fn handle_decstr(&mut self) {
         // Reset cursor visibility

@@ -14,3 +14,6 @@ description = "Fast non-cryptographic FxHash implementation for aterm (replaces 
 
 [dev-dependencies]
 # None - tests use only std
+
+[lints]
+workspace = true

@@ -52,7 +52,5 @@ nightly = []
 # the zero-external-dependency campaign (#7698).
 proptest = { workspace = true }
 
-[lints.rust]
-# Upstream lz4_flex uses `#![deny(warnings)]`; we replicate that posture here
-# so vendor refreshes stay honest about any new warnings upstream introduces.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(fuzzing)'] }
+[lints]
+workspace = true

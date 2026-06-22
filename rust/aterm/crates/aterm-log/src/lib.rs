@@ -549,7 +549,10 @@ mod tests {
         let msg = "path '\x1b]0;evil\x07\nFAKE\u{7f}\u{9b}'";
         let out = sanitize_record(msg);
         assert!(!out.chars().any(char::is_control));
-        assert_eq!(out, "path '\u{fffd}]0;evil\u{fffd}\u{fffd}FAKE\u{fffd}\u{fffd}'");
+        assert_eq!(
+            out,
+            "path '\u{fffd}]0;evil\u{fffd}\u{fffd}FAKE\u{fffd}\u{fffd}'"
+        );
     }
 
     #[test]

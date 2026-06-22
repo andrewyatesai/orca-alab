@@ -100,11 +100,8 @@ pub fn ensure_private_dir(dir: &Path) -> std::io::Result<()> {
     // Ownership-safety gate: stat AFTER tightening, then verify owner == us and
     // no group/other write bits. set_permissions cannot fix a foreign owner.
     let meta = std::fs::metadata(dir)?;
-    let safe = aterm_types::fs_restricted::dir_safe_for_private_write(
-        our_uid(),
-        meta.uid(),
-        meta.mode(),
-    );
+    let safe =
+        aterm_types::fs_restricted::dir_safe_for_private_write(our_uid(), meta.uid(), meta.mode());
     if safe {
         Ok(())
     } else {
@@ -149,15 +146,17 @@ pub enum SocketResolution {
 /// ([`control_socket::socket_directive`]); this just reads the environment.
 #[must_use]
 pub fn resolve_socket_plan() -> SocketResolution {
-    let explicit =
-        std::env::var_os("ATERM_CONTROL_SOCK").map(|v| v.to_string_lossy().into_owned());
-    let kill =
-        std::env::var_os("ATERM_NO_CONTROL_SOCK").map(|v| v.to_string_lossy().into_owned());
+    let explicit = std::env::var_os("ATERM_CONTROL_SOCK").map(|v| v.to_string_lossy().into_owned());
+    let kill = std::env::var_os("ATERM_NO_CONTROL_SOCK").map(|v| v.to_string_lossy().into_owned());
     match control_socket::socket_directive(explicit.as_deref(), kill.as_deref()) {
         SocketDirective::Disabled => SocketResolution::Disabled,
         SocketDirective::Explicit(p) => {
             let token_path = dir_of_socket(&p).join(TOKEN_FILE);
-            SocketResolution::Enabled(SocketPlan { sock_path: p, token_path, latest_link: None })
+            SocketResolution::Enabled(SocketPlan {
+                sock_path: p,
+                token_path,
+                latest_link: None,
+            })
         }
         SocketDirective::PerInstance => match socket_dir() {
             Some(dir) => {
@@ -193,9 +192,12 @@ fn pid_alive(pid: u32) -> bool {
 /// no longer alive (a crashed session cannot clean up after itself). Live
 /// instances — including ourselves — and the fixed filenames are untouched.
 pub fn sweep_stale_instances(dir: &Path) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
-    let names: Vec<String> =
-        entries.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let names: Vec<String> = entries
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .collect();
     let refs: Vec<&str> = names.iter().map(String::as_str).collect();
     for stale in control_socket::stale_instance_files(&refs, &pid_alive) {
         let _ = std::fs::remove_file(dir.join(stale));
@@ -208,7 +210,9 @@ pub fn sweep_stale_instances(dir: &Path) {
 /// instance always wins. Best-effort: on failure clients can still target the
 /// instance socket directly (`aterm-ctl --pid`).
 pub fn publish_latest_link(link: &Path, sock_path: &str) {
-    let Some(target) = Path::new(sock_path).file_name() else { return };
+    let Some(target) = Path::new(sock_path).file_name() else {
+        return;
+    };
     let mut tmp_name = target.to_os_string();
     tmp_name.push(".lnk");
     let tmp = link.with_file_name(tmp_name);
@@ -233,10 +237,10 @@ pub fn cleanup_socket(plan: &SocketPlan) {
             .file_name()
             .and_then(|f| control_socket::instance_pid(&f.to_string_lossy()));
         let target = std::fs::read_link(link).ok();
-        if let (Some(pid), Some(target)) = (our_pid, target) {
-            if control_socket::symlink_targets_pid(&target.to_string_lossy(), pid) {
-                let _ = std::fs::remove_file(link);
-            }
+        if let (Some(pid), Some(target)) = (our_pid, target)
+            && control_socket::symlink_targets_pid(&target.to_string_lossy(), pid)
+        {
+            let _ = std::fs::remove_file(link);
         }
     }
 }
@@ -299,7 +303,8 @@ pub fn provision_token(path: &Path) -> Option<String> {
     let f = opts.open(path).ok()?;
     // Force 0600 via the OPEN fd (`fchmod`), never a path-based set_permissions
     // that would re-resolve (and could follow) the path.
-    f.set_permissions(std::fs::Permissions::from_mode(0o600)).ok()?;
+    f.set_permissions(std::fs::Permissions::from_mode(0o600))
+        .ok()?;
     let mut f = f;
     f.write_all(token.as_bytes()).ok()?;
     f.flush().ok()?;
@@ -312,7 +317,10 @@ pub fn provision_token(path: &Path) -> Option<String> {
 /// `latest` symlink), and the server uses it in tests and as a self-check.
 /// Returns `None` if unreadable (wrong user, missing).
 #[must_use]
-#[cfg_attr(not(test), allow(dead_code, reason = "symmetric API; client reads token equivalently"))]
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "symmetric API; client reads token equivalently")
+)]
 pub fn read_token(dir: &Path) -> Option<String> {
     let raw = std::fs::read_to_string(dir.join(TOKEN_FILE)).ok()?;
     let t = raw.trim().to_string();
@@ -542,7 +550,14 @@ impl ConfinedImage {
 // projection the `path_confine_conformance` Tier-1 test drives (`Some` → committed
 // inside, `None` → rejected). L2 requires the projection NAME be present (Trust does
 // not execute it); `aterm_gui::control_auth::project_confine` is that witness.
-#[cfg_attr(test, aterm_spec::refines(machine = "path_confine", action = "Confine", project = "aterm_gui::control_auth::project_confine"))]
+#[cfg_attr(
+    test,
+    aterm_spec::refines(
+        machine = "path_confine",
+        action = "Confine",
+        project = "aterm_gui::control_auth::project_confine"
+    )
+)]
 #[must_use]
 pub fn confine_image_path(sock_dir: &Path, requested: &str) -> Option<ConfinedImage> {
     let images = sock_dir.join(IMAGES_DIR);
@@ -585,12 +600,15 @@ pub fn confine_image_path(sock_dir: &Path, requested: &str) -> Option<ConfinedIm
     // writer also uses `O_NOFOLLOW`, but rejecting here gives a clean `ERR path`
     // for the common case and avoids even attempting the open.
     let resolved = canon_images.join(file_name);
-    if let Ok(md) = std::fs::symlink_metadata(&resolved) {
-        if md.file_type().is_symlink() {
-            return None;
-        }
+    if let Ok(md) = std::fs::symlink_metadata(&resolved)
+        && md.file_type().is_symlink()
+    {
+        return None;
     }
-    Some(ConfinedImage { dir: canon_images, file_name: file_name.to_os_string() })
+    Some(ConfinedImage {
+        dir: canon_images,
+        file_name: file_name.to_os_string(),
+    })
 }
 
 /// Confine a discovery-graph socket path to the trusted socket directory before the
@@ -627,10 +645,10 @@ pub fn confine_proxy_sock(sock_dir: &Path, requested: &str) -> Option<String> {
     // Reject a SYMLINK at the final component: `connect()` follows symlinks, so a
     // same-uid attacker could otherwise plant `<sock_dir>/aterm-x.sock -> /attacker`.
     let resolved = canon_dir.join(file_name);
-    if let Ok(md) = std::fs::symlink_metadata(&resolved) {
-        if md.file_type().is_symlink() {
-            return None;
-        }
+    if let Ok(md) = std::fs::symlink_metadata(&resolved)
+        && md.file_type().is_symlink()
+    {
+        return None;
     }
     Some(resolved.to_string_lossy().into_owned())
 }
@@ -694,7 +712,10 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        assert!(went_stale, "stale socket file (no listener) must become not-live");
+        assert!(
+            went_stale,
+            "stale socket file (no listener) must become not-live"
+        );
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_dir(&dir);
     }
@@ -764,7 +785,10 @@ mod tests {
     fn auth_line_rejects_wrong_token() {
         let tok = "a".repeat(64);
         let bad = "b".repeat(64);
-        assert_eq!(check_auth_line(&format!("AUTH {bad}"), &tok), AuthOutcome::Denied);
+        assert_eq!(
+            check_auth_line(&format!("AUTH {bad}"), &tok),
+            AuthOutcome::Denied
+        );
         assert_eq!(check_auth_line("AUTH", &tok), AuthOutcome::Denied);
         assert_eq!(check_auth_line("text", &tok), AuthOutcome::Denied);
         assert_eq!(check_auth_line("", &tok), AuthOutcome::Denied);
@@ -834,7 +858,10 @@ mod tests {
         // And the token path is now a regular file (the unlink-first replaced the
         // symlink), readable as a 0600 token.
         let md = std::fs::symlink_metadata(&tokpath).unwrap();
-        assert!(md.file_type().is_file(), "token path must be a regular file");
+        assert!(
+            md.file_type().is_file(),
+            "token path must be a regular file"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -866,7 +893,11 @@ mod tests {
         // Bare name resolves into images/.
         let ok = confine_image_path(&dir, "shot.png").expect("bare name allowed");
         assert_eq!(ok.file_name.to_str(), Some("shot.png"));
-        assert!(ok.display_path().ends_with("images/shot.png"), "got {:?}", ok.display_path());
+        assert!(
+            ok.display_path().ends_with("images/shot.png"),
+            "got {:?}",
+            ok.display_path()
+        );
 
         // `../` escape is rejected.
         assert!(confine_image_path(&dir, "../escape.png").is_none());
@@ -877,8 +908,8 @@ mod tests {
 
         // Absolute path that IS inside the subdir is allowed.
         let inside = dir.join(IMAGES_DIR).join("ok.png");
-        let allowed = confine_image_path(&dir, inside.to_str().unwrap())
-            .expect("absolute-inside allowed");
+        let allowed =
+            confine_image_path(&dir, inside.to_str().unwrap()).expect("absolute-inside allowed");
         assert!(allowed.display_path().ends_with("images/ok.png"));
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -946,7 +977,8 @@ mod tests {
         // returned rooted at the CANONICAL dir (so a later dial can't be redirected
         // through a symlinked prefix).
         let legit = dir.join("aterm-42.sock");
-        let got = confine_proxy_sock(&dir, &legit.to_string_lossy()).expect("in-dir socket allowed");
+        let got =
+            confine_proxy_sock(&dir, &legit.to_string_lossy()).expect("in-dir socket allowed");
         assert_eq!(got, canon.join("aterm-42.sock").to_string_lossy());
 
         // An absolute path OUTSIDE the runtime dir (the attacker overwrite) is rejected.
@@ -954,7 +986,10 @@ mod tests {
         // A `..` escape and a relative path are rejected.
         let escape = dir.join("../evil.sock");
         assert!(confine_proxy_sock(&dir, &escape.to_string_lossy()).is_none());
-        assert!(confine_proxy_sock(&dir, "aterm-42.sock").is_none(), "relative rejected");
+        assert!(
+            confine_proxy_sock(&dir, "aterm-42.sock").is_none(),
+            "relative rejected"
+        );
         // A nested subdir under the runtime dir is rejected (single component only).
         let nested = dir.join("sub/aterm-42.sock");
         assert!(confine_proxy_sock(&dir, &nested.to_string_lossy()).is_none());
@@ -1023,7 +1058,9 @@ mod tests {
         let h = std::thread::spawn(move || run_auth_preamble(server, &tok));
 
         // Client: AUTH first (silently consumed), then the verb.
-        (&client).write_all(format!("AUTH {token}\n").as_bytes()).unwrap();
+        (&client)
+            .write_all(format!("AUTH {token}\n").as_bytes())
+            .unwrap();
         (&client).write_all(b"text\n").unwrap();
         (&client).flush().unwrap();
         let mut reply = String::new();
@@ -1054,7 +1091,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("aterm-sweep-test-{}", std::process::id()));
         ensure_private_dir(&dir).unwrap();
         // A certainly-dead pid: a reaped child cannot be signalled any more.
-        let mut child = std::process::Command::new("/bin/sleep").arg("0").spawn().unwrap();
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("0")
+            .spawn()
+            .unwrap();
         let dead = child.id();
         child.wait().unwrap();
         let us = std::process::id();
@@ -1085,12 +1125,18 @@ mod tests {
         let first = dir.join("aterm-101.sock");
         publish_latest_link(&link, first.to_str().unwrap());
         // The target is the RELATIVE instance name (valid via any dir path).
-        assert_eq!(std::fs::read_link(&link).unwrap().to_str(), Some("aterm-101.sock"));
+        assert_eq!(
+            std::fs::read_link(&link).unwrap().to_str(),
+            Some("aterm-101.sock")
+        );
 
         // A newer instance wins the link; no temp residue is left behind.
         let second = dir.join("aterm-202.sock");
         publish_latest_link(&link, second.to_str().unwrap());
-        assert_eq!(std::fs::read_link(&link).unwrap().to_str(), Some("aterm-202.sock"));
+        assert_eq!(
+            std::fs::read_link(&link).unwrap().to_str(),
+            Some("aterm-202.sock")
+        );
         assert!(!dir.join("aterm-202.sock.lnk").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1123,7 +1169,10 @@ mod tests {
         publish_latest_link(&link, dir.join("aterm-9.sock").to_str().unwrap());
         cleanup_socket(&plan);
         assert!(!Path::new(&plan.sock_path).exists());
-        assert_eq!(std::fs::read_link(&link).unwrap().to_str(), Some("aterm-9.sock"));
+        assert_eq!(
+            std::fs::read_link(&link).unwrap().to_str(),
+            Some("aterm-9.sock")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1136,7 +1185,9 @@ mod tests {
         let h = std::thread::spawn(move || run_auth_preamble(server, &tok));
 
         // One-line auth + verb.
-        (&client).write_all(format!("TOKEN {token} text\n").as_bytes()).unwrap();
+        (&client)
+            .write_all(format!("TOKEN {token} text\n").as_bytes())
+            .unwrap();
         (&client).flush().unwrap();
         let mut reply = String::new();
         BufReader::new(&client).read_line(&mut reply).unwrap();

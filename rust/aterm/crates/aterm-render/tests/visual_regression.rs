@@ -16,9 +16,15 @@ use aterm_render::{Frame, Renderer, Theme};
 
 const BG: u32 = 0x0011_1318; // Theme::default().bg
 
-fn r(p: u32) -> i32 { ((p >> 16) & 0xff) as i32 }
-fn g(p: u32) -> i32 { ((p >> 8) & 0xff) as i32 }
-fn b(p: u32) -> i32 { (p & 0xff) as i32 }
+fn r(p: u32) -> i32 {
+    ((p >> 16) & 0xff) as i32
+}
+fn g(p: u32) -> i32 {
+    ((p >> 8) & 0xff) as i32
+}
+fn b(p: u32) -> i32 {
+    (p & 0xff) as i32
+}
 
 /// Manhattan distance between two packed RGB colours.
 fn dist(a: u32, c: u32) -> i32 {
@@ -63,7 +69,9 @@ ab\r\n",
 
 #[test]
 fn red_text_renders_red_pixels() {
-    if std::env::var("ATERM_NO_FONT").is_ok() { return; }
+    if std::env::var("ATERM_NO_FONT").is_ok() {
+        return;
+    }
     let (f, cw, ch) = render_demo();
     let px = cell_pixels(&f, cw, ch, 0, 0); // the first 'R'
     let red = px.iter().any(|&p| r(p) > 140 && g(p) < 90 && b(p) < 90);
@@ -72,7 +80,9 @@ fn red_text_renders_red_pixels() {
 
 #[test]
 fn blue_background_fills_cell() {
-    if std::env::var("ATERM_NO_FONT").is_ok() { return; }
+    if std::env::var("ATERM_NO_FONT").is_ok() {
+        return;
+    }
     let (f, cw, ch) = render_demo();
     let px = cell_pixels(&f, cw, ch, 1, 0); // blue-bg space
     // A space on blue bg: the whole cell should be blue-ish, far from theme bg.
@@ -87,11 +97,16 @@ fn blue_background_fills_cell() {
 
 #[test]
 fn inverse_video_lightens_background() {
-    if std::env::var("ATERM_NO_FONT").is_ok() { return; }
+    if std::env::var("ATERM_NO_FONT").is_ok() {
+        return;
+    }
     let (f, cw, ch) = render_demo();
     let px = cell_pixels(&f, cw, ch, 3, 0); // inverse 'X'
     // Inverse swaps fg/bg: the cell background becomes the light fg (~0xD0D0D0).
-    let light = px.iter().filter(|&&p| r(p) > 150 && g(p) > 150 && b(p) > 150).count();
+    let light = px
+        .iter()
+        .filter(|&&p| r(p) > 150 && g(p) > 150 && b(p) > 150)
+        .count();
     assert!(
         light > px.len() / 3,
         "expected inverse cell (3,0) to have a light background ({}/{} light)",
@@ -102,7 +117,9 @@ fn inverse_video_lightens_background() {
 
 #[test]
 fn cjk_glyph_renders_via_font_fallback() {
-    if std::env::var("ATERM_NO_FONT").is_ok() { return; }
+    if std::env::var("ATERM_NO_FONT").is_ok() {
+        return;
+    }
     let (f, cw, ch) = render_demo();
     // The primary monospace face has no CJK glyph; the Unicode fallback must
     // draw 日 so the cell is NOT blank. This is the regression lock for the
@@ -117,11 +134,16 @@ fn cjk_glyph_renders_via_font_fallback() {
 
 #[test]
 fn blank_cell_stays_background() {
-    if std::env::var("ATERM_NO_FONT").is_ok() { return; }
+    if std::env::var("ATERM_NO_FONT").is_ok() {
+        return;
+    }
     let (f, cw, ch) = render_demo();
     // Control: an untouched cell (row 5) must be (near-)pure theme background.
     // Guards the other tests against a "everything is non-bg" false pass.
     let px = cell_pixels(&f, cw, ch, 5, 8);
     let drawn = non_bg_count(&px);
-    assert!(drawn < px.len() / 20, "blank cell (5,8) should be background ({drawn} non-bg)");
+    assert!(
+        drawn < px.len() / 20,
+        "blank cell (5,8) should be background ({drawn} non-bg)"
+    );
 }

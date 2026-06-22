@@ -410,7 +410,10 @@ impl Terminal {
     /// This sets the remote host state without invoking callbacks.
     /// Used for session resurrection via `SessionManager::restore_terminal`.
     #[cfg(test)] // called from session::terminal_state (test gated)
-    #[allow(dead_code, reason = "consumed by the (un-wired) session test-support layer")]
+    #[allow(
+        dead_code,
+        reason = "consumed by the (un-wired) session test-support layer"
+    )]
     pub(crate) fn restore_remote_host(&mut self, host: Option<super::types::RemoteHost>) {
         self.iterm2.remote_host = host;
     }
@@ -520,7 +523,11 @@ mod damage_epoch_tests {
         // advance the epoch.
         term.process(b"");
         assert!(!term.has_damage(), "an empty write damages nothing");
-        assert_eq!(term.damage_epoch(), e1, "no-op write must NOT advance the epoch");
+        assert_eq!(
+            term.damage_epoch(),
+            e1,
+            "no-op write must NOT advance the epoch"
+        );
 
         // A second real write advances again — monotonic.
         term.process(b"world");
@@ -551,7 +558,11 @@ mod damage_epoch_tests {
         // Scrolling down by 0 does not move the viewport => no damage.
         term.grid_mut().scroll_display(0);
         assert!(!term.has_damage(), "a zero-delta scroll damages nothing");
-        assert_eq!(term.damage_epoch(), scrolled, "no-op scroll must NOT advance the epoch");
+        assert_eq!(
+            term.damage_epoch(),
+            scrolled,
+            "no-op scroll must NOT advance the epoch"
+        );
     }
 
     /// P1.0 content_gen: advances on a CONTENT mutation (cell write / line erase

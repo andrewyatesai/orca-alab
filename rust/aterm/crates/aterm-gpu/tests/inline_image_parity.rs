@@ -17,9 +17,15 @@
 use aterm_core::terminal::Terminal;
 use aterm_render::{Frame, Renderer, Theme};
 
-fn rr(p: u32) -> i32 { ((p >> 16) & 0xff) as i32 }
-fn gg(p: u32) -> i32 { ((p >> 8) & 0xff) as i32 }
-fn bb(p: u32) -> i32 { (p & 0xff) as i32 }
+fn rr(p: u32) -> i32 {
+    ((p >> 16) & 0xff) as i32
+}
+fn gg(p: u32) -> i32 {
+    ((p >> 8) & 0xff) as i32
+}
+fn bb(p: u32) -> i32 {
+    (p & 0xff) as i32
+}
 
 fn max_channel_delta(a: &Frame, b: &Frame) -> i32 {
     let mut m = 0;
@@ -89,7 +95,7 @@ fn gpu_skips_glyph_under_image_like_cpu() {
     let (rows, cols) = (4usize, 8usize);
 
     // Place bright glyphs, then cover cols 0-1 of row 0 with an opaque image.
-    let png = solid_png(2 * cw as u32, 1 * ch as u32, [255, 255, 0]);
+    let png = solid_png(2 * cw as u32, ch as u32, [255, 255, 0]);
     let mut term = Terminal::new(rows as u16, cols as u16);
     term.set_cell_pixel_size(cw as u16, ch as u16);
     term.process(b"\x1b[37mWW\x1b[0m"); // bright glyphs at (0,0),(0,1)
@@ -106,7 +112,9 @@ fn gpu_skips_glyph_under_image_like_cpu() {
     // paints the yellow image, the GPU paints the cell bg — but crucially, no
     // white glyph survives on EITHER path (image-vs-glyph precedence).
     let white_glyph = |px: &[u32]| -> usize {
-        px.iter().filter(|&&p| rr(p) > 200 && gg(p) > 200 && bb(p) > 200).count()
+        px.iter()
+            .filter(|&&p| rr(p) > 200 && gg(p) > 200 && bb(p) > 200)
+            .count()
     };
     let cpu_white = white_glyph(&cell_pixels(&cpu_frame, cw, ch, 0, 0));
     let gpu_white = white_glyph(&cell_pixels(&gpu_frame, cw, ch, 0, 0));
@@ -122,8 +130,14 @@ fn gpu_skips_glyph_under_image_like_cpu() {
     let input2 = term2.cell_frame(rows, cols);
     let cpu2 = cpu.render_input(&input2);
     let gpu2 = gpu.render_input(&mut win, &input2);
-    assert!(white_glyph(&cell_pixels(&cpu2, cw, ch, 1, 0)) > 0, "CPU draws an uncovered glyph");
-    assert!(white_glyph(&cell_pixels(&gpu2, cw, ch, 1, 0)) > 0, "GPU draws an uncovered glyph");
+    assert!(
+        white_glyph(&cell_pixels(&cpu2, cw, ch, 1, 0)) > 0,
+        "CPU draws an uncovered glyph"
+    );
+    assert!(
+        white_glyph(&cell_pixels(&gpu2, cw, ch, 1, 0)) > 0,
+        "GPU draws an uncovered glyph"
+    );
 }
 
 #[test]
@@ -148,7 +162,7 @@ fn gpu_skips_emoji_under_image_like_cpu() {
     let (rows, cols) = (4usize, 8usize);
 
     // A red emoji 🔴 (2 cells wide), then an opaque grey image over those cells.
-    let png = solid_png(2 * cw as u32, 1 * ch as u32, [40, 40, 40]);
+    let png = solid_png(2 * cw as u32, ch as u32, [40, 40, 40]);
     let mut term = Terminal::new(rows as u16, cols as u16);
     term.set_cell_pixel_size(cw as u16, ch as u16);
     term.process("\u{1F534}".as_bytes()); // red circle emoji
@@ -162,7 +176,9 @@ fn gpu_skips_emoji_under_image_like_cpu() {
 
     // The emoji's saturated red must NOT survive under the image on either path.
     let red_emoji = |px: &[u32]| -> usize {
-        px.iter().filter(|&&p| rr(p) > 150 && gg(p) < 80 && bb(p) < 80).count()
+        px.iter()
+            .filter(|&&p| rr(p) > 150 && gg(p) < 80 && bb(p) < 80)
+            .count()
     };
     let cpu_red = red_emoji(&cell_pixels(&cpu_frame, cw, ch, 0, 0));
     let gpu_red = red_emoji(&cell_pixels(&gpu_frame, cw, ch, 0, 0));
@@ -236,8 +252,14 @@ fn image_pixels_gpu_match_cpu() {
             .filter(|&&p| rr(p) > 120 && gg(p) < 90 && bb(p) > 120)
             .count()
     };
-    assert!(magenta(&gpu_frame, 0, 0) > 0, "GPU must paint the opaque image pixels");
-    assert!(magenta(&cpu_frame, 0, 0) > 0, "CPU must paint the opaque image pixels");
+    assert!(
+        magenta(&gpu_frame, 0, 0) > 0,
+        "GPU must paint the opaque image pixels"
+    );
+    assert!(
+        magenta(&cpu_frame, 0, 0) > 0,
+        "CPU must paint the opaque image pixels"
+    );
 }
 
 #[test]
@@ -281,7 +303,11 @@ fn image_scissored_present_byte_identical_to_full() {
     let input1 = term.cell_frame(rows, cols);
     // Prime the present path (first present is always a full repaint).
     let f1 = gpu.present_input_readback(&mut win, &input1);
-    assert_eq!(f1.pixels, fresh(&input1), "image present frame 1 must match a full render");
+    assert_eq!(
+        f1.pixels,
+        fresh(&input1),
+        "image present frame 1 must match a full render"
+    );
 
     // Frame 2: change ONE cell on the text row (image rows untouched) — this takes
     // the scissored dirty-row path; the image must survive verbatim.
@@ -289,15 +315,26 @@ fn image_scissored_present_byte_identical_to_full() {
     let input2 = term.cell_frame(rows, cols);
     let before = gpu.scissor_taken();
     let f2 = gpu.present_input_readback(&mut win, &input2);
-    assert!(gpu.scissor_taken() > before, "a single-cell change must take the scissor path");
-    assert_eq!(f2.pixels, fresh(&input2), "scissored image frame must match a full render");
+    assert!(
+        gpu.scissor_taken() > before,
+        "a single-cell change must take the scissor path"
+    );
+    assert_eq!(
+        f2.pixels,
+        fresh(&input2),
+        "scissored image frame must match a full render"
+    );
 
     // Frame 3: remove the image (overwrite its rows) — the image must disappear,
     // matching a fresh render of the now-image-free frame.
     term.process(b"\x1b[H\x1b[2Jdone");
     let input3 = term.cell_frame(rows, cols);
     let f3 = gpu.present_input_readback(&mut win, &input3);
-    assert_eq!(f3.pixels, fresh(&input3), "image-removed frame must match a full render");
+    assert_eq!(
+        f3.pixels,
+        fresh(&input3),
+        "image-removed frame must match a full render"
+    );
 }
 
 #[test]

@@ -1124,7 +1124,11 @@ mod tests {
         extras.shift_cols_left(0, 5, 3, 80);
         assert_eq!(extras.bg_rgb_for(0, 5), None, "deleted col blank");
         assert_eq!(extras.bg_rgb_for(0, 7), Some([100, 0, 0]), "col 10 -> 7");
-        assert_eq!(extras.bg_rgb_for(2, 10), Some([210, 0, 0]), "other row kept");
+        assert_eq!(
+            extras.bg_rgb_for(2, 10),
+            Some([210, 0, 0]),
+            "other row kept"
+        );
     }
 
     #[test]
@@ -1134,8 +1138,16 @@ mod tests {
         set_ring_bg(&mut extras, 5, 2, [40, 2, 0]); // outside col range
         // Rect [2,8] x [10,30], up by 2: (5,12) -> (3,12); (5,2) untouched.
         extras.shift_rect_up_by(2, 8, 10, 30, 2);
-        assert_eq!(extras.bg_rgb_for(3, 12), Some([40, 10, 0]), "in-rect shifted");
-        assert_eq!(extras.bg_rgb_for(5, 2), Some([40, 2, 0]), "outside col kept");
+        assert_eq!(
+            extras.bg_rgb_for(3, 12),
+            Some([40, 10, 0]),
+            "in-rect shifted"
+        );
+        assert_eq!(
+            extras.bg_rgb_for(5, 2),
+            Some([40, 2, 0]),
+            "outside col kept"
+        );
     }
 
     #[test]

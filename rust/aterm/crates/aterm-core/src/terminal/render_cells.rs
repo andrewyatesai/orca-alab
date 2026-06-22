@@ -35,6 +35,27 @@ pub enum UnderlineStyle {
     Dashed,
 }
 
+impl UnderlineStyle {
+    /// Resolve the packed underline bits to a single variant. The composite styles
+    /// share bits with the singletons (DOTTED = UNDERLINE|CURLY, DASHED =
+    /// DOUBLE|CURLY), so they are tested before the singletons.
+    fn from_flags(cflags: CellFlags) -> Self {
+        if cflags.contains(CellFlags::DOTTED_UNDERLINE) {
+            Self::Dotted
+        } else if cflags.contains(CellFlags::DASHED_UNDERLINE) {
+            Self::Dashed
+        } else if cflags.contains(CellFlags::CURLY_UNDERLINE) {
+            Self::Curly
+        } else if cflags.contains(CellFlags::DOUBLE_UNDERLINE) {
+            Self::Double
+        } else if cflags.contains(CellFlags::UNDERLINE) {
+            Self::Single
+        } else {
+            Self::None
+        }
+    }
+}
+
 /// A single render-ready terminal cell.
 ///
 /// Colors are final RGB triples; the renderer can fill the cell rect with
@@ -203,23 +224,9 @@ impl Terminal {
             let emoji_presentation =
                 !wide && cell.is_wide() && super::handler::is_vs16_emoji_capable(ch);
 
-            // Line decorations (SGR 4 family / 9 / 53). The packed underline bits
-            // combine: DOTTED = UNDERLINE|CURLY, DASHED = DOUBLE|CURLY, so the
-            // composite styles are checked before the singletons.
+            // Line decorations (SGR 4 family / 9 / 53).
             let cflags = eff_cell.flags();
-            let underline = if cflags.contains(CellFlags::DOTTED_UNDERLINE) {
-                UnderlineStyle::Dotted
-            } else if cflags.contains(CellFlags::DASHED_UNDERLINE) {
-                UnderlineStyle::Dashed
-            } else if cflags.contains(CellFlags::CURLY_UNDERLINE) {
-                UnderlineStyle::Curly
-            } else if cflags.contains(CellFlags::DOUBLE_UNDERLINE) {
-                UnderlineStyle::Double
-            } else if cflags.contains(CellFlags::UNDERLINE) {
-                UnderlineStyle::Single
-            } else {
-                UnderlineStyle::None
-            };
+            let underline = UnderlineStyle::from_flags(cflags);
             let strikethrough = cflags.contains(CellFlags::STRIKETHROUGH);
             let overline = cflags.contains(CellFlags::OVERLINE);
             let bold = cflags.contains(CellFlags::BOLD);
@@ -228,7 +235,8 @@ impl Terminal {
             let underline_color = if underline == UnderlineStyle::None {
                 None
             } else {
-                grid.cell_extra(visible_row, col).and_then(aterm_grid::CellExtra::underline_color)
+                grid.cell_extra(visible_row, col)
+                    .and_then(aterm_grid::CellExtra::underline_color)
             };
 
             out.push(RenderCell {
@@ -351,9 +359,7 @@ impl Terminal {
                 continue;
             };
             let combining = extra.combining();
-            if combining.is_empty()
-                || combining.iter().copied().any(is_emoji_sequence_marker)
-            {
+            if combining.is_empty() || combining.iter().copied().any(is_emoji_sequence_marker) {
                 continue;
             }
             // Overlay every combining char except the presentation selectors,
@@ -520,7 +526,10 @@ impl Terminal {
             u16::try_from(r)
                 .ok()
                 .and_then(|vr| self.grid().row(vr))
-                .map_or(crate::grid::LineSize::SingleWidth, crate::grid::Row::line_size)
+                .map_or(
+                    crate::grid::LineSize::SingleWidth,
+                    crate::grid::Row::line_size,
+                )
         }));
 
         let cur = self.cursor();
@@ -613,7 +622,10 @@ mod tests {
             aterm_types::Rgb::new(0x11, 0x22, 0x33),
             "OSC 110 resets to the configured (themed) default"
         );
-        assert_ne!(term.default_foreground(), aterm_types::Rgb::new(0xff, 0x00, 0xff));
+        assert_ne!(
+            term.default_foreground(),
+            aterm_types::Rgb::new(0xff, 0x00, 0xff)
+        );
     }
 
     #[test]
@@ -625,10 +637,16 @@ mod tests {
         let cells = term.render_row(0);
         assert_eq!(cells[0].ch, '\u{2764}');
         assert!(!cells[0].wide, "lead cell is not a continuation");
-        assert!(cells[0].emoji_presentation, "VS16-widened ❤️ lead must request emoji presentation");
+        assert!(
+            cells[0].emoji_presentation,
+            "VS16-widened ❤️ lead must request emoji presentation"
+        );
         // The right half is a wide continuation carrying no glyph / no flag.
         assert!(cells[1].wide, "second column is the wide continuation");
-        assert!(!cells[1].emoji_presentation, "continuation cell carries no presentation flag");
+        assert!(
+            !cells[1].emoji_presentation,
+            "continuation cell carries no presentation flag"
+        );
     }
 
     #[test]
@@ -640,7 +658,10 @@ mod tests {
         let cells = term.render_row(0);
         assert_eq!(cells[0].ch, '\u{2764}');
         assert!(!cells[0].wide);
-        assert!(!cells[0].emoji_presentation, "bare ❤ must not request emoji presentation");
+        assert!(
+            !cells[0].emoji_presentation,
+            "bare ❤ must not request emoji presentation"
+        );
     }
 
     #[test]
@@ -652,13 +673,26 @@ mod tests {
         );
         let clusters = term.cluster_row(0);
         // family at lead col 0
-        let family = clusters.iter().find(|(c, _)| *c == 0).map(|(_, s)| s.as_ref());
-        assert_eq!(family, Some("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"), "family ZWJ cluster");
+        let family = clusters
+            .iter()
+            .find(|(c, _)| *c == 0)
+            .map(|(_, s)| s.as_ref());
+        assert_eq!(
+            family,
+            Some("\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"),
+            "family ZWJ cluster"
+        );
         // skin-tone thumbs-up at col 3
-        let skin = clusters.iter().find(|(c, _)| *c == 3).map(|(_, s)| s.as_ref());
+        let skin = clusters
+            .iter()
+            .find(|(c, _)| *c == 3)
+            .map(|(_, s)| s.as_ref());
         assert_eq!(skin, Some("\u{1F44D}\u{1F3FD}"), "skin-tone cluster");
         // keycap at col 6
-        let keycap = clusters.iter().find(|(c, _)| *c == 6).map(|(_, s)| s.as_ref());
+        let keycap = clusters
+            .iter()
+            .find(|(c, _)| *c == 6)
+            .map(|(_, s)| s.as_ref());
         assert_eq!(keycap, Some("\u{31}\u{FE0F}\u{20E3}"), "keycap cluster");
         // VS16 ❤️ must NOT be emitted (it keeps the emoji_presentation path).
         assert!(
@@ -675,16 +709,30 @@ mod tests {
         let mut term = Terminal::new(2, 12);
         term.process("\u{1F1FA}\u{1F1F8}".as_bytes());
         let cells = term.render_row(0);
-        assert_eq!(cells[0].ch, '\u{1F1FA}', "lead cell is regional indicator U");
+        assert_eq!(
+            cells[0].ch, '\u{1F1FA}',
+            "lead cell is regional indicator U"
+        );
         assert!(!cells[0].wide, "lead is not a continuation");
         assert!(cells[1].wide, "col 1 is the wide continuation of the flag");
         // The pair occupies exactly 2 cells, not 4 (render_row trims to the
         // occupied width, so a folded pair is a length-2 row).
-        assert_eq!(cells.len(), 2, "RI pair folds into one 2-cell flag, not two glyphs");
+        assert_eq!(
+            cells.len(),
+            2,
+            "RI pair folds into one 2-cell flag, not two glyphs"
+        );
 
         let clusters = term.cluster_row(0);
-        let flag = clusters.iter().find(|(c, _)| *c == 0).map(|(_, s)| s.as_ref());
-        assert_eq!(flag, Some("\u{1F1FA}\u{1F1F8}"), "flag cluster surfaced for shaping");
+        let flag = clusters
+            .iter()
+            .find(|(c, _)| *c == 0)
+            .map(|(_, s)| s.as_ref());
+        assert_eq!(
+            flag,
+            Some("\u{1F1FA}\u{1F1F8}"),
+            "flag cluster surfaced for shaping"
+        );
     }
 
     #[test]
@@ -699,20 +747,37 @@ mod tests {
         // The third RI starts a fresh cell at col 2 (wide), not folded in.
         assert_eq!(cells[2].ch, '\u{1F1EB}', "third RI stands alone");
         let clusters = term.cluster_row(0);
-        assert_eq!(clusters.len(), 1, "only the completed pair is a cluster, got {clusters:?}");
+        assert_eq!(
+            clusters.len(),
+            1,
+            "only the completed pair is a cluster, got {clusters:?}"
+        );
         assert_eq!(clusters[0].0, 0, "the flag cluster is at the pair lead");
     }
-
 
     #[test]
     fn sgr_decorations_surface_on_render_cells() {
         let mut term = Terminal::new(2, 16);
         // SGR 4 underline, 21 double, 4:3 curly, 9 strike, 53 overline.
-        term.process(b"\x1b[4mA\x1b[0m\x1b[21mB\x1b[0m\x1b[4:3mC\x1b[0m\x1b[9mD\x1b[0m\x1b[53mE\x1b[0m");
+        term.process(
+            b"\x1b[4mA\x1b[0m\x1b[21mB\x1b[0m\x1b[4:3mC\x1b[0m\x1b[9mD\x1b[0m\x1b[53mE\x1b[0m",
+        );
         let cells = term.render_row(0);
-        assert_eq!(cells[0].underline, UnderlineStyle::Single, "SGR 4 -> single");
-        assert_eq!(cells[1].underline, UnderlineStyle::Double, "SGR 21 -> double");
-        assert_eq!(cells[2].underline, UnderlineStyle::Curly, "SGR 4:3 -> curly");
+        assert_eq!(
+            cells[0].underline,
+            UnderlineStyle::Single,
+            "SGR 4 -> single"
+        );
+        assert_eq!(
+            cells[1].underline,
+            UnderlineStyle::Double,
+            "SGR 21 -> double"
+        );
+        assert_eq!(
+            cells[2].underline,
+            UnderlineStyle::Curly,
+            "SGR 4:3 -> curly"
+        );
         assert_eq!(cells[3].underline, UnderlineStyle::None);
         assert!(cells[3].strikethrough, "SGR 9 -> strikethrough");
         assert!(cells[4].overline, "SGR 53 -> overline");
@@ -731,7 +796,11 @@ mod tests {
         term.process(b"\x1b[4;58:2::255:0:0mU\x1b[0m");
         let cells = term.render_row(0);
         assert_eq!(cells[0].underline, UnderlineStyle::Single);
-        assert_eq!(cells[0].underline_color, Some([255, 0, 0]), "SGR 58 red underline colour");
+        assert_eq!(
+            cells[0].underline_color,
+            Some([255, 0, 0]),
+            "SGR 58 red underline colour"
+        );
     }
 
     #[test]
@@ -742,7 +811,11 @@ mod tests {
         let comb = term.combining_row(0);
         // The 'e' at col 0 surfaces its acute mark.
         let m0 = comb.iter().find(|(c, _)| *c == 0).map(|(_, m)| m.as_ref());
-        assert_eq!(m0, Some(['\u{0301}'].as_slice()), "acute mark overlaid on e");
+        assert_eq!(
+            m0,
+            Some(['\u{0301}'].as_slice()),
+            "acute mark overlaid on e"
+        );
         // The emoji family is NOT a combining-overlay cell (cluster_row owns it).
         let family_col = 2; // after "e\u{0301} " (cols 0,1)
         assert!(
@@ -756,14 +829,20 @@ mod tests {
         let mut term = Terminal::new(2, 8);
         // VS16 ❤️ has a combining selector but NO overlay mark.
         term.process("hi \u{2764}\u{FE0F}".as_bytes());
-        assert!(term.combining_row(0).is_empty(), "plain text + VS16 has no overlay marks");
+        assert!(
+            term.combining_row(0).is_empty(),
+            "plain text + VS16 has no overlay marks"
+        );
     }
 
     #[test]
     fn cluster_row_empty_for_plain_text() {
         let mut term = Terminal::new(2, 8);
         term.process(b"hello");
-        assert!(term.cluster_row(0).is_empty(), "plain ASCII has no emoji clusters");
+        assert!(
+            term.cluster_row(0).is_empty(),
+            "plain ASCII has no emoji clusters"
+        );
     }
 
     #[test]
@@ -774,8 +853,14 @@ mod tests {
         term.process("\u{65E5}".as_bytes()); // 日
         let cells = term.render_row(0);
         assert_eq!(cells[0].ch, '\u{65E5}');
-        assert!(!cells[0].wide, "lead cell of a wide glyph is not the continuation");
-        assert!(!cells[0].emoji_presentation, "wide CJK must not request emoji presentation");
+        assert!(
+            !cells[0].wide,
+            "lead cell of a wide glyph is not the continuation"
+        );
+        assert!(
+            !cells[0].emoji_presentation,
+            "wide CJK must not request emoji presentation"
+        );
     }
 
     #[test]
@@ -786,7 +871,11 @@ mod tests {
         let cells = term.render_row(0);
         assert_eq!(cells[0].ch, 'R');
         let [r, g, b] = cells[0].fg;
-        assert!(r > g && r > b, "expected red-dominant fg, got {:?}", cells[0].fg);
+        assert!(
+            r > g && r > b,
+            "expected red-dominant fg, got {:?}",
+            cells[0].fg
+        );
     }
 
     #[test]
@@ -797,7 +886,11 @@ mod tests {
         let cells = term.render_row(0);
         assert_eq!(cells[0].ch, 'G');
         let [r, g, b] = cells[0].bg;
-        assert!(g > r && g > b, "expected green-dominant bg, got {:?}", cells[0].bg);
+        assert!(
+            g > r && g > b,
+            "expected green-dominant bg, got {:?}",
+            cells[0].bg
+        );
     }
 
     #[test]
@@ -821,7 +914,10 @@ mod tests {
         let cells = term.render_row(0);
         let text: String = cells.iter().take(6).map(|c| c.ch).collect();
         assert_eq!(text, "SECRET", "protected text must render, not blank");
-        assert!(!cells[0].wide, "a protected cell is not a wide continuation");
+        assert!(
+            !cells[0].wide,
+            "a protected cell is not a wide continuation"
+        );
     }
 
     #[test]
@@ -836,6 +932,9 @@ mod tests {
         assert!(!cells[0].wide, "the wide LEAD is not a continuation");
         assert_eq!(cells[1].ch, ' ', "the continuation spacer renders blank");
         assert!(cells[1].wide, "the continuation spacer is flagged wide");
-        assert_eq!(cells[2].ch, 'X', "the next glyph follows the 2-cell wide char");
+        assert_eq!(
+            cells[2].ch, 'X',
+            "the next glyph follows the 2-cell wide char"
+        );
     }
 }

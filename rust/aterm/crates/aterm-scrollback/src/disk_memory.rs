@@ -40,8 +40,9 @@ impl DiskColdTier {
             .capacity()
             .saturating_mul(std::mem::size_of::<usize>());
         let cache = self.cache.borrow();
-        let cache_struct_mem = Self::cache_bucket_count(&cache)
-            .saturating_mul(std::mem::size_of::<usize>().saturating_add(std::mem::size_of::<CacheEntry>()));
+        let cache_struct_mem = Self::cache_bucket_count(&cache).saturating_mul(
+            std::mem::size_of::<usize>().saturating_add(std::mem::size_of::<CacheEntry>()),
+        );
         let line_struct_size = std::mem::size_of::<Line>();
         let cache_lines_mem: usize = cache
             .values()

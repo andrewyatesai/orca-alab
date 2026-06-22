@@ -98,7 +98,7 @@ impl ActionSink for RecordingSink {
     fn dcs_put(&mut self, byte: u8) {
         self.dcs_puts.push(byte);
     }
-    fn dcs_unhook(&mut self) {
+    fn dcs_unhook(&mut self, _canceled: bool) {
         self.dcs_unhooks += 1;
     }
     fn apc_start(&mut self) {

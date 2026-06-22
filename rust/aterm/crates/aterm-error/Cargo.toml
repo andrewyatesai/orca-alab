@@ -14,3 +14,6 @@ aterm-error-derive = { path = "../aterm-error-derive" }
 
 [dev-dependencies]
 # None — tests use only std
+
+[lints]
+workspace = true

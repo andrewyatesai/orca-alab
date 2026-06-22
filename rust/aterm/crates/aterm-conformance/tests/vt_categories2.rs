@@ -59,7 +59,7 @@ fn decom_origin_mode_homes_into_scroll_region() {
 #[test]
 fn pending_wrap_is_cancelled_by_cr() {
     // fill the last column (cursor in pending-wrap), CR returns to col 0 same row
-    let mut input: Vec<u8> = std::iter::repeat(b'a').take(80).collect();
+    let mut input: Vec<u8> = std::iter::repeat_n(b'a', 80).collect();
     input.extend_from_slice(b"\rZ");
     let s = run(&input);
     assert_eq!(s.row(0).chars().next(), Some('Z')); // Z overwrote col 0, no wrap

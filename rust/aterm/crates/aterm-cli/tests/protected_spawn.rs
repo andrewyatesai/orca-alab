@@ -116,5 +116,9 @@ fn malformed_containment_mode_fails_closed_not_open() {
         stdout.contains("ATERM_FAILCLOSED_10"),
         "the confined shell must still run a basic command; stdout={stdout:?}"
     );
-    assert!(out.status.success(), "aterm must still exit success; got {:?}", out.status);
+    assert!(
+        out.status.success(),
+        "aterm must still exit success; got {:?}",
+        out.status
+    );
 }

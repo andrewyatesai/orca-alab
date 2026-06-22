@@ -192,7 +192,9 @@ fn large_inline_image_payload_survives_old_64k_cap() {
     let mut term = Terminal::new(10, 20);
 
     // Deterministic, non-trivial body so a truncated decode could not coincide.
-    let body: Vec<u8> = (0..512 * 1024).map(|i| (i as u8).wrapping_mul(31)).collect();
+    let body: Vec<u8> = (0..512 * 1024)
+        .map(|i| (i as u8).wrapping_mul(31))
+        .collect();
     let payload = [PNG_MAGIC, &body[..]].concat();
 
     // base64 of ~512 KiB is ~683 KiB, far above the old 64 KiB parser cap.

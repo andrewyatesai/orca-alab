@@ -9,9 +9,6 @@ license.workspace = true
 repository.workspace = true
 description = "OSC / escape-sequence policy engine data model and built-in profiles (Phase 2 of #7874)"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [features]
 default = []
 
@@ -26,3 +23,6 @@ criterion = "0.5"
 [[bench]]
 name = "policy_engine_hotpath"
 harness = false
+
+[lints]
+workspace = true

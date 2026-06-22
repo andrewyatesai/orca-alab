@@ -14,11 +14,17 @@ use crate::grid::{Cell, Grid, PackedColor};
 // repr/ABI surface consumed by the cfg(test) `ffi_impl`, the test_support
 // FFI helpers, the GPU bridge, and the out-of-crate FFI extraction; inert (never
 // constructed) in the default lib build.
-#[allow(dead_code, reason = "FFI ABI surface consumed by the test/FFI/GPU layer")]
+#[allow(
+    dead_code,
+    reason = "FFI ABI surface consumed by the test/FFI/GPU layer"
+)]
 pub struct AtermGrid(pub Grid);
 
 /// Cell data for FFI.
-#[allow(dead_code, reason = "FFI ABI surface consumed by the test/FFI/GPU layer")]
+#[allow(
+    dead_code,
+    reason = "FFI ABI surface consumed by the test/FFI/GPU layer"
+)]
 #[repr(C)]
 pub struct AtermCell {
     /// Unicode codepoint (0 for empty cell).
@@ -238,7 +244,10 @@ impl AtermCell {
 /// Contains fully resolved fg/bg/underline colors regardless of whether the
 /// cell uses inline colors or a StyleId. Consumers should use this instead of
 /// reading `AtermCell.fg`/`bg` directly when `FLAG_USES_STYLE_ID` may be set.
-#[allow(dead_code, reason = "FFI ABI surface consumed by the test/FFI/GPU layer")]
+#[allow(
+    dead_code,
+    reason = "FFI ABI surface consumed by the test/FFI/GPU layer"
+)]
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct AtermResolvedStyle {
@@ -268,7 +277,10 @@ pub struct AtermResolvedStyle {
     pub flags: u16,
 }
 
-#[allow(dead_code, reason = "FFI ABI surface consumed by the test/FFI/GPU layer")]
+#[allow(
+    dead_code,
+    reason = "FFI ABI surface consumed by the test/FFI/GPU layer"
+)]
 impl AtermResolvedStyle {
     /// All-zero instance for safe initialization before error returns.
     pub const ZEROED: Self = Self {

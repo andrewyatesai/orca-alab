@@ -188,7 +188,11 @@ impl CastRecorder {
         for ev in &self.events {
             match ev {
                 Event::Output { t, data } => {
-                    out.push_str(&format!("[{}, \"o\", \"{}\"]\n", fmt_t(*t), json_escape_bytes(data)));
+                    out.push_str(&format!(
+                        "[{}, \"o\", \"{}\"]\n",
+                        fmt_t(*t),
+                        json_escape_bytes(data)
+                    ));
                 }
                 Event::Resize { t, cols, rows } => {
                     out.push_str(&format!("[{}, \"r\", \"{cols}x{rows}\"]\n", fmt_t(*t)));
@@ -204,7 +208,6 @@ impl CastRecorder {
 fn fmt_t(t: Duration) -> String {
     format!("{:.6}", t.as_secs_f64())
 }
-
 
 /// The number of trailing bytes of `bytes` that form an INCOMPLETE (but so-far
 /// valid) UTF-8 multibyte lead — i.e. a sequence the next read could complete.
@@ -358,12 +361,19 @@ impl ByteFanout {
     #[must_use]
     pub fn subscribe(self: &Arc<Self>) -> ByteSubscription {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let slot = Arc::new(ByteSlot { id, queue: Mutex::new(ByteQueue::default()) });
+        let slot = Arc::new(ByteSlot {
+            id,
+            queue: Mutex::new(ByteQueue::default()),
+        });
         self.slots
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .push(slot.clone());
-        ByteSubscription { fanout: self.clone(), slot, id }
+        ByteSubscription {
+            fanout: self.clone(),
+            slot,
+            id,
+        }
     }
 
     fn deregister(&self, id: u64) {
@@ -447,7 +457,10 @@ mod tests {
         // expected values are the ORIGINAL (decoded) bytes — proving the on-wire
         // escaping round-trips back to exactly what was fed.
         let e0 = lines.next().unwrap();
-        assert_eq!(parse_event(e0), (0.100, "o".to_string(), "hello\n".to_string()));
+        assert_eq!(
+            parse_event(e0),
+            (0.100, "o".to_string(), "hello\n".to_string())
+        );
 
         let e1 = lines.next().unwrap();
         assert_eq!(
@@ -455,11 +468,16 @@ mod tests {
             (0.250, "o".to_string(), "a\tb\"c\\d\r".to_string())
         );
         // And the RAW line really did escape them (no bare control byte / quote).
-        assert!(e1.contains("\\t") && e1.contains("\\\"") && e1.contains("\\\\") && e1.contains("\\r"));
+        assert!(
+            e1.contains("\\t") && e1.contains("\\\"") && e1.contains("\\\\") && e1.contains("\\r")
+        );
         assert!(!e1[1..e1.len() - 1].contains('\t'));
 
         let e2 = lines.next().unwrap();
-        assert_eq!(parse_event(e2), (0.300, "r".to_string(), "100x30".to_string()));
+        assert_eq!(
+            parse_event(e2),
+            (0.300, "r".to_string(), "100x30".to_string())
+        );
 
         assert!(lines.next().is_none());
     }
@@ -486,11 +504,7 @@ mod tests {
         rec.record_output(Duration::from_millis(700), b"c");
 
         let cast = rec.to_asciicast();
-        let ts: Vec<f64> = cast
-            .lines()
-            .skip(1)
-            .map(|l| parse_event(l).0)
-            .collect();
+        let ts: Vec<f64> = cast.lines().skip(1).map(|l| parse_event(l).0).collect();
         assert_eq!(ts.len(), 3);
         for w in ts.windows(2) {
             assert!(w[1] >= w[0], "ts not monotonic: {ts:?}");
@@ -606,12 +620,19 @@ mod tests {
     fn split_multibyte_across_bursts_reassembles() {
         let mut rec = CastRecorder::new(80, 24);
         rec.record_output(Duration::from_millis(1), &[0xE2, 0x82]); // first 2 of '€'
-        assert_eq!(rec.event_count(), 0, "incomplete lead must be carried, not emitted");
+        assert_eq!(
+            rec.event_count(),
+            0,
+            "incomplete lead must be carried, not emitted"
+        );
         rec.record_output(Duration::from_millis(2), &[0xAC]); // final byte
         let cast = rec.to_asciicast();
         let payload = parse_event(cast.lines().nth(1).unwrap()).2;
         assert_eq!(payload, "€");
-        assert!(!payload.contains('\u{fffd}'), "no replacement char: {payload:?}");
+        assert!(
+            !payload.contains('\u{fffd}'),
+            "no replacement char: {payload:?}"
+        );
     }
 
     /// A genuinely invalid byte (a lone continuation mid-stream, not a trailing
@@ -682,7 +703,10 @@ mod tests {
         let (bursts, dropped) = sub.drain();
         // Bounded well under 100 retained; the rest counted as dropped.
         assert!(bursts.len() <= 3, "queue bounded: {}", bursts.len());
-        assert!(dropped >= 4 * (100 - bursts.len() as u64), "dropped counted: {dropped}");
+        assert!(
+            dropped >= 4 * (100 - bursts.len() as u64),
+            "dropped counted: {dropped}"
+        );
         // The newest burst is retained.
         assert_eq!(&bursts.last().unwrap()[..], b"abcd");
     }
@@ -716,7 +740,9 @@ mod tests {
         let after_t = after_t.trim_start();
         let (code, after_code) = parse_json_string(after_t);
         let after_code = after_code.trim_start();
-        let after_code = after_code.strip_prefix(',').expect("missing comma after code");
+        let after_code = after_code
+            .strip_prefix(',')
+            .expect("missing comma after code");
         // data: the final quoted string (rest of the array).
         let (data, tail) = parse_json_string(after_code.trim_start());
         assert!(tail.trim().is_empty(), "trailing junk after data: {tail:?}");
@@ -727,7 +753,11 @@ mod tests {
     /// Recognizes the exact escapes [`json_escape`] produces.
     fn parse_json_string(s: &str) -> (String, &str) {
         let chars: Vec<char> = s.chars().collect();
-        assert_eq!(chars.first().copied(), Some('"'), "expected a JSON string at {s:?}");
+        assert_eq!(
+            chars.first().copied(),
+            Some('"'),
+            "expected a JSON string at {s:?}"
+        );
         let mut out = String::new();
         let mut ci = 1; // skip the opening quote
         while ci < chars.len() {

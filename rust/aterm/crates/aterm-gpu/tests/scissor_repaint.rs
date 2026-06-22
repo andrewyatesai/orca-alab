@@ -86,7 +86,13 @@ fn step(
     override_: Option<CursorStyle>,
     path: Path,
 ) -> Step {
-    Step { desc, act: Box::new(act), blink, override_, path }
+    Step {
+        desc,
+        act: Box::new(act),
+        blink,
+        override_,
+        path,
+    }
 }
 
 #[test]
@@ -117,30 +123,84 @@ fn gpu_scissor_repaint_byte_identical() {
         step("blink on", |_| {}, true, None, Path::Any),
         // 11. Newline then a cursor MOVE without content change (CUP) — the old +
         //     new cursor rows are dirty ⇒ scissor.
-        step("newline + text", |t| t.process(b"\r\nrow two text"), true, None, Path::Scissor),
-        step("cursor home", |t| t.process(b"\x1b[1;1H"), true, None, Path::Scissor),
-        step("cursor r3c5", |t| t.process(b"\x1b[3;5H"), true, None, Path::Scissor),
+        step(
+            "newline + text",
+            |t| t.process(b"\r\nrow two text"),
+            true,
+            None,
+            Path::Scissor,
+        ),
+        step(
+            "cursor home",
+            |t| t.process(b"\x1b[1;1H"),
+            true,
+            None,
+            Path::Scissor,
+        ),
+        step(
+            "cursor r3c5",
+            |t| t.process(b"\x1b[3;5H"),
+            true,
+            None,
+            Path::Scissor,
+        ),
         // 14. Wide CJK on a fresh row — changes one row ⇒ scissor.
-        step("wide cjk", |t| t.process("\x1b[4;1H日本語".as_bytes()), true, None, Path::Scissor),
+        step(
+            "wide cjk",
+            |t| t.process("\x1b[4;1H日本語".as_bytes()),
+            true,
+            None,
+            Path::Scissor,
+        ),
         // 15. Combining mark (é = e + U+0301) — changes one row ⇒ scissor.
-        step("combining é", |t| t.process("\x1b[5;1He\u{0301}".as_bytes()), true, None, Path::Scissor),
+        step(
+            "combining é",
+            |t| t.process("\x1b[5;1He\u{0301}".as_bytes()),
+            true,
+            None,
+            Path::Scissor,
+        ),
         // 16. DECDWL double-WIDTH row. Double-width stays within ONE row band, so
         //     it is REUSABLE — the changed row is dirty ⇒ scissor (byte-identical).
-        step("decdwl", |t| t.process(b"\x1b[6;1H\x1b#6WIDE"), true, None, Path::Scissor),
+        step(
+            "decdwl",
+            |t| t.process(b"\x1b[6;1H\x1b#6WIDE"),
+            true,
+            None,
+            Path::Scissor,
+        ),
         // 17. DECDHL double-HEIGHT row. A DECDHL glyph spans TWO row bands, so the
         //     whole frame is NOT reusable ⇒ FULL repaint (the seam-safe fallback).
-        step("decdhl top", |t| t.process(b"\x1b[7;1H\x1b#3TALL"), true, None, Path::Full),
+        step(
+            "decdhl top",
+            |t| t.process(b"\x1b[7;1H\x1b#3TALL"),
+            true,
+            None,
+            Path::Full,
+        ),
         // 18. Still double-height present ⇒ idle also FULL (no per-row reuse while
         //     a double-height row exists in either frame).
         step("idle with decdhl", |_| {}, true, None, Path::Full),
         // 19. Clear the double-height: rewrite row 7 single-size. Prior frame had a
         //     double-height row ⇒ NOT reusable ⇒ FULL.
-        step("clear decdhl", |t| t.process(b"\x1b[7;1H\x1b#5plain   "), true, None, Path::Full),
+        step(
+            "clear decdhl",
+            |t| t.process(b"\x1b[7;1H\x1b#5plain   "),
+            true,
+            None,
+            Path::Full,
+        ),
         // 20. Idle now (no double-height anywhere) ⇒ scissor again.
         step("idle no decdhl", |_| {}, true, None, Path::Scissor),
         // 21. Style override (unfocused HollowBlock) — cursor style changes; the
         //     cursor row is dirty ⇒ scissor (byte-identical).
-        step("focus lost", |_| {}, true, Some(CursorStyle::HollowBlock), Path::Scissor),
+        step(
+            "focus lost",
+            |_| {},
+            true,
+            Some(CursorStyle::HollowBlock),
+            Path::Scissor,
+        ),
         step("focus gained", |_| {}, true, None, Path::Scissor),
         // 23. Selection set — frame-global change ⇒ FULL fallback.
         step(
@@ -158,7 +218,13 @@ fn gpu_scissor_repaint_byte_identical() {
         // 24. Idle WITH a selection — selection unchanged, reusable ⇒ scissor.
         step("idle selected", |_| {}, true, None, Path::Scissor),
         // 25. Clear selection — frame-global change ⇒ FULL.
-        step("clear selection", |t| t.text_selection_mut().clear(), true, None, Path::Full),
+        step(
+            "clear selection",
+            |t| t.text_selection_mut().clear(),
+            true,
+            None,
+            Path::Full,
+        ),
         // 26. Generate scrollback so there is history to scroll into.
         step(
             "run output",
@@ -172,11 +238,23 @@ fn gpu_scissor_repaint_byte_identical() {
             Path::Any,
         ),
         // 27. Scroll back into history — display_offset changes ⇒ FULL fallback.
-        step("scroll back", |t| t.scroll_display(3), true, None, Path::Full),
+        step(
+            "scroll back",
+            |t| t.scroll_display(3),
+            true,
+            None,
+            Path::Full,
+        ),
         // 28. Idle scrolled — offset unchanged ⇒ scissor.
         step("idle scrolled", |_| {}, true, None, Path::Scissor),
         // 29. Scroll to bottom — offset changes ⇒ FULL.
-        step("scroll to bottom", |t| t.scroll_to_bottom(), true, None, Path::Full),
+        step(
+            "scroll to bottom",
+            |t| t.scroll_to_bottom(),
+            true,
+            None,
+            Path::Full,
+        ),
         // 30. Full-screen TUI repaint (clear + redraw): MANY rows change at once.
         //     Reusable (same dims/offset/selection, no double-height) ⇒ scissor
         //     over the (large) dirty band — still byte-identical.
@@ -185,7 +263,9 @@ fn gpu_scissor_repaint_byte_identical() {
             |t| {
                 t.process(b"\x1b[2J\x1b[H");
                 for r in 0..ROWS {
-                    t.process(format!("\x1b[{};1Hline {r:02} ::::::::::::::::::", r + 1).as_bytes());
+                    t.process(
+                        format!("\x1b[{};1Hline {r:02} ::::::::::::::::::", r + 1).as_bytes(),
+                    );
                 }
             },
             true,
@@ -195,7 +275,13 @@ fn gpu_scissor_repaint_byte_identical() {
         // 31. Idle on the TUI screen ⇒ scissor.
         step("idle tui", |_| {}, true, None, Path::Scissor),
         // 32. One keystroke on the TUI ⇒ scissor (one row).
-        step("type on tui", |t| t.process(b"\x1b[1;1HX"), true, None, Path::Scissor),
+        step(
+            "type on tui",
+            |t| t.process(b"\x1b[1;1HX"),
+            true,
+            None,
+            Path::Scissor,
+        ),
     ];
 
     let mut scissor_seen = 0u64;
@@ -227,12 +313,21 @@ fn gpu_scissor_repaint_byte_identical() {
         // the same input + cursor state. On a scissor this proves the dirty band
         // is bit-identical AND the untouched rows were preserved verbatim.
         let oracle = fresh_render(&input, s.blink, s.override_);
-        assert_eq!(got.len(), oracle.len(), "step {i} ({}): pixel count differs", s.desc);
+        assert_eq!(
+            got.len(),
+            oracle.len(),
+            "step {i} ({}): pixel count differs",
+            s.desc
+        );
         assert!(
             got == oracle,
             "step {i} ({}): {} pixels are NOT byte-identical to a fresh GPU render",
             s.desc,
-            if took_scissor { "SCISSORED" } else { "full-repaint" },
+            if took_scissor {
+                "SCISSORED"
+            } else {
+                "full-repaint"
+            },
         );
 
         // (b) the path must be what the step declares.
@@ -266,8 +361,14 @@ fn gpu_scissor_repaint_byte_identical() {
 
     // The optimisation must be EXERCISED (many scissor frames) and the fallback
     // must be REACHED (DECDHL / selection / scroll).
-    assert!(scissor_seen >= 10, "scissor path barely fired ({scissor_seen}) — not exercised");
-    assert!(full_seen >= 4, "full-repaint fallback barely fired ({full_seen}) — not exercised");
+    assert!(
+        scissor_seen >= 10,
+        "scissor path barely fired ({scissor_seen}) — not exercised"
+    );
+    assert!(
+        full_seen >= 4,
+        "full-repaint fallback barely fired ({full_seen}) — not exercised"
+    );
     assert_eq!(
         gpu.scissor_taken() + gpu.full_repaints(),
         steps.len() as u64,
@@ -303,9 +404,15 @@ fn gpu_scissor_one_cell_change_preserves_other_rows() {
     let in2 = term.cell_frame(ROWS, COLS);
     let scissor_before = gpu.scissor_taken();
     let got2 = gpu.present_input_readback(&mut win, &in2).pixels;
-    assert!(gpu.scissor_taken() > scissor_before, "one-cell change must take the scissor");
+    assert!(
+        gpu.scissor_taken() > scissor_before,
+        "one-cell change must take the scissor"
+    );
     let oracle2 = fresh_render(&in2, true, None);
-    assert!(got2 == oracle2, "scissored one-cell change diverges from a fresh render");
+    assert!(
+        got2 == oracle2,
+        "scissored one-cell change diverges from a fresh render"
+    );
 
     // Row 1 ("second row") was NOT dirty: prove its pixels survived the scissor
     // by checking they equal the fresh render's row-1 band exactly (they do, since
@@ -322,8 +429,14 @@ fn gpu_scissor_one_cell_change_preserves_other_rows() {
     // exact prior frame.
     let in3 = term.cell_frame(ROWS, COLS);
     let got3 = gpu.present_input_readback(&mut win, &in3).pixels;
-    assert!(got3 == got2, "idle scissor frame must re-present the prior frame verbatim");
-    assert!(got3 == fresh_render(&in3, true, None), "idle scissor diverges from a fresh render");
+    assert!(
+        got3 == got2,
+        "idle scissor frame must re-present the prior frame verbatim"
+    );
+    assert!(
+        got3 == fresh_render(&in3, true, None),
+        "idle scissor diverges from a fresh render"
+    );
 }
 
 /// Diagnostic (run with `--ignored --nocapture`): the changed-frame GPU
@@ -368,7 +481,11 @@ fn gpu_scissor_changed_frame_cost() {
     }
     let scissor_us = t.elapsed().as_secs_f64() * 1e6 / f64::from(N);
     let scissor_inst = gpu.last_instances();
-    assert_eq!(gpu.scissor_taken() - scissor_before, u64::from(N), "all iters should scissor");
+    assert_eq!(
+        gpu.scissor_taken() - scissor_before,
+        u64::from(N),
+        "all iters should scissor"
+    );
 
     // FULL repaint of the SAME 1-row-change frames on a SEPARATE renderer. Toggle
     // the display_offset every frame so `compute_dirty_rows` returns FullRepaint
@@ -392,7 +509,11 @@ fn gpu_scissor_changed_frame_cost() {
     let full_us = t.elapsed().as_secs_f64() * 1e6 / f64::from(N);
     let full_inst = full.last_instances();
     std::hint::black_box((&mut input_a, &mut input_b));
-    assert_eq!(full.full_repaints() - full_before, u64::from(N), "all iters should full-repaint");
+    assert_eq!(
+        full.full_repaints() - full_before,
+        u64::from(N),
+        "all iters should full-repaint"
+    );
 
     eprintln!(
         "1-row change @ {rows}x{cols} (encode only, no readback): \

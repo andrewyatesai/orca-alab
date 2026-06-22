@@ -44,11 +44,29 @@ fn emit_content(s: &mut u64, term: &mut Terminal) {
 }
 
 fn check_invariants(term: &Terminal, it: u32, r: u16, c: u16) {
-    assert_eq!(term.rows(), r, "iter {it}: rows {} != resize target {r}", term.rows());
-    assert_eq!(term.cols(), c, "iter {it}: cols {} != resize target {c}", term.cols());
+    assert_eq!(
+        term.rows(),
+        r,
+        "iter {it}: rows {} != resize target {r}",
+        term.rows()
+    );
+    assert_eq!(
+        term.cols(),
+        c,
+        "iter {it}: cols {} != resize target {c}",
+        term.cols()
+    );
     let cur = term.cursor();
-    assert!(cur.row < r, "iter {it}: cursor row {} out of bounds (rows {r})", cur.row);
-    assert!(cur.col <= c, "iter {it}: cursor col {} out of bounds (cols {c})", cur.col);
+    assert!(
+        cur.row < r,
+        "iter {it}: cursor row {} out of bounds (rows {r})",
+        cur.row
+    );
+    assert!(
+        cur.col <= c,
+        "iter {it}: cursor col {} out of bounds (cols {c})",
+        cur.col
+    );
 }
 
 #[test]

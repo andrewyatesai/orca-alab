@@ -26,5 +26,13 @@
 
 // Ring::Push — the ring-buffer length invariant under push/scroll (the local BMC form
 // of LenBounded), and the same invariant re-established after an erase_scrollback reset.
-aterm_spec::proof_anchor!(machine = "Ring", action = "Push", proof = "ring_hyperlinks_len_matches_scrollback");
-aterm_spec::proof_anchor!(machine = "Ring", action = "Push", proof = "ring_hyperlinks_invariant_across_erase");
+aterm_spec::proof_anchor!(
+    machine = "Ring",
+    action = "Push",
+    proof = "ring_hyperlinks_len_matches_scrollback"
+);
+aterm_spec::proof_anchor!(
+    machine = "Ring",
+    action = "Push",
+    proof = "ring_hyperlinks_invariant_across_erase"
+);

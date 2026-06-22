@@ -101,7 +101,10 @@ impl Terminal {
     }
 
     /// Clear shell integration callback.
-    #[allow(dead_code, reason = "cleared via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "cleared via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(crate) fn clear_shell_callback(&mut self) {
         self.shell.callback = None;
     }

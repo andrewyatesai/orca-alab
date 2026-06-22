@@ -37,7 +37,10 @@ fn mode_1049_saves_cursor_switches_and_clears_alt() {
     s.feed(b"\x1b[?1049l");
     // xterm ctlseqs: 1049l = use normal screen buffer and restore cursor as in DECRC
     assert_eq!(s.row(0), "main", "primary content restored on 1049 exit");
-    assert!(!s.screen().contains("ALT"), "alt content must not leak to primary");
+    assert!(
+        !s.screen().contains("ALT"),
+        "alt content must not leak to primary"
+    );
     assert_eq!(s.cursor(), (2, 4), "cursor restored to pre-1049 position");
 }
 
@@ -51,7 +54,11 @@ fn mode_1047_exit_clears_the_alt_screen() {
     // xterm ctlseqs: 1047l = use normal screen buffer, clearing the alt screen
     // first if we were in it
     s.feed(b"\x1b[?1047l");
-    assert_eq!(s.row(0), "main", "primary content intact after 1047 round trip");
+    assert_eq!(
+        s.row(0),
+        "main",
+        "primary content intact after 1047 round trip"
+    );
     // Re-enter via mode 47 (which never clears): the 1047 exit must have
     // cleared the alt buffer, so it reads back blank.
     s.feed(b"\x1b[?47h");
@@ -66,7 +73,11 @@ fn mode_1047_does_not_save_or_restore_cursor() {
     s.feed(b"\x1b[?1047l");
     // xterm ctlseqs: only 1048/1049 save+restore the cursor; 1047 is a buffer
     // switch (plus alt clear on exit) and leaves the cursor where it is.
-    assert_eq!(s.cursor(), (10, 6), "1047 exit must not restore the saved cursor");
+    assert_eq!(
+        s.cursor(),
+        (10, 6),
+        "1047 exit must not restore the saved cursor"
+    );
 }
 
 #[test]
@@ -74,8 +85,15 @@ fn mode_47_round_trip_keeps_primary_content() {
     let mut s = Screen::new(24, 80);
     // xterm ctlseqs: 47h/47l = plain buffer swap, no save, no clear on either edge
     s.feed(b"main\x1b[?47h\x1b[1;1HALT\x1b[?47l");
-    assert_eq!(s.row(0), "main", "primary content intact after mode 47 round trip");
-    assert!(!s.screen().contains("ALT"), "alt content must not leak to primary");
+    assert_eq!(
+        s.row(0),
+        "main",
+        "primary content intact after mode 47 round trip"
+    );
+    assert!(
+        !s.screen().contains("ALT"),
+        "alt content must not leak to primary"
+    );
 }
 
 #[test]
@@ -94,7 +112,11 @@ fn mode_47_alt_content_persists_across_reentry() {
     // survives exit + re-enter (this stale-content behavior is exactly why
     // 1047/1049 added clearing).
     s.feed(b"\x1b[?47h\x1b[1;1HSTALE\x1b[?47l\x1b[?47h");
-    assert_eq!(s.row(0), "STALE", "alt buffer content survives a 47 round trip");
+    assert_eq!(
+        s.row(0),
+        "STALE",
+        "alt buffer content survives a 47 round trip"
+    );
 }
 
 // =========================================================================
@@ -107,9 +129,17 @@ fn deccolm_ignored_when_mode_40_is_reset() {
     // (mode 40 / c132 resource); otherwise it is ignored entirely.
     let s = run(b"abc\x1b[?3h");
     assert_eq!(s.row(0), "abc", "no screen clear when DECCOLM is gated off");
-    assert_eq!(s.cursor(), (0, 3), "no cursor home when DECCOLM is gated off");
+    assert_eq!(
+        s.cursor(),
+        (0, 3),
+        "no cursor home when DECCOLM is gated off"
+    );
     let s2 = run(b"\x1b[?3h\x1b[1;999H");
-    assert_eq!(s2.cursor(), (0, 79), "still 80 columns when DECCOLM is gated off");
+    assert_eq!(
+        s2.cursor(),
+        (0, 79),
+        "still 80 columns when DECCOLM is gated off"
+    );
 }
 
 #[test]
@@ -163,16 +193,28 @@ fn decscnm_reverse_video_flips_existing_and_new_cells() {
     // VT510 DECSCNM set: the whole screen displays reversed — default fg/bg
     // swap for already-written cells, not just new ones
     let cells = t.render_row(0);
-    assert_eq!((cells[0].fg, cells[0].bg), (bg, fg), "existing cell flips on DECSCNM set");
+    assert_eq!(
+        (cells[0].fg, cells[0].bg),
+        (bg, fg),
+        "existing cell flips on DECSCNM set"
+    );
     t.process(b"C");
     let cells = t.render_row(0);
     assert_eq!(cells[2].ch, 'C');
-    assert_eq!((cells[2].fg, cells[2].bg), (bg, fg), "cells written while set also flip");
+    assert_eq!(
+        (cells[2].fg, cells[2].bg),
+        (bg, fg),
+        "cells written while set also flip"
+    );
 
     t.process(b"\x1b[?5l");
     // VT510 DECSCNM reset: normal display restored for every cell
     let cells = t.render_row(0);
-    assert_eq!((cells[0].fg, cells[0].bg), (fg, bg), "reset restores normal video");
+    assert_eq!(
+        (cells[0].fg, cells[0].bg),
+        (fg, bg),
+        "reset restores normal video"
+    );
     assert_eq!((cells[2].fg, cells[2].bg), (fg, bg));
 }
 
@@ -189,7 +231,11 @@ fn declrmm_autowrap_wraps_to_left_margin() {
     s.feed(b"\x1b[2;19HXYZ"); // X at (1,18), Y at (1,19)=right margin, Z wraps
     // VT420/VT510: with DECLRMM, autowrap at the right margin moves the cursor
     // to the LEFT MARGIN (col 5, 0-based 4) of the next line, not column 0
-    assert_eq!(s.row(2), "    Z", "wrap lands at the left margin, not column 0");
+    assert_eq!(
+        s.row(2),
+        "    Z",
+        "wrap lands at the left margin, not column 0"
+    );
     assert_eq!(s.cursor(), (2, 5));
 }
 
@@ -235,7 +281,11 @@ fn tbc_clears_one_stop_then_all_stops() {
     s.feed(b"\x1b[3g"); // TBC 3: clear all tab stops
     s.feed(b"\x1b[1;1H\t");
     // xterm/VT510: with no tab stops, TAB moves to the right margin
-    assert_eq!(s.cursor(), (0, 79), "TAB with no stops goes to the right margin");
+    assert_eq!(
+        s.cursor(),
+        (0, 79),
+        "TAB with no stops goes to the right margin"
+    );
 }
 
 // =========================================================================

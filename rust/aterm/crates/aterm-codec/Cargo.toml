@@ -14,3 +14,6 @@ description = "Base64 and hex encoding/decoding for aterm: zero external depende
 
 [dev-dependencies]
 # None — tests use only std
+
+[lints]
+workspace = true

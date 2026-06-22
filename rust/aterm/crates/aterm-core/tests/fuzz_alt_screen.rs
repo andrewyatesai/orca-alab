@@ -45,14 +45,14 @@ fn read_screen(term: &Terminal) -> Vec<String> {
 fn scribble(s: &mut u64, term: &mut Terminal) {
     const SAMPLES: &[&[u8]] = &[
         b"alt scratch content ",
-        "\u{65e5}\u{672c}\u{8a9e}".as_bytes(),     // wide CJK
-        "\u{1f680}\u{2764}\u{fe0f}".as_bytes(),    // emoji
-        "x\u{0301}".as_bytes(),                    // combining
+        "\u{65e5}\u{672c}\u{8a9e}".as_bytes(),  // wide CJK
+        "\u{1f680}\u{2764}\u{fe0f}".as_bytes(), // emoji
+        "x\u{0301}".as_bytes(),                 // combining
         b"\r\n",
-        b"\x1b[2J\x1b[H",                          // clear alt
-        b"\x1b[5;10H",                             // cursor move within alt
-        b"\x1b[31m\x1b[1m",                        // SGR
-        b"\x1b[10L",                               // insert lines
+        b"\x1b[2J\x1b[H",   // clear alt
+        b"\x1b[5;10H",      // cursor move within alt
+        b"\x1b[31m\x1b[1m", // SGR
+        b"\x1b[10L",        // insert lines
         b"\t",
     ];
     let n = 1 + next(s) % 12;
@@ -71,7 +71,7 @@ fn alt_screen_1049_roundtrip_preserves_main_and_cursor() {
         let lines = 1 + next(&mut s) % 12;
         for line in 0..lines {
             term.process(format!("main{it}-{line}:").as_bytes());
-            if next(&mut s) % 3 == 0 {
+            if next(&mut s).is_multiple_of(3) {
                 term.process("\u{4e2d}\u{6587}".as_bytes()); // wide chars
             }
             term.process(b"more text\r\n");

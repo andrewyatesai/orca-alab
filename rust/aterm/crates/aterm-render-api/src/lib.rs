@@ -78,7 +78,11 @@ impl Frame {
 pub enum RenderView<'a> {
     /// A borrow of the renderer's own framebuffer (no per-frame clone/alloc):
     /// valid only until the renderer is next mutated.
-    Borrowed { width: usize, height: usize, pixels: &'a [u32] },
+    Borrowed {
+        width: usize,
+        height: usize,
+        pixels: &'a [u32],
+    },
     /// An owned frame (renderers without a borrowable cache, e.g. the GPU
     /// readback path, and the default trait impl).
     Owned(Frame),

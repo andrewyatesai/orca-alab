@@ -104,7 +104,15 @@ pub fn spawn_shell(
     // for a graceful, NON-BLOCKING teardown (SIGHUP the controlling-tty session
     // before closing the master — see `spawn_shell_with_pid`) use that instead.
     spawn_shell_with_pid(
-        rows, cols, cap, sandbox_cap, env_add, argv_override, exec_command, cwd, sandbox_wrap,
+        rows,
+        cols,
+        cap,
+        sandbox_cap,
+        env_add,
+        argv_override,
+        exec_command,
+        cwd,
+        sandbox_wrap,
     )
     .map(|s| s.master)
 }
@@ -125,6 +133,14 @@ pub struct SpawnedShell {
     pub pid: i32,
 }
 
+/// The UTF-8 locale aterm forces whenever it must guarantee UTF-8 character
+/// encoding — the override [`resolve_spawn_locale`] injects for spawned children,
+/// and (in aterm-gui) the locale the clipboard helper subprocesses (`pbcopy`/
+/// `pbpaste`) are pinned to. `en_US.UTF-8` is guaranteed present on macOS. Kept
+/// here as the single source of truth so the spawn-side and clipboard-side pins
+/// cannot drift.
+pub const UTF8_LOCALE: &str = "en_US.UTF-8";
+
 /// Whether a locale string selects a UTF-8 character encoding.
 ///
 /// A POSIX locale is `language[_TERRITORY][.codeset][@modifier]`; the *codeset*
@@ -133,9 +149,15 @@ pub struct SpawnedShell {
 /// `.UTF8`, `.utf-8`, `.utf8`, and `.UTF-8@euro` all qualify, while `C`, `POSIX`,
 /// a bare `en_US` (no codeset), and `.ISO8859-1` do not.
 fn is_utf8_locale(loc: &str) -> bool {
-    let Some(dot) = loc.rfind('.') else { return false };
+    let Some(dot) = loc.rfind('.') else {
+        return false;
+    };
     let codeset = loc[dot + 1..].split('@').next().unwrap_or("");
-    let norm: String = codeset.chars().filter(|c| *c != '-').map(|c| c.to_ascii_lowercase()).collect();
+    let norm: String = codeset
+        .chars()
+        .filter(|c| *c != '-')
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
     norm == "utf8"
 }
 
@@ -191,7 +213,7 @@ pub fn resolve_spawn_locale(
     if effective.is_some_and(is_utf8_locale) {
         return Vec::new();
     }
-    let mut overrides = vec![("LC_CTYPE".to_string(), "en_US.UTF-8".to_string())];
+    let mut overrides = vec![("LC_CTYPE".to_string(), UTF8_LOCALE.to_string())];
     // A set, non-empty LC_ALL dominates LC_CTYPE; here it is necessarily non-UTF-8
     // (else `effective` above would have been UTF-8 and we'd have returned). Empty
     // it so POSIX falls through to the LC_CTYPE we just injected.
@@ -262,23 +284,43 @@ fn build_child_env(
 // binding is the crate's real fork/exec unit tests.
 #[cfg_attr(
     any(test, feature = "spec-anchors"),
-    aterm_spec::refines(machine = "fork_exec", action = "Fork", project = "aterm_pty::child_spawn::project_pc")
+    aterm_spec::refines(
+        machine = "fork_exec",
+        action = "Fork",
+        project = "aterm_pty::child_spawn::project_pc"
+    )
 )]
 #[cfg_attr(
     any(test, feature = "spec-anchors"),
-    aterm_spec::refines(machine = "fork_exec", action = "Setrlimit", project = "aterm_pty::child_spawn::project_pc")
+    aterm_spec::refines(
+        machine = "fork_exec",
+        action = "Setrlimit",
+        project = "aterm_pty::child_spawn::project_pc"
+    )
 )]
 #[cfg_attr(
     any(test, feature = "spec-anchors"),
-    aterm_spec::refines(machine = "fork_exec", action = "Chdir", project = "aterm_pty::child_spawn::project_pc")
+    aterm_spec::refines(
+        machine = "fork_exec",
+        action = "Chdir",
+        project = "aterm_pty::child_spawn::project_pc"
+    )
 )]
 #[cfg_attr(
     any(test, feature = "spec-anchors"),
-    aterm_spec::refines(machine = "fork_exec", action = "CloseMaster", project = "aterm_pty::child_spawn::project_pc")
+    aterm_spec::refines(
+        machine = "fork_exec",
+        action = "CloseMaster",
+        project = "aterm_pty::child_spawn::project_pc"
+    )
 )]
 #[cfg_attr(
     any(test, feature = "spec-anchors"),
-    aterm_spec::refines(machine = "fork_exec", action = "Exec", project = "aterm_pty::child_spawn::project_pc")
+    aterm_spec::refines(
+        machine = "fork_exec",
+        action = "Exec",
+        project = "aterm_pty::child_spawn::project_pc"
+    )
 )]
 #[cfg_attr(
     any(test, feature = "spec-anchors"),
@@ -346,14 +388,23 @@ pub fn spawn_shell_with_pid(
     // the C strings the child's `execve` reads.
     let (exec_target, argv_store): (CString, Vec<CString>) =
         if let Some(cmd) = exec_command.filter(|c| !c.is_empty()) {
-            let argv: Vec<CString> =
-                cmd.iter().filter_map(|a| CString::new(a.as_bytes()).ok()).collect();
+            let argv: Vec<CString> = cmd
+                .iter()
+                .filter_map(|a| CString::new(a.as_bytes()).ok())
+                .collect();
             (resolve_program(&cmd[0]), argv)
         } else if let Some(ov) = argv_override {
-            let argv = ov.iter().filter_map(|a| CString::new(a.as_bytes()).ok()).collect();
+            let argv = ov
+                .iter()
+                .filter_map(|a| CString::new(a.as_bytes()).ok())
+                .collect();
             (cshell.clone(), argv)
         } else if let Some(cmd) = std::env::var_os("ATERM_EXEC") {
-            let script = format!("{}; exec {}", cmd.to_string_lossy(), shell.to_string_lossy());
+            let script = format!(
+                "{}; exec {}",
+                cmd.to_string_lossy(),
+                shell.to_string_lossy()
+            );
             let argv = vec![
                 cshell.clone(),
                 CString::new("-c").unwrap(),
@@ -361,7 +412,9 @@ pub fn spawn_shell_with_pid(
             ];
             (cshell.clone(), argv)
         } else {
-            let base = std::path::Path::new(&shell).file_name().unwrap_or(shell.as_os_str());
+            let base = std::path::Path::new(&shell)
+                .file_name()
+                .unwrap_or(shell.as_os_str());
             let mut argv0 = std::ffi::OsString::from("-");
             argv0.push(base);
             let argv = vec![CString::new(argv0.as_bytes()).unwrap_or_else(|_| cshell.clone())];
@@ -442,7 +495,12 @@ pub fn spawn_shell_with_pid(
         return Err(err);
     }
 
-    let mut ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+    let mut ws = libc::winsize {
+        ws_row: rows,
+        ws_col: cols,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
     let mut master: libc::c_int = -1;
     // SAFETY: `forkpty` is called with a valid out-param for the master fd, null
     // for the (unused) slave-name/termios buffers, and a valid `winsize`. It
@@ -470,7 +528,10 @@ pub fn spawn_shell_with_pid(
         //     the sandbox cannot be installed, do NOT exec an unconfined shell —
         //     signal the parent and exit before exec. With a valid cap `apply`
         //     does not allocate, and `setrlimit` is async-signal-safe.
-        if aterm_sandbox::Limits::shell_default().apply(sandbox_cap).is_err() {
+        if aterm_sandbox::Limits::shell_default()
+            .apply(sandbox_cap)
+            .is_err()
+        {
             // SAFETY: write a single async-signal-safe failure byte then exit.
             // `write`/`_exit` are async-signal-safe; the byte distinguishes a
             // sandbox failure (b'S') for the parent's diagnostic.
@@ -521,9 +582,7 @@ pub fn spawn_shell_with_pid(
     // EINTR-retrying read of the single status byte (or EOF).
     let n = loop {
         // SAFETY: `status_rd` is a valid read fd; `indicator` is a 1-byte buffer.
-        let r = unsafe {
-            libc::read(status_rd, indicator.as_mut_ptr().cast::<libc::c_void>(), 1)
-        };
+        let r = unsafe { libc::read(status_rd, indicator.as_mut_ptr().cast::<libc::c_void>(), 1) };
         if r < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
             continue;
         }
@@ -543,8 +602,14 @@ pub fn spawn_shell_with_pid(
             libc::waitpid(pid, &mut wstatus, 0);
         }
         let (kind, what) = match indicator[0] {
-            b'S' => (io::ErrorKind::PermissionDenied, "sandbox confinement failed in child (fail-closed: shell not exec'd, _exit(126))"),
-            _ => (io::ErrorKind::Other, "child failed to exec the shell before exec (_exit(127))"),
+            b'S' => (
+                io::ErrorKind::PermissionDenied,
+                "sandbox confinement failed in child (fail-closed: shell not exec'd, _exit(126))",
+            ),
+            _ => (
+                io::ErrorKind::Other,
+                "child failed to exec the shell before exec (_exit(127))",
+            ),
         };
         return Err(io::Error::new(kind, what));
     }
@@ -653,8 +718,9 @@ fn build_sandbox_wrap(
             ),
         ));
     }
-    let sbpl_c = CString::new(sbpl.as_bytes())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "SBPL profile has interior NUL"))?;
+    let sbpl_c = CString::new(sbpl.as_bytes()).map_err(|_| {
+        io::Error::new(io::ErrorKind::InvalidInput, "SBPL profile has interior NUL")
+    })?;
     let mut wrapped: Vec<CString> = Vec::with_capacity(orig_argv.len() + 3);
     wrapped.push(CString::new("sandbox-exec").unwrap_or_else(|_| wrapper.clone()));
     wrapped.push(CString::new("-p").unwrap());
@@ -755,24 +821,29 @@ fn classify_write_result(r: isize, is_eintr: bool) -> WriteStep {
 // present (Trust does not execute it — that is the aterm-side conformance binding).
 #[cfg_attr(
     any(test, feature = "spec-anchors"),
-    aterm_spec::refines(machine = "write_all", action = "Progress", project = "aterm_pty::write_all_project")
+    aterm_spec::refines(
+        machine = "write_all",
+        action = "Progress",
+        project = "aterm_pty::write_all_project"
+    )
 )]
 #[cfg_attr(
     any(test, feature = "spec-anchors"),
-    aterm_spec::refines(machine = "write_all", action = "Interrupted", project = "aterm_pty::write_all_project")
+    aterm_spec::refines(
+        machine = "write_all",
+        action = "Interrupted",
+        project = "aterm_pty::write_all_project"
+    )
 )]
 pub fn write_all(master: i32, bytes: &[u8]) {
     let mut data = bytes;
     while !data.is_empty() {
         // SAFETY: `master` is a PTY master fd from `spawn_shell`; `data` is a
         // valid slice of `data.len()` bytes.
-        let r = unsafe {
-            libc::write(master, data.as_ptr() as *const libc::c_void, data.len())
-        };
+        let r = unsafe { libc::write(master, data.as_ptr() as *const libc::c_void, data.len()) };
         // `errno` is only meaningful when `r < 0`; mirror the original loop, which
         // read `last_os_error()` solely on the error branch.
-        let is_eintr =
-            r < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted;
+        let is_eintr = r < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted;
         match classify_write_result(r, is_eintr) {
             WriteStep::Retry => continue,
             WriteStep::Stop => break,
@@ -819,7 +890,11 @@ pub fn set_nonblocking(master: i32, nonblocking: bool) -> io::Result<()> {
     if flags < 0 {
         return Err(io::Error::last_os_error());
     }
-    let next = if nonblocking { flags | libc::O_NONBLOCK } else { flags & !libc::O_NONBLOCK };
+    let next = if nonblocking {
+        flags | libc::O_NONBLOCK
+    } else {
+        flags & !libc::O_NONBLOCK
+    };
     if next == flags {
         return Ok(());
     }
@@ -841,7 +916,12 @@ pub fn read(master: i32, buf: &mut [u8]) -> isize {
 
 /// Resize the PTY to `rows`×`cols` (`TIOCSWINSZ`).
 pub fn resize(master: i32, rows: u16, cols: u16) {
-    let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+    let ws = libc::winsize {
+        ws_row: rows,
+        ws_col: cols,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
     // SAFETY: `master` is a valid PTY master fd; `&ws` is a valid `winsize` for
     // the `TIOCSWINSZ` ioctl.
     unsafe {
@@ -891,10 +971,19 @@ mod tests {
         let spawn_cap = authority.grant::<aterm_cap::effects::Spawn>(aterm_cap::Tier::Trusted);
         let weak_sandbox = authority.grant::<aterm_sandbox::Sandbox>(aterm_cap::Tier::Untrusted);
 
-        let result = spawn_shell(24, 80, &spawn_cap, &weak_sandbox, &[], None, None, None, None);
-        let err = result.expect_err(
-            "a sandbox confinement failure must surface as an error, NOT a master fd",
+        let result = spawn_shell(
+            24,
+            80,
+            &spawn_cap,
+            &weak_sandbox,
+            &[],
+            None,
+            None,
+            None,
+            None,
         );
+        let err = result
+            .expect_err("a sandbox confinement failure must surface as an error, NOT a master fd");
         assert_eq!(
             err.kind(),
             io::ErrorKind::PermissionDenied,
@@ -919,8 +1008,18 @@ mod tests {
         // Run a deterministic command then exit, so the test does not hang on an
         // interactive prompt: ATERM_EXEC makes the child run it, then exec $SHELL.
         // Using a bare `echo` + immediate close is enough to prove a live master.
-        let master = spawn_shell(24, 80, &spawn_cap, &sandbox_cap, &[], None, None, None, None)
-            .expect("a normal shell must spawn with a Trusted sandbox cap");
+        let master = spawn_shell(
+            24,
+            80,
+            &spawn_cap,
+            &sandbox_cap,
+            &[],
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("a normal shell must spawn with a Trusted sandbox cap");
         assert!(master >= 0, "master fd must be valid, got {master}");
         // Best-effort: write a harmless newline and read whatever echoes back, to
         // confirm the fd is a live PTY master, not a dangling descriptor.
@@ -987,25 +1086,40 @@ mod tests {
         ];
         let env_add = vec![("TERM".to_string(), "xterm-256color".to_string())];
         let out = build_child_env(inherited.into_iter(), &env_add);
-        let keys: Vec<String> =
-            out.iter().map(|(k, _)| k.to_string_lossy().into_owned()).collect();
+        let keys: Vec<String> = out
+            .iter()
+            .map(|(k, _)| k.to_string_lossy().into_owned())
+            .collect();
         // Every deny-listed key (AI-tool + containment) is filtered out.
-        for denied in
-            ["ATERM_CONTAINMENT_MODE", "ANTHROPIC_API_KEY", "CLAUDECODE", "CURSOR_TRACE_ID"]
-        {
+        for denied in [
+            "ATERM_CONTAINMENT_MODE",
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CURSOR_TRACE_ID",
+        ] {
             assert!(
                 !keys.contains(&denied.to_string()),
                 "{denied} must be filtered from the child env, got {keys:?}"
             );
         }
         // Ordinary inherited key survives.
-        assert!(keys.contains(&"PATH".to_string()), "PATH must pass through to the child");
+        assert!(
+            keys.contains(&"PATH".to_string()),
+            "PATH must pass through to the child"
+        );
         // env_add OVERRIDES the inherited value (TERM was `dumb`, now the injected one),
         // and appears exactly once (no duplicate).
-        let terms: Vec<&OsString> =
-            out.iter().filter(|(k, _)| k == &os("TERM")).map(|(_, v)| v).collect();
+        let terms: Vec<&OsString> = out
+            .iter()
+            .filter(|(k, _)| k == &os("TERM"))
+            .map(|(_, v)| v)
+            .collect();
         assert_eq!(terms.len(), 1, "TERM must appear exactly once");
-        assert_eq!(terms[0], &os("xterm-256color"), "env_add must override inherited TERM");
+        assert_eq!(
+            terms[0],
+            &os("xterm-256color"),
+            "env_add must override inherited TERM"
+        );
     }
 
     // ---- locale resolution: the child always runs under a UTF-8 LC_CTYPE ----
@@ -1019,11 +1133,24 @@ mod tests {
     #[test]
     fn is_utf8_locale_classifies_codeset() {
         // UTF-8 codesets in every spelling/case, with and without an @modifier.
-        for ok in ["en_US.UTF-8", "en_US.UTF8", "en_US.utf-8", "en_US.utf8", "de_DE.UTF-8@euro"] {
+        for ok in [
+            "en_US.UTF-8",
+            "en_US.UTF8",
+            "en_US.utf-8",
+            "en_US.utf8",
+            "de_DE.UTF-8@euro",
+        ] {
             assert!(is_utf8_locale(ok), "{ok} should be UTF-8");
         }
         // No codeset, or a non-UTF-8 one, is NOT UTF-8.
-        for no in ["C", "POSIX", "en_US", "en_US.ISO8859-1", "", "fr_FR.ISO8859-15@euro"] {
+        for no in [
+            "C",
+            "POSIX",
+            "en_US",
+            "en_US.ISO8859-1",
+            "",
+            "fr_FR.ISO8859-15@euro",
+        ] {
             assert!(!is_utf8_locale(no), "{no} should NOT be UTF-8");
         }
     }
@@ -1048,7 +1175,10 @@ mod tests {
         );
         // LC_ALL=C dominating a UTF-8 LANG: override LC_CTYPE AND neutralize LC_ALL,
         // else the LC_CTYPE override would be dead (LC_ALL > LC_CTYPE).
-        assert_eq!(resolve_spawn_locale(Some("C"), None, Some("en_US.UTF-8")), ctype_and_neutralize());
+        assert_eq!(
+            resolve_spawn_locale(Some("C"), None, Some("en_US.UTF-8")),
+            ctype_and_neutralize()
+        );
         // both LC_ALL and LC_CTYPE non-UTF-8 at once: LC_ALL wins, same outcome.
         assert_eq!(
             resolve_spawn_locale(Some("C"), Some("en_US.ISO8859-1"), None),
@@ -1065,7 +1195,10 @@ mod tests {
         assert!(resolve_spawn_locale(Some(""), Some(""), Some("en_US.UTF-8")).is_empty());
         // UTF-8 spelling variants are all recognized (no needless override).
         for v in ["en_US.UTF8", "en_US.utf-8", "de_DE.UTF-8@euro"] {
-            assert!(resolve_spawn_locale(None, None, Some(v)).is_empty(), "{v} is UTF-8");
+            assert!(
+                resolve_spawn_locale(None, None, Some(v)).is_empty(),
+                "{v} is UTF-8"
+            );
         }
     }
 
@@ -1105,7 +1238,10 @@ mod tests {
                     .map(|(_, v)| v.to_string_lossy().into_owned())
                     .filter(|s| !s.is_empty())
             };
-            match get("LC_ALL").or_else(|| get("LC_CTYPE")).or_else(|| get("LANG")) {
+            match get("LC_ALL")
+                .or_else(|| get("LC_CTYPE"))
+                .or_else(|| get("LANG"))
+            {
                 None => false, // "C" default
                 Some(loc) => looks_utf8(&loc),
             }
@@ -1129,8 +1265,7 @@ mod tests {
 
                     // INDEPENDENT "was the inherited effective locale already UTF-8?"
                     let ne = |cl: Cls| val(cl).filter(|s| !s.is_empty());
-                    let orig_utf8 =
-                        ne(a).or(ne(c)).or(ne(l)).map(looks_utf8).unwrap_or(false);
+                    let orig_utf8 = ne(a).or(ne(c)).or(ne(l)).map(looks_utf8).unwrap_or(false);
 
                     // No-clobber & always-fix: overrides are empty IFF already UTF-8.
                     assert_eq!(
@@ -1165,7 +1300,10 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, 64, "all 4x4x4 inherited-locale shapes must be exercised");
+        assert_eq!(
+            checked, 64,
+            "all 4x4x4 inherited-locale shapes must be exercised"
+        );
     }
 
     // ---- read() syscall wrapper: EOF and bad-fd error contract ----
@@ -1266,7 +1404,10 @@ mod tests {
 
         let got = reader.join().expect("reader thread panicked");
         assert_eq!(got.len(), payload.len(), "drained byte count mismatch");
-        assert!(got == payload, "drained bytes differ from the payload byte-for-byte");
+        assert!(
+            got == payload,
+            "drained bytes differ from the payload byte-for-byte"
+        );
     }
 
     // ---- fail-closed spawn: under-tier capability is denied WITHOUT forking ----
@@ -1285,7 +1426,17 @@ mod tests {
         let weak_spawn = authority.grant::<aterm_cap::effects::Spawn>(aterm_cap::Tier::Untrusted);
         let sandbox_cap = authority.grant::<aterm_sandbox::Sandbox>(aterm_cap::Tier::Trusted);
 
-        let result = spawn_shell(24, 80, &weak_spawn, &sandbox_cap, &[], None, None, None, None);
+        let result = spawn_shell(
+            24,
+            80,
+            &weak_spawn,
+            &sandbox_cap,
+            &[],
+            None,
+            None,
+            None,
+            None,
+        );
         let err = result.expect_err("an under-tier spawn cap must be denied, not spawn a shell");
         assert_eq!(
             err.kind(),
@@ -1321,9 +1472,19 @@ mod tests {
         // An absolute path that cannot exist => `resolve_program` returns it
         // verbatim => the child's `execve` fails => b'E' + _exit(127).
         let bogus = vec![String::from("/nonexistent/aterm-pty-no-such-prog-xyz")];
-        let result =
-            spawn_shell(24, 80, &spawn_cap, &sandbox_cap, &[], None, Some(&bogus), None, None);
-        let err = result.expect_err("a child that cannot exec must surface an error, not a master fd");
+        let result = spawn_shell(
+            24,
+            80,
+            &spawn_cap,
+            &sandbox_cap,
+            &[],
+            None,
+            Some(&bogus),
+            None,
+            None,
+        );
+        let err =
+            result.expect_err("a child that cannot exec must surface an error, not a master fd");
         assert_eq!(
             err.kind(),
             io::ErrorKind::Other,
@@ -1347,11 +1508,15 @@ mod tests {
     #[test]
     fn child_exec_failure_exit_code_is_127_and_reapable() {
         let mut master: libc::c_int = -1;
-        let mut ws = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
+        let mut ws = libc::winsize {
+            ws_row: 24,
+            ws_col: 80,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
         // SAFETY: valid out-param for the master fd, null for the unused name/termios
         // buffers, and a valid winsize; returns the child pid (parent) or 0 (child).
-        let pid =
-            unsafe { libc::forkpty(&mut master, ptr::null_mut(), ptr::null_mut(), &mut ws) };
+        let pid = unsafe { libc::forkpty(&mut master, ptr::null_mut(), ptr::null_mut(), &mut ws) };
         assert!(pid >= 0, "forkpty failed: {}", io::Error::last_os_error());
         if pid == 0 {
             // CHILD — async-signal-safe only: attempt to exec a nonexistent program
@@ -1363,7 +1528,11 @@ mod tests {
                 let argv: [*const libc::c_char; 2] =
                     [prog.as_ptr().cast::<libc::c_char>(), ptr::null()];
                 let envp: [*const libc::c_char; 1] = [ptr::null()];
-                libc::execve(prog.as_ptr().cast::<libc::c_char>(), argv.as_ptr(), envp.as_ptr());
+                libc::execve(
+                    prog.as_ptr().cast::<libc::c_char>(),
+                    argv.as_ptr(),
+                    envp.as_ptr(),
+                );
                 libc::_exit(127);
             }
         }
@@ -1376,7 +1545,10 @@ mod tests {
         // SAFETY: reaping the child we just forked; `wstatus` is a valid out-param.
         let w = unsafe { libc::waitpid(pid, &mut wstatus, 0) };
         assert_eq!(w, pid, "waitpid did not reap our child");
-        assert!(libc::WIFEXITED(wstatus), "child did not exit normally: {wstatus}");
+        assert!(
+            libc::WIFEXITED(wstatus),
+            "child did not exit normally: {wstatus}"
+        );
         assert_eq!(
             libc::WEXITSTATUS(wstatus),
             127,
@@ -1412,7 +1584,11 @@ mod tests {
             &argv,
         )
         .expect_err("a missing wrapper must fail closed, not silently skip the sandbox");
-        assert_eq!(err.kind(), io::ErrorKind::NotFound, "fail-closed kind: {err}");
+        assert_eq!(
+            err.kind(),
+            io::ErrorKind::NotFound,
+            "fail-closed kind: {err}"
+        );
         assert!(
             err.to_string().contains("fail-closed"),
             "error must describe the fail-closed refusal: {err}",
@@ -1449,9 +1625,9 @@ mod tests {
                 "sandbox-exec",
                 "-p",
                 aterm_containment::NETWORK_DENY_PROFILE,
-                "/bin/zsh",     // argv[0] replaced by the program PATH
-                "--rcfile",     // real args carried through verbatim …
-                "/tmp/rc",      // …
+                "/bin/zsh", // argv[0] replaced by the program PATH
+                "--rcfile", // real args carried through verbatim …
+                "/tmp/rc",  // …
             ],
             "wrapped argv shape must be sandbox-exec -p <sbpl> <prog> <orig argv[1..]>",
         );
@@ -1473,8 +1649,18 @@ mod tests {
             String::from("ATERM-NOWRAP-MARKER"),
         ];
         // sandbox_wrap = None → no wrap, byte-identical spawn.
-        let master = spawn_shell(24, 80, &spawn_cap, &sandbox_cap, &[], None, Some(&cmd), None, None)
-            .expect("unwrapped -e command must spawn");
+        let master = spawn_shell(
+            24,
+            80,
+            &spawn_cap,
+            &sandbox_cap,
+            &[],
+            None,
+            Some(&cmd),
+            None,
+            None,
+        )
+        .expect("unwrapped -e command must spawn");
         let mut out = Vec::new();
         let mut buf = [0u8; 256];
         for _ in 0..50 {
@@ -1483,7 +1669,10 @@ mod tests {
                 break;
             }
             out.extend_from_slice(&buf[..n as usize]);
-            if out.windows(b"ATERM-NOWRAP-MARKER".len()).any(|w| w == b"ATERM-NOWRAP-MARKER") {
+            if out
+                .windows(b"ATERM-NOWRAP-MARKER".len())
+                .any(|w| w == b"ATERM-NOWRAP-MARKER")
+            {
                 break;
             }
         }
@@ -1492,7 +1681,10 @@ mod tests {
             libc::close(master);
         }
         let s = String::from_utf8_lossy(&out);
-        assert!(s.contains("ATERM-NOWRAP-MARKER"), "echo output not seen: {s:?}");
+        assert!(
+            s.contains("ATERM-NOWRAP-MARKER"),
+            "echo output not seen: {s:?}"
+        );
         assert!(
             !s.contains("sandbox-exec"),
             "no-wrap spawn must NOT involve sandbox-exec: {s:?}",
@@ -1539,7 +1731,10 @@ mod tests {
         // kernel network-denies (nc fails → its PTY closes quickly with no data
         // that looks like a successful connect).
         let probe = std::net::TcpStream::connect(("127.0.0.1", port));
-        assert!(probe.is_ok(), "loopback listener must be connectable (probe)");
+        assert!(
+            probe.is_ok(),
+            "loopback listener must be connectable (probe)"
+        );
         drop(probe);
 
         // Wrapped `-e nc` under (deny network*). The wrap is built by spawn_shell:
@@ -1622,7 +1817,7 @@ mod tests {
 /// `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
 #[cfg(test)]
 mod writeall_conformance {
-    use super::{classify_write_result, write_all, WriteStep};
+    use super::{WriteStep, classify_write_result, write_all};
     use aterm_spec::verify::ty_or_skip;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -1637,7 +1832,8 @@ mod writeall_conformance {
     /// `Init ==` line; every `Progress`/`Interrupted`/`Next`/invariant line is the
     /// committed text verbatim, so the actions cannot drift from the checked spec.
     fn parameterized_spec() -> String {
-        let committed = std::fs::read_to_string(spec_path("WriteAll.tla")).expect("read WriteAll.tla");
+        let committed =
+            std::fs::read_to_string(spec_path("WriteAll.tla")).expect("read WriteAll.tla");
         let mut out = String::new();
         for line in committed.lines() {
             let t = line.trim_start();
@@ -1786,13 +1982,19 @@ mod writeall_conformance {
         // SAFETY: own pipe write end; closing signals EOF to the reader.
         unsafe { libc::close(wr) };
         let got = reader.join().expect("reader thread");
-        assert_eq!(got.len(), expect.len(), "write_all dropped bytes — NoSilentDrop violated");
+        assert_eq!(
+            got.len(),
+            expect.len(),
+            "write_all dropped bytes — NoSilentDrop violated"
+        );
         assert_eq!(got, expect, "write_all delivered corrupted/reordered bytes");
     }
 
     #[test]
     fn real_write_all_offset_trajectory_conforms_to_writeall_spec() {
-        let Some(ty) = ty_or_skip("WriteAll conformance") else { return; };
+        let Some(ty) = ty_or_skip("WriteAll conformance") else {
+            return;
+        };
         let dir = std::env::temp_dir().join(format!("aterm-writeall-conf-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mk tempdir");
         let spec = parameterized_spec();
@@ -1803,7 +2005,11 @@ mod writeall_conformance {
         // writes and the EINTR) and `Progress` (the final completing write).
         let returns = [(2isize, false), (-1, true), (1, false), (2, false)];
         let steps = replay(&returns);
-        assert_eq!(steps.last().map(|s| (s.0, s.1)), Some((SIZE, true)), "loop must finish at off=Size, done");
+        assert_eq!(
+            steps.last().map(|s| (s.0, s.1)),
+            Some((SIZE, true)),
+            "loop must finish at off=Size, done"
+        );
 
         // POSITIVE: each real transition strictly conforms to WriteAll's `Next`.
         let mut prev = (0i64, false);

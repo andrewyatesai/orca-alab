@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![deny(unsafe_op_in_unsafe_fn)]
-// F11-4 (#7941): production unwrap()/expect() forbidden; tests opt out
-// per `#[allow(clippy::unwrap_used)]` at their module boundary.
+// F11-4 (#7941): production unwrap() is forbidden; tests opt out uniformly at the
+// crate root so a missing per-module allow can't silently slip past clippy.
 #![deny(clippy::unwrap_used)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 //! VT100/ANSI escape sequence parser.
 //!
@@ -218,7 +219,7 @@ pub(crate) const MAX_OSC_PARAMS: usize = 16;
 ///         _final_byte: u8,
 ///     ) {}
 ///     fn dcs_put(&mut self, _byte: u8) {}
-///     fn dcs_unhook(&mut self) {}
+///     fn dcs_unhook(&mut self, _canceled: bool) {}
 ///     fn apc_start(&mut self) {}
 ///     fn apc_put(&mut self, _byte: u8) {}
 ///     fn apc_end(&mut self) {}

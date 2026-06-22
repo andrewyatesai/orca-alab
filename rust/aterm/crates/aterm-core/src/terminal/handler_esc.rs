@@ -406,7 +406,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "FullReset", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "FullReset",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn reset_terminal_state(&mut self) {
         // RIS — delegates to shared reset_common_fields (#4114).

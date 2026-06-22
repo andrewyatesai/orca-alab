@@ -70,7 +70,25 @@ aterm-hash = { path = "crates/aterm-hash" }
 aterm-log = { path = "crates/aterm-log" }
 aterm-alloc = { path = "crates/aterm-alloc" }
 aterm-update = { path = "crates/aterm-update" }
+aterm-sixel = { path = "crates/aterm-sixel" }
 # (none yet — populated bottom-up)
+
+# --- workspace-wide lint policy (inherited via `[lints] workspace = true`) ---
+# One central ratchet for every crate. `clippy::all` warns by default; CI escalates
+# with `-D warnings` (see AGENTS.md), so a clippy nit is a hard failure there.
+[workspace.lints.rust]
+# Edition 2024 already warns here; deny it workspace-wide so an unsafe op outside an
+# explicit `unsafe {}` inside an `unsafe fn` can never sneak in.
+unsafe_op_in_unsafe_fn = "deny"
+# Centralized known-cfg superset (was declared per-crate). Verification/fuzzing
+# tools gate code behind these cfgs (kani proofs, loom interleavings, miri, fuzz
+# harnesses; `aterm_ffi_catch_unwind!` also expands a `#[cfg(kani)]` arm). Declaring
+# the union here keeps `unexpected_cfgs` honest in every crate from one place — an
+# undeclared cfg name still warns; an unused-but-declared one is harmless.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(loom)', 'cfg(miri)', 'cfg(fuzzing)'] }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
 
 [profile.release]
 # Aggressive size+speed, functionality-preserving: fat LTO (whole-program

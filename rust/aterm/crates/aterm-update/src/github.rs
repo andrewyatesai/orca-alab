@@ -113,6 +113,19 @@ pub fn check_and_stage(
         return Ok(None);
     }
 
+    // Serialize the staging critical section (download → extract → publish) across
+    // processes so two app instances can't clobber the shared download/staged
+    // scratch. Separate from the apply lock so this (possibly long) download never
+    // blocks a starting instance's apply path.
+    let _stage_lock = crate::sys::FileLock::acquire(&staging.stage_lock)
+        .map_err(|e| format!("stage lock: {e}"))?;
+    // Re-check under the lock: another instance may have just staged this build.
+    if let Some(r) = crate::manifest::Ready::read(&staging.ready)
+        && r.build_number >= manifest.build_number
+    {
+        return Ok(None);
+    }
+
     // Locate + download the DMG named by the manifest, from the same release.
     let release = &releases[rel_idx];
     let dmg_asset = release

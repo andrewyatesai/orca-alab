@@ -43,3 +43,6 @@ aterm-types = { workspace = true }
 [[bench]]
 name = "gpu_frame"
 harness = false
+
+[lints]
+workspace = true

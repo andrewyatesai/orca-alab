@@ -147,26 +147,57 @@ impl EdgeTable {
     /// A fresh, empty table (no authority — fail closed by default).
     #[must_use]
     pub fn new() -> Self {
-        Self { rows: HashMap::new() }
+        Self {
+            rows: HashMap::new(),
+        }
     }
 
     /// Mint and record a new edge, returning the bearer token the source presents.
     /// `nonce` is the DESTINATION's current launch nonce (so the edge fails closed
     /// across a restart).
-    pub fn grant(&mut self, src: SessionId, dst: SessionId, op: Op, nonce: LaunchNonce) -> EdgeToken {
+    pub fn grant(
+        &mut self,
+        src: SessionId,
+        dst: SessionId,
+        op: Op,
+        nonce: LaunchNonce,
+    ) -> EdgeToken {
         let token = EdgeToken::generate();
-        self.rows.insert(token, EdgeEntry { src, dst, op, nonce });
+        self.rows.insert(
+            token,
+            EdgeEntry {
+                src,
+                dst,
+                op,
+                nonce,
+            },
+        );
         token
     }
 
     /// Record a PRE-MINTED token (e.g. one provisioned by the launcher with the
     /// `control_auth` file discipline). Returns `false` (and records nothing) if the
     /// token already exists — minting must never silently overwrite a live edge.
-    pub fn insert(&mut self, token: EdgeToken, src: SessionId, dst: SessionId, op: Op, nonce: LaunchNonce) -> bool {
+    pub fn insert(
+        &mut self,
+        token: EdgeToken,
+        src: SessionId,
+        dst: SessionId,
+        op: Op,
+        nonce: LaunchNonce,
+    ) -> bool {
         if self.rows.contains_key(&token) {
             return false;
         }
-        self.rows.insert(token, EdgeEntry { src, dst, op, nonce });
+        self.rows.insert(
+            token,
+            EdgeEntry {
+                src,
+                dst,
+                op,
+                nonce,
+            },
+        );
         true
     }
 
@@ -182,7 +213,12 @@ impl EdgeTable {
     /// [`decide_edge`] but returns the op instead of taking it as input, since at
     /// connect time the op (which verbs are allowed) is what we want to learn.
     #[must_use]
-    pub fn authorize(&self, presented: &EdgeToken, dst: &SessionId, nonce: &LaunchNonce) -> Option<Op> {
+    pub fn authorize(
+        &self,
+        presented: &EdgeToken,
+        dst: &SessionId,
+        nonce: &LaunchNonce,
+    ) -> Option<Op> {
         let e = self.rows.get(presented)?;
         if e.dst == *dst && e.nonce.ct_eq(nonce) {
             Some(e.op)
@@ -206,7 +242,11 @@ impl EdgeTable {
     pub fn edges(&self) -> Vec<Edge> {
         self.rows
             .values()
-            .map(|e| Edge { src: e.src.clone(), dst: e.dst.clone(), op: e.op })
+            .map(|e| Edge {
+                src: e.src.clone(),
+                dst: e.dst.clone(),
+                op: e.op,
+            })
             .collect()
     }
 
@@ -268,7 +308,11 @@ mod tests {
     use super::*;
 
     fn ids() -> (SessionId, SessionId, LaunchNonce) {
-        (SessionId::new("s-a"), SessionId::new("s-b"), LaunchNonce::from_bytes([7u8; 16]))
+        (
+            SessionId::new("s-a"),
+            SessionId::new("s-b"),
+            LaunchNonce::from_bytes([7u8; 16]),
+        )
     }
 
     #[test]
@@ -276,7 +320,11 @@ mod tests {
         for op in [Op::ReadScreen, Op::WriteInput, Op::Signal, Op::DeriveLoop] {
             assert_eq!(Op::parse(op.as_str()), Some(op));
         }
-        assert_eq!(Op::parse("write-keys"), None, "an unknown op must not parse");
+        assert_eq!(
+            Op::parse("write-keys"),
+            None,
+            "an unknown op must not parse"
+        );
         assert_eq!(Op::parse(""), None);
     }
 
@@ -287,21 +335,39 @@ mod tests {
         let tok = tbl.grant(a.clone(), b.clone(), Op::WriteInput, nonce);
 
         // Exact match permits.
-        assert_eq!(decide_edge(&tbl, &tok, &b, Op::WriteInput, &nonce), EdgeDecision::Permit);
+        assert_eq!(
+            decide_edge(&tbl, &tok, &b, Op::WriteInput, &nonce),
+            EdgeDecision::Permit
+        );
 
         // Wrong op denies (a write token cannot read or signal).
-        assert_eq!(decide_edge(&tbl, &tok, &b, Op::ReadScreen, &nonce), EdgeDecision::Deny);
-        assert_eq!(decide_edge(&tbl, &tok, &b, Op::Signal, &nonce), EdgeDecision::Deny);
+        assert_eq!(
+            decide_edge(&tbl, &tok, &b, Op::ReadScreen, &nonce),
+            EdgeDecision::Deny
+        );
+        assert_eq!(
+            decide_edge(&tbl, &tok, &b, Op::Signal, &nonce),
+            EdgeDecision::Deny
+        );
 
         // Wrong dst denies (a token minted for B cannot drive A).
-        assert_eq!(decide_edge(&tbl, &tok, &a, Op::WriteInput, &nonce), EdgeDecision::Deny);
+        assert_eq!(
+            decide_edge(&tbl, &tok, &a, Op::WriteInput, &nonce),
+            EdgeDecision::Deny
+        );
 
         // Wrong nonce denies (target restarted -> fail closed).
         let restarted = LaunchNonce::from_bytes([9u8; 16]);
-        assert_eq!(decide_edge(&tbl, &tok, &b, Op::WriteInput, &restarted), EdgeDecision::Deny);
+        assert_eq!(
+            decide_edge(&tbl, &tok, &b, Op::WriteInput, &restarted),
+            EdgeDecision::Deny
+        );
 
         // Unknown token denies (default fail-closed).
-        assert_eq!(decide_edge(&tbl, &EdgeToken::generate(), &b, Op::WriteInput, &nonce), EdgeDecision::Deny);
+        assert_eq!(
+            decide_edge(&tbl, &EdgeToken::generate(), &b, Op::WriteInput, &nonce),
+            EdgeDecision::Deny
+        );
     }
 
     #[test]
@@ -312,7 +378,10 @@ mod tests {
         assert!(decide_edge(&tbl, &tok, &b, Op::ReadScreen, &nonce).is_permitted());
         assert!(tbl.revoke(&tok), "revoke removes a live edge");
         assert!(!tbl.revoke(&tok), "double-revoke is a no-op");
-        assert_eq!(decide_edge(&tbl, &tok, &b, Op::ReadScreen, &nonce), EdgeDecision::Deny);
+        assert_eq!(
+            decide_edge(&tbl, &tok, &b, Op::ReadScreen, &nonce),
+            EdgeDecision::Deny
+        );
     }
 
     #[test]
@@ -324,7 +393,10 @@ mod tests {
         assert_eq!(tbl.authorize(&tok, &b, &nonce), Some(Op::ReadScreen));
         // Wrong dst / restarted nonce / unknown token all fail closed.
         assert_eq!(tbl.authorize(&tok, &SessionId::new("s-x"), &nonce), None);
-        assert_eq!(tbl.authorize(&tok, &b, &LaunchNonce::from_bytes([0u8; 16])), None);
+        assert_eq!(
+            tbl.authorize(&tok, &b, &LaunchNonce::from_bytes([0u8; 16])),
+            None
+        );
         assert_eq!(tbl.authorize(&EdgeToken::generate(), &b, &nonce), None);
     }
 
@@ -341,8 +413,22 @@ mod tests {
         got.sort_by_key(|e| e.op.as_str());
         // The triples are the granted (src, dst, op) — and the only fields an Edge
         // carries are src/dst/op, so no secret token can be reached through them.
-        assert_eq!(got[0], Edge { src: a.clone(), dst: b.clone(), op: Op::ReadScreen });
-        assert_eq!(got[1], Edge { src: a.clone(), dst: b.clone(), op: Op::WriteInput });
+        assert_eq!(
+            got[0],
+            Edge {
+                src: a.clone(),
+                dst: b.clone(),
+                op: Op::ReadScreen
+            }
+        );
+        assert_eq!(
+            got[1],
+            Edge {
+                src: a.clone(),
+                dst: b.clone(),
+                op: Op::WriteInput
+            }
+        );
 
         // Revoking one drops it from the enumeration.
         let to_revoke = *tbl.rows.keys().next().expect("a token");
@@ -368,7 +454,10 @@ mod tests {
         assert!(decide_edge(&tbl_b, &tok_ab, &b, Op::WriteInput, &nb).is_permitted());
         assert!(decide_edge(&tbl_a, &tok_ba, &a, Op::WriteInput, &na).is_permitted());
         // tok_ab presented against A's table (the reverse edge) -> Deny.
-        assert_eq!(decide_edge(&tbl_a, &tok_ab, &a, Op::WriteInput, &na), EdgeDecision::Deny);
+        assert_eq!(
+            decide_edge(&tbl_a, &tok_ab, &a, Op::WriteInput, &na),
+            EdgeDecision::Deny
+        );
 
         // A self-loop A->A is the single row (A,A,op): one grant, permits A driving A.
         let mut tbl_self = EdgeTable::new();

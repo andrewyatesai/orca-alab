@@ -64,7 +64,11 @@ impl SinkWriter {
     /// by sink stubs that don't drive a real PTY.
     #[must_use]
     pub fn new(master: i32) -> Self {
-        Self { master, _owned: None, lock: Mutex::new(()) }
+        Self {
+            master,
+            _owned: None,
+            lock: Mutex::new(()),
+        }
     }
 
     /// Take OWNERSHIP of a PTY master fd (passed as an [`OwnedFd`], so this crate
@@ -108,7 +112,11 @@ impl SinkWriter {
     )]
     #[must_use]
     pub fn new_owned(master: OwnedFd) -> Self {
-        Self { master: master.as_raw_fd(), _owned: Some(master), lock: Mutex::new(()) }
+        Self {
+            master: master.as_raw_fd(),
+            _owned: Some(master),
+            lock: Mutex::new(()),
+        }
     }
 
     /// PROJECTION (TRUST_VACUITY_GATE §2.2 / L2): the `&SinkWriter` → derived
@@ -180,7 +188,10 @@ impl SinkWriter {
         )
     )]
     pub fn write_frame(&self, bytes: &[u8]) -> io::Result<usize> {
-        let _guard = self.lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        let _guard = self
+            .lock
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let mut off = 0;
         while off < bytes.len() {
             match aterm_pty::write_some(self.master, &bytes[off..]) {
@@ -210,8 +221,7 @@ mod tests {
     // with a concurrent reader so the oversized writes never deadlock on a full buffer.
     #[test]
     fn write_frame_is_whole_frame_atomic_across_threads() {
-        let (mut reader, writer) =
-            std::os::unix::net::UnixStream::pair().expect("socketpair");
+        let (mut reader, writer) = std::os::unix::net::UnixStream::pair().expect("socketpair");
         // Borrowed fd (the owned `writer` is dropped below) — `new` doesn't close it.
         let sink = Arc::new(SinkWriter::new(writer.as_raw_fd()));
 
@@ -230,7 +240,11 @@ mod tests {
             let s = Arc::clone(&sink);
             handles.push(thread::spawn(move || {
                 let frame = vec![b'A' + i; LEN];
-                assert_eq!(s.write_frame(&frame).expect("write_frame"), LEN, "whole frame accepted");
+                assert_eq!(
+                    s.write_frame(&frame).expect("write_frame"),
+                    LEN,
+                    "whole frame accepted"
+                );
             }));
         }
         for h in handles {
@@ -247,12 +261,19 @@ mod tests {
             runs.len()
         );
         for (byte, len) in &runs {
-            assert_eq!(*len, LEN, "frame for byte {byte} was split — writers interleaved");
+            assert_eq!(
+                *len, LEN,
+                "frame for byte {byte} was split — writers interleaved"
+            );
         }
         let mut distinct: Vec<u8> = runs.iter().map(|(b, _)| *b).collect();
         distinct.sort_unstable();
         distinct.dedup();
-        assert_eq!(distinct.len(), N as usize, "every frame's byte must appear exactly once");
+        assert_eq!(
+            distinct.len(),
+            N as usize,
+            "every frame's byte must appear exactly once"
+        );
     }
 
     // Run-length summary [(byte, count), ...] of consecutive equal bytes.
@@ -269,8 +290,7 @@ mod tests {
 
     #[test]
     fn write_frame_reports_full_count() {
-        let (mut reader, writer) =
-            std::os::unix::net::UnixStream::pair().expect("socketpair");
+        let (mut reader, writer) = std::os::unix::net::UnixStream::pair().expect("socketpair");
         let sink = SinkWriter::new(writer.as_raw_fd());
         assert_eq!(sink.write_frame(b"hello-sink").expect("write_frame"), 10);
         let mut buf = [0u8; 10];
@@ -296,7 +316,12 @@ mod tests {
 
         // Drop the original Arc: a clone remains, so the fd MUST still be open+writable.
         drop(sink);
-        assert_eq!(clone.write_frame(b"alive").expect("write while a clone holds the fd"), 5);
+        assert_eq!(
+            clone
+                .write_frame(b"alive")
+                .expect("write while a clone holds the fd"),
+            5
+        );
 
         // Drop the LAST clone: the OwnedFd closes the fd exactly once. The peer then
         // reads the 5 bytes and EOF (read_to_end returns) — which only happens because
@@ -304,6 +329,9 @@ mod tests {
         drop(clone);
         let mut buf = Vec::new();
         reader.read_to_end(&mut buf).expect("read_to_end");
-        assert_eq!(&buf, b"alive", "peer got the bytes then EOF — fd closed on last clone drop");
+        assert_eq!(
+            &buf, b"alive",
+            "peer got the bytes then EOF — fd closed on last clone drop"
+        );
     }
 }

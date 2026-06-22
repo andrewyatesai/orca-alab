@@ -166,10 +166,10 @@ pub fn show_about_panel() {}
 mod macos {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, Sel};
-    use objc2::{ClassType, DeclaredClass, class, declare_class, msg_send, msg_send_id, mutability, sel};
-    use objc2_app_kit::{
-        NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem,
+    use objc2::{
+        ClassType, DeclaredClass, class, declare_class, msg_send, msg_send_id, mutability, sel,
     };
+    use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
     use objc2_foundation::{MainThreadMarker, NSString};
     use winit::event_loop::EventLoopProxy;
 
@@ -255,26 +255,87 @@ mod macos {
 
         let main = NSMenu::new(mtm);
 
-        // --- App menu (titled with the app name by convention) ----------------
-        let app_menu = NSMenu::new(mtm);
-        add_item(mtm, &app_menu, &target, "About aterm", MenuAction::About, "", false);
-        add_separator(mtm, &app_menu);
-        add_item(mtm, &app_menu, &target, "Preferences…", MenuAction::Preferences, ",", true);
-        add_separator(mtm, &app_menu);
-        add_item(mtm, &app_menu, &target, "Hide aterm", MenuAction::Hide, "h", true);
-        add_separator(mtm, &app_menu);
-        add_item(mtm, &app_menu, &target, "Quit aterm", MenuAction::Quit, "q", true);
-        attach_submenu(mtm, &main, "aterm", app_menu);
+        // Each submenu is built in full, then attached under its top-level title.
+        // Order is App / File / Edit / View / Window / Help, the standard Mac
+        // arrangement — preserved exactly by the order of these calls.
+        attach_submenu(mtm, &main, "aterm", build_app_menu(mtm, &target));
+        attach_submenu(mtm, &main, "File", build_file_menu(mtm, &target));
+        attach_submenu(mtm, &main, "Edit", build_edit_menu(mtm, &target));
+        attach_submenu(mtm, &main, "View", build_view_menu(mtm, &target));
+        attach_submenu(mtm, &main, "Window", build_window_menu(mtm, &target));
+        attach_submenu(mtm, &main, "Help", build_help_menu(mtm, &target));
 
-        // --- File -------------------------------------------------------------
+        app.setMainMenu(Some(&main));
+        Some(target)
+    }
+
+    /// Build the App menu (titled with the app name by convention): About,
+    /// Preferences, Hide, Quit. Items and separators preserved verbatim from
+    /// [`install`].
+    fn build_app_menu(mtm: MainThreadMarker, target: &MenuTarget) -> Retained<NSMenu> {
+        let app_menu = NSMenu::new(mtm);
+        add_item(
+            mtm,
+            &app_menu,
+            target,
+            "About aterm",
+            MenuAction::About,
+            "",
+            false,
+        );
+        add_separator(mtm, &app_menu);
+        add_item(
+            mtm,
+            &app_menu,
+            target,
+            "Preferences…",
+            MenuAction::Preferences,
+            ",",
+            true,
+        );
+        add_separator(mtm, &app_menu);
+        add_item(
+            mtm,
+            &app_menu,
+            target,
+            "Hide aterm",
+            MenuAction::Hide,
+            "h",
+            true,
+        );
+        add_separator(mtm, &app_menu);
+        add_item(
+            mtm,
+            &app_menu,
+            target,
+            "Quit aterm",
+            MenuAction::Quit,
+            "q",
+            true,
+        );
+        app_menu
+    }
+
+    /// Build the File menu: New Window/Tab, the tab-relocation commands, and
+    /// Close Tab. Items, modifier masks, and separators preserved verbatim from
+    /// [`install`].
+    fn build_file_menu(mtm: MainThreadMarker, target: &MenuTarget) -> Retained<NSMenu> {
         let file = NSMenu::new(mtm);
-        add_item(mtm, &file, &target, "New Window", MenuAction::NewWindow, "n", true);
-        add_item(mtm, &file, &target, "New Tab", MenuAction::NewTab, "t", true);
+        add_item(
+            mtm,
+            &file,
+            target,
+            "New Window",
+            MenuAction::NewWindow,
+            "n",
+            true,
+        );
+        add_item(mtm, &file, target, "New Tab", MenuAction::NewTab, "t", true);
         // Cmd-Shift-N moves the active tab out into a new in-process window.
         add_item_mods(
             mtm,
             &file,
-            &target,
+            target,
             "Move Tab to New Window",
             MenuAction::MoveTabToNewWindow,
             "n",
@@ -284,7 +345,7 @@ mod macos {
         add_item_mods(
             mtm,
             &file,
-            &target,
+            target,
             "Move Tab to Next Window",
             MenuAction::MoveTabToNextWindow,
             "m",
@@ -298,52 +359,92 @@ mod macos {
         add_item_mods(
             mtm,
             &file,
-            &target,
+            target,
             "Open Session in New Window",
             MenuAction::ViewSessionInNewWindow,
             "o",
             command_shift_mask(),
         );
         add_separator(mtm, &file);
-        add_item(mtm, &file, &target, "Close Tab", MenuAction::CloseTab, "w", true);
-        attach_submenu(mtm, &main, "File", file);
+        add_item(
+            mtm,
+            &file,
+            target,
+            "Close Tab",
+            MenuAction::CloseTab,
+            "w",
+            true,
+        );
+        file
+    }
 
-        // --- Edit -------------------------------------------------------------
+    /// Build the Edit menu: Copy, Paste, Select All, Find. Items and separators
+    /// preserved verbatim from [`install`].
+    fn build_edit_menu(mtm: MainThreadMarker, target: &MenuTarget) -> Retained<NSMenu> {
         let edit = NSMenu::new(mtm);
-        add_item(mtm, &edit, &target, "Copy", MenuAction::Copy, "c", true);
-        add_item(mtm, &edit, &target, "Paste", MenuAction::Paste, "v", true);
-        add_item(mtm, &edit, &target, "Select All", MenuAction::SelectAll, "a", true);
+        add_item(mtm, &edit, target, "Copy", MenuAction::Copy, "c", true);
+        add_item(mtm, &edit, target, "Paste", MenuAction::Paste, "v", true);
+        add_item(
+            mtm,
+            &edit,
+            target,
+            "Select All",
+            MenuAction::SelectAll,
+            "a",
+            true,
+        );
         add_separator(mtm, &edit);
-        add_item(mtm, &edit, &target, "Find…", MenuAction::Find, "f", true);
-        attach_submenu(mtm, &main, "Edit", edit);
+        add_item(mtm, &edit, target, "Find…", MenuAction::Find, "f", true);
+        edit
+    }
 
-        // --- View -------------------------------------------------------------
+    /// Build the View menu: Enter Full Screen. Modifier mask preserved verbatim
+    /// from [`install`].
+    fn build_view_menu(mtm: MainThreadMarker, target: &MenuTarget) -> Retained<NSMenu> {
         let view = NSMenu::new(mtm);
         // Cmd-Ctrl-F is the macOS-standard Enter Full Screen equivalent.
         add_item_mods(
             mtm,
             &view,
-            &target,
+            target,
             "Enter Full Screen",
             MenuAction::ToggleFullScreen,
             "f",
             command_control_mask(),
         );
-        attach_submenu(mtm, &main, "View", view);
+        view
+    }
 
-        // --- Window -----------------------------------------------------------
+    /// Build the Window menu: Minimize, Zoom. Items preserved verbatim from
+    /// [`install`].
+    fn build_window_menu(mtm: MainThreadMarker, target: &MenuTarget) -> Retained<NSMenu> {
         let window = NSMenu::new(mtm);
-        add_item(mtm, &window, &target, "Minimize", MenuAction::Minimize, "m", true);
-        add_item(mtm, &window, &target, "Zoom", MenuAction::Zoom, "", false);
-        attach_submenu(mtm, &main, "Window", window);
+        add_item(
+            mtm,
+            &window,
+            target,
+            "Minimize",
+            MenuAction::Minimize,
+            "m",
+            true,
+        );
+        add_item(mtm, &window, target, "Zoom", MenuAction::Zoom, "", false);
+        window
+    }
 
-        // --- Help -------------------------------------------------------------
+    /// Build the Help menu: aterm Help. Item preserved verbatim from [`install`].
+    fn build_help_menu(mtm: MainThreadMarker, target: &MenuTarget) -> Retained<NSMenu> {
         let help = NSMenu::new(mtm);
-        add_item(mtm, &help, &target, "aterm Help", MenuAction::Help, "", false);
-        attach_submenu(mtm, &main, "Help", help);
-
-        app.setMainMenu(Some(&main));
-        Some(target)
+        add_item(
+            mtm,
+            &help,
+            target,
+            "aterm Help",
+            MenuAction::Help,
+            "",
+            false,
+        );
+        help
     }
 
     /// `Cmd` modifier mask (the default for a single-letter key equivalent).
@@ -381,7 +482,11 @@ mod macos {
         key: &str,
         cmd: bool,
     ) {
-        let mods = if cmd { command_mask() } else { NSEventModifierFlags(0) };
+        let mods = if cmd {
+            command_mask()
+        } else {
+            NSEventModifierFlags(0)
+        };
         add_item_mods(mtm, menu, target, title, action, key, mods);
     }
 
@@ -507,7 +612,11 @@ mod tests {
         for a in all {
             assert!(a.tag() >= 1, "tag 0 is reserved for untagged items");
             assert!(seen.insert(a.tag()), "duplicate tag {} for {a:?}", a.tag());
-            assert_eq!(MenuAction::from_tag(a.tag()), Some(a), "round-trip failed for {a:?}");
+            assert_eq!(
+                MenuAction::from_tag(a.tag()),
+                Some(a),
+                "round-trip failed for {a:?}"
+            );
         }
     }
 

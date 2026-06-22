@@ -8,7 +8,9 @@ use aterm_core::terminal::Terminal;
 use aterm_render::{Renderer, Theme};
 
 fn main() {
-    let path = std::env::args().nth(1).unwrap_or_else(|| "/tmp/aterm_diag.png".to_string());
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/tmp/aterm_diag.png".to_string());
     let (rows, cols) = (8u16, 40u16);
     let mut term = Terminal::new(rows, cols);
     let demo: &[u8] = b"plain ABCabc 0123\r\n\

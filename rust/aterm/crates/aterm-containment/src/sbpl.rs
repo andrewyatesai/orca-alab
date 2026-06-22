@@ -118,15 +118,15 @@ pub const NETWORK_DENY_PROFILE: &str = "(version 1)(allow default)(deny network*
 /// becomes `<canonical-home>/.config/gh` (denying gh's token WITHOUT denying the
 /// rest of `~/.config`).
 pub const SECRET_SUBDIRS: &[&str] = &[
-    ".ssh",          // SSH private keys / known_hosts / config
-    ".aws",          // AWS credentials + config
-    ".gnupg",        // GnuPG keyrings
-    ".config/gh",    // GitHub CLI OAuth token
-    ".config/aterm", // aterm's own config/secrets
-    ".kube",         // Kubernetes kubeconfig (cluster creds/tokens)
-    ".docker",       // Docker registry credentials (config.json)
+    ".ssh",           // SSH private keys / known_hosts / config
+    ".aws",           // AWS credentials + config
+    ".gnupg",         // GnuPG keyrings
+    ".config/gh",     // GitHub CLI OAuth token
+    ".config/aterm",  // aterm's own config/secrets
+    ".kube",          // Kubernetes kubeconfig (cluster creds/tokens)
+    ".docker",        // Docker registry credentials (config.json)
     ".config/gcloud", // Google Cloud SDK credentials/tokens
-    ".azure",        // Azure CLI tokens (accessTokens.json)
+    ".azure",         // Azure CLI tokens (accessTokens.json)
 ];
 
 /// CONSERVATIVE secret FILE set, denied (read+write) as `literal`s under the
@@ -489,7 +489,11 @@ mod tests {
         // Containment must be Some and must at least contain the network deny.
         let caps = ContainmentPolicy::capabilities(ContainmentMode::Containment);
         assert_eq!(caps.network, NetworkCapability::None, "precondition");
-        assert_eq!(caps.fs, FsCapability::TmpOnly, "precondition (hostile FS tier)");
+        assert_eq!(
+            caps.fs,
+            FsCapability::TmpOnly,
+            "precondition (hostile FS tier)"
+        );
         let profile = profile_for(&caps).expect("Containment must yield a profile");
         assert!(
             profile.starts_with(NETWORK_DENY_PROFILE),
@@ -517,7 +521,10 @@ mod tests {
 
         // (a) Real Containment (network None ∧ fs TmpOnly): BOTH present.
         let full = profile_for(&base).expect("Containment yields a profile");
-        assert!(full.contains(&secret_marker), "secret must be denied; got {full}");
+        assert!(
+            full.contains(&secret_marker),
+            "secret must be denied; got {full}"
+        );
         assert!(
             full.contains(&private_marker),
             "Containment (fs TmpOnly) must deny private data; got {full}"

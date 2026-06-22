@@ -71,16 +71,16 @@ impl Color {
     pub const fn compute_ansi_256(index: u8) -> Self {
         // Standard ANSI colors (xterm defaults)
         const ANSI_16: [(u8, u8, u8); 16] = [
-            (0, 0, 0),       // 0: Black
-            (205, 0, 0),     // 1: Red
-            (0, 205, 0),     // 2: Green
-            (205, 205, 0),   // 3: Yellow
-            (59, 142, 234),  // 4: Blue (lifted from xterm #0000EE to match the
-                             //    authoritative aterm-types ColorPalette: pure blue
-                             //    is near-invisible on a dark bg. This table is a
-                             //    style-intern CACHE KEY (never a pixel), but it MUST
-                             //    agree with ColorPalette::default_color — see the
-                             //    grid_ansi_table_matches_color_palette test below.
+            (0, 0, 0),      // 0: Black
+            (205, 0, 0),    // 1: Red
+            (0, 205, 0),    // 2: Green
+            (205, 205, 0),  // 3: Yellow
+            (59, 142, 234), // 4: Blue (lifted from xterm #0000EE to match the
+            //    authoritative aterm-types ColorPalette: pure blue
+            //    is near-invisible on a dark bg. This table is a
+            //    style-intern CACHE KEY (never a pixel), but it MUST
+            //    agree with ColorPalette::default_color — see the
+            //    grid_ansi_table_matches_color_palette test below.
             (205, 0, 205),   // 5: Magenta
             (0, 205, 205),   // 6: Cyan
             (229, 229, 229), // 7: White
@@ -158,7 +158,9 @@ mod tests {
                 g,
                 (c.r, c.g, c.b),
                 "ANSI index {idx} diverges: grid {g:?} vs palette ({},{},{})",
-                c.r, c.g, c.b
+                c.r,
+                c.g,
+                c.b
             );
         }
     }

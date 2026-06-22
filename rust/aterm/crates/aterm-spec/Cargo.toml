@@ -18,3 +18,6 @@ aterm-error.workspace = true
 # proc-macro-generated `::aterm_spec::inventory::submit!` resolves in any
 # downstream crate without that crate needing its own inventory dependency.
 inventory.workspace = true
+
+[lints]
+workspace = true

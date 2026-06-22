@@ -72,7 +72,11 @@ fn validate_override(requested: &Path) -> Option<PathBuf> {
         meta.uid(),
         meta.mode(),
     );
-    if safe { Some(canon.join(file_name)) } else { None }
+    if safe {
+        Some(canon.join(file_name))
+    } else {
+        None
+    }
 }
 
 /// Write `bytes` to `path` at mode `0600`, truncating any prior file. Mirrors
@@ -111,7 +115,11 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 /// re-resolved at write time, so an intermediate-dir symlink swapped in after the
 /// check cannot redirect the write. `file_name` must be a single component (the
 /// confiner guarantees this; we assert it defensively).
-pub fn write_private_at(dir: &Path, file_name: &std::ffi::OsString, bytes: &[u8]) -> std::io::Result<()> {
+pub fn write_private_at(
+    dir: &Path,
+    file_name: &std::ffi::OsString,
+    bytes: &[u8],
+) -> std::io::Result<()> {
     use std::ffi::CString;
     use std::io::Write as _;
     use std::os::unix::ffi::OsStrExt;
@@ -133,7 +141,10 @@ pub fn write_private_at(dir: &Path, file_name: &std::ffi::OsString, bytes: &[u8]
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "dir has NUL"))?;
     // SAFETY: `dir_c` is a valid NUL-terminated path; flags are valid open flags.
     let dir_fd = unsafe {
-        libc::open(dir_c.as_ptr(), libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        libc::open(
+            dir_c.as_ptr(),
+            libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
     };
     if dir_fd < 0 {
         return Err(std::io::Error::last_os_error());

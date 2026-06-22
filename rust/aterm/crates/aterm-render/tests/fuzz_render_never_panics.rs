@@ -40,22 +40,22 @@ fn emit_sgr(s: &mut u64, buf: &mut Vec<u8>) {
             buf.push(b';');
         }
         match next(s) % 14 {
-            0 => buf.push(b'1'),                       // bold
-            1 => buf.push(b'3'),                       // italic
-            2 => buf.push(b'4'),                       // underline
-            3 => buf.push(b'9'),                       // strike
-            4 => buf.extend_from_slice(b"53"),         // overline
-            5 => buf.push(b'7'),                       // inverse
-            6 => buf.push(b'2'),                       // dim
-            7 => buf.push(b'0'),                       // reset
+            0 => buf.push(b'1'),               // bold
+            1 => buf.push(b'3'),               // italic
+            2 => buf.push(b'4'),               // underline
+            3 => buf.push(b'9'),               // strike
+            4 => buf.extend_from_slice(b"53"), // overline
+            5 => buf.push(b'7'),               // inverse
+            6 => buf.push(b'2'),               // dim
+            7 => buf.push(b'0'),               // reset
             8 => {
                 // 4:n curly/dotted/dashed underline style
                 buf.extend_from_slice(b"4:");
                 buf.extend_from_slice((next(s) % 6).to_string().as_bytes());
             }
-            9 => emit_color(s, buf, b"38"),            // fg truecolor
-            10 => emit_color(s, buf, b"48"),           // bg truecolor
-            11 => emit_color(s, buf, b"58"),           // underline colour
+            9 => emit_color(s, buf, b"38"),  // fg truecolor
+            10 => emit_color(s, buf, b"48"), // bg truecolor
+            11 => emit_color(s, buf, b"58"), // underline colour
             _ => buf.extend_from_slice((next(s) % 80).to_string().as_bytes()),
         }
     }
@@ -85,21 +85,21 @@ fn render_adversarial_engine_states_never_panics() {
     // Byte samples that drive the NEW render paths.
     let samples: &[&[u8]] = &[
         "🚀".as_bytes(),
-        "❤\u{fe0f}".as_bytes(),                  // VS16 colour
-        "❤".as_bytes(),                          // bare (mono)
-        "👨\u{200d}👩\u{200d}👧".as_bytes(),       // ZWJ family
-        "👍\u{1f3fd}".as_bytes(),                 // skin tone
-        "1\u{fe0f}\u{20e3}".as_bytes(),          // keycap
-        "🇺🇸".as_bytes(),                          // flag (RI pair)
-        "🇫".as_bytes(),                           // lone RI
-        "e\u{0301}".as_bytes(),                   // decomposed é
+        "❤\u{fe0f}".as_bytes(),              // VS16 colour
+        "❤".as_bytes(),                      // bare (mono)
+        "👨\u{200d}👩\u{200d}👧".as_bytes(), // ZWJ family
+        "👍\u{1f3fd}".as_bytes(),            // skin tone
+        "1\u{fe0f}\u{20e3}".as_bytes(),      // keycap
+        "🇺🇸".as_bytes(),                     // flag (RI pair)
+        "🇫".as_bytes(),                      // lone RI
+        "e\u{0301}".as_bytes(),              // decomposed é
         "n\u{0303}".as_bytes(),
         "o\u{0308}".as_bytes(),
-        "a\u{0301}\u{0308}\u{0303}".as_bytes(),  // stacked marks
-        "日本語".as_bytes(),                       // wide CJK
-        "─│┌┐└┘├┤┬┴┼".as_bytes(),                 // box-drawing (procedural)
-        "█▀▄▌▐░▒▓".as_bytes(),                    // blocks/shades
-        "⠀⡀⣿⠿".as_bytes(),                        // braille
+        "a\u{0301}\u{0308}\u{0303}".as_bytes(), // stacked marks
+        "日本語".as_bytes(),                    // wide CJK
+        "─│┌┐└┘├┤┬┴┼".as_bytes(),               // box-drawing (procedural)
+        "█▀▄▌▐░▒▓".as_bytes(),                  // blocks/shades
+        "⠀⡀⣿⠿".as_bytes(),                      // braille
         "\u{1fb00}\u{1fb1e}\u{1fb3b}".as_bytes(), // sextants
         "\u{e0b0}\u{e0b1}\u{e0b2}\u{e0bc}".as_bytes(), // Powerline
         b"\x1b#3",
@@ -143,7 +143,7 @@ fn render_adversarial_engine_states_never_panics() {
 
         // Occasionally resize so the render path sees fresh dimensions (and the
         // reflow of pathological wide/cluster/mark content across the new grid).
-        if next(&mut s) % 96 == 0 {
+        if next(&mut s).is_multiple_of(96) {
             // Bounded sizes: large grids dominate render cost, and the wrap /
             // reflow / scale edges we care about fire at modest dimensions too.
             let rr = (1 + next(&mut s) % 32) as u16;

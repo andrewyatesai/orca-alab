@@ -15,9 +15,7 @@
 //! `aterm_types::keyboard` (the `winit-keymap` feature, K-2) so the future
 //! native shell reuses the same table.
 
-use aterm_types::keyboard::{
-    self, KeyEventType, KeyboardMode, Modifiers,
-};
+use aterm_types::keyboard::{self, KeyEventType, KeyboardMode, Modifiers};
 use winit::event::KeyEvent;
 use winit::keyboard::{Key as WinitKey, ModifiersState, PhysicalKey};
 
@@ -74,12 +72,9 @@ pub fn encode_key_event(
     // base_layout_key only matters for Character keys under REPORT_ALTERNATE_KEYS;
     // the engine ignores it otherwise, so deriving it unconditionally is harmless.
     let base_layout = keyboard::base_layout_key_for(physical_key);
-    let bytes = keyboard::encode_key_with_layout(&key, mods, mode, KeyEventType::Press, base_layout);
-    if bytes.is_empty() {
-        None
-    } else {
-        Some(bytes)
-    }
+    let bytes =
+        keyboard::encode_key_with_layout(&key, mods, mode, KeyEventType::Press, base_layout);
+    if bytes.is_empty() { None } else { Some(bytes) }
 }
 
 /// IME-1: whether a direct key send must be SUPPRESSED because an IME
@@ -122,7 +117,10 @@ pub fn encode_committed_text(text: &str, mode: KeyboardMode) -> Vec<u8> {
 /// the key maps to no engine key (a bare modifier / unmappable key).
 #[cfg(target_os = "macos")]
 #[must_use]
-pub fn build_key_input(ev: &KeyEvent, mods: Modifiers) -> Option<(keyboard::Key, Modifiers, Option<char>)> {
+pub fn build_key_input(
+    ev: &KeyEvent,
+    mods: Modifiers,
+) -> Option<(keyboard::Key, Modifiers, Option<char>)> {
     use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
     let key = keyboard::map_logical_key(&ev.key_without_modifiers())?;
     Some((key, mods, keyboard::base_layout_key_for(ev.physical_key)))
@@ -133,7 +131,10 @@ pub fn build_key_input(ev: &KeyEvent, mods: Modifiers) -> Option<(keyboard::Key,
 /// targets macOS; this keeps the crate compiling on other hosts for CI/tests.)
 #[cfg(not(target_os = "macos"))]
 #[must_use]
-pub fn build_key_input(ev: &KeyEvent, mods: Modifiers) -> Option<(keyboard::Key, Modifiers, Option<char>)> {
+pub fn build_key_input(
+    ev: &KeyEvent,
+    mods: Modifiers,
+) -> Option<(keyboard::Key, Modifiers, Option<char>)> {
     let key = keyboard::map_logical_key(&ev.logical_key)?;
     Some((key, mods, keyboard::base_layout_key_for(ev.physical_key)))
 }
@@ -160,7 +161,11 @@ mod tests {
             KeyboardMode::empty(),
         )
         .expect("alt+a encodes");
-        assert_eq!(bytes, vec![0x1b, b'a'], "Alt+a must be ESC a, not composed å");
+        assert_eq!(
+            bytes,
+            vec![0x1b, b'a'],
+            "Alt+a must be ESC a, not composed å"
+        );
     }
 
     /// Ctrl+Space => NUL (0x00). The old `& 0x1f` branch only fired for ASCII
@@ -202,7 +207,10 @@ mod tests {
             KeyboardMode::DISAMBIGUATE_ESC_CODES,
         )
         .expect("a encodes");
-        assert_eq!(bytes, b"\x1b[97u", "printable under Kitty disambiguate must be CSI-u");
+        assert_eq!(
+            bytes, b"\x1b[97u",
+            "printable under Kitty disambiguate must be CSI-u"
+        );
     }
 
     /// Existing Ctrl-C / Ctrl-D byte output is UNCHANGED by the rewrite: the

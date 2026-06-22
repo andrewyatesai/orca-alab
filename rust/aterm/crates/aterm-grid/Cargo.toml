@@ -20,9 +20,6 @@ testing = []  # Expose test-only helpers for downstream crate tests
 # of aterm-spec. The anchors are decoupled from the `#[cfg(kani)]` harnesses.
 spec-anchors = ["dep:aterm-spec"]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)', 'cfg(fuzzing)'] }
-
 [dependencies]
 aterm-rle = { workspace = true }
 # `disk-tier` (implies `zstd`) provides the `aterm_scrollback::mmap` wrapper that
@@ -57,3 +54,6 @@ harness = false
 [[bench]]
 name = "scroll_damage"
 harness = false
+
+[lints]
+workspace = true

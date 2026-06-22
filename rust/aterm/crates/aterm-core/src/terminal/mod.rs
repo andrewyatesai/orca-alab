@@ -7,10 +7,10 @@
 //! See handler modules (`handler_csi.rs`, `handler_esc.rs`, `handler_osc.rs`)
 //! for per-sequence documentation.
 
-mod bidi_stubs;
 /// UAX #9 BiDi visual-reordering bridge (off-by-default `bidi` feature → `aterm-bidi`).
 #[cfg(feature = "bidi")]
 mod bidi_reorder;
+mod bidi_stubs;
 mod blocks_api;
 mod buffer_api;
 mod builder;
@@ -101,12 +101,12 @@ pub use checkpoint::{GridCursorRepr, HostBindings, StyleRepr, TerminalCheckpoint
 // The injected-clock seam, re-exported so an out-of-crate replay/lash harness
 // can feed a FIXED ClockReading and get bit-deterministic state regardless of
 // real wall-clock pacing (the determinism a faithful replay relies on).
-pub use processing::ClockReading;
+pub use blocks_api::BlockText;
 pub use callbacks::{
     CALLBACK_REGISTRY, CallbackCategory, CallbackInfo, SshConductorCallbackEvent,
     TmuxCallbackEvent, callback_by_name, callback_count, callback_info,
 };
-pub use blocks_api::BlockText;
+pub use processing::ClockReading;
 pub use shell::{
     Annotation, BlockState, CommandMark, OutputBlock, ShellEvent, ShellState, TerminalMark,
 };

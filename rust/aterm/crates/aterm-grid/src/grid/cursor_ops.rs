@@ -86,7 +86,9 @@ impl Grid {
             self.storage.cursor.col = self.storage.clamp_col_for_row(row, self.storage.cursor.col);
         }
         debug_assert!(self.storage.cursor.row < self.storage.visible_rows);
-        debug_assert!(!at_or_below_top || self.storage.cursor.row >= self.storage.scroll_region.top);
+        debug_assert!(
+            !at_or_below_top || self.storage.cursor.row >= self.storage.scroll_region.top
+        );
     }
 
     /// Move cursor down by n rows, respecting scroll region margins.

@@ -41,19 +41,19 @@ fn next(s: &mut u64) -> u32 {
 /// Append one chunk of feature-rich / hostile content.
 fn emit_adversarial(s: &mut u64, buf: &mut Vec<u8>) {
     const SAMPLES: &[&[u8]] = &[
-        b"\xf0\x9f\x9a\x80",         // 🚀
-        "\u{2764}\u{fe0f}".as_bytes(), // ❤️ (VS16)
-        "\u{1f468}\u{200d}\u{1f469}".as_bytes(), // ZWJ pair
-        "\u{1f44d}\u{1f3fd}".as_bytes(), // 👍🏽 skin tone
-        "\u{1f1fa}\u{1f1f8}".as_bytes(), // 🇺🇸 flag
-        "e\u{0301}".as_bytes(),     // decomposed é
-        b"\xe6\x97\xa5",            // CJK 日
+        b"\xf0\x9f\x9a\x80",                           // 🚀
+        "\u{2764}\u{fe0f}".as_bytes(),                 // ❤️ (VS16)
+        "\u{1f468}\u{200d}\u{1f469}".as_bytes(),       // ZWJ pair
+        "\u{1f44d}\u{1f3fd}".as_bytes(),               // 👍🏽 skin tone
+        "\u{1f1fa}\u{1f1f8}".as_bytes(),               // 🇺🇸 flag
+        "e\u{0301}".as_bytes(),                        // decomposed é
+        b"\xe6\x97\xa5",                               // CJK 日
         "\u{2500}\u{2502}\u{250c}\u{2510}".as_bytes(), // box
         "\u{2588}\u{2580}\u{2584}\u{2591}".as_bytes(), // blocks
-        "\u{1fb00}".as_bytes(),     // sextant
-        "\u{e0b0}\u{e0b2}".as_bytes(), // Powerline
-        b"\xf0",                   // truncated UTF-8
-        b"\xff",                   // invalid byte
+        "\u{1fb00}".as_bytes(),                        // sextant
+        "\u{e0b0}\u{e0b2}".as_bytes(),                 // Powerline
+        b"\xf0",                                       // truncated UTF-8
+        b"\xff",                                       // invalid byte
         b"abc ",
     ];
     match next(s) % 6 {
@@ -119,7 +119,7 @@ fn gpu_render_adversarial_states_never_panics_and_matches_cpu() {
             2 => term.process(b"\x1b#4"), // DECDHL bottom half
             _ => {}
         }
-        if next(&mut s) % 3 == 0 {
+        if next(&mut s).is_multiple_of(3) {
             term.process(b"\x1b[?25l");
         }
 
@@ -146,7 +146,10 @@ fn gpu_render_adversarial_states_never_panics_and_matches_cpu() {
         if !is_decdhl {
             let d = max_channel_delta(&cpu_frame, &gpu_frame);
             worst = worst.max(d);
-            assert!(d <= 8, "iter {it}: CPU/GPU diverge by {d} > 8 LSB ({rows}x{cols}, dec={dec})");
+            assert!(
+                d <= 8,
+                "iter {it}: CPU/GPU diverge by {d} > 8 LSB ({rows}x{cols}, dec={dec})"
+            );
         }
     }
     eprintln!("gpu adversarial parity fuzz: {iters} frames, worst per-channel delta = {worst}");

@@ -16,7 +16,7 @@ impl ActionSink for NullSink {
     fn osc_dispatch(&mut self, _: &Provenance<[&[u8]], Pty>) {}
     fn dcs_hook(&mut self, _: &Provenance<[u16], Pty>, _: &Provenance<[u8], Pty>, _: u8) {}
     fn dcs_put(&mut self, _: u8) {}
-    fn dcs_unhook(&mut self) {}
+    fn dcs_unhook(&mut self, _: bool) {}
     fn apc_start(&mut self) {}
     fn apc_put(&mut self, _: u8) {}
     fn apc_end(&mut self) {}
@@ -1027,7 +1027,6 @@ macro_rules! per_state_invariant_proof {
         }
     };
 }
-
 
 per_state_invariant_proof!(pbpi_ground, State::Ground);
 per_state_invariant_proof!(pbpi_escape, State::Escape);

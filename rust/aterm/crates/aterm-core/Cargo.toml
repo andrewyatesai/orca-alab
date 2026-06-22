@@ -9,9 +9,6 @@ license.workspace = true
 repository.workspace = true
 description = "aterm — lean, headless VT terminal engine core"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(miri)', 'cfg(fuzzing)'] }
-
 [features]
 default = []
 # Opt-in heavyweight stress/stability integration tests (tests/stress_stability.rs).
@@ -32,6 +29,12 @@ bidi = ["dep:aterm-bidi"]
 # OWN unit-test build still expands them (Phase 0 unchanged) AND aterm-gui's gate
 # enables this feature to see them cross-crate.
 spec-anchors = ["dep:aterm-spec"]
+# Sixel graphics: compile the `aterm-sixel` decoder into the engine and route a
+# decoded raster into the existing inline-image placement/blit path (the OSC 1337
+# `File=` path). OFF by default: production `cargo build` is byte-identical — no
+# `aterm-sixel`, sixel DCS stays consume-only, and DA1 does NOT advertise code 4.
+# Enabled by the GUI/app crate (and aterm-conformance) where rendering is wanted.
+sixel = ["dep:aterm-sixel"]
 
 [dependencies]
 aterm-error = { workspace = true }
@@ -64,6 +67,10 @@ aterm-containment = { workspace = true }
 # Optional: UAX #9 BiDi reordering, pulled in only by the off-by-default `bidi`
 # feature. Not in the default production closure.
 aterm-bidi = { workspace = true, optional = true }
+# Optional: the sixel raster decoder, pulled into the LIBRARY only by the
+# off-by-default `sixel` feature (re-exported as `crate::sixel`). Also a
+# dev-dependency below so aterm-core's own `sixel`-gated proptests can build.
+aterm-sixel = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Test-only: trigger evaluation (`#[cfg(test)] mod triggers`, test_support/triggers/*)
@@ -81,3 +88,6 @@ aterm-spec-models = { workspace = true }
 # `#[cfg(any(test, feature = "testing"))]` in `grid/mod.rs`. Resolver 2
 # keeps this out of the production `cargo build`.
 aterm-grid = { workspace = true, features = ["alacritty-compat", "testing"] }
+
+[lints]
+workspace = true

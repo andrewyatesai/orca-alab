@@ -212,7 +212,9 @@ impl Expr {
             // interpreter (whose env is integer-valued). A scalar model never
             // contains these, so these arms are unreachable in practice.
             Expr::FnAccess(..) | Expr::Except(..) | Expr::Comprehension(..) => {
-                panic!("function-valued Expr is TLA+-generation only (Tier-0 ty-checked, not interpreter-evaluable)")
+                panic!(
+                    "function-valued Expr is TLA+-generation only (Tier-0 ty-checked, not interpreter-evaluable)"
+                )
             }
             // `lo..hi` is a SET, not a scalar — there is no single value to return.
             // The interpreter consumes it only as an update RHS, where
@@ -246,18 +248,33 @@ impl Expr {
             // IF-valued update that is NOT the last action conjunct would otherwise
             // swallow the following `/\ ...`.
             Expr::If(c, a, b) => {
-                format!("(IF {} THEN {} ELSE {})", c.to_tla(), a.to_tla(), b.to_tla())
+                format!(
+                    "(IF {} THEN {} ELSE {})",
+                    c.to_tla(),
+                    a.to_tla(),
+                    b.to_tla()
+                )
             }
             Expr::Iff(a, b) => format!("({} <=> {})", a.to_tla(), b.to_tla()),
             Expr::Forall(idx, lo, hi, body) => {
-                format!("\\A {idx} \\in {}..{} : {}", lo.to_tla(), hi.to_tla(), body.to_tla())
+                format!(
+                    "\\A {idx} \\in {}..{} : {}",
+                    lo.to_tla(),
+                    hi.to_tla(),
+                    body.to_tla()
+                )
             }
             Expr::FnAccess(f, index) => format!("{f}[{}]", index.to_tla()),
             Expr::Except(f, index, value) => {
                 format!("[{f} EXCEPT ![{}] = {}]", index.to_tla(), value.to_tla())
             }
             Expr::Comprehension(idx, lo, hi, body) => {
-                format!("[{idx} \\in {}..{} |-> {}]", lo.to_tla(), hi.to_tla(), body.to_tla())
+                format!(
+                    "[{idx} \\in {}..{} |-> {}]",
+                    lo.to_tla(),
+                    hi.to_tla(),
+                    body.to_tla()
+                )
             }
             // A bounded set `lo..hi`. The action renderer special-cases an InRange
             // update RHS to emit `var' \in lo..hi`; this standalone form is the set
@@ -339,8 +356,11 @@ impl Model {
     /// with the model's concrete `Init` (variables start at their declared values).
     pub fn to_tla(&self) -> String {
         let const_names: Vec<String> = self.consts.iter().map(|(n, _)| (*n).to_string()).collect();
-        let mut init_parts: Vec<String> =
-            self.vars.iter().map(|v| format!("{} = {}", v.name, v.init)).collect();
+        let mut init_parts: Vec<String> = self
+            .vars
+            .iter()
+            .map(|v| format!("{} = {}", v.name, v.init))
+            .collect();
         // Function vars initialize to the all-FALSE function over `1..range`.
         for f in &self.fn_vars {
             init_parts.push(format!("{} = [n \\in 1..{} |-> FALSE]", f.name, f.range));
@@ -403,8 +423,11 @@ impl Model {
             }
             // UNCHANGED for variables this action does not update.
             let updated: Vec<&str> = a.updates.iter().map(|u| u.var).collect();
-            let unchanged: Vec<&str> =
-                vars.iter().copied().filter(|v| !updated.contains(v)).collect();
+            let unchanged: Vec<&str> = vars
+                .iter()
+                .copied()
+                .filter(|v| !updated.contains(v))
+                .collect();
             if !unchanged.is_empty() {
                 conj.push(format!("UNCHANGED << {} >>", unchanged.join(", ")));
             }
@@ -435,7 +458,11 @@ impl Model {
     pub fn to_cfg_with(&self, overrides: &[(&'static str, i64)]) -> String {
         let mut s = String::new();
         for (n, default) in &self.consts {
-            let val = overrides.iter().find(|(o, _)| o == n).map(|(_, v)| *v).unwrap_or(*default);
+            let val = overrides
+                .iter()
+                .find(|(o, _)| o == n)
+                .map(|(_, v)| *v)
+                .unwrap_or(*default);
             s.push_str(&format!("CONSTANT {n} = {val}\n"));
         }
         s.push_str("SPECIFICATION Spec\n");
@@ -466,7 +493,8 @@ impl Model {
     /// deadlock is a genuine all-parties-parked wedge.
     #[must_use]
     pub fn to_cfg_deadlock_with(&self, overrides: &[(&'static str, i64)]) -> String {
-        self.to_cfg_with(overrides).replace("CHECK_DEADLOCK FALSE\n", "CHECK_DEADLOCK TRUE\n")
+        self.to_cfg_with(overrides)
+            .replace("CHECK_DEADLOCK FALSE\n", "CHECK_DEADLOCK TRUE\n")
     }
 
     /// Config for [`transition_spec`](Self::transition_spec): binds each model
@@ -481,7 +509,11 @@ impl Model {
     ) -> String {
         let mut s = String::new();
         for (n, default) in &self.consts {
-            let val = overrides.iter().find(|(o, _)| o == n).map(|(_, v)| *v).unwrap_or(*default);
+            let val = overrides
+                .iter()
+                .find(|(o, _)| o == n)
+                .map(|(_, v)| *v)
+                .unwrap_or(*default);
             s.push_str(&format!("CONSTANT {n} = {val}\n"));
         }
         for v in &self.vars {
@@ -592,7 +624,10 @@ impl Model {
             .unwrap_or_else(|| panic!("no action `{action}` in model `{}`", self.name));
         let mut env = self.const_env();
         env.extend(state.iter().map(|(k, v)| (*k, *v)));
-        act.guard.as_ref().map(|g| g.eval(&env).as_bool()).unwrap_or(true)
+        act.guard
+            .as_ref()
+            .map(|g| g.eval(&env).as_bool())
+            .unwrap_or(true)
     }
 
     /// Evaluate a named invariant against a concrete state.
@@ -742,15 +777,24 @@ pub fn ring_model() -> Model {
         name: "Ring",
         consts: vec![("MaxSeq", 6), ("Cap", 3)],
         vars: vec![
-            StateVar { name: "seq", init: 0 },
-            StateVar { name: "lo", init: 1 },
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "lo",
+                init: 1,
+            },
         ],
         fn_vars: vec![],
         actions: vec![Action {
             name: "Push",
             guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))), // seq <= MaxSeq - 1
             updates: vec![
-                Update { var: "seq", expr: add(var("seq"), int(1)) },
+                Update {
+                    var: "seq",
+                    expr: add(var("seq"), int(1)),
+                },
                 Update {
                     var: "lo",
                     // IF (seq + 1) - lo + 1 > Cap THEN lo + 1 ELSE lo
@@ -785,20 +829,32 @@ pub fn cursor_model() -> Model {
         name: "Cursor",
         consts: vec![("MaxSeq", 4)],
         vars: vec![
-            StateVar { name: "seq", init: 0 },
-            StateVar { name: "cursor", init: 0 },
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "cursor",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
             Action {
                 name: "Grow", // writer appends; cursor is UNCHANGED
                 guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
-                updates: vec![Update { var: "seq", expr: add(var("seq"), int(1)) }],
+                updates: vec![Update {
+                    var: "seq",
+                    expr: add(var("seq"), int(1)),
+                }],
             },
             Action {
                 name: "Deliver", // reader catches up; seq is UNCHANGED
                 guard: Some(gt(var("seq"), var("cursor"))),
-                updates: vec![Update { var: "cursor", expr: var("seq") }],
+                updates: vec![Update {
+                    var: "cursor",
+                    expr: var("seq"),
+                }],
             },
         ],
         invariants: vec![Invariant {
@@ -827,10 +883,22 @@ pub fn subscribe_model() -> Model {
         name: "Subscribe",
         consts: vec![("MaxSeq", 4), ("Cap", 2), ("Buggy", 0)],
         vars: vec![
-            StateVar { name: "seq", init: 0 },
-            StateVar { name: "lo", init: 1 },
-            StateVar { name: "cursor", init: 0 },
-            StateVar { name: "lost", init: 0 },
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "lo",
+                init: 1,
+            },
+            StateVar {
+                name: "cursor",
+                init: 0,
+            },
+            StateVar {
+                name: "lost",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
@@ -838,11 +906,17 @@ pub fn subscribe_model() -> Model {
                 name: "Grow", // writer appends + evicts oldest when over Cap
                 guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
                 updates: vec![
-                    Update { var: "seq", expr: add(var("seq"), int(1)) },
+                    Update {
+                        var: "seq",
+                        expr: add(var("seq"), int(1)),
+                    },
                     Update {
                         var: "lo",
                         expr: if_(
-                            gt(add(sub(add(var("seq"), int(1)), var("lo")), int(1)), cst("Cap")),
+                            gt(
+                                add(sub(add(var("seq"), int(1)), var("lo")), int(1)),
+                                cst("Cap"),
+                            ),
                             add(var("lo"), int(1)),
                             var("lo"),
                         ),
@@ -852,18 +926,31 @@ pub fn subscribe_model() -> Model {
             Action {
                 name: "PollGap", // reader fell behind (lo > cursor + 1): resync, no loss
                 guard: Some(gt(var("lo"), add(var("cursor"), int(1)))),
-                updates: vec![Update { var: "cursor", expr: var("seq") }], // seq, lo, lost UNCHANGED
+                updates: vec![Update {
+                    var: "cursor",
+                    expr: var("seq"),
+                }], // seq, lo, lost UNCHANGED
             },
             Action {
                 name: "PollDeliver", // deliver; correct iff the reader is still in window
                 // Buggy = 1 \/ lo =< cursor + 1  (Buggy removes the in-window guard)
-                guard: Some(or_(eq(cst("Buggy"), int(1)), le(var("lo"), add(var("cursor"), int(1))))),
+                guard: Some(or_(
+                    eq(cst("Buggy"), int(1)),
+                    le(var("lo"), add(var("cursor"), int(1))),
+                )),
                 updates: vec![
-                    Update { var: "cursor", expr: var("seq") },
+                    Update {
+                        var: "cursor",
+                        expr: var("seq"),
+                    },
                     // lost' = IF lo > cursor + 1 THEN 1 ELSE lost  (records a silent skip)
                     Update {
                         var: "lost",
-                        expr: if_(gt(var("lo"), add(var("cursor"), int(1))), int(1), var("lost")),
+                        expr: if_(
+                            gt(var("lo"), add(var("cursor"), int(1))),
+                            int(1),
+                            var("lost"),
+                        ),
                     },
                 ], // seq, lo UNCHANGED
             },
@@ -901,31 +988,61 @@ pub fn spawn_locale_model() -> Model {
         name: "SpawnLocale",
         consts: vec![("Buggy", 0)],
         vars: vec![
-            StateVar { name: "present", init: 0 },
-            StateVar { name: "eff_utf8", init: 0 },
-            StateVar { name: "ctype", init: 0 },
-            StateVar { name: "resolved", init: 0 },
+            StateVar {
+                name: "present",
+                init: 0,
+            },
+            StateVar {
+                name: "eff_utf8",
+                init: 0,
+            },
+            StateVar {
+                name: "ctype",
+                init: 0,
+            },
+            StateVar {
+                name: "resolved",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
             Action {
                 name: "ObserveNonUtf8", // a non-UTF-8 locale is present (e.g. LANG=C)
-                guard: Some(and_(eq(var("resolved"), int(0)), eq(var("present"), int(0)))),
-                updates: vec![Update { var: "present", expr: int(1) }], // eff_utf8 stays 0
+                guard: Some(and_(
+                    eq(var("resolved"), int(0)),
+                    eq(var("present"), int(0)),
+                )),
+                updates: vec![Update {
+                    var: "present",
+                    expr: int(1),
+                }], // eff_utf8 stays 0
             },
             Action {
                 name: "ObserveUtf8", // a UTF-8 locale is present
-                guard: Some(and_(eq(var("resolved"), int(0)), eq(var("present"), int(0)))),
+                guard: Some(and_(
+                    eq(var("resolved"), int(0)),
+                    eq(var("present"), int(0)),
+                )),
                 updates: vec![
-                    Update { var: "present", expr: int(1) },
-                    Update { var: "eff_utf8", expr: int(1) },
+                    Update {
+                        var: "present",
+                        expr: int(1),
+                    },
+                    Update {
+                        var: "eff_utf8",
+                        expr: int(1),
+                    },
                 ],
             },
             Action {
                 name: "Resolve", // run resolve_spawn_locale once; sets the child's LC_CTYPE
                 guard: Some(eq(var("resolved"), int(0))),
                 updates: vec![
-                    Update { var: "resolved", expr: int(1) },
+                    Update {
+                        var: "resolved",
+                        expr: int(1),
+                    },
                     // Buggy=1: IF present=0 THEN 1 ELSE eff_utf8 (old all-unset guard
                     // leaves a present non-UTF-8 locale unfixed). Buggy=0: always 1.
                     Update {
@@ -965,24 +1082,45 @@ pub fn transact_model() -> Model {
         name: "Transact",
         consts: vec![("MaxSeq", 4), ("K", 2), ("Buggy", 0)],
         vars: vec![
-            StateVar { name: "seq", init: 0 },
-            StateVar { name: "tbase", init: 0 },
-            StateVar { name: "active", init: 0 },
-            StateVar { name: "lost", init: 0 },
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "tbase",
+                init: 0,
+            },
+            StateVar {
+                name: "active",
+                init: 0,
+            },
+            StateVar {
+                name: "lost",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
             Action {
                 name: "Write", // a concurrent writer advances the committed head
                 guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
-                updates: vec![Update { var: "seq", expr: add(var("seq"), int(1)) }],
+                updates: vec![Update {
+                    var: "seq",
+                    expr: add(var("seq"), int(1)),
+                }],
             },
             Action {
                 name: "Begin", // a txn reads the current head as its base version
                 guard: Some(eq(var("active"), int(0))),
                 updates: vec![
-                    Update { var: "active", expr: int(1) },
-                    Update { var: "tbase", expr: var("seq") },
+                    Update {
+                        var: "active",
+                        expr: int(1),
+                    },
+                    Update {
+                        var: "tbase",
+                        expr: var("seq"),
+                    },
                 ],
             },
             Action {
@@ -992,14 +1130,26 @@ pub fn transact_model() -> Model {
                     le(var("seq"), sub(cst("MaxSeq"), cst("K"))),
                 )),
                 updates: vec![
-                    Update { var: "seq", expr: add(var("seq"), cst("K")) },
-                    Update { var: "active", expr: int(0) },
+                    Update {
+                        var: "seq",
+                        expr: add(var("seq"), cst("K")),
+                    },
+                    Update {
+                        var: "active",
+                        expr: int(0),
+                    },
                 ],
             },
             Action {
                 name: "Abort", // a write intervened (seq > tbase): correct path aborts
-                guard: Some(and_(eq(var("active"), int(1)), gt(var("seq"), var("tbase")))),
-                updates: vec![Update { var: "active", expr: int(0) }],
+                guard: Some(and_(
+                    eq(var("active"), int(1)),
+                    gt(var("seq"), var("tbase")),
+                )),
+                updates: vec![Update {
+                    var: "active",
+                    expr: int(0),
+                }],
             },
             Action {
                 name: "BuggyCommit", // conflict committed anyway -> clobbers, lost update
@@ -1011,9 +1161,18 @@ pub fn transact_model() -> Model {
                     le(var("tbase"), sub(cst("MaxSeq"), cst("K"))),
                 )),
                 updates: vec![
-                    Update { var: "seq", expr: add(var("tbase"), cst("K")) },
-                    Update { var: "active", expr: int(0) },
-                    Update { var: "lost", expr: int(1) },
+                    Update {
+                        var: "seq",
+                        expr: add(var("tbase"), cst("K")),
+                    },
+                    Update {
+                        var: "active",
+                        expr: int(0),
+                    },
+                    Update {
+                        var: "lost",
+                        expr: int(1),
+                    },
                 ],
             },
         ],
@@ -1035,8 +1194,14 @@ pub fn kernel_model() -> Model {
         name: "Kernel",
         consts: vec![("MaxSeq", 5), ("Buggy", 0)],
         vars: vec![
-            StateVar { name: "seq", init: 0 },
-            StateVar { name: "count", init: 0 },
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "count",
+                init: 0,
+            },
         ],
         // Action `Emit` (not `Append`, which clashes with ty's Sequences builtin in
         // a single-action spec — see the ring's `Push`).
@@ -1045,11 +1210,18 @@ pub fn kernel_model() -> Model {
             name: "Emit",
             guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
             updates: vec![
-                Update { var: "count", expr: add(var("count"), int(1)) },
+                Update {
+                    var: "count",
+                    expr: add(var("count"), int(1)),
+                },
                 // seq' = IF Buggy = 1 THEN seq + 2 ELSE seq + 1   (Buggy opens a gap)
                 Update {
                     var: "seq",
-                    expr: if_(eq(cst("Buggy"), int(1)), add(var("seq"), int(2)), add(var("seq"), int(1))),
+                    expr: if_(
+                        eq(cst("Buggy"), int(1)),
+                        add(var("seq"), int(2)),
+                        add(var("seq"), int(1)),
+                    ),
                 },
             ],
         }],
@@ -1071,22 +1243,37 @@ pub fn snapshot_model() -> Model {
         name: "Snapshot",
         consts: vec![("MaxSeq", 4), ("Buggy", 0)],
         vars: vec![
-            StateVar { name: "seq", init: 0 },
-            StateVar { name: "snapped", init: 0 },
-            StateVar { name: "leaked", init: 0 },
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "snapped",
+                init: 0,
+            },
+            StateVar {
+                name: "leaked",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
             Action {
                 name: "Snap", // take a single snapshot of the current head
                 guard: Some(eq(var("snapped"), int(0))),
-                updates: vec![Update { var: "snapped", expr: int(1) }], // seq, leaked UNCHANGED
+                updates: vec![Update {
+                    var: "snapped",
+                    expr: int(1),
+                }], // seq, leaked UNCHANGED
             },
             Action {
                 name: "Write", // advance the head; must not leak into an active snapshot
                 guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
                 updates: vec![
-                    Update { var: "seq", expr: add(var("seq"), int(1)) },
+                    Update {
+                        var: "seq",
+                        expr: add(var("seq"), int(1)),
+                    },
                     // leaked' = IF Buggy = 1 /\ snapped = 1 THEN 1 ELSE leaked
                     Update {
                         var: "leaked",
@@ -1230,19 +1417,34 @@ pub fn fd_lifecycle_model() -> Model {
         consts: vec![("MaxClones", 3), ("Buggy", 0)],
         vars: vec![
             // Live Arc<SinkWriter> clone count (the original owner starts holding it).
-            StateVar { name: "clones", init: 1 },
+            StateVar {
+                name: "clones",
+                init: 1,
+            },
             // Is the PTY master fd still open? (1 = open, 0 = closed.)
-            StateVar { name: "fdOpen", init: 1 },
+            StateVar {
+                name: "fdOpen",
+                init: 1,
+            },
             // Latched: did a holder use the raw fd after it was closed? (the race.)
-            StateVar { name: "usedAfterClose", init: 0 },
+            StateVar {
+                name: "usedAfterClose",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
             Action {
                 name: "Clone", // Arc::clone: another party takes a holder.
                 // clones > 0 /\ clones < MaxClones
-                guard: Some(and_(gt(var("clones"), int(0)), le(var("clones"), sub(cst("MaxClones"), int(1))))),
-                updates: vec![Update { var: "clones", expr: add(var("clones"), int(1)) }],
+                guard: Some(and_(
+                    gt(var("clones"), int(0)),
+                    le(var("clones"), sub(cst("MaxClones"), int(1))),
+                )),
+                updates: vec![Update {
+                    var: "clones",
+                    expr: add(var("clones"), int(1)),
+                }],
             },
             Action {
                 name: "UseFd", // a holder uses the RAW master fd (master()/write_frame).
@@ -1258,7 +1460,10 @@ pub fn fd_lifecycle_model() -> Model {
                 name: "DropClone", // drop one clone; THE FIX closes the fd only on the last drop.
                 guard: Some(gt(var("clones"), int(0))),
                 updates: vec![
-                    Update { var: "clones", expr: sub(var("clones"), int(1)) },
+                    Update {
+                        var: "clones",
+                        expr: sub(var("clones"), int(1)),
+                    },
                     // fdOpen' = IF Buggy = 1 THEN 0                       (DEFECT: bare close on
                     //                                                      EVERY drop, out-of-band)
                     //           ELSE IF clones - 1 > 0 THEN 1 ELSE 0      (FIX: close iff last holder)
@@ -1277,7 +1482,10 @@ pub fn fd_lifecycle_model() -> Model {
         ],
         invariants: vec![
             // No party ever uses the raw master fd after it has been closed.
-            Invariant { name: "NoUseAfterClose", expr: eq(var("usedAfterClose"), int(0)) },
+            Invariant {
+                name: "NoUseAfterClose",
+                expr: eq(var("usedAfterClose"), int(0)),
+            },
             // The fd is closed only when no live holder remains (fdOpen \/ clones = 0).
             Invariant {
                 name: "ClosedImpliesNoClones",
@@ -1297,18 +1505,41 @@ pub fn fd_lifecycle_model() -> Model {
 /// the scalar interpreter.
 pub fn evict_full_model() -> Model {
     // (seq + 1) - lo + 1 > Cap : the eviction condition (over the pre-state seq).
-    let evicting = || gt(add(sub(add(var("seq"), int(1)), var("lo")), int(1)), cst("Cap"));
+    let evicting = || {
+        gt(
+            add(sub(add(var("seq"), int(1)), var("lo")), int(1)),
+            cst("Cap"),
+        )
+    };
     Model {
         name: "EvictFull",
         consts: vec![("MaxSeq", 5), ("Cap", 3)],
-        vars: vec![StateVar { name: "seq", init: 0 }, StateVar { name: "lo", init: 1 }],
-        fn_vars: vec![FnVar { name: "live", range: "MaxSeq" }],
+        vars: vec![
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "lo",
+                init: 1,
+            },
+        ],
+        fn_vars: vec![FnVar {
+            name: "live",
+            range: "MaxSeq",
+        }],
         actions: vec![Action {
             name: "Push",
             guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
             updates: vec![
-                Update { var: "seq", expr: add(var("seq"), int(1)) },
-                Update { var: "lo", expr: if_(evicting(), add(var("lo"), int(1)), var("lo")) },
+                Update {
+                    var: "seq",
+                    expr: add(var("seq"), int(1)),
+                },
+                Update {
+                    var: "lo",
+                    expr: if_(evicting(), add(var("lo"), int(1)), var("lo")),
+                },
                 Update {
                     var: "live",
                     // Evicting: rebuild the live-set as (old minus the evicted `lo`)
@@ -1384,23 +1615,52 @@ pub fn evict_full_model() -> Model {
 pub fn tier_residency_model() -> Model {
     // (seq + 1) - lo + 1 > Cap : the eviction condition over the pre-state seq
     // (identical to `evict_full_model`'s spine).
-    let evicting = || gt(add(sub(add(var("seq"), int(1)), var("lo")), int(1)), cst("Cap"));
+    let evicting = || {
+        gt(
+            add(sub(add(var("seq"), int(1)), var("lo")), int(1)),
+            cst("Cap"),
+        )
+    };
     Model {
         name: "TierResidency",
         consts: vec![("MaxSeq", 4), ("Cap", 2), ("Buggy", 0)],
-        vars: vec![StateVar { name: "seq", init: 0 }, StateVar { name: "lo", init: 1 }],
+        vars: vec![
+            StateVar {
+                name: "seq",
+                init: 0,
+            },
+            StateVar {
+                name: "lo",
+                init: 1,
+            },
+        ],
         fn_vars: vec![
-            FnVar { name: "live", range: "MaxSeq" },
-            FnVar { name: "resident_warm", range: "MaxSeq" },
-            FnVar { name: "resident_cold", range: "MaxSeq" },
+            FnVar {
+                name: "live",
+                range: "MaxSeq",
+            },
+            FnVar {
+                name: "resident_warm",
+                range: "MaxSeq",
+            },
+            FnVar {
+                name: "resident_cold",
+                range: "MaxSeq",
+            },
         ],
         actions: vec![
             Action {
                 name: "Push",
                 guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
                 updates: vec![
-                    Update { var: "seq", expr: add(var("seq"), int(1)) },
-                    Update { var: "lo", expr: if_(evicting(), add(var("lo"), int(1)), var("lo")) },
+                    Update {
+                        var: "seq",
+                        expr: add(var("seq"), int(1)),
+                    },
+                    Update {
+                        var: "lo",
+                        expr: if_(evicting(), add(var("lo"), int(1)), var("lo")),
+                    },
                     Update {
                         var: "live",
                         // Same live-set discipline as evict_full: evicting rebuilds
@@ -1526,13 +1786,28 @@ pub fn recording_model() -> Model {
         // KF = keyframe seq (fixed); DROPAT = the replay index the bug drops.
         consts: vec![("MaxSeq", 4), ("KF", 2), ("DROPAT", 3), ("Buggy", 0)],
         vars: vec![
-            StateVar { name: "seq", init: 0 }, // live head
-            StateVar { name: "rt", init: 0 },  // replay cursor (how far replay has folded)
+            StateVar {
+                name: "seq",
+                init: 0,
+            }, // live head
+            StateVar {
+                name: "rt",
+                init: 0,
+            }, // replay cursor (how far replay has folded)
         ],
         fn_vars: vec![
-            FnVar { name: "payload", range: "MaxSeq" }, // recorded events (TRUE once recorded)
-            FnVar { name: "live", range: "MaxSeq" },    // live parity fold
-            FnVar { name: "replay", range: "MaxSeq" },  // replay parity fold (from keyframe)
+            FnVar {
+                name: "payload",
+                range: "MaxSeq",
+            }, // recorded events (TRUE once recorded)
+            FnVar {
+                name: "live",
+                range: "MaxSeq",
+            }, // live parity fold
+            FnVar {
+                name: "replay",
+                range: "MaxSeq",
+            }, // replay parity fold (from keyframe)
         ],
         actions: vec![
             // Record one event: payload[seq+1]=TRUE; live[seq+1] = live[seq] XOR TRUE
@@ -1541,7 +1816,10 @@ pub fn recording_model() -> Model {
                 name: "Record",
                 guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
                 updates: vec![
-                    Update { var: "seq", expr: add(var("seq"), int(1)) },
+                    Update {
+                        var: "seq",
+                        expr: add(var("seq"), int(1)),
+                    },
                     Update {
                         var: "payload",
                         expr: except("payload", add(var("seq"), int(1)), bool_lit(true)),
@@ -1567,7 +1845,10 @@ pub fn recording_model() -> Model {
                 name: "Hydrate",
                 guard: Some(le(cst("KF"), var("seq"))),
                 updates: vec![
-                    Update { var: "rt", expr: cst("KF") },
+                    Update {
+                        var: "rt",
+                        expr: cst("KF"),
+                    },
                     Update {
                         var: "replay",
                         expr: comprehension(
@@ -1591,16 +1872,25 @@ pub fn recording_model() -> Model {
                 // KF =< rt: only after Hydrate has seeded the cursor at the keyframe
                 // (rt is 0 pre-Hydrate; folding before a seed would read replay[0],
                 // out of the 1..MaxSeq domain). rt+1 =< seq: stay within recorded events.
-                guard: Some(and_(le(cst("KF"), var("rt")), le(add(var("rt"), int(1)), var("seq")))),
+                guard: Some(and_(
+                    le(cst("KF"), var("rt")),
+                    le(add(var("rt"), int(1)), var("seq")),
+                )),
                 updates: vec![
-                    Update { var: "rt", expr: add(var("rt"), int(1)) },
+                    Update {
+                        var: "rt",
+                        expr: add(var("rt"), int(1)),
+                    },
                     Update {
                         var: "replay",
                         expr: except(
                             "replay",
                             add(var("rt"), int(1)),
                             if_(
-                                and_(eq(cst("Buggy"), int(1)), eq(add(var("rt"), int(1)), cst("DROPAT"))),
+                                and_(
+                                    eq(cst("Buggy"), int(1)),
+                                    eq(add(var("rt"), int(1)), cst("DROPAT")),
+                                ),
                                 fn_access("replay", var("rt")), // DROP: skip payload (parity stalls)
                                 neq(
                                     fn_access("replay", var("rt")),
@@ -1684,16 +1974,28 @@ pub fn coalesce_model() -> Model {
         name: "Coalesce",
         // SKIPAT = the fold index at which the buggy bulk lane drops the fixup.
         consts: vec![("MaxSeq", 4), ("SKIPAT", 2), ("Buggy", 0)],
-        vars: vec![StateVar { name: "seq", init: 0 }],
+        vars: vec![StateVar {
+            name: "seq",
+            init: 0,
+        }],
         fn_vars: vec![
-            FnVar { name: "single", range: "MaxSeq" }, // reference (per-char) fold
-            FnVar { name: "bulk", range: "MaxSeq" },   // fast (coalesced) fold
+            FnVar {
+                name: "single",
+                range: "MaxSeq",
+            }, // reference (per-char) fold
+            FnVar {
+                name: "bulk",
+                range: "MaxSeq",
+            }, // fast (coalesced) fold
         ],
         actions: vec![Action {
             name: "Emit",
             guard: Some(le(var("seq"), sub(cst("MaxSeq"), int(1)))),
             updates: vec![
-                Update { var: "seq", expr: add(var("seq"), int(1)) },
+                Update {
+                    var: "seq",
+                    expr: add(var("seq"), int(1)),
+                },
                 // Reference lane: each element flips parity (the per-element fixup).
                 Update {
                     var: "single",
@@ -1753,10 +2055,22 @@ pub fn window_routing_model() -> Model {
         name: "WindowRouting",
         consts: vec![("MaxWin", 2), ("MaxId", 4), ("Buggy", 0)],
         vars: vec![
-            StateVar { name: "win_count", init: 1 },
-            StateVar { name: "frontmost", init: 1 },
-            StateVar { name: "next_id", init: 2 },
-            StateVar { name: "exited", init: 0 },
+            StateVar {
+                name: "win_count",
+                init: 1,
+            },
+            StateVar {
+                name: "frontmost",
+                init: 1,
+            },
+            StateVar {
+                name: "next_id",
+                init: 2,
+            },
+            StateVar {
+                name: "exited",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
@@ -1772,9 +2086,18 @@ pub fn window_routing_model() -> Model {
                     eq(var("exited"), int(0)),
                 )),
                 updates: vec![
-                    Update { var: "win_count", expr: add(var("win_count"), int(1)) },
-                    Update { var: "frontmost", expr: var("next_id") },
-                    Update { var: "next_id", expr: add(var("next_id"), int(1)) },
+                    Update {
+                        var: "win_count",
+                        expr: add(var("win_count"), int(1)),
+                    },
+                    Update {
+                        var: "frontmost",
+                        expr: var("next_id"),
+                    },
+                    Update {
+                        var: "next_id",
+                        expr: add(var("next_id"), int(1)),
+                    },
                 ],
             },
             // CloseRequested / Cmd-W last tab: close a window. Closing the LAST one
@@ -1782,9 +2105,15 @@ pub fn window_routing_model() -> Model {
             // surviving window keeps a valid, already-allocated frontmost id.
             Action {
                 name: "CloseWindow",
-                guard: Some(and_(gt(var("win_count"), int(0)), eq(var("exited"), int(0)))),
+                guard: Some(and_(
+                    gt(var("win_count"), int(0)),
+                    eq(var("exited"), int(0)),
+                )),
                 updates: vec![
-                    Update { var: "win_count", expr: sub(var("win_count"), int(1)) },
+                    Update {
+                        var: "win_count",
+                        expr: sub(var("win_count"), int(1)),
+                    },
                     // exited' = IF this was the last window THEN (Buggy ? 0 : 1) ELSE exited
                     Update {
                         var: "exited",
@@ -1850,7 +2179,10 @@ pub fn window_routing_model() -> Model {
             Invariant {
                 name: "FrontmostAllocated",
                 // frontmost = 0 \/ frontmost < next_id (never a future/reused id)
-                expr: or_(eq(var("frontmost"), int(0)), gt(var("next_id"), var("frontmost"))),
+                expr: or_(
+                    eq(var("frontmost"), int(0)),
+                    gt(var("next_id"), var("frontmost")),
+                ),
             },
         ],
     }
@@ -2037,28 +2369,28 @@ pub fn no_transitive_authority_model() -> Model {
 /// mutators, bounded by `Cap` tabs so `ty` explores a finite space:
 ///
 ///   * `NewTab`    ⟵ `TabIndex::add()`: append a tab and switch to it. `count' =
-///                   count + 1` and the new tab is the new LAST index, `active' =
-///                   count` (== new `count - 1`). Guarded `count <= Cap - 1`.
+///     count + 1` and the new tab is the new LAST index, `active' =
+///     count` (== new `count - 1`). Guarded `count <= Cap - 1`.
 ///   * `SelectTab` ⟵ `TabIndex::switch_to(i)` for an in-range `i` (Cmd-1..9 /
-///                   `switch_tab_in`): jump to ANY valid index. The specific `i` is
-///                   user input, not a function of the scalar projection, so the
-///                   faithful update is NONDETERMINISTIC: `active' \in 0..count-1`.
-///                   `ty` checks the whole fan-out, and the real in-range
-///                   `switch_to` lands on one such admissible value.
+///     `switch_tab_in`): jump to ANY valid index. The specific `i` is
+///     user input, not a function of the scalar projection, so the
+///     faithful update is NONDETERMINISTIC: `active' \in 0..count-1`.
+///     `ty` checks the whole fan-out, and the real in-range
+///     `switch_to` lands on one such admissible value.
 ///   * `Cycle`     ⟵ `TabIndex::cycle(true)` (Cmd-Shift-]): forward with WRAP.
-///                   `(active + 1) % count` has no `%` in the macro algebra, but the
-///                   invariant `active <= count - 1` makes it exactly `active' = IF
-///                   active + 1 > count - 1 THEN 0 ELSE active + 1`. Guarded
-///                   `count > 1` (one tab is a no-op).
+///     `(active + 1) % count` has no `%` in the macro algebra, but the
+///     invariant `active <= count - 1` makes it exactly `active' = IF
+///     active + 1 > count - 1 THEN 0 ELSE active + 1`. Guarded
+///     `count > 1` (one tab is a no-op).
 ///   * `Close`     ⟵ `TabIndex::close(i)` for a non-exit close (`count > 1`, so a
-///                   window keeps >= 1 tab): `count' = count - 1`, then RE-CLAMP the
-///                   active index into the shrunk range. The worst case for the
-///                   range invariant is closing the LAST (active) tab, where active
-///                   must drop to the new last index `count - 2`; the faithful
-///                   re-clamp is `active' = IF active > count - 2 THEN count - 2 ELSE
-///                   active` (= `min(active, new_count - 1)`, matching `close`'s
-///                   `else if active >= count { active = count - 1 }` arm). Guarded
-///                   `count > 1`.
+///     window keeps >= 1 tab): `count' = count - 1`, then RE-CLAMP the
+///     active index into the shrunk range. The worst case for the
+///     range invariant is closing the LAST (active) tab, where active
+///     must drop to the new last index `count - 2`; the faithful
+///     re-clamp is `active' = IF active > count - 2 THEN count - 2 ELSE
+///     active` (= `min(active, new_count - 1)`, matching `close`'s
+///     `else if active >= count { active = count - 1 }` arm). Guarded
+///     `count > 1`.
 ///
 /// **`Buggy` non-vacuity control.** At `Buggy = 0` `ty` PROVES `CountPositive` +
 /// `ActiveInRange` over the whole bounded space. The `Buggy` branch in `Close`
@@ -2078,7 +2410,16 @@ pub fn tab_nav_model() -> Model {
         // Cap tabs). `Buggy` flips the Close re-clamp off.
         consts: vec![("Cap", 4), ("Buggy", 0)],
         // A fresh window: one tab (count=1), it is active (active=0).
-        vars: vec![StateVar { name: "count", init: 1 }, StateVar { name: "active", init: 0 }],
+        vars: vec![
+            StateVar {
+                name: "count",
+                init: 1,
+            },
+            StateVar {
+                name: "active",
+                init: 0,
+            },
+        ],
         fn_vars: vec![],
         actions: vec![
             // add(): append a tab and switch to it — the new tab is the new LAST
@@ -2088,8 +2429,14 @@ pub fn tab_nav_model() -> Model {
                 name: "NewTab",
                 guard: Some(le(var("count"), sub(cst("Cap"), int(1)))),
                 updates: vec![
-                    Update { var: "active", expr: var("count") },
-                    Update { var: "count", expr: add(var("count"), int(1)) },
+                    Update {
+                        var: "active",
+                        expr: var("count"),
+                    },
+                    Update {
+                        var: "count",
+                        expr: add(var("count"), int(1)),
+                    },
                 ],
             },
             // switch_to(i) for an in-range i (Cmd-1..9 / switch_tab_in): jump to ANY
@@ -2146,15 +2493,24 @@ pub fn tab_nav_model() -> Model {
                             ),
                         ),
                     },
-                    Update { var: "count", expr: sub(var("count"), int(1)) },
+                    Update {
+                        var: "count",
+                        expr: sub(var("count"), int(1)),
+                    },
                 ],
             },
         ],
         invariants: vec![
             // A window always has at least one tab.
-            Invariant { name: "CountPositive", expr: gt(var("count"), int(0)) },
+            Invariant {
+                name: "CountPositive",
+                expr: gt(var("count"), int(0)),
+            },
             // The active index is always in range for the renderer (active <= count-1).
-            Invariant { name: "ActiveInRange", expr: le(var("active"), sub(var("count"), int(1))) },
+            Invariant {
+                name: "ActiveInRange",
+                expr: le(var("active"), sub(var("count"), int(1))),
+            },
         ],
     }
 }
@@ -2179,8 +2535,14 @@ pub fn pane_tree_model() -> Model {
         consts: vec![("Cap", 4), ("Buggy", 0)],
         // A fresh tab: one leaf (leaf_count=1), it is focused (focused=0).
         vars: vec![
-            StateVar { name: "leaf_count", init: 1 },
-            StateVar { name: "focused", init: 0 },
+            StateVar {
+                name: "leaf_count",
+                init: 1,
+            },
+            StateVar {
+                name: "focused",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
@@ -2192,8 +2554,14 @@ pub fn pane_tree_model() -> Model {
                 name: "Split",
                 guard: Some(le(var("leaf_count"), sub(cst("Cap"), int(1)))),
                 updates: vec![
-                    Update { var: "focused", expr: var("leaf_count") },
-                    Update { var: "leaf_count", expr: add(var("leaf_count"), int(1)) },
+                    Update {
+                        var: "focused",
+                        expr: var("leaf_count"),
+                    },
+                    Update {
+                        var: "leaf_count",
+                        expr: add(var("leaf_count"), int(1)),
+                    },
                 ],
             },
             // close_pane on a SPLIT tab (CloseOutcome::Collapsed, leaf_count > 1):
@@ -2221,13 +2589,19 @@ pub fn pane_tree_model() -> Model {
                             ),
                         ),
                     },
-                    Update { var: "leaf_count", expr: sub(var("leaf_count"), int(1)) },
+                    Update {
+                        var: "leaf_count",
+                        expr: sub(var("leaf_count"), int(1)),
+                    },
                 ],
             },
         ],
         invariants: vec![
             // The tab's tree is never empty while the tab is open (>= 1 leaf).
-            Invariant { name: "TreeNonEmpty", expr: gt(var("leaf_count"), int(0)) },
+            Invariant {
+                name: "TreeNonEmpty",
+                expr: gt(var("leaf_count"), int(0)),
+            },
             // Exactly-one in-range focused leaf: focused <= leaf_count - 1.
             Invariant {
                 name: "FocusInRange",
@@ -2260,8 +2634,14 @@ pub fn session_pool_model() -> Model {
         name: "SessionPool",
         consts: vec![("Cap", 4), ("Buggy", 0)],
         vars: vec![
-            StateVar { name: "refcount", init: 1 },
-            StateVar { name: "closed", init: 0 },
+            StateVar {
+                name: "refcount",
+                init: 1,
+            },
+            StateVar {
+                name: "closed",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
@@ -2269,8 +2649,14 @@ pub fn session_pool_model() -> Model {
             // guarded not-yet-closed and below the model bound.
             Action {
                 name: "Acquire",
-                guard: Some(and_(eq(var("closed"), int(0)), le(var("refcount"), sub(cst("Cap"), int(1))))),
-                updates: vec![Update { var: "refcount", expr: add(var("refcount"), int(1)) }],
+                guard: Some(and_(
+                    eq(var("closed"), int(0)),
+                    le(var("refcount"), sub(cst("Cap"), int(1))),
+                )),
+                updates: vec![Update {
+                    var: "refcount",
+                    expr: add(var("refcount"), int(1)),
+                }],
             },
             // detach (a window stops viewing): refcount-1; retire (closed=1) IFF that
             // was the last viewer. Buggy retires on every detach.
@@ -2278,14 +2664,31 @@ pub fn session_pool_model() -> Model {
                 name: "Release",
                 guard: Some(gt(var("refcount"), int(0))),
                 updates: vec![
-                    Update { var: "refcount", expr: sub(var("refcount"), int(1)) },
-                    Update { var: "closed", expr: if_(eq(cst("Buggy"), int(1)), int(1), if_(eq(sub(var("refcount"), int(1)), int(0)), int(1), var("closed"))) },
+                    Update {
+                        var: "refcount",
+                        expr: sub(var("refcount"), int(1)),
+                    },
+                    Update {
+                        var: "closed",
+                        expr: if_(
+                            eq(cst("Buggy"), int(1)),
+                            int(1),
+                            if_(
+                                eq(sub(var("refcount"), int(1)), int(0)),
+                                int(1),
+                                var("closed"),
+                            ),
+                        ),
+                    },
                 ],
             },
         ],
         invariants: vec![Invariant {
             name: "ClosedIffEmpty",
-            expr: and_(or_(eq(var("closed"), int(0)), eq(var("refcount"), int(0))), or_(eq(var("closed"), int(1)), gt(var("refcount"), int(0)))),
+            expr: and_(
+                or_(eq(var("closed"), int(0)), eq(var("refcount"), int(0))),
+                or_(eq(var("closed"), int(1)), gt(var("refcount"), int(0))),
+            ),
         }],
     }
 }
@@ -2319,7 +2722,11 @@ pub fn tab_strip_model() -> Model {
     // the PRE-state count, so new_count - 1 = count - 2). Used for the TRUTH lane's
     // active' and, in the correct path, the STRIP lane's selected'.
     let reclamp = || {
-        if_(gt(var("active"), sub(var("count"), int(2))), sub(var("count"), int(2)), var("active"))
+        if_(
+            gt(var("active"), sub(var("count"), int(2))),
+            sub(var("count"), int(2)),
+            var("active"),
+        )
     };
     Model {
         name: "TabStrip",
@@ -2328,11 +2735,23 @@ pub fn tab_strip_model() -> Model {
         consts: vec![("Cap", 4), ("Buggy", 0)],
         vars: vec![
             // TRUTH lane (the TabIndex machine).
-            StateVar { name: "count", init: 1 },
-            StateVar { name: "active", init: 0 },
+            StateVar {
+                name: "count",
+                init: 1,
+            },
+            StateVar {
+                name: "active",
+                init: 0,
+            },
             // STRIP lane (the NSSegmentedControl mirror).
-            StateVar { name: "seg_count", init: 1 },
-            StateVar { name: "selected", init: 0 },
+            StateVar {
+                name: "seg_count",
+                init: 1,
+            },
+            StateVar {
+                name: "selected",
+                init: 0,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
@@ -2342,10 +2761,22 @@ pub fn tab_strip_model() -> Model {
                 name: "NewTab",
                 guard: Some(le(var("count"), sub(cst("Cap"), int(1)))),
                 updates: vec![
-                    Update { var: "active", expr: var("count") },
-                    Update { var: "count", expr: add(var("count"), int(1)) },
-                    Update { var: "selected", expr: var("count") },
-                    Update { var: "seg_count", expr: add(var("count"), int(1)) },
+                    Update {
+                        var: "active",
+                        expr: var("count"),
+                    },
+                    Update {
+                        var: "count",
+                        expr: add(var("count"), int(1)),
+                    },
+                    Update {
+                        var: "selected",
+                        expr: var("count"),
+                    },
+                    Update {
+                        var: "seg_count",
+                        expr: add(var("count"), int(1)),
+                    },
                 ],
             },
             // switch_tab_in / cycle_tab: move active, then refresh re-syncs the strip to
@@ -2384,11 +2815,21 @@ pub fn tab_strip_model() -> Model {
                 name: "Close",
                 guard: Some(gt(var("count"), int(1))),
                 updates: vec![
-                    Update { var: "active", expr: reclamp() },
-                    Update { var: "count", expr: sub(var("count"), int(1)) },
+                    Update {
+                        var: "active",
+                        expr: reclamp(),
+                    },
+                    Update {
+                        var: "count",
+                        expr: sub(var("count"), int(1)),
+                    },
                     Update {
                         var: "seg_count",
-                        expr: if_(eq(cst("Buggy"), int(1)), var("seg_count"), sub(var("count"), int(1))),
+                        expr: if_(
+                            eq(cst("Buggy"), int(1)),
+                            var("seg_count"),
+                            sub(var("count"), int(1)),
+                        ),
                     },
                     Update {
                         var: "selected",
@@ -2404,7 +2845,10 @@ pub fn tab_strip_model() -> Model {
             Invariant {
                 name: "StripMirrorsTruth",
                 expr: and_(
-                    and_(eq(var("seg_count"), var("count")), eq(var("selected"), var("active"))),
+                    and_(
+                        eq(var("seg_count"), var("count")),
+                        eq(var("selected"), var("active")),
+                    ),
                     le(var("selected"), sub(var("seg_count"), int(1))),
                 ),
             },
@@ -2439,12 +2883,21 @@ pub fn active_handle_model() -> Model {
         consts: vec![("MaxId", 4), ("Buggy", 0)],
         vars: vec![
             // TRUTH lane: the frontmost window's CURRENT active-tab focused-pane session.
-            StateVar { name: "truth", init: 1 },
+            StateVar {
+                name: "truth",
+                init: 1,
+            },
             // MIRROR lane: the global control `ActiveHandle`'s target session.
-            StateVar { name: "handle", init: 1 },
+            StateVar {
+                name: "handle",
+                init: 1,
+            },
             // A strictly-increasing fresh-session allocator, so each change moves the
             // front active session to a DISTINCT id (a stale handle is then observable).
-            StateVar { name: "next", init: 2 },
+            StateVar {
+                name: "next",
+                init: 2,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
@@ -2456,9 +2909,18 @@ pub fn active_handle_model() -> Model {
                 name: "SwitchActive",
                 guard: Some(le(var("next"), sub(cst("MaxId"), int(1)))),
                 updates: vec![
-                    Update { var: "truth", expr: var("next") },
-                    Update { var: "handle", expr: var("next") },
-                    Update { var: "next", expr: add(var("next"), int(1)) },
+                    Update {
+                        var: "truth",
+                        expr: var("next"),
+                    },
+                    Update {
+                        var: "handle",
+                        expr: var("next"),
+                    },
+                    Update {
+                        var: "next",
+                        expr: add(var("next"), int(1)),
+                    },
                 ],
             },
             // The SWALLOW-PRONE path (apply_close_outcome's pane-collapse / tab-close and
@@ -2471,12 +2933,18 @@ pub fn active_handle_model() -> Model {
                 name: "CloseOrNewFront",
                 guard: Some(le(var("next"), sub(cst("MaxId"), int(1)))),
                 updates: vec![
-                    Update { var: "truth", expr: var("next") },
+                    Update {
+                        var: "truth",
+                        expr: var("next"),
+                    },
                     Update {
                         var: "handle",
                         expr: if_(eq(cst("Buggy"), int(1)), var("handle"), var("next")),
                     },
-                    Update { var: "next", expr: add(var("next"), int(1)) },
+                    Update {
+                        var: "next",
+                        expr: add(var("next"), int(1)),
+                    },
                 ],
             },
         ],
@@ -2484,7 +2952,10 @@ pub fn active_handle_model() -> Model {
             // The global control handle always names the session the user is actually
             // looking at in the frontmost window — so a control verb never drives a
             // stale or just-closed session.
-            Invariant { name: "HandleMirrorsFront", expr: eq(var("handle"), var("truth")) },
+            Invariant {
+                name: "HandleMirrorsFront",
+                expr: eq(var("handle"), var("truth")),
+            },
         ],
     }
 }
@@ -2512,9 +2983,15 @@ pub fn proxy_forward_model() -> Model {
         consts: vec![("MaxDepth", 2), ("Buggy", 0)],
         vars: vec![
             // Cross-process hops taken by the in-flight forward chain so far.
-            StateVar { name: "depth", init: 0 },
+            StateVar {
+                name: "depth",
+                init: 0,
+            },
             // Is a request still in flight and eligible to forward onward?
-            StateVar { name: "active", init: 1 },
+            StateVar {
+                name: "active",
+                init: 1,
+            },
         ],
         fn_vars: vec![],
         actions: vec![
@@ -2524,17 +3001,29 @@ pub fn proxy_forward_model() -> Model {
             // selector, so the child re-forwards and the chain CONTINUES (active' = 1).
             Action {
                 name: "Forward",
-                guard: Some(and_(eq(var("active"), int(1)), le(var("depth"), sub(cst("MaxDepth"), int(1))))),
+                guard: Some(and_(
+                    eq(var("active"), int(1)),
+                    le(var("depth"), sub(cst("MaxDepth"), int(1))),
+                )),
                 updates: vec![
-                    Update { var: "depth", expr: add(var("depth"), int(1)) },
-                    Update { var: "active", expr: if_(eq(cst("Buggy"), int(1)), int(1), int(0)) },
+                    Update {
+                        var: "depth",
+                        expr: add(var("depth"), int(1)),
+                    },
+                    Update {
+                        var: "active",
+                        expr: if_(eq(cst("Buggy"), int(1)), int(1), int(0)),
+                    },
                 ],
             },
         ],
         invariants: vec![
             // A forward chain is at most one cross-process hop — never a cycle or
             // unbounded recursion (which would exhaust relay threads / fds).
-            Invariant { name: "OneHopNoCycle", expr: le(var("depth"), int(1)) },
+            Invariant {
+                name: "OneHopNoCycle",
+                expr: le(var("depth"), int(1)),
+            },
         ],
     }
 }
@@ -2610,10 +3099,16 @@ pub fn reply_fidelity_model() -> Model {
         stage_rhs: int(1),
         leak: "reported_err",
         leak_act: "RelayFail",
-        leak_guard: and_(eq(var("delivered"), int(1)), eq(var("reported_err"), int(0))),
+        leak_guard: and_(
+            eq(var("delivered"), int(1)),
+            eq(var("reported_err"), int(0)),
+        ),
         leak_rhs: if_(eq(cst("Buggy"), int(1)), int(1), int(0)),
         inv: "NoErrorAfterDelivery",
-        inv_expr: or_(eq(var("delivered"), int(0)), eq(var("reported_err"), int(0))),
+        inv_expr: or_(
+            eq(var("delivered"), int(0)),
+            eq(var("reported_err"), int(0)),
+        ),
     })
 }
 
@@ -2656,30 +3151,55 @@ pub mod props {
         Model {
             name: p.name,
             consts: vec![(p.max, p.max_val), ("Buggy", 0)],
-            vars: vec![StateVar { name: p.live, init: 0 }, StateVar { name: p.reg, init: 0 }],
+            vars: vec![
+                StateVar {
+                    name: p.live,
+                    init: 0,
+                },
+                StateVar {
+                    name: p.reg,
+                    init: 0,
+                },
+            ],
             fn_vars: vec![],
             actions: vec![
                 Action {
                     name: p.acquire,
                     guard: Some(le(add(var(p.live), int(1)), cst(p.max))),
                     updates: vec![
-                        Update { var: p.live, expr: add(var(p.live), int(1)) },
-                        Update { var: p.reg, expr: add(var(p.reg), int(1)) },
+                        Update {
+                            var: p.live,
+                            expr: add(var(p.live), int(1)),
+                        },
+                        Update {
+                            var: p.reg,
+                            expr: add(var(p.reg), int(1)),
+                        },
                     ],
                 },
                 Action {
                     name: p.release,
                     guard: Some(gt(var(p.live), int(0))),
                     updates: vec![
-                        Update { var: p.live, expr: sub(var(p.live), int(1)) },
+                        Update {
+                            var: p.live,
+                            expr: sub(var(p.live), int(1)),
+                        },
                         Update {
                             var: p.reg,
-                            expr: if_(eq(cst("Buggy"), int(1)), var(p.reg), sub(var(p.reg), int(1))),
+                            expr: if_(
+                                eq(cst("Buggy"), int(1)),
+                                var(p.reg),
+                                sub(var(p.reg), int(1)),
+                            ),
                         },
                     ],
                 },
             ],
-            invariants: vec![Invariant { name: p.inv, expr: le(var(p.reg), var(p.live)) }],
+            invariants: vec![Invariant {
+                name: p.inv,
+                expr: le(var(p.reg), var(p.live)),
+            }],
         }
     }
 
@@ -2705,13 +3225,25 @@ pub mod props {
         Model {
             name: p.name,
             consts: vec![(p.domain_max, p.domain_val), ("Buggy", 0)],
-            vars: vec![StateVar { name: p.item, init: 0 }, StateVar { name: p.decided, init: 0 }],
+            vars: vec![
+                StateVar {
+                    name: p.item,
+                    init: 0,
+                },
+                StateVar {
+                    name: p.decided,
+                    init: 0,
+                },
+            ],
             fn_vars: vec![],
             actions: vec![
                 Action {
                     name: p.pick,
                     guard: Some(eq(var(p.decided), int(0))),
-                    updates: vec![Update { var: p.item, expr: in_range(int(0), cst(p.domain_max)) }],
+                    updates: vec![Update {
+                        var: p.item,
+                        expr: in_range(int(0), cst(p.domain_max)),
+                    }],
                 },
                 Action {
                     name: p.route,
@@ -2719,7 +3251,10 @@ pub mod props {
                     updates: vec![Update {
                         var: p.decided,
                         expr: if_(
-                            and_(le(var(p.item), int(p.fwd_hi)), or_correct(neq(var(p.item), int(p.drop)))),
+                            and_(
+                                le(var(p.item), int(p.fwd_hi)),
+                                or_correct(neq(var(p.item), int(p.drop))),
+                            ),
                             int(p.good),
                             int(p.bad),
                         ),
@@ -2730,7 +3265,10 @@ pub mod props {
                 name: p.inv,
                 expr: or_(
                     eq(var(p.decided), int(0)),
-                    or_(gt(var(p.item), int(p.fwd_hi)), eq(var(p.decided), int(p.good))),
+                    or_(
+                        gt(var(p.item), int(p.fwd_hi)),
+                        eq(var(p.decided), int(p.good)),
+                    ),
                 ),
             }],
         }
@@ -2751,18 +3289,27 @@ pub mod props {
         Model {
             name: p.name,
             consts: vec![("Buggy", 0)],
-            vars: vec![StateVar { name: p.a, init: 0 }, StateVar { name: p.b, init: 0 }],
+            vars: vec![
+                StateVar { name: p.a, init: 0 },
+                StateVar { name: p.b, init: 0 },
+            ],
             fn_vars: vec![],
             actions: vec![
                 Action {
                     name: p.a_act,
                     guard: Some(eq(var(p.a), int(0))),
-                    updates: vec![Update { var: p.a, expr: int(1) }],
+                    updates: vec![Update {
+                        var: p.a,
+                        expr: int(1),
+                    }],
                 },
                 Action {
                     name: p.b_act,
                     guard: Some(and_(eq(var(p.b), int(0)), or_buggy(eq(var(p.a), int(1))))),
-                    updates: vec![Update { var: p.b, expr: int(1) }],
+                    updates: vec![Update {
+                        var: p.b,
+                        expr: int(1),
+                    }],
                 },
             ],
             invariants: vec![Invariant {
@@ -2783,20 +3330,32 @@ pub mod props {
     /// `act` (guard `gate=0`) drops every flag to 0 (Buggy leaves them 1) and sets
     /// `gate:=1`. Invariant: `gate=0 \/ AND(flag=0)`. Flags init 1.
     pub fn teardown_clears(p: Teardown) -> Model {
-        let mut vars: Vec<StateVar> =
-            p.flags.iter().map(|f| StateVar { name: f, init: 1 }).collect();
-        vars.push(StateVar { name: p.gate, init: 0 });
+        let mut vars: Vec<StateVar> = p
+            .flags
+            .iter()
+            .map(|f| StateVar { name: f, init: 1 })
+            .collect();
+        vars.push(StateVar {
+            name: p.gate,
+            init: 0,
+        });
         let mut updates: Vec<Update> = p
             .flags
             .iter()
-            .map(|f| Update { var: f, expr: if_(eq(cst("Buggy"), int(1)), int(1), int(0)) })
+            .map(|f| Update {
+                var: f,
+                expr: if_(eq(cst("Buggy"), int(1)), int(1), int(0)),
+            })
             .collect();
-        updates.push(Update { var: p.gate, expr: int(1) });
+        updates.push(Update {
+            var: p.gate,
+            expr: int(1),
+        });
         let closed = p
             .flags
             .iter()
             .map(|f| eq(var(f), int(0)))
-            .reduce(|x, y| and_(x, y))
+            .reduce(and_)
             .expect("teardown_clears needs at least one flag");
         Model {
             name: p.name,
@@ -2835,21 +3394,39 @@ pub mod props {
         Model {
             name: p.name,
             consts: vec![("Buggy", 0)],
-            vars: vec![StateVar { name: p.stage, init: 0 }, StateVar { name: p.leak, init: 0 }],
+            vars: vec![
+                StateVar {
+                    name: p.stage,
+                    init: 0,
+                },
+                StateVar {
+                    name: p.leak,
+                    init: 0,
+                },
+            ],
             fn_vars: vec![],
             actions: vec![
                 Action {
                     name: p.stage_act,
                     guard: Some(eq(var(p.stage), int(0))),
-                    updates: vec![Update { var: p.stage, expr: p.stage_rhs }],
+                    updates: vec![Update {
+                        var: p.stage,
+                        expr: p.stage_rhs,
+                    }],
                 },
                 Action {
                     name: p.leak_act,
                     guard: Some(p.leak_guard),
-                    updates: vec![Update { var: p.leak, expr: p.leak_rhs }],
+                    updates: vec![Update {
+                        var: p.leak,
+                        expr: p.leak_rhs,
+                    }],
                 },
             ],
-            invariants: vec![Invariant { name: p.inv, expr: p.inv_expr }],
+            invariants: vec![Invariant {
+                name: p.inv,
+                expr: p.inv_expr,
+            }],
         }
     }
 
@@ -2875,24 +3452,45 @@ pub mod props {
             name: p.name,
             consts: vec![("Buggy", 0)],
             vars: vec![
-                StateVar { name: p.buffered, init: p.buffered_init },
-                StateVar { name: p.relayed, init: 0 },
-                StateVar { name: p.waiting, init: 1 },
+                StateVar {
+                    name: p.buffered,
+                    init: p.buffered_init,
+                },
+                StateVar {
+                    name: p.relayed,
+                    init: 0,
+                },
+                StateVar {
+                    name: p.waiting,
+                    init: 1,
+                },
             ],
             fn_vars: vec![],
             actions: vec![
                 Action {
                     name: p.relay,
-                    guard: Some(and_(or_correct(gt(var(p.relayed), int(0))), gt(var(p.buffered), int(0)))),
+                    guard: Some(and_(
+                        or_correct(gt(var(p.relayed), int(0))),
+                        gt(var(p.buffered), int(0)),
+                    )),
                     updates: vec![
-                        Update { var: p.relayed, expr: add(var(p.relayed), int(1)) },
-                        Update { var: p.buffered, expr: sub(var(p.buffered), int(1)) },
+                        Update {
+                            var: p.relayed,
+                            expr: add(var(p.relayed), int(1)),
+                        },
+                        Update {
+                            var: p.buffered,
+                            expr: sub(var(p.buffered), int(1)),
+                        },
                     ],
                 },
                 Action {
                     name: p.recv,
                     guard: Some(and_(gt(var(p.relayed), int(0)), eq(var(p.waiting), int(1)))),
-                    updates: vec![Update { var: p.waiting, expr: int(0) }],
+                    updates: vec![Update {
+                        var: p.waiting,
+                        expr: int(0),
+                    }],
                 },
                 Action {
                     name: p.done,
@@ -2900,7 +3498,10 @@ pub mod props {
                     updates: vec![],
                 },
             ],
-            invariants: vec![Invariant { name: p.inv, expr: le(var(p.waiting), int(1)) }],
+            invariants: vec![Invariant {
+                name: p.inv,
+                expr: le(var(p.waiting), int(1)),
+            }],
         }
     }
 
@@ -2920,27 +3521,42 @@ pub mod props {
     /// confusion, nonce → replay, token → forgery. Invariant: a permit implies EVERY
     /// guard truly held (authorization SOUNDNESS — the `decide_edge` predicate).
     pub fn conjunctive_authz(p: ConjunctiveAuthz) -> Model {
-        let mut vars: Vec<StateVar> =
-            p.guards.iter().map(|g| StateVar { name: g, init: 0 }).collect();
-        vars.push(StateVar { name: p.decided, init: 0 });
+        let mut vars: Vec<StateVar> = p
+            .guards
+            .iter()
+            .map(|g| StateVar { name: g, init: 0 })
+            .collect();
+        vars.push(StateVar {
+            name: p.decided,
+            init: 0,
+        });
         let pick_updates: Vec<Update> = p
             .guards
             .iter()
-            .map(|g| Update { var: g, expr: in_range(int(0), int(1)) })
+            .map(|g| Update {
+                var: g,
+                expr: in_range(int(0), int(1)),
+            })
             .collect();
         // Permit condition: AND of all guards; the `drop` conjunct is WAIVED when Buggy.
         let permit_when = p
             .guards
             .iter()
-            .map(|g| if *g == p.drop { or_buggy(eq(var(g), int(1))) } else { eq(var(g), int(1)) })
-            .reduce(|a, b| and_(a, b))
+            .map(|g| {
+                if *g == p.drop {
+                    or_buggy(eq(var(g), int(1)))
+                } else {
+                    eq(var(g), int(1))
+                }
+            })
+            .reduce(and_)
             .expect("conjunctive_authz needs at least one guard");
         // Soundness: a permit must imply EVERY guard actually held (no Buggy waiver).
         let all_hold = p
             .guards
             .iter()
             .map(|g| eq(var(g), int(1)))
-            .reduce(|a, b| and_(a, b))
+            .reduce(and_)
             .expect("conjunctive_authz needs at least one guard");
         Model {
             name: p.name,
@@ -2983,9 +3599,18 @@ mod tests {
     fn deadlock_cfg_flips_the_line() {
         let m = forward_handshake_model();
         let dl = m.to_cfg_deadlock_with(&[]);
-        assert!(dl.contains("CHECK_DEADLOCK TRUE\n"), "deadlock cfg must enable the check:\n{dl}");
-        assert!(!dl.contains("CHECK_DEADLOCK FALSE"), "deadlock cfg must not also disable it:\n{dl}");
-        assert!(m.to_cfg().contains("CHECK_DEADLOCK FALSE\n"), "default cfg path unchanged");
+        assert!(
+            dl.contains("CHECK_DEADLOCK TRUE\n"),
+            "deadlock cfg must enable the check:\n{dl}"
+        );
+        assert!(
+            !dl.contains("CHECK_DEADLOCK FALSE"),
+            "deadlock cfg must not also disable it:\n{dl}"
+        );
+        assert!(
+            m.to_cfg().contains("CHECK_DEADLOCK FALSE\n"),
+            "default cfg path unchanged"
+        );
     }
 
     #[test]
@@ -3013,15 +3638,25 @@ mod tests {
         let spec = TlaSpec::parse_str(&tla, "Ring.tla").expect("generated TLA+ must parse");
         assert_eq!(spec.module_name, "Ring");
         assert!(spec.actions.contains("Push"), "defs: {:?}", spec.actions);
-        assert!(spec.actions.contains("LenBounded"), "defs: {:?}", spec.actions);
+        assert!(
+            spec.actions.contains("LenBounded"),
+            "defs: {:?}",
+            spec.actions
+        );
     }
 
     #[test]
     fn transition_spec_parameterizes_init_but_shares_the_action() {
         let m = ring_model();
         let tla = m.transition_spec();
-        assert!(tla.contains("CONSTANT MaxSeq, Cap, seq_init, lo_init"), "{tla}");
-        assert!(tla.contains("Init == seq = seq_init /\\ lo = lo_init"), "{tla}");
+        assert!(
+            tla.contains("CONSTANT MaxSeq, Cap, seq_init, lo_init"),
+            "{tla}"
+        );
+        assert!(
+            tla.contains("Init == seq = seq_init /\\ lo = lo_init"),
+            "{tla}"
+        );
         // The action / Next / Spec are the SAME source as the concrete form.
         assert!(
             tla.contains("Push == seq =< MaxSeq - 1 /\\ seq' = seq + 1 /\\ lo' = (IF"),
@@ -3042,8 +3677,14 @@ mod tests {
         // The paths the ring never exercises: partial updates -> UNCHANGED, and
         // two actions -> a disjunctive Next.
         let tla = cursor_model().to_tla();
-        assert!(tla.contains("Grow == seq =< MaxSeq - 1 /\\ seq' = seq + 1 /\\ UNCHANGED << cursor >>"), "{tla}");
-        assert!(tla.contains("Deliver == seq > cursor /\\ cursor' = seq /\\ UNCHANGED << seq >>"), "{tla}");
+        assert!(
+            tla.contains("Grow == seq =< MaxSeq - 1 /\\ seq' = seq + 1 /\\ UNCHANGED << cursor >>"),
+            "{tla}"
+        );
+        assert!(
+            tla.contains("Deliver == seq > cursor /\\ cursor' = seq /\\ UNCHANGED << seq >>"),
+            "{tla}"
+        );
         assert!(tla.contains("Next == Grow \\/ Deliver"), "{tla}");
         assert!(tla.contains("CursorBounded == cursor =< seq"), "{tla}");
     }
@@ -3057,16 +3698,25 @@ mod tests {
         for _ in 0..3 {
             let before_cursor = st[&"cursor"];
             assert!(m.fire("Grow", &mut st));
-            assert_eq!(st[&"cursor"], before_cursor, "Grow must leave cursor UNCHANGED");
+            assert_eq!(
+                st[&"cursor"], before_cursor,
+                "Grow must leave cursor UNCHANGED"
+            );
             assert!(m.check_invariant("CursorBounded", &st));
             let before_seq = st[&"seq"];
             assert!(m.fire("Deliver", &mut st));
             assert_eq!(st[&"seq"], before_seq, "Deliver must leave seq UNCHANGED");
-            assert_eq!(st[&"cursor"], st[&"seq"], "Deliver catches the reader up to the writer");
+            assert_eq!(
+                st[&"cursor"], st[&"seq"],
+                "Deliver catches the reader up to the writer"
+            );
             assert!(m.check_invariant("CursorBounded", &st));
         }
         // Deliver is guarded by seq > cursor; once caught up it cannot fire.
-        assert!(!m.fire("Deliver", &mut st), "Deliver guard (seq > cursor) blocks when caught up");
+        assert!(
+            !m.fire("Deliver", &mut st),
+            "Deliver guard (seq > cursor) blocks when caught up"
+        );
     }
 
     #[test]
@@ -3080,7 +3730,10 @@ mod tests {
             ),
             "{tla}"
         );
-        assert!(tla.contains("Next == Grow \\/ PollGap \\/ PollDeliver"), "{tla}");
+        assert!(
+            tla.contains("Next == Grow \\/ PollGap \\/ PollDeliver"),
+            "{tla}"
+        );
         assert!(tla.contains("NoSilentLoss == lost = 0"), "{tla}");
     }
 
@@ -3088,13 +3741,29 @@ mod tests {
     fn action_enabled_reflects_guards() {
         let m = subscribe_model(); // Buggy = 0
         let behind: BTreeMap<&'static str, i64> =
-            [("seq", 5), ("lo", 3), ("cursor", 0), ("lost", 0)].into_iter().collect();
-        assert!(m.action_enabled("PollGap", &behind), "behind reader: PollGap enabled");
-        assert!(!m.action_enabled("PollDeliver", &behind), "behind reader: PollDeliver disabled");
+            [("seq", 5), ("lo", 3), ("cursor", 0), ("lost", 0)]
+                .into_iter()
+                .collect();
+        assert!(
+            m.action_enabled("PollGap", &behind),
+            "behind reader: PollGap enabled"
+        );
+        assert!(
+            !m.action_enabled("PollDeliver", &behind),
+            "behind reader: PollDeliver disabled"
+        );
         let caught: BTreeMap<&'static str, i64> =
-            [("seq", 5), ("lo", 3), ("cursor", 5), ("lost", 0)].into_iter().collect();
-        assert!(!m.action_enabled("PollGap", &caught), "caught-up reader: PollGap disabled");
-        assert!(m.action_enabled("PollDeliver", &caught), "caught-up reader: PollDeliver enabled");
+            [("seq", 5), ("lo", 3), ("cursor", 5), ("lost", 0)]
+                .into_iter()
+                .collect();
+        assert!(
+            !m.action_enabled("PollGap", &caught),
+            "caught-up reader: PollGap disabled"
+        );
+        assert!(
+            m.action_enabled("PollDeliver", &caught),
+            "caught-up reader: PollDeliver enabled"
+        );
     }
 
     #[test]
@@ -3106,12 +3775,24 @@ mod tests {
             assert!(m.fire("Grow", &mut st));
         }
         assert_eq!(st[&"seq"], 4);
-        assert!(st[&"lo"] > st[&"cursor"] + 1, "reader has fallen behind the live window");
+        assert!(
+            st[&"lo"] > st[&"cursor"] + 1,
+            "reader has fallen behind the live window"
+        );
         // A correct reader CANNOT silently deliver — the guard forbids it; it must
         // gap. `lost` stays 0.
-        assert!(!m.fire("PollDeliver", &mut st), "a behind reader must not silently deliver (Buggy=0)");
-        assert!(m.fire("PollGap", &mut st), "a behind reader resyncs via gap");
-        assert_eq!(st[&"cursor"], st[&"seq"], "gap resyncs the cursor to the head");
+        assert!(
+            !m.fire("PollDeliver", &mut st),
+            "a behind reader must not silently deliver (Buggy=0)"
+        );
+        assert!(
+            m.fire("PollGap", &mut st),
+            "a behind reader resyncs via gap"
+        );
+        assert_eq!(
+            st[&"cursor"], st[&"seq"],
+            "gap resyncs the cursor to the head"
+        );
         assert!(m.check_invariant("NoSilentLoss", &st));
         assert_eq!(st[&"lost"], 0);
         // Caught up now: delivery is allowed and still loses nothing.
@@ -3146,9 +3827,18 @@ mod tests {
         assert_eq!(st[&"seq"], 1);
         // Conflict (seq > tbase): a correct txn must NOT commit, and the buggy
         // commit is disabled at Buggy=0 — so no update can be lost.
-        assert!(!m.fire("CommitClean", &mut st), "must not commit-clean under a conflict");
-        assert!(!m.fire("BuggyCommit", &mut st), "buggy commit is disabled at Buggy=0");
-        assert!(m.fire("Abort", &mut st), "the correct path aborts the conflicted txn");
+        assert!(
+            !m.fire("CommitClean", &mut st),
+            "must not commit-clean under a conflict"
+        );
+        assert!(
+            !m.fire("BuggyCommit", &mut st),
+            "buggy commit is disabled at Buggy=0"
+        );
+        assert!(
+            m.fire("Abort", &mut st),
+            "the correct path aborts the conflicted txn"
+        );
         assert_eq!(st[&"active"], 0);
         assert!(m.check_invariant("NoLostUpdate", &st));
         assert_eq!(st[&"lost"], 0);
@@ -3180,13 +3870,24 @@ mod tests {
     fn evict_full_emits_function_valued_tla() {
         let tla = evict_full_model().to_tla();
         assert!(tla.contains("VARIABLES seq, lo, live"), "{tla}");
-        assert!(tla.contains("live = [n \\in 1..MaxSeq |-> FALSE]"), "function init: {tla}");
-        assert!(tla.contains("[n \\in 1..MaxSeq |->"), "function comprehension: {tla}");
-        assert!(tla.contains("[live EXCEPT ![seq + 1] = TRUE]"), "EXCEPT update: {tla}");
+        assert!(
+            tla.contains("live = [n \\in 1..MaxSeq |-> FALSE]"),
+            "function init: {tla}"
+        );
+        assert!(
+            tla.contains("[n \\in 1..MaxSeq |->"),
+            "function comprehension: {tla}"
+        );
+        assert!(
+            tla.contains("[live EXCEPT ![seq + 1] = TRUE]"),
+            "EXCEPT update: {tla}"
+        );
         assert!(tla.contains("live[n]"), "function access: {tla}");
         assert!(tla.contains("n # lo"), "inequality: {tla}");
         assert!(
-            tla.contains("EvictOldestContiguous == \\A n \\in 1..MaxSeq : (live[n] <=> lo =< n /\\ n =< seq)"),
+            tla.contains(
+                "EvictOldestContiguous == \\A n \\in 1..MaxSeq : (live[n] <=> lo =< n /\\ n =< seq)"
+            ),
             "quantified iff invariant: {tla}"
         );
     }
@@ -3213,8 +3914,14 @@ mod tests {
         assert_eq!(st[&"snapped"], 1);
         assert!(m.fire("Write", &mut st)); // post-snapshot write must not leak (Buggy=0)
         assert!(m.check_invariant("SnapshotIsolated", &st));
-        assert_eq!(st[&"leaked"], 0, "a later write did not leak into the snapshot");
-        assert!(!m.fire("Snap", &mut st), "only one snapshot (guard snapped = 0)");
+        assert_eq!(
+            st[&"leaked"], 0,
+            "a later write did not leak into the snapshot"
+        );
+        assert!(
+            !m.fire("Snap", &mut st),
+            "only one snapshot (guard snapped = 0)"
+        );
     }
 
     #[test]
@@ -3231,9 +3938,20 @@ mod tests {
             fired += 1;
             assert_eq!(st[&"seq"], fired, "seq must be monotone +1");
             // lo stays 1 until the window exceeds Cap, then tracks the head.
-            let expected_lo = if fired - 1 + 1 > cap { fired - cap + 1 } else { 1 };
-            assert_eq!(st[&"lo"], expected_lo.max(1), "lo eviction discipline at seq={fired}");
-            assert!(m.check_invariant("LenBounded", &st), "LenBounded must hold at seq={fired}");
+            let expected_lo = if fired - 1 + 1 > cap {
+                fired - cap + 1
+            } else {
+                1
+            };
+            assert_eq!(
+                st[&"lo"],
+                expected_lo.max(1),
+                "lo eviction discipline at seq={fired}"
+            );
+            assert!(
+                m.check_invariant("LenBounded", &st),
+                "LenBounded must hold at seq={fired}"
+            );
         }
         // Guard `seq <= MaxSeq-1` (MaxSeq=6) stops Push after seq reaches 6.
         assert_eq!(st[&"seq"], 6, "guard must bound seq at MaxSeq");

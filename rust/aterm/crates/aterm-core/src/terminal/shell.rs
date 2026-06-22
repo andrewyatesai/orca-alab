@@ -34,7 +34,10 @@ pub(super) const ANNOTATIONS_MAX: usize = 1000;
 /// When exceeded, oldest closed blocks are evicted. Open blocks are not evicted.
 // Surfaced for assertions only through the cfg(test/"testing") `terminal::testing`
 // module; allow it to be unused in the default build.
-#[cfg_attr(not(test), allow(dead_code, reason = "exposed only to the test-gated `testing` module"))]
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "exposed only to the test-gated `testing` module")
+)]
 pub(super) const SEMANTIC_BLOCKS_MAX: usize = 256;
 
 /// Maximum number of semantic buttons (OSC 1337 Button).
@@ -42,7 +45,10 @@ pub(super) const SEMANTIC_BLOCKS_MAX: usize = 256;
 /// When exceeded, oldest buttons are evicted (FIFO).
 // Surfaced for assertions only through the cfg(test/"testing") `terminal::testing`
 // module; allow it to be unused in the default build.
-#[cfg_attr(not(test), allow(dead_code, reason = "exposed only to the test-gated `testing` module"))]
+#[cfg_attr(
+    not(test),
+    allow(dead_code, reason = "exposed only to the test-gated `testing` module")
+)]
 pub(super) const SEMANTIC_BUTTONS_MAX: usize = 512;
 
 // ShellState lives in domain (leaf module) to break the

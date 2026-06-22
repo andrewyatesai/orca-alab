@@ -9,9 +9,6 @@ license.workspace = true
 repository.workspace = true
 description = "FFI boundary types, error enums, safety helpers, and pointer lifecycle tracking for aterm"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [features]
 default = []
 # Retained for downstream opt-in to per-call-site FFI trace logging. Panic
@@ -24,3 +21,6 @@ aterm-types = { workspace = true }
 # even when the `ffi-logging` feature is off (silent panic masking —
 # F11-2, #7941).
 aterm-log = { workspace = true }
+
+[lints]
+workspace = true

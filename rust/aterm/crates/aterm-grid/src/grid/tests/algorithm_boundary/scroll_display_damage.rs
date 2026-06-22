@@ -176,7 +176,10 @@ fn content_scroll_delta_set_by_scroll_up_and_consumed() {
 
     // content_scroll_delta accumulates the shift, then take resets it.
     let content_delta = grid.take_content_scroll_delta();
-    assert_eq!(content_delta, 1, "scroll_up(1) should set content_scroll_delta");
+    assert_eq!(
+        content_delta, 1,
+        "scroll_up(1) should set content_scroll_delta"
+    );
     assert_eq!(
         grid.take_content_scroll_delta(),
         0,

@@ -25,3 +25,6 @@ proc-macro2 = "1"
 # a normal dep; this crate depends on aterm-spec only for tests), which Cargo
 # permits because dev-deps never enter the normal build graph.
 aterm-spec = { workspace = true }
+
+[lints]
+workspace = true

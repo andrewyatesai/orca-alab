@@ -161,7 +161,10 @@ impl Terminal {
         // restored unchanged. The alt screen has no scrollback, so on alt the
         // counter does not rise and the offset stays 0 — correct.
         if pinned_offset > 0 {
-            let lines_added = self.grid.absolute_row_counter().saturating_sub(lines_before);
+            let lines_added = self
+                .grid
+                .absolute_row_counter()
+                .saturating_sub(lines_before);
             self.grid.repin_display_offset(pinned_offset, lines_added);
         }
 
@@ -349,7 +352,10 @@ mod tests {
     /// stays in view.
     #[test]
     fn scrolled_back_viewport_pins_during_live_output() {
-        let mut term = TerminalBuilder::new().size(4, 40).ring_buffer_size(200).build();
+        let mut term = TerminalBuilder::new()
+            .size(4, 40)
+            .ring_buffer_size(200)
+            .build();
 
         // Produce 20 numbered lines so there is plenty of scrollback.
         for i in 0..20 {
@@ -397,7 +403,10 @@ mod tests {
     /// still flows normally and the viewport tracks the bottom (no pin).
     #[test]
     fn live_viewport_tracks_bottom_when_not_scrolled_back() {
-        let mut term = TerminalBuilder::new().size(4, 40).ring_buffer_size(200).build();
+        let mut term = TerminalBuilder::new()
+            .size(4, 40)
+            .ring_buffer_size(200)
+            .build();
         for i in 0..10 {
             term.process(format!("row-{i}\r\n").as_bytes());
         }
@@ -410,7 +419,10 @@ mod tests {
         );
         // The newest line is on screen.
         let visible = term.visible_content();
-        assert!(visible.contains("newest"), "live output is visible: {visible:?}");
+        assert!(
+            visible.contains("newest"),
+            "live output is visible: {visible:?}"
+        );
     }
 
     /// Mode 2026 must time out (fail open) when the timer jumps past the
@@ -421,7 +433,10 @@ mod tests {
     fn sync_output_disables_after_backdated_start() {
         let mut term = Terminal::new(24, 80);
         term.process(b"\x1b[?2026h");
-        assert!(term.modes().synchronized_output(), "DECSET 2026 must enable");
+        assert!(
+            term.modes().synchronized_output(),
+            "DECSET 2026 must enable"
+        );
         assert!(term.transient.sync_start.is_some());
 
         // Jump the timer well past the default 1000ms timeout.
@@ -489,15 +504,15 @@ mod tests {
         //  - a full OSC 133 A/B/C/D command, timestamped from the injected wall ms.
         const SCHEDULE: &[(&[u8], u64, u64)] = &[
             (b"hello", 0, 1_000),
-            (b"\x07", 10, 1_010),          // bell #1 -> fires
-            (b"\x07", 50, 1_050),          // +40ms -> throttled (<100ms)
-            (b"\x07", 240, 1_240),         // +230ms after #1 -> fires
-            (b"\x1b[?2026h", 250, 1_250),  // enable synchronized output
+            (b"\x07", 10, 1_010),         // bell #1 -> fires
+            (b"\x07", 50, 1_050),         // +40ms -> throttled (<100ms)
+            (b"\x07", 240, 1_240),        // +230ms after #1 -> fires
+            (b"\x1b[?2026h", 250, 1_250), // enable synchronized output
             (b"\x1b]133;A\x07", 260, 1_260),
             (b"\x1b]133;B\x07", 260, 1_260),
             (b"\x1b]133;C\x07", 260, 1_260),
             (b"\x1b]133;D;0\x07", 260, 1_260), // finished -> mark recorded
-            (b"z", 2_300, 3_300),          // +2050ms after enable -> sync times out
+            (b"z", 2_300, 3_300),              // +2050ms after enable -> sync times out
         ];
 
         type Marks = Vec<(Option<u64>, Option<u64>, Option<u64>)>;

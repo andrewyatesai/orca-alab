@@ -69,7 +69,10 @@ impl Dimension {
             return Dimension::Auto;
         }
         if let Some(px) = v.strip_suffix("px").or_else(|| v.strip_suffix("PX")) {
-            return px.trim().parse::<u32>().map_or(Dimension::Auto, Dimension::Pixels);
+            return px
+                .trim()
+                .parse::<u32>()
+                .map_or(Dimension::Auto, Dimension::Pixels);
         }
         if let Some(pct) = v.strip_suffix('%') {
             return pct
@@ -88,9 +91,7 @@ impl Dimension {
         let cells = match self {
             Dimension::Cells(c) => c,
             Dimension::Pixels(px) => px.div_ceil(u32::from(cell_px.max(1))),
-            Dimension::Percent(p) => {
-                (u32::from(viewport_cells).saturating_mul(p) / 100).max(1)
-            }
+            Dimension::Percent(p) => (u32::from(viewport_cells).saturating_mul(p) / 100).max(1),
             Dimension::Auto => u32::from(auto_cells),
         };
         clamp_cells(cells)
@@ -105,6 +106,14 @@ impl Dimension {
 )]
 fn clamp_cells(cells: u32) -> u16 {
     cells.min(u32::from(MAX_FOOTPRINT_CELLS)) as u16
+}
+
+/// Narrow a `usize` cell span to `u32`, saturating. Used by the sixel placement
+/// path so a span (already bounded by the decoder's dimension cap) feeds
+/// `clamp_cells` without a truncating cast.
+#[cfg(feature = "sixel")]
+fn clamp_u32(v: usize) -> u32 {
+    u32::try_from(v).unwrap_or(u32::MAX)
 }
 
 /// Parsed `File=` arguments (everything before the `:` payload separator).
@@ -175,7 +184,10 @@ impl TerminalHandler<'_> {
         };
         // The payload may carry incidental whitespace/newlines from line-wrapping;
         // the decoder is strict, so strip ASCII whitespace first.
-        let cleaned: String = payload_str.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+        let cleaned: String = payload_str
+            .chars()
+            .filter(|c| !c.is_ascii_whitespace())
+            .collect();
         let Ok(bytes) = aterm_codec::base64::decode(&cleaned) else {
             return;
         };
@@ -235,7 +247,12 @@ impl TerminalHandler<'_> {
             return;
         }
 
-        let image = Arc::new(ImageData { bytes, format, cols, rows });
+        let image = Arc::new(ImageData {
+            bytes,
+            format,
+            cols,
+            rows,
+        });
         self.place_image(&image, cols, rows);
     }
 
@@ -278,6 +295,77 @@ impl TerminalHandler<'_> {
         self.grid.line_feed();
         self.grid.set_cursor(self.grid.cursor_row(), 0);
     }
+
+    /// Place a decoded sixel raster as an inline image, reusing the OSC 1337
+    /// placement/blit path.
+    ///
+    /// The sixel decoder (`aterm-sixel`) has already materialized RGBA pixels —
+    /// the engine carries no codec — so we wrap them in an [`ImageData`] tagged
+    /// [`ImageFormat::RawRgba8`] and hand it to the same [`place_image`] the
+    /// iTerm2 path uses. The footprint is computed from the iTerm2 cell metric
+    /// exactly as `handle_osc_1337_file` does.
+    ///
+    /// Cursor behavior follows the sixel mode (DEC private mode 80, DECSDM):
+    /// - **scrolling mode** (DECSDM reset, the default): `place_image` line-feeds
+    ///   per footprint row and leaves the cursor on the line BELOW the image.
+    /// - **display mode** (DECSDM set): the image is painted at the cursor and
+    ///   the cursor is RESTORED to where it was, so it does not move.
+    #[cfg(feature = "sixel")]
+    pub(super) fn place_sixel_image(&mut self, image: &crate::sixel::SixelImage) {
+        let (cell_w, cell_h) = self.iterm2.cell_px;
+        let (cell_w, cell_h) = (cell_w.max(1), cell_h.max(1));
+        let grid_cols = self.grid.cols();
+
+        // Footprint in cells: the image rounds its pixel raster UP to whole
+        // cells (`cols_spanned`/`rows_spanned`); clamp to the grid width and the
+        // per-image cell cap. The spans are bounded by SIXEL_MAX_DIMENSION / 1,
+        // so the `u32` conversion never truncates.
+        let cols = clamp_cells(clamp_u32(image.cols_spanned(cell_w)))
+            .max(1)
+            .min(grid_cols);
+        let rows = clamp_cells(clamp_u32(image.rows_spanned(cell_h))).max(1);
+        if cols == 0 || rows == 0 {
+            return;
+        }
+
+        // The decoder clamps both axes to SIXEL_MAX_DIMENSION (4096), so the
+        // u16 narrowing here never truncates a real raster.
+        let raw_w = u16::try_from(image.width()).unwrap_or(u16::MAX);
+        let raw_h = u16::try_from(image.height()).unwrap_or(u16::MAX);
+
+        // Unpack packed 0xAARRGGBB u32s into RGBA8 bytes [r, g, b, a] — the
+        // layout `bilinear_rgba`/`blit_image_cell` consume.
+        let mut bytes: Vec<u8> = Vec::with_capacity(image.pixels().len() * 4);
+        for &px in image.pixels() {
+            let bytes_le = px.to_be_bytes(); // [a, r, g, b]
+            let (a, r, g, b) = (bytes_le[0], bytes_le[1], bytes_le[2], bytes_le[3]);
+            bytes.extend_from_slice(&[r, g, b, a]);
+        }
+
+        let image_data = Arc::new(ImageData {
+            bytes,
+            format: ImageFormat::RawRgba8 {
+                width: raw_w,
+                height: raw_h,
+            },
+            cols,
+            rows,
+        });
+
+        if self.modes.sixel_display_mode {
+            // Display mode (DECSDM set): paint at the cursor, then restore it so
+            // the cursor does not move. `place_image` mutates the cursor as it
+            // stamps + line-feeds, so save and restore around it.
+            let save_row = self.grid.cursor_row();
+            let save_col = self.grid.cursor_col();
+            self.place_image(&image_data, cols, rows);
+            self.grid.set_cursor(save_row, save_col);
+        } else {
+            // Scrolling mode (DECSDM reset, default): cursor advances below the
+            // image, matching text flow.
+            self.place_image(&image_data, cols, rows);
+        }
+    }
 }
 
 /// Parse the `File=` argument list (`key=value;key=value;…`). Unknown keys are
@@ -312,9 +400,7 @@ fn parse_file_args(args: &[u8]) -> FileArgs {
 
 /// Case-insensitively strip an ASCII prefix, returning the remainder.
 fn strip_prefix_ascii_ci<'a>(haystack: &'a [u8], prefix: &[u8]) -> Option<&'a [u8]> {
-    if haystack.len() >= prefix.len()
-        && haystack[..prefix.len()].eq_ignore_ascii_case(prefix)
-    {
+    if haystack.len() >= prefix.len() && haystack[..prefix.len()].eq_ignore_ascii_case(prefix) {
         Some(&haystack[prefix.len()..])
     } else {
         None

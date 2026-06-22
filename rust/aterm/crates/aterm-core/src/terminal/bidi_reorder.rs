@@ -50,7 +50,12 @@ impl Terminal {
         }
         let chars: Vec<char> = cells.iter().map(|c| c.ch).collect();
         let wide: Vec<bool> = cells.iter().map(|c| c.wide).collect();
-        compute_visual_order_cells(self.modes.bidi_mode, self.modes.bidi_direction, &chars, &wide)
+        compute_visual_order_cells(
+            self.modes.bidi_mode,
+            self.modes.bidi_direction,
+            &chars,
+            &wide,
+        )
     }
 }
 
@@ -103,7 +108,10 @@ fn base_direction(dir: ParagraphDirection, scalars: &[char]) -> aterm_bidi::Base
         ParagraphDirection::Rtl => BaseDirection::Rtl,
         ParagraphDirection::AutoRtl => {
             let has_strong = scalars.iter().any(|&c| {
-                matches!(aterm_bidi::bidi_class(c), BidiClass::L | BidiClass::R | BidiClass::AL)
+                matches!(
+                    aterm_bidi::bidi_class(c),
+                    BidiClass::L | BidiClass::R | BidiClass::AL
+                )
             });
             if has_strong {
                 BaseDirection::Auto
@@ -131,18 +139,35 @@ mod tests {
     #[test]
     fn disabled_is_always_identity() {
         // Even with RTL content, Disabled keeps logical order.
-        assert_eq!(cv(BiDiMode::Disabled, ParagraphDirection::Auto, "\u{05D0}\u{05D1}"), vec![0, 1]);
+        assert_eq!(
+            cv(
+                BiDiMode::Disabled,
+                ParagraphDirection::Auto,
+                "\u{05D0}\u{05D1}"
+            ),
+            vec![0, 1]
+        );
     }
 
     #[test]
     fn pure_ltr_is_identity_without_invoking_reorder() {
-        assert_eq!(cv(BiDiMode::Implicit, ParagraphDirection::Auto, "abc"), vec![0, 1, 2]);
+        assert_eq!(
+            cv(BiDiMode::Implicit, ParagraphDirection::Auto, "abc"),
+            vec![0, 1, 2]
+        );
     }
 
     #[test]
     fn implicit_reorders_rtl() {
         // Hebrew run reverses under implicit auto-detection.
-        assert_eq!(cv(BiDiMode::Implicit, ParagraphDirection::Auto, "\u{05D0}\u{05D1}"), vec![1, 0]);
+        assert_eq!(
+            cv(
+                BiDiMode::Implicit,
+                ParagraphDirection::Auto,
+                "\u{05D0}\u{05D1}"
+            ),
+            vec![1, 0]
+        );
     }
 
     #[test]
@@ -150,16 +175,28 @@ mod tests {
         // The bridge reorders for any non-Disabled mode (Explicit included) — the
         // mode distinction (engine-driven vs auto) is handled upstream; here a
         // non-disabled mode means "produce a visual order".
-        assert_eq!(cv(BiDiMode::Explicit, ParagraphDirection::Rtl, "ab"), vec![0, 1]);
+        assert_eq!(
+            cv(BiDiMode::Explicit, ParagraphDirection::Rtl, "ab"),
+            vec![0, 1]
+        );
     }
 
     #[test]
     fn autortl_defaults_rtl_only_without_strong_chars() {
         // A neutral-only line under AutoRtl uses an RTL base; with a strong char it
         // auto-detects normally.
-        assert_eq!(base_direction(ParagraphDirection::AutoRtl, &[' ', '.']), aterm_bidi::BaseDirection::Rtl);
-        assert_eq!(base_direction(ParagraphDirection::AutoRtl, &['a']), aterm_bidi::BaseDirection::Auto);
-        assert_eq!(base_direction(ParagraphDirection::AutoRtl, &[ALEF]), aterm_bidi::BaseDirection::Auto);
+        assert_eq!(
+            base_direction(ParagraphDirection::AutoRtl, &[' ', '.']),
+            aterm_bidi::BaseDirection::Rtl
+        );
+        assert_eq!(
+            base_direction(ParagraphDirection::AutoRtl, &['a']),
+            aterm_bidi::BaseDirection::Auto
+        );
+        assert_eq!(
+            base_direction(ParagraphDirection::AutoRtl, &[ALEF]),
+            aterm_bidi::BaseDirection::Auto
+        );
     }
 
     #[test]
@@ -203,15 +240,24 @@ mod tests {
         term.process("ab".as_bytes());
         let cells = term.render_row(0);
         // Pure ASCII row → identity.
-        assert_eq!(term.bidi_visual_order_cells(&cells), (0..cells.len()).collect::<Vec<_>>());
+        assert_eq!(
+            term.bidi_visual_order_cells(&cells),
+            (0..cells.len()).collect::<Vec<_>>()
+        );
 
         let mut rtl = Terminal::new(2, 8);
         rtl.process("\u{05D0}\u{05D1}".as_bytes()); // ALEF BET
         let rcells = rtl.render_row(0);
         // The two Hebrew lead cells reverse; trailing blanks stay in place.
         let order = rtl.bidi_visual_order_cells(&rcells);
-        assert_eq!(order[0], 1, "first visual cell is the 2nd Hebrew letter; got {order:?}");
-        assert_eq!(order[1], 0, "second visual cell is the 1st Hebrew letter; got {order:?}");
+        assert_eq!(
+            order[0], 1,
+            "first visual cell is the 2nd Hebrew letter; got {order:?}"
+        );
+        assert_eq!(
+            order[1], 0,
+            "second visual cell is the 1st Hebrew letter; got {order:?}"
+        );
         // Still a permutation of all cells.
         let mut seen = order.clone();
         seen.sort_unstable();

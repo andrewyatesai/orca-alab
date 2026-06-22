@@ -4,9 +4,9 @@
 
 use std::borrow::Cow;
 
-use super::access::ScrollbackAccess;
 #[cfg(feature = "disk-tier")]
 use super::DiskBackedScrollback;
+use super::access::ScrollbackAccess;
 use super::{Line, Scrollback, ScrollbackError, WatermarkLevel};
 
 // Only the disk-backed cold tier creates on-disk storage directories; the
@@ -488,12 +488,18 @@ mod restricted_dir_tests {
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();
         std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert_eq!(std::fs::metadata(&base).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(
+            std::fs::metadata(&base).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
 
         create_dir_restricted(&base).expect("re-restrict existing dir");
 
         let mode = std::fs::metadata(&base).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o700, "pre-existing 0o755 dir must be tightened to 0o700, got 0o{mode:03o}");
+        assert_eq!(
+            mode, 0o700,
+            "pre-existing 0o755 dir must be tightened to 0o700, got 0o{mode:03o}"
+        );
         let _ = std::fs::remove_dir_all(&base);
     }
 }

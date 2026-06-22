@@ -1780,11 +1780,7 @@ impl CellExtras {
         let base =
             std::mem::size_of::<Self>() + self.data.capacity() * std::mem::size_of::<CellCoord>();
         let extras_mem: usize = self.data.values().map(CellExtra::memory_used).sum();
-        let rgb_mem = self
-            .rgb_ring
-            .as_ref()
-            .map(|r| r.heap_bytes())
-            .unwrap_or(0);
+        let rgb_mem = self.rgb_ring.as_ref().map(|r| r.heap_bytes()).unwrap_or(0);
         base + extras_mem + rgb_mem
     }
 

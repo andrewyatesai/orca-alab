@@ -66,7 +66,9 @@ impl Grid {
         // the new cell's RGB through the HashMap (`apply_cell_extras_preflagged`).
         // Reads consult the ring FIRST, so a leftover ring color would shadow
         // the freshly-written HashMap color. Mirrors the stale-HashMap drop above.
-        self.storage.extras.clear_rgb_ring_cell(cursor_row, cursor_col, 1);
+        self.storage
+            .extras
+            .clear_rgb_ring_cell(cursor_row, cursor_col, 1);
         self.storage.damage.mark_cell(cursor_row, cursor_col);
     }
 
@@ -127,7 +129,9 @@ impl Grid {
             // Drop stale dense-RGB-ring entries for both wide halves before the
             // overwrite shows through. See `write_char_at_cursor_packed` for why
             // the slow path must clear this second truecolor store.
-            self.storage.extras.clear_rgb_ring_cell(cursor_row, cursor_col, 2);
+            self.storage
+                .extras
+                .clear_rgb_ring_cell(cursor_row, cursor_col, 2);
             self.storage.damage.mark_wide_cell(cursor_row, cursor_col);
             return true;
         }

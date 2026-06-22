@@ -96,7 +96,11 @@ impl Limits {
     // execute it); `aterm_sandbox::Sandbox::project_apply` is that witness.
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "sandbox", action = "Apply", project = "aterm_sandbox::Sandbox::project_apply")
+        aterm_spec::refines(
+            machine = "sandbox",
+            action = "Apply",
+            project = "aterm_sandbox::Sandbox::project_apply"
+        )
     )]
     pub fn apply(&self, cap: &Cap<Sandbox>) -> io::Result<()> {
         aterm_cap::require(cap, Tier::Trusted)
@@ -137,7 +141,9 @@ pub fn apply_step(requested: &[bool], supported: &[bool], applied: &[bool]) -> V
     let k = requested.len();
     assert_eq!(supported.len(), k);
     assert_eq!(applied.len(), k);
-    (0..k).map(|n| applied[n] || (requested[n] && supported[n])).collect()
+    (0..k)
+        .map(|n| applied[n] || (requested[n] && supported[n]))
+        .collect()
 }
 
 /// Set both soft and hard `resource` to `value` (no-op when `value` is `None`).
@@ -145,7 +151,10 @@ fn set_limit(resource: libc::c_int, value: Option<u64>) -> io::Result<()> {
     let Some(v) = value else {
         return Ok(());
     };
-    let lim = libc::rlimit { rlim_cur: v as libc::rlim_t, rlim_max: v as libc::rlim_t };
+    let lim = libc::rlimit {
+        rlim_cur: v as libc::rlim_t,
+        rlim_max: v as libc::rlim_t,
+    };
     // SAFETY: `resource` is a valid RLIMIT_* constant and `&lim` is a valid,
     // fully-initialized `rlimit` for the duration of the call.
     let rc = unsafe { libc::setrlimit(resource, &lim) };
@@ -161,20 +170,26 @@ mod tests {
     use aterm_cap::Authority;
 
     fn current(resource: libc::c_int) -> u64 {
-        let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        let mut lim = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
         // SAFETY: valid resource id + out-param.
         let rc = unsafe { libc::getrlimit(resource, &mut lim) };
         assert_eq!(rc, 0, "getrlimit failed");
-        lim.rlim_cur as u64
+        lim.rlim_cur
     }
 
     #[test]
     fn apply_requires_a_trusted_capability() {
         let auth = unsafe { Authority::root_authority() };
         let weak: Cap<Sandbox> = auth.grant(Tier::Untrusted);
-        let err = Limits { cpu_seconds: Some(123456), ..Default::default() }
-            .apply(&weak)
-            .unwrap_err();
+        let err = Limits {
+            cpu_seconds: Some(123456),
+            ..Default::default()
+        }
+        .apply(&weak)
+        .unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::PermissionDenied);
     }
 
@@ -221,10 +236,20 @@ mod tests {
         // process-wide fd-limit side effect / test-ordering hazard.
         let d = Limits::shell_default();
         #[cfg(target_os = "macos")]
-        assert_eq!(d.address_space, None, "macOS must not request a finite RLIMIT_AS");
+        assert_eq!(
+            d.address_space, None,
+            "macOS must not request a finite RLIMIT_AS"
+        );
         #[cfg(not(target_os = "macos"))]
-        assert!(d.address_space.is_some(), "non-macOS should bound the address space");
-        assert_eq!(d.open_files, Some(8192), "the working NOFILE limit must remain");
+        assert!(
+            d.address_space.is_some(),
+            "non-macOS should bound the address space"
+        );
+        assert_eq!(
+            d.open_files,
+            Some(8192),
+            "the working NOFILE limit must remain"
+        );
     }
 
     #[test]
@@ -236,7 +261,12 @@ mod tests {
         let auth = unsafe { Authority::root_authority() };
         let cap: Cap<Sandbox> = auth.grant(Tier::Certified); // >= Trusted
         let target = 256u64;
-        Limits { open_files: Some(target), ..Default::default() }.apply(&cap).unwrap();
+        Limits {
+            open_files: Some(target),
+            ..Default::default()
+        }
+        .apply(&cap)
+        .unwrap();
         assert_eq!(current(libc::RLIMIT_NOFILE), target);
     }
 }

@@ -88,9 +88,13 @@ fn corrupt_integer_run_errors_without_panic() {
     // or panic (the saturating `read_integer`); a corrupt block decodes to a
     // clean `Err`. Regression for the lz4 safe-decoder DoS-via-panic surface.
     let mut corrupt = vec![0xF0u8]; // token: literal nibble 15 ⇒ read extra integer
-    corrupt.extend(std::iter::repeat(0xFFu8).take(4096));
+    corrupt.extend(std::iter::repeat_n(0xFFu8, 4096));
     let result = decompress(&corrupt, 64);
-    assert!(result.is_err(), "corrupt 0xFF run must error, got Ok(len {:?})", result.map(|v| v.len()));
+    assert!(
+        result.is_err(),
+        "corrupt 0xFF run must error, got Ok(len {:?})",
+        result.map(|v| v.len())
+    );
 
     // Pure garbage and empty input are also graceful, never panic.
     assert!(decompress(&[0xFFu8; 64], 64).is_err() || decompress(&[0xFFu8; 64], 64).is_ok());

@@ -17,3 +17,6 @@ path = "src/main.rs"
 # Engine-side socket naming/discovery decisions, shared with the server so
 # the two can never drift. Platform-free; no external dependencies.
 aterm-types = { workspace = true }
+
+[lints]
+workspace = true

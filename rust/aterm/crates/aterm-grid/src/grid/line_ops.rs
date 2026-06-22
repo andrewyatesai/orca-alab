@@ -744,11 +744,14 @@ impl Grid {
                     usize::from(effective_cols),
                 );
             }
-            self.storage.extras.shift_cols_left(row_idx, left, count, right_bound);
+            self.storage
+                .extras
+                .shift_cols_left(row_idx, left, count, right_bound);
             self.fill_bce_rgb_range(row_idx, right_bound - count, right_bound);
         }
         self.storage.content_scroll_delta = i32::MAX;
-        self.storage.mark_content_rows(region.top, region.bottom.saturating_add(1));
+        self.storage
+            .mark_content_rows(region.top, region.bottom.saturating_add(1));
     }
 
     /// SR — Scroll Right (CSI Ps SP A): scroll the content of the scroll region
@@ -779,11 +782,14 @@ impl Grid {
                     usize::from(effective_cols),
                 );
             }
-            self.storage.extras.shift_cols_right(row_idx, left, count, right_bound);
+            self.storage
+                .extras
+                .shift_cols_right(row_idx, left, count, right_bound);
             self.fill_bce_rgb_range(row_idx, left, left + count);
         }
         self.storage.content_scroll_delta = i32::MAX;
-        self.storage.mark_content_rows(region.top, region.bottom.saturating_add(1));
+        self.storage
+            .mark_content_rows(region.top, region.bottom.saturating_add(1));
     }
 
     // -------------------------------------------------------------------------

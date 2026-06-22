@@ -188,7 +188,9 @@ pub fn apply_staged_if_ready(current_build: u64) -> ApplyOutcome {
 
     // 5. Apply-time re-verification (TOCTOU defence).
     if let Err(e) = verify::verify_bundle(&staging.staged_app, PINNED_TEAM_ID) {
-        crate::warn(&format!("staged bundle re-verification failed: {e}; discarding"));
+        crate::warn(&format!(
+            "staged bundle re-verification failed: {e}; discarding"
+        ));
         staging.clear();
         return ApplyOutcome::Deferred(format!("re-verify: {e}"));
     }
@@ -324,7 +326,11 @@ fn sweep_swap_leftovers(app_root: &Path) {
         if path == *app_root {
             continue;
         }
-        if entry.file_name().to_string_lossy().starts_with("aterm.app.new-") {
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with("aterm.app.new-")
+        {
             let _ = std::fs::remove_dir_all(&path);
         }
     }
@@ -340,4 +346,74 @@ fn now_rfc3339() -> String {
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    static SEQ: AtomicU32 = AtomicU32::new(0);
+
+    fn temp_staging() -> (Staging, std::path::PathBuf) {
+        let n = SEQ.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("aterm-rr-{}-{n}", std::process::id()));
+        std::fs::create_dir_all(root.join("staged")).unwrap();
+        std::fs::create_dir_all(root.join("download")).unwrap();
+        let s = Staging {
+            apply_lock: root.join("apply.lock"),
+            stage_lock: root.join("stage.lock"),
+            download: root.join("download"),
+            staged_app: root.join("staged").join("aterm.app"),
+            ready: root.join("ready.toml"),
+            root: root.clone(),
+        };
+        (s, root)
+    }
+
+    fn write_ready(s: &Staging, build: u64) {
+        let r = Ready {
+            build_number: build,
+            version: format!("0.0.{build}"),
+            dmg_sha256: "x".into(),
+            team_id: "T".into(),
+            staged_at: String::new(),
+        };
+        std::fs::write(&s.ready, r.to_toml().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn read_ready_classifies_all_states() {
+        let (s, root) = temp_staging();
+
+        // Absent: no marker file.
+        assert!(matches!(read_ready(&s, 10), ReadyState::Absent));
+
+        // Corrupt: present but unparseable → must be discardable, not Absent.
+        std::fs::write(&s.ready, "this is not valid toml {{{").unwrap();
+        assert!(matches!(read_ready(&s, 10), ReadyState::Corrupt));
+
+        // Newer: staged build strictly greater than running.
+        write_ready(&s, 20);
+        assert!(matches!(read_ready(&s, 10), ReadyState::Newer(_)));
+
+        // NotNewer: equal or lower than running (downgrade gate).
+        assert!(matches!(read_ready(&s, 20), ReadyState::NotNewer));
+        assert!(matches!(read_ready(&s, 21), ReadyState::NotNewer));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn clear_removes_marker_staged_and_download_scratch() {
+        let (s, root) = temp_staging();
+        write_ready(&s, 5);
+        std::fs::create_dir_all(&s.staged_app).unwrap();
+        std::fs::write(s.download.join("aterm-0.0.5.dmg.part"), b"partial").unwrap();
+        s.clear();
+        assert!(!s.ready.exists());
+        assert!(!s.staged_app.exists());
+        assert!(std::fs::read_dir(&s.download).unwrap().next().is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

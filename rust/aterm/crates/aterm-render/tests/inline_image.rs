@@ -63,12 +63,18 @@ fn red_image_paints_red_pixels_over_the_grid() {
     let px = frame.pixels[mid_y * frame.width + mid_x];
     let (red, green, blue) = ((px >> 16) & 0xff, (px >> 8) & 0xff, px & 0xff);
     assert!(red > 200, "image centre should be red, got #{px:06x}");
-    assert!(green < 60 && blue < 60, "image centre should be red, got #{px:06x}");
+    assert!(
+        green < 60 && blue < 60,
+        "image centre should be red, got #{px:06x}"
+    );
 
     // A pixel BELOW the image (row 3) must NOT be red — the image is bounded.
     let below = frame.pixels[(3 * ch) * frame.width + mid_x];
     let br = (below >> 16) & 0xff;
-    assert!(br < 200, "below the image must not be red, got #{below:06x}");
+    assert!(
+        br < 200,
+        "below the image must not be red, got #{below:06x}"
+    );
 }
 
 #[test]
@@ -82,7 +88,7 @@ fn image_cell_skips_its_glyph() {
         return;
     };
     let (cw, ch) = r.cell_size();
-    let png = solid_png(2 * cw as u32, 1 * ch as u32, [0, 200, 0]);
+    let png = solid_png(2 * cw as u32, ch as u32, [0, 200, 0]);
 
     // Frame A: glyphs, then image over them.
     let mut term_a = Terminal::new(4, 8);

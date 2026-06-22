@@ -86,7 +86,11 @@ struct Canvas {
 
 impl Canvas {
     fn new(w: usize, h: usize) -> Canvas {
-        Canvas { w, h, buf: vec![0; w * h] }
+        Canvas {
+            w,
+            h,
+            buf: vec![0; w * h],
+        }
     }
 
     fn set(&mut self, x: usize, y: usize) {
@@ -150,7 +154,20 @@ impl Metrics {
         let (hl0, hl1) = span(h, light);
         let (vh0, vh1) = span(w, heavy);
         let (hh0, hh1) = span(h, heavy);
-        Metrics { w, h, light, heavy, vl0, vl1, hl0, hl1, vh0, vh1, hh0, hh1 }
+        Metrics {
+            w,
+            h,
+            light,
+            heavy,
+            vl0,
+            vl1,
+            hl0,
+            hl1,
+            vh0,
+            vh1,
+            hh0,
+            hh1,
+        }
     }
 }
 
@@ -752,14 +769,14 @@ fn draw_powerline(c: &mut Canvas, cp: u32) {
             let main = (((y as f32 + 0.5) / h as f32) * w as f32).round() as usize;
             let anti = w - main;
             match cp {
-                0xE0B8 => c.rect(0, y, main, y + 1),                       // lower-left solid
-                0xE0B9 => c.rect(main.saturating_sub(t), y, main, y + 1),  // lower-left outline
-                0xE0BA => c.rect(anti, y, w, y + 1),                       // lower-right solid
-                0xE0BB => c.rect(anti, y, (anti + t).min(w), y + 1),       // lower-right outline
-                0xE0BC => c.rect(0, y, anti, y + 1),                       // upper-left solid
-                0xE0BD => c.rect(anti.saturating_sub(t), y, anti, y + 1),  // upper-left outline
-                0xE0BE => c.rect(main, y, w, y + 1),                       // upper-right solid
-                0xE0BF => c.rect(main, y, (main + t).min(w), y + 1),       // upper-right outline
+                0xE0B8 => c.rect(0, y, main, y + 1), // lower-left solid
+                0xE0B9 => c.rect(main.saturating_sub(t), y, main, y + 1), // lower-left outline
+                0xE0BA => c.rect(anti, y, w, y + 1), // lower-right solid
+                0xE0BB => c.rect(anti, y, (anti + t).min(w), y + 1), // lower-right outline
+                0xE0BC => c.rect(0, y, anti, y + 1), // upper-left solid
+                0xE0BD => c.rect(anti.saturating_sub(t), y, anti, y + 1), // upper-left outline
+                0xE0BE => c.rect(main, y, w, y + 1), // upper-right solid
+                0xE0BF => c.rect(main, y, (main + t).min(w), y + 1), // upper-right outline
                 _ => {}
             }
         }
@@ -781,8 +798,8 @@ fn draw_powerline(c: &mut Canvas, cp: u32) {
     // Apply an extent function as a SOLID fill or an OUTLINE stroke, on the
     // right-pointing (flat side left) or left-pointing (flat side right) layout.
     let edge = match cp {
-        0xE0B0 | 0xE0B1 | 0xE0B4 | 0xE0B5 => true,  // right-pointing (apex right)
-        _ => false,                                  // left-pointing (apex left)
+        0xE0B0 | 0xE0B1 | 0xE0B4 | 0xE0B5 => true, // right-pointing (apex right)
+        _ => false,                                // left-pointing (apex left)
     };
     let rounded = matches!(cp, 0xE0B4..=0xE0B7);
     let outline = matches!(cp, 0xE0B1 | 0xE0B3 | 0xE0B5 | 0xE0B7);
@@ -860,8 +877,16 @@ fn draw_braille(c: &mut Canvas, cp: u32) {
     let bits = cp - 0x2800;
     let (w, h) = (c.w, c.h);
     // (column, row) of each dot bit.
-    const DOTS: [(usize, usize); 8] =
-        [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (0, 3), (1, 3)];
+    const DOTS: [(usize, usize); 8] = [
+        (0, 0),
+        (0, 1),
+        (0, 2),
+        (1, 0),
+        (1, 1),
+        (1, 2),
+        (0, 3),
+        (1, 3),
+    ];
     let xb = |i: usize| (i * w).div_ceil(2); // column band boundaries (round half up == div_ceil for /2)
     let yb = |i: usize| (i * h + 2) / 4; // row band boundaries (round half up)
     for (bit, &(col, row)) in DOTS.iter().enumerate() {
@@ -888,10 +913,23 @@ mod tests {
 
     /// Cell sizes exercised by the invariants below: odd/even mixes, squat,
     /// tall, and degenerate-tiny.
-    const SIZES: &[(usize, usize)] = &[(1, 1), (2, 2), (3, 7), (7, 15), (8, 16), (9, 19), (10, 20), (11, 21), (12, 22), (20, 8)];
+    const SIZES: &[(usize, usize)] = &[
+        (1, 1),
+        (2, 2),
+        (3, 7),
+        (7, 15),
+        (8, 16),
+        (9, 19),
+        (10, 20),
+        (11, 21),
+        (12, 22),
+        (20, 8),
+    ];
 
     fn all_procedural_chars() -> impl Iterator<Item = char> {
-        (0x2500u32..=0x259F).chain(0x2800..=0x28FF).map(|cp| char::from_u32(cp).unwrap())
+        (0x2500u32..=0x259F)
+            .chain(0x2800..=0x28FF)
+            .map(|cp| char::from_u32(cp).unwrap())
     }
 
     /// THE 0/255 contract: every glyph in all three blocks, at every size, is
@@ -915,7 +953,9 @@ mod tests {
     /// Chars outside the three blocks are not intercepted.
     #[test]
     fn non_procedural_chars_are_not_covered() {
-        for ch in ['A', ' ', '日', '\u{24FF}', '\u{25A0}', '\u{27FF}', '\u{2900}'] {
+        for ch in [
+            'A', ' ', '日', '\u{24FF}', '\u{25A0}', '\u{27FF}', '\u{2900}',
+        ] {
             assert!(!covers(ch), "{ch:?} must stay font-rendered");
             assert!(coverage(ch, 8, 16).is_none());
         }
@@ -928,12 +968,18 @@ mod tests {
             for ch in ['─', '━'] {
                 let cov = coverage(ch, w, h).unwrap();
                 let lit_col = |x: usize| (0..h).any(|y| cov[y * w + x] != 0);
-                assert!(lit_col(0) && lit_col(w - 1), "{ch:?} at {w}x{h} must span the width");
+                assert!(
+                    lit_col(0) && lit_col(w - 1),
+                    "{ch:?} at {w}x{h} must span the width"
+                );
             }
             for ch in ['│', '┃', '║'] {
                 let cov = coverage(ch, w, h).unwrap();
                 let lit_row = |y: usize| (0..w).any(|x| cov[y * w + x] != 0);
-                assert!(lit_row(0) && lit_row(h - 1), "{ch:?} at {w}x{h} must span the height");
+                assert!(
+                    lit_row(0) && lit_row(h - 1),
+                    "{ch:?} at {w}x{h} must span the height"
+                );
             }
         }
     }
@@ -944,8 +990,14 @@ mod tests {
     fn heavy_span_contains_light_span_centred() {
         for &(w, h) in SIZES {
             let m = Metrics::new(w, h);
-            assert!(m.vh0 <= m.vl0 && m.vl1 <= m.vh1, "{w}x{h}: vertical containment");
-            assert!(m.hh0 <= m.hl0 && m.hl1 <= m.hh1, "{w}x{h}: horizontal containment");
+            assert!(
+                m.vh0 <= m.vl0 && m.vl1 <= m.vh1,
+                "{w}x{h}: vertical containment"
+            );
+            assert!(
+                m.hh0 <= m.hl0 && m.hl1 <= m.hh1,
+                "{w}x{h}: horizontal containment"
+            );
             if m.heavy == 3 * m.light {
                 assert_eq!(m.vl0 - m.vh0, m.vh1 - m.vl1, "{w}x{h}: vertical centring");
                 assert_eq!(m.hl0 - m.hh0, m.hh1 - m.hl1, "{w}x{h}: horizontal centring");
@@ -986,25 +1038,40 @@ mod tests {
     /// bottom-right, and they never bleed across the column midline.
     #[test]
     fn braille_dot_positions() {
-        let (w, h) = (10, 20);
-        let mid_x = (w + 1) / 2;
+        let (w, h): (usize, usize) = (10, 20);
+        let mid_x = w.div_ceil(2);
         let d1 = coverage('\u{2801}', w, h).unwrap(); // dot 1: left column, top row
         let d8 = coverage('\u{2880}', w, h).unwrap(); // dot 8: right column, bottom row
         let lit = |cov: &[u8]| {
-            (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| cov[y * w + x] != 0).collect::<Vec<_>>()
+            (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .filter(|&(x, y)| cov[y * w + x] != 0)
+                .collect::<Vec<_>>()
         };
         let l1 = lit(&d1);
         let l8 = lit(&d8);
         assert!(!l1.is_empty() && !l8.is_empty());
-        assert!(l1.iter().all(|&(x, y)| x < mid_x && y < h / 4 + 1), "dot 1 confined to top-left");
-        assert!(l8.iter().all(|&(x, y)| x >= mid_x && y >= 3 * h / 4 - 1), "dot 8 confined to bottom-right");
+        assert!(
+            l1.iter().all(|&(x, y)| x < mid_x && y < h / 4 + 1),
+            "dot 1 confined to top-left"
+        );
+        assert!(
+            l8.iter().all(|&(x, y)| x >= mid_x && y >= 3 * h / 4 - 1),
+            "dot 8 confined to bottom-right"
+        );
     }
 
     /// The shades dither at their nominal densities (exact for even dims).
     #[test]
     fn shades_have_correct_density() {
         let (w, h) = (8, 16);
-        let count = |ch: char| coverage(ch, w, h).unwrap().iter().filter(|&&b| b == 255).count();
+        let count = |ch: char| {
+            coverage(ch, w, h)
+                .unwrap()
+                .iter()
+                .filter(|&&b| b == 255)
+                .count()
+        };
         assert_eq!(count('░'), w * h / 4);
         assert_eq!(count('▒'), w * h / 2);
         assert_eq!(count('▓'), 3 * w * h / 4);
@@ -1023,13 +1090,19 @@ mod tests {
             let cov = coverage(ch, w, h).unwrap();
             assert_eq!(cov.len(), w * h);
             assert!(cov.iter().all(|&b| b == 0 || b == 255), "hard coverage");
-            assert!(cov.iter().any(|&b| b == 255), "U+{cp:04X} draws ink");
-            assert!(seen.insert(cov.clone()), "U+{cp:04X} duplicates another sextant");
+            assert!(cov.contains(&255), "U+{cp:04X} draws ink");
+            assert!(
+                seen.insert(cov.clone()),
+                "U+{cp:04X} duplicates another sextant"
+            );
         }
         let at = |cov: &[u8], x: usize, y: usize| cov[y * w + x] == 255;
         let ul = coverage('\u{1FB00}', w, h).unwrap(); // upper-left only
         assert!(at(&ul, 0, 0), "U+1FB00 fills upper-left");
-        assert!(!at(&ul, w - 1, 0) && !at(&ul, 0, h - 1), "U+1FB00 only upper-left");
+        assert!(
+            !at(&ul, w - 1, 0) && !at(&ul, 0, h - 1),
+            "U+1FB00 only upper-left"
+        );
     }
 
     /// Powerline separators are covered, hard 0/255, and shaped: a SOLID right
@@ -1044,15 +1117,24 @@ mod tests {
             assert!(covers(ch), "U+{cp:04X} must be covered");
             let cov = coverage(ch, w, h).unwrap();
             assert_eq!(cov.len(), w * h);
-            assert!(cov.iter().all(|&b| b == 0 || b == 255), "hard coverage only");
-            assert!(cov.iter().any(|&b| b == 255), "U+{cp:04X} draws ink");
+            assert!(
+                cov.iter().all(|&b| b == 0 || b == 255),
+                "hard coverage only"
+            );
+            assert!(cov.contains(&255), "U+{cp:04X} draws ink");
         }
         let at = |cov: &[u8], x: usize, y: usize| cov[y * w + x] == 255;
         // Corner triangles fill the named corner and leave the opposite empty.
         let ll = coverage('\u{E0B8}', w, h).unwrap(); // lower-left
-        assert!(at(&ll, 0, h - 1) && !at(&ll, w - 1, 0), "E0B8 fills lower-left");
+        assert!(
+            at(&ll, 0, h - 1) && !at(&ll, w - 1, 0),
+            "E0B8 fills lower-left"
+        );
         let ur = coverage('\u{E0BE}', w, h).unwrap(); // upper-right
-        assert!(at(&ur, w - 1, 0) && !at(&ur, 0, h - 1), "E0BE fills upper-right");
+        assert!(
+            at(&ur, w - 1, 0) && !at(&ur, 0, h - 1),
+            "E0BE fills upper-right"
+        );
         let right = coverage('\u{E0B0}', w, h).unwrap();
         let left = coverage('\u{E0B2}', w, h).unwrap();
         // Apex column lit at mid-height, empty near the top row.
@@ -1062,11 +1144,18 @@ mod tests {
         // Mirror image: row by row, right(x) == left(w-1-x).
         for y in 0..h {
             for x in 0..w {
-                assert_eq!(at(&right, x, y), at(&left, w - 1 - x, y), "E0B0/E0B2 mirror at ({x},{y})");
+                assert_eq!(
+                    at(&right, x, y),
+                    at(&left, w - 1 - x, y),
+                    "E0B0/E0B2 mirror at ({x},{y})"
+                );
             }
         }
         // The outline covers strictly less than the solid fill.
         let ink = |cov: &[u8]| cov.iter().filter(|&&b| b == 255).count();
-        assert!(ink(&coverage('\u{E0B1}', w, h).unwrap()) < ink(&right), "outline < solid");
+        assert!(
+            ink(&coverage('\u{E0B1}', w, h).unwrap()) < ink(&right),
+            "outline < solid"
+        );
     }
 }

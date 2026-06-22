@@ -9,11 +9,11 @@ license.workspace = true
 repository.workspace = true
 description = "Run-Length Encoding container for terminal cell attributes"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [dependencies]
 # None — pure std
 
 [dev-dependencies]
 # None — tests use only std
+
+[lints]
+workspace = true

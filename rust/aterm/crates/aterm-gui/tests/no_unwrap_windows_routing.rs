@@ -49,7 +49,9 @@ use std::path::{Path, PathBuf};
 
 /// Absolute path to the committed GUI `main.rs` (the routing surface scanned).
 fn main_rs_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("main.rs")
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("main.rs")
 }
 
 /// Strip a line-trailing `//` comment and any leading/inner indentation that

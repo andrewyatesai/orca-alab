@@ -19,7 +19,7 @@
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -55,7 +55,12 @@ fn parse_args() -> Args {
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--depth" => depth = it.next().and_then(|v| v.parse().ok()).unwrap_or_else(|| usage()),
+            "--depth" => {
+                depth = it
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_else(|| usage())
+            }
             "--keep" => keep = true,
             "--gui" => gui = Some(PathBuf::from(it.next().unwrap_or_else(|| usage()))),
             "--help" | "-h" => usage(),
@@ -74,19 +79,24 @@ fn parse_args() -> Args {
     if cmd.is_empty() || depth == 0 || depth > 8 {
         usage();
     }
-    Args { depth, keep, gui: gui.unwrap_or_else(resolve_gui), cmd }
+    Args {
+        depth,
+        keep,
+        gui: gui.unwrap_or_else(resolve_gui),
+        cmd,
+    }
 }
 
 /// Locate the `aterm-gui` binary: explicit `--gui` (handled by caller), then a
 /// sibling of this binary (the common cargo layout), then `$ATERM_NEST_GUI`, then
 /// bare `aterm-gui` (PATH lookup).
 fn resolve_gui() -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let sib = dir.join("aterm-gui");
-            if sib.is_file() {
-                return sib;
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let sib = dir.join("aterm-gui");
+        if sib.is_file() {
+            return sib;
         }
     }
     if let Ok(p) = std::env::var("ATERM_NEST_GUI") {
@@ -100,7 +110,9 @@ fn resolve_gui() -> PathBuf {
 /// The capability token sitting beside the socket (`aterm-<pid>.token`).
 fn read_token(sock: &str) -> Option<String> {
     let tok = sock.strip_suffix(".sock")?.to_string() + ".token";
-    std::fs::read_to_string(tok).ok().map(|s| s.trim().to_string())
+    std::fs::read_to_string(tok)
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 /// Send one verb; return the status line (no follow-up payload read).
@@ -166,7 +178,7 @@ fn socket_from_line(line: &str) -> Option<String> {
 
 /// Spawn level 0 directly, returning (child, socket-path). Reads the child's stderr
 /// until the "listening at" line (then stops, leaving the child running).
-fn spawn_root(gui: &PathBuf) -> io::Result<(std::process::Child, String)> {
+fn spawn_root(gui: &Path) -> io::Result<(std::process::Child, String)> {
     let mut child = Command::new(gui)
         .env("ATERM_HEADLESS", "1")
         .env("ATERM_LINES", "40")
@@ -183,7 +195,9 @@ fn spawn_root(gui: &PathBuf) -> io::Result<(std::process::Child, String)> {
         line.clear();
         if r.read_line(&mut line)? == 0 || Instant::now() > deadline {
             let _ = child.kill();
-            return Err(io::Error::other("aterm-gui (L0) did not announce its socket"));
+            return Err(io::Error::other(
+                "aterm-gui (L0) did not announce its socket",
+            ));
         }
         if let Some(sock) = socket_from_line(&line) {
             // Drain the rest of stderr in the background so the child never blocks.
@@ -198,7 +212,7 @@ fn spawn_root(gui: &PathBuf) -> io::Result<(std::process::Child, String)> {
 
 /// Spawn a deeper level by driving `parent_sock`'s shell to exec aterm-gui with its
 /// stderr redirected to `errfile`; poll `errfile` for the "listening at" line.
-fn spawn_child(parent_sock: &str, gui: &PathBuf, errfile: &str) -> io::Result<String> {
+fn spawn_child(parent_sock: &str, gui: &Path, errfile: &str) -> io::Result<String> {
     let _ = std::fs::remove_file(errfile);
     let g = gui.to_string_lossy();
     type_line(
@@ -216,7 +230,9 @@ fn spawn_child(parent_sock: &str, gui: &PathBuf, errfile: &str) -> io::Result<St
             }
         }
     }
-    Err(io::Error::other("nested aterm did not announce its socket in time"))
+    Err(io::Error::other(
+        "nested aterm did not announce its socket in time",
+    ))
 }
 
 fn main() {
@@ -256,7 +272,11 @@ fn run(args: &Args) -> io::Result<i32> {
     // Run the command in the deepest level, fenced by a sentinel so we know when it
     // finished, then capture that level's visible text.
     let cmd = args.cmd.join(" ");
-    eprintln!("aterm-nest: running in L{} (depth {}): {cmd}", args.depth - 1, args.depth);
+    eprintln!(
+        "aterm-nest: running in L{} (depth {}): {cmd}",
+        args.depth - 1,
+        args.depth
+    );
     type_line(&deepest, &format!("{cmd}; echo {DONE}"))?;
 
     let deadline = Instant::now() + Duration::from_secs(180);
@@ -298,7 +318,10 @@ fn output_region<'a>(text: &'a str, cmd: &str) -> Vec<&'a str> {
     let done = lines.iter().rposition(|l| l.trim() == DONE);
     match (echo, done) {
         (Some(e), Some(d)) if d > e => lines[e + 1..d].to_vec(),
-        _ => lines.into_iter().filter(|l| !l.trim().is_empty() && !l.contains(DONE)).collect(),
+        _ => lines
+            .into_iter()
+            .filter(|l| !l.trim().is_empty() && !l.contains(DONE))
+            .collect(),
     }
 }
 
@@ -319,14 +342,19 @@ mod tests {
     #[test]
     fn socket_from_line_extracts_path() {
         let line = "aterm-gui: control socket listening at /tmp/x/aterm-42.sock (token-gated, same-uid only)";
-        assert_eq!(socket_from_line(line).as_deref(), Some("/tmp/x/aterm-42.sock"));
+        assert_eq!(
+            socket_from_line(line).as_deref(),
+            Some("/tmp/x/aterm-42.sock")
+        );
         assert_eq!(socket_from_line("aterm-gui: GPU rendering on Metal"), None);
     }
 
     #[test]
     fn read_token_path_is_sibling() {
         // (pure path derivation; the file need not exist)
-        let tok = "/d/aterm-7.sock".strip_suffix(".sock").map(|b| b.to_string() + ".token");
+        let tok = "/d/aterm-7.sock"
+            .strip_suffix(".sock")
+            .map(|b| b.to_string() + ".token");
         assert_eq!(tok.as_deref(), Some("/d/aterm-7.token"));
     }
 
@@ -335,9 +363,7 @@ mod tests {
         // The command echo also contains the sentinel (we typed `cmd; echo DONE`);
         // the sentinel's OWN line (== DONE) fences the end.
         let cmd = "echo hi";
-        let screen = format!(
-            "user% {cmd}; echo {DONE}\nhi\n{DONE}\nuser% \n"
-        );
+        let screen = format!("user% {cmd}; echo {DONE}\nhi\n{DONE}\nuser% \n");
         assert_eq!(output_region(&screen, cmd), vec!["hi"]);
     }
 

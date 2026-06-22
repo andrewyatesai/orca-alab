@@ -198,10 +198,7 @@ fn run_script(sub: &Sub, forwarded: &[String]) -> i32 {
             s.code().unwrap_or(1)
         }
         Err(e) => {
-            eprintln!(
-                "aterm-dev: failed to execute {}: {e}",
-                script.display()
-            );
+            eprintln!("aterm-dev: failed to execute {}: {e}", script.display());
             1
         }
     }
@@ -212,17 +209,16 @@ fn run_script(sub: &Sub, forwarded: &[String]) -> i32 {
 /// declares `[workspace]`; if that fails, fall back to `git rev-parse
 /// --show-toplevel`.
 fn repo_root() -> Option<PathBuf> {
-    if let Ok(cwd) = std::env::current_dir() {
-        if let Some(r) = find_workspace_root(&cwd) {
-            return Some(r);
-        }
+    if let Ok(cwd) = std::env::current_dir()
+        && let Some(r) = find_workspace_root(&cwd)
+    {
+        return Some(r);
     }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            if let Some(r) = find_workspace_root(dir) {
-                return Some(r);
-            }
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+        && let Some(r) = find_workspace_root(dir)
+    {
+        return Some(r);
     }
     // Fallback: ask git.
     let out = Command::new("git")
@@ -245,10 +241,12 @@ fn repo_root() -> Option<PathBuf> {
 fn find_workspace_root(start: &Path) -> Option<PathBuf> {
     for dir in start.ancestors() {
         let manifest = dir.join("Cargo.toml");
-        if let Ok(contents) = std::fs::read_to_string(&manifest) {
-            if contents.lines().any(|l| l.trim_start().starts_with("[workspace]")) {
-                return Some(dir.to_path_buf());
-            }
+        if let Ok(contents) = std::fs::read_to_string(&manifest)
+            && contents
+                .lines()
+                .any(|l| l.trim_start().starts_with("[workspace]"))
+        {
+            return Some(dir.to_path_buf());
         }
     }
     None
@@ -284,13 +282,22 @@ fn print_help() {
     for group in Group::ORDER {
         println!("{}:", group.title());
         for sub in SUBS.iter().filter(|s| s.group == group) {
-            println!("    {:<width$}  {}", sub.name, sub.about, width = name_width);
+            println!(
+                "    {:<width$}  {}",
+                sub.name,
+                sub.about,
+                width = name_width
+            );
         }
         println!();
     }
 
     println!("Other:");
-    println!("    {:<width$}  Print this help", "--help, -h", width = name_width);
+    println!(
+        "    {:<width$}  Print this help",
+        "--help, -h",
+        width = name_width
+    );
     println!(
         "    {:<width$}  Print the workspace version",
         "--version, -V",

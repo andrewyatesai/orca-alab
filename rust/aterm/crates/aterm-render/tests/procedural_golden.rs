@@ -13,17 +13,16 @@
 //! Regenerate intentionally with `ATERM_BLESS_GOLDEN=1 cargo test -p
 //! aterm-render --test procedural_golden` and review the image diff.
 
-use aterm_render::{procedural, Frame};
+use aterm_render::{Frame, procedural};
 
 /// One representative per drawing family: solid light/heavy lines, dashes,
 /// corners/tees/crosses, mixed weights, doubles, arcs, diagonals, half lines,
 /// eighth blocks, half blocks, shades, quadrants and braille.
 const GLYPHS: &[char] = &[
-    '─', '━', '│', '┃', '┄', '┇', '┈', '╌', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', '┏',
-    '╋', '┾', '╄', '═', '║', '╔', '╗', '╚', '╝', '╠', '╣', '╦', '╩', '╬', '╪', '╫', '╒', '╜',
-    '╭', '╮', '╯', '╰', '╱', '╲', '╳', '╴', '╹', '╼', '╿', '▀', '▄', '▌', '▐', '█', '▁', '▃',
-    '▆', '▎', '▊', '▔', '▕', '░', '▒', '▓', '▖', '▚', '▛', '▟', '\u{2801}', '\u{2813}',
-    '\u{28C0}', '\u{28FF}',
+    '─', '━', '│', '┃', '┄', '┇', '┈', '╌', '┌', '┐', '└', '┘', '├', '┤', '┬', '┴', '┼', '┏', '╋',
+    '┾', '╄', '═', '║', '╔', '╗', '╚', '╝', '╠', '╣', '╦', '╩', '╬', '╪', '╫', '╒', '╜', '╭', '╮',
+    '╯', '╰', '╱', '╲', '╳', '╴', '╹', '╼', '╿', '▀', '▄', '▌', '▐', '█', '▁', '▃', '▆', '▎', '▊',
+    '▔', '▕', '░', '▒', '▓', '▖', '▚', '▛', '▟', '\u{2801}', '\u{2813}', '\u{28C0}', '\u{28FF}',
 ];
 
 /// Compose the glyph strip: one row of `GLYPHS.len()` cells, coverage 255
@@ -36,14 +35,21 @@ fn strip(cw: usize, ch: usize) -> Frame {
         for y in 0..ch {
             for x in 0..cw {
                 let c = cov[y * cw + x];
-                assert!(c == 0 || c == 255, "{g:?}: procedural coverage must be hard 0/255");
+                assert!(
+                    c == 0 || c == 255,
+                    "{g:?}: procedural coverage must be hard 0/255"
+                );
                 if c == 255 {
                     pixels[y * w + i * cw + x] = 0x00FF_FFFF;
                 }
             }
         }
     }
-    Frame { width: w, height: h, pixels }
+    Frame {
+        width: w,
+        height: h,
+        pixels,
+    }
 }
 
 fn check(name: &str, cw: usize, ch: usize) {

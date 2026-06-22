@@ -30,13 +30,13 @@ use aterm_core::terminal::{HostBindings, Terminal};
 const PREFIX: &[&[u8]] = &[
     b"\x1b[1;4;38;5;202;48;2;10;20;30mstyled prefix\x1b[0m\r\n",
     b"alpha\r\nbravo\r\ncharlie\r\ndelta\r\necho\r\nfoxtrot\r\ngolf\r\nhotel\r\n",
-    b"\x1b[2;9r",          // DECSTBM scroll region
-    b"\x1b(0",             // G0 = DEC special graphics
-    b"\x1b[>5u",           // kitty keyboard push
+    b"\x1b[2;9r",                   // DECSTBM scroll region
+    b"\x1b(0",                      // G0 = DEC special graphics
+    b"\x1b[>5u",                    // kitty keyboard push
     b"\x1b]7;file://host/work\x07", // OSC 7 cwd
-    b"\x1b[?1049h",        // enter alt screen
+    b"\x1b[?1049h",                 // enter alt screen
     b"ALT BODY here\r\n",
-    b"\x1b[?1049l",        // leave alt screen (main saved/restored)
+    b"\x1b[?1049l", // leave alt screen (main saved/restored)
     b"\x1b[3;1Hback on main",
 ];
 
@@ -49,7 +49,7 @@ const DELTA: &[&[u8]] = &[
     b"\x1b[7mreverse\x1b[0m and \x1b[32mgreen\x1b[0m\r\n",
     b"scroll1\r\nscroll2\r\nscroll3\r\n", // pushes content through the scroll region
     b"\x1b[1;1Htop-left edit",
-    b"\x1b[?7l",  // toggle autowrap off (a captured mode bit)
+    b"\x1b[?7l", // toggle autowrap off (a captured mode bit)
 ];
 
 /// Drive `t` through a slice of byte chunks.

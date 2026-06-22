@@ -18,7 +18,7 @@
 //! derived spec and (b) the interpreter-driven proves/catches below — the model's
 //! transition semantics executed in Rust — plus the Tier-1 binding to real code.
 
-use aterm_session::{decide_edge, EdgeDecision, EdgeTable, EdgeToken, LaunchNonce, Op, SessionId};
+use aterm_session::{EdgeDecision, EdgeTable, EdgeToken, LaunchNonce, Op, SessionId, decide_edge};
 use aterm_spec::derive::Model;
 use aterm_spec::ty_model;
 
@@ -75,18 +75,33 @@ fn edge_gate_model_buggy() -> Model {
 fn edge_gate_renders_tla_and_proves_and_catches() {
     let m = edge_gate_model();
     // The derived spec renders (the artifact `ty` would check when available).
-    assert!(m.to_tla().contains("FailClosed"), "derived TLA+ must carry the invariant");
+    assert!(
+        m.to_tla().contains("FailClosed"),
+        "derived TLA+ must carry the invariant"
+    );
 
     // PROVES: across a Grant/Revoke cycle the recomputed decision never permits
     // without a grant.
     let mut st = m.init_state();
-    assert!(m.check_invariant("FailClosed", &st), "init is fail-closed (Deny)");
+    assert!(
+        m.check_invariant("FailClosed", &st),
+        "init is fail-closed (Deny)"
+    );
     assert!(m.fire("Grant", &mut st));
-    assert!(m.check_invariant("FailClosed", &st), "Grant -> Permit, with a grant");
+    assert!(
+        m.check_invariant("FailClosed", &st),
+        "Grant -> Permit, with a grant"
+    );
     assert!(m.fire("Revoke", &mut st));
-    assert!(m.check_invariant("FailClosed", &st), "Revoke recomputes the decision to Deny");
+    assert!(
+        m.check_invariant("FailClosed", &st),
+        "Revoke recomputes the decision to Deny"
+    );
     assert!(m.fire("Grant", &mut st));
-    assert!(m.check_invariant("FailClosed", &st), "re-Grant -> Permit again");
+    assert!(
+        m.check_invariant("FailClosed", &st),
+        "re-Grant -> Permit again"
+    );
 
     // CATCHES: the Buggy variant (permit even with no grant) reaches a VIOLATING
     // state — Grant then Revoke leaves decision = Permit while granted = 0.
@@ -198,7 +213,10 @@ fn sink_no_loss_proves_and_buggy_tail_drop_is_caught() {
     let mut steps = 0;
     while m.fire("Step", &mut st) {
         assert!(m.check_invariant("NoLoss", &st), "no byte is ever dropped");
-        assert!(m.check_invariant("Accounted", &st), "bytes are accounted, never exceed the frame");
+        assert!(
+            m.check_invariant("Accounted", &st),
+            "bytes are accounted, never exceed the frame"
+        );
         steps += 1;
         assert!(steps <= 8, "loop must terminate at the frame boundary");
     }
@@ -275,10 +293,17 @@ fn assert_proves_and_catches_in_trust(ty: &PathBuf, m: &Model) {
     let bug_cfg = dir.join("bug.cfg");
     std::fs::write(&bug_cfg, m.to_cfg_with(&[("Buggy", 1)])).expect("write bug cfg");
     let (bug_ok, bug_out) = run_ty_check(ty, &spec, &bug_cfg);
-    assert!(!bug_ok, "derived {} (Buggy=1) MUST yield a counterexample in ty\n{bug_out}", m.name);
+    assert!(
+        !bug_ok,
+        "derived {} (Buggy=1) MUST yield a counterexample in ty\n{bug_out}",
+        m.name
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
-    eprintln!("TRUST: derived {} proven (Buggy=0) and caught (Buggy=1) by ty.", m.name);
+    eprintln!(
+        "TRUST: derived {} proven (Buggy=0) and caught (Buggy=1) by ty.",
+        m.name
+    );
 }
 
 /// The per-edge FAIL-CLOSED gate, model-checked by Trust: a Permit requires a
@@ -286,7 +311,9 @@ fn assert_proves_and_catches_in_trust(ty: &PathBuf, m: &Model) {
 /// caught.
 #[test]
 fn edge_gate_spec_model_checked_in_trust() {
-    let Some(ty) = ty_or_skip("edge_gate fail-closed spec") else { return; };
+    let Some(ty) = ty_or_skip("edge_gate fail-closed spec") else {
+        return;
+    };
     assert_proves_and_catches_in_trust(&ty, &edge_gate_model());
 }
 
@@ -294,6 +321,8 @@ fn edge_gate_spec_model_checked_in_trust() {
 /// the silent-tail-drop bug is caught.
 #[test]
 fn sink_no_loss_spec_model_checked_in_trust() {
-    let Some(ty) = ty_or_skip("sink no-loss spec") else { return; };
+    let Some(ty) = ty_or_skip("sink no-loss spec") else {
+        return;
+    };
     assert_proves_and_catches_in_trust(&ty, &sink_no_loss_model());
 }

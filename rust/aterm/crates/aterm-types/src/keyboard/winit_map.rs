@@ -15,9 +15,7 @@
 //! Only built when the `winit-keymap` feature is on, so non-GUI consumers of
 //! `aterm-types` (the FFI / Alacritty bridges) never link winit.
 
-use winit::keyboard::{
-    Key as WinitKey, KeyCode, NamedKey as WinitNamed, PhysicalKey,
-};
+use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey as WinitNamed, PhysicalKey};
 
 use super::{Key, NamedKey};
 
@@ -255,10 +253,7 @@ mod tests {
     #[test]
     fn maps_super_cmd_modifier() {
         // The old inline GUI match dropped Super/Cmd entirely (K-2 bug).
-        assert_eq!(
-            map_named_key(WinitNamed::Super),
-            Some(NamedKey::SuperLeft)
-        );
+        assert_eq!(map_named_key(WinitNamed::Super), Some(NamedKey::SuperLeft));
     }
 
     #[test]
@@ -283,7 +278,10 @@ mod tests {
 
     #[test]
     fn maps_physical_numpad() {
-        assert_eq!(map_physical_numpad(KeyCode::Numpad5), Some(NamedKey::Numpad5));
+        assert_eq!(
+            map_physical_numpad(KeyCode::Numpad5),
+            Some(NamedKey::Numpad5)
+        );
         assert_eq!(
             map_physical_numpad(KeyCode::NumpadEnter),
             Some(NamedKey::NumpadEnter)
@@ -305,9 +303,18 @@ mod tests {
 
     #[test]
     fn base_layout_key_is_us_qwerty() {
-        assert_eq!(base_layout_key_for(PhysicalKey::Code(KeyCode::KeyA)), Some('a'));
-        assert_eq!(base_layout_key_for(PhysicalKey::Code(KeyCode::Digit1)), Some('1'));
-        assert_eq!(base_layout_key_for(PhysicalKey::Code(KeyCode::Slash)), Some('/'));
+        assert_eq!(
+            base_layout_key_for(PhysicalKey::Code(KeyCode::KeyA)),
+            Some('a')
+        );
+        assert_eq!(
+            base_layout_key_for(PhysicalKey::Code(KeyCode::Digit1)),
+            Some('1')
+        );
+        assert_eq!(
+            base_layout_key_for(PhysicalKey::Code(KeyCode::Slash)),
+            Some('/')
+        );
         // No printable US-QWERTY char for a function key.
         assert_eq!(base_layout_key_for(PhysicalKey::Code(KeyCode::F1)), None);
     }

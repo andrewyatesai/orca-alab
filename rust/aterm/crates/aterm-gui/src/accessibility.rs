@@ -32,7 +32,11 @@ pub const LABEL: &str = "aterm terminal";
 /// representations are always identical.
 pub fn push_visible_row(text: &mut String, cells: &[RenderCell], cols: usize) {
     for cell in cells.iter().take(cols) {
-        text.push(if cell.ch == '\0' || cell.ch.is_control() { ' ' } else { cell.ch });
+        text.push(if cell.ch == '\0' || cell.ch.is_control() {
+            ' '
+        } else {
+            cell.ch
+        });
     }
     while text.ends_with(' ') {
         text.pop();
@@ -68,13 +72,22 @@ impl AccessibleSnapshot {
     /// `cursor` is `Some((row, col))` only when the cursor is visible; pass `None`
     /// to omit it (e.g. when hidden via DECTCEM).
     #[must_use]
-    pub fn from_cells(rows_cells: &[Vec<RenderCell>], cols: usize, cursor: Option<(usize, usize)>) -> Self {
+    pub fn from_cells(
+        rows_cells: &[Vec<RenderCell>],
+        cols: usize,
+        cursor: Option<(usize, usize)>,
+    ) -> Self {
         let rows = rows_cells.len();
         let mut text = String::with_capacity(rows * (cols + 1));
         for cells in rows_cells {
             push_visible_row(&mut text, cells, cols);
         }
-        Self { text, rows, cols, cursor }
+        Self {
+            text,
+            rows,
+            cols,
+            cursor,
+        }
     }
 
     /// The accessibility value: the visible screen text (an `AX` value string).
@@ -138,8 +151,12 @@ mod macos {
     /// which the winit event loop guarantees. VoiceOver behavior itself is not
     /// machine-verifiable here and is validated manually.
     pub fn apply_to_ns_view(window: &Window, snap: &AccessibleSnapshot) {
-        let Ok(handle) = window.window_handle() else { return };
-        let RawWindowHandle::AppKit(h) = handle.as_raw() else { return };
+        let Ok(handle) = window.window_handle() else {
+            return;
+        };
+        let RawWindowHandle::AppKit(h) = handle.as_raw() else {
+            return;
+        };
         // SAFETY: `ns_view` points at this window's live NSView (owned by winit for
         // the window's lifetime); we only borrow it on the main thread to set its
         // accessibility attributes — the same borrow pattern as
@@ -171,7 +188,12 @@ mod tests {
     use aterm_core::terminal::Terminal;
 
     fn snap(text: &str, cursor: Option<(usize, usize)>) -> AccessibleSnapshot {
-        AccessibleSnapshot { text: text.to_string(), rows: 0, cols: 0, cursor }
+        AccessibleSnapshot {
+            text: text.to_string(),
+            rows: 0,
+            cols: 0,
+            cursor,
+        }
     }
 
     #[test]
@@ -195,13 +217,19 @@ mod tests {
     #[test]
     fn cursor_offset_first_line() {
         // caret at row 0 col 2 in "hello" → offset 2.
-        assert_eq!(snap("hello\nworld\n", Some((0, 2))).cursor_offset(), Some(2));
+        assert_eq!(
+            snap("hello\nworld\n", Some((0, 2))).cursor_offset(),
+            Some(2)
+        );
     }
 
     #[test]
     fn cursor_offset_second_line_accounts_for_newline() {
         // "hello\n" is 6 chars; caret at row 1 col 3 → 6 + 3 = 9.
-        assert_eq!(snap("hello\nworld\n", Some((1, 3))).cursor_offset(), Some(9));
+        assert_eq!(
+            snap("hello\nworld\n", Some((1, 3))).cursor_offset(),
+            Some(9)
+        );
     }
 
     #[test]

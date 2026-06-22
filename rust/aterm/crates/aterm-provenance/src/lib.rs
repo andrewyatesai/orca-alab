@@ -8,7 +8,9 @@
 // module keeps `#![deny(unsafe_code)]`.
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
+// Production unwrap() is forbidden; tests opt out uniformly at the crate root.
 #![deny(clippy::unwrap_used)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 //! Trusted data-flow provenance framework (Phase 0; issue #8000, parent #7877).
 //!

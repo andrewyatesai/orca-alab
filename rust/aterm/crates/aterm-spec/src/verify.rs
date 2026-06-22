@@ -55,7 +55,9 @@ pub const REQUIRE_ENV: &str = "ATERM_REQUIRE_TRUST";
 /// `true` when `ATERM_REQUIRE_TRUST=1` — verification is then MANDATORY: an absent
 /// `ty`/`trust-ir` is a hard (panic) failure rather than a loud skip.
 pub fn require_trust() -> bool {
-    std::env::var(REQUIRE_ENV).map(|v| v == "1").unwrap_or(false)
+    std::env::var(REQUIRE_ENV)
+        .map(|v| v == "1")
+        .unwrap_or(false)
 }
 
 /// Discover the `ty` binary by a fixed canonical path search — NO env vars, NO flags.
@@ -98,7 +100,11 @@ pub fn find_trust_ir() -> Option<PathBuf> {
 
 /// `command -v <bin>` lookup on `PATH`; `None` if not found.
 fn cmd_path(bin: &str) -> Option<PathBuf> {
-    let out = Command::new("sh").arg("-c").arg(format!("command -v {bin}")).output().ok()?;
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg(format!("command -v {bin}"))
+        .output()
+        .ok()?;
     if out.status.success() {
         let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if !p.is_empty() {
@@ -120,7 +126,12 @@ fn cmd_path(bin: &str) -> Option<PathBuf> {
 /// skip warning say exactly what was/was not verified.
 #[must_use]
 pub fn ty_or_skip(label: &str) -> Option<PathBuf> {
-    gate("ty", "~/trust/first-party/ty/target/release/ty", find_ty(), label)
+    gate(
+        "ty",
+        "~/trust/first-party/ty/target/release/ty",
+        find_ty(),
+        label,
+    )
 }
 
 /// VERIFICATION GATE for `trust-ir` (`spec-link`), three-way — see [`ty_or_skip`].

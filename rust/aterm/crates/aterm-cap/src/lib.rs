@@ -164,7 +164,11 @@ impl Authority {
     /// Mint a capability for effect `E` at `tier`.
     #[must_use]
     pub fn grant<E>(&self, tier: Tier) -> Cap<E> {
-        Cap { tier, _effect: PhantomData, _seal: Seal }
+        Cap {
+            tier,
+            _effect: PhantomData,
+            _seal: Seal,
+        }
     }
 }
 
@@ -179,7 +183,10 @@ pub fn require<E>(cap: &Cap<E>, min: Tier) -> Result<(), Denied> {
     if cap.satisfies(min) {
         Ok(())
     } else {
-        Err(Denied { have: cap.tier(), need: min })
+        Err(Denied {
+            have: cap.tier(),
+            need: min,
+        })
     }
 }
 
@@ -192,7 +199,11 @@ pub struct Denied {
 
 impl std::fmt::Display for Denied {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "capability denied: have {:?}, need at least {:?}", self.have, self.need)
+        write!(
+            f,
+            "capability denied: have {:?}, need at least {:?}",
+            self.have, self.need
+        )
     }
 }
 impl std::error::Error for Denied {}
@@ -260,7 +271,13 @@ mod tests {
         let authority = test_authority();
         let clip: Cap<Clipboard> = authority.grant(Tier::Untrusted);
         // An effect needing Trusted is denied to an Untrusted cap.
-        assert_eq!(require(&clip, Tier::Trusted), Err(Denied { have: Tier::Untrusted, need: Tier::Trusted }));
+        assert_eq!(
+            require(&clip, Tier::Trusted),
+            Err(Denied {
+                have: Tier::Untrusted,
+                need: Tier::Trusted
+            })
+        );
         // An effect needing Untrusted is allowed.
         assert_eq!(require(&clip, Tier::Untrusted), Ok(()));
 
@@ -310,12 +327,18 @@ mod tests {
         let authority = test_authority();
 
         let untrusted_write: Cap<WriteInput> = authority.grant(Tier::Untrusted);
-        assert!(require(&untrusted_write, Tier::Trusted).is_err(), "WriteInput floors at Trusted");
+        assert!(
+            require(&untrusted_write, Tier::Trusted).is_err(),
+            "WriteInput floors at Trusted"
+        );
         let trusted_write: Cap<WriteInput> = authority.grant(Tier::Trusted);
         assert_eq!(require(&trusted_write, Tier::Trusted), Ok(()));
 
         let untrusted_signal: Cap<SignalEdge> = authority.grant(Tier::Untrusted);
-        assert!(require(&untrusted_signal, Tier::Trusted).is_err(), "SignalEdge floors at Trusted");
+        assert!(
+            require(&untrusted_signal, Tier::Trusted).is_err(),
+            "SignalEdge floors at Trusted"
+        );
 
         // A read is the least-power edge: an Untrusted cap suffices.
         let read: Cap<ReadScreen> = authority.grant(Tier::Untrusted);
@@ -330,5 +353,4 @@ mod tests {
         let spawn: Cap<Spawn> = authority.grant(Tier::Certified);
         assert_eq!(spawn.tier(), Tier::Certified);
     }
-
 }

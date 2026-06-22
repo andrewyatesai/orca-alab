@@ -38,7 +38,12 @@ impl Default for Theme {
     fn default() -> Self {
         // a calm dark theme; selection is a muted steel blue that keeps the
         // default 0xD0D0D0 foreground readable.
-        Theme { fg: 0x00D0_D0D0, bg: 0x0011_1318, cursor: 0x0050_FA7B, selection: 0x0026_4F78 }
+        Theme {
+            fg: 0x00D0_D0D0,
+            bg: 0x0011_1318,
+            cursor: 0x0050_FA7B,
+            selection: 0x0026_4F78,
+        }
     }
 }
 
@@ -47,7 +52,7 @@ impl Default for Theme {
 // (ATERM_DESIGN WS-F). Re-exported here so existing
 // `aterm_render::{Frame, RenderInput}` call sites are unchanged; `Rasterizer` is
 // the trait this CPU renderer implements (see `impl Rasterizer for Renderer`).
-pub use aterm_render_api::{Frame, RenderInput, RenderView, Rasterizer};
+pub use aterm_render_api::{Frame, Rasterizer, RenderInput, RenderView};
 
 /// Which glyph source a [`GlyphKey`] rasterizes from.
 ///
@@ -135,20 +140,38 @@ impl GlyphKey {
 
     /// Key for a coverage (Mono) glyph of character `ch` from `source`.
     pub fn mono_char(source: FaceId, ch: char, style: StyleBits, px_q: u32) -> GlyphKey {
-        GlyphKey { source, glyph_class: GlyphClass::Mono, ch_or_id: ch as u32, style, px_q }
+        GlyphKey {
+            source,
+            glyph_class: GlyphClass::Mono,
+            ch_or_id: ch as u32,
+            style,
+            px_q,
+        }
     }
 
     /// Key for a colour (Rgba) glyph of character `ch` from `source` (the
     /// colour-emoji face). The image carries its own colours, so the cell
     /// foreground is irrelevant — `style` is fixed REGULAR.
     pub fn rgba_char(source: FaceId, ch: char, px_q: u32) -> GlyphKey {
-        GlyphKey { source, glyph_class: GlyphClass::Rgba, ch_or_id: ch as u32, style: StyleBits::REGULAR, px_q }
+        GlyphKey {
+            source,
+            glyph_class: GlyphClass::Rgba,
+            ch_or_id: ch as u32,
+            style: StyleBits::REGULAR,
+            px_q,
+        }
     }
 
     /// Key for a colour (RgbaGid) glyph addressed by colour-font glyph id — a
     /// grapheme cluster (ZWJ / skin-tone / keycap) already shaped to one glyph.
     pub fn rgba_gid(source: FaceId, gid: u16, px_q: u32) -> GlyphKey {
-        GlyphKey { source, glyph_class: GlyphClass::RgbaGid, ch_or_id: gid as u32, style: StyleBits::REGULAR, px_q }
+        GlyphKey {
+            source,
+            glyph_class: GlyphClass::RgbaGid,
+            ch_or_id: gid as u32,
+            style: StyleBits::REGULAR,
+            px_q,
+        }
     }
 
     /// The character this key rasterizes, when `ch_or_id` is a code point.
@@ -169,10 +192,24 @@ impl GlyphKey {
 pub enum GlyphImage {
     /// 8-bit alpha coverage, row-major, `width * height` bytes; the renderer
     /// tints it with the cell foreground at blit time.
-    Mono { width: usize, height: usize, xmin: i32, ymin: i32, advance: f32, bytes: Vec<u8> },
+    Mono {
+        width: usize,
+        height: usize,
+        xmin: i32,
+        ymin: i32,
+        advance: f32,
+        bytes: Vec<u8>,
+    },
     /// 32-bit RGBA colour, row-major, `width * height * 4` bytes (colour
     /// emoji). PLACEHOLDER this slice: nothing produces a non-empty one.
-    Rgba { width: usize, height: usize, xmin: i32, ymin: i32, advance: f32, bytes: Vec<u8> },
+    Rgba {
+        width: usize,
+        height: usize,
+        xmin: i32,
+        ymin: i32,
+        advance: f32,
+        bytes: Vec<u8>,
+    },
 }
 
 impl GlyphImage {
@@ -413,9 +450,7 @@ const FALLBACK_CANDIDATES: &[&str] = &[
 
 /// Colour-emoji faces (sbix bitmaps), most-preferred first. Override with
 /// `$ATERM_EMOJI_FONT`. A `.ttc` collection: face index 0.
-const COLOR_EMOJI_CANDIDATES: &[&str] = &[
-    "/System/Library/Fonts/Apple Color Emoji.ttc",
-];
+const COLOR_EMOJI_CANDIDATES: &[&str] = &["/System/Library/Fonts/Apple Color Emoji.ttc"];
 
 /// Env escape hatch for the [`procedural`] glyph source: box-drawing / block /
 /// braille cells are synthesized from the cell geometry by default (cell-exact,
@@ -706,7 +741,10 @@ impl Renderer {
     /// (one `pad` on each of the four edges). With `pad == 0` this is the original
     /// `cols·cell_w × rows·cell_h`.
     pub fn frame_size(&self, rows: usize, cols: usize) -> (usize, usize) {
-        (cols * self.cell_w + 2 * self.pad, rows * self.cell_h + 2 * self.pad)
+        (
+            cols * self.cell_w + 2 * self.pad,
+            rows * self.cell_h + 2 * self.pad,
+        )
     }
 
     /// The font baseline (pixels from the cell top to the glyph baseline).
@@ -761,7 +799,11 @@ impl Renderer {
             GlyphKey::mono_char(FaceId::Primary, ch, StyleBits::REGULAR, self.px_q)
         } else {
             self.ensure_fallback();
-            if self.fallback.as_ref().is_some_and(|fb| fb.lookup_glyph_index(ch) != 0) {
+            if self
+                .fallback
+                .as_ref()
+                .is_some_and(|fb| fb.lookup_glyph_index(ch) != 0)
+            {
                 GlyphKey::mono_char(FaceId::Fallback, ch, StyleBits::REGULAR, self.px_q)
             } else if self.color_font_has(ch) {
                 // Mono faces miss it but the colour-emoji face has an sbix
@@ -881,8 +923,7 @@ impl Renderer {
     /// metrics are bit-identical to a direct `fontdue` rasterization.
     fn rasterize(&mut self, key: GlyphKey) -> GlyphImage {
         debug_assert_eq!(
-            key.px_q,
-            self.px_q,
+            key.px_q, self.px_q,
             "GlyphKey.px_q must match the renderer's own size this slice"
         );
         match key.glyph_class {
@@ -951,7 +992,8 @@ impl Renderer {
             GlyphClass::RgbaGid => {
                 // `ch_or_id` is a shaped colour-font glyph id (a cluster).
                 let gid = ttf_parser::GlyphId(key.ch_or_id as u16);
-                self.rasterize_color_emoji_gid(gid).unwrap_or_else(empty_rgba)
+                self.rasterize_color_emoji_gid(gid)
+                    .unwrap_or_else(empty_rgba)
             }
         }
     }
@@ -1005,7 +1047,14 @@ impl Renderer {
         let xmin = ((box_w - dst_w) / 2) as i32;
         let top_inset = ((box_h as i32 - dst_h as i32) / 2).max(0);
         let ymin = self.baseline - dst_h as i32 - top_inset;
-        Some(GlyphImage::Rgba { width: dst_w, height: dst_h, xmin, ymin, advance: box_w as f32, bytes: dst })
+        Some(GlyphImage::Rgba {
+            width: dst_w,
+            height: dst_h,
+            xmin,
+            ymin,
+            advance: box_w as f32,
+            bytes: dst,
+        })
     }
 
     /// Render a [`RenderInput`] snapshot (built by the engine via
@@ -1044,7 +1093,11 @@ impl Renderer {
         // `WindowCpu` and calls `render_input_cached(wc, ..)` directly.
         let mut wc = WindowCpu::new();
         let view = self.render_input_cached(&mut wc, input);
-        Frame { width: view.width(), height: view.height(), pixels: view.pixels().to_vec() }
+        Frame {
+            width: view.width(),
+            height: view.height(),
+            pixels: view.pixels().to_vec(),
+        }
     }
 
     /// Render a pre-extracted snapshot like [`render_input`](Self::render_input)
@@ -1127,9 +1180,9 @@ impl Renderer {
         // verdict is `DirtyRows::is_gate_hit`, which is exactly the shared
         // `is_unchanged_frame` predicate (both derive from `compute_dirty_rows`),
         // so the CPU gate and the GPU dirty-gate are ONE source of truth.
-        let gate_hit = dirty_rows.any_dirty == false
-            && dirty_rows.cursor_changed == false
-            && dirty_rows.blink_or_override_changed == false;
+        let gate_hit = !dirty_rows.any_dirty
+            && !dirty_rows.cursor_changed
+            && !dirty_rows.blink_or_override_changed;
         debug_assert_eq!(
             gate_hit,
             is_unchanged_frame(
@@ -1151,8 +1204,8 @@ impl Renderer {
         // Re-render each dirty row into the reused framebuffer: first restore its
         // band to the theme background (replicating the `vec![bg]` the full path
         // starts from for that band), then run the IDENTICAL passes 1/2/3.
-        for r in 0..rows {
-            if dirty[r] {
+        for (r, &is_dirty) in dirty.iter().enumerate() {
+            if is_dirty {
                 self.fill_band_bg(&mut cache.pixels, w, h, r);
                 // `cache` is taken out of `wc`, so `&mut wc.image_cache` is a
                 // disjoint borrow here (no RefCell needed). This borrow ends at
@@ -1178,7 +1231,11 @@ impl Renderer {
     /// the shared `Renderer` — letting one `Renderer` serve many `WindowCpu`.
     fn cached_view(wc: &WindowCpu, w: usize, h: usize) -> RenderView<'_> {
         let pixels = &wc.cache.as_ref().expect("cache populated by render").pixels;
-        RenderView::Borrowed { width: w, height: h, pixels }
+        RenderView::Borrowed {
+            width: w,
+            height: h,
+            pixels,
+        }
     }
 
     /// TEST/BENCH SCAFFOLDING ONLY — drop the damage-tracking cache so the very
@@ -1251,7 +1308,15 @@ impl Renderer {
     /// background (the full path pre-fills the whole buffer; the damaged path
     /// calls [`Self::fill_band_bg`] first). Shared verbatim by both paths so
     /// they can never drift.
-    fn render_row(&mut self, ic: &mut ImageCache, pixels: &mut [u32], w: usize, h: usize, input: &RenderInput, r: usize) {
+    fn render_row(
+        &mut self,
+        ic: &mut ImageCache,
+        pixels: &mut [u32],
+        w: usize,
+        h: usize,
+        input: &RenderInput,
+        r: usize,
+    ) {
         let cols = input.cols;
         let selection = &input.selection;
         // Selection rows are live-screen coords; the viewport may be scrolled
@@ -1306,14 +1371,19 @@ impl Renderer {
         let row_clusters = &input.clusters[r];
         let row_combining = &input.combining[r];
         for (c, cell) in cells.iter().take(cols).enumerate() {
-            if !image_covers(row_images, c)
-                && !cell.wide
-                && cell.ch != ' '
-                && !cell.ch.is_control()
+            if !image_covers(row_images, c) && !cell.wide && cell.ch != ' ' && !cell.ch.is_control()
             {
                 let cluster = cluster_for(row_clusters, c);
                 let key = self.resolve_cell_key(cluster, cell);
-                self.blit(pixels, w, (pad_x + c * cw) as i32, anchor_y, key, rgb_to_u32(cell.fg), scale);
+                self.blit(
+                    pixels,
+                    w,
+                    (pad_x + c * cw) as i32,
+                    anchor_y,
+                    key,
+                    rgb_to_u32(cell.fg),
+                    scale,
+                );
                 // Overlay combining diacritics (é, ñ, …) on the base. A
                 // combining mark's own metrics assume the pen sits at the
                 // base's advance (a large negative left bearing backs it up
@@ -1321,15 +1391,17 @@ impl Renderer {
                 // left. In a monospace cell the base glyph is centred in its
                 // advance, so we centre the mark's INK in the cell — putting
                 // the accent over the base, on CPU and GPU identically.
-                if cluster.is_none() {
-                    if let Some(marks) = combining_for(row_combining, c) {
-                        for &m in marks {
-                            let mk = self.glyph_key(m);
-                            let (gw, xmin) =
-                                { let mi = self.glyph_image(mk); (mi.width(), mi.xmin()) };
-                            let cx = mark_cell_x(c, cw, gw, xmin, scale) + pad_x as i32;
-                            self.blit(pixels, w, cx, anchor_y, mk, rgb_to_u32(cell.fg), scale);
-                        }
+                if cluster.is_none()
+                    && let Some(marks) = combining_for(row_combining, c)
+                {
+                    for &m in marks {
+                        let mk = self.glyph_key(m);
+                        let (gw, xmin) = {
+                            let mi = self.glyph_image(mk);
+                            (mi.width(), mi.xmin())
+                        };
+                        let cx = mark_cell_x(c, cw, gw, xmin, scale) + pad_x as i32;
+                        self.blit(pixels, w, cx, anchor_y, mk, rgb_to_u32(cell.fg), scale);
                     }
                 }
             }
@@ -1345,7 +1417,11 @@ impl Renderer {
                 continue;
             }
             let x = pad_x + c * cw;
-            let dw = if cells.get(c + 1).is_some_and(|n| n.wide) { 2 * cw } else { cw };
+            let dw = if cells.get(c + 1).is_some_and(|n| n.wide) {
+                2 * cw
+            } else {
+                cw
+            };
             let ucolor = rgb_to_u32(cell.underline_color.unwrap_or(cell.fg));
             for [rx, ry, rw, rh] in
                 underline_rects(cell.underline, x, y0, dw, self.cell_h, self.baseline)
@@ -1398,12 +1474,22 @@ impl Renderer {
             }
             if matches!(style, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock) {
                 let cells = &input.cells[cr];
-                if let Some(cell) = cells.get(cc) {
-                    if !cell.wide && cell.ch != ' ' && !cell.ch.is_control() {
-                        let cluster = cluster_for(&input.clusters[cr], cc);
-                        let key = self.resolve_cell_key(cluster, cell);
-                        self.blit(pixels, w, x0 as i32, anchor_y, key, rgb_to_u32(cell.bg), scale);
-                    }
+                if let Some(cell) = cells.get(cc)
+                    && !cell.wide
+                    && cell.ch != ' '
+                    && !cell.ch.is_control()
+                {
+                    let cluster = cluster_for(&input.clusters[cr], cc);
+                    let key = self.resolve_cell_key(cluster, cell);
+                    self.blit(
+                        pixels,
+                        w,
+                        x0 as i32,
+                        anchor_y,
+                        key,
+                        rgb_to_u32(cell.bg),
+                        scale,
+                    );
                 }
             }
         }
@@ -1437,7 +1523,17 @@ impl Renderer {
     /// the background pass already filled (so a transparent PNG shows the cell
     /// bg). The decoded+scaled image is cached by the payload `Arc` identity +
     /// footprint size, so it is decoded at most once per distinct placement.
-    fn blit_image_cell(&self, ic: &mut ImageCache, px: &mut [u32], w: usize, h: usize, x0: usize, y0: usize, image: &aterm_core::grid::extra::ImageRef) {
+    #[allow(clippy::too_many_arguments)]
+    fn blit_image_cell(
+        &self,
+        ic: &mut ImageCache,
+        px: &mut [u32],
+        w: usize,
+        h: usize,
+        x0: usize,
+        y0: usize,
+        image: &aterm_core::grid::extra::ImageRef,
+    ) {
         let cw = self.cell_w;
         let ch = self.cell_h;
         let fp_w = image.image.cols as usize * cw;
@@ -1447,14 +1543,17 @@ impl Renderer {
         // The decoded cache is the PER-WINDOW `WindowCpu::image_cache`, threaded
         // in as `ic` (so the shared `Renderer` needs only `&self` here).
         if ic.get(key).is_none() {
-            let rgba = decode_image_to_footprint(
-                &image.image.bytes,
-                image.image.format,
-                fp_w,
-                fp_h,
-            )
-            .unwrap_or_default();
-            ic.put(key, DecodedImage { w: fp_w, h: fp_h, rgba });
+            let rgba =
+                decode_image_to_footprint(&image.image.bytes, image.image.format, fp_w, fp_h)
+                    .unwrap_or_default();
+            ic.put(
+                key,
+                DecodedImage {
+                    w: fp_w,
+                    h: fp_h,
+                    rgba,
+                },
+            );
         }
         let Some(decoded) = ic.get(key) else { return };
         if decoded.rgba.is_empty() || decoded.w == 0 {
@@ -1764,12 +1863,18 @@ pub fn strike_overline_rects(
 /// list (`RenderInput::clusters[row]`). Rows almost never have clusters, so the
 /// linear scan is over an empty/tiny slice on the hot path.
 fn cluster_for(row_clusters: &[(usize, Box<str>)], col: usize) -> Option<&str> {
-    row_clusters.iter().find(|(c, _)| *c == col).map(|(_, s)| s.as_ref())
+    row_clusters
+        .iter()
+        .find(|(c, _)| *c == col)
+        .map(|(_, s)| s.as_ref())
 }
 
 /// Find the combining marks for column `col` in a row's sparse combining list.
 fn combining_for(row_combining: &[(usize, Box<[char]>)], col: usize) -> Option<&[char]> {
-    row_combining.iter().find(|(c, _)| *c == col).map(|(_, m)| m.as_ref())
+    row_combining
+        .iter()
+        .find(|(c, _)| *c == col)
+        .map(|(_, m)| m.as_ref())
 }
 
 /// Whether column `col` is covered by an inline image in a row's sparse image
@@ -1886,6 +1991,7 @@ impl DirtyRows {
 ///   * the CPU damage path repaints the `dirty` rows into its cached framebuffer,
 ///   * the GPU scissored path re-encodes ONLY the `dirty` rows into the persistent
 ///     offscreen (LoadOp::Load + a scissor over the dirty band(s)),
+///
 /// so they share one dirty set and cannot drift. `FullRepaint` is the always-safe
 /// fallback (whole-frame Clear + all rows), taken whenever reuse is unsafe.
 ///
@@ -1939,9 +2045,9 @@ pub fn compute_dirty_rows(
     dirty.clear();
     dirty.resize(rows, false);
     let mut any_dirty = false;
-    for r in 0..rows {
+    for (r, d) in dirty.iter_mut().enumerate() {
         if row_differs(input, prev_input, r) {
-            dirty[r] = true;
+            *d = true;
             any_dirty = true;
         }
     }
@@ -1973,7 +2079,11 @@ pub fn compute_dirty_rows(
     let blink_or_override_changed = prev_blink_phase != cur_blink_phase
         || prev_cursor_style_override != cur_cursor_style_override;
 
-    DirtyDecision::Rows(DirtyRows { any_dirty, cursor_changed, blink_or_override_changed })
+    DirtyDecision::Rows(DirtyRows {
+        any_dirty,
+        cursor_changed,
+        blink_or_override_changed,
+    })
 }
 
 /// THE full-frame gate-hit predicate: is `input` (to be drawn at `cur_blink_phase`
@@ -2049,7 +2159,12 @@ pub struct Scale {
 
 impl Scale {
     /// Ordinary single-size row: no scaling, no clip.
-    pub const NORMAL: Scale = Scale { xs: 1, ys: 1, clip_y0: i32::MIN, clip_y1: i32::MAX };
+    pub const NORMAL: Scale = Scale {
+        xs: 1,
+        ys: 1,
+        clip_y0: i32::MIN,
+        clip_y1: i32::MAX,
+    };
 }
 
 /// The on-screen scale + glyph anchor for a row of `line_size` at top pixel
@@ -2059,13 +2174,32 @@ impl Scale {
 pub fn row_scale(line_size: LineSize, y0: usize, ch: usize) -> (Scale, i32) {
     let (y0, ch) = (y0 as i32, ch as i32);
     match line_size {
-        LineSize::DoubleWidth => (Scale { xs: 2, ys: 1, ..Scale::NORMAL }, y0),
-        LineSize::DoubleHeightTop => {
-            (Scale { xs: 2, ys: 2, clip_y0: y0, clip_y1: y0 + ch }, y0)
-        }
-        LineSize::DoubleHeightBottom => {
-            (Scale { xs: 2, ys: 2, clip_y0: y0, clip_y1: y0 + ch }, y0 - ch)
-        }
+        LineSize::DoubleWidth => (
+            Scale {
+                xs: 2,
+                ys: 1,
+                ..Scale::NORMAL
+            },
+            y0,
+        ),
+        LineSize::DoubleHeightTop => (
+            Scale {
+                xs: 2,
+                ys: 2,
+                clip_y0: y0,
+                clip_y1: y0 + ch,
+            },
+            y0,
+        ),
+        LineSize::DoubleHeightBottom => (
+            Scale {
+                xs: 2,
+                ys: 2,
+                clip_y0: y0,
+                clip_y1: y0 + ch,
+            },
+            y0 - ch,
+        ),
         // SingleWidth and any future variant: ordinary single-size.
         _ => (Scale::NORMAL, y0),
     }
@@ -2074,7 +2208,11 @@ pub fn row_scale(line_size: LineSize, y0: usize, ch: usize) -> (Scale, i32) {
 /// The on-screen cell advance (px) for a row of `line_size` — doubled for any
 /// double-width/height row, single otherwise.
 pub fn row_cell_w(line_size: LineSize, cell_w: usize) -> usize {
-    if matches!(line_size, LineSize::SingleWidth) { cell_w } else { cell_w * 2 }
+    if matches!(line_size, LineSize::SingleWidth) {
+        cell_w
+    } else {
+        cell_w * 2
+    }
 }
 
 /// Destination rect + atlas UV for the VISIBLE part of an atlas glyph under
@@ -2111,7 +2249,12 @@ pub fn glyph_quad(
     let vh = vy1 - vy0;
     let v_top = (vy0 - gy0) / ys as f32; // source pixels from the glyph top
     let rect = [gx0, vy0, gw as f32 * xs as f32, vh];
-    let uv = [ax as f32 / aw, (ay as f32 + v_top) / ah, gw as f32 / aw, (vh / ys as f32) / ah];
+    let uv = [
+        ax as f32 / aw,
+        (ay as f32 + v_top) / ah,
+        gw as f32 / aw,
+        (vh / ys as f32) / ah,
+    ];
     Some((rect, uv))
 }
 
@@ -2188,7 +2331,13 @@ fn slant(cov: &[u8], w: usize, h: usize, shear: f32) -> (Vec<u8>, usize) {
 /// Apply synthetic BOLD (embolden) then ITALIC (slant) to a freshly rasterized
 /// mono coverage bitmap, returning the possibly-widened `(width, bytes)`. The
 /// advance and left bearing stay the original so cell layout is unchanged.
-fn apply_synthetic_style(style: StyleBits, w: usize, h: usize, bytes: Vec<u8>, px: f32) -> (usize, Vec<u8>) {
+fn apply_synthetic_style(
+    style: StyleBits,
+    w: usize,
+    h: usize,
+    bytes: Vec<u8>,
+    px: f32,
+) -> (usize, Vec<u8>) {
     let (mut w, mut bytes) = (w, bytes);
     if style.contains(StyleBits::BOLD) {
         let e = (px / 18.0).round().max(1.0) as usize;
@@ -2245,7 +2394,14 @@ fn stem_darken(cov: &mut [u8]) {
 /// A zero-sized colour glyph: the blit treats it as a no-op (like a space).
 /// Returned when a colour-emoji bitmap is missing or undecodable.
 fn empty_rgba() -> GlyphImage {
-    GlyphImage::Rgba { width: 0, height: 0, xmin: 0, ymin: 0, advance: 0.0, bytes: Vec::new() }
+    GlyphImage::Rgba {
+        width: 0,
+        height: 0,
+        xmin: 0,
+        ymin: 0,
+        advance: 0.0,
+        bytes: Vec::new(),
+    }
 }
 
 /// Pack an `[r, g, b]` triple into the framebuffer's `0x00RRGGBB` format.
@@ -2308,6 +2464,17 @@ pub fn decode_image_to_footprint(
     if fp_w == 0 || fp_h == 0 {
         return None;
     }
+    // Already-decoded RGBA8 (the sixel path): resample the stored raster to the
+    // footprint directly — no container to decode. The engine guarantees the
+    // byte layout (`[r, g, b, a]` per pixel, row-major over `width`), matching
+    // `bilinear_rgba`'s input contract.
+    if let aterm_core::grid::extra::ImageFormat::RawRgba8 { width, height } = format {
+        let (w, h) = (width as usize, height as usize);
+        if w == 0 || h == 0 || bytes.len() < w.checked_mul(h)?.checked_mul(4)? {
+            return None;
+        }
+        return Some(bilinear_rgba(&bytes[..w * h * 4], w, h, fp_w, fp_h));
+    }
     // Only PNG is decodable today; anything else degrades to nothing.
     if !matches!(format, aterm_core::grid::extra::ImageFormat::Png) {
         return None;
@@ -2359,6 +2526,32 @@ fn bilinear_rgba(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<
     out
 }
 
+// The CPU renderer as the injected `Rasterizer` (ATERM_DESIGN WS-F). Forwards to
+// the inherent methods via UFCS so the trait and inherent `render_input` names
+// cannot collide. The trait is `&Terminal`-free (A-3): the renderer consumes only
+// the engine-built `RenderInput`.
+impl Rasterizer for Renderer {
+    fn cell_size(&self) -> (usize, usize) {
+        Renderer::cell_size(self)
+    }
+    fn render_input(&mut self, input: &RenderInput) -> Frame {
+        Renderer::render_input(self, input)
+    }
+    // `render_input_cached` is intentionally NOT overridden (mirror of S5's
+    // `impl Rasterizer for GpuRenderer`): the inherent version returns a
+    // `RenderView` borrowing a per-window `WindowCpu`'s damage cache, which the
+    // `&Terminal`-/window-free trait signature can't thread. The trait's default
+    // (`RenderView::Owned(self.render_input(input))`) is byte-identical and
+    // object-safe; the CPU hot path calls the inherent
+    // `render_input_cached(wc, ..)` directly, not via this trait.
+    fn set_cursor_blink_phase(&mut self, on: bool) {
+        Renderer::set_cursor_blink_phase(self, on)
+    }
+    fn set_cursor_style_override(&mut self, style: Option<CursorStyle>) {
+        Renderer::set_cursor_style_override(self, style)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2377,6 +2570,42 @@ mod tests {
         // halfway is grey-ish
         let mid = blend(0x000000, 0xffffff, 128);
         assert!((mid & 0xff) > 0x70 && (mid & 0xff) < 0x90);
+    }
+
+    #[test]
+    fn decode_raw_rgba8_resamples_directly_to_footprint() {
+        use aterm_core::grid::extra::ImageFormat;
+        // A 2x2 opaque-red RGBA8 raster (the layout the sixel path produces:
+        // [R, G, B, A] per pixel, row-major). Decoding to a 4x4 footprint must
+        // succeed (no codec) and fill it with red, alpha 255.
+        let mut raster = Vec::with_capacity(2 * 2 * 4);
+        for _ in 0..4 {
+            raster.extend_from_slice(&[0xFF, 0x00, 0x00, 0xFF]);
+        }
+        let out =
+            decode_image_to_footprint(&raster, ImageFormat::RawRgba8 { width: 2, height: 2 }, 4, 4)
+                .expect("RawRgba8 must decode without a codec");
+        assert_eq!(out.len(), 4 * 4 * 4, "footprint is 4x4 RGBA");
+        // Every footprint pixel is the source red, alpha preserved.
+        for px in out.chunks_exact(4) {
+            assert_eq!(px[0], 0xFF, "R");
+            assert_eq!(px[1], 0x00, "G");
+            assert_eq!(px[2], 0x00, "B");
+            assert_eq!(px[3], 0xFF, "A");
+        }
+    }
+
+    #[test]
+    fn decode_raw_rgba8_rejects_short_buffer() {
+        use aterm_core::grid::extra::ImageFormat;
+        // Declared 4x4 (= 64 bytes) but only 4 bytes supplied: must return None
+        // (cached as "draw nothing") rather than read out of bounds.
+        let short = vec![0xFFu8; 4];
+        assert!(
+            decode_image_to_footprint(&short, ImageFormat::RawRgba8 { width: 4, height: 4 }, 8, 8)
+                .is_none(),
+            "a too-short RawRgba8 buffer must decode to None"
+        );
     }
 
     #[test]
@@ -2433,12 +2662,18 @@ mod tests {
         // Cell (0,0) holds the red 'R': its glyph must paint red-dominant pixels.
         let r_cell_red = cell_pixels(&frame, 0, 0, cw, ch)
             .any(|p| channels(p).0 > channels(p).1 && channels(p).0 > channels(p).2);
-        assert!(r_cell_red, "expected red-dominant glyph pixels in the 'R' cell");
+        assert!(
+            r_cell_red,
+            "expected red-dominant glyph pixels in the 'R' cell"
+        );
 
         // Cell (0,1) has a green background fill: it must be green-dominant.
         let g_cell_green = cell_pixels(&frame, 1, 0, cw, ch)
             .any(|p| channels(p).1 > channels(p).0 && channels(p).1 > channels(p).2);
-        assert!(g_cell_green, "expected green-dominant background in the 'G' cell");
+        assert!(
+            g_cell_green,
+            "expected green-dominant background in the 'G' cell"
+        );
     }
 
     /// (r, g, b) channels of a packed `0x00RRGGBB` pixel.
@@ -2455,9 +2690,8 @@ mod tests {
         ch: usize,
     ) -> impl Iterator<Item = u32> + '_ {
         let (x0, y0) = (col * cw, row * ch);
-        (y0..y0 + ch).flat_map(move |y| {
-            (x0..x0 + cw).map(move |x| frame.pixels[y * frame.width + x])
-        })
+        (y0..y0 + ch)
+            .flat_map(move |y| (x0..x0 + cw).map(move |x| frame.pixels[y * frame.width + x]))
     }
 
     /// The bytes of the first readable primary-font candidate ($ATERM_FONT
@@ -2509,7 +2743,11 @@ mod tests {
             // the crispness pass through.
             let mut expected = direct.clone();
             stem_darken(&mut expected);
-            assert_eq!(img.bytes(), expected.as_slice(), "coverage bytes differ for {ch:?}");
+            assert_eq!(
+                img.bytes(),
+                expected.as_slice(),
+                "coverage bytes differ for {ch:?}"
+            );
         }
     }
 
@@ -2526,7 +2764,10 @@ mod tests {
         let k2 = r.glyph_key('M');
         assert_eq!(k1, k2);
         assert_eq!(k1.source, FaceId::Primary);
-        assert!(r.fallback.is_none(), "ASCII lookup must not load the fallback face");
+        assert!(
+            r.fallback.is_none(),
+            "ASCII lookup must not load the fallback face"
+        );
         assert_eq!(r.keys.len(), 1);
     }
 
@@ -2545,8 +2786,14 @@ mod tests {
         }
         assert_eq!(key.source, FaceId::Fallback);
         let img = r.glyph_image(key);
-        assert!(img.width() > 0 && img.height() > 0, "CJK glyph rasterized empty");
-        assert!(img.bytes().iter().any(|&c| c > 0), "CJK glyph has no coverage");
+        assert!(
+            img.width() > 0 && img.height() > 0,
+            "CJK glyph rasterized empty"
+        );
+        assert!(
+            img.bytes().iter().any(|&c| c > 0),
+            "CJK glyph has no coverage"
+        );
     }
 
     /// Box-drawing/block/braille chars intercept BEFORE any face lookup:
@@ -2561,21 +2808,33 @@ mod tests {
         };
         let (cw, ch) = r.cell_size();
         let baseline = r.baseline();
-        for c in ['─', '│', '┼', '╋', '╬', '╭', '╳', '█', '▚', '░', '\u{28FF}'] {
+        for c in ['─', '│', '┼', '╋', '╬', '╭', '╳', '█', '▚', '░', '\u{28FF}']
+        {
             let key = r.glyph_key(c);
             assert_eq!(key.source, FaceId::Procedural, "{c:?} must be procedural");
             let img = r.glyph_image(key).clone();
-            assert_eq!((img.width(), img.height()), (cw, ch), "{c:?} must fill the cell");
+            assert_eq!(
+                (img.width(), img.height()),
+                (cw, ch),
+                "{c:?} must fill the cell"
+            );
             assert_eq!(img.xmin(), 0, "{c:?} anchors at the cell's left edge");
             // blit row anchor: cell_y + baseline - height - ymin == cell_y.
-            assert_eq!(baseline - img.height() as i32 - img.ymin(), 0, "{c:?} anchors at the cell top");
+            assert_eq!(
+                baseline - img.height() as i32 - img.ymin(),
+                0,
+                "{c:?} anchors at the cell top"
+            );
             assert!(
                 img.bytes().iter().all(|&b| b == 0 || b == 255),
                 "{c:?} must be hard 0/255 coverage"
             );
-            assert!(img.bytes().iter().any(|&b| b == 255), "{c:?} must draw something");
+            assert!(img.bytes().contains(&255), "{c:?} must draw something");
         }
-        assert!(r.fallback.is_none(), "procedural dispatch must not load the fallback face");
+        assert!(
+            r.fallback.is_none(),
+            "procedural dispatch must not load the fallback face"
+        );
     }
 
     /// The Rgba placeholder is wired but produces nothing yet: an Rgba key
@@ -2595,7 +2854,10 @@ mod tests {
             return;
         }
         // A real colour glyph: non-empty, sized RGBA with some opaque texels.
-        assert!(img.width() > 0 && img.height() > 0, "colour emoji glyph is empty");
+        assert!(
+            img.width() > 0 && img.height() > 0,
+            "colour emoji glyph is empty"
+        );
         assert_eq!(img.bytes().len(), img.width() * img.height() * 4);
         assert!(
             img.bytes().chunks_exact(4).any(|p| p[3] > 0),
@@ -2640,9 +2902,19 @@ mod tests {
             ("thumb-skin", "\u{1F44D}\u{1F3FD}"),
             ("flag-US", "\u{1F1FA}\u{1F1F8}"),
         ] {
-            let key = r.glyph_key_cluster(s).unwrap_or_else(|| panic!("{name} should shape to a glyph"));
-            assert_eq!(key.glyph_class, GlyphClass::RgbaGid, "{name} key is glyph-id-addressed");
-            assert_eq!(key.source, FaceId::ColorEmoji, "{name} uses the colour face");
+            let key = r
+                .glyph_key_cluster(s)
+                .unwrap_or_else(|| panic!("{name} should shape to a glyph"));
+            assert_eq!(
+                key.glyph_class,
+                GlyphClass::RgbaGid,
+                "{name} key is glyph-id-addressed"
+            );
+            assert_eq!(
+                key.source,
+                FaceId::ColorEmoji,
+                "{name} uses the colour face"
+            );
             let img = r.glyph_image(key).clone();
             assert!(
                 matches!(img, GlyphImage::Rgba { .. }) && img.width() > 0 && img.height() > 0,
@@ -2655,7 +2927,10 @@ mod tests {
         }
         // A non-emoji "cluster" (Latin base + combining acute) has no colour
         // glyph, so shaping declines and the caller falls back to the base.
-        assert!(r.glyph_key_cluster("e\u{0301}").is_none(), "Latin diacritic must not shape to colour");
+        assert!(
+            r.glyph_key_cluster("e\u{0301}").is_none(),
+            "Latin diacritic must not shape to colour"
+        );
     }
 
     /// Synthetic bold/italic: a BOLD key keeps the Mono class but carries the
@@ -2679,12 +2954,22 @@ mod tests {
         assert!(bold.style.contains(StyleBits::BOLD));
         assert_ne!(reg, bold, "bold key differs from regular");
         let bold_img = r.glyph_image(bold).clone();
-        assert!(ink(&bold_img) > ink(&reg_img), "bold glyph should have more ink than regular");
+        assert!(
+            ink(&bold_img) > ink(&reg_img),
+            "bold glyph should have more ink than regular"
+        );
 
         let ital = r.glyph_key_styled('M', StyleBits::ITALIC);
         let ital_img = r.glyph_image(ital).clone();
-        assert!(ital_img.width() >= reg_img.width(), "italic shear widens the bitmap");
-        assert_ne!(reg_img.bytes(), ital_img.bytes(), "italic glyph differs from regular");
+        assert!(
+            ital_img.width() >= reg_img.width(),
+            "italic shear widens the bitmap"
+        );
+        assert_ne!(
+            reg_img.bytes(),
+            ital_img.bytes(),
+            "italic glyph differs from regular"
+        );
 
         // REGULAR style short-circuits to the plain unstyled key.
         assert_eq!(r.glyph_key_styled('M', StyleBits::REGULAR), reg);
@@ -2715,15 +3000,28 @@ mod tests {
         // place, not freshly allocated — and the pixels identical.
         let ptr2 = {
             let f = r.render_input_cached(&mut wc, &input);
-            assert_eq!(f.pixels(), expected.as_slice(), "reused-buffer frame differs frame-to-frame");
+            assert_eq!(
+                f.pixels(),
+                expected.as_slice(),
+                "reused-buffer frame differs frame-to-frame"
+            );
             f.pixels().as_ptr()
         };
-        assert_eq!(ptr1, ptr2, "steady-size frame must REUSE the pixel allocation");
+        assert_eq!(
+            ptr1, ptr2,
+            "steady-size frame must REUSE the pixel allocation"
+        );
 
         // And the borrowing path is byte-identical to the allocating render_input.
         let owned = r.render_input(&input);
-        assert_eq!(owned.pixels, expected, "render_input_cached must match render_input pixels");
-        assert_eq!((owned.width, owned.height), (input.cols * r.cell_w, input.rows * r.cell_h));
+        assert_eq!(
+            owned.pixels, expected,
+            "render_input_cached must match render_input pixels"
+        );
+        assert_eq!(
+            (owned.width, owned.height),
+            (input.cols * r.cell_w, input.rows * r.cell_h)
+        );
     }
 
     /// S5c (CPU `WindowGpu` analog): TWO `WindowCpu` interleaved through ONE
@@ -2755,7 +3053,9 @@ mod tests {
         // virgin `WindowCpu`, so this is unambiguously the correct pixels for A).
         let expected_a = {
             let mut wc_fresh = WindowCpu::new();
-            r.render_input_cached(&mut wc_fresh, &input_a).pixels().to_vec()
+            r.render_input_cached(&mut wc_fresh, &input_a)
+                .pixels()
+                .to_vec()
         };
 
         let mut wc_a = WindowCpu::new();
@@ -2763,7 +3063,11 @@ mod tests {
         // Window A renders input A (populates wc_A's cache with A).
         {
             let va = r.render_input_cached(&mut wc_a, &input_a);
-            assert_eq!(va.pixels(), expected_a.as_slice(), "wc_A first render must equal A");
+            assert_eq!(
+                va.pixels(),
+                expected_a.as_slice(),
+                "wc_A first render must equal A"
+            );
         }
         // Window B renders a DIFFERENT input B through the SAME renderer. If the
         // cache were shared on `Renderer`, this would overwrite A's cached input.
@@ -2800,7 +3104,11 @@ mod tests {
         let input = term.cell_frame(rows, cols);
 
         // Baseline: no padding (the historical dims + pixels).
-        assert_eq!(r.pad(), 0, "default pad is 0 (byte-identical historical path)");
+        assert_eq!(
+            r.pad(),
+            0,
+            "default pad is 0 (byte-identical historical path)"
+        );
         let base = r.render_input(&input);
         assert_eq!((base.width, base.height), (cols * cw, rows * ch));
 
@@ -2830,13 +3138,20 @@ mod tests {
             assert_eq!(padded.pixels[x], bg, "top padding row is bg");
         }
         for y in 0..padded.height {
-            assert_eq!(padded.pixels[y * padded.width], bg, "left padding column is bg");
+            assert_eq!(
+                padded.pixels[y * padded.width],
+                bg,
+                "left padding column is bg"
+            );
         }
 
         // Back to 0 reproduces the baseline exactly (idempotent round-trip).
         r.set_pad(0);
         let back = r.render_input(&input);
-        assert_eq!(back.pixels, base.pixels, "pad 0 restores the byte-identical render");
+        assert_eq!(
+            back.pixels, base.pixels,
+            "pad 0 restores the byte-identical render"
+        );
     }
 
     /// C-1: `cell_frame_into` refilling a reused `RenderInput` yields the SAME
@@ -2858,8 +3173,11 @@ mod tests {
         term.cell_frame_into(&mut reused, 1, 4);
         term.cell_frame_into(&mut reused, 2, 8);
 
-        assert_eq!(r.render_input(&fresh).pixels, r.render_input(&reused).pixels,
-            "cell_frame_into must produce pixels identical to a fresh cell_frame");
+        assert_eq!(
+            r.render_input(&fresh).pixels,
+            r.render_input(&reused).pixels,
+            "cell_frame_into must produce pixels identical to a fresh cell_frame"
+        );
     }
 
     /// VS16 presentation: `❤️` (U+2764 + VS16) must resolve to the COLOUR face
@@ -2882,11 +3200,26 @@ mod tests {
         }
         let text_key = r.glyph_key(heart);
         let emoji_key = r.glyph_key_emoji(heart);
-        assert_eq!(emoji_key.source, FaceId::ColorEmoji, "VS16 heart must use the colour face");
-        assert_eq!(emoji_key.glyph_class, GlyphClass::Rgba, "VS16 heart must be an Rgba glyph");
-        assert_ne!(text_key, emoji_key, "text and emoji presentations must differ");
+        assert_eq!(
+            emoji_key.source,
+            FaceId::ColorEmoji,
+            "VS16 heart must use the colour face"
+        );
+        assert_eq!(
+            emoji_key.glyph_class,
+            GlyphClass::Rgba,
+            "VS16 heart must be an Rgba glyph"
+        );
+        assert_ne!(
+            text_key, emoji_key,
+            "text and emoji presentations must differ"
+        );
         // The text presentation is a mono glyph (the black heart from a text font).
-        assert_eq!(text_key.glyph_class, GlyphClass::Mono, "bare ❤ should stay mono");
+        assert_eq!(
+            text_key.glyph_class,
+            GlyphClass::Mono,
+            "bare ❤ should stay mono"
+        );
         // And the colour glyph actually rasterizes to a non-empty colour bitmap.
         let img = r.glyph_image(emoji_key).clone();
         assert!(
@@ -2920,7 +3253,9 @@ mod tests {
     /// like `$ATERM_FONT`. (Use the first built-in candidate that exists.)
     #[test]
     fn resolve_family_explicit_path_passthrough() {
-        let Some(existing) = FONT_CANDIDATES.iter().find(|p| std::path::Path::new(p).is_file())
+        let Some(existing) = FONT_CANDIDATES
+            .iter()
+            .find(|p| std::path::Path::new(p).is_file())
         else {
             return; // no system font on this host (e.g. headless CI) — skip
         };
@@ -2934,7 +3269,9 @@ mod tests {
     /// `None` family reduces to `from_system`, so the unset path is unchanged.
     #[test]
     fn from_system_with_family_honors_resolved_path() {
-        let Some(existing) = FONT_CANDIDATES.iter().find(|p| std::path::Path::new(p).is_file())
+        let Some(existing) = FONT_CANDIDATES
+            .iter()
+            .find(|p| std::path::Path::new(p).is_file())
         else {
             return; // no system font — skip
         };
@@ -2955,35 +3292,13 @@ mod tests {
         // host has any system font at all.
         if renderer().is_some() {
             assert!(
-                Renderer::from_system_with_family(Some("NoSuchFamilyXYZ123"), 16.0, Theme::default())
-                    .is_some()
+                Renderer::from_system_with_family(
+                    Some("NoSuchFamilyXYZ123"),
+                    16.0,
+                    Theme::default()
+                )
+                .is_some()
             );
         }
-    }
-}
-
-// The CPU renderer as the injected `Rasterizer` (ATERM_DESIGN WS-F). Forwards to
-// the inherent methods via UFCS so the trait and inherent `render_input` names
-// cannot collide. The trait is `&Terminal`-free (A-3): the renderer consumes only
-// the engine-built `RenderInput`.
-impl Rasterizer for Renderer {
-    fn cell_size(&self) -> (usize, usize) {
-        Renderer::cell_size(self)
-    }
-    fn render_input(&mut self, input: &RenderInput) -> Frame {
-        Renderer::render_input(self, input)
-    }
-    // `render_input_cached` is intentionally NOT overridden (mirror of S5's
-    // `impl Rasterizer for GpuRenderer`): the inherent version returns a
-    // `RenderView` borrowing a per-window `WindowCpu`'s damage cache, which the
-    // `&Terminal`-/window-free trait signature can't thread. The trait's default
-    // (`RenderView::Owned(self.render_input(input))`) is byte-identical and
-    // object-safe; the CPU hot path calls the inherent
-    // `render_input_cached(wc, ..)` directly, not via this trait.
-    fn set_cursor_blink_phase(&mut self, on: bool) {
-        Renderer::set_cursor_blink_phase(self, on)
-    }
-    fn set_cursor_style_override(&mut self, style: Option<CursorStyle>) {
-        Renderer::set_cursor_style_override(self, style)
     }
 }

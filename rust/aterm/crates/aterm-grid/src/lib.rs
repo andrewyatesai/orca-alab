@@ -4,9 +4,10 @@
 
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::all)]
-// F11-4 (#7941): production unwrap()/expect() forbidden; tests opt out
-// per `#[allow(clippy::unwrap_used)]` at their module boundary.
+// F11-4 (#7941): production unwrap() is forbidden; tests opt out uniformly at the
+// crate root so a missing per-module allow can't silently slip past clippy.
 #![deny(clippy::unwrap_used)]
+#![cfg_attr(test, allow(clippy::unwrap_used))]
 
 //! Terminal grid model: Grid, cells, rows, styles, damage tracking, page storage.
 //!

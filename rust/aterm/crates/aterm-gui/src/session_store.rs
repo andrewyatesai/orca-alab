@@ -138,10 +138,10 @@ impl SessionStore {
     /// Mark the session's lifecycle state (e.g. `Exited` on `Wake::Exit`). A no-op
     /// if the id is unknown.
     pub fn set_state(&mut self, local_id: u64, state: SessionState) {
-        if let Some(sid) = self.by_local.get(&local_id) {
-            if let Some(h) = self.by_id.get_mut(sid) {
-                h.state = state;
-            }
+        if let Some(sid) = self.by_local.get(&local_id)
+            && let Some(h) = self.by_id.get_mut(sid)
+        {
+            h.state = state;
         }
     }
 
@@ -149,13 +149,12 @@ impl SessionStore {
     /// (the caller no longer allocates a `String` per redraw) and only mutates on an
     /// ACTUAL change, so a no-op relabel reuses the existing buffer. No-op if unknown.
     pub fn set_title(&mut self, local_id: u64, title: &str) {
-        if let Some(sid) = self.by_local.get(&local_id) {
-            if let Some(h) = self.by_id.get_mut(sid) {
-                if h.title != title {
-                    h.title.clear();
-                    h.title.push_str(title);
-                }
-            }
+        if let Some(sid) = self.by_local.get(&local_id)
+            && let Some(h) = self.by_id.get_mut(sid)
+            && h.title != title
+        {
+            h.title.clear();
+            h.title.push_str(title);
         }
     }
 
@@ -169,7 +168,9 @@ impl SessionStore {
     /// Look up a handle by its process-local `u64` id. Total + fail-closed.
     #[must_use]
     pub fn by_local(&self, local_id: u64) -> Option<&SessionHandle> {
-        self.by_local.get(&local_id).and_then(|sid| self.by_id.get(sid))
+        self.by_local
+            .get(&local_id)
+            .and_then(|sid| self.by_id.get(sid))
     }
 
     /// Number of registered sessions.
@@ -200,8 +201,8 @@ impl SessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aterm_session::sink::SinkWriter;
     use aterm_session::EdgeTable;
+    use aterm_session::sink::SinkWriter;
 
     fn handle(local_id: u64, parent: Option<SessionId>) -> SessionHandle {
         let sid = SessionId::generate();
@@ -266,9 +267,16 @@ mod tests {
         store.register(handle(1, Some(root_sid.clone())));
 
         let snap = store.snapshot();
-        assert_eq!(snap.iter().map(|h| h.local_id).collect::<Vec<_>>(), vec![0, 1, 2]);
+        assert_eq!(
+            snap.iter().map(|h| h.local_id).collect::<Vec<_>>(),
+            vec![0, 1, 2]
+        );
         assert_eq!(snap[0].parent, None, "root has no parent");
-        assert_eq!(snap[1].parent.as_ref(), Some(&root_sid), "child links to root");
+        assert_eq!(
+            snap[1].parent.as_ref(),
+            Some(&root_sid),
+            "child links to root"
+        );
     }
 
     #[test]

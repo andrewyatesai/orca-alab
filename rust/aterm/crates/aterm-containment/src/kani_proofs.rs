@@ -88,16 +88,43 @@ fn capabilities_match_mode_tla_policy_part1() {
     let mode = mode_from_level(level);
 
     // Network: Containment=0, Safety=1, User=2, Master=2
-    let expected_net: u8 = match level { 0 => 0, 1 => 1, 2 | 3 => 2, _ => unreachable!() };
-    kani::assert(ContainmentPolicy::network(mode) as u8 == expected_net, "PolicyNetwork mismatch");
+    let expected_net: u8 = match level {
+        0 => 0,
+        1 => 1,
+        2 | 3 => 2,
+        _ => unreachable!(),
+    };
+    kani::assert(
+        ContainmentPolicy::network(mode) as u8 == expected_net,
+        "PolicyNetwork mismatch",
+    );
     // Fs: Containment=0, Safety=1, User=2, Master=3
-    kani::assert(ContainmentPolicy::fs(mode) as u8 == level, "PolicyFs mismatch");
+    kani::assert(
+        ContainmentPolicy::fs(mode) as u8 == level,
+        "PolicyFs mismatch",
+    );
     // Process: Containment=0, Safety=1, User=2, Master=2
-    let expected_proc: u8 = match level { 0 => 0, 1 => 1, 2 | 3 => 2, _ => unreachable!() };
-    kani::assert(ContainmentPolicy::process(mode) as u8 == expected_proc, "PolicyProcess mismatch");
+    let expected_proc: u8 = match level {
+        0 => 0,
+        1 => 1,
+        2 | 3 => 2,
+        _ => unreachable!(),
+    };
+    kani::assert(
+        ContainmentPolicy::process(mode) as u8 == expected_proc,
+        "PolicyProcess mismatch",
+    );
     // MCP: Containment=0, Safety=1, User=2, Master=2
-    let expected_mcp: u8 = match level { 0 => 0, 1 => 1, 2 | 3 => 2, _ => unreachable!() };
-    kani::assert(ContainmentPolicy::mcp(mode) as u8 == expected_mcp, "PolicyMcp mismatch");
+    let expected_mcp: u8 = match level {
+        0 => 0,
+        1 => 1,
+        2 | 3 => 2,
+        _ => unreachable!(),
+    };
+    kani::assert(
+        ContainmentPolicy::mcp(mode) as u8 == expected_mcp,
+        "PolicyMcp mismatch",
+    );
 }
 
 #[kani::proof]
@@ -107,16 +134,43 @@ fn capabilities_match_mode_tla_policy_part2() {
     let mode = mode_from_level(level);
 
     // Plugins: Containment=0, Safety=1, User=2, Master=2
-    let expected_plug: u8 = match level { 0 => 0, 1 => 1, 2 | 3 => 2, _ => unreachable!() };
-    kani::assert(ContainmentPolicy::plugins(mode) as u8 == expected_plug, "PolicyPlugins mismatch");
+    let expected_plug: u8 = match level {
+        0 => 0,
+        1 => 1,
+        2 | 3 => 2,
+        _ => unreachable!(),
+    };
+    kani::assert(
+        ContainmentPolicy::plugins(mode) as u8 == expected_plug,
+        "PolicyPlugins mismatch",
+    );
     // Output: Containment=0, Safety=1, User=1, Master=2
-    let expected_out: u8 = match level { 0 => 0, 1 | 2 => 1, 3 => 2, _ => unreachable!() };
-    kani::assert(ContainmentPolicy::output(mode) as u8 == expected_out, "PolicyOutput mismatch");
+    let expected_out: u8 = match level {
+        0 => 0,
+        1 | 2 => 1,
+        3 => 2,
+        _ => unreachable!(),
+    };
+    kani::assert(
+        ContainmentPolicy::output(mode) as u8 == expected_out,
+        "PolicyOutput mismatch",
+    );
     // Input: Containment=0, Safety=1, User=1, Master=2
-    let expected_in: u8 = match level { 0 => 0, 1 | 2 => 1, 3 => 2, _ => unreachable!() };
-    kani::assert(ContainmentPolicy::input(mode) as u8 == expected_in, "PolicyInput mismatch");
+    let expected_in: u8 = match level {
+        0 => 0,
+        1 | 2 => 1,
+        3 => 2,
+        _ => unreachable!(),
+    };
+    kani::assert(
+        ContainmentPolicy::input(mode) as u8 == expected_in,
+        "PolicyInput mismatch",
+    );
     // Command: Containment=0, Safety=1, User=2, Master=3
-    kani::assert(ContainmentPolicy::command(mode) as u8 == level, "PolicyCommand mismatch");
+    kani::assert(
+        ContainmentPolicy::command(mode) as u8 == level,
+        "PolicyCommand mismatch",
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -281,9 +335,15 @@ fn policy_is_total_on_all_modes_part1() {
     let level: u8 = kani::any();
     kani::assume(level <= 3);
     let mode = mode_from_level(level);
-    kani::assert(ContainmentPolicy::network(mode) as u8 <= 2, "network out of range");
+    kani::assert(
+        ContainmentPolicy::network(mode) as u8 <= 2,
+        "network out of range",
+    );
     kani::assert(ContainmentPolicy::fs(mode) as u8 <= 3, "fs out of range");
-    kani::assert(ContainmentPolicy::process(mode) as u8 <= 2, "process out of range");
+    kani::assert(
+        ContainmentPolicy::process(mode) as u8 <= 2,
+        "process out of range",
+    );
     kani::assert(ContainmentPolicy::mcp(mode) as u8 <= 2, "mcp out of range");
 }
 
@@ -292,10 +352,22 @@ fn policy_is_total_on_all_modes_part2() {
     let level: u8 = kani::any();
     kani::assume(level <= 3);
     let mode = mode_from_level(level);
-    kani::assert(ContainmentPolicy::plugins(mode) as u8 <= 2, "plugins out of range");
-    kani::assert(ContainmentPolicy::output(mode) as u8 <= 2, "output out of range");
-    kani::assert(ContainmentPolicy::input(mode) as u8 <= 2, "input out of range");
-    kani::assert(ContainmentPolicy::command(mode) as u8 <= 3, "command out of range");
+    kani::assert(
+        ContainmentPolicy::plugins(mode) as u8 <= 2,
+        "plugins out of range",
+    );
+    kani::assert(
+        ContainmentPolicy::output(mode) as u8 <= 2,
+        "output out of range",
+    );
+    kani::assert(
+        ContainmentPolicy::input(mode) as u8 <= 2,
+        "input out of range",
+    );
+    kani::assert(
+        ContainmentPolicy::command(mode) as u8 <= 3,
+        "command out of range",
+    );
 }
 
 // -----------------------------------------------------------------------

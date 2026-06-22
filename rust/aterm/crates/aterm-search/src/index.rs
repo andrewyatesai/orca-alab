@@ -309,7 +309,10 @@ impl SearchIndex {
         // Advance the retained-line watermark to the smallest remaining line.
         // Matches below this line are gone and can no longer be returned, so
         // callers must treat results that span this range as incomplete.
-        self.lowest_retained_line = line_nums.get(evict_count).copied().unwrap_or(self.next_line);
+        self.lowest_retained_line = line_nums
+            .get(evict_count)
+            .copied()
+            .unwrap_or(self.next_line);
         self.eviction_occurred = true;
 
         // Warn once: results are now potentially incomplete for the lifetime of
@@ -378,6 +381,43 @@ impl SearchIndex {
         true
     }
 
+    /// Intersect the posting lists for every trigram in `query`.
+    ///
+    /// Shared core of `search`, `search_from_line`, and `search_before_line`:
+    /// each caller handles its own empty-query / short-query / bloom-filter
+    /// guards and candidate source, then defers to this for the intersection.
+    ///
+    /// Returns `None` when no matches are possible (a trigram is missing or the
+    /// query yields no posting lists), and `Some(bitmap)` with the intersection
+    /// otherwise. Caller is responsible for ensuring `query` has 3+ bytes.
+    fn intersect_trigrams(&self, query: &str) -> Option<SparseBitmap> {
+        let bytes = query.as_bytes();
+
+        // Intersect posting lists for all trigrams.
+        // Collect references first, then build the result starting from the
+        // smallest posting list to minimize clone + intersection cost (#7357).
+        let mut posting_lists: Vec<&SparseBitmap> = Vec::new();
+
+        for window in bytes.windows(3) {
+            let trigram: [u8; 3] = [window[0], window[1], window[2]];
+
+            if let Some(bitmap) = self.trigrams.get(&trigram) {
+                posting_lists.push(bitmap);
+            } else {
+                // Trigram not found, no matches possible
+                return None;
+            }
+        }
+
+        if posting_lists.is_empty() {
+            return None;
+        }
+
+        // Sort by size so intersect_posting_lists starts from the smallest.
+        posting_lists.sort_unstable_by_key(|b| b.len());
+        Some(intersect_posting_lists(&posting_lists))
+    }
+
     /// Search for a query string.
     ///
     /// Returns line numbers that might contain the query.
@@ -396,29 +436,9 @@ impl SearchIndex {
             return SearchResult::None;
         }
 
-        // Intersect posting lists for all trigrams.
-        // Collect references first, then build the result starting from the
-        // smallest posting list to minimize clone + intersection cost (#7357).
-        let mut posting_lists: Vec<&SparseBitmap> = Vec::new();
-
-        for window in bytes.windows(3) {
-            let trigram: [u8; 3] = [window[0], window[1], window[2]];
-
-            if let Some(bitmap) = self.trigrams.get(&trigram) {
-                posting_lists.push(bitmap);
-            } else {
-                // Trigram not found, no matches possible
-                return SearchResult::None;
-            }
-        }
-
-        if posting_lists.is_empty() {
+        let Some(result) = self.intersect_trigrams(query) else {
             return SearchResult::None;
-        }
-
-        // Sort by size so intersect_posting_lists starts from the smallest.
-        posting_lists.sort_unstable_by_key(|b| b.len());
-        let result = intersect_posting_lists(&posting_lists);
+        };
         SearchResult::Bitmap(Box::new(result.into_iter()))
     }
 
@@ -602,29 +622,9 @@ impl SearchIndex {
             return SearchMatchIterator::new(self, query, empty());
         }
 
-        // Intersect posting lists for all trigrams.
-        // Collect references first, then build the result starting from the
-        // smallest posting list to minimize clone + intersection cost (#7357).
-        let mut posting_lists: Vec<&SparseBitmap> = Vec::new();
-
-        for window in bytes.windows(3) {
-            let trigram: [u8; 3] = [window[0], window[1], window[2]];
-
-            if let Some(bitmap) = self.trigrams.get(&trigram) {
-                posting_lists.push(bitmap);
-            } else {
-                // Trigram not found, no matches possible
-                return SearchMatchIterator::new(self, query, empty());
-            }
-        }
-
-        if posting_lists.is_empty() {
+        let Some(result) = self.intersect_trigrams(query) else {
             return SearchMatchIterator::new(self, query, empty());
-        }
-
-        // Sort by size so intersect_posting_lists starts from the smallest.
-        posting_lists.sort_unstable_by_key(|b| b.len());
-        let result = intersect_posting_lists(&posting_lists);
+        };
 
         // Lazy iteration: remove elements below from_line (O(log n))
         // and iterate remaining candidates on demand. Avoids O(k) collect()
@@ -675,29 +675,9 @@ impl SearchIndex {
             return SearchMatchReverseIterator::new(self, query, empty());
         }
 
-        // Intersect posting lists for all trigrams.
-        // Collect references first, then build the result starting from the
-        // smallest posting list to minimize clone + intersection cost (#7357).
-        let mut posting_lists: Vec<&SparseBitmap> = Vec::new();
-
-        for window in bytes.windows(3) {
-            let trigram: [u8; 3] = [window[0], window[1], window[2]];
-
-            if let Some(bitmap) = self.trigrams.get(&trigram) {
-                posting_lists.push(bitmap);
-            } else {
-                // Trigram not found, no matches possible
-                return SearchMatchReverseIterator::new(self, query, empty());
-            }
-        }
-
-        if posting_lists.is_empty() {
+        let Some(result) = self.intersect_trigrams(query) else {
             return SearchMatchReverseIterator::new(self, query, empty());
-        }
-
-        // Sort by size so intersect_posting_lists starts from the smallest.
-        posting_lists.sort_unstable_by_key(|b| b.len());
-        let result = intersect_posting_lists(&posting_lists);
+        };
 
         // Use range query to get only lines before before_line (O(log n) in SparseBitmap)
         let mut candidates: Vec<u32> = result.range(..line_as_u32(before_line)).collect();

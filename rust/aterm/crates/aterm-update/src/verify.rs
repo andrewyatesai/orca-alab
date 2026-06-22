@@ -58,6 +58,13 @@ pub fn team_id(app: &Path) -> Result<String, String> {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
+    parse_team_id(&text)
+}
+
+/// Pure parser for the `TeamIdentifier=` line of `codesign -dv` output, split out
+/// so the pin-matching logic is unit-testable without invoking codesign. Rejects a
+/// missing or `not set` (ad-hoc/unsigned) identifier — fail closed.
+fn parse_team_id(text: &str) -> Result<String, String> {
     let team = text
         .lines()
         .find_map(|l| l.strip_prefix("TeamIdentifier="))
@@ -109,4 +116,39 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
         .next()
         .map(|h| h.to_ascii_lowercase())
         .ok_or_else(|| "shasum produced no digest".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn team_id_parsed_from_codesign_output() {
+        let sample = "Executable=/x\nIdentifier=com.aterm.aterm\nTeamIdentifier=ABCDE12345\nSealed Resources\n";
+        assert_eq!(parse_team_id(sample).unwrap(), "ABCDE12345");
+    }
+
+    #[test]
+    fn team_id_fails_closed_on_adhoc_or_missing() {
+        // ad-hoc / unsigned reports "not set".
+        assert!(parse_team_id("TeamIdentifier=not set\n").is_err());
+        // no line at all → reject (not silently accept).
+        assert!(parse_team_id("Identifier=com.aterm.aterm\n").is_err());
+        assert!(parse_team_id("TeamIdentifier=\n").is_err());
+    }
+
+    #[test]
+    fn sha256_matches_known_vector() {
+        // SHA-256("abc") — the canonical test vector.
+        let dir = std::env::temp_dir().join(format!("aterm-sha-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("v.txt");
+        std::fs::write(&f, b"abc").unwrap();
+        let got = sha256_file(&f).unwrap();
+        assert_eq!(
+            got,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

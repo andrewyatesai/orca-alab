@@ -30,22 +30,69 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use aterm_containment::log_denial;
-use aterm_core::grid::extra::{ImageData, ImageFormat};
-use aterm_core::grid::{CellFlags, Grid, MAX_GRID_COLS, MAX_GRID_ROWS};
-use aterm_core::selection::{SelectionSide, SelectionType, SmartSelection};
-use aterm_core::terminal::{CursorStyle, RenderCell, Terminal, UnderlineStyle};
-use aterm_session::sink::SinkWriter;
-use aterm_session::{decide_edge, EdgeToken, Op, SessionId};
+use aterm_core::terminal::{CursorStyle, Terminal};
+use aterm_session::{EdgeToken, Op, SessionId, decide_edge};
 use winit::event_loop::EventLoopProxy;
 
 use crate::control_auth::{self, AuthOutcome};
-use crate::input::{seam_egress, Egress, InputEvent, InputOutcome, ScrollIntent, Source};
+use crate::input::{Egress, InputEvent, InputOutcome, ScrollIntent, Source, seam_egress};
 use crate::session_store::Store;
 use crate::subscribe::{self, Streams, Subscribers};
-use crate::{SessionCtx, TabAction, Wake, term_lock};
+use crate::{SessionCtx, Wake, term_lock};
+
+/// Read-only screen introspection serializers (the SACRED AI-reads-the-screen
+/// path). Child module of `control`; verbs are dispatched as
+/// `control_query::cmd_*` from [`handle`]. The file lives flat at
+/// `src/control_query.rs` (sibling of `control.rs`), so `#[path]` points at it.
+#[path = "control_query.rs"]
+mod control_query;
+// Re-export the two query serializers that out-of-module callers reach through
+// the stable `crate::control::NAME` path (`crate::subscribe`), so the path keeps
+// resolving after the move.
+pub(crate) use control_query::{styled_frame_payload, visible_row};
+
+/// Input-injection verbs + their parsers (key/ctrl/send/feed/signal/mouse/paste/
+/// focus/resize/scroll/tab). Child module of `control`; dispatched as
+/// `control_input::cmd_*` from [`handle`]. The file lives flat at
+/// `src/control_input.rs` (sibling of `control.rs`), so `#[path]` points at it.
+#[path = "control_input.rs"]
+mod control_input;
+// Re-export the parsers that out-of-module callers reach through the stable
+// `crate::control::NAME` path (`crate::input`), so the path keeps resolving.
+pub(crate) use control_input::{parse_ctrl, parse_key, parse_mouse};
+
+/// Selection / copy / block verbs (`select`/`selection`/`copy`/`blocks`/
+/// `blocktext`/`wait`). Child module of `control`; dispatched as
+/// `control_selection::cmd_*` from [`handle`]. The file lives flat at
+/// `src/control_selection.rs` (sibling of `control.rs`), so `#[path]` points at it.
+#[path = "control_selection.rs"]
+mod control_selection;
+// Re-export `pbcopy` (GUI OSC-52 path, `main.rs`) and the smart-selection
+// gesture helpers (`app_mouse.rs`'s double/triple-click), which both reach
+// through the stable `crate::control::NAME` path, so those paths keep resolving.
+pub(crate) use control_selection::{
+    clipboard_command, pbcopy, select_line, select_word, word_cols,
+};
+
+/// Media-capture verbs (`image`/`image read`/`window`/`chrome`). Child module of
+/// `control`; dispatched as `control_media::cmd_*` from [`handle`]. The file
+/// lives flat at `src/control_media.rs` (sibling of `control.rs`), so `#[path]`
+/// points at it.
+#[path = "control_media.rs"]
+mod control_media;
+// Re-export `image_payload`: `control_query::styled_image_json` reaches it through
+// `super::image_payload`, which now resolves to this sibling module's serializer.
+pub(crate) use control_media::image_payload;
+
+/// Session-graph + capability-authority verbs (`sessions`/`family`/`ready`/
+/// `cast`/`edges`/`grant`/`revoke`/`whoami`). Child module of `control`;
+/// dispatched as `control_session::cmd_*` from [`handle`]. The file lives flat at
+/// `src/control_session.rs` (sibling of `control.rs`), so `#[path]` points at it.
+#[path = "control_session.rs"]
+mod control_session;
 
 /// The containment subsystem name used in audit denials from this socket.
 const AUDIT_SUBSYSTEM: &str = "control_socket";
@@ -80,7 +127,7 @@ fn resolve_active(active: &ActiveHandle) -> (Arc<Mutex<Terminal>>, i32, u64, Arc
 
 /// What a connection is authorized to do, resolved at handshake.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Scope {
+pub(crate) enum Scope {
     /// The per-instance god token: full control of the active session (all verbs,
     /// incl. grant/revoke). Same-uid clients with the instance token keep zero-friction
     /// full power (no regression to aterm-ctl). Because the instance token is the
@@ -137,9 +184,8 @@ fn required_op(verb: &str) -> Option<Op> {
         // forward (Item 5b) classifies it here. `tab` DRIVES the GUI (opens/switches
         // the front window's tabs, mutating `App` on the event loop), so it is classed
         // with the other write verbs rather than the read-side observers.
-        "send" | "key" | "ctrl" | "feed" | "feed-bin" | "mouse" | "paste" | "resize" | "focus" | "tab" => {
-            Some(Op::WriteInput)
-        }
+        "send" | "key" | "ctrl" | "feed" | "feed-bin" | "mouse" | "paste" | "resize" | "focus"
+        | "tab" => Some(Op::WriteInput),
         // out-of-band signal, its own class
         "signal" => Some(Op::Signal),
         // grant/revoke/whoami => Owner-only (gate catch-all); unknown => default-deny
@@ -201,6 +247,10 @@ pub type ImageQueue = Arc<Mutex<VecDeque<ImageReq>>>;
 /// the same uid, and every connection must present the per-launch token before
 /// any verb runs. If the token cannot be provisioned we FAIL CLOSED — the
 /// socket is never bound, so it cannot be driven without auth.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the control server's full set of independent collaborators (active handle, store, subscribers, proxy, image queue, socket plan, cell size); a config struct would only move the list"
+)]
 pub fn spawn(
     active: ActiveHandle,
     store: Store,
@@ -238,9 +288,7 @@ pub fn spawn(
         let token = match control_auth::provision_token(&plan.token_path) {
             Some(t) => Arc::new(t),
             None => {
-                eprintln!(
-                    "aterm-gui: could not provision control-socket token; socket disabled"
-                );
+                eprintln!("aterm-gui: could not provision control-socket token; socket disabled");
                 return;
             }
         };
@@ -274,7 +322,9 @@ pub fn spawn(
         if let Some(link) = &plan.latest_link {
             control_auth::publish_latest_link(link, &sock_path);
         }
-        eprintln!("aterm-gui: control socket listening at {sock_path} (token-gated, same-uid only)");
+        eprintln!(
+            "aterm-gui: control socket listening at {sock_path} (token-gated, same-uid only)"
+        );
         // Recursion discovery (Item 5b): publish the root session's graph entry
         // ONLY NOW — AFTER bind succeeded — so a concurrent `sweep_stale_graph`
         // can never observe our entry pointing at a not-yet-bound socket and
@@ -315,7 +365,14 @@ pub fn spawn(
             let sock_dir = sock_dir.clone();
             std::thread::spawn(move || {
                 serve(
-                    stream, &active, &store, &subscribers, &proxy, &queue, cell_size, &token,
+                    stream,
+                    &active,
+                    &store,
+                    &subscribers,
+                    &proxy,
+                    &queue,
+                    cell_size,
+                    &token,
                     &sock_dir,
                 );
             });
@@ -333,7 +390,12 @@ fn resolve_proxy_child(
     store: &Store,
     sock_dir: &std::path::Path,
 ) -> Option<(crate::proxy::ProxyEntry, String)> {
-    if store.read().unwrap_or_else(|p| p.into_inner()).by_sid(sid).is_some() {
+    if store
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .by_sid(sid)
+        .is_some()
+    {
         return None; // hosted locally → a normal in-process target
     }
     let entry = crate::proxy::lookup_child(sid)?;
@@ -386,7 +448,10 @@ fn proxy_forward_plan(
         let tok = entry.token_for(required_op("subscribe")?)?; // ReadScreen
         // Rewrite the child's selector to `@.` while preserving the streams + flags.
         let rewritten = format!("subscribe @.{}", &rest[sel_tok.len()..]);
-        return Some((sock_path, crate::proxy::forward_first_line(&tok.to_hex(), &rewritten)));
+        return Some((
+            sock_path,
+            crate::proxy::forward_first_line(&tok.to_hex(), &rewritten),
+        ));
     }
 
     let (first, verb_line) = line.split_once(' ')?;
@@ -399,7 +464,10 @@ fn proxy_forward_plan(
     let tok = entry.token_for(required_op(verb)?)?;
     // The child is the DIRECT target: rewrite its selector to `@.` (run on self).
     let rewritten = format!("@. {verb_line}");
-    Some((sock_path, crate::proxy::forward_first_line(&tok.to_hex(), &rewritten)))
+    Some((
+        sock_path,
+        crate::proxy::forward_first_line(&tok.to_hex(), &rewritten),
+    ))
 }
 
 /// If `line` targets a session this process does NOT host but IS a child this
@@ -500,39 +568,38 @@ fn serve(
     };
 
     // A folded-in verb runs first (empty tail = bare TOKEN line, just an ack).
-    if let Some(verb) = inline_verb {
-        if !verb.is_empty() {
-            // Cross-process forward (Item 5b): a `@<child-sid>` we don't host but
-            // spawned is relayed to the child's socket; this connection is then
-            // owned by the relay and never returns here.
-            if try_proxy_forward(&verb, scope, store, sock_dir, &writer, &mut reader) {
+    if let Some(verb) = inline_verb
+        && !verb.is_empty()
+    {
+        // Cross-process forward (Item 5b): a `@<child-sid>` we don't host but
+        // spawned is relayed to the child's socket; this connection is then
+        // owned by the relay and never returns here.
+        if try_proxy_forward(&verb, scope, store, sock_dir, &writer, &mut reader) {
+            return;
+        }
+        // A folded-in `subscribe` flips straight to push mode (and never
+        // returns to this poll loop) the same as a request-line one.
+        if is_subscribe_line(&verb) {
+            run_subscribe(&verb, active, store, subscribers, scope, &mut writer);
+            return;
+        }
+        // A folded-in `feed-bin <n>` reads its N-byte payload from the buffered
+        // stream (same as a request-line one), then dispatches as a write verb.
+        if is_feed_bin_line(&verb) {
+            if !run_feed_bin(&verb, &mut reader, active, store, scope, &mut writer) {
                 return;
             }
-            // A folded-in `subscribe` flips straight to push mode (and never
-            // returns to this poll loop) the same as a request-line one.
-            if is_subscribe_line(&verb) {
-                run_subscribe(&verb, active, store, subscribers, scope, &mut writer);
+        } else {
+            // Resolve the ACTIVE tab per request so a long-lived connection
+            // follows tab switches.
+            let (term, master, sid, ctx) = resolve_active(active);
+            let resp = handle(
+                &verb, &term, master, sid, &ctx, store, scope, proxy, queue, cell_size, sock_dir,
+            );
+            if writer.write_all(resp.as_bytes()).is_err() {
                 return;
             }
-            // A folded-in `feed-bin <n>` reads its N-byte payload from the buffered
-            // stream (same as a request-line one), then dispatches as a write verb.
-            if is_feed_bin_line(&verb) {
-                if !run_feed_bin(&verb, &mut reader, active, store, scope, &mut writer) {
-                    return;
-                }
-            } else {
-                // Resolve the ACTIVE tab per request so a long-lived connection
-                // follows tab switches.
-                let (term, master, sid, ctx) = resolve_active(active);
-                let resp = handle(
-                    &verb, &term, master, sid, &ctx, store, scope, proxy, queue, cell_size,
-                    sock_dir,
-                );
-                if writer.write_all(resp.as_bytes()).is_err() {
-                    return;
-                }
-                let _ = writer.flush();
-            }
+            let _ = writer.flush();
         }
     }
 
@@ -584,7 +651,11 @@ fn read_request_line(reader: &mut impl BufRead) -> Option<String> {
         match reader.read(&mut byte) {
             Ok(0) => {
                 // EOF: yield a final unterminated line if any, else stop.
-                return if buf.is_empty() { None } else { Some(decode_request_line(buf)) };
+                return if buf.is_empty() {
+                    None
+                } else {
+                    Some(decode_request_line(buf))
+                };
             }
             Ok(_) => {
                 if byte[0] == b'\n' {
@@ -727,8 +798,7 @@ fn run_feed_bin<W: Write>(
     // edge scoped to session B inject raw bytes into whatever tab became frontmost
     // after a tab/window switch (the global ActiveHandle retargets `@.`) — the same
     // confused-deputy authority escape `handle()`'s self gate closes.
-    let authorized =
-        matches!(scope, Scope::Owner) || cross_session_authorized(scope, "feed", &ctx);
+    let authorized = matches!(scope, Scope::Owner) || cross_session_authorized(scope, "feed", &ctx);
     if !authorized {
         log_denial(
             AUDIT_SUBSYSTEM,
@@ -741,7 +811,7 @@ fn run_feed_bin<W: Write>(
         return true;
     }
 
-    write_pty(&ctx.sink, &payload);
+    control_input::write_pty(&ctx.sink, &payload);
     let reply = format!("OK {n} bytes\n");
     if writer.write_all(reply.as_bytes()).is_err() {
         return false;
@@ -775,7 +845,8 @@ fn run_subscribe<W: Write>(
     let rest = match line.split_once(' ') {
         Some(("subscribe", r)) => r.trim(),
         _ => {
-            let _ = writer.write_all(b"ERR usage: subscribe @<sel>[,<sel>] <streams> [since=<seq>]\n");
+            let _ =
+                writer.write_all(b"ERR usage: subscribe @<sel>[,<sel>] <streams> [since=<seq>]\n");
             let _ = writer.flush();
             return;
         }
@@ -865,13 +936,24 @@ fn run_subscribe<W: Write>(
 
     // Authorized. Ack, then FLIP to push-only: the loop owns the socket from here
     // and never reads another request line.
-    if writer.write_all(format!("OK subscribe {}\n", targets.len()).as_bytes()).is_err() {
+    if writer
+        .write_all(format!("OK subscribe {}\n", targets.len()).as_bytes())
+        .is_err()
+    {
         return;
     }
     if writer.flush().is_err() {
         return;
     }
-    subscribe::push_loop(subscribers, store, &targets, streams, since, non_coalesced, writer);
+    subscribe::push_loop(
+        subscribers,
+        store,
+        &targets,
+        streams,
+        since,
+        non_coalesced,
+        writer,
+    );
 }
 
 /// A resolved cross-session TARGET tuple: the SAME `(term, master, id, ctx)`
@@ -915,11 +997,7 @@ impl Selector {
 /// lock, so mutually-driving agents cannot deadlock). `@.`/`@` resolves to the
 /// connection's own `(self_*)` tuple verbatim. Returns `None` (fail closed) for an
 /// unknown id — the caller maps that to `ERR no such session`.
-fn resolve_target(
-    self_tuple: &Target,
-    store: &Store,
-    sel: &Selector,
-) -> Option<Target> {
+fn resolve_target(self_tuple: &Target, store: &Store, sel: &Selector) -> Option<Target> {
     match sel {
         Selector::SelfTok => Some(self_tuple.clone()),
         Selector::Local(n) => {
@@ -959,8 +1037,14 @@ fn cross_session_authorized(scope: Scope, verb: &str, target_ctx: &SessionCtx) -
         Scope::Owner => true,
         Scope::Edge(presented) => {
             let table = target_ctx.edges.lock().unwrap_or_else(|p| p.into_inner());
-            decide_edge(&table, &presented, &target_ctx.self_id, need, &target_ctx.nonce)
-                .is_permitted()
+            decide_edge(
+                &table,
+                &presented,
+                &target_ctx.self_id,
+                need,
+                &target_ctx.nonce,
+            )
+            .is_permitted()
         }
     }
 }
@@ -1037,7 +1121,11 @@ fn cross_mouse(
 /// returning `Ok(true)` when the TARGET viewport moved (the caller should repaint),
 /// `Ok(false)` for a seam-reported event or a deliberate no-op, and `Err(usage)` on
 /// a malformed verb line. The repaint nudge itself lives in the wrapper.
-fn cross_mouse_apply(term: &Arc<Mutex<Terminal>>, ctx: &SessionCtx, rest: &str) -> Result<bool, String> {
+fn cross_mouse_apply(
+    term: &Arc<Mutex<Terminal>>,
+    ctx: &SessionCtx,
+    rest: &str,
+) -> Result<bool, String> {
     let ev = parse_mouse(rest)?;
     match seam_egress(term, &ctx.sink, &ev) {
         // Tracking ON but the PTY write failed: honest error, not a false OK.
@@ -1047,7 +1135,10 @@ fn cross_mouse_apply(term: &Arc<Mutex<Terminal>>, ctx: &SessionCtx, rest: &str) 
         // Tracking OFF: only a wheel has a meaningful background fallback — move the
         // target viewport. A plain press/release/move is a deliberate no-op (no
         // controller-side selection UI for a background tab).
-        Egress::TrackingOff { wheel_lines, wheel_up } if wheel_lines > 0 => {
+        Egress::TrackingOff {
+            wheel_lines,
+            wheel_up,
+        } if wheel_lines > 0 => {
             let delta = if wheel_up { wheel_lines } else { -wheel_lines };
             term_lock(term).scroll_display(delta);
             Ok(true)
@@ -1078,7 +1169,7 @@ fn cross_mouse_apply(term: &Arc<Mutex<Terminal>>, ctx: &SessionCtx, rest: &str) 
 ///
 /// Reuses [`parse_resize`] for the identical `ERR out of range` / usage strings.
 fn cross_resize(term: &Arc<Mutex<Terminal>>, master: i32, ctx: &SessionCtx, rest: &str) -> String {
-    let (rows, cols) = match parse_resize(rest) {
+    let (rows, cols) = match control_input::parse_resize(rest) {
         Ok(rc) => rc,
         Err(e) => return e,
     };
@@ -1164,9 +1255,7 @@ fn handle(
     // (the first token does not start with '@') is the verbatim self path below —
     // byte-identical to the pre-P1.2 wire form.
     let (selector, line) = match line.split_once(' ') {
-        Some((first, tail)) if first.starts_with('@') => {
-            (Some(Selector::parse(&first[1..])), tail)
-        }
+        Some((first, tail)) if first.starts_with('@') => (Some(Selector::parse(&first[1..])), tail),
         // A bare `@selector` with no verb (e.g. just `@s-ab12`) is meaningless;
         // strip it and let the empty verb fall through to `ERR unknown verb`.
         None if line.starts_with('@') => (Some(Selector::parse(&line[1..])), ""),
@@ -1200,10 +1289,10 @@ fn handle(
                 _ => return "ERR denied\n".to_string(),
             }
             return match verb {
-                "sessions" => cmd_sessions(self_ctx, store),
-                "grant" => cmd_grant(self_ctx, scope, rest),
-                "revoke" => cmd_revoke(self_ctx, scope, rest),
-                "whoami" => cmd_whoami(self_ctx, scope),
+                "sessions" => control_session::cmd_sessions(self_ctx, store),
+                "grant" => control_session::cmd_grant(self_ctx, scope, rest),
+                "revoke" => control_session::cmd_revoke(self_ctx, scope, rest),
+                "whoami" => control_session::cmd_whoami(self_ctx, scope),
                 _ => unreachable!(),
             };
         }
@@ -1212,8 +1301,12 @@ fn handle(
 
     // Resolve the dispatch target. No selector (or `@.`) => the verbatim self
     // tuple (zero regression). Otherwise resolve the sibling from the registry.
-    let self_tuple: Target =
-        (self_term.clone(), self_master, self_session, self_ctx.clone());
+    let self_tuple: Target = (
+        self_term.clone(),
+        self_master,
+        self_session,
+        self_ctx.clone(),
+    );
     let is_cross = !matches!(selector, None | Some(Selector::SelfTok));
     let (term, master, session, ctx) = match &selector {
         None | Some(Selector::SelfTok) => self_tuple,
@@ -1244,9 +1337,7 @@ fn handle(
             );
             return "ERR denied\n".to_string();
         }
-    } else if !matches!(scope, Scope::Owner)
-        && !cross_session_authorized(scope, verb, ctx)
-    {
+    } else if !matches!(scope, Scope::Owner) && !cross_session_authorized(scope, verb, ctx) {
         // SELF path, Edge scope: re-verify the token against the session that is
         // active RIGHT NOW — NOT op-match alone. The control socket has ONE global
         // ActiveHandle that `sync_active_session` retargets to the new frontmost
@@ -1276,49 +1367,49 @@ fn handle(
     // — every other verb (and any json-capable verb WITHOUT the flag) is untouched,
     // preserving the existing text wire byte-for-byte. The op-scope gate above
     // already authorized `verb` (json is a serialization choice, not a new op).
-    if rest.contains("json") {
-        if let (true, body) = take_json_flag(rest) {
-            let json = match verb {
-                "text" => Some(cmd_text_json(term)),
-                // `screen` is ALWAYS styled JSON; accept `screen --json` for symmetry.
-                "screen" => Some(cmd_screen_styled_json(term)),
-                "cursor" => Some(cmd_cursor_json(term)),
-                "dims" => Some(cmd_dims_json(term, cell_size)),
-                "blocks" => Some(cmd_blocks_json(term, &body)),
-                "edges" | "grants" => Some(cmd_edges_json(ctx)),
-                _ => None,
-            };
-            if let Some(out) = json {
-                return out;
-            }
+    if rest.contains("json")
+        && let (true, body) = take_json_flag(rest)
+    {
+        let json = match verb {
+            "text" => Some(control_query::cmd_text_json(term)),
+            // `screen` is ALWAYS styled JSON; accept `screen --json` for symmetry.
+            "screen" => Some(control_query::cmd_screen_styled_json(term)),
+            "cursor" => Some(control_query::cmd_cursor_json(term)),
+            "dims" => Some(control_query::cmd_dims_json(term, cell_size)),
+            "blocks" => Some(control_selection::cmd_blocks_json(term, &body)),
+            "edges" | "grants" => Some(control_session::cmd_edges_json(ctx)),
+            _ => None,
+        };
+        if let Some(out) = json {
+            return out;
         }
     }
 
     match verb {
-        "text" => cmd_text(term),
+        "text" => control_query::cmd_text(term),
         // The LOSSLESS styled-screen read (keystone): full per-cell colour +
         // resolved decorations + cursor + dims + seq as one JSON frame. Always
         // styled-JSON (no plaintext variant) — `--json` is implied.
-        "screen" => cmd_screen_styled_json(term),
-        "cursor" => cmd_cursor(term),
-        "cell" => cmd_cell(term, rest),
-        "search" => cmd_search(term, rest),
+        "screen" => control_query::cmd_screen_styled_json(term),
+        "cursor" => control_query::cmd_cursor(term),
+        "cell" => control_query::cmd_cell(term, rest),
+        "search" => control_query::cmd_search(term, rest),
         // `edges`/`grants`: list this session's inbound capability edges (the
         // EdgeTable rows). A pure observer of the AUTHORITY surface, so it is gated
         // as `ReadScreen` like every other read verb; cross-session reads a sibling's
         // table through the same `@<selector>` resolution + gate.
-        "edges" | "grants" => cmd_edges(ctx),
+        "edges" | "grants" => control_session::cmd_edges(ctx),
         // `family [<sid>]`: the session HIERARCHY (parent + children) for a target,
         // from the registry's parent links. The no-arg form walks from the RESOLVED
         // (gated) session; an EXPLICIT `<sid>` argument walks an ARBITRARY node, so it
         // is Owner-only (a scoped Edge may not enumerate trees it has no edge into) —
         // the `scope` guard mirrors the `sessions` verb's Owner gate.
-        "family" => cmd_family(ctx, store, scope, rest),
+        "family" => control_session::cmd_family(ctx, store, scope, rest),
         // `ready [timeout_ms]`: block until the target is Alive AND idle (at an
         // OSC-133 prompt, or no in-flight command), so an agent can chain sessions
         // without polling. Read-side (observes lifecycle/blocks), like `wait`.
-        "ready" => cmd_ready(term, store, session, rest),
-        "send" => cmd_send(&ctx.sink, rest),
+        "ready" => control_session::cmd_ready(term, store, session, rest),
+        "send" => control_input::cmd_send(&ctx.sink, rest),
         // Phase 0.5: the SELF (active-tab) path funnels `key`/`ctrl`/`mouse`/`paste`/
         // `focus`/`resize`/`scroll` through the source-blind `App::input` seam on the
         // EVENT LOOP (posts `Wake::Input` / a reply-bearing resize), so the bytes are
@@ -1337,24 +1428,30 @@ fn handle(
         // thread (no `Wake::Input`). Op-scope is already `WriteInput`-gated above
         // (`cross_session_authorized`), so these run only after the edge/owner check.
         "key" if is_cross => cross_input(term, ctx, parse_key(rest), "ERR\n"),
-        "key" => cmd_key(proxy, rest),
-        "ctrl" if is_cross => {
-            cross_input(term, ctx, parse_ctrl(rest), "ERR usage: ctrl <single-letter>\n")
-        }
-        "ctrl" => cmd_ctrl(proxy, rest),
-        "feed" => cmd_feed(&ctx.sink, rest),
-        "signal" => cmd_signal(master, rest),
+        "key" => control_input::cmd_key(proxy, rest),
+        "ctrl" if is_cross => cross_input(
+            term,
+            ctx,
+            parse_ctrl(rest),
+            "ERR usage: ctrl <single-letter>\n",
+        ),
+        "ctrl" => control_input::cmd_ctrl(proxy, rest),
+        "feed" => control_input::cmd_feed(&ctx.sink, rest),
+        "signal" => control_input::cmd_signal(master, rest),
         "mouse" if is_cross => cross_mouse(term, ctx, session, proxy, rest),
-        "mouse" => cmd_mouse(proxy, rest),
-        "paste" if is_cross => {
-            cross_input(term, ctx, Some(InputEvent::Paste(paste_text(rest))), "ERR\n")
-        }
-        "paste" => cmd_paste(proxy, rest),
-        "focus" if is_cross => match parse_focus(rest) {
+        "mouse" => control_input::cmd_mouse(proxy, rest),
+        "paste" if is_cross => cross_input(
+            term,
+            ctx,
+            Some(InputEvent::Paste(control_input::paste_text(rest))),
+            "ERR\n",
+        ),
+        "paste" => control_input::cmd_paste(proxy, rest),
+        "focus" if is_cross => match control_input::parse_focus(rest) {
             Some(focused) => cross_input(term, ctx, Some(InputEvent::Focus(focused)), "ERR\n"),
             None => "ERR usage: focus <in|out>\n".to_string(),
         },
-        "focus" => cmd_focus(proxy, rest),
+        "focus" => control_input::cmd_focus(proxy, rest),
         // `image` rides the shared renderer + event loop, which act on the ACTIVE tab;
         // cross-session pixel capture (offscreen render of a background session) is a
         // later P1.2 deliverable, so it stays fail-closed here rather than silently
@@ -1363,11 +1460,12 @@ fn handle(
         // (target) terminal model — headless-safe and cross-session-correct, so it
         // is matched BEFORE the framebuffer-rasterize arms (which stay fail-closed
         // cross-session). `term` is already the resolved target for cross reads.
-        "image" if rest.split_whitespace().next() == Some("read") => {
-            cmd_image_read(term, rest.strip_prefix("read").unwrap_or(rest).trim_start())
-        }
+        "image" if rest.split_whitespace().next() == Some("read") => control_media::cmd_image_read(
+            term,
+            rest.strip_prefix("read").unwrap_or(rest).trim_start(),
+        ),
         "image" if is_cross => "ERR cross-session image unsupported\n".to_string(),
-        "image" => cmd_image(proxy, queue, rest, sock_dir),
+        "image" => control_media::cmd_image(proxy, queue, rest, sock_dir),
         // `window` captures the FRONT window's ENTIRE on-screen pixels (OS chrome +
         // content) to a PNG — the introspection an AI needs to SEE the whole window,
         // which `image` (terminal-content framebuffer only) cannot. Like `image` it
@@ -1377,7 +1475,7 @@ fn handle(
         // SAME front window — meaningless. Keep it fail-closed for `@<sel>` like
         // `image`/`chrome`. The confined PNG path is validated EXACTLY like `image`.
         "window" if is_cross => "ERR cross-session window unsupported\n".to_string(),
-        "window" => cmd_window(proxy, rest, sock_dir),
+        "window" => control_media::cmd_window(proxy, rest, sock_dir),
         // `chrome` reports the frontmost window's NATIVE macOS UI (the NSToolbar
         // items + app menu bar). It rides the event loop to read AppKit on the MAIN
         // thread, which acts on the ACTIVE/front window; the chrome (a per-process
@@ -1385,270 +1483,50 @@ fn handle(
         // per-session one, so a cross-session `@<sel>` would report the SAME front
         // window's chrome — meaningless. Keep it fail-closed for `@<sel>` like `image`.
         "chrome" if is_cross => "ERR cross-session chrome unsupported\n".to_string(),
-        "chrome" => cmd_chrome(proxy),
+        "chrome" => control_media::cmd_chrome(proxy),
         // `tab` DRIVES the FRONT window's native tabs (open/switch/cycle). Like
         // `chrome`/`image` it rides the event loop to mutate `App` on the MAIN thread
         // and is a window-level (not per-session) op, so a cross-session `@<sel>` is
         // meaningless — keep it fail-closed for `@<sel>`.
         "tab" if is_cross => "ERR cross-session tab unsupported\n".to_string(),
-        "tab" => cmd_tab(proxy, rest),
+        "tab" => control_input::cmd_tab(proxy, rest),
         // Cross-session `resize` does NOT go through the seam: `seam_egress` emits no
         // bytes for `Resize`, and `App::input`'s Resize arm resizes the WINDOW (every
         // tab + the GPU swapchain). A background target has no window to echo to, so we
         // replicate ONLY the term+PTY pair (`echo_to_window: false` semantics) on the
         // TARGET, never the active window/framebuffer.
         "resize" if is_cross => cross_resize(term, master, ctx, rest),
-        "resize" => cmd_resize(proxy, rest),
+        "resize" => control_input::cmd_resize(proxy, rest),
         // Cross-session `scroll` also bypasses the seam (`ScrollView` emits no bytes;
         // the viewport move lives in `App::input`). It applies the `ScrollIntent`
         // DIRECTLY to the TARGET term's viewport and reports `OK <offset> <max>` — the
         // SAME wire shape as the self path's `cmd_scroll`. `select` is already
         // cross-correct (mutates the target term + fires a repaint keyed by target id).
         "scroll" if is_cross => cross_scroll(term, rest),
-        "scroll" => cmd_scroll(term, proxy, rest),
-        "dims" => cmd_dims(term, cell_size),
+        "scroll" => control_input::cmd_scroll(term, proxy, rest),
+        "dims" => control_query::cmd_dims(term, cell_size),
         // `metrics` -> live render/latency counters (process-global; the active tab's
         // grid supplies rows/cols). Lets a driving AI MEASURE responsiveness directly
         // rather than scraping the $ATERM_TRACE_LATENCY stderr log. Read-side.
-        "metrics" => cmd_metrics(term, rest),
-        "lines" => cmd_lines(term),
-        "line" => cmd_line(term, rest),
-        "modes" => cmd_modes(term),
-        "title" => cmd_title(term),
-        "cwd" => cmd_cwd(term),
-        "blocks" => cmd_blocks(term, rest),
-        "blocktext" => cmd_blocktext(term, rest),
-        "wait" => cmd_wait(term, rest),
-        "colors" => cmd_colors(term),
-        "select" => cmd_select(term, proxy, session, rest),
-        "selection" => cmd_selection(term),
-        "copy" => cmd_copy(term),
+        "metrics" => control_query::cmd_metrics(term, rest),
+        "lines" => control_query::cmd_lines(term),
+        "line" => control_query::cmd_line(term, rest),
+        "modes" => control_query::cmd_modes(term),
+        "title" => control_query::cmd_title(term),
+        "cwd" => control_query::cmd_cwd(term),
+        "blocks" => control_selection::cmd_blocks(term, rest),
+        "blocktext" => control_selection::cmd_blocktext(term, rest),
+        "wait" => control_selection::cmd_wait(term, rest),
+        "colors" => control_query::cmd_colors(term),
+        "select" => control_selection::cmd_select(term, proxy, session, rest),
+        "selection" => control_selection::cmd_selection(term),
+        "copy" => control_selection::cmd_copy(term),
         // `cast` reads the TARGET session's own asciicast recorder (its recorded
         // program-output history), not the shared renderer, so it is correct
         // cross-session — no `is_cross` guard.
-        "cast" => cmd_cast(ctx),
+        "cast" => control_session::cmd_cast(ctx),
         // `sessions`/`grant`/`revoke`/`whoami` are handled SELF-SCOPED above.
         _ => "ERR unknown verb\n".to_string(),
-    }
-}
-
-/// `sessions` -> list the process-wide registry: `OK <n>\n` then one line per
-/// session, sorted by local id: `<local> <sid> <parent|-> <state> <title>`. On a
-/// single-session window this is exactly one line == the lone session (the
-/// zero-regression base case). The store snapshot is cloned out before formatting,
-/// so this never holds the registry lock across a `Terminal` lock.
-fn cmd_sessions(_self_ctx: &SessionCtx, store: &Store) -> String {
-    let snapshot = {
-        let g = store.read().unwrap_or_else(|p| p.into_inner());
-        g.snapshot()
-    };
-    let mut out = format!("OK {}\n", snapshot.len());
-    for h in &snapshot {
-        let parent = h.parent.as_ref().map_or("-", aterm_session::SessionId::as_str);
-        let title = pct_encode(&h.title);
-        out.push_str(&format!(
-            "{} {} {} {} {}\n",
-            h.local_id,
-            h.sid.as_str(),
-            parent,
-            h.state.as_str(),
-            title,
-        ));
-    }
-    out
-}
-
-/// `edges` / `grants` -> list this session's INBOUND capability edges (the rows
-/// of its [`EdgeTable`]), the query face of the authority data `grant`/`revoke`
-/// mint and remove (which had zero read surface before).
-///
-/// Header `OK <n>\n`, then one line per edge: `<src> <dst> <op>` where `<op>` is
-/// the wire op token (`read-screen`/`write-input`/`signal`/`derive-loop`) and
-/// `<dst>` is always THIS session's id (every row in the table targets it). The
-/// bearer TOKEN is DELIBERATELY never emitted — it is the unforgeable secret; an
-/// agent enumerates WHO may reach this session for WHAT, not the secrets. Sorted
-/// by `(src, op)` for a stable listing. Cross-session (`@<sel>`) reads a sibling's
-/// table through the same `@<selector>` resolution + `ReadScreen` gate.
-fn cmd_edges(ctx: &SessionCtx) -> String {
-    let mut edges = {
-        let tbl = ctx.edges.lock().unwrap_or_else(|p| p.into_inner());
-        tbl.edges()
-    };
-    edges.sort_by(|a, b| {
-        (a.src.as_str(), a.op.as_str()).cmp(&(b.src.as_str(), b.op.as_str()))
-    });
-    let mut out = format!("OK {}\n", edges.len());
-    for e in &edges {
-        out.push_str(&format!("{} {} {}\n", e.src.as_str(), e.dst.as_str(), e.op.as_str()));
-    }
-    out
-}
-
-/// `edges --json` / `grants --json` -> `{"edges":[{"src":"..","dst":"..",
-/// "op":".."}],"dst":"<self>"}`. The SAME edges `cmd_edges` lists (sorted, no
-/// token), as a structured object an agent can consume without line-splitting.
-fn cmd_edges_json(ctx: &SessionCtx) -> String {
-    let (self_id, mut edges) = {
-        let tbl = ctx.edges.lock().unwrap_or_else(|p| p.into_inner());
-        (ctx.self_id.clone(), tbl.edges())
-    };
-    edges.sort_by(|a, b| {
-        (a.src.as_str(), a.op.as_str()).cmp(&(b.src.as_str(), b.op.as_str()))
-    });
-    let items: Vec<String> = edges
-        .iter()
-        .map(|e| {
-            format!(
-                "{{{},{},{}}}",
-                json_str_field("src", e.src.as_str()),
-                json_str_field("dst", e.dst.as_str()),
-                json_str_field("op", e.op.as_str()),
-            )
-        })
-        .collect();
-    json_ok(&format!(
-        "{{\"edges\":[{}],{}}}",
-        items.join(","),
-        json_str_field("dst", self_id.as_str()),
-    ))
-}
-
-/// `family [<sid>]` -> the session HIERARCHY for a target: its parent and its
-/// direct children, from the registry's `parent` links (only a flat `sessions`
-/// list was queryable before).
-///
-/// With NO argument the target is the RESOLVED session (`@<sel>` or self); with an
-/// explicit `<sid>` argument the target is that session id (so an Owner can walk
-/// the tree from any node without re-addressing). Header `OK\n`, then:
-///   `self <sid> <state> <title>`
-///   `parent <sid|-> ...`            (one line; `-` sid when the node is a root)
-///   `child <sid> <state> <title>`  (zero or more, sorted by local id)
-/// Titles are percent-encoded (single space-free tokens), matching `sessions`.
-/// An unknown target id yields `ERR no such session\n` (fail-closed). An EXPLICIT
-/// `<sid>` argument is Owner-only (a scoped Edge gets `ERR denied`); the no-arg
-/// form is scoped to the already-gated resolved session.
-fn cmd_family(ctx: &SessionCtx, store: &Store, scope: Scope, rest: &str) -> String {
-    // Target sid: an explicit argument (Owner-only — arbitrary-node enumeration),
-    // else the resolved session's own id (already gated by the dispatch).
-    let target_sid = match rest.trim() {
-        "" => ctx.self_id.clone(),
-        s => {
-            if scope != Scope::Owner {
-                return "ERR denied\n".to_string();
-            }
-            SessionId::new(s)
-        }
-    };
-    let snapshot = {
-        let g = store.read().unwrap_or_else(|p| p.into_inner());
-        g.snapshot()
-    };
-    let Some(node) = snapshot.iter().find(|h| h.sid == target_sid) else {
-        return "ERR no such session\n".to_string();
-    };
-    let line = |kind: &str, h: &crate::session_store::SessionHandle| {
-        format!(
-            "{kind} {} {} {}\n",
-            h.sid.as_str(),
-            h.state.as_str(),
-            pct_encode(&h.title),
-        )
-    };
-    let mut out = String::from("OK\n");
-    out.push_str(&line("self", node));
-    // Parent row: the parent sid + its live state/title if still registered, else
-    // a bare `-` (root, or a parent that has since deregistered).
-    match node.parent.as_ref() {
-        Some(psid) => match snapshot.iter().find(|h| h.sid == *psid) {
-            Some(ph) => out.push_str(&line("parent", ph)),
-            None => out.push_str(&format!("parent {} unknown -\n", psid.as_str())),
-        },
-        None => out.push_str("parent - - -\n"),
-    }
-    // Direct children: every registered session whose parent is this node, sorted
-    // by local id (snapshot is already local-id sorted).
-    for h in snapshot.iter().filter(|h| h.parent.as_ref() == Some(&target_sid)) {
-        out.push_str(&line("child", h));
-    }
-    out
-}
-
-/// `ready [timeout_ms]` -> block until the target session is ALIVE and IDLE, then
-/// `OK ready <reason>\n`; `OK timeout\n` if it does not become ready in time
-/// (default 30 000 ms, capped at 600 000); `ERR exited\n` if the session has
-/// exited (it will never become ready). Lets an agent CHAIN sessions — spawn one,
-/// `ready` on it, then drive it — without busy-polling a screen read.
-///
-/// IDLE is defined by shell integration when present and lifecycle otherwise:
-///   * `prompt`  — the newest OSC-133 block is at a fresh prompt (`PromptOnly`)
-///                 or a finished command (`Complete`): the shell is waiting for
-///                 input. This is the precise "prompt-end" signal.
-///   * `no-command` — shell integration is present but NO block is in flight
-///                 (`Executing`/`EnteringCommand`): nothing is running.
-///   * `idle`    — no shell integration at all, but `content_seq` has been STABLE
-///                 across a short settle window (the output stopped changing), so
-///                 the best-effort idle heuristic fires for plain shells too.
-/// Polls server-side, releasing the Terminal lock between checks so the PTY reader
-/// keeps advancing; checks the registry lifecycle each pass so an exit is reported
-/// promptly rather than waited out.
-fn cmd_ready(term: &Arc<Mutex<Terminal>>, store: &Store, session: u64, rest: &str) -> String {
-    use aterm_core::terminal::BlockState;
-    use crate::session_store::SessionState;
-    let timeout_ms = rest.trim().parse::<u64>().unwrap_or(30_000).min(600_000);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
-
-    // The lifecycle state of THIS resolved session, by its local id. `None` (not in
-    // the registry — e.g. a headless unit term) is treated as Alive: the block /
-    // settle heuristics still decide readiness.
-    let lifecycle = |store: &Store| -> Option<SessionState> {
-        let g = store.read().unwrap_or_else(|p| p.into_inner());
-        g.by_local(session).map(|h| h.state)
-    };
-
-    // Settle tracking for the no-shell-integration case: ready only once content_seq
-    // has held the SAME value across `SETTLE` consecutive idle polls.
-    const SETTLE: u32 = 3;
-    let mut last_seq: Option<u64> = None;
-    let mut stable: u32 = 0;
-
-    loop {
-        if matches!(lifecycle(store), Some(SessionState::Exited)) {
-            return "ERR exited\n".to_string();
-        }
-        {
-            let t = term_lock(term);
-            // Newest block decides the shell-integration verdict (`all_blocks` yields
-            // oldest-first, so the LAST item is the newest — the in-flight/current one).
-            let newest_state = t.all_blocks().last().map(|b| b.state);
-            match newest_state {
-                Some(BlockState::PromptOnly | BlockState::Complete) => {
-                    return "OK ready prompt\n".to_string();
-                }
-                Some(BlockState::Executing | BlockState::EnteringCommand) => {
-                    // A command is in flight: not ready. Reset the settle counter so a
-                    // later quiet period is measured fresh.
-                    stable = 0;
-                    last_seq = None;
-                }
-                _ => {
-                    // No shell integration: settle on a stable content_seq.
-                    let seq = t.content_seq();
-                    if last_seq == Some(seq) {
-                        stable += 1;
-                    } else {
-                        stable = 0;
-                        last_seq = Some(seq);
-                    }
-                    if stable >= SETTLE {
-                        return "OK ready idle\n".to_string();
-                    }
-                }
-            }
-        }
-        if std::time::Instant::now() >= deadline {
-            return "OK timeout\n".to_string();
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
     }
 }
 
@@ -1661,65 +1539,6 @@ pub(crate) fn visible_char(ch: char) -> char {
     } else {
         ch
     }
-}
-
-/// The visible, trailing-trimmed text of screen row `r`: the engine's
-/// combining-aware `get_line_text` with interior control chars collapsed to
-/// spaces and the tail trimmed. THE single source for a screen row's text —
-/// `text`, `text --json`, and the pushed `subscribe screen` DELTA all route here
-/// so the polled and pushed faces stay byte-identical. Caller holds the term lock.
-pub(crate) fn visible_row(t: &Terminal, r: usize) -> String {
-    let line = t.get_line_text(r as i32, None).unwrap_or_default();
-    line.chars().map(visible_char).collect::<String>().trim_end().to_string()
-}
-
-/// `text` -> `OK <nrows>\n` then each visible row (trailing spaces trimmed).
-///
-/// FIDELITY (I-1): each row is extracted through the engine's combining-aware
-/// `get_line_text` — the SAME path `selection_to_string`/`copy` and the
-/// renderer's `combining_row`/`cluster_row` use — so an NFD accent
-/// (`e`+U+0301) or a ZWJ emoji cluster (👨‍👩‍👧) reads back intact instead of
-/// being flattened to its base codepoint. (The old per-`RenderCell` scan only
-/// saw the resolved base char and silently dropped combining marks / clusters,
-/// corrupting the AI's primary screen-read.) Control chars still collapse to
-/// spaces via the extraction's NUL→space rule plus an explicit visible map.
-fn cmd_text(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    let rows = t.rows() as usize;
-    let mut out = format!("OK {rows}\n");
-    for r in 0..rows {
-        out.push_str(&visible_row(&t, r));
-        out.push('\n');
-    }
-    out
-}
-
-/// `cast` -> `OK <nbytes>\n` then the session's full asciicast v2 recording as
-/// the body (design A.5.1 / B.7). The body is the JSON header line followed by
-/// one `[t, "o", …]`/`[t, "r", …]` event per recorded burst — exactly what
-/// `asciinema play -`/`agg` consume. `<nbytes>` is the byte length of the body
-/// that follows (UTF-8), matching the read-verb framing so the existing client
-/// can read the body without guessing where it ends. Output-only and bounded
-/// (drop-oldest) by the recorder; this verb only serializes the snapshot, never
-/// the renderer, so it is cheap and lock-disjoint from the PTY write path.
-fn cmd_cast(ctx: &SessionCtx) -> String {
-    let body = {
-        let rec = ctx.cast.lock().unwrap_or_else(|p| p.into_inner());
-        rec.to_asciicast()
-    };
-    format!("OK {}\n{}", body.len(), body)
-}
-
-/// `cursor` -> `OK <row> <col> <visible:0|1> <style>\n` (0-based). `<style>`
-/// is the terminal's DECSCUSR cursor style as a lowercase name:
-/// `blinking_block` (default), `steady_block`, `blinking_underline`,
-/// `steady_underline`, `blinking_bar`, `steady_bar`, `hidden`, `hollow_block`.
-fn cmd_cursor(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    let c = t.cursor();
-    let vis = u8::from(t.cursor_visible());
-    let style = cursor_style_name(t.cursor_style());
-    format!("OK {} {} {} {}\n", c.row, c.col, vis, style)
 }
 
 /// The wire name of a [`CursorStyle`]: its variant in lowercase snake_case.
@@ -1738,1021 +1557,6 @@ pub(crate) fn cursor_style_name(style: CursorStyle) -> &'static str {
     }
 }
 
-/// `cell <r> <c>` -> `OK <grapheme> <fg> <bg> <attrs>\n` or `ERR <msg>\n`.
-///
-/// `<grapheme>` is the cell's FULL on-screen grapheme — the resolved base char
-/// plus any complex-cluster string and combining marks — percent-encoded into a
-/// single space-free token (decode it the same way as `cwd`/`cmdline`). It is
-/// the SAME text the `text`/`search`/selection paths and the renderer's
-/// `combining_row`/`cluster_row` produce, so a single-cell read of `é`
-/// (`e`+U+0301) or a ZWJ family (👨‍👩‍👧) is FAITHFUL — not the base codepoint
-/// alone (FIDELITY I-1; this REPLACES the previous `char as u32` codepoint
-/// field, which silently dropped combining marks / emoji clusters). A blank or
-/// wide-continuation cell yields an empty token (`%20`-free → ``). `<fg>`/`<bg>`
-/// are the fully-resolved `RRGGBB` colors the renderer would paint; `<attrs>` is
-/// a comma-separated list (or `none`) of the cell's active text attributes —
-/// `bold,dim,italic,underline,blink,inverse,strike,hidden`.
-fn cmd_cell(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    let mut it = rest.split_whitespace();
-    let (Some(rs), Some(cs)) = (it.next(), it.next()) else {
-        return "ERR usage: cell <r> <c>\n".to_string();
-    };
-    let (Ok(r), Ok(c)) = (rs.parse::<usize>(), cs.parse::<usize>()) else {
-        return "ERR bad args\n".to_string();
-    };
-    let t = term_lock(term);
-    // Bound by the GRID (per `dims`), not by row content: `render_row` trims
-    // trailing blanks, but every 0<=r<rows, 0<=c<cols is a real, readable cell.
-    if r >= t.rows() as usize || c >= t.cols() as usize {
-        return "ERR out of range\n".to_string();
-    }
-    let row = t.render_row(r);
-    let (fg, bg) = match row.get(c) {
-        Some(cell) => (cell.fg, cell.bg),
-        // a blank in-grid cell: the terminal's default colors
-        None => {
-            let (dfg, dbg) = (t.default_foreground(), t.default_background());
-            ([dfg.r, dfg.g, dfg.b], [dbg.r, dbg.g, dbg.b])
-        }
-    };
-    // Combining-aware grapheme for THIS cell, via the same core extraction the
-    // selection/text paths use. A wide-continuation cell yields "" (its glyph
-    // belongs to the lead cell); a blank cell yields "" (the consumer infers a
-    // space from the in-grid position, matching `text`'s trailing trim).
-    let grapheme = t.cell_grapheme(r, c).unwrap_or_default();
-    let grapheme_tok = pct_encode(&grapheme);
-    // Width markers, so a consumer can distinguish a full-width (CJK) glyph from
-    // an ASCII space without inferring from columns:
-    //   `wide`      — the LEAD cell, which holds the double-width glyph
-    //   `wide_cont` — its blank right-half spacer
-    // PROTECTED (DECSCA) shares a flag bit with WIDE_CONTINUATION;
-    // `is_wide_continuation_at` disambiguates via the left neighbor, so a
-    // protected character gets NEITHER token (it is ordinary text).
-    let flags = cell_attrs(t.grid(), r, c);
-    let mut attrs = attrs_string(flags);
-    let wide_tok = if flags.contains(CellFlags::WIDE) {
-        Some("wide")
-    } else if t.grid().is_wide_continuation_at(r as u16, c as u16) {
-        Some("wide_cont")
-    } else {
-        None
-    };
-    if let Some(tok) = wide_tok {
-        if attrs == "none" {
-            attrs = tok.to_string();
-        } else {
-            attrs.push(',');
-            attrs.push_str(tok);
-        }
-    }
-    // OSC 8 hyperlink target for this cell, surfaced so an introspecting
-    // intelligence sees the link a human would click. Appended as a trailing
-    // ` link=<url>` token only when present — positional fields 1-4 (grapheme,
-    // fg, bg, attrs) are unchanged, so existing parsers keep working.
-    let link = t
-        .hyperlink_at(r as u16, c as u16)
-        .map(|u| format!(" link={u}"))
-        .unwrap_or_default();
-    format!(
-        "OK {grapheme_tok} {:02x}{:02x}{:02x} {:02x}{:02x}{:02x} {attrs}{link}\n",
-        fg[0], fg[1], fg[2], bg[0], bg[1], bg[2],
-    )
-}
-
-/// Resolve the effective [`CellFlags`] at grid `(r, c)`.
-///
-/// Inline-styled cells carry their attribute bits directly; cells that intern
-/// their style in the grid's `StyleTable` keep only `USES_STYLE_ID` (plus any
-/// extra flags) inline, so the real attributes are rehydrated from the table —
-/// the same path [`Terminal::render_row`] uses for colors. Out-of-range
-/// coordinates yield empty flags.
-fn cell_attrs(grid: &Grid, r: usize, c: usize) -> CellFlags {
-    let (Ok(row), Ok(col)) = (u16::try_from(r), u16::try_from(c)) else {
-        return CellFlags::default();
-    };
-    let Some(cell) = grid.row(row).and_then(|gr| gr.get(col)) else {
-        return CellFlags::default();
-    };
-    if cell.uses_style_id() {
-        let extra = cell.flags().difference(CellFlags::USES_STYLE_ID);
-        grid.resolve_style_to_colors(cell.style_id(), extra).2
-    } else {
-        cell.flags()
-    }
-}
-
-/// Render active text attributes as a stable comma list, or `none` when bare.
-///
-/// `underline` is reported for any underline style (single/double/curly and the
-/// dotted/dashed combinations, which all set one of those bits).
-fn attrs_string(flags: CellFlags) -> String {
-    let any_underline = CellFlags::UNDERLINE
-        .union(CellFlags::DOUBLE_UNDERLINE)
-        .union(CellFlags::CURLY_UNDERLINE);
-    let mut parts: Vec<&str> = Vec::new();
-    if flags.contains(CellFlags::BOLD) {
-        parts.push("bold");
-    }
-    if flags.contains(CellFlags::DIM) {
-        parts.push("dim");
-    }
-    if flags.contains(CellFlags::ITALIC) {
-        parts.push("italic");
-    }
-    if flags.intersects(any_underline) {
-        parts.push("underline");
-    }
-    if flags.contains(CellFlags::BLINK) {
-        parts.push("blink");
-    }
-    if flags.contains(CellFlags::INVERSE) {
-        parts.push("inverse");
-    }
-    if flags.contains(CellFlags::STRIKETHROUGH) {
-        parts.push("strike");
-    }
-    if flags.contains(CellFlags::HIDDEN) {
-        parts.push("hidden");
-    }
-    if parts.is_empty() {
-        "none".to_string()
-    } else {
-        parts.join(",")
-    }
-}
-
-/// `scroll <up|down|top|bottom|N>` -> move the scrollback viewport and report
-/// the new position as `OK <display_offset> <scrollback_lines>\n`. `up`/`down`
-/// move one screen into/out of history; `top`/`bottom` jump; a signed integer
-/// `N` moves N lines into history (negative = toward the live bottom). With no
-/// argument it just reports the current position. After moving it nudges a
-/// windowed session to repaint (no-op when headless).
-fn cmd_scroll(
-    term: &Arc<Mutex<Terminal>>,
-    proxy: &EventLoopProxy<Wake>,
-    rest: &str,
-) -> String {
-    // Parse to a tracking-agnostic ScrollIntent; the SEAM is the sole
-    // `scroll_display`/`scroll_to_*` caller. `""` (just report position) maps to a
-    // zero-line `By(0)` so the round-trip still reports the current offset.
-    let intent = match rest.trim() {
-        "" => ScrollIntent::By(0),
-        "top" => ScrollIntent::Top,
-        "bottom" => ScrollIntent::Bottom,
-        "up" => ScrollIntent::Up,
-        "down" => ScrollIntent::Down,
-        n => match n.parse::<i32>() {
-            Ok(d) => ScrollIntent::By(d),
-            Err(_) => return "ERR usage: scroll <up|down|top|bottom|N>\n".to_string(),
-        },
-    };
-    // Reply-bearing: the reply is sent AFTER the seam applied the scroll on the
-    // main thread, so the position read below is NOT racy with the apply.
-    // `scroll` is read-side view control (display_offset only) — audit class ReadScreen.
-    match post_input_reply(proxy, Op::ReadScreen, vec![InputEvent::ScrollView(intent)]) {
-        Ok(_) => {}
-        Err(e) => return e,
-    }
-    let t = term_lock(term);
-    let offset = t.grid().display_offset();
-    let max = t.grid().scrollback_lines();
-    format!("OK {offset} {max}\n")
-}
-
-/// `dims` -> `OK <rows> <cols> <pixel_w> <pixel_h>\n`. Pixels are the renderer's
-/// fixed per-glyph cell size multiplied by the live grid (the framebuffer size
-/// the `image` verb would produce).
-fn cmd_dims(term: &Arc<Mutex<Terminal>>, cell_size: (u32, u32)) -> String {
-    let t = term_lock(term);
-    let rows = u32::from(t.rows());
-    let cols = u32::from(t.cols());
-    let (cw, ch) = cell_size;
-    format!("OK {rows} {cols} {} {}\n", cols * cw, rows * ch)
-}
-
-/// `metrics [reset]` -> one `OK k=v ...\n` line of live render/latency counters so a
-/// driving AI can MEASURE responsiveness AND DETECT lag in the same loop it drives
-/// with — `send`/`key`, then `metrics`. `metrics reset` first zeroes the
-/// measurement-window stats (frames / maxima / slow count) so a SPECIFIC workload can
-/// be timed: `metrics reset`, drive it, then `metrics`.
-///
-/// Fields: `backend=<cpu|gpu>`, grid `rows`/`cols`, `frames` (real presents since
-/// reset — a steady screen does NOT advance it), `last_/max_present_latency_ms` (the
-/// `output→present` slice `$ATERM_TRACE_LATENCY` logs, most-recent + worst), and the
-/// LAG SIGNATURE: `last_/max_frame_render_ms` + `slow_frames` (frames over the ~30 fps
-/// budget, `slow_threshold_ms`). A non-zero `slow_frames`, a large
-/// `max_frame_render_ms`, or `backend=cpu` under heavy output all mean the terminal is
-/// lagging. Values are the process-global [`crate::metrics`] counters + the grid size.
-fn cmd_metrics(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    if rest.trim() == "reset" {
-        crate::metrics::reset();
-    }
-    let (rows, cols) = {
-        let t = term_lock(term);
-        (u32::from(t.rows()), u32::from(t.cols()))
-    };
-    let m = crate::metrics::snapshot();
-    let backend = if m.backend_gpu { "gpu" } else { "cpu" };
-    let ms = |ns: u64| ns as f64 / 1e6;
-    format!(
-        "OK backend={backend} rows={rows} cols={cols} frames={} \
-         last_present_latency_ms={:.2} max_present_latency_ms={:.2} \
-         last_frame_render_ms={:.2} max_frame_render_ms={:.2} \
-         slow_frames={} slow_threshold_ms={:.1}\n",
-        m.frames_presented,
-        ms(m.last_present_latency_ns),
-        ms(m.max_present_latency_ns),
-        ms(m.last_frame_render_ns),
-        ms(m.max_frame_render_ns),
-        m.slow_frames,
-        ms(crate::metrics::SLOW_FRAME_THRESHOLD_NS),
-    )
-}
-
-/// `lines` -> `OK <total_scrollback_lines>\n` — how many lines of history
-/// (tiered + ring-buffer scrollback) currently exist above the visible screen.
-fn cmd_lines(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    format!("OK {}\n", t.grid().scrollback_lines())
-}
-
-/// `line <n>` -> `OK <text>\n` for the line at MONOTONIC ABSOLUTE row `n`, or
-/// `ERR out of range\n` / `ERR evicted\n`.
-///
-/// COORDINATE SPACE (B-2): `n` is an ABSOLUTE row — the same space `blocks` and
-/// `search` report — NOT a 0-based history index. This is the ONE documented
-/// read coordinate: `blocks` gives output/command/prompt rows as absolute
-/// numbers and `search` returns absolute match rows, and BOTH are fed straight
-/// to `line`/`text` with the conversion done HERE at the read site. The mapping
-/// (identical to the engine's `text_range`):
-///   `hist = n - grid.oldest_absolute_row()`
-///   `hist <  scrollback_lines`        → scrollback history line `hist`
-///   `hist >= scrollback_lines`        → visible row `hist - scrollback_lines`
-/// A row OLDER than `oldest_absolute_row()` has scrolled past the scrollback cap
-/// and is reported as an EXPLICIT `ERR evicted\n` (never silently-shifted text —
-/// the same eviction contract `blocktext` honors). Control chars collapse to
-/// spaces; trailing spaces are trimmed.
-fn cmd_line(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    let Ok(n) = rest.trim().parse::<u64>() else {
-        return "ERR usage: line <abs_row>\n".to_string();
-    };
-    let t = term_lock(term);
-    let text = match abs_row_text(&t, n) {
-        AbsRow::Text(s) => s,
-        AbsRow::Evicted => return "ERR evicted\n".to_string(),
-        AbsRow::OutOfRange => return "ERR out of range\n".to_string(),
-    };
-    let mut s: String = text.chars().map(visible_char).collect();
-    while s.ends_with(' ') {
-        s.pop();
-    }
-    format!("OK {s}\n")
-}
-
-/// Outcome of resolving an absolute row to its text (B-2 coordinate space).
-enum AbsRow {
-    /// The combining-aware, NOT-yet-control-collapsed line text.
-    Text(String),
-    /// Older than `oldest_absolute_row()` — scrolled past the scrollback cap.
-    Evicted,
-    /// Newer than the live bottom visible row (no such row).
-    OutOfRange,
-}
-
-/// Resolve a MONOTONIC ABSOLUTE row to its grapheme-faithful text, in the ONE
-/// documented read coordinate space shared by `blocks`/`search`/`line`/`text`.
-///
-/// Conversion is identical to the engine's `text_range`: an absolute row maps to
-/// a history index relative to the oldest retained line; indices at/above the
-/// scrollback count land on the visible screen. Scrollback lines come from
-/// `get_history_line` (Line text); visible rows from the combining-aware
-/// `get_line_text` so accents / ZWJ clusters survive (FIDELITY I-1).
-fn abs_row_text(t: &Terminal, abs_row: u64) -> AbsRow {
-    let grid = t.grid();
-    let oldest = grid.oldest_absolute_row();
-    if abs_row < oldest {
-        return AbsRow::Evicted;
-    }
-    let scrollback = grid.scrollback_lines() as u64;
-    let visible_rows = u64::from(t.rows());
-    let rel = abs_row - oldest;
-    if rel < scrollback {
-        // Scrollback history line `rel` (0 = oldest retained).
-        match grid.get_history_line(rel as usize) {
-            Some(line) => AbsRow::Text(line.to_string()),
-            None => AbsRow::OutOfRange,
-        }
-    } else {
-        let visible = rel - scrollback;
-        if visible >= visible_rows {
-            return AbsRow::OutOfRange;
-        }
-        AbsRow::Text(t.get_line_text(visible as i32, None).unwrap_or_default())
-    }
-}
-
-/// `search <pat> [case] [regex]` -> `OK <count>[ incomplete]\n` then
-/// `<abs_row> <col> <len>` per match.
-///
-/// SEARCH-1: backed by the engine's real `TerminalSearch`, indexing BOTH the
-/// SCROLLBACK (`get_history_line(0..scrollback_lines)`) AND the visible rows
-/// with grapheme-aware text — so a term that has scrolled OFF the screen is
-/// still found, not just the visible page. Each match's row is an ABSOLUTE row
-/// (B-2's one coordinate space): feed it straight to `line`/`text`, which
-/// convert at the read site. `col`/`len` are CHARACTER columns within that row.
-///
-/// FLAGS (order-independent, after the pattern): `case` = case-SENSITIVE match
-/// (default is case-insensitive); `regex` = treat `<pat>` as a regular
-/// expression (requires the `aterm-search` `regex` feature, enabled for the
-/// engine). The pattern is the first token; flags are any trailing `case`/`regex`
-/// tokens, so a literal pattern containing spaces is not supported here (use a
-/// single-token needle, as the naive scan also required).
-///
-/// INCOMPLETE (DL-2): if the search index evicted lines (the searchable window
-/// is capped), the header carries a trailing ` incomplete` token so the AI knows
-/// results are NOT exhaustive rather than trusting a short list silently.
-fn cmd_search(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    let mut it = rest.split_whitespace();
-    let Some(pat) = it.next() else {
-        return "OK 0\n".to_string();
-    };
-    // Parse order-independent trailing flags.
-    let (mut case_sensitive, mut is_regex) = (false, false);
-    for tok in it {
-        match tok {
-            "case" => case_sensitive = true,
-            "regex" => is_regex = true,
-            other => return format!("ERR unknown flag: {other}\n"),
-        }
-    }
-
-    // P1.0b: reuse the cached full-content search index when the active grid's
-    // content is unchanged. `indexed_search` builds the SAME index this used to
-    // build inline (every still-retained addressable line keyed by ABSOLUTE row:
-    // scrollback history -> oldest + i, visible rows -> oldest + scrollback + r),
-    // so each returned SearchMatch.line is already an absolute row and results
-    // (matches, order, absolute rows, INCOMPLETE) are identical. It rebuilds only
-    // on a content change (content_seq bump) or alt-screen swap; an unchanged
-    // repeat query reuses the index for the O(1) win. `&mut` for the cache.
-    let mut t = term_lock(term);
-    let results = match t.indexed_search().search_results_opts(pat, case_sensitive, is_regex) {
-        Ok(r) => r,
-        Err(e) => return format!("ERR search: {e}\n"),
-    };
-    drop(t);
-
-    let incomplete = if results.incomplete { " incomplete" } else { "" };
-    let mut out = format!("OK {}{incomplete}\n", results.matches.len());
-    for m in &results.matches {
-        // m.line is the ABSOLUTE row (we keyed the index by absolute row above).
-        out.push_str(&format!("{} {} {}\n", m.line, m.start_col, m.len()));
-    }
-    out
-}
-
-/// `send <text>` -> write `<text>` to the PTY. A trailing literal `\n` (a
-/// backslash followed by `n`) becomes carriage-return 0x0d so commands run.
-fn cmd_send(sink: &SinkWriter, rest: &str) -> String {
-    let bytes: Vec<u8> = if let Some(head) = rest.strip_suffix("\\n") {
-        let mut b = head.as_bytes().to_vec();
-        b.push(0x0d);
-        b
-    } else {
-        rest.as_bytes().to_vec()
-    };
-    write_pty(sink, &bytes);
-    "OK\n".to_string()
-}
-
-/// Parse the optional trailing `mods=<list>` token (e.g. `mods=ctrl+shift`),
-/// returning the modifier mask and the rest of the line with the token removed.
-/// Additive: a verb line WITHOUT `mods=` parses to `Modifiers::empty()` and the
-/// untouched line, so every existing caller stays byte-compatible.
-fn take_mods(rest: &str) -> (aterm_types::keyboard::Modifiers, String) {
-    use aterm_types::keyboard::Modifiers;
-    let mut m = Modifiers::empty();
-    let mut kept: Vec<&str> = Vec::new();
-    for tok in rest.split_whitespace() {
-        if let Some(list) = tok.strip_prefix("mods=") {
-            for name in list.split(['+', ',']) {
-                match name {
-                    "shift" => m |= Modifiers::SHIFT,
-                    "ctrl" | "control" => m |= Modifiers::CTRL,
-                    "alt" | "option" => m |= Modifiers::ALT,
-                    // `meta` is its OWN modifier (Kitty CSI-u bit 8), distinct from
-                    // ALT — a controller can now drive a real Meta chord. Legacy /
-                    // xterm encoders ignore META/HYPER so their bytes are unchanged;
-                    // only the Kitty keyboard protocol gains the extra bit.
-                    "meta" => m |= Modifiers::META,
-                    "hyper" => m |= Modifiers::HYPER,
-                    "super" | "cmd" | "command" => m |= Modifiers::SUPER,
-                    _ => {}
-                }
-            }
-        } else {
-            kept.push(tok);
-        }
-    }
-    (m, kept.join(" "))
-}
-
-/// Parse the optional trailing `type=<press|repeat|release>` token, returning the
-/// event type (default `Press`) and the body with the token removed. ADDITIVE: a
-/// line without `type=` yields `Press` and the untouched body. An unrecognized
-/// value yields `None` so [`parse_key`] rejects the whole line rather than
-/// silently defaulting. `down`/`up` are accepted aliases for `press`/`release`.
-fn take_event_type(rest: &str) -> Option<(aterm_types::keyboard::KeyEventType, String)> {
-    use aterm_types::keyboard::KeyEventType;
-    let mut et = KeyEventType::Press;
-    let mut kept: Vec<&str> = Vec::new();
-    for tok in rest.split_whitespace() {
-        if let Some(v) = tok.strip_prefix("type=") {
-            et = match v {
-                "press" | "down" => KeyEventType::Press,
-                "repeat" => KeyEventType::Repeat,
-                "release" | "up" => KeyEventType::Release,
-                _ => return None,
-            };
-        } else {
-            kept.push(tok);
-        }
-    }
-    Some((et, kept.join(" ")))
-}
-
-/// Parse the optional trailing `base=<char>` token — the US-QWERTY base-layout
-/// key fed to Kitty `REPORT_ALTERNATE_KEYS` (the 3rd CSI-u sub-field), so a
-/// controller on a non-US layout can reproduce the byte a human on that layout
-/// emits. ADDITIVE: no `base=` yields `None` (the existing behaviour). A `base=`
-/// whose value is not exactly one char yields the parser `None`.
-fn take_base_layout(rest: &str) -> Option<(Option<char>, String)> {
-    let mut base: Option<char> = None;
-    let mut kept: Vec<&str> = Vec::new();
-    for tok in rest.split_whitespace() {
-        if let Some(v) = tok.strip_prefix("base=") {
-            let mut chars = v.chars();
-            match (chars.next(), chars.next()) {
-                (Some(c), None) => base = Some(c),
-                _ => return None,
-            }
-        } else {
-            kept.push(tok);
-        }
-    }
-    Some((base, kept.join(" ")))
-}
-
-/// Map a `key` verb wire token to a [`NamedKey`](aterm_types::keyboard::NamedKey),
-/// or `None` if it is not a named key (the caller then tries a single character).
-/// Covers the FULL `NamedKey` vocabulary the engine models — navigation, editing,
-/// locks/system, F1–F35, numpad, modifier-side keys, and media/audio — so every
-/// physical key a human can press is reachable by a controller. The original 25
-/// tokens keep their exact spelling for byte-compatibility.
-fn named_key_from_token(body: &str) -> Option<aterm_types::keyboard::NamedKey> {
-    use aterm_types::keyboard::NamedKey as Nk;
-    Some(match body {
-        // --- original 25 (byte-identical spellings) ---
-        "enter" => Nk::Enter,
-        "tab" => Nk::Tab,
-        "esc" | "escape" => Nk::Escape,
-        "backspace" => Nk::Backspace,
-        "delete" | "del" => Nk::Delete,
-        "insert" | "ins" => Nk::Insert,
-        "up" => Nk::ArrowUp,
-        "down" => Nk::ArrowDown,
-        "right" => Nk::ArrowRight,
-        "left" => Nk::ArrowLeft,
-        "home" => Nk::Home,
-        "end" => Nk::End,
-        "pageup" | "pgup" => Nk::PageUp,
-        "pagedown" | "pgdn" => Nk::PageDown,
-        "f1" => Nk::F1,
-        "f2" => Nk::F2,
-        "f3" => Nk::F3,
-        "f4" => Nk::F4,
-        "f5" => Nk::F5,
-        "f6" => Nk::F6,
-        "f7" => Nk::F7,
-        "f8" => Nk::F8,
-        "f9" => Nk::F9,
-        "f10" => Nk::F10,
-        "f11" => Nk::F11,
-        "f12" => Nk::F12,
-        // --- editing / system ---
-        "space" => Nk::Space,
-        "capslock" => Nk::CapsLock,
-        "numlock" => Nk::NumLock,
-        "scrolllock" => Nk::ScrollLock,
-        "printscreen" | "prtsc" => Nk::PrintScreen,
-        "pause" | "break" => Nk::Pause,
-        "menu" | "contextmenu" => Nk::ContextMenu,
-        // --- F13..F35 ---
-        "f13" => Nk::F13,
-        "f14" => Nk::F14,
-        "f15" => Nk::F15,
-        "f16" => Nk::F16,
-        "f17" => Nk::F17,
-        "f18" => Nk::F18,
-        "f19" => Nk::F19,
-        "f20" => Nk::F20,
-        "f21" => Nk::F21,
-        "f22" => Nk::F22,
-        "f23" => Nk::F23,
-        "f24" => Nk::F24,
-        "f25" => Nk::F25,
-        "f26" => Nk::F26,
-        "f27" => Nk::F27,
-        "f28" => Nk::F28,
-        "f29" => Nk::F29,
-        "f30" => Nk::F30,
-        "f31" => Nk::F31,
-        "f32" => Nk::F32,
-        "f33" => Nk::F33,
-        "f34" => Nk::F34,
-        "f35" => Nk::F35,
-        // --- numpad (kp* spellings) ---
-        "kp0" => Nk::Numpad0,
-        "kp1" => Nk::Numpad1,
-        "kp2" => Nk::Numpad2,
-        "kp3" => Nk::Numpad3,
-        "kp4" => Nk::Numpad4,
-        "kp5" => Nk::Numpad5,
-        "kp6" => Nk::Numpad6,
-        "kp7" => Nk::Numpad7,
-        "kp8" => Nk::Numpad8,
-        "kp9" => Nk::Numpad9,
-        "kpdot" | "kpdecimal" => Nk::NumpadDecimal,
-        "kpdiv" | "kpdivide" => Nk::NumpadDivide,
-        "kpmul" | "kpmultiply" => Nk::NumpadMultiply,
-        "kpsub" | "kpminus" => Nk::NumpadSubtract,
-        "kpadd" | "kpplus" => Nk::NumpadAdd,
-        "kpenter" => Nk::NumpadEnter,
-        "kpequal" => Nk::NumpadEqual,
-        "kpsep" | "kpseparator" => Nk::NumpadSeparator,
-        "kpbegin" => Nk::NumpadBegin,
-        "kpleft" => Nk::NumpadArrowLeft,
-        "kpright" => Nk::NumpadArrowRight,
-        "kpup" => Nk::NumpadArrowUp,
-        "kpdown" => Nk::NumpadArrowDown,
-        "kppageup" | "kppgup" => Nk::NumpadPageUp,
-        "kppagedown" | "kppgdn" => Nk::NumpadPageDown,
-        "kphome" => Nk::NumpadHome,
-        "kpend" => Nk::NumpadEnd,
-        "kpinsert" | "kpins" => Nk::NumpadInsert,
-        "kpdelete" | "kpdel" => Nk::NumpadDelete,
-        // --- modifier-side keys (reported as key events under Kitty) ---
-        "shiftleft" => Nk::ShiftLeft,
-        "shiftright" => Nk::ShiftRight,
-        "ctrlleft" | "controlleft" => Nk::ControlLeft,
-        "ctrlright" | "controlright" => Nk::ControlRight,
-        "altleft" => Nk::AltLeft,
-        "altright" => Nk::AltRight,
-        "superleft" => Nk::SuperLeft,
-        "superright" => Nk::SuperRight,
-        "hyperleft" => Nk::HyperLeft,
-        "hyperright" => Nk::HyperRight,
-        "metaleft" => Nk::MetaLeft,
-        "metaright" => Nk::MetaRight,
-        // --- media / audio ---
-        "mediaplay" => Nk::MediaPlay,
-        "mediapause" => Nk::MediaPause,
-        "mediaplaypause" => Nk::MediaPlayPause,
-        "mediastop" => Nk::MediaStop,
-        "mediareverse" => Nk::MediaReverse,
-        "mediafastforward" | "mediaff" => Nk::MediaFastForward,
-        "mediarewind" => Nk::MediaRewind,
-        "medianext" | "mediatracknext" => Nk::MediaTrackNext,
-        "mediaprev" | "mediatrackprevious" => Nk::MediaTrackPrevious,
-        "mediarecord" => Nk::MediaRecord,
-        "volumeup" => Nk::AudioVolumeUp,
-        "volumedown" => Nk::AudioVolumeDown,
-        "mute" => Nk::AudioVolumeMute,
-        _ => return None,
-    })
-}
-
-/// PURE parser for `key <name> [mods=<list>] [type=<t>] [base=<c>]` -> an
-/// [`InputEvent::Key`]. Factored out of [`cmd_key`] so the additive grammar is
-/// unit-testable WITHOUT an `EventLoopProxy` (the verb can't run headless — it
-/// posts a `Wake::Input`). The SAME (Key, mods, base_layout, event_type) tuple a
-/// human's named-key press builds, so the seam (the sole encoder caller) yields
-/// byte-identical output incl. Kitty REPORT_ALTERNATE_KEYS. All trailing tokens
-/// are ADDITIVE — a bare `key up` still parses to empty mods / Press / no base.
-/// Returns `None` for an unknown key name or a malformed `type=`/`base=` value.
-pub(crate) fn parse_key(rest: &str) -> Option<InputEvent> {
-    use aterm_types::keyboard::Key;
-    let (mut mods, body) = take_mods(rest);
-    let (event_type, body) = take_event_type(&body)?;
-    let (base_explicit, body) = take_base_layout(&body)?;
-    // Inline modifier prefixes: `ctrl+u`, `alt+x`, `ctrl+shift+a`, ... The
-    // prefixes are ADDITIVE with any trailing `mods=` token, so `ctrl+u` and
-    // `u mods=ctrl` agree. After stripping them, a single residual character
-    // (e.g. `u`) becomes a `Key::Character` event — the SAME (Key, mods) seam
-    // `parse_ctrl` builds, so the encoder derives the control byte itself
-    // (`ctrl+u` -> 0x15) rather than us hand-rolling it.
-    let (prefix_mods, body) = take_inline_mods(body.trim());
-    mods |= prefix_mods;
-    let body = body.trim();
-    let Some(named) = named_key_from_token(body) else {
-        // Not a named key: a single residual character (after stripping inline
-        // modifier prefixes) becomes a `Key::Character`. `ctrl+u` lands here as
-        // `u` + CTRL, byte-identical to `parse_ctrl("u")` -> the encoder emits
-        // 0x15. Lower-cased so `ctrl+U` == `ctrl+u`, matching `parse_ctrl`.
-        let mut chars = body.chars();
-        return match (chars.next(), chars.next()) {
-            (Some(c), None) => Some(InputEvent::Key {
-                key: Key::Character(c.to_ascii_lowercase()),
-                mods,
-                base_layout: base_explicit,
-                event_type,
-            }),
-            _ => None,
-        };
-    };
-    Some(InputEvent::Key { key: Key::Named(named), mods, base_layout: base_explicit, event_type })
-}
-
-/// Strip leading inline modifier prefixes (`ctrl+`, `alt+`, `shift+`, `super+`
-/// and their aliases) from a `key` body, returning the accumulated modifier
-/// mask and the remaining body. Mirrors the `mods=` alias table in
-/// [`take_mods`] so `ctrl+u` and `u mods=ctrl` are equivalent. Only consumes a
-/// prefix when a `+` follows a recognized modifier name, so a bare named key
-/// like `up` (no `+`) is returned untouched.
-fn take_inline_mods(body: &str) -> (aterm_types::keyboard::Modifiers, &str) {
-    use aterm_types::keyboard::Modifiers;
-    let mut m = Modifiers::empty();
-    let mut rest = body;
-    while let Some(plus) = rest.find('+') {
-        let bit = match &rest[..plus] {
-            "shift" => Modifiers::SHIFT,
-            "ctrl" | "control" => Modifiers::CTRL,
-            "alt" | "option" => Modifiers::ALT,
-            // `meta`/`hyper` are their own bits (see `take_mods`).
-            "meta" => Modifiers::META,
-            "hyper" => Modifiers::HYPER,
-            "super" | "cmd" | "command" => Modifiers::SUPER,
-            _ => break,
-        };
-        m |= bit;
-        rest = &rest[plus + 1..];
-    }
-    (m, rest)
-}
-
-/// `key <name> [mods=<list>]` -> build an [`InputEvent::Key`] and post it to the
-/// seam (the SOLE encoder caller, under the CURRENT keyboard mode). See
-/// [`parse_key`] for the grammar.
-fn cmd_key(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
-    match parse_key(rest) {
-        // Reply-bearing: OK means the seam APPLIED the event (bytes written),
-        // not merely that it was enqueued. With no frontmost window the seam
-        // drops the reply sender, so the caller gets ERR rather than a false OK.
-        Some(ev) => input_reply_to_str(post_input_reply(proxy, Op::WriteInput, vec![ev])),
-        None => "ERR\n".to_string(),
-    }
-}
-
-/// Map a reply-bearing input outcome to a verb reply line. `Ok` (applied) and
-/// `RangeRejected` (out-of-range geometry — not relevant to key/mouse/paste, but
-/// handled for completeness) become OK / ERR; an `Err` (event loop closed / no
-/// window) is already a full `ERR …\n` string.
-fn input_reply_to_str(r: Result<InputOutcome, String>) -> String {
-    match r {
-        Ok(InputOutcome::Ok) => "OK\n".to_string(),
-        Ok(InputOutcome::RangeRejected) => "ERR out of range\n".to_string(),
-        Ok(InputOutcome::WriteFailed) => "ERR write failed\n".to_string(),
-        Err(e) => e,
-    }
-}
-
-/// PURE parser for `ctrl <letter>` -> a Control-modified character key. Factored
-/// out of [`cmd_ctrl`] for headless unit-testing. The seam encodes it (under the
-/// CURRENT keyboard mode) as a proper CSI-u sequence (Kitty/xterm) or the legacy
-/// control byte, byte-identical to a human Ctrl chord. Returns `None` unless
-/// `rest` is exactly one (non-whitespace) char.
-pub(crate) fn parse_ctrl(rest: &str) -> Option<InputEvent> {
-    use aterm_types::keyboard::{Key, Modifiers};
-    let mut chars = rest.trim().chars();
-    let (Some(c), None) = (chars.next(), chars.next()) else {
-        return None;
-    };
-    Some(InputEvent::Key {
-        key: Key::Character(c.to_ascii_lowercase()),
-        mods: Modifiers::CTRL,
-        base_layout: None,
-        event_type: aterm_types::keyboard::KeyEventType::Press,
-    })
-}
-
-/// `ctrl <letter>` -> a Control-modified character key posted to the seam. See
-/// [`parse_ctrl`].
-fn cmd_ctrl(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
-    match parse_ctrl(rest) {
-        Some(ev) => post_input(proxy, Op::WriteInput, vec![ev]),
-        None => "ERR usage: ctrl <single-letter>\n".to_string(),
-    }
-}
-
-/// `feed <hex>` -> write raw bytes (decoded from a hex string, whitespace
-/// allowed) straight to the PTY. The escape hatch for control/binary bytes the
-/// line-delimited `send` verb can't carry: `feed 03` = Ctrl-C, `feed 1b5b41` =
-/// ESC[A, `feed 0a` = a real newline. Replies `OK <n> bytes\n` or `ERR bad hex`.
-fn cmd_feed(sink: &SinkWriter, rest: &str) -> String {
-    let hex: String = rest.chars().filter(|c| !c.is_whitespace()).collect();
-    if hex.len() % 2 != 0 {
-        return "ERR bad hex (odd length)\n".to_string();
-    }
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    let h = hex.as_bytes();
-    let mut i = 0;
-    while i < h.len() {
-        let hi = (h[i] as char).to_digit(16);
-        let lo = (h[i + 1] as char).to_digit(16);
-        let (Some(hi), Some(lo)) = (hi, lo) else {
-            return "ERR bad hex\n".to_string();
-        };
-        bytes.push((hi * 16 + lo) as u8);
-        i += 2;
-    }
-    let n = bytes.len();
-    write_pty(sink, &bytes);
-    format!("OK {n} bytes\n")
-}
-
-/// `signal <name>` -> deliver a job-control signal to the PTY's CURRENT
-/// foreground process group (via `tcgetpgrp` on the master + `killpg`).
-/// `name` is one of `int`/`c`, `quit`, `tstp`/`z`, `hup`, `term`, `kill`.
-/// This makes Ctrl-C/Ctrl-\\/Ctrl-Z effects deliverable and testable regardless
-/// of the line discipline / launch context (which may not generate them).
-fn cmd_signal(master: i32, rest: &str) -> String {
-    let sig = match rest.trim() {
-        "int" | "c" | "sigint" => libc::SIGINT,
-        "quit" | "sigquit" => libc::SIGQUIT,
-        "tstp" | "z" | "sigtstp" => libc::SIGTSTP,
-        "hup" | "sighup" => libc::SIGHUP,
-        "term" | "sigterm" => libc::SIGTERM,
-        "kill" | "sigkill" => libc::SIGKILL,
-        other => return format!("ERR unknown signal: {other}\n"),
-    };
-    let pgrp = unsafe { libc::tcgetpgrp(master) };
-    if pgrp <= 0 {
-        return "ERR no foreground process group\n".to_string();
-    }
-    let rc = unsafe { libc::killpg(pgrp, sig) };
-    if rc == 0 {
-        format!("OK signalled pgrp {pgrp}\n")
-    } else {
-        "ERR killpg failed\n".to_string()
-    }
-}
-
-const MOUSE_USAGE: &str = "ERR usage: mouse <press|release|move|wheelup|wheeldown> <left|middle|right> <row> <col> [mods=..] [count=N] [side=left|right] [block=0|1]\n";
-
-/// PURE parser for the `mouse` verb -> an engine-neutral mouse [`InputEvent`].
-/// Factored out of [`cmd_mouse`] so the additive `mods=`/`count=`/`side=`/`block=`
-/// grammar is unit-testable without an `EventLoopProxy`. Returns `Err(usage/err
-/// string)` for a malformed line, `Ok(event)` otherwise.
-///
-/// Grammar: `mouse <action> <button> <row> <col> [mods=..] [count=N]
-/// [side=left|right] [block=0|1]`. `action` is `press|release|move|wheelup|
-/// wheeldown`; `button` is `left|middle|right` (ignored for the wheel actions);
-/// `row`/`col` are 0-based. The additive tokens carry the data that closes the
-/// human/controller divergences: `mods=` the real modifier mask (kills a),
-/// `count=` the click depth 1..=3 (kills b), `side=` the cell-half (kills i),
-/// `block=1` the rectangular-selection intent for a single-click press (the same
-/// intent a human encodes from a held Alt, carried as DATA so the seam never
-/// reads ambient modifier state).
-pub(crate) fn parse_mouse(rest: &str) -> Result<InputEvent, String> {
-    use aterm_core::selection::SelectionSide;
-    use aterm_types::mouse::{MouseButton, ALT_MASK, CTRL_MASK, SHIFT_MASK};
-    let mut action = "";
-    let mut mods: u8 = 0;
-    let mut click_count: u8 = 1;
-    let mut side = SelectionSide::Left;
-    let mut block = false;
-    // POSITIONAL tokens (in order), interpreted per-action below: this keeps
-    // press/release/wheel as `<button> <row> <col>` (byte-compatible with the
-    // pre-Phase-0.5 grammar) AND lets `move` be EITHER `<row> <col>` (no-button
-    // hover, code 3) OR `<button> <row> <col>` (held-button drag).
-    let mut positional: Vec<&str> = Vec::new();
-    for tok in rest.split_whitespace() {
-        if let Some(list) = tok.strip_prefix("mods=") {
-            for name in list.split(['+', ',']) {
-                match name {
-                    "shift" => mods |= SHIFT_MASK,
-                    "alt" | "option" | "meta" => mods |= ALT_MASK,
-                    "ctrl" | "control" => mods |= CTRL_MASK,
-                    _ => {}
-                }
-            }
-        } else if let Some(c) = tok.strip_prefix("count=") {
-            click_count = c.parse::<u8>().unwrap_or(1).clamp(1, 3);
-        } else if let Some(s) = tok.strip_prefix("side=") {
-            side = if s == "right" { SelectionSide::Right } else { SelectionSide::Left };
-        } else if let Some(b) = tok.strip_prefix("block=") {
-            block = matches!(b, "1" | "true" | "yes" | "block");
-        } else if action.is_empty() {
-            action = tok;
-        } else {
-            positional.push(tok);
-        }
-    }
-    let parse_btn = |s: &str| -> Result<MouseButton, String> {
-        match s {
-            "left" => Ok(MouseButton::Left),
-            "middle" => Ok(MouseButton::Middle),
-            "right" => Ok(MouseButton::Right),
-            _ => Err("ERR bad button\n".to_string()),
-        }
-    };
-    let parse_rc = |r: &str, c: &str| -> Result<(u16, u16), String> {
-        match (r.parse::<u16>(), c.parse::<u16>()) {
-            (Ok(r), Ok(c)) => Ok((r, c)),
-            _ => Err("ERR bad args\n".to_string()),
-        }
-    };
-    let ev = match action {
-        // `move` with two positionals = no-button hover (code 3); with three =
-        // `<button> <row> <col>` held-button drag (kills divergence c at the verb).
-        "move" => match positional.as_slice() {
-            [r, c] => {
-                let (row, col) = parse_rc(r, c)?;
-                InputEvent::MouseMove { buttons: 3, row, col, mods, side }
-            }
-            [b, r, c] => {
-                let button = parse_btn(b)?;
-                let (row, col) = parse_rc(r, c)?;
-                InputEvent::MouseMove { buttons: button.code(), row, col, mods, side }
-            }
-            _ => return Err(MOUSE_USAGE.to_string()),
-        },
-        "press" | "release" | "wheelup" | "wheeldown" => {
-            let [b, r, c] = positional.as_slice() else {
-                return Err(MOUSE_USAGE.to_string());
-            };
-            // `button` is ignored for the wheel actions but still required as a
-            // positional (byte-compatible with the old `<button> <row> <col>` form).
-            let button = parse_btn(b)?;
-            let (row, col) = parse_rc(r, c)?;
-            match action {
-                "press" => InputEvent::MouseButton {
-                    button, pressed: true, row, col, mods, click_count, side, block,
-                },
-                "release" => InputEvent::MouseButton {
-                    button, pressed: false, row, col, mods, click_count, side, block,
-                },
-                "wheelup" => InputEvent::Wheel { dir_up: true, lines: 1, row, col, mods },
-                _ => InputEvent::Wheel { dir_up: false, lines: 1, row, col, mods },
-            }
-        }
-        _ => return Err("ERR bad action\n".to_string()),
-    };
-    Ok(ev)
-}
-
-/// `mouse <action> <button> <row> <col> [mods=..] [count=N] [side=left|right]
-/// [block=0|1]` -> BUILD an engine-neutral mouse [`InputEvent`] (via [`parse_mouse`])
-/// and post it to the seam, which reads the CURRENT mouse mode ONCE and either
-/// emits the `encode_mouse_*` report (tracking ON) or runs the local selection
-/// gesture (tracking OFF).
-///
-/// Phase 0.5 CONTRACT CHANGE (divergences a/b/d/i): the old `OK (mouse off)`
-/// short-circuit is GONE — a tracking-OFF press/release now runs the SAME
-/// selection machinery as the human (not a no-op), and `mods`/`count`/`side`/
-/// `block` are carried as data instead of hard-coded. The verb returns `OK\n`
-/// (fire-and-forget) once the batch is posted.
-///
-/// DRAG CONVERGENCE (divergence c) — SCOPE: one `mouse move` verb line posts ONE
-/// `MouseMove`, so a controller that wants intermediate motion reports under a
-/// tracking app issues a `press` then N `move`s then a `release` as separate verb
-/// lines (the seam reports each, identical to the human's per-pixel `MouseMove`s).
-/// A single-line `press→N×move→release` BATCH grammar is deliberately deferred —
-/// the seam already supports a batched `Wake::Input` (A.2.3), so it is additive
-/// and out of scope for this convergence commit.
-fn cmd_mouse(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
-    match parse_mouse(rest) {
-        // Reply-bearing: OK means the seam ran (report emitted or local fallback
-        // applied), not merely enqueued. No window ⇒ ERR, not a false OK.
-        Ok(ev) => input_reply_to_str(post_input_reply(proxy, Op::WriteInput, vec![ev])),
-        Err(e) => e,
-    }
-}
-
-/// `paste <text>` -> write `<text>` to the PTY exactly as if the user pasted
-/// it: [`Terminal::format_paste`] strips control bytes that could escape the
-/// guards (ESC, C1 controls), converts line breaks to CR, and wraps the body
-/// in the bracketed-paste guards `ESC[200~` ... `ESC[201~` when the app has
-/// enabled bracketed paste (DECSET 2004). The text is the rest of the line
-/// taken literally; a literal trailing `\n` (backslash + n) becomes a line
-/// break (sent as CR, like a real paste) so a paste can end in one. For raw
-/// unsanitized bytes use `feed`/`send` instead.
-fn cmd_paste(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
-    // The seam runs `format_paste` (bracketing + sanitize) under the lock and the
-    // snap-to-bottom, converging with the human Cmd-V path. Reply-bearing so OK
-    // means the paste reached the PTY (no window ⇒ ERR, not a false OK).
-    input_reply_to_str(post_input_reply(
-        proxy,
-        Op::WriteInput,
-        vec![InputEvent::Paste(paste_text(rest))],
-    ))
-}
-
-/// The `paste` verb's text transform: a literal trailing `\n` (backslash + n)
-/// becomes a real line break (sent as CR by `format_paste`). Pure, so the
-/// bracketing/sanitize bytes stay unit-testable without an event loop.
-fn paste_text(rest: &str) -> String {
-    match rest.strip_suffix("\\n") {
-        Some(head) => format!("{head}\n"),
-        None => rest.to_string(),
-    }
-}
-
-/// `focus <in|out>` -> drive DEC 1004 focus reporting (kills divergence j: a
-/// controller-only session can now satisfy a focus-tracking app's oracle). The
-/// seam emits ESC[I / ESC[O when the app enabled focus reporting, byte-identical
-/// to the human `on_focus` egress. `in`/`1`/`true` = focus-in.
-fn cmd_focus(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
-    match parse_focus(rest) {
-        Some(focused) => post_input(proxy, Op::WriteInput, vec![InputEvent::Focus(focused)]),
-        None => "ERR usage: focus <in|out>\n".to_string(),
-    }
-}
-
-/// PURE parser for the `focus` verb's `in/out` argument, factored out of
-/// [`cmd_focus`] so the self (active-tab) and cross-session paths build the SAME
-/// [`InputEvent::Focus`] from the SAME grammar. `in`/`1`/`true`/`focus` => focus-in.
-pub(crate) fn parse_focus(rest: &str) -> Option<bool> {
-    match rest.trim() {
-        "in" | "1" | "true" | "focus" => Some(true),
-        "out" | "0" | "false" | "blur" => Some(false),
-        _ => None,
-    }
-}
-
-/// `modes` -> `OK\n` then one `key=value` line per introspected mode:
-/// `alt_screen`, `cursor_visible`, `app_cursor_keys` (DECCKM),
-/// `app_keypad` (DECPAM), `bracketed_paste` (2004), `mouse_mode`
-/// (`none|normal|button|any|x10`), and `mouse_encoding`
-/// (`x10|utf8|sgr|urxvt|sgr_pixel`).
-fn cmd_modes(term: &Arc<Mutex<Terminal>>) -> String {
-    use aterm_types::mouse::{MouseEncoding, MouseMode};
-    let t = term_lock(term);
-    let m = t.modes();
-    let mouse_mode = match m.mouse_mode {
-        MouseMode::None => "none",
-        MouseMode::Normal => "normal",
-        MouseMode::ButtonEvent => "button",
-        MouseMode::AnyEvent => "any",
-        MouseMode::X10 => "x10",
-        _ => "unknown",
-    };
-    let mouse_encoding = match m.mouse_encoding {
-        MouseEncoding::X10 => "x10",
-        MouseEncoding::Utf8 => "utf8",
-        MouseEncoding::Sgr => "sgr",
-        MouseEncoding::Urxvt => "urxvt",
-        MouseEncoding::SgrPixel => "sgr_pixel",
-        _ => "unknown",
-    };
-    // Framed as `OK <n>` + n lines so the client streams the body (same shape
-    // as `text`/`search`), rather than truncating to the status line.
-    let lines = [
-        format!("alt_screen={}", t.is_alternate_screen()),
-        format!("cursor_visible={}", t.cursor_visible()),
-        format!("app_cursor_keys={}", m.application_cursor_keys),
-        format!("app_keypad={}", m.application_keypad),
-        format!("bracketed_paste={}", m.bracketed_paste),
-        format!("mouse_mode={mouse_mode}"),
-        format!("mouse_encoding={mouse_encoding}"),
-        // Affect how typed input / printed output lands, so a client driving the
-        // terminal can predict behavior: IRM (insert vs overwrite), DECAWM
-        // (auto-wrap at the right margin), DECOM (cursor origin = scroll region).
-        format!("insert_mode={}", m.insert_mode),
-        format!("auto_wrap={}", m.auto_wrap),
-        format!("origin_mode={}", m.origin_mode),
-    ];
-    let mut out = format!("OK {}\n", lines.len());
-    for l in &lines {
-        out.push_str(l);
-        out.push('\n');
-    }
-    out
-}
-
-/// `title` -> `OK <window title>\n` (the OSC 0/2 window title; empty if unset).
-fn cmd_title(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    format!("OK {}\n", t.title())
-}
-
-/// `cwd` -> `OK <working directory>\n` (the shell's directory as reported via
-/// OSC 7; empty if never reported). Lets an introspecting client know where
-/// commands will run without scraping the prompt.
-fn cmd_cwd(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    format!("OK {}\n", t.current_working_directory().unwrap_or(""))
-}
-
 /// Percent-encode a string so it occupies ONE space-free token in a response
 /// line: every byte that is not ASCII-graphic (and `%` itself) becomes `%XX`.
 /// Spaces, newlines and non-ASCII are escaped; the client decodes. Empty -> "".
@@ -2764,113 +1568,6 @@ fn pct_encode(s: &str) -> String {
         } else {
             out.push_str(&format!("%{b:02X}"));
         }
-    }
-    out
-}
-
-/// One `image read` result line:
-/// `<row> <col> <img_cols> <img_rows> <cell_row> <cell_col> <format> <nbytes> <base64>`.
-/// `row`/`col` are the image's TOP-LEFT anchor on the grid; `cell_row`/`cell_col`
-/// are the tile of interest (0/0 for a whole-image report, the queried tile in
-/// cell mode); `nbytes` is the raw (pre-base64) length; the trailing base64 is the
-/// image's full raw payload (PNG bytes etc.), independent of the GUI framebuffer.
-/// Per-image payload cap for the line + JSON image channels (audit finding F4). An
-/// inline image is USER-supplied (the inner TUI emits OSC 1337), so a hostile or
-/// careless inner could embed a multi-megabyte image and force a large base64
-/// allocation on every `image read` AND every styled `cells`/`screen` frame. Above
-/// this raw-byte cap the payload is OMITTED and the image marked `truncated` — the
-/// metadata + real `nbytes` still report it, so a consumer learns an image is there
-/// and how big it is, then fetches it deliberately, without the per-frame blowup.
-const MAX_IMAGE_PAYLOAD_BYTES: usize = 4 * 1024 * 1024; // 4 MiB raw (~5.3 MiB base64)
-
-/// `(format, base64)` for an image, applying the F4 cap: oversized images report
-/// `("truncated", "")` instead of encoding their bytes.
-fn image_payload(img: &ImageData) -> (&'static str, String) {
-    let fmt = match img.format {
-        ImageFormat::Png => "png",
-        _ => "unknown",
-    };
-    if img.bytes.len() > MAX_IMAGE_PAYLOAD_BYTES {
-        ("truncated", String::new())
-    } else {
-        (fmt, aterm_codec::base64::encode(&img.bytes))
-    }
-}
-
-fn image_read_line(anchor_r: usize, anchor_c: usize, tile_row: u16, tile_col: u16, img: &ImageData) -> String {
-    let (fmt, b64) = image_payload(img);
-    format!(
-        "{anchor_r} {anchor_c} {} {} {tile_row} {tile_col} {fmt} {} {b64}",
-        img.cols,
-        img.rows,
-        img.bytes.len(),
-    )
-}
-
-/// `image read [<r> [<c>]]` -> the structured inline-image payloads (iTerm2 OSC
-/// 1337) as base64, readable HEADLESS and CROSS-SESSION (unlike the framebuffer
-/// `image` rasterize verb). With no args it reports every DISTINCT image on the
-/// grid (deduplicated by payload identity), one line per image at its top-left
-/// anchor; `image read <r>` restricts to images intersecting row `r`; `image read
-/// <r> <c>` returns the single image tile covering that exact cell (`ERR none` if
-/// the cell has no image). Framed `OK <nlines>\n` + one line per image.
-fn cmd_image_read(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    let t = term_lock(term);
-    let rows = t.rows() as usize;
-    let cols = t.cols() as usize;
-    let mut it = rest.split_whitespace();
-    let r_tok = it.next();
-    let c_tok = it.next();
-
-    // Cell mode: the image covering exactly (r, c).
-    if let (Some(rs), Some(cs)) = (r_tok, c_tok) {
-        let (Ok(r), Ok(c)) = (rs.parse::<usize>(), cs.parse::<usize>()) else {
-            return "ERR bad args\n".to_string();
-        };
-        if r >= rows || c >= cols {
-            return "ERR out of range\n".to_string();
-        }
-        for (col, iref) in t.images_row(r) {
-            if col == c {
-                let anchor_r = r.saturating_sub(iref.cell_row as usize);
-                let anchor_c = col.saturating_sub(iref.cell_col as usize);
-                return format!(
-                    "OK 1\n{}\n",
-                    image_read_line(anchor_r, anchor_c, iref.cell_row, iref.cell_col, &iref.image)
-                );
-            }
-        }
-        return "ERR none\n".to_string();
-    }
-
-    // Row mode (one row) or screen mode (all rows): distinct images, anchored.
-    let row_range: Vec<usize> = match r_tok {
-        Some(rs) => match rs.parse::<usize>() {
-            Ok(r) if r < rows => vec![r],
-            Ok(_) => return "ERR out of range\n".to_string(),
-            Err(_) => return "ERR bad args\n".to_string(),
-        },
-        None => (0..rows).collect(),
-    };
-    let mut seen: Vec<*const ImageData> = Vec::new();
-    let mut lines: Vec<String> = Vec::new();
-    for r in row_range {
-        for (col, iref) in t.images_row(r) {
-            let ptr = std::sync::Arc::as_ptr(&iref.image);
-            if seen.contains(&ptr) {
-                continue;
-            }
-            seen.push(ptr);
-            let anchor_r = r.saturating_sub(iref.cell_row as usize);
-            let anchor_c = col.saturating_sub(iref.cell_col as usize);
-            // Whole-image report: anchor + tile 0/0 (the full payload is carried).
-            lines.push(image_read_line(anchor_r, anchor_c, 0, 0, &iref.image));
-        }
-    }
-    let mut out = format!("OK {}\n", lines.len());
-    for l in lines {
-        out.push_str(&l);
-        out.push('\n');
     }
     out
 }
@@ -2929,1040 +1626,6 @@ fn take_json_flag(rest: &str) -> (bool, String) {
     (json, kept.join(" "))
 }
 
-/// `text --json` -> `{"rows":["<row0>",...],"cursor":{...},"seq":N,"dims":{...}}`.
-/// The rows are the SAME grapheme-faithful, control-collapsed, tail-trimmed lines
-/// `cmd_text` emits, the cursor/dims mirror the `cursor`/`dims` verbs, and `seq`
-/// is the engine `content_seq` (so an agent can diff frames without re-reading).
-fn cmd_text_json(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    let rows = t.rows() as usize;
-    let cols = t.cols();
-    let mut row_items: Vec<String> = Vec::with_capacity(rows);
-    for r in 0..rows {
-        row_items.push(format!("\"{}\"", json_escape(&visible_row(&t, r))));
-    }
-    let c = t.cursor();
-    let vis = t.cursor_visible();
-    let style = cursor_style_name(t.cursor_style());
-    json_ok(&format!(
-        "{{\"rows\":[{}],\"cursor\":{{\"row\":{},\"col\":{},\"visible\":{vis},{}}},\
-         \"dims\":{{\"rows\":{rows},\"cols\":{cols}}},\"seq\":{}}}",
-        row_items.join(","),
-        c.row,
-        c.col,
-        json_str_field("style", style),
-        t.content_seq(),
-    ))
-}
-
-/// `cursor --json` -> `{"row":R,"col":C,"visible":bool,"style":"<name>"}`.
-fn cmd_cursor_json(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    let c = t.cursor();
-    json_ok(&format!(
-        "{{\"row\":{},\"col\":{},\"visible\":{},{}}}",
-        c.row,
-        c.col,
-        t.cursor_visible(),
-        json_str_field("style", cursor_style_name(t.cursor_style())),
-    ))
-}
-
-/// The wire name of an [`UnderlineStyle`]: lowercase, matching the SGR 4:x family.
-fn underline_style_name(u: UnderlineStyle) -> &'static str {
-    match u {
-        UnderlineStyle::None => "none",
-        UnderlineStyle::Single => "single",
-        UnderlineStyle::Double => "double",
-        UnderlineStyle::Curly => "curly",
-        UnderlineStyle::Dotted => "dotted",
-        UnderlineStyle::Dashed => "dashed",
-    }
-}
-
-/// Serialize ONE cell as the canonical `StyledCell` JSON object — the LOSSLESS,
-/// fully-resolved view a styled-screen consumer (an outer agent driving an inner
-/// TUI) needs. Every rendition field is read from the RESOLVED [`RenderCell`]
-/// (the renderer's own decisions: palette/RGB/bold-bright/dim/inverse/hidden/
-/// DECSCNM already folded into `fg`/`bg`), NOT the raw flag bits — so this carries
-/// the four decorations the legacy `cell` verb dropped (underline SUBSTYLE,
-/// overline, underline colour, emoji presentation). `glyph` is the combining-aware
-/// grapheme (same source as `cell`/`text`); `wide_lead` is the only geometry field
-/// (the raw `WIDE` flag), kept distinct from the `wide` right-half continuation.
-///
-/// NOTE on semantic boundary: `dim`/`blink`/`inverse`/`hidden` are baked into the
-/// resolved `fg`/`bg` by `render_row` and are deliberately NOT reported as attrs
-/// (recovering them is the raw-flags path; byte-exact SGR replay is the `cast`
-/// raw-bytes channel's job, not this resolved-screen view).
-fn styled_cell_json(t: &Terminal, r: usize, c: usize, cell: &RenderCell) -> String {
-    let mut attrs: Vec<&str> = Vec::new();
-    if cell.bold {
-        attrs.push("bold");
-    }
-    if cell.italic {
-        attrs.push("italic");
-    }
-    if cell.underline != UnderlineStyle::None {
-        attrs.push("underline");
-    }
-    if cell.strikethrough {
-        attrs.push("strike");
-    }
-    let attrs_json = attrs
-        .iter()
-        .map(|a| format!("\"{a}\""))
-        .collect::<Vec<_>>()
-        .join(",");
-    let glyph = t.cell_grapheme(r, c).unwrap_or_default();
-    let underline_color = cell.underline_color.map_or_else(
-        || "null".to_string(),
-        |[r, g, b]| format!("\"{r:02x}{g:02x}{b:02x}\""),
-    );
-    let hyperlink = t.hyperlink_at(r as u16, c as u16).map_or_else(
-        || "null".to_string(),
-        |u| format!("\"{}\"", json_escape(u)),
-    );
-    let wide_lead = cell_attrs(t.grid(), r, c).contains(CellFlags::WIDE);
-    format!(
-        "{{\"glyph\":\"{}\",\"fg\":\"{:02x}{:02x}{:02x}\",\"bg\":\"{:02x}{:02x}{:02x}\",\
-         \"attrs\":[{attrs_json}],\"underline_style\":\"{}\",\"overline\":{},\
-         \"underline_color\":{underline_color},\"emoji_presentation\":{},\
-         \"wide\":{},\"wide_lead\":{wide_lead},\"hyperlink\":{hyperlink}}}",
-        json_escape(&glyph),
-        cell.fg[0], cell.fg[1], cell.fg[2],
-        cell.bg[0], cell.bg[1], cell.bg[2],
-        underline_style_name(cell.underline),
-        cell.overline,
-        cell.emoji_presentation,
-        cell.wide,
-    )
-}
-
-/// Build the whole styled-screen frame as a single-line JSON object:
-/// `{"seq":N,"dims":{...},"cursor":{...},"rows":[[StyledCell,...],...]}`.
-///
-/// Called with the `Terminal` lock ALREADY HELD (the subscribe `cells` stream
-/// reuses it under one lock so the frame is internally consistent). Every row is
-/// padded out to the FULL grid width with default-coloured blanks (NO `trim_end`,
-/// unlike `text`) so the consumer receives exactly `dims.rows × dims.cols` cells —
-/// the lossless contract. The blank-tail fallback mirrors [`cmd_cell`] exactly.
-/// The wire name of a DEC [`LineSize`](aterm_core::grid::LineSize): the renderer
-/// scales these rows, so a lossless frame must carry them (audit finding F2).
-fn line_size_name(s: aterm_core::grid::LineSize) -> &'static str {
-    use aterm_core::grid::LineSize;
-    match s {
-        LineSize::SingleWidth => "single",
-        LineSize::DoubleWidth => "double_width",
-        LineSize::DoubleHeightTop => "double_height_top",
-        LineSize::DoubleHeightBottom => "double_height_bottom",
-        _ => "single",
-    }
-}
-
-/// The DEC line size of visible row `r` (default single-width).
-fn row_line_size(t: &Terminal, r: usize) -> aterm_core::grid::LineSize {
-    u16::try_from(r)
-        .ok()
-        .and_then(|rr| t.grid().row(rr))
-        .map_or(aterm_core::grid::LineSize::SingleWidth, |row| row.line_size())
-}
-
-/// Every DISTINCT inline image on the visible grid, each at its top-left grid
-/// anchor `(row, col)` (deduplicated by payload identity). Shared shape with
-/// `cmd_image_read`'s screen mode; consumed by the styled frame (audit finding F1)
-/// so a `subscribe cells` / `screen` watcher sees images, not blank cells.
-fn distinct_images(t: &Terminal) -> Vec<(usize, usize, std::sync::Arc<ImageData>)> {
-    let mut seen: Vec<*const ImageData> = Vec::new();
-    let mut out: Vec<(usize, usize, std::sync::Arc<ImageData>)> = Vec::new();
-    for r in 0..t.rows() as usize {
-        for (col, iref) in t.images_row(r) {
-            let ptr = std::sync::Arc::as_ptr(&iref.image);
-            if seen.contains(&ptr) {
-                continue;
-            }
-            seen.push(ptr);
-            let anchor_r = r.saturating_sub(iref.cell_row as usize);
-            let anchor_c = col.saturating_sub(iref.cell_col as usize);
-            out.push((anchor_r, anchor_c, iref.image.clone()));
-        }
-    }
-    out
-}
-
-/// One inline image as a JSON object for the styled frame: anchor grid position,
-/// cell footprint, format, raw byte length, and the base64 payload — so a watcher
-/// reconstructs the picture the human sees, independent of the GUI framebuffer.
-fn styled_image_json(anchor_r: usize, anchor_c: usize, img: &ImageData) -> String {
-    let (fmt, b64) = image_payload(img); // F4: oversized -> ("truncated", "")
-    format!(
-        "{{\"row\":{anchor_r},\"col\":{anchor_c},\"cols\":{},\"rows\":{},\"format\":\"{fmt}\",\
-         \"nbytes\":{},\"b64\":\"{b64}\"}}",
-        img.cols,
-        img.rows,
-        img.bytes.len(),
-    )
-}
-
-pub(crate) fn styled_frame_payload(t: &Terminal) -> String {
-    let rows = t.rows() as usize;
-    let cols = t.cols() as usize;
-    let (dfg, dbg) = (t.default_foreground(), t.default_background());
-    let blank = RenderCell {
-        ch: ' ',
-        fg: [dfg.r, dfg.g, dfg.b],
-        bg: [dbg.r, dbg.g, dbg.b],
-        wide: false,
-        emoji_presentation: false,
-        bold: false,
-        italic: false,
-        underline: UnderlineStyle::None,
-        strikethrough: false,
-        overline: false,
-        underline_color: None,
-    };
-    let mut row_items: Vec<String> = Vec::with_capacity(rows);
-    let mut line_sizes: Vec<&'static str> = Vec::with_capacity(rows);
-    for r in 0..rows {
-        let rendered = t.render_row(r);
-        let mut cells: Vec<String> = Vec::with_capacity(cols);
-        for c in 0..cols {
-            let cell = rendered.get(c).unwrap_or(&blank);
-            cells.push(styled_cell_json(t, r, c, cell));
-        }
-        row_items.push(format!("[{}]", cells.join(",")));
-        line_sizes.push(line_size_name(row_line_size(t, r))); // F2: DEC double-width/height
-    }
-    let line_sizes_json = line_sizes.iter().map(|s| format!("\"{s}\"")).collect::<Vec<_>>().join(",");
-    // F1: inline images (OSC 1337), base64 once per distinct image at its anchor —
-    // without this a `cells`/`screen` watcher sees blank cells where the human sees
-    // a picture. Empty array (cheap) on the common no-image screen.
-    let images_json = distinct_images(t)
-        .iter()
-        .map(|(ar, ac, img)| styled_image_json(*ar, *ac, img))
-        .collect::<Vec<_>>()
-        .join(",");
-    // F3: text selection highlight (a human/peer-initiated selection a watcher
-    // would otherwise miss); `null` when nothing is selected.
-    let sel = t.text_selection();
-    let selection_json = if sel.is_empty() {
-        "null".to_string()
-    } else {
-        let (sr, sc, er, ec) = sel.normalized_bounds();
-        format!("{{\"start_row\":{sr},\"start_col\":{sc},\"end_row\":{er},\"end_col\":{ec}}}")
-    };
-    let cur = t.cursor();
-    format!(
-        "{{\"seq\":{},\"dims\":{{\"rows\":{rows},\"cols\":{cols}}},\
-         \"cursor\":{{\"row\":{},\"col\":{},\"visible\":{},{}}},\
-         \"rows\":[{}],\"line_sizes\":[{line_sizes_json}],\"selection\":{selection_json},\
-         \"images\":[{images_json}]}}",
-        t.content_seq(),
-        cur.row,
-        cur.col,
-        t.cursor_visible(),
-        json_str_field("style", cursor_style_name(t.cursor_style())),
-        row_items.join(","),
-    )
-}
-
-/// COMPILE-GATE (the GENERAL fix for the F1/F2/F3 dropped-field class): every field
-/// of the renderer's input MUST be a CONSCIOUS decision — reflected in the lossless
-/// styled frame, or explicitly omitted with a reason. This destructures
-/// [`RenderInput`](aterm_core::render::RenderInput) WITHOUT `..`, so adding a new
-/// renderer-consumed field fails to compile until someone decides whether
-/// `styled_frame_payload` carries it. That turns "we silently dropped a field"
-/// (F1 images, F2 line_sizes, F3 selection — all present in `RenderInput`, all once
-/// missing from the frame) into a build error. Never called; it exists to type-check.
-#[allow(dead_code)]
-fn _styled_frame_covers_every_render_input_field(ri: &aterm_core::render::RenderInput) {
-    let aterm_core::render::RenderInput {
-        rows: _,           // frame "dims.rows"
-        cols: _,           // frame "dims.cols"
-        cells: _,          // frame "rows" (per-cell styled_cell_json)
-        cursor_row: _,     // frame "cursor.row"
-        cursor_col: _,     // frame "cursor.col"
-        cursor_visible: _, // frame "cursor.visible"
-        cursor_style: _,   // frame "cursor.style"
-        display_offset: _, // OMITTED: viewport scroll position, not visible-cell content
-        selection: _,      // frame "selection" (F3)
-        clusters: _,       // folded into per-cell "glyph" (cell_grapheme)
-        combining: _,      // folded into per-cell "glyph" (cell_grapheme)
-        line_sizes: _,     // frame "line_sizes" (F2)
-        images: _,         // frame "images" (F1)
-        snapshot_seq: _,   // frame "seq" (the engine content version stamp)
-    } = ri;
-}
-
-/// `screen` -> the full LOSSLESS styled grid as a single-line JSON frame, wrapped
-/// in the standard `OK 1\n<json>\n` read framing (so the existing line-count
-/// client streams it unchanged). This is the keystone "see everything" verb: it
-/// carries per-cell colour + every resolved decoration + the cursor + dims + seq,
-/// so an outer agent reconstructs exactly what a human sees in the inner TUI.
-/// `--json` is implied (the verb is always styled JSON).
-fn cmd_screen_styled_json(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    json_ok(&styled_frame_payload(&t))
-}
-
-/// `dims --json` -> `{"rows":R,"cols":C,"pixel_w":W,"pixel_h":H}`.
-fn cmd_dims_json(term: &Arc<Mutex<Terminal>>, cell_size: (u32, u32)) -> String {
-    let t = term_lock(term);
-    let rows = u32::from(t.rows());
-    let cols = u32::from(t.cols());
-    let (cw, ch) = cell_size;
-    json_ok(&format!(
-        "{{\"rows\":{rows},\"cols\":{cols},\"pixel_w\":{},\"pixel_h\":{}}}",
-        cols * cw,
-        rows * ch,
-    ))
-}
-
-/// `blocks [N] --json` -> `{"blocks":[{...}]}`: the SAME OSC 133/633 command
-/// blocks `cmd_blocks` reports (oldest-first, optional last-N), one JSON object
-/// per block with the absolute rows, exit code, state, cwd and commandline. An
-/// absent optional row is JSON `null`; the cwd/commandline are JSON strings (not
-/// percent-encoded — JSON carries spaces natively).
-fn cmd_blocks_json(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    use aterm_core::terminal::BlockState;
-    let t = term_lock(term);
-    let all: Vec<_> = t.all_blocks().collect();
-    let slice: &[_] = match rest.trim().parse::<usize>() {
-        Ok(n) if n < all.len() => &all[all.len() - n..],
-        _ => &all,
-    };
-    let opt_row = |r: Option<u64>| r.map_or_else(|| "null".to_string(), |v| v.to_string());
-    let mut items: Vec<String> = Vec::with_capacity(slice.len());
-    for b in slice {
-        let state = match b.state {
-            BlockState::PromptOnly => "prompt",
-            BlockState::EnteringCommand => "entering",
-            BlockState::Executing => "executing",
-            BlockState::Complete => "complete",
-            _ => "unknown",
-        };
-        let exit = b.exit_code.map_or_else(|| "null".to_string(), |c| c.to_string());
-        items.push(format!(
-            "{{\"id\":{},{},\"exit\":{exit},\"prompt\":{},\"cmd\":{},\"out\":{},\"end\":{},{},{}}}",
-            b.id,
-            json_str_field("state", state),
-            b.prompt_start_row,
-            opt_row(b.command_start_row),
-            opt_row(b.output_start_row),
-            opt_row(b.end_row),
-            json_str_field("cwd", b.working_directory.as_deref().unwrap_or("")),
-            json_str_field("cmdline", b.commandline.as_deref().unwrap_or("")),
-        ));
-    }
-    json_ok(&format!("{{\"blocks\":[{}]}}", items.join(",")))
-}
-
-/// `blocks [N]` -> the shell-integration command blocks (OSC 133/633), oldest
-/// first (or the last `N`). This is the project's point made concrete: an AI
-/// driving the terminal navigates by COMMAND — exit codes, the output's absolute
-/// row range, the command text and cwd — instead of scraping the screen.
-///
-/// COORDINATE SPACE (B-2): every `prompt`/`cmd`/`out`/`end` row is a MONOTONIC
-/// ABSOLUTE row, the SINGLE read coordinate this socket uses. Feed any of them
-/// DIRECTLY to `line <abs_row>` (one row) or `text` (the visible screen) — those
-/// verbs accept absolute rows and convert at the read site. (Previously `line`
-/// took a 0-based history index, so feeding it a block's absolute row read the
-/// WRONG line; `line` now shares the absolute-row space.) For a block's full
-/// output prefer `blocktext <id>`, which reads the absolute range itself and
-/// reports an EXPLICIT `ERR` when those rows have been EVICTED from scrollback
-/// (never silently-shifted text).
-///
-/// Header `OK <shown>\n`, then one line per block: `block <id> <state>
-/// exit=<code|-> prompt=<row> cmd=<row|-> out=<row|-> end=<row|-> cwd=<pct>
-/// cmdline=<pct>`. `state` is prompt|entering|executing|complete; cwd/cmdline
-/// are percent-encoded (single tokens even with spaces). Needs a shell emitting
-/// OSC 133 (see the `shell_integration` injection); empty otherwise.
-fn cmd_blocks(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    use aterm_core::terminal::BlockState;
-    let t = term_lock(term);
-    let all: Vec<_> = t.all_blocks().collect();
-    let slice: &[_] = match rest.trim().parse::<usize>() {
-        Ok(n) if n < all.len() => &all[all.len() - n..],
-        _ => &all,
-    };
-    let mut out = format!("OK {}\n", slice.len());
-    let opt_row = |r: Option<u64>| r.map_or_else(|| "-".to_string(), |v| v.to_string());
-    for b in slice {
-        let state = match b.state {
-            BlockState::PromptOnly => "prompt",
-            BlockState::EnteringCommand => "entering",
-            BlockState::Executing => "executing",
-            BlockState::Complete => "complete",
-            _ => "unknown",
-        };
-        let exit = b.exit_code.map_or_else(|| "-".to_string(), |c| c.to_string());
-        out.push_str(&format!(
-            "block {} {} exit={} prompt={} cmd={} out={} end={} cwd={} cmdline={}\n",
-            b.id,
-            state,
-            exit,
-            b.prompt_start_row,
-            opt_row(b.command_start_row),
-            opt_row(b.output_start_row),
-            opt_row(b.end_row),
-            pct_encode(b.working_directory.as_deref().unwrap_or("")),
-            pct_encode(b.commandline.as_deref().unwrap_or("")),
-        ));
-    }
-    out
-}
-
-/// `blocktext <id>` -> the OUTPUT text of command block `<id>` (from `blocks`),
-/// one row per line after `OK <n>`. The engine reads the block's absolute row
-/// range itself (across scrollback AND the visible screen), so the caller does
-/// NOT juggle coordinate spaces — an AI reads a specific command's output (e.g.
-/// the failed one's error) directly. `ERR` if the id is unknown or the block has
-/// not produced output yet.
-fn cmd_blocktext(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    let Ok(id) = rest.trim().parse::<u64>() else {
-        return "ERR usage: blocktext <id>\n".to_string();
-    };
-    let t = term_lock(term);
-    let Some(block) = t.block_by_id(id).cloned() else {
-        return "ERR no such block\n".to_string();
-    };
-    // Use the enum form so an EVICTED block returns an explicit signal instead
-    // of silently-shifted or empty text (B-1 / DL-1).
-    let text = match t.block_output_text(&block) {
-        aterm_core::terminal::BlockText::Text(s) => s,
-        aterm_core::terminal::BlockText::Evicted => {
-            return "ERR block output evicted from scrollback\n".to_string();
-        }
-        aterm_core::terminal::BlockText::NotAvailable => {
-            return "ERR block has no output yet\n".to_string();
-        }
-    };
-    let lines: Vec<&str> = text.lines().collect();
-    let mut out = format!("OK {}\n", lines.len());
-    for line in lines {
-        let s: String = line.chars().map(visible_char).collect();
-        out.push_str(s.trim_end());
-        out.push('\n');
-    }
-    out
-}
-
-/// `wait [timeout_ms]` -> block until a command block COMPLETES (a NEW one since
-/// this call), then `OK complete <id> exit=<code|->`; `OK timeout` if none
-/// completes in time (default 30 000 ms, capped at 600 000). The AI runs a
-/// command then `wait`s for it to finish before reading with `blocktext`, with
-/// no busy-polling. Needs shell integration (OSC 133); with none it times out.
-/// Polls server-side, releasing the Terminal lock between checks so the PTY
-/// reader keeps advancing the command.
-fn cmd_wait(term: &Arc<Mutex<Terminal>>, rest: &str) -> String {
-    use aterm_core::terminal::BlockState;
-    let timeout_ms = rest.trim().parse::<u64>().unwrap_or(30_000).min(600_000);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
-    let complete_count =
-        |t: &Terminal| t.all_blocks().filter(|b| matches!(b.state, BlockState::Complete)).count();
-    let baseline = complete_count(&term_lock(term));
-    loop {
-        {
-            let t = term_lock(term);
-            let completed: Vec<_> =
-                t.all_blocks().filter(|b| matches!(b.state, BlockState::Complete)).collect();
-            if completed.len() > baseline {
-                let b = completed.last().expect("len > baseline >= 0");
-                let exit = b.exit_code.map_or_else(|| "-".to_string(), |c| c.to_string());
-                return format!("OK complete {} exit={}\n", b.id, exit);
-            }
-        }
-        if std::time::Instant::now() >= deadline {
-            return "OK timeout\n".to_string();
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
-}
-
-/// `colors` -> the terminal's theme colors:
-/// `OK fg=<rrggbb> bg=<rrggbb> cursor=<rrggbb|default>`.
-/// Programs change these via OSC 10/11/12; the per-cell `cell` verb only reports
-/// already-RESOLVED colors, so this surfaces the theme itself (the default
-/// fg/bg and the cursor color) for a client deciding how to render or reason.
-fn cmd_colors(term: &Arc<Mutex<Terminal>>) -> String {
-    let t = term_lock(term);
-    let h = |r: u8, g: u8, b: u8| format!("{r:02x}{g:02x}{b:02x}");
-    let fg = t.default_foreground();
-    let bg = t.default_background();
-    let cursor = t
-        .cursor_color()
-        .map_or_else(|| "default".to_string(), |c| h(c.r, c.g, c.b));
-    format!(
-        "OK fg={} bg={} cursor={}\n",
-        h(fg.r, fg.g, fg.b),
-        h(bg.r, bg.g, bg.b),
-        cursor,
-    )
-}
-
-/// Process-wide smart-selection rules, built lazily ONCE (the builtin rules
-/// compile a set of regexes). Shared by the GUI's double-click gesture and the
-/// `select word` verb so both use identical word/URL/path boundaries.
-static SMART_RULES: OnceLock<SmartSelection> = OnceLock::new();
-
-/// The engine's builtin smart-selection rules (lazy singleton).
-pub(crate) fn smart_rules() -> &'static SmartSelection {
-    SMART_RULES.get_or_init(SmartSelection::with_builtin_rules)
-}
-
-/// Inclusive word-column bounds at live-screen `(row, col)`, from the engine's
-/// builtin smart-selection rules (URL/path/email/... patterns, falling back to
-/// plain alphanumeric+underscore words). `None` when the cell is whitespace or
-/// to the right of the row's text — the caller selects just the clicked cell.
-pub(crate) fn word_cols(t: &Terminal, row: i32, col: u16) -> Option<(u16, u16)> {
-    let text = t.get_line_text(row, None)?;
-    // `word_boundaries_at_column` clamps a past-the-text column INTO the text
-    // (it would snap to the LAST word); a click right of the text is whitespace.
-    if usize::from(col) >= aterm_core::grapheme::byte_to_column(&text, text.len()) {
-        return None;
-    }
-    let (start, end) = smart_rules().word_boundaries_at_column(&text, usize::from(col))?;
-    // The returned end column is EXCLUSIVE; selection anchors are inclusive cells.
-    let last = end.saturating_sub(1).max(start);
-    let clamp = |v: usize| u16::try_from(v).unwrap_or(u16::MAX);
-    Some((clamp(start), clamp(last)))
-}
-
-/// Word-select at live-screen `(row, col)` — the double-click / `select word`
-/// gesture: a `Semantic` selection spanning the word's cells (both boundary
-/// cells inclusive, Left/Right anchor sides), or just the clicked cell when on
-/// whitespace. Completes the selection and returns the inclusive
-/// `(start_col, end_col)` actually selected.
-pub(crate) fn select_word(t: &mut Terminal, row: i32, col: u16) -> (u16, u16) {
-    let (start, end) = word_cols(t, row, col).unwrap_or((col, col));
-    let sel = t.text_selection_mut();
-    sel.start_selection(row, col, SelectionSide::Left, SelectionType::Semantic);
-    sel.expand_semantic(start, end);
-    sel.complete_selection();
-    (start, end)
-}
-
-/// Line-select live-screen row `row` — the triple-click / `select line`
-/// gesture: a `Lines` selection expanded to the full row width (the extracted
-/// text is the whole row, trailing blanks trimmed). Completes the selection.
-pub(crate) fn select_line(t: &mut Terminal, row: i32) {
-    let max_col = t.cols().saturating_sub(1);
-    let sel = t.text_selection_mut();
-    sel.start_selection(row, 0, SelectionSide::Left, SelectionType::Lines);
-    sel.expand_lines(max_col);
-    sel.complete_selection();
-}
-
-/// `select ...` -> drive the engine's text selection. Forms:
-///
-/// * `select <r1> <c1> <r2> <c2>` — simple range from cell `(r1,c1)` to
-///   `(r2,c2)`, BOTH endpoint cells INCLUSIVE (the two points are normalized
-///   to reading order first, so either order works).
-/// * `select word <r> <c>` — semantic (word/URL/path) selection at the cell
-///   via the engine's builtin smart-selection rules; a whitespace cell selects
-///   just itself. Same code path as the GUI's double-click.
-/// * `select line <r>` — full-line selection of row `r` (triple-click).
-/// * `select block <r1> <c1> <r2> <c2>` — rectangular (block) selection with
-///   the two cells as INCLUSIVE corners (any corner order).
-/// * `select extend <r> <c>` — extend the EXISTING selection so cell `(r,c)`
-///   becomes its new (inclusive) endpoint (shift-click); `ERR no selection`
-///   when nothing is selected.
-/// * `select clear` — clear the selection.
-///
-/// Rows are LIVE-screen coords as signed integers: `0..rows` is the visible
-/// live screen and NEGATIVE rows address scrollback (`-1` = the most recently
-/// scrolled-off line). All forms nudge a windowed session to repaint the
-/// highlight and reply `OK\n`.
-///
-/// SEAM CARVE-OUT (Phase 0.5): `select` mutates `text_selection_mut()` directly
-/// rather than through [`App::input`](crate::App::input). This is DELIBERATE and
-/// NOT a convergence gap: `select` produces NO PTY bytes (it sets ABSOLUTE
-/// coordinates, not a press/drag GESTURE), so it has no byte-indistinguishability
-/// stake. It is the controller analogue of an external "set the selection here"
-/// command — there is no human winit event that produces an absolute-coordinate
-/// selection (the human path is press → drag → release, which DOES go through the
-/// seam's `MouseButton`/`MouseMove` gesture arms). Keeping it out of the seam
-/// avoids inventing a synthetic gesture; the seam's "sole selection-mutation"
-/// claim is about the GESTURE path, which both sources share.
-fn cmd_select(
-    term: &Arc<Mutex<Terminal>>,
-    proxy: &EventLoopProxy<Wake>,
-    session: u64,
-    rest: &str,
-) -> String {
-    const USAGE: &str = "ERR usage: select <r1> <c1> <r2> <c2> | select word <r> <c> | \
-                         select line <r> | select block <r1> <c1> <r2> <c2> | \
-                         select extend <r> <c> | select clear\n";
-    let rest = rest.trim();
-    if rest == "clear" {
-        term_lock(term).text_selection_mut().clear();
-        let _ = proxy.send_event(Wake::redraw(session));
-        return "OK\n".to_string();
-    }
-    let mut it = rest.split_whitespace();
-    let Some(head) = it.next() else {
-        return USAGE.to_string();
-    };
-    match head {
-        "word" => {
-            let (Some(Ok(r)), Some(Ok(c))) = (
-                it.next().map(str::parse::<i32>),
-                it.next().map(str::parse::<u16>),
-            ) else {
-                return "ERR usage: select word <r> <c>\n".to_string();
-            };
-            select_word(&mut term_lock(term), r, c);
-        }
-        "line" => {
-            let Some(Ok(r)) = it.next().map(str::parse::<i32>) else {
-                return "ERR usage: select line <r>\n".to_string();
-            };
-            select_line(&mut term_lock(term), r);
-        }
-        "block" => {
-            let (Some(Ok(r1)), Some(Ok(c1)), Some(Ok(r2)), Some(Ok(c2))) = (
-                it.next().map(str::parse::<i32>),
-                it.next().map(str::parse::<u16>),
-                it.next().map(str::parse::<i32>),
-                it.next().map(str::parse::<u16>),
-            ) else {
-                return "ERR usage: select block <r1> <c1> <r2> <c2>\n".to_string();
-            };
-            // Block normalization is corner-order agnostic (min/max per axis)
-            // and forces Left/Right sides on the normalized corners, so both
-            // given cells are inclusive whichever corners they are.
-            let mut t = term_lock(term);
-            let sel = t.text_selection_mut();
-            sel.start_selection(r1, c1, SelectionSide::Left, SelectionType::Block);
-            sel.update_selection(r2, c2, SelectionSide::Right);
-            sel.complete_selection();
-        }
-        "extend" => {
-            let (Some(Ok(r)), Some(Ok(c))) = (
-                it.next().map(str::parse::<i32>),
-                it.next().map(str::parse::<u16>),
-            ) else {
-                return "ERR usage: select extend <r> <c>\n".to_string();
-            };
-            let mut t = term_lock(term);
-            let sel = t.text_selection_mut();
-            if !sel.has_selection() || sel.is_empty() {
-                return "ERR no selection\n".to_string();
-            }
-            // Side by direction so the clicked cell is INCLUDED whichever way
-            // the selection grows: extending backward the moving anchor is the
-            // normalized START (Left side includes its cell), extending
-            // forward it is the normalized END (Right side includes its cell).
-            let st = sel.start();
-            let side = if (r, c) < (st.row, st.col) {
-                SelectionSide::Left
-            } else {
-                SelectionSide::Right
-            };
-            sel.extend_selection(r, c, side);
-            sel.complete_selection();
-        }
-        r1s => {
-            let (Some(c1s), Some(r2s), Some(c2s)) = (it.next(), it.next(), it.next()) else {
-                return USAGE.to_string();
-            };
-            let (Ok(r1), Ok(c1), Ok(r2), Ok(c2)) = (
-                r1s.parse::<i32>(),
-                c1s.parse::<u16>(),
-                r2s.parse::<i32>(),
-                c2s.parse::<u16>(),
-            ) else {
-                return "ERR bad args\n".to_string();
-            };
-            // Normalize to reading order so the Left/Right anchor sides below
-            // always make BOTH endpoint cells inclusive (a Right-sided end
-            // includes its cell; after normalization the end is never
-            // side-flipped into an exclusion).
-            let ((sr, sc), (er, ec)) = if (r2, c2) < (r1, c1) {
-                ((r2, c2), (r1, c1))
-            } else {
-                ((r1, c1), (r2, c2))
-            };
-            let mut t = term_lock(term);
-            let sel = t.text_selection_mut();
-            sel.start_selection(sr, sc, SelectionSide::Left, SelectionType::Simple);
-            sel.update_selection(er, ec, SelectionSide::Right);
-            sel.complete_selection();
-        }
-    }
-    let _ = proxy.send_event(Wake::redraw(session));
-    "OK\n".to_string()
-}
-
-/// `selection` -> the currently selected text as `OK <n>\n` + `n` data lines
-/// (the text split on newlines, same framing as `text`). No or empty
-/// selection -> `OK 0\n`.
-fn cmd_selection(term: &Arc<Mutex<Terminal>>) -> String {
-    match term_lock(term).selection_to_string() {
-        Some(text) if !text.is_empty() => {
-            let lines: Vec<&str> = text.split('\n').collect();
-            let mut out = format!("OK {}\n", lines.len());
-            for l in lines {
-                out.push_str(l);
-                out.push('\n');
-            }
-            out
-        }
-        _ => "OK 0\n".to_string(),
-    }
-}
-
-/// `copy` -> copy the currently selected text to the macOS system clipboard
-/// (`pbcopy`) and reply `OK <byte-count>\n`; no or empty selection -> `OK 0\n`
-/// (the clipboard is left untouched). The selection is NOT cleared.
-fn cmd_copy(term: &Arc<Mutex<Terminal>>) -> String {
-    let text = term_lock(term).selection_to_string();
-    match text {
-        Some(t) if !t.is_empty() => {
-            if pbcopy(&t) {
-                format!("OK {}\n", t.len())
-            } else {
-                "ERR pbcopy failed\n".to_string()
-            }
-        }
-        _ => "OK 0\n".to_string(),
-    }
-}
-
-/// Pipe `text` to `/usr/bin/pbcopy`, placing it on the macOS system clipboard.
-/// Shared by the `copy` verb and the GUI's Cmd-C. Returns success.
-pub(crate) fn pbcopy(text: &str) -> bool {
-    use std::process::{Command, Stdio};
-    let Ok(mut child) = Command::new("/usr/bin/pbcopy").stdin(Stdio::piped()).spawn() else {
-        return false;
-    };
-    let wrote = child
-        .stdin
-        .take()
-        .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
-    // Reap the child regardless of write success (no zombies on failure).
-    let status = child.wait();
-    wrote && status.is_ok_and(|s| s.success())
-}
-
-/// `image [path]` -> hand the render to the MAIN thread (it owns the renderer),
-/// block on the reply, and report `OK <w> <h> <path>\n`.
-///
-/// PATH SAFETY: the PNG is confined to the `images/` subdir of the per-user
-/// socket directory. A bare name (`image shot.png`) lands there; an empty
-/// request defaults to `images/aterm-control.png`. A path that would escape the
-/// subdir (`../`, an absolute path elsewhere, a symlink out) is refused with
-/// `ERR path\n` and audited — the socket can no longer be used to overwrite an
-/// arbitrary file via a caller-supplied path.
-fn cmd_image(
-    proxy: &EventLoopProxy<Wake>,
-    queue: &ImageQueue,
-    rest: &str,
-    sock_dir: &std::path::Path,
-) -> String {
-    let requested = {
-        let p = rest.trim();
-        if p.is_empty() { "aterm-control.png" } else { p }
-    };
-    let Some(target) = control_auth::confine_image_path(sock_dir, requested) else {
-        log_denial(
-            AUDIT_SUBSYSTEM,
-            &format!("image write '{requested}'"),
-            aterm_containment::mode_or_containment(),
-            "path escapes images/ subdir or names a nested target",
-        );
-        return "ERR path\n".to_string();
-    };
-    // For the reply only — the writer re-opens via the dir fd, not this string.
-    let path = target.display_path().to_string_lossy().into_owned();
-    let (tx, rx) = std::sync::mpsc::channel();
-    queue
-        .lock()
-        .unwrap()
-        .push_back(ImageReq { target, reply: tx });
-    if proxy.send_event(Wake::Control).is_err() {
-        return "ERR event loop gone\n".to_string();
-    }
-    match rx.recv() {
-        Ok((w, h)) => format!("OK {w} {h} {path}\n"),
-        Err(_) => "ERR render failed\n".to_string(),
-    }
-}
-
-/// `window [path]` -> capture the FRONT window's ENTIRE on-screen pixels — the
-/// native macOS chrome (titlebar, traffic lights, the unified toolbar, the
-/// full-width tab strip) AND the terminal content — to a PNG, replying
-/// `OK <w> <h> <path>` (the SAME wire shape as `image`). This closes the
-/// introspection gap `image` leaves: `image` rasterizes only the terminal content
-/// framebuffer with NO OS chrome, so an AI driving aterm could never SEE the whole
-/// window; `window` photographs the real composited pixels, so its height is
-/// GREATER than `image`'s (it includes the titlebar + tab strip).
-///
-/// PATH CONFINEMENT (mirrors [`cmd_image`]): the caller-supplied `path` is validated
-/// by `confine_image_path` to a single filename inside the socket dir's `images/`
-/// subdir, so the socket can never overwrite an arbitrary file. The default name
-/// (`aterm-window.png`) parallels `image`'s `aterm-control.png`.
-///
-/// MAIN-THREAD HOP (mirrors [`cmd_chrome`]): reaching the front window's `NSWindow`
-/// + reading its window number + calling `CGWindowListCreateImage` may ONLY happen
-/// on the main thread (AppKit / window-server state), but this runs on a background
-/// control thread. So we post [`Wake::CaptureWindow`] with the confined target + a
-/// one-shot reply channel and BLOCK; the main thread captures (`App::capture_window`)
-/// and replies `Ok((w, h))` or an `Err(msg)` we surface verbatim as `ERR <msg>`.
-///
-/// PERMISSION: `CGWindowListCreateImage` needs macOS Screen Recording permission; if
-/// it is not granted the main thread replies with the clear, actionable grant
-/// instructions (it does NOT crash). Off macOS the main thread replies that capture
-/// is macOS-only; headless (no OS window) replies that there is no window to capture.
-fn cmd_window(
-    proxy: &EventLoopProxy<Wake>,
-    rest: &str,
-    sock_dir: &std::path::Path,
-) -> String {
-    let requested = {
-        let p = rest.trim();
-        if p.is_empty() { "aterm-window.png" } else { p }
-    };
-    let Some(target) = control_auth::confine_image_path(sock_dir, requested) else {
-        log_denial(
-            AUDIT_SUBSYSTEM,
-            &format!("window write '{requested}'"),
-            aterm_containment::mode_or_containment(),
-            "path escapes images/ subdir or names a nested target",
-        );
-        return "ERR path\n".to_string();
-    };
-    // For the reply only — the writer re-opens via the dir fd, not this string.
-    let path = target.display_path().to_string_lossy().into_owned();
-    let (tx, rx) = std::sync::mpsc::channel();
-    if proxy.send_event(Wake::CaptureWindow { path: target, reply: tx }).is_err() {
-        return "ERR event loop gone\n".to_string();
-    }
-    match rx.recv() {
-        Ok(Ok((w, h))) => format!("OK {w} {h} {path}\n"),
-        // The main thread's clear, actionable message (missing permission / headless /
-        // off-macOS / capture failure) is surfaced verbatim as a single `ERR` line.
-        Ok(Err(msg)) => format!("ERR {msg}\n"),
-        Err(_) => "ERR window capture failed\n".to_string(),
-    }
-}
-
-/// `chrome` -> dump the frontmost window's NATIVE macOS UI: its `NSToolbar` items
-/// (each `id=<identifier> label="<label>"`, e.g. the "+" New Tab button) and the
-/// app menu bar (`menu "File": New Window, New Tab, ...`). A read-only
-/// introspection verb so an AI driving aterm can SEE and verify the native chrome
-/// — which `image`/`text` CANNOT capture, as they render only the terminal content
-/// view, never the OS toolbar/menu bar.
-///
-/// MAIN-THREAD HOP (mirrors [`cmd_image`]): AppKit objects (`NSToolbar`/`NSMenu`/
-/// `NSWindow`) may ONLY be touched on the main thread, but this runs on a
-/// background control thread. So we build a one-shot reply channel, post
-/// [`Wake::ReadChrome`] to wake the event loop, and BLOCK on the reply; the main
-/// thread reads the chrome (`App::read_native_chrome`) and sends back the text
-/// lines. The lines are returned in the SAME multi-line shape as `text`:
-/// `OK <n>\n` followed by `<n>` data rows.
-///
-/// Off macOS the main thread replies with one explanatory line (no native chrome),
-/// so the wire shape (`OK 1` + one row) is identical on every platform.
-fn cmd_chrome(proxy: &EventLoopProxy<Wake>) -> String {
-    let (tx, rx) = std::sync::mpsc::channel();
-    if proxy.send_event(Wake::ReadChrome { reply: tx }).is_err() {
-        return "ERR event loop gone\n".to_string();
-    }
-    let lines = match rx.recv() {
-        Ok(lines) => lines,
-        Err(_) => return "ERR chrome read failed\n".to_string(),
-    };
-    // Same `OK <n>\n` + n-rows framing the `text` verb uses, so the aterm-ctl client
-    // prints the rows verbatim (it lists `chrome` among the multi-line verbs).
-    let mut out = format!("OK {}\n", lines.len());
-    for line in lines {
-        out.push_str(&line);
-        out.push('\n');
-    }
-    out
-}
-
-/// Parse a `tab <arg>` request into the [`TabAction`] it drives (the PURE part, so
-/// it is unit-testable without an event loop). Grammar: `new` opens a tab, a
-/// 0-based integer `<N>` selects tab N, `next`/`prev` cycle. `None` (an unknown /
-/// missing arg) maps the caller to the usage error.
-fn parse_tab(rest: &str) -> Option<TabAction> {
-    let rest = rest.trim();
-    // Multi-word forms first: `close [N]` and `move <from> <to>`.
-    let mut it = rest.split_whitespace();
-    match it.next() {
-        Some("new") if it.next().is_none() => return Some(TabAction::New),
-        Some("next") if it.next().is_none() => return Some(TabAction::Next),
-        Some("prev") if it.next().is_none() => return Some(TabAction::Prev),
-        // `close` (active tab) or `close <N>` (a specific tab).
-        Some("close") => {
-            return match it.next() {
-                None => Some(TabAction::Close(None)),
-                Some(n) => {
-                    let i = n.parse::<usize>().ok()?;
-                    // Reject trailing junk after the index.
-                    it.next().is_none().then_some(TabAction::Close(Some(i)))
-                }
-            };
-        }
-        // `move <from> <to>` — reorder.
-        Some("move") => {
-            let (from, to) = (it.next()?, it.next()?);
-            if it.next().is_some() {
-                return None; // trailing junk
-            }
-            let from = from.parse::<usize>().ok()?;
-            let to = to.parse::<usize>().ok()?;
-            return Some(TabAction::Move { from, to });
-        }
-        _ => {}
-    }
-    // Otherwise a bare 0-based index selects a tab.
-    rest.parse::<usize>().ok().map(TabAction::Select)
-}
-
-/// `tab new | <N> | next | prev` -> DRIVE the FRONT window's native tabs and reply
-/// `OK <active_index> <tab_count>`.
-///
-/// MAIN-THREAD HOP (mirrors [`cmd_chrome`]): mutating `App` (its tabs) may ONLY
-/// happen on the event loop, but this runs on a background control thread. So we
-/// parse the action, post [`Wake::TabCmd`] with a one-shot reply channel, and BLOCK
-/// on the reply; the main thread resolves `self.frontmost_window`, applies the
-/// action via the SAME command paths the keyboard/menu use (`open_tab` / `switch_tab`
-/// / `cycle_tab`), and sends back the resulting `(active, count)`. `new` reuses the
-/// new-tab path; the native toolbar segments then re-track via `App::sync_window`.
-fn cmd_tab(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
-    let Some(action) = parse_tab(rest) else {
-        return "ERR usage: tab <new|N|next|prev|close [N]|move <from> <to>>\n".to_string();
-    };
-    let (tx, rx) = std::sync::mpsc::channel();
-    if proxy.send_event(Wake::TabCmd { action, reply: tx }).is_err() {
-        return "ERR event loop gone\n".to_string();
-    }
-    match rx.recv() {
-        Ok((active, count)) => format!("OK {active} {count}\n"),
-        Err(_) => "ERR tab command failed\n".to_string(),
-    }
-}
-
-/// Parse + range-check a `resize <r> <c>` request (the PURE part, so it is unit
-/// testable without an event loop). Returns the validated `(rows, cols)` or the
-/// exact error string the verb replies with.
-///
-/// Requests outside `1..=MAX_GRID_ROWS`/`MAX_GRID_COLS` are rejected with
-/// `ERR out of range` rather than silently clamped, so a caller learns its
-/// requested size was not applied.
-fn parse_resize(rest: &str) -> Result<(u16, u16), String> {
-    let mut it = rest.split_whitespace();
-    let (Some(rs), Some(cs)) = (it.next(), it.next()) else {
-        return Err("ERR usage: resize <r> <c>\n".to_string());
-    };
-    let (Ok(r), Ok(c)) = (rs.parse::<u16>(), cs.parse::<u16>()) else {
-        return Err("ERR bad args\n".to_string());
-    };
-    if !(1..=MAX_GRID_ROWS).contains(&r) || !(1..=MAX_GRID_COLS).contains(&c) {
-        return Err("ERR out of range\n".to_string());
-    }
-    Ok((r, c))
-}
-
-/// `resize <r> <c>` -> resize the engine grid, the PTY, AND the GUI (RES-1).
-///
-/// The main thread is the SOLE geometry owner (`App.rows/cols`, the framebuffer,
-/// the window). Resizing the term + PTY here directly — as the verb used to —
-/// left `App` stale and sent no repaint, so a follow-up `image`/`dims` (which
-/// read `App`/the framebuffer) disagreed with the engine. So the verb now ONLY
-/// validates and forwards an `InputEvent::Resize` (in a `Wake::Input`) to the main
-/// thread, which applies the term + PTY + window resize and requests a redraw in
-/// one owner. A dropped proxy (event loop gone) means the GUI is shutting down:
-/// report it.
-///
-/// RES-1: the verb sets `echo_to_window: true` so the seam ALSO asks the window to
-/// match the new grid pixel size (the verb has no window event of its own). The
-/// interactive winit `Resized` path uses `echo_to_window: false` (the window is
-/// already that size). `echo_to_window` is a transport flag, NOT a `Source` branch.
-fn cmd_resize(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
-    // Range-check up front (keeps the precise `ERR out of range` / usage strings),
-    // then post a reply-bearing Resize through the seam. The seam re-clamps and
-    // reports `RangeRejected` if somehow out of range — but a valid request here
-    // returns `Ok`, so the contract is unchanged for existing callers.
-    let (r, c) = match parse_resize(rest) {
-        Ok(rc) => rc,
-        Err(e) => return e,
-    };
-    match post_input_reply(
-        proxy,
-        Op::WriteInput,
-        vec![InputEvent::Resize { rows: r, cols: c, echo_to_window: true }],
-    ) {
-        Ok(InputOutcome::RangeRejected) => "ERR out of range\n".to_string(),
-        Ok(_) => "OK\n".to_string(),
-        Err(e) => e,
-    }
-}
-
-/// `grant <src-id> <op>` -> mint an edge (src -> this session, op) and return its
-/// bearer token hex. Owner-only (also enforced by the gate's catch-all Deny).
-fn cmd_grant(ctx: &SessionCtx, scope: Scope, rest: &str) -> String {
-    if scope != Scope::Owner {
-        return "ERR denied\n".to_string();
-    }
-    let mut it = rest.split_whitespace();
-    let (Some(src), Some(op_s)) = (it.next(), it.next()) else {
-        return "ERR usage: grant <src-id> <op>\n".to_string();
-    };
-    let Some(op) = Op::parse(op_s) else {
-        return "ERR unknown op\n".to_string();
-    };
-    let mut edges = ctx.edges.lock().unwrap_or_else(|p| p.into_inner());
-    let tok = edges.grant(SessionId::new(src), ctx.self_id.clone(), op, ctx.nonce);
-    format!("OK {}\n", tok.to_hex())
-}
-
-/// `revoke <edge-hex>` -> remove an edge. Owner-only.
-fn cmd_revoke(ctx: &SessionCtx, scope: Scope, rest: &str) -> String {
-    if scope != Scope::Owner {
-        return "ERR denied\n".to_string();
-    }
-    let Some(tok) = EdgeToken::from_hex(rest.trim()) else {
-        return "ERR bad token\n".to_string();
-    };
-    let mut edges = ctx.edges.lock().unwrap_or_else(|p| p.into_inner());
-    if edges.revoke(&tok) {
-        "OK\n".to_string()
-    } else {
-        "ERR no such edge\n".to_string()
-    }
-}
-
-/// `whoami` -> report this session's fabric id + nonce + the connection's EFFECTIVE
-/// scope against the session active RIGHT NOW. For an edge, the op is re-derived from
-/// the presented token via `authorize` (the same per-request authority the gate uses)
-/// rather than a cached connect-time op — so whoami can never over-report power the
-/// token no longer holds after the ActiveHandle swung `@.` to a different session
-/// (`edge unauthorized` when the token grants nothing against the now-active table).
-fn cmd_whoami(ctx: &SessionCtx, scope: Scope) -> String {
-    let s = match scope {
-        Scope::Owner => "owner".to_string(),
-        Scope::Edge(presented) => {
-            let table = ctx.edges.lock().unwrap_or_else(|p| p.into_inner());
-            match table.authorize(&presented, &ctx.self_id, &ctx.nonce) {
-                Some(op) => format!("edge {}", op.as_str()),
-                None => "edge unauthorized".to_string(),
-            }
-        }
-    };
-    format!("OK {} {} {}\n", ctx.self_id.as_str(), ctx.nonce.to_hex(), s)
-}
-
-/// Funnel all control-verb bytes through the active session's single SinkWriter
-/// (whole-frame atomicity vs the GUI keyboard path + reader-thread replies). Drops
-/// a closed-peer error like the legacy writer did. Used ONLY by the audited raw
-/// hatch (`send`/`feed`); the human-vocabulary verbs go through the seam instead.
-fn write_pty(sink: &SinkWriter, data: &[u8]) {
-    let _ = sink.write_frame(data);
-}
-
 /// Phase 0.5: post a fire-and-forget [`InputEvent`] batch to the main thread (the
 /// sole owner of the seam), mirroring the `cmd_resize` -> `Wake::Resize` pattern.
 /// Returns the verb's reply string. A whole controller gesture is sent as ONE
@@ -3977,7 +1640,14 @@ fn write_pty(sink: &SinkWriter, data: &[u8]) {
 /// log correct-by-construction and independent of any cached connect-time op.
 fn post_input(proxy: &EventLoopProxy<Wake>, op: Op, batch: Vec<InputEvent>) -> String {
     let src = Source::Controller { op };
-    if proxy.send_event(Wake::Input { batch, src, reply: None }).is_err() {
+    if proxy
+        .send_event(Wake::Input {
+            batch,
+            src,
+            reply: None,
+        })
+        .is_err()
+    {
         return "ERR event loop closed\n".to_string();
     }
     "OK\n".to_string()
@@ -3995,7 +1665,11 @@ fn post_input_reply(
     let src = Source::Controller { op };
     let (tx, rx) = std::sync::mpsc::channel();
     if proxy
-        .send_event(Wake::Input { batch, src, reply: Some(tx) })
+        .send_event(Wake::Input {
+            batch,
+            src,
+            reply: Some(tx),
+        })
         .is_err()
     {
         return Err("ERR event loop closed\n".to_string());
@@ -4005,8 +1679,29 @@ fn post_input_reply(
 
 #[cfg(test)]
 mod tests {
+    use super::control_input::{
+        cmd_feed, cmd_send, parse_resize, parse_tab, paste_text, take_mods,
+    };
+    use super::control_media::{
+        MAX_IMAGE_PAYLOAD_BYTES, cmd_image_read, image_payload, image_read_line,
+    };
+    use super::control_query::{
+        AbsRow, abs_row_text, cmd_cell, cmd_colors, cmd_cursor_json, cmd_cwd, cmd_dims_json,
+        cmd_line, cmd_modes, cmd_screen_styled_json, cmd_search, cmd_text, cmd_text_json,
+        styled_image_json,
+    };
+    use super::control_selection::{
+        cmd_blocks, cmd_blocks_json, cmd_blocktext, cmd_selection, cmd_wait,
+    };
+    use super::control_session::{
+        cmd_cast, cmd_edges, cmd_edges_json, cmd_family, cmd_grant, cmd_ready, cmd_revoke,
+        cmd_sessions, cmd_whoami,
+    };
     use super::*;
+    use crate::TabAction;
     use crate::input::InputEvent;
+    use aterm_core::selection::{SelectionSide, SelectionType};
+    use aterm_session::sink::SinkWriter;
     use std::io::Read;
     use std::os::unix::io::FromRawFd;
 
@@ -4034,11 +1729,21 @@ mod tests {
         let press = KeyEventType::Press;
         assert_eq!(
             parse_key("up"),
-            Some(InputEvent::Key { key: Key::Named(Nk::ArrowUp), mods: Modifiers::empty(), base_layout: None, event_type: press }),
+            Some(InputEvent::Key {
+                key: Key::Named(Nk::ArrowUp),
+                mods: Modifiers::empty(),
+                base_layout: None,
+                event_type: press
+            }),
         );
         assert_eq!(
             parse_key("f5 mods=ctrl"),
-            Some(InputEvent::Key { key: Key::Named(Nk::F5), mods: Modifiers::CTRL, base_layout: None, event_type: press }),
+            Some(InputEvent::Key {
+                key: Key::Named(Nk::F5),
+                mods: Modifiers::CTRL,
+                base_layout: None,
+                event_type: press
+            }),
         );
         assert_eq!(parse_key("nope"), None);
 
@@ -4060,12 +1765,22 @@ mod tests {
         // Case-insensitive on the character, matching `parse_ctrl`.
         assert_eq!(
             parse_key("ctrl+U"),
-            Some(InputEvent::Key { key: Key::Character('u'), mods: Modifiers::CTRL, base_layout: None, event_type: press }),
+            Some(InputEvent::Key {
+                key: Key::Character('u'),
+                mods: Modifiers::CTRL,
+                base_layout: None,
+                event_type: press
+            }),
         );
         // alt+/shift+/super+ and stacked prefixes.
         assert_eq!(
             parse_key("alt+x"),
-            Some(InputEvent::Key { key: Key::Character('x'), mods: Modifiers::ALT, base_layout: None, event_type: press }),
+            Some(InputEvent::Key {
+                key: Key::Character('x'),
+                mods: Modifiers::ALT,
+                base_layout: None,
+                event_type: press
+            }),
         );
         assert_eq!(
             parse_key("ctrl+shift+a"),
@@ -4081,12 +1796,22 @@ mod tests {
         // Inline prefixes also apply to NAMED keys.
         assert_eq!(
             parse_key("ctrl+up"),
-            Some(InputEvent::Key { key: Key::Named(Nk::ArrowUp), mods: Modifiers::CTRL, base_layout: None, event_type: press }),
+            Some(InputEvent::Key {
+                key: Key::Named(Nk::ArrowUp),
+                mods: Modifiers::CTRL,
+                base_layout: None,
+                event_type: press
+            }),
         );
         // The literal `+` key (no recognized modifier before it) survives.
         assert_eq!(
             parse_key("+"),
-            Some(InputEvent::Key { key: Key::Character('+'), mods: Modifiers::empty(), base_layout: None, event_type: press }),
+            Some(InputEvent::Key {
+                key: Key::Character('+'),
+                mods: Modifiers::empty(),
+                base_layout: None,
+                event_type: press
+            }),
         );
         // A multi-char residual that is not a named key is still rejected.
         assert_eq!(parse_key("ctrl+nope"), None);
@@ -4138,9 +1863,14 @@ mod tests {
     #[test]
     fn parse_key_event_type() {
         use aterm_types::keyboard::{Key, KeyEventType, Modifiers, NamedKey as Nk};
-        let ev = |t| Some(InputEvent::Key {
-            key: Key::Named(Nk::ArrowUp), mods: Modifiers::empty(), base_layout: None, event_type: t,
-        });
+        let ev = |t| {
+            Some(InputEvent::Key {
+                key: Key::Named(Nk::ArrowUp),
+                mods: Modifiers::empty(),
+                base_layout: None,
+                event_type: t,
+            })
+        };
         assert_eq!(parse_key("up"), ev(KeyEventType::Press));
         assert_eq!(parse_key("up type=press"), ev(KeyEventType::Press));
         assert_eq!(parse_key("up type=repeat"), ev(KeyEventType::Repeat));
@@ -4150,7 +1880,9 @@ mod tests {
         assert_eq!(
             parse_key("type=release mods=ctrl up"),
             Some(InputEvent::Key {
-                key: Key::Named(Nk::ArrowUp), mods: Modifiers::CTRL, base_layout: None,
+                key: Key::Named(Nk::ArrowUp),
+                mods: Modifiers::CTRL,
+                base_layout: None,
                 event_type: KeyEventType::Release,
             }),
         );
@@ -4166,8 +1898,10 @@ mod tests {
         assert_eq!(
             parse_key("q base=a"),
             Some(InputEvent::Key {
-                key: Key::Character('q'), mods: Modifiers::empty(),
-                base_layout: Some('a'), event_type: KeyEventType::Press,
+                key: Key::Character('q'),
+                mods: Modifiers::empty(),
+                base_layout: Some('a'),
+                event_type: KeyEventType::Press,
             }),
         );
         assert_eq!(parse_key("q base=ab"), None);
@@ -4221,9 +1955,18 @@ mod tests {
         // colour (SGR 58:2::255:0:0) applied to 'Z'.
         t.process(b"\x1b[1m\x1b[4:3m\x1b[53m\x1b[58:2::255:0:0mZ");
         let frame = styled_frame_payload(&t);
-        assert!(frame.contains("\"underline_style\":\"curly\""), "curly underline lost: {frame}");
-        assert!(frame.contains("\"overline\":true"), "overline lost: {frame}");
-        assert!(frame.contains("\"underline_color\":\"ff0000\""), "underline colour lost: {frame}");
+        assert!(
+            frame.contains("\"underline_style\":\"curly\""),
+            "curly underline lost: {frame}"
+        );
+        assert!(
+            frame.contains("\"overline\":true"),
+            "overline lost: {frame}"
+        );
+        assert!(
+            frame.contains("\"underline_color\":\"ff0000\""),
+            "underline colour lost: {frame}"
+        );
         assert!(frame.contains("\"bold\""), "bold attr lost: {frame}");
     }
 
@@ -4235,11 +1978,17 @@ mod tests {
         let mut t = Terminal::new(3, 10);
         t.process(b"hi");
         let frame = styled_frame_payload(&t);
-        assert!(frame.contains("\"dims\":{\"rows\":3,\"cols\":10}"), "{frame}");
+        assert!(
+            frame.contains("\"dims\":{\"rows\":3,\"cols\":10}"),
+            "{frame}"
+        );
         // 3 rows × 10 cols = 30 cells, each carries exactly one "glyph" key.
         let glyphs = frame.matches("\"glyph\"").count();
         assert_eq!(glyphs, 30, "expected 30 cells with no trim, got {glyphs}");
-        assert!(frame.contains(&format!("\"seq\":{}", t.content_seq())), "{frame}");
+        assert!(
+            frame.contains(&format!("\"seq\":{}", t.content_seq())),
+            "{frame}"
+        );
     }
 
     /// The glyph is the combining-aware grapheme (é = e+U+0301, not bare 'e'), and
@@ -4251,7 +2000,10 @@ mod tests {
         t.process("e\u{0301}".as_bytes());
         t.process(b"\x1b]8;;https://example.com\x1b\\L\x1b]8;;\x1b\\");
         let frame = styled_frame_payload(&t);
-        assert!(frame.contains("\"glyph\":\"e\u{0301}\""), "combining grapheme lost: {frame}");
+        assert!(
+            frame.contains("\"glyph\":\"e\u{0301}\""),
+            "combining grapheme lost: {frame}"
+        );
         assert!(
             frame.contains("\"hyperlink\":\"https://example.com\""),
             "hyperlink lost: {frame}"
@@ -4267,9 +2019,19 @@ mod tests {
         let term = Arc::new(Mutex::new(Terminal::new(2, 4)));
         let out = cmd_screen_styled_json(&term);
         assert!(out.starts_with("OK 1\n"), "{out}");
-        let body = out.strip_prefix("OK 1\n").unwrap().strip_suffix('\n').unwrap();
-        assert!(!body.contains('\n'), "styled frame must be single-line JSON: {body}");
-        assert!(body.starts_with("{\"seq\":") && body.ends_with('}'), "{body}");
+        let body = out
+            .strip_prefix("OK 1\n")
+            .unwrap()
+            .strip_suffix('\n')
+            .unwrap();
+        assert!(
+            !body.contains('\n'),
+            "styled frame must be single-line JSON: {body}"
+        );
+        assert!(
+            body.starts_with("{\"seq\":") && body.ends_with('}'),
+            "{body}"
+        );
     }
 
     /// `screen` is gated as a READ verb (ReadScreen), like every other observer.
@@ -4285,7 +2047,12 @@ mod tests {
     #[test]
     fn oversized_image_payload_is_truncated_not_encoded() {
         use aterm_core::grid::extra::{ImageData, ImageFormat};
-        let small = ImageData { bytes: vec![1, 2, 3, 4], format: ImageFormat::Png, cols: 1, rows: 1 };
+        let small = ImageData {
+            bytes: vec![1, 2, 3, 4],
+            format: ImageFormat::Png,
+            cols: 1,
+            rows: 1,
+        };
         let (fmt, b64) = image_payload(&small);
         assert_eq!(fmt, "png");
         assert!(!b64.is_empty(), "small image must carry its payload");
@@ -4301,11 +2068,20 @@ mod tests {
         assert!(b64.is_empty(), "oversized image must NOT be base64-encoded");
         // The line form still reports the real size (so the consumer can decide).
         let line = image_read_line(0, 0, 0, 0, &big);
-        assert!(line.contains(&format!("truncated {}", MAX_IMAGE_PAYLOAD_BYTES + 1)), "{line}");
+        assert!(
+            line.contains(&format!("truncated {}", MAX_IMAGE_PAYLOAD_BYTES + 1)),
+            "{line}"
+        );
         // And the JSON form is well-formed with an empty payload + real nbytes.
         let js = styled_image_json(0, 0, &big);
-        assert!(js.contains("\"format\":\"truncated\"") && js.contains("\"b64\":\"\""), "{js}");
-        assert!(js.contains(&format!("\"nbytes\":{}", MAX_IMAGE_PAYLOAD_BYTES + 1)), "{js}");
+        assert!(
+            js.contains("\"format\":\"truncated\"") && js.contains("\"b64\":\"\""),
+            "{js}"
+        );
+        assert!(
+            js.contains(&format!("\"nbytes\":{}", MAX_IMAGE_PAYLOAD_BYTES + 1)),
+            "{js}"
+        );
     }
 
     /// LOSSLESS FIDELITY (F1/F2/F3): the styled frame carries inline IMAGES (not
@@ -4325,7 +2101,10 @@ mod tests {
             frame.contains("\"images\":[{\"row\":0,\"col\":0,\"cols\":2,\"rows\":1,\"format\":\"png\",\"nbytes\":12,\"b64\":\"iVBORw0KGgoAAAAA\"}]"),
             "image must be in the frame, not a blank cell: {frame}"
         );
-        assert!(frame.contains("\"double_width\""), "double-width line size lost: {frame}");
+        assert!(
+            frame.contains("\"double_width\""),
+            "double-width line size lost: {frame}"
+        );
         // F3: select a region, assert it surfaces.
         {
             let sel = t.text_selection_mut();
@@ -4341,7 +2120,10 @@ mod tests {
         // And no-selection / no-image stays null / empty (the cheap common case).
         let plain = Terminal::new(2, 4);
         let pf = styled_frame_payload(&plain);
-        assert!(pf.contains("\"selection\":null"), "no selection -> null: {pf}");
+        assert!(
+            pf.contains("\"selection\":null"),
+            "no selection -> null: {pf}"
+        );
         assert!(pf.contains("\"images\":[]"), "no images -> empty: {pf}");
     }
 
@@ -4359,11 +2141,18 @@ mod tests {
             .process(b"\x1b]1337;File=inline=1;width=2;height=1:iVBORw0KGgoAAAAA\x1b\\");
         let out = cmd_image_read(&term, "");
         let mut lines = out.lines();
-        assert_eq!(lines.next().unwrap(), "OK 1", "expected one deduped image: {out}");
+        assert_eq!(
+            lines.next().unwrap(),
+            "OK 1",
+            "expected one deduped image: {out}"
+        );
         let line = lines.next().unwrap();
         // <row> <col> <img_cols> <img_rows> <cell_row> <cell_col> <format> <nbytes> <b64>
         assert_eq!(line, "0 0 2 1 0 0 png 12 iVBORw0KGgoAAAAA", "got: {line}");
-        assert!(lines.next().is_none(), "image must be deduped to one line: {out}");
+        assert!(
+            lines.next().is_none(),
+            "image must be deduped to one line: {out}"
+        );
     }
 
     /// `image read` on a screen with no images is `OK 0`.
@@ -4384,7 +2173,10 @@ mod tests {
             .process(b"\x1b]1337;File=inline=1;width=2;height=1:iVBORw0KGgoAAAAA\x1b\\");
         // Cell (0,1) is the right tile of the 2-wide image: cell_col == 1.
         let out = cmd_image_read(&term, "0 1");
-        assert_eq!(out, "OK 1\n0 0 2 1 0 1 png 12 iVBORw0KGgoAAAAA\n", "got: {out}");
+        assert_eq!(
+            out, "OK 1\n0 0 2 1 0 1 png 12 iVBORw0KGgoAAAAA\n",
+            "got: {out}"
+        );
         // A cell with no image -> ERR none.
         assert_eq!(cmd_image_read(&term, "0 5"), "ERR none\n");
         // Out of grid -> ERR out of range.
@@ -4423,7 +2215,9 @@ mod tests {
         // (canonical-dir-rooted) path.
         let child_sock = dir.join("aterm-child.sock");
         let child_sock_str = child_sock.to_string_lossy().into_owned();
-        let confined = std::fs::canonicalize(&dir).unwrap().join("aterm-child.sock");
+        let confined = std::fs::canonicalize(&dir)
+            .unwrap()
+            .join("aterm-child.sock");
         let confined_str = confined.to_string_lossy().into_owned();
         crate::proxy::write_graph_entry(&dir, &child, &child_sock_str, &nonce);
 
@@ -4441,14 +2235,17 @@ mod tests {
         // was that only @-first lines were), presenting the READ token, rewriting
         // the child selector to `@.`, and preserving the streams + flags.
         let sline = format!("subscribe @{} cells,bytes every-frame", child.as_str());
-        let splan = proxy_forward_plan(&sline, Scope::Owner, &store, &dir).expect("subscribe forwards");
+        let splan =
+            proxy_forward_plan(&sline, Scope::Owner, &store, &dir).expect("subscribe forwards");
         assert_eq!(splan.0, confined_str);
-        assert_eq!(splan.1, format!("TOKEN {read_hex} subscribe @. cells,bytes every-frame\n"));
+        assert_eq!(
+            splan.1,
+            format!("TOKEN {read_hex} subscribe @. cells,bytes every-frame\n")
+        );
 
         // Edge scope cannot escalate to a child.
         assert!(
-            proxy_forward_plan(&line, Scope::Edge(EdgeToken::generate()), &store, &dir)
-                .is_none(),
+            proxy_forward_plan(&line, Scope::Edge(EdgeToken::generate()), &store, &dir).is_none(),
             "edge scope must not forward",
         );
         // A subscribe with a comma-list of targets stays local (not a single child).
@@ -4511,10 +2308,29 @@ mod tests {
         // Representative verb lines across EVERY class: forwardable read-side,
         // forwardable write-side, signal, and NON-forwardable (owner-only / global).
         let cases: &[&str] = &[
-            "screen", "text", "cell 0 0", "search x", "modes", "image read", "cast", "scroll up",
-            "key up", "ctrl c", "feed 03", "feed-bin 4", "paste hi", "resize 10 20", "focus in",
-            "send hi", "signal int", // forwardable (read/write/signal)
-            "grant x", "revoke x", "whoami", "sessions", "version", "bogus", // NOT forwardable
+            "screen",
+            "text",
+            "cell 0 0",
+            "search x",
+            "modes",
+            "image read",
+            "cast",
+            "scroll up",
+            "key up",
+            "ctrl c",
+            "feed 03",
+            "feed-bin 4",
+            "paste hi",
+            "resize 10 20",
+            "focus in",
+            "send hi",
+            "signal int", // forwardable (read/write/signal)
+            "grant x",
+            "revoke x",
+            "whoami",
+            "sessions",
+            "version",
+            "bogus", // NOT forwardable
         ];
         for verb_line in cases {
             let verb = verb_line.split_whitespace().next().unwrap();
@@ -4573,32 +2389,51 @@ mod tests {
     #[test]
     fn parse_mouse_grammar() {
         use aterm_core::selection::SelectionSide;
-        use aterm_types::mouse::{MouseButton, ALT_MASK, SHIFT_MASK};
+        use aterm_types::mouse::{ALT_MASK, MouseButton, SHIFT_MASK};
         // Bare press: empty mods, count 1, left side, simple (block=false).
         assert_eq!(
             parse_mouse("press left 5 9"),
             Ok(InputEvent::MouseButton {
-                button: MouseButton::Left, pressed: true, row: 5, col: 9,
-                mods: 0, click_count: 1, side: SelectionSide::Left, block: false,
+                button: MouseButton::Left,
+                pressed: true,
+                row: 5,
+                col: 9,
+                mods: 0,
+                click_count: 1,
+                side: SelectionSide::Left,
+                block: false,
             }),
         );
         // Full grammar, tokens in any position.
         assert_eq!(
             parse_mouse("count=2 press left side=right 5 9 mods=shift+alt block=1"),
             Ok(InputEvent::MouseButton {
-                button: MouseButton::Left, pressed: true, row: 5, col: 9,
-                mods: SHIFT_MASK | ALT_MASK, click_count: 2, side: SelectionSide::Right, block: true,
+                button: MouseButton::Left,
+                pressed: true,
+                row: 5,
+                col: 9,
+                mods: SHIFT_MASK | ALT_MASK,
+                click_count: 2,
+                side: SelectionSide::Right,
+                block: true,
             }),
         );
         // count clamps to 1..=3.
-        let Ok(InputEvent::MouseButton { click_count, .. }) = parse_mouse("press left 0 0 count=9") else {
+        let Ok(InputEvent::MouseButton { click_count, .. }) = parse_mouse("press left 0 0 count=9")
+        else {
             panic!("press parses")
         };
         assert_eq!(click_count, 3);
         // move: bare = hover code 3; with a button = its X10 drag code.
         assert_eq!(
             parse_mouse("move 7 3"),
-            Ok(InputEvent::MouseMove { buttons: 3, row: 7, col: 3, mods: 0, side: SelectionSide::Left }),
+            Ok(InputEvent::MouseMove {
+                buttons: 3,
+                row: 7,
+                col: 3,
+                mods: 0,
+                side: SelectionSide::Left
+            }),
         );
         let Ok(InputEvent::MouseMove { buttons, .. }) = parse_mouse("move left 7 3") else {
             panic!("drag move parses")
@@ -4607,7 +2442,13 @@ mod tests {
         // wheel actions default to lines=1.
         assert_eq!(
             parse_mouse("wheelup left 2 4"),
-            Ok(InputEvent::Wheel { dir_up: true, lines: 1, row: 2, col: 4, mods: 0 }),
+            Ok(InputEvent::Wheel {
+                dir_up: true,
+                lines: 1,
+                row: 2,
+                col: 4,
+                mods: 0
+            }),
         );
         // errors.
         assert!(parse_mouse("press left").is_err(), "missing row/col");
@@ -4629,8 +2470,12 @@ mod tests {
             edges: std::sync::Mutex::new(EdgeTable::new()),
             self_id: SessionId::generate(),
             nonce: LaunchNonce::generate(),
-            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(80, 24))),
-            temporal: Arc::new(std::sync::Mutex::new(crate::temporal::TemporalRecorder::new())),
+            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(
+                80, 24,
+            ))),
+            temporal: Arc::new(std::sync::Mutex::new(
+                crate::temporal::TemporalRecorder::new(),
+            )),
             byte_fanout: Arc::new(crate::cast::ByteFanout::new()),
         });
         let active: ActiveHandle = Arc::new(Mutex::new(ActiveSession {
@@ -4641,7 +2486,10 @@ mod tests {
         }));
 
         let (t, m, id, _ctx) = resolve_active(&active);
-        assert!(Arc::ptr_eq(&t, &term_a) && m == 11 && id == 0, "tab 0 active");
+        assert!(
+            Arc::ptr_eq(&t, &term_a) && m == 11 && id == 0,
+            "tab 0 active"
+        );
 
         // GUI switches to a new tab (sync_active_session).
         {
@@ -4665,9 +2513,9 @@ mod tests {
     /// `Arc`s the registry hands back) so the cross-session resolve is exercised
     /// for real, not stubbed.
     fn pipe_session(local_id: u64) -> (crate::session_store::SessionHandle, std::fs::File) {
+        use crate::session_store::{SessionHandle, SessionState};
         use aterm_session::sink::SinkWriter;
         use aterm_session::{EdgeTable, LaunchNonce, SessionId};
-        use crate::session_store::{SessionHandle, SessionState};
         let mut fds = [0i32; 2];
         assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0, "pipe(2)");
         let (rd, wr) = (fds[0], fds[1]);
@@ -4679,8 +2527,12 @@ mod tests {
             edges: std::sync::Mutex::new(EdgeTable::new()),
             self_id: sid.clone(),
             nonce,
-            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(80, 24))),
-            temporal: Arc::new(std::sync::Mutex::new(crate::temporal::TemporalRecorder::new())),
+            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(
+                80, 24,
+            ))),
+            temporal: Arc::new(std::sync::Mutex::new(
+                crate::temporal::TemporalRecorder::new(),
+            )),
             byte_fanout: Arc::new(crate::cast::ByteFanout::new()),
         });
         let handle = SessionHandle {
@@ -4707,7 +2559,11 @@ mod tests {
         unsafe { libc::fcntl(fd, libc::F_SETFL, fl | libc::O_NONBLOCK) };
         let mut buf = [0u8; 4096];
         let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
-        if n > 0 { buf[..n as usize].to_vec() } else { Vec::new() }
+        if n > 0 {
+            buf[..n as usize].to_vec()
+        } else {
+            Vec::new()
+        }
     }
 
     /// THE follow-up's core claim: a cross-session input verb resolves the
@@ -4726,34 +2582,56 @@ mod tests {
         store.write().unwrap().register(h_self.clone());
         store.write().unwrap().register(h_target.clone());
 
-        let self_tuple: Target =
-            (h_self.term.clone(), h_self.master, h_self.local_id, h_self.ctx.clone());
+        let self_tuple: Target = (
+            h_self.term.clone(),
+            h_self.master,
+            h_self.local_id,
+            h_self.ctx.clone(),
+        );
 
         // Resolve `@2` (the target's local id) EXACTLY as `handle()` does.
         let sel = Selector::parse("2");
         assert!(matches!(sel, Selector::Local(2)), "@2 parses to Local(2)");
         let (term, master, session, ctx) =
             resolve_target(&self_tuple, &store, &sel).expect("@2 resolves");
-        assert!(Arc::ptr_eq(&term, &h_target.term), "resolved the TARGET term");
+        assert!(
+            Arc::ptr_eq(&term, &h_target.term),
+            "resolved the TARGET term"
+        );
         assert_eq!(session, 2);
         let _ = master;
         let ctx: &SessionCtx = &ctx;
 
         // `key enter` cross-session: CR reaches the TARGET sink, nothing to self.
         assert_eq!(cross_input(&term, ctx, parse_key("enter"), "ERR\n"), "OK\n");
-        assert_eq!(drain_pipe(&target_rx), b"\r", "key bytes hit the TARGET pty");
-        assert!(drain_pipe(&self_rx).is_empty(), "self pty must be untouched");
+        assert_eq!(
+            drain_pipe(&target_rx),
+            b"\r",
+            "key bytes hit the TARGET pty"
+        );
+        assert!(
+            drain_pipe(&self_rx).is_empty(),
+            "self pty must be untouched"
+        );
 
         // `feed 03` (Ctrl-C) cross-session: `cmd_feed(&ctx.sink, ..)` is ALREADY the
         // resolved-target path — assert it stays correct alongside the new arms.
         assert_eq!(cmd_feed(&ctx.sink, "03"), "OK 1 bytes\n");
-        assert_eq!(drain_pipe(&target_rx), b"\x03", "feed bytes hit the TARGET pty");
+        assert_eq!(
+            drain_pipe(&target_rx),
+            b"\x03",
+            "feed bytes hit the TARGET pty"
+        );
         assert!(drain_pipe(&self_rx).is_empty(), "feed must not touch self");
 
         // `send` (the other always-cross writer) still writes to the resolved sink.
         // `send` is RAW (no implicit CR unless a literal trailing `\n` is given).
         let _ = cmd_send(&ctx.sink, "ls");
-        assert_eq!(drain_pipe(&target_rx), b"ls", "send bytes hit the TARGET pty");
+        assert_eq!(
+            drain_pipe(&target_rx),
+            b"ls",
+            "send bytes hit the TARGET pty"
+        );
         assert!(drain_pipe(&self_rx).is_empty(), "send must not touch self");
 
         // `select` is ALREADY cross-correct and is left untouched (it has no
@@ -4773,8 +2651,14 @@ mod tests {
             sel.complete_selection();
         }
         let reply = cmd_selection(&term);
-        assert!(reply.starts_with("OK ") && reply.contains("hello"), "TARGET selection: {reply}");
-        assert!(drain_pipe(&target_rx).is_empty(), "select must not write pty bytes");
+        assert!(
+            reply.starts_with("OK ") && reply.contains("hello"),
+            "TARGET selection: {reply}"
+        );
+        assert!(
+            drain_pipe(&target_rx).is_empty(),
+            "select must not write pty bytes"
+        );
         assert_eq!(session, 2, "select repaints by the RESOLVED target id");
     }
 
@@ -4815,8 +2699,12 @@ mod tests {
             edges: std::sync::Mutex::new(EdgeTable::new()),
             self_id: sid,
             nonce,
-            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(80, 24))),
-            temporal: Arc::new(std::sync::Mutex::new(crate::temporal::TemporalRecorder::new())),
+            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(
+                80, 24,
+            ))),
+            temporal: Arc::new(std::sync::Mutex::new(
+                crate::temporal::TemporalRecorder::new(),
+            )),
             byte_fanout: Arc::new(crate::cast::ByteFanout::new()),
         });
         let term = Arc::new(Mutex::new(Terminal::new(24, 80)));
@@ -4836,7 +2724,11 @@ mod tests {
                 0,
                 "TIOCGWINSZ"
             );
-            assert_eq!((ws.ws_row, ws.ws_col), (10, 40), "TARGET pty winsize updated");
+            assert_eq!(
+                (ws.ws_row, ws.ws_col),
+                (10, 40),
+                "TARGET pty winsize updated"
+            );
         }
         // (3) asciicast record — one new `[t,"r","40x10"]` on the target timeline,
         // matching the self path's `apply_term_resize`.
@@ -4848,10 +2740,17 @@ mod tests {
 
         // Out-of-range reuses parse_resize's exact string; nothing is mutated (no
         // extra cast event, grid unchanged).
-        assert_eq!(cross_resize(&term, master, &ctx, "65535 65535"), "ERR out of range\n");
+        assert_eq!(
+            cross_resize(&term, master, &ctx, "65535 65535"),
+            "ERR out of range\n"
+        );
         {
             let t = term_lock(&term);
-            assert_eq!((t.rows(), t.cols()), (10, 40), "grid unchanged after reject");
+            assert_eq!(
+                (t.rows(), t.cols()),
+                (10, 40),
+                "grid unchanged after reject"
+            );
         }
         assert_eq!(
             ctx.cast.lock().unwrap().event_count(),
@@ -4888,11 +2787,24 @@ mod tests {
 
         // ── Tracking ON (SGR mouse, DEC 1000 + 1006) ──
         term_lock(term).process(b"\x1b[?1000h\x1b[?1006h");
-        assert!(term_lock(term).mouse_tracking_enabled(), "DEC 1000 enabled tracking");
-        assert_eq!(cross_mouse_apply(term, ctx, "press left 1 1"), Ok(false), "report, no viewport move");
+        assert!(
+            term_lock(term).mouse_tracking_enabled(),
+            "DEC 1000 enabled tracking"
+        );
+        assert_eq!(
+            cross_mouse_apply(term, ctx, "press left 1 1"),
+            Ok(false),
+            "report, no viewport move"
+        );
         let report = drain_pipe(&target_rx);
-        assert!(!report.is_empty() && report.starts_with(b"\x1b["), "SGR press report to TARGET: {report:?}");
-        assert!(drain_pipe(&self_rx).is_empty(), "self sink untouched by a cross mouse");
+        assert!(
+            !report.is_empty() && report.starts_with(b"\x1b["),
+            "SGR press report to TARGET: {report:?}"
+        );
+        assert!(
+            drain_pipe(&self_rx).is_empty(),
+            "self sink untouched by a cross mouse"
+        );
 
         // ── Tracking OFF (DEC 1000 / 1006 reset) ──
         term_lock(term).process(b"\x1b[?1006l\x1b[?1000l");
@@ -4902,16 +2814,37 @@ mod tests {
 
         // Wheel-up: scroll_display fallback moves the TARGET viewport into history,
         // emits no pty bytes, and asks for a repaint.
-        assert_eq!(cross_mouse_apply(term, ctx, "wheelup left 2 4 count=3"), Ok(true), "wheel => repaint");
-        assert!(term_lock(term).grid().display_offset() > 0, "wheel moved TARGET viewport");
-        assert!(drain_pipe(&target_rx).is_empty(), "wheel fallback emits no pty bytes");
+        assert_eq!(
+            cross_mouse_apply(term, ctx, "wheelup left 2 4 count=3"),
+            Ok(true),
+            "wheel => repaint"
+        );
+        assert!(
+            term_lock(term).grid().display_offset() > 0,
+            "wheel moved TARGET viewport"
+        );
+        assert!(
+            drain_pipe(&target_rx).is_empty(),
+            "wheel fallback emits no pty bytes"
+        );
 
         // A plain press under tracking-off: deliberate no-op (no selection UI for a
         // background tab) — sink empty, offset unchanged, no repaint.
         let off_before = term_lock(term).grid().display_offset();
-        assert_eq!(cross_mouse_apply(term, ctx, "press left 1 1"), Ok(false), "press no-op");
-        assert!(drain_pipe(&target_rx).is_empty(), "press fallback emits no pty bytes");
-        assert_eq!(term_lock(term).grid().display_offset(), off_before, "press did not move viewport");
+        assert_eq!(
+            cross_mouse_apply(term, ctx, "press left 1 1"),
+            Ok(false),
+            "press no-op"
+        );
+        assert!(
+            drain_pipe(&target_rx).is_empty(),
+            "press fallback emits no pty bytes"
+        );
+        assert_eq!(
+            term_lock(term).grid().display_offset(),
+            off_before,
+            "press did not move viewport"
+        );
     }
 
     /// Cross-session `scroll` moves the TARGET term's viewport directly (no seam, no
@@ -4926,11 +2859,18 @@ mod tests {
         }
         let reply = cross_scroll(&h_target.term, "top");
         assert!(reply.starts_with("OK "), "scroll reply shape: {reply}");
-        assert!(term_lock(&h_target.term).grid().display_offset() > 0, "viewport moved into history");
+        assert!(
+            term_lock(&h_target.term).grid().display_offset() > 0,
+            "viewport moved into history"
+        );
         assert!(drain_pipe(&rx).is_empty(), "scroll emits no pty bytes");
         // `scroll bottom` returns to the live tail (offset 0).
         let _ = cross_scroll(&h_target.term, "bottom");
-        assert_eq!(term_lock(&h_target.term).grid().display_offset(), 0, "back to live bottom");
+        assert_eq!(
+            term_lock(&h_target.term).grid().display_offset(),
+            0,
+            "back to live bottom"
+        );
     }
 
     /// The exact bytes the `paste` verb puts on the wire: the seam applies
@@ -4971,8 +2911,12 @@ mod tests {
             edges: std::sync::Mutex::new(EdgeTable::new()),
             self_id: SessionId::generate(),
             nonce: LaunchNonce::generate(),
-            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(80, 24))),
-            temporal: Arc::new(std::sync::Mutex::new(crate::temporal::TemporalRecorder::new())),
+            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(
+                80, 24,
+            ))),
+            temporal: Arc::new(std::sync::Mutex::new(
+                crate::temporal::TemporalRecorder::new(),
+            )),
             byte_fanout: Arc::new(crate::cast::ByteFanout::new()),
         })
     }
@@ -5006,7 +2950,12 @@ mod tests {
     fn edge_granted(op: Op, ctx: &SessionCtx) -> Scope {
         let tok = {
             let mut tbl = ctx.edges.lock().unwrap_or_else(|p| p.into_inner());
-            tbl.grant(SessionId::new("s-test-controller"), ctx.self_id.clone(), op, ctx.nonce)
+            tbl.grant(
+                SessionId::new("s-test-controller"),
+                ctx.self_id.clone(),
+                op,
+                ctx.nonce,
+            )
         };
         Scope::Edge(tok)
     }
@@ -5017,16 +2966,35 @@ mod tests {
     fn required_op_classifies_each_verb() {
         // Read-side: observers + the controller's own view-state controls.
         let read_verbs = [
-            "text", "cursor", "cell", "search", "dims", "lines", "line", "modes", "title", "cwd",
-            "blocks", "blocktext", "wait", "colors", "selection", "copy", "scroll", "select",
-            "image", "cast",
+            "text",
+            "cursor",
+            "cell",
+            "search",
+            "dims",
+            "lines",
+            "line",
+            "modes",
+            "title",
+            "cwd",
+            "blocks",
+            "blocktext",
+            "wait",
+            "colors",
+            "selection",
+            "copy",
+            "scroll",
+            "select",
+            "image",
+            "cast",
         ];
         for v in read_verbs {
             assert_eq!(required_op(v), Some(Op::ReadScreen), "{v} read");
         }
         // Write-side: bytes/geometry the driven program observes (`feed-bin` is the
         // binary twin of `feed`, classified here for the cross-process forward).
-        for v in ["send", "key", "ctrl", "feed", "feed-bin", "mouse", "paste", "resize", "focus"] {
+        for v in [
+            "send", "key", "ctrl", "feed", "feed-bin", "mouse", "paste", "resize", "focus",
+        ] {
             assert_eq!(required_op(v), Some(Op::WriteInput), "{v} write");
         }
         // Signal is its own out-of-band class.
@@ -5063,7 +3031,10 @@ mod tests {
         assert!(gate_allows(edge_read, "image", &ctx), "read edge: image");
         assert!(gate_allows(edge_read, "select", &ctx), "read edge: select");
         assert!(!gate_allows(edge_read, "feed", &ctx), "read edge: NOT feed");
-        assert!(!gate_allows(edge_read, "signal", &ctx), "read edge: NOT signal");
+        assert!(
+            !gate_allows(edge_read, "signal", &ctx),
+            "read edge: NOT signal"
+        );
         assert!(!gate_allows(edge_read, "send", &ctx), "read edge: NOT send");
 
         // No Edge — regardless of op — may grant/revoke/whoami (Owner-only, None-op).
@@ -5078,8 +3049,14 @@ mod tests {
         // A WriteInput edge mirrors the split: it may write but not read or signal.
         let edge_write = edge_granted(Op::WriteInput, &ctx);
         assert!(gate_allows(edge_write, "feed", &ctx), "write edge: feed");
-        assert!(!gate_allows(edge_write, "text", &ctx), "write edge: NOT read");
-        assert!(!gate_allows(edge_write, "signal", &ctx), "write edge: NOT signal");
+        assert!(
+            !gate_allows(edge_write, "text", &ctx),
+            "write edge: NOT read"
+        );
+        assert!(
+            !gate_allows(edge_write, "signal", &ctx),
+            "write edge: NOT signal"
+        );
     }
 
     /// grant/revoke enforce Owner-only INSIDE the body too (defense in depth beyond
@@ -5127,12 +3104,16 @@ mod tests {
 
         // Against its OWN granted session B, whoami reports the real op.
         assert!(
-            cmd_whoami(&ctx_b, edge_b).trim_end().ends_with("edge read-screen"),
+            cmd_whoami(&ctx_b, edge_b)
+                .trim_end()
+                .ends_with("edge read-screen"),
             "whoami on granted session B",
         );
         // After the active handle swings to A, the SAME token authorizes nothing.
         assert!(
-            cmd_whoami(&ctx_a, edge_b).trim_end().ends_with("edge unauthorized"),
+            cmd_whoami(&ctx_a, edge_b)
+                .trim_end()
+                .ends_with("edge unauthorized"),
             "whoami must not over-state authority on swung-to session A",
         );
     }
@@ -5147,12 +3128,16 @@ mod tests {
 
         // Owner mints a ReadScreen edge from some source session into THIS session.
         let reply = cmd_grant(&ctx, owner, "s-source01 read-screen");
-        let hex = reply.strip_prefix("OK ").and_then(|s| s.strip_suffix('\n')).expect("OK <hex>");
+        let hex = reply
+            .strip_prefix("OK ")
+            .and_then(|s| s.strip_suffix('\n'))
+            .expect("OK <hex>");
         assert_eq!(hex.len(), 64, "edge token is 64 hex chars");
 
         // The bearer presents it as the handshake hex => resolves to Edge(ReadScreen).
         let line = format!("AUTH {hex}");
-        let (op, _tok, inline) = edge_scope_from_first_line(&line, &ctx).expect("edge authenticates");
+        let (op, _tok, inline) =
+            edge_scope_from_first_line(&line, &ctx).expect("edge authenticates");
         assert_eq!(op, Op::ReadScreen);
         assert_eq!(inline, None);
 
@@ -5211,10 +3196,17 @@ mod tests {
         // Empty recording: header-only body, framed with its true byte length.
         let reply = cmd_cast(&ctx);
         let (hdr_line, body) = reply.split_once('\n').expect("OK <n>\\n<body>");
-        let n: usize = hdr_line.strip_prefix("OK ").expect("OK prefix").parse().expect("nbytes");
+        let n: usize = hdr_line
+            .strip_prefix("OK ")
+            .expect("OK prefix")
+            .parse()
+            .expect("nbytes");
         assert_eq!(n, body.len(), "framed length must equal the body length");
         let header = body.lines().next().expect("a header line");
-        assert!(header.contains("\"version\": 2"), "not asciicast v2: {header}");
+        assert!(
+            header.contains("\"version\": 2"),
+            "not asciicast v2: {header}"
+        );
 
         // Fold in an output burst, then the body grows by one well-formed event.
         {
@@ -5226,9 +3218,15 @@ mod tests {
         let (hdr2, body2) = reply2.split_once('\n').unwrap();
         let n2: usize = hdr2.strip_prefix("OK ").unwrap().parse().unwrap();
         assert_eq!(n2, body2.len());
-        assert!(body2.lines().count() >= 2, "expected header + >=1 event: {body2}");
+        assert!(
+            body2.lines().count() >= 2,
+            "expected header + >=1 event: {body2}"
+        );
         let event = body2.lines().nth(1).unwrap();
-        assert!(event.starts_with('[') && event.contains("\"o\""), "bad event: {event}");
+        assert!(
+            event.starts_with('[') && event.contains("\"o\""),
+            "bad event: {event}"
+        );
     }
 
     /// `blocks` surfaces the OSC 133/633 shell-integration command blocks so an
@@ -5246,14 +3244,26 @@ mod tests {
         );
         let out = cmd_blocks(&term, "");
         assert!(out.starts_with("OK 2\n"), "expected 2 blocks: {out}");
-        assert!(out.contains("exit=0") && out.contains("cmdline=echo%20hi"), "block 1 wrong: {out}");
-        assert!(out.contains("exit=1") && out.contains("cmdline=false"), "block 2 wrong: {out}");
+        assert!(
+            out.contains("exit=0") && out.contains("cmdline=echo%20hi"),
+            "block 1 wrong: {out}"
+        );
+        assert!(
+            out.contains("exit=1") && out.contains("cmdline=false"),
+            "block 2 wrong: {out}"
+        );
         // `blocks 1` returns only the most recent (the failed one).
         let last = cmd_blocks(&term, "1");
-        assert!(last.starts_with("OK 1\n") && last.contains("exit=1"), "last block wrong: {last}");
+        assert!(
+            last.starts_with("OK 1\n") && last.contains("exit=1"),
+            "last block wrong: {last}"
+        );
         // `blocktext 0` reads block 0's OUTPUT directly (no coordinate math).
         let txt = cmd_blocktext(&term, "0");
-        assert!(txt.starts_with("OK ") && txt.contains("hi"), "block 0 output wrong: {txt}");
+        assert!(
+            txt.starts_with("OK ") && txt.contains("hi"),
+            "block 0 output wrong: {txt}"
+        );
         assert_eq!(cmd_blocktext(&term, "99"), "ERR no such block\n");
     }
 
@@ -5296,7 +3306,10 @@ mod tests {
             "linked cell missing hyperlink: {linked}"
         );
         let plain = cmd_cell(&term, "0 5");
-        assert!(!plain.contains("link="), "plain cell has a stray link: {plain}");
+        assert!(
+            !plain.contains("link="),
+            "plain cell has a stray link: {plain}"
+        );
     }
 
     /// `colors` reports the theme and reflects OSC 10/11/12 dynamic changes.
@@ -5344,7 +3357,10 @@ mod tests {
     #[test]
     fn resize_parses_in_range() {
         assert_eq!(parse_resize("30 100"), Ok((30, 100)));
-        assert_eq!(parse_resize(""), Err("ERR usage: resize <r> <c>\n".to_string()));
+        assert_eq!(
+            parse_resize(""),
+            Err("ERR usage: resize <r> <c>\n".to_string())
+        );
         assert_eq!(parse_resize("x y"), Err("ERR bad args\n".to_string()));
     }
 
@@ -5366,8 +3382,14 @@ mod tests {
         assert_eq!(parse_tab("close 1"), Some(TabAction::Close(Some(1))));
         assert_eq!(parse_tab("  close 0 "), Some(TabAction::Close(Some(0))));
         // `move <from> <to>` reorders.
-        assert_eq!(parse_tab("move 2 0"), Some(TabAction::Move { from: 2, to: 0 }));
-        assert_eq!(parse_tab("move 0 3"), Some(TabAction::Move { from: 0, to: 3 }));
+        assert_eq!(
+            parse_tab("move 2 0"),
+            Some(TabAction::Move { from: 2, to: 0 })
+        );
+        assert_eq!(
+            parse_tab("move 0 3"),
+            Some(TabAction::Move { from: 0, to: 3 })
+        );
         // Unknown / empty / negative => None (usage error).
         assert_eq!(parse_tab(""), None);
         assert_eq!(parse_tab("bogus"), None);
@@ -5436,7 +3458,8 @@ mod tests {
             .and_then(|s| s.split(' ').next())
             .expect("cell OK token");
         assert_eq!(
-            pct_decode(accent_tok), accent_sel,
+            pct_decode(accent_tok),
+            accent_sel,
             "cell grapheme must equal selection (accent): {accent_cell}"
         );
         let family_cell = cmd_cell(&term, "1 0");
@@ -5445,7 +3468,8 @@ mod tests {
             .and_then(|s| s.split(' ').next())
             .expect("cell OK token");
         assert_eq!(
-            pct_decode(family_tok), family_sel,
+            pct_decode(family_tok),
+            family_sel,
             "cell grapheme must equal selection (ZWJ family): {family_cell}"
         );
         // The old `ch as u32` field would have been a bare codepoint, NOT the
@@ -5459,13 +3483,22 @@ mod tests {
         let text = cmd_text(&term);
         let lines: Vec<&str> = text.lines().collect();
         // lines[0] is the "OK <n>" header; row r is lines[r+1].
-        assert_eq!(lines[1], accent_sel, "text row 0 must equal selection: {text}");
-        assert_eq!(lines[2], family_sel, "text row 1 must equal selection: {text}");
+        assert_eq!(
+            lines[1], accent_sel,
+            "text row 0 must equal selection: {text}"
+        );
+        assert_eq!(
+            lines[2], family_sel,
+            "text row 1 must equal selection: {text}"
+        );
 
         // ---- search verb: searching the cluster finds it, and the located cell
         // reads back (via cell) the same grapheme the selection shows.
         let s = cmd_search(&term, "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}");
-        assert!(s.starts_with("OK 1"), "search must find the ZWJ family once: {s}");
+        assert!(
+            s.starts_with("OK 1"),
+            "search must find the ZWJ family once: {s}"
+        );
         let hit = s.lines().nth(1).expect("a match row");
         let mut parts = hit.split(' ');
         let abs_row: u64 = parts.next().unwrap().parse().expect("abs row");
@@ -5515,7 +3548,9 @@ mod tests {
         // Print a unique needle, then enough lines to push it off-screen.
         term.lock().unwrap().process(b"NEEDLE_alpha\r\n");
         for i in 0..20 {
-            term.lock().unwrap().process(format!("filler line {i}\r\n").as_bytes());
+            term.lock()
+                .unwrap()
+                .process(format!("filler line {i}\r\n").as_bytes());
         }
         // The needle is no longer on the visible 4-row screen.
         let visible = cmd_text(&term);
@@ -5525,7 +3560,10 @@ mod tests {
         );
         // But search (which indexes scrollback) finds it.
         let s = cmd_search(&term, "NEEDLE_alpha");
-        assert!(s.starts_with("OK 1"), "scrolled-off needle must be found: {s}");
+        assert!(
+            s.starts_with("OK 1"),
+            "scrolled-off needle must be found: {s}"
+        );
         let hit = s.lines().nth(1).expect("match row");
         let abs_row: u64 = hit.split(' ').next().unwrap().parse().expect("abs row");
         // The `line` verb resolves that absolute row to the needle's content.
@@ -5550,19 +3588,28 @@ mod tests {
             .and_then(|n| n.split(' ').next())
             .and_then(|n| n.parse().ok())
             .expect("count");
-        assert!(count >= 2, "regex `fill[a-z]+` should match many filler rows: {rx}");
+        assert!(
+            count >= 2,
+            "regex `fill[a-z]+` should match many filler rows: {rx}"
+        );
 
         // Case sensitivity: default is insensitive, `case` flips it.
         let ci = cmd_search(&term, "needle_alpha");
-        assert!(ci.starts_with("OK 1"), "case-insensitive default must match: {ci}");
+        assert!(
+            ci.starts_with("OK 1"),
+            "case-insensitive default must match: {ci}"
+        );
         let cs = cmd_search(&term, "needle_alpha case");
-        assert!(cs.starts_with("OK 0"), "case-sensitive must NOT match lowercased: {cs}");
+        assert!(
+            cs.starts_with("OK 0"),
+            "case-sensitive must NOT match lowercased: {cs}"
+        );
     }
 
     // ---- P1.2: cross-session @selector addressing --------------------------------
 
     use crate::session_store::{self, SessionHandle, SessionState};
-    use aterm_session::{decide_edge, EdgeTable, LaunchNonce};
+    use aterm_session::{EdgeTable, LaunchNonce, decide_edge};
 
     /// Build a registered session: a fresh `Terminal` (optionally pre-fed `seed`
     /// bytes so its `text` read is distinctive), a fresh fabric identity, and a sink
@@ -5581,8 +3628,12 @@ mod tests {
             edges: std::sync::Mutex::new(EdgeTable::new()),
             self_id: sid.clone(),
             nonce,
-            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(80, 24))),
-            temporal: Arc::new(std::sync::Mutex::new(crate::temporal::TemporalRecorder::new())),
+            cast: Arc::new(std::sync::Mutex::new(crate::cast::CastRecorder::new(
+                80, 24,
+            ))),
+            temporal: Arc::new(std::sync::Mutex::new(
+                crate::temporal::TemporalRecorder::new(),
+            )),
             byte_fanout: Arc::new(crate::cast::ByteFanout::new()),
         });
         SessionHandle {
@@ -5616,8 +3667,12 @@ mod tests {
         // `@.` and `@` (empty body) both name self.
         for body in ["", "."] {
             let sel = Selector::parse(body);
-            let (t, m, id, _ctx) = resolve_target(&self_tuple, &store, &sel).expect("self resolves");
-            assert!(Arc::ptr_eq(&t, &self_h.term), "@{body} is the same Arc as self");
+            let (t, m, id, _ctx) =
+                resolve_target(&self_tuple, &store, &sel).expect("self resolves");
+            assert!(
+                Arc::ptr_eq(&t, &self_h.term),
+                "@{body} is the same Arc as self"
+            );
             assert_eq!(m, self_h.master);
             assert_eq!(id, self_h.local_id);
         }
@@ -5650,16 +3705,31 @@ mod tests {
         assert_ne!(self_text, peer_text, "the two sessions read distinctly");
 
         // By process-local id.
-        let by_local = resolve_target(&self_tuple, &store, &Selector::parse("7")).expect("by local");
-        assert!(Arc::ptr_eq(&by_local.0, &peer_h.term), "resolved the peer term");
-        assert_eq!(cmd_text(&by_local.0), peer_text, "@7 returns the PEER's state");
+        let by_local =
+            resolve_target(&self_tuple, &store, &Selector::parse("7")).expect("by local");
+        assert!(
+            Arc::ptr_eq(&by_local.0, &peer_h.term),
+            "resolved the peer term"
+        );
+        assert_eq!(
+            cmd_text(&by_local.0),
+            peer_text,
+            "@7 returns the PEER's state"
+        );
         assert_ne!(cmd_text(&by_local.0), self_text, "@7 is NOT self's state");
 
         // By stable SessionId.
-        let by_sid =
-            resolve_target(&self_tuple, &store, &Selector::parse(peer_h.sid.as_str())).expect("by sid");
-        assert!(Arc::ptr_eq(&by_sid.0, &peer_h.term), "@s-... resolved the peer term");
-        assert_eq!(cmd_text(&by_sid.0), peer_text, "@s-... returns the PEER's state");
+        let by_sid = resolve_target(&self_tuple, &store, &Selector::parse(peer_h.sid.as_str()))
+            .expect("by sid");
+        assert!(
+            Arc::ptr_eq(&by_sid.0, &peer_h.term),
+            "@s-... resolved the peer term"
+        );
+        assert_eq!(
+            cmd_text(&by_sid.0),
+            peer_text,
+            "@s-... returns the PEER's state"
+        );
 
         // Owner is authorized to read the sibling (same trust domain).
         assert!(
@@ -5692,7 +3762,12 @@ mod tests {
         let src = SessionId::new("s-controller");
         let granted = {
             let mut tbl = peer_h.ctx.edges.lock().unwrap();
-            tbl.grant(src.clone(), peer_h.ctx.self_id.clone(), Op::ReadScreen, peer_h.ctx.nonce)
+            tbl.grant(
+                src.clone(),
+                peer_h.ctx.self_id.clone(),
+                Op::ReadScreen,
+                peer_h.ctx.nonce,
+            )
         };
 
         // The bearer presenting THAT token is now authorized to READ the peer...
@@ -5713,7 +3788,13 @@ mod tests {
         let restarted_nonce = LaunchNonce::generate();
         let tbl = peer_h.ctx.edges.lock().unwrap();
         assert_eq!(
-            decide_edge(&tbl, &granted, &peer_h.ctx.self_id, Op::ReadScreen, &restarted_nonce),
+            decide_edge(
+                &tbl,
+                &granted,
+                &peer_h.ctx.self_id,
+                Op::ReadScreen,
+                &restarted_nonce
+            ),
             aterm_session::EdgeDecision::Deny,
             "an edge bound to the old nonce fails closed across a restart",
         );
@@ -5744,7 +3825,10 @@ mod tests {
 
         // An Owner (cross-session authorized) resolves the peer and writes to it.
         let target = resolve_target(&self_tuple, &store, &Selector::parse("7")).expect("peer");
-        assert!(cross_session_authorized(Scope::Owner, "send", &peer_h.ctx), "owner write ok");
+        assert!(
+            cross_session_authorized(Scope::Owner, "send", &peer_h.ctx),
+            "owner write ok"
+        );
         assert_eq!(cmd_send(&target.3.sink, "echo-into-peer"), "OK\n");
 
         // A read-only Edge is denied the SAME write BEFORE any byte is sent (op-gate).
@@ -5759,7 +3843,10 @@ mod tests {
         let mut buf = Vec::new();
         let mut reader = unsafe { std::fs::File::from_raw_fd(read_fd) };
         reader.read_to_end(&mut buf).expect("read peer pipe");
-        assert_eq!(buf, b"echo-into-peer", "exactly the authorized write reached the PEER");
+        assert_eq!(
+            buf, b"echo-into-peer",
+            "exactly the authorized write reached the PEER"
+        );
     }
 
     /// The `sessions` verb lists the registry: a single-session store yields exactly
@@ -5792,7 +3879,10 @@ mod tests {
         assert!(l.next().unwrap().starts_with("0 "), "root first");
         let child_line = l.next().unwrap();
         assert!(child_line.starts_with("1 "), "child second");
-        assert!(child_line.contains(root.sid.as_str()), "child names its parent sid");
+        assert!(
+            child_line.contains(root.sid.as_str()),
+            "child names its parent sid"
+        );
     }
 
     /// A malformed / cross-session selector on a SELF-SCOPED verb (sessions/grant/
@@ -5830,7 +3920,8 @@ mod tests {
     fn read_until(s: &UnixStream, mut acc: String, pred: impl Fn(&str) -> bool) -> String {
         use std::io::Read;
         let mut s = s.try_clone().expect("clone client end");
-        s.set_read_timeout(Some(std::time::Duration::from_millis(200))).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_millis(200)))
+            .unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
         let mut buf = [0u8; 8192];
         while !pred(&acc) && std::time::Instant::now() < deadline {
@@ -5848,7 +3939,8 @@ mod tests {
     fn read_quiet(s: &UnixStream) -> String {
         use std::io::Read;
         let mut s = s.try_clone().expect("clone client end");
-        s.set_read_timeout(Some(std::time::Duration::from_millis(300))).unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_millis(300)))
+            .unwrap();
         let mut buf = [0u8; 8192];
         match s.read(&mut buf) {
             Ok(n) if n > 0 => String::from_utf8_lossy(&buf[..n]).into_owned(),
@@ -5873,7 +3965,14 @@ mod tests {
         let (store_t, active_t, reg_t) = (store.clone(), active.clone(), registry.clone());
         let join = std::thread::spawn(move || {
             let mut w = server;
-            run_subscribe("subscribe @. screen", &active_t, &store_t, &reg_t, Scope::Owner, &mut w);
+            run_subscribe(
+                "subscribe @. screen",
+                &active_t,
+                &store_t,
+                &reg_t,
+                Scope::Owner,
+                &mut w,
+            );
         });
 
         // The ack confirms the flip to push mode (accumulate past any immediate
@@ -5886,22 +3985,36 @@ mod tests {
         crate::term_lock(&h.term).process(b"hello-live");
         registry.lock().unwrap().notify(0);
         let frame = read_until(&client, acc, |s| s.contains("hello-live"));
-        assert!(frame.contains("DELTA 0 seq="), "screen delta pushed: {frame:?}");
-        assert!(frame.contains("hello-live"), "delta carries live text: {frame:?}");
+        assert!(
+            frame.contains("DELTA 0 seq="),
+            "screen delta pushed: {frame:?}"
+        );
+        assert!(
+            frame.contains("hello-live"),
+            "delta carries live text: {frame:?}"
+        );
 
         // A PURE viewport scroll does not bump content_seq -> no further DELTA even
         // though we notify (a coalesced/spurious wake reads unchanged content).
         crate::term_lock(&h.term).scroll_display(1);
         registry.lock().unwrap().notify(0);
         let none = read_quiet(&client);
-        assert!(!none.contains("DELTA"), "viewport scroll pushes no delta: {none:?}");
+        assert!(
+            !none.contains("DELTA"),
+            "viewport scroll pushes no delta: {none:?}"
+        );
 
         // Drop the client: the loop's next write fails and it returns (deregister).
         drop(client);
         crate::term_lock(&h.term).process(b"x");
         registry.lock().unwrap().notify(0);
-        join.join().expect("push loop ends cleanly on a dead client");
-        assert_eq!(registry.lock().unwrap().watched_sessions(), 0, "deregistered on drop");
+        join.join()
+            .expect("push loop ends cleanly on a dead client");
+        assert_eq!(
+            registry.lock().unwrap().watched_sessions(),
+            0,
+            "deregistered on drop"
+        );
     }
 
     /// (b)-deny FAIL-CLOSED: a scoped `Edge` connection that subscribes to a SIBLING
@@ -5922,9 +4035,24 @@ mod tests {
         // table => decide_edge denies => fail closed.
         let scope = Scope::Edge(EdgeToken::generate());
         let mut out: Vec<u8> = Vec::new();
-        run_subscribe("subscribe @2 screen", &active, &store, &registry, scope, &mut out);
-        assert_eq!(String::from_utf8_lossy(&out), "ERR denied\n", "cross subscribe fail-closed");
-        assert_eq!(registry.lock().unwrap().watched_sessions(), 0, "no registration on denial");
+        run_subscribe(
+            "subscribe @2 screen",
+            &active,
+            &store,
+            &registry,
+            scope,
+            &mut out,
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            "ERR denied\n",
+            "cross subscribe fail-closed"
+        );
+        assert_eq!(
+            registry.lock().unwrap().watched_sessions(),
+            0,
+            "no registration on denial"
+        );
     }
 
     /// REGRESSION (capability escape): a SELF (`@.`) subscribe must re-verify the edge
@@ -5957,13 +4085,24 @@ mod tests {
 
         // A SELF subscribe while A is frontmost is DENIED — no partial push, no entry.
         let mut out: Vec<u8> = Vec::new();
-        run_subscribe("subscribe @. screen", &active, &store, &registry, scope, &mut out);
+        run_subscribe(
+            "subscribe @. screen",
+            &active,
+            &store,
+            &registry,
+            scope,
+            &mut out,
+        );
         assert_eq!(
             String::from_utf8_lossy(&out),
             "ERR denied\n",
             "B's edge must NOT subscribe to the swung-to active session A",
         );
-        assert_eq!(registry.lock().unwrap().watched_sessions(), 0, "no registration on denial");
+        assert_eq!(
+            registry.lock().unwrap().watched_sessions(),
+            0,
+            "no registration on denial"
+        );
     }
 
     /// (b)-allow: the SAME scoped `Edge`, once it holds a `ReadScreen` grant on the
@@ -5985,7 +4124,12 @@ mod tests {
         // token as the connection's Edge scope.
         let tok = {
             let mut edges = sib.ctx.edges.lock().unwrap();
-            edges.grant(self_h.sid.clone(), sib.sid.clone(), Op::ReadScreen, sib.nonce)
+            edges.grant(
+                self_h.sid.clone(),
+                sib.sid.clone(),
+                Op::ReadScreen,
+                sib.nonce,
+            )
         };
         // Sanity: the gate would PERMIT this exact (token, target) pair.
         assert!(
@@ -5998,17 +4142,33 @@ mod tests {
         let scope = Scope::Edge(tok);
         let join = std::thread::spawn(move || {
             let mut w = server;
-            run_subscribe("subscribe @2 screen", &active_t, &store_t, &reg_t, scope, &mut w);
+            run_subscribe(
+                "subscribe @2 screen",
+                &active_t,
+                &store_t,
+                &reg_t,
+                scope,
+                &mut w,
+            );
         });
 
         let ack = read_until(&client, String::new(), |s| s.contains("OK subscribe 1\n"));
-        assert!(ack.contains("OK subscribe 1\n"), "edge subscribe authorized: {ack:?}");
+        assert!(
+            ack.contains("OK subscribe 1\n"),
+            "edge subscribe authorized: {ack:?}"
+        );
 
         crate::term_lock(&sib.term).process(b"from-sibling");
         registry.lock().unwrap().notify(2);
         let frame = read_until(&client, ack, |s| s.contains("from-sibling"));
-        assert!(frame.contains("DELTA 2 seq="), "sibling delta tagged with its sid: {frame:?}");
-        assert!(frame.contains("from-sibling"), "carries the sibling's screen: {frame:?}");
+        assert!(
+            frame.contains("DELTA 2 seq="),
+            "sibling delta tagged with its sid: {frame:?}"
+        );
+        assert!(
+            frame.contains("from-sibling"),
+            "carries the sibling's screen: {frame:?}"
+        );
 
         drop(client);
         crate::term_lock(&sib.term).process(b"x");
@@ -6033,26 +4193,41 @@ mod tests {
         let join = std::thread::spawn(move || {
             let mut w = server;
             // `@0` is self (active), `@2` a sibling; Owner reaches both.
-            run_subscribe("subscribe @0,@2 screen", &active_t, &store_t, &reg_t, Scope::Owner, &mut w);
+            run_subscribe(
+                "subscribe @0,@2 screen",
+                &active_t,
+                &store_t,
+                &reg_t,
+                Scope::Owner,
+                &mut w,
+            );
         });
         let ack = read_until(&client, String::new(), |s| s.contains("OK subscribe 2\n"));
-        assert!(ack.contains("OK subscribe 2\n"), "two targets acked: {ack:?}");
+        assert!(
+            ack.contains("OK subscribe 2\n"),
+            "two targets acked: {ack:?}"
+        );
 
         crate::term_lock(&a.term).process(b"AAA");
         crate::term_lock(&b.term).process(b"BBB");
         registry.lock().unwrap().notify(0);
         registry.lock().unwrap().notify(2);
         // Accumulate until BOTH sids' deltas (with their text) have shown up.
-        let seen = read_until(&client, ack, |s| {
-            s.contains("AAA") && s.contains("BBB")
-        });
-        assert!(seen.contains("DELTA 0 ") && seen.contains("AAA"), "sid 0 frame: {seen:?}");
-        assert!(seen.contains("DELTA 2 ") && seen.contains("BBB"), "sid 2 frame: {seen:?}");
+        let seen = read_until(&client, ack, |s| s.contains("AAA") && s.contains("BBB"));
+        assert!(
+            seen.contains("DELTA 0 ") && seen.contains("AAA"),
+            "sid 0 frame: {seen:?}"
+        );
+        assert!(
+            seen.contains("DELTA 2 ") && seen.contains("BBB"),
+            "sid 2 frame: {seen:?}"
+        );
 
         drop(client);
         crate::term_lock(&a.term).process(b"x");
         registry.lock().unwrap().notify(0);
-        join.join().expect("multiplex push loop ends on a dead client");
+        join.join()
+            .expect("multiplex push loop ends on a dead client");
     }
 
     /// (c) A STALLED subscriber (its socket buffer full, never drained) cannot block
@@ -6079,8 +4254,14 @@ mod tests {
             registry.lock().unwrap().notify(0);
         }
         let after = crate::term_lock(&h.term).content_seq();
-        assert!(after > before, "producer content_seq advanced past a stalled subscriber");
-        assert!(start.elapsed() < std::time::Duration::from_secs(5), "producer not blocked");
+        assert!(
+            after > before,
+            "producer content_seq advanced past a stalled subscriber"
+        );
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "producer not blocked"
+        );
     }
 
     // ── wf3: --json read mode + edges/family/feed-bin/ready verbs ─────────────
@@ -6136,7 +4317,9 @@ mod tests {
     #[test]
     fn text_json_mode_matches_text_rows_and_carries_cursor_seq() {
         let term = Arc::new(Mutex::new(Terminal::new(24, 80)));
-        term.lock().unwrap().process(b"line-zero\r\nsecond \"quoted\"");
+        term.lock()
+            .unwrap()
+            .process(b"line-zero\r\nsecond \"quoted\"");
 
         // Text form (the byte-identical baseline) and JSON form.
         let text = cmd_text(&term);
@@ -6150,15 +4333,30 @@ mod tests {
         // Rows carry the same visible content as the text form's data lines.
         let text_rows: Vec<&str> = text.lines().skip(1).collect();
         assert!(body.contains("\"rows\":["), "has rows array: {body}");
-        assert!(body.contains(&format!("\"{}\"", text_rows[0])), "row0 present: {body}");
+        assert!(
+            body.contains(&format!("\"{}\"", text_rows[0])),
+            "row0 present: {body}"
+        );
         // The quote in row 1 is escaped in JSON, NOT in text.
-        assert!(text_rows[1].contains("second \"quoted\""), "text keeps raw quote");
-        assert!(body.contains("second \\\"quoted\\\""), "json escapes the quote: {body}");
+        assert!(
+            text_rows[1].contains("second \"quoted\""),
+            "text keeps raw quote"
+        );
+        assert!(
+            body.contains("second \\\"quoted\\\""),
+            "json escapes the quote: {body}"
+        );
 
         // cursor + dims + seq members are present and consistent with the verbs.
         let c = term.lock().unwrap().cursor();
-        assert!(body.contains(&format!("\"row\":{}", c.row)), "cursor row: {body}");
-        assert!(body.contains("\"dims\":{\"rows\":24,\"cols\":80}"), "dims: {body}");
+        assert!(
+            body.contains(&format!("\"row\":{}", c.row)),
+            "cursor row: {body}"
+        );
+        assert!(
+            body.contains("\"dims\":{\"rows\":24,\"cols\":80}"),
+            "dims: {body}"
+        );
         assert!(body.contains("\"seq\":"), "carries content_seq: {body}");
     }
 
@@ -6183,13 +4381,19 @@ mod tests {
         let cj = cmd_cursor_json(&term);
         let cbody = cj.strip_prefix("OK 1\n").unwrap().trim_end();
         assert_balanced_json(cbody);
-        assert!(cbody.contains("\"row\":0") && cbody.contains("\"style\":\"blinking_block\""), "{cbody}");
+        assert!(
+            cbody.contains("\"row\":0") && cbody.contains("\"style\":\"blinking_block\""),
+            "{cbody}"
+        );
 
         // dims: rows/cols/pixels (cell size (8,16) for the test).
         let dj = cmd_dims_json(&term, (8, 16));
         let dbody = dj.strip_prefix("OK 1\n").unwrap().trim_end();
         assert_balanced_json(dbody);
-        assert!(dbody.contains("\"rows\":24,\"cols\":80,\"pixel_w\":640,\"pixel_h\":384"), "{dbody}");
+        assert!(
+            dbody.contains("\"rows\":24,\"cols\":80,\"pixel_w\":640,\"pixel_h\":384"),
+            "{dbody}"
+        );
 
         // blocks: two OSC-133 blocks -> a `blocks` array; absent rows are JSON null.
         term.lock().unwrap().process(
@@ -6199,7 +4403,10 @@ mod tests {
         let bbody = bj.strip_prefix("OK 1\n").unwrap().trim_end();
         assert_balanced_json(bbody);
         assert!(bbody.contains("\"blocks\":[{"), "blocks array: {bbody}");
-        assert!(bbody.contains("\"exit\":0") && bbody.contains("\"cmdline\":\"echo hi\""), "{bbody}");
+        assert!(
+            bbody.contains("\"exit\":0") && bbody.contains("\"cmdline\":\"echo hi\""),
+            "{bbody}"
+        );
         assert!(bbody.contains("\"state\":\"complete\""), "{bbody}");
     }
 
@@ -6214,28 +4421,57 @@ mod tests {
         // Mint two edges into this session (the data `grant` records).
         let tok = {
             let mut tbl = ctx.edges.lock().unwrap();
-            tbl.grant(SessionId::new("s-src-a"), ctx.self_id.clone(), Op::ReadScreen, ctx.nonce);
-            tbl.grant(SessionId::new("s-src-b"), ctx.self_id.clone(), Op::WriteInput, ctx.nonce)
+            tbl.grant(
+                SessionId::new("s-src-a"),
+                ctx.self_id.clone(),
+                Op::ReadScreen,
+                ctx.nonce,
+            );
+            tbl.grant(
+                SessionId::new("s-src-b"),
+                ctx.self_id.clone(),
+                Op::WriteInput,
+                ctx.nonce,
+            )
         };
         let out = cmd_edges(&ctx);
         let mut lines = out.lines();
-        assert_eq!(lines.next(), Some("OK 2"), "header counts both edges: {out}");
+        assert_eq!(
+            lines.next(),
+            Some("OK 2"),
+            "header counts both edges: {out}"
+        );
         // Sorted by (src, op): s-src-a read-screen, then s-src-b write-input.
         let l1 = lines.next().unwrap();
         let l2 = lines.next().unwrap();
-        assert!(l1.starts_with("s-src-a ") && l1.ends_with(" read-screen"), "edge 1: {l1}");
-        assert!(l2.starts_with("s-src-b ") && l2.ends_with(" write-input"), "edge 2: {l2}");
+        assert!(
+            l1.starts_with("s-src-a ") && l1.ends_with(" read-screen"),
+            "edge 1: {l1}"
+        );
+        assert!(
+            l2.starts_with("s-src-b ") && l2.ends_with(" write-input"),
+            "edge 2: {l2}"
+        );
         // The dst column is always THIS session.
         assert!(l1.contains(ctx.self_id.as_str()), "dst is self: {l1}");
         // The secret token NEVER appears in the listing.
-        assert!(!out.contains(&tok.to_hex()), "edge token must not leak: {out}");
+        assert!(
+            !out.contains(&tok.to_hex()),
+            "edge token must not leak: {out}"
+        );
 
         // JSON form: same triples, balanced, no token.
         let j = cmd_edges_json(&ctx);
         let body = j.strip_prefix("OK 1\n").unwrap().trim_end();
         assert_balanced_json(body);
-        assert!(body.contains("\"src\":\"s-src-a\"") && body.contains("\"op\":\"read-screen\""), "{body}");
-        assert!(!body.contains(&tok.to_hex()), "json must not leak the token: {body}");
+        assert!(
+            body.contains("\"src\":\"s-src-a\"") && body.contains("\"op\":\"read-screen\""),
+            "{body}"
+        );
+        assert!(
+            !body.contains(&tok.to_hex()),
+            "json must not leak the token: {body}"
+        );
     }
 
     /// `family` emits the hierarchy for a node: a `self` line, a `parent` line
@@ -6260,17 +4496,36 @@ mod tests {
         let mut lines = out.lines();
         assert_eq!(lines.next(), Some("OK"), "header: {out}");
         let self_line = lines.next().unwrap();
-        assert!(self_line.starts_with(&format!("self {} ", root.sid.as_str())), "self: {self_line}");
-        assert_eq!(lines.next(), Some("parent - - -"), "root has no parent: {out}");
+        assert!(
+            self_line.starts_with(&format!("self {} ", root.sid.as_str())),
+            "self: {self_line}"
+        );
+        assert_eq!(
+            lines.next(),
+            Some("parent - - -"),
+            "root has no parent: {out}"
+        );
         let kids: Vec<&str> = lines.collect();
         assert_eq!(kids.len(), 2, "two children: {out}");
-        assert!(kids[0].starts_with(&format!("child {} ", child_a.sid.as_str())), "child a: {out}");
-        assert!(kids[1].starts_with(&format!("child {} ", child_b.sid.as_str())), "child b: {out}");
+        assert!(
+            kids[0].starts_with(&format!("child {} ", child_a.sid.as_str())),
+            "child a: {out}"
+        );
+        assert!(
+            kids[1].starts_with(&format!("child {} ", child_b.sid.as_str())),
+            "child b: {out}"
+        );
 
         // Explicit `<sid>` of a child (Owner): self=child, parent=root, no children.
         let cout = cmd_family(&root_ctx, &store, Scope::Owner, child_a.sid.as_str());
-        assert!(cout.contains(&format!("self {} ", child_a.sid.as_str())), "child self: {cout}");
-        assert!(cout.contains(&format!("parent {} ", root.sid.as_str())), "child parent=root: {cout}");
+        assert!(
+            cout.contains(&format!("self {} ", child_a.sid.as_str())),
+            "child self: {cout}"
+        );
+        assert!(
+            cout.contains(&format!("parent {} ", root.sid.as_str())),
+            "child parent=root: {cout}"
+        );
         assert!(!cout.contains("\nchild "), "a leaf has no children: {cout}");
 
         // An explicit sid is OWNER-ONLY: a scoped Edge is denied (cannot enumerate
@@ -6282,10 +4537,16 @@ mod tests {
             "explicit-sid family is owner-only",
         );
         // The no-arg form (resolved session) is allowed for an Edge (already gated).
-        assert!(cmd_family(&root_ctx, &store, edge, "").starts_with("OK\n"), "no-arg edge ok");
+        assert!(
+            cmd_family(&root_ctx, &store, edge, "").starts_with("OK\n"),
+            "no-arg edge ok"
+        );
 
         // An unknown sid fails closed.
-        assert_eq!(cmd_family(&root_ctx, &store, Scope::Owner, "s-nope"), "ERR no such session\n");
+        assert_eq!(
+            cmd_family(&root_ctx, &store, Scope::Owner, "s-nope"),
+            "ERR no such session\n"
+        );
     }
 
     /// `feed-bin` FRAMING: the request-line parse extracts the optional selector and
@@ -6297,7 +4558,10 @@ mod tests {
         assert!(matches!(parse_feed_bin("feed-bin 4"), Some((None, 4))));
         assert!(is_feed_bin_line("feed-bin 4"));
         // Cross-session form.
-        assert!(matches!(parse_feed_bin("@7 feed-bin 10"), Some((Some(Selector::Local(7)), 10))));
+        assert!(matches!(
+            parse_feed_bin("@7 feed-bin 10"),
+            Some((Some(Selector::Local(7)), 10))
+        ));
         assert!(is_feed_bin_line("@7 feed-bin 10"));
         // Not feed-bin.
         assert!(!is_feed_bin_line("feed 0a"));
@@ -6307,7 +4571,9 @@ mod tests {
         assert!(parse_feed_bin("feed-bin xx").is_none());
         assert!(parse_feed_bin(&format!("feed-bin {}", MAX_FEED_BIN + 1)).is_none());
         // Exactly the cap is allowed.
-        assert!(matches!(parse_feed_bin(&format!("feed-bin {MAX_FEED_BIN}")), Some((None, n)) if n == MAX_FEED_BIN));
+        assert!(
+            matches!(parse_feed_bin(&format!("feed-bin {MAX_FEED_BIN}")), Some((None, n)) if n == MAX_FEED_BIN)
+        );
     }
 
     /// `feed-bin <n>\n<bytes>` end-to-end: an Owner connection's length-prefixed
@@ -6335,14 +4601,25 @@ mod tests {
         assert!(is_feed_bin_line(&line));
         let keep = run_feed_bin(&line, &mut reader, &active, &store, Scope::Owner, &mut out);
         assert!(keep, "connection kept after a clean frame");
-        assert_eq!(String::from_utf8_lossy(&out), "OK 3 bytes\n", "reply framing");
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            "OK 3 bytes\n",
+            "reply framing"
+        );
 
         // The raw bytes (incl. the NUL) reached the TARGET's PTY verbatim.
-        assert_eq!(drain_pipe(&self_rx), b"\x00\x01\x02", "raw binary bytes hit the pty");
+        assert_eq!(
+            drain_pipe(&self_rx),
+            b"\x00\x01\x02",
+            "raw binary bytes hit the pty"
+        );
 
         // The stream is still framed: the NEXT request line is intact.
         let next = read_request_line(&mut reader).expect("the following line survives");
-        assert_eq!(next, "next-line", "stream stays framed past the binary payload");
+        assert_eq!(
+            next, "next-line",
+            "stream stays framed past the binary payload"
+        );
     }
 
     /// `feed-bin` AUTH: a ReadScreen Edge is DENIED the write — but the N payload
@@ -6364,12 +4641,22 @@ mod tests {
         let scope = Scope::Edge(EdgeToken::generate());
         let keep = run_feed_bin(&line, &mut reader, &active, &store, scope, &mut out);
         assert!(keep, "denied frame keeps the connection");
-        assert_eq!(String::from_utf8_lossy(&out), "ERR denied\n", "read edge denied feed-bin");
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            "ERR denied\n",
+            "read edge denied feed-bin"
+        );
         // No bytes reached the pty.
-        assert!(drain_pipe(&self_rx).is_empty(), "denied feed-bin writes nothing");
+        assert!(
+            drain_pipe(&self_rx).is_empty(),
+            "denied feed-bin writes nothing"
+        );
         // But the 3 payload bytes WERE consumed: the next line is correctly framed.
         let next = read_request_line(&mut reader).unwrap();
-        assert_eq!(next, "after", "denial still consumes the payload (stream framed)");
+        assert_eq!(
+            next, "after",
+            "denial still consumes the payload (stream framed)"
+        );
     }
 
     /// REGRESSION (capability escape): `feed-bin`'s SELF path must re-verify the edge
@@ -6412,7 +4699,10 @@ mod tests {
         assert!(drain_pipe(&a_rx).is_empty(), "nothing reached A's pty");
         // The denial still CONSUMED the N payload bytes, so the stream stays framed.
         let next = read_request_line(&mut reader).unwrap();
-        assert_eq!(next, "after", "denial still consumes the payload (stream framed)");
+        assert_eq!(
+            next, "after",
+            "denial still consumes the payload (stream framed)"
+        );
     }
 
     /// `feed-bin` with a malformed length replies `ERR usage` WITHOUT consuming any
@@ -6430,7 +4720,10 @@ mod tests {
         let line = read_request_line(&mut reader).unwrap();
         let keep = run_feed_bin(&line, &mut reader, &active, &store, Scope::Owner, &mut out);
         assert!(keep);
-        assert!(String::from_utf8_lossy(&out).starts_with("ERR usage"), "bad length usage: {out:?}");
+        assert!(
+            String::from_utf8_lossy(&out).starts_with("ERR usage"),
+            "bad length usage: {out:?}"
+        );
         // Nothing consumed: the line right after the bad request is intact.
         let next = read_request_line(&mut reader).unwrap();
         assert_eq!(next, "following", "a parse error consumes no payload");
@@ -6445,7 +4738,11 @@ mod tests {
         let mut reader = BufReader::new(std::io::Cursor::new(input));
         assert_eq!(read_request_line(&mut reader).as_deref(), Some("plain"));
         assert_eq!(read_request_line(&mut reader).as_deref(), Some("crlf"));
-        assert_eq!(read_request_line(&mut reader).as_deref(), Some("last-no-nl"), "EOF yields the tail");
+        assert_eq!(
+            read_request_line(&mut reader).as_deref(),
+            Some("last-no-nl"),
+            "EOF yields the tail"
+        );
         assert_eq!(read_request_line(&mut reader), None, "then EOF");
     }
 
@@ -6461,19 +4758,40 @@ mod tests {
 
         // A fresh prompt (OSC 133 A) -> PromptOnly -> ready immediately.
         term.lock().unwrap().process(b"\x1b]133;A\x07$ ");
-        assert_eq!(cmd_ready(term, &store, 0, "2000"), "OK ready prompt\n", "fresh prompt is ready");
+        assert_eq!(
+            cmd_ready(term, &store, 0, "2000"),
+            "OK ready prompt\n",
+            "fresh prompt is ready"
+        );
 
         // An executing command -> NOT ready -> a short timeout returns `OK timeout`.
-        term.lock().unwrap().process(b"\x1b]133;B\x07sleep\n\x1b]133;C\x07");
-        assert_eq!(cmd_ready(term, &store, 0, "0"), "OK timeout\n", "executing is not ready");
+        term.lock()
+            .unwrap()
+            .process(b"\x1b]133;B\x07sleep\n\x1b]133;C\x07");
+        assert_eq!(
+            cmd_ready(term, &store, 0, "0"),
+            "OK timeout\n",
+            "executing is not ready"
+        );
 
         // The command completes -> Complete -> ready again (prompt-end).
         term.lock().unwrap().process(b"\x1b]133;D;0\x07");
-        assert_eq!(cmd_ready(term, &store, 0, "2000"), "OK ready prompt\n", "completed is ready");
+        assert_eq!(
+            cmd_ready(term, &store, 0, "2000"),
+            "OK ready prompt\n",
+            "completed is ready"
+        );
 
         // A session marked Exited never becomes ready -> ERR exited (fail closed).
-        store.write().unwrap().set_state(0, session_store::SessionState::Exited);
-        assert_eq!(cmd_ready(term, &store, 0, "2000"), "ERR exited\n", "exited fails closed");
+        store
+            .write()
+            .unwrap()
+            .set_state(0, session_store::SessionState::Exited);
+        assert_eq!(
+            cmd_ready(term, &store, 0, "2000"),
+            "ERR exited\n",
+            "exited fails closed"
+        );
     }
 
     /// `ready` for a PLAIN shell (no OSC-133 integration) settles on a stable
@@ -6485,7 +4803,11 @@ mod tests {
         let h = registered_session(0, -1, b"some output\r\n");
         store.write().unwrap().register(h.clone());
         // No OSC-133 at all: the settle heuristic fires (content_seq holds steady).
-        assert_eq!(cmd_ready(&h.term, &store, 0, "2000"), "OK ready idle\n", "idle plain shell");
+        assert_eq!(
+            cmd_ready(&h.term, &store, 0, "2000"),
+            "OK ready idle\n",
+            "idle plain shell"
+        );
     }
 
     /// `edges`/`grants`/`family`/`ready` are classified as READ-side (`ReadScreen`)
@@ -6518,15 +4840,27 @@ mod tests {
         let edge_b = edge_granted(Op::WriteInput, &ctx_b);
 
         // While B is active, the edge drives its OWN granted session (legitimate).
-        assert!(gate_allows(edge_b, "send", &ctx_b), "edge drives its granted session B");
+        assert!(
+            gate_allows(edge_b, "send", &ctx_b),
+            "edge drives its granted session B"
+        );
 
         // After the active handle SWINGS to A, the SAME edge is DENIED on the SELF
         // path — it holds no grant against A. (Pre-fix this passed on op-match alone.)
-        assert!(!gate_allows(edge_b, "send", &ctx_a), "edge must NOT drive swung-to session A");
-        assert!(!gate_allows(edge_b, "resize", &ctx_a), "incl. resize (whole-window effect)");
+        assert!(
+            !gate_allows(edge_b, "send", &ctx_a),
+            "edge must NOT drive swung-to session A"
+        );
+        assert!(
+            !gate_allows(edge_b, "resize", &ctx_a),
+            "incl. resize (whole-window effect)"
+        );
 
         // Owner is unaffected — full self-power against whichever session is active.
-        assert!(gate_allows(Scope::Owner, "send", &ctx_a), "owner drives the active session");
+        assert!(
+            gate_allows(Scope::Owner, "send", &ctx_a),
+            "owner drives the active session"
+        );
     }
 
     /// Build an [`ActiveHandle`] over a `pipe_session` handle (the cross-session

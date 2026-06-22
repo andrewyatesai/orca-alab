@@ -9,8 +9,8 @@ license.workspace = true
 repository.workspace = true
 description = "Vi mode navigation: cursor movement, marks, inline search, word motions"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [dependencies]
 aterm-types = { workspace = true }
+
+[lints]
+workspace = true

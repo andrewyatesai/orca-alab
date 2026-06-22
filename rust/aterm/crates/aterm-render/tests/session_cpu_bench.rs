@@ -110,14 +110,16 @@ fn build_session() -> (Vec<CapturedFrame>, String) {
 
     // A small helper to capture the current terminal state as a frame.
     // A-3: the engine builds the snapshot (`Terminal::cell_frame`).
-    let capture =
-        |term: &mut Terminal, frames: &mut Vec<CapturedFrame>, blink_phase: bool, segment: Segment| {
-            frames.push(CapturedFrame {
-                input: term.cell_frame(ROWS, COLS),
-                blink_phase,
-                segment,
-            });
-        };
+    let capture = |term: &mut Terminal,
+                   frames: &mut Vec<CapturedFrame>,
+                   blink_phase: bool,
+                   segment: Segment| {
+        frames.push(CapturedFrame {
+            input: term.cell_frame(ROWS, COLS),
+            blink_phase,
+            segment,
+        });
+    };
 
     // Use a steady (non-blinking) block cursor for the typing/scroll body so the
     // cursor overlay is deterministic; switch to a blinking style only for the
@@ -134,7 +136,8 @@ fn build_session() -> (Vec<CapturedFrame>, String) {
     //    one character at a time. Each frame is a 1-cell delta on the prompt row.
     //    When the line would reach the right margin we start a fresh prompt line
     //    so we keep echoing 1-cell deltas rather than wrapping pathologically.
-    let typed = b"git commit -am 'optimize the render pipeline: damage tracking + zero-alloc extract' ";
+    let typed =
+        b"git commit -am 'optimize the render pipeline: damage tracking + zero-alloc extract' ";
     for i in 0..N_TYPING {
         let ch = typed[i % typed.len()];
         // Keep the cursor comfortably inside the row: restart the line each time
@@ -347,7 +350,11 @@ fn run_gui_new(r: &mut Renderer, frames: &[CapturedFrame], surface: &mut Vec<u32
 /// TRUE PRE-OPT GUI per-frame body: full repaint (`reset_damage_cache`) + owned
 /// `Frame` (clone + alloc) + copy to surface — the GUI before BOTH of this
 /// session's render optimizations (damage tracking AND the clone removal).
-fn run_gui_old_full(r: &mut Renderer, frames: &[CapturedFrame], surface: &mut Vec<u32>) -> Duration {
+fn run_gui_old_full(
+    r: &mut Renderer,
+    frames: &[CapturedFrame],
+    surface: &mut Vec<u32>,
+) -> Duration {
     let start = Instant::now();
     for f in frames {
         r.set_cursor_blink_phase(f.blink_phase);
@@ -415,7 +422,9 @@ fn session_cpu_reduction() {
     // typing frame; worst = a full-screen repaint frame. Median over several
     // measurements of one representative frame of each kind. ---
     let best_idx = frames.iter().position(|f| f.segment == Segment::Typing);
-    let worst_idx = frames.iter().position(|f| f.segment == Segment::FullRepaint);
+    let worst_idx = frames
+        .iter()
+        .position(|f| f.segment == Segment::FullRepaint);
     let mut frame_ratio = |idx: usize| -> (f64, f64) {
         let f = &frames[idx];
         let n = 200;
@@ -445,7 +454,10 @@ fn session_cpu_reduction() {
             fs.push(s.elapsed());
             std::hint::black_box(&fr);
         }
-        (median(ds).as_secs_f64() * 1e6, median(fs).as_secs_f64() * 1e6)
+        (
+            median(ds).as_secs_f64() * 1e6,
+            median(fs).as_secs_f64() * 1e6,
+        )
     };
 
     // ============================  REPORT  ============================
@@ -479,7 +491,11 @@ fn session_cpu_reduction() {
         let (dmg_d, _) = seg_dmg.get(label).copied().unwrap_or((Duration::ZERO, 0));
         let fu = full_d.as_secs_f64() * 1e6;
         let du = dmg_d.as_secs_f64() * 1e6;
-        let red = if fu > 0.0 { (fu - du) / fu * 100.0 } else { 0.0 };
+        let red = if fu > 0.0 {
+            (fu - du) / fu * 100.0
+        } else {
+            0.0
+        };
         eprintln!("  {label:<26} {n:>6} {fu:>12.1} {du:>12.1} {red:>9.1}%");
     }
 
@@ -504,7 +520,7 @@ fn session_cpu_reduction() {
     }
     // `frame_ratio` borrows `r`; it is dropped here, so `r` is free to borrow
     // again for the GUI presentation-path measurement below.
-    drop(frame_ratio);
+    let _ = frame_ratio;
 
     // === GUI PRESENTATION HOT-PATH: old (render_input + copy) vs new
     // (render_input_cached + copy). This is what THIS session's change actually

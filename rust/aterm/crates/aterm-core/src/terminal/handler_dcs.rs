@@ -183,7 +183,12 @@ impl TerminalHandler<'_> {
     pub(super) fn dcs_unhook_inner(
         &mut self,
         cap: &super::super::response_capability::ResponseCapability,
+        canceled: bool,
     ) {
+        // Only the Sixel branch consumes `canceled` (CAN/SUB → discard image);
+        // without that feature there is no consumer, so acknowledge it here.
+        #[cfg(not(feature = "sixel"))]
+        let _ = canceled;
         // Process the complete DCS sequence
         match self.dcs.dcs_type {
             DcsType::Decrqss => {
@@ -191,8 +196,16 @@ impl TerminalHandler<'_> {
             }
             #[cfg(feature = "sixel")]
             DcsType::Sixel => {
-                if let Some(image) = self.sixel.decoder.unhook() {
-                    self.sixel.pending_image = Some(image);
+                if canceled {
+                    // CAN/SUB aborted the string: drop the half-decoded image
+                    // without allocating a copy, and render NOTHING. (VT500:
+                    // a canceled control string produces no output.)
+                    self.sixel.decoder.abort();
+                } else if let Some(image) = self.sixel.decoder.unhook() {
+                    // Route the decoded raster into the inline-image placement/
+                    // blit path (the same one OSC 1337 `File=` uses). `next_id`
+                    // is bumped so each placed sixel has a distinct identity.
+                    self.place_sixel_image(&image);
                     self.sixel.next_id += 1;
                 }
             }

@@ -11,7 +11,7 @@
 use aterm_core::terminal::Terminal;
 use aterm_gpu::GpuRenderer;
 use aterm_render::Theme;
-use criterion::{black_box, Criterion};
+use criterion::{Criterion, black_box};
 
 /// A busy grid: every cell filled with cycling text + a few colour runs, so the
 /// atlas, instance buffers, and both passes are all exercised.

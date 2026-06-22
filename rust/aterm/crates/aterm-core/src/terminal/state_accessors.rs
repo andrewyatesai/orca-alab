@@ -731,7 +731,10 @@ impl Terminal {
 
     /// Get a mutable reference to the current style.
     #[cfg(test)]
-    #[allow(dead_code, reason = "white-box accessor consumed by the un-wired checkpoint/session test suites")]
+    #[allow(
+        dead_code,
+        reason = "white-box accessor consumed by the un-wired checkpoint/session test suites"
+    )]
     pub(crate) fn style_mut(&mut self) -> &mut CurrentStyle {
         &mut self.style
     }
@@ -739,7 +742,10 @@ impl Terminal {
     /// Get saved cursor state for main screen.
     #[cfg(test)]
     #[must_use]
-    #[allow(dead_code, reason = "white-box accessor consumed by the un-wired checkpoint/session test suites")]
+    #[allow(
+        dead_code,
+        reason = "white-box accessor consumed by the un-wired checkpoint/session test suites"
+    )]
     pub(crate) fn saved_cursor_main(&self) -> Option<&SavedCursorState> {
         self.cursor_save.main.as_ref()
     }
@@ -747,21 +753,30 @@ impl Terminal {
     /// Get saved cursor state for alt screen.
     #[cfg(test)]
     #[must_use]
-    #[allow(dead_code, reason = "white-box accessor consumed by the un-wired checkpoint/session test suites")]
+    #[allow(
+        dead_code,
+        reason = "white-box accessor consumed by the un-wired checkpoint/session test suites"
+    )]
     pub(crate) fn saved_cursor_alt(&self) -> Option<&SavedCursorState> {
         self.cursor_save.alt.as_ref()
     }
 
     /// Set saved cursor state for main screen.
     #[cfg(test)]
-    #[allow(dead_code, reason = "white-box accessor consumed by the un-wired checkpoint/session test suites")]
+    #[allow(
+        dead_code,
+        reason = "white-box accessor consumed by the un-wired checkpoint/session test suites"
+    )]
     pub(crate) fn set_saved_cursor_main(&mut self, cursor: Option<SavedCursorState>) {
         self.cursor_save.main = cursor;
     }
 
     /// Set saved cursor state for alt screen.
     #[cfg(test)]
-    #[allow(dead_code, reason = "white-box accessor consumed by the un-wired checkpoint/session test suites")]
+    #[allow(
+        dead_code,
+        reason = "white-box accessor consumed by the un-wired checkpoint/session test suites"
+    )]
     pub(crate) fn set_saved_cursor_alt(&mut self, cursor: Option<SavedCursorState>) {
         self.cursor_save.alt = cursor;
     }
@@ -795,7 +810,10 @@ impl Terminal {
     ///
     /// Convenience method that takes a string slice.
     #[cfg(test)]
-    #[allow(dead_code, reason = "white-box accessor consumed by the un-wired checkpoint/session test suites")]
+    #[allow(
+        dead_code,
+        reason = "white-box accessor consumed by the un-wired checkpoint/session test suites"
+    )]
     pub(crate) fn set_hyperlink(&mut self, url: Option<&str>) {
         self.transient.current_hyperlink = url.map(Arc::from);
         self.transient.update_has_transient_extras();
@@ -803,7 +821,10 @@ impl Terminal {
 
     /// Set the underline color.
     #[cfg(test)]
-    #[allow(dead_code, reason = "white-box accessor consumed by the un-wired checkpoint/session test suites")]
+    #[allow(
+        dead_code,
+        reason = "white-box accessor consumed by the un-wired checkpoint/session test suites"
+    )]
     pub(crate) fn set_underline_color(&mut self, color: Option<u32>) {
         self.transient.current_underline_color = color;
         self.transient.update_has_transient_extras();

@@ -123,9 +123,17 @@ fn content_gen_unchanged_on_viewport_scroll() {
     grid.scroll_to_top();
     assert_eq!(grid.content_gen(), before, "scroll_to_top is viewport-only");
     grid.scroll_to_bottom();
-    assert_eq!(grid.content_gen(), before, "scroll_to_bottom is viewport-only");
+    assert_eq!(
+        grid.content_gen(),
+        before,
+        "scroll_to_bottom is viewport-only"
+    );
     grid.scroll_display(0);
-    assert_eq!(grid.content_gen(), before, "zero-delta scroll is viewport-only");
+    assert_eq!(
+        grid.content_gen(),
+        before,
+        "zero-delta scroll is viewport-only"
+    );
 }
 
 /// A no-op scroll_up(0) must not advance content_gen.

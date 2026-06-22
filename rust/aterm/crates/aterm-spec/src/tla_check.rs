@@ -155,6 +155,7 @@ fn extract_definitions(content: &str) -> BTreeSet<String> {
 ///   * a plain disjunction `Next == Fork \/ Setrlimit \/ … \/ Exec`, and
 ///   * quantified disjuncts `Next == \/ \E c \in … : WriteMain(c, v) \/ Enter \/ …`
 ///     — the called action identifier (`WriteMain`, before its `(`) is extracted.
+///
 /// The body may span multiple (indented) lines; we gather until the next top-level
 /// definition (a non-indented `Name ==`) or the module end.
 fn extract_next_disjuncts(content: &str) -> BTreeSet<String> {
@@ -181,13 +182,12 @@ fn extract_next_disjuncts(content: &str) -> BTreeSet<String> {
             }
             body.push(' ');
             body.push_str(code);
-        } else if code.starts_with("Next") {
-            if let Some((lhs, rhs)) = code.split_once("==") {
-                if lhs.trim() == "Next" {
-                    in_next = true;
-                    body.push_str(rhs);
-                }
-            }
+        } else if code.starts_with("Next")
+            && let Some((lhs, rhs)) = code.split_once("==")
+            && lhs.trim() == "Next"
+        {
+            in_next = true;
+            body.push_str(rhs);
         }
     }
 
@@ -202,10 +202,11 @@ fn extract_next_disjuncts(content: &str) -> BTreeSet<String> {
             Some((_, after)) => after,
             None => disj,
         };
-        if let Some(name) = leading_identifier(segment) {
-            if !is_tla_keyword(&name) && name != "UNCHANGED" {
-                actions.insert(name);
-            }
+        if let Some(name) = leading_identifier(segment)
+            && !is_tla_keyword(&name)
+            && name != "UNCHANGED"
+        {
+            actions.insert(name);
         }
     }
     actions
@@ -463,10 +464,17 @@ Visible == x = 0
         );
         assert_eq!(
             plain,
-            ["Fork", "Setrlimit", "Chdir", "CloseMaster", "UnsafeEnvOp", "Exec"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect()
+            [
+                "Fork",
+                "Setrlimit",
+                "Chdir",
+                "CloseMaster",
+                "UnsafeEnvOp",
+                "Exec"
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
         );
         // Quantified, multi-line (the AltScreen shape): the called action after the
         // `\E … :` quantifier colon is what we extract.
@@ -475,7 +483,10 @@ Visible == x = 0
         );
         assert_eq!(
             quant,
-            ["WriteMain", "Enter", "Scribble", "Leave"].iter().map(|s| s.to_string()).collect()
+            ["WriteMain", "Enter", "Scribble", "Leave"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
         );
     }
 

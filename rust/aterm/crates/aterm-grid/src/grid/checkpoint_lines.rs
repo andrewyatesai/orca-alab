@@ -165,7 +165,8 @@ mod tests {
                         }
                     } else {
                         s.push(cell.char());
-                        if let Some(extra) = grid.extras().get(crate::CellCoord::new(r, col as u16)) {
+                        if let Some(extra) = grid.extras().get(crate::CellCoord::new(r, col as u16))
+                        {
                             for m in extra.combining() {
                                 s.push(*m);
                             }
@@ -179,10 +180,8 @@ mod tests {
     }
 
     fn write_text(grid: &mut Grid, row: u16, text: &str) {
-        let mut col = 0u16;
-        for ch in text.chars() {
-            grid.set_cell(row, col, Cell::new(ch));
-            col += 1;
+        for (col, ch) in text.chars().enumerate() {
+            grid.set_cell(row, col as u16, Cell::new(ch));
         }
     }
 
@@ -245,8 +244,26 @@ mod tests {
     fn roundtrip_wide_char() {
         let mut g = Grid::new(2, 10);
         // '世' is a wide (2-cell) CJK char.
-        g.set_cell(0, 0, Cell::with_style('世', PackedColor::DEFAULT_FG, PackedColor::DEFAULT_BG, CellFlags::WIDE));
-        g.set_cell(0, 1, Cell::with_style(' ', PackedColor::DEFAULT_FG, PackedColor::DEFAULT_BG, CellFlags::WIDE_CONTINUATION));
+        g.set_cell(
+            0,
+            0,
+            Cell::with_style(
+                '世',
+                PackedColor::DEFAULT_FG,
+                PackedColor::DEFAULT_BG,
+                CellFlags::WIDE,
+            ),
+        );
+        g.set_cell(
+            0,
+            1,
+            Cell::with_style(
+                ' ',
+                PackedColor::DEFAULT_FG,
+                PackedColor::DEFAULT_BG,
+                CellFlags::WIDE_CONTINUATION,
+            ),
+        );
         write_text(&mut g, 0, ""); // no-op, keep wide cell
 
         let lines = g.checkpoint_lines();
@@ -301,12 +318,22 @@ mod tests {
         g.set_cell(
             0,
             0,
-            Cell::with_style('X', PackedColor::DEFAULT_FG, PackedColor::DEFAULT_BG, CellFlags::WIDE),
+            Cell::with_style(
+                'X',
+                PackedColor::DEFAULT_FG,
+                PackedColor::DEFAULT_BG,
+                CellFlags::WIDE,
+            ),
         );
         g.set_cell(
             0,
             1,
-            Cell::with_style(' ', PackedColor::DEFAULT_FG, PackedColor::DEFAULT_BG, CellFlags::WIDE_CONTINUATION),
+            Cell::with_style(
+                ' ',
+                PackedColor::DEFAULT_FG,
+                PackedColor::DEFAULT_BG,
+                CellFlags::WIDE_CONTINUATION,
+            ),
         );
         g.set_cell_complex_char(0, 0, "👨‍👩‍👧");
 
@@ -327,7 +354,11 @@ mod tests {
             "complex flag preserved"
         );
         let c2 = *rebuilt.row(0).unwrap().get(2).unwrap();
-        assert_eq!(c2.char(), 'Z', "trailing normal char preserved after wide complex");
+        assert_eq!(
+            c2.char(),
+            'Z',
+            "trailing normal char preserved after wide complex"
+        );
     }
 
     #[test]
@@ -407,20 +438,12 @@ mod tests {
         let rebuilt = rebuild_from_lines(3, 12, &lines);
         assert_eq!(rebuilt.scrollback_lines(), 10, "scrollback line count");
         assert_eq!(
-            rebuilt
-                .try_get_history_line(0)
-                .unwrap()
-                .unwrap()
-                .as_str(),
+            rebuilt.try_get_history_line(0).unwrap().unwrap().as_str(),
             Some("history-0"),
             "oldest scrollback line preserved (order)"
         );
         assert_eq!(
-            rebuilt
-                .try_get_history_line(9)
-                .unwrap()
-                .unwrap()
-                .as_str(),
+            rebuilt.try_get_history_line(9).unwrap().unwrap().as_str(),
             Some("history-9"),
             "newest scrollback line preserved (order)"
         );

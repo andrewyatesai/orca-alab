@@ -36,8 +36,8 @@ use std::collections::{BTreeSet, HashMap};
 // (which build terminals + call `Terminal::cell_frame` to feed the renderer).
 use aterm_core::terminal::{CursorStyle, UnderlineStyle};
 use aterm_render::{
-    compute_dirty_rows, is_unchanged_frame, DirtyDecision, Frame, GlyphImage, GlyphKey,
-    RenderInput, RenderView, Rasterizer, Renderer, Theme,
+    DirtyDecision, Frame, GlyphImage, GlyphKey, Rasterizer, RenderInput, RenderView, Renderer,
+    Theme, compute_dirty_rows, is_unchanged_frame,
 };
 
 use crate::GpuContext;
@@ -110,8 +110,7 @@ const _: () = {
     assert!(std::mem::size_of::<GlyphInstance>() == 36);
 };
 
-const BG_ATTRS: [wgpu::VertexAttribute; 2] =
-    wgpu::vertex_attr_array![0 => Uint16x4, 1 => Unorm8x4];
+const BG_ATTRS: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0 => Uint16x4, 1 => Unorm8x4];
 const GLYPH_ATTRS: [wgpu::VertexAttribute; 3] =
     wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Unorm8x4];
 
@@ -335,7 +334,14 @@ impl Atlas {
             if self.kind == AtlasKind::Mono {
                 self.map.insert(
                     key,
-                    GlyphSlot { ax: 0, ay: 0, gw: 0, gh: 0, xmin: img.xmin(), ymin: img.ymin() },
+                    GlyphSlot {
+                        ax: 0,
+                        ay: 0,
+                        gw: 0,
+                        gh: 0,
+                        xmin: img.xmin(),
+                        ymin: img.ymin(),
+                    },
                 );
             }
             return None;
@@ -347,8 +353,17 @@ impl Atlas {
             self.shelf_h = 0;
         }
         let (ax, ay) = (self.px, self.py);
-        self.map
-            .insert(key, GlyphSlot { ax, ay, gw, gh, xmin: img.xmin(), ymin: img.ymin() });
+        self.map.insert(
+            key,
+            GlyphSlot {
+                ax,
+                ay,
+                gw,
+                gh,
+                xmin: img.xmin(),
+                ymin: img.ymin(),
+            },
+        );
         self.px += gw + pad;
         self.shelf_h = self.shelf_h.max(gh);
         Some((ay, gh))
@@ -361,13 +376,15 @@ impl Atlas {
         }
         let bpp = self.kind.bpp();
         let bytes = img.bytes();
+        // A glyph row is `gw` contiguous texels in both source and destination
+        // (rows are stored linearly, texels packed at `bpp` each), so each row
+        // copies in one memcpy — byte-identical to the old per-texel loop, just
+        // without the per-texel bounds-check / call overhead.
+        let row_bytes = (slot.gw * bpp) as usize;
         for j in 0..slot.gh {
-            for i in 0..slot.gw {
-                let src = ((j * slot.gw + i) * bpp) as usize;
-                let dst = (((slot.ay + j) * self.width + (slot.ax + i)) * bpp) as usize;
-                self.data[dst..dst + bpp as usize]
-                    .copy_from_slice(&bytes[src..src + bpp as usize]);
-            }
+            let src = ((j * slot.gw) * bpp) as usize;
+            let dst = (((slot.ay + j) * self.width + slot.ax) * bpp) as usize;
+            self.data[dst..dst + row_bytes].copy_from_slice(&bytes[src..src + row_bytes]);
         }
     }
 
@@ -894,7 +911,11 @@ impl VertexBuffer {
     /// allocation happens for streams that are never used (e.g. colour-emoji
     /// buffers on a frame with no emoji).
     fn new(device: &wgpu::Device, label: &'static str) -> Self {
-        Self { buf: Self::alloc(device, label, 0), capacity: 0, label }
+        Self {
+            buf: Self::alloc(device, label, 0),
+            capacity: 0,
+            label,
+        }
     }
 
     fn alloc(device: &wgpu::Device, label: &'static str, size: u64) -> wgpu::Buffer {
@@ -961,6 +982,288 @@ fn align_up(n: u64, align: u64) -> u64 {
     (n + align - 1) & !(align - 1)
 }
 
+/// Build the per-frame uniform buffer, its (vertex-visible) bind-group layout,
+/// and the bind group that wires the buffer to binding 0. Extracted from
+/// [`GpuRenderer::new_with_family`] verbatim.
+fn build_uniform_resources(
+    device: &wgpu::Device,
+) -> (wgpu::Buffer, wgpu::BindGroupLayout, wgpu::BindGroup) {
+    let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("aterm-gpu uniforms"),
+        size: std::mem::size_of::<Uniforms>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("aterm-gpu uniform bgl"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let uniform_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("aterm-gpu uniform bg"),
+        layout: &uniform_bgl,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform_buf.as_entire_binding(),
+        }],
+    });
+
+    (uniform_buf, uniform_bgl, uniform_bg)
+}
+
+/// Build the glyph-atlas bind-group layout (a fragment-visible texture +
+/// sampler) and the NEAREST sampler used to read it. Extracted from
+/// [`GpuRenderer::new_with_family`] verbatim.
+fn build_atlas_resources(device: &wgpu::Device) -> (wgpu::BindGroupLayout, wgpu::Sampler) {
+    let atlas_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("aterm-gpu atlas bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+
+    // NEAREST: the atlas holds the exact CPU coverage bytes; nearest sampling
+    // at texel centres reproduces them with no interpolation smear.
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("aterm-gpu nearest"),
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    });
+
+    (atlas_bgl, sampler)
+}
+
+/// Build the three offscreen render pipelines that draw into the `Rgba8Unorm`
+/// framebuffer: the per-cell background fill, the coverage-blended mono glyph
+/// pass, and the straight-RGBA colour-emoji pass. Extracted from
+/// [`GpuRenderer::new_with_family`] verbatim. The bg pipeline binds only the
+/// uniforms; both glyph pipelines additionally bind the atlas.
+fn build_cell_pipelines(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    uniform_bgl: &wgpu::BindGroupLayout,
+    atlas_bgl: &wgpu::BindGroupLayout,
+    target: wgpu::TextureFormat,
+) -> (
+    wgpu::RenderPipeline,
+    wgpu::RenderPipeline,
+    wgpu::RenderPipeline,
+) {
+    let bg_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("aterm-gpu bg layout"),
+        bind_group_layouts: &[Some(uniform_bgl)],
+        immediate_size: 0,
+    });
+    let glyph_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("aterm-gpu glyph layout"),
+        bind_group_layouts: &[Some(uniform_bgl), Some(atlas_bgl)],
+        immediate_size: 0,
+    });
+
+    let bg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("aterm-gpu bg pipeline"),
+        layout: Some(&bg_layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_bg"),
+            compilation_options: Default::default(),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<BgInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &BG_ATTRS,
+            }],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_bg"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
+
+    let glyph_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("aterm-gpu glyph pipeline"),
+        layout: Some(&glyph_layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_glyph"),
+            compilation_options: Default::default(),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<GlyphInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &GLYPH_ATTRS,
+            }],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_glyph"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target,
+                // out = fg*cov + dst*(1-cov): exactly the CPU `blend`.
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
+
+    // Colour-emoji pipeline: same layout/vertex/blend as the mono glyph
+    // pipeline, but the `fs_glyph_color` fragment samples an RGBA8 atlas
+    // straight (no coverage tint). Reuses `atlas_bgl` — RGBA8Unorm is a
+    // filterable float texture, so the layout is identical.
+    let color_glyph_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("aterm-gpu colour-glyph pipeline"),
+        layout: Some(&glyph_layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_glyph"),
+            compilation_options: Default::default(),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<GlyphInstance>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &GLYPH_ATTRS,
+            }],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_glyph_color"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target,
+                // out = rgb*a + dst*(1-a): exactly the CPU `blend` for Rgba.
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
+
+    (bg_pipeline, glyph_pipeline, color_glyph_pipeline)
+}
+
+/// Build the format-independent on-glass blit infrastructure: the blit shader,
+/// its bind-group layout (texture + sampler + invert uniform), the pipeline
+/// layout, the NEAREST blit sampler, and the invert uniform buffer. The blit
+/// pipeline itself depends on the swapchain format, so it is built lazily per
+/// surface format in `present_input` and cached in `blit_pipelines`. Extracted
+/// from [`GpuRenderer::new_with_family`] verbatim.
+fn build_blit_resources(
+    device: &wgpu::Device,
+) -> (
+    wgpu::ShaderModule,
+    wgpu::BindGroupLayout,
+    wgpu::PipelineLayout,
+    wgpu::Sampler,
+    wgpu::Buffer,
+) {
+    let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("aterm-gpu blit shader"),
+        source: wgpu::ShaderSource::Wgsl(BLIT_SHADER.into()),
+    });
+    let blit_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("aterm-gpu blit bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    });
+    let blit_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("aterm-gpu blit layout"),
+        bind_group_layouts: &[Some(&blit_bgl)],
+        immediate_size: 0,
+    });
+    // NEAREST: a 1:1 framebuffer->swapchain blit, no interpolation smear.
+    let blit_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("aterm-gpu blit nearest"),
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    });
+    let blit_uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("aterm-gpu blit invert uniform"),
+        size: std::mem::size_of::<BlitUniform>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    (
+        blit_shader,
+        blit_bgl,
+        blit_layout,
+        blit_sampler,
+        blit_uniform_buf,
+    )
+}
+
 impl GpuRenderer {
     /// Acquire a GPU and a CPU font face. `px`/`theme` must match the CPU
     /// renderer you want to reproduce.
@@ -983,233 +1286,15 @@ impl GpuRenderer {
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
 
-        let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("aterm-gpu uniforms"),
-            size: std::mem::size_of::<Uniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("aterm-gpu uniform bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let uniform_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("aterm-gpu uniform bg"),
-            layout: &uniform_bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buf.as_entire_binding(),
-            }],
-        });
-
-        let atlas_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("aterm-gpu atlas bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        // NEAREST: the atlas holds the exact CPU coverage bytes; nearest sampling
-        // at texel centres reproduces them with no interpolation smear.
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("aterm-gpu nearest"),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-
-        let bg_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("aterm-gpu bg layout"),
-            bind_group_layouts: &[Some(&uniform_bgl)],
-            immediate_size: 0,
-        });
-        let glyph_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("aterm-gpu glyph layout"),
-            bind_group_layouts: &[Some(&uniform_bgl), Some(&atlas_bgl)],
-            immediate_size: 0,
-        });
+        let (uniform_buf, uniform_bgl, uniform_bg) = build_uniform_resources(device);
+        let (atlas_bgl, sampler) = build_atlas_resources(device);
 
         let target = wgpu::TextureFormat::Rgba8Unorm;
+        let (bg_pipeline, glyph_pipeline, color_glyph_pipeline) =
+            build_cell_pipelines(device, &shader, &uniform_bgl, &atlas_bgl, target);
 
-        let bg_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aterm-gpu bg pipeline"),
-            layout: Some(&bg_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_bg"),
-                compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<BgInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &BG_ATTRS,
-                }],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_bg"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: target,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        let glyph_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aterm-gpu glyph pipeline"),
-            layout: Some(&glyph_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_glyph"),
-                compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<GlyphInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &GLYPH_ATTRS,
-                }],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_glyph"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: target,
-                    // out = fg*cov + dst*(1-cov): exactly the CPU `blend`.
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        // Colour-emoji pipeline: same layout/vertex/blend as the mono glyph
-        // pipeline, but the `fs_glyph_color` fragment samples an RGBA8 atlas
-        // straight (no coverage tint). Reuses `atlas_bgl` — RGBA8Unorm is a
-        // filterable float texture, so the layout is identical.
-        let color_glyph_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aterm-gpu colour-glyph pipeline"),
-            layout: Some(&glyph_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_glyph"),
-                compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<GlyphInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &GLYPH_ATTRS,
-                }],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_glyph_color"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: target,
-                    // out = rgb*a + dst*(1-a): exactly the CPU `blend` for Rgba.
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        // On-glass blit infrastructure (format-independent parts). The pipeline
-        // itself depends on the swapchain format, so it is built lazily per
-        // surface format in `present_input` and cached in `blit_pipelines`.
-        let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("aterm-gpu blit shader"),
-            source: wgpu::ShaderSource::Wgsl(BLIT_SHADER.into()),
-        });
-        let blit_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("aterm-gpu blit bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let blit_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("aterm-gpu blit layout"),
-            bind_group_layouts: &[Some(&blit_bgl)],
-            immediate_size: 0,
-        });
-        // NEAREST: a 1:1 framebuffer->swapchain blit, no interpolation smear.
-        let blit_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("aterm-gpu blit nearest"),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-        let blit_uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("aterm-gpu blit invert uniform"),
-            size: std::mem::size_of::<BlitUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let (blit_shader, blit_bgl, blit_layout, blit_sampler, blit_uniform_buf) =
+            build_blit_resources(device);
 
         let vbufs = VertexBuffers::new(device);
 
@@ -1343,7 +1428,10 @@ impl GpuRenderer {
     fn atlas_tex_dims(&self) -> Option<((u32, u32), (u32, u32))> {
         let m = self.mono_res.as_ref()?;
         let c = self.color_res.as_ref()?;
-        Some(((m.tex.width(), m.tex.height()), (c.tex.width(), c.tex.height())))
+        Some((
+            (m.tex.width(), m.tex.height()),
+            (c.tex.width(), c.tex.height()),
+        ))
     }
 
     /// The adapter/backend the GPU device is running on (for diagnostics).
@@ -1377,7 +1465,11 @@ impl GpuRenderer {
     /// VS16 emoji-presentation base, then ordinary text. Keeps the GPU atlas key
     /// set and the per-cell instance lookup in lockstep with the CPU, so `❤️`,
     /// `👨‍👩‍👧`, `👍🏽`, `1️⃣` key to the colour atlas on both paths.
-    fn cell_key(&mut self, cluster: Option<&str>, cell: &aterm_core::terminal::RenderCell) -> GlyphKey {
+    fn cell_key(
+        &mut self,
+        cluster: Option<&str>,
+        cell: &aterm_core::terminal::RenderCell,
+    ) -> GlyphKey {
         self.cpu.resolve_cell_key(cluster, cell)
     }
 
@@ -1390,10 +1482,16 @@ impl GpuRenderer {
         let device = &self.ctx.device;
         let bpp = atlas.kind.bpp();
         let (format, label, bg_label) = match atlas.kind {
-            AtlasKind::Mono => (wgpu::TextureFormat::R8Unorm, "aterm-gpu atlas", "aterm-gpu atlas bg"),
-            AtlasKind::Color => {
-                (wgpu::TextureFormat::Rgba8Unorm, "aterm-gpu colour atlas", "aterm-gpu colour atlas bg")
-            }
+            AtlasKind::Mono => (
+                wgpu::TextureFormat::R8Unorm,
+                "aterm-gpu atlas",
+                "aterm-gpu atlas bg",
+            ),
+            AtlasKind::Color => (
+                wgpu::TextureFormat::Rgba8Unorm,
+                "aterm-gpu colour atlas",
+                "aterm-gpu colour atlas bg",
+            ),
         };
         // Allocate the texture TALLER than the packed data (headroom) so later
         // glyphs append via sub-region upload instead of recreating the texture.
@@ -1405,7 +1503,11 @@ impl GpuRenderer {
         let tex_h = (atlas.height + ATLAS_GROW_HEADROOM).min(max_tex_dim);
         let tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
-            size: wgpu::Extent3d { width: atlas.width, height: tex_h, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: atlas.width,
+                height: tex_h,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1431,18 +1533,33 @@ impl GpuRenderer {
                 bytes_per_row: Some(atlas.width * bpp),
                 rows_per_image: Some(atlas.height),
             },
-            wgpu::Extent3d { width: atlas.width, height: atlas.height, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: atlas.width,
+                height: atlas.height,
+                depth_or_array_layers: 1,
+            },
         );
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(bg_label),
             layout: &self.atlas_bgl,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
             ],
         });
-        ResidentAtlas { atlas, tex, bind, tex_h }
+        ResidentAtlas {
+            atlas,
+            tex,
+            bind,
+            tex_h,
+        }
     }
 
     /// Re-upload only the changed row band `[y0, y1)` of a resident atlas — the
@@ -1470,7 +1587,11 @@ impl GpuRenderer {
                 bytes_per_row: Some(res.atlas.width * bpp),
                 rows_per_image: Some(y1 - y0),
             },
-            wgpu::Extent3d { width: res.atlas.width, height: y1 - y0, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: res.atlas.width,
+                height: y1 - y0,
+                depth_or_array_layers: 1,
+            },
         );
     }
 
@@ -1491,8 +1612,11 @@ impl GpuRenderer {
         }
 
         // Which keys are genuinely new this frame.
-        let new_keys: Vec<GlyphKey> =
-            keys.iter().copied().filter(|k| !self.resident_keys.contains(k)).collect();
+        let new_keys: Vec<GlyphKey> = keys
+            .iter()
+            .copied()
+            .filter(|k| !self.resident_keys.contains(k))
+            .collect();
 
         // First frame (or a prior overflow cleared the cache): full pack both.
         if self.mono_res.is_none() || self.color_res.is_none() {
@@ -1627,20 +1751,39 @@ impl GpuRenderer {
         let (tw, th) = (max_w, total_h);
         let mut data = vec![0u8; (tw * th * 4) as usize];
         for &key in &order {
-            let Some(&(y0, dw, dh)) = placements.get(&key) else { continue };
+            let Some(&(y0, dw, dh)) = placements.get(&key) else {
+                continue;
+            };
             let decoded = win.image_cache.get(key).expect("placed image is cached");
-            for y in 0..dh {
-                let src = (y * dw * 4) as usize;
-                let dst = ((y0 + y) * tw + 0) as usize * 4;
-                data[dst..dst + (dw * 4) as usize]
-                    .copy_from_slice(&decoded.rgba[src..src + (dw * 4) as usize]);
+            if dw == tw {
+                // Footprint spans the full plane width: its rows are contiguous in
+                // both source (decoded.rgba, row-major dw*dh*4) and destination
+                // (data rows y0..y0+dh, no right padding). Collapse the dh per-row
+                // copies into one memcpy — same bytes, same layout. This is the
+                // common cell-sized / single-image case.
+                let dst = (y0 * tw) as usize * 4;
+                let len = (dw * dh * 4) as usize;
+                data[dst..dst + len].copy_from_slice(&decoded.rgba[..len]);
+            } else {
+                // Mixed-width footprints: this one is narrower than the plane, so
+                // each row has right padding in `data` — copy row by row.
+                for y in 0..dh {
+                    let src = (y * dw * 4) as usize;
+                    let dst = ((y0 + y) * tw) as usize * 4;
+                    data[dst..dst + (dw * 4) as usize]
+                        .copy_from_slice(&decoded.rgba[src..src + (dw * 4) as usize]);
+                }
             }
         }
 
         let device = &self.ctx.device;
         let tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("aterm-gpu image plane"),
-            size: wgpu::Extent3d { width: tw, height: th, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: tw,
+                height: th,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -1661,18 +1804,33 @@ impl GpuRenderer {
                 bytes_per_row: Some(tw * 4),
                 rows_per_image: Some(th),
             },
-            wgpu::Extent3d { width: tw, height: th, depth_or_array_layers: 1 },
+            wgpu::Extent3d {
+                width: tw,
+                height: th,
+                depth_or_array_layers: 1,
+            },
         );
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("aterm-gpu image plane bg"),
             layout: &self.atlas_bgl,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
             ],
         });
-        win.image_plane = Some(ImagePlane { bind, w: tw, h: th, placements });
+        win.image_plane = Some(ImagePlane {
+            bind,
+            w: tw,
+            h: th,
+            placements,
+        });
     }
 
     /// Render a [`RenderInput`] snapshot (built by the engine via
@@ -1689,7 +1847,12 @@ impl GpuRenderer {
         win.present_prev = None;
         let (w, h) = self.encode_frame(win, input, &RepaintScope::Full);
         // The freshly rendered target is resident on `win.offscreen`.
-        let tex = win.offscreen.as_ref().expect("encode_frame sets offscreen").tex.clone();
+        let tex = win
+            .offscreen
+            .as_ref()
+            .expect("encode_frame sets offscreen")
+            .tex
+            .clone();
         self.ctx.read_back(&tex, w, h)
     }
 
@@ -1737,7 +1900,9 @@ impl GpuRenderer {
     /// native), else `Rgba8Unorm`, else the first non-`*Srgb` format the surface
     /// supports. Errs only if the surface offers *exclusively* sRGB formats (it
     /// won't on Metal), since presenting through one would gamma-shift the colours.
-    fn pick_surface_format(caps: &wgpu::SurfaceCapabilities) -> Result<wgpu::TextureFormat, String> {
+    fn pick_surface_format(
+        caps: &wgpu::SurfaceCapabilities,
+    ) -> Result<wgpu::TextureFormat, String> {
         use wgpu::TextureFormat::{Bgra8Unorm, Rgba8Unorm};
         if caps.formats.contains(&Bgra8Unorm) {
             return Ok(Bgra8Unorm);
@@ -1793,7 +1958,9 @@ impl GpuRenderer {
             }
             C::Timeout | C::Occluded | C::Validation => return,
         };
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         // 3. Ensure a blit pipeline for this swapchain format exists.
         let format = surf.config.format;
@@ -1809,18 +1976,27 @@ impl GpuRenderer {
             self.ctx.queue.write_buffer(
                 &self.blit_uniform_buf,
                 0,
-                bytemuck::bytes_of(&BlitUniform { flag: invert as u32, _pad: [0; 3] }),
+                bytemuck::bytes_of(&BlitUniform {
+                    flag: invert as u32,
+                    _pad: [0; 3],
+                }),
             );
             win.blit_invert = Some(invert);
         }
-        let bind = &win.offscreen.as_ref().expect("encode_frame sets offscreen").blit_bind;
+        let bind = &win
+            .offscreen
+            .as_ref()
+            .expect("encode_frame sets offscreen")
+            .blit_bind;
 
         // 5. One blit pass: fullscreen triangle covers every pixel, so Clear is
         //    just the (overwritten) initial value.
         let mut enc = self
             .ctx
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("aterm-gpu blit") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("aterm-gpu blit"),
+            });
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("aterm-gpu blit pass"),
@@ -1870,8 +2046,10 @@ impl GpuRenderer {
         // to a Full repaint and disabling the scissored dirty-row path entirely. At
         // `pad == 0` the `+ 2*pad` terms drop out, so this is unchanged there.
         let pad = self.cpu.pad();
-        let (w, h) =
-            ((input.cols * cw + 2 * pad) as u32, (input.rows * ch + 2 * pad) as u32);
+        let (w, h) = (
+            (input.cols * cw + 2 * pad) as u32,
+            (input.rows * ch + 2 * pad) as u32,
+        );
 
         // The offscreen must already hold the previous frame at THESE dims for a
         // scissored Load to be safe. A dimension change recreates the texture
@@ -1947,7 +2125,12 @@ impl GpuRenderer {
     #[doc(hidden)]
     pub fn present_input_readback(&mut self, win: &mut WindowGpu, input: &RenderInput) -> Frame {
         let (w, h) = self.encode_present_frame(win, input);
-        let tex = win.offscreen.as_ref().expect("encode_frame sets offscreen").tex.clone();
+        let tex = win
+            .offscreen
+            .as_ref()
+            .expect("encode_frame sets offscreen")
+            .tex
+            .clone();
         self.ctx.read_back(&tex, w, h)
     }
 
@@ -1958,7 +2141,10 @@ impl GpuRenderer {
     #[doc(hidden)]
     pub fn present_encode_poll(&mut self, win: &mut WindowGpu, input: &RenderInput) {
         let _ = self.encode_present_frame(win, input);
-        self.ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("GPU poll failed");
+        self.ctx
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("GPU poll failed");
     }
 
     /// TEST HELPER (on-glass blit coverage): run the REAL on-glass blit — the
@@ -1983,7 +2169,10 @@ impl GpuRenderer {
     /// the blit pipeline it exercises is exactly a real present pipeline.
     #[doc(hidden)]
     pub fn blit_to_offscreen_for_test(&mut self, win: &mut WindowGpu, invert: bool) -> Frame {
-        let src = win.offscreen.as_ref().expect("render a frame before blitting");
+        let src = win
+            .offscreen
+            .as_ref()
+            .expect("render a frame before blitting");
         let (w, h) = (src.w, src.h);
         let src_view = src.tex.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1999,38 +2188,47 @@ impl GpuRenderer {
         self.ctx.queue.write_buffer(
             &self.blit_uniform_buf,
             0,
-            bytemuck::bytes_of(&BlitUniform { flag: invert as u32, _pad: [0; 3] }),
+            bytemuck::bytes_of(&BlitUniform {
+                flag: invert as u32,
+                _pad: [0; 3],
+            }),
         );
         win.blit_invert = Some(invert);
 
         // The REAL blit bind group: source view + the REAL `blit_sampler` (NEAREST)
         // + the REAL `blit_uniform_buf`, under the REAL `blit_bgl`.
-        let bind = self.ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("aterm-gpu test blit bg"),
-            layout: &self.blit_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&src_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.blit_uniform_buf.as_entire_binding(),
-                },
-            ],
-        });
+        let bind = self
+            .ctx
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("aterm-gpu test blit bg"),
+                layout: &self.blit_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&src_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: self.blit_uniform_buf.as_entire_binding(),
+                    },
+                ],
+            });
 
         // The REAL blit pipeline (vs_blit + fs_blit) for this format.
         self.ensure_blit_pipeline(format);
         let pipeline = &self.blit_pipelines[&format];
 
-        let mut enc = self.ctx.device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor { label: Some("aterm-gpu test blit") },
-        );
+        let mut enc = self
+            .ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("aterm-gpu test blit"),
+            });
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("aterm-gpu test blit pass"),
@@ -2061,8 +2259,10 @@ impl GpuRenderer {
         if self.blit_pipelines.contains_key(&format) {
             return;
         }
-        let pipeline =
-            self.ctx.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = self
+            .ctx
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("aterm-gpu blit pipeline"),
                 layout: Some(&self.blit_layout),
                 vertex: wgpu::VertexState {
@@ -2181,7 +2381,10 @@ impl GpuRenderer {
     pub fn render_no_readback(&mut self, win: &mut WindowGpu, input: &RenderInput) {
         win.present_prev = None;
         let _ = self.encode_frame(win, input, &RepaintScope::Full);
-        self.ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("GPU poll failed");
+        self.ctx
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("GPU poll failed");
     }
 
     /// Build the atlas + instances, encode the single render pass onto the
@@ -2218,11 +2421,19 @@ impl GpuRenderer {
     // execute it — the slice DECISION is the aterm-side Tier-1 binding).
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "gpu_encode", action = "Append", project = "aterm_gpu::renderer::project_bg_encode")
+        aterm_spec::refines(
+            machine = "gpu_encode",
+            action = "Append",
+            project = "aterm_gpu::renderer::project_bg_encode"
+        )
     )]
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "gpu_encode", action = "Encode", project = "aterm_gpu::renderer::project_bg_encode")
+        aterm_spec::refines(
+            machine = "gpu_encode",
+            action = "Encode",
+            project = "aterm_gpu::renderer::project_bg_encode"
+        )
     )]
     fn encode_frame(
         &mut self,
@@ -2262,7 +2473,10 @@ impl GpuRenderer {
         // Cursor shape for THIS frame: DECSCUSR or the frontend's override,
         // gated by DECTCEM and the blink phase — read from the inner CPU
         // renderer so the suppression rules are byte-for-byte the CPU's.
-        let style = self.cpu.cursor_style_override().unwrap_or(input.cursor_style);
+        let style = self
+            .cpu
+            .cursor_style_override()
+            .unwrap_or(input.cursor_style);
         let cursor_drawn = cursor_in
             && input.cursor_visible
             && aterm_render::cursor_shown(style, self.cpu.cursor_blink_phase());
@@ -2321,8 +2535,14 @@ impl GpuRenderer {
         // so it runs BEFORE the resident-atlas borrows below. A no-op (drops any
         // prior plane) for image-free frames — the common path is untouched.
         self.build_image_plane(win, input);
-        let mono_res = self.mono_res.as_ref().expect("ensure_atlases sets mono_res");
-        let color_res = self.color_res.as_ref().expect("ensure_atlases sets color_res");
+        let mono_res = self
+            .mono_res
+            .as_ref()
+            .expect("ensure_atlases sets mono_res");
+        let color_res = self
+            .color_res
+            .as_ref()
+            .expect("ensure_atlases sets color_res");
         let atlas = &mono_res.atlas;
         let color_atlas = &color_res.atlas;
         // UVs normalise against the RESIDENT TEXTURE height (`tex_h`), which is
@@ -2378,7 +2598,10 @@ impl GpuRenderer {
             // seam and no stale contamination. (FULL path keeps the pass Clear, so
             // it does NOT emit this — its whole-target clear already covers it.)
             if matches!(scope, RepaintScope::Dirty(_)) {
-                bg_inst.push(BgInstance { rect: [0, y0u, w as u16, ch as u16], color: theme_bg });
+                bg_inst.push(BgInstance {
+                    rect: [0, y0u, w as u16, ch as u16],
+                    color: theme_bg,
+                });
             }
             for (c, cell) in cells.iter().take(cols).enumerate() {
                 let x0u = (pad + c * rcw) as u16;
@@ -2389,7 +2612,10 @@ impl GpuRenderer {
                 } else {
                     rgb4(cell.bg)
                 };
-                bg_inst.push(BgInstance { rect: [x0u, y0u, rcw as u16, ch as u16], color });
+                bg_inst.push(BgInstance {
+                    rect: [x0u, y0u, rcw as u16, ch as u16],
+                    color,
+                });
             }
             for (c, cell) in cells.iter().take(cols).enumerate() {
                 // Image-covered cells skip their glyph (image-vs-glyph
@@ -2413,16 +2639,36 @@ impl GpuRenderer {
                         continue;
                     }
                     let Some((rect, uv)) = aterm_render::glyph_quad(
-                        (pad + c * rcw) as f32, anchor_y, baseline, scale,
-                        slot.ax, slot.ay, slot.gw, slot.gh, slot.xmin, slot.ymin, caw, cah,
+                        (pad + c * rcw) as f32,
+                        anchor_y,
+                        baseline,
+                        scale,
+                        slot.ax,
+                        slot.ay,
+                        slot.gw,
+                        slot.gh,
+                        slot.xmin,
+                        slot.ymin,
+                        caw,
+                        cah,
                     ) else {
                         continue;
                     };
-                    let inst = GlyphInstance { rect, uv, color: [0, 0, 0, 0] };
-                    if is_cursor { cursor_color_inst.push(inst) } else { color_inst.push(inst) };
+                    let inst = GlyphInstance {
+                        rect,
+                        uv,
+                        color: [0, 0, 0, 0],
+                    };
+                    if is_cursor {
+                        cursor_color_inst.push(inst)
+                    } else {
+                        color_inst.push(inst)
+                    };
                     continue;
                 }
-                let Some(slot) = atlas.map.get(&key) else { continue };
+                let Some(slot) = atlas.map.get(&key) else {
+                    continue;
+                };
                 if slot.gw == 0 || slot.gh == 0 {
                     continue;
                 }
@@ -2430,13 +2676,31 @@ impl GpuRenderer {
                 // colour and drawn AFTER the cursor fill; otherwise normal fg.
                 let color = if is_cursor { cell.bg } else { cell.fg };
                 let Some((rect, uv)) = aterm_render::glyph_quad(
-                    (pad + c * rcw) as f32, anchor_y, baseline, scale,
-                    slot.ax, slot.ay, slot.gw, slot.gh, slot.xmin, slot.ymin, aw, ah,
+                    (pad + c * rcw) as f32,
+                    anchor_y,
+                    baseline,
+                    scale,
+                    slot.ax,
+                    slot.ay,
+                    slot.gw,
+                    slot.gh,
+                    slot.xmin,
+                    slot.ymin,
+                    aw,
+                    ah,
                 ) else {
                     continue;
                 };
-                let inst = GlyphInstance { rect, uv, color: rgb4(color) };
-                if is_cursor { cursor_glyph_inst.push(inst) } else { glyph_inst.push(inst) };
+                let inst = GlyphInstance {
+                    rect,
+                    uv,
+                    color: rgb4(color),
+                };
+                if is_cursor {
+                    cursor_glyph_inst.push(inst)
+                } else {
+                    glyph_inst.push(inst)
+                };
             }
         }
         // Combining diacritics: overlay each mark's glyph on its base cell, in
@@ -2460,10 +2724,14 @@ impl GpuRenderer {
                 if cell.wide || input.cluster_at(r, c).is_some() || input.image_at(r, c).is_some() {
                     continue;
                 }
-                let Some(marks) = input.combining_at(r, c) else { continue };
+                let Some(marks) = input.combining_at(r, c) else {
+                    continue;
+                };
                 for &m in marks {
                     let key = self.cpu.glyph_key(m);
-                    let Some(slot) = atlas.map.get(&key) else { continue };
+                    let Some(slot) = atlas.map.get(&key) else {
+                        continue;
+                    };
                     if slot.gw == 0 || slot.gh == 0 {
                         continue;
                     }
@@ -2472,12 +2740,16 @@ impl GpuRenderer {
                     let cx = aterm_render::mark_cell_x(c, rcw, slot.gw as usize, slot.xmin, scale)
                         + pad as i32;
                     let Some((rect, uv)) = aterm_render::glyph_quad(
-                        cx as f32, anchor_y, baseline, scale,
-                        slot.ax, slot.ay, slot.gw, slot.gh, slot.xmin, slot.ymin, aw, ah,
+                        cx as f32, anchor_y, baseline, scale, slot.ax, slot.ay, slot.gw, slot.gh,
+                        slot.xmin, slot.ymin, aw, ah,
                     ) else {
                         continue;
                     };
-                    glyph_inst.push(GlyphInstance { rect, uv, color: rgb4(cell.fg) });
+                    glyph_inst.push(GlyphInstance {
+                        rect,
+                        uv,
+                        color: rgb4(cell.fg),
+                    });
                 }
             }
         }
@@ -2541,12 +2813,20 @@ impl GpuRenderer {
                         tile_w as f32 / pw,
                         tile_h as f32 / ph,
                     ];
-                    image_inst.push(GlyphInstance { rect, uv, color: [0, 0, 0, 0] });
+                    image_inst.push(GlyphInstance {
+                        rect,
+                        uv,
+                        color: [0, 0, 0, 0],
+                    });
                 }
             }
         }
         // Cursor-row cell width (doubled on any DEC double-size line).
-        let cur_cw = if cr < rows { aterm_render::row_cell_w(input.line_sizes[cr], cw) } else { cw };
+        let cur_cw = if cr < rows {
+            aterm_render::row_cell_w(input.line_sizes[cr], cw)
+        } else {
+            cw
+        };
         // Block-cursor fill — drawn AFTER the glyph/decoration passes (not in the
         // bg pass) so it covers any neighbour glyph overflow into the cursor
         // cell, exactly as the CPU paints the block cursor last. The cell's own
@@ -2558,7 +2838,12 @@ impl GpuRenderer {
         // explicitly so no cursor instance can ever leak outside the dirty band.)
         if block_cursor && row_active(cr) {
             self.inst.cursor_block.push(BgInstance {
-                rect: [(pad + cc * cur_cw) as u16, (pad + cr * ch) as u16, cur_cw as u16, ch as u16],
+                rect: [
+                    (pad + cc * cur_cw) as u16,
+                    (pad + cr * ch) as u16,
+                    cur_cw as u16,
+                    ch as u16,
+                ],
                 color: rgb4_u32(self.theme.cursor),
             });
         }
@@ -2583,7 +2868,11 @@ impl GpuRenderer {
                     continue;
                 }
                 let x = pad + c * rcw;
-                let dw = if cells.get(c + 1).is_some_and(|n| n.wide) { 2 * rcw } else { rcw };
+                let dw = if cells.get(c + 1).is_some_and(|n| n.wide) {
+                    2 * rcw
+                } else {
+                    rcw
+                };
                 let ucolor = rgb4(cell.underline_color.unwrap_or(cell.fg));
                 for [rx, ry, rw, rh] in
                     aterm_render::underline_rects(cell.underline, x, y0, dw, ch, baseline)
@@ -2618,12 +2907,12 @@ impl GpuRenderer {
         if cursor_drawn && !block_cursor && row_active(cr) {
             let cursor_color = rgb4_u32(self.theme.cursor);
             self.inst.cursor.extend(
-                aterm_render::cursor_rects(style, pad + cc * cur_cw, pad + cr * ch, cur_cw, ch).into_iter().map(
-                    |[x, y, rw, rh]| BgInstance {
+                aterm_render::cursor_rects(style, pad + cc * cur_cw, pad + cr * ch, cur_cw, ch)
+                    .into_iter()
+                    .map(|[x, y, rw, rh]| BgInstance {
                         rect: [x as u16, y as u16, rw as u16, rh as u16],
                         color: cursor_color,
-                    },
-                ),
+                    }),
             );
         }
 
@@ -2636,7 +2925,10 @@ impl GpuRenderer {
             self.ctx.queue.write_buffer(
                 &self.uniform_buf,
                 0,
-                bytemuck::bytes_of(&Uniforms { screen: [w as f32, h as f32], _pad: [0.0, 0.0] }),
+                bytemuck::bytes_of(&Uniforms {
+                    screen: [w as f32, h as f32],
+                    _pad: [0.0, 0.0],
+                }),
             );
             win.uniform_dims = Some((w, h));
         }
@@ -2649,18 +2941,45 @@ impl GpuRenderer {
         // frame. We also slice each buffer to EXACTLY this frame's byte length so
         // stale tail bytes from a larger previous frame are never bound or drawn.
         let (device, queue) = (&self.ctx.device, &self.ctx.queue);
-        let bg_buf = self.vbufs.bg.upload(device, queue, bytemuck::cast_slice(&self.inst.bg));
-        let image_buf = self.vbufs.image.upload(device, queue, bytemuck::cast_slice(&self.inst.image));
-        let glyph_buf = self.vbufs.glyph.upload(device, queue, bytemuck::cast_slice(&self.inst.glyph));
-        let color_buf = self.vbufs.color.upload(device, queue, bytemuck::cast_slice(&self.inst.color));
-        let cursor_buf = self.vbufs.cursor.upload(device, queue, bytemuck::cast_slice(&self.inst.cursor));
-        let deco_buf = self.vbufs.deco.upload(device, queue, bytemuck::cast_slice(&self.inst.deco));
-        let cursor_block_buf =
-            self.vbufs.cursor_block.upload(device, queue, bytemuck::cast_slice(&self.inst.cursor_block));
-        let cursor_glyph_buf =
-            self.vbufs.cursor_glyph.upload(device, queue, bytemuck::cast_slice(&self.inst.cursor_glyph));
-        let cursor_color_buf =
-            self.vbufs.cursor_color.upload(device, queue, bytemuck::cast_slice(&self.inst.cursor_color));
+        let bg_buf = self
+            .vbufs
+            .bg
+            .upload(device, queue, bytemuck::cast_slice(&self.inst.bg));
+        let image_buf =
+            self.vbufs
+                .image
+                .upload(device, queue, bytemuck::cast_slice(&self.inst.image));
+        let glyph_buf =
+            self.vbufs
+                .glyph
+                .upload(device, queue, bytemuck::cast_slice(&self.inst.glyph));
+        let color_buf =
+            self.vbufs
+                .color
+                .upload(device, queue, bytemuck::cast_slice(&self.inst.color));
+        let cursor_buf =
+            self.vbufs
+                .cursor
+                .upload(device, queue, bytemuck::cast_slice(&self.inst.cursor));
+        let deco_buf = self
+            .vbufs
+            .deco
+            .upload(device, queue, bytemuck::cast_slice(&self.inst.deco));
+        let cursor_block_buf = self.vbufs.cursor_block.upload(
+            device,
+            queue,
+            bytemuck::cast_slice(&self.inst.cursor_block),
+        );
+        let cursor_glyph_buf = self.vbufs.cursor_glyph.upload(
+            device,
+            queue,
+            bytemuck::cast_slice(&self.inst.cursor_glyph),
+        );
+        let cursor_color_buf = self.vbufs.cursor_color.upload(
+            device,
+            queue,
+            bytemuck::cast_slice(&self.inst.cursor_color),
+        );
 
         // Resident offscreen target: reuse the texture + view when `(w, h)` is
         // unchanged; (re)create them only on the first frame or a resize. On a
@@ -2680,25 +2999,34 @@ impl GpuRenderer {
             // swapchain. Built ONCE here (and reused every present) instead of
             // per-present. `present_input` only writes the per-frame invert flag.
             let src_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
-            let blit_bind = self.ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("aterm-gpu blit bg"),
-                layout: &self.blit_bgl,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&src_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: self.blit_uniform_buf.as_entire_binding(),
-                    },
-                ],
+            let blit_bind = self
+                .ctx
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("aterm-gpu blit bg"),
+                    layout: &self.blit_bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&src_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: self.blit_uniform_buf.as_entire_binding(),
+                        },
+                    ],
+                });
+            win.offscreen = Some(Offscreen {
+                tex,
+                view,
+                blit_bind,
+                w,
+                h,
             });
-            win.offscreen = Some(Offscreen { tex, view, blit_bind, w, h });
         }
 
         // SCISSORED PATH: the load op + the scissor band. FULL clears the whole
@@ -2731,7 +3059,10 @@ impl GpuRenderer {
                         // `LoadOp::Load`, so they never need rewriting.
                         let y0 = (pad + f * ch) as u32;
                         let y1 = ((pad + (last + 1) * ch) as u32).min(h);
-                        (wgpu::LoadOp::Load, Some((0u32, y0, w, y1.saturating_sub(y0))))
+                        (
+                            wgpu::LoadOp::Load,
+                            Some((0u32, y0, w, y1.saturating_sub(y0))),
+                        )
                     }
                     // Reusable but zero dirty rows: nothing to draw. Load preserves
                     // the prior frame; a degenerate 0-height scissor draws nothing.
@@ -2752,7 +3083,9 @@ impl GpuRenderer {
         let mut enc = self
             .ctx
             .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("aterm-gpu frame") });
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("aterm-gpu frame"),
+            });
 
         // SINGLE render pass: the eight former passes (bg → glyph → color →
         // deco → cursor_block → cursor_glyph → cursor_color → cursor_strip) all
@@ -2853,7 +3186,13 @@ impl GpuRenderer {
 
             // bg: cell background fills (REPLACE). The pass already cleared the
             // target, so an empty frame stays the theme bg.
-            draw_stream!(bg_buf, self.inst.bg, Pipe::Bg, &self.bg_pipeline, None::<(Atlas, &wgpu::BindGroup)>);
+            draw_stream!(
+                bg_buf,
+                self.inst.bg,
+                Pipe::Bg,
+                &self.bg_pipeline,
+                None::<(Atlas, &wgpu::BindGroup)>
+            );
             // glyph: mono glyphs, alpha-blended over the bg.
             draw_stream!(
                 glyph_buf,
@@ -2886,7 +3225,13 @@ impl GpuRenderer {
             }
             // deco: line decorations (underline/strike/overline), opaque, over
             // the glyphs and before the cursor.
-            draw_stream!(deco_buf, self.inst.deco, Pipe::Bg, &self.bg_pipeline, None::<(Atlas, &wgpu::BindGroup)>);
+            draw_stream!(
+                deco_buf,
+                self.inst.deco,
+                Pipe::Bg,
+                &self.bg_pipeline,
+                None::<(Atlas, &wgpu::BindGroup)>
+            );
             // cursor_block: block-cursor fill, opaque over the glyphs/deco.
             draw_stream!(
                 cursor_block_buf,
@@ -2984,11 +3329,19 @@ fn decode_for_key(
                     fp_h,
                 )
                 .unwrap_or_default();
-                return GpuDecodedImage { w: fp_w as u32, h: fp_h as u32, rgba };
+                return GpuDecodedImage {
+                    w: fp_w as u32,
+                    h: fp_h as u32,
+                    rgba,
+                };
             }
         }
     }
-    GpuDecodedImage { w: fp_w as u32, h: fp_h as u32, rgba: Vec::new() }
+    GpuDecodedImage {
+        w: fp_w as u32,
+        h: fp_h as u32,
+        rgba: Vec::new(),
+    }
 }
 
 /// `0x00RRGGBB` -> a `wgpu::Color` clear value (linear; matches CPU's raw bytes).
@@ -3040,17 +3393,33 @@ ab\r\n",
                 }
             }
         }
-        assert!(keys.len() >= 5, "demo frame should contribute several glyphs");
+        assert!(
+            keys.len() >= 5,
+            "demo frame should contribute several glyphs"
+        );
 
         let atlas = build_atlas(&mut cpu, &keys, u32::MAX);
         for &key in &keys {
-            let slot = atlas.map.get(&key).expect("every requested glyph gets a slot");
+            let slot = atlas
+                .map
+                .get(&key)
+                .expect("every requested glyph gets a slot");
             let img = cpu.glyph_image(key).clone();
-            let GlyphImage::Mono { width, height, bytes, .. } = &img else {
+            let GlyphImage::Mono {
+                width,
+                height,
+                bytes,
+                ..
+            } = &img
+            else {
                 panic!("char keys rasterize as Mono");
             };
             if *width == 0 || *height == 0 {
-                assert_eq!((slot.gw, slot.gh), (0, 0), "empty glyph must pack as an empty slot");
+                assert_eq!(
+                    (slot.gw, slot.gh),
+                    (0, 0),
+                    "empty glyph must pack as an empty slot"
+                );
                 continue;
             }
             assert_eq!(
@@ -3061,10 +3430,12 @@ ab\r\n",
             );
             for j in 0..slot.gh {
                 for i in 0..slot.gw {
-                    let atlas_byte = atlas.data[((slot.ay + j) * atlas.width + slot.ax + i) as usize];
+                    let atlas_byte =
+                        atlas.data[((slot.ay + j) * atlas.width + slot.ax + i) as usize];
                     let cpu_byte = bytes[(j * slot.gw + i) as usize];
                     assert_eq!(
-                        atlas_byte, cpu_byte,
+                        atlas_byte,
+                        cpu_byte,
                         "atlas texel ({i},{j}) of {:?} differs from the CPU cache byte",
                         key.chr()
                     );
@@ -3098,12 +3469,23 @@ ab\r\n",
                 return;
             }
         };
-        assert_eq!(gpu.font_family.as_deref(), Some("Menlo"), "family wired at construction");
+        assert_eq!(
+            gpu.font_family.as_deref(),
+            Some("Menlo"),
+            "family wired at construction"
+        );
         gpu.set_font_theme(24.0, theme)
             .expect("in-place rebuild succeeds with a configured family");
-        assert_eq!(gpu.font_family.as_deref(), Some("Menlo"), "family retained across rebuild");
+        assert_eq!(
+            gpu.font_family.as_deref(),
+            Some("Menlo"),
+            "family retained across rebuild"
+        );
         let (cw, ch) = gpu.cell_size();
-        assert!(cw > 0 && ch > 0, "renderer valid after the family-aware rebuild");
+        assert!(
+            cw > 0 && ch > 0,
+            "renderer valid after the family-aware rebuild"
+        );
     }
 
     #[test]
@@ -3129,8 +3511,13 @@ ab\r\n",
         // Frame 1: cold cache -> the atlases are built (both textures created).
         let _ = gpu.render_input(&mut win, &input);
         let after_first = gpu.atlas_tex_creations();
-        let dims_first = gpu.atlas_tex_dims().expect("atlases resident after first frame");
-        assert!(after_first >= 1, "first frame should have created at least one atlas texture");
+        let dims_first = gpu
+            .atlas_tex_dims()
+            .expect("atlases resident after first frame");
+        assert!(
+            after_first >= 1,
+            "first frame should have created at least one atlas texture"
+        );
 
         // Frame 2: identical glyph set -> reuse, NO new texture creation.
         let _ = gpu.render_input(&mut win, &input);
@@ -3236,8 +3623,16 @@ ab\r\n",
             term.process(bytes);
             term.cell_frame(rows, cols)
         };
-        let a_frames = [frame(b"AAAA"), frame(b"AAAA\r\nbbbb"), frame(b"AAAA\r\ncccc")];
-        let b_frames = [frame(b"ZZZZ"), frame(b"ZZZZ\r\nyyyy"), frame(b"ZZZZ\r\nxxxx")];
+        let a_frames = [
+            frame(b"AAAA"),
+            frame(b"AAAA\r\nbbbb"),
+            frame(b"AAAA\r\ncccc"),
+        ];
+        let b_frames = [
+            frame(b"ZZZZ"),
+            frame(b"ZZZZ\r\nyyyy"),
+            frame(b"ZZZZ\r\nxxxx"),
+        ];
 
         let mut win_a = WindowGpu::new();
         let mut win_b = WindowGpu::new();
@@ -3256,7 +3651,10 @@ ab\r\n",
         // The SCISSOR path must actually have fired (else this proves nothing about
         // cross-window diffing): the second+ frame of each window is a stable-dims
         // change, which takes the scissor.
-        assert!(gpu.scissor_taken() > 0, "scissor path must be exercised by the changed frames");
+        assert!(
+            gpu.scissor_taken() > 0,
+            "scissor path must be exercised by the changed frames"
+        );
 
         // Ground truth: a FRESH full render of each window's FINAL input on its own
         // clean window. `render_input` always clears + draws every row, so it is the
@@ -3320,7 +3718,11 @@ ab\r\n",
             term.cell_frame(rows, cols)
         };
         // Same dims, changing content: frame 2+ is a stable-dims change → scissor.
-        let frames = [frame(b"AAAA"), frame(b"AAAA\r\nbbbb"), frame(b"AAAA\r\ncccc")];
+        let frames = [
+            frame(b"AAAA"),
+            frame(b"AAAA\r\nbbbb"),
+            frame(b"AAAA\r\ncccc"),
+        ];
 
         let mut win = WindowGpu::new();
         let mut last = None;

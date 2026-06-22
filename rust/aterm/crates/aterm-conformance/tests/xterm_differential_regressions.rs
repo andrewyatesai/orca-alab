@@ -47,7 +47,7 @@ fn g1_designated_line_drawing_still_translates() {
 #[test]
 fn ht_preserves_pending_wrap_next_printable_wraps() {
     // 80 chars fill row 0 and arm pending-wrap; TAB must not disarm it.
-    let mut input: Vec<u8> = std::iter::repeat(b'a').take(80).collect();
+    let mut input: Vec<u8> = std::iter::repeat_n(b'a', 80).collect();
     input.extend_from_slice(b"\tZ");
     let s = run(&input);
     assert_eq!(
@@ -64,8 +64,7 @@ fn ht_preserves_pending_wrap_next_printable_wraps() {
 /// last column).
 #[test]
 fn ht_at_pending_wrap_keeps_cursor_at_margin() {
-    let input: Vec<u8> = std::iter::repeat(b'a')
-        .take(80)
+    let input: Vec<u8> = std::iter::repeat_n(b'a', 80)
         .chain(std::iter::once(b'\t'))
         .collect();
     let s = run(&input);
@@ -90,8 +89,8 @@ fn ht_ride_to_last_stop_matches_xterm_layout() {
 // 3. Alt screen 1049 SET does not move the cursor
 // =========================================================================
 
-/// xterm srm_OPT_ALTBUF_CURSOR SET (charproc.c) = CursorSave + ToAlternate
-/// + ClearScreen — none of which moves the cursor. The single cursor is
+/// xterm srm_OPT_ALTBUF_CURSOR SET (charproc.c) = CursorSave + ToAlternate +
+/// ClearScreen — none of which moves the cursor. The single cursor is
 /// shared by both buffers; entering the 1049 alt screen must NOT home it.
 #[test]
 fn mode_1049_enter_keeps_cursor_position() {
@@ -109,7 +108,11 @@ fn mode_1049_round_trip_still_restores_cursor() {
     let mut s = Screen::new(24, 80);
     s.feed(b"main\x1b[3;5H"); // saved cursor (2,4)
     s.feed(b"\x1b[?1049h\x1b[12;40H\x1b[?1049l");
-    assert_eq!(s.cursor(), (2, 4), "exit restores the cursor saved on enter");
+    assert_eq!(
+        s.cursor(),
+        (2, 4),
+        "exit restores the cursor saved on enter"
+    );
 }
 
 // =========================================================================
@@ -123,7 +126,11 @@ fn mode_1049_round_trip_still_restores_cursor() {
 #[test]
 fn invalid_decstbm_equal_margins_is_fully_ignored() {
     let s = run(b"x\x1b[10;10r");
-    assert_eq!(s.cursor(), (0, 1), "cursor must not home on invalid DECSTBM");
+    assert_eq!(
+        s.cursor(),
+        (0, 1),
+        "cursor must not home on invalid DECSTBM"
+    );
     assert_eq!(s.row(0), "x");
 }
 
@@ -131,7 +138,11 @@ fn invalid_decstbm_equal_margins_is_fully_ignored() {
 #[test]
 fn invalid_decstbm_inverted_margins_is_fully_ignored() {
     let s = run(b"x\x1b[20;5r");
-    assert_eq!(s.cursor(), (0, 1), "cursor must not home on inverted DECSTBM");
+    assert_eq!(
+        s.cursor(),
+        (0, 1),
+        "cursor must not home on inverted DECSTBM"
+    );
 }
 
 /// A top at/past the screen bottom is invalid after the bottom defaults to
@@ -155,7 +166,11 @@ fn invalid_decstbm_keeps_previous_region() {
     s.feed(b"\x1b[5;10r"); // valid: homes cursor
     s.feed(b"\x1b[20;3r"); // invalid: ignored entirely
     s.feed(b"\x1b[10;1Hbottom\n\n"); // two LFs at region bottom scroll the region
-    assert_eq!(s.row(7), "bottom", "region 5..10 still active: content scrolled within it");
+    assert_eq!(
+        s.row(7),
+        "bottom",
+        "region 5..10 still active: content scrolled within it"
+    );
     assert_eq!(s.cursor(), (9, 6), "cursor pinned at region bottom row");
 }
 
@@ -193,7 +208,11 @@ fn autowrap_below_scroll_region_at_bottom_row_does_not_scroll() {
 #[test]
 fn lf_below_scroll_region_at_bottom_row_does_not_scroll() {
     let s = run(b"\x1b[4;12r\x1b[24;1Hlast\ntail");
-    assert_eq!(s.row(23), "lasttail", "LF at clamped bottom stays on the row");
+    assert_eq!(
+        s.row(23),
+        "lasttail",
+        "LF at clamped bottom stays on the row"
+    );
     assert_eq!(s.cursor(), (23, 8));
 }
 
@@ -251,9 +270,13 @@ fn unsaved_decrc_leaves_decawm_unchanged() {
     // DECAWM off, then unsaved DECRC, then text past the margin: autowrap
     // must STILL be off (cursor pinned at the right margin, no wrap).
     let mut input = b"\x1b[?7l\x1b8\x1b[1;55H".to_vec();
-    input.extend(std::iter::repeat(b' ').take(27));
+    input.extend(std::iter::repeat_n(b' ', 27));
     let s = run(&input);
-    assert_eq!(s.cursor(), (0, 79), "autowrap stays off across unsaved DECRC");
+    assert_eq!(
+        s.cursor(),
+        (0, 79),
+        "autowrap stays off across unsaved DECRC"
+    );
 }
 
 /// Saved DECSC/DECRC likewise must not restore DECAWM: turn autowrap off
@@ -261,7 +284,7 @@ fn unsaved_decrc_leaves_decawm_unchanged() {
 #[test]
 fn saved_decrc_does_not_restore_decawm() {
     let mut input = b"\x1b7\x1b[?7l\x1b8\x1b[1;55H".to_vec();
-    input.extend(std::iter::repeat(b'x').take(27));
+    input.extend(std::iter::repeat_n(b'x', 27));
     let s = run(&input);
     assert_eq!(s.cursor(), (0, 79), "DECRC must not turn autowrap back on");
     assert_eq!(s.row(1), "", "no wrapped output on row 1");
@@ -288,7 +311,11 @@ fn unsaved_decrc_still_resets_origin_and_homes() {
 #[test]
 fn bare_decrc_after_1049_round_trip_restores_saved_cursor() {
     let s = run(b" \x1b[?1049h\x1b[?1049l\x1b8 ");
-    assert_eq!(s.cursor(), (0, 2), "DECRC restores the slot 1049 saved (0,1)");
+    assert_eq!(
+        s.cursor(),
+        (0, 2),
+        "DECRC restores the slot 1049 saved (0,1)"
+    );
 }
 
 /// And a DECSC before 1049 is overwritten by the 1049 enter-save (same
@@ -318,7 +345,7 @@ fn scrolling_lf_clears_pending_wrap() {
     // Fill the bottom row to arm pending-wrap, LF scrolls ONCE + clears the flag,
     // '!' overwrites the last column (no wrap, no second scroll).
     let mut input = b"\x1b[24;1H".to_vec();
-    input.extend(std::iter::repeat(b'x').take(80));
+    input.extend(std::iter::repeat_n(b'x', 80));
     input.extend_from_slice(b"\n!");
     let s = run(&input);
     // The x-row scrolled up exactly ONCE (to row 22); the cleared wrap means '!'
@@ -337,7 +364,7 @@ fn scrolling_lf_clears_pending_wrap() {
 /// column of the new row instead of wrapping.
 #[test]
 fn moving_lf_clears_pending_wrap() {
-    let mut input: Vec<u8> = std::iter::repeat(b'x').take(80).collect();
+    let mut input: Vec<u8> = std::iter::repeat_n(b'x', 80).collect();
     input.extend_from_slice(b"\n!");
     let s = run(&input);
     assert_eq!(s.cursor(), (1, 79), "'!' printed at (1,79), no wrap");
@@ -347,7 +374,7 @@ fn moving_lf_clears_pending_wrap() {
 /// SU (CSI S) also goes through xtermScroll and preserves the flag.
 #[test]
 fn su_preserves_pending_wrap() {
-    let mut input: Vec<u8> = std::iter::repeat(b'x').take(80).collect();
+    let mut input: Vec<u8> = std::iter::repeat_n(b'x', 80).collect();
     input.extend_from_slice(b"\x1b[1S!");
     let s = run(&input);
     assert_eq!(s.row(1), "!", "wrap still pending after SU: '!' wraps");
@@ -365,7 +392,7 @@ fn su_preserves_pending_wrap() {
 #[test]
 fn margin_fill_with_decawm_off_arms_wrap_for_later() {
     let mut input = b"\x1b[?7l".to_vec();
-    input.extend(std::iter::repeat(b'x').take(80));
+    input.extend(std::iter::repeat_n(b'x', 80));
     input.extend_from_slice(b"\x1b[?7h!");
     let s = run(&input);
     assert_eq!(s.row(1), "!", "armed wrap consumed after DECAWM re-enable");
@@ -378,7 +405,7 @@ fn margin_fill_with_decawm_off_arms_wrap_for_later() {
 #[test]
 fn margin_fill_with_decawm_off_overstrikes_without_wrap() {
     let mut input = b"\x1b[?7l".to_vec();
-    input.extend(std::iter::repeat(b'x').take(80));
+    input.extend(std::iter::repeat_n(b'x', 80));
     input.extend_from_slice(b"AB");
     let s = run(&input);
     assert_eq!(s.row(0).chars().last(), Some('B'), "B overstrikes col 79");
@@ -390,7 +417,7 @@ fn margin_fill_with_decawm_off_overstrikes_without_wrap() {
 /// survives the mode toggle and is consumed flag-only by the next print.
 #[test]
 fn decawm_reset_does_not_clear_armed_wrap() {
-    let mut input: Vec<u8> = std::iter::repeat(b'x').take(80).collect();
+    let mut input: Vec<u8> = std::iter::repeat_n(b'x', 80).collect();
     input.extend_from_slice(b"\x1b[?7l\x1b[?7h!");
     let s = run(&input);
     assert_eq!(s.row(1), "!", "flag survived the DECAWM off/on round trip");
@@ -408,7 +435,11 @@ fn decawm_reset_does_not_clear_armed_wrap() {
 #[test]
 fn scroll_region_persists_into_alt_screen() {
     let s = run(b"\x1b[2;3r\x1b[?1049h!\x1bM");
-    assert_eq!(s.row(0), "!", "RI above the inherited region must not scroll");
+    assert_eq!(
+        s.row(0),
+        "!",
+        "RI above the inherited region must not scroll"
+    );
     assert_eq!(s.cursor(), (0, 1));
 }
 

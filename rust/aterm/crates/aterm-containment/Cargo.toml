@@ -10,9 +10,6 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
-
 [features]
 default = []
 # TOML-based allowlist parsing (`AllowlistConfig::from_toml_str` /
@@ -33,3 +30,6 @@ libc.workspace = true
 [dev-dependencies]
 aterm-log = { workspace = true }
 aterm-tempfile.workspace = true
+
+[lints]
+workspace = true

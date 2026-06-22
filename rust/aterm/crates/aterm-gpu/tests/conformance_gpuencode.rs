@@ -70,8 +70,14 @@ fn pinned_spec(committed: &str, prev: &GeState) -> String {
             skipping_init = true;
             out.push_str("Init ==\n");
             out.push_str(&format!("    /\\ bgInst = {}\n", prev.bg_inst));
-            out.push_str(&format!("    /\\ encoded = {}\n", if prev.encoded { "TRUE" } else { "FALSE" }));
-            out.push_str(&format!("    /\\ sliced = {}\n", if prev.sliced { "TRUE" } else { "FALSE" }));
+            out.push_str(&format!(
+                "    /\\ encoded = {}\n",
+                if prev.encoded { "TRUE" } else { "FALSE" }
+            ));
+            out.push_str(&format!(
+                "    /\\ sliced = {}\n",
+                if prev.sliced { "TRUE" } else { "FALSE" }
+            ));
             continue;
         }
         if skipping_init {
@@ -108,7 +114,14 @@ fn transition_trace(prev: &GeState, next: &GeState, action: &str) -> String {
     )
 }
 
-fn validate(ty: &Path, dir: &Path, committed: &str, prev: &GeState, next: &GeState, action: &str) -> (bool, String) {
+fn validate(
+    ty: &Path,
+    dir: &Path,
+    committed: &str,
+    prev: &GeState,
+    next: &GeState,
+    action: &str,
+) -> (bool, String) {
     let spec_f = dir.join("GpuEncode.tla");
     let cfg_f = dir.join("GpuEncode.cfg");
     let trace_f = dir.join("t.json");
@@ -146,7 +159,11 @@ fn validate(ty: &Path, dir: &Path, committed: &str, prev: &GeState, next: &GeSta
 /// `(prev, next, action)` transitions.
 fn drive_frame(n: i64) -> Vec<(GeState, GeState, &'static str)> {
     let mut steps = Vec::new();
-    let mut st = GeState { bg_inst: 0, encoded: false, sliced: false };
+    let mut st = GeState {
+        bg_inst: 0,
+        encoded: false,
+        sliced: false,
+    };
     for _ in 0..n {
         let prev = st;
         st.bg_inst += 1; // Append: bgInst' = bgInst + 1
@@ -162,8 +179,11 @@ fn drive_frame(n: i64) -> Vec<(GeState, GeState, &'static str)> {
 
 #[test]
 fn real_gpu_encode_slice_decision_conforms_to_gpuencode_spec() {
-    let Some(ty) = ty_or_skip("GpuEncode conformance") else { return; };
-    let committed = std::fs::read_to_string(spec_path("GpuEncode.tla")).expect("read GpuEncode.tla");
+    let Some(ty) = ty_or_skip("GpuEncode conformance") else {
+        return;
+    };
+    let committed =
+        std::fs::read_to_string(spec_path("GpuEncode.tla")).expect("read GpuEncode.tla");
     let dir = std::env::temp_dir().join(format!("aterm-gpuencode-conf-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mk tempdir");
 
@@ -195,8 +215,16 @@ fn real_gpu_encode_slice_decision_conforms_to_gpuencode_spec() {
 
     // NEGATIVE CONTROL (a) — the 4ab4eb9 panic: Encode an EMPTY frame (bgInst=0) that
     // slices anyway. `NeverSliceEmpty` forbids it; ty MUST reject.
-    let empty = GeState { bg_inst: 0, encoded: false, sliced: false };
-    let bad_slice_empty = GeState { bg_inst: 0, encoded: true, sliced: true };
+    let empty = GeState {
+        bg_inst: 0,
+        encoded: false,
+        sliced: false,
+    };
+    let bad_slice_empty = GeState {
+        bg_inst: 0,
+        encoded: true,
+        sliced: true,
+    };
     let (ok, o) = validate(&ty, &dir, &committed, &empty, &bad_slice_empty, "Encode");
     assert!(
         !ok,
@@ -206,8 +234,16 @@ fn real_gpu_encode_slice_decision_conforms_to_gpuencode_spec() {
     // NEGATIVE CONTROL (b) — the dual: a NON-empty frame whose Encode fails to slice
     // (sliced=FALSE while bgInst>0). The committed `Encode` sets `sliced'=(bgInst>0)`,
     // so a held-FALSE is not an admitted transition; ty MUST reject.
-    let two = GeState { bg_inst: 2, encoded: false, sliced: false };
-    let bad_noslice = GeState { bg_inst: 2, encoded: true, sliced: false };
+    let two = GeState {
+        bg_inst: 2,
+        encoded: false,
+        sliced: false,
+    };
+    let bad_noslice = GeState {
+        bg_inst: 2,
+        encoded: true,
+        sliced: false,
+    };
     let (ok2, o2) = validate(&ty, &dir, &committed, &two, &bad_noslice, "Encode");
     assert!(
         !ok2,

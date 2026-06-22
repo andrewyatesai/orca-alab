@@ -11,7 +11,10 @@
 // Shared white-box test toolkit: the logger-capture and terminal helpers below
 // are kept for white-box suites; some consumers were removed with the dead
 // feature carve, so parts are currently unused in the default build.
-#![allow(dead_code, reason = "shared test toolkit; helpers consumed by gated/un-wired test suites")]
+#![allow(
+    dead_code,
+    reason = "shared test toolkit; helpers consumed by gated/un-wired test suites"
+)]
 
 use crate::terminal::{ClipboardAccess, Terminal};
 use aterm_log::{Level, LevelFilter, Log, Metadata, Record};

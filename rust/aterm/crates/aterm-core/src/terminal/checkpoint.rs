@@ -53,10 +53,10 @@
 use aterm_types::charset::CharacterSetState;
 use aterm_types::{KittyKeyboardStateSnapshot, TaskbarProgress, XtermKeyboardState};
 
-use super::types::{CurrentStyle, TerminalModes};
 use super::Terminal;
+use super::types::{CurrentStyle, TerminalModes};
 use crate::grid::{CellFlags, Grid, PackedColor};
-use crate::scrollback::{deserialize_lines, serialize_lines, Scrollback};
+use crate::scrollback::{Scrollback, deserialize_lines, serialize_lines};
 
 /// Host-side bindings re-installed on `from_checkpoint`.
 ///
@@ -390,13 +390,22 @@ mod tests {
     }
 
     /// Read a cell's (char, flags, fg, bg) at (row, col) on the ACTIVE grid.
-    fn cell_signature(t: &Terminal, row: u16, col: u16) -> (char, CellFlags, PackedColor, PackedColor) {
+    fn cell_signature(
+        t: &Terminal,
+        row: u16,
+        col: u16,
+    ) -> (char, CellFlags, PackedColor, PackedColor) {
         let cell = *t
             .grid()
             .row(row)
             .and_then(|r| r.get(col))
             .expect("cell in range");
-        (cell.char(), cell.flags(), cell.fg_color().unwrap_or(PackedColor::DEFAULT_FG), cell.bg_color().unwrap_or(PackedColor::DEFAULT_BG))
+        (
+            cell.char(),
+            cell.flags(),
+            cell.fg_color().unwrap_or(PackedColor::DEFAULT_FG),
+            cell.bg_color().unwrap_or(PackedColor::DEFAULT_BG),
+        )
     }
 
     #[test]
@@ -408,11 +417,11 @@ mod tests {
         assert!(t.modes.alternate_screen, "alt screen active at capture");
         assert!(t.secure_keyboard_entry, "secure input captured");
         assert!(t.taskbar_progress.is_some(), "taskbar captured");
+        assert!(t.current_working_directory.is_some(), "cwd captured");
         assert!(
-            t.current_working_directory.is_some(),
-            "cwd captured"
+            t.alt_grid.is_some(),
+            "alt grid present (main saved under alt)"
         );
-        assert!(t.alt_grid.is_some(), "alt grid present (main saved under alt)");
 
         let c0 = t.checkpoint();
         let h = Terminal::from_checkpoint(&c0, HostBindings::none());
@@ -428,11 +437,7 @@ mod tests {
             "visible_content equal"
         );
         for r in 0..rows as usize {
-            assert_eq!(
-                t.row_text(r),
-                h.row_text(r),
-                "row_text equal for row {r}"
-            );
+            assert_eq!(t.row_text(r), h.row_text(r), "row_text equal for row {r}");
         }
 
         // cursor equality.
@@ -446,10 +451,7 @@ mod tests {
         );
         assert_eq!(t.modes, h.modes, "modes equal");
         assert_eq!(t.charset, h.charset, "charset equal");
-        assert_eq!(
-            t.taskbar_progress, h.taskbar_progress,
-            "taskbar equal"
-        );
+        assert_eq!(t.taskbar_progress, h.taskbar_progress, "taskbar equal");
         assert_eq!(
             t.secure_keyboard_entry, h.secure_keyboard_entry,
             "secure input equal"
@@ -458,17 +460,22 @@ mod tests {
             t.current_working_directory, h.current_working_directory,
             "cwd equal"
         );
-        assert_eq!(
-            t.xterm_keyboard, h.xterm_keyboard,
-            "xterm keyboard equal"
-        );
+        assert_eq!(t.xterm_keyboard, h.xterm_keyboard, "xterm keyboard equal");
         assert_eq!(
             t.kitty_keyboard.snapshot(),
             h.kitty_keyboard.snapshot(),
             "kitty keyboard equal"
         );
-        assert_eq!(t.grid().tab_stops(), h.grid().tab_stops(), "tab stops equal");
-        assert_eq!(t.grid().pending_wrap(), h.grid().pending_wrap(), "pending wrap equal");
+        assert_eq!(
+            t.grid().tab_stops(),
+            h.grid().tab_stops(),
+            "tab stops equal"
+        );
+        assert_eq!(
+            t.grid().pending_wrap(),
+            h.grid().pending_wrap(),
+            "pending wrap equal"
+        );
     }
 
     #[test]
@@ -491,10 +498,17 @@ mod tests {
 
         let ts = cell_signature(&t, 0, 0);
         let hs = cell_signature(&h, 0, 0);
-        assert_eq!(ts, hs, "post-hydration styled cell identical (char, flags, fg, bg)");
+        assert_eq!(
+            ts, hs,
+            "post-hydration styled cell identical (char, flags, fg, bg)"
+        );
 
         // And re-checkpoints still agree after the identical follow-on writes.
-        assert_eq!(t.checkpoint(), h.checkpoint(), "post-write re-checkpoint equality");
+        assert_eq!(
+            t.checkpoint(),
+            h.checkpoint(),
+            "post-write re-checkpoint equality"
+        );
     }
 
     #[test]
@@ -518,9 +532,17 @@ mod tests {
             "main screen restored identically after alt toggle"
         );
         for r in 0..rows as usize {
-            assert_eq!(t.row_text(r), h.row_text(r), "row {r} equal after alt toggle");
+            assert_eq!(
+                t.row_text(r),
+                h.row_text(r),
+                "row {r} equal after alt toggle"
+            );
         }
-        assert_eq!(t.checkpoint(), h.checkpoint(), "re-checkpoint equal after alt toggle");
+        assert_eq!(
+            t.checkpoint(),
+            h.checkpoint(),
+            "re-checkpoint equal after alt toggle"
+        );
     }
 
     #[test]

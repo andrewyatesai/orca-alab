@@ -63,13 +63,19 @@ fn real_poll_not_behind_delivers_matching_model() {
     let gapped = matches!(upd, SubUpdate::Gap { .. });
     let st = state(&s, cursor_at);
 
-    assert!(!gapped, "a reader that is not behind must be delivered, not gapped");
+    assert!(
+        !gapped,
+        "a reader that is not behind must be delivered, not gapped"
+    );
     assert_eq!(
         gapped,
         m.action_enabled("PollGap", &st),
         "real gap-decision must equal the model's PollGap guard"
     );
-    assert!(m.action_enabled("PollDeliver", &st), "model permits delivery here");
+    assert!(
+        m.action_enabled("PollDeliver", &st),
+        "model permits delivery here"
+    );
 }
 
 #[test]
@@ -78,7 +84,7 @@ fn real_poll_behind_gaps_no_silent_loss() {
     let mut s = surface(2);
     let cur = s.subscribe(&ReadCap); // at = 0
     let cursor_at = s.seq().0; // 0
-                               // Drive past the cap so eviction passes the cursor (oldest live > cursor + 1).
+    // Drive past the cap so eviction passes the cursor (oldest live > cursor + 1).
     for i in 0..(CAP + 4) {
         s.apply(&WriteCap, Edit::AppendLine(format!("e{i}")));
     }
@@ -89,9 +95,18 @@ fn real_poll_behind_gaps_no_silent_loss() {
     // The model forbids delivery (PollGap enabled, PollDeliver disabled): the real
     // subscriber MUST gap. A silent delivery here would be exactly the bug the
     // derived NoSilentLoss invariant catches.
-    assert!(m.action_enabled("PollGap", &st), "model: a behind reader must gap");
-    assert!(!m.action_enabled("PollDeliver", &st), "model: a behind reader must not deliver");
-    assert!(gapped, "real poll() MUST gap a behind reader, never silently deliver");
+    assert!(
+        m.action_enabled("PollGap", &st),
+        "model: a behind reader must gap"
+    );
+    assert!(
+        !m.action_enabled("PollDeliver", &st),
+        "model: a behind reader must not deliver"
+    );
+    assert!(
+        gapped,
+        "real poll() MUST gap a behind reader, never silently deliver"
+    );
     assert_eq!(
         gapped,
         m.action_enabled("PollGap", &st),

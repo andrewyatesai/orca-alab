@@ -85,7 +85,9 @@ pub fn instance_token_name(pid: u32) -> String {
 /// treated as instance-owned.
 #[must_use]
 pub fn instance_pid(name: &str) -> Option<u32> {
-    let stem = name.strip_suffix(".sock").or_else(|| name.strip_suffix(".token"))?;
+    let stem = name
+        .strip_suffix(".sock")
+        .or_else(|| name.strip_suffix(".token"))?;
     let pid = stem.strip_prefix("aterm-")?;
     // Digits only: keep `u32::parse`'s `+` tolerance from matching odd names.
     if pid.is_empty() || !pid.bytes().all(|b| b.is_ascii_digit()) {
@@ -134,21 +136,42 @@ mod tests {
     #[test]
     fn directive_disables_on_off_values() {
         assert_eq!(socket_directive(Some("0"), None), SocketDirective::Disabled);
-        assert_eq!(socket_directive(Some("off"), None), SocketDirective::Disabled);
-        assert_eq!(socket_directive(Some("OFF"), None), SocketDirective::Disabled);
+        assert_eq!(
+            socket_directive(Some("off"), None),
+            SocketDirective::Disabled
+        );
+        assert_eq!(
+            socket_directive(Some("OFF"), None),
+            SocketDirective::Disabled
+        );
         assert_eq!(socket_directive(None, Some("1")), SocketDirective::Disabled);
-        assert_eq!(socket_directive(None, Some("yes")), SocketDirective::Disabled);
+        assert_eq!(
+            socket_directive(None, Some("yes")),
+            SocketDirective::Disabled
+        );
         // The kill switch wins even over an explicit path.
-        assert_eq!(socket_directive(Some("/tmp/a.sock"), Some("1")), SocketDirective::Disabled);
+        assert_eq!(
+            socket_directive(Some("/tmp/a.sock"), Some("1")),
+            SocketDirective::Disabled
+        );
     }
 
     #[test]
     fn directive_defaults_to_per_instance() {
         assert_eq!(socket_directive(None, None), SocketDirective::PerInstance);
-        assert_eq!(socket_directive(Some(""), None), SocketDirective::PerInstance);
+        assert_eq!(
+            socket_directive(Some(""), None),
+            SocketDirective::PerInstance
+        );
         // A non-disabling kill-switch value does not disable.
-        assert_eq!(socket_directive(None, Some("0")), SocketDirective::PerInstance);
-        assert_eq!(socket_directive(None, Some("")), SocketDirective::PerInstance);
+        assert_eq!(
+            socket_directive(None, Some("0")),
+            SocketDirective::PerInstance
+        );
+        assert_eq!(
+            socket_directive(None, Some("")),
+            SocketDirective::PerInstance
+        );
     }
 
     #[test]
@@ -212,7 +235,10 @@ mod tests {
     #[test]
     fn symlink_ownership_matches_pid_in_target() {
         assert!(symlink_targets_pid("aterm-42.sock", 42));
-        assert!(symlink_targets_pid("/run/user/1000/aterm/aterm-42.sock", 42));
+        assert!(symlink_targets_pid(
+            "/run/user/1000/aterm/aterm-42.sock",
+            42
+        ));
         assert!(!symlink_targets_pid("aterm-42.sock", 43));
         assert!(!symlink_targets_pid("aterm.sock", 42));
         assert!(!symlink_targets_pid("", 42));

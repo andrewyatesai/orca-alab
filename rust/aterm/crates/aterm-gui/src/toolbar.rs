@@ -107,7 +107,6 @@ pub fn read_tab_chrome(_handle: &ToolbarHandle) -> Option<String> {
     None
 }
 
-
 #[cfg(target_os = "macos")]
 mod macos {
     use std::cell::{Cell, RefCell};
@@ -517,6 +516,10 @@ mod macos {
         /// close × on the left and the title to its right, installs the hover tracking
         /// area, and sets the active flag (drives the accent + always-on ×). All
         /// construction is via NON-RAISING factory initializers on the main thread.
+        #[allow(
+            clippy::too_many_arguments,
+            reason = "tab state (index/count/text/active) plus its render context (mtm/proxy/window); both are needed at construction and splitting them only relocates the list"
+        )]
         fn build(
             mtm: MainThreadMarker,
             proxy: EventLoopProxy<Wake>,
@@ -550,7 +553,7 @@ mod macos {
             // SAFETY: `buttonWithTitle:target:action:` is the documented factory; plain
             // setters follow on the fresh button; all on the main thread.
             let close = unsafe {
-                let view_obj: &AnyObject = &*this;
+                let view_obj: &AnyObject = &this;
                 let btn = NSButton::buttonWithTitle_target_action(
                     &NSString::from_str("✕"),
                     Some(view_obj),
@@ -646,7 +649,7 @@ mod macos {
                     mtm.alloc(),
                     self.bounds(),
                     opts,
-                    Some(&*self),
+                    Some(self),
                     None,
                 );
                 self.addTrackingArea(&area);
@@ -944,7 +947,11 @@ mod macos {
         }
 
         // Compute the tab band: between the traffic-light inset and the "+".
-        let total_w = container.frame().size.width.max(TRAFFIC_LIGHT_INSET + PLUS_WIDTH + 1.0);
+        let total_w = container
+            .frame()
+            .size
+            .width
+            .max(TRAFFIC_LIGHT_INSET + PLUS_WIDTH + 1.0);
         let band_w = (total_w - TRAFFIC_LIGHT_INSET - PLUS_WIDTH).max(1.0);
         let n = titles.len();
         // Equal share, clamped so tabs neither eat the whole bar nor vanish.

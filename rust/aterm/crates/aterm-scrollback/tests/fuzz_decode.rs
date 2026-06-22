@@ -87,10 +87,10 @@ fn fuzz_lz4_decompress_never_panics() {
     for case in [
         &b""[..],
         &b"\x00"[..],
-        &b"\x00\x00\x00"[..],            // < 4 bytes (InputTooShort)
-        &b"\x00\x00\x00\x00"[..],        // zero prefix, empty body (Ok empty)
+        &b"\x00\x00\x00"[..],     // < 4 bytes (InputTooShort)
+        &b"\x00\x00\x00\x00"[..], // zero prefix, empty body (Ok empty)
         &[0x04, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF], // garbage body
-        &[0x01, 0x00, 0x00, 0x00],       // claims 1 byte, no body
+        &[0x01, 0x00, 0x00, 0x00], // claims 1 byte, no body
     ] {
         let _ = std::hint::black_box(lz4::decompress_size_prepended(case));
     }
@@ -161,10 +161,10 @@ fn fuzz_deserialize_lines_never_panics() {
     // Edge inputs.
     for case in [
         &b""[..],
-        &b"\x00\x00\x00"[..],                 // < 4 bytes -> empty
-        &b"\x00\x00\x00\x00"[..],             // count 0 -> empty
-        &[0xFF, 0xFF, 0xFF, 0xFF],            // huge count, no records
-        &[0x01, 0x00, 0x00, 0x00, 0x00],      // claims 1 line, truncated record
+        &b"\x00\x00\x00"[..],            // < 4 bytes -> empty
+        &b"\x00\x00\x00\x00"[..],        // count 0 -> empty
+        &[0xFF, 0xFF, 0xFF, 0xFF],       // huge count, no records
+        &[0x01, 0x00, 0x00, 0x00, 0x00], // claims 1 line, truncated record
     ] {
         let _ = std::hint::black_box(deserialize_lines(case));
     }

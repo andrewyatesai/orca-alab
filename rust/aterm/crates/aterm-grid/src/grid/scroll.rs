@@ -309,7 +309,12 @@ impl Grid {
     /// `ring_extras` allocation as scratch for the new row's extraction,
     /// eliminating per-scroll heap churn (one `Box` + two `Vec`s per styled
     /// row) on the dominant one-line scroll.
-    fn reuse_one_scrolled_row_no_scrollback(&mut self, cols: u16, row_count: usize, ring_sb: usize) {
+    fn reuse_one_scrolled_row_no_scrollback(
+        &mut self,
+        cols: u16,
+        row_count: usize,
+        ring_sb: usize,
+    ) {
         let fill = self.storage.cursor_template;
         let oldest = self.storage.ring_head;
         let phys = (oldest + ring_sb) % row_count;
@@ -778,7 +783,6 @@ impl Grid {
         self.storage
             .mark_content_rows(top_u16, bottom_u16.saturating_add(1));
     }
-
 }
 
 // Kitty CSI + T unscroll implementation extracted to scroll_unscroll.rs.

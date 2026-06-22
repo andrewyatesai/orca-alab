@@ -7,3 +7,6 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Owns-correctness capabilities (ATERM_DESIGN WS-G): an UNFORGEABLE sealed-mint capability + trust tier + effect-gating layer."
+
+[lints]
+workspace = true

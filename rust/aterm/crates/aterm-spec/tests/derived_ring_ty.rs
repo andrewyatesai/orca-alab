@@ -22,10 +22,10 @@
 
 // The 7 introspection models are iterated via `harness::instances()`, not named here.
 use aterm_spec::derive::{
-    active_handle_model, coalesce_model, cursor_model, evict_full_model, kernel_model,
+    Model, active_handle_model, coalesce_model, cursor_model, evict_full_model, kernel_model,
     pane_tree_model, proxy_forward_model, read_image_seq_model, recording_model, ring_model,
     session_pool_model, snapshot_model, spawn_locale_model, subscribe_model, tab_nav_model,
-    tab_strip_model, tier_residency_model, transact_model, window_routing_model, Model,
+    tab_strip_model, tier_residency_model, transact_model, window_routing_model,
 };
 use aterm_spec::verify::ty_or_skip;
 use std::path::PathBuf;
@@ -65,14 +65,18 @@ fn assert_model_checks(ty: &PathBuf, m: &Model) {
 
 #[test]
 fn derived_ring_spec_model_checks() {
-    let Some(ty) = ty_or_skip("derived ring spec") else { return; };
+    let Some(ty) = ty_or_skip("derived ring spec") else {
+        return;
+    };
     assert_model_checks(&ty, &ring_model());
 }
 
 #[test]
 fn derived_cursor_spec_model_checks() {
     // Exercises the multi-action / UNCHANGED generation path through `ty`.
-    let Some(ty) = ty_or_skip("derived cursor spec") else { return; };
+    let Some(ty) = ty_or_skip("derived cursor spec") else {
+        return;
+    };
     assert_model_checks(&ty, &cursor_model());
 }
 
@@ -80,7 +84,9 @@ fn derived_cursor_spec_model_checks() {
 fn derived_evict_full_spec_model_checks() {
     // The FUNCTION-VALUED faithful ring: proves EvictOldestContiguous over a
     // live: [1..MaxSeq -> BOOLEAN] set — the property the scalar ring can't express.
-    let Some(ty) = ty_or_skip("derived EvictFull spec") else { return; };
+    let Some(ty) = ty_or_skip("derived EvictFull spec") else {
+        return;
+    };
     assert_model_checks(&ty, &evict_full_model());
 }
 
@@ -112,35 +118,54 @@ fn assert_proves_and_catches(ty: &PathBuf, m: &Model) {
     };
 
     let (ok, out) = run("ok.cfg", m.to_cfg());
-    assert!(ok, "derived {} (Buggy=0) must model-check clean\n{out}", m.name);
+    assert!(
+        ok,
+        "derived {} (Buggy=0) must model-check clean\n{out}",
+        m.name
+    );
     let (bug_ok, bug_out) = run("bug.cfg", m.to_cfg_with(&[("Buggy", 1)]));
-    assert!(!bug_ok, "{} (Buggy=1) MUST yield a counterexample\n{bug_out}", m.name);
+    assert!(
+        !bug_ok,
+        "{} (Buggy=1) MUST yield a counterexample\n{bug_out}",
+        m.name
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
-    eprintln!("derived {}: invariant proven (Buggy=0) and caught (Buggy=1 -> counterexample).", m.name);
+    eprintln!(
+        "derived {}: invariant proven (Buggy=0) and caught (Buggy=1 -> counterexample).",
+        m.name
+    );
 }
 
 #[test]
 fn derived_subscribe_proves_and_catches_silent_loss() {
-    let Some(ty) = ty_or_skip("derived subscribe spec") else { return; };
+    let Some(ty) = ty_or_skip("derived subscribe spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &subscribe_model());
 }
 
 #[test]
 fn derived_transact_proves_and_catches_lost_update() {
-    let Some(ty) = ty_or_skip("derived transact spec") else { return; };
+    let Some(ty) = ty_or_skip("derived transact spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &transact_model());
 }
 
 #[test]
 fn derived_kernel_proves_and_catches_gap() {
-    let Some(ty) = ty_or_skip("derived kernel spec") else { return; };
+    let Some(ty) = ty_or_skip("derived kernel spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &kernel_model());
 }
 
 #[test]
 fn derived_snapshot_proves_and_catches_leak() {
-    let Some(ty) = ty_or_skip("derived snapshot spec") else { return; };
+    let Some(ty) = ty_or_skip("derived snapshot spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &snapshot_model());
 }
 
@@ -150,7 +175,9 @@ fn derived_snapshot_proves_and_catches_leak() {
 /// formal twin of the emacs box-drawing-`?` fix in `aterm_pty::resolve_spawn_locale`.
 #[test]
 fn derived_spawn_locale_proves_and_catches_non_utf8_child() {
-    let Some(ty) = ty_or_skip("derived spawn-locale spec") else { return; };
+    let Some(ty) = ty_or_skip("derived spawn-locale spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &spawn_locale_model());
 }
 
@@ -161,7 +188,9 @@ fn derived_spawn_locale_proves_and_catches_non_utf8_child() {
 /// lacked when those two bugs shipped.
 #[test]
 fn derived_coalesce_proves_and_catches_lane_divergence() {
-    let Some(ty) = ty_or_skip("derived coalesce spec") else { return; };
+    let Some(ty) = ty_or_skip("derived coalesce spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &coalesce_model());
 }
 
@@ -200,21 +229,36 @@ fn assert_deadlock_free_and_catches_wedge(ty: &PathBuf, m: &Model) {
             .expect("run ty check");
         (
             out.status.success(),
-            format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr)),
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ),
         )
     };
 
     let (ok, out) = run("ok.cfg", m.to_cfg_deadlock_with(&[]));
-    assert!(ok, "derived {} (Buggy=0) must be DEADLOCK-FREE\n{out}", m.name);
+    assert!(
+        ok,
+        "derived {} (Buggy=0) must be DEADLOCK-FREE\n{out}",
+        m.name
+    );
     let (bug_ok, bug_out) = run("bug.cfg", m.to_cfg_deadlock_with(&[("Buggy", 1)]));
-    assert!(!bug_ok, "{} (Buggy=1) MUST deadlock (the wedge)\n{bug_out}", m.name);
+    assert!(
+        !bug_ok,
+        "{} (Buggy=1) MUST deadlock (the wedge)\n{bug_out}",
+        m.name
+    );
     assert!(
         bug_out.contains("Deadlock"),
         "{} (Buggy=1) failure must be a DEADLOCK, not an invariant violation\n{bug_out}",
         m.name
     );
     let _ = std::fs::remove_dir_all(&dir);
-    eprintln!("derived {}: deadlock-free (Buggy=0) and wedge caught (Buggy=1 -> Deadlock).", m.name);
+    eprintln!(
+        "derived {}: deadlock-free (Buggy=0) and wedge caught (Buggy=1 -> Deadlock).",
+        m.name
+    );
 }
 
 /// THE UMBRELLA: every property-combinator instance PROVES (Buggy=0) + CATCHES
@@ -226,7 +270,9 @@ fn assert_deadlock_free_and_catches_wedge(ty: &PathBuf, m: &Model) {
 /// test fn here.
 #[test]
 fn property_classes_prove_and_catch_under_ty() {
-    let Some(ty) = ty_or_skip("property-combinator suite") else { return; };
+    let Some(ty) = ty_or_skip("property-combinator suite") else {
+        return;
+    };
     for inst in harness::instances() {
         match inst.class {
             harness::Class::Safety => assert_proves_and_catches(&ty, &inst.model),
@@ -245,7 +291,9 @@ fn derived_tier_residency_proves_and_catches_silent_loss() {
     // the whole bounded state space) and CATCHES the silent loss at Buggy=1 (Push
     // drops on evict without spilling) -> counterexample. The proof must hold
     // BEFORE the spill hook ships.
-    let Some(ty) = ty_or_skip("derived TierResidency spec") else { return; };
+    let Some(ty) = ty_or_skip("derived TierResidency spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &tier_residency_model());
 }
 
@@ -259,7 +307,9 @@ fn derived_recording_proves_and_catches_dropped_event() {
     // bounded space) and CATCHES the silent drop at Buggy=1 (a ReplayStep skips a
     // payload, so the replay parity diverges from live) -> counterexample. Only
     // authorable after the B.4.2 Clock seam made time an explicit recorded input.
-    let Some(ty) = ty_or_skip("derived Recording spec") else { return; };
+    let Some(ty) = ty_or_skip("derived Recording spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &recording_model());
 }
 
@@ -269,7 +319,9 @@ fn derived_read_image_seq_proves_and_catches_torn_read() {
     // snapshot internal-consistency (no torn read), staleness-detectable.
     // `ty` PROVES NoTornRead + SeqIsStaleOrCurrent at Buggy=0, and CATCHES the
     // torn read at Buggy=1 (a later Write leaks into the active snapshot).
-    let Some(ty) = ty_or_skip("derived read_image seq spec") else { return; };
+    let Some(ty) = ty_or_skip("derived read_image seq spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &read_image_seq_model());
 }
 
@@ -281,7 +333,9 @@ fn derived_window_routing_proves_and_catches_missed_exit() {
     // and is never a future/reused id), and CATCHES the missed exit at Buggy=1
     // (the last close fails to exit, leaving win_count=0 with exited=0) ->
     // counterexample on ExitIffEmpty.
-    let Some(ty) = ty_or_skip("derived window routing spec") else { return; };
+    let Some(ty) = ty_or_skip("derived window routing spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &window_routing_model());
 }
 
@@ -296,7 +350,9 @@ fn derived_tab_nav_proves_and_catches_out_of_range_active() {
     // active tab leaves `active = count` past the new end) -> counterexample on
     // ActiveInRange. This holds the new tab feature to the same Trust bar as the
     // engine: the renderer never indexes a tab that no longer exists.
-    let Some(ty) = ty_or_skip("derived tab navigation spec") else { return; };
+    let Some(ty) = ty_or_skip("derived tab navigation spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &tab_nav_model());
 }
 
@@ -312,7 +368,9 @@ fn derived_pane_tree_proves_and_catches_dangling_focus() {
     // past the new end) -> counterexample on FocusInRange. This holds the split-pane
     // feature to the same Trust bar as tabs: input + the solid cursor never route to
     // a pane that no longer exists, and the tree is never empty while the tab is open.
-    let Some(ty) = ty_or_skip("derived pane tree spec") else { return; };
+    let Some(ty) = ty_or_skip("derived pane tree spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &pane_tree_model());
 }
 
@@ -325,7 +383,9 @@ fn derived_session_pool_proves_and_catches_premature_close() {
     // detached session never leaks an entry — and CATCHES the premature retire at
     // Buggy=1 (a Release that retires on EVERY detach, closing while a co-viewer
     // remains) -> counterexample on ClosedIffEmpty.
-    let Some(ty) = ty_or_skip("derived session pool spec") else { return; };
+    let Some(ty) = ty_or_skip("derived session pool spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &session_pool_model());
 }
 
@@ -342,7 +402,9 @@ fn derived_tab_strip_proves_and_catches_strip_desync() {
     // selection) -> counterexample on StripMirrorsTruth. This is the two-lane parity
     // discipline the GUI tab-strip sync must preserve so the native chrome never shows
     // a phantom tab or highlights a segment past the end.
-    let Some(ty) = ty_or_skip("derived tab strip spec") else { return; };
+    let Some(ty) = ty_or_skip("derived tab strip spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &tab_strip_model());
 }
 
@@ -361,7 +423,9 @@ fn derived_active_handle_proves_and_catches_stale_handle() {
     // handle never drives a stale or just-closed session (the bug fixed by routing
     // apply_close_outcome / create_window_internal / push_stub_tab through
     // resync_active_or_window).
-    let Some(ty) = ty_or_skip("derived active handle spec") else { return; };
+    let Some(ty) = ty_or_skip("derived active handle spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &active_handle_model());
 }
 
@@ -375,6 +439,8 @@ fn derived_proxy_forward_proves_and_catches_forward_cycle() {
     // relays the original cross-selector instead of `@.`, so the child re-forwards and
     // the chain grows past one hop) -> counterexample on OneHopNoCycle. If the `@.`
     // rewrite ever regresses, this exhaustive check fails.
-    let Some(ty) = ty_or_skip("derived proxy forward spec") else { return; };
+    let Some(ty) = ty_or_skip("derived proxy forward spec") else {
+        return;
+    };
     assert_proves_and_catches(&ty, &proxy_forward_model());
 }

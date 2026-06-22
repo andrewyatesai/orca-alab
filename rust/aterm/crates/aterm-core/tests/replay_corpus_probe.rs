@@ -49,9 +49,8 @@ fn every_corpus_folds_chunk_independently() {
         // Near-exhaustive differential check: EVERY single cut point [..k][k..]
         // must also fold to the reference. This is the metamorphic guard that
         // catches the bulk-vs-single lane divergence class for this byte log.
-        let all_cuts_ok = (1..flat.len()).all(|k| {
-            fold(&[&flat[..k], &flat[k..]], c).checkpoint() == by_record
-        });
+        let all_cuts_ok =
+            (1..flat.len()).all(|k| fold(&[&flat[..k], &flat[k..]], c).checkpoint() == by_record);
 
         let ok = one_shot == by_record
             && per_byte == by_record

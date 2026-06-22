@@ -108,7 +108,10 @@ mod tests {
         for _ in 0..50_000 {
             let len = (next() % 64) as usize;
             let bytes: Vec<u8> = (0..len).map(|_| (next() & 0xFF) as u8).collect();
-            assert_eq!(decode(&encode(&bytes)).expect("valid hex must decode"), bytes);
+            assert_eq!(
+                decode(&encode(&bytes)).expect("valid hex must decode"),
+                bytes
+            );
 
             // Arbitrary string (odd lengths, non-hex chars): clean Result, no panic.
             let slen = (next() % 80) as usize;

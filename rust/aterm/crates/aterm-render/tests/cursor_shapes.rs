@@ -52,8 +52,15 @@ fn steady_block_fills_whole_cursor_cell() {
     let f = r.render_input(&term.cell_frame(2, 4));
     let pos = cursor_positions(&f);
     // Every pixel of cell (0,0) is the cursor colour and nothing else is.
-    assert_eq!(pos.len(), cw * ch, "block cursor should fill the whole cell");
-    assert!(pos.iter().all(|&(x, y)| x < cw && y < ch), "cursor pixels outside the cursor cell");
+    assert_eq!(
+        pos.len(),
+        cw * ch,
+        "block cursor should fill the whole cell"
+    );
+    assert!(
+        pos.iter().all(|&(x, y)| x < cw && y < ch),
+        "cursor pixels outside the cursor cell"
+    );
 }
 
 #[test]
@@ -67,7 +74,11 @@ fn underline_cursor_fills_only_bottom_strip() {
     let f = r.render_input(&term.cell_frame(2, 4));
     let t = (ch / 8).max(2);
     let pos = cursor_positions(&f);
-    assert_eq!(pos.len(), cw * t, "underline cursor should fill exactly the bottom strip");
+    assert_eq!(
+        pos.len(),
+        cw * t,
+        "underline cursor should fill exactly the bottom strip"
+    );
     assert!(
         pos.iter().all(|&(x, y)| x < cw && y >= ch - t && y < ch),
         "underline cursor pixels outside the bottom strip of the cursor cell"
@@ -85,7 +96,11 @@ fn bar_cursor_fills_only_left_strip() {
     let f = r.render_input(&term.cell_frame(2, 4));
     let t = (cw / 8).max(2);
     let pos = cursor_positions(&f);
-    assert_eq!(pos.len(), t * ch, "bar cursor should fill exactly the left strip");
+    assert_eq!(
+        pos.len(),
+        t * ch,
+        "bar cursor should fill exactly the left strip"
+    );
     assert!(
         pos.iter().all(|&(x, y)| x < t && y < ch),
         "bar cursor pixels outside the left strip of the cursor cell"
@@ -107,18 +122,34 @@ fn hollow_block_draws_outline_but_not_center() {
     let t = (ch / 16).max(1);
     let border = 2 * cw * t + 2 * t * (ch - 2 * t);
     let pos = cursor_positions(&f);
-    assert_eq!(pos.len(), border, "hollow block should paint exactly the outline");
+    assert_eq!(
+        pos.len(),
+        border,
+        "hollow block should paint exactly the outline"
+    );
     // The four edges are cursor-coloured; the cell center is not.
     for &(x, y) in &[(0, 0), (cw - 1, 0), (0, ch - 1), (cw - 1, ch - 1)] {
-        assert_eq!(f.pixels[y * f.width + x], CURSOR, "corner ({x},{y}) should be outlined");
+        assert_eq!(
+            f.pixels[y * f.width + x],
+            CURSOR,
+            "corner ({x},{y}) should be outlined"
+        );
     }
     let (mx, my) = (cw / 2, ch / 2);
-    assert_ne!(f.pixels[my * f.width + mx], CURSOR, "hollow center must stay unfilled");
+    assert_ne!(
+        f.pixels[my * f.width + mx],
+        CURSOR,
+        "hollow center must stay unfilled"
+    );
 
     // Clearing the override restores the terminal's own style (default block).
     r.set_cursor_style_override(None);
     let f2 = r.render_input(&term.cell_frame(2, 4));
-    assert_eq!(cursor_positions(&f2).len(), cw * ch, "override cleared -> block again");
+    assert_eq!(
+        cursor_positions(&f2).len(),
+        cw * ch,
+        "override cleared -> block again"
+    );
 }
 
 #[test]
@@ -133,16 +164,27 @@ fn blink_phase_off_suppresses_blinking_styles_only() {
     let mut term = term_with(b"\x1b[1 q"); // DECSCUSR 1 = blinking block
     r.set_cursor_blink_phase(false);
     let off = r.render_input(&term.cell_frame(2, 4));
-    assert!(cursor_positions(&off).is_empty(), "blink phase off -> no cursor pixels");
+    assert!(
+        cursor_positions(&off).is_empty(),
+        "blink phase off -> no cursor pixels"
+    );
     r.set_cursor_blink_phase(true);
     let on = r.render_input(&term.cell_frame(2, 4));
-    assert_eq!(cursor_positions(&on).len(), cw * ch, "blink phase on -> full block again");
+    assert_eq!(
+        cursor_positions(&on).len(),
+        cw * ch,
+        "blink phase on -> full block again"
+    );
 
     // A STEADY style ignores the phase entirely.
     let mut steady = term_with(b"\x1b[2 q");
     r.set_cursor_blink_phase(false);
     let f = r.render_input(&steady.cell_frame(2, 4));
-    assert_eq!(cursor_positions(&f).len(), cw * ch, "steady block must ignore the blink phase");
+    assert_eq!(
+        cursor_positions(&f).len(),
+        cw * ch,
+        "steady block must ignore the blink phase"
+    );
 
     // Blinking underline/bar respect the phase too.
     for (bytes, label) in [(&b"\x1b[3 q"[..], "underline"), (&b"\x1b[5 q"[..], "bar")] {
@@ -169,11 +211,17 @@ fn hidden_cursor_draws_nothing() {
     // DECTCEM off (CSI ?25l) hides the cursor entirely.
     let mut term = term_with(b"\x1b[?25l");
     let f = r.render_input(&term.cell_frame(2, 4));
-    assert!(cursor_positions(&f).is_empty(), "DECTCEM off -> no cursor pixels");
+    assert!(
+        cursor_positions(&f).is_empty(),
+        "DECTCEM off -> no cursor pixels"
+    );
     // ... and DECSET 25 brings it back.
     let mut term = term_with(b"\x1b[?25l\x1b[?25h");
     let f = r.render_input(&term.cell_frame(2, 4));
-    assert!(!cursor_positions(&f).is_empty(), "DECTCEM on -> cursor drawn again");
+    assert!(
+        !cursor_positions(&f).is_empty(),
+        "DECTCEM on -> cursor drawn again"
+    );
 }
 
 #[test]
@@ -198,11 +246,18 @@ fn underline_and_bar_keep_glyph_in_normal_colors() {
     let glyph_above_strip = (0..ch - strip)
         .flat_map(|y| (0..cw).map(move |x| (x, y)))
         .any(|(x, y)| near_fg(f.pixels[y * f.width + x]));
-    assert!(glyph_above_strip, "underline cursor must leave the glyph in its own fg");
+    assert!(
+        glyph_above_strip,
+        "underline cursor must leave the glyph in its own fg"
+    );
     // The strip itself is solid cursor colour even where the glyph descends.
     for y in ch - strip..ch {
         for x in 0..cw {
-            assert_eq!(f.pixels[y * f.width + x], CURSOR, "strip pixel ({x},{y}) overwritten");
+            assert_eq!(
+                f.pixels[y * f.width + x],
+                CURSOR,
+                "strip pixel ({x},{y}) overwritten"
+            );
         }
     }
 }

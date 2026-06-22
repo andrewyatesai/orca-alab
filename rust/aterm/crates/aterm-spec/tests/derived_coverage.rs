@@ -60,12 +60,16 @@ fn every_kernel_family_spec_has_a_derived_twin() {
     }
     // Evict.tla is covered by TWO derived models: the scalar `Ring` (LenBounded)
     // and the function-valued `EvictFull` (EvictOldestContiguous over live[]).
-    eprintln!("  Evict.tla      -> also derived as `EvictFull` (EvictOldestContiguous, function-valued)");
+    eprintln!(
+        "  Evict.tla      -> also derived as `EvictFull` (EvictOldestContiguous, function-valued)"
+    );
     // NEW machines beyond the kernel family (no hand-written .tla twin — derived
     // from the start). TierResidency is the temporal buffer's spill-not-forget
     // property (HIERARCHICAL_SESSIONS.md Addendum B, B.8.2); proven + negative-
     // controlled in derived_ring_ty.rs.
-    eprintln!("  (new) temporal-buffer  -> `TierResidency` (NoSilentLoss, function-valued, spill-not-forget)");
+    eprintln!(
+        "  (new) temporal-buffer  -> `TierResidency` (NoSilentLoss, function-valued, spill-not-forget)"
+    );
     // The session-bug specs remain hand-written (some are bit-precise / protocol
     // shapes that route to other engines); they are candidates for deriving where
     // they are scalar state machines. Surfaced honestly, not asserted.

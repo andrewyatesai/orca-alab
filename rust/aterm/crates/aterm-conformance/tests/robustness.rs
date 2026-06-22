@@ -78,18 +78,18 @@ proptest! {
 #[test]
 fn known_adversarial_corpus_is_survived() {
     let corpus: &[&[u8]] = &[
-        b"\x1b[",                       // incomplete CSI
-        b"\x1b[999999999999999999m",    // overflowing param
-        b"\x1b[;;;;;;;;;;;;;;;;;;;;m",   // many empty params
-        b"\x1b]0;",                     // unterminated OSC
-        b"\x1b]8;;\x07",                // empty hyperlink
-        b"\x1bP+q\x1b\\",               // DCS
-        b"\xff\xfe\xfd",                // invalid UTF-8
-        b"\xf0\x28\x8c\x28",            // invalid UTF-8 sequence
-        b"\x1b[1;1H\x1b[999;999H",      // out-of-range cursor moves
-        b"\x1b[r\x1b[?1049h\x1b[2J",    // reset region + alt + clear
-        b"\x08\x08\x08\x08",            // backspaces at col 0
-        b"\x1b[100S\x1b[100T",          // huge scroll up/down
+        b"\x1b[",                      // incomplete CSI
+        b"\x1b[999999999999999999m",   // overflowing param
+        b"\x1b[;;;;;;;;;;;;;;;;;;;;m", // many empty params
+        b"\x1b]0;",                    // unterminated OSC
+        b"\x1b]8;;\x07",               // empty hyperlink
+        b"\x1bP+q\x1b\\",              // DCS
+        b"\xff\xfe\xfd",               // invalid UTF-8
+        b"\xf0\x28\x8c\x28",           // invalid UTF-8 sequence
+        b"\x1b[1;1H\x1b[999;999H",     // out-of-range cursor moves
+        b"\x1b[r\x1b[?1049h\x1b[2J",   // reset region + alt + clear
+        b"\x08\x08\x08\x08",           // backspaces at col 0
+        b"\x1b[100S\x1b[100T",         // huge scroll up/down
     ];
     for bytes in corpus {
         let mut t = Terminal::new(24, 80);

@@ -68,7 +68,11 @@ pub fn spawn_delivery(suppress: Arc<Mutex<HashSet<u64>>>) -> Sender<NotifyMsg> {
             // focused window — the user is already looking at it. App unfocused
             // (empty set) OR a background tab fired it → deliver (a background
             // tab's activity still surfaces, mirroring `App::on_bell`).
-            if suppress.lock().unwrap_or_else(|p| p.into_inner()).contains(&msg.session) {
+            if suppress
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .contains(&msg.session)
+            {
                 continue;
             }
             deliver(msg.title.as_deref(), &msg.body);

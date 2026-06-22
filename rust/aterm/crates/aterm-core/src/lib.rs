@@ -52,7 +52,9 @@
 //! - `platform` - Platform abstraction (fonts, clipboard, notifications)
 //! - `security` - Security primitives for AI agent interaction
 //! - `session` - Terminal session management (test only)
-//! - `sixel` - Sixel graphics decoder (permanently compiled out; consume-only)
+//! - `sixel` - Sixel graphics decoder (off-by-default `sixel` feature; when
+//!   enabled, decodes a sixel DCS into an inline image via the OSC 1337 path
+//!   and advertises DA1 code 4)
 //! - `text_shaping_config` - Text shaping configuration
 //! - `vt_level` - VT compatibility level tracking
 //!
@@ -78,7 +80,7 @@
 #![cfg_attr(test, allow(clippy::all, clippy::pedantic))]
 #![allow(
     unexpected_cfgs,
-    reason = "cfg(feature = \"sixel\") marks the deliberately undeclared, permanently compiled-out sixel decode path (consume-only support, locked by aterm-conformance tests/sixel.rs)"
+    reason = "defensive: the `sixel` feature gates the off-by-default decode/render path (declared in Cargo.toml); kept allowing unexpected_cfgs so a future verification cfg added behind the same gate cannot trip the workspace lint"
 )]
 // -----------------------------------------------------------------------------
 // CRATE-WIDE STYLE POLICY: These are intentional style choices for consistency

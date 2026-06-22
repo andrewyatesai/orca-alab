@@ -31,3 +31,6 @@ aterm-spec = { workspace = true, optional = true }
 aterm-spec = { workspace = true }
 aterm-spec-models = { workspace = true }
 aterm-cap = { workspace = true }
+
+[lints]
+workspace = true

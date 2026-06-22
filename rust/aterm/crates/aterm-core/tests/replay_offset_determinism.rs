@@ -43,16 +43,16 @@ const COLS: u16 = 40;
 const SESSION: &[&[u8]] = &[
     b"\x1b[1;38;5;202mboot\x1b[0m\r\n",
     b"plain line one\r\nplain line two\r\n",
-    b"\x1b[2;9r",                       // DECSTBM scroll region
+    b"\x1b[2;9r",                                           // DECSTBM scroll region
     b"\x1b[3;1Hwide: \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e", // CJK (full-width)
-    b" combine: e\xcc\x81\r\n",         // 'e' + U+0301 combining acute
+    b" combine: e\xcc\x81\r\n",                             // 'e' + U+0301 combining acute
     b"\x1b[7mreverse\x1b[0m\tafter-tab\r\n",
-    b"row\r\nrow\r\nrow\r\nrow\r\n",    // scroll content through the region
-    b"\x1b[?1049h",                     // enter alt screen
+    b"row\r\nrow\r\nrow\r\nrow\r\n", // scroll content through the region
+    b"\x1b[?1049h",                  // enter alt screen
     b"\x1b[2J\x1b[1;1Halt body",
-    b"\x1b[?1049l",                     // leave alt screen (main restored)
-    b"\x1b]0;the-title\x07",            // OSC 0 window title
-    b"\x1b[?7l",                        // autowrap off (a captured mode bit)
+    b"\x1b[?1049l",          // leave alt screen (main restored)
+    b"\x1b]0;the-title\x07", // OSC 0 window title
+    b"\x1b[?7l",             // autowrap off (a captured mode bit)
     b"\x1b[10;1Hlast",
 ];
 

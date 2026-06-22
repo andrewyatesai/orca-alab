@@ -224,8 +224,13 @@ pub trait ActionSink {
 
     /// End of a DCS sequence.
     ///
+    /// `canceled` is `true` when the string was aborted by CAN (0x18) or SUB
+    /// (0x1A) rather than terminated by ST / `ESC \`: the sink should DISCARD
+    /// any accumulated payload (e.g. drop a half-decoded Sixel image) instead of
+    /// finalizing it. `false` for a legitimate terminator.
+    ///
     /// Default: no-op.
-    fn dcs_unhook(&mut self) {}
+    fn dcs_unhook(&mut self, _canceled: bool) {}
 
     /// Start of an APC (Application Program Command) sequence.
     ///
@@ -277,7 +282,7 @@ impl ActionSink for NullSink {
     fn osc_dispatch(&mut self, _: &Provenance<[&[u8]], Pty>) {}
     fn dcs_hook(&mut self, _: &Provenance<[u16], Pty>, _: &Provenance<[u8], Pty>, _: u8) {}
     fn dcs_put(&mut self, _: u8) {}
-    fn dcs_unhook(&mut self) {}
+    fn dcs_unhook(&mut self, _: bool) {}
     fn apc_start(&mut self) {}
     fn apc_put(&mut self, _: u8) {}
     fn apc_end(&mut self) {}

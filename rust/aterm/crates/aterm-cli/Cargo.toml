@@ -23,3 +23,6 @@ aterm-pty = { workspace = true }
 aterm-cap = { workspace = true }
 aterm-sandbox = { workspace = true }
 aterm-containment = { workspace = true }
+
+[lints]
+workspace = true

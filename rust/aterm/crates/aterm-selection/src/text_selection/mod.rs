@@ -259,6 +259,32 @@ impl TextSelection {
         (start.row, start.col, end.row, end.col)
     }
 
+    /// Apply sub-cell side adjustment to a normalized anchor pair.
+    ///
+    /// Returns `(start_row, start_col, end_row, end_col)`. A `Right`-sided start
+    /// shifts `start_col` forward by 1; a `Left`-sided end shifts `end_col`
+    /// backward by 1. A `Left`-sided end at col 0 means "stop before column 0",
+    /// which excludes the whole end row — retreat to the previous row with
+    /// `end_col = u16::MAX`. Shared by `side_adjusted_bounds`, `contains`, and
+    /// `project_range` so all sites agree on the selected region.
+    fn apply_side_adjustment(ns: SelectionAnchor, ne: SelectionAnchor) -> (i32, u16, i32, u16) {
+        let start_col = if ns.side == SelectionSide::Right {
+            ns.col.saturating_add(1)
+        } else {
+            ns.col
+        };
+        let (end_row, end_col) = if ne.side == SelectionSide::Left {
+            if ne.col > 0 {
+                (ne.row, ne.col - 1)
+            } else {
+                (ne.row - 1, u16::MAX)
+            }
+        } else {
+            (ne.row, ne.col)
+        };
+        (ns.row, start_col, end_row, end_col)
+    }
+
     /// Get side-adjusted selection bounds matching the visual highlight.
     ///
     /// Returns `Some((start_row, start_col, end_row, end_col))` where columns
@@ -278,35 +304,17 @@ impl TextSelection {
         let ne = self.normalized_end();
 
         // Side adjustment: same logic as contains() and project_range().
-        let start_col = if ns.side == SelectionSide::Right {
-            ns.col.saturating_add(1)
-        } else {
-            ns.col
-        };
-
-        // Left-sided end means "stop before this cell". When col > 0, subtract
-        // 1. When col == 0, there is no cell before column 0 on this row, so
-        // the entire end row is excluded — retreat to the previous row.
-        let (end_row, end_col) = if ne.side == SelectionSide::Left {
-            if ne.col > 0 {
-                (ne.row, ne.col - 1)
-            } else {
-                // End is "before col 0" => nothing on this row; move to prev row.
-                (ne.row - 1, u16::MAX)
-            }
-        } else {
-            (ne.row, ne.col)
-        };
+        let (start_row, start_col, end_row, end_col) = Self::apply_side_adjustment(ns, ne);
 
         // After adjustment, start may be past end (empty selection).
-        if ns.row > end_row {
+        if start_row > end_row {
             return None;
         }
-        if ns.row == end_row && start_col > end_col {
+        if start_row == end_row && start_col > end_col {
             return None;
         }
 
-        Some((ns.row, start_col, end_row, end_col))
+        Some((start_row, start_col, end_row, end_col))
     }
 
     /// Start a new selection.
@@ -463,27 +471,11 @@ impl TextSelection {
             }
             SelectionType::Block => {
                 // Apply side adjustment for sub-cell precision.
-                let start_col = if ns.side == SelectionSide::Right {
-                    ns.col.saturating_add(1)
-                } else {
-                    ns.col
-                };
-                // Left-sided end at col 0: nothing on the end row is selected;
-                // retreat to previous row. For block selection the row range
-                // shrinks by one.
-                let (end_row, end_col) = if ne.side == SelectionSide::Left {
-                    if ne.col > 0 {
-                        (ne.row, ne.col - 1)
-                    } else {
-                        (ne.row - 1, u16::MAX)
-                    }
-                } else {
-                    (ne.row, ne.col)
-                };
+                let (start_row, start_col, end_row, end_col) = Self::apply_side_adjustment(ns, ne);
                 aterm_types::selection::selection_contains_block(
                     row,
                     usize::from(col),
-                    ns.row,
+                    start_row,
                     usize::from(start_col),
                     end_row,
                     usize::from(end_col),
@@ -492,34 +484,19 @@ impl TextSelection {
             // Simple, Semantic, and future variants use linear containment
             // with side adjustment.
             _ => {
-                let start_col = if ns.side == SelectionSide::Right {
-                    ns.col.saturating_add(1)
-                } else {
-                    ns.col
-                };
-                // Left-sided end at col 0: "before column 0" means nothing on
-                // this row is selected from the end perspective. Retreat to the
-                // previous row with end_col = u16::MAX.
-                let (end_row, end_col) = if ne.side == SelectionSide::Left {
-                    if ne.col > 0 {
-                        (ne.row, ne.col - 1)
-                    } else {
-                        (ne.row - 1, u16::MAX)
-                    }
-                } else {
-                    (ne.row, ne.col)
-                };
+                // Apply side adjustment for sub-cell precision.
+                let (start_row, start_col, end_row, end_col) = Self::apply_side_adjustment(ns, ne);
                 // After side adjustment, check for empty range.
-                if ns.row > end_row {
+                if start_row > end_row {
                     return false;
                 }
-                if ns.row == end_row && start_col > end_col {
+                if start_row == end_row && start_col > end_col {
                     return false;
                 }
                 aterm_types::selection::selection_contains_linear(
                     row,
                     usize::from(col),
-                    ns.row,
+                    start_row,
                     usize::from(start_col),
                     end_row,
                     usize::from(end_col),
@@ -548,26 +525,8 @@ impl TextSelection {
 
         // Side adjustment: a Right-sided start means the selection begins at
         // the *next* cell; a Left-sided end means it stops at the *previous*.
-        let start_col = if ns.side == SelectionSide::Right {
-            ns.col.saturating_add(1)
-        } else {
-            ns.col
-        };
-
-        // Left-sided end at col 0: "before column 0" means nothing on the end
-        // row is selected. Retreat to the previous row with end_col = u16::MAX
-        // (will be clamped to last_col for Lines selections).
-        let (end_row, end_col) = if ne.side == SelectionSide::Left {
-            if ne.col > 0 {
-                (ne.row, ne.col - 1)
-            } else {
-                (ne.row - 1, u16::MAX)
-            }
-        } else {
-            (ne.row, ne.col)
-        };
-
-        let start_row = ns.row;
+        // (end_col = u16::MAX is clamped to last_col for Lines selections.)
+        let (start_row, start_col, end_row, end_col) = Self::apply_side_adjustment(ns, ne);
 
         // After side adjustment the range may be empty (except Lines, which
         // always spans full rows regardless of sub-cell side position).

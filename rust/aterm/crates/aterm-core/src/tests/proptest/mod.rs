@@ -8,3 +8,11 @@
 
 #[path = "../../../test_support/proptest/scrollback.rs"]
 mod scrollback;
+
+// Sixel decoder crash-safety + image-invariant proptests. Gated on the same
+// off-by-default `sixel` feature that compiles the decoder: with the feature
+// off there is no `crate::sixel` to exercise, so the module stays compiled out
+// (mirroring the consume-only build). Run with `--features sixel`.
+#[cfg(feature = "sixel")]
+#[path = "../../../test_support/proptest/sixel.rs"]
+mod sixel;

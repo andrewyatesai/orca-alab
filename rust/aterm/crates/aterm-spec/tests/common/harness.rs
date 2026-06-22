@@ -44,19 +44,45 @@ pub fn instances() -> Vec<Instance> {
         publish_ordering_model, relay_teardown_model, reply_fidelity_model,
     };
     vec![
-        Instance { model: dispatch_complete_model(), class: Class::Safety },
-        Instance { model: relay_teardown_model(), class: Class::Safety },
-        Instance { model: proxy_registry_model(), class: Class::Safety },
-        Instance { model: capability_secrecy_model(), class: Class::Safety },
-        Instance { model: publish_ordering_model(), class: Class::Safety },
-        Instance { model: reply_fidelity_model(), class: Class::Safety },
+        Instance {
+            model: dispatch_complete_model(),
+            class: Class::Safety,
+        },
+        Instance {
+            model: relay_teardown_model(),
+            class: Class::Safety,
+        },
+        Instance {
+            model: proxy_registry_model(),
+            class: Class::Safety,
+        },
+        Instance {
+            model: capability_secrecy_model(),
+            class: Class::Safety,
+        },
+        Instance {
+            model: publish_ordering_model(),
+            class: Class::Safety,
+        },
+        Instance {
+            model: reply_fidelity_model(),
+            class: Class::Safety,
+        },
         // Capability-layer audit: authorization soundness (the decide_edge predicate).
-        Instance { model: authorize_soundness_model(), class: Class::Safety },
+        Instance {
+            model: authorize_soundness_model(),
+            class: Class::Safety,
+        },
         // Deep-nesting safety: forwarding needs Owner scope (no transitive authority).
-        Instance { model: no_transitive_authority_model(), class: Class::Safety },
+        Instance {
+            model: no_transitive_authority_model(),
+            class: Class::Safety,
+        },
         Instance {
             model: forward_handshake_model(),
-            class: Class::Liveness { is_final: |s| s.get("client_waiting") == Some(&0) },
+            class: Class::Liveness {
+                is_final: |s| s.get("client_waiting") == Some(&0),
+            },
         },
     ]
 }

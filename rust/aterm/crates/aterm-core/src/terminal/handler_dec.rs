@@ -379,7 +379,11 @@ impl TerminalHandler<'_> {
     /// (`aterm-core/tests/conformance_altscreen.rs`).
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetAlternateScreen", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetAlternateScreen",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     // PROJECTION (TRUST_VACUITY_GATE §2.2 / finding 2): `conformance_altscreen.rs`
     // projects the real `Terminal` onto the spec's `<<active, mainCell, altCell,
@@ -388,7 +392,11 @@ impl TerminalHandler<'_> {
     // execute it (the per-transition ty validation is the aterm-side Tier-1 binding).
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "alt_screen", action = "Enter", project = "aterm_core::terminal::project_altscreen")
+        aterm_spec::refines(
+            machine = "alt_screen",
+            action = "Enter",
+            project = "aterm_core::terminal::project_altscreen"
+        )
     )]
     fn enter_alternate_screen(&mut self) {
         if self.modes.alternate_screen {
@@ -458,7 +466,11 @@ impl TerminalHandler<'_> {
     /// drives the real round-trip and validates it.
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "ResetAlternateScreen", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "ResetAlternateScreen",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     // PROJECTION (TRUST_VACUITY_GATE §2.2 / finding 2): the same `Terminal` →
     // `<<active, mainCell, altCell, cursor, savedCursor, entered, mainSaved>>`
@@ -466,7 +478,11 @@ impl TerminalHandler<'_> {
     // a non-empty projection NAME, executed by `conformance_altscreen.rs` (Tier-1).
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "alt_screen", action = "Leave", project = "aterm_core::terminal::project_altscreen")
+        aterm_spec::refines(
+            machine = "alt_screen",
+            action = "Leave",
+            project = "aterm_core::terminal::project_altscreen"
+        )
     )]
     fn exit_alternate_screen(&mut self) {
         if !self.modes.alternate_screen {
@@ -511,7 +527,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetBracketedPaste", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetBracketedPaste",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn enable_bracketed_paste(&mut self) {
         self.modes.bracketed_paste = true;
@@ -519,7 +539,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "ResetBracketedPaste", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "ResetBracketedPaste",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn disable_bracketed_paste(&mut self) {
         self.modes.bracketed_paste = false;
@@ -527,7 +551,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetMouseMode", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetMouseMode",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn enable_mouse_x10_tracking(&mut self) {
         self.modes.mouse_mode = MouseMode::X10;
@@ -535,7 +563,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetMouseMode", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetMouseMode",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn enable_mouse_normal_tracking(&mut self) {
         self.modes.mouse_mode = MouseMode::Normal;
@@ -543,7 +575,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetMouseMode", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetMouseMode",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn enable_mouse_button_event_tracking(&mut self) {
         self.modes.mouse_mode = MouseMode::ButtonEvent;
@@ -551,7 +587,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetMouseMode", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetMouseMode",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn enable_mouse_any_event_tracking(&mut self) {
         self.modes.mouse_mode = MouseMode::AnyEvent;
@@ -559,7 +599,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetMouseMode", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetMouseMode",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn disable_mouse_tracking(&mut self) {
         self.modes.mouse_mode = MouseMode::None;
@@ -567,7 +611,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "SetSgrMouseEncoding", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "SetSgrMouseEncoding",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn enable_sgr_mouse_encoding(&mut self) {
         self.modes.mouse_encoding = MouseEncoding::Sgr;
@@ -575,7 +623,11 @@ impl TerminalHandler<'_> {
 
     #[cfg_attr(
         any(test, feature = "spec-anchors"),
-        aterm_spec::refines(machine = "terminal_modes", action = "ResetSgrMouseEncoding", project = "aterm_core::terminal::project_modes")
+        aterm_spec::refines(
+            machine = "terminal_modes",
+            action = "ResetSgrMouseEncoding",
+            project = "aterm_core::terminal::project_modes"
+        )
     )]
     fn disable_sgr_mouse_encoding(&mut self) {
         if self.modes.mouse_encoding == MouseEncoding::Sgr {

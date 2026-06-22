@@ -12,9 +12,7 @@
 //! emits `::aterm_spec::derive::*` paths and is exercised from `aterm-spec`'s own
 //! `tests/`.
 
-use aterm_spec_macros::{
-    refines, spec_invariant, spec_unmodeled, SpecAction, SpecState,
-};
+use aterm_spec_macros::{SpecAction, SpecState, refines, spec_invariant, spec_unmodeled};
 
 // ── SpecState: explicit name + tla_file attributes ───────────────────────────
 

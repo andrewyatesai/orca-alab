@@ -34,7 +34,7 @@ use std::process::Command;
 use aterm_spec::derive::ring_model;
 use aterm_spec::ir::lower_to_ir;
 use aterm_spec::tla_check::TlaSpec;
-use aterm_spec::verify::{ty_or_skip, trust_ir_or_skip};
+use aterm_spec::verify::{trust_ir_or_skip, ty_or_skip};
 use aterm_spec::xref::{ProofAnchor, ProofKind, RefinementAnchor, SpecModule};
 
 // ---------------------------------------------------------------------------
@@ -56,7 +56,9 @@ fn spec_link(module: &Path, manifest: Option<&Path>) -> (i32, String) {
     let mut cmd = Command::new(&trust_ir);
     cmd.arg("spec-link").arg(module);
     if let Some(m) = manifest {
-        cmd.arg("--harness-manifest").arg(m).arg("--require-manifest");
+        cmd.arg("--harness-manifest")
+            .arg(m)
+            .arg("--require-manifest");
     }
     let out = cmd.output().expect("run trust-ir spec-link");
     let combined = format!(
@@ -73,11 +75,7 @@ fn tmpdir(tag: &str) -> PathBuf {
     d
 }
 
-fn anchor(
-    machine: &'static str,
-    action: &'static str,
-    project: &'static str,
-) -> RefinementAnchor {
+fn anchor(machine: &'static str, action: &'static str, project: &'static str) -> RefinementAnchor {
     RefinementAnchor {
         machine,
         action,
@@ -136,12 +134,18 @@ fn red_l1_typo_proof_name_flags() {
     );
 
     // GREEN control: fix the proof_name to one the manifest contains → exit 0.
-    let good = ProofAnchor { proof_name: "ring_push_refines", ..typo };
+    let good = ProofAnchor {
+        proof_name: "ring_push_refines",
+        ..typo
+    };
     let good_txt = lower_to_ir("ctl_l1", &modules, &[&a], &[], &[&good]);
     let good_path = dir.join("ctl_l1.trust_ir");
     std::fs::write(&good_path, &good_txt).expect("write");
     let (code, report) = spec_link(&good_path, Some(&manifest));
-    assert_eq!(code, 0, "GREEN L1 control (resolved proof_name) MUST exit 0. Report:\n{report}");
+    assert_eq!(
+        code, 0,
+        "GREEN L1 control (resolved proof_name) MUST exit 0. Report:\n{report}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -178,7 +182,10 @@ fn red_l2_empty_projection_flags() {
     let good_path = dir.join("ctl_l2.trust_ir");
     std::fs::write(&good_path, &good_txt).expect("write");
     let (code, report) = spec_link(&good_path, None);
-    assert_eq!(code, 0, "GREEN L2 control (non-empty project) MUST exit 0. Report:\n{report}");
+    assert_eq!(
+        code, 0,
+        "GREEN L2 control (non-empty project) MUST exit 0. Report:\n{report}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -207,7 +214,10 @@ fn red_l3_external_anchor_on_typeok_flags_in_rust_and_artifact() {
     let spec = TlaSpec::parse_str(EXTERNAL_TLA, "Fixture.tla").expect("parse external .tla");
     // Sanity: TypeOK is a declared def but NOT a Next disjunct.
     assert!(spec.actions.contains("TypeOK"), "TypeOK is a top-level def");
-    assert!(!spec.next_actions.contains("TypeOK"), "TypeOK is NOT a Next disjunct");
+    assert!(
+        !spec.next_actions.contains("TypeOK"),
+        "TypeOK is NOT a Next disjunct"
+    );
     let module = SpecModule::External(spec);
 
     // ---- In-Rust gate (finding 4): action_names() is now Next-only, so TypeOK is NOT
@@ -247,7 +257,10 @@ fn red_l3_external_anchor_on_typeok_flags_in_rust_and_artifact() {
     let good_path = dir.join("ctl_l3.trust_ir");
     std::fs::write(&good_path, &good_txt).expect("write");
     let (code, report) = spec_link(&good_path, None);
-    assert_eq!(code, 0, "GREEN L3 control (anchor on the real Next action Apply) MUST exit 0. Report:\n{report}");
+    assert_eq!(
+        code, 0,
+        "GREEN L3 control (anchor on the real Next action Apply) MUST exit 0. Report:\n{report}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -272,8 +285,14 @@ fn red_window_routing_corrupted_close_is_rejected_by_ty() {
     std::fs::write(&spec, m.transition_spec()).expect("write spec");
 
     // Pin Init to a 2-window state [win_count=2, frontmost=1, next_id=3, exited=0].
-    let init: BTreeMap<&'static str, i64> =
-        [("win_count", 2), ("frontmost", 1), ("next_id", 3), ("exited", 0)].into_iter().collect();
+    let init: BTreeMap<&'static str, i64> = [
+        ("win_count", 2),
+        ("frontmost", 1),
+        ("next_id", 3),
+        ("exited", 0),
+    ]
+    .into_iter()
+    .collect();
     std::fs::write(
         &cfg,
         m.transition_cfg(&init, &[("MaxWin", 1_000_000), ("MaxId", 1_000_000_000)]),

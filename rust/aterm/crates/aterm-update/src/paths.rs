@@ -20,6 +20,10 @@ pub struct Staging {
     pub root: PathBuf,
     /// flock target guarding the apply critical section.
     pub apply_lock: PathBuf,
+    /// flock target serializing the staging critical section (download + extract +
+    /// publish) across processes. Distinct from `apply_lock` so a long download
+    /// never blocks a starting instance's apply path.
+    pub stage_lock: PathBuf,
     /// Scratch dir for in-progress downloads.
     pub download: PathBuf,
     /// The verified, extracted bundle awaiting application.
@@ -43,6 +47,7 @@ impl Staging {
         ensure_private_dir(&download).ok()?;
         Some(Self {
             apply_lock: root.join("apply.lock"),
+            stage_lock: root.join("stage.lock"),
             download,
             staged_app: root.join("staged").join("aterm.app"),
             ready: root.join("ready.toml"),
@@ -56,10 +61,16 @@ impl Staging {
     }
 
     /// Remove any staged bundle + ready marker (called when staging is stale or a
-    /// verification fails — a tampered/old staged copy is worthless).
+    /// verification fails — a tampered/old staged copy is worthless). Also GCs the
+    /// download scratch so a crashed download's `.part`/`.dmg` can't accumulate.
     pub fn clear(&self) {
         let _ = std::fs::remove_file(&self.ready);
         let _ = std::fs::remove_dir_all(self.staged_dir());
+        if let Ok(entries) = std::fs::read_dir(&self.download) {
+            for e in entries.flatten() {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
     }
 }
 

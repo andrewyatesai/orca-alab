@@ -50,7 +50,10 @@ impl Terminal {
     }
 
     /// Clear bell callback.
-    #[allow(dead_code, reason = "cleared via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "cleared via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(crate) fn clear_bell_callback(&mut self) {
         self.bell_callback = None;
     }
@@ -80,7 +83,10 @@ impl Terminal {
     }
 
     /// Clear buffer activation callback.
-    #[allow(dead_code, reason = "cleared via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "cleared via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(crate) fn clear_buffer_activation_callback(&mut self) {
         self.buffer_activation_callback = None;
     }
@@ -91,7 +97,10 @@ impl Terminal {
     }
 
     /// Clear title change callback.
-    #[allow(dead_code, reason = "cleared via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "cleared via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(crate) fn clear_title_callback(&mut self) {
         self.title.callback = None;
     }
@@ -108,7 +117,10 @@ impl Terminal {
     }
 
     /// Clear title event callback.
-    #[allow(dead_code, reason = "cleared via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "cleared via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(crate) fn clear_title_event_callback(&mut self) {
         self.title.event_callback = None;
     }
@@ -139,7 +151,10 @@ impl Terminal {
     }
 
     /// Clear desktop notification callback.
-    #[allow(dead_code, reason = "cleared via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "cleared via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(crate) fn clear_notification_callback(&mut self) {
         self.notifications.callback = None;
     }
@@ -395,7 +410,10 @@ impl Terminal {
     }
 
     /// Clear window callback.
-    #[allow(dead_code, reason = "cleared via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "cleared via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(crate) fn clear_window_callback(&mut self) {
         self.window_callback = None;
     }

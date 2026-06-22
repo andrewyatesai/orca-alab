@@ -52,7 +52,9 @@ fn compose(rows: &[&[char]], cw: usize, ch: usize) -> Grid {
 impl Grid {
     /// Lit rows of column `x`, restricted to cell-row `r`.
     fn col_rows(&self, x: usize, r: usize) -> Vec<usize> {
-        (r * self.ch..(r + 1) * self.ch).filter(|&y| self.lit[y * self.w + x]).collect()
+        (r * self.ch..(r + 1) * self.ch)
+            .filter(|&y| self.lit[y * self.w + x])
+            .collect()
     }
 
     /// Lit columns of row `y`, restricted to cell-column `c`.
@@ -69,9 +71,13 @@ impl Grid {
     fn assert_h_seam(&self, r: usize, c: usize, what: &str) {
         let left = self.col_rows((c + 1) * self.cw - 1, r);
         let right = self.col_rows((c + 1) * self.cw, r);
-        assert!(!left.is_empty(), "{what}: cell ({r},{c}) does not reach its right edge");
+        assert!(
+            !left.is_empty(),
+            "{what}: cell ({r},{c}) does not reach its right edge"
+        );
         assert_eq!(
-            left, right,
+            left,
+            right,
             "{what}: seam between cells ({r},{c}) and ({r},{}) gaps or jogs",
             c + 1
         );
@@ -86,9 +92,13 @@ impl Grid {
         let lower: Vec<usize> = (0..self.cw)
             .filter(|&dx| self.lit[((r + 1) * self.ch) * self.w + c * self.cw + dx])
             .collect();
-        assert!(!upper.is_empty(), "{what}: cell ({r},{c}) does not reach its bottom edge");
+        assert!(
+            !upper.is_empty(),
+            "{what}: cell ({r},{c}) does not reach its bottom edge"
+        );
         assert_eq!(
-            upper, lower,
+            upper,
+            lower,
             "{what}: seam between cells ({r},{c}) and ({},{c}) gaps or jogs",
             r + 1
         );
@@ -228,7 +238,11 @@ fn block_adjacency_seams_are_exact() {
         // boundary columns are both full-height.
         let g = compose(&[&['▐', '▌']], cw, ch);
         g.assert_h_seam(0, 0, &what);
-        assert_eq!(g.col_rows(cw - 1, 0).len(), ch, "{what}: ▐ must fill its last column");
+        assert_eq!(
+            g.col_rows(cw - 1, 0).len(),
+            ch,
+            "{what}: ▐ must fill its last column"
+        );
         // █ over █ and █ beside █.
         let g = compose(&[&['█', '█']], cw, ch);
         g.assert_h_seam(0, 0, &what);
@@ -250,9 +264,18 @@ fn diagonals_meet_cell_corners() {
     for &(cw, ch) in SIZES {
         let cov = procedural::coverage('╲', cw, ch).expect("diagonal");
         assert!(cov[0] != 0, "╲ at {cw}x{ch} must light its top-left corner");
-        assert!(cov[(ch - 1) * cw + (cw - 1)] != 0, "╲ at {cw}x{ch} must light its bottom-right corner");
+        assert!(
+            cov[(ch - 1) * cw + (cw - 1)] != 0,
+            "╲ at {cw}x{ch} must light its bottom-right corner"
+        );
         let cov = procedural::coverage('╱', cw, ch).expect("diagonal");
-        assert!(cov[cw - 1] != 0, "╱ at {cw}x{ch} must light its top-right corner");
-        assert!(cov[(ch - 1) * cw] != 0, "╱ at {cw}x{ch} must light its bottom-left corner");
+        assert!(
+            cov[cw - 1] != 0,
+            "╱ at {cw}x{ch} must light its top-right corner"
+        );
+        assert!(
+            cov[(ch - 1) * cw] != 0,
+            "╱ at {cw}x{ch} must light its bottom-left corner"
+        );
     }
 }

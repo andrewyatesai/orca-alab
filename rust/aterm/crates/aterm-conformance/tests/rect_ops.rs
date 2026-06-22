@@ -75,7 +75,11 @@ fn decfra_rejects_non_printable_fill_char() {
     s.feed(b"\x1b[127;1;1;2;2$x");
     s.feed(b"\x1b[130;1;1;2;2$x");
     for r in 0..6 {
-        assert_eq!(s.row(r), "EEEEEEEEEE", "row {r} unchanged after invalid Pch");
+        assert_eq!(
+            s.row(r),
+            "EEEEEEEEEE",
+            "row {r} unchanged after invalid Pch"
+        );
     }
 }
 
@@ -93,12 +97,27 @@ fn decfra_fill_uses_current_sgr_rendition() {
     let want = CellFlags::BOLD.union(CellFlags::UNDERLINE);
     for r in 1..=2 {
         for c in 1..=3 {
-            assert!(has_flags(&s, r, c, want), "({r},{c}) must be bold+underline");
+            assert!(
+                has_flags(&s, r, c, want),
+                "({r},{c}) must be bold+underline"
+            );
         }
     }
-    assert_eq!(s.cell_flags_bits(0, 1), 0, "row above rect keeps plain attrs");
-    assert_eq!(s.cell_flags_bits(1, 0), 0, "col left of rect keeps plain attrs");
-    assert_eq!(s.cell_flags_bits(1, 4), 0, "col right of rect keeps plain attrs");
+    assert_eq!(
+        s.cell_flags_bits(0, 1),
+        0,
+        "row above rect keeps plain attrs"
+    );
+    assert_eq!(
+        s.cell_flags_bits(1, 0),
+        0,
+        "col left of rect keeps plain attrs"
+    );
+    assert_eq!(
+        s.cell_flags_bits(1, 4),
+        0,
+        "col right of rect keeps plain attrs"
+    );
 }
 
 #[test]
@@ -163,7 +182,11 @@ fn decera_ignores_decsca_protection() {
     s.feed(b"\x1b[1\"qAB\x1b[0\"qCD");
     assert_eq!(s.row(0), "ABCD");
     s.feed(b"\x1b[$z"); // defaults: full screen
-    assert_eq!(s.screen(), "", "DECERA erases protected and unprotected alike");
+    assert_eq!(
+        s.screen(),
+        "",
+        "DECERA erases protected and unprotected alike"
+    );
 }
 
 #[test]
@@ -187,7 +210,11 @@ fn decsera_preserves_decsca_protected_cells() {
     s.feed(b"\x1b[1;1HA\x1b[1\"qB\x1b[0\"qC");
     assert_eq!(s.row(0), "ABC");
     s.feed(b"\x1b[1;1;1;10${");
-    assert_eq!(s.row(0), " B", "protected 'B' survives, A/C erased to spaces");
+    assert_eq!(
+        s.row(0),
+        " B",
+        "protected 'B' survives, A/C erased to spaces"
+    );
 }
 
 #[test]
@@ -214,7 +241,10 @@ fn decsera_preserves_visual_attributes_of_erased_positions() {
     // DECSCA; line attributes." Only the characters become spaces. xterm
     // matches (DECSERA resets the character, not the video attributes).
     s.feed(b"\x1b[1;1H\x1b[1mABCD\x1b[0m"); // bold ABCD, unprotected
-    assert!(has_flags(&s, 0, 0, CellFlags::BOLD), "precondition: bold text");
+    assert!(
+        has_flags(&s, 0, 0, CellFlags::BOLD),
+        "precondition: bold text"
+    );
     s.feed(b"\x1b[1;1;1;4${");
     assert_eq!(s.row(0), "", "characters erased to spaces");
     for c in 0..4 {
@@ -265,8 +295,14 @@ fn deccra_copies_character_attributes() {
     s.feed(b"\x1b[1;1H\x1b[1mAB\x1b[0m"); // bold "AB"
     s.feed(b"\x1b[1;1;1;2;1;3;1;1$v"); // copy to (3;1)
     assert_eq!(s.row(2), "AB");
-    assert!(has_flags(&s, 2, 0, CellFlags::BOLD), "copied cell keeps bold");
-    assert!(has_flags(&s, 2, 1, CellFlags::BOLD), "copied cell keeps bold");
+    assert!(
+        has_flags(&s, 2, 0, CellFlags::BOLD),
+        "copied cell keeps bold"
+    );
+    assert!(
+        has_flags(&s, 2, 1, CellFlags::BOLD),
+        "copied cell keeps bold"
+    );
 }
 
 #[test]
@@ -319,12 +355,24 @@ fn deccara_rect_extent_decsace2_changes_exact_rectangle() {
     // rectangular area. So bold must land on rows 2-4 x cols 3-6 ONLY.
     s.feed(b"\x1b[2*x\x1b[2;3;4;6;1$r");
     for r in 1..=3 {
-        assert!(!has_flags(&s, r, 0, CellFlags::BOLD), "({r},0) outside rect");
-        assert!(!has_flags(&s, r, 1, CellFlags::BOLD), "({r},1) outside rect");
+        assert!(
+            !has_flags(&s, r, 0, CellFlags::BOLD),
+            "({r},0) outside rect"
+        );
+        assert!(
+            !has_flags(&s, r, 1, CellFlags::BOLD),
+            "({r},1) outside rect"
+        );
         for c in 2..=5 {
-            assert!(has_flags(&s, r, c, CellFlags::BOLD), "({r},{c}) inside rect");
+            assert!(
+                has_flags(&s, r, c, CellFlags::BOLD),
+                "({r},{c}) inside rect"
+            );
         }
-        assert!(!has_flags(&s, r, 6, CellFlags::BOLD), "({r},6) outside rect");
+        assert!(
+            !has_flags(&s, r, 6, CellFlags::BOLD),
+            "({r},6) outside rect"
+        );
     }
     for c in 0..10 {
         assert!(!has_flags(&s, 0, c, CellFlags::BOLD), "row 1 above rect");
@@ -345,15 +393,24 @@ fn deccara_stream_extent_decsace1_runs_streamwise() {
     assert!(!has_flags(&s, 1, 0, CellFlags::BOLD));
     assert!(!has_flags(&s, 1, 1, CellFlags::BOLD));
     for c in 2..10 {
-        assert!(has_flags(&s, 1, c, CellFlags::BOLD), "(1,{c}) first stream row");
+        assert!(
+            has_flags(&s, 1, c, CellFlags::BOLD),
+            "(1,{c}) first stream row"
+        );
     }
     // Row 3 (middle): entire row bold.
     for c in 0..10 {
-        assert!(has_flags(&s, 2, c, CellFlags::BOLD), "(2,{c}) middle stream row");
+        assert!(
+            has_flags(&s, 2, c, CellFlags::BOLD),
+            "(2,{c}) middle stream row"
+        );
     }
     // Row 4 (last): cols 1-6 bold, cols 7-10 not.
     for c in 0..=5 {
-        assert!(has_flags(&s, 3, c, CellFlags::BOLD), "(3,{c}) last stream row");
+        assert!(
+            has_flags(&s, 3, c, CellFlags::BOLD),
+            "(3,{c}) last stream row"
+        );
     }
     for c in 6..10 {
         assert!(!has_flags(&s, 3, c, CellFlags::BOLD), "(3,{c}) past Pr");
@@ -388,8 +445,14 @@ fn deccara_sgr0_clears_attrs_but_not_protection() {
     // blink/reverse); and "DECCARA does not change: ... the protection
     // attribute (DECSCA)". One-row rect, so extent is irrelevant.
     s.feed(b"\x1b[1;1;1;2;0$r");
-    assert!(!has_flags(&s, 0, 0, CellFlags::BOLD), "bold cleared by Ps=0");
-    assert!(!has_flags(&s, 0, 1, CellFlags::BOLD), "bold cleared by Ps=0");
+    assert!(
+        !has_flags(&s, 0, 0, CellFlags::BOLD),
+        "bold cleared by Ps=0"
+    );
+    assert!(
+        !has_flags(&s, 0, 1, CellFlags::BOLD),
+        "bold cleared by Ps=0"
+    );
     assert_eq!(s.row(0), "AB", "DECCARA does not change characters");
     // Protection must be intact: DECSERA spares the cells.
     s.feed(b"\x1b[${");
@@ -423,12 +486,24 @@ fn rect_coords_are_relative_to_margins_when_decom_set() {
     // to the bottom margin (origin-mode addressing cannot leave the region).
     s.feed(b"\x1b[3;8r\x1b[?6h");
     s.feed(b"\x1b[1;1;1;5$z");
-    assert_eq!(s.row(1), "EEEEEEEEEE", "absolute row 2 (above margin) intact");
-    assert_eq!(s.row(2), "     EEEEE", "region row 1 = absolute row 3 erased");
+    assert_eq!(
+        s.row(1),
+        "EEEEEEEEEE",
+        "absolute row 2 (above margin) intact"
+    );
+    assert_eq!(
+        s.row(2),
+        "     EEEEE",
+        "region row 1 = absolute row 3 erased"
+    );
     assert_eq!(s.row(3), "EEEEEEEEEE", "Pb=1 inclusive: next row intact");
     // Pb=99 clamps to the bottom margin (absolute row 8), not the page end:
     s.feed(b"\x1b[1;1;99;2$z");
-    assert_eq!(s.row(7), "  EEEEEEEE", "absolute row 8 (bottom margin) erased");
+    assert_eq!(
+        s.row(7),
+        "  EEEEEEEE",
+        "absolute row 8 (bottom margin) erased"
+    );
     assert_eq!(s.row(8), "EEEEEEEEEE", "absolute row 9 below margin intact");
 }
 
@@ -441,7 +516,11 @@ fn rect_coords_are_page_absolute_when_decom_reset() {
     // position / addressing origin; rect ops follow the same origin rule).
     s.feed(b"\x1b[5;8r"); // margins set, but DECOM is reset
     s.feed(b"\x1b[1;1;1;4$z");
-    assert_eq!(s.row(0), "    EEEEEE", "row 1 is absolute row 1, not margin top");
+    assert_eq!(
+        s.row(0),
+        "    EEEEEE",
+        "row 1 is absolute row 1, not margin top"
+    );
     assert_eq!(s.row(4), "EEEEEEEEEE", "margin-top row untouched");
 }
 
@@ -463,9 +542,16 @@ fn reversed_coords_are_ignored() {
     s.feed(b"\x1b[2*x\x1b[4;3;2;6;1$r"); // DECCARA (rect extent), Pb < Pt
     s.feed(b"\x1b[4;1;2;3;1;1;1;1$v"); // DECCRA, source Pb < Pt
     for r in 0..6 {
-        assert_eq!(s.row(r), "EEEEEEEEEE", "row {r} untouched by inverted rects");
+        assert_eq!(
+            s.row(r),
+            "EEEEEEEEEE",
+            "row {r} untouched by inverted rects"
+        );
     }
-    assert!(!has_flags(&s, 2, 3, CellFlags::BOLD), "no attrs from inverted rect");
+    assert!(
+        !has_flags(&s, 2, 3, CellFlags::BOLD),
+        "no attrs from inverted rect"
+    );
 }
 
 #[test]
@@ -532,7 +618,11 @@ fn rect_ops_do_not_move_cursor() {
     s.feed(b"\x1b[1;1;2;2${");
     s.feed(b"\x1b[1;1;2;2;1$r");
     s.feed(b"\x1b[1;1;2;2;1;3;3;1$v");
-    assert_eq!(s.cursor(), (4, 4), "cursor pinned through all five rect ops");
+    assert_eq!(
+        s.cursor(),
+        (4, 4),
+        "cursor pinned through all five rect ops"
+    );
 }
 
 #[test]
@@ -553,6 +643,10 @@ fn adversarial_rect_sequences_never_panic() {
         s.feed(b"\x1b[1;1;1;1;1;1;1;1;1;1;1;1;1;1;1;1$v"); // param overflow
         s.feed(b"\x1b[65535*x\x1b[1;1;1;1;7$r\x1b[0*x"); // DECSACE garbage
         s.feed(b"\x1b[1;1H!");
-        assert_eq!(s.row(0).chars().next(), Some('!'), "still parsing after barrage");
+        assert_eq!(
+            s.row(0).chars().next(),
+            Some('!'),
+            "still parsing after barrage"
+        );
     }
 }

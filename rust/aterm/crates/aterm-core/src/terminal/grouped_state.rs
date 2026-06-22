@@ -257,7 +257,10 @@ pub(super) struct CursorSaveState {
 
 impl CursorSaveState {
     pub(super) fn new() -> Self {
-        Self { main: None, alt: None }
+        Self {
+            main: None,
+            alt: None,
+        }
     }
 
     /// Reset all saved cursor positions (called during terminal reset).
@@ -394,7 +397,10 @@ impl ClipboardState {
 // The OSC 1337 callback fields below are registered and invoked via the FFI
 // app-callback layer (ffi_bridge/app_callbacks); they are inert (never read) in
 // the default lib build, where no callback consumer is compiled.
-#[allow(dead_code, reason = "OSC 1337 callback registry consumed by the FFI app-callback layer")]
+#[allow(
+    dead_code,
+    reason = "OSC 1337 callback registry consumed by the FFI app-callback layer"
+)]
 pub(super) struct Iterm2State {
     /// Callback for OSC 1337 SetProfile requests.
     pub(super) set_profile_callback: Option<callbacks::SetProfileCallback>,
@@ -491,10 +497,16 @@ pub(super) struct SemanticState {
     /// Uses VecDeque for O(1) FIFO eviction at capacity (vs O(n) Vec::remove(0)).
     pub(super) buttons: std::collections::VecDeque<SemanticButton>,
     /// Callback for semantic block events.
-    #[allow(dead_code, reason = "registered/invoked via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "registered/invoked via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(super) block_callback: Option<SemanticBlockCallback>,
     /// Callback for semantic button events.
-    #[allow(dead_code, reason = "registered/invoked via the FFI app-callback layer (ffi_bridge/)")]
+    #[allow(
+        dead_code,
+        reason = "registered/invoked via the FFI app-callback layer (ffi_bridge/)"
+    )]
     pub(super) button_callback: Option<SemanticButtonCallback>,
 }
 

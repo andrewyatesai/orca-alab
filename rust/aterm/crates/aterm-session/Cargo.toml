@@ -32,3 +32,6 @@ aterm-spec = { workspace = true, optional = true }
 # proves/catches run unconditionally. Also makes the fd-lifecycle anchors expand
 # under plain `cargo test -p aterm-session` (the `test` cfg in the cfg_attr gate).
 aterm-spec = { workspace = true }
+
+[lints]
+workspace = true

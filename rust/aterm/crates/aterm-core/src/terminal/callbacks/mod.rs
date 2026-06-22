@@ -22,11 +22,11 @@ pub use aterm_types::{
 
 pub(super) use aterm_types::{
     AdvancedNotificationCallback, BufferActivationCallback, ClipboardCallback,
-    CopyToClipboardCallback, DcsCallback, HighlightCursorLineCallback,
-    KvpCallback, NotificationCallback, RemoteHostCallback,
-    ReportCellSizeCallback, ReportVariableCallback, SemanticBlockCallback, SemanticButtonCallback,
-    SetBadgeFormatCallback, SetColorsCallback, SetProfileCallback, ShellIntegrationVersionCallback,
-    TextSizingCallback, TitleCallback, TitleEventCallback, WindowCallback,
+    CopyToClipboardCallback, DcsCallback, HighlightCursorLineCallback, KvpCallback,
+    NotificationCallback, RemoteHostCallback, ReportCellSizeCallback, ReportVariableCallback,
+    SemanticBlockCallback, SemanticButtonCallback, SetBadgeFormatCallback, SetColorsCallback,
+    SetProfileCallback, ShellIntegrationVersionCallback, TextSizingCallback, TitleCallback,
+    TitleEventCallback, WindowCallback,
 };
 
 // ----------------------------------------------------------------------------

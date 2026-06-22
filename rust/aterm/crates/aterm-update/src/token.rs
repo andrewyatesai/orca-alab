@@ -65,3 +65,40 @@ fn from_file(path: &Path) -> Option<String> {
     let s = std::fs::read_to_string(path).ok()?.trim().to_string();
     (!s.is_empty()).then_some(s)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("aterm-tok-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        d.join("update-token")
+    }
+
+    #[test]
+    fn file_token_accepts_0600() {
+        let p = tmp("ok");
+        std::fs::write(&p, "github_pat_secret\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(from_file(&p).as_deref(), Some("github_pat_secret"));
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn file_token_refuses_group_or_other_readable() {
+        for mode in [0o644u32, 0o640, 0o604, 0o660] {
+            let p = tmp(&format!("m{mode:o}"));
+            std::fs::write(&p, "leakable").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(mode)).unwrap();
+            assert!(from_file(&p).is_none(), "mode {mode:o} must be refused");
+            let _ = std::fs::remove_dir_all(p.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn missing_file_is_none() {
+        assert!(from_file(std::path::Path::new("/nonexistent/aterm/update-token")).is_none());
+    }
+}

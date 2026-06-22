@@ -16,8 +16,8 @@
 //!     manifest must be produced HERE and handed to spec-link).
 //!
 //!   * `spec-link` (§2.5 / finding 5): the always-run cross-reference node. It (1)
-//!     regenerates the manifest, (2) builds the anchor graph from the EMBEDDED models
-//!     + external ISOLATION `.tla` + the cross-crate-collected `proof_anchor!`s
+//!     regenerates the manifest, (2) builds the anchor graph from the EMBEDDED models +
+//!     external ISOLATION `.tla` + the cross-crate-collected `proof_anchor!`s
 //!     (aterm-scrollback / aterm-grid, linked with `spec-anchors` ON in THIS binary),
 //!     (3) lowers it with `aterm_spec::ir::lower_to_ir` (now emitting `proof` lines),
 //!     and (4) shells `trust-ir spec-link --harness-manifest … --require-manifest`,
@@ -113,7 +113,11 @@ fn write_harness_manifest() -> std::io::Result<PathBuf> {
     files.sort();
     for file in &files {
         let text = std::fs::read_to_string(file)?;
-        let rel = file.strip_prefix(&root).unwrap_or(file).to_string_lossy().into_owned();
+        let rel = file
+            .strip_prefix(&root)
+            .unwrap_or(file)
+            .to_string_lossy()
+            .into_owned();
         let lines: Vec<&str> = text.lines().collect();
         let mut armed = false;
         for (i, raw) in lines.iter().enumerate() {
@@ -130,7 +134,10 @@ fn write_harness_manifest() -> std::io::Result<PathBuf> {
                 }
                 if let Some(name) = parse_fn_name(line) {
                     if seen.insert(name.clone()) {
-                        entries.push(HarnessEntry { name, span: format!("{rel}:{}:1", i + 1) });
+                        entries.push(HarnessEntry {
+                            name,
+                            span: format!("{rel}:{}:1", i + 1),
+                        });
                     }
                     armed = false;
                 } else {
@@ -172,7 +179,14 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
 /// Extract `<ident>` from a `(pub )?(unsafe )?fn <ident>…` line; `None` otherwise.
 fn parse_fn_name(line: &str) -> Option<String> {
     let mut rest = line;
-    for kw in ["pub ", "pub(crate) ", "unsafe ", "const ", "async ", "extern "] {
+    for kw in [
+        "pub ",
+        "pub(crate) ",
+        "unsafe ",
+        "const ",
+        "async ",
+        "extern ",
+    ] {
         if let Some(s) = rest.strip_prefix(kw) {
             rest = s.trim_start();
         }
@@ -183,11 +197,7 @@ fn parse_fn_name(line: &str) -> Option<String> {
         .chars()
         .take_while(|c| c.is_alphanumeric() || *c == '_')
         .collect();
-    if ident.is_empty() {
-        None
-    } else {
-        Some(ident)
-    }
+    if ident.is_empty() { None } else { Some(ident) }
 }
 
 /// Render the `HarnessManifest` JSON in the documented shape. Hand-rolled (no serde
@@ -253,8 +263,10 @@ fn spec_link() -> ExitCode {
 
     // (2) Build the anchor graph from THIS binary's linked object code: every embedded
     // model + every external ISOLATION `.tla` + the cross-crate `proof_anchor!`s.
-    let mut modules: Vec<SpecModule> =
-        xref::model_registry().into_iter().map(SpecModule::Embedded).collect();
+    let mut modules: Vec<SpecModule> = xref::model_registry()
+        .into_iter()
+        .map(SpecModule::Embedded)
+        .collect();
     let dir = aterm_spec_models::specs_dir();
     let mut external = 0usize;
     for entry in std::fs::read_dir(&dir).expect("read aterm-spec-models specs/") {
@@ -288,7 +300,8 @@ fn spec_link() -> ExitCode {
     );
 
     // (3) Lower to a byte-conforming `.trust_irtxt` (now emitting `proof` lines).
-    let module_txt = aterm_spec::ir::lower_to_ir("aterm_xtask_spec_link", &modules, &refs, &waivers, &proofs);
+    let module_txt =
+        aterm_spec::ir::lower_to_ir("aterm_xtask_spec_link", &modules, &refs, &waivers, &proofs);
     let out_dir = workspace_root().join("target").join("trust");
     std::fs::create_dir_all(&out_dir).expect("mk target/trust");
     let ir_path = out_dir.join("xtask-spec-link.trust_irtxt");
@@ -347,7 +360,11 @@ fn find_trust_ir() -> Option<PathBuf> {
             }
         }
     }
-    let out = Command::new("sh").arg("-c").arg("command -v trust-ir").output().ok()?;
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg("command -v trust-ir")
+        .output()
+        .ok()?;
     if out.status.success() {
         let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
         if !p.is_empty() {

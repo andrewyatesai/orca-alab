@@ -55,25 +55,43 @@ fn max_channel_delta(a: &Frame, b: &Frame) -> i32 {
 
 /// Tokens the fuzz strings together. Each is raw bytes fed to the terminal.
 const TOKENS: &[&[u8]] = &[
-    b"abc", b"XY", b"  ", b"123", b".rs", b"/usr",
-    b"\x1b[1m", b"\x1b[3m", b"\x1b[4m", b"\x1b[9m", b"\x1b[21m", b"\x1b[4:3m",
-    b"\x1b[53m", b"\x1b[0m", b"\x1b[31m", b"\x1b[42m", b"\x1b[7m", b"\x1b[2m",
-    b"\x1b[38;2;200;120;40m", b"\x1b[4;58:2::255:0:0m",
-    "\u{1F680}".as_bytes(),            // rocket
-    "\u{2764}\u{FE0F}".as_bytes(),     // VS16 heart
+    b"abc",
+    b"XY",
+    b"  ",
+    b"123",
+    b".rs",
+    b"/usr",
+    b"\x1b[1m",
+    b"\x1b[3m",
+    b"\x1b[4m",
+    b"\x1b[9m",
+    b"\x1b[21m",
+    b"\x1b[4:3m",
+    b"\x1b[53m",
+    b"\x1b[0m",
+    b"\x1b[31m",
+    b"\x1b[42m",
+    b"\x1b[7m",
+    b"\x1b[2m",
+    b"\x1b[38;2;200;120;40m",
+    b"\x1b[4;58:2::255:0:0m",
+    "\u{1F680}".as_bytes(),                  // rocket
+    "\u{2764}\u{FE0F}".as_bytes(),           // VS16 heart
     "\u{1F468}\u{200D}\u{1F4BB}".as_bytes(), // ZWJ tech
-    "\u{1F1FA}\u{1F1F8}".as_bytes(),   // US flag
-    "\u{1F44D}\u{1F3FD}".as_bytes(),   // skin-tone thumb
-    "\u{65E5}\u{672C}".as_bytes(),     // CJK
-    "e\u{0301}".as_bytes(),            // é decomposed
-    "\u{250C}\u{2500}\u{2510}".as_bytes(), // box
-    "\u{2588}\u{2592}".as_bytes(),     // block + shade
-    "\u{2847}".as_bytes(),             // braille
-    "\u{1FB13}".as_bytes(),            // sextant
-    "\u{E0B0}\u{E0B6}".as_bytes(),     // powerline
-    b"\r\n", b"\r\n",
-    b"\x1b#6",                          // DECDWL (line start)
-    b"\x1b#3", b"\x1b#4",               // DECDHL top/bottom
+    "\u{1F1FA}\u{1F1F8}".as_bytes(),         // US flag
+    "\u{1F44D}\u{1F3FD}".as_bytes(),         // skin-tone thumb
+    "\u{65E5}\u{672C}".as_bytes(),           // CJK
+    "e\u{0301}".as_bytes(),                  // é decomposed
+    "\u{250C}\u{2500}\u{2510}".as_bytes(),   // box
+    "\u{2588}\u{2592}".as_bytes(),           // block + shade
+    "\u{2847}".as_bytes(),                   // braille
+    "\u{1FB13}".as_bytes(),                  // sextant
+    "\u{E0B0}\u{E0B6}".as_bytes(),           // powerline
+    b"\r\n",
+    b"\r\n",
+    b"\x1b#6", // DECDWL (line start)
+    b"\x1b#3",
+    b"\x1b#4", // DECDHL top/bottom
 ];
 
 #[test]
@@ -101,7 +119,9 @@ fn cpu_gpu_parity_fuzz() {
     let (rows, cols) = (8usize, 24usize);
     let mut state: u64 = 0x243F_6A88_85A3_08D3;
     let mut next = move || {
-        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
         (state >> 33) as u32
     };
 

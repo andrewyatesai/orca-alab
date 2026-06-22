@@ -19,12 +19,15 @@ declare global {
   interface Window {
     __paneManagers?: Map<string, PaneManager>
     __onboardingFeatureSetupDeps?: OnboardingFeatureSetupDeps
+    // e2e/dev override to force the in-page aterm canvas renderer on.
+    __atermRendererEnabled?: boolean
   }
 }
 
 // oxlint-disable-next-line typescript-eslint/consistent-type-definitions -- declaration merging requires interface
 interface ImportMetaEnv {
   readonly VITE_EXPOSE_STORE?: boolean
+  readonly VITE_ATERM_RENDERER?: string
 }
 
 export {}

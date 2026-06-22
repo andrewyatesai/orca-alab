@@ -66,6 +66,11 @@ function captureScrollStateForFit(pane: ManagedPane): ScrollState | null {
 }
 
 export function safeFit(pane: ManagedPane): void {
+  // The aterm canvas controller owns its own ResizeObserver-driven sizing, so
+  // xterm-based fitting must not fight it.
+  if (pane.atermController) {
+    return
+  }
   if (!canMeasurePaneForFit(pane)) {
     return
   }

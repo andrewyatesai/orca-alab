@@ -338,6 +338,9 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     experimentalActivity: false,
     experimentalActivityDefaultedOffForAllUsers: true,
     experimentalTerminalAttention: false,
+    // Why: in-page aterm canvas renderer is opt-in while it is brought up; the
+    // default-off path must leave the xterm rendering path byte-identical.
+    experimentalAtermRenderer: false,
     experimentalAgentHibernation: false,
     agentHibernationIdleMs: 30 * 60 * 1000,
     experimentalNewWorktreeCardStyle: false,

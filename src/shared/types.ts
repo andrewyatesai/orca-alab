@@ -2709,6 +2709,10 @@ export type GlobalSettings = {
    *  and agent-completion events. Opt-in while the signal/noise balance is
    *  being tested. */
   experimentalTerminalAttention: boolean
+  /** Experimental: paint terminal panes with the in-page aterm canvas renderer
+   *  instead of xterm.js drawing. Off by default while the renderer is brought
+   *  up; xterm still owns the buffer/serialize/scrollback when this is on. */
+  experimentalAtermRenderer?: boolean
   /** Experimental: automatically sleep completed, resumable background agent terminals. */
   experimentalAgentHibernation?: boolean
   /** Milliseconds a completed agent must stay idle before hibernation can be considered. */

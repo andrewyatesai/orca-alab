@@ -7,6 +7,7 @@ import {
   writeForegroundTerminalChunk,
   type ForegroundTerminalOutputTarget
 } from './pane-terminal-foreground-render-settle'
+import { mirrorOutputToAterm } from './aterm/aterm-output-mirror'
 
 type TerminalOutputTarget = ForegroundTerminalOutputTarget
 
@@ -701,6 +702,12 @@ export function writeTerminalOutput(
   if (!data) {
     return
   }
+
+  // Mirror the same byte stream to the aterm canvas (no-op unless this pane's
+  // terminal has a registered controller). Done up front so the canvas sees
+  // bytes in order regardless of how the scheduler later queues/drains them;
+  // xterm still receives the bytes too, keeping buffer/serialize populated.
+  mirrorOutputToAterm(terminal, data)
 
   if (options.foreground) {
     const entry = queuedByTerminal.get(terminal)

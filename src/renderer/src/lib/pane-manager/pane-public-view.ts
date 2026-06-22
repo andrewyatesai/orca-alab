@@ -10,6 +10,7 @@ export function toPublicPane(pane: ManagedPaneInternal): ManagedPane {
     linkTooltip: pane.linkTooltip,
     fitAddon: pane.fitAddon,
     searchAddon: pane.searchAddon,
-    serializeAddon: pane.serializeAddon
+    serializeAddon: pane.serializeAddon,
+    atermController: pane.atermController ?? null
   }
 }

@@ -33,6 +33,8 @@ import {
   disposeWebgl
 } from './pane-webgl-renderer'
 import { shouldFocusTerminalFromPanePointerDown } from './pane-pointer-focus'
+import { isAtermRendererEnabled } from './aterm/aterm-renderer-flag'
+import { openAtermPane } from './aterm/aterm-pane-open'
 
 // ---------------------------------------------------------------------------
 // Pane creation, terminal open/close, addon management
@@ -175,6 +177,14 @@ export function createPaneDOM(
 
 /** Open terminal into its container and load addons. Must be called after the container is in the DOM. */
 export function openTerminal(pane: ManagedPaneInternal): void {
+  // Experimental: hand painting + sizing to the in-page aterm canvas renderer.
+  // xterm stays unopened (no DOM/addons/draws) so the rest of the app keeps its
+  // cols/rows/write/onData/buffer/serialize, while the canvas owns the pixels.
+  if (isAtermRendererEnabled()) {
+    openAtermPane(pane)
+    return
+  }
+
   const {
     terminal,
     xtermContainer,
@@ -316,6 +326,13 @@ export function disposePane(
   pane: ManagedPaneInternal,
   panes: Map<number, ManagedPaneInternal>
 ): void {
+  // Mark first so an in-flight async aterm controller creation drops its result.
+  // controller.dispose() is internally guarded, so no try/catch is needed here.
+  pane.disposed = true
+  pane.atermMirrorCleanup?.()
+  pane.atermMirrorCleanup = null
+  pane.atermController?.dispose()
+  pane.atermController = null
   if (pane.pendingInitialFitRafId != null) {
     cancelAnimationFrame(pane.pendingInitialFitRafId)
     pane.pendingInitialFitRafId = null

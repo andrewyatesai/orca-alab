@@ -91,6 +91,18 @@ impl AtermTerminal {
         self.height
     }
 
+    /// Cell width in device pixels — the host computes cols = floor(canvasW / cellWidth).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn cell_width(&self) -> usize {
+        self.renderer.cell_size().0
+    }
+
+    /// Cell height in device pixels — the host computes rows = floor(canvasH / cellHeight).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn cell_height(&self) -> usize {
+        self.renderer.cell_size().1
+    }
+
     /// Copy of the last-rendered RGBA8 framebuffer (`width*height*4` bytes),
     /// ready for `ctx.putImageData(new ImageData(rgba, width, height), 0, 0)`.
     pub fn rgba(&self) -> Vec<u8> {

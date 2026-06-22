@@ -10,6 +10,7 @@ import type { SerializeAddon } from '@xterm/addon-serialize'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import type { TerminalWebglAutoDecision } from './terminal-webgl-auto-policy'
+import type { AtermPaneController } from './aterm/aterm-pane-renderer'
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -76,6 +77,9 @@ export type ManagedPane = {
   fitAddon: FitAddon
   searchAddon: SearchAddon
   serializeAddon: SerializeAddon
+  // Present only when the experimental aterm canvas renderer owns painting and
+  // sizing for this pane; xterm stays unopened but keeps buffer/serialize state.
+  atermController?: AtermPaneController | null
 }
 
 export type PaneRenderingDiagnostics = {
@@ -143,6 +147,11 @@ export type ManagedPaneInternal = {
   // Stored so repeated split restores and disposePane() can remove the
   // deferred alt-screen buffer listener instead of stacking callbacks.
   pendingSplitScrollBufferDisposable?: IDisposable | null
+  // Set by disposePane so an in-flight async aterm controller creation can drop
+  // its result instead of attaching a canvas to a torn-down pane.
+  disposed?: boolean
+  // Unregisters the terminal->aterm-controller output mirror on dispose.
+  atermMirrorCleanup?: (() => void) | null
   debugLabel: string | null
 } & ManagedPane
 

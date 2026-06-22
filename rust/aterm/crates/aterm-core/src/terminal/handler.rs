@@ -160,7 +160,7 @@ define_terminal_handler! {
     // Side-effect state (callbacks, external services)
     title: super::TitleState => title,
     bell_callback: Option<Box<dyn FnMut() + Send>> => bell_callback,
-    last_bell_time: Option<std::time::Instant> => last_bell_time,
+    last_bell_time: Option<web_time::Instant> => last_bell_time,
     cursor_style_callback: Option<Box<dyn FnMut(aterm_types::CursorStyle) + Send>> => cursor_style_callback,
     buffer_activation_callback: Option<BufferActivationCallback> => buffer_activation_callback,
     notifications: super::NotificationState => notifications,

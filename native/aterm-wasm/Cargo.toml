@@ -1,0 +1,32 @@
+[package]
+name = "aterm-wasm"
+version = "0.0.1"
+edition = "2021"
+description = "wasm-bindgen binding: the aterm engine + CPU rasterizer (aterm-render) -> RGBA frames, for rendering a terminal on a <canvas> in the Electron renderer. The in-page replacement substrate for @xterm/xterm's rendering."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# aterm engine + pure-Rust CPU rasterizer (vendored under rust/aterm). aterm-render
+# is fontdue + rustybuzz + ttf-parser — all pure Rust, wasm32-safe. The engine's
+# default closure is no-platform (PTY/libc/zstd are opt-in, off), so it compiles to
+# wasm32-unknown-unknown.
+# default-features = false drops the disk-tier cold scrollback (libc mmap + zstd-sys
+# C), which cannot target wasm32; a renderer needs only the RAM/LZ4 tiers.
+aterm-core = { path = "../../rust/aterm/crates/aterm-core", default-features = false }
+aterm-render = { path = "../../rust/aterm/crates/aterm-render", default-features = false }
+aterm-render-api = { path = "../../rust/aterm/crates/aterm-render-api", default-features = false }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.100"
+console_error_panic_hook = "0.1"
+# Some transitive deps may pull getrandom; on wasm32-unknown-unknown it needs the
+# JS backend. Harmless if unused.
+getrandom = { version = "0.2", features = ["js"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

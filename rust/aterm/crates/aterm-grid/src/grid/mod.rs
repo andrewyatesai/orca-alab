@@ -24,6 +24,8 @@ mod scroll_fill;
 pub mod scroll_materialize;
 mod scroll_unscroll;
 mod scrollback_access;
+// Disk cold-tier spill (mmap-backed); dropped on wasm (no libc/zstd-sys).
+#[cfg(feature = "disk-tier")]
 pub mod scrollback_budget;
 mod search_content;
 pub mod state;

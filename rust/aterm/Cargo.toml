@@ -31,6 +31,10 @@ regex = "1"
 inventory = "0.3"
 rand_core = { version = "0.6", features = ["getrandom"] }
 winit = "0.30"   # aterm-gui windowing; aterm-types winit-keymap feature reuses its key enums
+# Drop-in std::time replacement: EXACTLY `std::time` on native (zero-cost, byte-identical),
+# JS clock on wasm32 — lets the engine's internal Instant/SystemTime reads run under wasm
+# instead of panicking "time not implemented".
+web-time = "1"
 
 # --- internal aterm crates (added by tools/port_crate.sh as each is ported) ---
 aterm-render-api = { path = "crates/aterm-render-api" }

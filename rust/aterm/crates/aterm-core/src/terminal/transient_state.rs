@@ -75,7 +75,8 @@ pub(super) struct TransientState {
     /// VT52 cursor addressing state.
     pub(super) vt52_cursor_state: Vt52CursorState,
     /// Timestamp when synchronized output mode (2026) was enabled.
-    pub(super) sync_start: Option<std::time::Instant>,
+    /// `web_time::Instant` (std on native, JS clock on wasm) to match `process_now`.
+    pub(super) sync_start: Option<web_time::Instant>,
     /// Logical "now" for the current `process_at()` batch — the single
     /// timestamp every state-affecting time read in the pipeline observes.
     ///
@@ -88,7 +89,7 @@ pub(super) struct TransientState {
     /// mode state regardless of real wall-clock pacing. The value is always
     /// overwritten before any reader runs, so its initial/reset value is never
     /// observed.
-    pub(super) process_now: std::time::Instant,
+    pub(super) process_now: web_time::Instant,
     /// Wall-clock epoch milliseconds for the current `process_at()` batch — the
     /// single wall reading every shell-integration command/output mark records
     /// (OSC 133/633 marks B/C/D). Captured alongside [`process_now`] so replay
@@ -138,7 +139,8 @@ impl TransientState {
             sync_start: None,
             // Placeholders; overwritten at the top of every process_at() before
             // any reader runs. CLOCK-EXEMPT: seed only, never observed as state.
-            process_now: std::time::Instant::now(),
+            // web_time::Instant::now(): std on native, JS clock on wasm (std panics there).
+            process_now: web_time::Instant::now(),
             process_wall_ms: None,
             sgr_stack: VecDeque::new(),
             pipeline_timestamps: PipelineTimestamps::default(),

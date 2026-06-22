@@ -12,9 +12,13 @@
 // Keep this list explicit (no wildcard) so new public symbols in aterm-scrollback
 // do not become part of aterm_core::scrollback::* without review.
 pub use aterm_scrollback::{
-    CellAttrs, DiskBackedScrollback, DiskBackedScrollbackConfig, HyperlinkSpan, Line, Rle,
-    Scrollback, ScrollbackIter, ScrollbackRevIter, ScrollbackStorage, WatermarkLevel,
+    CellAttrs, HyperlinkSpan, Line, Rle, Scrollback, ScrollbackIter, ScrollbackRevIter,
+    ScrollbackStorage, WatermarkLevel,
 };
+// Disk cold-tier types are disk-tier-gated in aterm-scrollback (mmap + zstd-sys);
+// dropped on wasm.
+#[cfg(feature = "disk-tier")]
+pub use aterm_scrollback::{DiskBackedScrollback, DiskBackedScrollbackConfig};
 
 // Block codec, public for `TerminalCheckpoint` grid-body encode/decode (B.3.2).
 pub use aterm_scrollback::{deserialize_lines, serialize_lines};

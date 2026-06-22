@@ -24,6 +24,11 @@ pub fn home_dir() -> Option<PathBuf> {
     {
         std::env::var_os("USERPROFILE").map(PathBuf::from)
     }
+    // wasm and other targets have no OS home dir.
+    #[cfg(not(any(unix, windows)))]
+    {
+        None
+    }
 }
 
 #[cfg(unix)]
@@ -80,6 +85,11 @@ pub fn config_dir() -> Option<PathBuf> {
     {
         std::env::var_os("APPDATA").map(PathBuf::from)
     }
+    // wasm and other targets have no OS config dir.
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        None
+    }
 }
 
 /// Return the user's data directory.
@@ -100,6 +110,11 @@ pub fn data_dir() -> Option<PathBuf> {
     #[cfg(windows)]
     {
         std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+    }
+    // wasm and other targets have no OS data dir.
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        None
     }
 }
 

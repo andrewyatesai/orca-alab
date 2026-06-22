@@ -13,6 +13,7 @@ use super::super::GenerationTracker;
 use super::super::LineSize;
 use super::super::ScrolledRowExtras;
 use super::super::scroll_convert::LazyBuffer;
+#[cfg(feature = "disk-tier")]
 use super::super::scrollback_budget::BudgetEnforcer;
 use super::super::{CellCoord, CellExtra};
 use super::super::{HorizontalMargins, PageStore, Row, ScrollRegion};
@@ -91,6 +92,8 @@ pub struct GridStorage {
     /// Memory budget enforcer for scrollback disk spill.
     /// Tracks in-memory scrollback usage and evicts to a temp mmap file
     /// when the budget is exceeded. `None` until explicitly enabled.
+    /// Disk cold-tier only; absent on wasm (no libc/zstd-sys).
+    #[cfg(feature = "disk-tier")]
     pub(crate) budget_enforcer: Option<BudgetEnforcer>,
     /// Cursor- and region-oriented state layered under storage state.
     pub cursor_state: GridCursorState,
@@ -139,6 +142,7 @@ impl GridStorage {
             content_gen: 1,
             any_double_width: false,
             has_horizontal_margins: false,
+            #[cfg(feature = "disk-tier")]
             budget_enforcer: None,
             cursor_state: GridCursorState::kani_stub(visible_rows, cols),
         }

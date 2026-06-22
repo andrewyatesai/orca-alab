@@ -65,7 +65,8 @@ pub use grid::Grid;
 pub use grid::scroll_convert::{scrollback_text_only, set_scrollback_text_only};
 pub use grid::{MaterializedRow, materialize_from_line};
 
-// Re-export scrollback budget types.
+// Re-export scrollback budget types. Gated with the disk cold-tier (wasm drops it).
+#[cfg(feature = "disk-tier")]
 pub use grid::scrollback_budget::{BudgetError, ScrollbackBudget, ScrollbackMemoryStats};
 
 // Re-export primary types at crate root for convenience.

@@ -183,6 +183,8 @@ impl Grid {
     /// When the in-memory scrollback exceeds the configured budget, oldest
     /// cold-tier lines are evicted to a memory-mapped temp file. The temp
     /// file is cleaned up when the grid is dropped.
+    // Disk cold-tier only; absent on wasm (no libc/zstd-sys).
+    #[cfg(feature = "disk-tier")]
     pub fn set_scrollback_budget(&mut self, budget: super::scrollback_budget::ScrollbackBudget) {
         self.storage.budget_enforcer = Some(super::scrollback_budget::BudgetEnforcer::new(budget));
     }
@@ -190,6 +192,8 @@ impl Grid {
     /// Query current scrollback memory usage and budget statistics.
     ///
     /// Returns `None` if no budget is configured.
+    // Disk cold-tier only; absent on wasm (no libc/zstd-sys).
+    #[cfg(feature = "disk-tier")]
     #[must_use]
     pub fn scrollback_memory_stats(
         &self,
@@ -204,6 +208,8 @@ impl Grid {
     ///
     /// Index 0 is the oldest spilled line. Returns `None` if no budget is
     /// configured or the index is out of bounds.
+    // Disk cold-tier only; absent on wasm (no libc/zstd-sys).
+    #[cfg(feature = "disk-tier")]
     #[must_use]
     pub fn get_spilled_line(&self, idx: usize) -> Option<Line> {
         self.storage
@@ -213,7 +219,8 @@ impl Grid {
     }
 }
 
-#[cfg(test)]
+// Uses aterm-scrollback's disk-tier-gated DiskBackedScrollback APIs.
+#[cfg(all(test, feature = "disk-tier"))]
 mod tests {
     use super::*;
     use aterm_scrollback::{

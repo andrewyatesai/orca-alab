@@ -456,7 +456,9 @@ impl Grid {
         }
 
         // Enforce memory budget: evict oldest cold-tier lines to disk spill
-        // if the scrollback exceeds the configured budget.
+        // if the scrollback exceeds the configured budget. Disk cold-tier only;
+        // on wasm (feature off) there is no disk spill — hot/warm RAM tiers only.
+        #[cfg(feature = "disk-tier")]
         if let Some(enforcer) = self.storage.budget_enforcer.as_mut()
             && let Some(scrollback) = self.storage.scrollback.as_mut()
             && let Err(error) = enforcer.enforce(scrollback)

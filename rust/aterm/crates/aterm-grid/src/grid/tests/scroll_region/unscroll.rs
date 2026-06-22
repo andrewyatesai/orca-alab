@@ -863,6 +863,8 @@ fn grid_unscroll_all_empties_scrollback() {
 
 /// Regression test for #4521: unscroll must abort entirely when any scrollback
 /// line fails to decompress, preserving the original scrollback data intact.
+// Uses aterm-scrollback's disk-tier-gated DiskBackedScrollback APIs.
+#[cfg(feature = "disk-tier")]
 #[test]
 fn grid_unscroll_aborts_on_decompression_failure() {
     use aterm_scrollback::{DiskBackedScrollback, DiskBackedScrollbackConfig, ScrollbackStorage};

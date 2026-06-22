@@ -10,7 +10,11 @@ repository.workspace = true
 description = "Terminal grid model: cells, rows, styles, damage tracking, page storage, cursor and region state"
 
 [features]
-default = []
+default = ["disk-tier"]
+# Disk-backed scrollback cold tier (mmap + zstd via aterm-scrollback). DEFAULT-ON
+# so native builds are byte-identical; OFF for wasm32 (no libc/zstd-sys) — the grid
+# then runs hot/warm RAM tiers only with no disk spill (scrollback_budget.rs dropped).
+disk-tier = ["aterm-scrollback/disk-tier"]
 alacritty-compat = []  # Expose legacy Alacritty-facing CellFlags aliases
 fuzz = ["aterm-scrollback/fuzz"]  # Expose fuzz-only APIs (#4258)
 testing = []  # Expose test-only helpers for downstream crate tests
@@ -22,11 +26,11 @@ spec-anchors = ["dep:aterm-spec"]
 
 [dependencies]
 aterm-rle = { workspace = true }
-# `disk-tier` (implies `zstd`) provides the `aterm_scrollback::mmap` wrapper that
-# the grid's scrollback disk-spill (scrollback_budget.rs) maps over. This is a
-# downstream opt-in; it does NOT change `aterm-scrollback`'s own default features,
-# so `cargo tree -p aterm-scrollback` stays libc/zstd-free per §2.7.
-aterm-scrollback = { workspace = true, features = ["disk-tier"] }
+# The grid's `disk-tier` feature forwards to `aterm-scrollback/disk-tier`, which
+# provides the `aterm_scrollback::mmap` wrapper the disk-spill (scrollback_budget.rs)
+# maps over. Not forced here so a wasm consumer can drop libc/zstd-sys; default-on
+# via this crate's own `disk-tier` so native closures are unchanged (§2.7).
+aterm-scrollback = { workspace = true }
 aterm-types = { workspace = true }
 aterm-log = { workspace = true }
 aterm-hash = { workspace = true }

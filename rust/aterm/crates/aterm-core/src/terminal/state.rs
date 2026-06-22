@@ -54,7 +54,9 @@ pub struct Terminal {
     /// would otherwise fire the callback millions of times per second,
     /// wasting CPU on cross-language callback overhead even when the UI
     /// layer has its own rate limiting.
-    pub(super) last_bell_time: Option<std::time::Instant>,
+    // web_time::Instant (std on native, JS clock on wasm): assigned from
+    // transient.process_now, so must share its type.
+    pub(super) last_bell_time: Option<web_time::Instant>,
     /// Cursor style change callback (called when DECSCUSR changes cursor style).
     pub(super) cursor_style_callback: Option<Box<dyn FnMut(aterm_types::CursorStyle) + Send>>,
     /// Buffer activation callback (called when switching between main/alt screen).

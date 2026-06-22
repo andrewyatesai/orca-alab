@@ -9,9 +9,19 @@ license.workspace = true
 repository.workspace = true
 description = "aterm CPU rasterizer: the terminal grid -> an RGBA framebuffer. The renderer core AND the read_image pixel-introspection oracle (headless, testable)."
 
+[features]
+default = ["disk-tier"]
+# Disk-backed scrollback cold tier, forwarded through aterm-core. DEFAULT-ON so
+# native builds are byte-identical; a wasm consumer disables it
+# (--no-default-features) to drop libc/zstd-sys.
+disk-tier = ["aterm-core/disk-tier", "aterm-render-api/disk-tier"]
+
 [dependencies]
-aterm-core = { workspace = true }
-aterm-render-api = { workspace = true }
+# Path (not `workspace = true`) so we can set default-features = false here without
+# forcing it on every workspace consumer; disk-tier is re-enabled by default via this
+# crate's own default = ["disk-tier"], so the native closure is unchanged.
+aterm-core = { path = "../aterm-core", default-features = false }
+aterm-render-api = { path = "../aterm-render-api", default-features = false }
 fontdue = "0.9"
 png = "0.17"
 rustybuzz = "0.20.1"

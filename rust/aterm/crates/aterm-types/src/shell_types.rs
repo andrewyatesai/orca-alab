@@ -12,8 +12,10 @@
 ///
 /// Returns `Some(ms)` on success, `None` if system time is before Unix epoch.
 pub fn current_time_ms() -> Option<u64> {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    // web_time::SystemTime is std::time on native (byte-identical) and the JS
+    // Date clock on wasm32, where std::time::SystemTime::now() panics.
+    web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .ok()
         // as_millis() returns u128; saturate to u64 (won't overflow for centuries)
         .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))

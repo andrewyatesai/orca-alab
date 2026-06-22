@@ -36,7 +36,10 @@
 //! [`MAX_RESPONSE_BUFFER_SIZE`]: super::MAX_RESPONSE_BUFFER_SIZE
 //! [set]: super::state::Terminal::set_response_rate_limit
 
-use std::time::{Duration, Instant};
+// web_time::Instant: std::time on native (byte-identical), JS clock on wasm32 where
+// Instant::now() panics. Must match the engine's other Instant seams (bell, transient).
+use std::time::Duration;
+use web_time::Instant;
 
 /// Default refill rate in bytes/sec. 100 KiB/s is far above the peak
 /// legitimate response traffic (shell-startup probes are <1 KiB total)

@@ -24,6 +24,9 @@ aterm-error = { workspace = true }
 # F11-4 (#7941): MutexExt::lock_or_recover logs poison recoveries so
 # silently-recovered poisoning is never invisible to observability.
 aterm-log = { workspace = true }
+# Internal clock seam: std::time on native (byte-identical), JS clock on wasm32 so
+# `current_time_ms()` doesn't panic "time not implemented".
+web-time = { workspace = true }
 serde = { workspace = true, optional = true }
 # K-2 (winit-keymap feature only): the GUI's platform keyboard enums, mapped
 # into the engine's `keyboard::Key`. Optional so non-GUI consumers stay winit-free.

@@ -1,0 +1,5 @@
+/target
+/pkg
+*.node
+/iso.mjs
+/aterm-wasm-render.png

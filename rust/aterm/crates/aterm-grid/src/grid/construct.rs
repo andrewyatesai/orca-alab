@@ -91,6 +91,7 @@ impl Grid {
                 content_gen: 1,
                 any_double_width: false,
                 has_horizontal_margins: false,
+                #[cfg(feature = "disk-tier")]
                 budget_enforcer: None,
                 cursor_state: GridCursorState {
                     cursor: crate::Cursor::default(),
@@ -170,6 +171,7 @@ impl Grid {
                 content_gen: 1,
                 any_double_width: false,
                 has_horizontal_margins: false,
+                #[cfg(feature = "disk-tier")]
                 budget_enforcer: None,
                 cursor_state: GridCursorState {
                     cursor: crate::Cursor::default(),

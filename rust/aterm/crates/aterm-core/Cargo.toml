@@ -10,7 +10,12 @@ repository.workspace = true
 description = "aterm — lean, headless VT terminal engine core"
 
 [features]
-default = []
+default = ["disk-tier"]
+# Disk-backed scrollback cold tier, forwarded to aterm-grid AND aterm-scrollback
+# (aterm-core conditionally re-exports the latter's disk-tier types). DEFAULT-ON so
+# native builds are byte-identical; a wasm consumer disables it
+# (--no-default-features) to drop libc/zstd-sys.
+disk-tier = ["aterm-grid/disk-tier", "aterm-scrollback/disk-tier"]
 # Opt-in heavyweight stress/stability integration tests (tests/stress_stability.rs).
 # Off by default to keep CI fast: `cargo test -p aterm-core --features long-tests`.
 long-tests = []
@@ -52,7 +57,10 @@ aterm-tempfile = { workspace = true }
 aterm-types = { workspace = true }
 aterm-provenance = { workspace = true, features = ["internal-mint"] }
 aterm-grapheme = { workspace = true }
-aterm-grid = { workspace = true, features = ["alacritty-compat"] }
+# Path (not `workspace = true`) so we can set default-features = false here without
+# forcing it on every workspace consumer; disk-tier is re-enabled by default via this
+# crate's own default = ["disk-tier"], so the native closure is unchanged.
+aterm-grid = { path = "../aterm-grid", default-features = false, features = ["alacritty-compat"] }
 aterm-parser = { workspace = true }
 aterm-scrollback = { workspace = true }
 aterm-ffi-types = { workspace = true }
@@ -64,6 +72,9 @@ aterm-selection = { workspace = true }
 aterm-search = { workspace = true, features = ["regex"] }
 aterm-shell-integration = { workspace = true }
 aterm-containment = { workspace = true }
+# Internal clock seam: std::time on native (byte-identical), JS clock on wasm32 so
+# the engine's Instant/SystemTime reads don't panic "time not implemented".
+web-time = { workspace = true }
 # Optional: UAX #9 BiDi reordering, pulled in only by the off-by-default `bidi`
 # feature. Not in the default production closure.
 aterm-bidi = { workspace = true, optional = true }
@@ -87,7 +98,7 @@ aterm-spec-models = { workspace = true }
 # DamageRect, with_style_id, is_combining_mark, …) re-exported under
 # `#[cfg(any(test, feature = "testing"))]` in `grid/mod.rs`. Resolver 2
 # keeps this out of the production `cargo build`.
-aterm-grid = { workspace = true, features = ["alacritty-compat", "testing"] }
+aterm-grid = { path = "../aterm-grid", default-features = false, features = ["alacritty-compat", "testing"] }
 
 [lints]
 workspace = true

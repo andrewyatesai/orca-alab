@@ -1,10 +1,11 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const HAS_CI_WORKFLOWS = existsSync(join(projectDir, '.github/workflows'))
 const packageJson = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf8'))
 
 describe('Electron runtime package contract', () => {
@@ -55,7 +56,7 @@ describe('Electron runtime package contract', () => {
     expect(packageJson.scripts['build:web']).toContain('node config/scripts/verify-web-build.mjs')
   })
 
-  it('guards release publishing before electron-builder runs', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('guards release publishing before electron-builder runs', () => {
     const releaseWorkflow = readFileSync(
       join(projectDir, '.github/workflows/release-cut.yml'),
       'utf8'
@@ -86,7 +87,7 @@ describe('Electron runtime package contract', () => {
     )
   })
 
-  it('lets release-cut tag a version that is already present on main', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('lets release-cut tag a version that is already present on main', () => {
     const releaseWorkflow = readFileSync(
       join(projectDir, '.github/workflows/release-cut.yml'),
       'utf8'
@@ -100,7 +101,7 @@ describe('Electron runtime package contract', () => {
     expect(bumpStep.run).toContain('git commit --allow-empty -m "$commit_message"')
   })
 
-  it('keeps release-cut RC retries monotonic across stale attempts', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('keeps release-cut RC retries monotonic across stale attempts', () => {
     const releaseWorkflow = readFileSync(
       join(projectDir, '.github/workflows/release-cut.yml'),
       'utf8'
@@ -116,7 +117,7 @@ describe('Electron runtime package contract', () => {
     expect(versionStep.run).toContain('git rev-parse "$existing_rc_tag"')
   })
 
-  it('bumps separate Homebrew casks for stable and RC desktop tags', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('bumps separate Homebrew casks for stable and RC desktop tags', () => {
     const releaseWorkflow = parse(
       readFileSync(join(projectDir, '.github/workflows/release-cut.yml'), 'utf8')
     )
@@ -149,7 +150,7 @@ describe('Electron runtime package contract', () => {
     expect(copyStep.run).toContain('git add "$CASK_PATH"')
   })
 
-  it('installs the Electron package binary in PR checks without changing native module ABI', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('installs the Electron package binary in PR checks without changing native module ABI', () => {
     const prWorkflow = readFileSync(join(projectDir, '.github/workflows/pr.yml'), 'utf8')
     const parsedWorkflow = parse(prWorkflow)
     const installStep = parsedWorkflow.jobs.verify.steps.find(
@@ -159,7 +160,7 @@ describe('Electron runtime package contract', () => {
     expect(installStep.run).toBe('node config/scripts/install-electron-package-binary.mjs')
   })
 
-  it('smokes the packaged CLI from outside the checkout in PR checks', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('smokes the packaged CLI from outside the checkout in PR checks', () => {
     const prWorkflow = readFileSync(join(projectDir, '.github/workflows/pr.yml'), 'utf8')
     const parsedWorkflow = parse(prWorkflow)
     const smokeStep = parsedWorkflow.jobs.verify.steps.find(
@@ -171,7 +172,7 @@ describe('Electron runtime package contract', () => {
     )
   })
 
-  it('keeps terminal scale perf wired to the report budget gate', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('keeps terminal scale perf wired to the report budget gate', () => {
     const packageScripts = packageJson.scripts
     const terminalPerfWorkflow = parse(
       readFileSync(join(projectDir, '.github/workflows/terminal-perf.yml'), 'utf8')
@@ -222,7 +223,7 @@ describe('Electron runtime package contract', () => {
     expect(uploadStep.with.path).toBe('${{ env.ORCA_E2E_TERMINAL_PERF_REPORT_PATH }}')
   })
 
-  it('keeps terminal rendering regressions in the fast golden E2E gate', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('keeps terminal rendering regressions in the fast golden E2E gate', () => {
     const packageScripts = packageJson.scripts
     const goldenWorkflow = parse(
       readFileSync(join(projectDir, '.github/workflows/golden-e2e-experiment.yml'), 'utf8')

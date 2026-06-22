@@ -1,10 +1,11 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const HAS_CI_WORKFLOWS = existsSync(join(projectDir, '.github/workflows'))
 
 describe('computer-use e2e workflow', () => {
   it('runs computer-use e2e files serially because they share desktop focus', () => {
@@ -39,7 +40,7 @@ describe('computer-use e2e workflow', () => {
     expect(windowsStoreE2e).not.toMatch(/for \(const index of \[one, plus, two, equals\]\)/)
   })
 
-  it('triggers on computer-use shared contracts, scripts, and agent skill changes', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('triggers on computer-use shared contracts, scripts, and agent skill changes', () => {
     const workflow = parse(
       readFileSync(join(projectDir, '.github/workflows/computer-e2e.yml'), 'utf8')
     )
@@ -63,7 +64,7 @@ describe('computer-use e2e workflow', () => {
     expect(triggerPaths).not.toContain('src/shared/runtime-types.ts')
   })
 
-  it('runs focused computer-use regression tests in the PR native-smoke job', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('runs focused computer-use regression tests in the PR native-smoke job', () => {
     const workflow = parse(
       readFileSync(join(projectDir, '.github/workflows/computer-e2e.yml'), 'utf8')
     )
@@ -111,7 +112,7 @@ describe('computer-use e2e workflow', () => {
     }
   })
 
-  it('runs Linux computer-use e2e in the PR native-smoke job under Xvfb', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('runs Linux computer-use e2e in the PR native-smoke job under Xvfb', () => {
     const workflow = parse(
       readFileSync(join(projectDir, '.github/workflows/computer-e2e.yml'), 'utf8')
     )
@@ -127,7 +128,7 @@ describe('computer-use e2e workflow', () => {
     )
   })
 
-  it('builds Electron main output before every computer-use e2e run', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('builds Electron main output before every computer-use e2e run', () => {
     const workflow = parse(
       readFileSync(join(projectDir, '.github/workflows/computer-e2e.yml'), 'utf8')
     )
@@ -153,7 +154,7 @@ describe('computer-use e2e workflow', () => {
     }
   })
 
-  it('runs core Windows computer-use e2e in the PR native-smoke job', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('runs core Windows computer-use e2e in the PR native-smoke job', () => {
     const workflow = parse(
       readFileSync(join(projectDir, '.github/workflows/computer-e2e.yml'), 'utf8')
     )
@@ -175,7 +176,7 @@ describe('computer-use e2e workflow', () => {
     expect(allRuns.join('\n')).not.toContain('test:e2e:computer -- --reporter')
   })
 
-  it('runs macOS and Linux computer-use e2e files in scheduled jobs', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('runs macOS and Linux computer-use e2e files in scheduled jobs', () => {
     const workflow = parse(
       readFileSync(join(projectDir, '.github/workflows/computer-e2e.yml'), 'utf8')
     )
@@ -204,7 +205,7 @@ describe('computer-use e2e workflow', () => {
     )
   })
 
-  it('runs every Windows computer-use e2e file in the scheduled Windows job', () => {
+  it.skipIf(!HAS_CI_WORKFLOWS)('runs every Windows computer-use e2e file in the scheduled Windows job', () => {
     const workflow = parse(
       readFileSync(join(projectDir, '.github/workflows/computer-e2e.yml'), 'utf8')
     )

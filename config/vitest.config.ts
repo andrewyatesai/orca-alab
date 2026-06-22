@@ -15,6 +15,8 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // Ensure DOM tests have a working Web Storage API on Node 26 (see the setup).
+    setupFiles: [resolve('config/vitest-dom-storage-polyfill.ts')],
     include: [
       'src/**/*.test.ts',
       'src/**/*.test.tsx',

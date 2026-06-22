@@ -168,6 +168,10 @@ pub fn model_registry() -> Vec<Model> {
         // A7 (WS-G): the PTY-master fd-lifecycle ownership discipline — drift-free
         // twin of FdLifecycle.tla, anchored to aterm-session/src/sink.rs.
         fd_lifecycle_model(),
+        // WS-G: spawn-time locale guarantee — the child always runs under a UTF-8
+        // LC_CTYPE. Abstract twin of aterm_pty::resolve_spawn_locale (real-code
+        // binding in aterm-pty's spawn_locale_conformance test). Proves-and-catches.
+        spawn_locale_model(),
         evict_full_model(),
         tier_residency_model(),
         recording_model(),

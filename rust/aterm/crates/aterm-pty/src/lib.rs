@@ -125,6 +125,82 @@ pub struct SpawnedShell {
     pub pid: i32,
 }
 
+/// Whether a locale string selects a UTF-8 character encoding.
+///
+/// A POSIX locale is `language[_TERRITORY][.codeset][@modifier]`; the *codeset*
+/// (the part after the last `.`, with any trailing `@modifier` stripped) decides
+/// the encoding. The match is case-insensitive and ignores `-`, so `.UTF-8`,
+/// `.UTF8`, `.utf-8`, `.utf8`, and `.UTF-8@euro` all qualify, while `C`, `POSIX`,
+/// a bare `en_US` (no codeset), and `.ISO8859-1` do not.
+fn is_utf8_locale(loc: &str) -> bool {
+    let Some(dot) = loc.rfind('.') else { return false };
+    let codeset = loc[dot + 1..].split('@').next().unwrap_or("");
+    let norm: String = codeset.chars().filter(|c| *c != '-').map(|c| c.to_ascii_lowercase()).collect();
+    norm == "utf8"
+}
+
+/// Resolve the locale overrides aterm must inject so the spawned child always runs
+/// under a UTF-8 `LC_CTYPE`.
+///
+/// `LC_CTYPE` is the POSIX category that decides character encoding; locale-aware
+/// programs (emacs, vim, python, tmux, perl, …) consult it to choose whether
+/// terminal I/O is UTF-8. aterm's parser is UTF-8-only, so if the child runs under
+/// a non-UTF-8 `LC_CTYPE` those programs re-encode multibyte text (e.g. pasted
+/// box-drawing `┌─┐`) into the ASCII codeset and emit a literal `?` per character.
+/// The terminal must therefore GUARANTEE a UTF-8 `LC_CTYPE` regardless of what
+/// locale fragments it inherited.
+///
+/// `lc_all`/`lc_ctype`/`lang` are the inherited values: `None` = unset; `Some("")`
+/// = set-but-empty, which POSIX treats as unset for category resolution (it falls
+/// through to the next level). The *effective* encoding category follows POSIX
+/// precedence **`LC_ALL` > `LC_CTYPE` > `LANG`**.
+///
+/// Returns the `(key, value)` pairs to APPEND to `env_add` (applied by
+/// [`build_child_env`], which overrides an inherited key or appends a new one):
+/// - **EMPTY** when the effective encoding is already UTF-8 — the user's locale is
+///   left completely untouched (the common case; keeps every existing spawn test green).
+/// - Otherwise `LC_CTYPE=en_US.UTF-8` — the minimal override: it fixes only the
+///   encoding category and dominates `LANG`. `en_US.UTF-8` is guaranteed present on
+///   macOS; we deliberately do NOT guess a territory locale (e.g. `fr_FR.UTF-8`) that
+///   may be absent and would silently fall back to `C`, reintroducing the bug.
+/// - …PLUS `LC_ALL=""` when a non-empty `LC_ALL` is the dominating inherited value:
+///   `LC_ALL` would otherwise override the injected `LC_CTYPE` (it sits above it in
+///   precedence), so we NEUTRALIZE it via POSIX empty-string fall-through. This is
+///   surgical — the user's `LANG`/other `LC_*` still drive collation/messages/etc.;
+///   only the encoding category is forced to UTF-8.
+///
+/// Pure in its inputs (like [`build_child_env`]) so it is unit-tested without
+/// mutating the process-global environment, and called in the PARENT before
+/// `forkpty` where allocation / env reads are safe. The property "the child's
+/// effective `LC_CTYPE` is UTF-8 for every inherited locale shape" is proven by the
+/// `SpawnLocale` Tier-0 `ty` model (`aterm_spec::derive::spawn_locale_model`) and
+/// bound to this real function by the `spawn_locale_*` conformance tests below.
+#[must_use]
+pub fn resolve_spawn_locale(
+    lc_all: Option<&str>,
+    lc_ctype: Option<&str>,
+    lang: Option<&str>,
+) -> Vec<(String, String)> {
+    // POSIX: an empty value is treated as unset for category resolution.
+    fn set(o: Option<&str>) -> Option<&str> {
+        o.filter(|s| !s.is_empty())
+    }
+    // Effective encoding category under precedence LC_ALL > LC_CTYPE > LANG.
+    let effective = set(lc_all).or(set(lc_ctype)).or(set(lang));
+    // Already UTF-8 (incl. a UTF-8 dominating LC_ALL): change nothing.
+    if effective.is_some_and(is_utf8_locale) {
+        return Vec::new();
+    }
+    let mut overrides = vec![("LC_CTYPE".to_string(), "en_US.UTF-8".to_string())];
+    // A set, non-empty LC_ALL dominates LC_CTYPE; here it is necessarily non-UTF-8
+    // (else `effective` above would have been UTF-8 and we'd have returned). Empty
+    // it so POSIX falls through to the LC_CTYPE we just injected.
+    if set(lc_all).is_some() {
+        overrides.push(("LC_ALL".to_string(), String::new()));
+    }
+    overrides
+}
+
 /// Build the child shell's environment: the `inherited` environment with every
 /// deny-listed key removed (AI-tool vars `CLAUDE*`/`ANTHROPIC_*`/`COPILOT_*`/… and
 /// the containment vars `ATERM_CONTAINMENT_MODE`/`_ALLOWLIST`, via the canonical
@@ -930,6 +1006,166 @@ mod tests {
             out.iter().filter(|(k, _)| k == &os("TERM")).map(|(_, v)| v).collect();
         assert_eq!(terms.len(), 1, "TERM must appear exactly once");
         assert_eq!(terms[0], &os("xterm-256color"), "env_add must override inherited TERM");
+    }
+
+    // ---- locale resolution: the child always runs under a UTF-8 LC_CTYPE ----
+    //
+    // REGRESSION (the emacs `?` bug): the old GUI guard injected a UTF-8 locale ONLY
+    // when LANG/LC_ALL/LC_CTYPE were ALL unset, so a present-but-non-UTF-8 locale
+    // (LANG=C, bare en_US, LC_ALL=C, a stray non-UTF-8 LC_CTYPE) reached the child and
+    // programs like emacs re-encoded pasted box-drawing UTF-8 to ASCII `?`. These
+    // pin `resolve_spawn_locale` (which `build_child_env` then composes onto the env).
+
+    #[test]
+    fn is_utf8_locale_classifies_codeset() {
+        // UTF-8 codesets in every spelling/case, with and without an @modifier.
+        for ok in ["en_US.UTF-8", "en_US.UTF8", "en_US.utf-8", "en_US.utf8", "de_DE.UTF-8@euro"] {
+            assert!(is_utf8_locale(ok), "{ok} should be UTF-8");
+        }
+        // No codeset, or a non-UTF-8 one, is NOT UTF-8.
+        for no in ["C", "POSIX", "en_US", "en_US.ISO8859-1", "", "fr_FR.ISO8859-15@euro"] {
+            assert!(!is_utf8_locale(no), "{no} should NOT be UTF-8");
+        }
+    }
+
+    #[test]
+    fn resolve_spawn_locale_edge_cases() {
+        let kv = |k: &str, v: &str| (k.to_string(), v.to_string());
+        let ctype = || vec![kv("LC_CTYPE", "en_US.UTF-8")];
+        let ctype_and_neutralize = || vec![kv("LC_CTYPE", "en_US.UTF-8"), kv("LC_ALL", "")];
+
+        // All unset (Finder/.app launch): inject the encoding category.
+        assert_eq!(resolve_spawn_locale(None, None, None), ctype());
+        // present-but-non-UTF-8 LANG — the emacs `?` repro.
+        assert_eq!(resolve_spawn_locale(None, None, Some("C")), ctype());
+        assert_eq!(resolve_spawn_locale(None, None, Some("POSIX")), ctype());
+        // bare LANG (no codeset).
+        assert_eq!(resolve_spawn_locale(None, None, Some("en_US")), ctype());
+        // a non-UTF-8 LC_CTYPE shadowing a UTF-8 LANG: override LC_CTYPE; LANG untouched.
+        assert_eq!(
+            resolve_spawn_locale(None, Some("en_US.ISO8859-1"), Some("en_US.UTF-8")),
+            ctype()
+        );
+        // LC_ALL=C dominating a UTF-8 LANG: override LC_CTYPE AND neutralize LC_ALL,
+        // else the LC_CTYPE override would be dead (LC_ALL > LC_CTYPE).
+        assert_eq!(resolve_spawn_locale(Some("C"), None, Some("en_US.UTF-8")), ctype_and_neutralize());
+        // both LC_ALL and LC_CTYPE non-UTF-8 at once: LC_ALL wins, same outcome.
+        assert_eq!(
+            resolve_spawn_locale(Some("C"), Some("en_US.ISO8859-1"), None),
+            ctype_and_neutralize()
+        );
+
+        // Already UTF-8 anywhere in the effective slot: change NOTHING (no clobber).
+        assert!(resolve_spawn_locale(None, None, Some("en_US.UTF-8")).is_empty());
+        assert!(resolve_spawn_locale(Some("en_US.UTF-8"), None, None).is_empty());
+        assert!(resolve_spawn_locale(None, Some("fr_FR.UTF-8"), Some("C")).is_empty());
+        // A UTF-8 LC_ALL must NOT be touched even though a lower slot is non-UTF-8.
+        assert!(resolve_spawn_locale(Some("en_US.UTF-8"), Some("C"), Some("C")).is_empty());
+        // set-but-empty falls through (POSIX): empty LC_ALL/LC_CTYPE + UTF-8 LANG -> nothing.
+        assert!(resolve_spawn_locale(Some(""), Some(""), Some("en_US.UTF-8")).is_empty());
+        // UTF-8 spelling variants are all recognized (no needless override).
+        for v in ["en_US.UTF8", "en_US.utf-8", "de_DE.UTF-8@euro"] {
+            assert!(resolve_spawn_locale(None, None, Some(v)).is_empty(), "{v} is UTF-8");
+        }
+    }
+
+    /// CONFORMANCE: drive the REAL `resolve_spawn_locale` + `build_child_env` over
+    /// every inherited-locale shape and assert the child's effective `LC_CTYPE` is
+    /// UTF-8. The UTF-8/precedence oracle here is written INDEPENDENTLY of
+    /// `is_utf8_locale` (a `.ends_with` check vs the production codeset parse) so a
+    /// shared predicate bug cannot make the assertion vacuous.
+    #[test]
+    fn spawn_locale_conformance_child_always_utf8_ctype() {
+        use std::ffi::OsString;
+
+        #[derive(Clone, Copy)]
+        enum Cls {
+            Unset,
+            Empty,
+            NonUtf8,
+            Utf8,
+        }
+        // Representative concrete value per class (None = the var is unset).
+        let val = |c: Cls| match c {
+            Cls::Unset => None,
+            Cls::Empty => Some(""),
+            Cls::NonUtf8 => Some("C"),
+            Cls::Utf8 => Some("en_US.UTF-8"),
+        };
+        // Independent codeset check (different impl than `is_utf8_locale`).
+        let looks_utf8 = |s: &str| {
+            let lo = s.to_ascii_lowercase();
+            lo.ends_with(".utf-8") || lo.ends_with(".utf8")
+        };
+        // Effective LC_CTYPE of a composed child env (POSIX precedence, empty==unset).
+        let child_ctype_utf8 = |env: &[(OsString, OsString)]| -> bool {
+            let get = |k: &str| {
+                env.iter()
+                    .find(|(ek, _)| ek.to_str() == Some(k))
+                    .map(|(_, v)| v.to_string_lossy().into_owned())
+                    .filter(|s| !s.is_empty())
+            };
+            match get("LC_ALL").or_else(|| get("LC_CTYPE")).or_else(|| get("LANG")) {
+                None => false, // "C" default
+                Some(loc) => looks_utf8(&loc),
+            }
+        };
+
+        let classes = [Cls::Unset, Cls::Empty, Cls::NonUtf8, Cls::Utf8];
+        let mut checked = 0u32;
+        for &a in &classes {
+            for &c in &classes {
+                for &l in &classes {
+                    // Build the inherited env the child would have started from.
+                    let mut inherited: Vec<(OsString, OsString)> =
+                        vec![(OsString::from("PATH"), OsString::from("/usr/bin"))];
+                    for (k, cl) in [("LC_ALL", a), ("LC_CTYPE", c), ("LANG", l)] {
+                        if let Some(v) = val(cl) {
+                            inherited.push((OsString::from(k), OsString::from(v)));
+                        }
+                    }
+
+                    let overrides = resolve_spawn_locale(val(a), val(c), val(l));
+
+                    // INDEPENDENT "was the inherited effective locale already UTF-8?"
+                    let ne = |cl: Cls| val(cl).filter(|s| !s.is_empty());
+                    let orig_utf8 =
+                        ne(a).or(ne(c)).or(ne(l)).map(looks_utf8).unwrap_or(false);
+
+                    // No-clobber & always-fix: overrides are empty IFF already UTF-8.
+                    assert_eq!(
+                        overrides.is_empty(),
+                        orig_utf8,
+                        "overrides emptiness must track already-UTF-8 for (LC_ALL,LC_CTYPE,LANG)=({:?},{:?},{:?})",
+                        val(a),
+                        val(c),
+                        val(l)
+                    );
+
+                    // A dominating non-UTF-8 LC_ALL must be neutralized, else the
+                    // LC_CTYPE override would be powerless.
+                    if matches!(a, Cls::NonUtf8) {
+                        assert!(
+                            overrides.iter().any(|(k, v)| k == "LC_ALL" && v.is_empty()),
+                            "non-UTF-8 LC_ALL must be neutralized; got {overrides:?}"
+                        );
+                    }
+
+                    // THE INVARIANT: the child the terminal spawns is UTF-8.
+                    let child = build_child_env(inherited.into_iter(), &overrides);
+                    assert!(
+                        child_ctype_utf8(&child),
+                        "child LC_CTYPE NOT UTF-8 for inherited (LC_ALL,LC_CTYPE,LANG)=({:?},{:?},{:?}); env={:?}",
+                        val(a),
+                        val(c),
+                        val(l),
+                        child
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 64, "all 4x4x4 inherited-locale shapes must be exercised");
     }
 
     // ---- read() syscall wrapper: EOF and bad-fd error contract ----

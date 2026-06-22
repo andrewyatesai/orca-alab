@@ -116,8 +116,8 @@ mod macos {
     use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
     use objc2::{ClassType, DeclaredClass, declare_class, msg_send_id, mutability, sel};
     use objc2_app_kit::{
-        NSAppearance, NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions, NSButton,
-        NSCellImagePosition, NSColor, NSEvent, NSFont, NSImage, NSImageNameAddTemplate, NSRectFill,
+        NSAppearance, NSAppearanceNameDarkAqua, NSAutoresizingMaskOptions, NSBezierPath, NSButton,
+        NSCellImagePosition, NSColor, NSEvent, NSFont, NSImage, NSImageNameAddTemplate,
         NSTextAlignment, NSTextField, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
         NSToolbarItem, NSToolbarItemIdentifier, NSTrackingArea, NSTrackingAreaOptions, NSView,
         NSWindowTitleVisibility, NSWindowToolbarStyle,
@@ -159,6 +159,14 @@ mod macos {
     /// label); keeps the close × + a sliver of title clickable.
     const MIN_TAB_W: f64 = 48.0;
 
+    /// Curved-tab "pill" geometry. The active/hovered fill is a rounded rect inset from
+    /// the full tab cell by these margins (so it floats with breathing room, the iTerm
+    /// look) with this corner radius. The horizontal inset also yields the visual gap
+    /// between adjacent pills.
+    const TAB_PILL_INSET_X: f64 = 3.0;
+    const TAB_PILL_INSET_Y: f64 = 4.0;
+    const TAB_PILL_RADIUS: f64 = 7.0;
+
     /// What [`install_window_toolbar`] returns: the retained backing objects. AppKit
     /// references a control's target, a toolbar item's view, and a toolbar's delegate
     /// only WEAKLY, so they must outlive the window — `App` holds this in a field.
@@ -170,7 +178,10 @@ mod macos {
         /// toolbar references its delegate only weakly, so retain it here.
         _delegate: Retained<ToolbarDelegate>,
         /// The `NSToolbar` hosting the strip item, kept alive alongside its delegate.
-        _toolbar: Retained<NSToolbar>,
+        /// [`set_window_tabs`] toggles its visibility: HIDDEN at ≤1 tab so the titlebar
+        /// collapses to a bare, seamless compact bar (just traffic lights), SHOWN at 2+
+        /// tabs to reveal the tab strip.
+        toolbar: Retained<NSToolbar>,
         /// The full-width container `NSView` (the toolbar item's custom view), holding
         /// the per-tab [`TabView`]s + the "+" button. Retained so [`set_window_tabs`]
         /// can rebuild its tab sub-views and `setHidden:` the whole strip at ≤1 tab,
@@ -322,44 +333,59 @@ mod macos {
         }
 
         unsafe impl TabView {
-            /// Paint the tab background: the ACTIVE tab is a SUBTLE full-tab lighter fill
-            /// (clean, like Ghostty/Safari — no harsh accent line or floating panel),
-            /// reinforced by the brighter label; an inactive tab is flat (the transparent
-            /// titlebar shows through) so it recedes; a hovered inactive tab gets a faint
-            /// fill. Pure fills via `NSRectFill` after setting the `NSColor` — no
-            /// `NSBezierPath`/layer needed, and no raising calls.
+            /// Paint the tab background: the ACTIVE tab is a SUBTLE lighter fill drawn as
+            /// a CURVED, inset "pill" (rounded corners like iTerm/Safari — not a hard
+            /// edge-to-edge block), reinforced by the brighter label; an inactive tab is
+            /// flat (the seamless terminal-coloured titlebar shows through) so it recedes;
+            /// a hovered inactive tab gets a fainter rounded pill. The fill is an
+            /// `NSBezierPath` rounded rect — `bezierPathWithRoundedRect:xRadius:yRadius:`
+            /// and `fill` are non-raising drawing calls (no raising initializer).
             #[method(drawRect:)]
             #[allow(non_snake_case)]
             fn drawRect(&self, _dirty: NSRect) {
                 let bounds = self.bounds();
                 let ivars = self.ivars();
+                // The pill is inset from the full tab cell so it floats with a small
+                // margin (the curved iTerm look) instead of butting edge-to-edge.
+                let pill = CGRect::new(
+                    CGPoint::new(bounds.origin.x + TAB_PILL_INSET_X, bounds.origin.y + TAB_PILL_INSET_Y),
+                    CGSize::new(
+                        (bounds.size.width - 2.0 * TAB_PILL_INSET_X).max(0.0),
+                        (bounds.size.height - 2.0 * TAB_PILL_INSET_Y).max(0.0),
+                    ),
+                );
                 // SAFETY: standard AppKit drawing primitives, on the main thread inside
                 // a draw cycle (AppKit has set up the focused graphics context). The
-                // system colors are autoreleased singletons; `set()`/`NSRectFill` are
-                // side-effect-free w.r.t. our state.
+                // colors are autoreleased; `set()`/`bezierPathWithRoundedRect:`/`fill`
+                // are side-effect-free w.r.t. our state and never raise.
                 unsafe {
                     if ivars.active.get() {
-                        // Active tab: a single SUBTLE lighter fill across the whole tab —
-                        // no harsh accent line, no floating inset "button", just a clean
-                        // selected panel like Ghostty/Safari. The brighter label
-                        // (labelColor vs secondaryLabelColor) reinforces which tab is live.
-                        // A translucent white reads as "raised" on every dark theme without
-                        // hard-coding a theme color.
+                        // Active tab: a SUBTLE lighter rounded pill — a clean selected
+                        // panel like iTerm/Safari. The brighter label (labelColor vs
+                        // secondaryLabelColor) reinforces which tab is live. A translucent
+                        // white reads as "raised" on every dark theme without hard-coding
+                        // a theme color.
                         let panel = NSColor::colorWithSRGBRed_green_blue_alpha(
-                            1.0, 1.0, 1.0, 0.10,
+                            1.0, 1.0, 1.0, 0.13,
                         );
                         panel.set();
-                        NSRectFill(bounds);
+                        let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                            pill, TAB_PILL_RADIUS, TAB_PILL_RADIUS,
+                        );
+                        path.fill();
                     } else if ivars.hovered.get() {
-                        // Inactive but hovered: a faint highlight so the hover target
+                        // Inactive but hovered: a fainter rounded pill so the hover target
                         // reads (and the revealed × has a backing).
                         let hover = NSColor::colorWithSRGBRed_green_blue_alpha(
                             1.0, 1.0, 1.0, 0.06,
                         );
                         hover.set();
-                        NSRectFill(bounds);
+                        let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                            pill, TAB_PILL_RADIUS, TAB_PILL_RADIUS,
+                        );
+                        path.fill();
                     }
-                    // else: flat — the transparent titlebar shows through.
+                    // else: flat — the seamless terminal-coloured titlebar shows through.
                 }
             }
 
@@ -855,13 +881,19 @@ mod macos {
                 // the main thread; `dark` outlives the call.
                 let _: () = objc2::msg_send![&*ns_window, setAppearance: Some(&*dark)];
             }
+            // Start HIDDEN: a fresh window has a single tab, so there is no strip to
+            // show. Hiding the whole toolbar collapses the titlebar to a bare, seamless
+            // compact bar (just traffic lights) — `set_window_tabs` reveals it at 2+
+            // tabs. This also avoids the empty macOS toolbar-item capsule flashing at
+            // launch.
+            toolbar.setVisible(false);
             toolbar
         };
 
         Some(ToolbarHandle {
             _tabs_target: tabs_target,
             _delegate: delegate,
-            _toolbar: toolbar,
+            toolbar,
             container,
             proxy: proxy.clone(),
             window: wid,
@@ -887,11 +919,19 @@ mod macos {
         let container = &handle.container;
 
         if titles.len() <= 1 {
-            // ≤1 tab: hide the whole strip. Leave any old tab views in place (off
-            // screen); the next 2+-tab sync rebuilds them.
+            // ≤1 tab: NO strip. Hide the container AND the whole toolbar so the titlebar
+            // collapses to a bare, seamless terminal-coloured compact bar (just traffic
+            // lights) — "don't show the blank bar". Hiding the toolbar also removes the
+            // empty macOS toolbar-item capsule. Old tab views stay in place (off screen);
+            // the next 2+-tab sync rebuilds them.
             container.setHidden(true);
+            // SAFETY: a plain main-thread setter on the live toolbar (mtm proven above).
+            unsafe { handle.toolbar.setVisible(false) };
             return;
         }
+        // 2+ tabs: reveal the toolbar so the tab strip shows (no-op if already visible).
+        // SAFETY: a plain main-thread setter on the live toolbar (mtm proven above).
+        unsafe { handle.toolbar.setVisible(true) };
 
         // Remove the previous tab views from the container (and drop our retained
         // copies). The "+" button stays (it was added once at install).

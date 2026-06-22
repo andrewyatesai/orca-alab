@@ -24,8 +24,8 @@
 use aterm_spec::derive::{
     active_handle_model, coalesce_model, cursor_model, evict_full_model, kernel_model,
     pane_tree_model, proxy_forward_model, read_image_seq_model, recording_model, ring_model,
-    session_pool_model, snapshot_model, subscribe_model, tab_nav_model, tab_strip_model,
-    tier_residency_model, transact_model, window_routing_model, Model,
+    session_pool_model, snapshot_model, spawn_locale_model, subscribe_model, tab_nav_model,
+    tab_strip_model, tier_residency_model, transact_model, window_routing_model, Model,
 };
 use aterm_spec::verify::ty_or_skip;
 use std::path::PathBuf;
@@ -142,6 +142,16 @@ fn derived_kernel_proves_and_catches_gap() {
 fn derived_snapshot_proves_and_catches_leak() {
     let Some(ty) = ty_or_skip("derived snapshot spec") else { return; };
     assert_proves_and_catches(&ty, &snapshot_model());
+}
+
+/// SPAWN LOCALE: `ty` proves the child always ends up with a UTF-8 `LC_CTYPE`
+/// (`ChildHasUtf8Ctype`, Buggy=0) and catches the shipped all-unset guard that left a
+/// present-but-non-UTF-8 inherited locale unfixed (Buggy=1 → counterexample) — the
+/// formal twin of the emacs box-drawing-`?` fix in `aterm_pty::resolve_spawn_locale`.
+#[test]
+fn derived_spawn_locale_proves_and_catches_non_utf8_child() {
+    let Some(ty) = ty_or_skip("derived spawn-locale spec") else { return; };
+    assert_proves_and_catches(&ty, &spawn_locale_model());
 }
 
 /// COALESCE: `ty` proves the bulk and single-char write lanes never diverge over

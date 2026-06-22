@@ -376,6 +376,7 @@ dependencies = [
  "aterm-spec",
  "aterm-spec-models",
  "aterm-types",
+ "aterm-update",
  "libc",
  "objc2 0.5.2",
  "objc2-app-kit",
@@ -579,6 +580,17 @@ dependencies = [
  "aterm-spec",
  "serde",
  "winit",
+]
+
+[[package]]
+name = "aterm-update"
+version = "0.1.0"
+dependencies = [
+ "aterm-types",
+ "libc",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

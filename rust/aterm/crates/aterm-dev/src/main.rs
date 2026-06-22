@@ -83,6 +83,24 @@ const SUBS: &[Sub] = &[
         group: Group::PackageRelease,
     },
     Sub {
+        name: "prepare-release",
+        about: "Bump version, roll the changelog, commit + tag a release",
+        script: "tools/prepare-release.sh",
+        group: Group::PackageRelease,
+    },
+    Sub {
+        name: "gen-appcast",
+        about: "Emit the aterm-appcast.toml in-app-update manifest for a built DMG",
+        script: "tools/gen-appcast.sh",
+        group: Group::PackageRelease,
+    },
+    Sub {
+        name: "extract-changelog",
+        about: "Print the CHANGELOG.md notes for a version (used as release notes)",
+        script: "tools/extract-changelog.sh",
+        group: Group::PackageRelease,
+    },
+    Sub {
         name: "audit",
         about: "Supply-chain audit via cargo-deny",
         script: "scripts/audit-supply-chain.sh",

@@ -875,7 +875,79 @@ pub fn subscribe_model() -> Model {
     }
 }
 
-/// A fourth derived model — TRANSACTION ATOMICITY / no-lost-update under
+/// SPAWN-TIME LOCALE GUARANTEE — the child process aterm launches must run under a
+/// UTF-8 `LC_CTYPE` whatever locale aterm inherited. `LC_CTYPE` is the POSIX
+/// character-encoding category; under a non-UTF-8 one, locale-aware programs (emacs,
+/// vim, python) re-encode multibyte terminal output to the ASCII codeset and emit a
+/// literal `?` per character — the box-drawing-`?` bug. The real decision is
+/// `aterm_pty::resolve_spawn_locale` (POSIX precedence `LC_ALL > LC_CTYPE > LANG`,
+/// empty == unset); this is its abstract twin, with the real-code binding in
+/// aterm-pty's `spawn_locale_conformance_*` test.
+///
+/// Scalar projection `<<present, eff_utf8, ctype, resolved>>`: `present` = any locale
+/// var is set non-empty; `eff_utf8` = the effective inherited encoding is already
+/// UTF-8; `ctype` = the child's resulting `LC_CTYPE` (1 = UTF-8) once `resolved`. The
+/// two `Observe*` actions spread the nondeterministic input shape — nothing set; a
+/// non-UTF-8 locale present; a UTF-8 locale present — and `Resolve` runs the fix once.
+///
+/// `Buggy` gates the SHIPPED defect: with `Buggy = 0` (committed) `Resolve` always
+/// yields `ctype = 1`; with `Buggy = 1` it forces UTF-8 ONLY when nothing is present
+/// (the old all-unset guard), so a present-but-non-UTF-8 locale leaves `ctype = 0`
+/// and `ChildHasUtf8Ctype` is violated. Thus `ty` PROVES the guarantee (Buggy=0) and
+/// CATCHES the real regression (Buggy=1 → counterexample). Exercises a nested `if`,
+/// a constant-guarded update, and disjunction.
+pub fn spawn_locale_model() -> Model {
+    Model {
+        name: "SpawnLocale",
+        consts: vec![("Buggy", 0)],
+        vars: vec![
+            StateVar { name: "present", init: 0 },
+            StateVar { name: "eff_utf8", init: 0 },
+            StateVar { name: "ctype", init: 0 },
+            StateVar { name: "resolved", init: 0 },
+        ],
+        fn_vars: vec![],
+        actions: vec![
+            Action {
+                name: "ObserveNonUtf8", // a non-UTF-8 locale is present (e.g. LANG=C)
+                guard: Some(and_(eq(var("resolved"), int(0)), eq(var("present"), int(0)))),
+                updates: vec![Update { var: "present", expr: int(1) }], // eff_utf8 stays 0
+            },
+            Action {
+                name: "ObserveUtf8", // a UTF-8 locale is present
+                guard: Some(and_(eq(var("resolved"), int(0)), eq(var("present"), int(0)))),
+                updates: vec![
+                    Update { var: "present", expr: int(1) },
+                    Update { var: "eff_utf8", expr: int(1) },
+                ],
+            },
+            Action {
+                name: "Resolve", // run resolve_spawn_locale once; sets the child's LC_CTYPE
+                guard: Some(eq(var("resolved"), int(0))),
+                updates: vec![
+                    Update { var: "resolved", expr: int(1) },
+                    // Buggy=1: IF present=0 THEN 1 ELSE eff_utf8 (old all-unset guard
+                    // leaves a present non-UTF-8 locale unfixed). Buggy=0: always 1.
+                    Update {
+                        var: "ctype",
+                        expr: if_(
+                            eq(cst("Buggy"), int(1)),
+                            if_(eq(var("present"), int(0)), int(1), var("eff_utf8")),
+                            int(1),
+                        ),
+                    },
+                ],
+            },
+        ],
+        invariants: vec![Invariant {
+            name: "ChildHasUtf8Ctype",
+            // resolved => ctype = 1
+            expr: or_(eq(var("resolved"), int(0)), eq(var("ctype"), int(1))),
+        }],
+    }
+}
+
+/// A fifth derived model — TRANSACTION ATOMICITY / no-lost-update under
 /// optimistic concurrency (the `Transact` kernel-family property). A transaction
 /// reads the head at `tbase` (`Begin`); concurrent `Write`s may advance `seq`. At
 /// commit, the correct discipline is: commit only if no write intervened

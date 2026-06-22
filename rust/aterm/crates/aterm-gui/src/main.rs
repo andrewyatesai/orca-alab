@@ -2638,6 +2638,13 @@ impl App {
                 self._toolbars.insert(wid, handle);
             }
         }
+        // Paint the window background the terminal's theme background colour so the
+        // transparent titlebar — and the bare single-tab compact bar — reads as a
+        // seamless extension of the terminal body instead of a distinct lighter chrome
+        // strip (Ghostty's "transparent" titlebar look). Runs for BOTH backends: the
+        // GPU arm `return`s below, so this must precede the split. No-op off macOS.
+        #[cfg(target_os = "macos")]
+        set_window_background_color(&window, self.theme.bg);
         if self.backend.is_gpu() {
             // GPU mode: a wgpu swapchain on the SAME instance/adapter as the
             // offscreen renderer. The offscreen frame is blitted into it and
@@ -6357,8 +6364,16 @@ impl App {
             // invalidates every window's E3 strip-row cache (a font/width change
             // already differs the cache key, which folds in `cols`).
             if theme_changed {
+                let bg = self.theme.bg;
                 for ws in self.windows.values_mut() {
                     ws.last_strip_fp = None;
+                    // Keep the seamless titlebar (set_window_background_color) in step
+                    // with the new terminal bg, so a live theme change does not reopen a
+                    // colour seam between the compact bar and the terminal body.
+                    #[cfg(target_os = "macos")]
+                    if let Some(w) = ws.os_window.as_ref() {
+                        set_window_background_color(w, bg);
+                    }
                 }
             }
             self.rebuild_backend();
@@ -6960,6 +6975,38 @@ fn blit_pane_into(dst: &mut RenderInput, src: &RenderInput, row_off: usize, col_
 /// space→panel mapping is done once by the WindowServer, not per app frame.
 /// aterm's framebuffer pixels are unchanged — only the redundant gamut round-trip
 /// is removed. `$ATERM_NO_COLORSPACE_MATCH` opts out.
+/// Paint the NSWindow background the terminal's theme background colour (`bg`, as
+/// `0x00RRGGBB`), so the transparent titlebar and the bare single-tab compact bar
+/// read as a SEAMLESS extension of the terminal body rather than a distinct, lighter
+/// chrome strip. This is the window-level half of the Ghostty "transparent" titlebar
+/// look (the toolbar.rs strip toggling is the other half). The terminal content view
+/// (softbuffer/Metal layer) paints its own background over the content area, so this
+/// colour only ever shows in the titlebar region the content view does not cover.
+///
+/// Best-effort, mirroring [`match_window_colorspace_to_content`]: off the main thread
+/// or with no AppKit `NSWindow`, it is simply a no-op.
+#[cfg(target_os = "macos")]
+fn set_window_background_color(window: &Window, bg: u32) {
+    use objc2_app_kit::{NSColor, NSView};
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = window.window_handle() else { return };
+    let RawWindowHandle::AppKit(h) = handle.as_raw() else { return };
+    // SAFETY: `ns_view` points at this window's live NSView (owned by winit for the
+    // window's lifetime); we only borrow it — on the main thread, as AppKit requires —
+    // to reach its `window` and set the background colour.
+    let view: &NSView = unsafe { &*(h.ns_view.as_ptr() as *const NSView) };
+    let Some(ns_window) = view.window() else { return };
+    let r = f64::from((bg >> 16) & 0xff) / 255.0;
+    let g = f64::from((bg >> 8) & 0xff) / 255.0;
+    let b = f64::from(bg & 0xff) / 255.0;
+    // SAFETY: standard AppKit colour construction + a plain setter on the main thread;
+    // the colour is autoreleased and consumed within this call.
+    unsafe {
+        let color = NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, 1.0);
+        ns_window.setBackgroundColor(Some(&color));
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn match_window_colorspace_to_content(window: &Window) {
     use objc2_app_kit::{NSColorSpace, NSView};
@@ -8160,6 +8207,18 @@ fn main() {
     // Diagnostics first, before any thread spawns: without a logger every
     // aterm_log record — including containment_audit denials — is discarded.
     logging::init();
+    // Self-update apply, BEFORE any thread spawn or window: if a previous run
+    // staged a verified, strictly-newer build, swap aterm.app in place and re-exec
+    // the new binary (never returns on success). A no-op for dev/`cargo run`
+    // builds, when nothing is staged, or when the updater is disabled/unpinned —
+    // see crate aterm-update. Running here keeps the env-var loop-guard single-
+    // threaded and avoids swapping a bundle with the engine already live.
+    match aterm_update::apply_staged_if_ready(
+        build_info::BUILD_NUMBER.parse::<u64>().unwrap_or(0),
+    ) {
+        aterm_update::ApplyOutcome::NotApplicable | aterm_update::ApplyOutcome::NoUpdate => {}
+        other => eprintln!("aterm-gui: update apply: {other:?}"),
+    }
     // SEC-1: establish the containment mode ONCE, here in the trusted launcher,
     // before any subsystem (the spawn seam, the control socket) queries it. The
     // launcher owns the mode (ATERM_DESIGN §5): `ATERM_CONTAINMENT_MODE` selects
@@ -8310,18 +8369,34 @@ fn main() {
     // UNCONDITIONALLY (the deleted `spawn_env::build_spawn_plan` did this): so
     // programs detect an xterm-256color truecolor terminal named aterm, and a
     // Finder/.app launch — which inherits no locale — still gets a UTF-8 one.
-    // The pty seam applies these via `setenv(overwrite=1)` in vector order, so
-    // the shell-integration vars appended below win on any key collision.
+    // The pty seam applies these in `build_child_env` by KEY-MATCH over the
+    // pre-built env vector (overwrite an existing slot, else append), in vector
+    // order, so the shell-integration vars appended below win on any key collision.
     let mut env_add: Vec<(String, String)> = vec![
         ("TERM".to_string(), "xterm-256color".to_string()),
         ("COLORTERM".to_string(), "truecolor".to_string()),
         ("TERM_PROGRAM".to_string(), "aterm".to_string()),
         ("TERM_PROGRAM_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string()),
     ];
-    // LANG default ONLY when no locale is inherited — never clobber the user's.
-    if ["LANG", "LC_ALL", "LC_CTYPE"].iter().all(|k| std::env::var_os(k).is_none()) {
-        env_add.push(("LANG".to_string(), "en_US.UTF-8".to_string()));
-    }
+    // Guarantee the child runs under a UTF-8 LC_CTYPE so locale-respecting programs
+    // (emacs/vim/python/tmux) treat terminal I/O as UTF-8 instead of falling back to
+    // the ASCII codeset and rendering pasted multibyte text (e.g. box-drawing) as
+    // `?`. aterm's parser is UTF-8-only, so a non-UTF-8 inherited locale — LANG=C,
+    // bare en_US, LC_ALL=C, or a stray non-UTF-8 LC_CTYPE — is a mismatch the
+    // terminal must correct. `resolve_spawn_locale` returns the MINIMAL override
+    // (empty when the effective locale is already UTF-8, so an explicit user locale
+    // is otherwise left untouched), honoring POSIX precedence LC_ALL > LC_CTYPE >
+    // LANG. Proven by the aterm-pty `SpawnLocale` Tier-0 ty model + its conformance
+    // tests; it SUPERSEDES the old all-unset LANG default (which missed every
+    // present-but-non-UTF-8 case — the emacs `?` bug).
+    let lc_all = std::env::var("LC_ALL").ok();
+    let lc_ctype = std::env::var("LC_CTYPE").ok();
+    let lang = std::env::var("LANG").ok();
+    env_add.extend(aterm_pty::resolve_spawn_locale(
+        lc_all.as_deref(),
+        lc_ctype.as_deref(),
+        lang.as_deref(),
+    ));
     // Shell integration (OSC 133/633 command blocks for the AI `blocks` verb) is
     // injected when there is no interactive user to surprise — headless — or on
     // explicit $ATERM_SHELL_INTEGRATION; $ATERM_NO_SHELL_INTEGRATION always opts
@@ -8406,6 +8481,20 @@ fn main() {
     // startup path is unchanged. The file need not exist yet; creating it later
     // also fires a reload.
     config_watcher::spawn(config_path(), event_loop.create_proxy());
+
+    // Silent background update check: off the event loop, on its own thread. It
+    // talks to the private GitHub Release, verifies a notarized + Team-ID-pinned
+    // newer build, and stages it for the NEXT launch (the staged build is applied
+    // by aterm_update::apply_staged_if_ready at the top of main). A no-op for dev
+    // builds, when the updater is disabled/unpinned, or when no update token is
+    // provisioned. Skipped in headless mode so automated introspection never
+    // reaches the network.
+    if !headless {
+        aterm_update::spawn_background_check(
+            build_info::BUILD_NUMBER.parse::<u64>().unwrap_or(0),
+            build_info::VERSION,
+        );
+    }
 
     // Latency self-introspection state (see App::trace_latency). The epoch is a
     // shared monotonic origin so each tab's reader thread and the UI thread
@@ -11809,7 +11898,7 @@ mod spec_xref_gate {
         // ---- Proof #5 (Phase 3 + TRUST_VACUITY_GATE §2.1/§2.2): TRUST independently
         // certifies the SAME obligations PLUS the now-armed integrity teeth. Lower the
         // registered modules + collected anchors/waivers + PROOF anchors to a
-        // byte-conforming `.trust_irtxt`, generate the harness manifest, then run
+        // byte-conforming `.trust_ir`, generate the harness manifest, then run
         // `trust-ir spec-link --harness-manifest … --require-manifest` and assert exit 0:
         //   * Ob.1/Ob.3/Ob.4 (unchanged);
         //   * L2 — every anchor on an actively-anchored machine now carries a non-empty
@@ -11820,7 +11909,7 @@ mod spec_xref_gate {
         let module_txt = aterm_spec::ir::lower_to_ir("aterm_spec_xref", &modules, &refs, &waivers, &proofs);
         let lowered = aterm_spec::ir::lowered_machine_names(&modules, &refs);
         eprintln!(
-            "spec_xref_closure: assembled .trust_irtxt — {} bytes, {} SpecModule block(s), {} \
+            "spec_xref_closure: assembled .trust_ir — {} bytes, {} SpecModule block(s), {} \
              actively-lowered machine(s): {:?}; {} proof line(s) lowered",
             module_txt.len(),
             modules.len(),
@@ -11832,8 +11921,8 @@ mod spec_xref_gate {
         let ir_dir =
             std::env::temp_dir().join(format!("aterm_spec_ir_{}", std::process::id()));
         std::fs::create_dir_all(&ir_dir).expect("mk ir tmp dir");
-        let ir_path = ir_dir.join("aterm_spec_xref.trust_irtxt");
-        std::fs::write(&ir_path, &module_txt).expect("write .trust_irtxt");
+        let ir_path = ir_dir.join("aterm_spec_xref.trust_ir");
+        std::fs::write(&ir_path, &module_txt).expect("write .trust_ir");
 
         // The harness manifest the L1 resolution needs (generated by the always-run
         // xtask node — the SAME generator the build-graph spec-link uses).
@@ -11923,7 +12012,7 @@ mod spec_xref_gate {
             &[],
             &[],
         );
-        let bad_path = dir.join("bad.trust_irtxt");
+        let bad_path = dir.join("bad.trust_ir");
         std::fs::write(&bad_path, &bad_txt).expect("write bad module");
         // Sanity: the lowering actually emitted the bogus anchor against canonical "Ring".
         assert!(
@@ -11949,7 +12038,7 @@ mod spec_xref_gate {
         // good anchor, so no waiver needed; the good module is fully bound.
         let good_txt =
             aterm_spec::ir::lower_to_ir("aterm_teeth_good", &modules, &[&good_anchor], &[], &[]);
-        let good_path = dir.join("good.trust_irtxt");
+        let good_path = dir.join("good.trust_ir");
         std::fs::write(&good_path, &good_txt).expect("write good module");
         let (good_ok, good_report) = run_spec_link(&trust_ir, &good_path, None);
         eprintln!("--- trust-ir spec-link report (CONTROL good module) ---\n{good_report}");

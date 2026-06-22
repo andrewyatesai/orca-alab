@@ -10,12 +10,12 @@
 //! itself** the enforcer: aterm lowers the same models + anchors + waivers into a
 //! `trust-ir` `SpecModule`-bearing module and hands it to `trust-ir spec-link`,
 //! which independently certifies Ob.1/Ob.3/Ob.4. This module is the **producer**
-//! half: it emits a byte-conforming `.trust_irtxt` artifact.
+//! half: it emits a byte-conforming `.trust_ir` artifact.
 //!
 //! ## Why text, not a `trust_ir` crate dependency
 //!
 //! The authoritative artifact format is documented at
-//! `trust-ir/crates/trust-ir/docs/spec-module-format.md` (§2, the `.trust_irtxt`
+//! `trust-ir/crates/trust-ir/docs/spec-module-format.md` (§2, the `.trust_ir`
 //! grammar). aterm-spec is intentionally NOT in the production release closure and
 //! has no `trust_ir` dependency; coupling it to the external Trust repo would be
 //! fragile. Instead we emit the documented text format DIRECTLY, byte-for-byte
@@ -164,7 +164,7 @@ fn emit_embedded_vars(s: &mut String, m: &Model) {
     }
 }
 
-/// Assemble ONE complete `.trust_irtxt` module: the v1 header + `module "<name>"`,
+/// Assemble ONE complete `.trust_ir` module: the v1 header + `module "<name>"`,
 /// then every registered [`SpecModule`] (embedded `Model`s and external ISOLATION
 /// `.tla`) as a `spec_module` block, with ALL collected `refinements`/`waivers`
 /// rendered as `anchor`/`waiver` lines inside the block whose name they resolve to.

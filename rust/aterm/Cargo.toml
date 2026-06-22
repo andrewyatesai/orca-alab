@@ -20,6 +20,7 @@ quote = "1.0.45"
 syn = { version = "2", features = ["full", "extra-traits"] }
 proptest = "1"   # dev-dep: property tests in foundation crates
 serde = { version = "1", features = ["derive"] }   # optional feature in aterm-types
+serde_json = "1"   # aterm-update only: parse the GitHub Releases API response
 zstd = "0.13"    # aterm-scrollback warm-tier compression
 libc = "0.2"     # aterm-scrollback mmap/disk tier
 toml = "0.8"
@@ -68,6 +69,7 @@ aterm-bits = { path = "crates/aterm-bits" }
 aterm-hash = { path = "crates/aterm-hash" }
 aterm-log = { path = "crates/aterm-log" }
 aterm-alloc = { path = "crates/aterm-alloc" }
+aterm-update = { path = "crates/aterm-update" }
 # (none yet — populated bottom-up)
 
 [profile.release]

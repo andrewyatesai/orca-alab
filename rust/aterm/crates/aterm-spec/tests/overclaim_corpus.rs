@@ -120,7 +120,7 @@ fn red_l1_typo_proof_name_flags() {
         location: "fixture.rs:1:1",
     };
     let txt = lower_to_ir("red_l1", &modules, &[&a], &[], &[&typo]);
-    let path = dir.join("red_l1.trust_irtxt");
+    let path = dir.join("red_l1.trust_ir");
     std::fs::write(&path, &txt).expect("write");
     // Manifest contains a DIFFERENT, real-looking harness — so the typo is unresolved.
     let manifest = write_manifest(&dir, &["ring_push_refines"]);
@@ -138,7 +138,7 @@ fn red_l1_typo_proof_name_flags() {
     // GREEN control: fix the proof_name to one the manifest contains → exit 0.
     let good = ProofAnchor { proof_name: "ring_push_refines", ..typo };
     let good_txt = lower_to_ir("ctl_l1", &modules, &[&a], &[], &[&good]);
-    let good_path = dir.join("ctl_l1.trust_irtxt");
+    let good_path = dir.join("ctl_l1.trust_ir");
     std::fs::write(&good_path, &good_txt).expect("write");
     let (code, report) = spec_link(&good_path, Some(&manifest));
     assert_eq!(code, 0, "GREEN L1 control (resolved proof_name) MUST exit 0. Report:\n{report}");
@@ -159,7 +159,7 @@ fn red_l2_empty_projection_flags() {
     // Actively-anchored machine (Ring) with an anchor carrying NO projection.
     let no_proj = anchor("ring", "Push", "");
     let txt = lower_to_ir("red_l2", &modules, &[&no_proj], &[], &[]);
-    let path = dir.join("red_l2.trust_irtxt");
+    let path = dir.join("red_l2.trust_ir");
     std::fs::write(&path, &txt).expect("write");
 
     let (code, report) = spec_link(&path, None);
@@ -175,7 +175,7 @@ fn red_l2_empty_projection_flags() {
     // GREEN control: supply a non-empty projection name → exit 0.
     let with_proj = anchor("ring", "Push", "aterm_buffer::Ring::project");
     let good_txt = lower_to_ir("ctl_l2", &modules, &[&with_proj], &[], &[]);
-    let good_path = dir.join("ctl_l2.trust_irtxt");
+    let good_path = dir.join("ctl_l2.trust_ir");
     std::fs::write(&good_path, &good_txt).expect("write");
     let (code, report) = spec_link(&good_path, None);
     assert_eq!(code, 0, "GREEN L2 control (non-empty project) MUST exit 0. Report:\n{report}");
@@ -229,7 +229,7 @@ fn red_l3_external_anchor_on_typeok_flags_in_rust_and_artifact() {
     let modules = vec![module];
     let bad = anchor("Fixture", "TypeOK", "fixture::project");
     let txt = lower_to_ir("red_l3", &modules, &[&bad], &[], &[]);
-    let path = dir.join("red_l3.trust_irtxt");
+    let path = dir.join("red_l3.trust_ir");
     std::fs::write(&path, &txt).expect("write");
     let (code, report) = spec_link(&path, None);
     assert_eq!(
@@ -244,7 +244,7 @@ fn red_l3_external_anchor_on_typeok_flags_in_rust_and_artifact() {
     // GREEN control: anchor the REAL Next action (Apply) → exit 0.
     let good = anchor("Fixture", "Apply", "fixture::project");
     let good_txt = lower_to_ir("ctl_l3", &modules, &[&good], &[], &[]);
-    let good_path = dir.join("ctl_l3.trust_irtxt");
+    let good_path = dir.join("ctl_l3.trust_ir");
     std::fs::write(&good_path, &good_txt).expect("write");
     let (code, report) = spec_link(&good_path, None);
     assert_eq!(code, 0, "GREEN L3 control (anchor on the real Next action Apply) MUST exit 0. Report:\n{report}");
@@ -360,7 +360,7 @@ fn clean_control_full_pass() {
         location: "fixture.rs:1:1",
     };
     let txt = lower_to_ir("clean", &modules, &[&a], &[], &[&p]);
-    let path = dir.join("clean.trust_irtxt");
+    let path = dir.join("clean.trust_ir");
     std::fs::write(&path, &txt).expect("write");
     let manifest = write_manifest(&dir, &["ring_push_refines"]);
 

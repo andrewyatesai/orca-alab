@@ -21,6 +21,9 @@ declare global {
     __onboardingFeatureSetupDeps?: OnboardingFeatureSetupDeps
     // e2e/dev override to force the in-page aterm canvas renderer on.
     __atermRendererEnabled?: boolean
+    // e2e override to force the aterm renderer OFF (existing suite asserts via
+    // the xterm DOM). __atermRendererEnabled (explicit ON) takes precedence.
+    __atermRendererDisabled?: boolean
   }
 }
 

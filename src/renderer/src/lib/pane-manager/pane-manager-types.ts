@@ -150,6 +150,11 @@ export type ManagedPaneInternal = {
   // Set by disposePane so an in-flight async aterm controller creation can drop
   // its result instead of attaching a canvas to a torn-down pane.
   disposed?: boolean
+  // Why: xterm.loadAddon throws if the same addon instance is loaded twice. The
+  // aterm path pre-loads the buffer-only serialize/unicode addons so serialize
+  // keeps working on the headless terminal; a later xterm fallback must not
+  // re-load them. This flag records that they are already loaded.
+  bufferAddonsLoaded?: boolean
   // Unregisters the terminal->aterm-controller output mirror on dispose.
   atermMirrorCleanup?: (() => void) | null
   debugLabel: string | null

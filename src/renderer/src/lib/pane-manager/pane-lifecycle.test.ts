@@ -18,6 +18,13 @@ const webglMock = vi.hoisted(() => ({
   dispose: vi.fn()
 }))
 
+// Why: these tests exercise the xterm rendering path (terminal.open + addon
+// load order). The aterm renderer now ships default-on, so force it off here so
+// openTerminal() takes the xterm branch under test.
+vi.mock('./aterm/aterm-renderer-flag', () => ({
+  isAtermRendererEnabled: () => false
+}))
+
 vi.mock('@xterm/addon-webgl', () => ({
   WebglAddon: vi.fn().mockImplementation(function WebglAddon() {
     return {
@@ -357,7 +364,8 @@ describe('openTerminal — Unicode 11 ordering', () => {
 
     const fakeContainer = {
       appendChild: vi.fn(),
-      addEventListener: vi.fn()
+      addEventListener: vi.fn(),
+      querySelectorAll: vi.fn(() => [])
     } as unknown as HTMLDivElement
     const fakeTooltip = {} as unknown as HTMLDivElement
 

@@ -147,7 +147,9 @@ export function useTerminalPaneContextMenu({
     if (!pane) {
       return
     }
-    const selection = pane.terminal.getSelection()
+    // Why: under aterm the canvas owns the selection — xterm reports none — so
+    // read the controller's selection text when this pane is aterm-rendered.
+    const selection = pane.atermController?.selectionText() ?? pane.terminal.getSelection()
     if (selection) {
       await window.api.ui.writeClipboardText(selection)
     }
@@ -447,10 +449,17 @@ export function useTerminalPaneContextMenu({
       if (!clickedPane) {
         return
       }
-      const selection = clickedPane.terminal.getSelection()
+      // Why: under aterm the canvas owns the selection — read it from the
+      // controller. xterm.clearSelection is a no-op for aterm (the canvas
+      // clears its own selection on the next mousedown), so only call it for
+      // xterm-rendered panes.
+      const selection =
+        clickedPane.atermController?.selectionText() ?? clickedPane.terminal.getSelection()
       if (selection) {
         void window.api.ui.writeClipboardText(selection)
-        clickedPane.terminal.clearSelection()
+        if (!clickedPane.atermController) {
+          clickedPane.terminal.clearSelection()
+        }
       } else {
         void pasteResolvedPane('right-click')
       }

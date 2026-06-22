@@ -12,6 +12,7 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+use aterm_core::selection::SmartSelection;
 use aterm_core::selection::{SelectionSide, SelectionType};
 use aterm_core::terminal::Terminal;
 use aterm_render::{Renderer, Theme};
@@ -28,6 +29,9 @@ pub struct AtermTerminal {
     rgba: Vec<u8>,
     width: usize,
     height: usize,
+    // Built-in smart-selection rules (url/file_path/email/...) for scroll-correct
+    // link detection via smart_word_at; reused across link_at calls.
+    smart: SmartSelection,
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
@@ -65,6 +69,7 @@ impl AtermTerminal {
             rgba: Vec::new(),
             width: 0,
             height: 0,
+            smart: SmartSelection::with_builtin_rules(),
         })
     }
 
@@ -185,6 +190,151 @@ impl AtermTerminal {
     pub fn selection_text(&self) -> Option<String> {
         self.term.selection_to_string()
     }
+
+    /// Detect a link under display `row`/`col`. Prefers an OSC-8 hyperlink, then
+    /// falls back to smart-selection rules (url/file_path). Returns `None` for
+    /// plain words. `kind`: 0=osc8, 1=url, 2=file_path, 3=other.
+    pub fn link_at(&self, row: u16, col: u16) -> Option<LinkHit> {
+        // OSC-8 lookups are NOT display_offset-aware (only valid at the live
+        // bottom), so only consult hyperlink_at when the viewport isn't scrolled.
+        if self.term.grid().display_offset() == 0 {
+            if let Some(url) = self.term.hyperlink_at(row, col) {
+                let url = url.to_string();
+                let (s, e) = self.osc8_span(row, col);
+                return Some(LinkHit {
+                    url,
+                    start_col: s,
+                    end_col: e,
+                    kind: 0,
+                });
+            }
+        }
+
+        // Smart-selection fallback is scroll-correct (display_row_text is
+        // display_offset-aware) and works on any scrollback row.
+        let (sc, ec) = self
+            .term
+            .smart_word_at(row as usize, col as usize, &self.smart)?;
+        let text = self.term.display_row_text(row as usize)?;
+        let matched = slice_by_columns(&text, sc, ec);
+        let kind = classify(&matched);
+        if kind == 3 {
+            // A plain word is not a link.
+            return None;
+        }
+        Some(LinkHit {
+            url: matched,
+            start_col: sc as u16,
+            end_col: ec as u16,
+            kind,
+        })
+    }
+
+    /// Scroll-correct text of a display `row` (display_offset-aware), for a TS
+    /// fallback that re-runs link matching in JS.
+    pub fn row_text(&self, row: u16) -> Option<String> {
+        self.term.display_row_text(row as usize)
+    }
+}
+
+impl AtermTerminal {
+    /// Expand an OSC-8 hyperlink to the span of contiguous cells sharing its
+    /// link. Cells group by `id=` when present (OSC 8 grouping), else by URL.
+    /// Returns `[start_col, end_col_exclusive)`. Only valid at display_offset 0.
+    fn osc8_span(&self, row: u16, col: u16) -> (u16, u16) {
+        let same = |c: u16| -> bool {
+            let id_here = self.term.hyperlink_id_at(row, col);
+            let id_there = self.term.hyperlink_id_at(row, c);
+            if id_here.is_some() && id_there.is_some() {
+                id_here == id_there
+            } else {
+                self.term.hyperlink_at(row, c) == self.term.hyperlink_at(row, col)
+            }
+        };
+
+        let mut start = col;
+        while start > 0 && same(start - 1) {
+            start -= 1;
+        }
+
+        let cols = self.cols as u16;
+        let mut end = col + 1;
+        while end < cols && same(end) {
+            end += 1;
+        }
+
+        (start, end)
+    }
+}
+
+/// A detected link under a cell: its text/URL, the half-open display-column span
+/// it covers, and a `kind` discriminant (0=osc8, 1=url, 2=file_path, 3=other).
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub struct LinkHit {
+    url: String,
+    start_col: u16,
+    end_col: u16,
+    kind: u8,
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl LinkHit {
+    /// The link's URL/target text.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
+    /// Inclusive start display column of the link span.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn start_col(&self) -> u16 {
+        self.start_col
+    }
+
+    /// Exclusive end display column of the link span.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn end_col(&self) -> u16 {
+        self.end_col
+    }
+
+    /// Link kind: 0=osc8, 1=url, 2=file_path, 3=other.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn kind(&self) -> u8 {
+        self.kind
+    }
+}
+
+/// Slice `text` to the half-open display-column range `[start_col, end_col)`.
+/// No `unicode-width` dep here, so we approximate display width as 1 per char —
+/// correct for the ASCII URLs/paths that dominate link detection.
+fn slice_by_columns(text: &str, start_col: usize, end_col: usize) -> String {
+    text.chars()
+        .skip(start_col)
+        .take(end_col.saturating_sub(start_col))
+        .collect()
+}
+
+/// Classify a matched span: 1=url (scheme or www. host), 2=file_path (absolute,
+/// relative, home, or contains `/` with no scheme), else 3=other (plain word).
+fn classify(s: &str) -> u8 {
+    let lower = s.to_ascii_lowercase();
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("ftp://")
+        || lower.starts_with("file://")
+        || lower.starts_with("www.")
+    {
+        return 1;
+    }
+    if s.starts_with('/')
+        || s.starts_with("./")
+        || s.starts_with("../")
+        || s.starts_with("~/")
+        || (s.contains('/') && !s.contains("://"))
+    {
+        return 2;
+    }
+    3
 }
 
 // Native-only constructor for headless tests/benches: discovers a system font so
@@ -202,6 +352,7 @@ impl AtermTerminal {
             rgba: Vec::new(),
             width: 0,
             height: 0,
+            smart: SmartSelection::with_builtin_rules(),
         })
     }
 }
@@ -250,5 +401,26 @@ mod tests {
         t.selection_finish();
         let selected = t.selection_text().expect("a drag selects text");
         assert!(!selected.is_empty(), "selection should not be empty");
+    }
+
+    #[test]
+    fn detects_a_url_link_under_the_cursor() {
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping link detection test");
+            return;
+        };
+        t.process(b"https://example.com/foo bar");
+        // Column 5 is inside "https://example.com/foo".
+        let hit = t.link_at(0, 5).expect("a URL under the cursor is a link");
+        assert!(
+            hit.kind() == 0 || hit.kind() == 1,
+            "expected osc8 or url kind, got {}",
+            hit.kind()
+        );
+        assert!(
+            hit.url().contains("example.com"),
+            "url should contain the host, got {:?}",
+            hit.url()
+        );
     }
 }

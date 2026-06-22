@@ -1,12 +1,6 @@
 import { Terminal } from '@xterm/xterm'
 import type { ITerminalOptions } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-// Upstream packaging bug: @xterm/addon-ligatures declares `"main":
-// "lib/addon-ligatures.js"` but ships only the `.mjs` entry, so Vite fails to
-// resolve the bare import. Fixed locally via config/patches/@xterm__addon-ligatures*.
-// Tracking upstream: https://github.com/xtermjs/xterm.js/issues/5822 and
-// https://github.com/xtermjs/xterm.js/pull/5828 — drop the patch once that lands.
-import { LigaturesAddon } from '@xterm/addon-ligatures'
 import { SearchAddon } from '@xterm/addon-search'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -29,8 +23,7 @@ import { attachDomRendererFocusClassSync } from './pane-dom-focus-class-sync'
 import {
   ENABLE_WEBGL_RENDERER,
   attachWebgl,
-  cancelPendingWebglRefresh,
-  disposeWebgl
+  cancelPendingWebglRefresh
 } from './pane-webgl-renderer'
 import { shouldFocusTerminalFromPanePointerDown } from './pane-pointer-focus'
 import { isAtermRendererEnabled } from './aterm/aterm-renderer-flag'
@@ -178,23 +171,58 @@ export function createPaneDOM(
 /** Open terminal into its container and load addons. Must be called after the container is in the DOM. */
 export function openTerminal(pane: ManagedPaneInternal): void {
   // Experimental: hand painting + sizing to the in-page aterm canvas renderer.
-  // xterm stays unopened (no DOM/addons/draws) so the rest of the app keeps its
+  // xterm stays unopened (no DOM/draws) so the rest of the app keeps its
   // cols/rows/write/onData/buffer/serialize, while the canvas owns the pixels.
   if (isAtermRendererEnabled()) {
-    openAtermPane(pane)
-    return
+    try {
+      // Why: serialize()/restore must keep working on the headless (unopened)
+      // xterm Terminal. SerializeAddon + Unicode11Addon are buffer-only and
+      // work without terminal.open(); load them here (the open path is skipped)
+      // so snapshot/scrollback restore stays intact under default-on.
+      loadBufferOnlyAddons(pane)
+      // Width tables BEFORE any write — see the activate call's comment in
+      // openXtermRenderer for why this must precede caller-driven writes.
+      activateOrcaTerminalUnicodeProvider(pane.terminal)
+      // Async wasm/font init failure → transparently become a normal xterm pane
+      // (never a black pane). A sync failure falls through to the catch below.
+      openAtermPane(pane, () => openXtermRenderer(pane))
+      return
+    } catch (err) {
+      console.warn('[aterm] sync init failed for pane; falling back to xterm', pane.id, err)
+      openXtermRenderer(pane)
+      return
+    }
   }
 
-  const {
-    terminal,
-    xtermContainer,
-    linkTooltip,
-    fitAddon,
-    searchAddon,
-    serializeAddon,
-    unicode11Addon,
-    webLinksAddon
-  } = pane
+  openXtermRenderer(pane)
+}
+
+/** Load the buffer-only addons (serialize + unicode11) that keep terminal
+ *  serialize/restore and wide-char width tables working on a headless terminal.
+ *  Guarded so the xterm fallback path does not re-load them (xterm.loadAddon
+ *  throws on the same instance twice). */
+function loadBufferOnlyAddons(pane: ManagedPaneInternal): void {
+  if (pane.bufferAddonsLoaded) {
+    return
+  }
+  pane.terminal.loadAddon(pane.serializeAddon)
+  pane.terminal.loadAddon(pane.unicode11Addon)
+  pane.bufferAddonsLoaded = true
+}
+
+/** Open xterm into the DOM and load the DOM-renderer addons (fit/search/links/
+ *  webgl) plus the DOM-specific wiring. This is both the default rendering path
+ *  and the safe fallback when aterm init fails — so any aterm failure
+ *  transparently becomes a normal xterm pane instead of a black pane. */
+export function openXtermRenderer(pane: ManagedPaneInternal): void {
+  const { terminal, xtermContainer, linkTooltip, fitAddon, searchAddon, webLinksAddon } = pane
+
+  // Why: a failed aterm init can leave its <canvas> appended to xtermContainer
+  // (the canvas is added before the async wasm load that rejected). Remove any
+  // leftover aterm canvas so the fallback opens a clean xterm pane.
+  for (const canvas of xtermContainer.querySelectorAll('[data-testid="aterm-canvas"]')) {
+    canvas.remove()
+  }
 
   // Open terminal into DOM
   terminal.open(xtermContainer)
@@ -204,8 +232,10 @@ export function openTerminal(pane: ManagedPaneInternal): void {
   // Load addons (order matters: WebGL must be after open())
   terminal.loadAddon(fitAddon)
   terminal.loadAddon(searchAddon)
-  terminal.loadAddon(serializeAddon)
-  terminal.loadAddon(unicode11Addon)
+  // Why: the aterm branch may have already loaded serialize/unicode11 (to keep
+  // serialize alive on the headless terminal). xterm.loadAddon throws on the
+  // same instance twice, so only load them here when they aren't loaded yet.
+  loadBufferOnlyAddons(pane)
   terminal.loadAddon(webLinksAddon)
 
   // Activate Orca's Unicode 11 width shim *before* any caller-driven write. CJK / emoji /
@@ -216,7 +246,8 @@ export function openTerminal(pane: ManagedPaneInternal): void {
   // pairing (visible as broken `?`-style glyphs). All restore paths
   // (replayTerminalLayout → splitPane/createInitialPane → openTerminal,
   // restoreScrollbackBuffers, handleReattachResult) run after openTerminal,
-  // so the activation must stay at this position.
+  // so the activation must stay at this position. Idempotent: re-activating in
+  // the aterm-fallback case is a no-op for the buffer the aterm branch seeded.
   activateOrcaTerminalUnicodeProvider(terminal)
 
   // Why: the OS reads the focused textarea's screen rect at compositionstart to
@@ -269,57 +300,6 @@ export function openTerminal(pane: ManagedPaneInternal): void {
     pane.pendingInitialFitRafId = null
     safeFit(pane)
   })
-}
-
-export function disposeLigatures(pane: ManagedPaneInternal): void {
-  if (pane.ligaturesAddon) {
-    try {
-      pane.ligaturesAddon.dispose()
-    } catch {
-      /* ignore */
-    }
-    pane.ligaturesAddon = null
-  }
-}
-
-export function attachLigatures(pane: ManagedPaneInternal): void {
-  if (pane.ligaturesAddon) {
-    return
-  }
-  try {
-    const ligaturesAddon = new LigaturesAddon()
-    pane.terminal.loadAddon(ligaturesAddon)
-    pane.ligaturesAddon = ligaturesAddon
-    // Why: the WebGL renderer builds its glyph texture atlas at activation
-    // time, so `font-feature-settings` applied after WebGL loaded won't
-    // reach the GPU-rendered cells until the atlas is rebuilt. The upstream
-    // docs call this out explicitly — reactivating WebGL after ligatures
-    // forces a fresh atlas that includes the ligated glyphs.
-    if (pane.webglAddon) {
-      disposeWebgl(pane)
-      attachWebgl(pane)
-    }
-  } catch (err) {
-    console.warn('[terminal] ligatures addon failed to attach for pane', pane.id, err)
-    pane.ligaturesAddon = null
-  }
-}
-
-/** Enable or disable ligatures in-place, reusing the running terminal so the
- *  setting can be toggled without dropping scrollback or the PTY binding. */
-export function setLigaturesEnabled(pane: ManagedPaneInternal, enabled: boolean): void {
-  if (enabled) {
-    attachLigatures(pane)
-  } else if (pane.ligaturesAddon) {
-    disposeLigatures(pane)
-    // Why: ligatures lived inside the WebGL atlas, so after disposing the
-    // addon the atlas still holds the ligated glyphs. Rebuild it so text
-    // renders as the non-ligated fallback immediately.
-    if (pane.webglAddon) {
-      disposeWebgl(pane)
-      attachWebgl(pane)
-    }
-  }
 }
 
 export function disposePane(

@@ -3,6 +3,10 @@ import { encodeKeyEventToBytes } from './aterm-key-encoding'
 import { resolveAtermThemeColors } from './aterm-theme-colors'
 import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
+import { attachAtermLinkInput } from './aterm-link-input'
+import { buildAtermInputDom } from './aterm-input-dom'
+import { openHttpLink } from '../../http-link-routing'
+import { openTerminalHttpLink } from '../../../components/terminal-pane/terminal-url-link-hit-testing'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 // Font cell size in CSS pixels; multiplied by devicePixelRatio for the engine.
@@ -10,6 +14,16 @@ export const ATERM_RENDERER_FONT_PX = 14
 
 export type AtermPaneInputSink = (data: string) => void
 export type AtermPaneResizeSink = (cols: number, rows: number) => void
+
+/** Optional pane-scoped link routing context. When supplied, terminal URL
+ *  clicks honor orca's in-app/system-browser preference exactly like the default
+ *  xterm path; absent, links open via openHttpLink (worktree-scoped or, with no
+ *  worktree, the system browser). Kept optional so the controller signature stays
+ *  backward-compatible for callers that don't thread link context. */
+export type AtermLinkContext = {
+  worktreeId?: string | null
+  requestOpenLinksInAppPreference?: (url: string) => boolean | Promise<boolean> | null | undefined
+}
 
 export type AtermPaneController = {
   /** Feed PTY/replay output bytes; coalesces draws into one rAF frame. */
@@ -20,6 +34,8 @@ export type AtermPaneController = {
   scrollLines: (delta: number) => void
   /** Current selection text, if any (empty string when nothing is selected). */
   selectionText: () => string
+  /** Detected link at a display cell (url + kind), or null — for hit-test/tests. */
+  linkAt: (row: number, col: number) => { url: string; kind: number } | null
   dispose: () => void
 }
 
@@ -50,7 +66,8 @@ function computeGrid(
 export async function createAtermPaneController(
   container: HTMLElement,
   onInput: AtermPaneInputSink,
-  onResize: AtermPaneResizeSink
+  onResize: AtermPaneResizeSink,
+  linkContext?: AtermLinkContext
 ): Promise<AtermPaneController> {
   const canvas = document.createElement('canvas')
   canvas.dataset.testid = 'aterm-canvas' // e2e locator for the aterm-rendered pane
@@ -61,8 +78,12 @@ export async function createAtermPaneController(
   canvas.style.display = 'block'
   canvas.style.imageRendering = 'pixelated'
   canvas.style.outline = 'none'
-  canvas.tabIndex = 0
-  container.appendChild(canvas)
+  // Mirror xterm's DOM so the app's focus/paste/IME/clipboard logic (which keys
+  // off .xterm-helper-textarea / closest('.xterm')) works unchanged. Keyboard
+  // focus lives on the hidden helper textarea; the canvas keeps pixels +
+  // selection-drag + wheel.
+  const inputDom = buildAtermInputDom(canvas)
+  container.appendChild(inputDom.wrapper)
 
   const ctx = canvas.getContext('2d')
   const { AtermTerminal: AtermTerminalCtor, fontBytes } = await loadAterm()
@@ -168,6 +189,34 @@ export async function createAtermPaneController(
     isDisposed: () => disposed
   })
 
+  // Open a clicked URL via orca's opener so the in-app/system-browser preference
+  // (and Shift→system-browser escape hatch) is honored just like the xterm path.
+  const openUrl = (url: string, opts: { forceSystemBrowser: boolean }): void => {
+    if (linkContext?.requestOpenLinksInAppPreference) {
+      openTerminalHttpLink(url, {
+        worktreeId: linkContext.worktreeId ?? '',
+        forceSystemBrowser: opts.forceSystemBrowser,
+        requestOpenLinksInAppPreference: linkContext.requestOpenLinksInAppPreference
+      })
+      return
+    }
+    openHttpLink(url, {
+      worktreeId: linkContext?.worktreeId ?? undefined,
+      forceSystemBrowser: opts.forceSystemBrowser
+    })
+  }
+
+  const linkInput = attachAtermLinkInput({
+    canvas,
+    term,
+    dpr,
+    cellWidth,
+    cellHeight,
+    redraw: scheduleDraw,
+    isDisposed: () => disposed,
+    openUrl
+  })
+
   const resizeObserver = new ResizeObserver(() => {
     if (disposed) {
       return
@@ -185,9 +234,15 @@ export async function createAtermPaneController(
   })
   resizeObserver.observe(container)
 
+  const { textarea } = inputDom
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
   const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
+  let composing = false
   const onKeyDown = (event: KeyboardEvent): void => {
+    // Let the IME own keys while a composition is active.
+    if (event.isComposing || composing) {
+      return
+    }
     // Cmd/Ctrl+C copies the canvas selection (when any) instead of sending ^C,
     // matching the default terminal's copy behavior.
     const copyChord = (isMac ? event.metaKey : event.ctrlKey) && event.key.toLowerCase() === 'c'
@@ -201,11 +256,30 @@ export async function createAtermPaneController(
     }
     event.preventDefault()
     inputSink(bytes)
+    // Clear so the sink-bound textarea never accumulates the typed characters.
+    textarea.value = ''
   }
-  canvas.addEventListener('keydown', onKeyDown)
+  // IME: buffer composing keystrokes, then send the committed string on end.
+  const onCompositionStart = (): void => {
+    composing = true
+  }
+  const onCompositionEnd = (event: CompositionEvent): void => {
+    composing = false
+    if (event.data) {
+      inputSink(event.data)
+    }
+    textarea.value = ''
+  }
+  textarea.addEventListener('keydown', onKeyDown)
+  textarea.addEventListener('compositionstart', onCompositionStart)
+  textarea.addEventListener('compositionend', onCompositionEnd)
+  // No competing paste handler: the textarea's 'xterm-helper-textarea' class lets
+  // the app's existing paste path own Cmd/Ctrl+V and primary-selection paste.
 
+  // Click anywhere on the canvas starts selection (canvas mousedown) AND lands
+  // keyboard focus on the helper textarea so typing routes to the PTY.
   const onPointerDown = (): void => {
-    canvas.focus()
+    textarea.focus()
   }
   canvas.addEventListener('pointerdown', onPointerDown)
 
@@ -224,17 +298,24 @@ export async function createAtermPaneController(
       scheduleDraw()
     },
     selectionText: () => term.selection_text() ?? '',
+    linkAt: (row: number, col: number) => {
+      const hit = term.link_at(row, col)
+      return hit ? { url: hit.url, kind: hit.kind } : null
+    },
     dispose: () => {
       if (disposed) {
         return
       }
       disposed = true
       resizeObserver.disconnect()
-      canvas.removeEventListener('keydown', onKeyDown)
+      textarea.removeEventListener('keydown', onKeyDown)
+      textarea.removeEventListener('compositionstart', onCompositionStart)
+      textarea.removeEventListener('compositionend', onCompositionEnd)
       canvas.removeEventListener('pointerdown', onPointerDown)
       selectionInput.dispose()
       scrollInput.dispose()
-      canvas.remove()
+      linkInput.dispose()
+      inputDom.wrapper.remove()
       try {
         term.free()
       } catch {

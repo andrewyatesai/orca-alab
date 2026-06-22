@@ -240,6 +240,19 @@ export function mapRestoredPaneTitlesByPaneId(
   return restored
 }
 
+/** Read the active selection text from the aterm canvas controller when this
+ *  pane is aterm-rendered, otherwise from xterm. Under aterm, xterm holds no
+ *  selection (the canvas owns it), so reads must go through the controller. */
+function readPaneSelectionText(pane: {
+  terminal: Terminal
+  atermController?: { selectionText: () => string } | null
+}): string {
+  if (pane.atermController) {
+    return pane.atermController.selectionText()
+  }
+  return pane.terminal.getSelection()
+}
+
 function terminalSelectionExceedsPrimaryLimit(terminal: Terminal): boolean {
   const range = terminal.getSelectionPosition()
   if (!range) {
@@ -755,6 +768,29 @@ export function useTerminalPaneLifecycle({
           if (!shouldWritePrimarySelection && !shouldWriteClipboard) {
             return
           }
+          // Why: under aterm the canvas owns the selection — xterm reports none.
+          // Read the controller's selection so copy-on-select/primary-selection
+          // see the canvas drag selection. The xterm position-based length guard
+          // (getSelectionPosition) doesn't exist on the controller, so use the
+          // selection text length directly when aterm-rendered.
+          if (pane.atermController) {
+            const selection = pane.atermController.selectionText()
+            if (!selection) {
+              return
+            }
+            if (
+              shouldWritePrimarySelection &&
+              selection.length <= PRIMARY_SELECTION_MAX_LENGTH
+            ) {
+              setPrimarySelectionText(selection)
+            }
+            if (shouldWriteClipboard) {
+              void window.api.ui.writeClipboardText(selection).catch(() => {
+                /* ignore clipboard write failures */
+              })
+            }
+            return
+          }
           if (!pane.terminal.hasSelection()) {
             return
           }
@@ -781,7 +817,7 @@ export function useTerminalPaneLifecycle({
               if (terminalSelectionExceedsPrimaryLimit(pane.terminal)) {
                 return
               }
-              const selection = pane.terminal.getSelection()
+              const selection = readPaneSelectionText(pane)
               if (selection) {
                 setPrimarySelectionText(selection)
               }
@@ -792,7 +828,7 @@ export function useTerminalPaneLifecycle({
           if (!shouldWriteClipboard) {
             return
           }
-          const selection = pane.terminal.getSelection()
+          const selection = readPaneSelectionText(pane)
           if (!selection) {
             return
           }

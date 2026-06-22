@@ -280,6 +280,19 @@ export const test = base.extend<OrcaTestFixtures, OrcaWorkerFixtures>({
     const page = await electronApp.firstWindow({ timeout: 120_000 })
     await page.waitForLoadState('domcontentloaded')
 
+    // Why: the aterm in-page renderer ships default-on, but the existing e2e
+    // suite asserts terminal content via the xterm DOM (.xterm-rows/.xterm-screen),
+    // which aterm panes don't produce. Force the xterm renderer for the suite by
+    // default. addInitScript covers reloads (orca-restart); the evaluate covers
+    // the already-loaded document. The aterm-specific specs set
+    // window.__atermRendererEnabled = true, which takes precedence (ON wins).
+    await page.addInitScript(() => {
+      ;(window as unknown as { __atermRendererDisabled?: boolean }).__atermRendererDisabled = true
+    })
+    await page.evaluate(() => {
+      ;(window as unknown as { __atermRendererDisabled?: boolean }).__atermRendererDisabled = true
+    })
+
     // Wait for the store to be available
     await page.waitForFunction(() => Boolean(window.__store), null, { timeout: 30_000 })
 

@@ -17,7 +17,8 @@ import {
 } from './pane-divider'
 import { cancelActivePaneDrag, createDragReorderState, handlePaneDrop } from './pane-drag-reorder'
 import { beginPaneDragFromPointerDown } from './pane-drag-pointer'
-import { createPaneDOM, openTerminal, setLigaturesEnabled, disposePane } from './pane-lifecycle'
+import { createPaneDOM, openTerminal, disposePane } from './pane-lifecycle'
+import { setLigaturesEnabled } from './pane-ligatures'
 import { shouldFollowMouseFocus } from './focus-follows-mouse'
 import { getTerminalWebglAutoDecision } from './terminal-webgl-auto-policy'
 import {

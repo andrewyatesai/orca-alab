@@ -1,5 +1,8 @@
 import { loadAterm } from './load-aterm'
 import { encodeKeyEventToBytes } from './aterm-key-encoding'
+import { resolveAtermThemeColors } from './aterm-theme-colors'
+import { attachAtermScrollInput } from './aterm-scroll-input'
+import { attachAtermSelectionInput } from './aterm-selection-input'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 // Font cell size in CSS pixels; multiplied by devicePixelRatio for the engine.
@@ -11,6 +14,12 @@ export type AtermPaneResizeSink = (cols: number, rows: number) => void
 export type AtermPaneController = {
   /** Feed PTY/replay output bytes; coalesces draws into one rAF frame. */
   process: (data: string) => void
+  /** Lines the viewport is scrolled up from the live bottom (0 = at bottom). */
+  displayOffset: () => number
+  /** Scroll scrollback (positive = older); redraws. Mirrors the wheel path. */
+  scrollLines: (delta: number) => void
+  /** Current selection text, if any (empty string when nothing is selected). */
+  selectionText: () => string
   dispose: () => void
 }
 
@@ -59,13 +68,20 @@ export async function createAtermPaneController(
   const { AtermTerminal: AtermTerminalCtor, fontBytes } = await loadAterm()
 
   const dpr = window.devicePixelRatio || 1
+  // Seed the renderer's default fg/bg/cursor/selection from orca's active
+  // terminal theme so the canvas matches the rest of the app at pane creation.
+  const themeColors = resolveAtermThemeColors()
   // Build once at an arbitrary 1x1 grid to read the engine's cell metrics, then
   // size the real grid to the container.
   const term: AtermTerminal = new AtermTerminalCtor(
     MIN_GRID_ROWS,
     MIN_GRID_COLS,
     fontBytes,
-    Math.round(ATERM_RENDERER_FONT_PX * dpr)
+    Math.round(ATERM_RENDERER_FONT_PX * dpr),
+    themeColors.fg,
+    themeColors.bg,
+    themeColors.cursor,
+    themeColors.selection
   )
   const cellWidth = term.cell_width
   const cellHeight = term.cell_height
@@ -110,9 +126,47 @@ export async function createAtermPaneController(
     if (disposed) {
       return
     }
+    // Follow the bottom on new output ONLY if already at the bottom; if the user
+    // has scrolled up to read history, leave the viewport pinned (aterm's SCR-1
+    // keeps it stable while scrollback grows).
+    const wasAtBottom = term.display_offset === 0
     term.process(new TextEncoder().encode(data))
+    if (wasAtBottom && term.display_offset !== 0) {
+      term.scroll_to_bottom()
+    }
     scheduleDraw()
   }
+
+  // Copy selected text via Electron's clipboard IPC (same seam the rest of the
+  // app uses); also surface it on a window field so e2e can assert copies under
+  // a hidden window where navigator.clipboard is unavailable.
+  const copyToClipboard = (text: string): void => {
+    ;(window as unknown as { __atermLastCopied?: string }).__atermLastCopied = text
+    void window.api?.ui?.writeClipboardText?.(text)?.catch(() => {
+      /* ignore clipboard write failures */
+    })
+  }
+
+  const selectionInput = attachAtermSelectionInput({
+    canvas,
+    term,
+    dpr,
+    cellWidth,
+    cellHeight,
+    redraw: scheduleDraw,
+    isDisposed: () => disposed,
+    onCopy: copyToClipboard
+  })
+
+  const scrollInput = attachAtermScrollInput({
+    canvas,
+    term,
+    dpr,
+    cellHeight,
+    getRows: () => rows,
+    redraw: scheduleDraw,
+    isDisposed: () => disposed
+  })
 
   const resizeObserver = new ResizeObserver(() => {
     if (disposed) {
@@ -131,7 +185,16 @@ export async function createAtermPaneController(
   })
   resizeObserver.observe(container)
 
+  // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
+  const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
   const onKeyDown = (event: KeyboardEvent): void => {
+    // Cmd/Ctrl+C copies the canvas selection (when any) instead of sending ^C,
+    // matching the default terminal's copy behavior.
+    const copyChord = (isMac ? event.metaKey : event.ctrlKey) && event.key.toLowerCase() === 'c'
+    if (copyChord && selectionInput.copySelection()) {
+      event.preventDefault()
+      return
+    }
     const bytes = encodeKeyEventToBytes(event)
     if (bytes === null) {
       return
@@ -152,6 +215,15 @@ export async function createAtermPaneController(
 
   return {
     process,
+    displayOffset: () => term.display_offset,
+    scrollLines: (delta: number) => {
+      if (disposed) {
+        return
+      }
+      term.scroll_lines(delta)
+      scheduleDraw()
+    },
+    selectionText: () => term.selection_text() ?? '',
     dispose: () => {
       if (disposed) {
         return
@@ -160,6 +232,8 @@ export async function createAtermPaneController(
       resizeObserver.disconnect()
       canvas.removeEventListener('keydown', onKeyDown)
       canvas.removeEventListener('pointerdown', onPointerDown)
+      selectionInput.dispose()
+      scrollInput.dispose()
       canvas.remove()
       try {
         term.free()

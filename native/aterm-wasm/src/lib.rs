@@ -12,6 +12,7 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+use aterm_core::selection::{SelectionSide, SelectionType};
 use aterm_core::terminal::Terminal;
 use aterm_render::{Renderer, Theme};
 
@@ -33,12 +34,29 @@ pub struct AtermTerminal {
 impl AtermTerminal {
     /// Build a `rows`x`cols` terminal rendered with `font_bytes` (a TTF/OTF) at
     /// `px` cell font-size. `font_bytes` is injected by the host (fetched in JS),
-    /// keeping the engine free of filesystem font discovery.
+    /// keeping the engine free of filesystem font discovery. `fg`/`bg`/`cursor`/
+    /// `selection` are 0x00RRGGBB and seed the renderer's DEFAULT theme colors;
+    /// per-cell SGR colors still flow through the grid independently.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
-    pub fn new(rows: u16, cols: u16, font_bytes: &[u8], px: f32) -> Result<AtermTerminal, String> {
+    pub fn new(
+        rows: u16,
+        cols: u16,
+        font_bytes: &[u8],
+        px: f32,
+        fg: u32,
+        bg: u32,
+        cursor: u32,
+        selection: u32,
+    ) -> Result<AtermTerminal, String> {
         #[cfg(target_arch = "wasm32")]
         console_error_panic_hook::set_once();
-        let renderer = Renderer::from_bytes(font_bytes, px, Theme::default())?;
+        let theme = Theme {
+            fg,
+            bg,
+            cursor,
+            selection,
+        };
+        let renderer = Renderer::from_bytes(font_bytes, px, theme)?;
         Ok(Self {
             term: Terminal::new(rows, cols),
             renderer,
@@ -108,6 +126,65 @@ impl AtermTerminal {
     pub fn rgba(&self) -> Vec<u8> {
         self.rgba.clone()
     }
+
+    /// Scroll the viewport through scrollback: positive `delta` reveals older
+    /// lines, negative reveals newer. `render` already honors the display offset,
+    /// so the host only needs to redraw afterwards.
+    pub fn scroll_lines(&mut self, delta: i32) {
+        self.term.scroll_display(delta);
+    }
+
+    /// Snap the viewport to the live bottom (latest output).
+    pub fn scroll_to_bottom(&mut self) {
+        self.term.scroll_to_bottom();
+    }
+
+    /// Snap the viewport to the oldest retained scrollback line.
+    pub fn scroll_to_top(&mut self) {
+        self.term.scroll_to_top();
+    }
+
+    /// Lines the viewport is scrolled up from the live bottom (0 = at bottom).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn display_offset(&self) -> usize {
+        self.term.grid().display_offset()
+    }
+
+    /// True when the alternate screen is active (TUIs own their own scrolling),
+    /// so the host should let wheel events pass through to the app.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_alt_screen(&self) -> bool {
+        self.term.is_alternate_screen()
+    }
+
+    /// Begin a character selection at display `row`/`col` (clears any prior one).
+    pub fn selection_start(&mut self, row: i32, col: u16) {
+        self.term
+            .text_selection_mut()
+            .start_selection(row, col, SelectionSide::Left, SelectionType::Simple);
+    }
+
+    /// Move the selection endpoint to `row`/`col` (during a drag).
+    pub fn selection_extend(&mut self, row: i32, col: u16) {
+        self.term
+            .text_selection_mut()
+            .update_selection(row, col, SelectionSide::Right);
+    }
+
+    /// Finalize the selection (mouse released).
+    pub fn selection_finish(&mut self) {
+        self.term.text_selection_mut().complete_selection();
+    }
+
+    /// Drop the current selection so the highlight clears on the next render.
+    pub fn selection_clear(&mut self) {
+        self.term.text_selection_mut().clear();
+    }
+
+    /// The selected text, if any (`None` when the selection is empty).
+    pub fn selection_text(&self) -> Option<String> {
+        self.term.selection_to_string()
+    }
 }
 
 // Native-only constructor for headless tests/benches: discovers a system font so
@@ -152,5 +229,26 @@ mod tests {
             rgba.chunks_exact(4).any(|px| px != bg),
             "rendered glyphs should produce non-background pixels"
         );
+    }
+
+    #[test]
+    fn scrolls_into_scrollback_and_extracts_a_selection() {
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping scroll/select test");
+            return;
+        };
+        for i in 0..200 {
+            t.process(format!("line {i}\r\n").as_bytes());
+        }
+        assert_eq!(t.display_offset(), 0, "live output stays at the bottom");
+        t.scroll_lines(40);
+        assert_eq!(t.display_offset(), 40, "scrolling up reveals older history");
+        t.scroll_to_bottom();
+        assert_eq!(t.display_offset(), 0, "scroll_to_bottom snaps back to live");
+        t.selection_start(0, 0);
+        t.selection_extend(1, 4);
+        t.selection_finish();
+        let selected = t.selection_text().expect("a drag selects text");
+        assert!(!selected.is_empty(), "selection should not be empty");
     }
 }

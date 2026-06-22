@@ -124,6 +124,10 @@ function renderWorktreeCardMarkup(element: ReactNode): string {
   return renderToStaticMarkup(<>{element}</>)
 }
 
+function countAutomationCreatedLabels(markup: string): number {
+  return markup.match(/Created by automation/g)?.length ?? 0
+}
+
 function getInlineRenameTitleTag(markup: string): string {
   const match = markup.match(/<span[^>]*data-worktree-title-inline-rename=""[^>]*>/)
   expect(match).not.toBeNull()
@@ -456,7 +460,7 @@ describe('WorktreeCard linked PR display', () => {
       />
     )
 
-    expect(markup).toContain('Created by automation')
+    expect(countAutomationCreatedLabels(markup)).toBe(1)
     expect(markup).not.toContain('>Automation</span>')
   }, 20_000)
 
@@ -487,7 +491,7 @@ describe('WorktreeCard linked PR display', () => {
       />
     )
 
-    expect(markup).not.toContain('Created by automation')
+    expect(countAutomationCreatedLabels(markup)).toBe(0)
     expect(markup).not.toContain('>Automation</span>')
     expect(markup).not.toContain('Nightly triage automation')
   }, 20_000)
@@ -519,7 +523,7 @@ describe('WorktreeCard linked PR display', () => {
       />
     )
 
-    expect(markup).toContain('Created by automation')
+    expect(countAutomationCreatedLabels(markup)).toBe(1)
     expect(markup).not.toContain('>Automation</span>')
   }, 20_000)
 
@@ -549,7 +553,7 @@ describe('WorktreeCard linked PR display', () => {
       />
     )
 
-    expect(markup).not.toContain('Created by automation')
+    expect(countAutomationCreatedLabels(markup)).toBe(0)
     expect(markup).not.toContain('>Automation</span>')
     expect(markup).not.toContain('Nightly triage automation')
   })

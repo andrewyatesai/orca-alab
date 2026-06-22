@@ -814,6 +814,7 @@ function openMainWindow(): BrowserWindow {
       payload,
       receivedAt,
       stateStartedAt,
+      launchToken,
       providerSession,
       isReplay
     }) => {
@@ -826,6 +827,7 @@ function openMainWindow(): BrowserWindow {
       mainWindow?.webContents.send('agentStatus:set', {
         ...payload,
         paneKey,
+        ...(launchToken ? { launchToken } : {}),
         ...(terminalHandle ? { terminalHandle } : {}),
         tabId,
         worktreeId,

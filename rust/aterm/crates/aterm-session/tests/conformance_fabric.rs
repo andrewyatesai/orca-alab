@@ -239,20 +239,16 @@ fn sink_no_loss_proves_and_buggy_tail_drop_is_caught() {
 // Trust" guarantee: the model is Rust, `to_tla()` emits the spec, `ty check`
 // proves the invariant over the WHOLE bounded state space, and the Buggy=1 cfg
 // MUST yield a counterexample — so the invariant is non-trivial AND catches the
-// real defect. VERIFICATION GATE (honesty ratchet), three-way (see
-// `aterm_spec::verify`): PRESENT → run + enforce (unchanged); ABSENT + default → a
-// LOUD stderr skip (never a silent pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC
-// (fatal-on-absence).
+// real defect. VERIFICATION GATE (honesty ratchet, batteries-on, see
+// `aterm_spec::verify`): verification is always required — an absent Trust `ty` FAILS
+// the test with a build hint (`cargo build --release -p tla-cli` in
+// ~/trust/first-party/ty).
 // ===========================================================================
 
 use std::path::PathBuf;
 use std::process::Command;
 
-use aterm_spec::verify::ty_or_skip;
-
-// VERIFICATION GATE (honesty ratchet) — three-way policy in `aterm_spec::verify`:
-// PRESENT → run + enforce (unchanged); ABSENT + default → a LOUD stderr skip (never a
-// silent pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
+use aterm_spec::verify::ty;
 
 fn run_ty_check(ty: &PathBuf, spec: &std::path::Path, cfg: &std::path::Path) -> (bool, String) {
     let out = Command::new(ty)
@@ -311,9 +307,7 @@ fn assert_proves_and_catches_in_trust(ty: &PathBuf, m: &Model) {
 /// caught.
 #[test]
 fn edge_gate_spec_model_checked_in_trust() {
-    let Some(ty) = ty_or_skip("edge_gate fail-closed spec") else {
-        return;
-    };
+    let ty = ty("edge_gate fail-closed spec");
     assert_proves_and_catches_in_trust(&ty, &edge_gate_model());
 }
 
@@ -321,8 +315,6 @@ fn edge_gate_spec_model_checked_in_trust() {
 /// the silent-tail-drop bug is caught.
 #[test]
 fn sink_no_loss_spec_model_checked_in_trust() {
-    let Some(ty) = ty_or_skip("sink no-loss spec") else {
-        return;
-    };
+    let ty = ty("sink no-loss spec");
     assert_proves_and_catches_in_trust(&ty, &sink_no_loss_model());
 }

@@ -108,7 +108,9 @@ impl SixelImage {
     #[must_use]
     pub fn rows_spanned(&self, cell_h: u16) -> usize {
         let cell_h = usize::from(cell_h).max(1);
-        self.height.div_ceil(cell_h).max(usize::from(self.height > 0))
+        self.height
+            .div_ceil(cell_h)
+            .max(usize::from(self.height > 0))
     }
 
     /// Number of grid columns this image spans given a cell width in pixels.
@@ -431,7 +433,10 @@ impl SixelDecoder {
         self.declared_w = ph.min(SIXEL_MAX_DIMENSION);
         self.declared_h = pv.min(SIXEL_MAX_DIMENSION);
         if self.declared_w > 0 && self.declared_h > 0 {
-            self.ensure_capacity(self.declared_w.saturating_sub(1), self.declared_h.saturating_sub(1));
+            self.ensure_capacity(
+                self.declared_w.saturating_sub(1),
+                self.declared_h.saturating_sub(1),
+            );
         }
     }
 
@@ -566,22 +571,22 @@ fn hls_to_rgb(h: u32, l: u32, s: u32) -> u32 {
 fn default_palette() -> Vec<u32> {
     // (r%, g%, b%) per DEC VT340 color map.
     const DEC: [(u32, u32, u32); 16] = [
-        (0, 0, 0),       // 0  black
-        (20, 20, 80),    // 1  blue
-        (80, 13, 13),    // 2  red
-        (20, 80, 20),    // 3  green
-        (80, 20, 80),    // 4  magenta
-        (20, 80, 80),    // 5  cyan
-        (80, 80, 20),    // 6  yellow
-        (53, 53, 53),    // 7  gray 50%
-        (26, 26, 26),    // 8  gray 25%
-        (33, 33, 60),    // 9  blue*
-        (60, 26, 26),    // 10 red*
-        (33, 60, 33),    // 11 green*
-        (60, 33, 60),    // 12 magenta*
-        (33, 60, 60),    // 13 cyan*
-        (60, 60, 33),    // 14 yellow*
-        (80, 80, 80),    // 15 gray 75%
+        (0, 0, 0),    // 0  black
+        (20, 20, 80), // 1  blue
+        (80, 13, 13), // 2  red
+        (20, 80, 20), // 3  green
+        (80, 20, 80), // 4  magenta
+        (20, 80, 80), // 5  cyan
+        (80, 80, 20), // 6  yellow
+        (53, 53, 53), // 7  gray 50%
+        (26, 26, 26), // 8  gray 25%
+        (33, 33, 60), // 9  blue*
+        (60, 26, 26), // 10 red*
+        (33, 60, 33), // 11 green*
+        (60, 33, 60), // 12 magenta*
+        (33, 60, 60), // 13 cyan*
+        (60, 60, 33), // 14 yellow*
+        (80, 80, 80), // 15 gray 75%
     ];
     let mut pal = vec![0u32; MAX_COLOR_REGISTERS];
     for (i, &(r, g, b)) in DEC.iter().enumerate() {

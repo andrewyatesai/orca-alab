@@ -95,6 +95,12 @@ const SUBS: &[Sub] = &[
         group: Group::PackageRelease,
     },
     Sub {
+        name: "preflight-release",
+        about: "Run the updater's own accept gate (codesign/Team-ID/spctl/monotonic) before publishing",
+        script: "tools/preflight-release.sh",
+        group: Group::PackageRelease,
+    },
+    Sub {
         name: "extract-changelog",
         about: "Print the CHANGELOG.md notes for a version (used as release notes)",
         script: "tools/extract-changelog.sh",

@@ -33,12 +33,12 @@
 //!
 //! Each model is checked by `assert_proves_and_catches` (the same harness shape as
 //! `tests/derived_ring_ty.rs`): clean at `Buggy = 0`, counterexample at `Buggy = 1`.
-//! Under `ATERM_REQUIRE_TRUST=1` an absent `ty` is FATAL, so a green run here proves
-//! `ty` actually model-checked all six configs.
+//! Verification is always required (batteries-on): an absent `ty` FAILS the test with
+//! a build hint, so a green run here proves `ty` actually model-checked all six configs.
 
 use aterm_spec::derive::Model;
 use aterm_spec::ty_model;
-use aterm_spec::verify::ty_or_skip;
+use aterm_spec::verify::ty;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -178,24 +178,18 @@ fn mark_row_origin_model() -> Model {
 
 #[test]
 fn rfc_atlas_pack_proves_and_catches_overflow() {
-    let Some(ty) = ty_or_skip("RFC AtlasPack (Bug 3) spec") else {
-        return;
-    };
+    let ty = ty("RFC AtlasPack (Bug 3) spec");
     assert_proves_and_catches(&ty, &atlas_pack_model());
 }
 
 #[test]
 fn rfc_reload_frame_proves_and_catches_font_shrink() {
-    let Some(ty) = ty_or_skip("RFC ReloadFrame (Bug 4) spec") else {
-        return;
-    };
+    let ty = ty("RFC ReloadFrame (Bug 4) spec");
     assert_proves_and_catches(&ty, &reload_frame_model());
 }
 
 #[test]
 fn rfc_mark_row_origin_proves_and_catches_y_divergence() {
-    let Some(ty) = ty_or_skip("RFC MarkRowOrigin (Bug 6) spec") else {
-        return;
-    };
+    let ty = ty("RFC MarkRowOrigin (Bug 6) spec");
     assert_proves_and_catches(&ty, &mark_row_origin_model());
 }

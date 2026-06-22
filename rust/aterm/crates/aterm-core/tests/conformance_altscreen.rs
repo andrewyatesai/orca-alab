@@ -41,15 +41,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use aterm_core::terminal::Terminal;
-use aterm_spec::verify::ty_or_skip;
+use aterm_spec::verify::ty;
 
 /// Spec `CONSTANT Cells` / `MaxVal` (from `AltScreen.cfg`).
 const CELLS: usize = 3;
 const MAXVAL: i64 = 2;
 
-// VERIFICATION GATE (honesty ratchet) — three-way policy in `aterm_spec::verify`:
-// PRESENT → run + enforce (unchanged); ABSENT + default → a LOUD stderr skip (never a
-// silent pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
+// VERIFICATION GATE (honesty ratchet, batteries-on) in `aterm_spec::verify`:
+// verification is always required — an absent Trust `ty` FAILS the test with a build
+// hint (`cargo build --release -p tla-cli` in ~/trust/first-party/ty).
 
 /// The abstract spec state — the projection target.
 #[derive(Clone, PartialEq, Debug)]
@@ -243,9 +243,7 @@ fn validate(
 
 #[test]
 fn real_altscreen_roundtrip_conforms_to_altscreen_spec() {
-    let Some(ty) = ty_or_skip("AltScreen conformance") else {
-        return;
-    };
+    let ty = ty("AltScreen conformance");
     let committed =
         std::fs::read_to_string(spec_path("AltScreen.tla")).expect("read AltScreen.tla");
     let dir = std::env::temp_dir().join(format!("aterm-altscreen-conf-{}", std::process::id()));

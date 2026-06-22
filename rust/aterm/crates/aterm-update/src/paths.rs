@@ -30,6 +30,9 @@ pub struct Staging {
     pub staged_app: PathBuf,
     /// The "ready" marker — written last; its presence is the sole ready signal.
     pub ready: PathBuf,
+    /// Human/operator-readable status record (last check, outcome, staged build).
+    /// Observability surface for a silent updater — `cat` it to see what happened.
+    pub status: PathBuf,
 }
 
 impl Staging {
@@ -51,6 +54,7 @@ impl Staging {
             download,
             staged_app: root.join("staged").join("aterm.app"),
             ready: root.join("ready.toml"),
+            status: root.join("status.toml"),
             root,
         })
     }

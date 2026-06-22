@@ -39,16 +39,14 @@
 //! Tier-2 (MIR refinement via trust-mc), per the RFC.
 //!
 //! `ty` is located as `aterm-spec-models`' model-check test does: a fixed
-//! canonical path search. VERIFICATION GATE (honesty ratchet), three-way (see
-//! [`aterm_spec::verify`]): PRESENT → run + enforce (unchanged); ABSENT + default →
-//! a LOUD stderr warning and the conformance assertions are SKIPPED (never a silent
-//! pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence). The only
-//! change vs. always-panic is absent-toolchain → loud-skip, so CI / contributors
-//! without the Trust toolchain aren't red.
+//! canonical path search. VERIFICATION GATE (honesty ratchet, batteries-on, see
+//! [`aterm_spec::verify`]): verification is always required — an absent Trust `ty`
+//! FAILS the test with a build hint; build the toolchain once (`cargo build --release
+//! -p tla-cli` in ~/trust/first-party/ty).
 
 use aterm_buffer::{Edit, Surface, SurfaceId, WriteCap};
 use aterm_spec::derive::ring_model;
-use aterm_spec::verify::ty_or_skip;
+use aterm_spec::verify::ty;
 use std::collections::BTreeMap;
 use std::num::NonZeroU64;
 use std::path::Path;
@@ -140,9 +138,7 @@ fn drive_real_eventlog(n: u64) -> Vec<(u64, u64)> {
 
 #[test]
 fn real_eventlog_conforms_to_ring_spec() {
-    let Some(ty) = ty_or_skip("EventLog conformance") else {
-        return;
-    };
+    let ty = ty("EventLog conformance");
 
     let dir = std::env::temp_dir().join(format!("aterm-conf-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mk tempdir");
@@ -204,11 +200,9 @@ fn real_eventlog_conforms_to_ring_spec() {
 /// eviction discipline (pop-oldest-when-over-cap) is bound to the derived spec.
 #[test]
 fn real_eventlog_eviction_conforms_to_ring_spec() {
-    // Check for `ty` BEFORE the heavy drive so a no-`ty` run fails cheaply,
+    // Resolve `ty` BEFORE the heavy drive so an absent-toolchain run fails cheaply,
     // without first driving CAP+4 appends.
-    let Some(ty) = ty_or_skip("EventLog eviction conformance") else {
-        return;
-    };
+    let ty = ty("EventLog eviction conformance");
 
     let dir = std::env::temp_dir().join(format!("aterm-evict-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mk tempdir");

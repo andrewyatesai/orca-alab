@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use aterm_gpu::should_slice;
-use aterm_spec::verify::ty_or_skip;
+use aterm_spec::verify::ty;
 
 /// Spec `CONSTANT MaxCells` (from `GpuEncode.cfg`).
 const MAX_CELLS: i64 = 4;
@@ -41,9 +41,9 @@ const MAX_CELLS: i64 = 4;
 /// `should_slice` actually sees in `InstanceBuf::upload(bytemuck::cast_slice(&bg))`.
 const STRIDE: usize = 12;
 
-// VERIFICATION GATE (honesty ratchet) — three-way policy in `aterm_spec::verify`:
-// PRESENT → run + enforce (unchanged); ABSENT + default → a LOUD stderr skip (never a
-// silent pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
+// VERIFICATION GATE (honesty ratchet, batteries-on) in `aterm_spec::verify`:
+// verification is always required — an absent Trust `ty` FAILS the test with a build
+// hint (`cargo build --release -p tla-cli` in ~/trust/first-party/ty).
 
 /// Abstract spec state `<<bgInst, encoded, sliced>>`.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -179,9 +179,7 @@ fn drive_frame(n: i64) -> Vec<(GeState, GeState, &'static str)> {
 
 #[test]
 fn real_gpu_encode_slice_decision_conforms_to_gpuencode_spec() {
-    let Some(ty) = ty_or_skip("GpuEncode conformance") else {
-        return;
-    };
+    let ty = ty("GpuEncode conformance");
     let committed =
         std::fs::read_to_string(spec_path("GpuEncode.tla")).expect("read GpuEncode.tla");
     let dir = std::env::temp_dir().join(format!("aterm-gpuencode-conf-{}", std::process::id()));

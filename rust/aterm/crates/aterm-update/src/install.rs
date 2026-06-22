@@ -186,21 +186,34 @@ pub fn apply_staged_if_ready(current_build: u64) -> ApplyOutcome {
         return ApplyOutcome::NoUpdate;
     }
 
-    // 5. Apply-time re-verification (TOCTOU defence).
+    // 5. Can we even write the install location? Checked BEFORE the (more
+    //    expensive) re-verification so a persistently non-writable install (e.g.
+    //    an admin-owned /Applications) doesn't re-verify the staged bundle on every
+    //    single launch — there's nothing we could do with it anyway.
+    if !bundle::parent_writable(&b.app_root) {
+        crate::status::record(
+            &staging,
+            current_build,
+            "deferred: install location not writable",
+        );
+        return ApplyOutcome::Deferred(format!(
+            "install location not writable: {}",
+            b.app_root.display()
+        ));
+    }
+
+    // 6. Apply-time re-verification (TOCTOU defence).
     if let Err(e) = verify::verify_bundle(&staging.staged_app, PINNED_TEAM_ID) {
         crate::warn(&format!(
             "staged bundle re-verification failed: {e}; discarding"
         ));
         staging.clear();
+        crate::status::record(
+            &staging,
+            current_build,
+            "deferred: staged bundle failed re-verification (discarded)",
+        );
         return ApplyOutcome::Deferred(format!("re-verify: {e}"));
-    }
-
-    // 6. Can we write the install location?
-    if !bundle::parent_writable(&b.app_root) {
-        return ApplyOutcome::Deferred(format!(
-            "install location not writable: {}",
-            b.app_root.display()
-        ));
     }
 
     // 7. Atomic swap. `swap_in` returns the path now holding the OLD bundle (our
@@ -232,6 +245,11 @@ pub fn apply_staged_if_ready(current_build: u64) -> ApplyOutcome {
     if let Err(e) = restore_rollback(&rollback, &b.app_root) {
         crate::warn(&format!("rollback failed: {e}"));
     }
+    crate::status::record(
+        &staging,
+        current_build,
+        "re-exec of new build failed (rolled back)",
+    );
     ApplyOutcome::ReExecFailed(err.to_string())
 }
 
@@ -337,8 +355,8 @@ fn sweep_swap_leftovers(app_root: &Path) {
 }
 
 /// Best-effort RFC3339 UTC timestamp (`date -u`), for the human-readable
-/// `staged_at` field. Falls back to the empty string.
-fn now_rfc3339() -> String {
+/// `staged_at`/status fields. Falls back to the empty string.
+pub(crate) fn now_rfc3339() -> String {
     Command::new("/bin/date")
         .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
         .output()
@@ -366,6 +384,7 @@ mod tests {
             download: root.join("download"),
             staged_app: root.join("staged").join("aterm.app"),
             ready: root.join("ready.toml"),
+            status: root.join("status.toml"),
             root: root.clone(),
         };
         (s, root)

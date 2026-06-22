@@ -13,9 +13,9 @@ description = "TLA+ models of aterm's kernel/security/concurrency invariants (RO
 # `ty` TLA+ checker over the specs in `specs/`. The .tla/.cfg files ARE the crate.
 
 [dev-dependencies]
-# Test-only: the single shared verification-gate policy (present / loud-skip /
-# fatal under ATERM_REQUIRE_TRUST=1). Test-only so the production crate stays
-# dep-free — the .tla/.cfg files remain the whole crate.
+# Test-only: the single shared verification-gate policy (batteries-on — the test
+# gate is unconditional, so an absent Trust `ty` FAILS rather than skips). Test-only
+# so the production crate stays dep-free — the .tla/.cfg files remain the whole crate.
 aterm-spec = { workspace = true }
 
 [lints]

@@ -23,10 +23,10 @@
 //!     MUST reject, proving the binding is non-vacuous.
 //!
 //! Every fixture shells the SAME armed binaries the gate uses (`trust-ir`, `ty`),
-//! located by the canonical-path search. Absent them the policy is three-way (see
-//! [`aterm_spec::verify`]): default → LOUD stderr skip (each test returns early before
-//! asserting); `ATERM_REQUIRE_TRUST=1` → PANIC (fatal); present → run + enforce
-//! (unchanged). The honesty ratchet is preserved where the toolchain is present.
+//! located by the canonical-path search. Verification is always required
+//! (batteries-on, see [`aterm_spec::verify`]): an absent Trust `ty`/`trust-ir` FAILS
+//! the test with a build hint; build the toolchain once (`cargo build --release -p
+//! tla-cli` in ~/trust/first-party/ty).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -34,25 +34,18 @@ use std::process::Command;
 use aterm_spec::derive::ring_model;
 use aterm_spec::ir::lower_to_ir;
 use aterm_spec::tla_check::TlaSpec;
-use aterm_spec::verify::{trust_ir_or_skip, ty_or_skip};
+use aterm_spec::verify::{trust_ir, ty};
 use aterm_spec::xref::{ProofAnchor, ProofKind, RefinementAnchor, SpecModule};
 
 // ---------------------------------------------------------------------------
-// Tool discovery (the honesty ratchet — three-way: present / loud-skip / fatal)
+// Tool discovery (the honesty ratchet — batteries-on: present or the test FAILS)
 // ---------------------------------------------------------------------------
 
-/// Resolve `trust-ir`, panicking if absent. Only called AFTER a test's top-of-body
-/// `trust_ir_or_skip(...)` guard has already returned `Some` (present) or skipped the
-/// whole test — so reaching here means the binary exists.
-fn trust_ir_resolved() -> PathBuf {
-    trust_ir_or_skip("overclaim corpus (spec-link)")
-        .expect("trust-ir present (guarded by trust_ir_or_skip at the test entry)")
-}
-
 /// Run `trust-ir spec-link <module> [--harness-manifest <m> --require-manifest]`,
-/// returning (exit-code, combined stdout+stderr).
+/// returning (exit-code, combined stdout+stderr). Resolving `trust-ir` is unconditional
+/// (batteries-on): an absent binary FAILS the test with a build hint.
 fn spec_link(module: &Path, manifest: Option<&Path>) -> (i32, String) {
-    let trust_ir = trust_ir_resolved();
+    let trust_ir = trust_ir("overclaim corpus (spec-link)");
     let mut cmd = Command::new(&trust_ir);
     cmd.arg("spec-link").arg(module);
     if let Some(m) = manifest {
@@ -103,9 +96,6 @@ fn write_manifest(dir: &Path, names: &[&str]) -> PathBuf {
 
 #[test]
 fn red_l1_typo_proof_name_flags() {
-    if trust_ir_or_skip("red_l1 (overclaim corpus)").is_none() {
-        return; // loud skip already printed (default); ATERM_REQUIRE_TRUST=1 would have panicked.
-    }
     let dir = tmpdir("l1");
     let modules = vec![SpecModule::Embedded(ring_model())];
     let a = anchor("ring", "Push", "aterm_buffer::Ring::project");
@@ -155,9 +145,6 @@ fn red_l1_typo_proof_name_flags() {
 
 #[test]
 fn red_l2_empty_projection_flags() {
-    if trust_ir_or_skip("red_l2 (overclaim corpus)").is_none() {
-        return; // loud skip already printed (default); ATERM_REQUIRE_TRUST=1 would have panicked.
-    }
     let dir = tmpdir("l2");
     let modules = vec![SpecModule::Embedded(ring_model())];
     // Actively-anchored machine (Ring) with an anchor carrying NO projection.
@@ -207,9 +194,6 @@ TypeOK == x \in {0, 1}
 
 #[test]
 fn red_l3_external_anchor_on_typeok_flags_in_rust_and_artifact() {
-    if trust_ir_or_skip("red_l3 (overclaim corpus)").is_none() {
-        return; // loud skip already printed (default); ATERM_REQUIRE_TRUST=1 would have panicked.
-    }
     let dir = tmpdir("l3");
     let spec = TlaSpec::parse_str(EXTERNAL_TLA, "Fixture.tla").expect("parse external .tla");
     // Sanity: TypeOK is a declared def but NOT a Next disjunct.
@@ -274,9 +258,7 @@ fn red_window_routing_corrupted_close_is_rejected_by_ty() {
     use aterm_spec::derive::window_routing_model;
     use std::collections::BTreeMap;
 
-    let Some(ty) = ty_or_skip("red_window_routing (overclaim corpus)") else {
-        return; // loud skip already printed (default); ATERM_REQUIRE_TRUST=1 would have panicked.
-    };
+    let ty = ty("red_window_routing (overclaim corpus)");
     let dir = tmpdir("winroute");
     let m = window_routing_model();
     let spec = dir.join("WindowRouting.tla");
@@ -365,9 +347,6 @@ fn red_window_routing_corrupted_close_is_rejected_by_ty() {
 
 #[test]
 fn clean_control_full_pass() {
-    if trust_ir_or_skip("clean_control (overclaim corpus)").is_none() {
-        return; // loud skip already printed (default); ATERM_REQUIRE_TRUST=1 would have panicked.
-    }
     let dir = tmpdir("clean");
     let modules = vec![SpecModule::Embedded(ring_model())];
     let a = anchor("ring", "Push", "aterm_buffer::Ring::project");

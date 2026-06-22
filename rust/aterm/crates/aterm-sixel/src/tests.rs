@@ -44,8 +44,7 @@ fn single_full_column_is_one_by_six_red() {
 #[test]
 fn four_columns_one_band_is_four_by_six() {
     // SIXEL_4X6 body: four `~` columns of red after raster 4x6.
-    let img = decode(&[0, 0, 0], b"\"1;1;4;6#0;2;0;0;0#1;2;100;0;0#1~~~~$-")
-        .expect("4x6 image");
+    let img = decode(&[0, 0, 0], b"\"1;1;4;6#0;2;0;0;0#1;2;100;0;0#1~~~~$-").expect("4x6 image");
     assert_eq!(img.width(), 4);
     assert_eq!(img.height(), 6);
     assert_eq!(img.pixels().len(), 24);
@@ -62,7 +61,11 @@ fn partial_column_sets_only_low_bits() {
     assert_eq!(img.height(), 6);
     // Only row 1 (second from top) is painted green; others transparent.
     assert_eq!(img.pixels()[0], 0, "row 0 transparent");
-    assert_eq!(img.pixels()[1] & 0xFF00_FF00, 0xFF00_FF00, "row 1 opaque green");
+    assert_eq!(
+        img.pixels()[1] & 0xFF00_FF00,
+        0xFF00_FF00,
+        "row 1 opaque green"
+    );
     assert_eq!(img.pixels()[2], 0, "row 2 transparent");
 }
 
@@ -136,7 +139,11 @@ fn reuse_across_cycles_resets_state() {
     let bimg = d.unhook().expect("second image");
     assert_eq!(bimg.width(), 1, "geometry reset between cycles");
     assert_eq!(bimg.height(), 6);
-    assert_eq!(bimg.pixels()[0] & 0x00FF_FF00, 0x0000_FF00, "green, not red");
+    assert_eq!(
+        bimg.pixels()[0] & 0x00FF_FF00,
+        0x0000_FF00,
+        "green, not red"
+    );
 }
 
 #[test]
@@ -193,10 +200,22 @@ fn repeat_does_not_survive_band_control() {
     // `$` (graphics-CR) or `-` (graphics-NL) between `!3` and the data byte must
     // cancel the pending repeat — otherwise the next band is wrongly widened.
     let cr = decode(&[0, 0, 0], b"#1;2;100;0;0#1!3$~").expect("image");
-    assert_eq!(cr.width(), 1, "`!3` then `$` then `~` must NOT repeat (width 1)");
+    assert_eq!(
+        cr.width(),
+        1,
+        "`!3` then `$` then `~` must NOT repeat (width 1)"
+    );
     let nl = decode(&[0, 0, 0], b"#1;2;100;0;0#1!3-~").expect("image");
-    assert_eq!(nl.width(), 1, "`!3` then `-` then `~` must NOT repeat (width 1)");
+    assert_eq!(
+        nl.width(),
+        1,
+        "`!3` then `-` then `~` must NOT repeat (width 1)"
+    );
     // Control: a repeat IMMEDIATELY followed by its data byte still repeats.
     let ok = decode(&[0, 0, 0], b"#1;2;100;0;0#1!3~").expect("image");
-    assert_eq!(ok.width(), 3, "`!3~` must repeat the data byte 3x (width 3)");
+    assert_eq!(
+        ok.width(),
+        3,
+        "`!3~` must repeat the data byte 3x (width 3)"
+    );
 }

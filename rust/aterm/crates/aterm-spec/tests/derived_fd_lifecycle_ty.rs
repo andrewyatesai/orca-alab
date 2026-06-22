@@ -29,17 +29,18 @@
 //!      checked set — so there is no second registered `FdLifecycle` SpecModule that
 //!      could disagree with the derived one.
 //!
-//! VERIFICATION GATE (honesty ratchet): `ty` is discovered by the canonical search
-//! (see `aterm_spec::verify`). PRESENT → run + enforce; ABSENT + default → LOUD skip;
-//! ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC. The interpreter + quarantine halves run
-//! unconditionally (no toolchain needed).
+//! VERIFICATION GATE (honesty ratchet, batteries-on): `ty` is discovered by the
+//! canonical search (see `aterm_spec::verify`). Verification is always required — an
+//! absent Trust `ty` FAILS the test with a build hint; build the toolchain once
+//! (`cargo build --release -p tla-cli` in ~/trust/first-party/ty). The interpreter +
+//! quarantine halves run with no toolchain.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
 use aterm_spec::derive::{Model, fd_lifecycle_model};
-use aterm_spec::verify::ty_or_skip;
+use aterm_spec::verify::ty;
 
 /// The sibling `aterm-spec-models` `specs/` directory. aterm-spec must NOT depend on
 /// aterm-spec-models (that would be a dependency cycle), so resolve by path.
@@ -85,9 +86,7 @@ fn run_ty(ty: &PathBuf, m: &Model, cfg_overrides: &[(&'static str, i64)]) -> (bo
 
 #[test]
 fn derived_fd_lifecycle_proves_and_catches_use_after_close() {
-    let Some(ty) = ty_or_skip("derived FdLifecycle spec") else {
-        return;
-    };
+    let ty = ty("derived FdLifecycle spec");
     let m = fd_lifecycle_model();
 
     // Buggy = 0 (committed): both invariants hold over the whole bounded space.

@@ -60,7 +60,15 @@ pub fn check_and_stage(
     // The Application Support dir is the Updates dir's parent.
     let support = staging.root.parent().ok_or("no support dir")?.to_path_buf();
     let Some(tok) = token::resolve(&support) else {
-        // No token provisioned → stay idle (a private repo can't be read).
+        // No token provisioned → stay idle (a private repo can't be read). Log it
+        // ONCE per process so the periodic loop doesn't spam, and surface it in the
+        // status file so an operator can see WHY the machine isn't updating.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static NO_TOKEN_LOGGED: AtomicBool = AtomicBool::new(false);
+        if !NO_TOKEN_LOGGED.swap(true, Ordering::Relaxed) {
+            crate::log("idle: no update token provisioned (see docs/RELEASING.md)");
+        }
+        crate::status::record(&staging, current_build, "idle: no update token provisioned");
         return Ok(None);
     };
 
@@ -99,11 +107,24 @@ pub fn check_and_stage(
     }
 
     let Some((manifest, rel_idx)) = best else {
+        crate::status::record(
+            &staging,
+            current_build,
+            "no release carries an update manifest",
+        );
         return Ok(None); // no release carries a manifest
     };
 
     // Downgrade gate: never stage an older-or-equal build.
     if manifest.build_number <= current_build {
+        crate::status::record(
+            &staging,
+            current_build,
+            &format!(
+                "up to date (latest release build {})",
+                manifest.build_number
+            ),
+        );
         return Ok(None);
     }
     // If a newer build is already staged, don't re-download it.
@@ -165,6 +186,14 @@ pub fn check_and_stage(
     // The verified bundle is the artifact now; reclaim the DMG.
     let _ = std::fs::remove_file(&dmg);
 
+    crate::status::record(
+        &staging,
+        current_build,
+        &format!(
+            "staged {} (build {}) — applies on next launch",
+            manifest.version, manifest.build_number
+        ),
+    );
     Ok(Some(manifest.version))
 }
 
@@ -194,11 +223,14 @@ fn curl_auth(args: &[&str], token: &str) -> Result<std::process::Output, String>
         .map_err(|e| format!("curl wait: {e}"))
 }
 
-/// GET a GitHub API JSON resource, returning the raw body bytes.
+/// GET a GitHub API JSON resource, returning the raw body bytes. Distinguishes an
+/// authentication failure (401/403 — expired/revoked/insufficient token) from a
+/// transient error, so the status/log says something actionable. We append the
+/// HTTP status via `-w` and DON'T pass `-f` (we want the code even on 4xx).
 fn api_get(url: &str, token: &str) -> Result<Vec<u8>, String> {
     let out = curl_auth(
         &[
-            "-fsSL",
+            "-sS",
             "--retry",
             "2",
             "--max-time",
@@ -207,11 +239,14 @@ fn api_get(url: &str, token: &str) -> Result<Vec<u8>, String> {
             "Accept: application/vnd.github+json",
             "-H",
             "X-GitHub-Api-Version: 2022-11-28",
+            "-w",
+            "\n%{http_code}",
             url,
         ],
         token,
     )?;
     if !out.status.success() {
+        // Transport-level failure (curl exit != 0): DNS, TLS, timeout, etc.
         return Err(format!(
             "curl GET {} failed ({}): {}",
             url,
@@ -219,7 +254,25 @@ fn api_get(url: &str, token: &str) -> Result<Vec<u8>, String> {
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    Ok(out.stdout)
+    // Split the trailing "\n<http_code>" we appended via -w.
+    let stdout = out.stdout;
+    let text = String::from_utf8_lossy(&stdout);
+    let (body, code) = match text.rfind('\n') {
+        Some(i) => (&text[..i], text[i + 1..].trim()),
+        None => ("", text.trim()),
+    };
+    match code {
+        c if c.starts_with('2') => Ok(body.as_bytes().to_vec()),
+        "401" | "403" => Err(format!(
+            "GitHub auth failed (HTTP {code}): the update token is missing required \
+             access, expired, or was revoked — rotate it (see docs/RELEASING.md)"
+        )),
+        "404" => Err(format!(
+            "GitHub returned HTTP 404 for {url} (repo/releases not found, or the token \
+             lacks access to this private repo)"
+        )),
+        other => Err(format!("GitHub API returned HTTP {other} for {url}")),
+    }
 }
 
 /// Download a SMALL asset's bytes (the manifest) into memory, size-capped so a

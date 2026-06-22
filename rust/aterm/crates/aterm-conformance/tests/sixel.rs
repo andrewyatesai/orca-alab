@@ -45,7 +45,11 @@ fn sixel_dcs_renders_image_then_text_flows_below() {
     // following text lands on row 1.
     let mut s = Screen::new(24, 80);
     s.feed(SIXEL_4X6);
-    assert_eq!(s.screen(), "", "sixel payload bytes must not leak as glyphs");
+    assert_eq!(
+        s.screen(),
+        "",
+        "sixel payload bytes must not leak as glyphs"
+    );
     assert_eq!(
         s.take_response(),
         None,
@@ -54,7 +58,11 @@ fn sixel_dcs_renders_image_then_text_flows_below() {
     // Image placed on row 0.
     assert_eq!(s.images_row(0).len(), 1, "one inline image cell on row 0");
     // 4x6 px at 8x16 cell -> 1x1 footprint -> cursor on row 1, col 0.
-    assert_eq!(s.cursor(), (1, 0), "scrolling mode: cursor moves below image");
+    assert_eq!(
+        s.cursor(),
+        (1, 0),
+        "scrolling mode: cursor moves below image"
+    );
     s.feed(b"AB");
     assert_eq!(s.row(1), "AB");
     assert_eq!(s.cursor(), (1, 2));
@@ -84,7 +92,11 @@ fn sixel_dcs_split_across_feeds_renders_identically() {
     s.feed(b"~~$-");
     s.feed(b"\x1b\\");
     s.feed(b"OK");
-    assert_eq!(s.images_row(0).len(), 1, "image placed across feed boundaries");
+    assert_eq!(
+        s.images_row(0).len(),
+        1,
+        "image placed across feed boundaries"
+    );
     assert_eq!(s.row(1), "OK");
     assert_eq!(s.cursor(), (1, 2));
 }
@@ -101,9 +113,16 @@ fn truncated_sixel_consumes_following_text_until_escape_breaks_out() {
     s.feed(b"\x1bP0;0;8q\"1;1;4;6#1~~"); // no ST
     s.feed(b"XYZ"); // still inside the DCS: must NOT print as glyphs
     assert_eq!(s.screen(), "", "text after unterminated DCS leaked to grid");
-    assert!(s.images_row(0).is_empty(), "no terminator yet -> not placed yet");
+    assert!(
+        s.images_row(0).is_empty(),
+        "no terminator yet -> not placed yet"
+    );
     s.feed(b"\x1b[6n"); // ESC breaks out (= ST), image placed, then CSI runs
-    assert_eq!(s.images_row(0).len(), 1, "ESC-breakout terminates -> image placed");
+    assert_eq!(
+        s.images_row(0).len(),
+        1,
+        "ESC-breakout terminates -> image placed"
+    );
     // Image occupied row 0, cursor advanced to row 1 -> CPR reports row 2 (1-based).
     assert_eq!(s.response_string(), "\x1b[2;1R");
     s.feed(b"OK");
@@ -281,7 +300,11 @@ fn cursor_moves_after_sixel_with_decsdm_reset() {
     let mut s = Screen::new(24, 80);
     s.feed(b"\x1b[?80l\x1b[5;1H");
     s.feed(SIXEL_4X6);
-    assert_eq!(s.images_row(4).len(), 1, "image painted on the cursor row (4)");
+    assert_eq!(
+        s.images_row(4).len(),
+        1,
+        "image painted on the cursor row (4)"
+    );
     assert_eq!(
         s.cursor(),
         (5, 0),
@@ -296,7 +319,11 @@ fn cursor_unmoved_after_sixel_with_decsdm_set() {
     let mut s = Screen::new(24, 80);
     s.feed(b"\x1b[?80h\x1b[5;1H");
     s.feed(SIXEL_4X6);
-    assert_eq!(s.images_row(4).len(), 1, "image painted on the cursor row (4)");
+    assert_eq!(
+        s.images_row(4).len(),
+        1,
+        "image painted on the cursor row (4)"
+    );
     assert_eq!(
         s.cursor(),
         (4, 0),

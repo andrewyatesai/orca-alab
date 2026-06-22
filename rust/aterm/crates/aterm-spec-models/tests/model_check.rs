@@ -9,16 +9,14 @@
 // `ty` is located by a fixed canonical path search (in order): the Trust
 // first-party submodule (~/trust/first-party/ty/target/release/ty), the Trust
 // stage2 build (~/trust/build/host/stage2/bin/ty), ~/ty/target/release/ty, then
-// `ty` on PATH. VERIFICATION GATE (honesty ratchet), three-way (see
-// `aterm_spec::verify`): PRESENT → run + enforce (unchanged); ABSENT + default → a
-// LOUD stderr skip (the model-check claim is NOT silently green — the skip is
-// printed and the Trust-dependent assertions are not run); ABSENT +
-// `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence). The canonical search includes
-// the Trust submodule path so a standard `cargo test` model-checks the specs with no
-// configuration (batteries-on); the only change vs. always-panic is absent-toolchain
-// → loud-skip, so CI / contributors without Trust aren't red.
+// `ty` on PATH. VERIFICATION GATE (honesty ratchet, batteries-on, see
+// `aterm_spec::verify`): verification is always required — an absent Trust `ty` FAILS
+// the test with a build hint; build the toolchain once (`cargo build --release -p
+// tla-cli` in ~/trust/first-party/ty). The canonical search includes the Trust
+// submodule path so a standard `cargo test` model-checks the specs with no
+// configuration.
 
-use aterm_spec::verify::ty_or_skip;
+use aterm_spec::verify::ty;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -28,9 +26,7 @@ fn specs_dir() -> PathBuf {
 
 #[test]
 fn ty_model_checks_every_spec() {
-    let Some(ty) = ty_or_skip("specs") else {
-        return;
-    };
+    let ty = ty("specs");
 
     let dir = specs_dir();
     let mut checked = 0usize;

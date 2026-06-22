@@ -39,14 +39,14 @@ use std::process::Command;
 
 use aterm_cap::{Authority, Cap, Tier};
 use aterm_sandbox::{Limits, Sandbox, apply_step};
-use aterm_spec::verify::ty_or_skip;
+use aterm_spec::verify::ty;
 
 /// `K` from `Sandbox.cfg` — the number of restriction slots the bounded model uses.
 const K: usize = 4;
 
-// VERIFICATION GATE (honesty ratchet) — three-way policy in `aterm_spec::verify`:
-// PRESENT → run + enforce (unchanged); ABSENT + default → a LOUD stderr skip (never a
-// silent pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
+// VERIFICATION GATE (honesty ratchet, batteries-on) in `aterm_spec::verify`:
+// verification is always required — an absent Trust `ty` FAILS the test with a build
+// hint (`cargo build --release -p tla-cli` in ~/trust/first-party/ty).
 
 /// Encode a `[bool; K]` as `ty`'s function-value JSON (`[1..K -> BOOLEAN]`).
 fn func_json(bits: &[bool]) -> String {
@@ -147,9 +147,7 @@ fn manifest_spec(name: &str) -> PathBuf {
 
 #[test]
 fn real_sandbox_apply_conforms_to_sandbox_spec() {
-    let Some(ty) = ty_or_skip("Sandbox apply conformance") else {
-        return;
-    };
+    let ty = ty("Sandbox apply conformance");
     let dir = std::env::temp_dir().join(format!("aterm-sandbox-conf-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("mk tempdir");
 

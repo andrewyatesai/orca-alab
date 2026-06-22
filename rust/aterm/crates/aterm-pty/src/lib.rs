@@ -1812,13 +1812,13 @@ mod tests {
 ///      be ty-REJECTED, so a pass is never vacuous.
 ///
 /// `ty` is located by the same fixed canonical path search. VERIFICATION GATE
-/// (honesty ratchet), three-way (see [`aterm_spec::verify`]): PRESENT → run + enforce
-/// (unchanged); ABSENT + default → a LOUD stderr skip (never a silent pass); ABSENT +
-/// `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
+/// (honesty ratchet, batteries-on, see [`aterm_spec::verify`]): verification is always
+/// required — an absent Trust `ty` FAILS the test with a build hint (`cargo build
+/// --release -p tla-cli` in ~/trust/first-party/ty).
 #[cfg(test)]
 mod writeall_conformance {
     use super::{WriteStep, classify_write_result, write_all};
-    use aterm_spec::verify::ty_or_skip;
+    use aterm_spec::verify::ty;
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
@@ -1992,9 +1992,7 @@ mod writeall_conformance {
 
     #[test]
     fn real_write_all_offset_trajectory_conforms_to_writeall_spec() {
-        let Some(ty) = ty_or_skip("WriteAll conformance") else {
-            return;
-        };
+        let ty = ty("WriteAll conformance");
         let dir = std::env::temp_dir().join(format!("aterm-writeall-conf-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("mk tempdir");
         let spec = parameterized_spec();

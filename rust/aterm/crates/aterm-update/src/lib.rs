@@ -44,6 +44,8 @@ mod manifest;
 #[cfg(target_os = "macos")]
 mod paths;
 #[cfg(target_os = "macos")]
+mod status;
+#[cfg(target_os = "macos")]
 mod sys;
 #[cfg(target_os = "macos")]
 mod token;
@@ -128,16 +130,27 @@ pub fn spawn_background_check(current_build: u64, current_version: &'static str)
     }
     std::thread::Builder::new()
         .name("aterm-update".into())
-        .spawn(
-            move || match github::check_and_stage(current_build, current_version) {
-                Ok(staged) => {
-                    if let Some(v) = staged {
-                        log(&format!("staged update {v} — will apply on next launch"));
-                    }
+        .spawn(move || {
+            // Re-check periodically so a long-running session (a terminal open for
+            // days) still picks up releases without a relaunch. Still silent — it
+            // only stages; the staged build applies on the next launch. Interval is
+            // `ATERM_UPDATE_INTERVAL_SECS` (default 6h); 0 means check once and stop.
+            let interval = std::env::var("ATERM_UPDATE_INTERVAL_SECS")
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(6 * 60 * 60);
+            loop {
+                match github::check_and_stage(current_build, current_version) {
+                    Ok(Some(v)) => log(&format!("staged update {v} — applies on next launch")),
+                    Ok(None) => {}
+                    Err(e) => warn(&format!("update check failed: {e}")),
                 }
-                Err(e) => warn(&format!("background check failed: {e}")),
-            },
-        )
+                if interval == 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(interval));
+            }
+        })
         .ok();
 }
 

@@ -5196,21 +5196,17 @@ mod session_pool_tests {
 /// pass is never vacuous.
 ///
 /// `ty` is located by the SAME fixed canonical path search the eventlog test uses;
-/// VERIFICATION GATE (honesty ratchet), three-way (see [`aterm_spec::verify`]):
-/// PRESENT → run + enforce (unchanged); ABSENT + default → a LOUD stderr skip (never a
-/// silent pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
+/// VERIFICATION GATE (honesty ratchet, batteries-on, see [`aterm_spec::verify`]):
+/// verification is always required — an absent Trust `ty` FAILS the test with a build
+/// hint (`cargo build --release -p tla-cli` in ~/trust/first-party/ty).
 #[cfg(test)]
 mod window_routing_conformance {
     use super::*;
     use aterm_spec::derive::window_routing_model;
-    use aterm_spec::verify::ty_or_skip;
+    use aterm_spec::verify::ty;
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::process::Command;
-
-    // VERIFICATION GATE (honesty ratchet) — three-way policy in `aterm_spec::verify`:
-    // PRESENT → run + enforce (unchanged); ABSENT + default → a LOUD stderr skip
-    // (never a silent pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
 
     /// The scalar projection of the real `App` onto the spec variables
     /// `[win_count, frontmost, next_id, exited]`.
@@ -5306,9 +5302,7 @@ mod window_routing_conformance {
 
     #[test]
     fn real_app_window_routing_conforms() {
-        let Some(ty) = ty_or_skip("App window-routing conformance") else {
-            return;
-        };
+        let ty = ty("App window-routing conformance");
         run_conformance(&ty);
     }
 
@@ -5516,13 +5510,13 @@ mod window_routing_conformance {
 /// validate`d against the derived `Next`, so a real re-point regression (a Close that
 /// leaves `focused` past the shrunk end — the dangling-focus defect) fails this test.
 ///
-/// VERIFICATION GATE (honesty ratchet): PRESENT → run; ABSENT + default → LOUD skip;
-/// ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC.
+/// VERIFICATION GATE (honesty ratchet, batteries-on): verification is always required
+/// — an absent Trust `ty` FAILS the test with a build hint.
 #[cfg(test)]
 mod pane_tree_conformance {
     use super::*;
     use aterm_spec::derive::pane_tree_model;
-    use aterm_spec::verify::ty_or_skip;
+    use aterm_spec::verify::ty;
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::process::Command;
@@ -5603,9 +5597,7 @@ mod pane_tree_conformance {
 
     #[test]
     fn real_app_pane_tree_conforms() {
-        let Some(ty) = ty_or_skip("PaneTree split/close conformance") else {
-            return;
-        };
+        let ty = ty("PaneTree split/close conformance");
         run_conformance(&ty);
     }
 
@@ -5714,13 +5706,13 @@ mod pane_tree_conformance {
 /// displays it (premature close → use-after-free on the pooled `Session`) projects to
 /// `[refcount>0, closed=1]`, which ty rejects.
 ///
-/// VERIFICATION GATE (honesty ratchet): PRESENT → run; ABSENT + default → LOUD skip;
-/// ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC.
+/// VERIFICATION GATE (honesty ratchet, batteries-on): verification is always required
+/// — an absent Trust `ty` FAILS the test with a build hint.
 #[cfg(test)]
 mod session_pool_conformance {
     use super::*;
     use aterm_spec::derive::session_pool_model;
-    use aterm_spec::verify::ty_or_skip;
+    use aterm_spec::verify::ty;
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::process::Command;
@@ -5799,9 +5791,7 @@ mod session_pool_conformance {
 
     #[test]
     fn real_app_session_pool_conforms() {
-        let Some(ty) = ty_or_skip("SessionPool refcount conformance") else {
-            return;
-        };
+        let ty = ty("SessionPool refcount conformance");
         run_conformance(&ty);
     }
 
@@ -5916,13 +5906,13 @@ mod session_pool_conformance {
 /// load-bearing case is closing a tab in a NON-FRONT window — `close_tab_at` must
 /// re-sync THAT window (not just the front), or its strip keeps a phantom segment.
 ///
-/// VERIFICATION GATE (honesty ratchet): PRESENT → run; ABSENT + default → LOUD skip;
-/// ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC.
+/// VERIFICATION GATE (honesty ratchet, batteries-on): verification is always required
+/// — an absent Trust `ty` FAILS the test with a build hint.
 #[cfg(test)]
 mod tab_strip_conformance {
     use super::*;
     use aterm_spec::derive::tab_strip_model;
-    use aterm_spec::verify::ty_or_skip;
+    use aterm_spec::verify::ty;
     use std::collections::BTreeMap;
     use std::path::Path;
     use std::process::Command;
@@ -6014,9 +6004,7 @@ mod tab_strip_conformance {
 
     #[test]
     fn real_app_tab_strip_conforms() {
-        let Some(ty) = ty_or_skip("TabStrip parity conformance") else {
-            return;
-        };
+        let ty = ty("TabStrip parity conformance");
         run_conformance(&ty);
     }
 
@@ -6160,14 +6148,14 @@ mod path_confine_conformance {
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
-    use aterm_spec::verify::ty_or_skip;
+    use aterm_spec::verify::ty;
 
     use crate::control_auth::confine_image_path;
     use crate::snapshot_path::write_private_at;
 
-    // VERIFICATION GATE (honesty ratchet) — three-way policy in `aterm_spec::verify`:
-    // PRESENT → run + enforce (unchanged); ABSENT + default → a LOUD stderr skip
-    // (never a silent pass); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC (fatal-on-absence).
+    // VERIFICATION GATE (honesty ratchet, batteries-on) in `aterm_spec::verify`:
+    // verification is always required — an absent Trust `ty` FAILS the test with a
+    // build hint (`cargo build --release -p tla-cli` in ~/trust/first-party/ty).
 
     fn spec_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -6231,9 +6219,7 @@ mod path_confine_conformance {
 
     #[test]
     fn real_path_confine_conforms_to_pathconfine_spec() {
-        let Some(ty) = ty_or_skip("PathConfine conformance") else {
-            return;
-        };
+        let ty = ty("PathConfine conformance");
         let dir =
             std::env::temp_dir().join(format!("aterm-pathconfine-conf-{}", std::process::id()));
         let tydir =
@@ -6340,15 +6326,14 @@ mod spec_xref_gate {
     use std::process::Command;
 
     use aterm_spec::tla_check::TlaSpec;
-    use aterm_spec::verify::{trust_ir_or_skip, ty_or_skip};
+    use aterm_spec::verify::{trust_ir, ty};
     use aterm_spec::xref::{self, SpecModule};
 
-    // VERIFICATION GATE (honesty ratchet) — three-way policy in `aterm_spec::verify`,
-    // for BOTH `ty` and `trust-ir`: PRESENT → run + enforce (unchanged); ABSENT +
-    // default → a LOUD stderr skip (never a silent pass, never a silent degrade to
-    // the in-Rust closure alone); ABSENT + `ATERM_REQUIRE_TRUST=1` → PANIC
-    // (fatal-on-absence). Phase-3's TRUST-native certification stays mandatory where
-    // the toolchain is present and under `ATERM_REQUIRE_TRUST=1`.
+    // VERIFICATION GATE (honesty ratchet, batteries-on) in `aterm_spec::verify`, for
+    // BOTH `ty` and `trust-ir`: verification is always required — an absent Trust
+    // `ty`/`trust-ir` FAILS the test with a build hint (`cargo build --release -p
+    // tla-cli` in ~/trust/first-party/ty). Phase-3's TRUST-native certification is
+    // mandatory, never a silent degrade to the in-Rust closure alone.
 
     /// Run `trust-ir spec-link <module>` and return (success, combined-report). The
     /// report (stdout+stderr) is the per-machine coverage + any violation lines. When
@@ -6454,9 +6439,7 @@ mod spec_xref_gate {
     fn spec_xref_closure() {
         // Honesty ratchet: bind a green gate to a real `ty` run of the machine the
         // Phase-0 anchors point at (terminal_modes), so green always means checked.
-        let Some(ty) = ty_or_skip("terminal_modes (spec_xref_closure)") else {
-            return;
-        };
+        let ty = ty("terminal_modes (spec_xref_closure)");
 
         // ---- Proof #1: inventory ACTUALLY collected the anchors, cross-crate. ----
         let refs: Vec<_> = xref::refinements().collect();
@@ -6871,10 +6854,7 @@ mod spec_xref_gate {
         //     `project` (the finding-2 fix; an inert `project=""` would fail here);
         //   * L1 — every lowered `proof` line's `proof_name` resolves against the
         //     manifest (the finding-1 fix; a typo'd proof name would fail here).
-        let Some(trust_ir) = trust_ir_or_skip("spec_xref_closure (Phase-3 Trust-native spec-link)")
-        else {
-            return;
-        };
+        let trust_ir = trust_ir("spec_xref_closure (Phase-3 Trust-native spec-link)");
         let module_txt =
             aterm_spec::ir::lower_to_ir("aterm_spec_xref", &modules, &refs, &waivers, &proofs);
         let lowered = aterm_spec::ir::lowered_machine_names(&modules, &refs);
@@ -6955,10 +6935,7 @@ mod spec_xref_gate {
     fn trust_ir_has_teeth() {
         use aterm_spec::xref::{RefinementAnchor, SpecModule};
 
-        let Some(trust_ir) = trust_ir_or_skip("trust_ir_has_teeth (Phase-3 negative control)")
-        else {
-            return;
-        };
+        let trust_ir = trust_ir("trust_ir_has_teeth (Phase-3 negative control)");
 
         // A single embedded model (the ring) is enough to demonstrate the obligation.
         let modules = vec![SpecModule::Embedded(aterm_spec::derive::ring_model())];

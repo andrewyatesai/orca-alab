@@ -2582,9 +2582,16 @@ mod tests {
         for _ in 0..4 {
             raster.extend_from_slice(&[0xFF, 0x00, 0x00, 0xFF]);
         }
-        let out =
-            decode_image_to_footprint(&raster, ImageFormat::RawRgba8 { width: 2, height: 2 }, 4, 4)
-                .expect("RawRgba8 must decode without a codec");
+        let out = decode_image_to_footprint(
+            &raster,
+            ImageFormat::RawRgba8 {
+                width: 2,
+                height: 2,
+            },
+            4,
+            4,
+        )
+        .expect("RawRgba8 must decode without a codec");
         assert_eq!(out.len(), 4 * 4 * 4, "footprint is 4x4 RGBA");
         // Every footprint pixel is the source red, alpha preserved.
         for px in out.chunks_exact(4) {
@@ -2602,8 +2609,16 @@ mod tests {
         // (cached as "draw nothing") rather than read out of bounds.
         let short = vec![0xFFu8; 4];
         assert!(
-            decode_image_to_footprint(&short, ImageFormat::RawRgba8 { width: 4, height: 4 }, 8, 8)
-                .is_none(),
+            decode_image_to_footprint(
+                &short,
+                ImageFormat::RawRgba8 {
+                    width: 4,
+                    height: 4
+                },
+                8,
+                8
+            )
+            .is_none(),
             "a too-short RawRgba8 buffer must decode to None"
         );
     }

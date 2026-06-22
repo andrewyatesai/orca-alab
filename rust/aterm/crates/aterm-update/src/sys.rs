@@ -76,3 +76,39 @@ fn cpath(p: &Path) -> io::Result<std::ffi::CString> {
     std::ffi::CString::new(p.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "path contains NUL"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_lock_releases_on_drop() {
+        let p = std::env::temp_dir().join(format!("aterm-lock-{}", std::process::id()));
+        {
+            let _l = FileLock::acquire(&p).expect("first acquire");
+        } // dropped here → released
+        // Re-acquiring after the previous guard dropped must succeed (no deadlock).
+        let l2 = FileLock::acquire(&p).expect("re-acquire after release");
+        drop(l2);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn same_volume_true_within_a_dir_false_for_missing() {
+        let d = std::env::temp_dir();
+        let a = d.join(format!("aterm-sv-a-{}", std::process::id()));
+        let b = d.join(format!("aterm-sv-b-{}", std::process::id()));
+        std::fs::write(&a, b"x").unwrap();
+        std::fs::write(&b, b"y").unwrap();
+        assert!(
+            same_volume(&a, &b),
+            "two files in the same dir are same-volume"
+        );
+        assert!(
+            !same_volume(&a, Path::new("/no/such/path-aterm-xyz")),
+            "a missing path is not same-volume (fail closed)"
+        );
+        let _ = std::fs::remove_file(&a);
+        let _ = std::fs::remove_file(&b);
+    }
+}

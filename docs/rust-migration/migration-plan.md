@@ -200,7 +200,7 @@ Subsystems: `main-window`, `ui-sidebar`, `ui-terminal (view layer)`, `ui-editor 
 - Phase 0: offline-vendored workspace + UniFFI/C-ABI scaffold + TS->cargo golden-test harness (rust/Cargo.toml already commits to this)
 - orca-core: pure src/shared logic ported with verbatim tests (rust/crates/orca-core)
 - orca-proto: wire/RPC/E2EE contract frozen byte-compatible with existing TS/web/mobile peers
-- orca-terminal: alacritty_terminal replacing xterm, validated against serialize snapshots
+- orca-terminal: aterm (custom from-scratch VT engine) replacing xterm, validated against serialize snapshots
 - orca-git + provider/transport backbone: orca-ssh-transport, orca-daemon/orca-pty native PTY, orca-providers dispatch (relay binary as isolated proving ground)
 - orca-runtime hub wiring all services behind the orca-ipc / orca-preload-bridge command+UniFFI boundary
 - orca-cli: first end-to-end headless consumer proving the runtime contract in production

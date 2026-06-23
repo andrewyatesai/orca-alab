@@ -1,6 +1,7 @@
 import { test, expect } from './helpers/orca-app'
 import { execInTerminal, waitForActivePanePtyId } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+import { countAtermNonBgPixels } from './helpers/aterm-canvas-pixels'
 import { writeFileSync } from 'node:fs'
 
 // Proves the aterm in-page renderer (Phase 0): with experimentalAtermRenderer on,
@@ -39,27 +40,14 @@ test.describe('aterm in-page renderer', () => {
       'printf "\\033[1;32materm\\033[0m renders \\033[1;34mlive\\033[0m in orca: %s\\n" OK'
     )
 
-    // The canvas must contain real rendered (non-background) pixels.
+    // The canvas must contain real rendered (non-background) pixels. The aterm
+    // grid canvas may be GPU-owned (webgl2) or CPU-owned (2d) per the auto-policy;
+    // countAtermNonBgPixels reads whichever via gl.readPixels or getImageData.
     await expect
-      .poll(
-        async () =>
-          orcaPage.evaluate(() => {
-            const c = document.querySelector(
-              '[data-testid="aterm-canvas"]'
-            ) as HTMLCanvasElement | null
-            if (!c || !c.width || !c.height) return 0
-            const ctx = c.getContext('2d')
-            if (!ctx) return 0
-            const d = ctx.getImageData(0, 0, c.width, c.height).data
-            const bg = [d[0], d[1], d[2]]
-            let n = 0
-            for (let i = 0; i < d.length; i += 4) {
-              if (d[i] !== bg[0] || d[i + 1] !== bg[1] || d[i + 2] !== bg[2]) n++
-            }
-            return n
-          }),
-        { timeout: 20_000, message: 'aterm canvas should have rendered glyph pixels' }
-      )
+      .poll(async () => countAtermNonBgPixels(orcaPage), {
+        timeout: 20_000,
+        message: 'aterm canvas should have rendered glyph pixels'
+      })
       .toBeGreaterThan(500)
 
     // Read the canvas pixels directly (robust under a hidden window) and save a PNG.

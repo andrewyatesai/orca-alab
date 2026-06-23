@@ -28,6 +28,7 @@ export function createAtermSearchOverlayCanvas(
   }
 ): AtermSearchOverlayCanvas {
   const overlay = document.createElement('canvas')
+  overlay.dataset.testid = 'aterm-search-overlay' // e2e locator for the GPU-path overlay
   // Stack exactly over the grid canvas; transparent + click-through so it never
   // intercepts selection/scroll/link events (those stay on the grid canvas).
   overlay.style.position = 'absolute'

@@ -1,6 +1,7 @@
 import { test, expect } from './helpers/orca-app'
 import { waitForActivePanePtyId } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+import { readAtermRgba } from './helpers/aterm-canvas-pixels'
 
 // Proves the aterm in-page renderer DISPLAYS INLINE IMAGES on its <canvas> for
 // BOTH supported protocols:
@@ -94,14 +95,11 @@ test.describe('aterm inline images', () => {
       sequence: string,
       target: [number, number, number],
       tol: number
-    ): Promise<ColorProbe | null> =>
-      orcaPage.evaluate(
-        async (args: {
-          findSrc: string
-          sequence: string
-          target: [number, number, number]
-          tol: number
-        }) => {
+    ): Promise<ColorProbe | null> => {
+      // Drive the controller (snap + process) in-page; the grid canvas may be
+      // GPU-owned (webgl2) or CPU-owned (2d), so read pixels via the shared helper.
+      await orcaPage.evaluate(
+        async (args: { findSrc: string; sequence: string }) => {
           // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
           const find = new Function(`return (${args.findSrc})()`) as () => {
             process: (d: string) => void
@@ -110,38 +108,33 @@ test.describe('aterm inline images', () => {
           const ctrl = find()
           ctrl.scrollLines(-100000) // snap to the live bottom
           ctrl.process(args.sequence)
-          const c = document.querySelector(
-            '[data-testid="aterm-canvas"]'
-          ) as HTMLCanvasElement | null
-          const ctx = c?.getContext('2d')
-          if (!c || !ctx || !c.width || !c.height) {
-            return null
-          }
           const raf = (): Promise<void> =>
             new Promise((resolve) => requestAnimationFrame(() => resolve()))
           await raf()
           await raf()
-          const d = ctx.getImageData(0, 0, c.width, c.height).data
-          const [tr, tg, tb] = args.target
-          let matched = 0
-          for (let i = 0; i < d.length; i += 4) {
-            if (
-              Math.abs(d[i] - tr) <= args.tol &&
-              Math.abs(d[i + 1] - tg) <= args.tol &&
-              Math.abs(d[i + 2] - tb) <= args.tol
-            ) {
-              matched++
-            }
-          }
-          // Sample the theme bg from the BOTTOM-RIGHT corner: the image is placed
-          // at the cursor (top-left of a fresh grid), so the far corner is plain
-          // background — the right reference to prove the matched color is the
-          // image, not the theme bg.
-          const last = d.length - 4
-          return { matched, bg: [d[last], d[last + 1], d[last + 2]] as [number, number, number] }
         },
-        { findSrc: findActiveController.toString(), sequence, target, tol }
+        { findSrc: findActiveController.toString(), sequence }
       )
+      const read = await readAtermRgba(orcaPage)
+      if (!read) {
+        return null
+      }
+      const d = read.data
+      const [tr, tg, tb] = target
+      let matched = 0
+      for (let i = 0; i < d.length; i += 4) {
+        if (Math.abs(d[i] - tr) <= tol && Math.abs(d[i + 1] - tg) <= tol && Math.abs(d[i + 2] - tb) <= tol) {
+          matched++
+        }
+      }
+      // Sample the theme bg from the buffer's last pixel: the image is placed at
+      // the cursor (top-left of a fresh grid), so the far corner is plain
+      // background — the right reference to prove the matched color is the image,
+      // not the theme bg. (Row order differs GPU vs CPU but the far corner is bg
+      // in both.)
+      const last = d.length - 4
+      return { matched, bg: [d[last], d[last + 1], d[last + 2]] as [number, number, number] }
+    }
 
     // (a) iTerm2 OSC-1337 inline image: a solid RED PNG must paint red pixels.
     const redProbe = await countColor(RED_ITERM2, [255, 0, 0], 48)

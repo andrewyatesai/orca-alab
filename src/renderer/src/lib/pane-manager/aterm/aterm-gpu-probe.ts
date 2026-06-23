@@ -3,11 +3,12 @@
  *  must decide first). Creates a throwaway canvas, asks for `webgl2`, and reads
  *  the UNMASKED renderer string for logging / the e2e proof.
  *
- *  Unlike `terminal-webgl-auto-policy` (which REJECTS software GL on Linux because
- *  hardware corruption can leave WebGL alive but glyphs wrong), this probe ACCEPTS
- *  software renderers (SwiftShader/llvmpipe): the aterm GPU path's de-risk target
- *  is exactly headless software WebGL2, and wgpu's WebGL backend renders correctly
- *  there. We only need WebGL2 to EXIST; correctness is then proven by pixels. */
+ *  This probe only answers "is a webgl2 context CREATABLE?" — it does NOT decide
+ *  software-vs-hardware. The software/Linux-context-loss safety gate (shared with
+ *  xterm WebGL) lives in `aterm-gpu-auto-policy`, which reuses
+ *  `terminal-webgl-auto-policy`'s renderer-string checks. The `__atermGpuEnabled`
+ *  test override deliberately bypasses that gate (so the GPU specs prove the path
+ *  even on headless software WebGL); auto-default uses the full gate. */
 export type AtermGpuProbeResult = {
   /** True when a `webgl2` context could be created (the GPU path is attemptable). */
   available: boolean
@@ -54,15 +55,4 @@ export function probeAtermGpu(): AtermGpuProbeResult {
     cached = { available: false, renderer: null, vendor: null }
     return cached
   }
-}
-
-/** True when the aterm GPU draw path should be attempted: the explicit window
- *  opt-in flag is set AND a webgl2 context is creatable. Default OFF — the GPU
- *  path is experimental (branch-only); the CPU path stays the default + fallback.
- *  Kept a window flag (not a setting yet) so e2e can opt in per the task. */
-export function isAtermGpuEnabled(): boolean {
-  if (typeof window === 'undefined' || window.__atermGpuEnabled !== true) {
-    return false
-  }
-  return probeAtermGpu().available
 }

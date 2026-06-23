@@ -26,10 +26,13 @@ declare global {
     // e2e override to force the aterm renderer OFF (existing suite asserts via
     // the xterm DOM). __atermRendererEnabled (explicit ON) takes precedence.
     __atermRendererDisabled?: boolean
-    // e2e/dev opt-in for the EXPERIMENTAL aterm WebGL2 GPU draw path (default OFF;
-    // CPU stays the default + fallback). Only takes effect when a webgl2 context
-    // is creatable (see aterm-gpu-probe).
+    // e2e/dev override that FORCES the aterm WebGL2 GPU draw path on, bypassing
+    // the auto-safety gate (so the GPU specs run even on headless software WebGL).
+    // Still requires a creatable webgl2 context. See aterm-gpu-auto-policy.
     __atermGpuEnabled?: boolean
+    // e2e/dev override that FORCES the aterm CPU draw path on (skips the GPU path
+    // even on capable hardware). Takes precedence over the user setting + auto.
+    __atermGpuDisabled?: boolean
     // e2e only: the WebGL adapter/backend string the GPU drawer acquired.
     __atermGpuAdapterInfo?: string
     // e2e only: why the GPU draw path fell back to CPU (init/surface/adapter

@@ -1,6 +1,7 @@
 import { loadAtermCpuDrawer } from './aterm-cpu-drawer'
 import { loadAtermGpuDrawer } from './aterm-gpu-drawer'
-import { isAtermGpuEnabled, probeAtermGpu } from './aterm-gpu-probe'
+import { isAtermGpuEnabled } from './aterm-gpu-auto-policy'
+import { probeAtermGpu } from './aterm-gpu-probe'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer-config'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
@@ -18,11 +19,11 @@ export type AtermPendingStrategy = {
   bindPainter: (binding: AtermPainterBinding) => AtermDrawStrategy
 }
 
-/** Pick + load the draw strategy for a pane. GPU is attempted ONLY when the
- *  opt-in flag is set AND a webgl2 context is creatable (probe); if GPU loading
- *  or `init` fails for any reason we fall back to the CPU drawer, which is also
- *  the default. So a pane ALWAYS gets a working renderer — the GPU path is purely
- *  additive + experimental (branch-only, default OFF). */
+/** Pick + load the draw strategy for a pane. GPU is attempted when the
+ *  auto-policy says so (the DEFAULT on capable hardware — see
+ *  aterm-gpu-auto-policy); if GPU loading or `init` fails for any reason we fall
+ *  back to the CPU drawer. So a pane ALWAYS gets a working renderer — the CPU
+ *  path is the guaranteed fallback. */
 export async function loadAtermStrategy(
   config: AtermDrawerBuildConfig
 ): Promise<AtermPendingStrategy> {

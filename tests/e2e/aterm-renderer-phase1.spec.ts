@@ -1,6 +1,7 @@
 import { test, expect } from './helpers/orca-app'
 import { waitForActivePanePtyId } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+import { atermCanvasReady, readAtermPixel, readAtermRgba } from './helpers/aterm-canvas-pixels'
 import { writeFileSync } from 'node:fs'
 
 // Proves Phase 1 of the aterm in-page renderer: THEME, SCROLLBACK SCROLL, and
@@ -72,22 +73,18 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
     // orca's configured theme (no reliance on the self-echoed data-aterm-bg).
     // Sample bottom-right (an empty cell on a fresh pane; the top-left cell holds
     // the block cursor, which would mask the bg).
+    // The grid canvas may be GPU-owned (webgl2) or CPU-owned (2d); read pixels via
+    // whichever (gl.readPixels / getImageData) through the shared helpers.
     await expect
       .poll(
-        async () =>
-          orcaPage.evaluate(() => {
-            const c = document.querySelector(
-              '[data-testid="aterm-canvas"]'
-            ) as HTMLCanvasElement | null
-            if (!c || !c.width || !c.height) {
-              return null
-            }
-            const ctx = c.getContext('2d')
-            const resolve = (
-              window as unknown as { __resolveAtermThemeBg?: () => unknown }
-            ).__resolveAtermThemeBg
-            return ctx && typeof resolve === 'function' ? true : null
-          }),
+        async () => {
+          const ready = await atermCanvasReady(orcaPage)
+          const hasResolver = await orcaPage.evaluate(() =>
+            typeof (window as unknown as { __resolveAtermThemeBg?: () => unknown })
+              .__resolveAtermThemeBg === 'function'
+          )
+          return ready && hasResolver ? true : null
+        },
         {
           timeout: 20_000,
           message: 'aterm canvas should have a painted bg + the theme-bg resolver'
@@ -95,25 +92,32 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
       )
       .not.toBeNull()
 
-    const bgProbe = await orcaPage.evaluate(() => {
-      const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
-      const ctx = c?.getContext('2d')
-      const resolve = (
-        window as unknown as { __resolveAtermThemeBg?: () => [number, number, number] }
-      ).__resolveAtermThemeBg
-      if (!c || !ctx || !c.width || !c.height || !resolve) {
-        return null
-      }
-      // Bottom-right pixel: an empty cell, free of the row-0/col-0 cursor block.
-      const d = ctx.getImageData(c.width - 1, c.height - 1, 1, 1).data
-      // Resolve the configured theme bg through the REAL pipeline, independently
-      // of whatever the renderer painted. Cross-check against the self-echoed
-      // data-aterm-bg (NOT the assertion source) only for diagnostics.
-      const expected = resolve()
-      const raw = c.dataset.atermBg
-      const echoed = raw ? (raw.split(',').map((n) => Number(n)) as number[]) : undefined
-      return { pixel: [d[0], d[1], d[2]] as number[], expected, echoed }
-    })
+    const buffer = await readAtermRgba(orcaPage)
+    expect(buffer, 'should read the aterm canvas buffer').not.toBeNull()
+    // Bottom-right pixel (top-left coords): an empty cell, free of the row-0/col-0
+    // cursor block. readAtermPixel flips Y for the GPU swapchain.
+    const pixel = await readAtermPixel(orcaPage, buffer!.w - 1, buffer!.h - 1)
+    const bgProbe = await orcaPage.evaluate(
+      (px) => {
+        const resolve = (
+          window as unknown as { __resolveAtermThemeBg?: () => [number, number, number] }
+        ).__resolveAtermThemeBg
+        const c = document.querySelector(
+          '[data-testid="aterm-canvas"]'
+        ) as HTMLCanvasElement | null
+        if (!resolve || !px) {
+          return null
+        }
+        // Resolve the configured theme bg through the REAL pipeline, independently
+        // of whatever the renderer painted. Cross-check against the self-echoed
+        // data-aterm-bg (NOT the assertion source) only for diagnostics.
+        const expected = resolve()
+        const raw = c?.dataset.atermBg
+        const echoed = raw ? (raw.split(',').map((n) => Number(n)) as number[]) : undefined
+        return { pixel: px as number[], expected, echoed }
+      },
+      pixel
+    )
     expect(bgProbe, 'should read the canvas bg pixel + the resolved theme bg').not.toBeNull()
     const bgPixel = bgProbe!.pixel
     expect(bgPixel.every((v) => v >= 0 && v <= 255)).toBe(true)

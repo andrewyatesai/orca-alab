@@ -108,7 +108,18 @@ test.describe('aterm in-terminal search', () => {
       // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
       const find = new Function(`return (${findSrc})()`) as () => AtermSearchControllerProbe
       const ctrl = find()
-      const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
+      // The highlight is painted on the GPU path's stacked 2d overlay (the grid
+      // canvas is webgl2-owned there); on the CPU path it's painted on the grid
+      // canvas's own 2d context. Read whichever holds the highlight — both are 2d
+      // (top-left origin), so the rect math below is unchanged. The overlay is
+      // sized to match the grid canvas, so its device-pixel coords align 1:1.
+      const overlay = document.querySelector(
+        '[data-testid="aterm-search-overlay"]'
+      ) as HTMLCanvasElement | null
+      const grid = document.querySelector(
+        '[data-testid="aterm-canvas"]'
+      ) as HTMLCanvasElement | null
+      const c = overlay ?? grid
       const ctx = c?.getContext('2d')
       if (!c || !ctx || !c.width || !c.height) {
         return null

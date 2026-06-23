@@ -1,7 +1,24 @@
 import { test, expect } from './helpers/orca-app'
 import { waitForActivePanePtyId } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+import { readAtermRgba } from './helpers/aterm-canvas-pixels'
 import { writeFileSync } from 'node:fs'
+
+/** Count RGB-differing pixels between two equal-length flat RGBA buffers; a
+ *  length mismatch (canvas resized) counts as fully changed. Used to assert the
+ *  renderer repainted — works on the GPU swapchain and the CPU 2d canvas alike. */
+function countChangedPixels(before: number[], after: number[]): number {
+  if (after.length !== before.length) {
+    return after.length
+  }
+  let changed = 0
+  for (let i = 0; i < after.length; i += 4) {
+    if (after[i] !== before[i] || after[i + 1] !== before[i + 1] || after[i + 2] !== before[i + 2]) {
+      changed++
+    }
+  }
+  return changed
+}
 
 // Proves the aterm renderer is a CREDIBLE DEFAULT: the xterm-mirroring shim DOM
 // (.xterm / .xterm-screen / .xterm-helper-textarea) that ~29 app consumers key
@@ -91,11 +108,11 @@ test.describe('aterm renderer as the default', () => {
     // Snapshot the canvas, then dispatch the keystrokes; the typed echo + command
     // output must CHANGE the canvas (terminal output isn't monotonic in pixel
     // count — it scrolls/redraws — so assert a pixel DIFF, not a count increase).
+    // Snapshot the canvas (GPU swapchain or CPU 2d) BEFORE typing.
+    const beforeType = await readAtermRgba(orcaPage)
+    expect(beforeType, 'should snapshot the canvas before typing').not.toBeNull()
     await orcaPage.evaluate(() => {
       const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
-      const ctx = c?.getContext('2d')
-      ;(window as unknown as { __beforeType?: Uint8ClampedArray }).__beforeType =
-        c && ctx && c.width ? ctx.getImageData(0, 0, c.width, c.height).data.slice() : undefined
       const ta = c
         ?.closest('.xterm')
         ?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
@@ -120,24 +137,10 @@ test.describe('aterm renderer as the default', () => {
 
     await expect
       .poll(
-        async () =>
-          orcaPage.evaluate(() => {
-            const c = document.querySelector(
-              '[data-testid="aterm-canvas"]'
-            ) as HTMLCanvasElement | null
-            const ctx = c?.getContext('2d')
-            const before = (window as unknown as { __beforeType?: Uint8ClampedArray }).__beforeType
-            if (!c || !ctx || !c.width || !before) return 0
-            const d = ctx.getImageData(0, 0, c.width, c.height).data
-            if (d.length !== before.length) return d.length // resized → definitely changed
-            let changed = 0
-            for (let i = 0; i < d.length; i += 4) {
-              if (d[i] !== before[i] || d[i + 1] !== before[i + 1] || d[i + 2] !== before[i + 2]) {
-                changed++
-              }
-            }
-            return changed
-          }),
+        async () => {
+          const after = await readAtermRgba(orcaPage)
+          return after ? countChangedPixels(beforeType!.data, after.data) : 0
+        },
         { timeout: 20_000, message: 'typing through the shim must change the rendered canvas' }
       )
       .toBeGreaterThan(2000)
@@ -146,6 +149,9 @@ test.describe('aterm renderer as the default', () => {
     //    PTY uses, then assert (a) the controller detects a URL at the URL's cells
     //    AND (b) the URL's characters actually RENDERED — the canvas changed after
     //    process(), so detection isn't asserting against an unrendered buffer.
+    // Baseline the canvas (GPU/CPU), feed the URL, then read it back to confirm
+    // the URL glyphs actually painted (a pixel diff), independent of context kind.
+    const beforeLink = await readAtermRgba(orcaPage)
     const link = await orcaPage.evaluate(async () => {
       const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
       if (!managers) return null
@@ -165,43 +171,33 @@ test.describe('aterm renderer as the default', () => {
         }
       }
       if (!controller) return null
-      const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
-      const ctx = c?.getContext('2d')
       const raf = (): Promise<void> =>
         new Promise((resolve) => requestAnimationFrame(() => resolve()))
-      // Baseline the canvas, then land the URL on a fresh line at a known column.
-      const before =
-        c && ctx && c.width ? ctx.getImageData(0, 0, c.width, c.height).data.slice() : null
+      // Land the URL on a fresh line at a known column, then let it paint.
       controller.process('\r\nsee https://aterm.example.com/proof here\r\n')
       await raf()
       await raf()
-      let renderedPixelDiff = 0
-      if (c && ctx && c.width && before) {
-        const after = ctx.getImageData(0, 0, c.width, c.height).data
-        for (let i = 0; i < after.length; i += 4) {
-          if (after[i] !== before[i] || after[i + 1] !== before[i + 1] || after[i + 2] !== before[i + 2]) {
-            renderedPixelDiff++
-          }
-        }
-      }
       // Scan the row(s) for a URL hit; the prompt + wrap make the exact row vary,
       // so probe a small window of recent rows × the URL columns.
       for (let row = 0; row < 40; row++) {
         for (let col = 4; col < 36; col++) {
           const hit = controller.linkAt(row, col)
           if (hit && /aterm\.example\.com/.test(hit.url)) {
-            return { url: hit.url, kind: hit.kind, renderedPixelDiff }
+            return { url: hit.url, kind: hit.kind }
           }
         }
       }
-      return { url: '', kind: -1, renderedPixelDiff }
+      return { url: '', kind: -1 }
     })
+    const afterLink = await readAtermRgba(orcaPage)
+    const renderedPixelDiff =
+      beforeLink && afterLink ? countChangedPixels(beforeLink.data, afterLink.data) : 0
     expect(link, 'controller should detect the URL link').not.toBeNull()
     expect(link?.url).toContain('aterm.example.com')
     expect([0, 1]).toContain(link?.kind) // 0 = OSC-8, 1 = detected URL
     // The URL's glyphs must have actually painted (not just detected in the buffer).
     expect(
-      link?.renderedPixelDiff ?? 0,
+      renderedPixelDiff,
       'the URL characters should render → canvas pixels change in the URL row'
     ).toBeGreaterThan(0)
 

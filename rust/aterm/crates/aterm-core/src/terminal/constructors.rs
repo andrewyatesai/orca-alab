@@ -50,6 +50,7 @@ impl Terminal {
             cursor_save: CursorSaveState::new(),
             title: TitleState::new(),
             bell_callback: None,
+            kitty_file_resolver: None,
             last_bell_time: None,
             cursor_style_callback: None,
             buffer_activation_callback: None,

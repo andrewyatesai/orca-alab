@@ -67,6 +67,22 @@ impl Terminal {
         self.bell_callback = Some(Box::new(callback));
     }
 
+    /// Install the host resolver for Kitty NON-DIRECT transmission mediums (`t=f`/
+    /// `t=t`/`t=s`). The engine hands the host `(medium, path-or-name)` and the host
+    /// returns the raw image bytes (or `None` to reject). The HOST owns the I/O and
+    /// the security policy — whether to read host files / shared memory off a terminal
+    /// escape at all (fail-closed: default is no resolver ⇒ non-direct mediums are
+    /// skipped), which paths are permitted, and any size cap. The engine itself never
+    /// touches the filesystem or shared memory, so it stays pure and wasm-safe.
+    pub fn set_kitty_file_resolver<F>(&mut self, resolver: F)
+    where
+        F: Fn(crate::terminal::kitty_graphics::KittyMedium, &str) -> Option<Vec<u8>>
+            + Send
+            + 'static,
+    {
+        self.kitty_file_resolver = Some(Box::new(resolver));
+    }
+
     /// Clear bell callback.
     #[allow(
         dead_code,

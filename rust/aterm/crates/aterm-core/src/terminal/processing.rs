@@ -310,6 +310,7 @@ fn _terminal_field_exhaustiveness_check(t: &mut Terminal) {
         cursor_save: _,
         title: _,
         bell_callback: _,
+        kitty_file_resolver: _,
         last_bell_time: _,
         cursor_style_callback: _,
         buffer_activation_callback: _,

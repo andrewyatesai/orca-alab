@@ -48,6 +48,17 @@ pub struct Terminal {
     pub(super) title: TitleState,
     /// Bell callback (called when BEL is received).
     pub(super) bell_callback: Option<Box<dyn FnMut() + Send>>,
+    /// Host resolver for Kitty NON-DIRECT transmission mediums (`t=f` file, `t=t`
+    /// temp file, `t=s` POSIX shared memory). The engine never touches the
+    /// filesystem or shared memory itself (it stays pure + wasm-safe); when a
+    /// non-direct medium arrives it hands the host the `(medium, path/name)` and the
+    /// host — under its OWN fail-closed security policy + I/O — returns the raw image
+    /// bytes (or `None` to reject). Absent (the default) ⇒ non-direct mediums are
+    /// skipped cleanly. Set via [`Terminal::set_kitty_file_resolver`].
+    #[allow(clippy::type_complexity)]
+    pub(super) kitty_file_resolver: Option<
+        Box<dyn Fn(crate::terminal::kitty_graphics::KittyMedium, &str) -> Option<Vec<u8>> + Send>,
+    >,
     /// Last time a BEL callback was fired (rate limiting).
     ///
     /// Prevents DoS via BEL flooding: a malicious program spamming 0x07

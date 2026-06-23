@@ -664,21 +664,30 @@ impl TerminalHandler<'_> {
         if cmd.payload.is_empty() {
             return None;
         }
-        // Non-direct transmission mediums (`t=f` file / `t=t` temp-file / `t=s` shared
-        // memory) carry a PATH/name, not image bytes. aterm does NOT read host files
-        // or shared memory off a terminal escape (a fail-closed posture for a
-        // security-minimalist terminal: that capability would need an explicit,
-        // opt-in host-provided resolver + policy). Skip them cleanly — never decode a
-        // path as pixels — matching the plan's "graceful degradation, never garbage".
-        if cmd.medium != KittyMedium::Direct {
-            return None;
-        }
-        // o=z (RFC 1950 zlib): the whole payload is compressed — inflate it first,
-        // bounded by the same cap so a decompression bomb is rejected (fail closed).
-        let payload: Vec<u8> = if cmd.compressed {
-            aterm_codec::inflate::zlib_decompress(&cmd.payload, MAX_KITTY_IMAGE_BYTES).ok()?
+        // The TRANSMITTED bytes: for `t=d` (direct) the payload IS the data; for the
+        // non-direct mediums (`t=f` file / `t=t` temp-file / `t=s` shared memory) the
+        // payload is a PATH/name, and the host RESOLVER does the I/O + security policy
+        // and hands back the bytes. No resolver (the default) or a rejection ⇒ skip
+        // cleanly (fail-closed) — the engine never reads files/shm itself. The host is
+        // responsible for bounding what it reads to MAX_KITTY_IMAGE_BYTES.
+        let transmitted: std::borrow::Cow<'_, [u8]> = if cmd.medium == KittyMedium::Direct {
+            std::borrow::Cow::Borrowed(&cmd.payload)
         } else {
-            cmd.payload.clone()
+            let resolver = self.kitty_file_resolver.as_ref()?;
+            let name = std::str::from_utf8(&cmd.payload).ok()?;
+            let bytes = resolver(cmd.medium, name)?;
+            if bytes.is_empty() || bytes.len() > MAX_KITTY_IMAGE_BYTES {
+                return None;
+            }
+            std::borrow::Cow::Owned(bytes)
+        };
+        // o=z (RFC 1950 zlib): the transmitted bytes (direct payload or resolved file
+        // contents) may be compressed — inflate first, bounded so a decompression bomb
+        // is rejected (fail closed).
+        let payload: Vec<u8> = if cmd.compressed {
+            aterm_codec::inflate::zlib_decompress(&transmitted, MAX_KITTY_IMAGE_BYTES).ok()?
+        } else {
+            transmitted.into_owned()
         };
         if payload.is_empty() || payload.len() > MAX_KITTY_IMAGE_BYTES {
             return None;
@@ -1369,6 +1378,51 @@ mod kitty_display_tests {
                 "t={medium} (non-direct medium) must skip cleanly — no image placed"
             );
         }
+    }
+
+    #[test]
+    fn file_medium_places_image_via_host_resolver() {
+        use crate::terminal::kitty_graphics::KittyMedium;
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // Host opts in by installing a resolver: it serves a 1-cell RGBA image for the
+        // path "img.rgba" via `t=f`, rejects everything else (its security policy).
+        term.set_kitty_file_resolver(|medium, name| {
+            (medium == KittyMedium::File && name == "img.rgba").then(|| vec![0u8; 10 * 20 * 4])
+        });
+        // a=T with t=f and the path as payload → the resolver supplies the bytes.
+        term.process(&apc_g("a=T,f=32,s=10,v=20,t=f", b"img.rgba"));
+        assert!(
+            !term.cell_frame(24, 80).images[0].is_empty(),
+            "t=f via the host resolver must place the image"
+        );
+        // A path the resolver rejects (its policy) → fail closed, nothing placed.
+        let mut term2 = Terminal::new(24, 80);
+        term2.set_cell_pixel_size(10, 20);
+        term2.set_kitty_file_resolver(|_, _| None);
+        term2.process(&apc_g("a=T,f=32,s=10,v=20,t=f", b"/etc/passwd"));
+        assert!(
+            term2.cell_frame(24, 80).images[0].is_empty(),
+            "a resolver that rejects the path places nothing (fail closed)"
+        );
+    }
+
+    #[test]
+    fn shared_memory_medium_routes_through_resolver() {
+        use crate::terminal::kitty_graphics::KittyMedium;
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // t=s (shared memory) also routes through the resolver — the engine is medium-
+        // agnostic; the host implements shm_open etc. behind the same seam.
+        term.set_kitty_file_resolver(|medium, name| {
+            (medium == KittyMedium::SharedMemory && name == "/aterm-shm")
+                .then(|| vec![0u8; 10 * 20 * 4])
+        });
+        term.process(&apc_g("a=T,f=32,s=10,v=20,t=s", b"/aterm-shm"));
+        assert!(
+            !term.cell_frame(24, 80).images[0].is_empty(),
+            "t=s via the host resolver must place the image"
+        );
     }
 
     #[test]

@@ -31,7 +31,7 @@ upgrade can use `aterm-gpu` (wgpu → WebGPU/WebGL) behind a capability check.
   - `feat(engine): wasm-safe internal clock (web-time)` — internal `Instant`/
     `SystemTime` seams route through `web-time` (std on native, JS clock on wasm)
     so the engine doesn't panic "time not implemented".
-- **`native/aterm-wasm/`** — a `wasm-bindgen` crate wrapping `aterm-core` +
+- **`aterm/crates/aterm-wasm (in the aterm repo)/`** — a `wasm-bindgen` crate wrapping `aterm-core` +
   `aterm-render`: `new(rows, cols, fontBytes, px)`, `process(bytes)`, `resize`,
   `render()`, `rgba()/width/height`. Builds to wasm; native render test passes.
 - **End-to-end proof**: `verify-render.mjs` loads the wasm in Node, feeds colored
@@ -62,7 +62,7 @@ coupled to its DOM classes + 8 addons). Sequence:
 
 ```
 # wasm renderer foundation
-cd native/aterm-wasm
+cd aterm/crates/aterm-wasm (in the aterm repo)
 cargo build --release --target wasm32-unknown-unknown
 wasm-bindgen --target nodejs --out-dir pkg target/wasm32-unknown-unknown/release/aterm_wasm.wasm
 node verify-render.mjs   # render proof → /tmp/aterm-wasm-render.png

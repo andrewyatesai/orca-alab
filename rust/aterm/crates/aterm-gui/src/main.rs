@@ -1593,6 +1593,7 @@ impl App {
             lat_epoch: Instant::now(),
             last_output_ns: Arc::new(AtomicU64::new(0)),
             notify_tx,
+            allow_kitty_file_transfer: false,
         };
 
         let ws0 = WindowState::new(
@@ -2904,6 +2905,7 @@ fn main() {
         lat_epoch,
         last_output_ns: last_output_ns.clone(),
         notify_tx,
+        allow_kitty_file_transfer: config.allow_kitty_file_transfer.unwrap_or(false),
     };
 
     // Session 0: the first tab. A spawn failure here is fatal (no shell to show);

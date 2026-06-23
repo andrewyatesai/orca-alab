@@ -2087,7 +2087,7 @@ impl GpuRenderer {
     ///
     /// The minimal "GPU is live" present: no offscreen, no atlas, no instances —
     /// just acquire → clear → present. Used by the WebGPU-from-canvas proving slice
-    /// (`native/aterm-gpu-web`) to confirm the whole instance→adapter→device→
+    /// (`the aterm-gpu-web crate`) to confirm the whole instance→adapter→device→
     /// surface→present chain works under the browser WebGPU backend before the
     /// instanced-cell-quad encode (`present_input`) is wired in.
     pub fn clear_surface(&self, surf: &mut GpuSurface, rgb: u32) {

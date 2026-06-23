@@ -18,19 +18,19 @@ crate-type = ["cdylib", "rlib"]
 # features = ["sixel"] compiles in aterm-sixel (a pure-Rust, zero-dep decoder) so
 # the in-page renderer decodes + blits Sixel DCS images alongside iTerm2 OSC 1337;
 # aterm-sixel has no libc/C, so it targets wasm32-unknown-unknown cleanly.
-aterm-core = { path = "../../rust/aterm/crates/aterm-core", default-features = false, features = ["sixel"] }
-aterm-render = { path = "../../rust/aterm/crates/aterm-render", default-features = false }
-aterm-render-api = { path = "../../rust/aterm/crates/aterm-render-api", default-features = false }
+aterm-core = { path = "../aterm-core", default-features = false, features = ["sixel"] }
+aterm-render = { path = "../aterm-render", default-features = false }
+aterm-render-api = { path = "../aterm-render-api", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "=0.2.100"
+# Aligned to 0.2.108 (matches aterm-gpu-web) so both web crates can coexist in the
+# one workspace lock; 0.2.108 is newer than the old 0.2.100 pin and compatible.
+wasm-bindgen = "=0.2.108"
 console_error_panic_hook = "0.1"
 # Some transitive deps may pull getrandom; on wasm32-unknown-unknown it needs the
 # JS backend. Harmless if unused.
 getrandom = { version = "0.2", features = ["js"] }
 
-[profile.release]
-codegen-units = 1
-opt-level = "z"
-lto = true
-strip = true
+# NOTE: no per-crate [profile.release] — profiles only take effect from the
+# workspace root, which already sets lto/codegen-units=1/strip for release. A wasm
+# size build (opt-level="z") is driven by the build tool's --profile, not here.

@@ -87,6 +87,10 @@ pub(crate) struct SessionFactory {
     /// callbacks (OSC 9/99/777); the lone delivery thread (`notify::spawn_delivery`)
     /// owns the receiver and runs the native notifier off the reader hot path.
     pub(crate) notify_tx: std::sync::mpsc::Sender<notify::NotifyMsg>,
+    /// Security opt-in (config `allow_kitty_file_transfer`, default false): when set,
+    /// each tab installs the Kitty non-direct-medium resolver so `t=f`/`t=t`/`t=s`
+    /// images load from host files / shared memory. Off ⇒ those mediums skip cleanly.
+    pub(crate) allow_kitty_file_transfer: bool,
 }
 
 /// The one-time AI-discoverability hint — OPT-IN, `None` unless `$ATERM_AI_HINT` is
@@ -489,6 +493,10 @@ pub(crate) fn spawn_session(
 
     configure_clipboard(&term);
     configure_notifications(&term, &factory.notify_tx, id);
+    // Kitty file/shm transfer mediums — only when the user opted in (default off).
+    if factory.allow_kitty_file_transfer {
+        configure_kitty_file_transfer(&term);
+    }
 
     // POL-1: this tab's OWN `standard`-profile policy engine, installed BEFORE its
     // reader thread produces any bytes (same fail-closed posture as session 0).
@@ -607,6 +615,100 @@ fn configure_bell(
             window,
         });
     });
+}
+
+/// Maximum bytes a Kitty non-direct medium may supply (matches the engine's
+/// `MAX_KITTY_IMAGE_BYTES`): bounds both a huge file and a huge shm object.
+const MAX_KITTY_MEDIUM_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Install the Kitty non-direct-medium resolver for one session (OPT-IN, gated by
+/// `allow_kitty_file_transfer`). The engine hands us `(medium, path/name)`; we do
+/// the I/O under a fail-closed policy and return the raw image bytes:
+/// - `t=f` (file): read a REGULAR file, size-capped.
+/// - `t=t` (temp file): read it, then DELETE it (the client made it for us).
+/// - `t=s` (shared memory): `shm_open(O_RDONLY)` + `mmap` the object, copy it out,
+///   then `shm_unlink` it.
+///
+/// The OS's own permission model bounds what is readable (our uid); the cap bounds
+/// size; and this is only wired when the user opted in (default: not installed, so
+/// non-direct mediums skip). The engine never touches the filesystem/shm itself.
+fn configure_kitty_file_transfer(term: &Arc<Mutex<Terminal>>) {
+    use aterm_core::terminal::kitty_graphics::KittyMedium;
+    term_lock(term).set_kitty_file_resolver(|medium, name| match medium {
+        KittyMedium::File | KittyMedium::TempFile => {
+            let path = std::path::Path::new(name);
+            let meta = std::fs::metadata(path).ok()?;
+            if !meta.is_file() || meta.len() > MAX_KITTY_MEDIUM_BYTES {
+                return None;
+            }
+            let bytes = std::fs::read(path).ok()?;
+            if medium == KittyMedium::TempFile {
+                let _ = std::fs::remove_file(path); // consume the client's temp file
+            }
+            Some(bytes)
+        }
+        KittyMedium::SharedMemory => read_posix_shm(name),
+        // Direct is handled inline by the engine; any future medium fails closed.
+        _ => None,
+    });
+}
+
+/// Read a POSIX shared-memory object by name (`shm_open` + `mmap`, size-capped),
+/// then `shm_unlink` it (the Kitty client expects the terminal to consume + remove
+/// it). Returns `None` on any error. `unix`-only; a no-op stub elsewhere.
+#[cfg(unix)]
+fn read_posix_shm(name: &str) -> Option<Vec<u8>> {
+    let cname = std::ffi::CString::new(name).ok()?;
+    // SAFETY: `cname` is a valid NUL-terminated C string; `shm_open` with O_RDONLY
+    // either returns a valid fd or -1, which we check.
+    let fd = unsafe { libc::shm_open(cname.as_ptr(), libc::O_RDONLY, 0) };
+    if fd < 0 {
+        return None;
+    }
+    // Ensure the fd + mapping are always released, and the object unlinked.
+    let result = (|| {
+        // SAFETY: `fd` is a valid open fd; `fstat` fills a zeroed stat or returns -1.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::fstat(fd, &mut st) } != 0 {
+            return None;
+        }
+        let len = st.st_size;
+        if len <= 0 || len as u64 > MAX_KITTY_MEDIUM_BYTES {
+            return None;
+        }
+        let len = len as usize;
+        // SAFETY: mapping `len` (>0, capped) read-only from the valid fd at offset 0.
+        let addr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
+        };
+        if addr == libc::MAP_FAILED {
+            return None;
+        }
+        // SAFETY: `addr`/`len` describe a valid read-only mapping just established;
+        // copy the bytes out before unmapping.
+        let bytes = unsafe { std::slice::from_raw_parts(addr.cast::<u8>(), len) }.to_vec();
+        // SAFETY: unmapping the exact `addr`/`len` we mapped above.
+        unsafe { libc::munmap(addr, len) };
+        Some(bytes)
+    })();
+    // SAFETY: `fd` is valid; closing once.
+    unsafe { libc::close(fd) };
+    // Remove the object name regardless (the client handed ownership to us).
+    // SAFETY: `cname` is a valid C string; `shm_unlink` tolerates an absent name.
+    unsafe { libc::shm_unlink(cname.as_ptr()) };
+    result
+}
+
+#[cfg(not(unix))]
+fn read_posix_shm(_name: &str) -> Option<Vec<u8>> {
+    None
 }
 
 /// asciicast v2 recorder writer thread (design A.5.1): the reader thread hands
@@ -777,5 +879,92 @@ impl crate::App {
             .write()
             .unwrap_or_else(|p| p.into_inner())
             .register(handle);
+    }
+}
+
+#[cfg(test)]
+mod kitty_transfer_tests {
+    use super::*;
+    use std::io::Write as _;
+
+    /// Build the APC `G` sequence for an `a=T` transmit with `control` keys and a
+    /// base64-encoded `payload` (here, a file path / shm name).
+    fn apc(control: &str, payload: &[u8]) -> Vec<u8> {
+        let mut v = b"\x1b_G".to_vec();
+        v.extend_from_slice(control.as_bytes());
+        v.push(b';');
+        v.extend_from_slice(aterm_codec::base64::encode(payload).as_bytes());
+        v.extend_from_slice(b"\x1b\\");
+        v
+    }
+
+    fn term_with_resolver() -> Arc<Mutex<Terminal>> {
+        let term = Arc::new(Mutex::new(Terminal::new(24, 80)));
+        term_lock(&term).set_cell_pixel_size(10, 20);
+        configure_kitty_file_transfer(&term);
+        term
+    }
+
+    #[test]
+    fn file_medium_reads_a_real_file_and_places_the_image() {
+        let dir = std::env::temp_dir().join(format!("aterm-kft-f-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("img.rgba");
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(&vec![0u8; 10 * 20 * 4]) // one 10x20 RGBA cell
+            .unwrap();
+
+        let term = term_with_resolver();
+        let seq = apc("a=T,f=32,s=10,v=20,t=f", path.to_str().unwrap().as_bytes());
+        term_lock(&term).process(&seq);
+        let placed = !term_lock(&term).cell_frame(24, 80).images[0].is_empty();
+
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            placed,
+            "t=f must read the real file via the resolver and place the image"
+        );
+    }
+
+    #[test]
+    fn temp_file_medium_is_consumed_then_deleted() {
+        let dir = std::env::temp_dir().join(format!("aterm-kft-t-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("temp.rgba");
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(&vec![0u8; 10 * 20 * 4])
+            .unwrap();
+
+        let term = term_with_resolver();
+        let seq = apc("a=T,f=32,s=10,v=20,t=t", path.to_str().unwrap().as_bytes());
+        term_lock(&term).process(&seq);
+
+        let placed = !term_lock(&term).cell_frame(24, 80).images[0].is_empty();
+        let deleted = !path.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(placed, "t=t must consume the temp file + place the image");
+        assert!(deleted, "t=t must DELETE the temp file after reading it");
+    }
+
+    #[test]
+    fn file_medium_rejects_oversized_file() {
+        let dir = std::env::temp_dir().join(format!("aterm-kft-big-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("big.rgba");
+        // Over the cap → resolver returns None → fail closed (nothing placed).
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(&vec![0u8; (MAX_KITTY_MEDIUM_BYTES as usize) + 1])
+            .unwrap();
+
+        let term = term_with_resolver();
+        let seq = apc("a=T,f=32,s=10,v=20,t=f", path.to_str().unwrap().as_bytes());
+        term_lock(&term).process(&seq);
+        let placed = !term_lock(&term).cell_frame(24, 80).images[0].is_empty();
+
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!placed, "an over-cap file must be rejected (fail closed)");
     }
 }

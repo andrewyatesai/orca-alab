@@ -110,6 +110,13 @@ pub(crate) struct Config {
     /// Security opt-in: allow apps to reconfigure the color palette (OSC 4/104).
     /// Default OFF. Maps to `allow_palette_reconfigure`.
     pub(crate) allow_palette_reconfigure: Option<bool>,
+    /// Security opt-in: allow Kitty graphics NON-DIRECT transmission mediums to read
+    /// host files / shared memory (`t=f` file, `t=t` temp file, `t=s` POSIX shm).
+    /// Default OFF (fail-closed) — letting a program make the terminal read arbitrary
+    /// user-readable files off an escape sequence is an exfiltration/abuse surface.
+    /// When enabled, a size-capped resolver (`spawn::configure_kitty_file_transfer`)
+    /// is installed; otherwise non-direct mediums are skipped cleanly.
+    pub(crate) allow_kitty_file_transfer: Option<bool>,
 }
 
 /// Default rows reserved for the in-grid tab strip. `0`: OFF by default — tabs live

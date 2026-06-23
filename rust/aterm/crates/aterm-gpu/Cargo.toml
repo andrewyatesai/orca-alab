@@ -35,7 +35,7 @@ aterm-spec = { workspace = true, optional = true }
 
 # Native (non-wasm) GPU backends + the synchronous adapter/device init the native
 # renderer uses. `pollster::block_on` has no browser equivalent, so it is native-only;
-# the wasm WebGPU init path (native/aterm-gpu-web) awaits the futures instead.
+# the wasm WebGPU init path (the aterm-gpu-web crate) awaits the futures instead.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = "0.3"
 wgpu = { version = "29", default-features = false, features = ["metal", "vulkan", "dx12", "gles", "wgsl"] }

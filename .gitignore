@@ -130,3 +130,6 @@ src/renderer/src/i18n/locales/.es-catalog-cache.json
 
 # aterm vendored engine build artifacts
 rust/aterm/target/
+
+# Cached pinned build tooling (wasm-bindgen-cli, etc.)
+config/.tooling/

@@ -2,7 +2,7 @@
 //
 // `aterm-gpu-web` — the GPU rendering substrate for the Electron renderer.
 //
-// Sibling of `native/aterm-wasm`: that crate parses PTY bytes with the aterm
+// Sibling of `the aterm-wasm crate`: that crate parses PTY bytes with the aterm
 // engine (`aterm-core`) and rasterizes the grid on the CPU (`aterm-render`),
 // then JS `putImageData`s the RGBA frame onto a `<canvas>`. THIS crate keeps the
 // same engine front-end but renders on the GPU via `aterm-gpu` (wgpu's WebGL2
@@ -47,7 +47,7 @@ use aterm_gpu::{GpuRenderer, GpuSurface, WindowGpu};
 ///      GPU touched yet, so it can run before WebGL is confirmed.
 ///   2. [`AtermGpuTerminal::init`] — async: acquire the GPU and create +
 ///      configure the canvas surface. Separated so the host can fall back to the
-///      CPU path (`native/aterm-wasm`) if WebGL is unavailable WITHOUT having
+///      CPU path (`the aterm-wasm crate`) if WebGL is unavailable WITHOUT having
 ///      paid for the engine teardown.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct AtermGpuTerminal {
@@ -70,7 +70,7 @@ pub struct AtermGpuTerminal {
     gpu: Option<GpuState>,
     // Offscreen readback cache: the last `render_offscreen` frame, expanded to
     // RGBA8 (width*height*4 bytes), so an e2e harness can pixel-compare GPU vs CPU
-    // without reading the live canvas. Mirrors `native/aterm-wasm`'s `rgba` buffer.
+    // without reading the live canvas. Mirrors `the aterm-wasm crate`'s `rgba` buffer.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     rgba: Vec<u8>,
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
@@ -79,7 +79,7 @@ pub struct AtermGpuTerminal {
     fb_height: usize,
     // Built-in smart-selection rules (url/file_path/email/...) for scroll-correct
     // link detection via smart_word_at; reused across link_at calls. Mirrors
-    // native/aterm-wasm so the ONE engine per pane serves both draw + state.
+    // the aterm-wasm crate so the ONE engine per pane serves both draw + state.
     smart: SmartSelection,
 }
 
@@ -188,7 +188,7 @@ impl AtermGpuTerminal {
     }
 
     // ---------------------------------------------------------------------
-    // Engine-state surface — passthroughs mirroring `native/aterm-wasm`'s
+    // Engine-state surface — passthroughs mirroring `the aterm-wasm crate`'s
     // `AtermTerminal`. Why: ONE engine per pane. The host's input handlers
     // (scroll/selection/search/mouse/link/cursor/focus) call these `term.*`
     // methods; exposing the SAME surface here lets the GPU drawer reuse the
@@ -452,7 +452,7 @@ impl AtermGpuTerminal {
 
 /// A detected link under a cell: its text/URL, the half-open display-column span
 /// it covers, and a `kind` discriminant (0=osc8, 1=url, 2=file_path, 3=other).
-/// Mirrors `native/aterm-wasm`'s `LinkHit` so the host link input is unchanged.
+/// Mirrors `the aterm-wasm crate`'s `LinkHit` so the host link input is unchanged.
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub struct LinkHit {
     url: String,
@@ -490,7 +490,7 @@ impl LinkHit {
 
 /// Slice `text` to the half-open display-column range `[start_col, end_col)`.
 /// Approximates display width as 1 per char — correct for the ASCII URLs/paths
-/// that dominate link detection (mirrors native/aterm-wasm).
+/// that dominate link detection (mirrors the aterm-wasm crate).
 fn slice_by_columns(text: &str, start_col: usize, end_col: usize) -> String {
     text.chars()
         .skip(start_col)
@@ -649,7 +649,7 @@ impl AtermGpuTerminal {
     /// SECONDARY (e2e) path: render the current grid OFFSCREEN and read the pixels
     /// back into the internal RGBA8 framebuffer, so a host harness can pixel-compare
     /// GPU vs CPU output without reading the live canvas (a WebGL swapchain is not
-    /// CPU-readable). Mirrors `native/aterm-wasm`'s `render()`+`rgba()` contract:
+    /// CPU-readable). Mirrors `the aterm-wasm crate`'s `render()`+`rgba()` contract:
     /// the same `cell_frame` snapshot, the same `Frame` (0x00RRGGBB) expanded to
     /// RGBA8 with an opaque alpha. Errors if WebGL was not initialized.
     pub fn render_offscreen(&mut self) -> Result<(), String> {

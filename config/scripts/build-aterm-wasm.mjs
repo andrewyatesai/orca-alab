@@ -1,17 +1,28 @@
 // Build + size-optimize the aterm renderer wasm glue (CPU `aterm-wasm` and GPU
-// `aterm-gpu-web`) and copy it into the renderer. Each crate is built
-// opt-level="z"+lto+strip (see its Cargo.toml), bindgen'd with the matching
-// wasm-bindgen, then run through `wasm-opt -Oz`. The committed glue is the
-// optimized output, so this script makes that reproducible instead of manual.
+// `aterm-gpu-web`) and copy it into the renderer.
+//
+// The crates LIVE in aterm (vendored at rust/aterm/crates/*), so this builds
+// them from there. Two wrinkles handled here:
+//  1. Offline vendor: rust/.cargo/config.toml replaces crates-io with the
+//     offline rust/vendor (which intentionally lacks the web deps wgpu-webgl/
+//     wasm-bindgen/web-sys). cargo reads config from the INVOCATION CWD, not the
+//     manifest — so we invoke from the repo ROOT (no .cargo there) with
+//     CARGO_NET_OFFLINE=false to resolve the web deps online.
+//  2. wasm-bindgen pin: both crates use =0.2.108; we use a cached CLI under
+//     config/.tooling (bootstrapped via cargo install if missing).
 //
 // Usage: node config/scripts/build-aterm-wasm.mjs [--cpu] [--gpu]  (default: both)
 import { execFileSync } from 'node:child_process'
-import { existsSync, copyFileSync, statSync } from 'node:fs'
+import { existsSync, copyFileSync, statSync, mkdirSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const DEST = join(ROOT, 'src/renderer/src/lib/pane-manager/aterm')
+const WASM_TARGET_DIR = join(ROOT, 'rust/aterm/target/wasm32-unknown-unknown/release')
+const GLUE_OUT = join(ROOT, 'rust/aterm/target/aterm-web-glue')
+const WB_VERSION = '0.2.108'
+const WB_DIR = join(ROOT, 'config/.tooling', `wasm-bindgen-${WB_VERSION}`)
 // wasm-opt rejects the module unless the features it uses are enabled explicitly.
 const WASM_OPT_FEATURES = [
   '--enable-bulk-memory',
@@ -22,19 +33,12 @@ const WASM_OPT_FEATURES = [
 ]
 
 const CRATES = {
-  cpu: { dir: 'native/aterm-wasm', stem: 'aterm_wasm' },
-  gpu: { dir: 'native/aterm-gpu-web', stem: 'aterm_gpu_web' }
+  cpu: { dir: 'rust/aterm/crates/aterm-wasm', stem: 'aterm_wasm' },
+  gpu: { dir: 'rust/aterm/crates/aterm-gpu-web', stem: 'aterm_gpu_web' }
 }
 
-function run(cmd, args, cwd) {
-  execFileSync(cmd, args, { cwd, stdio: 'inherit' })
-}
-
-function resolveWasmBindgen(crateDir) {
-  // The GPU crate pins a newer wasm-bindgen in a local .wbtool/ (it must match
-  // the crate's pinned dep); fall back to the one on PATH for the CPU crate.
-  const pinned = join(crateDir, '.wbtool/bin/wasm-bindgen')
-  return existsSync(pinned) ? pinned : 'wasm-bindgen'
+function run(cmd, args, opts = {}) {
+  execFileSync(cmd, args, { cwd: ROOT, stdio: 'inherit', ...opts })
 }
 
 function which(bin) {
@@ -46,18 +50,48 @@ function which(bin) {
   }
 }
 
-function buildCrate(key) {
+function resolveWasmBindgen() {
+  const cached = join(WB_DIR, 'bin/wasm-bindgen')
+  if (existsSync(cached)) return cached
+  // Bootstrap the exact pinned CLI once (cached, gitignored) so the build is
+  // reproducible regardless of the system wasm-bindgen version.
+  console.log(`[aterm-wasm] bootstrapping wasm-bindgen-cli ${WB_VERSION} → ${WB_DIR}`)
+  run('cargo', ['install', 'wasm-bindgen-cli', '--version', WB_VERSION, '--root', WB_DIR, '--locked'])
+  return cached
+}
+
+function buildCrate(key, wasmBindgen) {
   const { dir, stem } = CRATES[key]
-  const crateDir = join(ROOT, dir)
-  const pkg = join(crateDir, 'pkg-web')
-  const wasm = join(crateDir, `target/wasm32-unknown-unknown/release/${stem}.wasm`)
   console.log(`\n[aterm-wasm] building ${key} (${dir}) …`)
-  run('cargo', ['build', '--release', '--target', 'wasm32-unknown-unknown'], crateDir)
-  run(resolveWasmBindgen(crateDir), ['--target', 'web', '--out-dir', pkg, wasm], crateDir)
+  // Build from ROOT (online ancestry) via --manifest-path so the web deps
+  // resolve from crates.io, not the offline rust/vendor. Force opt-level="z" for
+  // the WHOLE wasm build (engine code is compiled INTO the wasm, so size-opt must
+  // cover it, not just the leaf crate) — these are browser download assets. The
+  // engine's native profile (opt-3) is unaffected; this only governs this build.
+  run(
+    'cargo',
+    [
+      'build',
+      '--release',
+      '--target',
+      'wasm32-unknown-unknown',
+      '--manifest-path',
+      join(dir, 'Cargo.toml'),
+      '--config',
+      'profile.release.opt-level="z"'
+    ],
+    { env: { ...process.env, CARGO_NET_OFFLINE: 'false' } }
+  )
+
+  const wasm = join(WASM_TARGET_DIR, `${stem}.wasm`)
+  const pkg = join(GLUE_OUT, stem)
+  rmSync(pkg, { recursive: true, force: true })
+  mkdirSync(pkg, { recursive: true })
+  run(wasmBindgen, ['--target', 'web', '--out-dir', pkg, wasm])
 
   const bg = join(pkg, `${stem}_bg.wasm`)
   const before = statSync(bg).size
-  run('wasm-opt', ['-Oz', ...WASM_OPT_FEATURES, '-o', bg, bg], crateDir)
+  run('wasm-opt', ['-Oz', ...WASM_OPT_FEATURES, '-o', bg, bg])
   const after = statSync(bg).size
   console.log(
     `[aterm-wasm] ${stem}_bg.wasm ${before} -> ${after} bytes ` +
@@ -74,6 +108,7 @@ if (!which('wasm-opt')) {
   console.error('[aterm-wasm] wasm-opt not found — install binaryen (brew install binaryen)')
   process.exit(1)
 }
+const wasmBindgen = resolveWasmBindgen()
 const flags = process.argv.slice(2)
 const keys = flags.length ? flags.map((f) => f.replace(/^--/, '')) : ['cpu', 'gpu']
 for (const k of keys) {
@@ -81,6 +116,6 @@ for (const k of keys) {
     console.error(`[aterm-wasm] unknown target "${k}" (use --cpu and/or --gpu)`)
     process.exit(1)
   }
-  buildCrate(k)
+  buildCrate(k, wasmBindgen)
 }
 console.log('\n[aterm-wasm] done.')

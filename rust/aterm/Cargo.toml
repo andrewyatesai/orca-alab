@@ -111,6 +111,16 @@ lto = true
 codegen-units = 1
 strip = true
 
+# The web-render frontends ship as browser download assets, so size beats
+# throughput for them: build ONLY these two for size (opt-level="z"). The engine
+# profile above (opt-level 3, owner's throughput decision) is untouched. orc's
+# build-aterm-wasm.mjs compiles these to wasm32 and wasm-opt's the result.
+[profile.release.package.aterm-wasm]
+opt-level = "z"
+
+[profile.release.package.aterm-gpu-web]
+opt-level = "z"
+
 # Same codegen as release but keeps symbols, for sampling profilers (sample/samply):
 #   cargo build --profile profiling -p aterm-gui
 [profile.profiling]

@@ -1,6 +1,9 @@
 /target
 /pkg
 /pkg-web
+# Locally-installed wasm-bindgen CLI pinned to the lockfile's wasm-bindgen version.
+# Build artifact, not source.
+/.wbtool
 *.node
 /iso.mjs
 /*.png

@@ -2,7 +2,7 @@
 name = "aterm-gpu-web"
 version = "0.0.1"
 edition = "2021"
-description = "wasm-bindgen binding: the aterm engine (aterm-core) + the aterm-gpu WebGPU renderer (wgpu -> WebGPU on wasm32), rendering a terminal onto a <canvas> in the Electron renderer. The GPU sibling of native/aterm-wasm (which is the CPU/putImageData path)."
+description = "wasm-bindgen binding: the aterm engine (aterm-core) + the aterm-gpu WebGPU renderer (wgpu -> WebGPU on wasm32), rendering a terminal onto a <canvas> in the Electron renderer. The GPU sibling of the aterm-wasm crate (which is the CPU/putImageData path)."
 license = "MIT"
 
 [lib]
@@ -14,11 +14,12 @@ crate-type = ["cdylib", "rlib"]
 # cannot target wasm32 — a renderer needs only the RAM/LZ4 tiers. aterm-gpu itself
 # now also stops FORCING disk-tier (its deps are default-features = false), so the
 # GPU crate's whole closure is wasm32-clean.
-aterm-core = { path = "../../rust/aterm/crates/aterm-core", default-features = false, features = ["sixel"] }
-aterm-render = { path = "../../rust/aterm/crates/aterm-render", default-features = false }
-aterm-render-api = { path = "../../rust/aterm/crates/aterm-render-api", default-features = false }
-aterm-gpu = { path = "../../rust/aterm/crates/aterm-gpu" }
+aterm-core = { path = "../aterm-core", default-features = false, features = ["sixel"] }
+aterm-render = { path = "../aterm-render", default-features = false }
+aterm-render-api = { path = "../aterm-render-api", default-features = false }
+aterm-gpu = { path = "../aterm-gpu" }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 # wgpu's WebGL2 backend on wasm32 — orca's deliberate terminal-acceleration target
 # (the renderer accelerates via WebGL; production refuses unsafe-WebGPU). WebGL2
 # supports the same instanced-quad + R8/Rgba8 glyph-atlas pipeline as WebGPU, so no
@@ -26,12 +27,14 @@ aterm-gpu = { path = "../../rust/aterm/crates/aterm-gpu" }
 # (metal/vulkan/dx12/gles); the wasm closure pulls only the WebGL path via
 # wasm-bindgen/web-sys. fragile-send-sync-non-atomic-wasm lets the !Send GPU handles
 # satisfy wgpu's Send/Sync bounds on the single-threaded browser main thread.
+# Kept under the wasm32 target table so the native workspace build of this crate
+# never pulls wgpu's WebGL closure — it only needs the engine deps above to compile.
 wgpu = { version = "29", default-features = false, features = ["webgl", "wgsl", "fragile-send-sync-non-atomic-wasm"] }
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
 # wgpu 29 requires wasm-bindgen >= 0.2.108; pin it exact so the generated glue
 # matches the wasm-bindgen CLI version (a mismatch makes `wasm-bindgen --target web`
-# refuse). aterm-wasm pins 0.2.100 separately — these two crates build independently.
+# refuse). aterm-wasm is aligned to the same 0.2.108 so both web crates share the
+# one workspace lock.
 wasm-bindgen = "=0.2.108"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
@@ -45,8 +48,6 @@ js-sys = "0.3"
 # backend. Harmless if unused.
 getrandom = { version = "0.2", features = ["js"] }
 
-[profile.release]
-codegen-units = 1
-opt-level = "z"
-lto = true
-strip = true
+# NOTE: no per-crate [profile.release] — profiles only take effect from the
+# workspace root, which already sets lto/codegen-units=1/strip for release. A wasm
+# size build (opt-level="z") is driven by the build tool's --profile, not here.

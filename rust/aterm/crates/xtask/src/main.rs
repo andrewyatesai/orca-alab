@@ -321,6 +321,10 @@ fn spec_link() -> ExitCode {
     };
     let out = Command::new(&trust_ir)
         .arg("spec-link")
+        // aterm emits TEXT (`lower_to_ir`); trust-ir 0.2.0 maps the `.trust_ir`
+        // extension to BINARY, so pin the format explicitly.
+        .arg("--format")
+        .arg("text")
         .arg(&ir_path)
         .arg("--harness-manifest")
         .arg(&manifest)

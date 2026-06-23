@@ -247,6 +247,36 @@ fn ligature_breaks_on_style_change() {
     );
 }
 
+/// ITEM B — STYLED ligature cache (italic): a synthetic-italic `=>` must render
+/// DIFFERENTLY from a regular `=>`. The arrow draws as a single `mono_gid`
+/// ligature glyph; for the slant to reach the pixels the ITALIC style bit must
+/// survive (a) the shaped-run cache key `(run, style)` — so the italic run shapes
+/// independently of the regular one — and (b) the per-column ligature glyph key
+/// `mono_gid(gid, style)` — so the italic ligature glyph rasterizes with the
+/// synthetic slant. A pixel difference proves both. (Bold is already covered by
+/// `ligature_breaks_on_style_change`; this adds the italic axis.)
+#[test]
+fn italic_ligature_differs_from_regular() {
+    let (Some(regular), Some(italic)) = (
+        render(LigatureMode::Enabled, b"a\x1b[0m=>"),
+        render(LigatureMode::Enabled, b"a\x1b[3m=>\x1b[0m"),
+    ) else {
+        eprintln!("SKIP: no ligature test font (set ATERM_FONT or add the repo fixture)");
+        return;
+    };
+    assert_eq!(
+        (regular.width, regular.height),
+        (italic.width, italic.height),
+        "italic must not change frame dimensions"
+    );
+    assert_ne!(
+        regular.pixels, italic.pixels,
+        "an italic '=>' must ink differently than a regular '=>' — the ITALIC style \
+         bit must persist through the shaped-run cache key and the mono_gid ligature \
+         glyph (synthetic slant), not be dropped on the ligature path"
+    );
+}
+
 /// A run must BREAK on a WIDE/emoji cell: `=>` shaped, but with an emoji
 /// immediately after the operator the wide cell does not join (and cannot extend)
 /// the run, so the arrow still ligates exactly as it does standalone. Here we
@@ -270,5 +300,140 @@ fn ligature_breaks_on_wide_cell() {
         on.pixels, off.pixels,
         "'=>' before a wide emoji must still ligate — the wide cell should break the \
          run after the operator, not suppress the preceding ligature"
+    );
+}
+
+/// Remove the `GSUB` table from an sfnt font's table directory, yielding a font
+/// that ttf-parser/rustybuzz see as having NO ligature features. The sfnt header
+/// is `[u32 sfntVersion][u16 numTables][u16 searchRange][u16 entrySelector]
+/// [u16 rangeShift]` (12 bytes), followed by `numTables` × 16-byte table records
+/// `[Tag tag][u32 checksum][u32 offset][u32 length]`. Dropping the `GSUB` record
+/// and decrementing `numTables` is enough: ttf-parser locates every table strictly
+/// via the directory, so the (still-present) table BYTES become unreachable. The
+/// search-range fields are hints, not used for lookup, so they need no fix-up.
+/// Returns `None` if the input isn't a directory-style sfnt with a `GSUB` table.
+fn strip_gsub(bytes: &[u8]) -> Option<Vec<u8>> {
+    const HEADER: usize = 12;
+    const RECORD: usize = 16;
+    if bytes.len() < HEADER {
+        return None;
+    }
+    let num_tables = u16::from_be_bytes([bytes[4], bytes[5]]) as usize;
+    let dir_end = HEADER + num_tables * RECORD;
+    if bytes.len() < dir_end {
+        return None;
+    }
+    let gsub_rec = (0..num_tables)
+        .map(|i| HEADER + i * RECORD)
+        .find(|&off| &bytes[off..off + 4] == b"GSUB")?;
+    let mut out = Vec::with_capacity(bytes.len() - RECORD);
+    // Header with numTables decremented; other (hint) fields copied verbatim.
+    out.extend_from_slice(&bytes[..4]);
+    out.extend_from_slice(&u16::try_from(num_tables - 1).ok()?.to_be_bytes());
+    out.extend_from_slice(&bytes[6..HEADER]);
+    // All directory records except GSUB's (offsets into the table body are unchanged
+    // because the body bytes after the directory keep their absolute positions).
+    for i in 0..num_tables {
+        let off = HEADER + i * RECORD;
+        if off == gsub_rec {
+            continue;
+        }
+        out.extend_from_slice(&bytes[off..off + RECORD]);
+    }
+    // The table body, shifted forward by one dropped record (RECORD bytes). The
+    // directory offsets are absolute from file start, so re-point them by -RECORD.
+    let body = &bytes[dir_end..];
+    let mut shifted = out.clone();
+    // Fix every kept record's offset (subtract one record's worth of bytes).
+    for i in 0..(num_tables - 1) {
+        let off = HEADER + i * RECORD;
+        let o = u32::from_be_bytes([
+            shifted[off + 8],
+            shifted[off + 9],
+            shifted[off + 10],
+            shifted[off + 11],
+        ]);
+        let no = o.checked_sub(RECORD as u32)?;
+        shifted[off + 8..off + 12].copy_from_slice(&no.to_be_bytes());
+    }
+    shifted.extend_from_slice(body);
+    Some(shifted)
+}
+
+/// ITEM A — feature gating, no-ligature half: a font with its `GSUB` table removed
+/// reports `has_ligature_features() == false`, and rendering a `=>` through it is
+/// BYTE-IDENTICAL whether ligatures are enabled or disabled — proving the planner
+/// short-circuits shaping (no `liga`/`calt` => no substitution => the per-cell cmap
+/// glyphs either way). The stripped font is derived from the fixture so the cmap
+/// (hence the per-cell glyphs) is identical to the ligating control.
+#[test]
+fn no_ligature_font_skips_shaping_and_is_identical() {
+    let Some(bytes) = ligature_test_font() else {
+        eprintln!("SKIP: no ligature test font (set ATERM_FONT or add the repo fixture)");
+        return;
+    };
+    let Some(stripped) = strip_gsub(&bytes) else {
+        eprintln!("SKIP: fixture is not a directory-style sfnt with a GSUB table");
+        return;
+    };
+
+    // The probe must see no liga/calt feature once GSUB is gone.
+    let mut r_on = Renderer::from_bytes(&stripped, 18.0, Theme::default()).unwrap();
+    assert!(
+        !r_on.has_ligature_features(),
+        "a font with no GSUB table must report has_ligature_features() == false"
+    );
+
+    // Render '=>' with ligatures ON and OFF through the no-feature font; the
+    // short-circuited plan is the per-cell plan in BOTH cases, so the pixels match.
+    let mut r_off = Renderer::from_bytes(&stripped, 18.0, Theme::default()).unwrap();
+    r_on.set_text_shaping(TextShapingConfig {
+        ligature_mode: LigatureMode::Enabled,
+        ..Default::default()
+    });
+    r_off.set_text_shaping(TextShapingConfig {
+        ligature_mode: LigatureMode::Disabled,
+        ..Default::default()
+    });
+    let (rows, cols) = (1usize, 16usize);
+    let mut term = Terminal::new(rows as u16, cols as u16);
+    term.process(b"\x1b[?25l");
+    term.process(b"a=>b");
+    let input = term.cell_frame(rows, cols);
+    let on = r_on.render_input(&input);
+    let off = r_off.render_input(&input);
+    assert_eq!(
+        on.pixels, off.pixels,
+        "with no liga/calt feature, ligatures on vs off must be byte-identical — \
+         the shaping fast-path was not skipped"
+    );
+}
+
+/// ITEM A — feature gating, ligature half: the JetBrains Mono fixture DOES
+/// advertise liga/calt (`has_ligature_features() == true`) and, with the fast-path
+/// flag set, still ligates `=>` (its ligated render differs from the unligated one).
+/// This guards against the short-circuit ever wrongly firing on a ligature font.
+#[test]
+fn fixture_font_has_ligature_features_and_still_ligates() {
+    let Some(bytes) = ligature_test_font() else {
+        eprintln!("SKIP: no ligature test font (set ATERM_FONT or add the repo fixture)");
+        return;
+    };
+    let r = Renderer::from_bytes(&bytes, 18.0, Theme::default()).unwrap();
+    assert!(
+        r.has_ligature_features(),
+        "JetBrains Mono must report has_ligature_features() == true"
+    );
+    // And the gated path still produces a real ligature.
+    let (Some(on), Some(off)) = (
+        render(LigatureMode::Enabled, b"a => b"),
+        render(LigatureMode::Disabled, b"a => b"),
+    ) else {
+        eprintln!("SKIP: no ligature test font");
+        return;
+    };
+    assert_ne!(
+        on.pixels, off.pixels,
+        "the fixture must still ligate with the GSUB-gated fast-path in place"
     );
 }

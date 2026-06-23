@@ -500,6 +500,13 @@ impl App {
             present_latency_ns,
             frame_started.elapsed().as_nanos() as u64,
         );
+        // Frame-pacing: stamp this present so the soft cap in the `Wake::Output`
+        // handler coalesces sub-`MIN_FRAME_INTERVAL` bursts against it. Reached only
+        // on a REAL present (the D-1 early-out returns before this when the screen is
+        // unchanged), so the cap measures from genuine frames, not skipped ones.
+        if let Some(ws) = self.windows.get_mut(&id) {
+            ws.last_present_at = Some(std::time::Instant::now());
+        }
         // Publish the freshly-presented screen to assistive tech (macOS VoiceOver)
         // when the `a11y-appkit` feature is on. Reaches here only on an ACTUAL
         // present (the D-1 early-out returns before this), so a steady screen costs

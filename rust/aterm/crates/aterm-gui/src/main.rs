@@ -181,6 +181,14 @@ fn pad_for_scale(scale: f64) -> usize {
 /// on/off every this long (the classic terminal cadence).
 const BLINK_INTERVAL: Duration = Duration::from_millis(530);
 
+/// Soft frame-pacing cap for bulk PTY output: present a window's surface at most
+/// once per this interval (~125 fps). Output arriving after an idle gap (last
+/// present older than this) still presents IMMEDIATELY — only sub-interval bursts
+/// coalesce — so isolated keystrokes/echo are never delayed, while a flood (cat,
+/// build logs, a fast TUI) no longer spins the loop presenting far faster than any
+/// display can show (pure wasted CPU/GPU under `AutoNoVsync`).
+const MIN_FRAME_INTERVAL: Duration = Duration::from_micros(8_000);
+
 /// Multi-click window: a left press within this many milliseconds of the
 /// previous press, in the SAME cell, advances the click count (1 -> 2 -> 3,
 /// then wraps back to 1).
@@ -1024,6 +1032,15 @@ struct WindowState {
     /// its deadline arms `WaitUntil` only while a flash is pending, so the
     /// loop stays in pure `Wait` (0% idle) between bells.
     bell_flash: BellFlash,
+    /// Frame pacing (soft cap): when this window last ACTUALLY presented a frame
+    /// (stamped in `redraw_window` after a real present, i.e. past the D-1 gate).
+    /// Bulk PTY output within `MIN_FRAME_INTERVAL` of this coalesces instead of
+    /// presenting; `None` until the first present, so the first frame is immediate.
+    last_present_at: Option<Instant>,
+    /// A redraw was deferred by the frame cap and awaits the interval boundary:
+    /// `about_to_wait` arms the `WaitUntil`, `new_events` flushes it. Multiple
+    /// deferred bursts collapse into this one pending flag → one coalesced frame.
+    redraw_pending: bool,
     /// The title currently shown in the window chrome. Mirrors the engine's
     /// program-set title (OSC 0/2); `redraw()` calls `set_title` only when this
     /// diverges, so a program that updates its title (shell cwd, vim, ssh) is
@@ -1144,6 +1161,8 @@ impl WindowState {
             blink_phase: true,
             next_blink: None,
             bell_flash: BellFlash::new(),
+            last_present_at: None,
+            redraw_pending: false,
             current_title: "aterm".to_string(),
             store_title: (u64::MAX, String::new()),
             input_scratch: RenderInput::empty(),
@@ -1909,6 +1928,14 @@ impl ApplicationHandler<Wake> for App {
                     ws.next_blink = Some(now + BLINK_INTERVAL);
                     dirty = true;
                 }
+                // Frame-cap boundary reached: flush the coalesced bulk-output redraw
+                // deferred by the soft cap in the `Wake::Output` handler.
+                if ws.redraw_pending
+                    && ws.last_present_at.is_some_and(|t| now.duration_since(t) >= MIN_FRAME_INTERVAL)
+                {
+                    ws.redraw_pending = false;
+                    dirty = true;
+                }
                 if dirty {
                     to_redraw.push(*id);
                 }
@@ -1984,6 +2011,16 @@ impl ApplicationHandler<Wake> for App {
             }
             if let Some(d) = ws.bell_flash.deadline() {
                 deadline = Some(deadline.map_or(d, |b| b.min(d)));
+            }
+            // Frame-cap: a bulk-output redraw was deferred; arm the boundary at
+            // `last_present + MIN_FRAME_INTERVAL` so `new_events` flushes it.
+            // (`redraw_pending` is only set after a present, so `last_present` is
+            // always `Some` here — the deadline is always armable.)
+            if ws.redraw_pending {
+                if let Some(t) = ws.last_present_at {
+                    let d = t + MIN_FRAME_INTERVAL;
+                    deadline = Some(deadline.map_or(d, |b| b.min(d)));
+                }
             }
         }
         match deadline {
@@ -2067,10 +2104,25 @@ impl ApplicationHandler<Wake> for App {
                 // ≤1 window.
                 let _owner = window; // owning-window hint (S10 co-viewer route)
                 // Route through the shared `windows_displaying` predicate (no per-chunk
-                // Vec alloc — iterate it directly; `request_redraw` only needs `&self`).
-                for wid in self.windows_displaying(session) {
-                    if let Some(w) = self.windows.get(&wid).and_then(|ws| ws.os_window.as_ref()) {
+                // alloc). Frame-pacing soft cap: present immediately when it's been
+                // >= MIN_FRAME_INTERVAL since this window last presented (so isolated
+                // output and the first frame of a burst are NEVER delayed), else
+                // defer — `about_to_wait` arms a `WaitUntil` at the boundary and
+                // `new_events` flushes the coalesced frame. Collect wids first since
+                // the cap needs `&mut WindowState` (`windows_displaying` borrows `&self`).
+                let now = Instant::now();
+                let wids: Vec<WindowId> = self.windows_displaying(session).collect();
+                for wid in wids {
+                    let Some(ws) = self.windows.get_mut(&wid) else { continue };
+                    let Some(w) = ws.os_window.clone() else { continue };
+                    if ws
+                        .last_present_at
+                        .map_or(true, |t| now.duration_since(t) >= MIN_FRAME_INTERVAL)
+                    {
+                        ws.redraw_pending = false;
                         w.request_redraw();
+                    } else {
+                        ws.redraw_pending = true;
                     }
                 }
             }
@@ -6367,7 +6419,9 @@ mod spec_xref_gate {
         manifest: Option<&std::path::Path>,
     ) -> (bool, String) {
         let mut cmd = Command::new(trust_ir);
-        cmd.arg("spec-link").arg(module);
+        // aterm emits the canonical TEXT format (`lower_to_ir`); trust-ir 0.2.0
+        // auto-detects the `.trust_ir` extension as BINARY, so pin the format.
+        cmd.arg("spec-link").arg("--format").arg("text").arg(module);
         if let Some(m) = manifest {
             cmd.arg("--harness-manifest")
                 .arg(m)

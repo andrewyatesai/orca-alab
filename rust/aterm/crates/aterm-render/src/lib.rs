@@ -311,6 +311,14 @@ pub struct Renderer {
     /// decline and the per-cell path is used. A `rustybuzz::Face` borrows these,
     /// so a fresh face is parsed per shaping miss (rare; shaped runs are cached).
     rb_primary_bytes: Option<Vec<u8>>,
+    /// Whether the primary face advertises a `liga`/`calt` `GSUB` feature, computed
+    /// ONCE at construction. A font with neither can emit no substitution under
+    /// those features, so its shaped run would always equal the per-cell cmap
+    /// glyphs — when this is `false` the planner skips run coalescing + rustybuzz
+    /// entirely (byte-identical output, no per-frame shaping). Lives on the shared
+    /// `Renderer` so the CPU and GPU planners (both call [`Renderer::row_glyph_plan`])
+    /// make the SAME decision, preserving CPU==GPU parity.
+    has_ligature_features: bool,
     /// Text-shaping config (ligature mode + font features). DEFAULT is
     /// `LigatureMode::Enabled`, but a run is only ligated when a `rustybuzz::Face`
     /// builds AND the run actually shapes to different glyphs; otherwise the
@@ -745,6 +753,9 @@ impl Renderer {
             font,
             // Retain the primary bytes so run shaping can build a rustybuzz::Face.
             rb_primary_bytes: Some(bytes.to_vec()),
+            // One-time GSUB probe: fonts with no liga/calt feature can never ligate,
+            // so the planner short-circuits shaping for them (byte-identical, faster).
+            has_ligature_features: ligature_shaping::font_has_ligature_features(bytes),
             shaping: aterm_types::text_shaping::TextShapingConfig::default(),
             shaped_runs: HashMap::new(),
             fallback: None,
@@ -1126,6 +1137,14 @@ impl Renderer {
         &self.shaping
     }
 
+    /// Whether the primary face advertises a `liga`/`calt` `GSUB` feature (probed
+    /// once at construction). `false` means the font cannot ligate, so the planner
+    /// short-circuits shaping to the per-cell path. Exposed for tests/diagnostics.
+    #[must_use]
+    pub fn has_ligature_features(&self) -> bool {
+        self.has_ligature_features
+    }
+
     /// Whether ligatures are GLOBALLY off (`LigatureMode::Disabled`). The
     /// `CursorDisabled` mode is row-local and handled at the column level (the
     /// cursor's run is forced per-cell), so it does NOT disable globally.
@@ -1152,7 +1171,14 @@ impl Renderer {
     ) {
         let cols = input.cols;
         let cells = &input.cells[r];
-        if self.ligatures_globally_off() || self.rb_primary_bytes.is_none() {
+        // Short-circuit to the all-PerCell plan when ligatures are off, no primary
+        // bytes are retained, OR the primary font has no liga/calt GSUB feature (it
+        // cannot ligate, so shaping would reproduce the per-cell cmap glyphs — skip
+        // it). This guard is on the SHARED seam, so CPU and GPU decide identically.
+        if self.ligatures_globally_off()
+            || self.rb_primary_bytes.is_none()
+            || !self.has_ligature_features
+        {
             out.clear();
             out.resize(cols, ColumnGlyph::PerCell);
             return;

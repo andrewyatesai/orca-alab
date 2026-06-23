@@ -47,7 +47,9 @@ use aterm_spec::xref::{ProofAnchor, ProofKind, RefinementAnchor, SpecModule};
 fn spec_link(module: &Path, manifest: Option<&Path>) -> (i32, String) {
     let trust_ir = trust_ir("overclaim corpus (spec-link)");
     let mut cmd = Command::new(&trust_ir);
-    cmd.arg("spec-link").arg(module);
+    // aterm emits the canonical TEXT format (`lower_to_ir`); trust-ir 0.2.0
+    // auto-detects the `.trust_ir` extension as BINARY, so pin the format.
+    cmd.arg("spec-link").arg("--format").arg("text").arg(module);
     if let Some(m) = manifest {
         cmd.arg("--harness-manifest")
             .arg(m)

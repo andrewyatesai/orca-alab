@@ -132,6 +132,34 @@ pub fn shape_ligature_run(
     Some(gids.into_boxed_slice())
 }
 
+/// Whether the primary face's `GSUB` table advertises a programming-ligature
+/// feature (`liga` or `calt`) — the only features [`shape_ligature_run`] turns on.
+///
+/// A font with neither feature can produce NO substitution under those features,
+/// so rustybuzz would return exactly the cmap glyph ids the per-cell path already
+/// uses: shaping such a run is provably a no-op (we'd always hit the `!changed`
+/// decline). Computing this ONCE at face build time lets the planner short-circuit
+/// the whole run-coalescing + rustybuzz path for non-ligature fonts — byte-identical
+/// output, no per-frame shaping cost.
+///
+/// Iterates the `GSUB` feature list LINEARLY (FeatureList records are stored in
+/// arbitrary, not tag-sorted, order, so a binary `find` could miss a present tag).
+/// `false` when there is no `GSUB` table or the bytes don't parse as a face.
+#[must_use]
+pub fn font_has_ligature_features(rb_bytes: &[u8]) -> bool {
+    let Some(face) = rustybuzz::Face::from_slice(rb_bytes, 0) else {
+        return false;
+    };
+    let Some(gsub) = face.tables().gsub else {
+        return false;
+    };
+    let liga = Tag::from_bytes(b"liga");
+    let calt = Tag::from_bytes(b"calt");
+    gsub.features
+        .into_iter()
+        .any(|f| f.tag == liga || f.tag == calt)
+}
+
 /// Build the per-column glyph plan for one row of `cells`.
 ///
 /// `shapeable[c]` is whether column `c` may join a run (computed by the caller
@@ -184,5 +212,91 @@ pub fn plan_row_runs<S, F>(
                 out[start + i] = ColumnGlyph::Ligated(gid);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aterm_core::terminal::{RenderCell, UnderlineStyle};
+
+    /// A plain single-`char` cell (the kind a `=>` operator occupies). All
+    /// rendition flags off so it is shapeable by default.
+    fn cell(ch: char) -> RenderCell {
+        RenderCell {
+            ch,
+            fg: [0, 0, 0],
+            bg: [0, 0, 0],
+            wide: false,
+            emoji_presentation: false,
+            bold: false,
+            italic: false,
+            underline: UnderlineStyle::None,
+            strikethrough: false,
+            overline: false,
+            underline_color: None,
+        }
+    }
+
+    /// ITEM C — the shapeable predicate breaks on an IMAGE-covered cell. An ordinary
+    /// operator cell is shapeable; the SAME cell with `image_covered == true` is not,
+    /// so it can never join a ligature run. (Unit test on the predicate directly: a
+    /// real OSC-1337 image placement in the grid is impractical in a render unit
+    /// test, so we drive the documented `image_covered` argument instead.)
+    #[test]
+    fn image_covered_cell_is_not_shapeable() {
+        let c = cell('=');
+        assert!(
+            cell_is_shapeable(&c, false, false),
+            "a plain operator cell must be shapeable"
+        );
+        assert!(
+            !cell_is_shapeable(&c, false, true),
+            "an image-covered cell must NOT be shapeable (the run breaks on it)"
+        );
+    }
+
+    /// ITEM C — a ligature run must BREAK across an image cell. Row `= > [img] = >`:
+    /// the image cell (column 2) is image-covered, so the two `=>` operators sit on
+    /// OPPOSITE sides of it. With a shaping closure that ligates any 2-char `=>` run,
+    /// each side ligates independently (columns 0..=1 and 3..=4) and the image
+    /// column stays `PerCell` — proving no single run spanned the image cell.
+    #[test]
+    fn ligature_run_breaks_on_image_cell() {
+        let cells = [cell('='), cell('>'), cell('='), cell('='), cell('>')];
+        // image_covers is true only for column 2 (the middle operator-shaped cell).
+        let shapeable: Vec<bool> = (0..cells.len())
+            .map(|c| cell_is_shapeable(&cells[c], false, c == 2))
+            .collect();
+        // Closure ligates any "=>" by emitting a distinctive (non-cmap) gid pair.
+        let shape = |run: &str, chars: &[char], _style: StyleBits| -> Option<Box<[u16]>> {
+            if run == "=>" && chars.len() == 2 {
+                Some(vec![900u16, 901u16].into_boxed_slice())
+            } else {
+                None
+            }
+        };
+        let mut out = Vec::new();
+        plan_row_runs(
+            &cells,
+            cells.len(),
+            &shapeable,
+            |_c| StyleBits::REGULAR,
+            shape,
+            &mut out,
+        );
+        // Columns 0..=1: the first '=>' ligated. Column 2: image cell, PerCell.
+        // Columns 3..=4: the second '=>' ligated. If a run had spanned the image
+        // cell, the planner would have tried to shape "=>==>" (which our closure
+        // declines), leaving EVERYTHING PerCell — the asserts below would fail.
+        assert_eq!(out[0], ColumnGlyph::Ligated(900));
+        assert_eq!(out[1], ColumnGlyph::Ligated(901));
+        assert_eq!(
+            out[2],
+            ColumnGlyph::PerCell,
+            "the image-covered cell must stay per-cell"
+        );
+        assert_eq!(out[3], ColumnGlyph::Ligated(900));
+        assert_eq!(out[4], ColumnGlyph::Ligated(901));
     }
 }

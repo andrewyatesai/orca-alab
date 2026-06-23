@@ -75,6 +75,16 @@ export async function createAtermPaneController(
   // CPU (the default + fallback). GPU init failure already falls back inside
   // loadAtermStrategy, so this never leaves a pane without a renderer.
   const pending = await loadAtermStrategy({ canvas, themeColors, fontPx })
+  if (e2eConfig.exposeStore) {
+    // e2e-only GPU-vs-CPU frame-time benchmark. Self-contained (builds fresh CPU
+    // + GPU engines on throwaway canvases), so it's exposed whenever the aterm
+    // renderer is up — independent of which path THIS pane took — letting the perf
+    // spec time both paths back-to-back at several grid sizes.
+    window.__atermGpuCpuBench = async (sizes, frames) => {
+      const { benchAtermGpuVsCpu } = await import('./aterm-gpu-cpu-bench')
+      return benchAtermGpuVsCpu({ sizes, frames, fontPx, themeColors })
+    }
+  }
   if (pending.kind === 'gpu' && e2eConfig.exposeStore) {
     // e2e proof hooks: the wgpu WebGL adapter string + a GPU==CPU parity probe.
     // The live-canvas pixels are read directly via gl.readPixels in the spec; we

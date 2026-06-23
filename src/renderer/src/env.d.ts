@@ -3,6 +3,7 @@
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { OnboardingFeatureSetupDeps } from '@/components/onboarding/onboarding-feature-setup'
 import type { AtermGpuCpuCompareResult } from '@/lib/pane-manager/aterm/aterm-gpu-cpu-compare'
+import type { AtermGpuCpuBenchResult } from '@/lib/pane-manager/aterm/aterm-gpu-cpu-bench'
 import type { languages } from 'monaco-editor'
 
 declare module 'monaco-editor/esm/vs/basic-languages/python/python.js' {
@@ -42,6 +43,14 @@ declare global {
       rows: number,
       cols: number
     ) => Promise<AtermGpuCpuCompareResult>
+    // e2e only: GPU-vs-CPU per-frame draw-time benchmark. Builds fresh CPU + GPU
+    // engines at each grid, fills dense SGR content, and times N frames per path
+    // (CPU = render+blit, GPU = the full WebGL2 present). Reports steady-state
+    // ms/frame + the GPU atlas warm-up cost separately.
+    __atermGpuCpuBench?: (
+      sizes: [number, number][],
+      frames: number
+    ) => Promise<AtermGpuCpuBenchResult>
     // e2e only: resolves the configured terminal theme bg through the real
     // pipeline (independent of what the renderer painted) for theme assertions.
     __resolveAtermThemeBg?: () => [number, number, number]

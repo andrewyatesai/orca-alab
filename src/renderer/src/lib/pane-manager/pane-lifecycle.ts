@@ -19,6 +19,7 @@ import {
 import { clearPendingSplitScrollRestore } from './pane-split-scroll'
 import { buildDefaultTerminalOptions } from './pane-terminal-options'
 import { activateOrcaTerminalUnicodeProvider } from './pane-terminal-unicode-provider'
+import { attachTerminalMouseWheelMultiplier } from './pane-terminal-mouse-wheel'
 import { attachDomRendererFocusClassSync } from './pane-dom-focus-class-sync'
 import {
   ENABLE_WEBGL_RENDERER,
@@ -125,6 +126,7 @@ export function createPaneDOM(
     container,
     xtermContainer,
     linkTooltip,
+    terminalTuiScrollSensitivity: options.terminalTuiScrollSensitivity,
     terminalGpuAcceleration: options.terminalGpuAcceleration ?? 'auto',
     gpuRenderingEnabled: ENABLE_WEBGL_RENDERER,
     webglAttachmentDeferred: false,
@@ -215,7 +217,15 @@ function loadBufferOnlyAddons(pane: ManagedPaneInternal): void {
  *  and the safe fallback when aterm init fails — so any aterm failure
  *  transparently becomes a normal xterm pane instead of a black pane. */
 export function openXtermRenderer(pane: ManagedPaneInternal): void {
-  const { terminal, xtermContainer, linkTooltip, fitAddon, searchAddon, webLinksAddon } = pane
+  const {
+    terminal,
+    xtermContainer,
+    linkTooltip,
+    terminalTuiScrollSensitivity,
+    fitAddon,
+    searchAddon,
+    webLinksAddon
+  } = pane
 
   // Why: a failed aterm init can leave its DOM shim appended to xtermContainer
   // — the whole `.xterm` wrapper buildAtermInputDom created (wrapper >
@@ -254,6 +264,9 @@ export function openXtermRenderer(pane: ManagedPaneInternal): void {
   // same instance twice, so only load them here when they aren't loaded yet.
   loadBufferOnlyAddons(pane)
   terminal.loadAddon(webLinksAddon)
+  attachTerminalMouseWheelMultiplier(terminal, {
+    getTuiMouseWheelMultiplier: terminalTuiScrollSensitivity
+  })
 
   // Activate Orca's Unicode 11 width shim *before* any caller-driven write. CJK / emoji /
   // ZWJ codepoints get baked into the buffer at the active unicode version on

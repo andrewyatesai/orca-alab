@@ -314,11 +314,15 @@ export function shouldShowRemoteDownloadAction(
   )
 }
 
-export function shouldShowCopyFileAction(connectionId?: string | null, selectionSize = 1): boolean {
-  // Why: the OS file clipboard only holds local files — remote (SSH) files
-  // don't exist on this machine, and the web client has no native clipboard.
+export function shouldShowCopyFileAction(
+  node: TreeNode,
+  connectionId?: string | null,
+  selectionSize = 1
+): boolean {
+  // Why: remote directories would require recursive materialization semantics;
+  // keep this to a single concrete file reference until multi-file copy exists.
   return (
-    !connectionId &&
+    (!connectionId || !node.isDirectory) &&
     selectionSize === 1 &&
     (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ !== true
   )
@@ -357,6 +361,26 @@ export async function downloadRemoteFile(node: TreeNode, connectionId: string): 
         )
       )
     )
+  }
+}
+
+export async function copyFileToOsClipboard(
+  node: TreeNode,
+  connectionId?: string | null
+): Promise<void> {
+  const failureMessage = translate(
+    'auto.components.right.sidebar.FileExplorerRow.b234ab25b4',
+    'Could not copy the file to the clipboard'
+  )
+  try {
+    const result = await window.api.ui.writeClipboardFile(
+      connectionId ? { filePath: node.path, connectionId } : node.path
+    )
+    if (!result.ok) {
+      toast.error(failureMessage)
+    }
+  } catch (error) {
+    toast.error(extractIpcErrorMessage(error, failureMessage))
   }
 }
 
@@ -403,7 +427,7 @@ export function FileExplorerRow({
   const FileIcon = getFileTypeIcon(node.relativePath || node.name)
   const rowDropDir = node.isDirectory ? node.path : targetDir
   const showRemoteDownloadAction = shouldShowRemoteDownloadAction(node, connectionId)
-  const showCopyFileAction = shouldShowCopyFileAction(connectionId, selectionSize)
+  const showCopyFileAction = shouldShowCopyFileAction(node, connectionId, selectionSize)
   const { setRowDragNode, handleDragOver, handleDragEnter, handleDragLeave, handleDrop } =
     useFileExplorerRowDrag({
       rowDropDir,
@@ -432,23 +456,8 @@ export function FileExplorerRow({
     void downloadRemoteFile(node, connectionId)
   }, [connectionId, node])
   const handleCopyFile = useCallback(() => {
-    const failureMessage = translate(
-      'auto.components.right.sidebar.FileExplorerRow.b234ab25b4',
-      'Could not copy the file to the clipboard'
-    )
-    void window.api.ui
-      .writeClipboardFile(node.path)
-      .then((result) => {
-        if (!result.ok) {
-          toast.error(failureMessage)
-        }
-      })
-      // A failure in the main process rejects the IPC promise; surface the same
-      // toast instead of leaving an unhandled rejection with no feedback.
-      .catch(() => {
-        toast.error(failureMessage)
-      })
-  }, [node.path])
+    void copyFileToOsClipboard(node, connectionId)
+  }, [connectionId, node])
 
   return (
     <ContextMenu
@@ -462,9 +471,12 @@ export function FileExplorerRow({
     >
       <ContextMenuTrigger asChild>
         <button
+          data-file-explorer-row=""
+          data-selected={isSelected ? 'true' : undefined}
           className={cn(
-            'flex w-full items-center gap-1 rounded-sm px-2 py-1 text-left text-xs transition-colors hover:bg-accent hover:text-foreground',
-            isSelected && 'bg-accent text-accent-foreground',
+            'flex w-full items-center gap-1 rounded-sm px-2 py-1 text-left text-xs transition-colors',
+            !isSelected && 'hover:bg-accent hover:text-foreground',
+            isSelected && 'text-accent-foreground',
             isFlashing && 'bg-amber-400/20 ring-1 ring-inset ring-amber-400/70'
           )}
           style={{ paddingLeft: `${node.depth * 16 + 8}px` }}

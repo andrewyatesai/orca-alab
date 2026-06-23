@@ -1601,7 +1601,8 @@
         "ff90d0abc7": "{{value0}} からワークスペースを開始",
         "fe28c9821f": "view",
         "8d1e17a3ef": "{{value0}} を GitHub で開く",
-        "4ac8ff2275": "{{value0}} を Jira で開く"
+        "4ac8ff2275": "{{value0}} を Jira で開く",
+        "40eaf2c27c": "Details"
       },
       "Terminal": {
         "73768427cf": "閉じる",
@@ -1845,7 +1846,10 @@
             "22df63c393": "トークンではサブ Issue データを利用できません。",
             "067119985c": "GitHub 検索、例:担当者:@me は:開いています",
             "1850fceac8": "{{value0}}/{{value1}} は Orca に追加されません。これを追加して作業を開始するか、GitHub で開きます。",
-            "1aa7c952b9": "Project view"
+            "1aa7c952b9": "Project view",
+            "f352abf7c3": "Repository list is updating.",
+            "1ce21b8cff": "This item is outside the selected repositories.",
+            "030de75bc5": "This item matches multiple selected repositories."
           },
           "slug": {
             "dialog": {
@@ -2312,7 +2316,7 @@
           "TerminalContextMenu": {
             "b4cdd9314e": "クリアスクリーン",
             "8c17d6786d": "ペインを閉じる",
-            "copyTerminalId": "Copy Terminal ID",
+            "copyTerminalId": "ターミナル ID をコピー",
             "2cf85a6a55": "ペインIDのコピー",
             "39809d152f": "タイトルを設定…",
             "06c2b0f043": "ペインのサイズを均等化する",
@@ -2404,9 +2408,9 @@
                     "a29b9faa01": "ペイン ID がコピーされました",
                     "terminal": {
                       "id": {
-                        "copied": "Terminal ID をコピーしました",
+                        "copied": "ターミナル ID をコピーしました",
                         "copy": {
-                          "failed": "Terminal ID をコピーできません"
+                          "failed": "ターミナル ID をコピーできません"
                         }
                       }
                     }
@@ -3799,7 +3803,8 @@
           "1b0a156717": "Agents"
         },
         "WorktreeCardReviewDetailSection": {
-          "reviewHeader": "{{value0}} #{{value1}}"
+          "reviewHeader": "{{value0}} #{{value1}}",
+          "copyLink": "Copy link"
         },
         "WorktreeCardMeta": {
           "3e65e11cc6": "ワークスペースのメタデータ",
@@ -3826,7 +3831,13 @@
           "checkingAutomationAvailability": "自動化の利用可否を確認中...",
           "automationMissing": "自動化は利用できなくなりました。",
           "automationRunMissing": "実行履歴は利用できなくなりました。",
-          "automationAvailabilityUnavailable": "自動化の利用可否を確認できませんでした。"
+          "automationAvailabilityUnavailable": "自動化の利用可否を確認できませんでした。",
+          "moreIssueActions": "More issue actions",
+          "copyLink": "Copy link",
+          "copyLinkSuccess": "{{value0}} copied",
+          "copyLinkFailure": "Failed to copy link",
+          "issueLinkLabel": "Issue link",
+          "reviewLinkLabel": "{{value0}} link"
         },
         "WorktreeCardMetadataStatusBadges": {
           "fe188062a1": "状態: オープン",
@@ -6240,7 +6251,19 @@
           "ab20575a8a": "オフ",
           "ab3a1f9068": "wsl.exe",
           "ask_before_closing_running_terminals_title": "Ask Before Closing Running Terminals",
-          "ask_before_closing_running_terminals_description": "Show a confirmation before closing a terminal that has a running command or agent."
+          "ask_before_closing_running_terminals_description": "Show a confirmation before closing a terminal that has a running command or agent.",
+          "scrollSpeed": {
+            "title": "スクロール速度",
+            "description": "通常のターミナルスクロールバック、修飾キーでの高速スクロール、全画面 TUI のホイール速度を調整します。",
+            "helper": "ホイール入力の感触をスクロールバックとマウス対応のターミナルアプリで調整します。",
+            "reset": "リセット",
+            "normal": "通常",
+            "normalDescription": "スクロールバックのホイール倍率。",
+            "fast": "高速",
+            "fastDescription": "修飾キーを押しながらスクロールするときの追加倍率。",
+            "tui": "TUI",
+            "tuiDescription": "全画面ターミナルアプリ向けの離散的なホイール通知。"
+          }
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "{{value0}} テーマのプレビュー",
@@ -7876,7 +7899,11 @@
             "0fe0073f0c": "新規ペインとライブ アップデートのデフォルトの terminal フォント サイズ。",
             "5930244899": "フォントサイズ",
             "ask_before_closing_running_terminals_title": "Ask Before Closing Running Terminals",
-            "ask_before_closing_running_terminals_description": "Show a confirmation before closing a terminal that has a running command or agent."
+            "ask_before_closing_running_terminals_description": "Show a confirmation before closing a terminal that has a running command or agent.",
+            "scrollSpeed": {
+              "title": "スクロール速度",
+              "description": "通常のターミナルスクロールバック、修飾キーでの高速スクロール、全画面 TUI のホイール速度を調整します。"
+            }
           },
           "windows": {
             "search": {
@@ -9114,7 +9141,10 @@
             "hideEmptySessions": "Hide empty sessions",
             "workspaceScope": "ワークスペース",
             "worktreeScope": "Worktree",
-            "globalScope": "Global"
+            "globalScope": "Global",
+            "projectScope": "プロジェクト",
+            "currentProjectLower": "現在のプロジェクト",
+            "project": "プロジェクト"
           },
           "AiVaultSessionDetails": {
             "updated": "Updated",
@@ -10146,7 +10176,6 @@
             "3dddb2d565": "connected for tasks",
             "33b650af52": "Connect where your team tracks work. Orca starts workspaces with the issue title, link, and context already attached.",
             "5b3577a492": "connected for review status",
-            "3a1fcdddad": "Two quick steps: connect where your code is reviewed, then where your team plans work.",
             "list_end": ", and ",
             "list_pair": " and ",
             "list_mid": ", ",

@@ -7,6 +7,8 @@ import {
   parseRovoSessionFile
 } from './session-scanner-graph-parsers'
 import { parseKimiSessionFile } from './session-scanner-kimi-parser'
+import { splitOpenCodeSqliteCandidate } from './session-scanner-opencode-sqlite-paths'
+import { parseOpenCodeSqliteSession } from './session-scanner-opencode-sqlite'
 import {
   parseClaudeSessionFile,
   parseCodexSessionFile,
@@ -20,6 +22,15 @@ import {
 } from './session-scanner-secondary-parsers'
 import type { SessionFileCandidate } from './session-scanner-types'
 
+/**
+ * Parse a single agent session file into an `AiVaultSession`. Routes to the
+ * appropriate agent-specific parser based on `candidate.agent`. For OpenCode
+ * SQLite candidates (synthetic `db#id` paths), routes to
+ * `parseOpenCodeSqliteSession` instead of the legacy JSON parser.
+ * @param candidate - The session file candidate to parse.
+ * @param platform - The platform to use for resume command generation.
+ * @returns The parsed `AiVaultSession`, or `null` if parsing fails.
+ */
 export async function parseAgentSessionFile(
   candidate: SessionFileCandidate,
   platform: NodeJS.Platform
@@ -35,8 +46,20 @@ export async function parseAgentSessionFile(
       return parseCopilotSessionFile(candidate.file, platform)
     case 'cursor':
       return parseCursorSessionFile(candidate.file, platform)
-    case 'opencode':
+    case 'opencode': {
+      // Why: OpenCode 1.17.x sessions are read from SQLite via a synthetic
+      // <dbPath>#<sessionId> candidate path. Legacy file-based sessions use
+      // real filesystem paths and fall through to the JSON parser.
+      const sqliteCandidate = splitOpenCodeSqliteCandidate(candidate.file.path)
+      if (sqliteCandidate) {
+        return parseOpenCodeSqliteSession({
+          dbPath: sqliteCandidate.dbPath,
+          sessionId: sqliteCandidate.sessionId,
+          platform
+        })
+      }
       return parseOpenCodeSessionFile(candidate.file, platform)
+    }
     case 'grok':
       return parseGrokSessionFile(candidate.file, platform)
     case 'hermes':

@@ -1601,7 +1601,8 @@
         "ff90d0abc7": "Start workspace from {{value0}}",
         "fe28c9821f": "view",
         "8d1e17a3ef": "Open {{value0}} in GitHub",
-        "4ac8ff2275": "Open {{value0}} in Jira"
+        "4ac8ff2275": "Open {{value0}} in Jira",
+        "40eaf2c27c": "Details"
       },
       "Terminal": {
         "73768427cf": "Close",
@@ -1845,7 +1846,10 @@
             "22df63c393": "Sub-issue data is unavailable for your token.",
             "067119985c": "GitHub search, e.g. assignee:@me is:open",
             "1850fceac8": "{{value0}}/{{value1}} isn't added to Orca. Add it to start work, or open in GitHub.",
-            "1aa7c952b9": "Project view"
+            "1aa7c952b9": "Project view",
+            "f352abf7c3": "Repository list is updating.",
+            "1ce21b8cff": "This item is outside the selected repositories.",
+            "030de75bc5": "This item matches multiple selected repositories."
           },
           "slug": {
             "dialog": {
@@ -3832,6 +3836,7 @@
           "1b0a156717": "Agents"
         },
         "WorktreeCardReviewDetailSection": {
+          "copyLink": "Copy link",
           "reviewHeader": "{{value0}} #{{value1}}"
         },
         "WorktreeCardMeta": {
@@ -3848,6 +3853,12 @@
           "807b13b9ec": "Edit issue",
           "b22f058067": "View on GitHub",
           "e97d8f2876": "Issue #{{value0}}",
+          "moreIssueActions": "More issue actions",
+          "copyLink": "Copy link",
+          "copyLinkSuccess": "{{value0}} copied",
+          "copyLinkFailure": "Failed to copy link",
+          "issueLinkLabel": "Issue link",
+          "reviewLinkLabel": "{{value0}} link",
           "3ea2702e62": "Linked {{value0}} #{{value1}}",
           "b105fd3057": "Linked Linear {{value0}}",
           "3f2649eeb8": "Linked issue #{{value0}}",
@@ -6255,7 +6266,19 @@
           "ab20575a8a": "off",
           "ab3a1f9068": "wsl.exe",
           "ask_before_closing_running_terminals_title": "Ask Before Closing Running Terminals",
-          "ask_before_closing_running_terminals_description": "Show a confirmation before closing a terminal that has a running command or agent."
+          "ask_before_closing_running_terminals_description": "Show a confirmation before closing a terminal that has a running command or agent.",
+          "scrollSpeed": {
+            "title": "Scroll Speed",
+            "description": "Tune normal terminal scrollback, fast modifier scrolling, and full-screen TUI wheel speed.",
+            "helper": "Adjust how wheel input feels in scrollback and in mouse-aware terminal apps.",
+            "reset": "Reset",
+            "normal": "Normal",
+            "normalDescription": "Scrollback wheel multiplier.",
+            "fast": "Fast",
+            "fastDescription": "Extra multiplier while scrolling with a modifier key.",
+            "tui": "TUI",
+            "tuiDescription": "Discrete wheel reports for full-screen terminal apps."
+          }
         },
         "TerminalSettingsPreview": {
           "a63953a48a": "Preview {{value0}} theme",
@@ -7891,7 +7914,11 @@
             "0fe0073f0c": "Default terminal font size for new panes and live updates.",
             "5930244899": "Font Size",
             "ask_before_closing_running_terminals_title": "Ask Before Closing Running Terminals",
-            "ask_before_closing_running_terminals_description": "Show a confirmation before closing a terminal that has a running command or agent."
+            "ask_before_closing_running_terminals_description": "Show a confirmation before closing a terminal that has a running command or agent.",
+            "scrollSpeed": {
+              "title": "Scroll Speed",
+              "description": "Tune normal terminal scrollback, fast modifier scrolling, and full-screen TUI wheel speed."
+            }
           },
           "windows": {
             "search": {
@@ -9114,7 +9141,10 @@
             "hideEmptySessions": "Hide empty sessions",
             "workspaceScope": "Workspace",
             "worktreeScope": "Worktree",
-            "globalScope": "Global"
+            "globalScope": "Global",
+            "projectScope": "Project",
+            "currentProjectLower": "current project",
+            "project": "Project"
           },
           "AiVaultSessionDetails": {
             "originalAsk": "Original ask",
@@ -10146,7 +10176,6 @@
             "3dddb2d565": "connected for tasks",
             "33b650af52": "Connect where your team tracks work. Orca starts workspaces with the issue title, link, and context already attached.",
             "5b3577a492": "connected for review status",
-            "3a1fcdddad": "Two quick steps: connect where your code is reviewed, then where your team plans work.",
             "list_end": ", and ",
             "list_pair": " and ",
             "list_mid": ", ",
@@ -10397,7 +10426,7 @@
           "f786fd54e1": "Inline",
           "ea08dae15b": "Collapse All",
           "19c45cfdc0": "Expand All",
-          "982d14bfa5": "Open Uncommitted Diff",
+          "982d14bfa5": "Open All Changes",
           "3d909843bb": "Open Branch Diff",
           "8368d256ec": "combined-branch",
           "8f68ad9ca9": "Show {{value0}} AI {{value1}}",

@@ -1028,13 +1028,18 @@ export function useIpcEvents(): void {
 
     unsubs.push(
       window.api.repos.onChanged(() => {
+        const state = useAppStore.getState()
         if (isRuntimeEnvironmentActive()) {
-          // Why: this event comes from the local Electron store. While a
-          // runtime server is selected, repo hydration must be driven by the
-          // selected server instead of local-disk changes.
+          // Why: the all-host sidebar includes local repos even when a runtime
+          // is focused, so local store changes must refresh the local slice
+          // without dropping the runtime-owned slices already shown.
+          void (async () => {
+            await state.fetchReposForAllHosts()
+            await state.fetchProjectGroupsForAllHosts()
+            await state.fetchFolderWorkspacesForAllHosts()
+          })()
           return
         }
-        const state = useAppStore.getState()
         void state.fetchProjectGroups()
         void state.fetchFolderWorkspaces()
         void state.fetchRepos()

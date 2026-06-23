@@ -1,0 +1,32 @@
+import type { AtermDrawScheduler } from './aterm-draw-scheduler'
+import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
+import type { AtermThemeColors } from './aterm-theme-colors'
+
+/** What a drawer factory needs to create its engine + draw surface: the grid
+ *  `<canvas>` (already in the DOM), the seed theme colors, and the cell font px
+ *  (device pixels). Shared by the CPU and GPU drawer factories. */
+export type AtermDrawerBuildConfig = {
+  canvas: HTMLCanvasElement
+  themeColors: AtermThemeColors
+  /** Cell font-size in DEVICE pixels (ATERM_RENDERER_FONT_PX * dpr). */
+  fontPx: number
+}
+
+/** The per-frame state a drawer's `drawFrame` reads, supplied AFTER the
+ *  controller has built the search controller + getters (which depend on the
+ *  engine the factory created). Both drawers consume the same binding so the
+ *  controller wires search/dpr/rows once regardless of strategy. */
+export type AtermPainterBinding = {
+  drawScheduler: AtermDrawScheduler
+  searchController: AtermSearchController
+  isDisposed: () => boolean
+  getDpr: () => number
+  getRows: () => number
+  getSearchMatches: () => AtermSearchMatch[]
+  getSearchActiveIndex: () => number
+  /** Whether a search re-index is queued; cleared by the painter once consumed. */
+  takeSearchRefresh: () => boolean
+  /** GPU path only: called when the WebGL2 context is lost so the controller can
+   *  dispose the GPU strategy and swap to CPU. The CPU drawer ignores it. */
+  onContextLoss: () => void
+}

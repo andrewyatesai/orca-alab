@@ -102,11 +102,23 @@ impl GpuContext {
             .await
             .map_err(|e| format!("no GPU adapter available: {e}"))?;
         let info = adapter.get_info();
+        // WebGL2 has no compute + lower texture/buffer ceilings, so `Limits::
+        // default()` is unsatisfiable there (e.g. max_compute_workgroups_per_
+        // dimension default 65535 vs WebGL2's 0) and device request fails. On
+        // wasm32 (the WebGL backend) request the ADAPTER's OWN supported limits:
+        // that's always satisfiable AND keeps the real texture-dimension ceiling
+        // the WebGL2 context reports (the canonical downlevel_webgl2_defaults caps
+        // max_texture_dimension_2d at 2048, which is too small for a Hi-DPI grid
+        // canvas — surface configure then fails). Native keeps the full defaults.
+        #[cfg(target_arch = "wasm32")]
+        let required_limits = adapter.limits();
+        #[cfg(not(target_arch = "wasm32"))]
+        let required_limits = wgpu::Limits::default();
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("aterm-gpu device"),
                 required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_limits,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
                 trace: wgpu::Trace::Off,

@@ -28,7 +28,9 @@
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
-use aterm_core::terminal::Terminal;
+use aterm_core::selection::SmartSelection;
+use aterm_core::selection::{SelectionSide, SelectionType};
+use aterm_core::terminal::{MouseMode, Terminal};
 use aterm_render::{Renderer, Theme};
 
 // GpuContext is used only by the wasm async init path (`init`); on the native
@@ -75,6 +77,10 @@ pub struct AtermGpuTerminal {
     fb_width: usize,
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     fb_height: usize,
+    // Built-in smart-selection rules (url/file_path/email/...) for scroll-correct
+    // link detection via smart_word_at; reused across link_at calls. Mirrors
+    // native/aterm-wasm so the ONE engine per pane serves both draw + state.
+    smart: SmartSelection,
 }
 
 /// The GPU half of the terminal, populated by [`AtermGpuTerminal::init`].
@@ -129,6 +135,7 @@ impl AtermGpuTerminal {
             rgba: Vec::new(),
             fb_width: 0,
             fb_height: 0,
+            smart: SmartSelection::with_builtin_rules(),
         })
     }
 
@@ -179,6 +186,338 @@ impl AtermGpuTerminal {
             None => String::new(),
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Engine-state surface — passthroughs mirroring `native/aterm-wasm`'s
+    // `AtermTerminal`. Why: ONE engine per pane. The host's input handlers
+    // (scroll/selection/search/mouse/link/cursor/focus) call these `term.*`
+    // methods; exposing the SAME surface here lets the GPU drawer reuse the
+    // single engine for both drawing AND state, so bytes are parsed once.
+    // ---------------------------------------------------------------------
+
+    /// Scroll the viewport through scrollback: positive `delta` reveals older
+    /// lines, negative reveals newer. The host redraws afterwards.
+    pub fn scroll_lines(&mut self, delta: i32) {
+        self.term.scroll_display(delta);
+    }
+
+    /// Snap the viewport to the live bottom (latest output).
+    pub fn scroll_to_bottom(&mut self) {
+        self.term.scroll_to_bottom();
+    }
+
+    /// Snap the viewport to the oldest retained scrollback line.
+    pub fn scroll_to_top(&mut self) {
+        self.term.scroll_to_top();
+    }
+
+    /// Lines the viewport is scrolled up from the live bottom (0 = at bottom).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn display_offset(&self) -> usize {
+        self.term.grid().display_offset()
+    }
+
+    /// True when the alternate screen is active (TUIs own their own scrolling),
+    /// so the host should let wheel events pass through to the app.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_alt_screen(&self) -> bool {
+        self.term.is_alternate_screen()
+    }
+
+    /// True when DECCKM (application cursor keys) is set: the host encodes
+    /// arrows/Home/End as SS3 instead of CSI for full-screen apps.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_app_cursor_mode(&self) -> bool {
+        self.term.modes().application_cursor_keys()
+    }
+
+    /// True when a TUI has enabled mouse tracking (DECSET 9/1000/1002/1003).
+    /// The host then ENCODES canvas mouse events to the PTY instead of running
+    /// selection/scroll/link for them (unless Shift = user override).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_mouse_tracking(&self) -> bool {
+        self.term.mouse_tracking_enabled()
+    }
+
+    /// True when the active mouse mode reports MOTION (1002 drag, 1003 any).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn mouse_wants_motion(&self) -> bool {
+        matches!(
+            self.term.mouse_mode(),
+            MouseMode::ButtonEvent | MouseMode::AnyEvent
+        )
+    }
+
+    /// True for AnyEvent (1003): report motion even with NO button pressed.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn mouse_wants_any_motion(&self) -> bool {
+        matches!(self.term.mouse_mode(), MouseMode::AnyEvent)
+    }
+
+    /// True when DECSET 1004 (focus reporting) is active: the host sends CSI I
+    /// on focus-in and CSI O on focus-out so apps track terminal focus.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_focus_event_mode(&self) -> bool {
+        self.term.focus_reporting_enabled()
+    }
+
+    /// Active DECSCUSR cursor style as the discriminant of `aterm_core`'s
+    /// `CursorStyle`. The GPU renderer paints the shape from the grid; this
+    /// getter exists for host introspection/tests, mirroring aterm-wasm.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn cursor_style(&self) -> u8 {
+        self.term.cursor_style() as u8
+    }
+
+    /// Encode a mouse-button PRESS at 0-based cell `col`/`row` for the active
+    /// mouse mode+encoding (`None` when tracking is off). See aterm-wasm.
+    pub fn encode_mouse_press(&self, col: u16, row: u16, button: u8, mods: u8) -> Option<Vec<u8>> {
+        self.term.encode_mouse_press(button, col, row, mods)
+    }
+
+    /// Encode a mouse-button RELEASE; `None` in X10 press-only mode.
+    pub fn encode_mouse_release(
+        &self,
+        col: u16,
+        row: u16,
+        button: u8,
+        mods: u8,
+    ) -> Option<Vec<u8>> {
+        self.term.encode_mouse_release(button, col, row, mods)
+    }
+
+    /// Encode mouse MOTION at `col`/`row`; `button` is the held button (3=none).
+    pub fn encode_mouse_motion(&self, col: u16, row: u16, button: u8, mods: u8) -> Option<Vec<u8>> {
+        self.term.encode_mouse_motion(button, col, row, mods)
+    }
+
+    /// Encode a mouse WHEEL tick at `col`/`row` (`up` = wheel-up); `None` in X10.
+    pub fn encode_mouse_wheel(&self, col: u16, row: u16, up: bool, mods: u8) -> Option<Vec<u8>> {
+        self.term.encode_mouse_wheel(up, col, row, mods)
+    }
+
+    /// Begin a character selection at display `row`/`col` (clears any prior one).
+    pub fn selection_start(&mut self, row: i32, col: u16) {
+        self.term
+            .text_selection_mut()
+            .start_selection(row, col, SelectionSide::Left, SelectionType::Simple);
+    }
+
+    /// Move the selection endpoint to `row`/`col` (during a drag).
+    pub fn selection_extend(&mut self, row: i32, col: u16) {
+        self.term
+            .text_selection_mut()
+            .update_selection(row, col, SelectionSide::Right);
+    }
+
+    /// Finalize the selection (mouse released).
+    pub fn selection_finish(&mut self) {
+        self.term.text_selection_mut().complete_selection();
+    }
+
+    /// Drop the current selection so the highlight clears on the next render.
+    pub fn selection_clear(&mut self) {
+        self.term.text_selection_mut().clear();
+    }
+
+    /// The selected text, if any (`None` when the selection is empty).
+    pub fn selection_text(&self) -> Option<String> {
+        self.term.selection_to_string()
+    }
+
+    /// Detect a link under display `row`/`col`. Prefers an OSC-8 hyperlink, then
+    /// falls back to smart-selection rules (url/file_path). `None` for plain
+    /// words. `kind`: 0=osc8, 1=url, 2=file_path, 3=other. See aterm-wasm.
+    pub fn link_at(&self, row: u16, col: u16) -> Option<LinkHit> {
+        // OSC-8 lookups are NOT display_offset-aware, so only consult
+        // hyperlink_at when the viewport isn't scrolled.
+        if self.term.grid().display_offset() == 0 {
+            if let Some(url) = self.term.hyperlink_at(row, col) {
+                let url = url.to_string();
+                let (s, e) = self.osc8_span(row, col);
+                return Some(LinkHit {
+                    url,
+                    start_col: s,
+                    end_col: e,
+                    kind: 0,
+                });
+            }
+        }
+
+        // Smart-selection fallback is scroll-correct on any scrollback row.
+        let (sc, ec) = self
+            .term
+            .smart_word_at(row as usize, col as usize, &self.smart)?;
+        let text = self.term.display_row_text(row as usize)?;
+        let matched = slice_by_columns(&text, sc, ec);
+        let kind = classify(&matched);
+        if kind == 3 {
+            return None;
+        }
+        Some(LinkHit {
+            url: matched,
+            start_col: sc as u16,
+            end_col: ec as u16,
+            kind,
+        })
+    }
+
+    /// Scroll-correct text of a display `row` (display_offset-aware), for a TS
+    /// fallback that re-runs link matching in JS.
+    pub fn row_text(&self, row: u16) -> Option<String> {
+        self.term.display_row_text(row as usize)
+    }
+
+    /// Search the full retained buffer for `query`, returning matches as a flat
+    /// `[abs_line, start_col, len]` triplet array. Empty query / regex error →
+    /// empty array. See aterm-wasm for the coordinate contract.
+    pub fn search(&mut self, query: &str, case_sensitive: bool) -> Vec<u32> {
+        if query.is_empty() {
+            return Vec::new();
+        }
+        let Ok(results) =
+            self.term
+                .indexed_search()
+                .search_results_opts(query, case_sensitive, false)
+        else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(results.matches.len() * 3);
+        for m in &results.matches {
+            out.push(u32::try_from(m.line).unwrap_or(u32::MAX));
+            out.push(u32::try_from(m.start_col).unwrap_or(u32::MAX));
+            out.push(u32::try_from(m.len()).unwrap_or(u32::MAX));
+        }
+        out
+    }
+
+    /// Absolute row of display row 0 at the live bottom. A match at absolute
+    /// `line` is at display row `line - origin + display_offset`.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn search_display_origin(&self) -> u32 {
+        let grid = self.term.grid();
+        let origin = grid
+            .oldest_absolute_row()
+            .saturating_add(grid.scrollback_lines() as u64);
+        u32::try_from(origin).unwrap_or(u32::MAX)
+    }
+
+    /// Scroll the viewport so the match at absolute `line` is visible (top row),
+    /// clamped to the retained scrollback. Host redraws after.
+    pub fn scroll_search_line_into_view(&mut self, line: u32) {
+        let grid = self.term.grid();
+        let origin = grid
+            .oldest_absolute_row()
+            .saturating_add(grid.scrollback_lines() as u64);
+        let scrollback = grid.scrollback_lines();
+        let current = grid.display_offset();
+        let want = origin.saturating_sub(u64::from(line));
+        let want = (want as usize).min(scrollback);
+        let delta = want as i64 - current as i64;
+        if let Ok(delta) = i32::try_from(delta) {
+            self.term.scroll_display(delta);
+        }
+    }
+}
+
+impl AtermGpuTerminal {
+    /// Expand an OSC-8 hyperlink to the span of contiguous cells sharing its
+    /// link. Cells group by `id=` when present, else by URL. Returns
+    /// `[start_col, end_col_exclusive)`. Only valid at display_offset 0.
+    fn osc8_span(&self, row: u16, col: u16) -> (u16, u16) {
+        let same = |c: u16| -> bool {
+            let id_here = self.term.hyperlink_id_at(row, col);
+            let id_there = self.term.hyperlink_id_at(row, c);
+            if id_here.is_some() && id_there.is_some() {
+                id_here == id_there
+            } else {
+                self.term.hyperlink_at(row, c) == self.term.hyperlink_at(row, col)
+            }
+        };
+
+        let mut start = col;
+        while start > 0 && same(start - 1) {
+            start -= 1;
+        }
+
+        let cols = self.cols as u16;
+        let mut end = col + 1;
+        while end < cols && same(end) {
+            end += 1;
+        }
+
+        (start, end)
+    }
+}
+
+/// A detected link under a cell: its text/URL, the half-open display-column span
+/// it covers, and a `kind` discriminant (0=osc8, 1=url, 2=file_path, 3=other).
+/// Mirrors `native/aterm-wasm`'s `LinkHit` so the host link input is unchanged.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub struct LinkHit {
+    url: String,
+    start_col: u16,
+    end_col: u16,
+    kind: u8,
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl LinkHit {
+    /// The link's URL/target text.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn url(&self) -> String {
+        self.url.clone()
+    }
+
+    /// Inclusive start display column of the link span.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn start_col(&self) -> u16 {
+        self.start_col
+    }
+
+    /// Exclusive end display column of the link span.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn end_col(&self) -> u16 {
+        self.end_col
+    }
+
+    /// Link kind: 0=osc8, 1=url, 2=file_path, 3=other.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn kind(&self) -> u8 {
+        self.kind
+    }
+}
+
+/// Slice `text` to the half-open display-column range `[start_col, end_col)`.
+/// Approximates display width as 1 per char — correct for the ASCII URLs/paths
+/// that dominate link detection (mirrors native/aterm-wasm).
+fn slice_by_columns(text: &str, start_col: usize, end_col: usize) -> String {
+    text.chars()
+        .skip(start_col)
+        .take(end_col.saturating_sub(start_col))
+        .collect()
+}
+
+/// Classify a matched span: 1=url, 2=file_path, else 3=other (plain word).
+fn classify(s: &str) -> u8 {
+    let lower = s.to_ascii_lowercase();
+    if lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("ftp://")
+        || lower.starts_with("file://")
+        || lower.starts_with("www.")
+    {
+        return 1;
+    }
+    if s.starts_with('/')
+        || s.starts_with("./")
+        || s.starts_with("../")
+        || s.starts_with("~/")
+        || (s.contains('/') && !s.contains("://"))
+    {
+        return 2;
+    }
+    3
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +526,26 @@ impl AtermGpuTerminal {
 // target). On native this whole block is absent; native callers drive
 // aterm-gpu directly via its synchronous `GpuRenderer::new` + window surface.
 // ---------------------------------------------------------------------------
+/// An empty `RawDisplayHandle::Web` provider. wgpu 29 requires the instance to
+/// carry a display handle before `create_surface()`, but the WebGL backend reads
+/// the canvas from the WINDOW handle and ignores the display — so this ZST marker
+/// only exists to satisfy wgpu-core's display-handle gate on the canvas path.
+#[cfg(target_arch = "wasm32")]
+#[derive(Debug)]
+struct WebDisplay;
+
+#[cfg(target_arch = "wasm32")]
+impl wgpu::rwh::HasDisplayHandle for WebDisplay {
+    fn display_handle(
+        &self,
+    ) -> Result<wgpu::rwh::DisplayHandle<'_>, wgpu::rwh::HandleError> {
+        let raw = wgpu::rwh::RawDisplayHandle::Web(wgpu::rwh::WebDisplayHandle::new());
+        // SAFETY: the Web display handle is an empty marker (no borrowed data),
+        // so a 'static borrow is sound — there is nothing for it to outlive.
+        Ok(unsafe { wgpu::rwh::DisplayHandle::borrow_raw(raw) })
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 impl AtermGpuTerminal {
@@ -214,10 +573,20 @@ impl AtermGpuTerminal {
         // The browser WebGL2 backend. GL is the only backend compiled into the
         // wasm closure (default-features = false + features=["webgl"]); wgpu maps
         // `Backends::GL` to the canvas WebGL2 context on wasm32.
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::GL,
-            ..wgpu::InstanceDescriptor::new_without_display_handle()
-        });
+        //
+        // wgpu 29 gates `create_surface()` on the instance carrying SOME display
+        // handle (wgpu-core returns MissingDisplayHandle for (None, None) — the
+        // safe `SurfaceTarget::Canvas` path passes no display handle). The WebGL
+        // backend reads the canvas from the WINDOW handle and ignores the display,
+        // so we attach an empty `RawDisplayHandle::Web` marker purely to satisfy
+        // that gate. Without it, canvas surface creation fails headless.
+        let instance = wgpu::Instance::new(
+            wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::GL,
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            }
+            .with_display_handle(Box::new(WebDisplay)),
+        );
 
         // The WebGL backend (unlike WebGPU) can only acquire an adapter from a
         // surface — the GL context lives ON the <canvas>. So create the surface

@@ -1,0 +1,25 @@
+import init, { AtermGpuTerminal } from './aterm_gpu_web.js'
+import wasmUrl from './aterm_gpu_web_bg.wasm?url'
+import fontUrl from '@renderer/assets/fonts/jetbrains-mono.ttf?url'
+
+export type LoadedAtermGpu = {
+  AtermGpuTerminal: typeof AtermGpuTerminal
+  fontBytes: Uint8Array
+}
+
+// Why: the GPU wasm module and the font are immutable, shared assets; load them
+// once and hand the same result to every pane that opens the aterm GPU path.
+// Mirrors load-aterm.ts (the CPU path) — same font bytes, same ?url wasm asset,
+// so both engines size cells identically and a GPU↔CPU fallback is seamless.
+let loadPromise: Promise<LoadedAtermGpu> | null = null
+
+async function loadAtermGpuOnce(): Promise<LoadedAtermGpu> {
+  const [, fontResponse] = await Promise.all([init(wasmUrl), fetch(fontUrl)])
+  const fontBytes = new Uint8Array(await fontResponse.arrayBuffer())
+  return { AtermGpuTerminal, fontBytes }
+}
+
+export async function loadAtermGpu(): Promise<LoadedAtermGpu> {
+  loadPromise ??= loadAtermGpuOnce()
+  return loadPromise
+}

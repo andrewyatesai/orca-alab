@@ -2,6 +2,7 @@
 
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { OnboardingFeatureSetupDeps } from '@/components/onboarding/onboarding-feature-setup'
+import type { AtermGpuCpuCompareResult } from '@/lib/pane-manager/aterm/aterm-gpu-cpu-compare'
 import type { languages } from 'monaco-editor'
 
 declare module 'monaco-editor/esm/vs/basic-languages/python/python.js' {
@@ -24,6 +25,23 @@ declare global {
     // e2e override to force the aterm renderer OFF (existing suite asserts via
     // the xterm DOM). __atermRendererEnabled (explicit ON) takes precedence.
     __atermRendererDisabled?: boolean
+    // e2e/dev opt-in for the EXPERIMENTAL aterm WebGL2 GPU draw path (default OFF;
+    // CPU stays the default + fallback). Only takes effect when a webgl2 context
+    // is creatable (see aterm-gpu-probe).
+    __atermGpuEnabled?: boolean
+    // e2e only: the WebGL adapter/backend string the GPU drawer acquired.
+    __atermGpuAdapterInfo?: string
+    // e2e only: why the GPU draw path fell back to CPU (init/surface/adapter
+    // failure message), so the WebGL spec can report the cause explicitly.
+    __atermGpuFailureReason?: string
+    // e2e only: build a fresh CPU + GPU engine at a given grid, feed the same
+    // bytes, render both offscreen, and return the per-channel max diff — the
+    // browser GPU==CPU parity proof. Resolves available:false if WebGL is absent.
+    __atermGpuVsCpuCompare?: (
+      bytesAsLatin1: string,
+      rows: number,
+      cols: number
+    ) => Promise<AtermGpuCpuCompareResult>
     // e2e only: resolves the configured terminal theme bg through the real
     // pipeline (independent of what the renderer painted) for theme assertions.
     __resolveAtermThemeBg?: () => [number, number, number]

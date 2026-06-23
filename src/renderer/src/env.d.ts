@@ -24,6 +24,9 @@ declare global {
     // e2e override to force the aterm renderer OFF (existing suite asserts via
     // the xterm DOM). __atermRendererEnabled (explicit ON) takes precedence.
     __atermRendererDisabled?: boolean
+    // e2e only: resolves the configured terminal theme bg through the real
+    // pipeline (independent of what the renderer painted) for theme assertions.
+    __resolveAtermThemeBg?: () => [number, number, number]
   }
 }
 

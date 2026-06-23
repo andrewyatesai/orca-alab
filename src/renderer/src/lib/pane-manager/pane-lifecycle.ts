@@ -219,16 +219,24 @@ export function openXtermRenderer(pane: ManagedPaneInternal): void {
 
   // Why: a failed aterm init can leave its DOM shim appended to xtermContainer
   // — the whole `.xterm` wrapper buildAtermInputDom created (wrapper >
-  // .xterm-screen > canvas + .xterm-helpers), added before the async wasm load
-  // that rejected. Remove that ENTIRE wrapper (identified as the `.xterm`
-  // ancestor of the aterm canvas) so terminal.open() builds a clean xterm pane;
-  // removing only the canvas would strand the shim's wrapper/screen/helpers.
+  // .xterm-screen > canvas + .xterm-helpers > textarea), added before the async
+  // wasm load that rejected. Remove the ENTIRE aterm-built subtree so
+  // terminal.open() builds a clean xterm pane and no orphan textarea/screen/
+  // helpers are stranded. Prefer the `.xterm` wrapper, fall back to the
+  // `.xterm-screen` (which still parents the helpers+textarea), and only as a
+  // last resort drop the bare canvas — but then also sweep any sibling helpers.
   for (const canvas of xtermContainer.querySelectorAll('[data-testid="aterm-canvas"]')) {
     const atermWrapper = canvas.closest('.xterm')
-    if (atermWrapper && atermWrapper.parentElement === xtermContainer) {
+    const atermScreen = canvas.closest('.xterm-screen')
+    if (atermWrapper && xtermContainer.contains(atermWrapper)) {
       atermWrapper.remove()
+    } else if (atermScreen && xtermContainer.contains(atermScreen)) {
+      // No wrapper, but the screen still parents canvas + helpers + textarea.
+      atermScreen.remove()
     } else {
-      // No shim wrapper (older shape / partial build): drop the bare canvas.
+      // Bare canvas (no wrapper/screen): drop it AND any sibling helpers so the
+      // shim's textarea can't survive as an orphan in the open container.
+      canvas.parentElement?.querySelectorAll('.xterm-helpers').forEach((el) => el.remove())
       canvas.remove()
     }
   }

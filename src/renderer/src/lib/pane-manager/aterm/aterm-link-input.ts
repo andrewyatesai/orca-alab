@@ -63,6 +63,8 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
   let lastCol = -1
   let lastRow = -1
   let pendingEvent: MouseEvent | null = null
+  // Tracked so dispose() can cancel a pending hover frame (cleared when it fires).
+  let hoverRafId: number | null = null
 
   const clearCursor = (): void => {
     canvas.style.cursor = ''
@@ -72,6 +74,7 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
   // pointer is still on the same cell (mousemove fires per pixel).
   const evaluateHover = (): void => {
     moveScheduled = false
+    hoverRafId = null
     const event = pendingEvent
     pendingEvent = null
     if (!event || isDisposed()) {
@@ -102,7 +105,7 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
       return
     }
     moveScheduled = true
-    requestAnimationFrame(evaluateHover)
+    hoverRafId = requestAnimationFrame(evaluateHover)
   }
 
   const onClick = (event: MouseEvent): void => {
@@ -139,6 +142,11 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
 
   return {
     dispose: () => {
+      // Cancel a queued hover frame so evaluateHover can't run after teardown.
+      if (hoverRafId !== null) {
+        cancelAnimationFrame(hoverRafId)
+        hoverRafId = null
+      }
       canvas.removeEventListener('mousemove', onMouseMove)
       canvas.removeEventListener('click', onClick)
       clearCursor()

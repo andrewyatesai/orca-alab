@@ -27,7 +27,11 @@ export function openAtermPane(
     pane.xtermContainer,
     (data) => pane.terminal.input(data),
     (cols, rows) => pane.terminal.resize(cols, rows),
-    linkContext
+    linkContext,
+    // Read macOptionIsMeta live off the (headless) xterm Terminal — the same
+    // option applyTerminalAppearance keeps in sync — so the aterm encoder honors
+    // a settings toggle without recreating the pane.
+    { getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true }
   )
     .then((controller) => {
       // If the pane was torn down while wasm/font loaded, drop the controller.

@@ -15,6 +15,26 @@ export type AtermSearchOverlayGeometry = {
   rows: number
 }
 
+/** Device-pixel rect of one match's highlight band using the SAME absolute-row →
+ *  display-row mapping paintAtermSearchHighlights uses, or null when the match is
+ *  scrolled off-screen. Lets callers locate the painted highlight (e.g. tests). */
+export function atermSearchMatchRect(
+  match: AtermSearchMatch,
+  geometry: AtermSearchOverlayGeometry
+): { x: number; y: number; width: number; height: number } | null {
+  const { term, cellWidth, cellHeight, rows } = geometry
+  const displayRow = match.line - term.search_display_origin + term.display_offset
+  if (displayRow < 0 || displayRow >= rows) {
+    return null
+  }
+  return {
+    x: match.startCol * cellWidth,
+    y: displayRow * cellHeight,
+    width: match.length * cellWidth,
+    height: cellHeight
+  }
+}
+
 /** Paint a translucent rect over each visible search match. Called AFTER the
  *  glyph framebuffer is blitted so the text reads through the highlight; the
  *  active match gets a stronger tone. Absolute match lines map to display rows

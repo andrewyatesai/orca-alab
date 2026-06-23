@@ -9,7 +9,8 @@ import {
   type AtermSearchController,
   type AtermSearchMatch
 } from './aterm-search'
-import { paintAtermSearchHighlights } from './aterm-search-overlay'
+import { paintAtermSearchHighlights, atermSearchMatchRect } from './aterm-search-overlay'
+import { createAtermDrawScheduler } from './aterm-draw-scheduler'
 import { buildAtermInputDom } from './aterm-input-dom'
 import { createAtermUrlOpener, type AtermLinkContext } from './aterm-url-link-routing'
 import { e2eConfig } from '@/lib/e2e-config'
@@ -47,6 +48,11 @@ export type AtermPaneController = {
   searchMatchCount: () => number
   /** 1-based active match index, or 0 when there are no matches. */
   searchActiveMatchIndex: () => number
+  /** Device-pixel rect of the active match's highlight on the canvas (the exact
+   *  cell band the overlay paints), or null when there is no on-screen active
+   *  match. Mirrors paintAtermSearchHighlights' mapping; used to verify the
+   *  highlight lands on the match cells. */
+  searchActiveMatchRect: () => { x: number; y: number; width: number; height: number } | null
   /** Late-bind the file-path link opener (kind 2). The lifecycle layer supplies a
    *  closure that resolves the raw path against the pane's cwd/runtime and opens
    *  it; until set, kind-2 clicks are a no-op (cursor still shows pointer). */
@@ -81,11 +87,20 @@ function computeGrid(
   return { cols, rows }
 }
 
+/** Optional renderer settings the controller reads live (per-press / per-frame)
+ *  so a settings change takes effect without recreating the pane. */
+export type AtermPaneControllerOptions = {
+  /** Latest macOptionIsMeta (xterm's option of the same name); controls whether
+   *  macOS Option meta-prefixes or composes a glyph. Defaults to false. */
+  getMacOptionIsMeta?: () => boolean
+}
+
 export async function createAtermPaneController(
   container: HTMLElement,
   onInput: AtermPaneInputSink,
   onResize: AtermPaneResizeSink,
-  linkContext?: AtermLinkContext
+  linkContext?: AtermLinkContext,
+  controllerOptions?: AtermPaneControllerOptions
 ): Promise<AtermPaneController> {
   const canvas = document.createElement('canvas')
   canvas.dataset.testid = 'aterm-canvas' // e2e locator for the aterm-rendered pane
@@ -136,7 +151,10 @@ export async function createAtermPaneController(
   const inputSink = onInput
   const resizeSink = onResize
   let disposed = false
-  let drawScheduled = false
+  // Coalesces search re-index to one run per draw frame: each PTY chunk only sets
+  // this flag; the actual refresh happens once in draw() (see M2 — avoids an
+  // O(buffer) rebuild per chunk under heavy output).
+  let searchRefreshPending = false
   const initialGrid = computeGrid(container, dpr, cellWidth, cellHeight)
   term.resize(initialGrid.rows, initialGrid.cols)
   let cols = initialGrid.cols
@@ -148,10 +166,19 @@ export async function createAtermPaneController(
   let searchActiveIndex = -1
 
   const draw = (): void => {
-    if (disposed || !drawScheduled || !ctx) {
+    if (disposed || !drawScheduler.isScheduled() || !ctx) {
       return
     }
-    drawScheduled = false
+    // Consume the scheduled frame (clears the rAF/timer race's losing backstop).
+    drawScheduler.consume()
+    // Re-index the active search at most once per frame (coalesced from N PTY
+    // chunks) so highlights track current content without a per-chunk rebuild.
+    if (searchRefreshPending) {
+      searchRefreshPending = false
+      if (searchController.hasActiveQuery()) {
+        searchController.refresh()
+      }
+    }
     term.render()
     const width = term.width
     const height = term.height
@@ -170,15 +197,14 @@ export async function createAtermPaneController(
     })
   }
 
+  // Leak-safe frame scheduler (single rAF + backstop timer, both cancelled on
+  // dispose). Owns the drawScheduled/timeout bookkeeping; see M4.
+  const drawScheduler = createAtermDrawScheduler(draw)
   const scheduleDraw = (): void => {
-    if (drawScheduled || disposed) {
+    if (disposed) {
       return
     }
-    drawScheduled = true
-    requestAnimationFrame(draw)
-    // rAF is paused for hidden/occluded windows; a timer guarantees the draw
-    // still lands (background panes, headless e2e). `draw` is idempotent.
-    setTimeout(draw, 33)
+    drawScheduler.schedule()
   }
 
   const process = (data: string): void => {
@@ -194,10 +220,11 @@ export async function createAtermPaneController(
       term.scroll_to_bottom()
     }
     // New output changed buffer content but search matches are stored as absolute
-    // rows; re-run the active query so highlights track current content instead
-    // of stranding on stale cells (the wasm search is indexed/cheap).
+    // rows; mark the active query for re-index. The refresh itself is coalesced
+    // into the draw frame (M2) so heavy output doesn't trigger an O(buffer)
+    // rebuild per PTY chunk — only one re-index per painted frame.
     if (searchController.hasActiveQuery()) {
-      searchController.refresh()
+      searchRefreshPending = true
     }
     scheduleDraw()
   }
@@ -303,7 +330,8 @@ export async function createAtermPaneController(
     textarea,
     term,
     inputSink,
-    copySelection: () => selectionInput.copySelection()
+    copySelection: () => selectionInput.copySelection(),
+    getMacOptionIsMeta: controllerOptions?.getMacOptionIsMeta
   })
 
   // Click anywhere on the canvas starts selection (canvas mousedown) AND lands
@@ -343,6 +371,18 @@ export async function createAtermPaneController(
     clearSearch: () => searchController.clear(),
     searchMatchCount: () => searchController.count(),
     searchActiveMatchIndex: () => searchController.activeIndex(),
+    searchActiveMatchRect: () => {
+      if (searchActiveIndex < 0 || searchActiveIndex >= searchMatches.length) {
+        return null
+      }
+      // Delegate to the overlay's mapping so the rect matches the painted band.
+      return atermSearchMatchRect(searchMatches[searchActiveIndex], {
+        term,
+        cellWidth,
+        cellHeight,
+        rows
+      })
+    },
     setFileLinkOpener: (fn: AtermFileLinkOpener) => {
       fileLinkOpener = fn
     },
@@ -354,6 +394,8 @@ export async function createAtermPaneController(
         return
       }
       disposed = true
+      // Cancel any pending draw rAF/backstop so it can't fire after teardown.
+      drawScheduler.dispose()
       resizeObserver.disconnect()
       textareaInput.dispose()
       canvas.removeEventListener('pointerdown', onPointerDown)

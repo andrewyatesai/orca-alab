@@ -6,6 +6,7 @@ import {
   resolveEffectiveTerminalAppearance
 } from '@/lib/terminal-theme'
 import { composeActiveTerminalTheme } from '@/components/terminal-pane/terminal-appearance'
+import { e2eConfig } from '@/lib/e2e-config'
 
 /** 0x00RRGGBB color seeds for the aterm renderer's DEFAULT theme (fg/bg/cursor/
  *  selection-highlight). Per-cell SGR colors flow through the grid separately. */
@@ -85,5 +86,19 @@ export function resolveAtermThemeColors(): AtermThemeColors {
     bg: pick(theme.background, DEFAULT_COLORS.bg),
     cursor: pick(theme.cursor, DEFAULT_COLORS.cursor),
     selection: pick(theme.selectionBackground, DEFAULT_COLORS.selection)
+  }
+}
+
+// E2E only: expose the configured theme bg resolved through the SAME pipeline the
+// renderer seeds from (resolveEffectiveTerminalAppearance → composeActiveTerminalTheme,
+// read from the store). The phase1 test compares the painted canvas pixel against
+// THIS — an independent resolution — so a renderer that paints a non-theme bg
+// fails, instead of comparing against a value the renderer echoed onto itself.
+if (e2eConfig.exposeStore && typeof window !== 'undefined') {
+  ;(
+    window as unknown as { __resolveAtermThemeBg?: () => [number, number, number] }
+  ).__resolveAtermThemeBg = () => {
+    const { bg } = resolveAtermThemeColors()
+    return [(bg >> 16) & 0xff, (bg >> 8) & 0xff, bg & 0xff]
   }
 }

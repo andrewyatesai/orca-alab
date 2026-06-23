@@ -11,9 +11,15 @@
 
 /** Per-press encoder options. `appCursor` reflects DECCKM (the engine's
  *  `is_app_cursor_mode`): when set, arrows + Home/End use the SS3 (ESC O) form
- *  full-screen apps (vi, less, readline) expect instead of the CSI (ESC [) form. */
+ *  full-screen apps (vi, less, readline) expect instead of the CSI (ESC [) form.
+ *  `isMac` selects macOS Option semantics; `macOptionIsMeta` mirrors xterm's
+ *  option of the same name — only when true does macOS Option act as Meta
+ *  (ESC-prefix), otherwise the OS composes the glyph and we defer to the input
+ *  event. On non-Mac these are ignored (Alt always meta-prefixes). */
 export type AtermKeyEncodingOptions = {
   appCursor?: boolean
+  isMac?: boolean
+  macOptionIsMeta?: boolean
 }
 
 // Named keys → fixed escape sequences. Function keys use the standard xterm
@@ -83,6 +89,16 @@ export function encodeKeyEventToBytes(
 ): string | null {
   const { key } = event
   const appCursor = options.appCursor === true
+  const isMac = options.isMac === true
+  const macOptionIsMeta = options.macOptionIsMeta === true
+
+  // Cmd (metaKey) chords are app shortcuts (copy/paste/tab nav), NOT terminal
+  // input: never encode them. The controller checks its copy-chord first, so a
+  // handled Cmd+C never reaches here; everything else returns null so the app
+  // owns it. (On macOS Option is altKey, not metaKey — see the Alt branch.)
+  if (event.metaKey) {
+    return null
+  }
 
   // Alt+Ctrl+<key> → ESC + control byte (meta-prefixed control), matching xterm.
   // Checked before the plain Ctrl branch (which excludes Alt) so the chord isn't
@@ -115,8 +131,15 @@ export function encodeKeyEventToBytes(
     return named
   }
 
-  // Alt/Option+<printable> → ESC prefix (meta), the conventional terminal form.
-  if (event.altKey && !event.ctrlKey && !event.metaKey && key.length === 1) {
+  // Alt/Option+<printable> → ESC prefix (meta). On non-Mac this is the standard
+  // bash Alt-chord form. On macOS Option only acts as Meta when macOptionIsMeta
+  // is on; with it OFF (the default) the OS composes the glyph ('å' for Option+a)
+  // and we return null so the textarea 'input' event delivers that character
+  // instead of ESC-prefixing it — never preventDefault'd in keydown.
+  if (event.altKey && !event.ctrlKey && key.length === 1) {
+    if (isMac && !macOptionIsMeta) {
+      return null
+    }
     return `\x1b${key}`
   }
 

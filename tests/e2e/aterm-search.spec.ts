@@ -23,6 +23,7 @@ type AtermSearchControllerProbe = {
   clearSearch: () => void
   searchMatchCount: () => number
   searchActiveMatchIndex: () => number
+  searchActiveMatchRect: () => { x: number; y: number; width: number; height: number } | null
 }
 
 function findActiveController(): AtermSearchControllerProbe {
@@ -97,9 +98,12 @@ test.describe('aterm in-terminal search', () => {
     ).toBeGreaterThan(0)
     expect(result.missCount, 'a case-sensitive miss finds nothing').toBe(0)
 
-    // Re-run the search, snapshot the canvas, then assert the highlight overlay
-    // changed pixels AND that the change is CONCENTRATED in the match region (a
-    // single highlighted row band), not scattered noise across the whole canvas.
+    // Prove the highlight paints SPECIFICALLY on the active match cells (not just
+    // "some pixels changed"): (1) capture the un-highlighted baseline, (2) find →
+    // paint the overlay, (3) assert the changed pixels fall INSIDE the active
+    // match's reported cell rect, and essentially none change outside it, then
+    // (4) clear the search and assert the previously-changed pixels REVERT to the
+    // baseline — i.e. the overlay reverts exactly the match region.
     const highlight = await orcaPage.evaluate(async (findSrc: string) => {
       // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
       const find = new Function(`return (${findSrc})()`) as () => AtermSearchControllerProbe
@@ -111,54 +115,88 @@ test.describe('aterm in-terminal search', () => {
       }
       const raf = (): Promise<void> =>
         new Promise((resolve) => requestAnimationFrame(() => resolve()))
+      const snapshot = (): Uint8ClampedArray =>
+        ctx.getImageData(0, 0, c.width, c.height).data.slice()
+      const rgbDiffers = (
+        a: Uint8ClampedArray,
+        b: Uint8ClampedArray,
+        i: number
+      ): boolean => a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]
+
       // Clear highlights and let a frame paint to get the un-highlighted baseline.
       ctrl.clearSearch()
       await raf()
       await raf()
-      const before = ctx.getImageData(0, 0, c.width, c.height).data.slice()
+      const before = snapshot()
       // Find again (paints the highlight overlay) and let a frame land.
       ctrl.findMatches('ZZUNIQUESEARCHTOKENZZ', true)
       await raf()
       await raf()
-      const after = ctx.getImageData(0, 0, c.width, c.height).data
-      // Track changed-pixel count + the vertical band the changes fall in.
-      let changed = 0
-      let minY = c.height
-      let maxY = -1
+      const after = snapshot()
+      // The reported device-pixel rect of the active match's highlight band.
+      const rect = ctrl.searchActiveMatchRect()
+      if (!rect) {
+        return { rect: null }
+      }
+      // Categorize every changed pixel as inside-or-outside the reported rect, and
+      // record which pixels changed so we can verify they revert on clear.
+      let changedInside = 0
+      let changedOutside = 0
+      const changedIdx: number[] = []
+      const inRect = (x: number, y: number): boolean =>
+        x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
       for (let y = 0; y < c.height; y++) {
         for (let x = 0; x < c.width; x++) {
           const i = (y * c.width + x) * 4
-          if (
-            after[i] !== before[i] ||
-            after[i + 1] !== before[i + 1] ||
-            after[i + 2] !== before[i + 2]
-          ) {
-            changed++
-            if (y < minY) {
-              minY = y
-            }
-            if (y > maxY) {
-              maxY = y
+          if (rgbDiffers(after, before, i)) {
+            changedIdx.push(i)
+            if (inRect(x, y)) {
+              changedInside++
+            } else {
+              changedOutside++
             }
           }
         }
       }
-      const bandHeight = maxY >= minY ? maxY - minY + 1 : 0
-      return { changed, bandHeight, canvasHeight: c.height }
+      // Clear the highlight; the previously-changed match pixels must revert.
+      ctrl.clearSearch()
+      await raf()
+      await raf()
+      const cleared = snapshot()
+      let reverted = 0
+      for (const i of changedIdx) {
+        if (!rgbDiffers(cleared, before, i)) {
+          reverted++
+        }
+      }
+      return {
+        rect,
+        changedInside,
+        changedOutside,
+        changedTotal: changedIdx.length,
+        reverted
+      }
     }, findActiveController.toString())
 
     expect(highlight, 'should read the canvas before/after the highlight paint').not.toBeNull()
+    expect(highlight!.rect, 'the active match should report an on-screen cell rect').not.toBeNull()
     expect(
-      highlight!.changed,
-      'painting the search highlight overlay must change canvas pixels'
+      highlight!.changedInside,
+      'the highlight must change pixels INSIDE the active match cell rect'
     ).toBeGreaterThan(0)
-    // The highlight is a single-row translucent rect over the match; clearing it
-    // reverts exactly those pixels. So the changed pixels must form a thin band
-    // (a few cell-rows tall at most), NOT span most of the canvas — proving the
-    // diff is the match-region highlight, not an unrelated full-canvas redraw.
+    // Pixels changing OUTSIDE the reported match rect would mean the diff is not
+    // the match-region highlight (e.g. a full redraw). The overlay is a single
+    // translucent rect over the match cells, so out-of-rect change must be ~zero;
+    // allow a tiny slack for sub-pixel edge bleed at the rect boundary.
     expect(
-      highlight!.bandHeight,
-      `changed pixels should be a thin band near the match (got ${highlight!.bandHeight}px of ${highlight!.canvasHeight}px)`
-    ).toBeLessThan(highlight!.canvasHeight * 0.4)
+      highlight!.changedOutside,
+      `changed pixels must be confined to the match rect (out=${highlight!.changedOutside}, in=${highlight!.changedInside})`
+    ).toBeLessThanOrEqual(Math.ceil(highlight!.changedInside * 0.02))
+    // Clearing the search must revert (essentially) all of the highlighted pixels
+    // back to their pre-highlight values — proving the diff WAS the highlight.
+    expect(
+      highlight!.reverted,
+      `clearing the search should revert the highlighted pixels (reverted=${highlight!.reverted}/${highlight!.changedTotal})`
+    ).toBeGreaterThanOrEqual(Math.floor(highlight!.changedTotal * 0.98))
   })
 })

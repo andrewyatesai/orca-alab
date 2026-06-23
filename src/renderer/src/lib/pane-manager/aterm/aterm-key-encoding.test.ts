@@ -65,8 +65,29 @@ describe('encodeKeyEventToBytes', () => {
     expect(encodeKeyEventToBytes(keyEvent('F5'))).toBe('\x1b[15~')
   })
 
-  it('encodes Alt+b with an ESC meta prefix', () => {
+  it('encodes Alt+b with an ESC meta prefix (non-Mac bash Alt-chord)', () => {
+    // On non-Mac (isMac omitted/false) Alt always meta-prefixes printables.
     expect(encodeKeyEventToBytes(keyEvent('b', { altKey: true }))).toBe('\x1bb')
+  })
+
+  it('returns null for Mac Option+a when macOptionIsMeta is OFF (compose the glyph)', () => {
+    // Default macOS: Option composes 'å'; the encoder must NOT ESC-prefix it so
+    // the textarea input event delivers the composed character instead.
+    expect(
+      encodeKeyEventToBytes(keyEvent('a', { altKey: true }), { isMac: true, macOptionIsMeta: false })
+    ).toBeNull()
+  })
+
+  it('ESC-prefixes Mac Option+a when macOptionIsMeta is ON (Option as Meta)', () => {
+    expect(
+      encodeKeyEventToBytes(keyEvent('a', { altKey: true }), { isMac: true, macOptionIsMeta: true })
+    ).toBe('\x1ba')
+  })
+
+  it('returns null for a Cmd (metaKey) chord so the app owns the shortcut', () => {
+    // Cmd+K is an app shortcut, never terminal input — the encoder must not send it.
+    expect(encodeKeyEventToBytes(keyEvent('k', { metaKey: true }))).toBeNull()
+    expect(encodeKeyEventToBytes(keyEvent('c', { metaKey: true }))).toBeNull()
   })
 
   it('returns null for a plain printable character (sent via the input path)', () => {

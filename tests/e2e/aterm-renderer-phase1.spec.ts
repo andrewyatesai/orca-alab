@@ -65,10 +65,13 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
 
     // --- THEME ---------------------------------------------------------------
     // Assert a true background cell MATCHES orca's CONFIGURED terminal theme bg,
-    // not merely "is dark". Sample bottom-right (an empty cell on a fresh pane;
-    // the top-left cell holds the block cursor, which would mask the bg). The
-    // exact RGB the renderer seeded is stamped e2e-only on the canvas, so we
-    // compare the SAME canvas we sample.
+    // not merely "is dark". The expected bg is resolved INDEPENDENTLY in-page via
+    // window.__resolveAtermThemeBg — the same resolveEffectiveTerminalAppearance →
+    // composeActiveTerminalTheme pipeline the renderer seeds from, read fresh from
+    // the store — so this fails if the renderer painted a bg that does NOT match
+    // orca's configured theme (no reliance on the self-echoed data-aterm-bg).
+    // Sample bottom-right (an empty cell on a fresh pane; the top-left cell holds
+    // the block cursor, which would mask the bg).
     await expect
       .poll(
         async () =>
@@ -80,30 +83,42 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
               return null
             }
             const ctx = c.getContext('2d')
-            return ctx ? c.dataset.atermBg ?? null : null
+            const resolve = (
+              window as unknown as { __resolveAtermThemeBg?: () => unknown }
+            ).__resolveAtermThemeBg
+            return ctx && typeof resolve === 'function' ? true : null
           }),
-        { timeout: 20_000, message: 'aterm canvas should have a painted background + seeded bg' }
+        {
+          timeout: 20_000,
+          message: 'aterm canvas should have a painted bg + the theme-bg resolver'
+        }
       )
       .not.toBeNull()
 
     const bgProbe = await orcaPage.evaluate(() => {
       const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
       const ctx = c?.getContext('2d')
-      if (!c || !ctx || !c.width || !c.height) {
+      const resolve = (
+        window as unknown as { __resolveAtermThemeBg?: () => [number, number, number] }
+      ).__resolveAtermThemeBg
+      if (!c || !ctx || !c.width || !c.height || !resolve) {
         return null
       }
       // Bottom-right pixel: an empty cell, free of the row-0/col-0 cursor block.
       const d = ctx.getImageData(c.width - 1, c.height - 1, 1, 1).data
-      // The exact RGB this canvas's renderer seeded from the configured theme.
+      // Resolve the configured theme bg through the REAL pipeline, independently
+      // of whatever the renderer painted. Cross-check against the self-echoed
+      // data-aterm-bg (NOT the assertion source) only for diagnostics.
+      const expected = resolve()
       const raw = c.dataset.atermBg
-      const expected = raw ? (raw.split(',').map((n) => Number(n)) as number[]) : undefined
-      return { pixel: [d[0], d[1], d[2]] as number[], expected }
+      const echoed = raw ? (raw.split(',').map((n) => Number(n)) as number[]) : undefined
+      return { pixel: [d[0], d[1], d[2]] as number[], expected, echoed }
     })
-    expect(bgProbe, 'should read the canvas bg pixel + the seeded theme bg').not.toBeNull()
+    expect(bgProbe, 'should read the canvas bg pixel + the resolved theme bg').not.toBeNull()
     const bgPixel = bgProbe!.pixel
     expect(bgPixel.every((v) => v >= 0 && v <= 255)).toBe(true)
-    expect(bgProbe!.expected, 'renderer should expose the seeded theme bg').toBeTruthy()
-    const expectedBg = bgProbe!.expected as [number, number, number]
+    expect(bgProbe!.expected, 'theme-bg resolver should return an RGB triplet').toBeTruthy()
+    const expectedBg = bgProbe!.expected
     // An empty cell's background must MATCH the configured theme bg within a small
     // tolerance (CPU rasterizer + any sub-pixel blend can nudge a channel a hair).
     const TOLERANCE = 6
@@ -112,6 +127,16 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
         Math.abs(bgPixel[ch] - expectedBg[ch]),
         `bg pixel channel ${ch} (${bgPixel}) should match the configured theme bg (${expectedBg})`
       ).toBeLessThanOrEqual(TOLERANCE)
+    }
+    // Cross-check (not the source of truth): the renderer's self-echoed seed
+    // should agree with the independently-resolved theme bg.
+    if (bgProbe!.echoed) {
+      for (let ch = 0; ch < 3; ch++) {
+        expect(
+          Math.abs(bgProbe!.echoed[ch] - expectedBg[ch]),
+          'the self-echoed seed should agree with the resolved theme bg'
+        ).toBeLessThanOrEqual(TOLERANCE)
+      }
     }
 
     // --- SCROLLBACK SCROLL ---------------------------------------------------

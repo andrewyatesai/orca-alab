@@ -11,6 +11,11 @@ export type AtermTextareaInputDeps = {
   inputSink: (data: string) => void
   /** Copy the current canvas selection; returns true when something was copied. */
   copySelection: () => boolean
+  /** Latest macOptionIsMeta setting (xterm's option of the same name). Read per
+   *  press so a live settings toggle takes effect without recreating the pane;
+   *  controls whether macOS Option meta-prefixes or composes a glyph. Defaults
+   *  to false (the app default) when omitted. */
+  getMacOptionIsMeta?: () => boolean
 }
 
 /** Wire the helper textarea to the PTY following xterm's input model:
@@ -23,7 +28,7 @@ export type AtermTextareaInputDeps = {
  *  DECCKM (application cursor keys) is read per-press from the engine so arrows +
  *  Home/End emit SS3 vs CSI to match the live mode. */
 export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispose: () => void } {
-  const { textarea, term, inputSink, copySelection } = deps
+  const { textarea, term, inputSink, copySelection, getMacOptionIsMeta } = deps
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
   const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
   let composing = false
@@ -60,8 +65,13 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       event.preventDefault()
       return
     }
-    // Read DECCKM each press so arrows/Home/End follow the live cursor-key mode.
-    const bytes = encodeKeyEventToBytes(event, { appCursor: term.is_app_cursor_mode })
+    // Read DECCKM + macOptionIsMeta each press so arrows/Home/End follow the live
+    // cursor-key mode and macOS Option meta-prefixes only when the setting is on.
+    const bytes = encodeKeyEventToBytes(event, {
+      appCursor: term.is_app_cursor_mode,
+      isMac,
+      macOptionIsMeta: getMacOptionIsMeta?.() ?? false
+    })
     // Plain printable chars return null here; they flow through onInput instead,
     // so keydown sends ONLY non-text keys and nothing is double-sent.
     if (bytes === null) {
@@ -78,12 +88,20 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
   // the actual character bytes arrive here. Mirrors xterm: keydown = non-text
   // keys, input/compositionend = text.
   const onInput = (event: Event): void => {
-    // compositionend handles the committed IME string; ignore inputs fired while
-    // composing so a composed run isn't sent twice.
-    if (composing || (event as InputEvent).isComposing) {
+    const inputEvent = event as InputEvent
+    // A programmatic paste (text-control-paste.ts) fires an InputEvent with
+    // inputType 'insertFromPaste'/'insertReplacementText' and isComposing=false
+    // even while a local IME composition is open; it must still reach the PTY, so
+    // let paste/replacement inputs through regardless of the composing flag.
+    const isPasteInsert =
+      inputEvent.inputType === 'insertFromPaste' ||
+      inputEvent.inputType === 'insertReplacementText'
+    // Otherwise compositionend handles the committed IME string; ignore inputs
+    // fired while composing (local flag OR event.isComposing) so a composed run
+    // isn't sent twice char-by-char.
+    if (!isPasteInsert && (composing || inputEvent.isComposing)) {
       return
     }
-    const inputEvent = event as InputEvent
     // For insertText/insertFromPaste InputEvent.data carries the inserted text.
     // Chunked/large pastes (text-control-paste.ts) and some browsers fire an
     // InputEvent with null data after mutating value — read textarea.value then.

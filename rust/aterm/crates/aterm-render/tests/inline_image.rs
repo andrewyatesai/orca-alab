@@ -118,6 +118,84 @@ fn image_cell_skips_its_glyph() {
     }
 }
 
+/// Minimal CRC-32 (the PNG/IEEE 802.3 variant), table-free — tests only.
+fn crc32_ieee(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &b in data {
+        crc ^= u32::from(b);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+/// A tiny PNG whose IHDR *declares* `w`×`h` (valid IHDR CRC) but carries one
+/// pixel — the inline-image allocation bomb a remote peer can stream over SSH.
+fn png_with_declared_dims(w: u32, h: u32) -> Vec<u8> {
+    let mut bytes = solid_png(1, 1, [9, 9, 9]);
+    let ihdr_data = 16usize; // 8-byte sig + 4 len + 4 "IHDR"
+    bytes[ihdr_data..ihdr_data + 4].copy_from_slice(&w.to_be_bytes());
+    bytes[ihdr_data + 4..ihdr_data + 8].copy_from_slice(&h.to_be_bytes());
+    let crc = crc32_ieee(&bytes[ihdr_data - 4..ihdr_data + 13]);
+    bytes[ihdr_data + 13..ihdr_data + 17].copy_from_slice(&crc.to_be_bytes());
+    bytes
+}
+
+#[test]
+fn oversized_inline_image_png_draws_nothing_without_huge_alloc() {
+    // End-to-end: a remote peer sends an OSC 1337 inline image whose PNG IHDR
+    // claims 30000×30000 (≈3.4 GiB if honored) in a sub-1KB payload. The render
+    // path must skip it (draw nothing) rather than allocate — no panic, no OOM.
+    let Some(mut r) = Renderer::from_system(16.0, Theme::default()) else {
+        eprintln!("SKIP: no system monospace font found");
+        return;
+    };
+    let (cw, ch) = r.cell_size();
+    let bomb = png_with_declared_dims(30_000, 30_000);
+    assert!(bomb.len() < 1024, "bomb payload stays tiny: {} bytes", bomb.len());
+
+    // The guard's load-bearing claim: the footprint decode is rejected (returns
+    // nothing), so no `30000*30000*4` buffer is ever allocated.
+    assert!(
+        aterm_render::decode_image_to_footprint(
+            &bomb,
+            aterm_core::grid::extra::ImageFormat::Png,
+            4 * cw,
+            2 * ch,
+        )
+        .is_none(),
+        "oversized inline-image PNG must decode to nothing"
+    );
+
+    // End-to-end the render must complete without panic / OOM, and the rejected
+    // bomb must paint exactly like ANY other undecodable placement. We compare it
+    // against a control with identical placement args but a non-PNG garbage
+    // payload: both reject, so the footprint pixels must be byte-identical. (This
+    // isolates "image rejected" from the handler's footprint-reservation paint.)
+    let mut term = Terminal::new(6, 10);
+    term.set_cell_pixel_size(cw as u16, ch as u16);
+    term.process(&osc_1337_file("inline=1;width=4;height=2", &bomb));
+    let frame = r.render_input(&term.cell_frame(6, 10));
+
+    let mut ctrl_r = Renderer::from_system(16.0, Theme::default()).expect("font");
+    let mut ctrl = Terminal::new(6, 10);
+    ctrl.set_cell_pixel_size(cw as u16, ch as u16);
+    ctrl.process(&osc_1337_file("inline=1;width=4;height=2", b"not a png at all"));
+    let control = ctrl_r.render_input(&ctrl.cell_frame(6, 10));
+
+    for y in 0..ch {
+        for x in 0..(4 * cw) {
+            let i = y * frame.width + x;
+            assert_eq!(
+                frame.pixels[i], control.pixels[i],
+                "rejected bomb must paint like any undecodable image at ({x},{y})"
+            );
+        }
+    }
+}
+
 #[test]
 fn text_only_frame_is_unaffected_by_the_image_path() {
     // No image anywhere → the rendered pixels must be byte-identical to a render

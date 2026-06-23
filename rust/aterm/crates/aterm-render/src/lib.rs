@@ -2028,15 +2028,7 @@ impl Renderer {
         if !matches!(raster.format, ttf_parser::RasterImageFormat::PNG) {
             return None;
         }
-        let decoder = png::Decoder::new(raster.data);
-        let mut reader = decoder.read_info().ok()?;
-        let mut buf = vec![0u8; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).ok()?;
-        if info.bit_depth != png::BitDepth::Eight {
-            return None;
-        }
-        let (src_w, src_h) = (info.width as usize, info.height as usize);
-        let src = to_rgba8(&buf[..info.buffer_size()], info.color_type, src_w, src_h)?;
+        let (src, src_w, src_h) = decode_png_rgba8(raster.data)?;
 
         // Fit the (square) glyph into ONE cell, preserving aspect, centred.
         let box_w = self.cell_w.max(1);
@@ -2100,15 +2092,7 @@ impl Renderer {
                 bytes: rgba,
             });
         };
-        let decoder = png::Decoder::new(raster.data);
-        let mut reader = decoder.read_info().ok()?;
-        let mut buf = vec![0u8; reader.output_buffer_size()];
-        let info = reader.next_frame(&mut buf).ok()?;
-        if info.bit_depth != png::BitDepth::Eight {
-            return None;
-        }
-        let (src_w, src_h) = (info.width as usize, info.height as usize);
-        let src = to_rgba8(&buf[..info.buffer_size()], info.color_type, src_w, src_h)?;
+        let (src, src_w, src_h) = decode_png_rgba8(raster.data)?;
 
         // Target: a wide cell = 2 cells. Fit the (square) emoji into
         // (2*cell_w) x cell_h, preserving aspect, centred.
@@ -3586,6 +3570,55 @@ fn blend(bg: u32, fg: u32, t: u8) -> u32 {
     (mix(br, fr) << 16) | (mix(bgc, fgc) << 8) | mix(bb, fb)
 }
 
+/// Per-axis pixel cap for PNG decode. Mirrors the sixel renderer's
+/// `SIXEL_MAX_DIMENSION` (4096): a remote peer can stream an inline-image PNG
+/// (iTerm2 OSC 1337) whose IHDR declares enormous dimensions in a tiny file, so
+/// we reject anything past this on either axis BEFORE allocating the output
+/// buffer to avoid a multi-GB allocation DoS.
+const IMAGE_MAX_DIMENSION: u32 = 4096;
+
+/// Total-allocation cap handed to the `png` decoder (64 MiB). This bounds the
+/// decoder's *intermediate* buffers; the `png` crate explicitly excludes our own
+/// pre-allocated output buffer from this limit, which is why the dimension check
+/// below is the load-bearing guard against the IHDR-dimension allocation bomb.
+const PNG_DECODE_BYTE_LIMIT: usize = 64 * 1024 * 1024;
+
+/// Decode an 8-bit PNG to packed RGBA8, returning `(rgba, width, height)`.
+///
+/// Hardened against the inline-image allocation-bomb DoS: a tiny PNG can declare
+/// huge IHDR dimensions and force a multi-GB output buffer. We (1) cap the
+/// decoder's intermediate allocations via `png::Limits`, and (2) reject either
+/// axis past `IMAGE_MAX_DIMENSION` after parsing IHDR but BEFORE allocating the
+/// output buffer. Non-8-bit depths and a pixel count that overflows or exceeds
+/// the byte budget also bail (returning `None`) — never panic, never allocate.
+fn decode_png_rgba8(bytes: &[u8]) -> Option<(Vec<u8>, usize, usize)> {
+    let mut decoder = png::Decoder::new(bytes);
+    decoder.set_limits(png::Limits {
+        bytes: PNG_DECODE_BYTE_LIMIT,
+    });
+    let mut reader = decoder.read_info().ok()?;
+    // IHDR is parsed by `read_info`; reject oversized dims before the alloc.
+    let (w, h) = (reader.info().width, reader.info().height);
+    if w == 0 || h == 0 || w > IMAGE_MAX_DIMENSION || h > IMAGE_MAX_DIMENSION {
+        return None;
+    }
+    // Bound the output allocation by the byte budget too, with checked math so a
+    // pixel-count overflow bails instead of wrapping.
+    let pixels = (w as usize).checked_mul(h as usize)?;
+    let out_bytes = pixels.checked_mul(4)?;
+    if out_bytes > PNG_DECODE_BYTE_LIMIT {
+        return None;
+    }
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let (src_w, src_h) = (info.width as usize, info.height as usize);
+    let rgba = to_rgba8(&buf[..info.buffer_size()], info.color_type, src_w, src_h)?;
+    Some((rgba, src_w, src_h))
+}
+
 /// Convert a decoded 8-bit PNG buffer to packed RGBA8. Handles the colour types
 /// Apple Color Emoji's sbix PNGs use (RGBA, RGB); anything else returns `None`.
 fn to_rgba8(buf: &[u8], color_type: png::ColorType, w: usize, h: usize) -> Option<Vec<u8>> {
@@ -3643,15 +3676,7 @@ pub fn decode_image_to_footprint(
     if !matches!(format, aterm_core::grid::extra::ImageFormat::Png) {
         return None;
     }
-    let decoder = png::Decoder::new(bytes);
-    let mut reader = decoder.read_info().ok()?;
-    let mut buf = vec![0u8; reader.output_buffer_size()];
-    let info = reader.next_frame(&mut buf).ok()?;
-    if info.bit_depth != png::BitDepth::Eight {
-        return None;
-    }
-    let (src_w, src_h) = (info.width as usize, info.height as usize);
-    let src = to_rgba8(&buf[..info.buffer_size()], info.color_type, src_w, src_h)?;
+    let (src, src_w, src_h) = decode_png_rgba8(bytes)?;
     Some(bilinear_rgba(&src, src_w, src_h, fp_w, fp_h))
 }
 
@@ -4803,5 +4828,113 @@ mod tests {
             rf.decisions.contains_key(&'\u{FDD2}'),
             "the triggering lookup must remain cached after the bound resets the map"
         );
+    }
+
+    /// Encode a solid-colour `w`×`h` RGBA8 PNG (every pixel `rgb`, opaque).
+    fn solid_rgba_png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
+        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+        for _ in 0..(w * h) {
+            rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+        }
+        let mut out = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut out, w, h);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            let mut writer = enc.write_header().expect("png header");
+            writer.write_image_data(&rgba).expect("png data");
+        }
+        out
+    }
+
+    /// Craft a tiny but well-formed PNG whose IHDR *declares* `w`×`h` (with a
+    /// valid IHDR CRC so `read_info` parses it), without carrying that many
+    /// pixels. This is the inline-image allocation bomb: a small payload that, if
+    /// honored, forces a `w*h*bpp` output buffer (30000×30000×4 ≈ 3.4 GiB).
+    fn png_with_declared_dims(w: u32, h: u32) -> Vec<u8> {
+        // Start from a real 1×1 PNG, then rewrite IHDR's width/height + CRC.
+        let mut bytes = solid_rgba_png(1, 1, [10, 20, 30]);
+        // Layout: 8-byte signature, then IHDR = [len:4][type:4]["IHDR"][w:4][h:4]…
+        // The IHDR data starts at offset 16 (8 sig + 4 len + 4 "IHDR").
+        let ihdr_data = 16usize;
+        bytes[ihdr_data..ihdr_data + 4].copy_from_slice(&w.to_be_bytes());
+        bytes[ihdr_data + 4..ihdr_data + 8].copy_from_slice(&h.to_be_bytes());
+        // IHDR chunk = type(4) + data(13); CRC covers type+data. Recompute it so
+        // `png::read_info` accepts the header and reaches our dimension guard.
+        let crc_input = &bytes[ihdr_data - 4..ihdr_data + 13];
+        let crc = crc32_ieee(crc_input);
+        bytes[ihdr_data + 13..ihdr_data + 17].copy_from_slice(&crc.to_be_bytes());
+        bytes
+    }
+
+    /// Minimal CRC-32 (IEEE 802.3, the PNG variant) — table-free; tests only.
+    fn crc32_ieee(data: &[u8]) -> u32 {
+        let mut crc: u32 = 0xFFFF_FFFF;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                let mask = (crc & 1).wrapping_neg();
+                crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+            }
+        }
+        !crc
+    }
+
+    /// DoS guard: a tiny PNG declaring 30000×30000 in its IHDR must be REJECTED
+    /// before allocating the multi-GB output buffer — no panic, no huge alloc.
+    #[test]
+    fn oversized_png_is_rejected_without_giant_alloc() {
+        let bomb = png_with_declared_dims(30_000, 30_000);
+        assert!(
+            bomb.len() < 4096,
+            "the bomb payload is tiny ({} bytes) — the threat is the declared size",
+            bomb.len()
+        );
+        // Direct decode helper rejects it.
+        assert!(
+            decode_png_rgba8(&bomb).is_none(),
+            "30000×30000 IHDR must be rejected by the decode guard"
+        );
+        // And so does the public inline-image footprint path the SSH peer reaches.
+        assert!(
+            decode_image_to_footprint(
+                &bomb,
+                aterm_core::grid::extra::ImageFormat::Png,
+                8,
+                8
+            )
+            .is_none(),
+            "oversized inline-image PNG must decode to nothing"
+        );
+    }
+
+    /// Exactly at the cap on one axis (and absurd on the other) is still rejected,
+    /// confirming the guard fires on either dimension, not just both.
+    #[test]
+    fn png_over_cap_on_a_single_axis_is_rejected() {
+        let tall = png_with_declared_dims(1, IMAGE_MAX_DIMENSION + 1);
+        let wide = png_with_declared_dims(IMAGE_MAX_DIMENSION + 1, 1);
+        assert!(decode_png_rgba8(&tall).is_none(), "height past cap rejected");
+        assert!(decode_png_rgba8(&wide).is_none(), "width past cap rejected");
+    }
+
+    /// A normal small PNG still decodes fine — the guard rejects bombs, not images.
+    #[test]
+    fn normal_small_png_still_decodes() {
+        let png = solid_rgba_png(8, 4, [200, 30, 30]);
+        let (rgba, w, h) = decode_png_rgba8(&png).expect("a real 8×4 PNG decodes");
+        assert_eq!((w, h), (8, 4));
+        assert_eq!(rgba.len(), 8 * 4 * 4, "packed RGBA8");
+        assert_eq!(&rgba[0..4], &[200, 30, 30, 255], "first pixel is the fill");
+
+        // And it flows through the footprint path to a non-empty 16×16 raster.
+        let fp = decode_image_to_footprint(
+            &png,
+            aterm_core::grid::extra::ImageFormat::Png,
+            16,
+            16,
+        )
+        .expect("small PNG resamples to its footprint");
+        assert_eq!(fp.len(), 16 * 16 * 4);
     }
 }

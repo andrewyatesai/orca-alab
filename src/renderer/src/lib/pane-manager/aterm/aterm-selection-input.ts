@@ -1,4 +1,5 @@
 import type { AtermTerminal } from './aterm_wasm.js'
+import { shouldForwardMouse } from './aterm-mouse-input'
 
 export type AtermSelectionDeps = {
   canvas: HTMLCanvasElement
@@ -53,6 +54,12 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
 
   const onMouseDown = (event: MouseEvent): void => {
     if (isDisposed() || event.button !== 0) {
+      return
+    }
+    // Defer to the mouse forwarder when a TUI has mouse tracking on (no Shift):
+    // that press is a mouse report to the app, not a selection. Shift held →
+    // shouldForwardMouse is false → selection runs (user override).
+    if (shouldForwardMouse(term, event)) {
       return
     }
     // Fresh selection on every primary click.

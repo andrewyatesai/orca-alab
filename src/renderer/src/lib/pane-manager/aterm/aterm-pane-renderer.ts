@@ -3,6 +3,8 @@ import { attachAtermTextareaInput } from './aterm-textarea-input'
 import { resolveAtermThemeColors } from './aterm-theme-colors'
 import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
+import { attachAtermEventReportingInput } from './aterm-event-reporting-input'
+import { computeGrid, MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import { attachAtermLinkInput, type AtermFileLinkOpener } from './aterm-link-input'
 import {
   createAtermSearchController,
@@ -60,31 +62,11 @@ export type AtermPaneController = {
   /** Late-bind the URL link context (worktreeId + in-app-link preference) so URL
    *  clicks honor orca's open-links-in-app preference once the lifecycle has it. */
   setUrlLinkContext: (context: AtermLinkContext) => void
+  /** e2e/test hook: the last mouse REPORT forwarded to the PTY (e.g. an SGR
+   *  "\x1b[<0;C;RM" press), or null if none. Proves a tracked mouse event was
+   *  encoded + sent without relying on shell echo under a hidden window. */
+  lastMouseReport: () => string | null
   dispose: () => void
-}
-
-const MIN_GRID_COLS = 1
-const MIN_GRID_ROWS = 1
-const DEFAULT_GRID_COLS = 80
-const DEFAULT_GRID_ROWS = 24
-
-function computeGrid(
-  container: HTMLElement,
-  dpr: number,
-  cellWidth: number,
-  cellHeight: number
-): { cols: number; rows: number } {
-  const deviceWidth = container.clientWidth * dpr
-  const deviceHeight = container.clientHeight * dpr
-  // Container not laid out yet (hidden/background pane, pre-mount): render a
-  // standard 80x24 so the terminal is usable; the ResizeObserver corrects it
-  // once the pane has real dimensions. Never render a 1x1 terminal.
-  if (deviceWidth < cellWidth || deviceHeight < cellHeight) {
-    return { cols: DEFAULT_GRID_COLS, rows: DEFAULT_GRID_ROWS }
-  }
-  const cols = Math.max(MIN_GRID_COLS, Math.floor(deviceWidth / cellWidth))
-  const rows = Math.max(MIN_GRID_ROWS, Math.floor(deviceHeight / cellHeight))
-  return { cols, rows }
 }
 
 /** Optional renderer settings the controller reads live (per-press / per-frame)
@@ -260,6 +242,22 @@ export async function createAtermPaneController(
     isDisposed: () => disposed
   })
 
+  // Mouse + focus reporting: when a TUI enables mouse tracking (DECSET
+  // 1000/1002/1003) the canvas mouse events are encoded + sent to the PTY (so
+  // vim/tmux/htop respond to the mouse; selection/scroll/link defer via the
+  // shared gate, Shift = user override), and with DECSET 1004 the helper
+  // textarea's focus/blur sends CSI I / CSI O.
+  const eventReportingInput = attachAtermEventReportingInput({
+    canvas,
+    textarea: inputDom.textarea,
+    term,
+    dpr,
+    cellWidth,
+    cellHeight,
+    inputSink,
+    isDisposed: () => disposed
+  })
+
   // Late-bound URL link context: starts from the (optional) constructor arg and
   // can be replaced by setUrlLinkContext once the React lifecycle has the pane's
   // worktreeId + in-app-link preference (the controller is created before that
@@ -389,6 +387,7 @@ export async function createAtermPaneController(
     setUrlLinkContext: (context: AtermLinkContext) => {
       activeLinkContext = context
     },
+    lastMouseReport: () => eventReportingInput.lastMouseReport(),
     dispose: () => {
       if (disposed) {
         return
@@ -401,6 +400,7 @@ export async function createAtermPaneController(
       canvas.removeEventListener('pointerdown', onPointerDown)
       selectionInput.dispose()
       scrollInput.dispose()
+      eventReportingInput.dispose()
       linkInput.dispose()
       inputDom.wrapper.remove()
       try {

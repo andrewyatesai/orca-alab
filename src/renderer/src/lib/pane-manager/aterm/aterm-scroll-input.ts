@@ -1,4 +1,5 @@
 import type { AtermTerminal } from './aterm_wasm.js'
+import { shouldForwardMouse } from './aterm-mouse-input'
 
 export type AtermScrollDeps = {
   canvas: HTMLCanvasElement
@@ -28,6 +29,11 @@ export function attachAtermScrollInput(deps: AtermScrollDeps): AtermScrollInput 
 
   const onWheel = (event: WheelEvent): void => {
     if (isDisposed() || term.is_alt_screen) {
+      return
+    }
+    // When a TUI tracks the mouse (no Shift), the forwarder sends wheel reports
+    // to the app instead of moving scrollback; defer so we don't double-handle.
+    if (shouldForwardMouse(term, event)) {
       return
     }
     event.preventDefault()

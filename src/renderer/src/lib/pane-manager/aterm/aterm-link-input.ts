@@ -1,4 +1,5 @@
 import type { AtermTerminal } from './aterm_wasm.js'
+import { shouldForwardMouse } from './aterm-mouse-input'
 
 /** Opens a detected link target; the controller threads orca's URL opener here
  *  (forceSystemBrowser mirrors xterm's Shift+modifier "open in system browser"
@@ -81,7 +82,9 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
       return
     }
     // On the alternate screen TUIs own the mouse; never show a link cursor.
-    if (term.is_alt_screen) {
+    // Likewise when mouse tracking is on (no Shift): the app owns the pointer,
+    // so don't show a link cursor — the forwarder is reporting motion to it.
+    if (term.is_alt_screen || shouldForwardMouse(term, event)) {
       clearCursor()
       return
     }
@@ -112,7 +115,9 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     if (isDisposed() || event.button !== 0 || !isLinkActivation(event)) {
       return
     }
-    if (term.is_alt_screen) {
+    // Mouse tracking on (no Shift) → the click is a report to the app, not a
+    // link activation; defer just like the alternate-screen case.
+    if (term.is_alt_screen || shouldForwardMouse(term, event)) {
       return
     }
     const { col, row } = pointToCell(event, deps)

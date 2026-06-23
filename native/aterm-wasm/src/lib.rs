@@ -14,7 +14,7 @@ use wasm_bindgen::prelude::*;
 
 use aterm_core::selection::SmartSelection;
 use aterm_core::selection::{SelectionSide, SelectionType};
-use aterm_core::terminal::Terminal;
+use aterm_core::terminal::{MouseMode, Terminal};
 use aterm_render::{Renderer, Theme};
 
 /// A terminal + CPU renderer pair. Feed PTY bytes with [`AtermTerminal::process`],
@@ -175,6 +175,85 @@ impl AtermTerminal {
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
     pub fn is_app_cursor_mode(&self) -> bool {
         self.term.modes().application_cursor_keys()
+    }
+
+    /// True when a TUI has enabled mouse tracking (any of DECSET 9/1000/1002/1003).
+    /// The host then ENCODES canvas mouse events to the PTY instead of running
+    /// selection/scroll/link for them (unless Shift is held = user override).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_mouse_tracking(&self) -> bool {
+        self.term.mouse_tracking_enabled()
+    }
+
+    /// True when the active mouse mode reports MOTION (ButtonEvent 1002 = drag
+    /// while a button is down, AnyEvent 1003 = all motion), so the host only
+    /// forwards `mousemove` when an app actually wants it (no spam in 1000).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn mouse_wants_motion(&self) -> bool {
+        matches!(
+            self.term.mouse_mode(),
+            MouseMode::ButtonEvent | MouseMode::AnyEvent
+        )
+    }
+
+    /// True for AnyEvent (1003): report motion even with NO button pressed.
+    /// 1002 only reports motion while a button is held; the host uses this to
+    /// decide whether a button-less `mousemove` should be forwarded.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn mouse_wants_any_motion(&self) -> bool {
+        matches!(self.term.mouse_mode(), MouseMode::AnyEvent)
+    }
+
+    /// True when DECSET 1004 (focus reporting) is active: the host sends CSI I on
+    /// focus-in and CSI O on focus-out so apps (vim, tmux) track terminal focus.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_focus_event_mode(&self) -> bool {
+        self.term.focus_reporting_enabled()
+    }
+
+    /// Active DECSCUSR cursor style as the discriminant of `aterm_core`'s
+    /// `CursorStyle` (1=BlinkingBlock, 2=SteadyBlock, 3=BlinkingUnderline,
+    /// 4=SteadyUnderline, 5=BlinkingBar, 6=SteadyBar, 7=Hidden, 8=HollowBlock).
+    /// The CPU renderer ALREADY paints this shape from the grid (cell_frame copies
+    /// it into the render input, draw_cursor honors it), so this getter exists for
+    /// host introspection/tests — no JS overlay is needed to draw the shape.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn cursor_style(&self) -> u8 {
+        self.term.cursor_style() as u8
+    }
+
+    /// Encode a mouse-button PRESS at 0-based on-screen cell `col`/`row` for the
+    /// app's active mouse mode+encoding (returns `None`/`undefined` when tracking
+    /// is off). `button` is the raw X10 button code (0=left,1=middle,2=right) and
+    /// `mods` is the OR of Shift(4)/Alt(8)/Ctrl(16) masks — the engine combines
+    /// them. Bytes are sent verbatim to the PTY.
+    pub fn encode_mouse_press(&self, col: u16, row: u16, button: u8, mods: u8) -> Option<Vec<u8>> {
+        self.term.encode_mouse_press(button, col, row, mods)
+    }
+
+    /// Encode a mouse-button RELEASE (see [`AtermTerminal::encode_mouse_press`]);
+    /// `None` in X10 press-only mode.
+    pub fn encode_mouse_release(
+        &self,
+        col: u16,
+        row: u16,
+        button: u8,
+        mods: u8,
+    ) -> Option<Vec<u8>> {
+        self.term.encode_mouse_release(button, col, row, mods)
+    }
+
+    /// Encode mouse MOTION at `col`/`row`; `button` is the held button (3 = none).
+    /// `None` unless the mode reports motion (1002 while a button is down, 1003
+    /// always) — see [`AtermTerminal::mouse_wants_motion`].
+    pub fn encode_mouse_motion(&self, col: u16, row: u16, button: u8, mods: u8) -> Option<Vec<u8>> {
+        self.term.encode_mouse_motion(button, col, row, mods)
+    }
+
+    /// Encode a mouse WHEEL tick at `col`/`row` (`up` = wheel-up); the host sends
+    /// these instead of scrolling scrollback while tracking is on. `None` in X10.
+    pub fn encode_mouse_wheel(&self, col: u16, row: u16, up: bool, mods: u8) -> Option<Vec<u8>> {
+        self.term.encode_mouse_wheel(up, col, row, mods)
     }
 
     /// Begin a character selection at display `row`/`col` (clears any prior one).
@@ -526,6 +605,69 @@ mod tests {
         assert!(t.is_app_cursor_mode(), "DECCKM set → application cursor keys");
         t.process(b"\x1b[?1l");
         assert!(!t.is_app_cursor_mode(), "DECCKM reset → normal cursor keys");
+    }
+
+    #[test]
+    fn reports_mouse_tracking_and_encodes_sgr_reports() {
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping mouse-tracking test");
+            return;
+        };
+        // No tracking by default → encoders return None, motion not wanted.
+        assert!(!t.is_mouse_tracking(), "mouse tracking defaults off");
+        assert!(t.encode_mouse_press(0, 0, 0, 0).is_none(), "no report off");
+        assert!(!t.mouse_wants_motion(), "no motion wanted off");
+        // DECSET 1000 (normal tracking) + 1006 (SGR encoding).
+        t.process(b"\x1b[?1000h\x1b[?1006h");
+        assert!(t.is_mouse_tracking(), "1000 enables tracking");
+        assert!(!t.mouse_wants_motion(), "1000 does not report motion");
+        // Left press at col 4 / row 2 → SGR \e[<0;5;3M (encoders +1 to coords).
+        let press = t.encode_mouse_press(4, 2, 0, 0).expect("press encoded");
+        assert_eq!(press, b"\x1b[<0;5;3M", "SGR press report");
+        let release = t.encode_mouse_release(4, 2, 0, 0).expect("release encoded");
+        assert_eq!(release, b"\x1b[<0;5;3m", "SGR release uses lowercase m");
+        // Normal mode (1000) reports no motion.
+        assert!(t.encode_mouse_motion(0, 0, 0, 0).is_none(), "1000 no motion");
+        // Switch to 1002 (button-event) → motion while a button is held.
+        t.process(b"\x1b[?1002h");
+        assert!(t.mouse_wants_motion(), "1002 reports drag motion");
+        assert!(!t.mouse_wants_any_motion(), "1002 is not any-motion");
+        // 1003 (any-event) reports motion with no button held.
+        t.process(b"\x1b[?1003h");
+        assert!(t.mouse_wants_any_motion(), "1003 reports any motion");
+        // Wheel-up → button 64 → SGR \e[<64;...M.
+        let wheel = t.encode_mouse_wheel(4, 2, true, 0).expect("wheel encoded");
+        assert_eq!(wheel, b"\x1b[<64;5;3M", "SGR wheel-up report");
+        // DECRST 1003/1002/1000 clears tracking entirely.
+        t.process(b"\x1b[?1003l\x1b[?1002l\x1b[?1000l");
+        assert!(!t.is_mouse_tracking(), "clearing all modes disables tracking");
+    }
+
+    #[test]
+    fn reports_focus_event_mode_via_decset_1004() {
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping focus-mode test");
+            return;
+        };
+        assert!(!t.is_focus_event_mode(), "focus reporting defaults off");
+        t.process(b"\x1b[?1004h");
+        assert!(t.is_focus_event_mode(), "1004 enables focus reporting");
+        t.process(b"\x1b[?1004l");
+        assert!(!t.is_focus_event_mode(), "1004 reset disables focus reporting");
+    }
+
+    #[test]
+    fn tracks_cursor_style_via_decscusr() {
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping cursor-style test");
+            return;
+        };
+        // DECSCUSR is CSI Ps SP q; Ps=5 → BlinkingBar (discriminant 5), Ps=2 →
+        // SteadyBlock (2). The engine paints the shape; we just read it back.
+        t.process(b"\x1b[5 q");
+        assert_eq!(t.cursor_style(), 5, "DECSCUSR 5 → BlinkingBar");
+        t.process(b"\x1b[2 q");
+        assert_eq!(t.cursor_style(), 2, "DECSCUSR 2 → SteadyBlock");
     }
 
     #[test]

@@ -487,10 +487,12 @@ export default function TerminalPane({
   // xterm may not know multi-line text needs bracketed-paste protection.
   const forceBracketedMultilineTextPaste = isWindowsUserAgent()
   const [startup] = useState(() => useAppStore.getState().pendingStartupByTabId[tabId])
+  const [shouldMeasureHiddenStartup, setShouldMeasureHiddenStartup] = useState(
+    () => startup !== undefined && !isVisible
+  )
   const [sessionRestoredBannerPaneIds, setSessionRestoredBannerPaneIds] = useState<Set<number>>(
     () => new Set()
   )
-  const shouldMeasureHiddenStartup = startup !== undefined && !isVisible
   const consumeTabStartupCommand = useAppStore((store) => store.consumeTabStartupCommand)
   const [setupSplit] = useState(() => useAppStore.getState().pendingSetupSplitByTabId[tabId])
   const consumeTabSetupSplit = useAppStore((store) => store.consumeTabSetupSplit)
@@ -503,6 +505,14 @@ export default function TerminalPane({
       consumeTabStartupCommand(tabId)
     }
   }, [startup, tabId, consumeTabStartupCommand])
+
+  useLayoutEffect(() => {
+    if (isVisible && shouldMeasureHiddenStartup) {
+      // Why: hidden startup measurement is only for first launch. Keeping it
+      // after first visibility lets inactive agent tabs refit and SIGWINCH.
+      setShouldMeasureHiddenStartup(false)
+    }
+  }, [isVisible, shouldMeasureHiddenStartup])
 
   const clearSessionRestoredBannerForPane = useCallback((paneId: number): void => {
     setSessionRestoredBannerPaneIds((prev) => {
@@ -1768,7 +1778,10 @@ export default function TerminalPane({
       sessionRestoredBannerPaneIds,
       reservePaneHeaderSpace: isActive && (isVisible || shouldMeasureHiddenStartup)
     })
-    if (needsFit) {
+    if (needsFit && (isVisible || shouldMeasureHiddenStartup)) {
+      // Why: inactive terminal tabs can drop active-only header reservation.
+      // Fitting that hidden geometry changes PTY rows and wakes TUIs with
+      // SIGWINCH; the visible resume path owns any real layout correction.
       fitPanes(manager)
     }
   }, [

@@ -79,9 +79,14 @@ const TerminalOverlaySlot = memo(function TerminalOverlaySlot({
   const [measuredFallbackRect, setMeasuredFallbackRect] = useState<MeasuredFallbackRect | null>(
     null
   )
-  const [shouldMeasureHiddenStartup] = useState(
+  const [shouldMeasureHiddenStartup, setShouldMeasureHiddenStartup] = useState(
     () => useAppStore.getState().pendingStartupByTabId[terminalTabId] !== undefined
   )
+  useLayoutEffect(() => {
+    if (isVisible && shouldMeasureHiddenStartup) {
+      setShouldMeasureHiddenStartup(false)
+    }
+  }, [isVisible, shouldMeasureHiddenStartup])
   useLayoutEffect(() => {
     if (!anchorName || shouldUseCssAnchorPositioning() || !groupId) {
       return

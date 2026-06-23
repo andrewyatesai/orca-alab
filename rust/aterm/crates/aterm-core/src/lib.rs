@@ -31,7 +31,6 @@
 //!
 //! ### Graphics
 //!
-//! - [`kitty_graphics`] - Kitty Graphics Protocol implementation
 //! - `syntax` - Tree-sitter syntax highlighting infrastructure
 //!
 //! ### Extracted Crates
@@ -207,6 +206,8 @@ pub mod clipboard_policy;
 pub mod bell;
 pub mod config;
 pub(crate) mod domain;
+/// Deterministic fault injection for fail-closed-path testing (M7 FAULT-INJECT).
+pub mod fault;
 pub mod grapheme;
 pub mod grid;
 /// VT100/ANSI escape sequence parser.

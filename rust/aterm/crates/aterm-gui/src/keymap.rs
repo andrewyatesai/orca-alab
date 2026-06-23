@@ -41,6 +41,37 @@ pub fn modifiers_from_winit(mods: ModifiersState) -> Modifiers {
     out
 }
 
+/// The lock-key modifiers (Caps Lock / Num Lock) for the Kitty modifier byte.
+///
+/// winit's portable [`ModifiersState`] carries only Shift/Ctrl/Alt/Super, so the
+/// Kitty `CAPS_LOCK`/`NUM_LOCK` bits (which `Modifiers::kitty_encoded` folds into
+/// the reported value) must come from a platform query. On macOS we read the live
+/// global flags via `+[NSEvent modifierFlags]`; macOS hardware has no Num Lock, so
+/// only Caps Lock is reported. Off macOS this is empty until a platform lock-state
+/// source is wired (winit exposes none).
+#[cfg(target_os = "macos")]
+#[must_use]
+pub fn lock_modifiers() -> Modifiers {
+    use objc2_app_kit::{NSEvent, NSEventModifierFlags};
+    let mut out = Modifiers::empty();
+    // SAFETY: `+[NSEvent modifierFlags]` is a parameterless class method that
+    // returns the current global modifier-flag bitmask. It is safe to call from
+    // any thread and has no main-thread requirement.
+    let flags = unsafe { NSEvent::modifierFlags_class() };
+    if flags.contains(NSEventModifierFlags::NSEventModifierFlagCapsLock) {
+        out |= Modifiers::CAPS_LOCK;
+    }
+    out
+}
+
+/// Non-macOS fallback for [`lock_modifiers`]: winit exposes no Caps/Num Lock LED
+/// state, so report none until a platform-specific source is wired.
+#[cfg(not(target_os = "macos"))]
+#[must_use]
+pub fn lock_modifiers() -> Modifiers {
+    Modifiers::empty()
+}
+
 /// The PURE key-encoding decision (K-1): given a winit key event, the live
 /// modifiers, and the terminal's current [`KeyboardMode`], return the bytes to
 /// write to the PTY — or `None` when the event maps to no terminal sequence

@@ -87,7 +87,44 @@ pub enum Action {
     FontReset,
     /// Reset the font to the launch default (Cmd-0).
     FontDecrease,
+    /// Move keyboard focus to the pane on the left (Cmd-Opt-Left).
+    FocusPaneLeft,
+    /// Move keyboard focus to the pane on the right (Cmd-Opt-Right).
+    FocusPaneRight,
+    /// Move keyboard focus to the pane above (Cmd-Opt-Up).
+    FocusPaneUp,
+    /// Move keyboard focus to the pane below (Cmd-Opt-Down).
+    FocusPaneDown,
+    /// Toggle zoom of the focused pane — fill the window (Cmd-Shift-Enter).
+    TogglePaneZoom,
 }
+
+/// Every bindable action NAME, in a stable order — the canonical discoverable
+/// surface for `[keybindings]` config (printed by `--list-actions`). `switch_tab_N`
+/// is parameterized (`switch_tab_1`..`switch_tab_9`), shown here as the template.
+/// A test asserts every concrete name here parses, so this cannot drift from
+/// [`Action::parse`].
+pub(crate) const ACTION_NAMES: &[&str] = &[
+    "new_tab",
+    "close_tab",
+    "new_window",
+    "next_tab",
+    "prev_tab",
+    "switch_tab_1..switch_tab_9",
+    "split_vertical",
+    "split_horizontal",
+    "focus_pane_left",
+    "focus_pane_right",
+    "focus_pane_up",
+    "focus_pane_down",
+    "toggle_pane_zoom",
+    "copy",
+    "paste",
+    "find",
+    "font_increase",
+    "font_decrease",
+    "font_reset",
+];
 
 impl Action {
     /// Parse an action NAME (the value side of a `[keybindings]` entry). Names are
@@ -109,6 +146,11 @@ impl Action {
             "prev_tab" => Action::PrevTab,
             "split_vertical" => Action::SplitVertical,
             "split_horizontal" => Action::SplitHorizontal,
+            "focus_pane_left" => Action::FocusPaneLeft,
+            "focus_pane_right" => Action::FocusPaneRight,
+            "focus_pane_up" => Action::FocusPaneUp,
+            "focus_pane_down" => Action::FocusPaneDown,
+            "toggle_pane_zoom" => Action::TogglePaneZoom,
             "copy" => Action::Copy,
             "paste" => Action::Paste,
             "find" => Action::Find,
@@ -321,6 +363,25 @@ impl Keybindings {
 mod tests {
     use super::*;
     use winit::keyboard::SmolStr;
+
+    #[test]
+    fn every_action_name_parses() {
+        // ACTION_NAMES is the advertised list; it must not drift from `parse`.
+        for &name in ACTION_NAMES {
+            if let Some(template) = name.strip_suffix("1..switch_tab_9") {
+                // Parameterized entry: verify the whole 1..=9 range parses.
+                let base = template; // "switch_tab_"
+                for n in 1..=9 {
+                    assert!(
+                        Action::parse(&format!("{base}{n}")).is_some(),
+                        "{base}{n} must parse"
+                    );
+                }
+            } else {
+                assert!(Action::parse(name).is_some(), "action '{name}' must parse");
+            }
+        }
+    }
 
     fn ch(c: &str) -> WinitKey {
         WinitKey::Character(SmolStr::new(c))

@@ -379,6 +379,9 @@ impl App {
         if self.on_key_super_chord(mods, &ev) {
             return;
         }
+        if self.on_key_pane_focus(mods, &ev) {
+            return;
+        }
         // Cmd-F enters find mode; while active, keystrokes drive the find (query
         // edit + match navigation) instead of reaching the PTY.
         if mods.super_key()
@@ -462,7 +465,9 @@ impl App {
         // (kills divergences f/h; uniform g/k side-effects). The keymap is demoted
         // to a BUILDER (`build_key_input`) that fills `base_layout` from the
         // physical key for Kitty REPORT_ALTERNATE_KEYS.
-        let km_mods = keymap::modifiers_from_winit(mods);
+        // Caps/Num Lock are not in winit's `ModifiersState`; fold the live
+        // platform lock state into the Kitty modifier byte (WIRE-MODIFIERS).
+        let km_mods = keymap::modifiers_from_winit(mods) | keymap::lock_modifiers();
         if let Some((key, km_mods, base_layout)) = keymap::build_key_input(&ev, km_mods) {
             // `on_key` returns early for any non-`Pressed` winit state (see top of
             // this fn), so the human path is always a `Press` — byte-identical to
@@ -624,6 +629,36 @@ impl App {
         false
     }
 
+    /// Pane chords (iTerm2 parity), checked together because both use `Key::Named`
+    /// (so they never overlap the `Key::Character` Cmd chords). Returns `true` when
+    /// one fired; each is a silent no-op for a single-pane tab / window-less app.
+    ///   - Cmd-Opt-Arrow: directional pane focus.
+    ///   - Cmd-Shift-Enter: toggle zoom of the focused pane.
+    fn on_key_pane_focus(&mut self, mods: ModifiersState, ev: &KeyEvent) -> bool {
+        // Cmd-Shift-Enter (no Alt): toggle pane zoom.
+        if mods.super_key()
+            && mods.shift_key()
+            && !mods.alt_key()
+            && matches!(&ev.logical_key, Key::Named(NamedKey::Enter))
+        {
+            self.toggle_pane_zoom();
+            return true;
+        }
+        // Cmd-Opt-Arrow: directional focus.
+        if !(mods.super_key() && mods.alt_key()) {
+            return false;
+        }
+        let dir = match &ev.logical_key {
+            Key::Named(NamedKey::ArrowLeft) => pane::FocusDir::Left,
+            Key::Named(NamedKey::ArrowRight) => pane::FocusDir::Right,
+            Key::Named(NamedKey::ArrowUp) => pane::FocusDir::Up,
+            Key::Named(NamedKey::ArrowDown) => pane::FocusDir::Down,
+            _ => return false,
+        };
+        self.focus_pane(dir);
+        true
+    }
+
     /// Find-mode keystroke dispatch of [`on_key`]: while a window's `search` is
     /// active, keystrokes drive the find (query edit + match navigation) instead of
     /// reaching the PTY. Returns `true` whenever search is active (so the caller
@@ -719,6 +754,11 @@ impl App {
             Action::SwitchTab(n) => self.switch_tab(usize::from(n).saturating_sub(1)),
             Action::SplitVertical => self.split_focused_pane(pane::SplitDir::Vertical),
             Action::SplitHorizontal => self.split_focused_pane(pane::SplitDir::Horizontal),
+            Action::FocusPaneLeft => self.focus_pane(pane::FocusDir::Left),
+            Action::FocusPaneRight => self.focus_pane(pane::FocusDir::Right),
+            Action::FocusPaneUp => self.focus_pane(pane::FocusDir::Up),
+            Action::FocusPaneDown => self.focus_pane(pane::FocusDir::Down),
+            Action::TogglePaneZoom => self.toggle_pane_zoom(),
             // Copy is a no-op with no selection (matches the hardcoded fall-through).
             Action::Copy => {
                 self.copy_selection();

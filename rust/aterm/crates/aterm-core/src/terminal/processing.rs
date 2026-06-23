@@ -174,6 +174,16 @@ impl Terminal {
         // before escaped content accumulates, so inner sequences parse normally
         // without re-injection. The former pending_passthrough drain loop was
         // dead code and was removed in #7776.
+
+        // INTEGRITY-SELFCHECK (M7): in debug builds, validate the active grid's
+        // structural invariants (CursorInBounds / ScrollRegionValid /
+        // DisplayOffsetValid / ring-buffer) at this public processing boundary —
+        // the exact, fuzz-validated checks `fuzz_process_never_panics` asserts,
+        // now continuously on every `process` batch in development. Free in release
+        // (compiled out). The whole test suite exercises it, so any change that
+        // corrupts the grid trips here immediately.
+        #[cfg(debug_assertions)]
+        self.grid.assert_structural_invariants();
     }
 
     /// Store per-stage pipeline durations in transient state (#5560).

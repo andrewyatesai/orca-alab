@@ -711,9 +711,18 @@ pub struct GpuRenderer {
     blit_layout: wgpu::PipelineLayout,
     blit_sampler: wgpu::Sampler,
     blit_uniform_buf: wgpu::Buffer,
-    /// Blit pipelines keyed by swapchain format (built lazily in `present_input` —
-    /// the surface's chosen format isn't known until a window exists).
+    /// Blit pipelines keyed by swapchain format. Built EAGERLY in
+    /// `create_window_surface` (the format is known there) so the compile is off
+    /// the first-FRAME path; `present_input` then only looks one up.
+    /// `ensure_blit_pipeline` remains the idempotent lazy fallback (and the
+    /// test/readback path's builder) for any format not seen at surface-create.
     blit_pipelines: HashMap<wgpu::TextureFormat, wgpu::RenderPipeline>,
+    /// Cached swapchain-format choice: the NON-sRGB format `pick_surface_format`
+    /// picks is adapter/platform-stable (Bgra8Unorm on macOS/Metal, offered by
+    /// every on-screen surface on this single adapter), so the blocking
+    /// `surface.get_capabilities` round-trip is done ONCE and reused for later
+    /// window-attaches. Clear this to restore per-attach querying.
+    cached_surface_format: Option<wgpu::TextureFormat>,
     /// Persisted mono (R8) + colour (RGBA8) atlases — `None` until the first
     /// frame builds them. Reused untouched when a frame's glyph set is a subset
     /// of what's resident; grown incrementally on a miss.
@@ -1305,7 +1314,12 @@ impl GpuRenderer {
         // legs just overlap, saving ~min(gpu_init, font_load) off cold start.
         let family_owned = family.map(String::from);
         let font_handle = std::thread::spawn(move || {
-            Renderer::from_system_with_family(family_owned.as_deref(), px, theme)
+            let mut cpu = Renderer::from_system_with_family(family_owned.as_deref(), px, theme)?;
+            // Warm the printable-ASCII glyph cache here (still off the critical path,
+            // overlapping GPU init) so the first frame's atlas build doesn't
+            // rasterize them on the hot path. Byte-identical output (cache fill only).
+            cpu.prewarm_ascii();
+            Some(cpu)
         });
         let ctx = GpuContext::new()?;
         let cpu = font_handle
@@ -1364,6 +1378,7 @@ impl GpuRenderer {
             blit_sampler,
             blit_uniform_buf,
             blit_pipelines: HashMap::new(),
+            cached_surface_format: None,
             mono_res: None,
             color_res: None,
             resident_keys: BTreeSet::new(),
@@ -1946,7 +1961,7 @@ impl GpuRenderer {
     /// screen byte-identical to the readback the AI introspection sees. An `*Srgb`
     /// surface would re-encode every channel and break that invariant.
     pub fn create_window_surface(
-        &self,
+        &mut self,
         target: impl Into<wgpu::SurfaceTarget<'static>>,
         width: u32,
         height: u32,
@@ -1956,7 +1971,57 @@ impl GpuRenderer {
             .instance
             .create_surface(target)
             .map_err(|e| format!("create_surface failed: {e}"))?;
-        self.configure_window_surface(surface, width, height)
+        // Query the surface capabilities only on the FIRST attach; the NON-sRGB
+        // format choice is adapter/platform-stable, so reuse it (saving the
+        // blocking driver round-trip) for later windows.
+        let format = match self.cached_surface_format {
+            Some(f) => {
+                // The cache assumes the NON-sRGB format choice is stable across every
+                // surface on this single adapter (true on macOS/Metal). Guard that
+                // assumption in debug builds at zero release cost: if a surface ever
+                // did NOT support the cached format (e.g. a future multi-adapter/
+                // -surface backend), this fires loudly so the cache can be re-keyed
+                // (clear `cached_surface_format`) instead of silently mis-configuring.
+                #[cfg(debug_assertions)]
+                {
+                    let caps = surface.get_capabilities(&self.ctx.adapter);
+                    debug_assert!(
+                        caps.formats.contains(&f),
+                        "cached surface format {f:?} is not supported by this surface \
+                         (supported: {:?}); the per-surface-stable assumption broke — \
+                         clear `cached_surface_format` to re-query per attach",
+                        caps.formats
+                    );
+                }
+                f
+            }
+            None => {
+                let caps = surface.get_capabilities(&self.ctx.adapter);
+                let f = Self::pick_surface_format(&caps)?;
+                self.cached_surface_format = Some(f);
+                f
+            }
+        };
+        // Compile the blit pipeline for this format NOW (off the first-FRAME path);
+        // `present_input` then only looks it up. Idempotent if already built.
+        self.ensure_blit_pipeline(format);
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: width.max(1),
+            height: height.max(1),
+            // AutoNoVsync: lowest input→display latency (no vblank lock). On Metal
+            // this picks Mailbox where supported (newest frame wins, still tear-free)
+            // and falls back to Immediate otherwise. A terminal redraws discretely and
+            // rarely scrolls full-screen, so tearing is near-imperceptible — the latency
+            // win (≈ one refresh interval, ~8–16 ms) is the better default for typing.
+            present_mode: wgpu::PresentMode::AutoNoVsync,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&self.ctx.device, &config);
+        Ok(GpuSurface { surface, config })
     }
 
     /// Configure an ALREADY-CREATED `wgpu::Surface` for presentation at the given
@@ -1964,7 +2029,9 @@ impl GpuRenderer {
     /// [`create_window_surface`](Self::create_window_surface) — split out because
     /// the WebGL backend must create the canvas surface BEFORE the adapter exists
     /// (the adapter is enumerated against that surface), so the surface and the
-    /// renderer are assembled in the opposite order from native.
+    /// renderer are assembled in the opposite order from native. Takes `&self` (no
+    /// first-attach format cache / eager blit-pipeline build — the wasm path makes
+    /// exactly one surface and `present_input` lazily ensures the blit pipeline).
     pub fn configure_window_surface(
         &self,
         surface: wgpu::Surface<'static>,
@@ -1978,11 +2045,6 @@ impl GpuRenderer {
             format,
             width: width.max(1),
             height: height.max(1),
-            // AutoNoVsync: lowest input→display latency (no vblank lock). On Metal
-            // this picks Mailbox where supported (newest frame wins, still tear-free)
-            // and falls back to Immediate otherwise. A terminal redraws discretely and
-            // rarely scrolls full-screen, so tearing is near-imperceptible — the latency
-            // win (≈ one refresh interval, ~8–16 ms) is the better default for typing.
             present_mode: wgpu::PresentMode::AutoNoVsync,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             view_formats: vec![],
@@ -2671,11 +2733,15 @@ impl GpuRenderer {
             for (c, cell) in cells.iter().take(cols).enumerate() {
                 // An image-covered cell skips its glyph (image-vs-glyph
                 // precedence, mirroring the CPU `image_covers` guard), so it
-                // contributes no atlas key.
-                if Self::drawable(cell) && input.image_at(r, c).is_none() {
+                // contributes no atlas key — UNLESS the image is z<0 (behind text),
+                // where the glyph still draws (shared `image_hides_glyph_at`).
+                if Self::drawable(cell) && !input.image_hides_glyph_at(r, c) {
                     // A ligature-owned column contributes the shaped `mono_gid`
                     // key (matching the CPU plan); other columns the per-cell key.
-                    let key = match plan.get(c).copied().unwrap_or(aterm_render::ColumnGlyph::PerCell)
+                    let key = match plan
+                        .get(c)
+                        .copied()
+                        .unwrap_or(aterm_render::ColumnGlyph::PerCell)
                     {
                         aterm_render::ColumnGlyph::Ligated(gid) => {
                             self.cpu.ligature_key(gid, aterm_render::cell_style(cell))
@@ -2794,9 +2860,9 @@ impl GpuRenderer {
             }
             for (c, cell) in cells.iter().take(cols).enumerate() {
                 // Image-covered cells skip their glyph (image-vs-glyph
-                // precedence) — the CPU `image_covers` guard, mirrored, so an
-                // image cell never emits a glyph instance on either path.
-                if !Self::drawable(cell) || input.image_at(r, c).is_some() {
+                // precedence) — the CPU `image_covers` guard, mirrored. A z<0 image
+                // (behind text) does NOT hide the glyph (shared `image_hides_glyph_at`).
+                if !Self::drawable(cell) || input.image_hides_glyph_at(r, c) {
                     continue;
                 }
                 // Cached resolve (the atlas pass above already keyed this char).
@@ -3568,21 +3634,35 @@ mod tests {
         }
         // Deterministic raster: distinct bytes per pixel so a mis-copy is visible.
         let raster = |w: u32, h: u32, seed: u8| -> Vec<u8> {
-            (0..(w * h * 4)).map(|i| (i as u8).wrapping_add(seed)).collect()
+            (0..(w * h * 4))
+                .map(|i| (i as u8).wrapping_add(seed))
+                .collect()
         };
         let a = raster(7, 5, 1);
         // Case 1: single full-width image (dw == tw -> fast path).
         let items = [(0u32, 7u32, 5u32, a.as_slice())];
-        assert_eq!(GpuRenderer::pack_image_plane(&items, 7, 5), per_row(&items, 7, 5));
+        assert_eq!(
+            GpuRenderer::pack_image_plane(&items, 7, 5),
+            per_row(&items, 7, 5)
+        );
         // Case 2: two stacked same-width images (both hit the fast path).
         let b = raster(7, 3, 9);
         let items = [(0u32, 7, 5, a.as_slice()), (5u32, 7, 3, b.as_slice())];
-        assert_eq!(GpuRenderer::pack_image_plane(&items, 7, 8), per_row(&items, 7, 8));
+        assert_eq!(
+            GpuRenderer::pack_image_plane(&items, 7, 8),
+            per_row(&items, 7, 8)
+        );
         // Case 3: a narrow image under a wider plane (dw < tw -> else path).
         let narrow = raster(3, 4, 4);
         let wide = raster(7, 2, 7);
-        let items = [(0u32, 7, 2, wide.as_slice()), (2u32, 3, 4, narrow.as_slice())];
-        assert_eq!(GpuRenderer::pack_image_plane(&items, 7, 6), per_row(&items, 7, 6));
+        let items = [
+            (0u32, 7, 2, wide.as_slice()),
+            (2u32, 3, 4, narrow.as_slice()),
+        ];
+        assert_eq!(
+            GpuRenderer::pack_image_plane(&items, 7, 6),
+            per_row(&items, 7, 6)
+        );
     }
 
     /// SACRED CONSTRAINT (rendering architecture): the GPU consumes the CPU

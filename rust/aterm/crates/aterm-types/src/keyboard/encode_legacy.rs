@@ -56,7 +56,7 @@ pub(super) fn encode_named_legacy(
     let app_keypad = mode.contains(KeyboardMode::APP_KEYPAD);
     let has_modifiers = !modifiers.is_empty();
 
-    if let Some(encoded) = encode_control_named_legacy(key, modifiers) {
+    if let Some(encoded) = encode_control_named_legacy(key, modifiers, mode) {
         return encoded;
     }
 
@@ -78,7 +78,11 @@ pub(super) fn encode_named_legacy(
     Vec::new()
 }
 
-fn encode_control_named_legacy(key: NamedKey, modifiers: Modifiers) -> Option<Vec<u8>> {
+fn encode_control_named_legacy(
+    key: NamedKey,
+    modifiers: Modifiers,
+    mode: KeyboardMode,
+) -> Option<Vec<u8>> {
     Some(match key {
         NamedKey::Enter => {
             if modifiers.contains(Modifiers::ALT) {
@@ -105,12 +109,21 @@ fn encode_control_named_legacy(key: NamedKey, modifiers: Modifiers) -> Option<Ve
             }
         }
         NamedKey::Backspace => {
-            if modifiers.contains(Modifiers::CTRL) {
-                vec![0x08]
-            } else if modifiers.contains(Modifiers::ALT) {
-                vec![0x1b, 0x7f]
+            // DECBKM (mode 67): when set, Backspace sends BS (0x08) and DEL (0x7f)
+            // becomes the Ctrl-modified form; default (reset) is the reverse. The
+            // Alt form ESC-prefixes the unmodified byte. (xterm `backarrowKey`.)
+            let bksp = if mode.contains(KeyboardMode::BACKARROW_SENDS_BS) {
+                0x08
             } else {
-                vec![0x7f]
+                0x7f
+            };
+            let ctrl_bksp = if bksp == 0x08 { 0x7f } else { 0x08 };
+            if modifiers.contains(Modifiers::CTRL) {
+                vec![ctrl_bksp]
+            } else if modifiers.contains(Modifiers::ALT) {
+                vec![0x1b, bksp]
+            } else {
+                vec![bksp]
             }
         }
         NamedKey::Space => {

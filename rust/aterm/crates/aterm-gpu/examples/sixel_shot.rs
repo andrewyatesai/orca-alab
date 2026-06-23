@@ -11,7 +11,9 @@ use aterm_gpu::GpuRenderer;
 use aterm_render::Theme;
 
 fn main() {
-    let path = std::env::args().nth(1).unwrap_or_else(|| "/tmp/aterm_sixel_shot.png".to_string());
+    let path = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "/tmp/aterm_sixel_shot.png".to_string());
     let (rows, cols) = (12u16, 40u16);
     let mut term = Terminal::new(rows, cols);
 

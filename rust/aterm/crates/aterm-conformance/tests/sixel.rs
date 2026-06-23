@@ -349,13 +349,20 @@ fn sixel_anchors_at_cursor_column_mid_line() {
     let row = s.images_row(0);
     assert_eq!(row.len(), 1, "exactly one image cell on row 0");
     let (col, ref iref) = row[0];
-    assert_eq!(col, 5, "sixel anchors at the cursor column (5), not column 0");
+    assert_eq!(
+        col, 5,
+        "sixel anchors at the cursor column (5), not column 0"
+    );
     // The image's own tile coordinate is still (0,0): anchoring shifts where the
     // footprint lands on the grid, not the image's internal tiling.
     assert_eq!(iref.cell_row, 0, "image top-left tile row");
     assert_eq!(iref.cell_col, 0, "image top-left tile col");
     // Cursor moved to the line below (scrolling mode), back at column 0.
-    assert_eq!(s.cursor(), (1, 0), "scrolling mode: cursor below image at col 0");
+    assert_eq!(
+        s.cursor(),
+        (1, 0),
+        "scrolling mode: cursor below image at col 0"
+    );
 }
 
 #[test]
@@ -372,7 +379,11 @@ fn sixel_mid_line_does_not_overprint_cells_to_its_left() {
     assert_eq!(row.len(), 1, "one image cell placed");
     assert_eq!(row[0].0, 5, "anchored at the cursor column (5), not 0");
     // The text to the left is untouched — the image did not snap to column 0.
-    assert_eq!(&s.row(0)[..5], "ABCDE", "glyphs left of the sixel are intact");
+    assert_eq!(
+        &s.row(0)[..5],
+        "ABCDE",
+        "glyphs left of the sixel are intact"
+    );
 }
 
 #[test]
@@ -385,7 +396,10 @@ fn sixel_mid_line_anchors_at_cursor_in_display_mode() {
 
     let row = s.images_row(2);
     assert_eq!(row.len(), 1, "image on the cursor row (2)");
-    assert_eq!(row[0].0, 7, "display mode also anchors at the cursor column (7)");
+    assert_eq!(
+        row[0].0, 7,
+        "display mode also anchors at the cursor column (7)"
+    );
     assert_eq!(
         s.cursor(),
         (2, 7),
@@ -412,7 +426,10 @@ fn sixel_image_decodes_to_expected_raster_and_is_placed() {
     // The cursor was at column 0 (fresh screen) and sixel anchors at the CURRENT
     // cursor column, so the image lands at column 0 here. The mid-line case (a
     // nonzero cursor column) is locked by `sixel_anchors_at_cursor_column_mid_line`.
-    assert_eq!(col, 0, "anchored at the cursor column (0 on a fresh screen)");
+    assert_eq!(
+        col, 0,
+        "anchored at the cursor column (0 on a fresh screen)"
+    );
     assert_eq!(iref.cell_row, 0);
     assert_eq!(iref.cell_col, 0);
 

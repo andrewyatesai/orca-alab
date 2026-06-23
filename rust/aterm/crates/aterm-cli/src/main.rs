@@ -93,7 +93,8 @@ const HELP: &str = concat!(
     "when the containment mode demands it.\n",
     "\n",
     "USAGE:\n",
-    "    aterm [OPTIONS]\n",
+    "    aterm [OPTIONS]            Start an interactive shell (the default).\n",
+    "    aterm <SUBCOMMAND>         Print diagnostics and exit (see SUBCOMMANDS).\n",
     "\n",
     "OPTIONS:\n",
     "        --containment <MODE>  Containment mode: master, user, safety, or\n",
@@ -107,6 +108,15 @@ const HELP: &str = concat!(
     "                              full network/credential access — the default).\n",
     "    -h, --help                Print this help and exit.\n",
     "    -V, --version             Print the version and exit.\n",
+    "\n",
+    "SUBCOMMANDS (print info and exit; no shell is spawned):\n",
+    "    show-config               Print aterm's effective runtime configuration.\n",
+    "    validate-config           Validate the config; exit non-zero on error.\n",
+    "    explain-config            Explain how aterm resolves its configuration.\n",
+    "    doctor                    Pre-flight health check; exit non-zero on a problem.\n",
+    "    list-fonts                List available font families.\n",
+    "    show-face <family>        Show metrics for a font family.\n",
+    "    list-themes               List the built-in colour schemes.\n",
     "\n",
     "PRECEDENCE:\n",
     "    explicit flag > $ATERM_CONTAINMENT_MODE > default (user). Among multiple\n",
@@ -127,6 +137,295 @@ const HELP: &str = concat!(
     "    ATERM_CONTAINMENT_MODE=safety aterm  Allowlisted-operations mode via env.\n",
 );
 
+/// Diagnostic subcommands (CLI-DIAG): `aterm <name>` prints introspection about
+/// aterm's own configuration/environment and exits 0 WITHOUT spawning a shell.
+///
+/// Implemented: config introspection (`show-config` / `validate-config` /
+/// `explain-config`), a `doctor` pre-flight health check, and the read-only
+/// enumerators `list-fonts` / `show-face` / `list-themes` (backed by aterm-render +
+/// aterm-types). `list-keybinds` is deliberately NOT here: keybindings are an
+/// aterm-gui concept; the transparent passthrough binary has no keymap, so it would
+/// belong in aterm-gui, not a false affordance here.
+///
+/// This is the SINGLE source of truth: [`diag_report`] must handle every entry
+/// AND [`HELP`] must advertise every entry — both enforced by the
+/// `diag_commands_advertised_and_dispatchable` gate, so a subcommand can never
+/// ship undocumented or unimplemented.
+const DIAG_COMMANDS: &[(&str, &str)] = &[
+    (
+        "show-config",
+        "Print aterm's effective runtime configuration.",
+    ),
+    (
+        "validate-config",
+        "Validate the effective config; exit non-zero on error.",
+    ),
+    (
+        "explain-config",
+        "Explain how aterm resolves its configuration.",
+    ),
+    (
+        "doctor",
+        "Run an aggregate pre-flight health check; exit non-zero on any problem.",
+    ),
+    ("list-fonts", "List available font families (one per line)."),
+    (
+        "show-face",
+        "Show metrics for a font family (usage: aterm show-face <family>).",
+    ),
+    (
+        "list-themes",
+        "List the built-in colour schemes and their descriptions.",
+    ),
+];
+
+/// Build the `(report, exit_code)` for diagnostic subcommand `cmd` (with an
+/// optional positional `arg`, e.g. the family for `show-face`), or `None` if `cmd`
+/// is not a registry command. Read-only: consults env / the controlling terminal /
+/// the system font + theme registries WITHOUT actuating containment or spawning a
+/// shell, so it is safe to run anywhere and unit-testable. A non-zero code
+/// (`validate-config`/`doctor`/`show-face` on bad input) makes them scriptable.
+fn diag_report(cmd: &str, arg: Option<&str>) -> Option<(String, i32)> {
+    match cmd {
+        "show-config" => Some((show_config_report(), 0)),
+        "validate-config" => Some(validate_config_report()),
+        "explain-config" => Some((explain_config_report(), 0)),
+        "doctor" => Some(doctor_report()),
+        "list-fonts" => Some((list_fonts_report(), 0)),
+        "show-face" => Some(show_face_report(arg)),
+        "list-themes" => Some((list_themes_report(), 0)),
+        _ => None,
+    }
+}
+
+/// `aterm show-config` — aterm's effective runtime configuration as stable
+/// `key=value` lines (one per line, scriptable). Reports the raw inputs the
+/// launcher resolves the containment mode from (env value + the fail-closed
+/// default), NOT an actuated mode — `show-config` never actuates or spawns.
+fn show_config_report() -> String {
+    let ws = host_winsize();
+    let env = |k: &str| std::env::var(k).unwrap_or_default();
+    let or = |s: String, dflt: &str| if s.is_empty() { dflt.to_string() } else { s };
+    let mut out = String::new();
+    out.push_str(&format!("version={}\n", env!("CARGO_PKG_VERSION")));
+    out.push_str(&format!("shell={}\n", or(env("SHELL"), "(unset)")));
+    out.push_str(&format!("term={}\n", or(env("TERM"), "(unset)")));
+    out.push_str(&format!("rows={}\n", ws.ws_row));
+    out.push_str(&format!("cols={}\n", ws.ws_col));
+    out.push_str(&format!(
+        "containment_mode_env={}\n",
+        or(env("ATERM_CONTAINMENT_MODE"), "(unset)")
+    ));
+    out.push_str("containment_default=user\n");
+    out.push_str(&format!(
+        "verbose={}\n",
+        if std::env::var_os("ATERM_VERBOSE").is_some() {
+            "on"
+        } else {
+            "off"
+        }
+    ));
+    out
+}
+
+/// `aterm validate-config` — validate the effective configuration WITHOUT actuating
+/// anything, then exit (0 = valid, non-zero = invalid). Today the one fail-closed
+/// knob is the containment mode: a malformed `$ATERM_CONTAINMENT_MODE` would force
+/// aterm to the most restrictive mode at launch, so surface it here instead. Reads
+/// the env, then delegates to the pure [`validate_containment_value`]. Scriptable:
+/// `aterm validate-config && aterm`.
+fn validate_config_report() -> (String, i32) {
+    validate_containment_value(std::env::var("ATERM_CONTAINMENT_MODE").ok().as_deref())
+}
+
+/// Pure core of `validate-config` (env-free, so it is deterministically testable):
+/// validate a containment-mode selection. `None` = unset (the default `user`
+/// applies — valid). Parsing is the SAME public `ContainmentMode::FromStr` the
+/// launcher uses, so this can never disagree with the real init funnel.
+fn validate_containment_value(v: Option<&str>) -> (String, i32) {
+    match v {
+        None => (
+            "OK: ATERM_CONTAINMENT_MODE unset (default: user)\n".to_string(),
+            0,
+        ),
+        Some(s) => match s.parse::<aterm_containment::ContainmentMode>() {
+            Ok(mode) => (
+                format!("OK: containment_mode={mode} (ATERM_CONTAINMENT_MODE={s:?})\n"),
+                0,
+            ),
+            Err(e) => (format!("ERR: {e}\n"), 1),
+        },
+    }
+}
+
+/// `aterm explain-config` — explain how aterm resolves its configuration: the
+/// precedence rule, the containment modes (least → most capability), and the
+/// environment variables consulted. Read-only static reference text.
+fn explain_config_report() -> String {
+    let mut out = String::new();
+    out.push_str("aterm configuration resolution\n\n");
+    out.push_str("Containment mode precedence (most-specific wins):\n");
+    out.push_str("  1. --containment <mode> / --sandbox / --no-sandbox (CLI flag)\n");
+    out.push_str("  2. $ATERM_CONTAINMENT_MODE (environment)\n");
+    out.push_str("  3. default: user\n");
+    out.push_str(
+        "  A malformed value fails CLOSED to the most restrictive mode (containment).\n\n",
+    );
+    out.push_str("Containment modes (least → most capability):\n");
+    out.push_str(
+        "  containment  Hostile-agent: OS-enforced network + credential denial (macOS Seatbelt).\n",
+    );
+    out.push_str("  safety       Reduced capability: allowlisted operations only.\n");
+    out.push_str("  user         Normal usage: standard safeguards (the default).\n");
+    out.push_str("  master       Full trust: developer mode.\n\n");
+    out.push_str("Environment variables:\n");
+    out.push_str(
+        "  ATERM_CONTAINMENT_MODE  containment mode when no --containment flag is given.\n",
+    );
+    out.push_str("  ATERM_VERBOSE           print a one-line session summary to stderr on exit.\n");
+    out
+}
+
+/// `aterm list-fonts` — available font families (file stems), one per line, sorted
+/// and deduplicated for scriptable output. Data: [`aterm_render::list_fonts`].
+fn list_fonts_report() -> String {
+    let fonts = aterm_render::list_fonts();
+    if fonts.is_empty() {
+        return "(no fonts found)\n".to_string();
+    }
+    let mut out = String::new();
+    for f in fonts {
+        out.push_str(&f);
+        out.push('\n');
+    }
+    out
+}
+
+/// `aterm show-face <family>` — the resolved path + cell metrics for a font family
+/// as stable `key=value` lines. Exit 1 (usage / not-found) when `family` is absent
+/// or unresolvable. Data: [`aterm_render::face_info`].
+fn show_face_report(family: Option<&str>) -> (String, i32) {
+    let Some(family) = family else {
+        return ("ERR: usage: aterm show-face <family>\n".to_string(), 1);
+    };
+    match aterm_render::face_info(family) {
+        Some(info) => (
+            format!(
+                "family={family}\npath={}\ncell_width={}\ncell_height={}\nbaseline={}\nglyph_count={}\n",
+                info.path, info.cell_width, info.cell_height, info.baseline, info.glyph_count
+            ),
+            0,
+        ),
+        None => (
+            format!("ERR: could not resolve or load font family {family:?}\n"),
+            1,
+        ),
+    }
+}
+
+/// `aterm list-themes` — the built-in colour schemes + one-line descriptions.
+/// Data: [`aterm_types::scheme::builtin_themes`].
+fn list_themes_report() -> String {
+    let mut out = String::from("Built-in colour schemes:\n\n");
+    for (name, desc) in aterm_types::scheme::builtin_themes() {
+        out.push_str(&format!("{name:<18} {desc}\n"));
+    }
+    out
+}
+
+/// `aterm doctor` — an aggregate pre-flight health check (containment validity,
+/// $SHELL set+executable, stdout is a tty, plus version/size). Reads env/fs/tty,
+/// then delegates to the pure [`doctor_checks`]. Exit 0 = all pass; non-zero = a
+/// problem. Scriptable: `aterm doctor && aterm`.
+fn doctor_report() -> (String, i32) {
+    let shell = std::env::var("SHELL").ok();
+    let shell_exec = shell.as_deref().is_some_and(shell_is_executable);
+    let containment = std::env::var("ATERM_CONTAINMENT_MODE").ok();
+    let is_tty = unsafe { libc::isatty(libc::STDOUT_FILENO) } == 1;
+    let ws = host_winsize();
+    doctor_checks(
+        shell.as_deref(),
+        shell_exec,
+        containment.as_deref(),
+        is_tty,
+        ws.ws_row,
+        ws.ws_col,
+    )
+}
+
+/// Whether `path` exists and is executable (`X_OK`). Conservative: any `access(2)`
+/// error (missing, not executable, embedded NUL) → `false` — a non-runnable shell
+/// is a failed check.
+fn shell_is_executable(path: &str) -> bool {
+    let Ok(c) = std::ffi::CString::new(path) else {
+        return false;
+    };
+    unsafe { libc::access(c.as_ptr(), libc::X_OK) == 0 }
+}
+
+/// Pure core of `doctor` (all state is an input, so it is deterministically
+/// testable): aggregate the pre-flight checks into a stable report + exit code
+/// (0 = all pass, 1 = any fail). Containment validity reuses
+/// [`validate_containment_value`], so `doctor` can't disagree with the launcher.
+fn doctor_checks(
+    shell: Option<&str>,
+    shell_executable: bool,
+    containment: Option<&str>,
+    is_tty: bool,
+    rows: u16,
+    cols: u16,
+) -> (String, i32) {
+    let (cont_detail, cont_code) = validate_containment_value(containment);
+    let cont_ok = cont_code == 0;
+
+    let (shell_ok, shell_detail) = match shell {
+        None => (false, "shell: $SHELL unset".to_string()),
+        Some("") => (false, "shell: $SHELL is empty".to_string()),
+        Some(p) if shell_executable => (true, format!("shell: {p} (executable)")),
+        Some(p) => (false, format!("shell: {p} (not executable or missing)")),
+    };
+
+    let (tty_ok, tty_detail) = if is_tty {
+        (true, "tty: stdout is a terminal".to_string())
+    } else {
+        (
+            false,
+            "tty: stdout is not a terminal (headless/piped)".to_string(),
+        )
+    };
+
+    let all_ok = cont_ok && shell_ok && tty_ok;
+    let mark = |ok: bool| if ok { "ok" } else { "FAIL" };
+
+    let mut out = String::new();
+    out.push_str(&format!("containment: {}\n", mark(cont_ok)));
+    out.push_str(&format!("shell:       {}\n", mark(shell_ok)));
+    out.push_str(&format!("tty:         {}\n", mark(tty_ok)));
+    out.push('\n');
+    // Strip validate-config's `OK:`/`ERR:` prefix so every detail line shares the
+    // uniform `key: …` shape (a single `^key:` grep then matches all of them).
+    let cont_trim = cont_detail.trim_end();
+    let cont_body = cont_trim
+        .strip_prefix("OK: ")
+        .or_else(|| cont_trim.strip_prefix("ERR: "))
+        .unwrap_or(cont_trim);
+    out.push_str(&format!("containment: {cont_body}\n"));
+    out.push_str(&shell_detail);
+    out.push('\n');
+    out.push_str(&tty_detail);
+    out.push('\n');
+    out.push_str(&format!(
+        "version: {} ({cols}x{rows})\n\n",
+        env!("CARGO_PKG_VERSION")
+    ));
+    out.push_str(if all_ok {
+        "health: OK — aterm is ready to run\n"
+    } else {
+        "health: FAIL — one or more checks did not pass\n"
+    });
+    (out, i32::from(!all_ok))
+}
+
 /// The outcome of parsing the command line: either print-and-exit (help/version),
 /// reject (usage error), or proceed with an optional containment override that the
 /// init funnel in `main()` will resolve.
@@ -136,6 +435,11 @@ enum CliAction {
     Help,
     /// `-V`/`--version`: print the version to stdout, exit 0.
     Version,
+    /// A diagnostic subcommand (e.g. `show-config`, or `show-face <family>`): print
+    /// introspection and exit WITHOUT spawning a shell. `cmd` is a registry-validated
+    /// name (one of [`DIAG_COMMANDS`]); `arg` is the optional positional operand
+    /// after it (the family for `show-face`).
+    Diag { cmd: String, arg: Option<String> },
     /// A usage error (unknown option, missing `--containment` value): the message
     /// is already framed for stderr; exit 2 without launching a shell.
     Usage(String),
@@ -167,9 +471,24 @@ enum CliAction {
 /// so it reaches `main()`'s `init_mode_from_env` and fails CLOSED to Containment with
 /// the identical message as the env path — never a parallel/bypass validation.
 fn decide_args<I: Iterator<Item = String>>(args: I) -> CliAction {
+    let mut args = args.peekable();
+    // A leading diagnostic subcommand (`aterm show-config`) dispatches BEFORE any
+    // flag parsing — git-style: the subcommand is the first operand. It prints
+    // introspection and exits without spawning a shell. Anything else (flags, or an
+    // unknown first operand) falls through to the existing option parser.
+    if let Some(first) = args.peek()
+        && DIAG_COMMANDS
+            .iter()
+            .any(|(name, _)| *name == first.as_str())
+    {
+        let cmd = args.next().expect("peeked Some");
+        // The optional positional operand after the subcommand (e.g. the family for
+        // `show-face <family>`). Subcommands that take none simply ignore it.
+        let arg = args.next();
+        return CliAction::Diag { cmd, arg };
+    }
     let mut containment: Option<String> = None;
     let mut opts_ended = false; // set by a literal `--`
-    let mut args = args;
     while let Some(arg) = args.next() {
         if !opts_ended {
             match arg.as_str() {
@@ -229,6 +548,25 @@ fn parse_args() {
         CliAction::Version => {
             println!("aterm {}", env!("CARGO_PKG_VERSION"));
             std::process::exit(0);
+        }
+        CliAction::Diag { cmd, arg } => {
+            // `decide_args` only emits registry names, so `diag_report` is Some.
+            match diag_report(&cmd, arg.as_deref()) {
+                // Success goes to stdout; a non-zero result (e.g. validate-config on
+                // a bad mode) goes to stderr and sets the exit code, so it scripts.
+                Some((report, 0)) => {
+                    print!("{report}");
+                    std::process::exit(0);
+                }
+                Some((report, code)) => {
+                    eprint!("{report}");
+                    std::process::exit(code);
+                }
+                None => {
+                    eprintln!("aterm: unknown subcommand {cmd} (try --help)");
+                    std::process::exit(2);
+                }
+            }
         }
         CliAction::Usage(msg) => {
             eprintln!("{msg}");
@@ -432,10 +770,247 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{CliAction, decide_args};
+    use super::{
+        CliAction, DIAG_COMMANDS, HELP, decide_args, diag_report, doctor_checks,
+        explain_config_report, list_fonts_report, list_themes_report, show_face_report,
+        validate_containment_value,
+    };
 
     fn decide(args: &[&str]) -> CliAction {
         decide_args(args.iter().map(|s| s.to_string()))
+    }
+
+    fn diag(cmd: &str, arg: Option<&str>) -> CliAction {
+        CliAction::Diag {
+            cmd: cmd.to_string(),
+            arg: arg.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn diag_subcommand_recognized_as_first_operand() {
+        // `aterm show-config` → Diag, dispatched before flag parsing / shell spawn.
+        assert_eq!(decide(&["show-config"]), diag("show-config", None));
+        // A positional operand after the subcommand is captured as `arg`
+        // (`aterm show-face Menlo`); commands that take none simply ignore it.
+        assert_eq!(
+            decide(&["show-face", "Menlo"]),
+            diag("show-face", Some("Menlo"))
+        );
+    }
+
+    #[test]
+    fn diag_subcommand_only_as_first_operand_not_after_flags() {
+        // A subcommand name after a flag is NOT a subcommand (git-style: first only),
+        // so it falls through to the option parser and is rejected as unknown.
+        assert!(matches!(
+            decide(&["--no-sandbox", "show-config"]),
+            CliAction::Usage(_)
+        ));
+    }
+
+    /// THE CLI-DIAG gate (`cli-subcommands-advertised`): every registry command must
+    /// be BOTH advertised in `--help` AND dispatchable — so a new subcommand cannot
+    /// ship undocumented or unimplemented (the test fails if either regresses).
+    #[test]
+    fn diag_commands_advertised_and_dispatchable() {
+        assert!(!DIAG_COMMANDS.is_empty(), "registry must not be empty");
+        for (name, _desc) in DIAG_COMMANDS {
+            // Advertised as its OWN SUBCOMMANDS line (a leading token), not merely a
+            // loose substring — so a future name that is a substring of another
+            // can't pass vacuously.
+            assert!(
+                HELP.lines().any(|l| l.trim_start().starts_with(name)),
+                "subcommand {name:?} is not advertised as a --help line"
+            );
+            assert!(
+                diag_report(name, None).is_some(),
+                "subcommand {name:?} is in the registry but has no dispatch"
+            );
+            // And it must actually be recognized by the parser.
+            assert_eq!(decide(&[name]), diag(name, None));
+        }
+        // A non-registry name is NOT dispatchable.
+        assert!(diag_report("definitely-not-a-command", None).is_none());
+    }
+
+    #[test]
+    fn show_config_report_has_stable_keys() {
+        let (r, code) = diag_report("show-config", None).expect("show-config dispatches");
+        assert_eq!(code, 0, "show-config always succeeds");
+        for key in [
+            "version=",
+            "shell=",
+            "term=",
+            "rows=",
+            "cols=",
+            "containment_mode_env=",
+            "containment_default=user",
+            "verbose=",
+        ] {
+            assert!(
+                r.contains(key),
+                "show-config missing {key:?}\n--- report ---\n{r}"
+            );
+        }
+        // Stable, scriptable shape: every non-empty line is `key=value`.
+        for line in r.lines().filter(|l| !l.is_empty()) {
+            assert!(line.contains('='), "non key=value line: {line:?}");
+        }
+    }
+
+    #[test]
+    fn validate_config_exit_codes() {
+        // Unset → valid (default user applies), exit 0.
+        let (msg, code) = validate_containment_value(None);
+        assert_eq!(code, 0, "{msg}");
+        assert!(msg.starts_with("OK"), "{msg}");
+
+        // Every accepted mode (case-insensitive) is valid, exit 0.
+        for m in ["master", "user", "safety", "containment", "MASTER", "User"] {
+            let (msg, code) = validate_containment_value(Some(m));
+            assert_eq!(code, 0, "mode {m:?} should be valid: {msg}");
+            assert!(msg.starts_with("OK"), "{msg}");
+        }
+
+        // Bad / empty values → invalid, exit 1, with a message naming the modes.
+        for bad in ["bogus", "", "use", "containmnt"] {
+            let (msg, code) = validate_containment_value(Some(bad));
+            assert_eq!(code, 1, "value {bad:?} should be invalid: {msg}");
+            assert!(msg.starts_with("ERR"), "{msg}");
+            assert!(
+                msg.contains("master") && msg.contains("containment"),
+                "error must name the accepted modes: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn explain_config_names_modes_and_precedence() {
+        let r = explain_config_report();
+        for needle in [
+            "precedence",
+            "ATERM_CONTAINMENT_MODE",
+            "master",
+            "user",
+            "safety",
+            "containment",
+            "fails CLOSED",
+        ] {
+            assert!(r.contains(needle), "explain-config missing {needle:?}\n{r}");
+        }
+    }
+
+    #[test]
+    fn show_face_requires_and_validates_family() {
+        // No family → usage error, exit 1.
+        let (msg, code) = show_face_report(None);
+        assert_eq!(code, 1);
+        assert!(msg.contains("usage"), "{msg}");
+        // An unresolvable family → not-found error, exit 1 (the positive path is
+        // covered by aterm-render's face_info test against a real system font).
+        let (msg, code) = show_face_report(Some("definitely-not-a-real-font-xyzzy"));
+        assert_eq!(code, 1);
+        assert!(msg.starts_with("ERR"), "{msg}");
+    }
+
+    #[test]
+    fn doctor_checks_pass_and_flag_each_failure() {
+        // /bin/sh is executable on every POSIX host; all checks pass.
+        let (r, code) = doctor_checks(Some("/bin/sh"), true, Some("user"), true, 24, 80);
+        assert_eq!(code, 0, "{r}");
+        assert!(r.contains("health: OK"), "{r}");
+        assert!(
+            r.contains("(executable)") && r.contains("stdout is a terminal"),
+            "{r}"
+        );
+        assert!(r.contains("version: ") && r.contains("80x24"), "{r}");
+
+        // Shell not executable → fail.
+        let (r, code) = doctor_checks(Some("/no/such/shell"), false, Some("user"), true, 24, 80);
+        assert_eq!(code, 1);
+        assert!(
+            r.contains("health: FAIL") && r.contains("not executable or missing"),
+            "{r}"
+        );
+
+        // $SHELL unset → fail.
+        let (r, code) = doctor_checks(None, false, Some("user"), true, 24, 80);
+        assert_eq!(code, 1);
+        assert!(r.contains("$SHELL unset"), "{r}");
+
+        // No tty (headless/piped) → fail.
+        let (r, code) = doctor_checks(Some("/bin/sh"), true, None, false, 24, 80);
+        assert_eq!(code, 1);
+        assert!(r.contains("health: FAIL") && r.contains("headless"), "{r}");
+
+        // Bad containment mode → fail (reuses validate-config's verdict).
+        let (r, code) = doctor_checks(Some("/bin/sh"), true, Some("bogus"), true, 24, 80);
+        assert_eq!(code, 1);
+        assert!(
+            r.contains("health: FAIL") && r.contains("invalid containment mode"),
+            "{r}"
+        );
+
+        // The detail block is uniform `key: …` lines (no stray `OK:`/`ERR:` prefix).
+        let (r, _) = doctor_checks(Some("/bin/sh"), true, Some("user"), true, 24, 80);
+        for key in ["containment: ", "shell: ", "tty: ", "version: "] {
+            assert!(
+                r.lines().any(|l| l.starts_with(key)),
+                "doctor detail missing a {key:?} line\n{r}"
+            );
+        }
+    }
+
+    #[test]
+    fn show_face_success_path_emits_metrics() {
+        // Pick any real, resolvable font and assert the key=value metrics shape.
+        // Skips cleanly on a host with no resolvable fonts.
+        let Some(family) = aterm_render::list_fonts()
+            .into_iter()
+            .find(|f| aterm_render::face_info(f).is_some())
+        else {
+            eprintln!("SKIP: no resolvable system font");
+            return;
+        };
+        let (r, code) = show_face_report(Some(&family));
+        assert_eq!(code, 0, "{r}");
+        for key in [
+            "family=",
+            "path=",
+            "cell_width=",
+            "cell_height=",
+            "baseline=",
+            "glyph_count=",
+        ] {
+            assert!(r.contains(key), "show-face missing {key:?}\n{r}");
+        }
+    }
+
+    #[test]
+    fn list_fonts_report_shape() {
+        let r = list_fonts_report();
+        // Either the sentinel, or a newline-terminated list of non-empty lines that
+        // matches the enumeration exactly (deterministic, scriptable).
+        if r == "(no fonts found)\n" {
+            return;
+        }
+        assert!(r.ends_with('\n'), "must be newline-terminated");
+        let lines: Vec<&str> = r.lines().collect();
+        assert!(lines.iter().all(|l| !l.is_empty()), "no empty lines");
+        assert_eq!(
+            lines,
+            aterm_render::list_fonts(),
+            "must mirror list_fonts()"
+        );
+    }
+
+    #[test]
+    fn list_themes_includes_default_and_named() {
+        let r = list_themes_report();
+        for name in ["Default", "Dracula", "Nord", "Solarized Dark"] {
+            assert!(r.contains(name), "list-themes missing {name:?}\n{r}");
+        }
     }
 
     #[test]

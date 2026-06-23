@@ -43,6 +43,8 @@ mod cli;
 mod config_watcher;
 mod control;
 mod control_auth;
+mod crash_signal;
+mod diagnostics;
 mod input;
 mod keybinding;
 mod keymap;
@@ -1270,6 +1272,13 @@ struct App {
     /// engine, control socket, and offscreen rendering (`image`/snapshot via
     /// [`Wake::Control`]) all run, but nothing is presented on screen.
     headless: bool,
+    /// Soft frame-cap interval for bulk PTY output — the actual display refresh
+    /// period, resolved from the primary monitor in `resumed()` (e.g. 16.7ms for
+    /// 60Hz, 8.3ms for 120Hz ProMotion). Defaults to [`MIN_FRAME_INTERVAL`] until
+    /// a monitor is known (and on headless, where nothing is presented). Capping at
+    /// the real refresh — rather than a fixed ~125fps — avoids presenting frames a
+    /// 60Hz panel can never show, without ever under-capping below the refresh.
+    frame_interval: Duration,
     /// Audible bell gate: one beep per [`BELL_BEEP_INTERVAL`] (the engine
     /// already throttles BEL callbacks to 10/s; this slows the sound further).
     bell_beep: BellRateLimiter,
@@ -1628,6 +1637,7 @@ impl App {
             next_window_id: 1,
             winit_to_window: HashMap::new(),
             headless: true,
+            frame_interval: MIN_FRAME_INTERVAL,
             bell_beep: BellRateLimiter::new(BELL_BEEP_INTERVAL),
             image_queue,
             trace_latency: false,
@@ -1649,6 +1659,56 @@ impl App {
     /// A spawn failure is logged and ignored (the layout is untouched, so the
     /// just-failed split never half-applies). Sized at the CURRENT grid; the
     /// post-split resize pass gives every pane its real sub-rect.
+    /// Move keyboard focus to the pane adjacent to the focused one, in `dir`,
+    /// within the frontmost window's active tab. Mirrors click-to-focus
+    /// (`focus_pane_under_pointer`): `set_focus` on the tree, then `sync_window`
+    /// re-mirrors term/master/socket onto the newly-focused pane and repaints. A
+    /// no-op for a single-pane tab or at the edge (no neighbor).
+    fn focus_pane(&mut self, dir: pane::FocusDir) {
+        let Some(owner) = self.frontmost_window else {
+            return;
+        };
+        let Some(ws) = self.windows.get(&owner) else {
+            return;
+        };
+        let tree = &ws.layouts[ws.tabs.active];
+        if tree.len() == 1 {
+            return;
+        }
+        let (rows, cols) = (ws.rows, ws.cols);
+        let Some(target) = tree.focus_neighbor(dir, rows, cols) else {
+            return;
+        };
+        if self
+            .active_tree_mut(owner)
+            .is_some_and(|t| t.set_focus(target))
+        {
+            self.sync_window(owner);
+        }
+    }
+
+    /// Toggle ZOOM of the focused pane in the frontmost window's active tab: the
+    /// focused pane fills the window (others hidden) until toggled off. No-op for a
+    /// single-pane tab. `resize_panes` resizes the now-full pane's engine/PTY to the
+    /// window grid (and restores all panes on unzoom); `sync_window` repaints.
+    fn toggle_pane_zoom(&mut self) {
+        let Some(owner) = self.frontmost_window else {
+            return;
+        };
+        let toggled = self.active_tree_mut(owner).is_some_and(|t| {
+            if t.len() > 1 {
+                t.toggle_zoom();
+                true
+            } else {
+                false
+            }
+        });
+        if toggled {
+            self.resize_panes(owner);
+            self.sync_window(owner);
+        }
+    }
+
     fn split_focused_pane(&mut self, dir: pane::SplitDir) {
         // The split spawns a NEW session (views=1, never `attach`) owned by the
         // frontmost window, so its output/exit/bell route back to THIS window.
@@ -1916,6 +1976,7 @@ impl ApplicationHandler<Wake> for App {
         // passed at once, so service EVERY window (not just the frontmost).
         if matches!(cause, StartCause::ResumeTimeReached { .. }) {
             let now = Instant::now();
+            let frame_interval = self.frame_interval; // read before borrowing windows
             let mut to_redraw: Vec<WindowId> = Vec::new();
             for (id, ws) in self.windows.iter_mut() {
                 // Flash over: repaint the normal (un-inverted) frame.
@@ -1931,7 +1992,9 @@ impl ApplicationHandler<Wake> for App {
                 // Frame-cap boundary reached: flush the coalesced bulk-output redraw
                 // deferred by the soft cap in the `Wake::Output` handler.
                 if ws.redraw_pending
-                    && ws.last_present_at.is_some_and(|t| now.duration_since(t) >= MIN_FRAME_INTERVAL)
+                    && ws
+                        .last_present_at
+                        .is_some_and(|t| now.duration_since(t) >= frame_interval)
                 {
                     ws.redraw_pending = false;
                     dirty = true;
@@ -1961,6 +2024,7 @@ impl ApplicationHandler<Wake> for App {
         // hidden, headless) leaves the loop in pure `Wait` — is inlined on the
         // `&mut WindowState` in hand.
         let headless = self.headless;
+        let frame_interval = self.frame_interval; // read before borrowing windows
         for ws in self.windows.values_mut() {
             // Read the blink predicate WITHOUT blocking on the engine lock. Under
             // heavy PTY output the reader thread holds `term` for the whole of
@@ -2016,11 +2080,11 @@ impl ApplicationHandler<Wake> for App {
             // `last_present + MIN_FRAME_INTERVAL` so `new_events` flushes it.
             // (`redraw_pending` is only set after a present, so `last_present` is
             // always `Some` here — the deadline is always armable.)
-            if ws.redraw_pending {
-                if let Some(t) = ws.last_present_at {
-                    let d = t + MIN_FRAME_INTERVAL;
-                    deadline = Some(deadline.map_or(d, |b| b.min(d)));
-                }
+            if ws.redraw_pending
+                && let Some(t) = ws.last_present_at
+            {
+                let d = t + frame_interval;
+                deadline = Some(deadline.map_or(d, |b| b.min(d)));
             }
         }
         match deadline {
@@ -2030,6 +2094,18 @@ impl ApplicationHandler<Wake> for App {
     }
 
     fn resumed(&mut self, el: &ActiveEventLoop) {
+        // (#3) Cap bulk-output frames at the ACTUAL display refresh rather than a
+        // fixed ~125fps: resolve the primary monitor's refresh period now that the
+        // display is up. `refresh_rate_millihertz()` is Hz×1000, so the period is
+        // 1e12 / mHz ns (60Hz -> 16.7ms, 120Hz -> 8.3ms). Keep the MIN_FRAME_INTERVAL
+        // default if it's unavailable (no monitor / driver doesn't report it).
+        if let Some(mhz) = el
+            .primary_monitor()
+            .and_then(|m| m.refresh_rate_millihertz())
+            && mhz > 0
+        {
+            self.frame_interval = Duration::from_nanos(1_000_000_000_000u64 / u64::from(mhz));
+        }
         // Event-driven: sleep until the PTY produces output or the user acts,
         // instead of busy-polling. Redraws are requested explicitly on Wake.
         el.set_control_flow(ControlFlow::Wait);
@@ -2111,13 +2187,18 @@ impl ApplicationHandler<Wake> for App {
                 // `new_events` flushes the coalesced frame. Collect wids first since
                 // the cap needs `&mut WindowState` (`windows_displaying` borrows `&self`).
                 let now = Instant::now();
+                let frame_interval = self.frame_interval; // read before borrowing windows
                 let wids: Vec<WindowId> = self.windows_displaying(session).collect();
                 for wid in wids {
-                    let Some(ws) = self.windows.get_mut(&wid) else { continue };
-                    let Some(w) = ws.os_window.clone() else { continue };
+                    let Some(ws) = self.windows.get_mut(&wid) else {
+                        continue;
+                    };
+                    let Some(w) = ws.os_window.clone() else {
+                        continue;
+                    };
                     if ws
                         .last_present_at
-                        .map_or(true, |t| now.duration_since(t) >= MIN_FRAME_INTERVAL)
+                        .is_none_or(|t| now.duration_since(t) >= frame_interval)
                     {
                         ws.redraw_pending = false;
                         w.request_redraw();
@@ -2590,36 +2671,40 @@ fn main() {
     // Optional configured font family (config `font_family`); resolved to a file
     // first, then $ATERM_FONT, then the built-in candidates. `None` = unchanged.
     let font_family: Option<String> = config.font_family.clone();
-    let build_cpu = || -> Renderer {
-        Renderer::from_system_with_family(font_family.as_deref(), font_px, theme).unwrap_or_else(
-            || {
-                eprintln!("aterm-gui: no system monospace font found (set $ATERM_FONT)");
-                std::process::exit(1);
-            },
-        )
-    };
-    // `use_gpu` records which path is LIVE (GPU init can fail and fall back to
-    // CPU), so live font-zoom rebuilds the backend as the same kind.
-    let mut use_gpu = false;
-    let mut backend: Backend = if want_gpu {
-        match aterm_gpu::GpuRenderer::new_with_family(font_family.as_deref(), font_px, theme) {
-            Ok(g) => {
-                let (name, backend) = g.adapter();
-                eprintln!("aterm-gui: GPU rendering on {name} ({backend})");
-                use_gpu = true;
-                Backend::Gpu(g)
+    // Cold-launch overlap (#7): the backend build — GPU adapter/device init + font
+    // resolve/raster, the two dominant serial startup costs — shares NO state with
+    // the PTY spawn / engine / event loop, so build it on a background thread and
+    // JOIN just before its first use (after `spawn_session` below). The build owns
+    // the GPU-or-CPU-fallback decision, so the thread returns `(Backend, use_gpu)`.
+    let family_for_build = font_family.clone();
+    let backend_handle = std::thread::spawn(move || -> (Backend, bool) {
+        let build_cpu = || -> Renderer {
+            Renderer::from_system_with_family(family_for_build.as_deref(), font_px, theme)
+                .unwrap_or_else(|| {
+                    eprintln!("aterm-gui: no system monospace font found (set $ATERM_FONT)");
+                    std::process::exit(1);
+                })
+        };
+        if want_gpu {
+            match aterm_gpu::GpuRenderer::new_with_family(
+                family_for_build.as_deref(),
+                font_px,
+                theme,
+            ) {
+                Ok(g) => {
+                    let (name, backend) = g.adapter();
+                    eprintln!("aterm-gui: GPU rendering on {name} ({backend})");
+                    (Backend::Gpu(g), true)
+                }
+                Err(e) => {
+                    eprintln!("aterm-gui: GPU unavailable ({e}); using CPU renderer");
+                    (Backend::Cpu(build_cpu()), false)
+                }
             }
-            Err(e) => {
-                eprintln!("aterm-gui: GPU unavailable ({e}); using CPU renderer");
-                Backend::Cpu(build_cpu())
-            }
+        } else {
+            (Backend::Cpu(build_cpu()), false)
         }
-    } else {
-        Backend::Cpu(build_cpu())
-    };
-    // Record the live backend for the `metrics` control verb (font-zoom/HiDPI
-    // rebuilds preserve the kind, so this one-time set stays accurate).
-    metrics::set_backend_gpu(use_gpu);
+    });
     // Explicit render-scale override ($ATERM_FORCE_SCALE / --scale). When set it
     // wins over the headless 1.0 default (and, in `resumed`, over the real window's
     // scale_factor). Precedence: --scale flag > ATERM_FORCE_SCALE env > (headless
@@ -2637,30 +2722,11 @@ fn main() {
     // so the headless capture's cell metrics (and thus framebuffer size) match a
     // real window of that scale. An explicit $ATERM_FONT_PX is honoured verbatim
     // (never double-scaled), preserving the env > config > default precedence.
-    if headless {
-        if force_scale.is_some() && !font_px_explicit && headless_scale > 1.0 {
-            let scaled = (FONT_PX * headless_scale as f32)
-                .round()
-                .clamp(FONT_PX_MIN, FONT_PX_MAX);
-            match build_backend(scaled, use_gpu, theme, font_family.as_deref()) {
-                Some(b) => {
-                    font_px = scaled;
-                    backend = b;
-                }
-                None => eprintln!("aterm-gui: --scale font rebuild failed; keeping {font_px}px"),
-            }
-        }
-        backend.set_pad(pad_for_scale(headless_scale));
-    } else {
-        // Windowed: seed at 1× now; `resumed()` re-applies the pad (and any font
-        // auto-scale) at the chosen scale — the window's scale_factor, or the
-        // override when --scale/$ATERM_FORCE_SCALE is set.
-        backend.set_pad(pad_for_scale(1.0));
-    }
-    // Fixed per-glyph cell size (from the font); the `dims` verb multiplies it
-    // by the grid to report the framebuffer pixel size the renderer produces.
-    let (cell_w, cell_h) = backend.cell_size();
-    let cell_size = (cell_w as u32, cell_h as u32);
+    // (#7) The backend-dependent setup — the `metrics` backend tag, the headless
+    // `--scale` font rebuild, the pad seed, and `cell_size` — is DEFERRED to just
+    // after `spawn_session` below (where `backend_handle` is joined), so the backend
+    // build overlaps the spawn. Nothing between here and there touches the backend
+    // (the compiler enforces it: `backend`/`use_gpu`/`cell_size` don't exist yet).
     // Baseline terminal-identity environment for the spawned child, set
     // UNCONDITIONALLY (the deleted `spawn_env::build_spawn_plan` did this): so
     // programs detect an xterm-256color truecolor terminal named aterm, and a
@@ -2851,6 +2917,34 @@ fn main() {
     let master = session0.master;
     let app_sink = session0.ctx.sink.clone();
 
+    // (#7) Join the backend build — its first consumer (`cell_size` + the App's
+    // renderer) is below. Everything above (containment/authority, the SIGUSR1
+    // mask, env build, spawn_session + session-0 wiring) overlapped the build.
+    let (mut backend, use_gpu) = backend_handle
+        .join()
+        .expect("backend-build thread panicked");
+    metrics::set_backend_gpu(use_gpu);
+    if headless {
+        if force_scale.is_some() && !font_px_explicit && headless_scale > 1.0 {
+            let scaled = (FONT_PX * headless_scale as f32)
+                .round()
+                .clamp(FONT_PX_MIN, FONT_PX_MAX);
+            match build_backend(scaled, use_gpu, theme, font_family.as_deref()) {
+                Some(b) => {
+                    font_px = scaled;
+                    backend = b;
+                }
+                None => eprintln!("aterm-gui: --scale font rebuild failed; keeping {font_px}px"),
+            }
+        }
+        backend.set_pad(pad_for_scale(headless_scale));
+    } else {
+        // Windowed: seed at 1× now; `resumed()` re-applies the pad at the chosen scale.
+        backend.set_pad(pad_for_scale(1.0));
+    }
+    let (cell_w, cell_h) = backend.cell_size();
+    let cell_size = (cell_w as u32, cell_h as u32);
+
     // SIGUSR1 listener -> Wake::Snapshot (introspect the live screen to PNG+txt).
     {
         let proxy = event_loop.create_proxy();
@@ -2991,6 +3085,7 @@ fn main() {
         next_window_id: 1,
         winit_to_window: HashMap::new(),
         headless,
+        frame_interval: MIN_FRAME_INTERVAL,
         bell_beep: BellRateLimiter::new(BELL_BEEP_INTERVAL),
         image_queue,
         trace_latency,

@@ -146,8 +146,18 @@ pub fn apply_step(requested: &[bool], supported: &[bool], applied: &[bool]) -> V
         .collect()
 }
 
+/// The type of a `RLIMIT_*` resource selector, which differs by platform: glibc
+/// Linux types `setrlimit`'s first argument (and its `RLIMIT_*` constants) as
+/// `__rlimit_resource_t` (a `u32`), while macOS/BSD and musl use `c_int`. Aliasing
+/// it keeps [`set_limit`] portable — the `RLIMIT_*` constants already have this
+/// per-platform type, so they pass through without a cast.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+type RlimitResource = libc::__rlimit_resource_t;
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+type RlimitResource = libc::c_int;
+
 /// Set both soft and hard `resource` to `value` (no-op when `value` is `None`).
-fn set_limit(resource: libc::c_int, value: Option<u64>) -> io::Result<()> {
+fn set_limit(resource: RlimitResource, value: Option<u64>) -> io::Result<()> {
     let Some(v) = value else {
         return Ok(());
     };

@@ -39,6 +39,10 @@ bitflags! {
         const REPORT_ASSOCIATED_TEXT = 1 << 9;
         /// VT52 compatibility mode — arrow keys use `ESC A`..`ESC D` (no CSI/SS3).
         const VT52_MODE = 1 << 10;
+        /// DECBKM (DEC private mode 67): the Backspace key sends BS (0x08) instead
+        /// of the default DEL (0x7f). Affects only legacy encoding; the Ctrl
+        /// modifier inverts it (xterm `backarrowKey`).
+        const BACKARROW_SENDS_BS = 1 << 11;
     }
 }
 

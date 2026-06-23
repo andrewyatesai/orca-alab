@@ -2052,6 +2052,7 @@ mod tests {
             format: ImageFormat::Png,
             cols: 1,
             rows: 1,
+            z_index: 0,
         };
         let (fmt, b64) = image_payload(&small);
         assert_eq!(fmt, "png");
@@ -2062,6 +2063,7 @@ mod tests {
             format: ImageFormat::Png,
             cols: 80,
             rows: 24,
+            z_index: 0,
         };
         let (fmt, b64) = image_payload(&big);
         assert_eq!(fmt, "truncated", "oversized image must be marked truncated");

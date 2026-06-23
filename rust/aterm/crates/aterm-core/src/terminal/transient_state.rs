@@ -15,6 +15,8 @@ use aterm_types::{PipelineTimestamps, Rgb};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
+use aterm_grid::ImageData;
+
 // XTSAVE mode storage.
 type XtsaveModesMap = HashMap<u16, bool>;
 
@@ -124,6 +126,22 @@ pub(super) struct TransientState {
     /// for compatibility with programs that only recognize BEL-terminated
     /// responses (#7548).
     pub(super) last_osc_bel_terminated: bool,
+    /// Kitty graphics protocol image store: client image id → decoded image data
+    /// (KITTY-CORE). A `t`/`T` transmission inserts here (capped — see
+    /// `MAX_KITTY_IMAGES` / `MAX_KITTY_STORE_BYTES` in the handler); a `p` display
+    /// looks it up; a `d` delete removes. Transient (not checkpointed): images are
+    /// ephemeral and re-sent by the application after a restore.
+    pub(super) kitty_images: HashMap<u32, Arc<ImageData>>,
+    /// Kitty ANIMATION frame store: image id → its frames (frame 0 is the base
+    /// transmit; `a=f` appends). `kitty_images[id]` always mirrors the CURRENT frame,
+    /// so the render path is frame-agnostic; `a=a r=N` re-points it at frame N. Empty
+    /// for non-animated images. Capped by `MAX_KITTY_FRAMES` in the handler.
+    pub(super) kitty_frames: HashMap<u32, Vec<Arc<ImageData>>>,
+    /// In-flight Kitty CHUNKED transmission (`m=1`): the first chunk's command
+    /// (control metadata) with its `payload` growing as continuation chunks append,
+    /// finalized on the `m=0` chunk. `None` between transmissions. Bounded by
+    /// `MAX_KITTY_IMAGE_BYTES` in the handler.
+    pub(super) kitty_pending: Option<crate::terminal::kitty_graphics::KittyCommand>,
 }
 
 impl TransientState {
@@ -149,6 +167,9 @@ impl TransientState {
             pending_parser_reset: false,
             xtsave_modes: XtsaveModesMap::default(),
             last_osc_bel_terminated: false,
+            kitty_images: HashMap::new(),
+            kitty_frames: HashMap::new(),
+            kitty_pending: None,
         }
     }
 

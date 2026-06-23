@@ -26,10 +26,27 @@ use super::{Key, KeyboardMode, Modifiers, encode_key, shifted_character, write_u
 fn spec_shifted(c: char) -> Option<char> {
     Some(match c {
         'a'..='z' => c.to_ascii_uppercase(),
-        '1' => '!', '2' => '@', '3' => '#', '4' => '$', '5' => '%',
-        '6' => '^', '7' => '&', '8' => '*', '9' => '(', '0' => ')',
-        '`' => '~', '-' => '_', '=' => '+', '[' => '{', ']' => '}',
-        '\\' => '|', ';' => ':', '\'' => '"', ',' => '<', '.' => '>', '/' => '?',
+        '1' => '!',
+        '2' => '@',
+        '3' => '#',
+        '4' => '$',
+        '5' => '%',
+        '6' => '^',
+        '7' => '&',
+        '8' => '*',
+        '9' => '(',
+        '0' => ')',
+        '`' => '~',
+        '-' => '_',
+        '=' => '+',
+        '[' => '{',
+        ']' => '}',
+        '\\' => '|',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '/' => '?',
         _ => return None,
     })
 }
@@ -63,7 +80,11 @@ fn legacy_shift_changes_every_shiftable_key() {
         let c = b as char;
         if spec_shifted(c).is_some() {
             let shifted = encode_key(&Key::Character(c), Modifiers::SHIFT, KeyboardMode::empty());
-            let plain = encode_key(&Key::Character(c), Modifiers::empty(), KeyboardMode::empty());
+            let plain = encode_key(
+                &Key::Character(c),
+                Modifiers::empty(),
+                KeyboardMode::empty(),
+            );
             assert_ne!(
                 shifted, plain,
                 "Shift on a shiftable key {c:?} must not emit the unshifted byte"

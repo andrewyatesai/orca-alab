@@ -578,21 +578,24 @@ mod tests {
     }
 
     #[test]
-    fn test_simd_csi_params_max_params_16() {
-        let input = b"1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16m";
+    fn test_simd_csi_params_seventeen_kakoune() {
+        // 17 params (Kakoune SGR shape) must be retained now that MAX_PARAMS = 24.
+        let input = b"1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17m";
         let result = simd_parse_csi_params(input).expect("should parse");
-        assert_eq!(result.count, 16);
+        assert_eq!(result.count, 17, "17 params retained (MAX_PARAMS = 24)");
         assert_eq!(result.params[0], 1);
-        assert_eq!(result.params[15], 16);
+        assert_eq!(result.params[16], 17);
     }
 
     #[test]
     fn test_simd_csi_params_exceeds_max_params() {
-        let input = b"1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17m";
+        // 26 params; with MAX_PARAMS = 24 the last two are dropped.
+        let input = b"1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26m";
         let result = simd_parse_csi_params(input).expect("should parse");
-        assert_eq!(result.count, 16, "should cap at 16 params");
+        assert_eq!(result.count, SIMD_MAX_PARAMS, "should cap at MAX_PARAMS");
+        assert_eq!(SIMD_MAX_PARAMS, 24, "MAX_PARAMS pinned at 24");
         assert_eq!(result.params[0], 1);
-        assert_eq!(result.params[15], 16);
+        assert_eq!(result.params[23], 24);
     }
 
     #[test]

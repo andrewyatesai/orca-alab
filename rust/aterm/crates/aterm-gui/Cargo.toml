@@ -40,7 +40,11 @@ a11y-appkit = [
 ]
 
 [dependencies]
-aterm-core = { workspace = true }
+# `bidi`: compile in the UAX #9 visual-reordering bridge so RTL (Hebrew/Arabic)
+# displays in correct visual order. The render-time application lives in
+# aterm-core (cell_frame_into -> apply_bidi_reorder); pure-LTR frames are
+# untouched. Runtime-gated by BiDiMode (default Implicit).
+aterm-core = { workspace = true, features = ["bidi"] }
 aterm-buffer = { path = "../aterm-buffer" }
 aterm-codec = { workspace = true }
 aterm-pty = { workspace = true }

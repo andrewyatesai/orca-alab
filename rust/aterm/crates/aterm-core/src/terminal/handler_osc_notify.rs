@@ -21,7 +21,7 @@
 //! [ina]: super::Terminal::is_notifications_authorized
 
 use super::handler::TerminalHandler;
-use aterm_types::osc::{Notification, NotificationUrgency};
+use aterm_types::osc::{Notification, NotificationUrgency, TaskbarProgress};
 
 /// Maximum number of in-flight multi-part OSC 99 notifications retained in the
 /// pending map. A flood of distinct `i=<id>` chunks must not grow the map
@@ -38,29 +38,36 @@ impl TerminalHandler<'_> {
     ///
     /// Format: `ESC ] 9 ; message BEL` (or ST terminator).
     ///
-    /// The `9;4;...` ConEmu *taskbar progress* sub-protocol is a distinct
-    /// feature and is not a notification; it is intentionally not handled here.
-    /// Everything else is treated as a notification body and forwarded to the
-    /// simple notification callback registered via
-    /// [`Terminal::set_notification_callback`][cb].
+    /// The `9;4;st;pr` ConEmu *taskbar progress* sub-protocol is a distinct,
+    /// benign UI feature (a 0-100 progress value + state) — NOT a notification.
+    /// It carries no message text, so it is processed into [`Terminal::taskbar_progress`]
+    /// unconditionally and is NOT gated behind notification authorization; it
+    /// never reaches the notification callback. Everything else is treated as a
+    /// notification body and forwarded to the simple notification callback
+    /// registered via [`Terminal::set_notification_callback`][cb].
     ///
-    /// Gated by host notification authorization (see module docs). When
-    /// unauthorized, or when no callback is wired, this is a silent no-op.
+    /// The notification path is gated by host notification authorization (see
+    /// module docs). When unauthorized, or when no callback is wired, that path
+    /// is a silent no-op.
     ///
     /// [cb]: super::Terminal::set_notification_callback
     pub(super) fn handle_osc_9(&mut self, params: &[&[u8]]) {
-        if !self.modes.allow_notifications {
-            return;
-        }
         // params[0] = "9" (already parsed). The message is params[1..], which
         // the OSC parser splits on ';' — rejoin so a message with literal
         // semicolons round-trips.
         let Some(message) = join_params(params, 1) else {
             return;
         };
-        // ConEmu taskbar progress (`9;4;...`) is not a notification; ignore it
-        // here (it has no notification callback semantics).
-        if message.starts_with("4;") || message == "4" {
+        // ConEmu taskbar progress (`9;4;st;pr`) — parse into taskbar_progress
+        // and return before the notification path (no auth, no callback).
+        if message == "4" || message.starts_with("4;") {
+            if let Some(progress) = parse_conemu_taskbar_progress(&message) {
+                *self.taskbar_progress = Some(progress);
+            }
+            return;
+        }
+        // Notification path (gated by host notification authorization).
+        if !self.modes.allow_notifications {
             return;
         }
         let message = sanitize_notification(&message);
@@ -233,6 +240,37 @@ enum Osc99Payload {
 /// Rejoin OSC params from `start..` with `;`, returning `None` if there is no
 /// param at `start`. The VTE OSC parser splits on `;`, so a payload containing
 /// literal semicolons arrives as multiple params; this reconstructs it.
+/// Parse a ConEmu OSC 9;4 taskbar-progress body into a [`TaskbarProgress`].
+///
+/// The `message` is the part after `9;` — i.e. `"4"`, `"4;st"`, or `"4;st;pr"`,
+/// where `st` is the state and `pr` is a 0-100 progress value (clamped):
+/// - `0` → `Hidden` (remove progress)
+/// - `1` → `Normal(pr)`
+/// - `2` → `Error(pr)`
+/// - `3` → `Indeterminate`
+/// - `4` → `Paused(pr)`
+///
+/// Returns `None` for an unknown state so the caller leaves the current
+/// progress unchanged rather than clobbering it.
+fn parse_conemu_taskbar_progress(message: &str) -> Option<TaskbarProgress> {
+    let mut fields = message.split(';');
+    let marker = fields.next(); // "4" sub-command marker
+    debug_assert_eq!(marker, Some("4"));
+    let state = fields.next().unwrap_or("0");
+    let value = fields
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())
+        .map(|v| v.min(100) as u8);
+    Some(match state {
+        "0" => TaskbarProgress::Hidden,
+        "1" => TaskbarProgress::Normal(value.unwrap_or(0)),
+        "2" => TaskbarProgress::Error(value.unwrap_or(0)),
+        "3" => TaskbarProgress::Indeterminate,
+        "4" => TaskbarProgress::Paused(value.unwrap_or(0)),
+        _ => return None,
+    })
+}
+
 fn join_params(params: &[&[u8]], start: usize) -> Option<String> {
     if params.len() <= start {
         return None;
@@ -356,6 +394,44 @@ mod tests {
             !*fired.lock().expect("poisoned"),
             "OSC 9;4 taskbar progress must not be treated as a notification"
         );
+    }
+
+    #[test]
+    fn osc_9_4_sets_taskbar_progress_without_authorization() {
+        // Taskbar progress is benign UI state, NOT gated by notification auth.
+        let mut term = Terminal::new(24, 80);
+        term.process(b"\x1b]9;4;1;50\x07");
+        assert_eq!(term.taskbar_progress(), Some(TaskbarProgress::Normal(50)));
+    }
+
+    #[test]
+    fn osc_9_4_state_mapping_and_clamp() {
+        let mut term = Terminal::new(24, 80);
+        term.process(b"\x1b]9;4;2;75\x07");
+        assert_eq!(term.taskbar_progress(), Some(TaskbarProgress::Error(75)));
+        term.process(b"\x1b]9;4;3\x07");
+        assert_eq!(
+            term.taskbar_progress(),
+            Some(TaskbarProgress::Indeterminate)
+        );
+        term.process(b"\x1b]9;4;4;10\x07");
+        assert_eq!(term.taskbar_progress(), Some(TaskbarProgress::Paused(10)));
+        // Value over 100 is clamped.
+        term.process(b"\x1b]9;4;1;250\x07");
+        assert_eq!(term.taskbar_progress(), Some(TaskbarProgress::Normal(100)));
+        // State 0 hides progress.
+        term.process(b"\x1b]9;4;0\x07");
+        assert_eq!(term.taskbar_progress(), Some(TaskbarProgress::Hidden));
+    }
+
+    #[test]
+    fn osc_9_4_unknown_state_leaves_progress_unchanged() {
+        let mut term = Terminal::new(24, 80);
+        term.process(b"\x1b]9;4;1;42\x07");
+        assert_eq!(term.taskbar_progress(), Some(TaskbarProgress::Normal(42)));
+        // Unknown state 9 must not clobber the existing progress.
+        term.process(b"\x1b]9;4;9;1\x07");
+        assert_eq!(term.taskbar_progress(), Some(TaskbarProgress::Normal(42)));
     }
 
     #[test]

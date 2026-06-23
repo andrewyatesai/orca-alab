@@ -420,8 +420,58 @@ impl Terminal {
             };
             if let Some(image) = extra.image() {
                 out.push((col as usize, image.clone()));
+            } else if let Some(iref) = self.placeholder_image_ref(visible_row, col, extra) {
+                // Kitty Unicode placeholder cell: synthesize an ImageRef so it rides
+                // the same (pixel-tested) render path as a direct placement.
+                out.push((col as usize, iref));
             }
         }
+    }
+
+    /// If the cell at (`row`,`col`) is a Kitty Unicode placeholder (U+10EEEE),
+    /// decode its diacritics (row, col, image-id-high) + fg-color (image-id-low)
+    /// and return an [`ImageRef`](aterm_grid::ImageRef) into the stored image. The
+    /// pixel-exact sub-tile blit is the renderer's existing ImageRef job, so a
+    /// virtual placement reuses the proven direct-placement compositor. Returns
+    /// `None` for any non-placeholder cell or an unknown image id.
+    fn placeholder_image_ref(
+        &self,
+        row: u16,
+        col: u16,
+        extra: &aterm_grid::CellExtra,
+    ) -> Option<aterm_grid::ImageRef> {
+        use super::kitty_placeholder::{PLACEHOLDER, diacritic_value};
+        // The placeholder is non-BMP, so it always resolves via the overflow table.
+        if self.grid().resolved_char(row, col) != Some(PLACEHOLDER) {
+            return None;
+        }
+        let comb = extra.combining();
+        let row_val = comb.first().and_then(|&c| diacritic_value(c)).unwrap_or(0);
+        let col_val = comb.get(1).and_then(|&c| diacritic_value(c)).unwrap_or(0);
+        let id_high = comb.get(2).and_then(|&c| diacritic_value(c)).unwrap_or(0) & 0xFF;
+        let image_id = (id_high << 24) | self.cell_fg_image_id(row, col);
+        let image = self.transient.kitty_images.get(&image_id)?.clone();
+        Some(aterm_grid::ImageRef {
+            image,
+            cell_row: u16::try_from(row_val).unwrap_or(0),
+            cell_col: u16::try_from(col_val).unwrap_or(0),
+        })
+    }
+
+    /// The low 24 bits of a Kitty image id, encoded in a cell's foreground color:
+    /// an RGB fg is `(r<<16)|(g<<8)|b`; an indexed fg is the palette index; a
+    /// default fg is 0 (matching kitty's `colorToId`).
+    fn cell_fg_image_id(&self, row: u16, col: u16) -> u32 {
+        if let Some([r, g, b]) = self.grid().fg_rgb_at(row, col) {
+            return (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b);
+        }
+        if let Some(cell) = self.grid().cell(row, col) {
+            let colors = cell.colors();
+            if colors.fg_is_indexed() {
+                return u32::from(colors.fg_index());
+            }
+        }
+        0
     }
 
     /// Build the engine's render SNAPSHOT for one frame (`read_image`, REARCH A-3):
@@ -546,6 +596,13 @@ impl Terminal {
         // O(1), and idempotent within a damage session, so reading it here is free
         // even when the frontend also reads it for its present early-out.
         scratch.snapshot_seq = self.damage_epoch();
+
+        // BiDi visual reordering (feature `bidi`): permute each row into visual
+        // order so RTL runs display correctly on BOTH renderers and in the
+        // `image` capture. No-op for pure-LTR frames and when the feature is off
+        // (byte-identical). See terminal/bidi_reorder.rs::apply_bidi_reorder.
+        #[cfg(feature = "bidi")]
+        self.apply_bidi_reorder(scratch);
     }
 }
 

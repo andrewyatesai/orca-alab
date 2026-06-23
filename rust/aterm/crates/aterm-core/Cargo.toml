@@ -19,6 +19,11 @@ disk-tier = ["aterm-grid/disk-tier", "aterm-scrollback/disk-tier"]
 # Opt-in heavyweight stress/stability integration tests (tests/stress_stability.rs).
 # Off by default to keep CI fast: `cargo test -p aterm-core --features long-tests`.
 long-tests = []
+# Opt-in deterministic fault injection (src/fault.rs): a thread-local registry so a
+# downstream/release test can force fail-closed branches (alloc/IO failure). OFF by
+# default — production `triggered()` is a const-false the optimizer folds away
+# (unit tests reach the registry via cfg(test) without this feature).
+fault-injection = []
 # Opt-in UAX #9 BiDi visual reordering bridge (terminal/bidi_reorder.rs). OFF by
 # default: with the feature off, `aterm-bidi` is not compiled into the engine and
 # the build is byte-identical. Consumers that render mixed LTR/RTL text enable it

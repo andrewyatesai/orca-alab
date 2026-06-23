@@ -83,6 +83,11 @@ pub struct PaneTree {
     /// `root` (maintained by `split`/`close`); used to route input + draw the solid
     /// cursor in exactly one pane.
     focus: u64,
+    /// When `true`, the focused pane is temporarily ZOOMED to fill the whole
+    /// window ([`compute_layout`](Self::compute_layout) returns just it). A purely
+    /// presentational toggle over the unchanged tree — unzoom restores the layout
+    /// exactly. Ignored for a single-pane tab. iTerm2-style pane zoom.
+    zoomed: bool,
 }
 
 /// The first child's default fraction of the splittable extent: a 50/50 split. A
@@ -97,7 +102,16 @@ impl PaneTree {
         PaneTree {
             root: PaneNode::Leaf { session },
             focus: session,
+            zoomed: false,
         }
+    }
+
+    /// Toggle pane ZOOM: when on, [`compute_layout`](Self::compute_layout) returns
+    /// only the focused pane filling the window. A no-op (stays off) for a
+    /// single-pane tab. Returns the new zoom state.
+    pub fn toggle_zoom(&mut self) -> bool {
+        self.zoomed = !self.zoomed && self.len() > 1;
+        self.zoomed
     }
 
     /// The currently FOCUSED session id (the pane keyboard input + the control
@@ -191,6 +205,8 @@ impl PaneTree {
         let focus = self.focus;
         if Self::split_leaf(&mut self.root, focus, dir, new_session) {
             self.focus = new_session;
+            // A structural change exits zoom (the layout the user zoomed is gone).
+            self.zoomed = false;
             true
         } else {
             false
@@ -268,6 +284,8 @@ impl PaneTree {
         if self.focus == closed || !self.contains(self.focus) {
             self.focus = Self::first_leaf(&self.root);
         }
+        // A structural change exits zoom (the zoomed layout no longer applies).
+        self.zoomed = false;
         CloseOutcome::Collapsed { closed }
     }
 
@@ -317,6 +335,17 @@ impl PaneTree {
     /// non-split geometry, byte-identical to today.
     #[must_use]
     pub fn compute_layout(&self, rows: u16, cols: u16) -> Vec<PaneRect> {
+        // Zoomed: the focused pane alone fills the window (other panes are hidden
+        // until unzoom). Single-pane tabs ignore the flag and take the normal path.
+        if self.zoomed && self.len() > 1 {
+            return vec![PaneRect {
+                session: self.focus,
+                row_off: 0,
+                col_off: 0,
+                rows: rows.max(1),
+                cols: cols.max(1),
+            }];
+        }
         let mut out = Vec::with_capacity(self.len());
         layout_into(&self.root, 0, 0, rows.max(1), cols.max(1), &mut out);
         out
@@ -333,6 +362,84 @@ impl PaneTree {
             (in_rows && in_cols).then_some(r.session)
         })
     }
+
+    /// The session of the pane directly adjacent to the focused one in `dir`, or
+    /// `None` when there is no pane on that side. Used by keyboard pane navigation
+    /// (directional focus). A candidate must lie on the `dir` side of the focused
+    /// rect AND share some perpendicular extent with it (so "left" of a tall pane
+    /// only considers panes that overlap its rows); ties break toward the larger
+    /// overlap, then the smaller offset (top-/left-most), for a stable choice.
+    #[must_use]
+    pub fn focus_neighbor(&self, dir: FocusDir, rows: u16, cols: u16) -> Option<u64> {
+        let layout = self.compute_layout(rows, cols);
+        let focus = self.focus();
+        let cur = layout.iter().find(|r| r.session == focus)?;
+        // Inclusive-exclusive edges of the focused rect.
+        let (cur_top, cur_bottom) = (cur.row_off, cur.row_off + cur.rows);
+        let (cur_left, cur_right) = (cur.col_off, cur.col_off + cur.cols);
+
+        // Overlap of two [a,b) intervals (0 = none).
+        let overlap =
+            |a0: u16, a1: u16, b0: u16, b1: u16| -> u16 { a1.min(b1).saturating_sub(a0.max(b0)) };
+
+        let mut best: Option<(&PaneRect, u16, u16)> = None; // (rect, distance, overlap)
+        for r in &layout {
+            if r.session == focus {
+                continue;
+            }
+            let (r_top, r_bottom) = (r.row_off, r.row_off + r.rows);
+            let (r_left, r_right) = (r.col_off, r.col_off + r.cols);
+            // `on_side` = candidate is on the `dir` side; `dist` = gap along the
+            // axis of travel; `ov` = shared perpendicular extent (must be > 0).
+            let (on_side, dist, ov) = match dir {
+                FocusDir::Left => (
+                    r_right <= cur_left,
+                    cur_left.saturating_sub(r_right),
+                    overlap(cur_top, cur_bottom, r_top, r_bottom),
+                ),
+                FocusDir::Right => (
+                    r_left >= cur_right,
+                    r_left.saturating_sub(cur_right),
+                    overlap(cur_top, cur_bottom, r_top, r_bottom),
+                ),
+                FocusDir::Up => (
+                    r_bottom <= cur_top,
+                    cur_top.saturating_sub(r_bottom),
+                    overlap(cur_left, cur_right, r_left, r_right),
+                ),
+                FocusDir::Down => (
+                    r_top >= cur_bottom,
+                    r_top.saturating_sub(cur_bottom),
+                    overlap(cur_left, cur_right, r_left, r_right),
+                ),
+            };
+            if !on_side || ov == 0 {
+                continue;
+            }
+            // Prefer the nearest pane (smallest gap); break ties by larger overlap.
+            let better = match best {
+                None => true,
+                Some((_, bdist, bov)) => dist < bdist || (dist == bdist && ov > bov),
+            };
+            if better {
+                best = Some((r, dist, ov));
+            }
+        }
+        best.map(|(r, _, _)| r.session)
+    }
+}
+
+/// A direction for keyboard pane-focus navigation ([`PaneTree::focus_neighbor`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FocusDir {
+    /// Move focus to the pane on the left.
+    Left,
+    /// Move focus to the pane on the right.
+    Right,
+    /// Move focus to the pane above.
+    Up,
+    /// Move focus to the pane below.
+    Down,
 }
 
 /// The result of [`PaneTree::close_focused`]: which session was removed and
@@ -540,6 +647,85 @@ mod tests {
         assert!(top.row_off < bot.row_off);
         // No two rects overlap (cell-by-cell disjointness over the window).
         assert!(rects_disjoint(&rects));
+    }
+
+    /// Directional focus over the 2x2 golden `1 | (2 / 3)`: from each pane, the
+    /// neighbor in each direction is the adjacent pane (or None at an edge).
+    #[test]
+    fn focus_neighbor_directions() {
+        let mut t = PaneTree::new(1);
+        t.split_focused(SplitDir::Vertical, 2); // 1 | 2, focus 2
+        t.split_focused(SplitDir::Horizontal, 3); // 1 | (2 / 3), focus 3 (bottom-right)
+        assert_eq!(t.focus(), 3);
+        // From bottom-right (3): up→2, left→1, right/down→edge.
+        assert_eq!(t.focus_neighbor(FocusDir::Up, 24, 80), Some(2));
+        assert_eq!(t.focus_neighbor(FocusDir::Left, 24, 80), Some(1));
+        assert_eq!(t.focus_neighbor(FocusDir::Right, 24, 80), None);
+        assert_eq!(t.focus_neighbor(FocusDir::Down, 24, 80), None);
+        // From top-right (2): left→1, down→3, up/right→edge.
+        assert!(t.set_focus(2));
+        assert_eq!(t.focus_neighbor(FocusDir::Left, 24, 80), Some(1));
+        assert_eq!(t.focus_neighbor(FocusDir::Down, 24, 80), Some(3));
+        assert_eq!(t.focus_neighbor(FocusDir::Up, 24, 80), None);
+        assert_eq!(t.focus_neighbor(FocusDir::Right, 24, 80), None);
+        // From the full-height left pane (1): right→a right-band pane; left→edge.
+        assert!(t.set_focus(1));
+        assert!(matches!(
+            t.focus_neighbor(FocusDir::Right, 24, 80),
+            Some(2 | 3)
+        ));
+        assert_eq!(t.focus_neighbor(FocusDir::Left, 24, 80), None);
+    }
+
+    /// A single-pane tab has no neighbor in any direction.
+    #[test]
+    fn focus_neighbor_single_pane_none() {
+        let t = PaneTree::new(1);
+        for dir in [
+            FocusDir::Left,
+            FocusDir::Right,
+            FocusDir::Up,
+            FocusDir::Down,
+        ] {
+            assert_eq!(t.focus_neighbor(dir, 24, 80), None);
+        }
+    }
+
+    /// Zoom shows only the focused pane full-window; unzoom restores; a single-pane
+    /// tab can't zoom; and a structural change (split) exits zoom.
+    #[test]
+    fn zoom_focused_pane_fills_and_restores() {
+        let mut t = PaneTree::new(1);
+        t.split_focused(SplitDir::Vertical, 2); // 1 | 2, focus 2
+        assert_eq!(t.compute_layout(24, 80).len(), 2);
+
+        assert!(t.toggle_zoom(), "zoom on (multi-pane)");
+        let z = t.compute_layout(24, 80);
+        assert_eq!(z.len(), 1, "zoom shows only the focused pane");
+        assert_eq!(z[0].session, 2);
+        assert_eq!(
+            (z[0].row_off, z[0].col_off, z[0].rows, z[0].cols),
+            (0, 0, 24, 80)
+        );
+
+        assert!(!t.toggle_zoom(), "toggle off");
+        assert_eq!(t.compute_layout(24, 80).len(), 2, "unzoom restores layout");
+
+        // Single-pane tabs ignore zoom (stays off).
+        let mut s = PaneTree::new(9);
+        assert!(!s.toggle_zoom());
+        assert_eq!(s.compute_layout(24, 80).len(), 1);
+
+        // A split exits zoom: all panes show again.
+        let mut x = PaneTree::new(1);
+        x.split_focused(SplitDir::Vertical, 2);
+        assert!(x.toggle_zoom());
+        x.split_focused(SplitDir::Horizontal, 3);
+        assert_eq!(
+            x.compute_layout(24, 80).len(),
+            3,
+            "split exits zoom -> all panes shown"
+        );
     }
 
     /// Split → close round-trip: closing the focused (new) pane collapses back to

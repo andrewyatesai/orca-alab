@@ -13,7 +13,6 @@
 //! OSC 133 sequences are sent by shell integrations (bash, zsh, fish)
 //! to mark prompt, command, and output boundaries.
 
-#[cfg(test)]
 use super::TaskbarProgress;
 use super::shell::{ANNOTATIONS_MAX, TERMINAL_MARKS_MAX};
 use super::{Annotation, CommandMark, ShellEvent, ShellState, Terminal, TerminalMark};
@@ -339,7 +338,6 @@ impl Terminal {
     /// term.process(b"\x1b]9;4;1;50\x07");  // Set 50% progress
     /// assert_eq!(term.taskbar_progress(), Some(TaskbarProgress::Normal(50)));
     /// ```
-    #[cfg(test)]
     #[must_use]
     pub fn taskbar_progress(&self) -> Option<TaskbarProgress> {
         self.taskbar_progress

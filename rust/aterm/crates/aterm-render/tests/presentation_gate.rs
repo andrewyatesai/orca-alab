@@ -43,7 +43,14 @@ fn all_inputs() -> impl Iterator<Item = (bool, bool, bool, bool, bool, bool)> {
 fn select_face_never_colors_text_presentation() {
     let mut colored_count = 0usize;
     for (procedural, primary, fallback, symbol, color_has, wants_emoji) in all_inputs() {
-        let face = select_face(procedural, primary, fallback, symbol, color_has, wants_emoji);
+        let face = select_face(
+            procedural,
+            primary,
+            fallback,
+            symbol,
+            color_has,
+            wants_emoji,
+        );
 
         // THE INVARIANT (the same `NoColorForText` that `ty` model-checks abstractly
         // in aterm-spec): colour face implies emoji presentation. Exhaustive.

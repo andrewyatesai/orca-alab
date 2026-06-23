@@ -23,6 +23,13 @@ aterm-pty = { workspace = true }
 aterm-cap = { workspace = true }
 aterm-sandbox = { workspace = true }
 aterm-containment = { workspace = true }
+# Read-only introspection sources for the `aterm` diagnostic subcommands
+# (CLI-DIAG): font enumeration / face metrics for `list-fonts` / `show-face`
+# (aterm-render), and the built-in colour-scheme registry for `list-themes`
+# (aterm-types). Neither is on the shell hot path — they are only reached by a
+# diagnostic subcommand that prints and exits before any PTY spawn.
+aterm-render = { workspace = true }
+aterm-types = { workspace = true }
 
 [lints]
 workspace = true

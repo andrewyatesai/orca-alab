@@ -38,8 +38,11 @@ pub fn init() {
         return;
     };
     // Crash reporting is independent of $ATERM_LOG — panics are always worth
-    // an artifact, even with routine logging off.
+    // an artifact, even with routine logging off. Arm BOTH crash paths: the Rust
+    // panic hook (unwinds) and the async-signal-safe fatal-signal handler
+    // (SIGSEGV/SIGABRT/… which bypass the panic machinery entirely, M6 CRASH-CORE).
     install_panic_hook(dir.clone());
+    crate::crash_signal::install_signal_handlers();
     let level = std::env::var("ATERM_LOG")
         .ok()
         .and_then(|s| LevelFilter::parse(&s))

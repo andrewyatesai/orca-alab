@@ -17,13 +17,13 @@ fn parser_handles_pathological_input() {
     let mut sink = NullSink;
 
     // Worst case: many CSI sequences with maximum parameters
-    // Each sequence: ESC [ 1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16 m
+    // Each sequence: ESC [ 999;999;...;999 m  (MAX_PARAMS segments)
     let mut pathological = Vec::with_capacity(64 * 1024);
     for _ in 0..1000 {
         // Start CSI
         pathological.extend_from_slice(b"\x1b[");
-        // MAX_PARAMS (16) parameters
-        for i in 0..16 {
+        // MAX_PARAMS (24) parameters
+        for i in 0..crate::MAX_PARAMS {
             if i > 0 {
                 pathological.push(b';');
             }

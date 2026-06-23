@@ -119,14 +119,19 @@ fn decrqm_reports_reset_for_origin_mode_off() {
 }
 
 #[test]
-fn decrqm_2048_in_band_resize_reports_not_recognized() {
-    // xterm DECRPM: Ps=0 = mode not recognized. In-band resize notifications
-    // (mode 2048) are unimplemented, so DECRQM must say so — including after
-    // the kitty keyboard protocol is enabled. Neovim 0.10+ pushes kitty flags
-    // and then probes 2048; a set/reset report would make it wait for resize
-    // notifications that never arrive.
-    assert_eq!(resp(b"\x1b[?2048$p"), "\x1b[?2048;0$y");
-    assert_eq!(resp(b"\x1b[>1u\x1b[?2048$p"), "\x1b[?2048;0$y");
+fn decrqm_2048_in_band_resize_reports_reset_when_off() {
+    // xterm DECRPM: Ps=2 = mode recognized but reset. In-band resize
+    // notifications (mode 2048) are now implemented — aterm emits a size report
+    // on enable and on every resize — so DECRQM reports the real state: Ps=2
+    // (reset) at power-on since 2048 is off by default, including after the
+    // kitty keyboard protocol is enabled. Neovim 0.10+ pushes kitty flags and
+    // then probes 2048; because aterm actually delivers the notifications,
+    // reporting the mode as known (not the Ps=0 "not recognized") is correct
+    // and does not strand the client. See handler_dec.rs decrqm_reports_mode_
+    // 2048_state for the on/off state coverage; this pins the kitty-keyboard
+    // arm against the historical 2048 misrouting.
+    assert_eq!(resp(b"\x1b[?2048$p"), "\x1b[?2048;2$y");
+    assert_eq!(resp(b"\x1b[>1u\x1b[?2048$p"), "\x1b[?2048;2$y");
 }
 
 #[test]

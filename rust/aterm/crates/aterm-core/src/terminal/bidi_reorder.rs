@@ -10,10 +10,12 @@
 //! module is absent and the engine build is byte-identical (the no-op posture in
 //! `bidi_stubs.rs` is unaffected).
 //!
-//! Scope: this produces the per-line visual→logical column permutation. APPLYING
-//! that permutation to the cells it draws is the renderer's job — the render-time
-//! wiring is the remaining integration step and is intentionally not done here, so
-//! enabling the feature has no effect on output until a renderer opts in.
+//! Scope: this produces the per-line visual→logical column permutation AND
+//! applies it at render time. [`Terminal::apply_bidi_reorder`] permutes each row
+//! of the render snapshot (built by `cell_frame_into`) into visual order, so with
+//! the `bidi` feature enabled (it is, in `aterm-gui`) RTL runs display correctly
+//! on BOTH the CPU and GPU renderers and in the `image` introspection capture.
+//! Runtime-gated by [`BiDiMode`] (default `Implicit`); pure-LTR rows are skipped.
 
 use super::Terminal;
 use aterm_types::{BiDiMode, ParagraphDirection};
@@ -56,6 +58,65 @@ impl Terminal {
             &chars,
             &wide,
         )
+    }
+
+    /// Reorder each row of a render snapshot into BiDi VISUAL order, in place.
+    ///
+    /// This is the render-time application of [`Self::bidi_visual_order_cells`]:
+    /// it permutes the dense [`RenderCell`](super::RenderCell) row AND the
+    /// column-indexed sparse arrays (clusters / combining marks / inline images)
+    /// AND the cursor column, so a renderer that draws the snapshot left-to-right
+    /// shows right-to-left runs in the correct visual order. Called from
+    /// [`Terminal::cell_frame_into`](super::Terminal::cell_frame_into), so BOTH
+    /// the CPU and GPU renderers (and the `image` introspection capture) get
+    /// visual order for free.
+    ///
+    /// Pure-LTR rows are skipped via a cheap first-RTL-block guard, so frames
+    /// with no right-to-left content are byte-identical to the non-BiDi path.
+    /// A no-op when BiDi is disabled.
+    pub(crate) fn apply_bidi_reorder(&self, frame: &mut crate::render::RenderInput) {
+        if self.modes.bidi_mode == BiDiMode::Disabled {
+            return;
+        }
+        for r in 0..frame.cells.len() {
+            // Compute the visual->logical permutation for this row. The cheap
+            // guard skips the allocation for any row with no codepoint in or
+            // after the first RTL block (U+0590); only such rows can reorder.
+            let order = {
+                let row = &frame.cells[r];
+                if !row.iter().any(|c| c.ch >= '\u{0590}') {
+                    continue;
+                }
+                self.bidi_visual_order_cells(row)
+            };
+            // Identity (e.g. RTL-capable chars that still resolve LTR): skip.
+            if order.iter().enumerate().all(|(v, &l)| v == l) {
+                continue;
+            }
+            // Inverse permutation: inv[logical] = visual column.
+            let mut inv = vec![0usize; order.len()];
+            for (v, &l) in order.iter().enumerate() {
+                inv[l] = v;
+            }
+            // Dense cells: visual[v] = logical[order[v]] (RenderCell is Copy).
+            let visual: Vec<super::RenderCell> = order.iter().map(|&l| frame.cells[r][l]).collect();
+            frame.cells[r] = visual;
+            // Sparse, column-indexed arrays: remap each logical col to visual.
+            fn remap_cols<T>(entries: &mut [(usize, T)], inv: &[usize]) {
+                for (c, _) in entries.iter_mut() {
+                    if *c < inv.len() {
+                        *c = inv[*c];
+                    }
+                }
+            }
+            remap_cols(&mut frame.clusters[r], &inv);
+            remap_cols(&mut frame.combining[r], &inv);
+            remap_cols(&mut frame.images[r], &inv);
+            // The cursor follows its logical cell to its new visual column.
+            if frame.cursor_row == r && frame.cursor_col < inv.len() {
+                frame.cursor_col = inv[frame.cursor_col];
+            }
+        }
     }
 }
 
@@ -128,9 +189,40 @@ fn base_direction(dir: ParagraphDirection, scalars: &[char]) -> aterm_bidi::Base
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal::Terminal;
 
     const ALEF: char = '\u{05D0}';
     const BET: char = '\u{05D1}';
+
+    /// End-to-end: a render snapshot of a Hebrew line is reordered into visual
+    /// (right-to-left) order by `cell_frame` (which calls `apply_bidi_reorder`),
+    /// while a pure-ASCII line is left in logical order.
+    #[test]
+    fn cell_frame_reorders_rtl_row_visually() {
+        let mut term = Terminal::new(4, 8);
+        // Default BiDiMode is Implicit, so a fresh terminal reorders RTL.
+        assert_ne!(term.modes.bidi_mode, BiDiMode::Disabled);
+
+        // Write three Hebrew letters: logical order ALEF, BET, GIMEL.
+        term.process("\u{05D0}\u{05D1}\u{05D2}".as_bytes());
+        let frame = term.cell_frame(4, 8);
+        let row: Vec<char> = frame.cells[0].iter().take(3).map(|c| c.ch).collect();
+        // Visual order is reversed for an RTL run.
+        assert_eq!(
+            row,
+            vec!['\u{05D2}', '\u{05D1}', '\u{05D0}'],
+            "Hebrew run must render right-to-left in the snapshot"
+        );
+    }
+
+    #[test]
+    fn cell_frame_leaves_ascii_row_in_logical_order() {
+        let mut term = Terminal::new(4, 8);
+        term.process(b"abc");
+        let frame = term.cell_frame(4, 8);
+        let row: Vec<char> = frame.cells[0].iter().take(3).map(|c| c.ch).collect();
+        assert_eq!(row, vec!['a', 'b', 'c'], "ASCII stays in logical order");
+    }
 
     fn cv(mode: BiDiMode, dir: ParagraphDirection, s: &str) -> Vec<usize> {
         compute_visual_order(mode, dir, &s.chars().collect::<Vec<_>>())

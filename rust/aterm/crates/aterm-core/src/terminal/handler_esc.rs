@@ -191,8 +191,8 @@ impl TerminalHandler<'_> {
                 );
                 // Per VT510: when DECLRMM is active, IND at the scroll boundary
                 // scrolls only within horizontal margins (#7407).
-                // Adjusts kitty graphics placements on scroll (#7687).
-                self.line_feed_with_kitty_adjust(self.modes.left_right_margin_mode);
+                // Line feed, honoring DECLRMM left/right margins (#7687).
+                self.margined_line_feed(self.modes.left_right_margin_mode);
             }
             b'M' => {
                 // RI (Reverse Index)
@@ -220,8 +220,8 @@ impl TerminalHandler<'_> {
                     .carriage_return_margin(self.modes.left_right_margin_mode);
                 // Per VT510: when DECLRMM is active, NEL at the scroll boundary
                 // scrolls only within horizontal margins (#7407).
-                // Adjusts kitty graphics placements on scroll (#7687).
-                self.line_feed_with_kitty_adjust(self.modes.left_right_margin_mode);
+                // Line feed, honoring DECLRMM left/right margins (#7687).
+                self.margined_line_feed(self.modes.left_right_margin_mode);
             }
             b'H' => {
                 // HTS - Horizontal Tab Set

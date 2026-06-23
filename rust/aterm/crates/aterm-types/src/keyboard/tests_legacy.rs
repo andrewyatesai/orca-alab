@@ -75,7 +75,11 @@ fn legacy_encode_shift_symbol() {
         ('`', b'~'),
     ];
     for &(base, shifted) in cases {
-        let result = encode_key(&Key::Character(base), Modifiers::SHIFT, KeyboardMode::empty());
+        let result = encode_key(
+            &Key::Character(base),
+            Modifiers::SHIFT,
+            KeyboardMode::empty(),
+        );
         assert_eq!(
             result,
             vec![shifted],
@@ -745,4 +749,43 @@ fn legacy_release_event_returns_empty() {
         KeyEventType::Release,
     );
     assert!(result.is_empty());
+}
+
+// =========================================================================
+// DECBKM (mode 67): Backspace sends BS (0x08) vs DEL (0x7f)
+// =========================================================================
+
+#[test]
+fn legacy_backspace_default_sends_del() {
+    // Default (DECBKM reset): Backspace -> DEL (0x7f), Ctrl+Backspace -> BS.
+    let del = encode_key(
+        &Key::Named(NamedKey::Backspace),
+        Modifiers::empty(),
+        KeyboardMode::empty(),
+    );
+    assert_eq!(del, vec![0x7f]);
+    let ctrl = encode_key(
+        &Key::Named(NamedKey::Backspace),
+        Modifiers::CTRL,
+        KeyboardMode::empty(),
+    );
+    assert_eq!(ctrl, vec![0x08]);
+}
+
+#[test]
+fn legacy_backspace_decbkm_sends_bs() {
+    // DECBKM set: Backspace -> BS (0x08), Ctrl inverts to DEL, Alt ESC-prefixes.
+    let mode = KeyboardMode::BACKARROW_SENDS_BS;
+    assert_eq!(
+        encode_key(&Key::Named(NamedKey::Backspace), Modifiers::empty(), mode),
+        vec![0x08]
+    );
+    assert_eq!(
+        encode_key(&Key::Named(NamedKey::Backspace), Modifiers::CTRL, mode),
+        vec![0x7f]
+    );
+    assert_eq!(
+        encode_key(&Key::Named(NamedKey::Backspace), Modifiers::ALT, mode),
+        vec![0x1b, 0x08]
+    );
 }

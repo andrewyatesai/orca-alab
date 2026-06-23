@@ -252,6 +252,7 @@ impl TerminalHandler<'_> {
             format,
             cols,
             rows,
+            z_index: 0,
         });
         // iTerm2 inline images are LEFT-anchored at the margin (column 0).
         self.place_image(&image, cols, rows, 0);
@@ -269,7 +270,13 @@ impl TerminalHandler<'_> {
     /// to column 0 (VT340/xterm). Cells whose column would fall past the right
     /// edge are clipped (not wrapped), so a wide image anchored near the margin is
     /// truncated rather than overprinting the next row.
-    fn place_image(&mut self, image: &Arc<ImageData>, cols: u16, rows: u16, start_col: u16) {
+    pub(super) fn place_image(
+        &mut self,
+        image: &Arc<ImageData>,
+        cols: u16,
+        rows: u16,
+        start_col: u16,
+    ) {
         // Anchor at `start_col`; the per-row stamp loop below restores this column
         // after every line_feed so the footprint tiles map cleanly onto whole
         // columns from the anchor.
@@ -359,6 +366,7 @@ impl TerminalHandler<'_> {
             },
             cols,
             rows,
+            z_index: 0,
         });
 
         // Sixel anchors at the CURRENT cursor column (VT340/xterm), NOT at the

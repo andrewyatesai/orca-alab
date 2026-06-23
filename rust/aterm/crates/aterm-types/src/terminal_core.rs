@@ -76,12 +76,25 @@ impl TerminalCapabilities {
             hyperlinks: true,
             sixel_graphics: true,
             iterm_images: true,
+            // Kitty graphics protocol: core transmit/display works (APC 'G' →
+            // decode PNG/RGBA/RGB → place via the shared image pipeline), incl.
+            // chunked transmission, the per-id store (a=t/a=p), targeted delete,
+            // and the a=q support query. Advanced sub-features (o=z compression,
+            // Unicode placeholders, animation, file/shared-mem mediums, z-index
+            // compositing) degrade gracefully (skip, never garbage). Enforced by
+            // `gate drift` (witness: handle_kitty_command). See KITTY-CORE in
+            // docs/EXCEED_GHOSTTY_PLAN.md.
             kitty_graphics: true,
             clipboard: true,
             shell_integration: true,
             synchronized_output: true,
             kitty_keyboard: true,
-            soft_fonts: true,
+            // Soft fonts (DRCS/DECDLD) are "permanently compiled out; consume
+            // and ignore" in handler_dcs.rs — the DCS `{` payload is dropped.
+            // Advertise false until a real DRCS implementation lands, so we do
+            // not claim a capability that silently discards its data. Enforced
+            // by `gate drift`. See docs/EXCEED_GHOSTTY_PLAN.md.
+            soft_fonts: false,
             unicode: true,
             bracketed_paste: true,
             focus_reporting: true,
@@ -187,4 +200,25 @@ pub struct TerminalSnapshot {
     pub cursor_style: CursorStyle,
     /// Total lines in scrollback (ring buffer + tiered).
     pub total_scrollback_lines: usize,
+}
+
+#[cfg(test)]
+mod capability_tests {
+    use super::TerminalCapabilities;
+
+    #[test]
+    fn kitty_graphics_advertised_after_kitty_core() {
+        let feats = TerminalCapabilities::aterm_capabilities().feature_list_string();
+        assert!(
+            feats.contains("kitty-graphics"),
+            "KITTY-CORE landed: kitty graphics must be advertised; got {feats:?}"
+        );
+    }
+
+    #[test]
+    fn soft_fonts_not_advertised() {
+        // DECDLD is still compiled out, so soft-fonts stays honestly unadvertised.
+        let feats = TerminalCapabilities::aterm_capabilities().feature_list_string();
+        assert!(!feats.contains("soft-fonts"), "soft fonts unimplemented");
+    }
 }

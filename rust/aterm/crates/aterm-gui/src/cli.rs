@@ -65,6 +65,12 @@ const HELP_TEXT: &str = concat!(
     "        --trace-latency            Print PTY→present latency samples to stderr.\n",
     "                                       [env: ATERM_TRACE_LATENCY]\n",
     "        --verbose                  Verbose diagnostics.       [env: ATERM_VERBOSE]\n",
+    "        --diagnose                 Print a diagnostics report (version, build,\n",
+    "                                   renderer, capabilities, config, env) and exit.\n",
+    "        --list-actions             List the bindable [keybindings] action names\n",
+    "                                   and exit.\n",
+    "        --validate-config          Parse the config file, report OK/errors, exit\n",
+    "                                   0 if valid (non-zero if not).\n",
     "    -h, --help                     Print this help and exit.\n",
     "    -V, --version                  Print the version and exit.\n\n",
     "KEYS (in the window):\n",
@@ -152,6 +158,24 @@ pub(crate) fn parse_cli() -> Cli {
             "-V" | "--version" => {
                 println!("aterm-gui {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
+            }
+            // Diagnostics ("doctor"): print the report and exit (no window). Placed
+            // after the env-setting flags so e.g. `--gpu --diagnose` reports the
+            // effective renderer.
+            "--diagnose" => {
+                print!("{}", crate::diagnostics::collect().render());
+                std::process::exit(0);
+            }
+            "--list-actions" => {
+                for name in crate::keybinding::ACTION_NAMES {
+                    println!("{name}");
+                }
+                std::process::exit(0);
+            }
+            "--validate-config" => {
+                let (msg, ok) = crate::diagnostics::validate_config();
+                println!("{msg}");
+                std::process::exit(i32::from(!ok));
             }
             "-d" | "--working-directory" => {
                 let dir = flag_value("-d/--working-directory", &mut args);
@@ -256,5 +280,21 @@ pub(crate) fn parse_cli() -> Cli {
         exec_command: None,
         cwd,
         hold,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::HELP_TEXT;
+
+    #[test]
+    fn help_advertises_diagnostic_flags() {
+        // Every user-facing diagnostic flag must be discoverable in --help.
+        for flag in ["--diagnose", "--list-actions", "--validate-config"] {
+            assert!(
+                HELP_TEXT.contains(flag),
+                "{flag} must be advertised in the help text"
+            );
+        }
     }
 }

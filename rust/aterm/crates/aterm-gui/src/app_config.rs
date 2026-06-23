@@ -86,6 +86,30 @@ pub(crate) struct Config {
     /// (toolbar.rs) now carries the New Tab affordance. Set `tab_strip_rows = 1` in
     /// config to bring the in-grid strip back. Clamped to [`MAX_TAB_STRIP_ROWS`].
     pub(crate) tab_strip_rows: Option<u16>,
+    /// BiDi (right-to-left) text handling: `"implicit"` (default — automatic
+    /// per-line UAX#9 reordering, so Hebrew/Arabic display in visual order),
+    /// `"disabled"` (keep logical order), or `"explicit"` (app-controlled). Maps to
+    /// the engine `BiDiConfig.mode`. ABSENT keeps the engine default (Implicit).
+    pub(crate) bidi: Option<String>,
+    /// East-Asian Ambiguous-width characters: `"narrow"` (default, 1 cell) or
+    /// `"wide"` (2 cells). Maps to the engine `ambiguous_width_double`. CJK users
+    /// who expect ambiguous glyphs (some punctuation, line-drawing) to be
+    /// double-width set `"wide"`. ghostty has no equivalent knob.
+    pub(crate) ambiguous_width: Option<String>,
+    /// Security opt-in: allow apps to READ the system clipboard via OSC 52
+    /// (`Pd = "?"`). Default OFF (fail-closed) — a clipboard read is an
+    /// exfiltration vector from untrusted output. Maps to `allow_osc52_query`.
+    pub(crate) allow_osc52_query: Option<bool>,
+    /// Security opt-in: allow XTWINOPS window manipulation + geometry/title
+    /// reports (`CSI t`). Default OFF — title reports can fingerprint and window
+    /// moves can hide the window. Maps to `allow_window_ops`.
+    pub(crate) allow_window_ops: Option<bool>,
+    /// Security opt-in: allow desktop notifications (OSC 9 / 99 / 777). Default
+    /// OFF. Maps to `allow_notifications`.
+    pub(crate) allow_notifications: Option<bool>,
+    /// Security opt-in: allow apps to reconfigure the color palette (OSC 4/104).
+    /// Default OFF. Maps to `allow_palette_reconfigure`.
+    pub(crate) allow_palette_reconfigure: Option<bool>,
 }
 
 /// Default rows reserved for the in-grid tab strip. `0`: OFF by default — tabs live
@@ -277,6 +301,48 @@ impl Config {
                 tc.custom_palette = Some(pal);
                 any = true;
             }
+        }
+        // BiDi mode (engine `BiDiConfig.mode`; applied by Terminal::apply_config).
+        if let Some(b) = self.bidi.as_deref() {
+            use aterm_core::config::BiDiMode;
+            match b.to_ascii_lowercase().as_str() {
+                "disabled" | "off" => tc.bidi.mode = BiDiMode::Disabled,
+                "implicit" | "on" => tc.bidi.mode = BiDiMode::Implicit,
+                "explicit" => tc.bidi.mode = BiDiMode::Explicit,
+                other => eprintln!(
+                    "aterm-gui: config bidi: expected implicit|disabled|explicit, got {other:?}"
+                ),
+            }
+            any = true;
+        }
+        // East-Asian Ambiguous width (engine `ambiguous_width_double`).
+        if let Some(w) = self.ambiguous_width.as_deref() {
+            match w.to_ascii_lowercase().as_str() {
+                "narrow" | "single" => tc.ambiguous_width_double = false,
+                "wide" | "double" => tc.ambiguous_width_double = true,
+                other => eprintln!(
+                    "aterm-gui: config ambiguous_width: expected narrow|wide, got {other:?}"
+                ),
+            }
+            any = true;
+        }
+        // Security opt-ins (all fail-closed by default in TerminalConfig). Only a
+        // present key changes the flag, so omitting them keeps the safe default.
+        if let Some(v) = self.allow_osc52_query {
+            tc.allow_osc52_query = v;
+            any = true;
+        }
+        if let Some(v) = self.allow_window_ops {
+            tc.allow_window_ops = v;
+            any = true;
+        }
+        if let Some(v) = self.allow_notifications {
+            tc.allow_notifications = v;
+            any = true;
+        }
+        if let Some(v) = self.allow_palette_reconfigure {
+            tc.allow_palette_reconfigure = v;
+            any = true;
         }
         any.then_some(tc)
     }
@@ -752,5 +818,71 @@ impl App {
                 w.request_redraw();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod cfg_engine_tests {
+    use super::Config;
+    use aterm_core::config::BiDiMode;
+
+    fn cfg(toml: &str) -> Config {
+        toml::from_str(toml).expect("valid toml")
+    }
+
+    #[test]
+    fn bidi_disabled_maps_to_engine() {
+        let tc = cfg("bidi = \"disabled\"")
+            .terminal_config()
+            .expect("bidi sets engine config");
+        assert_eq!(tc.bidi.mode, BiDiMode::Disabled);
+    }
+
+    #[test]
+    fn bidi_explicit_and_case_insensitive() {
+        let tc = cfg("bidi = \"Explicit\"").terminal_config().unwrap();
+        assert_eq!(tc.bidi.mode, BiDiMode::Explicit);
+    }
+
+    #[test]
+    fn ambiguous_width_wide_maps_to_double() {
+        let tc = cfg("ambiguous_width = \"wide\"").terminal_config().unwrap();
+        assert!(tc.ambiguous_width_double);
+        let tc = cfg("ambiguous_width = \"narrow\"")
+            .terminal_config()
+            .unwrap();
+        assert!(!tc.ambiguous_width_double);
+    }
+
+    #[test]
+    fn absent_keys_leave_engine_defaults_and_no_config() {
+        // No engine-affecting keys -> terminal_config() is None (GUI skips apply).
+        assert!(cfg("font_px = 14.0").terminal_config().is_none());
+        // bidi default stays Implicit when only an unrelated key is set elsewhere.
+        let tc = cfg("bidi = \"implicit\"").terminal_config().unwrap();
+        assert_eq!(tc.bidi.mode, BiDiMode::Implicit);
+    }
+
+    #[test]
+    fn security_flags_opt_in() {
+        let tc = cfg("allow_osc52_query = true\nallow_window_ops = true\n\
+             allow_notifications = true\nallow_palette_reconfigure = true")
+        .terminal_config()
+        .unwrap();
+        assert!(tc.allow_osc52_query);
+        assert!(tc.allow_window_ops);
+        assert!(tc.allow_notifications);
+        assert!(tc.allow_palette_reconfigure);
+    }
+
+    #[test]
+    fn security_flags_fail_closed_when_absent() {
+        // A config that sets only an unrelated engine key must NOT enable any
+        // security flag — they stay fail-closed (default false).
+        let tc = cfg("scrollback_lines = 5000").terminal_config().unwrap();
+        assert!(!tc.allow_osc52_query);
+        assert!(!tc.allow_window_ops);
+        assert!(!tc.allow_notifications);
+        assert!(!tc.allow_palette_reconfigure);
     }
 }

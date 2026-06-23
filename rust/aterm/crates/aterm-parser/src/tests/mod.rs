@@ -16,6 +16,7 @@ mod refinement;
 mod subparams;
 mod table_validity;
 mod utf8_errors;
+mod utf8_parity;
 
 /// Test sink that records all actions for verification.
 #[derive(Default)]

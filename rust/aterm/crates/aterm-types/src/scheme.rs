@@ -30,6 +30,19 @@ pub enum Appearance {
     Light,
 }
 
+impl Appearance {
+    /// The DEC color-scheme DSR parameter for this appearance (`1` = dark,
+    /// `2` = light), as reported via DSR `CSI ? 996 n` → `CSI ? 997 ; Ps n` and
+    /// the DEC mode 2031 push.
+    #[must_use]
+    pub fn dsr_code(self) -> u8 {
+        match self {
+            Appearance::Dark => 1,
+            Appearance::Light => 2,
+        }
+    }
+}
+
 /// The renderer chrome of a scheme as packed `0x00RRGGBB` values — the exact shape
 /// `aterm_render::Theme` wants, but as plain `u32`s so this crate need not depend on
 /// the renderer (no crate cycle). The GUI builds the `Theme` from these.
@@ -374,9 +387,64 @@ pub fn builtin_names() -> Vec<&'static str> {
     v
 }
 
+/// One-line human description for a built-in scheme name (matches the palette
+/// comments above). Falls back to a generic line for an unknown name so this can
+/// never panic. Pairs with [`builtin_names`] / [`builtin_themes`].
+#[must_use]
+pub fn builtin_description(name: &str) -> &'static str {
+    match name {
+        "Default" => "aterm's historical dark look (fg #D0D0D0, green cursor)",
+        "Dracula" => "vibrant dark theme — the Dracula palette",
+        "Nord" => "arctic, north-bluish palette for dark UIs",
+        "Tokyo Night" => "deep blue/purple dark theme",
+        "Catppuccin Mocha" => "warm, soothing dark theme (Catppuccin mocha)",
+        "Gruvbox Dark" => "retro-groove dark theme, warm earthy colours",
+        "Solarized Dark" => "dark variant of the Solarized precision palette",
+        "One Dark" => "Atom One Dark — atom-inspired dark theme",
+        _ => "a built-in colour scheme",
+    }
+}
+
+/// All built-in schemes as `(name, description)` pairs, `"Default"` first — the
+/// data behind `aterm list-themes`. Reuses [`builtin_names`] so the set can't
+/// drift from the registry.
+#[must_use]
+pub fn builtin_themes() -> Vec<(&'static str, &'static str)> {
+    builtin_names()
+        .into_iter()
+        .map(|name| (name, builtin_description(name)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn builtin_themes_cover_every_name_default_first_and_resolve() {
+        let names = builtin_names();
+        let themes = builtin_themes();
+        // Same set, same order, as builtin_names — Default first.
+        assert_eq!(
+            names,
+            themes.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
+            "builtin_themes must mirror builtin_names"
+        );
+        assert_eq!(themes.first().map(|(n, _)| *n), Some("Default"));
+        // Every name resolves to a scheme, and every description is non-empty and
+        // specific (not the generic fallback).
+        for (name, desc) in &themes {
+            assert!(!desc.is_empty(), "{name} has an empty description");
+            assert_ne!(
+                *desc,
+                builtin_description("__unknown__"),
+                "{name} fell back to the generic description"
+            );
+            if *name != "Default" {
+                assert!(builtin(name).is_some(), "{name} must resolve via builtin()");
+            }
+        }
+    }
 
     /// The Default scheme's ANSI slots equal `ColorPalette::default_color` (one
     /// source) and its `to_color_palette()` resolves every index to the same RGB.

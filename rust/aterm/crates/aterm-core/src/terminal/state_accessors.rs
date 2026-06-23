@@ -158,6 +158,37 @@ impl Terminal {
         self.secure_keyboard_entry
     }
 
+    /// Report the host OS color scheme (light/dark) to the engine.
+    ///
+    /// The UI layer calls this on startup and whenever the desktop appearance
+    /// changes. Apps read the current value via DSR `CSI ? 996 n`; when the value
+    /// CHANGES and DEC private mode 2031 is set, the engine queues an unsolicited
+    /// `CSI ? 997 ; Ps n` (1 = dark, 2 = light) for the host to drain via
+    /// [`take_response`](Self::take_response) and forward to the PTY, so apps that
+    /// subscribed can live-update their theme. A no-op if the scheme is unchanged.
+    pub fn set_color_scheme(&mut self, scheme: aterm_types::Appearance) {
+        if self.modes.color_scheme == scheme {
+            return;
+        }
+        self.modes.color_scheme = scheme;
+        if self.modes.report_color_scheme {
+            // Unsolicited host-initiated push (not a query reply, so no capability
+            // gating / rate limiting): append directly to the response buffer.
+            use std::fmt::Write as _;
+            let mut response = super::stack_response::StackResponse::<16>::new();
+            let _ = write!(response, "\x1b[?997;{}n", scheme.dsr_code());
+            self.transient
+                .response_buffer
+                .extend_from_slice(response.as_bytes());
+        }
+    }
+
+    /// The host OS color scheme last reported via [`set_color_scheme`](Self::set_color_scheme).
+    #[must_use]
+    pub fn color_scheme(&self) -> aterm_types::Appearance {
+        self.modes.color_scheme
+    }
+
     /// Enable or disable OSC 52 clipboard queries (Pd = "?").
     ///
     /// When disabled (default), aterm-core ignores OSC 52 query requests and
@@ -829,4 +860,25 @@ impl Terminal {
         self.transient.current_underline_color = color;
         self.transient.update_has_transient_extras();
     }
+}
+
+/// Append a DEC mode-2048 in-band size report to a response buffer.
+///
+/// Format `CSI 48 ; rows ; cols ; pixH ; pixW t` (matching xterm/ghostty). Pixel
+/// dimensions are `rows*cell_h` / `cols*cell_w`, computed in `u32` to avoid u16
+/// overflow; `0` cell sizes yield `0` pixels (apps tolerate this). Shared by the
+/// DECSET-2048 enable path and `Terminal::resize`.
+pub(super) fn push_in_band_size_report(
+    buf: &mut Vec<u8>,
+    rows: u16,
+    cols: u16,
+    cell_w: u16,
+    cell_h: u16,
+) {
+    use std::fmt::Write as _;
+    let pix_h = u32::from(rows) * u32::from(cell_h);
+    let pix_w = u32::from(cols) * u32::from(cell_w);
+    let mut r = super::stack_response::StackResponse::<48>::new();
+    let _ = write!(r, "\x1b[48;{rows};{cols};{pix_h};{pix_w}t");
+    buf.extend_from_slice(r.as_bytes());
 }

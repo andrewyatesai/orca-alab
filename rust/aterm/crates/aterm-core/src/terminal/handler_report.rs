@@ -315,6 +315,18 @@ impl TerminalHandler<'_> {
                 // Keyboard status: North American, ready, no LK201 options
                 self.send_response(cap, b"\x1b[?27;1;0;0n");
             }
+            996 => {
+                // DEC color-scheme query: report the current OS appearance as
+                // CSI ? 997 ; Ps n (Ps = 1 dark, 2 light). Apps use this to match
+                // their theme to the desktop. Push updates require DEC mode 2031.
+                let mut response = StackResponse::<16>::new();
+                let _ = write!(
+                    response,
+                    "\x1b[?997;{}n",
+                    self.modes.color_scheme.dsr_code()
+                );
+                self.send_response(cap, response.as_bytes());
+            }
             _ => {} // Unknown DECDSR parameter
         }
     }
@@ -569,5 +581,80 @@ impl TerminalHandler<'_> {
             self.sgr_style().update_style_id();
         }
         // Empty stack = no-op (xterm behavior)
+    }
+}
+
+#[cfg(test)]
+mod color_scheme_tests {
+    use crate::terminal::Terminal;
+    use aterm_types::Appearance;
+
+    fn drain(term: &mut Terminal) -> Vec<u8> {
+        term.take_response().unwrap_or_default()
+    }
+
+    #[test]
+    fn dsr_996_reports_current_scheme() {
+        let mut term = Terminal::new(24, 80);
+        // Default appearance is Dark -> DSR code 1.
+        term.process(b"\x1b[?996n");
+        assert_eq!(drain(&mut term), b"\x1b[?997;1n");
+
+        // After the host reports Light, the query reports code 2.
+        term.set_color_scheme(Appearance::Light);
+        let _ = drain(&mut term); // discard any push from the change
+        term.process(b"\x1b[?996n");
+        assert_eq!(drain(&mut term), b"\x1b[?997;2n");
+    }
+
+    #[test]
+    fn response_append_alloc_fault_drops_response_fail_closed() {
+        use crate::fault;
+        let mut term = Terminal::new(24, 80);
+        // With the response-append alloc fault armed, a query that would normally
+        // reply produces NO bytes — the response is dropped (fail closed), not a panic.
+        fault::with_armed("response.append_alloc", || {
+            term.process(b"\x1b[?996n");
+        });
+        assert!(
+            term.take_response().is_none(),
+            "an armed response-append alloc fault must drop the response (fail closed)"
+        );
+        // After disarming, the same query replies normally — no corrupt buffer state.
+        term.process(b"\x1b[?996n");
+        assert_eq!(
+            drain(&mut term),
+            b"\x1b[?997;1n",
+            "response path recovers after the fault clears"
+        );
+    }
+
+    #[test]
+    fn mode_2031_pushes_on_change_only_when_set() {
+        let mut term = Terminal::new(24, 80);
+        // Without mode 2031, a scheme change does NOT push.
+        term.set_color_scheme(Appearance::Light);
+        assert!(term.take_response().is_none(), "no push without DEC 2031");
+
+        // Enable mode 2031; a change now pushes CSI ?997;Ps n.
+        term.process(b"\x1b[?2031h");
+        term.set_color_scheme(Appearance::Dark);
+        assert_eq!(drain(&mut term), b"\x1b[?997;1n");
+
+        // No-op change (same scheme) does not push.
+        term.set_color_scheme(Appearance::Dark);
+        assert!(term.take_response().is_none(), "unchanged scheme = no push");
+    }
+
+    #[test]
+    fn decrqm_reports_mode_2031_state() {
+        let mut term = Terminal::new(24, 80);
+        // Not set initially -> DECRQM reports reset (2).
+        term.process(b"\x1b[?2031$p");
+        assert_eq!(drain(&mut term), b"\x1b[?2031;2$y");
+        // Set -> DECRQM reports set (1).
+        term.process(b"\x1b[?2031h");
+        term.process(b"\x1b[?2031$p");
+        assert_eq!(drain(&mut term), b"\x1b[?2031;1$y");
     }
 }

@@ -444,3 +444,43 @@ fn image_free_frame_stays_within_cpu_gpu_tolerance() {
     let delta = max_channel_delta(&cpu_frame, &gpu_frame);
     assert!(delta <= 8, "image-free CPU/GPU diverge by {delta} > 8");
 }
+
+/// KITTY-CORE pixel verification: a Kitty `a=T` RGBA image rasterizes to real
+/// pixels through the SAME CPU inline-image compositor that iTerm2/Sixel use.
+/// CPU-only (no GPU device needed); skips if no system font.
+#[test]
+fn kitty_rgba_image_rasterizes_to_pixels_cpu() {
+    let theme = Theme::default();
+    let px = 18.0;
+    let Some(mut cpu) = Renderer::from_system(px, theme) else {
+        eprintln!("SKIP: no system monospace font");
+        return;
+    };
+    let (cw, ch) = cpu.cell_size();
+    let (rows, cols) = (4usize, 8usize);
+    let mut term = Terminal::new(rows as u16, cols as u16);
+    term.set_cell_pixel_size(cw as u16, ch as u16);
+    term.process(b"\r");
+
+    // A solid-red RGBA image exactly one cell (cw x ch px) -> 1x1 footprint.
+    let mut raw = Vec::with_capacity(cw * ch * 4);
+    for _ in 0..(cw * ch) {
+        raw.extend_from_slice(&[255, 0, 0, 255]);
+    }
+    let mut seq = format!("\x1b_Ga=T,f=32,s={cw},v={ch};").into_bytes();
+    seq.extend_from_slice(aterm_codec::base64::encode(&raw).as_bytes());
+    seq.extend_from_slice(b"\x1b\\");
+    term.process(&seq);
+
+    let input = term.cell_frame(rows, cols);
+    assert!(!input.images[0].is_empty(), "kitty a=T placed the image");
+
+    let frame = cpu.render_input(&input);
+    let cell = cell_pixels(&frame, cw, ch, 0, 0);
+    assert!(
+        cell.iter()
+            .any(|&p| rr(p) > 180 && gg(p) < 80 && bb(p) < 80),
+        "the Kitty RGBA image must rasterize to red pixels (got none) — \
+         confirms kitty graphics actually render via the shared compositor"
+    );
+}

@@ -10,11 +10,16 @@ repository.workspace = true
 description = "aterm CPU rasterizer: the terminal grid -> an RGBA framebuffer. The renderer core AND the read_image pixel-introspection oracle (headless, testable)."
 
 [features]
-default = ["disk-tier"]
+default = ["disk-tier", "embedded-font"]
 # Disk-backed scrollback cold tier, forwarded through aterm-core. DEFAULT-ON so
 # native builds are byte-identical; a wasm consumer disables it
 # (--no-default-features) to drop libc/zstd-sys.
 disk-tier = ["aterm-core/disk-tier", "aterm-render-api/disk-tier"]
+# FONT-EMBED: compile in a bundled last-resort monospace font (DejaVu Sans Mono,
+# ~340KB, Bitstream Vera license — see assets/DejaVuSansMono.LICENSE.txt) so text
+# renders even on a host with NO usable system font (e.g. a stripped Linux box).
+# DEFAULT-ON; disable with --no-default-features to drop the ~340KB from the binary.
+embedded-font = []
 
 [dependencies]
 # Path (not `workspace = true`) so we can set default-features = false here without

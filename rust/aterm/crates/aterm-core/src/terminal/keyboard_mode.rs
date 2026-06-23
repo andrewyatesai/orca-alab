@@ -22,14 +22,20 @@ pub(crate) fn keyboard_mode_from_state(
     kitty: KittyKeyboardFlags,
     xterm: XtermKeyboardState,
 ) -> KeyboardMode {
-    aterm_types::keyboard::TermMode::from_keyboard_state(
+    let mut km = aterm_types::keyboard::TermMode::from_keyboard_state(
         modes.application_cursor_keys,
         modes.application_keypad,
         modes.vt52_mode,
         kitty,
         xterm,
     )
-    .to_keyboard_mode()
+    .to_keyboard_mode();
+    // DECBKM (mode 67) is a legacy-encoding concern outside the TermMode kitty/xterm
+    // projection, so fold it in here.
+    if modes.backarrow_sends_bs {
+        km.insert(KeyboardMode::BACKARROW_SENDS_BS);
+    }
+    km
 }
 
 impl Terminal {

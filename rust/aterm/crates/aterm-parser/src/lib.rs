@@ -54,7 +54,7 @@
 //! 2. **Per-byte operations are O(1)**: `process_byte_inner`/`process_byte_batch` do:
 //!    - Constant-time table lookup: `TRANSITIONS[state][byte]`
 //!    - Bounded buffer operations:
-//!      - `params`: ArrayVec<u16, 16> (MAX_PARAMS = 16)
+//!      - `params`: ArrayVec<u16, 24> (MAX_PARAMS = 24)
 //!      - `intermediates`: ArrayVec<u8, 4> (MAX_INTERMEDIATES = 4)
 //!      - `osc_data`: capped at MAX_OSC_DATA = 8 MiB, with O(1) push
 //!
@@ -160,8 +160,15 @@ fn take_parser_loop_iterations() -> usize {
     })
 }
 
-/// Maximum number of CSI parameters
-pub const MAX_PARAMS: usize = 16;
+/// Maximum number of CSI parameters.
+///
+/// Raised from 16 to 24 to match xterm/ghostty: real applications emit long
+/// SGR sequences — Kakoune emits a 17-parameter SGR (see `parse_csi_kakoune_sgr`
+/// in `tests/csi.rs`) that a 16-cap parser would truncate, dropping styling. 24
+/// carries that real-world case with headroom while keeping the per-sequence
+/// buffer bounded (the `params` `ArrayVec` and the SIMD `[u16; MAX_PARAMS]` are
+/// sized off this constant, so the bound stays a single source of truth).
+pub const MAX_PARAMS: usize = 24;
 
 /// Maximum number of intermediate bytes
 pub const MAX_INTERMEDIATES: usize = 4;
@@ -188,8 +195,10 @@ pub const MAX_INTERMEDIATES: usize = 4;
 pub(crate) const MAX_OSC_DATA: usize = 8 * 1024 * 1024;
 
 /// Maximum number of OSC parameters (semicolon-separated segments).
-/// Matches CSI `MAX_PARAMS`. OSC sequences with semicolons in payload
-/// bodies (OSC 66, OSC 777, OSC 1337) were silently truncated at 8 (#7268).
+/// OSC sequences with semicolons in payload bodies (OSC 66, OSC 777, OSC 1337)
+/// were silently truncated at 8 (#7268). Bounded independently of CSI
+/// `MAX_PARAMS` — OSC payloads do not carry the long SGR runs that drove the
+/// CSI cap to 24.
 pub(crate) const MAX_OSC_PARAMS: usize = 16;
 
 /// VT parser state machine.

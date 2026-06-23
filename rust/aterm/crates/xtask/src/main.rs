@@ -38,6 +38,8 @@ use std::process::{Command, ExitCode};
 use aterm_spec::tla_check::TlaSpec;
 use aterm_spec::xref::{self, SpecModule};
 
+mod gate;
+
 // Force the proof-anchor-bearing rlibs into the link graph: `inventory` only collects
 // `submit!`s from LINKED object code, and a bin that references NOTHING from these
 // crates would let the linker drop their rlibs (and the `spec_proof_anchors` module's
@@ -62,12 +64,15 @@ fn main() -> ExitCode {
             }
         },
         Some("spec-link") => spec_link(),
+        Some("gate") => gate::run(args.get(2).map(String::as_str)),
         _ => {
             eprintln!(
-                "usage: xtask <harness-manifest|spec-link>\n\
+                "usage: xtask <harness-manifest|spec-link|gate <check>>\n\
                  \n\
                  harness-manifest  enumerate #[kani::proof] fns -> target/trust/harness-manifest.json\n\
-                 spec-link         lower the anchor graph + run `trust-ir spec-link --require-manifest`"
+                 spec-link         lower the anchor graph + run `trust-ir spec-link --require-manifest`\n\
+                 gate <check>      local enforcement gate (NO CI): all|drift|dormant|lint|perf\n\
+                                   see docs/EXCEED_GHOSTTY_PLAN.md"
             );
             ExitCode::FAILURE
         }
@@ -80,7 +85,7 @@ fn main() -> ExitCode {
 
 /// The workspace root (the dir that holds `crates/` and `target/`). `xtask`'s
 /// manifest dir is `<root>/crates/xtask`, so the root is two levels up.
-fn workspace_root() -> PathBuf {
+pub(crate) fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent() // crates/
         .and_then(Path::parent) // <root>
@@ -158,7 +163,7 @@ fn write_harness_manifest() -> std::io::Result<PathBuf> {
 }
 
 /// Recursively collect `*.rs` files under `dir` (skipping `target/`).
-fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+pub(crate) fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if !dir.exists() {
         return Ok(());
     }

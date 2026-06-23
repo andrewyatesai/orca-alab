@@ -197,8 +197,8 @@ impl ActionSink for TerminalHandler<'_> {
                 }
                 // Per VT510: when DECLRMM is active, LF at the scroll boundary
                 // scrolls only within horizontal margins (#7407).
-                // Adjusts kitty graphics placements on scroll (#7687).
-                self.line_feed_with_kitty_adjust(self.modes.left_right_margin_mode);
+                // Line feed, honoring DECLRMM left/right margins (#7687).
+                self.margined_line_feed(self.modes.left_right_margin_mode);
             }
             0x0D => {
                 // CR (Carriage Return)
@@ -229,8 +229,8 @@ impl ActionSink for TerminalHandler<'_> {
                 }
                 // Per VT510: when DECLRMM is active, IND at the scroll boundary
                 // scrolls only within horizontal margins (#7407).
-                // Adjusts kitty graphics placements on scroll (#7687).
-                self.line_feed_with_kitty_adjust(self.modes.left_right_margin_mode);
+                // Line feed, honoring DECLRMM left/right margins (#7687).
+                self.margined_line_feed(self.modes.left_right_margin_mode);
             }
             0x85 => {
                 // NEL (Next Line) - same as ESC E
@@ -243,8 +243,8 @@ impl ActionSink for TerminalHandler<'_> {
                     .carriage_return_margin(self.modes.left_right_margin_mode);
                 // Per VT510: when DECLRMM is active, NEL at the scroll boundary
                 // scrolls only within horizontal margins (#7407).
-                // Adjusts kitty graphics placements on scroll (#7687).
-                self.line_feed_with_kitty_adjust(self.modes.left_right_margin_mode);
+                // Line feed, honoring DECLRMM left/right margins (#7687).
+                self.margined_line_feed(self.modes.left_right_margin_mode);
             }
             0x88 => {
                 // HTS (Horizontal Tab Set) - same as ESC H
@@ -450,9 +450,18 @@ impl ActionSink for TerminalHandler<'_> {
     }
 
     fn apc_end(&mut self) {
-        // Process the complete APC sequence.
-        // Kitty graphics (APC 'G') support was removed with the graphics
-        // subsystem; APC payloads are accumulated, budgeted, and discarded.
+        // Kitty graphics (APC 'G'): parse the accumulated payload and handle it
+        // (transmit/store, transmit-and-display, put, delete). `parse_kitty_command`
+        // returns an OWNED command (payload cloned), so the borrow on `dcs.data` is
+        // released before `handle_kitty_command` mutates the grid/store.
+        let cmd = if self.dcs.data.first() == Some(&b'G') {
+            crate::terminal::kitty_graphics::parse_kitty_command(&self.dcs.data)
+        } else {
+            None
+        };
+        if let Some(cmd) = cmd {
+            self.handle_kitty_command(&cmd);
+        }
         // Release APC bytes from the global DCS budget.
         self.dcs.total_bytes = self.dcs.total_bytes.saturating_sub(self.dcs.sequence_bytes);
         self.dcs.sequence_bytes = 0;
@@ -464,6 +473,276 @@ impl ActionSink for TerminalHandler<'_> {
         }
     }
 }
+
+/// Kitty graphics (APC `G`) command handling — the KITTY-CORE display slice. An
+/// inherent impl (not part of `ActionSink`); called from `apc_end` above.
+impl TerminalHandler<'_> {
+    /// Handle one parsed Kitty graphics command (KITTY-CORE display slice):
+    /// delete (clear store), put/display (place a stored image), or transmit /
+    /// transmit-and-display (decode, store by id, optionally place). Chunked
+    /// (`m=1`), query, animation, and non-direct mediums are deferred — so
+    /// `kitty_graphics` stays advertised FALSE until those land (no false advertise).
+    /// Assemble CHUNKED Kitty transmissions (`m=1`) before handling. The first
+    /// `m=1` chunk seeds a pending command (its control metadata); continuation
+    /// chunks append their payload; the `m=0` chunk finalizes and dispatches the
+    /// whole image. Non-chunked commands dispatch immediately. The accumulated
+    /// payload is bounded by `MAX_KITTY_IMAGE_BYTES` (overflow aborts the transfer).
+    fn handle_kitty_command(&mut self, cmd: &crate::terminal::kitty_graphics::KittyCommand) {
+        if self.transient.kitty_pending.is_some() || cmd.more {
+            // Bound the assembled payload BEFORE appending (read current len first
+            // to avoid borrowing across the abort reset).
+            let cur_len = self
+                .transient
+                .kitty_pending
+                .as_ref()
+                .map_or(0, |p| p.payload.len());
+            // Fail closed BEFORE touching the buffer: overflow past the cap, or an
+            // armed alloc fault (M7 FAULT-INJECT), aborts the transfer.
+            if crate::fault::triggered("kitty.chunk_alloc")
+                || cur_len.saturating_add(cmd.payload.len()) > MAX_KITTY_IMAGE_BYTES
+            {
+                self.transient.kitty_pending = None; // abort the overflowing transfer
+                return;
+            }
+            // Seed from the FIRST chunk's metadata (payload cleared); then append
+            // every chunk's payload, including this one. FALLIBLE ALLOCATION (M7):
+            // reserve before extending so a real OOM degrades to a dropped transfer
+            // instead of aborting the process. The borrow on `pending` ends with the
+            // block so the abort reset below can reassign `kitty_pending`.
+            let appended = {
+                let pending = self.transient.kitty_pending.get_or_insert_with(|| {
+                    let mut first = cmd.clone();
+                    first.payload.clear();
+                    first
+                });
+                if pending.payload.try_reserve(cmd.payload.len()).is_ok() {
+                    pending.payload.extend_from_slice(&cmd.payload);
+                    true
+                } else {
+                    false
+                }
+            };
+            if !appended {
+                self.transient.kitty_pending = None; // OOM: drop the transfer, fail closed
+                return;
+            }
+            if cmd.more {
+                return; // more chunks to come
+            }
+            // Final chunk: take the assembled command out and dispatch it.
+            if let Some(assembled) = self.transient.kitty_pending.take() {
+                self.handle_complete_kitty_command(&assembled);
+            }
+            return;
+        }
+        self.handle_complete_kitty_command(cmd);
+    }
+
+    /// Handle one COMPLETE (chunk-assembled) Kitty graphics command:
+    /// delete (clear / by-id), put/display (place a stored image), or transmit /
+    /// transmit-and-display (decode, store by id, optionally place). Query,
+    /// animation, and non-direct mediums are deferred — so `kitty_graphics` stays
+    /// advertised FALSE until those land (no false advertise).
+    fn handle_complete_kitty_command(
+        &mut self,
+        cmd: &crate::terminal::kitty_graphics::KittyCommand,
+    ) {
+        use crate::terminal::kitty_graphics::KittyAction;
+        match cmd.action {
+            KittyAction::Delete => {
+                // d=i / d=I with i=<id>: delete that one image; otherwise (d=a/A or
+                // no d=) clear the whole store.
+                match cmd.delete_target {
+                    Some('i' | 'I') => {
+                        if let Some(id) = cmd.id {
+                            self.transient.kitty_images.remove(&id);
+                            self.transient.kitty_frames.remove(&id);
+                        }
+                    }
+                    _ => {
+                        self.transient.kitty_images.clear();
+                        self.transient.kitty_frames.clear();
+                    }
+                }
+            }
+            KittyAction::Display => {
+                if let Some(id) = cmd.id
+                    && let Some(image) = self.transient.kitty_images.get(&id).cloned()
+                {
+                    let (cols, rows) = (image.cols, image.rows);
+                    let at = self.grid.cursor_col();
+                    self.place_image(&image, cols, rows, at);
+                }
+            }
+            KittyAction::Transmit | KittyAction::TransmitAndDisplay => {
+                let Some(image) = self.build_kitty_image(cmd) else {
+                    return;
+                };
+                let image = std::sync::Arc::new(image);
+                if let Some(id) = cmd.id {
+                    let store = &mut self.transient.kitty_images;
+                    // Cap the store (DoS bound); an existing id may always update.
+                    if store.len() < MAX_KITTY_IMAGES || store.contains_key(&id) {
+                        store.insert(id, std::sync::Arc::clone(&image));
+                        // A fresh base transmit resets the animation frame list to
+                        // just this frame (frame 1); `a=f` appends, `a=a r=N` selects.
+                        self.transient
+                            .kitty_frames
+                            .insert(id, vec![std::sync::Arc::clone(&image)]);
+                    }
+                }
+                if cmd.action == KittyAction::TransmitAndDisplay {
+                    let (cols, rows) = (image.cols, image.rows);
+                    let at = self.grid.cursor_col();
+                    self.place_image(&image, cols, rows, at);
+                }
+            }
+            // Support probe: report OK (we support core transmit/display). The
+            // success response is suppressed by q>=1 — that Query then falls to the
+            // `_` arm (no response). Echo the id (i=) or number (I=) the client used.
+            KittyAction::Query if cmd.quiet == 0 => {
+                use core::fmt::Write as _;
+                let mut r = crate::terminal::stack_response::StackResponse::<32>::new();
+                if let Some(id) = cmd.id {
+                    let _ = write!(r, "\x1b_Gi={id};OK\x1b\\");
+                } else if let Some(n) = cmd.number {
+                    let _ = write!(r, "\x1b_GI={n};OK\x1b\\");
+                } else {
+                    let _ = write!(r, "\x1b_G;OK\x1b\\");
+                }
+                self.transient
+                    .response_buffer
+                    .extend_from_slice(r.as_bytes());
+            }
+            // a=f: transmit an ANIMATION FRAME for an existing image — decode it like
+            // a base transmit and append to the image's frame list (capped).
+            KittyAction::Frame => {
+                if let Some(id) = cmd.id
+                    && self.transient.kitty_frames.contains_key(&id)
+                    && let Some(frame) = self.build_kitty_image(cmd)
+                {
+                    let frames = self.transient.kitty_frames.entry(id).or_default();
+                    if frames.len() < MAX_KITTY_FRAMES {
+                        frames.push(std::sync::Arc::new(frame));
+                    }
+                }
+            }
+            // a=a: animation control. The only frame-management action that does not
+            // need a wall-clock timer (which is the renderer's job) is selecting the
+            // CURRENT frame via `r=N` (1-based) — re-point `kitty_images[id]` at it so
+            // every render path (direct + placeholder) shows frame N. Play/stop/gap
+            // timing is left to the frame-pacing consumer.
+            KittyAction::Animate => {
+                if let Some(id) = cmd.id
+                    && let Some(n) = cmd.rows
+                    && n >= 1
+                    && let Some(frames) = self.transient.kitty_frames.get(&id)
+                    && let Some(frame) = frames.get((n - 1) as usize).cloned()
+                {
+                    self.transient.kitty_images.insert(id, frame);
+                }
+            }
+            // Quiet query, or unsupported actions: no response — degrade gracefully.
+            _ => {}
+        }
+    }
+
+    /// Build an [`aterm_grid::ImageData`] from a single-chunk Kitty transmit
+    /// command, or `None` if the payload is missing/oversized or the dimensions are
+    /// invalid. PNG keeps its bytes (the renderer decodes); raw `f=32`/`f=24`
+    /// become `RawRgba8` (RGB expands to opaque RGBA). The cell footprint is the
+    /// explicit `c`/`r`, else pixel size ÷ the renderer cell size (`iterm2.cell_px`)
+    /// rounded up, clamped to the grid.
+    fn build_kitty_image(
+        &self,
+        cmd: &crate::terminal::kitty_graphics::KittyCommand,
+    ) -> Option<aterm_grid::ImageData> {
+        use crate::terminal::kitty_graphics::{
+            KittyFormat, KittyMedium, png_dimensions, rgb_to_rgba,
+        };
+        use aterm_grid::{ImageData, ImageFormat};
+        if cmd.payload.is_empty() {
+            return None;
+        }
+        // Non-direct transmission mediums (`t=f` file / `t=t` temp-file / `t=s` shared
+        // memory) carry a PATH/name, not image bytes. aterm does NOT read host files
+        // or shared memory off a terminal escape (a fail-closed posture for a
+        // security-minimalist terminal: that capability would need an explicit,
+        // opt-in host-provided resolver + policy). Skip them cleanly — never decode a
+        // path as pixels — matching the plan's "graceful degradation, never garbage".
+        if cmd.medium != KittyMedium::Direct {
+            return None;
+        }
+        // o=z (RFC 1950 zlib): the whole payload is compressed — inflate it first,
+        // bounded by the same cap so a decompression bomb is rejected (fail closed).
+        let payload: Vec<u8> = if cmd.compressed {
+            aterm_codec::inflate::zlib_decompress(&cmd.payload, MAX_KITTY_IMAGE_BYTES).ok()?
+        } else {
+            cmd.payload.clone()
+        };
+        if payload.is_empty() || payload.len() > MAX_KITTY_IMAGE_BYTES {
+            return None;
+        }
+        let (format, px_w, px_h, bytes) = match cmd.format {
+            KittyFormat::Png => {
+                // Pixel dims from the PNG header (for the footprint), else explicit s/v.
+                let (w, h) = png_dimensions(&payload).or_else(|| cmd.width.zip(cmd.height))?;
+                (ImageFormat::Png, w, h, payload)
+            }
+            KittyFormat::Rgba => {
+                let (w, h) = (cmd.width?, cmd.height?);
+                if payload.len() != (w as usize).checked_mul(h as usize)?.checked_mul(4)? {
+                    return None; // malformed raw buffer
+                }
+                let fmt = ImageFormat::RawRgba8 {
+                    width: u16::try_from(w).ok()?,
+                    height: u16::try_from(h).ok()?,
+                };
+                (fmt, w, h, payload)
+            }
+            KittyFormat::Rgb => {
+                let (w, h) = (cmd.width?, cmd.height?);
+                if payload.len() != (w as usize).checked_mul(h as usize)?.checked_mul(3)? {
+                    return None;
+                }
+                let fmt = ImageFormat::RawRgba8 {
+                    width: u16::try_from(w).ok()?,
+                    height: u16::try_from(h).ok()?,
+                };
+                (fmt, w, h, rgb_to_rgba(&payload))
+            }
+        };
+        let cell_w = u32::from(self.iterm2.cell_px.0.max(1));
+        let cell_h = u32::from(self.iterm2.cell_px.1.max(1));
+        let cols = cmd.columns.unwrap_or_else(|| px_w.div_ceil(cell_w)).max(1);
+        let rows = cmd.rows.unwrap_or_else(|| px_h.div_ceil(cell_h)).max(1);
+        // Clamp the footprint to the grid so a huge image can't request an enormous
+        // cell span.
+        let cols = u16::try_from(cols)
+            .unwrap_or(u16::MAX)
+            .min(self.grid.cols())
+            .max(1);
+        let rows = u16::try_from(rows)
+            .unwrap_or(u16::MAX)
+            .min(self.grid.rows())
+            .max(1);
+        Some(ImageData {
+            bytes,
+            format,
+            cols,
+            rows,
+            // Kitty z=: negative draws behind text. iTerm2/Sixel + z=0 default to 0.
+            z_index: cmd.z_index.unwrap_or(0),
+        })
+    }
+}
+
+/// Maximum Kitty images retained in the per-screen store (DoS bound).
+const MAX_KITTY_IMAGES: usize = 256;
+/// Maximum animation frames retained per Kitty image (DoS bound).
+const MAX_KITTY_FRAMES: usize = 128;
+/// Maximum decoded bytes for a single Kitty image (matches the APC payload cap).
+const MAX_KITTY_IMAGE_BYTES: usize = 4 * 1024 * 1024;
 
 /// CSI dispatch fast paths extracted from ActionSink::csi_dispatch.
 impl TerminalHandler<'_> {
@@ -873,5 +1152,307 @@ impl TerminalHandler<'_> {
         if let Some(b) = last_byte {
             self.transient.last_graphic_char = Some(b as char);
         }
+    }
+}
+
+#[cfg(test)]
+mod kitty_display_tests {
+    use crate::terminal::Terminal;
+
+    /// Build an APC `G` Kitty graphics sequence (`ESC _ G <control> ; <b64> ESC \`).
+    fn apc_g(control: &str, raw_payload: &[u8]) -> Vec<u8> {
+        let mut v = b"\x1b_G".to_vec();
+        v.extend_from_slice(control.as_bytes());
+        if !raw_payload.is_empty() {
+            v.push(b';');
+            v.extend_from_slice(aterm_codec::base64::encode(raw_payload).as_bytes());
+        }
+        v.extend_from_slice(b"\x1b\\");
+        v
+    }
+
+    /// A 1x1-cell RGBA image: cell_px 10x20 + s=10,v=20 -> ceil(10/10)=1 col, 1 row.
+    fn one_cell_rgba() -> Vec<u8> {
+        vec![0u8; 10 * 20 * 4]
+    }
+
+    #[test]
+    fn transmit_and_display_places_inline_image() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        term.process(&apc_g("a=T,f=32,s=10,v=20", &one_cell_rgba()));
+        let frame = term.cell_frame(24, 80);
+        assert!(
+            !frame.images[0].is_empty(),
+            "a=T must place an inline image via the shared image pipeline"
+        );
+    }
+
+    #[test]
+    fn store_then_put_displays_only_after_put() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // a=t stores under id=5 WITHOUT displaying.
+        term.process(&apc_g("a=t,f=32,s=10,v=20,i=5", &one_cell_rgba()));
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "a=t alone does not display"
+        );
+        // a=p puts the stored image at the cursor.
+        term.process(&apc_g("a=p,i=5", b""));
+        assert!(
+            !term.cell_frame(24, 80).images[0].is_empty(),
+            "a=p displays the stored image"
+        );
+    }
+
+    #[test]
+    fn delete_clears_store_so_put_is_noop() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        term.process(&apc_g("a=t,f=32,s=10,v=20,i=5", &one_cell_rgba()));
+        term.process(&apc_g("a=d", b""));
+        term.process(&apc_g("a=p,i=5", b"")); // store cleared -> nothing to place
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "a=d cleared the store; a=p cannot display"
+        );
+    }
+
+    #[test]
+    fn delete_by_id_removes_only_that_image() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        term.process(&apc_g("a=t,f=32,s=10,v=20,i=5", &one_cell_rgba()));
+        term.process(&apc_g("a=t,f=32,s=10,v=20,i=6", &one_cell_rgba()));
+        // d=i,i=5 deletes only image 5; image 6 still displays.
+        term.process(&apc_g("a=d,d=i,i=5", b""));
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "deleted id 5 cannot be put"
+        );
+        term.process(&apc_g("a=p,i=5", b""));
+        assert!(term.cell_frame(24, 80).images[0].is_empty(), "id 5 is gone");
+        term.process(&apc_g("a=p,i=6", b""));
+        assert!(
+            !term.cell_frame(24, 80).images[0].is_empty(),
+            "id 6 survived the targeted delete"
+        );
+    }
+
+    #[test]
+    fn chunked_transmit_display_assembles_and_places() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        let full = one_cell_rgba(); // 800 bytes = 10*20*4
+        // First chunk carries the control + m=1; continuations carry m=1 / m=0
+        // (their payloads are appended using the FIRST chunk's metadata).
+        term.process(&apc_g("a=T,f=32,s=10,v=20,m=1", &full[0..400]));
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "must not place a partial (mid-chunk) image"
+        );
+        term.process(&apc_g("m=1", &full[400..600]));
+        term.process(&apc_g("m=0", &full[600..800]));
+        assert!(
+            !term.cell_frame(24, 80).images[0].is_empty(),
+            "assembled image places on the final (m=0) chunk"
+        );
+    }
+
+    #[test]
+    fn unicode_placeholder_places_stored_image_via_fg_id_and_diacritics() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // Store a 1-cell RGBA image under id 5 WITHOUT displaying it (a=t).
+        term.process(&apc_g("a=t,f=32,s=10,v=20,i=5", &one_cell_rgba()));
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "a=t stores but does not display"
+        );
+        // Now draw it virtually: fg = indexed 5 (image-id low), then the placeholder
+        // U+10EEEE + row diacritic (U+0305 -> 0) + col diacritic (U+0305 -> 0).
+        let mut seq = b"\x1b[38;5;5m".to_vec();
+        let mut buf = [0u8; 4];
+        for c in ['\u{10EEEE}', '\u{0305}', '\u{0305}'] {
+            seq.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+        term.process(&seq);
+
+        let frame = term.cell_frame(24, 80);
+        assert!(
+            !frame.images[0].is_empty(),
+            "a Unicode placeholder cell must place the stored image (id from fg)"
+        );
+        let (col, iref) = &frame.images[0][0];
+        assert_eq!(*col, 0, "placeholder was written at column 0");
+        assert_eq!(
+            (iref.cell_row, iref.cell_col),
+            (0, 0),
+            "row/col diacritics 0x0305 both decode to tile (0, 0)"
+        );
+    }
+
+    #[test]
+    fn animation_frame_transmit_and_select_switches_displayed_frame() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // Base transmit (frame 1): a 1-cell RGBA image of all-zero bytes, id 7.
+        term.process(&apc_g("a=t,f=32,s=10,v=20,i=7", &one_cell_rgba()));
+        // a=f: append a 2nd frame with DISTINCT pixels (all 0xAB).
+        let frame2 = vec![0xABu8; 10 * 20 * 4];
+        term.process(&apc_g("a=f,f=32,s=10,v=20,i=7", &frame2));
+
+        // Display via a placeholder (it reads the CURRENT frame from the store live).
+        let mut seq = b"\x1b[38;5;7m".to_vec();
+        let mut buf = [0u8; 4];
+        for c in ['\u{10EEEE}', '\u{0305}', '\u{0305}'] {
+            seq.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+        term.process(&seq);
+
+        // Frame 1 is current: the placeholder shows the all-zero base frame.
+        let f = term.cell_frame(24, 80);
+        assert_eq!(
+            f.images[0][0].1.image.bytes[0], 0x00,
+            "frame 1 = base (zeros)"
+        );
+
+        // a=a r=2: select frame 2 → the SAME placeholder now shows the 0xAB frame.
+        term.process(&apc_g("a=a,i=7,r=2", b""));
+        let f = term.cell_frame(24, 80);
+        assert_eq!(
+            f.images[0][0].1.image.bytes[0], 0xAB,
+            "a=a r=2 must switch the displayed frame to frame 2"
+        );
+
+        // a=a r=1: back to frame 1.
+        term.process(&apc_g("a=a,i=7,r=1", b""));
+        assert_eq!(
+            term.cell_frame(24, 80).images[0][0].1.image.bytes[0],
+            0x00,
+            "a=a r=1 returns to frame 1"
+        );
+    }
+
+    #[test]
+    fn unicode_placeholder_unknown_id_places_nothing() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // No image stored under id 9 -> the placeholder resolves to nothing (no panic).
+        let mut seq = b"\x1b[38;5;9m".to_vec();
+        let mut buf = [0u8; 4];
+        for c in ['\u{10EEEE}', '\u{0305}', '\u{0305}'] {
+            seq.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+        term.process(&seq);
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "a placeholder referencing an unknown image id places nothing (fail closed)"
+        );
+    }
+
+    #[test]
+    fn non_direct_mediums_skip_cleanly_never_garbage() {
+        // t=f (file) / t=t (temp) / t=s (shared mem): the payload is a PATH/name, not
+        // pixels. aterm must NOT read host files/shm off an escape and must NOT decode
+        // the path bytes as an image — it skips cleanly (no placement, no panic).
+        for medium in ["f", "t", "s"] {
+            let mut term = Terminal::new(24, 80);
+            term.set_cell_pixel_size(10, 20);
+            // A plausible path payload, declared as a 10x20 RGBA image via a non-direct
+            // medium. Without the skip, the path bytes would be mis-decoded.
+            let control = format!("a=T,f=32,s=10,v=20,t={medium}");
+            term.process(&apc_g(&control, b"/tmp/some/image.png"));
+            assert!(
+                term.cell_frame(24, 80).images[0].is_empty(),
+                "t={medium} (non-direct medium) must skip cleanly — no image placed"
+            );
+        }
+    }
+
+    #[test]
+    fn compressed_o_z_payload_is_inflated_and_placed() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // zlib(800 zero bytes) — a one-cell 10x20 RGBA image, transmitted with o=z.
+        let compressed: &[u8] = &[
+            0x78, 0xda, 0x63, 0x60, 0x18, 0x05, 0xa3, 0x60, 0x14, 0xe0, 0x02, 0x00, 0x03, 0x20,
+            0x00, 0x01,
+        ];
+        term.process(&apc_g("a=T,f=32,s=10,v=20,o=z", compressed));
+        assert!(
+            !term.cell_frame(24, 80).images[0].is_empty(),
+            "o=z compressed payload must be inflated and placed via the shared pipeline"
+        );
+    }
+
+    #[test]
+    fn malformed_o_z_payload_is_rejected_not_panic() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // o=z but the payload is not a valid zlib stream — must drop, never panic.
+        term.process(&apc_g("a=T,f=32,s=10,v=20,o=z", &[1, 2, 3, 4, 5, 6]));
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "a corrupt o=z stream must be rejected (fail closed)"
+        );
+    }
+
+    #[test]
+    fn armed_alloc_fault_aborts_chunked_transfer_fail_closed() {
+        use crate::fault;
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        let full = one_cell_rgba();
+        // With the chunk-allocation fault armed, the first chunk fails closed: the
+        // transfer is dropped, no partial buffer accumulates, and nothing panics.
+        fault::with_armed("kitty.chunk_alloc", || {
+            term.process(&apc_g("a=T,f=32,s=10,v=20,m=1", &full[0..400]));
+            term.process(&apc_g("m=1", &full[400..600]));
+            term.process(&apc_g("m=0", &full[600..800]));
+        });
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "an armed alloc fault must abort the transfer (fail closed), placing nothing"
+        );
+        // After disarming, a fresh transfer assembles and places normally — the fault
+        // left no corrupt pending state behind (graceful, recoverable degradation).
+        term.process(&apc_g("a=T,f=32,s=10,v=20,m=1", &full[0..400]));
+        term.process(&apc_g("m=1", &full[400..600]));
+        term.process(&apc_g("m=0", &full[600..800]));
+        assert!(
+            !term.cell_frame(24, 80).images[0].is_empty(),
+            "after disarming, the accumulator recovers and places the assembled image"
+        );
+    }
+
+    #[test]
+    fn query_reports_ok() {
+        let mut term = Terminal::new(24, 80);
+        // a=q support probe with id=3 -> _Gi=3;OK (q=0 default).
+        term.process(&apc_g("a=q,i=3", b""));
+        assert_eq!(
+            term.take_response().unwrap_or_default(),
+            b"\x1b_Gi=3;OK\x1b\\"
+        );
+        // q=2 suppresses the response.
+        term.process(&apc_g("a=q,i=4,q=2", b""));
+        assert!(
+            term.take_response().is_none(),
+            "q=2 suppresses the query OK"
+        );
+    }
+
+    #[test]
+    fn malformed_raw_buffer_is_rejected() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        // s/v claim 10x20 RGBA (800 bytes) but only 4 bytes of payload -> rejected.
+        term.process(&apc_g("a=T,f=32,s=10,v=20", &[1, 2, 3, 4]));
+        assert!(
+            term.cell_frame(24, 80).images[0].is_empty(),
+            "a mismatched raw RGBA length must not place an image"
+        );
     }
 }

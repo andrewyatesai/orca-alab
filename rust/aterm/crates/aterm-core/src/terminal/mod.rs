@@ -44,6 +44,10 @@ mod handler_xtsmgraphics;
 pub(crate) mod host_traits;
 pub(crate) mod hyperlink_auth;
 mod keyboard_mode;
+/// Kitty graphics protocol (APC `G`) command parser (KITTY-CORE foundation).
+pub mod kitty_graphics;
+/// Kitty graphics Unicode placeholder (U+10EEEE) diacritic decoding (M3).
+mod kitty_placeholder;
 #[cfg(test)]
 pub mod mouse;
 #[cfg(not(test))]

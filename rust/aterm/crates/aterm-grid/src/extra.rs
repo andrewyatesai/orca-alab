@@ -144,6 +144,10 @@ pub struct ImageData {
     pub cols: u16,
     /// Footprint height in CELLS (how many rows the image spans).
     pub rows: u16,
+    /// Kitty `z=` stacking order. `< 0` draws BEHIND the cell's text (the glyph
+    /// paints on top); `>= 0` (the default for iTerm2/Sixel and `z=0` Kitty) draws
+    /// OVER the cell, which keeps the historical "image owns the cell" behavior.
+    pub z_index: i32,
 }
 
 /// A single cell's reference into a placed [`ImageData`].

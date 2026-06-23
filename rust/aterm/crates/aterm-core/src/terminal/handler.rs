@@ -297,9 +297,12 @@ impl TerminalHandler<'_> {
     )]
     pub(super) fn invalidate_bidi_all(&mut self) {}
 
-    /// Perform a line feed (#7687).
+    /// Perform a line feed, honoring DECLRMM left/right margins (#7687).
+    ///
+    /// (When the Kitty graphics protocol lands (KITTY-CORE), placement
+    /// scroll-adjustment hooks here — today there are no placements to adjust.)
     #[inline]
-    pub(super) fn line_feed_with_kitty_adjust(&mut self, left_right_margin_mode: bool) {
+    pub(super) fn margined_line_feed(&mut self, left_right_margin_mode: bool) {
         self.grid.line_feed_margined(left_right_margin_mode);
     }
 
@@ -370,6 +373,19 @@ impl TerminalHandler<'_> {
                 .try_consume(response.len(), &legacy_clock)
         };
         if !permitted {
+            return;
+        }
+        // FALLIBLE ALLOCATION (M7): the total is already capped at
+        // MAX_RESPONSE_BUFFER_SIZE above, but reserve before appending so a real OOM
+        // (or an armed `response.append_alloc` fault) drops this response and fails
+        // closed instead of aborting the process.
+        if crate::fault::triggered("response.append_alloc")
+            || self
+                .transient
+                .response_buffer
+                .try_reserve(response.len())
+                .is_err()
+        {
             return;
         }
         self.transient.response_buffer.extend_from_slice(response);

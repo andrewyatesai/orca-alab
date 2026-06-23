@@ -72,12 +72,14 @@ fn parse_csi_large_param() {
 
 #[test]
 fn parse_csi_many_params() {
+    use crate::MAX_PARAMS;
     let mut parser = Parser::new();
     let mut sink = RecordingSink::default();
 
-    // More than 16 parameters (only first 16 should be kept)
+    // More than MAX_PARAMS parameters (only the first MAX_PARAMS are kept).
+    // 26 params 1..=26; with MAX_PARAMS = 24 the last two (25, 26) are dropped.
     parser.advance(
-        b"\x1b[1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18m",
+        b"\x1b[1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26m",
         &mut sink,
     );
 
@@ -87,10 +89,42 @@ fn parse_csi_many_params() {
         "should dispatch exactly one CSI sequence"
     );
     let params = &sink.csi_dispatches[0].0;
-    assert_eq!(params.len(), 16, "params truncated to MAX_PARAMS");
+    assert_eq!(params.len(), MAX_PARAMS, "params truncated to MAX_PARAMS");
+    assert_eq!(
+        MAX_PARAMS, 24,
+        "MAX_PARAMS pinned at 24 (xterm/ghostty parity)"
+    );
     // Verify first params survived truncation in order
     assert_eq!(params[0], 1, "first param preserved");
-    assert_eq!(params[15], 16, "last retained param is 16 (17,18 dropped)");
+    assert_eq!(params[23], 24, "last retained param is 24 (25,26 dropped)");
+}
+
+#[test]
+fn parse_csi_kakoune_sgr() {
+    // Regression for the 16->24 MAX_PARAMS raise: Kakoune emits a 17-parameter
+    // SGR (truecolor fg + truecolor bg + attrs). At the old cap of 16 the 17th
+    // parameter was truncated and the styling dropped. It must now be retained.
+    let mut parser = Parser::new();
+    let mut sink = RecordingSink::default();
+
+    // 17 params: SGR 4:3 (curly underline) ; 38:2::R:G:B ; 48:2::R:G:B ...
+    parser.advance(
+        b"\x1b[0;4;38;2;255;128;0;48;2;16;32;48;1;3;9;53;58m",
+        &mut sink,
+    );
+
+    assert_eq!(sink.csi_dispatches.len(), 1, "one CSI dispatch");
+    let params = &sink.csi_dispatches[0].0;
+    assert_eq!(
+        params.len(),
+        17,
+        "all 17 Kakoune SGR params retained (not truncated)"
+    );
+    assert_eq!(params[0], 0, "first param (reset) preserved");
+    assert_eq!(
+        params[16], 58,
+        "17th param (SGR 58 underline color) preserved"
+    );
 }
 
 // ============== CSI Fast Path Tests ==============

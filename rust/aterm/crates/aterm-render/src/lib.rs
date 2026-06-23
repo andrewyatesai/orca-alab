@@ -21,6 +21,7 @@ use aterm_core::grid::LineSize;
 // (which builds terminals + calls `Terminal::cell_frame` to feed the renderer).
 use aterm_core::terminal::{CursorStyle, RenderCell, UnderlineStyle};
 
+mod colr;
 pub mod ligature_shaping;
 pub mod procedural;
 
@@ -95,6 +96,18 @@ pub enum FaceId {
     /// STIX/Apple Symbols): it guarantees a visible, theme-coloured glyph instead
     /// of `.notdef` tofu, while still never rendering in colour.
     ColorEmojiMono,
+    /// A RUNTIME-DISCOVERED fallback face (M3 FONT-DISCOVERY): a system font found
+    /// at query time to cover a code point that NONE of the configured faces
+    /// (primary / broad / symbol / colour) carry. On macOS the cover is resolved
+    /// through CoreText (`CTFontCreateForString` over the system cascade list); on
+    /// other platforms by scanning the candidate font directories. The exact face
+    /// is keyed per code point in [`Renderer::runtime_fallback`] — a `Mono`
+    /// coverage glyph like the other mono faces — so a script the bundled fallback
+    /// fonts miss (e.g. an uninstalled-by-default CJK or Indic block, or an emoji on
+    /// a machine whose Apple Color Emoji path moved) reaches a real glyph instead
+    /// of `.notdef` tofu. Consulted ONLY after `select_face` would otherwise give
+    /// up, so it never shadows the verified configured-face policy.
+    RuntimeFallback,
 }
 
 /// The pixel class of a glyph image: what one cache/atlas texel holds.
@@ -351,6 +364,14 @@ pub struct Renderer {
     color_font: Option<Vec<u8>>,
     /// Candidate colour-emoji font paths, tried on first emoji; emptied once consumed.
     color_font_paths: Vec<String>,
+    /// Runtime per-codepoint font fallback (M3 FONT-DISCOVERY): when a code point
+    /// misses EVERY configured face (primary / broad / symbol / colour),
+    /// [`Renderer::glyph_key`] asks this resolver for a system font that covers it
+    /// (CoreText on macOS, candidate-directory scan elsewhere). The decision is
+    /// cached per code point so repeated lookups are O(1) and bounded. Empty and
+    /// untouched on the common path — a code point a configured face covers never
+    /// reaches it, so there is no behaviour or perf change for ordinary text.
+    runtime_fallback: RuntimeFallback,
     px: f32,
     /// `px` in the key's 26.6 fixed-point form, computed once at construction.
     px_q: u32,
@@ -519,6 +540,15 @@ const FONT_CANDIDATES: &[&str] = &[
     "/System/Library/Fonts/Supplemental/Courier New.ttf",
 ];
 
+/// The bundled last-resort monospace face (FONT-EMBED): DejaVu Sans Mono, under the
+/// Bitstream Vera + DejaVu licenses (`assets/DejaVuSansMono.LICENSE.txt`). Used only
+/// when every system/configured candidate is absent, so a host with no usable font
+/// still renders text. Compiled in only with the default `embedded-font` feature.
+#[cfg(feature = "embedded-font")]
+pub(crate) fn embedded_font() -> &'static [u8] {
+    include_bytes!("../assets/DejaVuSansMono.ttf")
+}
+
 /// Broad-coverage fallback faces (CJK + symbols), most-preferred first.
 /// Override with $ATERM_FALLBACK_FONT.
 const FALLBACK_CANDIDATES: &[&str] = &[
@@ -581,6 +611,408 @@ fn color_emoji_candidate_paths() -> Vec<String> {
     }
     paths.extend(COLOR_EMOJI_CANDIDATES.iter().map(|s| (*s).to_string()));
     paths
+}
+
+/// Runtime per-codepoint font-fallback resolver (M3 FONT-DISCOVERY).
+///
+/// The configured faces ([`FONT_CANDIDATES`] / [`FALLBACK_CANDIDATES`] /
+/// [`SYMBOL_FALLBACK_CANDIDATES`] / [`COLOR_EMOJI_CANDIDATES`]) cover the common
+/// scripts, but a machine can show a code point none of them carry — an
+/// uninstalled-by-default CJK/Indic block, a rarely-bundled script, an emoji on a
+/// host whose Apple Color Emoji path moved. This resolver is the LAST step before
+/// `.notdef` tofu: given such a code point it finds a SYSTEM font that covers it
+/// (CoreText on macOS, a candidate-directory scan elsewhere), loads it once, and
+/// caches the per-code-point decision so repeated lookups are O(1).
+///
+/// It is consulted ONLY when [`select_face`] would otherwise give up, so the
+/// verified configured-face policy is never shadowed and the common path (a code
+/// point a configured face covers) never touches this struct.
+#[derive(Default)]
+struct RuntimeFallback {
+    /// Distinct runtime-discovered faces, parsed once and reused. Indexed by the
+    /// `usize` stored in [`Self::decisions`]; parallel to [`Self::face_paths`].
+    faces: Vec<fontdue::Font>,
+    /// The file path each entry of [`Self::faces`] was loaded from, so a second
+    /// code point routed to the same font reuses the already-parsed face instead
+    /// of re-reading/parsing it.
+    face_paths: Vec<String>,
+    /// The per-code-point decision cache: `Some(i)` = covered by `faces[i]`,
+    /// `None` = no system font covers it (a real miss, rendered as `.notdef`).
+    /// Bounded to [`Self::MAX_DECISIONS`]; the cache is cleared wholesale once it
+    /// fills (a coarse bound — the decision is cheap to recompute and a terminal's
+    /// working set of fallback code points is tiny).
+    decisions: HashMap<char, Option<usize>>,
+}
+
+impl RuntimeFallback {
+    /// Cap on cached code-point decisions. Generous — distinct code points needing
+    /// runtime fallback are rare — but finite, so an adversarial stream of unique
+    /// code points cannot grow the map without bound.
+    const MAX_DECISIONS: usize = 4096;
+
+    /// Resolve `ch` to a runtime-fallback face index, memoized. Returns `Some(i)`
+    /// when `self.faces[i]` covers `ch`, `None` when no system font does (so the
+    /// caller renders `.notdef`). The first lookup for a code point does the
+    /// platform query + font load; every later lookup is a single map hit.
+    fn resolve(&mut self, ch: char) -> Option<usize> {
+        if let Some(&decision) = self.decisions.get(&ch) {
+            return decision;
+        }
+        let decision = self.discover(ch);
+        // Coarse bound: clear wholesale once full so the map can never grow past
+        // the cap. The just-computed decision is always inserted afterward, so the
+        // freshly requested code point stays cached.
+        if self.decisions.len() >= Self::MAX_DECISIONS {
+            self.decisions.clear();
+        }
+        self.decisions.insert(ch, decision);
+        decision
+    }
+
+    /// Discover (without caching) a system font that can actually RENDER `ch` as a
+    /// monochrome glyph. Gathers an ordered list of candidate font paths (the
+    /// CoreText hint first on macOS, then the candidate-directory scan), and
+    /// accepts the FIRST one fontdue can rasterize `ch` from to a non-empty bitmap.
+    /// Returns the index of the loaded face in [`Self::faces`] (reusing an
+    /// already-loaded path), or `None` when nothing renders it.
+    ///
+    /// The "non-empty raster" gate is load-bearing: CoreText's first pick for a
+    /// script can be a font fontdue cannot draw — PingFang (CFF2 variable outlines)
+    /// for CJK, Apple Color Emoji (`sbix` bitmaps, no outlines) for emoji, the
+    /// universal LastResort tofu font for noncharacters. A nonzero glyph index does
+    /// NOT imply fontdue can render it, so we verify by rasterizing and fall through
+    /// to the next candidate (e.g. Arial Unicode, a plain TTF) when it can't.
+    fn discover(&mut self, ch: char) -> Option<usize> {
+        for path in runtime_fallback_candidate_paths(ch) {
+            // Reuse an already-loaded face for this path (a previous code point
+            // routed here): avoids re-reading/parsing the same large font.
+            if let Some(i) = self.face_paths.iter().position(|p| *p == path) {
+                if face_can_render(&self.faces[i], ch) {
+                    return Some(i);
+                }
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(face) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
+            else {
+                continue;
+            };
+            if !face_can_render(&face, ch) {
+                continue;
+            }
+            self.faces.push(face);
+            self.face_paths.push(path);
+            return Some(self.faces.len() - 1);
+        }
+        None
+    }
+
+    /// Borrow the discovered face for code point `ch`, if one is cached. Used by
+    /// the rasterizer, which only sees a [`GlyphKey`]'s code point and must
+    /// recover WHICH face to rasterize from. `None` is the fail-safe (the caller
+    /// falls back to `.notdef`); in practice the decision was cached by
+    /// [`Renderer::glyph_key`] before the key was ever rasterized.
+    fn face_for(&self, ch: char) -> Option<&fontdue::Font> {
+        let &Some(i) = self.decisions.get(&ch)? else {
+            return None;
+        };
+        self.faces.get(i)
+    }
+}
+
+/// The probe size at which [`face_can_render`] tests a face: the resolver only
+/// needs a yes/no, and a small size keeps the trial rasterization cheap.
+const RUNTIME_FALLBACK_PROBE_PX: f32 = 16.0;
+
+/// Whether `face` can produce a NON-EMPTY monochrome raster for `ch`. A nonzero
+/// `cmap` glyph index is necessary but NOT sufficient: fontdue is an outline
+/// rasterizer, so a font whose glyph is a CFF2 variable outline (PingFang) or a
+/// colour bitmap (Apple Color Emoji) reports the glyph yet rasterizes to a 0×0 /
+/// all-zero bitmap. This gate is what lets [`RuntimeFallback::discover`] reject
+/// those and move to the next candidate. (A space-like glyph would also be
+/// empty, but the resolver is only ever asked about non-space code points the
+/// configured faces missed.)
+fn face_can_render(face: &fontdue::Font, ch: char) -> bool {
+    if face.lookup_glyph_index(ch) == 0 {
+        return false;
+    }
+    let (m, bytes) = face.rasterize(ch, RUNTIME_FALLBACK_PROBE_PX);
+    m.width > 0 && m.height > 0 && bytes.iter().any(|&c| c > 0)
+}
+
+/// Ordered candidate font paths to try for code point `ch`, most-preferred first
+/// (M3 FONT-DISCOVERY). On macOS the CoreText pick leads (its system cascade
+/// list), then the candidate-directory scan; on other platforms only the scan.
+/// The caller ([`RuntimeFallback::discover`]) accepts the first path that can
+/// actually render `ch`, so leading with a font fontdue cannot draw (e.g. PingFang
+/// for CJK) is harmless — the scan's plain-TTF result (Arial Unicode) follows.
+fn runtime_fallback_candidate_paths(ch: char) -> Vec<String> {
+    let mut paths: Vec<String> = Vec::new();
+    #[cfg(target_os = "macos")]
+    {
+        // CoreText returns the LastResort tofu font for a genuinely-uncovered code
+        // point (noncharacters etc.); drop it so the resolver can return None
+        // gracefully rather than claiming a fake cover.
+        if let Some(p) = macos_coretext::font_path_for_char(ch)
+            && !path_is_last_resort(&p)
+        {
+            paths.push(p);
+        }
+    }
+    runtime_fallback_scan_candidates(ch, &mut paths);
+    paths
+}
+
+/// Whether `path` is the universal LastResort tofu font (by file stem). It
+/// "covers" every code point with a placeholder box, so accepting it would defeat
+/// the resolver's graceful-`None` contract for uncovered code points.
+fn path_is_last_resort(path: &str) -> bool {
+    std::path::Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| s.eq_ignore_ascii_case("LastResort"))
+}
+
+/// Cross-platform (and macOS-CoreText-miss) discovery: scan the candidate font
+/// directories for every font whose `cmap` covers `ch`, appending their paths to
+/// `out` (deduplicated against entries already present, e.g. the CoreText pick).
+/// Dependency-free and deterministic (directories + files scanned in a fixed,
+/// sorted order). On Linux this is also where a future fontconfig integration
+/// would slot in — see the NOTE; we deliberately do NOT link a fontconfig C
+/// dependency here.
+///
+/// The universal LastResort font (macOS `LastResort.otf`) is SKIPPED: it covers
+/// every code point with a tofu placeholder, so accepting it would make the
+/// resolver claim coverage for genuinely-uncovered code points (noncharacters,
+/// unassigned planes) — defeating the "returns None gracefully" contract.
+///
+/// NOTE (Linux / fontconfig TODO): a real Linux deployment wants
+/// `FcCharSetHasChar` over the fontconfig database for accurate, fast coverage
+/// queries. This scan is a correct-but-narrow stand-in: it only sees fonts in the
+/// [`FONT_DIRS`] it knows, parses each candidate to test coverage (slower than a
+/// charset index), and does not understand fontconfig's family aliasing. It is
+/// sufficient for the bundled macOS faces and any font dropped into those dirs.
+fn runtime_fallback_scan_candidates(ch: char, out: &mut Vec<String>) {
+    for dir in font_search_dirs() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        // Sort entries so the scan is deterministic regardless of readdir order.
+        let mut paths: Vec<std::path::PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        paths.sort();
+        for path in paths {
+            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+                continue;
+            };
+            if !FONT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+                continue;
+            }
+            let Some(p) = path.to_str().map(str::to_string) else {
+                continue;
+            };
+            // Skip the universal LastResort tofu font (it "covers" everything).
+            if path_is_last_resort(&p) || out.contains(&p) {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            // ttf-parser's cmap query is cheaper than a full fontdue parse for a
+            // coverage probe; only confirmed-covering fonts are handed back (and
+            // the caller re-parses with fontdue, applying `face_can_render`).
+            let Ok(face) = ttf_parser::Face::parse(&bytes, 0) else {
+                continue;
+            };
+            if face.glyph_index(ch).is_some_and(|g| g.0 != 0) {
+                out.push(p);
+            }
+        }
+    }
+}
+
+/// macOS CoreText runtime font discovery (M3 FONT-DISCOVERY). Given a code point
+/// no configured face covers, ask CoreText which font the system would use for it
+/// and recover that font's file path so the renderer can load + rasterize it.
+///
+/// This is hand-rolled FFI: the workspace has no `core-text` crate, so we declare
+/// exactly the CoreText / CoreFoundation symbols this query needs. The frameworks
+/// are stock macOS system libraries linked via `#[link(... kind = "framework")]`
+/// (the same pattern the GUI's window-capture FFI uses) — NOT a new crate
+/// dependency. Every object we `Create`/`Copy` is released exactly once.
+#[cfg(target_os = "macos")]
+mod macos_coretext {
+    use std::ffi::c_void;
+
+    /// Opaque CoreFoundation / CoreText object pointers (never dereferenced in
+    /// Rust — handed back to the frameworks or released).
+    type CFTypeRef = *const c_void;
+    type CFStringRef = *const c_void;
+    type CFURLRef = *const c_void;
+    type CTFontRef = *const c_void;
+    type CFAllocatorRef = *const c_void;
+
+    /// `CFStringEncoding` for UTF-8 (`kCFStringEncodingUTF8`), per CFString.h.
+    const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+    /// `CFURLPathStyle` POSIX (`kCFURLPOSIXPathStyle`), per CFURL.h.
+    const K_CF_URL_POSIX_PATH_STYLE: isize = 0;
+
+    // SAFETY (whole block): these are the standard, stable CoreFoundation /
+    // CoreText C entry points with the signatures published in Apple's headers.
+    // `font_path_for_char` upholds each contract: every `Create`/`Copy` result is
+    // released exactly once; pointers passed in are live objects we created; the
+    // UTF-16 unit count handed to `CTFontCreateForString` matches the buffer.
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFStringCreateWithBytes(
+            alloc: CFAllocatorRef,
+            bytes: *const u8,
+            num_bytes: isize,
+            encoding: u32,
+            is_external: bool,
+        ) -> CFStringRef;
+        fn CFStringGetLength(s: CFStringRef) -> isize;
+        fn CFStringGetCString(
+            s: CFStringRef,
+            buffer: *mut u8,
+            buffer_size: isize,
+            encoding: u32,
+        ) -> bool;
+        fn CFRelease(cf: CFTypeRef);
+    }
+
+    #[link(name = "CoreText", kind = "framework")]
+    unsafe extern "C" {
+        /// Make a base font at a given size (we only need it as the seed for
+        /// `CTFontCreateForString`; family/size are irrelevant to which fallback
+        /// CoreText picks for the code point).
+        fn CTFontCreateWithName(name: CFStringRef, size: f64, matrix: *const c_void) -> CTFontRef;
+        /// THE query: given a base font + a string range, return the font CoreText
+        /// would substitute to render that range — i.e. the system cascade-list
+        /// font covering the code point. This is the documented per-string fallback
+        /// resolver (`CTFontCopyDefaultCascadeListForLanguages` underlies it).
+        fn CTFontCreateForString(
+            current: CTFontRef,
+            string: CFStringRef,
+            range: CFRange,
+        ) -> CTFontRef;
+        /// The font's file URL (CoreText fonts are file-backed), or NULL.
+        fn CTFontCopyAttribute(font: CTFontRef, attribute: CFStringRef) -> CFTypeRef;
+        /// `kCTFontURLAttribute` — the constant string key for the font's URL
+        /// attribute. Declared as an extern static (a `CFStringRef` global).
+        static kCTFontURLAttribute: CFStringRef;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        /// Turn a `CFURLRef` into its POSIX file-system path as a `CFStringRef`.
+        fn CFURLCopyFileSystemPath(url: CFURLRef, path_style: isize) -> CFStringRef;
+    }
+
+    /// A `CFRange` (location + length), matching CoreFoundation's layout.
+    #[repr(C)]
+    struct CFRange {
+        location: isize,
+        length: isize,
+    }
+
+    /// Build a `CFStringRef` from a Rust `&str` (UTF-8). Caller releases it.
+    /// Returns NULL on failure.
+    /// SAFETY: see the extern block's block-level note; `s.as_ptr()`/`s.len()`
+    /// describe a valid UTF-8 buffer for the duration of the call.
+    unsafe fn cfstring(s: &str) -> CFStringRef {
+        unsafe {
+            CFStringCreateWithBytes(
+                std::ptr::null(),
+                s.as_ptr(),
+                s.len() as isize,
+                K_CF_STRING_ENCODING_UTF8,
+                false,
+            )
+        }
+    }
+
+    /// Read a `CFStringRef` back into a Rust `String` (UTF-8), or `None`.
+    /// SAFETY: `s` must be a live `CFStringRef`.
+    unsafe fn cfstring_to_string(s: CFStringRef) -> Option<String> {
+        if s.is_null() {
+            return None;
+        }
+        unsafe {
+            // Worst-case UTF-8 is 4 bytes/unit; +1 for the NUL CFStringGetCString
+            // appends. A font path is short, so this buffer is comfortably sized.
+            let len = CFStringGetLength(s);
+            let cap = (len as usize).saturating_mul(4).saturating_add(1).max(8);
+            let mut buf = vec![0u8; cap];
+            if !CFStringGetCString(s, buf.as_mut_ptr(), cap as isize, K_CF_STRING_ENCODING_UTF8) {
+                return None;
+            }
+            let nul = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+            buf.truncate(nul);
+            String::from_utf8(buf).ok()
+        }
+    }
+
+    /// Resolve the file path of the font CoreText would use to render `ch`.
+    ///
+    /// Seeds an arbitrary base font, asks `CTFontCreateForString` for the
+    /// substituted font over `ch`'s UTF-16 range, then reads that font's
+    /// `kCTFontURLAttribute` URL and converts it to a POSIX path. `None` if any
+    /// step fails (CoreText could not find a cover, the font isn't file-backed,
+    /// etc.) — the caller then tries the generic candidate scan.
+    pub fn font_path_for_char(ch: char) -> Option<String> {
+        let mut u16buf = [0u16; 2];
+        let utf16 = ch.encode_utf16(&mut u16buf);
+        let utf16_len = utf16.len() as isize;
+        let s = ch.to_string();
+        // SAFETY: every Create/Copy below is released exactly once on all paths via
+        // the `release` helpers; we never deref the opaque pointers. See the extern
+        // block's block-level SAFETY note.
+        unsafe {
+            let cf = cfstring(&s);
+            if cf.is_null() {
+                return None;
+            }
+            // A neutral base font ("Helvetica" exists on every Mac); size is
+            // irrelevant to which fallback CoreText selects.
+            let base_name = cfstring("Helvetica");
+            let base = if base_name.is_null() {
+                std::ptr::null()
+            } else {
+                CTFontCreateWithName(base_name, 12.0, std::ptr::null())
+            };
+            if !base_name.is_null() {
+                CFRelease(base_name);
+            }
+            // `base` may be NULL; CTFontCreateForString tolerates a NULL current
+            // font (uses a system default) per the headers.
+            let range = CFRange {
+                location: 0,
+                length: utf16_len,
+            };
+            let substituted = CTFontCreateForString(base, cf, range);
+            if !base.is_null() {
+                CFRelease(base);
+            }
+            CFRelease(cf);
+            if substituted.is_null() {
+                return None;
+            }
+            let url = CTFontCopyAttribute(substituted, kCTFontURLAttribute) as CFURLRef;
+            CFRelease(substituted);
+            if url.is_null() {
+                return None;
+            }
+            let path_cf = CFURLCopyFileSystemPath(url, K_CF_URL_POSIX_PATH_STYLE);
+            CFRelease(url as CFTypeRef);
+            let path = cfstring_to_string(path_cf);
+            if !path_cf.is_null() {
+                CFRelease(path_cf);
+            }
+            path
+        }
+    }
 }
 
 /// The face-selection POLICY for a code point's ordinary (non-VS16) text
@@ -736,6 +1168,131 @@ fn normalize_family(s: &str) -> String {
         .collect()
 }
 
+/// Basic metrics for a resolved font face — the data behind `aterm show-face`.
+/// Cell metrics are at [`FaceInfo::PROBE_PX`], a representative monospace size; a
+/// caller can scale linearly. This is a read-only introspection summary, not a
+/// rendering handle.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FaceInfo {
+    /// Absolute path to the resolved font file.
+    pub path: String,
+    /// Advance width of `'M'` in px at [`Self::PROBE_PX`] (a cell width for a
+    /// monospace face; just one glyph's advance for a proportional one).
+    pub cell_width: usize,
+    /// Cell height in px at [`Self::PROBE_PX`] (line height from font metrics).
+    pub cell_height: usize,
+    /// Baseline offset in px (ascent) at [`Self::PROBE_PX`].
+    pub baseline: i32,
+    /// Number of glyphs in the face (from the font's glyph table).
+    pub glyph_count: usize,
+}
+
+impl FaceInfo {
+    /// The fixed probe size the reported metrics are measured at.
+    pub const PROBE_PX: f32 = 16.0;
+}
+
+/// Enumerate the available font files as FAMILY STEMS (file stems like `"Menlo"`,
+/// `"SFNSMono"`) from the system font directories ([`FONT_DIRS`], matched by
+/// [`FONT_EXTS`]), de-duplicated and sorted for deterministic, scriptable output.
+/// User and system fonts merge into one set. Returns whatever it finds — an
+/// unreadable directory is skipped, never an error. NOT filtered to monospace.
+///
+/// This is the data behind `aterm list-fonts`. A stem is an *approximation* of a
+/// family name: weight/style variants shipped as separate files list separately
+/// (`Arial`, `Arial Bold`, …), and the faces inside a `.ttc`/`.otc` collection are
+/// not enumerated individually. Each listed stem does resolve via
+/// [`resolve_font_family`].
+#[must_use]
+pub fn list_fonts() -> Vec<String> {
+    let mut families: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for dir in font_search_dirs() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+                continue;
+            };
+            if !FONT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+                continue;
+            }
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                families.insert(stem.to_string());
+            }
+        }
+    }
+    families.into_iter().collect()
+}
+
+/// Resolve a font `family` to its [`FaceInfo`] (path + cell metrics + glyph
+/// count), or `None` if the family does not resolve or the file cannot be parsed.
+/// Uses the SAME [`resolve_font_family`] the renderer uses, so the reported path
+/// is the one aterm would actually load. Metrics are at [`FaceInfo::PROBE_PX`].
+///
+/// This is the data behind `aterm show-face <family>`.
+#[must_use]
+pub fn face_info(family: &str) -> Option<FaceInfo> {
+    let path = resolve_font_family(family)?;
+    let bytes = std::fs::read(&path).ok()?;
+    let font =
+        fontdue::Font::from_bytes(bytes.as_slice(), fontdue::FontSettings::default()).ok()?;
+    let lm = font.horizontal_line_metrics(FaceInfo::PROBE_PX)?;
+    let adv = font.metrics('M', FaceInfo::PROBE_PX).advance_width;
+    // Glyph count from the font's glyph table (ttf-parser is already a dependency,
+    // used for the colour-emoji sbix path).
+    let glyph_count = ttf_parser::Face::parse(bytes.as_slice(), 0)
+        .map(|f| f.number_of_glyphs() as usize)
+        .unwrap_or(0);
+    Some(FaceInfo {
+        path,
+        cell_width: adv.ceil().max(1.0) as usize,
+        cell_height: lm.new_line_size.ceil().max(1.0) as usize,
+        baseline: lm.ascent.round() as i32,
+        glyph_count,
+    })
+}
+
+#[cfg(test)]
+mod font_enum_tests {
+    use super::{FaceInfo, face_info, list_fonts, resolve_font_family};
+
+    #[test]
+    fn list_is_sorted_and_deduplicated() {
+        let fonts = list_fonts();
+        // Sorted ascending and no duplicates (BTreeSet guarantees both; assert it
+        // so a future switch to a different container can't silently regress the
+        // scriptable, deterministic contract).
+        for w in fonts.windows(2) {
+            assert!(w[0] < w[1], "not sorted/unique: {:?} then {:?}", w[0], w[1]);
+        }
+    }
+
+    #[test]
+    fn face_info_resolves_a_listed_font() {
+        // Pick any listed family that actually resolves, and assert its metrics are
+        // sane. Skips cleanly on a host with no enumerable/resolvable fonts.
+        let Some(family) = list_fonts()
+            .into_iter()
+            .find(|f| resolve_font_family(f).is_some())
+        else {
+            eprintln!("SKIP: no resolvable system font");
+            return;
+        };
+        let info = face_info(&family).expect("a resolvable family yields face_info");
+        assert!(!info.path.is_empty(), "path must be set");
+        assert!(info.cell_width >= 1 && info.cell_height >= 1, "{info:?}");
+        assert!(info.glyph_count > 0, "a real face has glyphs: {info:?}");
+        let _ = FaceInfo::PROBE_PX;
+    }
+
+    #[test]
+    fn face_info_none_for_bogus_family() {
+        assert!(face_info("definitely-not-a-real-font-xyzzy").is_none());
+    }
+}
+
 impl Renderer {
     /// Build from explicit font bytes at a given pixel size.
     pub fn from_bytes(bytes: &[u8], px: f32, theme: Theme) -> Result<Self, String> {
@@ -764,6 +1321,7 @@ impl Renderer {
             symbol_fallback_paths: Vec::new(),
             color_font: None,
             color_font_paths: Vec::new(),
+            runtime_fallback: RuntimeFallback::default(),
             px,
             px_q: GlyphKey::quantize_px(px),
             cell_w,
@@ -824,6 +1382,17 @@ impl Renderer {
                 r.color_font_paths = color_emoji_candidate_paths();
                 return Some(r);
             }
+        }
+        // FONT-EMBED: last resort — a bundled monospace face so text still renders
+        // when the host has NO usable system font (e.g. a stripped Linux container,
+        // where every candidate path above is absent). Only compiled in with the
+        // default `embedded-font` feature.
+        #[cfg(feature = "embedded-font")]
+        if let Ok(mut r) = Self::from_bytes(embedded_font(), px, theme) {
+            r.fallback_paths = fallback_candidate_paths();
+            r.symbol_fallback_paths = symbol_fallback_candidate_paths();
+            r.color_font_paths = color_emoji_candidate_paths();
+            return Some(r);
         }
         None
     }
@@ -1007,27 +1576,50 @@ impl Renderer {
         // resolves to the colour face. The POLICY lives in the pure,
         // exhaustively-verified `select_face`: ONE provable colour-vs-text place.
         let wants_emoji = aterm_grapheme::is_emoji_presentation(ch);
-        let color_has = !procedural
-            && !primary_has
-            && !fallback_has
-            && !symbol_has
-            && self.color_font_has(ch);
-        let key = match select_face(
+        let color_has =
+            !procedural && !primary_has && !fallback_has && !symbol_has && self.color_font_has(ch);
+        let face = select_face(
             procedural,
             primary_has,
             fallback_has,
             symbol_has,
             color_has,
             wants_emoji,
-        ) {
+        );
+        // M3 FONT-DISCOVERY: `select_face` returns `FaceId::Primary` for the
+        // genuinely-covered primary glyph AND for the give-up `.notdef` case (no
+        // configured face covers the char). Distinguish them: it is a give-up
+        // ONLY when the char isn't procedural and the primary truly lacks it.
+        // In that give-up case — and ONLY then — try the runtime resolver before
+        // settling for `.notdef`. The common path (any face covered it) never
+        // reaches this, so behaviour/perf for ordinary text is unchanged.
+        let face = if face == FaceId::Primary && !procedural && !primary_has {
+            match self.runtime_fallback.resolve(ch) {
+                Some(_) => FaceId::RuntimeFallback,
+                None => FaceId::Primary, // a real miss — render `.notdef`.
+            }
+        } else {
+            face
+        };
+        let key = match face {
             // The colour face carries a 32-bit RGBA sbix bitmap (🚀 😀); every
             // other outcome — including the monochromatized colour silhouette
-            // (`ColorEmojiMono`) — is a foreground-tinted Mono coverage mask.
+            // (`ColorEmojiMono`) and the runtime-discovered fallback — is a
+            // foreground-tinted Mono coverage mask.
             FaceId::ColorEmoji => GlyphKey::rgba_char(FaceId::ColorEmoji, ch, self.px_q),
             source => GlyphKey::mono_char(source, ch, StyleBits::REGULAR, self.px_q),
         };
         self.keys.insert(ch, key);
         key
+    }
+
+    /// Resolve `ch` to a runtime-discovered fallback face's index (M3
+    /// FONT-DISCOVERY), or `None` if no system font covers it. Memoized in
+    /// [`Self::runtime_fallback`]. Exposed for tests/diagnostics: production code
+    /// reaches it only via [`Self::glyph_key`]'s give-up path.
+    #[doc(hidden)]
+    pub fn runtime_fallback_resolves(&mut self, ch: char) -> bool {
+        self.runtime_fallback.resolve(ch).is_some()
     }
 
     /// Like [`glyph_key`](Self::glyph_key) but for a BOLD/ITALIC cell: the same
@@ -1254,6 +1846,20 @@ impl Renderer {
         &self.glyphs[&key]
     }
 
+    /// Pre-rasterize printable ASCII (U+0020..=U+007E) into the glyph cache so the
+    /// FIRST frame's atlas build pulls warm `GlyphImage`s instead of rasterizing on
+    /// the hot path. Intended to run OFF the critical path (the GPU backend spawns
+    /// it on the same background font thread that builds the renderer), so it adds
+    /// no serial cold-start time. Produces byte-identical glyphs to on-demand
+    /// rasterization — it only fills the cache early; rendered output is unchanged.
+    /// Box-drawing/block are procedural (free) and so are not warmed here.
+    pub fn prewarm_ascii(&mut self) {
+        for ch in '\u{20}'..='\u{7E}' {
+            let key = self.glyph_key(ch);
+            let _ = self.glyph_image(key);
+        }
+    }
+
     /// Rasterize `key` from its source face. Keys made by [`Self::glyph_key`]
     /// always carry this renderer's own `px_q`; rasterization uses the exact
     /// `px` float the renderer was built with (no quantization round-trip), so
@@ -1310,6 +1916,14 @@ impl Renderer {
                     FaceId::SymbolFallback => {
                         self.ensure_symbol_fallback();
                         self.symbol_fallback.as_ref().unwrap_or(&self.font)
+                    }
+                    // A runtime-discovered fallback face (M3 FONT-DISCOVERY): the
+                    // per-code-point decision was cached by `glyph_key` before this
+                    // key was built, so `face_for` recovers the exact face. Fail
+                    // safe to the primary (`.notdef`) if the decision is somehow
+                    // absent (it never is on the path that produces this key).
+                    FaceId::RuntimeFallback => {
+                        self.runtime_fallback.face_for(ch).unwrap_or(&self.font)
                     }
                 };
                 let (m, mut bytes) = face.rasterize(ch, self.px);
@@ -1442,10 +2056,25 @@ impl Renderer {
         let face = ttf_parser::Face::parse(bytes, 0).ok()?;
         // Ask for a strike at least as tall as the cell so we DOWNscale (sharper)
         // rather than upscale; Apple strikes are 20/32/40/48/64/96/160 px.
-        let raster = face.glyph_raster_image(gid, self.cell_h.max(1) as u16)?;
-        if !matches!(raster.format, ttf_parser::RasterImageFormat::PNG) {
-            return None;
-        }
+        // `glyph_raster_image` covers sbix (Apple) AND CBDT/CBLC (Noto on Linux).
+        let Some(raster) = face
+            .glyph_raster_image(gid, self.cell_h.max(1) as u16)
+            .filter(|r| matches!(r.format, ttf_parser::RasterImageFormat::PNG))
+        else {
+            // No bitmap strike: try a COLR (vector) color glyph (Twemoji/Segoe/
+            // Noto-COLRv1). Rasterized to a 2-cell box, placed full-height.
+            let box_w = (2 * self.cell_w).max(1);
+            let box_h = self.cell_h.max(1);
+            let rgba = crate::colr::rasterize_colr(&face, gid, box_w, box_h)?;
+            return Some(GlyphImage::Rgba {
+                width: box_w,
+                height: box_h,
+                xmin: 0,
+                ymin: self.baseline - box_h as i32,
+                advance: box_w as f32,
+                bytes: rgba,
+            });
+        };
         let decoder = png::Decoder::new(raster.data);
         let mut reader = decoder.read_info().ok()?;
         let mut buf = vec![0u8; reader.output_buffer_size()];
@@ -2332,7 +2961,13 @@ fn combining_for(row_combining: &[(usize, Box<[char]>)], col: usize) -> Option<&
 /// image-vs-glyph precedence rule shared with the GPU path. Rows almost never
 /// have images, so the linear scan is over an empty slice on the hot path.
 fn image_covers(row_images: &[(usize, aterm_core::grid::extra::ImageRef)], col: usize) -> bool {
-    row_images.iter().any(|(c, _)| *c == col)
+    // Only an image drawn OVER the text (z_index >= 0, the default) hides the cell's
+    // glyph. A Kitty `z < 0` image draws BEHIND the text, so the glyph still paints
+    // on top (and the cell stays ligature-shapeable). Matches the GPU path's
+    // `RenderInput::image_hides_glyph_at`.
+    row_images
+        .iter()
+        .any(|(c, r)| *c == col && r.image.z_index >= 0)
 }
 
 /// Whether any row's DEC line size is a double-HEIGHT band (DECDHL top/bottom).
@@ -3067,6 +3702,27 @@ mod tests {
         Renderer::from_system(16.0, Theme::default())
     }
 
+    #[cfg(feature = "embedded-font")]
+    #[test]
+    fn embedded_font_is_valid_monospace_and_builds_a_renderer() {
+        // FONT-EMBED: the bundled last-resort font must parse, cover ASCII, and
+        // rasterize — so a host with no system font still renders text.
+        let f = fontdue::Font::from_bytes(embedded_font(), fontdue::FontSettings::default())
+            .expect("embedded DejaVu Sans Mono parses");
+        assert_ne!(f.lookup_glyph_index('A'), 0, "embedded font covers 'A'");
+        let (m, bitmap) = f.rasterize('A', 16.0);
+        assert!(
+            m.width > 0 && !bitmap.is_empty(),
+            "embedded font rasterizes 'A' to coverage"
+        );
+        // And it drives a real Renderer (the path taken when every system candidate
+        // is absent).
+        assert!(
+            Renderer::from_bytes(embedded_font(), 16.0, Theme::default()).is_ok(),
+            "a Renderer builds from the embedded font"
+        );
+    }
+
     #[test]
     fn blend_endpoints() {
         assert_eq!(blend(0x000000, 0xffffff, 0), 0x000000);
@@ -3327,7 +3983,10 @@ mod tests {
             return;
         };
         let key = r.glyph_key('\u{23FA}'); // ⏺
-        eprintln!("⏺ U+23FA resolved to {:?} / {:?}", key.source, key.glyph_class);
+        eprintln!(
+            "⏺ U+23FA resolved to {:?} / {:?}",
+            key.source, key.glyph_class
+        );
         assert_ne!(
             key.source,
             FaceId::ColorEmoji,
@@ -3393,7 +4052,10 @@ mod tests {
             "the monochromatized ⏺ must be a Mono (foreground-tinted) glyph, not Rgba"
         );
         let img = r.glyph_image(key).clone();
-        assert!(matches!(img, GlyphImage::Mono { .. }), "must be a Mono image");
+        assert!(
+            matches!(img, GlyphImage::Mono { .. }),
+            "must be a Mono image"
+        );
         assert!(
             img.bytes().iter().any(|&b| b > 0),
             "monochromatized ⏺ must carry real coverage, not be blank tofu"
@@ -3926,5 +4588,195 @@ mod tests {
                 .is_some()
             );
         }
+    }
+
+    // ---- M3 FONT-DISCOVERY: runtime per-codepoint font fallback ----
+
+    /// A renderer whose configured faces (primary / broad / symbol / colour) are
+    /// all forced ABSENT, so any non-Latin code point MUST go through the runtime
+    /// resolver to find a glyph — isolating the M3 fallback path from the bundled
+    /// faces. Built from a real primary mono font (for sane metrics) but with the
+    /// candidate fallback lists emptied.
+    fn renderer_no_configured_fallbacks() -> Option<Renderer> {
+        let bytes = system_font_bytes()?;
+        let mut r = Renderer::from_bytes(&bytes, 16.0, Theme::default()).ok()?;
+        // Defeat the bundled fallbacks: no broad/symbol/colour candidates, and the
+        // (lazy) faces stay None — the ONLY remaining cover for a missed code point
+        // is the runtime resolver.
+        r.fallback_paths.clear();
+        r.symbol_fallback_paths.clear();
+        r.color_font_paths.clear();
+        Some(r)
+    }
+
+    /// On macOS a common CJK code point (中 U+4E2D) resolves to SOME runtime
+    /// fallback font with a real glyph, even when every configured fallback face is
+    /// removed — this is the CoreText (`CTFontCreateForString`) path doing its job.
+    /// CJK fonts ship on every Mac, so this is deterministic there; on a host with
+    /// no covering font at all it SKIPs rather than fails.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn runtime_fallback_resolves_cjk() {
+        let Some(mut r) = renderer_no_configured_fallbacks() else {
+            eprintln!("SKIP: no system mono font found");
+            return;
+        };
+        let key = r.glyph_key('中'); // U+4E2D
+        eprintln!("中 U+4E2D resolved to {:?}", key.source);
+        if key.source == FaceId::Primary {
+            // The primary mono font happened to cover it, or no system font does.
+            eprintln!("SKIP: 中 covered by primary or uncovered on this host");
+            return;
+        }
+        assert_eq!(
+            key.source,
+            FaceId::RuntimeFallback,
+            "中 with no configured fallback must come from the runtime resolver"
+        );
+        let img = r.glyph_image(key);
+        assert!(img.width() > 0 && img.height() > 0, "中 rasterized empty");
+        assert!(
+            img.bytes().iter().any(|&c| c > 0),
+            "中 has no coverage from the runtime fallback face"
+        );
+    }
+
+    /// On macOS an emoji (😀 U+1F600) resolves to SOME font with a usable glyph —
+    /// here the configured colour-emoji face. NOTE on the runtime resolver's scope:
+    /// it is a MONOCHROME (fontdue outline) fallback, so it deliberately declines
+    /// bitmap-only emoji fonts (Apple Color Emoji has no outlines — `face_can_render`
+    /// returns false), since there is no mono outline emoji font on macOS. Emoji are
+    /// instead served by the dedicated colour path (`FaceId::ColorEmoji`). This test
+    /// pins both facts: a normal renderer routes 😀 to the colour face, AND the
+    /// runtime mono resolver correctly returns None for it (no mono cover exists).
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn emoji_resolves_to_colour_face_runtime_mono_declines() {
+        let Some(mut r) = renderer() else {
+            eprintln!("SKIP: no system mono font found");
+            return;
+        };
+        let key = r.glyph_key('\u{1F600}'); // 😀, Emoji_Presentation=Yes
+        eprintln!("😀 U+1F600 resolved to {:?}", key.source);
+        // With the configured colour face present, 😀 renders in colour — a usable
+        // glyph from a fallback font, exactly the M3 goal for emoji.
+        assert_eq!(
+            key.source,
+            FaceId::ColorEmoji,
+            "😀 must render via the colour-emoji fallback face"
+        );
+        // The runtime MONO resolver has no mono outline emoji font to offer, so it
+        // declines (Apple Color Emoji is bitmap-only). This documents the boundary:
+        // the runtime mono fallback covers missing OUTLINE scripts, not emoji.
+        let mut iso = renderer_no_configured_fallbacks().expect("renderer");
+        assert!(
+            !iso.runtime_fallback_resolves('\u{1F600}'),
+            "the runtime MONO resolver has no outline emoji font, so it declines 😀"
+        );
+    }
+
+    /// A code point that no real font claims must resolve to `None` from the
+    /// runtime resolver (graceful give-up), and dispatch to the primary face for
+    /// `.notdef` — never panic, never a bogus face. We use a permanent Unicode
+    /// NONCHARACTER (U+FDD0): no real font has a glyph for it, and the universal
+    /// LastResort tofu font (which "covers" everything) is explicitly filtered out
+    /// by the resolver, so the give-up is deterministic on every host. (An arbitrary
+    /// PUA code point is unreliable here — e.g. macOS's U+F8FF is the Apple logo.)
+    #[test]
+    fn runtime_fallback_uncovered_resolves_to_none() {
+        let Some(mut r) = renderer_no_configured_fallbacks() else {
+            eprintln!("SKIP: no system mono font found");
+            return;
+        };
+        let uncovered = '\u{FDD0}'; // a permanent Unicode noncharacter.
+        assert!(
+            !r.runtime_fallback_resolves(uncovered),
+            "a noncharacter must not resolve to any runtime fallback font"
+        );
+        let key = r.glyph_key(uncovered);
+        assert_eq!(
+            key.source,
+            FaceId::Primary,
+            "an uncovered code point falls back to the primary face's .notdef"
+        );
+    }
+
+    /// The decision cache is consulted on repeat: the resolver returns the SAME
+    /// decision (and grows the decision map by exactly one entry) for a repeated
+    /// lookup of the same code point. Uses a noncharacter so the decision is a
+    /// stable `None` on every host, making the cache assertion deterministic.
+    #[test]
+    fn runtime_fallback_cache_is_stable_on_repeat() {
+        let Some(mut r) = renderer_no_configured_fallbacks() else {
+            eprintln!("SKIP: no system mono font found");
+            return;
+        };
+        let ch = '\u{FDD1}'; // a noncharacter — stable `None` decision everywhere.
+        let first = r.runtime_fallback_resolves(ch);
+        let before = r.runtime_fallback.decisions.len();
+        let second = r.runtime_fallback_resolves(ch);
+        let after = r.runtime_fallback.decisions.len();
+        assert_eq!(
+            first, second,
+            "repeated lookup must return the same decision"
+        );
+        assert_eq!(
+            before, after,
+            "a repeated lookup must hit the cache, not insert a second entry"
+        );
+        assert!(
+            r.runtime_fallback.decisions.contains_key(&ch),
+            "the decision must be memoized after the first lookup"
+        );
+    }
+
+    /// The runtime resolver is NEVER consulted for a code point the primary face
+    /// covers (the common hot path): an ASCII lookup leaves the decision cache
+    /// completely empty, so ordinary text pays zero runtime-fallback cost.
+    #[test]
+    fn runtime_fallback_untouched_on_primary_hit() {
+        let Some(mut r) = renderer() else {
+            eprintln!("SKIP: no system mono font found");
+            return;
+        };
+        let key = r.glyph_key('A');
+        assert_eq!(key.source, FaceId::Primary);
+        assert!(
+            r.runtime_fallback.decisions.is_empty(),
+            "a primary-covered char must not touch the runtime resolver"
+        );
+        assert!(
+            r.runtime_fallback.faces.is_empty(),
+            "a primary-covered char must not load any runtime fallback face"
+        );
+    }
+
+    /// The decision cache is bounded: once it would exceed `MAX_DECISIONS` it is
+    /// cleared wholesale, so an adversarial stream of distinct (uncovered)
+    /// noncharacter code points cannot grow it without bound. Drives only a few
+    /// past the cap (the bound logic is the same at any size) by temporarily
+    /// pre-filling the map.
+    #[test]
+    fn runtime_fallback_decision_cache_is_bounded() {
+        let mut rf = RuntimeFallback::default();
+        // Pre-fill to exactly the cap with cheap dummy entries, then prove the next
+        // distinct lookup clears + re-seeds rather than growing past the cap.
+        for i in 0..RuntimeFallback::MAX_DECISIONS as u32 {
+            if let Some(c) = char::from_u32(0xE000 + i) {
+                rf.decisions.insert(c, None);
+            }
+        }
+        assert!(rf.decisions.len() >= RuntimeFallback::MAX_DECISIONS);
+        // A fresh noncharacter lookup trips the bound: the map is cleared and only
+        // this new decision remains.
+        let _ = rf.resolve('\u{FDD2}');
+        assert!(
+            rf.decisions.len() <= RuntimeFallback::MAX_DECISIONS,
+            "decision cache must stay within MAX_DECISIONS"
+        );
+        assert!(
+            rf.decisions.contains_key(&'\u{FDD2}'),
+            "the triggering lookup must remain cached after the bound resets the map"
+        );
     }
 }

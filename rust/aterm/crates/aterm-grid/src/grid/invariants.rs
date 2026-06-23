@@ -45,9 +45,13 @@ impl Grid {
     /// wide-char write/erase semantics intersect a previously-reverted
     /// differential divergence). Asserting it here would FALSE-fail.
     ///
-    /// Unlike `assert_invariants` this is NOT `debug_assertions`-only — it is a
-    /// test helper invoked from fuzz harnesses that may build in release.
-    #[cfg(any(test, feature = "testing"))]
+    /// Available in debug builds, tests, and the `testing` feature (the last so a
+    /// release-mode fuzz harness can still call it). INTEGRITY-SELFCHECK (M7) wires
+    /// it into `Terminal::process` under `#[cfg(debug_assertions)]`, so every debug
+    /// build continuously validates the grid at the public processing boundary — the
+    /// same checks the no-panic fuzzer asserts, now always-on in development. Zero
+    /// cost in release.
+    #[cfg(any(debug_assertions, test, feature = "testing"))]
     pub fn assert_structural_invariants(&self) {
         self.assert_cursor_in_bounds();
         self.assert_scroll_region_valid();
@@ -55,7 +59,7 @@ impl Grid {
     }
 
     /// CursorInBounds: cursor.row < visible_rows && cursor.col < cols
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(any(debug_assertions, test, feature = "testing"))]
     fn assert_cursor_in_bounds(&self) {
         assert!(
             self.storage.cursor.row < self.storage.visible_rows,
@@ -101,7 +105,7 @@ impl Grid {
     }
 
     /// ScrollRegionValid + DisplayOffsetValid.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(any(debug_assertions, test, feature = "testing"))]
     fn assert_scroll_region_valid(&self) {
         assert!(
             self.storage.scroll_region.top <= self.storage.scroll_region.bottom,
@@ -125,7 +129,7 @@ impl Grid {
 
     /// RowsNonEmpty + RingHeadValid + TotalLinesValid + TotalLinesMinimum:
     /// ring buffer structural invariants.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(any(debug_assertions, test, feature = "testing"))]
     fn assert_ring_buffer_valid(&self) {
         // Ring buffer must always contain at least one row — the constructor
         // enforces rows.max(1). Empty rows would cause division-by-zero in

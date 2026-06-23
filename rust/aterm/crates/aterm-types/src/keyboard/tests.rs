@@ -155,6 +155,30 @@ fn modifiers_kitty_encoded_ctrl_alt() {
 }
 
 #[test]
+fn modifiers_kitty_encoded_caps_lock() {
+    // WIRE-MODIFIERS: Caps Lock (bit 64) reports as kitty value 65, and combines
+    // with chord modifiers (Shift+CapsLock -> 1 + 64 + shift(1) = 66).
+    assert_eq!(Modifiers::CAPS_LOCK.kitty_encoded(), 65);
+    assert_eq!(
+        (Modifiers::SHIFT | Modifiers::CAPS_LOCK).kitty_encoded(),
+        66
+    );
+}
+
+#[test]
+fn modifiers_kitty_encoded_num_lock() {
+    // Num Lock (bit 128) reports as kitty value 129.
+    assert_eq!(Modifiers::NUM_LOCK.kitty_encoded(), 129);
+}
+
+#[test]
+fn modifiers_xterm_ignores_locks() {
+    // Legacy xterm modifier encoding does NOT report Caps/Num Lock.
+    assert_eq!(Modifiers::CAPS_LOCK.xterm_encoded(), 1);
+    assert_eq!(Modifiers::NUM_LOCK.xterm_encoded(), 1);
+}
+
+#[test]
 fn modifiers_xterm_encoded_no_mods() {
     assert_eq!(Modifiers::empty().xterm_encoded(), 1);
 }

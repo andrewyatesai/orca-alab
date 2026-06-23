@@ -42,6 +42,24 @@ impl Terminal {
         }
         // Reflow invalidates all row/col coordinates (#4056).
         self.text_selection.clear();
+        // DEC mode 2048: emit an in-band size report on every resize so a
+        // subscribed app (neovim 0.10+) learns the new geometry without an ioctl.
+        if self.modes.in_band_size_reports {
+            let (rows, cols) = (self.grid.rows(), self.grid.cols());
+            let (cw, ch) = self.iterm2.cell_px;
+            super::state_accessors::push_in_band_size_report(
+                &mut self.transient.response_buffer,
+                rows,
+                cols,
+                cw,
+                ch,
+            );
+        }
+        // INTEGRITY-SELFCHECK (M7): resize/reflow is the other major grid mutation
+        // boundary; validate the structural invariants here too in debug builds.
+        // Free in release; covered by the reflow proptests (no false-fail).
+        #[cfg(debug_assertions)]
+        self.grid.assert_structural_invariants();
     }
 
     /// Set bell callback.

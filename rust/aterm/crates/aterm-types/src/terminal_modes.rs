@@ -10,7 +10,7 @@
 //! (Part of #5663, #2341).
 
 use crate::mouse::{MouseEncoding, MouseMode};
-use crate::{BiDiMode, CursorStyle, ParagraphDirection, VtLevel};
+use crate::{Appearance, BiDiMode, CursorStyle, ParagraphDirection, VtLevel};
 
 /// Terminal mode flags.
 //
@@ -109,6 +109,24 @@ pub struct TerminalModes {
     /// Tracks which VT terminal level (VT100-VT520) the terminal emulates.
     /// Queried via DECRQSS with `"p` mnemonic.
     pub vt_level: VtLevel,
+    /// The host OS color scheme (light/dark) reported via the DEC color-scheme
+    /// protocol. Updated by the host (`Terminal::set_color_scheme`); queried by
+    /// apps via DSR `CSI ? 996 n`. Default [`Appearance::Dark`].
+    pub color_scheme: Appearance,
+    /// DEC private mode 2031: when set, the terminal emits an unsolicited
+    /// `CSI ? 997 ; Ps n` whenever [`color_scheme`](Self::color_scheme) changes,
+    /// so apps can live-update their theme. Off by default.
+    pub report_color_scheme: bool,
+    /// DECBKM (DEC private mode 67): when set, the Backspace key sends BS (0x08)
+    /// instead of the default DEL (0x7f). Folded into the legacy `KeyboardMode`.
+    /// Off by default (DEL), matching xterm's power-on `backarrowKey` state.
+    pub backarrow_sends_bs: bool,
+    /// DEC private mode 2048: in-band size reports. When set, the terminal emits
+    /// `CSI 48 ; rows ; cols ; pixH ; pixW t` on enable and on every resize, so
+    /// apps (neovim 0.10+) learn the geometry without an ioctl. Off by default.
+    /// Pixel dimensions come from the existing `iterm2.cell_px` (set by the host
+    /// via `Terminal::set_cell_pixel_size` for OSC 1337 image math).
+    pub in_band_size_reports: bool,
     // See: <https://terminal-wg.pages.freedesktop.org/bidi/>
     /// BiDi mode (ANSI mode 8 - BDSM).
     /// Implicit = automatic per-line analysis (default), Explicit = app-controlled.

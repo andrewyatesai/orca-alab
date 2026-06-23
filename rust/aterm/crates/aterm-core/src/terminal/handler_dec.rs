@@ -218,6 +218,30 @@ impl TerminalHandler<'_> {
                 2027 => {
                     self.set_grapheme_cluster_mode(set);
                 }
+                // DEC mode 2031: color-scheme change reporting. When set, the
+                // terminal emits CSI ? 997 ; Ps n on every OS appearance change
+                // (driven by Terminal::set_color_scheme). Apps query the current
+                // state via DSR CSI ? 996 n regardless of this mode.
+                2031 => {
+                    self.modes.report_color_scheme = set;
+                }
+                // DEC mode 2048: in-band size reports. On enable, emit the current
+                // geometry immediately so the app has it before the first resize;
+                // Terminal::resize emits on every subsequent change.
+                2048 => {
+                    self.modes.in_band_size_reports = set;
+                    if set {
+                        let (rows, cols) = (self.grid.rows(), self.grid.cols());
+                        let (cw, ch) = self.iterm2.cell_px;
+                        super::state_accessors::push_in_band_size_report(
+                            &mut self.transient.response_buffer,
+                            rows,
+                            cols,
+                            cw,
+                            ch,
+                        );
+                    }
+                }
                 // === BiDi DEC Private Modes (Terminal WG specification) ===
                 // See: https://terminal-wg.pages.freedesktop.org/bidi/recommendation/escape-sequences.html
                 1243 => {
@@ -228,6 +252,11 @@ impl TerminalHandler<'_> {
                 }
                 2501 => {
                     self.set_bidi_autodetection(set);
+                }
+                // DECBKM (mode 67): backspace sends BS (0x08) when set, DEL (0x7f)
+                // when reset (default). Folded into the legacy keyboard encoding.
+                67 => {
+                    self.modes.backarrow_sends_bs = set;
                 }
                 // Mode 1048: xterm save/restore cursor (equivalent to DECSC/DECRC)
                 1048 => {
@@ -751,6 +780,7 @@ impl TerminalHandler<'_> {
             40 => state(self.modes.deccolm_enable),
             45 => state(self.modes.reverse_wraparound),
             66 => state(self.modes.application_keypad),
+            67 => state(self.modes.backarrow_sends_bs),
             69 => state(self.modes.left_right_margin_mode),
             80 => state(self.modes.sixel_display_mode),
             95 => state(self.modes.decncsm),
@@ -779,10 +809,10 @@ impl TerminalHandler<'_> {
             2004 => state(self.modes.bracketed_paste),
             2026 => state(self.modes.synchronized_output),
             2027 => state(self.modes.grapheme_cluster_mode),
-            // 2048 (in-band resize notifications) is unimplemented and must
-            // fall through to Pm=0 (not recognized): kitty keyboard flags are
-            // queried via CSI ? u, not DECRQM, and claiming 2048 is set/reset
-            // without ever emitting resize reports breaks neovim 0.10+.
+            2031 => state(self.modes.report_color_scheme),
+            // 2048 (in-band size reports) is now implemented (emits on enable +
+            // every resize), so DECRQM reports its real state honestly.
+            2048 => state(self.modes.in_band_size_reports),
             2500 => state(self.modes.bidi_box_mirroring),
             2501 => state(self.modes.bidi_autodetection),
             // Recognized but permanently reset: modes with no effect in a modern
@@ -1184,6 +1214,97 @@ impl TerminalHandler<'_> {
         };
 
         self.grid.selective_erase_rect(top, left, bottom, right);
+    }
+}
+
+#[cfg(test)]
+mod decbkm_tests {
+    use crate::terminal::Terminal;
+    use aterm_types::keyboard::KeyboardMode;
+
+    #[test]
+    fn mode_67_toggles_backarrow_and_keyboard_mode() {
+        let mut term = Terminal::new(24, 80);
+        // Default: DECBKM reset -> keyboard mode lacks the flag.
+        assert!(
+            !term
+                .keyboard_mode()
+                .contains(KeyboardMode::BACKARROW_SENDS_BS)
+        );
+        // Set DECBKM -> the legacy keyboard mode carries the flag.
+        term.process(b"\x1b[?67h");
+        assert!(
+            term.keyboard_mode()
+                .contains(KeyboardMode::BACKARROW_SENDS_BS)
+        );
+        // Reset -> flag clears.
+        term.process(b"\x1b[?67l");
+        assert!(
+            !term
+                .keyboard_mode()
+                .contains(KeyboardMode::BACKARROW_SENDS_BS)
+        );
+    }
+
+    #[test]
+    fn decrqm_reports_mode_67_state() {
+        let mut term = Terminal::new(24, 80);
+        term.process(b"\x1b[?67$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?67;2$y");
+        term.process(b"\x1b[?67h");
+        term.process(b"\x1b[?67$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?67;1$y");
+    }
+}
+
+#[cfg(test)]
+mod in_band_size_tests {
+    use crate::terminal::Terminal;
+
+    #[test]
+    fn mode_2048_emits_on_enable_with_default_cell_px() {
+        let mut term = Terminal::new(24, 80);
+        // Default cell px is 8x16 -> pixH = 24*16 = 384, pixW = 80*8 = 640.
+        term.process(b"\x1b[?2048h");
+        assert_eq!(
+            term.take_response().unwrap_or_default(),
+            b"\x1b[48;24;80;384;640t"
+        );
+    }
+
+    #[test]
+    fn mode_2048_emits_on_resize_and_honors_cell_px() {
+        let mut term = Terminal::new(24, 80);
+        term.set_cell_pixel_size(10, 20);
+        term.process(b"\x1b[?2048h");
+        let _ = term.take_response(); // enable report
+        term.resize(30, 100);
+        // pixH = 30*20 = 600, pixW = 100*10 = 1000.
+        assert_eq!(
+            term.take_response().unwrap_or_default(),
+            b"\x1b[48;30;100;600;1000t"
+        );
+    }
+
+    #[test]
+    fn no_report_when_2048_disabled() {
+        let mut term = Terminal::new(24, 80);
+        term.resize(30, 100);
+        assert!(
+            term.take_response().is_none(),
+            "no in-band report unless mode 2048 is set"
+        );
+    }
+
+    #[test]
+    fn decrqm_reports_mode_2048_state() {
+        let mut term = Terminal::new(24, 80);
+        term.process(b"\x1b[?2048$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?2048;2$y");
+        term.process(b"\x1b[?2048h");
+        let _ = term.take_response(); // enable report
+        term.process(b"\x1b[?2048$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?2048;1$y");
     }
 }
 

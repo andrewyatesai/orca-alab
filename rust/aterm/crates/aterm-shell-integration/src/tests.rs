@@ -36,7 +36,7 @@ fn run_urlencode_via_shell(
     let command = format!(
         "source \"$ATERM_TEST_SCRIPT\" >/dev/null 2>&1; {cleanup}; printf '%s' \"$(__aterm_urlencode \"$ATERM_TEST_CWD\")\""
     );
-    let output = Command::new(shell)
+    let output = shell_command(shell)
         .args(args)
         .arg("-c")
         .arg(&command)
@@ -71,6 +71,38 @@ fn zsh_shell() -> &'static str {
     }
 }
 
+/// Spawn a shell with a hermetic environment for integration tests.
+///
+/// A developer running these tests inside aterm has the shipped integration
+/// active in their own shell, which `export`s several vars the scripts read at
+/// *load* time. Those leak through `cargo test` into the shells spawned below:
+///   - `ATERM_SHELL_INTEGRATION_INSTALLED` trips the "already loaded" guard
+///     (`[[ -n "$..." ]] && return`), so the script returns before defining any
+///     function and every sourced-script test sees "command not found";
+///   - `ATERM_BANNER_B64` is base64-decoded to stdout on load, which would
+///     corrupt the exact-stdout assertions in the urlencode/report-cwd tests;
+///   - `ATERM_SUITE_VERSION` / `ATERM_PROMPT_STYLE` / `ATERM_DISABLE_PROMPT_TITLES`
+///     alter prompt/title behavior.
+///
+/// Strip them all so each test sources the script fresh regardless of the
+/// developer's own active integration. Tests that need a specific var
+/// (e.g. ATERM_SHELL_NONCE, or ATERM_PROMPT_STYLE for the prompt-override test)
+/// set it AFTER calling this, which overrides the removal.
+#[cfg(unix)]
+fn shell_command(shell: &str) -> Command {
+    let mut cmd = Command::new(shell);
+    for var in [
+        "ATERM_SHELL_INTEGRATION_INSTALLED",
+        "ATERM_SUITE_VERSION",
+        "ATERM_BANNER_B64",
+        "ATERM_PROMPT_STYLE",
+        "ATERM_DISABLE_PROMPT_TITLES",
+    ] {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
 #[cfg(unix)]
 fn assert_urlencode_cases(shell: &str, args: &[&str], cleanup: &str, script_name: &str) {
     let cases = [
@@ -100,7 +132,7 @@ fn run_report_cwd_via_shell(
     let command = format!(
         "source \"$ATERM_TEST_SCRIPT\" >/dev/null 2>&1; {cleanup}; builtin cd -- \"$ATERM_TEST_CWD\"; __aterm_report_cwd"
     );
-    let output = Command::new(shell)
+    let output = shell_command(shell)
         .args(args)
         .arg("-c")
         .arg(&command)
@@ -265,15 +297,20 @@ fn test_prepare_zsh_prompt_override_starts_without_hook_error() {
     std::fs::create_dir_all(&home).expect("create temporary home directory");
     std::fs::write(home.join(".zshenv"), "").expect("write empty user .zshenv");
 
-    let mut command = if std::path::Path::new("/bin/zsh").exists() {
-        std::process::Command::new("/bin/zsh")
-    } else {
-        std::process::Command::new("zsh")
-    };
+    // Hermetic spawn: strip the dev shell's exported integration vars (above all
+    // ATERM_SHELL_INTEGRATION_INSTALLED) so the wrapper actually sources the
+    // integration instead of short-circuiting on the "already loaded" guard.
+    // Without this, the add-zsh-hook autoload-ordering check below is a false
+    // green — the script returns before reaching add-zsh-hook at all. The probe
+    // for $+functions[__aterm_precmd] asserts the hooks were really registered.
+    let mut command = shell_command(zsh_shell());
     command
         .arg("-i")
         .arg("-c")
-        .arg("print -r -- PROMPT_ENV_OK")
+        .arg(
+            "print -r -- PROMPT_ENV_OK; \
+             (( $+functions[__aterm_precmd] )) && print -r -- ATERM_INTEGRATION_LOADED",
+        )
         .env("HOME", &home)
         .env("ATERM_PROMPT_STYLE", "minimal")
         .env_remove("ZDOTDIR");
@@ -302,6 +339,14 @@ fn test_prepare_zsh_prompt_override_starts_without_hook_error() {
     assert!(
         !combined.contains("command not found: add-zsh-hook"),
         "embedded zsh script should autoload add-zsh-hook before registration; stdout: {stdout:?}; stderr: {stderr:?}"
+    );
+    // Positive guard: the integration must have actually loaded (functions
+    // defined + hooks registered), not merely "not errored". This is what makes
+    // the hook-ordering assertion above meaningful instead of a false green when
+    // a stray ATERM_SHELL_INTEGRATION_INSTALLED would short-circuit the script.
+    assert!(
+        combined.contains("ATERM_INTEGRATION_LOADED"),
+        "embedded zsh integration must define its precmd hook (functions registered); stdout: {stdout:?}; stderr: {stderr:?}"
     );
 }
 
@@ -716,10 +761,17 @@ fn run_id_suffix_via_shell(
         "{}/src/scripts/{script_name}",
         env!("CARGO_MANIFEST_DIR")
     );
+    // Guard definedness before reading the suffix: an UNDEFINED __aterm_id_suffix
+    // also yields empty stdout inside $(...) with a zero outer exit, so the
+    // nonce-unset case ("" expected) could pass even if the script never loaded.
+    // `command -v` (POSIX; works in bash and zsh) forces a hard failure instead,
+    // so empty-because-defined is distinguished from empty-because-undefined.
     let command = format!(
-        "source \"$ATERM_TEST_SCRIPT\" >/dev/null 2>&1; {cleanup}; printf '%s' \"$(__aterm_id_suffix)\""
+        "source \"$ATERM_TEST_SCRIPT\" >/dev/null 2>&1; {cleanup}; \
+         command -v __aterm_id_suffix >/dev/null || exit 97; \
+         printf '%s' \"$(__aterm_id_suffix)\""
     );
-    let mut cmd = Command::new(shell);
+    let mut cmd = shell_command(shell);
     cmd.args(args)
         .arg("-c")
         .arg(&command)
@@ -834,7 +886,7 @@ fn test_fish_id_suffix_emits_hex_when_nonce_set() {
     );
     let nonce = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899";
     let command = "source \"$ATERM_TEST_SCRIPT\" >/dev/null 2>&1; __aterm_id_suffix".to_string();
-    let output = Command::new(fish)
+    let output = shell_command(fish)
         .arg("-i")
         .arg("-c")
         .arg(&command)
@@ -930,7 +982,7 @@ fn run_env_check_after_source(
         "source \"$ATERM_TEST_SCRIPT\" >/dev/null 2>&1; {cleanup}; \
          printf 'env=%s|suffix=%s' \"${{ATERM_SHELL_NONCE-UNSET}}\" \"$(__aterm_id_suffix)\""
     );
-    let output = Command::new(shell)
+    let output = shell_command(shell)
         .args(args)
         .arg("-c")
         .arg(&command)
@@ -1028,7 +1080,7 @@ fn test_fish_unsets_shell_nonce_env_after_source() {
                    else; \
                        printf 'env=UNSET|suffix=%s' (__aterm_id_suffix); \
                    end";
-    let output = Command::new(fish)
+    let output = shell_command(fish)
         .arg("-i")
         .arg("-c")
         .arg(command)
@@ -1065,10 +1117,14 @@ fn test_bash_fallback_unnonced_when_env_missing() {
         "{}/src/scripts/aterm_shell_integration.bash",
         env!("CARGO_MANIFEST_DIR")
     );
+    // Guard definedness: empty "suffix=[]" must come from a defined function
+    // returning nothing, NOT from an undefined __aterm_id_suffix (which would
+    // also print "suffix=[]"). `command -v` forces a hard exit if it never loaded.
     let command = "source \"$ATERM_TEST_SCRIPT\" >/dev/null 2>&1; \
                    trap - DEBUG 2>/dev/null || true; PROMPT_COMMAND=; \
+                   command -v __aterm_id_suffix >/dev/null || exit 97; \
                    printf 'suffix=[%s]' \"$(__aterm_id_suffix)\"";
-    let output = Command::new(bash_shell())
+    let output = shell_command(bash_shell())
         .args(["--noprofile", "--norc", "-i"])
         .arg("-c")
         .arg(command)

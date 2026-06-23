@@ -61,13 +61,18 @@ fn rustybuzz_shapes_arrow_ligature() {
         eprintln!("SKIP: no ligature test font (set ATERM_FONT or add the repo fixture)");
         return;
     };
-    let shaped = aterm_render::ligature_shaping::shape_ligature_run(&bytes, "=>", &['=', '>'], true);
+    let shaped =
+        aterm_render::ligature_shaping::shape_ligature_run(&bytes, "=>", &['=', '>'], true);
     assert!(
         shaped.is_some(),
         "=> must shape to a ligature (glyph ids differ from plain cmap)"
     );
     let gids = shaped.unwrap();
-    assert_eq!(gids.len(), 2, "monospace-preserving font keeps one glyph per cell");
+    assert_eq!(
+        gids.len(),
+        2,
+        "monospace-preserving font keeps one glyph per cell"
+    );
     // The lead cell is the empty placeholder, the final cell the wide ligature
     // glyph — at least one differs from the plain '=' / '>' cmap glyph.
     let face = rustybuzz::Face::from_slice(&bytes, 0).unwrap();

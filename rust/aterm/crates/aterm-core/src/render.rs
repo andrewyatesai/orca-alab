@@ -230,4 +230,63 @@ impl RenderInput {
             .find(|(c, _)| *c == col)
             .map(|(_, r)| r)
     }
+
+    /// Whether the image at (`row`,`col`), if any, HIDES the cell's glyph — i.e. it
+    /// is drawn OVER the text (`z_index >= 0`, the default). A Kitty `z < 0` image is
+    /// drawn BEHIND the text, so it does NOT hide the glyph and this returns `false`.
+    /// Both renderers gate glyph drawing on this, so the image/text z-order matches.
+    #[must_use]
+    pub fn image_hides_glyph_at(&self, row: usize, col: usize) -> bool {
+        self.image_at(row, col)
+            .is_some_and(|r| r.image.z_index >= 0)
+    }
+}
+
+#[cfg(test)]
+mod z_index_tests {
+    use super::RenderInput;
+    use aterm_grid::{ImageData, ImageFormat, ImageRef};
+    use std::sync::Arc;
+
+    fn image_ref(z: i32) -> ImageRef {
+        ImageRef {
+            image: Arc::new(ImageData {
+                bytes: Vec::new(),
+                format: ImageFormat::Png,
+                cols: 1,
+                rows: 1,
+                z_index: z,
+            }),
+            cell_row: 0,
+            cell_col: 0,
+        }
+    }
+
+    #[test]
+    fn image_hides_glyph_only_when_z_is_nonnegative() {
+        let mut input = RenderInput::empty();
+        // col 0: z=0 (over text, default) — hides; col 1: z=-1 (behind) — does NOT;
+        // col 2: z=5 (over) — hides; col 3: no image.
+        input.images = vec![vec![
+            (0, image_ref(0)),
+            (1, image_ref(-1)),
+            (2, image_ref(5)),
+        ]];
+        assert!(
+            input.image_hides_glyph_at(0, 0),
+            "z=0 image hides the glyph"
+        );
+        assert!(
+            !input.image_hides_glyph_at(0, 1),
+            "z<0 image draws BEHIND text — glyph still paints"
+        );
+        assert!(
+            input.image_hides_glyph_at(0, 2),
+            "z>0 image hides the glyph"
+        );
+        assert!(
+            !input.image_hides_glyph_at(0, 3),
+            "no image at the column — nothing hides the glyph"
+        );
+    }
 }

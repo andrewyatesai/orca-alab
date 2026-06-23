@@ -7,6 +7,8 @@
 //!
 //! - [`base64`] — standard and URL-safe Base64 with optional padding.
 //! - [`hex`] — hexadecimal encoding and decoding.
+//! - [`inflate`] — RFC 1951 (DEFLATE) + RFC 1950 (zlib) decompression with a
+//!   decompression-bomb output ceiling.
 //!
 //! ## Usage
 //!
@@ -36,3 +38,4 @@
 
 pub mod base64;
 pub mod hex;
+pub mod inflate;

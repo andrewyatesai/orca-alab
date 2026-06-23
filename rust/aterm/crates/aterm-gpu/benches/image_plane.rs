@@ -23,8 +23,7 @@ fn per_row(items: &[(u32, u32, u32, &[u8])], tw: u32, th: u32) -> Vec<u8> {
         for y in 0..dh {
             let src = (y * dw * 4) as usize;
             let dst = ((y0 + y) * tw) as usize * 4;
-            data[dst..dst + (dw * 4) as usize]
-                .copy_from_slice(&rgba[src..src + (dw * 4) as usize]);
+            data[dst..dst + (dw * 4) as usize].copy_from_slice(&rgba[src..src + (dw * 4) as usize]);
         }
     }
     data

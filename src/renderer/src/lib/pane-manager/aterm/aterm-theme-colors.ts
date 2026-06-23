@@ -67,6 +67,60 @@ function pick(value: string | undefined, fallback: number): number {
   return cssColorToU32(value) ?? fallback
 }
 
+// WCAG AA body-text floor; xterm's DOM/canvas renderers default
+// minimumContrastRatio to this so fg-on-bg stays readable on light themes.
+const MIN_CONTRAST_RATIO = 4.5
+
+/** sRGB relative luminance (WCAG) of a 0x00RRGGBB color. */
+function relativeLuminance(rgb: number): number {
+  const channel = (c: number): number => {
+    const n = c / 255
+    return n <= 0.03928 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4)
+  }
+  const r = channel((rgb >> 16) & 0xff)
+  const g = channel((rgb >> 8) & 0xff)
+  const b = channel(rgb & 0xff)
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+/** WCAG contrast ratio between two 0x00RRGGBB colors (>= 1). */
+export function contrastRatio(a: number, b: number): number {
+  const la = relativeLuminance(a)
+  const lb = relativeLuminance(b)
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
+/** Linearly blend `fg` toward `target` (both 0x00RRGGBB) by `t` in [0,1]. */
+function blendToward(fg: number, target: number, t: number): number {
+  const mix = (shift: number): number => {
+    const f = (fg >> shift) & 0xff
+    const g = (target >> shift) & 0xff
+    return Math.round(f + (g - f) * t) & 0xff
+  }
+  return (mix(16) << 16) | (mix(8) << 8) | mix(0)
+}
+
+/** Ensure the SEEDED default fg meets ~4.5:1 against the default bg so body text
+ *  stays readable on light themes — the floor xterm gets from minimumContrastRatio.
+ *  Per-cell SGR colors are NOT adjusted here (the CPU renderer seeds them directly
+ *  in the engine); a per-cell contrast floor is engine-side / Phase-next. We only
+ *  nudge the default fg toward black or white (whichever the bg contrasts with) and
+ *  pick the smallest blend that clears the floor, preserving hue where possible. */
+export function enforceDefaultContrast(fg: number, bg: number): number {
+  if (contrastRatio(fg, bg) >= MIN_CONTRAST_RATIO) {
+    return fg
+  }
+  // Push toward the extreme that's further from the bg in luminance.
+  const target = relativeLuminance(bg) > 0.5 ? 0x000000 : 0xffffff
+  for (let t = 0.1; t <= 1.0001; t += 0.1) {
+    const candidate = blendToward(fg, target, t)
+    if (contrastRatio(candidate, bg) >= MIN_CONTRAST_RATIO) {
+      return candidate
+    }
+  }
+  return target
+}
+
 /** Read orca's active terminal theme from the store and reduce it to the four
  *  color seeds the aterm renderer needs. Applied at pane construction; a live
  *  theme change recreates the pane (Phase 1 scope). */
@@ -81,9 +135,12 @@ export function resolveAtermThemeColors(): AtermThemeColors {
   if (!theme) {
     return DEFAULT_COLORS
   }
+  const bg = pick(theme.background, DEFAULT_COLORS.bg)
   return {
-    fg: pick(theme.foreground, DEFAULT_COLORS.fg),
-    bg: pick(theme.background, DEFAULT_COLORS.bg),
+    // Floor the default fg's contrast against bg so body text is readable on
+    // light themes (MINOR b); per-cell SGR contrast is engine-side / Phase-next.
+    fg: enforceDefaultContrast(pick(theme.foreground, DEFAULT_COLORS.fg), bg),
+    bg,
     cursor: pick(theme.cursor, DEFAULT_COLORS.cursor),
     selection: pick(theme.selectionBackground, DEFAULT_COLORS.selection)
   }

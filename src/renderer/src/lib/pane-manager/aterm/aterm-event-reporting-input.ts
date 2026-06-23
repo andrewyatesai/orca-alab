@@ -20,6 +20,9 @@ export type AtermEventReportingDeps = {
 export type AtermEventReportingInput = {
   /** e2e/test hook: the last mouse REPORT forwarded to the PTY, or null. */
   lastMouseReport: () => string | null
+  /** Update the device-pixel ratio used for mouse-report hit-testing after the
+   *  window moves to a different-DPI monitor (M2). */
+  setDpr: (dpr: number) => void
   dispose: () => void
 }
 
@@ -33,29 +36,35 @@ export type AtermEventReportingInput = {
 export function attachAtermEventReportingInput(
   deps: AtermEventReportingDeps
 ): AtermEventReportingInput {
-  const { canvas, textarea, term, dpr, cellWidth, cellHeight, inputSink, isDisposed } = deps
+  const { canvas, textarea, term, cellWidth, cellHeight, inputSink, isDisposed } = deps
 
   let lastMouseReport: string | null = null
-  const mouseInput = attachAtermMouseInput({
+  // Mutable so a DPI change (setDpr) re-targets mouse-report hit-testing;
+  // mouse-input reads this object's `dpr` live in pointToCell (M2).
+  const mouseDeps = {
     canvas,
     term,
-    dpr,
+    dpr: deps.dpr,
     cellWidth,
     cellHeight,
     isDisposed,
-    inputSink: (data) => {
+    inputSink: (data: string) => {
       // e2e hook: record the last forwarded report so a test can prove a mouse
       // event reached the PTY without depending on shell echo under a hidden
       // window. Production cost is one field assignment.
       lastMouseReport = data
       inputSink(data)
     }
-  })
+  }
+  const mouseInput = attachAtermMouseInput(mouseDeps)
 
   const focusInput = attachAtermFocusInput({ textarea, term, inputSink, isDisposed })
 
   return {
     lastMouseReport: () => lastMouseReport,
+    setDpr: (next: number) => {
+      mouseDeps.dpr = next
+    },
     dispose: () => {
       mouseInput.dispose()
       focusInput.dispose()

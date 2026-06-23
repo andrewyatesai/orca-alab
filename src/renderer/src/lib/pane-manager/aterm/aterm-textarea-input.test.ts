@@ -14,6 +14,7 @@ function fakeTerm(): AtermTerminal {
 type Harness = {
   textarea: HTMLTextAreaElement
   inputSink: ReturnType<typeof vi.fn>
+  pasteSink: ReturnType<typeof vi.fn>
   copySelection: ReturnType<typeof vi.fn>
   dispose: () => void
 }
@@ -22,15 +23,17 @@ function mount(getMacOptionIsMeta?: () => boolean): Harness {
   const textarea = document.createElement('textarea')
   document.body.appendChild(textarea)
   const inputSink = vi.fn()
+  const pasteSink = vi.fn()
   const copySelection = vi.fn(() => false)
   const { dispose } = attachAtermTextareaInput({
     textarea,
     term: fakeTerm(),
     inputSink,
+    pasteSink,
     copySelection,
     getMacOptionIsMeta
   })
-  return { textarea, inputSink, copySelection, dispose }
+  return { textarea, inputSink, pasteSink, copySelection, dispose }
 }
 
 function fireInput(textarea: HTMLTextAreaElement, data: string | null, inputType: string): void {
@@ -58,11 +61,35 @@ function fireComposition(
 }
 
 describe('attachAtermTextareaInput', () => {
-  it('sends the InputEvent data for an insertText (typed character)', () => {
+  it('sends the InputEvent data for an insertText (typed character) via inputSink', () => {
     const h = mount()
     fireInput(h.textarea, 'x', 'insertText')
     expect(h.inputSink).toHaveBeenCalledWith('x')
+    expect(h.pasteSink).not.toHaveBeenCalled() // typing must NOT go through paste
     expect(h.textarea.value).toBe('') // cleared so it never accumulates
+    h.dispose()
+  })
+
+  it('routes a paste through pasteSink and typing through inputSink (M1)', () => {
+    const h = mount()
+    // A paste must reach the paste sink (which wraps with DECSET 2004 markers),
+    // never the raw input sink that would let an app auto-indent/run it.
+    fireInput(h.textarea, 'PASTED', 'insertFromPaste')
+    expect(h.pasteSink).toHaveBeenCalledWith('PASTED')
+    expect(h.inputSink).not.toHaveBeenCalled()
+    // A typed character goes the other way: input sink, not the paste sink.
+    fireInput(h.textarea, 'y', 'insertText')
+    expect(h.inputSink).toHaveBeenCalledWith('y')
+    expect(h.pasteSink).toHaveBeenCalledTimes(1)
+    h.dispose()
+  })
+
+  it('routes insertReplacementText through pasteSink (M1)', () => {
+    const h = mount()
+    // The clipboard paste path can fire insertReplacementText; it is a paste too.
+    fireInput(h.textarea, 'REPLACED', 'insertReplacementText')
+    expect(h.pasteSink).toHaveBeenCalledWith('REPLACED')
+    expect(h.inputSink).not.toHaveBeenCalled()
     h.dispose()
   })
 
@@ -71,9 +98,10 @@ describe('attachAtermTextareaInput', () => {
     // Open a local composition (sets the module's composing flag).
     fireComposition(h.textarea, 'compositionstart')
     // A programmatic paste fires insertFromPaste with isComposing=false; it must
-    // still reach the PTY despite the open composition.
+    // still reach the PTY (via the paste sink) despite the open composition.
     fireInput(h.textarea, 'PASTED', 'insertFromPaste')
-    expect(h.inputSink).toHaveBeenCalledWith('PASTED')
+    expect(h.pasteSink).toHaveBeenCalledWith('PASTED')
+    expect(h.inputSink).not.toHaveBeenCalled()
     h.dispose()
   })
 
@@ -86,12 +114,14 @@ describe('attachAtermTextareaInput', () => {
     h.dispose()
   })
 
-  it('falls back to textarea.value when the InputEvent data is null (chunked paste tail)', () => {
+  it('falls back to textarea.value (via pasteSink) when InputEvent data is null (chunked paste tail)', () => {
     const h = mount()
-    // Chunked paste mutates value then fires a null-data InputEvent.
+    // Chunked paste mutates value then fires a null-data insertFromPaste; the
+    // value-fallback path is a paste, so it must reach the paste sink.
     h.textarea.value = 'chunked-tail'
     fireInput(h.textarea, null, 'insertFromPaste')
-    expect(h.inputSink).toHaveBeenCalledWith('chunked-tail')
+    expect(h.pasteSink).toHaveBeenCalledWith('chunked-tail')
+    expect(h.inputSink).not.toHaveBeenCalled()
     h.dispose()
   })
 

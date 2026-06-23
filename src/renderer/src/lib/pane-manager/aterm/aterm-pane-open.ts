@@ -27,6 +27,9 @@ export function openAtermPane(
     pane.xtermContainer,
     (data) => pane.terminal.input(data),
     (cols, rows) => pane.terminal.resize(cols, rows),
+    // Pastes go through terminal.paste() (not input()) so DECSET 2004 wraps them
+    // with \e[200~..\e[201~; input() sends raw and would let an app auto-run paste.
+    (text) => pane.terminal.paste(text),
     linkContext,
     // Read macOptionIsMeta live off the (headless) xterm Terminal — the same
     // option applyTerminalAppearance keeps in sync — so the aterm encoder honors

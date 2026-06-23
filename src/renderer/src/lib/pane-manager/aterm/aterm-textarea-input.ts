@@ -7,8 +7,11 @@ import type { AtermTerminal } from './aterm_wasm.js'
 export type AtermTextareaInputDeps = {
   textarea: HTMLTextAreaElement
   term: AtermTerminal
-  /** Send encoded bytes to the PTY. */
+  /** Send encoded bytes (typing/IME) to the PTY raw. */
   inputSink: (data: string) => void
+  /** Send PASTED text to the PTY; wraps with \e[200~..\e[201~ when the app has
+   *  enabled bracketed paste (DECSET 2004) so editors don't auto-indent/run it. */
+  pasteSink: (data: string) => void
   /** Copy the current canvas selection; returns true when something was copied. */
   copySelection: () => boolean
   /** Latest macOptionIsMeta setting (xterm's option of the same name). Read per
@@ -28,7 +31,7 @@ export type AtermTextareaInputDeps = {
  *  DECCKM (application cursor keys) is read per-press from the engine so arrows +
  *  Home/End emit SS3 vs CSI to match the live mode. */
 export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispose: () => void } {
-  const { textarea, term, inputSink, copySelection, getMacOptionIsMeta } = deps
+  const { textarea, term, inputSink, pasteSink, copySelection, getMacOptionIsMeta } = deps
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
   const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
   let composing = false
@@ -107,7 +110,15 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     // InputEvent with null data after mutating value — read textarea.value then.
     const data = inputEvent.data ?? textarea.value
     if (data) {
-      inputSink(data)
+      // Route pastes through pasteSink so DECSET 2004 wraps them with the
+      // bracketed-paste markers; typing/IME stays raw via inputSink. A null-data
+      // InputEvent only reads textarea.value for a paste (isPasteInsert), so the
+      // value-fallback path is always a paste and belongs on the paste sink.
+      if (isPasteInsert) {
+        pasteSink(data)
+      } else {
+        inputSink(data)
+      }
     }
     // Always clear so the sink-bound textarea never accumulates sent characters.
     textarea.value = ''

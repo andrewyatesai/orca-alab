@@ -24,7 +24,9 @@ const WHEEL_DELTA_PAGE = 2
  *  trackpad sub-line deltas accumulate instead of being dropped. On the
  *  alternate screen we do nothing so TUIs (less, vim) handle their own wheel. */
 export function attachAtermScrollInput(deps: AtermScrollDeps): AtermScrollInput {
-  const { canvas, term, dpr, cellHeight, getRows, redraw, isDisposed } = deps
+  // dpr is read off deps live (not destructured) so a mid-session DPI change
+  // (window moved to another monitor) keeps pixel-delta scrolling correct (M2).
+  const { canvas, term, cellHeight, getRows, redraw, isDisposed } = deps
   let remainder = 0
 
   const onWheel = (event: WheelEvent): void => {
@@ -45,7 +47,7 @@ export function attachAtermScrollInput(deps: AtermScrollDeps): AtermScrollInput 
       lines = event.deltaY * Math.max(1, getRows())
     } else {
       // WHEEL_DELTA_PIXEL: convert device pixels to grid lines.
-      lines = (event.deltaY * dpr) / cellHeight
+      lines = (event.deltaY * deps.dpr) / cellHeight
     }
 
     remainder += lines

@@ -11,8 +11,10 @@ import {
   type AtermSearchController,
   type AtermSearchMatch
 } from './aterm-search'
-import { paintAtermSearchHighlights, atermSearchMatchRect } from './aterm-search-overlay'
 import { createAtermDrawScheduler } from './aterm-draw-scheduler'
+import { attachAtermDprTracker } from './aterm-dpr-tracker'
+import { createAtermFramePainter } from './aterm-frame-painter'
+import { buildAtermSearchApi } from './aterm-search-api'
 import { buildAtermInputDom } from './aterm-input-dom'
 import { createAtermUrlOpener, type AtermLinkContext } from './aterm-url-link-routing'
 import { e2eConfig } from '@/lib/e2e-config'
@@ -25,6 +27,8 @@ export const ATERM_RENDERER_FONT_PX = 14
 
 export type AtermPaneInputSink = (data: string) => void
 export type AtermPaneResizeSink = (cols: number, rows: number) => void
+/** Send PASTED text; wraps with bracketed-paste markers when DECSET 2004 is on. */
+export type AtermPanePasteSink = (data: string) => void
 
 export type AtermPaneController = {
   /** Feed PTY/replay output bytes; coalesces draws into one rAF frame. */
@@ -81,6 +85,7 @@ export async function createAtermPaneController(
   container: HTMLElement,
   onInput: AtermPaneInputSink,
   onResize: AtermPaneResizeSink,
+  onPaste: AtermPanePasteSink,
   linkContext?: AtermLinkContext,
   controllerOptions?: AtermPaneControllerOptions
 ): Promise<AtermPaneController> {
@@ -103,7 +108,10 @@ export async function createAtermPaneController(
   const ctx = canvas.getContext('2d')
   const { AtermTerminal: AtermTerminalCtor, fontBytes } = await loadAterm()
 
-  const dpr = window.devicePixelRatio || 1
+  // Mutable: the window can move to a different-DPI monitor; a matchMedia
+  // resolution listener (below) re-reads it so the CSS<->device mapping and grid
+  // sizing track the new dpr instead of staying baked at construction (M2).
+  let dpr = window.devicePixelRatio || 1
   // Seed the renderer's default fg/bg/cursor/selection from orca's active
   // terminal theme so the canvas matches the rest of the app at pane creation.
   const themeColors = resolveAtermThemeColors()
@@ -132,6 +140,7 @@ export async function createAtermPaneController(
 
   const inputSink = onInput
   const resizeSink = onResize
+  const pasteSink = onPaste
   let disposed = false
   // Coalesces search re-index to one run per draw frame: each PTY chunk only sets
   // this flag; the actual refresh happens once in draw() (see M2 — avoids an
@@ -147,41 +156,11 @@ export async function createAtermPaneController(
   let searchMatches: AtermSearchMatch[] = []
   let searchActiveIndex = -1
 
-  const draw = (): void => {
-    if (disposed || !drawScheduler.isScheduled() || !ctx) {
-      return
-    }
-    // Consume the scheduled frame (clears the rAF/timer race's losing backstop).
-    drawScheduler.consume()
-    // Re-index the active search at most once per frame (coalesced from N PTY
-    // chunks) so highlights track current content without a per-chunk rebuild.
-    if (searchRefreshPending) {
-      searchRefreshPending = false
-      if (searchController.hasActiveQuery()) {
-        searchController.refresh()
-      }
-    }
-    term.render()
-    const width = term.width
-    const height = term.height
-    canvas.width = width
-    canvas.height = height
-    // CSS size in logical pixels so the device-pixel framebuffer maps 1:1.
-    canvas.style.width = `${width / dpr}px`
-    canvas.style.height = `${height / dpr}px`
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(term.rgba()), width, height), 0, 0)
-    // Overlay search highlights last so they sit above the rendered glyphs.
-    paintAtermSearchHighlights(ctx, searchMatches, searchActiveIndex, {
-      term,
-      cellWidth,
-      cellHeight,
-      rows
-    })
-  }
-
   // Leak-safe frame scheduler (single rAF + backstop timer, both cancelled on
-  // dispose). Owns the drawScheduled/timeout bookkeeping; see M4.
-  const drawScheduler = createAtermDrawScheduler(draw)
+  // dispose). Owns the drawScheduled/timeout bookkeeping; see M4. The painter
+  // (created below, once searchController exists) runs via this thunk.
+  let draw: () => void = () => undefined
+  const drawScheduler = createAtermDrawScheduler(() => draw())
   const scheduleDraw = (): void => {
     if (disposed) {
       return
@@ -221,7 +200,9 @@ export async function createAtermPaneController(
     })
   }
 
-  const selectionInput = attachAtermSelectionInput({
+  // Deps held in named objects (not inline literals) so the DPI-change listener
+  // can mutate `dpr` in place; selection/scroll/link read `deps.dpr` live (M2).
+  const selectionDeps = {
     canvas,
     term,
     dpr,
@@ -230,9 +211,10 @@ export async function createAtermPaneController(
     redraw: scheduleDraw,
     isDisposed: () => disposed,
     onCopy: copyToClipboard
-  })
+  }
+  const selectionInput = attachAtermSelectionInput(selectionDeps)
 
-  const scrollInput = attachAtermScrollInput({
+  const scrollDeps = {
     canvas,
     term,
     dpr,
@@ -240,7 +222,8 @@ export async function createAtermPaneController(
     getRows: () => rows,
     redraw: scheduleDraw,
     isDisposed: () => disposed
-  })
+  }
+  const scrollInput = attachAtermScrollInput(scrollDeps)
 
   // Mouse + focus reporting: when a TUI enables mouse tracking (DECSET
   // 1000/1002/1003) the canvas mouse events are encoded + sent to the PTY (so
@@ -273,7 +256,7 @@ export async function createAtermPaneController(
   // link input always sees the latest binding; null until set → kind-2 no-op.
   let fileLinkOpener: AtermFileLinkOpener | null = null
 
-  const linkInput = attachAtermLinkInput({
+  const linkDeps = {
     canvas,
     term,
     dpr,
@@ -283,7 +266,8 @@ export async function createAtermPaneController(
     isDisposed: () => disposed,
     openUrl,
     getFileLinkOpener: () => fileLinkOpener
-  })
+  }
+  const linkInput = attachAtermLinkInput(linkDeps)
 
   // In-terminal search: the controller owns find/next/prev state and drives the
   // highlight overlay + scroll-to-match through these renderer hooks.
@@ -301,7 +285,46 @@ export async function createAtermPaneController(
     redraw: scheduleDraw
   })
 
-  const resizeObserver = new ResizeObserver(() => {
+  // One-frame painter, extracted to keep this controller under the line budget.
+  // dpr/rows/search state are read via getters so a DPI move, resize, or search
+  // takes effect on the next frame without re-wiring the scheduler.
+  draw = createAtermFramePainter({
+    ctx,
+    canvas,
+    term,
+    cellWidth,
+    cellHeight,
+    drawScheduler,
+    searchController,
+    isDisposed: () => disposed,
+    getDpr: () => dpr,
+    getRows: () => rows,
+    getSearchMatches: () => searchMatches,
+    getSearchActiveIndex: () => searchActiveIndex,
+    takeSearchRefresh: () => {
+      const pending = searchRefreshPending
+      searchRefreshPending = false
+      return pending
+    }
+  })
+
+  // Search method surface (find/next/prev/clear/count/index/rect), extracted to
+  // keep this controller under the line budget.
+  const searchApi = buildAtermSearchApi({
+    searchController,
+    term,
+    cellWidth,
+    cellHeight,
+    isDisposed: () => disposed,
+    getRows: () => rows,
+    getSearchMatches: () => searchMatches,
+    getSearchActiveIndex: () => searchActiveIndex
+  })
+
+  // Recompute the grid for the current container size + dpr and re-resize when it
+  // changed. Shared by the ResizeObserver and the DPI-change path so both keep the
+  // grid, PTY size, and CSS<->device mapping consistent (M2).
+  const reflowGrid = (): void => {
     if (disposed) {
       return
     }
@@ -315,8 +338,28 @@ export async function createAtermPaneController(
     // Mirror the new grid to the PTY so the child re-wraps for the new size.
     resizeSink(cols, rows)
     scheduleDraw()
-  })
+  }
+
+  const resizeObserver = new ResizeObserver(reflowGrid)
   resizeObserver.observe(container)
+
+  // Track DPI changes (window moved to a different-DPI monitor) so the grid + CSS
+  // mapping follow the new dpr (M2). On change, propagate dpr to the pointer/
+  // scroll/mouse hit-testers, reflow the grid, then force a redraw so the CSS size
+  // (width/dpr) updates even when cols/rows stayed the same.
+  const dprTracker = attachAtermDprTracker({
+    getDpr: () => dpr,
+    isDisposed: () => disposed,
+    onDprChange: (nextDpr) => {
+      dpr = nextDpr
+      selectionDeps.dpr = nextDpr
+      scrollDeps.dpr = nextDpr
+      linkDeps.dpr = nextDpr
+      eventReportingInput.setDpr(nextDpr)
+      reflowGrid()
+      scheduleDraw()
+    }
+  })
 
   const { textarea } = inputDom
   // Keyboard + text wiring (keydown = non-text keys, 'input'/IME = text/paste),
@@ -328,6 +371,7 @@ export async function createAtermPaneController(
     textarea,
     term,
     inputSink,
+    pasteSink,
     copySelection: () => selectionInput.copySelection(),
     getMacOptionIsMeta: controllerOptions?.getMacOptionIsMeta
   })
@@ -358,29 +402,7 @@ export async function createAtermPaneController(
       const hit = term.link_at(row, col)
       return hit ? { url: hit.url, kind: hit.kind } : null
     },
-    findMatches: (query: string, caseSensitive: boolean) => {
-      if (disposed) {
-        return 0
-      }
-      return searchController.find(query, caseSensitive)
-    },
-    findNextMatch: () => searchController.next(),
-    findPreviousMatch: () => searchController.prev(),
-    clearSearch: () => searchController.clear(),
-    searchMatchCount: () => searchController.count(),
-    searchActiveMatchIndex: () => searchController.activeIndex(),
-    searchActiveMatchRect: () => {
-      if (searchActiveIndex < 0 || searchActiveIndex >= searchMatches.length) {
-        return null
-      }
-      // Delegate to the overlay's mapping so the rect matches the painted band.
-      return atermSearchMatchRect(searchMatches[searchActiveIndex], {
-        term,
-        cellWidth,
-        cellHeight,
-        rows
-      })
-    },
+    ...searchApi,
     setFileLinkOpener: (fn: AtermFileLinkOpener) => {
       fileLinkOpener = fn
     },
@@ -396,6 +418,8 @@ export async function createAtermPaneController(
       // Cancel any pending draw rAF/backstop so it can't fire after teardown.
       drawScheduler.dispose()
       resizeObserver.disconnect()
+      // Drop the DPI-change listener (M2) so it can't fire after teardown.
+      dprTracker.dispose()
       textareaInput.dispose()
       canvas.removeEventListener('pointerdown', onPointerDown)
       selectionInput.dispose()

@@ -1956,6 +1956,21 @@ impl GpuRenderer {
             .instance
             .create_surface(target)
             .map_err(|e| format!("create_surface failed: {e}"))?;
+        self.configure_window_surface(surface, width, height)
+    }
+
+    /// Configure an ALREADY-CREATED `wgpu::Surface` for presentation at the given
+    /// size, on this renderer's adapter/device. Same NON-sRGB format selection as
+    /// [`create_window_surface`](Self::create_window_surface) — split out because
+    /// the WebGL backend must create the canvas surface BEFORE the adapter exists
+    /// (the adapter is enumerated against that surface), so the surface and the
+    /// renderer are assembled in the opposite order from native.
+    pub fn configure_window_surface(
+        &self,
+        surface: wgpu::Surface<'static>,
+        width: u32,
+        height: u32,
+    ) -> Result<GpuSurface, String> {
         let caps = surface.get_capabilities(&self.ctx.adapter);
         let format = Self::pick_surface_format(&caps)?;
         let config = wgpu::SurfaceConfiguration {

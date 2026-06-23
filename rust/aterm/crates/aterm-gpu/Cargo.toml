@@ -40,12 +40,14 @@ aterm-spec = { workspace = true, optional = true }
 pollster = "0.3"
 wgpu = { version = "29", default-features = false, features = ["metal", "vulkan", "dx12", "gles", "wgsl"] }
 
-# wasm32: the WebGPU backend (wgpu's `webgpu` feature targets
-# wasm32-unknown-unknown via wasm-bindgen/web-sys) + WGSL. `fragile-send-sync-non-
-# atomic-wasm` lets the non-Send GPU handles satisfy wgpu's Send/Sync bounds on
-# single-threaded wasm. This proves the GPU crate itself is wasm-compilable.
+# wasm32: the WebGL2 backend (wgpu's `webgl` feature targets
+# wasm32-unknown-unknown via wasm-bindgen/web-sys) + WGSL. Orca's terminal
+# acceleration is deliberately WebGL in the renderer — production refuses
+# unsafe-WebGPU — and WebGL2 supports the instanced-quad + R8/Rgba8 atlas pipeline
+# unchanged. `fragile-send-sync-non-atomic-wasm` lets the non-Send GPU handles
+# satisfy wgpu's Send/Sync bounds on single-threaded wasm.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wgpu = { version = "29", default-features = false, features = ["webgpu", "wgsl", "fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "29", default-features = false, features = ["webgl", "wgsl", "fragile-send-sync-non-atomic-wasm"] }
 
 [dev-dependencies]
 criterion = "0.5"

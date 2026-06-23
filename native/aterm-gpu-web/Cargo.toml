@@ -19,12 +19,14 @@ aterm-render = { path = "../../rust/aterm/crates/aterm-render", default-features
 aterm-render-api = { path = "../../rust/aterm/crates/aterm-render-api", default-features = false }
 aterm-gpu = { path = "../../rust/aterm/crates/aterm-gpu" }
 
-# wgpu's WebGPU backend on wasm32 (the browser GPU API behind Chromium/Electron 42).
-# default-features = false drops the native backends (metal/vulkan/dx12/gles); the
-# wasm closure pulls only the WebGPU path via wasm-bindgen/web-sys. fragile-send-
-# sync-non-atomic-wasm lets the !Send WebGPU handles satisfy wgpu's Send/Sync bounds
-# on the single-threaded browser main thread.
-wgpu = { version = "29", default-features = false, features = ["webgpu", "wgsl", "fragile-send-sync-non-atomic-wasm"] }
+# wgpu's WebGL2 backend on wasm32 — orca's deliberate terminal-acceleration target
+# (the renderer accelerates via WebGL; production refuses unsafe-WebGPU). WebGL2
+# supports the same instanced-quad + R8/Rgba8 glyph-atlas pipeline as WebGPU, so no
+# pipeline code changes. default-features = false drops the native backends
+# (metal/vulkan/dx12/gles); the wasm closure pulls only the WebGL path via
+# wasm-bindgen/web-sys. fragile-send-sync-non-atomic-wasm lets the !Send GPU handles
+# satisfy wgpu's Send/Sync bounds on the single-threaded browser main thread.
+wgpu = { version = "29", default-features = false, features = ["webgl", "wgsl", "fragile-send-sync-non-atomic-wasm"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # wgpu 29 requires wasm-bindgen >= 0.2.108; pin it exact so the generated glue
@@ -33,9 +35,10 @@ wgpu = { version = "29", default-features = false, features = ["webgpu", "wgsl",
 wasm-bindgen = "=0.2.108"
 wasm-bindgen-futures = "0.4"
 console_error_panic_hook = "0.1"
-# The browser DOM types the WebGPU init path needs: the <canvas> handed in from JS,
-# and (TODO, present loop) the window/raf bindings. wgpu's `webgpu` feature already
-# enables HtmlCanvasElement; declared here too so this crate's own code can name it.
+# The browser DOM types the WebGL init path needs: the <canvas> handed in from JS,
+# and (TODO, present loop) the window/raf bindings. wgpu's `webgl` feature already
+# enables HtmlCanvasElement + WebGl2RenderingContext; declared here too so this
+# crate's own code can name the canvas type.
 web-sys = { version = "0.3", features = ["HtmlCanvasElement", "Window", "Document"] }
 js-sys = "0.3"
 # Transitive deps may pull getrandom; on wasm32-unknown-unknown it needs the JS

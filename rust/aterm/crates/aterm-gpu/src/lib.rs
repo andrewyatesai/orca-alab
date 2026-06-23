@@ -73,11 +73,30 @@ impl GpuContext {
     /// the native (`pollster::block_on`) and wasm (`.await`) init paths so both
     /// hit the SAME adapter/device descriptors. The instance is moved in and kept
     /// alive on the returned `GpuContext` (surfaces are created from it later).
+    ///
+    /// No compatible surface — the headless/WebGPU path, where the adapter is
+    /// surface-independent. The WebGL backend instead needs the canvas surface as
+    /// the adapter's compatibility target; see
+    /// [`from_instance_with_surface`](Self::from_instance_with_surface).
     pub async fn from_instance(instance: wgpu::Instance) -> Result<Self, String> {
+        Self::from_instance_with_surface(instance, None).await
+    }
+
+    /// ASYNC adapter+device acquisition, with an OPTIONAL `compatible_surface`.
+    ///
+    /// The WebGL backend (wgpu's `webgl` feature on wasm32) can only enumerate an
+    /// adapter that is compatible with a presentation surface — the GL context
+    /// lives ON the `<canvas>`. So the wasm WebGL init creates the canvas surface
+    /// first and passes it here; native (Metal/Vulkan) passes `None`, leaving the
+    /// adapter/device descriptors byte-identical to the prior behavior.
+    pub async fn from_instance_with_surface(
+        instance: wgpu::Instance,
+        compatible_surface: Option<&wgpu::Surface<'_>>,
+    ) -> Result<Self, String> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
+                compatible_surface,
                 force_fallback_adapter: false,
             })
             .await

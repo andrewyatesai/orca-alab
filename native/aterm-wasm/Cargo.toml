@@ -30,6 +30,7 @@ console_error_panic_hook = "0.1"
 getrandom = { version = "0.2", features = ["js"] }
 
 [profile.release]
-opt-level = "s"
+codegen-units = 1
+opt-level = "z"
 lto = true
 strip = true

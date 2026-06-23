@@ -15,7 +15,10 @@ crate-type = ["cdylib", "rlib"]
 # wasm32-unknown-unknown.
 # default-features = false drops the disk-tier cold scrollback (libc mmap + zstd-sys
 # C), which cannot target wasm32; a renderer needs only the RAM/LZ4 tiers.
-aterm-core = { path = "../../rust/aterm/crates/aterm-core", default-features = false }
+# features = ["sixel"] compiles in aterm-sixel (a pure-Rust, zero-dep decoder) so
+# the in-page renderer decodes + blits Sixel DCS images alongside iTerm2 OSC 1337;
+# aterm-sixel has no libc/C, so it targets wasm32-unknown-unknown cleanly.
+aterm-core = { path = "../../rust/aterm/crates/aterm-core", default-features = false, features = ["sixel"] }
 aterm-render = { path = "../../rust/aterm/crates/aterm-render", default-features = false }
 aterm-render-api = { path = "../../rust/aterm/crates/aterm-render-api", default-features = false }
 

@@ -66,6 +66,7 @@ dependencies = [
  "aterm-search",
  "aterm-selection",
  "aterm-shell-integration",
+ "aterm-sixel",
  "aterm-tempfile",
  "aterm-types",
  "aterm-vi",
@@ -221,6 +222,10 @@ dependencies = [
  "getrandom",
  "rand_core",
 ]
+
+[[package]]
+name = "aterm-sixel"
+version = "0.3.0"
 
 [[package]]
 name = "aterm-tempfile"

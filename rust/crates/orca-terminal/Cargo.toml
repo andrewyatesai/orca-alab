@@ -17,7 +17,10 @@ description = "Headless terminal emulation for Orca (replaces @xterm/headless): 
 # clean-machine and packaged builds are self-contained — no `~/aterm` checkout
 # required. Refresh with `pnpm vendor:aterm`. aterm's crates.io closure stays
 # vendored under `rust/vendor` (offline).
-aterm-core = { path = "../../aterm/crates/aterm-core" }
+# features = ["sixel"] compiles aterm-sixel (pure-Rust, zero-dep) into the engine
+# so apps can send Sixel DCS: DA1 advertises code 4 and the decoder places the
+# raster into the inline-image path the renderer blits. Default disk-tier stays on.
+aterm-core = { path = "../../aterm/crates/aterm-core", features = ["sixel"] }
 aterm-grid = { path = "../../aterm/crates/aterm-grid" }
 aterm-types = { path = "../../aterm/crates/aterm-types" }
 # Color-scheme (DEC mode 2031) sequence scanning. Literal/char-class matching

@@ -70,15 +70,31 @@ pub enum FaceId {
     Primary,
     /// The broad-coverage Unicode fallback face (CJK, symbols, math).
     Fallback,
+    /// A monochrome SYMBOL fallback (e.g. STIX Two Math), consulted after
+    /// [`FaceId::Fallback`] and BEFORE [`FaceId::ColorEmoji`]. It carries the
+    /// many `Emoji=Yes, Emoji_Presentation=No` symbols (media controls ⏸⏹⏺,
+    /// misc-technical glyphs) that the primary/fallback mono faces miss but that
+    /// must still render as TEXT, not colour — so they reach a real monochrome
+    /// glyph here instead of `.notdef`, without ever touching the colour face.
+    SymbolFallback,
     /// No font at all: box-drawing / block / braille coverage synthesized
     /// from the cell geometry by [`procedural`] — cell-exact, hard 0/255, so
     /// strokes meet seamlessly across cells and CPU==GPU is bit-identical.
     /// `ATERM_NO_PROCEDURAL_GLYPHS=1` disables this source (font dispatch).
     Procedural,
     /// Apple Color Emoji (`sbix` colour bitmaps): 32-bit RGBA glyphs the mono
-    /// faces can't draw (🚀 😀). Consulted only when Primary AND Fallback both
-    /// miss a code point that the colour-emoji face covers.
+    /// faces can't draw (🚀 😀). Consulted only when every mono face misses a code
+    /// point AND that code point actually WANTS emoji presentation (Unicode
+    /// `Emoji_Presentation=Yes`, or an explicit VS16) — never on raw coverage, so
+    /// a default-text symbol the colour font happens to cover does NOT land here.
     ColorEmoji,
+    /// A MONOCHROMATIZED colour glyph: the `sbix` bitmap's alpha silhouette, drawn
+    /// as foreground-tinted coverage (a [`GlyphClass::Mono`] image), NOT the colour
+    /// bitmap. The absolute last resort for a default-TEXT code point that no mono
+    /// face on the system covers but the colour font does (⏺ on a machine without
+    /// STIX/Apple Symbols): it guarantees a visible, theme-coloured glyph instead
+    /// of `.notdef` tofu, while still never rendering in colour.
+    ColorEmojiMono,
 }
 
 /// The pixel class of a glyph image: what one cache/atlas texel holds.
@@ -275,6 +291,12 @@ impl GlyphImage {
     }
 }
 
+/// Cache key for a shaped run: the run's text plus its style bits.
+type ShapedRunKey = (Box<str>, StyleBits);
+/// A shaped run's result: the per-character primary-glyph ids, or `None` when the
+/// run did not ligate (shaping changed nothing, so the plain per-cell path is used).
+type ShapedRunGlyphs = Option<Box<[u16]>>;
+
 /// Monospace CPU rasterizer.
 ///
 /// `font` is the primary monospace face used for Latin/box-drawing. `fallback`
@@ -299,7 +321,7 @@ pub struct Renderer {
     /// primary-glyph ids (or `None` when the run did not ligate, i.e. shaping
     /// changed nothing, so the caller uses the plain per-cell path). Keyed by the
     /// run so each distinct run shapes at most once. See [`ligature_shaping`].
-    shaped_runs: HashMap<(Box<str>, StyleBits), Option<Box<[u16]>>>,
+    shaped_runs: HashMap<ShapedRunKey, ShapedRunGlyphs>,
     /// Broad-coverage fallback face, loaded LAZILY: a full Unicode font (e.g.
     /// Arial Unicode, 50k glyphs) costs ~370 MB once fontdue parses it, so it is
     /// NOT loaded until a code point actually misses the primary face. Sessions
@@ -307,6 +329,13 @@ pub struct Renderer {
     fallback: Option<fontdue::Font>,
     /// Candidate fallback font paths, tried on first miss; emptied once consumed.
     fallback_paths: Vec<String>,
+    /// Monochrome SYMBOL fallback face ([`FaceId::SymbolFallback`]), loaded
+    /// LAZILY the first time a code point misses BOTH the primary and broad
+    /// fallback faces. Covers the default-text symbols (⏸⏹⏺ and friends) that
+    /// would otherwise have no monochrome glyph anywhere on the system.
+    symbol_fallback: Option<fontdue::Font>,
+    /// Candidate symbol-fallback font paths, tried on first symbol miss; emptied once consumed.
+    symbol_fallback_paths: Vec<String>,
     /// Apple Color Emoji font bytes, loaded LAZILY on the first emoji miss (a
     /// large `sbix` font; sessions without emoji never pay it). Stored as raw
     /// bytes because a `ttf_parser::Face` borrows them — a fresh Face is parsed
@@ -489,6 +518,19 @@ const FALLBACK_CANDIDATES: &[&str] = &[
     "/System/Library/Fonts/Apple Symbols.ttf",
 ];
 
+/// Monochrome SYMBOL fallback faces, most-preferred first. Override with
+/// `$ATERM_SYMBOL_FONT`. STIX Two Math is the broadest monochrome symbol face
+/// shipped with macOS — crucially it is (with the colour-only Apple Color Emoji
+/// and the tofu LastResort) one of the only system faces carrying U+23F8..23FA
+/// (⏸⏹⏺). It is consulted only AFTER the primary + broad fallback miss, so it
+/// never shadows their coverage; it exists purely to give default-text symbols a
+/// real monochrome glyph instead of `.notdef`, keeping them off the colour face.
+const SYMBOL_FALLBACK_CANDIDATES: &[&str] = &[
+    "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
+    "/System/Library/Fonts/STIXTwoMath.otf",
+    "/System/Library/Fonts/Apple Symbols.ttf",
+];
+
 /// Colour-emoji faces (sbix bitmaps), most-preferred first. Override with
 /// `$ATERM_EMOJI_FONT`. A `.ttc` collection: face index 0.
 const COLOR_EMOJI_CANDIDATES: &[&str] = &["/System/Library/Fonts/Apple Color Emoji.ttc"];
@@ -511,6 +553,17 @@ fn fallback_candidate_paths() -> Vec<String> {
     paths
 }
 
+/// The ordered symbol-fallback candidate paths ($ATERM_SYMBOL_FONT first),
+/// loaded lazily the first time a code point misses the primary + broad fallback.
+fn symbol_fallback_candidate_paths() -> Vec<String> {
+    let mut paths: Vec<String> = Vec::new();
+    if let Ok(p) = std::env::var("ATERM_SYMBOL_FONT") {
+        paths.push(p);
+    }
+    paths.extend(SYMBOL_FALLBACK_CANDIDATES.iter().map(|s| (*s).to_string()));
+    paths
+}
+
 /// The ordered colour-emoji candidate paths ($ATERM_EMOJI_FONT first), loaded
 /// lazily the first time a code point misses both mono faces.
 fn color_emoji_candidate_paths() -> Vec<String> {
@@ -520,6 +573,61 @@ fn color_emoji_candidate_paths() -> Vec<String> {
     }
     paths.extend(COLOR_EMOJI_CANDIDATES.iter().map(|s| (*s).to_string()));
     paths
+}
+
+/// The face-selection POLICY for a code point's ordinary (non-VS16) text
+/// dispatch, extracted as a pure function of coverage facts so it can be
+/// exhaustively verified independently of font I/O (see
+/// `crates/aterm-render/tests/presentation_gate.rs`).
+///
+/// Inputs are the per-face coverage facts [`Renderer::glyph_key`] probes lazily,
+/// in priority order, plus `wants_emoji` — the Unicode `Emoji_Presentation`
+/// property ([`aterm_grapheme::is_emoji_presentation`]). Priority:
+/// procedural → primary mono → broad mono fallback → symbol mono fallback →
+/// colour emoji (GATED) → primary `.notdef`.
+///
+/// # Invariant (proven)
+///
+/// `select_face(..) == FaceId::ColorEmoji` **implies** `wants_emoji`. A
+/// default-text code point therefore NEVER resolves to the colour face here,
+/// even when the colour font is the only face that covers it — the bug this
+/// gate fixes (⏺ U+23FA: `Emoji=Yes`, `Emoji_Presentation=No`). This matches
+/// the reference terminals: iTerm2 gates on `emojiWithDefaultEmojiPresentation`
+/// set membership, Ghostty on `uucode.get(.is_emoji_presentation, cp)` — both
+/// the default-presentation property, never raw font coverage. The explicit
+/// VS16 / emoji-presentation request is handled by the separate, intentionally
+/// unconditional [`Renderer::glyph_key_emoji`].
+#[must_use]
+pub fn select_face(
+    procedural: bool,
+    primary_has: bool,
+    fallback_has: bool,
+    symbol_has: bool,
+    color_has: bool,
+    wants_emoji: bool,
+) -> FaceId {
+    if procedural {
+        FaceId::Procedural
+    } else if primary_has {
+        FaceId::Primary
+    } else if fallback_has {
+        FaceId::Fallback
+    } else if symbol_has {
+        FaceId::SymbolFallback
+    } else if color_has && wants_emoji {
+        // The colour (RGBA) face is reachable ONLY for a code point that actually
+        // wants emoji presentation. This `&& wants_emoji` is the whole fix.
+        FaceId::ColorEmoji
+    } else if color_has {
+        // A default-TEXT code point that no mono face covers but the colour font
+        // does (⏺ on a machine without STIX/Apple Symbols): render the colour
+        // glyph's MONOCHROME silhouette, foreground-tinted — a visible glyph, not
+        // tofu, and still never the colour bitmap.
+        FaceId::ColorEmojiMono
+    } else {
+        // Nothing covers it anywhere: the primary face renders `.notdef`.
+        FaceId::Primary
+    }
 }
 
 /// The macOS font directories scanned by [`resolve_font_family`], in lookup
@@ -641,6 +749,8 @@ impl Renderer {
             shaped_runs: HashMap::new(),
             fallback: None,
             fallback_paths: Vec::new(),
+            symbol_fallback: None,
+            symbol_fallback_paths: Vec::new(),
             color_font: None,
             color_font_paths: Vec::new(),
             px,
@@ -699,6 +809,7 @@ impl Renderer {
                 && let Ok(mut r) = Self::from_bytes(&bytes, px, theme)
             {
                 r.fallback_paths = fallback_candidate_paths();
+                r.symbol_fallback_paths = symbol_fallback_candidate_paths();
                 r.color_font_paths = color_emoji_candidate_paths();
                 return Some(r);
             }
@@ -721,6 +832,33 @@ impl Renderer {
                 return;
             }
         }
+    }
+
+    /// Lazily load the first available symbol-fallback face the first time a code
+    /// point misses both the primary and broad fallback faces. After this runs
+    /// once, `symbol_fallback_paths` is empty so we never re-try.
+    fn ensure_symbol_fallback(&mut self) {
+        if self.symbol_fallback.is_some() || self.symbol_fallback_paths.is_empty() {
+            return;
+        }
+        let paths = std::mem::take(&mut self.symbol_fallback_paths);
+        for p in paths {
+            if let Ok(bytes) = std::fs::read(&p)
+                && let Ok(f) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
+            {
+                self.symbol_fallback = Some(f);
+                return;
+            }
+        }
+    }
+
+    /// Whether the symbol-fallback face has a (non-`.notdef`) glyph for `ch`
+    /// (loads it lazily).
+    fn symbol_fallback_has(&mut self, ch: char) -> bool {
+        self.ensure_symbol_fallback();
+        self.symbol_fallback
+            .as_ref()
+            .is_some_and(|f| f.lookup_glyph_index(ch) != 0)
     }
 
     /// Lazily load the colour-emoji font bytes the first time one is needed.
@@ -835,29 +973,47 @@ impl Renderer {
         if let Some(&key) = self.keys.get(&ch) {
             return key;
         }
-        // Procedural box-drawing/block/braille interception happens BEFORE any
-        // face lookup: those cells must be cell-exact and seam-free, which no
+        // Probe coverage lazily, in priority order — each fact is computed only
+        // when every higher-priority face has already missed, so the heavy
+        // fallback / symbol / colour faces are never loaded for a char the
+        // primary face covers. Procedural box-drawing/block/braille interception
+        // stays FIRST: those cells must be cell-exact and seam-free, which no
         // font guarantees ($ATERM_NO_PROCEDURAL_GLYPHS opts back into fonts).
-        let key = if self.procedural && procedural::covers(ch) {
-            GlyphKey::mono_char(FaceId::Procedural, ch, StyleBits::REGULAR, self.px_q)
-        } else if self.font.lookup_glyph_index(ch) != 0 {
-            GlyphKey::mono_char(FaceId::Primary, ch, StyleBits::REGULAR, self.px_q)
-        } else {
+        let procedural = self.procedural && procedural::covers(ch);
+        let primary_has = !procedural && self.font.lookup_glyph_index(ch) != 0;
+        let fallback_has = !procedural && !primary_has && {
             self.ensure_fallback();
-            if self
-                .fallback
+            self.fallback
                 .as_ref()
                 .is_some_and(|fb| fb.lookup_glyph_index(ch) != 0)
-            {
-                GlyphKey::mono_char(FaceId::Fallback, ch, StyleBits::REGULAR, self.px_q)
-            } else if self.color_font_has(ch) {
-                // Mono faces miss it but the colour-emoji face has an sbix
-                // bitmap (🚀 😀): a 32-bit RGBA glyph, not foreground-tinted.
-                GlyphKey::rgba_char(FaceId::ColorEmoji, ch, self.px_q)
-            } else {
-                // No face covers it: the primary face renders `.notdef`.
-                GlyphKey::mono_char(FaceId::Primary, ch, StyleBits::REGULAR, self.px_q)
-            }
+        };
+        let symbol_has =
+            !procedural && !primary_has && !fallback_has && self.symbol_fallback_has(ch);
+        // Colour coverage is probed when every mono face missed. Whether it
+        // produces a colour glyph or a monochromatized one is decided by
+        // `select_face` from `wants_emoji` (the Unicode `Emoji_Presentation`
+        // property) — so a default-text symbol (⏺) the colour font covers never
+        // resolves to the colour face. The POLICY lives in the pure,
+        // exhaustively-verified `select_face`: ONE provable colour-vs-text place.
+        let wants_emoji = aterm_grapheme::is_emoji_presentation(ch);
+        let color_has = !procedural
+            && !primary_has
+            && !fallback_has
+            && !symbol_has
+            && self.color_font_has(ch);
+        let key = match select_face(
+            procedural,
+            primary_has,
+            fallback_has,
+            symbol_has,
+            color_has,
+            wants_emoji,
+        ) {
+            // The colour face carries a 32-bit RGBA sbix bitmap (🚀 😀); every
+            // other outcome — including the monochromatized colour silhouette
+            // (`ColorEmojiMono`) — is a foreground-tinted Mono coverage mask.
+            FaceId::ColorEmoji => GlyphKey::rgba_char(FaceId::ColorEmoji, ch, self.px_q),
+            source => GlyphKey::mono_char(source, ch, StyleBits::REGULAR, self.px_q),
         };
         self.keys.insert(ch, key);
         key
@@ -876,7 +1032,12 @@ impl Renderer {
             return key;
         }
         let base = self.glyph_key(ch);
-        let key = if base.glyph_class == GlyphClass::Mono && base.source != FaceId::Procedural {
+        // Procedural (cell-exact) and ColorEmojiMono (an emoji silhouette, no real
+        // weight/slant) ignore synthetic styling; everything else mono gets it.
+        let key = if base.glyph_class == GlyphClass::Mono
+            && base.source != FaceId::Procedural
+            && base.source != FaceId::ColorEmojiMono
+        {
             GlyphKey { style, ..base }
         } else {
             base
@@ -1017,7 +1178,7 @@ impl Renderer {
         // Shape via the cache: clone the rb bytes handle out so the closure does
         // not borrow `self` while `plan_row_runs` borrows `cells`.
         let rb = self.rb_primary_bytes.clone();
-        let mut newly_shaped: Vec<((Box<str>, StyleBits), Option<Box<[u16]>>)> = Vec::new();
+        let mut newly_shaped: Vec<(ShapedRunKey, ShapedRunGlyphs)> = Vec::new();
         let cache = &self.shaped_runs;
         ligature_shaping::plan_row_runs(
             cells,
@@ -1099,13 +1260,30 @@ impl Renderer {
                         bytes,
                     };
                 }
+                // A monochromatized colour glyph: the sbix bitmap's alpha
+                // silhouette as foreground-tinted coverage (the last-resort
+                // default-text path). Falls through to the primary `.notdef` if
+                // the colour face/bitmap is gone.
+                if key.source == FaceId::ColorEmojiMono
+                    && let Some(img) = self.rasterize_color_emoji_mono(ch)
+                {
+                    return img;
+                }
                 let face = match key.source {
-                    // ColorEmoji never carries a Mono class (it rasterizes via
-                    // the Rgba arm), but cover it: fail safe to the primary face.
-                    FaceId::Primary | FaceId::Procedural | FaceId::ColorEmoji => &self.font,
+                    // ColorEmoji never carries a Mono class (it rasterizes via the
+                    // Rgba arm); ColorEmojiMono is handled just above. Cover both:
+                    // fail safe to the primary face (`.notdef`).
+                    FaceId::Primary
+                    | FaceId::Procedural
+                    | FaceId::ColorEmoji
+                    | FaceId::ColorEmojiMono => &self.font,
                     FaceId::Fallback => {
                         self.ensure_fallback();
                         self.fallback.as_ref().unwrap_or(&self.font)
+                    }
+                    FaceId::SymbolFallback => {
+                        self.ensure_symbol_fallback();
+                        self.symbol_fallback.as_ref().unwrap_or(&self.font)
                     }
                 };
                 let (m, mut bytes) = face.rasterize(ch, self.px);
@@ -1164,6 +1342,58 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    /// Rasterize `ch` from the colour face but as a MONOCHROME coverage glyph:
+    /// pull the `sbix` PNG, scale it into a SINGLE cell (these are width-1
+    /// default-text symbols, not 2-cell emoji), and keep only the ALPHA channel as
+    /// 8-bit coverage. The blit then tints that silhouette with the cell
+    /// foreground — so ⏺ shows as a theme-coloured circle, never the colour
+    /// bitmap. `None` (→ `.notdef`) if the face/glyph/bitmap is missing.
+    ///
+    /// The result is an ordinary [`GlyphImage::Mono`] cached by its [`GlyphKey`],
+    /// so the GPU atlas pulls the exact same bytes — CPU/GPU stay bit-identical,
+    /// like every other mono glyph.
+    fn rasterize_color_emoji_mono(&mut self, ch: char) -> Option<GlyphImage> {
+        self.ensure_color_font();
+        let bytes = self.color_font.as_ref()?;
+        let face = ttf_parser::Face::parse(bytes, 0).ok()?;
+        let gid = face.glyph_index(ch)?;
+        let raster = face.glyph_raster_image(gid, self.cell_h.max(1) as u16)?;
+        if !matches!(raster.format, ttf_parser::RasterImageFormat::PNG) {
+            return None;
+        }
+        let decoder = png::Decoder::new(raster.data);
+        let mut reader = decoder.read_info().ok()?;
+        let mut buf = vec![0u8; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).ok()?;
+        if info.bit_depth != png::BitDepth::Eight {
+            return None;
+        }
+        let (src_w, src_h) = (info.width as usize, info.height as usize);
+        let src = to_rgba8(&buf[..info.buffer_size()], info.color_type, src_w, src_h)?;
+
+        // Fit the (square) glyph into ONE cell, preserving aspect, centred.
+        let box_w = self.cell_w.max(1);
+        let box_h = self.cell_h.max(1);
+        let scale = (box_w as f32 / src_w as f32).min(box_h as f32 / src_h as f32);
+        let dst_w = ((src_w as f32 * scale).round() as usize).clamp(1, box_w);
+        let dst_h = ((src_h as f32 * scale).round() as usize).clamp(1, box_h);
+        let rgba = bilinear_rgba(&src, src_w, src_h, dst_w, dst_h);
+        // Coverage = the alpha channel (the glyph's opacity/silhouette).
+        let coverage: Vec<u8> = rgba.chunks_exact(4).map(|px| px[3]).collect();
+
+        let xmin = ((box_w - dst_w) / 2) as i32;
+        let top_inset = ((box_h as i32 - dst_h as i32) / 2).max(0);
+        let ymin = self.baseline - dst_h as i32 - top_inset;
+        Some(GlyphImage::Mono {
+            width: dst_w,
+            height: dst_h,
+            xmin,
+            ymin,
+            advance: box_w as f32,
+            bytes: coverage,
+        })
     }
 
     /// Rasterize a single-codepoint colour emoji: map `ch` to its glyph id in
@@ -3056,6 +3286,113 @@ mod tests {
         assert!(
             img.bytes().iter().any(|&c| c > 0),
             "CJK glyph has no coverage"
+        );
+    }
+
+    /// REGRESSION (the ⏺ bug): a default-TEXT code point that only the colour
+    /// font covers must NOT resolve to the colour-emoji face. U+23FA BLACK CIRCLE
+    /// FOR RECORD is `Emoji=Yes` but `Emoji_Presentation=No` — the exact glyph
+    /// Claude Code prints before each line. On stock macOS no mono face has it,
+    /// so the OLD coverage-only fallback rendered it as a colour Apple emoji.
+    #[test]
+    fn record_symbol_is_never_color_emoji() {
+        let Some(mut r) = renderer() else {
+            eprintln!("SKIP: no system mono font found");
+            return;
+        };
+        let key = r.glyph_key('\u{23FA}'); // ⏺
+        eprintln!("⏺ U+23FA resolved to {:?} / {:?}", key.source, key.glyph_class);
+        assert_ne!(
+            key.source,
+            FaceId::ColorEmoji,
+            "⏺ (U+23FA, Emoji_Presentation=No) must not use the colour-emoji face"
+        );
+        assert_ne!(
+            key.glyph_class,
+            GlyphClass::Rgba,
+            "⏺ must rasterize as a foreground-tinted mono glyph, not a colour bitmap"
+        );
+        // When a mono symbol face that covers ⏺ is installed (STIX Two Math on
+        // stock macOS), it must be used — a real monochrome glyph, not `.notdef`.
+        if r.symbol_fallback_has('\u{23FA}') {
+            assert_eq!(
+                key.source,
+                FaceId::SymbolFallback,
+                "⏺ should render via the mono symbol fallback when one covers it"
+            );
+            let img = r.glyph_image(key).clone();
+            assert!(
+                img.bytes().iter().any(|&b| b > 0),
+                "⏺ symbol-fallback glyph must carry real coverage, not be blank"
+            );
+        }
+        // The same holds for its siblings ⏸ ⏹ (U+23F8..23F9).
+        for c in ['\u{23F8}', '\u{23F9}'] {
+            assert_ne!(
+                r.glyph_key(c).source,
+                FaceId::ColorEmoji,
+                "{c:?} (Emoji_Presentation=No) must not use the colour face"
+            );
+        }
+    }
+
+    /// CAVEAT-2 COVERAGE: when NO mono face on the system covers ⏺ (no STIX / no
+    /// Apple Symbols), it must still render — as the monochromatized colour
+    /// silhouette (`ColorEmojiMono`, a foreground-tinted Mono glyph with real
+    /// coverage), never `.notdef` tofu and never the colour bitmap.
+    #[test]
+    fn record_symbol_monochromatizes_when_no_mono_symbol_face() {
+        let Some(mut r) = renderer() else {
+            eprintln!("SKIP: no system mono font found");
+            return;
+        };
+        if !r.color_font_has('\u{23FA}') {
+            eprintln!("SKIP: no colour-emoji font on this system");
+            return;
+        }
+        // Force every mono symbol face to be unavailable (simulate a minimal
+        // system without STIX Two Math / Apple Symbols).
+        r.symbol_fallback = None;
+        r.symbol_fallback_paths = vec!["/nonexistent/no-symbol-font.ttf".to_string()];
+
+        let key = r.glyph_key('\u{23FA}');
+        assert_eq!(
+            key.source,
+            FaceId::ColorEmojiMono,
+            "⏺ with no mono glyph anywhere must monochromatize the colour glyph"
+        );
+        assert_eq!(
+            key.glyph_class,
+            GlyphClass::Mono,
+            "the monochromatized ⏺ must be a Mono (foreground-tinted) glyph, not Rgba"
+        );
+        let img = r.glyph_image(key).clone();
+        assert!(matches!(img, GlyphImage::Mono { .. }), "must be a Mono image");
+        assert!(
+            img.bytes().iter().any(|&b| b > 0),
+            "monochromatized ⏺ must carry real coverage, not be blank tofu"
+        );
+    }
+
+    /// The dual of the regression: a genuine default-EMOJI code point
+    /// (Emoji_Presentation=Yes) the mono faces miss MUST still reach the colour
+    /// face — proving the gate did not over-correct into "never colour".
+    #[test]
+    fn default_emoji_still_uses_color_face() {
+        let Some(mut r) = renderer() else {
+            eprintln!("SKIP: no system mono font found");
+            return;
+        };
+        // 🚀 U+1F680 is Emoji_Presentation=Yes and present in Apple Color Emoji.
+        let key = r.glyph_key('\u{1F680}');
+        if !r.color_font_has('\u{1F680}') {
+            eprintln!("SKIP: no colour-emoji font on this system");
+            return;
+        }
+        assert_eq!(
+            key.source,
+            FaceId::ColorEmoji,
+            "🚀 (Emoji_Presentation=Yes) must still render in colour"
         );
     }
 

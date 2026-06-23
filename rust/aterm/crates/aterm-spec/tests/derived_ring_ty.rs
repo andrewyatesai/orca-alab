@@ -20,9 +20,10 @@
 // The 7 introspection models are iterated via `harness::instances()`, not named here.
 use aterm_spec::derive::{
     Model, active_handle_model, coalesce_model, cursor_model, evict_full_model, kernel_model,
-    pane_tree_model, proxy_forward_model, read_image_seq_model, recording_model, ring_model,
-    session_pool_model, snapshot_model, spawn_locale_model, subscribe_model, tab_nav_model,
-    tab_strip_model, tier_residency_model, transact_model, window_routing_model,
+    pane_tree_model, presentation_gate_model, proxy_forward_model, read_image_seq_model,
+    recording_model, ring_model, session_pool_model, snapshot_model, spawn_locale_model,
+    subscribe_model, tab_nav_model, tab_strip_model, tier_residency_model, transact_model,
+    window_routing_model,
 };
 use aterm_spec::verify::ty;
 use std::path::PathBuf;
@@ -132,6 +133,16 @@ fn assert_proves_and_catches(ty: &PathBuf, m: &Model) {
 fn derived_subscribe_proves_and_catches_silent_loss() {
     let ty = ty("derived subscribe spec");
     assert_proves_and_catches(&ty, &subscribe_model());
+}
+
+#[test]
+fn derived_presentation_gate_proves_and_catches_text_colored_as_emoji() {
+    // The ⏺ (U+23FA) fix, model-checked by the real `ty` over the whole bounded
+    // state space: a default-TEXT code point is never resolved to the colour face
+    // (Buggy=0 PROVES NoColorForText), and the old coverage-only gate is genuinely
+    // caught (Buggy=1 -> counterexample).
+    let ty = ty("derived presentation-gate spec");
+    assert_proves_and_catches(&ty, &presentation_gate_model());
 }
 
 #[test]

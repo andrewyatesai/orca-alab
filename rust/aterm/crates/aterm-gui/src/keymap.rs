@@ -249,6 +249,25 @@ mod tests {
         assert_eq!(bytes, vec![b'a']);
     }
 
+    /// Regression (the "Shift doesn't work" report): Shift+<symbol> must encode
+    /// the SHIFTED glyph. On macOS the GUI hands the engine the UNSHIFTED base key
+    /// (`key_without_modifiers()` → '2') plus the SHIFT modifier, so the engine's
+    /// legacy encoder is solely responsible for producing '@'. It used to
+    /// `to_ascii_uppercase` the base key, which no-ops on digits/symbols, so every
+    /// shifted symbol was lost. Letters masked the gap (they DO uppercase), which
+    /// is why it slipped past the unit tests twice.
+    #[test]
+    fn shift_symbol_encodes_shifted_glyph() {
+        let bytes = encode_key_event(
+            &ch("2"),
+            PhysicalKey::Code(KeyCode::Digit2),
+            Modifiers::SHIFT,
+            KeyboardMode::empty(),
+        )
+        .expect("shift+2 encodes");
+        assert_eq!(bytes, b"@", "Shift+2 must emit '@', not '2'");
+    }
+
     /// A bare modifier press (Shift alone) encodes to nothing in legacy mode.
     #[test]
     fn bare_modifier_press_is_none() {

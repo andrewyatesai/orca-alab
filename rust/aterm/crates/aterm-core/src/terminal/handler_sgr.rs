@@ -252,6 +252,10 @@ impl SgrStyleHandler<'_> {
                 // SUBSCRIPT bits set). OVERLINE is encoded as SUPERSCRIPT |
                 // SUBSCRIPT; unconditional remove would clobber standalone
                 // superscript or subscript.
+                // Arm-local `if`, NOT a match guard: a `55 if .. =>` guard would
+                // fall through to the `_ => self.update_style_id()` default when
+                // false — a real behaviour change, so the collapse is unsound.
+                #[allow(clippy::collapsible_match)]
                 if self.style.flags.contains(CellFlags::OVERLINE) {
                     self.style.flags.remove(CellFlags::OVERLINE);
                 }
@@ -272,6 +276,10 @@ impl SgrStyleHandler<'_> {
                 // Reset superscript/subscript but preserve overline.
                 // OVERLINE is encoded as SUPERSCRIPT | SUBSCRIPT, so
                 // blindly removing both bits would clear overline too.
+                // Arm-local `if`, NOT a match guard: a `75 if .. =>` guard would
+                // fall through to the `_ => self.update_style_id()` default when
+                // false — a real behaviour change, so the collapse is unsound.
+                #[allow(clippy::collapsible_match)]
                 if !self.style.flags.contains(CellFlags::OVERLINE) {
                     self.style.flags.remove(CellFlags::SUPERSCRIPT);
                     self.style.flags.remove(CellFlags::SUBSCRIPT);

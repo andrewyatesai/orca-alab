@@ -962,6 +962,98 @@ pub fn subscribe_model() -> Model {
     }
 }
 
+/// COLOUR-PRESENTATION GATE — a code point that defaults to TEXT presentation is
+/// never resolved to the colour-emoji face. The abstract twin of aterm-render's
+/// `select_face` (the real-code binding is aterm-render's
+/// `select_face_never_colors_text_presentation` exhaustive test).
+///
+/// This is the model of the ⏺ (U+23FA) fix: `select_face` used to choose the
+/// colour-emoji face for ANY code point the monochrome faces missed but Apple
+/// Color Emoji covered — ignoring the Unicode `Emoji_Presentation` property.
+/// U+23FA is `Emoji=Yes` but `Emoji_Presentation=No`, so it defaults to text; the
+/// reference terminals gate the colour face on that property (iTerm2:
+/// `emojiWithDefaultEmojiPresentation` membership; Ghostty:
+/// `uucode.get(.is_emoji_presentation, cp)`), never on raw font coverage.
+///
+/// Scalar projection `<<wants_emoji, color>>`: `wants_emoji` = 1 iff the code
+/// point has default emoji presentation (or an explicit VS16) — the only
+/// legitimate trigger for colour; `color` = the gate's output (1 = resolved to
+/// the colour face), RECOMPUTED from `wants_emoji` in the same step (face
+/// selection is stateless / per-call, so the decision is never stale). The two
+/// `Want*` actions spread the nondeterministic input — a default-emoji code point
+/// vs a default-text one — over the reachable space.
+///
+/// `Buggy` gates the SHIPPED defect: with `Buggy = 0` (committed) `color` is set
+/// ONLY when `wants_emoji`; with `Buggy = 1` it is set regardless (the old
+/// coverage-only gate), so a default-TEXT code point gets `color = 1` and
+/// `NoColorForText` is violated. Thus `ty` PROVES the gate (Buggy=0) and CATCHES
+/// the real regression (Buggy=1 → counterexample). Exercises a constant-guarded
+/// `if` update and a two-action disjunctive `Next`.
+pub fn presentation_gate_model() -> Model {
+    // color' = if (wants_emoji' OR Buggy) then 1 else 0. TLA primed semantics use
+    // unprimed vars on the RHS, so substitute the LITERAL value each action is
+    // about to assign to `wants_emoji` (1 for WantEmoji, 0 for WantText).
+    let color_for = |wants_emoji_next: i64| {
+        if_(
+            gt(add(int(wants_emoji_next), cst("Buggy")), int(0)),
+            int(1),
+            int(0),
+        )
+    };
+    Model {
+        name: "PresentationGate",
+        consts: vec![("Buggy", 0)],
+        vars: vec![
+            StateVar {
+                name: "wants_emoji",
+                init: 0,
+            },
+            StateVar {
+                name: "color",
+                init: 0,
+            },
+        ],
+        fn_vars: vec![],
+        actions: vec![
+            Action {
+                // The code point has default-emoji presentation (or VS16): colour allowed.
+                name: "WantEmoji",
+                guard: Some(le(var("wants_emoji"), int(0))),
+                updates: vec![
+                    Update {
+                        var: "wants_emoji",
+                        expr: int(1),
+                    },
+                    Update {
+                        var: "color",
+                        expr: color_for(1),
+                    },
+                ],
+            },
+            Action {
+                // A default-text code point: colour must be withheld (the fix).
+                name: "WantText",
+                guard: Some(gt(var("wants_emoji"), int(0))),
+                updates: vec![
+                    Update {
+                        var: "wants_emoji",
+                        expr: int(0),
+                    },
+                    Update {
+                        var: "color",
+                        expr: color_for(0),
+                    },
+                ],
+            },
+        ],
+        invariants: vec![Invariant {
+            // A colour resolution implies the code point wanted emoji presentation.
+            name: "NoColorForText",
+            expr: le(var("color"), var("wants_emoji")),
+        }],
+    }
+}
+
 /// SPAWN-TIME LOCALE GUARANTEE — the child process aterm launches must run under a
 /// UTF-8 `LC_CTYPE` whatever locale aterm inherited. `LC_CTYPE` is the POSIX
 /// character-encoding category; under a non-UTF-8 one, locale-aware programs (emacs,

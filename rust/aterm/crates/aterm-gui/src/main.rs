@@ -1935,29 +1935,50 @@ impl ApplicationHandler<Wake> for App {
         // `&mut WindowState` in hand.
         let headless = self.headless;
         for ws in self.windows.values_mut() {
-            let blinking = !headless && ws.os_window.is_some() && ws.focused && {
-                let term = term_lock(&ws.term);
-                term.cursor_visible()
-                    && matches!(
-                        term.cursor_style(),
-                        CursorStyle::BlinkingBlock
-                            | CursorStyle::BlinkingUnderline
-                            | CursorStyle::BlinkingBar
-                    )
-            };
-            if blinking {
-                let d = *ws
-                    .next_blink
-                    .get_or_insert_with(|| Instant::now() + BLINK_INTERVAL);
-                deadline = Some(deadline.map_or(d, |b| b.min(d)));
+            // Read the blink predicate WITHOUT blocking on the engine lock. Under
+            // heavy PTY output the reader thread holds `term` for the whole of
+            // `process(&buf)`; a blocking `lock()` here would stall the event loop
+            // behind the engine, adding input latency exactly when the terminal is
+            // busiest. `try_lock` instead: `Some(bool)` when we read it, `None`
+            // when the engine is mid-process. Blink is cosmetic — a one-tick-late
+            // update is imperceptible, and the existing schedule is kept meanwhile.
+            let blinking: Option<bool> = if !headless && ws.os_window.is_some() && ws.focused {
+                ws.term.try_lock().ok().map(|term| {
+                    term.cursor_visible()
+                        && matches!(
+                            term.cursor_style(),
+                            CursorStyle::BlinkingBlock
+                                | CursorStyle::BlinkingUnderline
+                                | CursorStyle::BlinkingBar
+                        )
+                })
             } else {
-                // Not blinking: disarm and leave the cursor SOLID so a steady
-                // style is never stuck "off"; repaint the window we just flipped.
-                ws.next_blink = None;
-                if !ws.blink_phase {
-                    ws.blink_phase = true;
-                    if let Some(w) = ws.os_window.as_ref() {
-                        w.request_redraw();
+                Some(false) // headless / no window / unfocused: definitely not blinking
+            };
+            match blinking {
+                Some(true) => {
+                    let d = *ws
+                        .next_blink
+                        .get_or_insert_with(|| Instant::now() + BLINK_INTERVAL);
+                    deadline = Some(deadline.map_or(d, |b| b.min(d)));
+                }
+                Some(false) => {
+                    // Not blinking: disarm and leave the cursor SOLID so a steady
+                    // style is never stuck "off"; repaint the window we just flipped.
+                    ws.next_blink = None;
+                    if !ws.blink_phase {
+                        ws.blink_phase = true;
+                        if let Some(w) = ws.os_window.as_ref() {
+                            w.request_redraw();
+                        }
+                    }
+                }
+                None => {
+                    // Engine mid-process: leave blink state untouched and keep
+                    // folding any already-armed deadline so blinking continues
+                    // uninterrupted once the burst clears.
+                    if let Some(d) = ws.next_blink {
+                        deadline = Some(deadline.map_or(d, |b| b.min(d)));
                     }
                 }
             }

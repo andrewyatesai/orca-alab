@@ -44,6 +44,9 @@ impl TerminalHandler<'_> {
                     // DECCOLM — flag only, host resizes if desired.
                     // Per xterm spec, DECCOLM is only honored when mode 40
                     // (deccolm_enable) is set. Otherwise CSI ?3h/l is ignored.
+                    // Arm-local `if`, not a match guard (which would couple this
+                    // to the unknown-mode default arm's fallthrough).
+                    #[allow(clippy::collapsible_match)]
                     if self.modes.deccolm_enable {
                         self.set_column_mode_132(set);
                     }

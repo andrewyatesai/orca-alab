@@ -44,6 +44,59 @@ fn legacy_encode_ctrl_a() {
     assert_eq!(result, vec![0x01]);
 }
 
+/// Regression (K-1 "Shift doesn't work"): SHIFT on a NON-letter must yield the
+/// shifted glyph in legacy mode. The old `to_ascii_uppercase` no-op'd on every
+/// digit/symbol, so Shift+2 emitted '2' instead of '@' and shifted symbols were
+/// impossible to type. Letters already worked (`legacy_encode_shift_character`),
+/// which is exactly why the gap survived — no test ever pressed Shift on a symbol.
+#[test]
+fn legacy_encode_shift_symbol() {
+    let cases: &[(char, u8)] = &[
+        ('1', b'!'),
+        ('2', b'@'),
+        ('3', b'#'),
+        ('4', b'$'),
+        ('5', b'%'),
+        ('6', b'^'),
+        ('7', b'&'),
+        ('8', b'*'),
+        ('9', b'('),
+        ('0', b')'),
+        ('-', b'_'),
+        ('=', b'+'),
+        ('[', b'{'),
+        (']', b'}'),
+        ('\\', b'|'),
+        (';', b':'),
+        ('\'', b'"'),
+        (',', b'<'),
+        ('.', b'>'),
+        ('/', b'?'),
+        ('`', b'~'),
+    ];
+    for &(base, shifted) in cases {
+        let result = encode_key(&Key::Character(base), Modifiers::SHIFT, KeyboardMode::empty());
+        assert_eq!(
+            result,
+            vec![shifted],
+            "Shift+{base:?} must encode the shifted glyph {:?}",
+            shifted as char
+        );
+    }
+}
+
+/// Meta (Alt) + Shift on a symbol sends ESC + the SHIFTED glyph, not ESC + the
+/// base symbol. Same root cause as `legacy_encode_shift_symbol`, the ALT branch.
+#[test]
+fn legacy_encode_alt_shift_symbol() {
+    let result = encode_key(
+        &Key::Character('2'),
+        Modifiers::ALT | Modifiers::SHIFT,
+        KeyboardMode::empty(),
+    );
+    assert_eq!(result, vec![0x1b, b'@']);
+}
+
 #[test]
 fn legacy_encode_alt_character() {
     let result = encode_key(&Key::Character('a'), Modifiers::ALT, KeyboardMode::empty());

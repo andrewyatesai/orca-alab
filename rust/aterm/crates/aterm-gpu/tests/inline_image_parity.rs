@@ -301,12 +301,8 @@ fn sixel_rawrgba8_pixels_gpu_match_cpu() {
     let mut dcs: Vec<u8> = Vec::new();
     // raster attrs 1;1;Ph;Pv with Ph=2*cw, Pv=6; define color 1 = RGB% red; select it.
     dcs.extend_from_slice(format!("\x1bP0;0;8q\"1;1;{};6#1;2;100;0;0#1", 2 * cw).as_bytes());
-    for _ in 0..cw {
-        dcs.push(b'~'); // opaque red column (all 6 rows)
-    }
-    for _ in 0..cw {
-        dcs.push(b'?'); // empty (transparent) column
-    }
+    dcs.extend(std::iter::repeat_n(b'~', cw)); // opaque red columns (all 6 rows)
+    dcs.extend(std::iter::repeat_n(b'?', cw)); // empty (transparent) columns
     dcs.extend_from_slice(b"$-\x1b\\"); // graphics CR + NL, then ST
 
     let mut term = Terminal::new(rows as u16, cols as u16);

@@ -111,6 +111,9 @@ impl TerminalHandler<'_> {
             };
             match key {
                 "i" => {
+                    // Arm-local `if`, not a match guard (a guard would fall
+                    // through to the unknown-key default arm when false).
+                    #[allow(clippy::collapsible_match)]
                     if !value.is_empty() && value.len() <= 256 {
                         id = Some(value.to_string());
                     }

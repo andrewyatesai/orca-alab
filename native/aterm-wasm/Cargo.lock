@@ -159,6 +159,7 @@ name = "aterm-render"
 version = "0.3.0"
 dependencies = [
  "aterm-core",
+ "aterm-grapheme",
  "aterm-render-api",
  "aterm-types",
  "fontdue",

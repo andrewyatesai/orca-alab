@@ -1285,8 +1285,21 @@ impl GpuRenderer {
     /// renderer's [`Renderer::from_system_with_family`]. `None` is identical to
     /// [`GpuRenderer::new`].
     pub fn new_with_family(family: Option<&str>, px: f32, theme: Theme) -> Result<Self, String> {
+        // Cold-launch overlap: font resolution + rasterization (CPU-bound, GPU-
+        // independent) and GPU adapter/device init (blocking driver round-trips)
+        // are the two dominant serial costs of building the renderer. Run the font
+        // load on a background thread while the GPU device initializes on this
+        // thread, then join. They share no state (the font path touches no GPU
+        // object), so this is pure scheduling — no work is eliminated, the two
+        // legs just overlap, saving ~min(gpu_init, font_load) off cold start.
+        let family_owned = family.map(String::from);
+        let font_handle = std::thread::spawn(move || {
+            Renderer::from_system_with_family(family_owned.as_deref(), px, theme)
+        });
         let ctx = GpuContext::new()?;
-        let cpu = Renderer::from_system_with_family(family, px, theme)
+        let cpu = font_handle
+            .join()
+            .map_err(|_| "font-load thread panicked".to_string())?
             .ok_or("no system monospace font")?;
         let device = &ctx.device;
 

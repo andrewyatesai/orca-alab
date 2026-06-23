@@ -18,10 +18,10 @@ use aterm_render::{LigatureMode, Renderer, TextShapingConfig, Theme};
 // canonical and vendored layouts). Returns None -> the test SKIPs cleanly rather
 // than panicking, so a host without the fixture never breaks the suite.
 fn ligature_test_font() -> Option<Vec<u8>> {
-    if let Ok(path) = std::env::var("ATERM_FONT") {
-        if let Ok(bytes) = std::fs::read(&path) {
-            return Some(bytes);
-        }
+    if let Ok(path) = std::env::var("ATERM_FONT")
+        && let Ok(bytes) = std::fs::read(&path)
+    {
+        return Some(bytes);
     }
     const FIXTURE: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -197,7 +197,7 @@ fn ligature_breaks_on_selection_boundary() {
     let theme_sel = Theme::default().selection;
     let band = column_band(&sel_on, 1, 16);
     assert!(
-        band.iter().any(|&p| p == theme_sel),
+        band.contains(&theme_sel),
         "selected cell of '=>' must show the selection background (0x{theme_sel:06X})"
     );
     // (c) The discriminating gate: with the selection breaking the run, the

@@ -454,7 +454,9 @@ version = "0.3.0"
 dependencies = [
  "aterm-codec",
  "aterm-core",
+ "aterm-grapheme",
  "aterm-render-api",
+ "aterm-spec",
  "aterm-types",
  "fontdue",
  "libc",

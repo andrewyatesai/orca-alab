@@ -18,22 +18,29 @@ pub(super) fn encode_character_legacy(c: char, modifiers: Modifiers) -> Vec<u8> 
 
     if modifiers.contains(Modifiers::ALT) {
         let mut buf = vec![0x1b];
-        let lower = if modifiers.contains(Modifiers::SHIFT) {
-            c.to_ascii_uppercase()
+        // Meta sends ESC + the glyph that would be typed. Under SHIFT that is the
+        // SHIFTED glyph, not merely an uppercased letter — `to_ascii_uppercase`
+        // no-ops on digits/symbols, so Alt+Shift+2 wrongly emitted ESC '2'
+        // instead of ESC '@'. Reuse the engine's US-QWERTY shift table.
+        let glyph = if modifiers.contains(Modifiers::SHIFT) {
+            super::shifted_character(c, modifiers).unwrap_or(c)
         } else {
             c.to_ascii_lowercase()
         };
         let mut char_buf = [0u8; 4];
-        let encoded = lower.encode_utf8(&mut char_buf);
+        let encoded = glyph.encode_utf8(&mut char_buf);
         buf.extend_from_slice(encoded.as_bytes());
         return buf;
     }
 
-    let output = if modifiers.contains(Modifiers::SHIFT) {
-        c.to_ascii_uppercase()
-    } else {
-        c
-    };
+    // SHIFT must yield the SHIFTED glyph, not just an uppercased letter. The old
+    // `to_ascii_uppercase` silently no-ops on every non-letter, so Shift+2 stayed
+    // '2' instead of '@' and EVERY shifted symbol was lost in legacy mode — the
+    // "Shift doesn't work" regression. Reuse `shifted_character`, the same
+    // US-QWERTY table the Kitty `REPORT_ALTERNATE_KEYS` path already uses, so the
+    // legacy and Kitty shift mappings agree. (Layout-aware shifting for non-US
+    // keyboards is a separate, larger concern: the engine has no live layout.)
+    let output = super::shifted_character(c, modifiers).unwrap_or(c);
 
     let mut buf = [0u8; 4];
     let encoded = output.encode_utf8(&mut buf);

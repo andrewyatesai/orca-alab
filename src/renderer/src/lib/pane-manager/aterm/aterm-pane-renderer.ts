@@ -3,27 +3,24 @@ import { encodeKeyEventToBytes } from './aterm-key-encoding'
 import { resolveAtermThemeColors } from './aterm-theme-colors'
 import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
-import { attachAtermLinkInput } from './aterm-link-input'
+import { attachAtermLinkInput, type AtermFileLinkOpener } from './aterm-link-input'
+import {
+  createAtermSearchController,
+  type AtermSearchController,
+  type AtermSearchMatch
+} from './aterm-search'
+import { paintAtermSearchHighlights } from './aterm-search-overlay'
 import { buildAtermInputDom } from './aterm-input-dom'
-import { openHttpLink } from '../../http-link-routing'
-import { openTerminalHttpLink } from '../../../components/terminal-pane/terminal-url-link-hit-testing'
+import { createAtermUrlOpener, type AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermTerminal } from './aterm_wasm.js'
+
+export type { AtermLinkContext } from './aterm-url-link-routing'
 
 // Font cell size in CSS pixels; multiplied by devicePixelRatio for the engine.
 export const ATERM_RENDERER_FONT_PX = 14
 
 export type AtermPaneInputSink = (data: string) => void
 export type AtermPaneResizeSink = (cols: number, rows: number) => void
-
-/** Optional pane-scoped link routing context. When supplied, terminal URL
- *  clicks honor orca's in-app/system-browser preference exactly like the default
- *  xterm path; absent, links open via openHttpLink (worktree-scoped or, with no
- *  worktree, the system browser). Kept optional so the controller signature stays
- *  backward-compatible for callers that don't thread link context. */
-export type AtermLinkContext = {
-  worktreeId?: string | null
-  requestOpenLinksInAppPreference?: (url: string) => boolean | Promise<boolean> | null | undefined
-}
 
 export type AtermPaneController = {
   /** Feed PTY/replay output bytes; coalesces draws into one rAF frame. */
@@ -36,6 +33,26 @@ export type AtermPaneController = {
   selectionText: () => string
   /** Detected link at a display cell (url + kind), or null — for hit-test/tests. */
   linkAt: (row: number, col: number) => { url: string; kind: number } | null
+  /** Run an in-terminal search: highlights matches, scrolls to the nearest, and
+   *  returns the match count. Empty query clears highlights. */
+  findMatches: (query: string, caseSensitive: boolean) => number
+  /** Move the active highlight to the next match (wraps); scrolls into view. */
+  findNextMatch: () => void
+  /** Move the active highlight to the previous match (wraps); scrolls into view. */
+  findPreviousMatch: () => void
+  /** Drop all search highlights (close / empty query). */
+  clearSearch: () => void
+  /** Total matches for the current query (0 when none / no query). */
+  searchMatchCount: () => number
+  /** 1-based active match index, or 0 when there are no matches. */
+  searchActiveMatchIndex: () => number
+  /** Late-bind the file-path link opener (kind 2). The lifecycle layer supplies a
+   *  closure that resolves the raw path against the pane's cwd/runtime and opens
+   *  it; until set, kind-2 clicks are a no-op (cursor still shows pointer). */
+  setFileLinkOpener: (fn: AtermFileLinkOpener) => void
+  /** Late-bind the URL link context (worktreeId + in-app-link preference) so URL
+   *  clicks honor orca's open-links-in-app preference once the lifecycle has it. */
+  setUrlLinkContext: (context: AtermLinkContext) => void
   dispose: () => void
 }
 
@@ -116,6 +133,11 @@ export async function createAtermPaneController(
   let cols = initialGrid.cols
   let rows = initialGrid.rows
 
+  // Search-highlight state in ABSOLUTE-row coords; converted to display rows at
+  // paint time so highlights track the viewport as it scrolls.
+  let searchMatches: AtermSearchMatch[] = []
+  let searchActiveIndex = -1
+
   const draw = (): void => {
     if (disposed || !drawScheduled || !ctx) {
       return
@@ -130,6 +152,13 @@ export async function createAtermPaneController(
     canvas.style.width = `${width / dpr}px`
     canvas.style.height = `${height / dpr}px`
     ctx.putImageData(new ImageData(new Uint8ClampedArray(term.rgba()), width, height), 0, 0)
+    // Overlay search highlights last so they sit above the rendered glyphs.
+    paintAtermSearchHighlights(ctx, searchMatches, searchActiveIndex, {
+      term,
+      cellWidth,
+      cellHeight,
+      rows
+    })
   }
 
   const scheduleDraw = (): void => {
@@ -189,22 +218,20 @@ export async function createAtermPaneController(
     isDisposed: () => disposed
   })
 
+  // Late-bound URL link context: starts from the (optional) constructor arg and
+  // can be replaced by setUrlLinkContext once the React lifecycle has the pane's
+  // worktreeId + in-app-link preference (the controller is created before that
+  // context exists, so threading it at construction isn't always possible).
+  let activeLinkContext: AtermLinkContext | undefined = linkContext
+
   // Open a clicked URL via orca's opener so the in-app/system-browser preference
   // (and Shift→system-browser escape hatch) is honored just like the xterm path.
-  const openUrl = (url: string, opts: { forceSystemBrowser: boolean }): void => {
-    if (linkContext?.requestOpenLinksInAppPreference) {
-      openTerminalHttpLink(url, {
-        worktreeId: linkContext.worktreeId ?? '',
-        forceSystemBrowser: opts.forceSystemBrowser,
-        requestOpenLinksInAppPreference: linkContext.requestOpenLinksInAppPreference
-      })
-      return
-    }
-    openHttpLink(url, {
-      worktreeId: linkContext?.worktreeId ?? undefined,
-      forceSystemBrowser: opts.forceSystemBrowser
-    })
-  }
+  const openUrl = createAtermUrlOpener(() => activeLinkContext)
+
+  // Late-bound file-path opener (kind 2): the lifecycle layer supplies a closure
+  // with the pane's cwd/runtime context after creation. Held in a getter so the
+  // link input always sees the latest binding; null until set → kind-2 no-op.
+  let fileLinkOpener: AtermFileLinkOpener | null = null
 
   const linkInput = attachAtermLinkInput({
     canvas,
@@ -214,7 +241,24 @@ export async function createAtermPaneController(
     cellHeight,
     redraw: scheduleDraw,
     isDisposed: () => disposed,
-    openUrl
+    openUrl,
+    getFileLinkOpener: () => fileLinkOpener
+  })
+
+  // In-terminal search: the controller owns find/next/prev state and drives the
+  // highlight overlay + scroll-to-match through these renderer hooks.
+  const searchController: AtermSearchController = createAtermSearchController(term, {
+    setSearchHighlights: (next, activeIndex) => {
+      searchMatches = next
+      searchActiveIndex = activeIndex
+    },
+    scrollToMatch: (match) => {
+      if (disposed) {
+        return
+      }
+      term.scroll_search_line_into_view(match.line)
+    },
+    redraw: scheduleDraw
   })
 
   const resizeObserver = new ResizeObserver(() => {
@@ -301,6 +345,23 @@ export async function createAtermPaneController(
     linkAt: (row: number, col: number) => {
       const hit = term.link_at(row, col)
       return hit ? { url: hit.url, kind: hit.kind } : null
+    },
+    findMatches: (query: string, caseSensitive: boolean) => {
+      if (disposed) {
+        return 0
+      }
+      return searchController.find(query, caseSensitive)
+    },
+    findNextMatch: () => searchController.next(),
+    findPreviousMatch: () => searchController.prev(),
+    clearSearch: () => searchController.clear(),
+    searchMatchCount: () => searchController.count(),
+    searchActiveMatchIndex: () => searchController.activeIndex(),
+    setFileLinkOpener: (fn: AtermFileLinkOpener) => {
+      fileLinkOpener = fn
+    },
+    setUrlLinkContext: (context: AtermLinkContext) => {
+      activeLinkContext = context
     },
     dispose: () => {
       if (disposed) {

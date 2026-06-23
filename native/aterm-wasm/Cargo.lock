@@ -160,6 +160,7 @@ version = "0.1.0"
 dependencies = [
  "aterm-core",
  "aterm-render-api",
+ "aterm-types",
  "fontdue",
  "png",
  "rustybuzz",

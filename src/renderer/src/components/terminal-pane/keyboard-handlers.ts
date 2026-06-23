@@ -219,13 +219,17 @@ export function useTerminalKeyboardShortcuts({
         if (!pane) {
           return
         }
-        // Why: SearchAddon is not loaded on aterm panes (the canvas owns
-        // rendering), so findNext/findPrevious would throw. No-op for now —
-        // aterm-native search highlight is Phase 3.
+        const { query, caseSensitive, regex } = searchStateRef.current
+        // aterm panes: the canvas controller owns search (SearchAddon isn't
+        // loaded), so route next/prev through it. It highlights + scrolls itself.
         if (pane.atermController) {
+          if (direction === 'next') {
+            pane.atermController.findNextMatch()
+          } else {
+            pane.atermController.findPreviousMatch()
+          }
           return
         }
-        const { query, caseSensitive, regex } = searchStateRef.current
         if (direction === 'next') {
           pane.searchAddon.findNext(query, { caseSensitive, regex })
         } else {

@@ -21,7 +21,11 @@ use aterm_core::grid::LineSize;
 // (which builds terminals + calls `Terminal::cell_frame` to feed the renderer).
 use aterm_core::terminal::{CursorStyle, RenderCell, UnderlineStyle};
 
+pub mod ligature_shaping;
 pub mod procedural;
+
+pub use aterm_types::text_shaping::{LigatureMode, TextShapingConfig};
+pub use ligature_shaping::ColumnGlyph;
 
 /// Colours as 0x00RR_GGBB: default foreground/background, the block cursor
 /// fill, and the selection-highlight background (painted under selected cells
@@ -89,6 +93,12 @@ pub enum GlyphClass {
     /// colour-font glyph id, not a code point): a multi-codepoint grapheme
     /// cluster (ZWJ / skin-tone / keycap) already SHAPED to one glyph.
     RgbaGid,
+    /// 8-bit alpha coverage addressed by PRIMARY-FACE GLYPH ID (`ch_or_id` is an
+    /// opaque primary-font glyph id, not a code point): a programming LIGATURE
+    /// (`=>`, `!=`, …) that rustybuzz shaped from a run of cells. Rasterized via
+    /// fontdue `rasterize_indexed` with the SAME stem-darken + synthetic style as
+    /// [`GlyphClass::Mono`], so CPU and GPU stay byte-identical.
+    MonoGid,
 }
 
 /// Style variant bits for a glyph, part of its cache identity.
@@ -174,10 +184,24 @@ impl GlyphKey {
         }
     }
 
+    /// Key for a coverage (MonoGid) glyph addressed by PRIMARY-FACE glyph id — a
+    /// programming ligature (`=>`, `!=`, …) rustybuzz shaped from a cell run. The
+    /// run's SGR `style` is part of the key so a bold/italic run ligates distinctly.
+    pub fn mono_gid(gid: u16, style: StyleBits, px_q: u32) -> GlyphKey {
+        GlyphKey {
+            source: FaceId::Primary,
+            glyph_class: GlyphClass::MonoGid,
+            ch_or_id: gid as u32,
+            style,
+            px_q,
+        }
+    }
+
     /// The character this key rasterizes, when `ch_or_id` is a code point.
-    /// `None` for [`GlyphClass::RgbaGid`], whose `ch_or_id` is a glyph id.
+    /// `None` for [`GlyphClass::RgbaGid`] / [`GlyphClass::MonoGid`], whose
+    /// `ch_or_id` is a glyph id.
     pub fn chr(&self) -> Option<char> {
-        if self.glyph_class == GlyphClass::RgbaGid {
+        if matches!(self.glyph_class, GlyphClass::RgbaGid | GlyphClass::MonoGid) {
             return None;
         }
         char::from_u32(self.ch_or_id)
@@ -259,6 +283,23 @@ impl GlyphImage {
 /// instead of going blank. Glyph dispatch is per-char and cached.
 pub struct Renderer {
     font: fontdue::Font,
+    /// Raw PRIMARY-face bytes, retained so a `rustybuzz::Face` can be built for
+    /// run shaping (ligatures). `None` when no bytes were available (e.g. a font
+    /// loaded only by path that failed to re-read) — ligatures then cleanly
+    /// decline and the per-cell path is used. A `rustybuzz::Face` borrows these,
+    /// so a fresh face is parsed per shaping miss (rare; shaped runs are cached).
+    rb_primary_bytes: Option<Vec<u8>>,
+    /// Text-shaping config (ligature mode + font features). DEFAULT is
+    /// `LigatureMode::Enabled`, but a run is only ligated when a `rustybuzz::Face`
+    /// builds AND the run actually shapes to different glyphs; otherwise the
+    /// per-cell path is byte-identical to before. Threaded into both renderers so
+    /// CPU and GPU shape identically.
+    shaping: aterm_types::text_shaping::TextShapingConfig,
+    /// Shaped-run cache: a `(run string, style)` -> the per-character shaped
+    /// primary-glyph ids (or `None` when the run did not ligate, i.e. shaping
+    /// changed nothing, so the caller uses the plain per-cell path). Keyed by the
+    /// run so each distinct run shapes at most once. See [`ligature_shaping`].
+    shaped_runs: HashMap<(Box<str>, StyleBits), Option<Box<[u16]>>>,
     /// Broad-coverage fallback face, loaded LAZILY: a full Unicode font (e.g.
     /// Arial Unicode, 50k glyphs) costs ~370 MB once fontdue parses it, so it is
     /// NOT loaded until a code point actually misses the primary face. Sessions
@@ -594,6 +635,10 @@ impl Renderer {
         let baseline = lm.ascent.round() as i32;
         Ok(Renderer {
             font,
+            // Retain the primary bytes so run shaping can build a rustybuzz::Face.
+            rb_primary_bytes: Some(bytes.to_vec()),
+            shaping: aterm_types::text_shaping::TextShapingConfig::default(),
+            shaped_runs: HashMap::new(),
             fallback: None,
             fallback_paths: Vec::new(),
             color_font: None,
@@ -906,6 +951,111 @@ impl Renderer {
         Some(GlyphKey::rgba_gid(FaceId::ColorEmoji, gid, self.px_q))
     }
 
+    /// Install the text-shaping config (ligature mode + features). DEFAULT is
+    /// `LigatureMode::Enabled`; set `Disabled` to render strictly per-cell (the
+    /// pre-ligature behaviour). Clears the shaped-run cache so a mode flip takes
+    /// effect on the next frame.
+    pub fn set_text_shaping(&mut self, shaping: aterm_types::text_shaping::TextShapingConfig) {
+        self.shaping = shaping;
+        self.shaped_runs.clear();
+    }
+
+    /// The current text-shaping config.
+    pub fn text_shaping(&self) -> &aterm_types::text_shaping::TextShapingConfig {
+        &self.shaping
+    }
+
+    /// Whether ligatures are GLOBALLY off (`LigatureMode::Disabled`). The
+    /// `CursorDisabled` mode is row-local and handled at the column level (the
+    /// cursor's run is forced per-cell), so it does NOT disable globally.
+    fn ligatures_globally_off(&self) -> bool {
+        matches!(
+            self.shaping.ligature_mode,
+            aterm_types::text_shaping::LigatureMode::Disabled
+        )
+    }
+
+    /// Build the per-column glyph plan for row `r` of `input`: which columns a
+    /// ligature owns (drawn as a `mono_gid` glyph at the column origin) and which
+    /// fall back to the ordinary per-cell dispatch. `break_cols` lists columns
+    /// that must stay per-cell this frame (the cursor column under
+    /// `CursorDisabled`, so the cursor never sits on a ligature glyph). When
+    /// ligatures are globally off the plan is all `PerCell` (byte-identical to the
+    /// pre-ligature path). SHARED by both renderers so they place identical glyphs.
+    pub fn row_glyph_plan(
+        &mut self,
+        input: &RenderInput,
+        r: usize,
+        break_cols: &[usize],
+        out: &mut Vec<ColumnGlyph>,
+    ) {
+        let cols = input.cols;
+        let cells = &input.cells[r];
+        if self.ligatures_globally_off() || self.rb_primary_bytes.is_none() {
+            out.clear();
+            out.resize(cols, ColumnGlyph::PerCell);
+            return;
+        }
+        let row_clusters = &input.clusters[r];
+        let row_images = &input.images[r];
+        // A column may join a run iff it is a plain shapeable cell AND is not a
+        // per-frame break column (cursor under CursorDisabled).
+        let mut shapeable = vec![false; cols];
+        for (c, sh) in shapeable.iter_mut().enumerate().take(cols.min(cells.len())) {
+            let has_cluster = cluster_for(row_clusters, c).is_some();
+            let img = image_covers(row_images, c);
+            *sh = ligature_shaping::cell_is_shapeable(&cells[c], has_cluster, img)
+                && !break_cols.contains(&c);
+        }
+        // `plan_row_runs` borrows `cells` and shapes via a closure; the shape
+        // closure needs `&mut self`, so collect runs first, shape them, then plan.
+        // Two-phase to satisfy the borrow checker without cloning the grid: pass a
+        // closure that captures a shaping buffer keyed off a RefCell-free plan by
+        // shaping inline using a raw-bytes copy is avoided — instead we resolve
+        // each run through the cache via an owned bytes handle.
+        let style_of = |c: usize| cell_style(&cells[c]);
+        // Shape via the cache: clone the rb bytes handle out so the closure does
+        // not borrow `self` while `plan_row_runs` borrows `cells`.
+        let rb = self.rb_primary_bytes.clone();
+        let mut newly_shaped: Vec<((Box<str>, StyleBits), Option<Box<[u16]>>)> = Vec::new();
+        let cache = &self.shaped_runs;
+        ligature_shaping::plan_row_runs(
+            cells,
+            cols,
+            &shapeable,
+            style_of,
+            |run, run_chars, style| {
+                let ck = (Box::<str>::from(run), style);
+                if let Some(c) = cache.get(&ck) {
+                    return c.clone();
+                }
+                let res = rb
+                    .as_ref()
+                    .and_then(|b| ligature_shaping::shape_ligature_run(b, run, run_chars, true));
+                newly_shaped.push((ck, res.clone()));
+                res
+            },
+            out,
+        );
+        // Persist freshly shaped runs into the cache for later frames.
+        for (k, v) in newly_shaped {
+            self.shaped_runs.entry(k).or_insert(v);
+        }
+    }
+
+    /// The glyph key for a ligated column: a `mono_gid` coverage glyph at the
+    /// run's SGR `style`. Shared so the GPU atlas keys it identically to the CPU.
+    pub fn ligature_key(&self, gid: u16, style: StyleBits) -> GlyphKey {
+        GlyphKey::mono_gid(gid, style, self.px_q)
+    }
+
+    /// The columns of row `r` forced PER-CELL this frame for ligature purposes
+    /// (the cursor cell under `LigatureMode::CursorDisabled`). The GPU planner
+    /// calls this so its break set matches the CPU's — preserving parity.
+    pub fn ligature_break_cols_for_row(&self, input: &RenderInput, r: usize) -> Vec<usize> {
+        ligature_break_cols(input, r, &self.shaping)
+    }
+
     /// The rasterized image for `key`, cached. External rasterizers (the GPU
     /// atlas) consume the exact bytes the CPU blit path uses, so their output
     /// can match pixel-for-pixel without duplicating the font logic/fallback.
@@ -994,6 +1144,24 @@ impl Renderer {
                 let gid = ttf_parser::GlyphId(key.ch_or_id as u16);
                 self.rasterize_color_emoji_gid(gid)
                     .unwrap_or_else(empty_rgba)
+            }
+            GlyphClass::MonoGid => {
+                // `ch_or_id` is a PRIMARY-face glyph id (a shaped ligature). Same
+                // fontdue raster + stem-darken + synthetic-style pipeline as the
+                // Mono arm, only addressed by glyph id, so the SHARED coverage
+                // bytes keep CPU and GPU byte-identical.
+                let (m, mut bytes) = self.font.rasterize_indexed(key.ch_or_id as u16, self.px);
+                stem_darken(&mut bytes);
+                let (width, bytes) =
+                    apply_synthetic_style(key.style, m.width, m.height, bytes, self.px);
+                GlyphImage::Mono {
+                    width,
+                    height: m.height,
+                    xmin: m.xmin,
+                    ymin: m.ymin,
+                    advance: m.advance_width,
+                    bytes,
+                }
             }
         }
     }
@@ -1364,6 +1532,14 @@ impl Renderer {
                 self.blit_image_cell(ic, pixels, w, h, pad_x + c * cw, y0, image);
             }
         }
+        // Ligature plan for this row: which columns a programming ligature owns
+        // (drawn as a shaped `mono_gid` glyph) vs the ordinary per-cell path. The
+        // cursor column under `CursorDisabled` is forced per-cell so the cursor
+        // never lands on a ligature glyph. Computed once per row, SHARED with the
+        // GPU path so both place identical glyphs at identical columns.
+        let break_cols = ligature_break_cols(input, r, &self.shaping);
+        let mut plan: Vec<ColumnGlyph> = Vec::new();
+        self.row_glyph_plan(input, r, &break_cols, &mut plan);
         // Pass 2: blit each glyph in the cell's foreground over the fills.
         // Wide continuation columns carry no glyph of their own. An image-covered
         // cell skips its glyph entirely (the image owns the cell) — this is the
@@ -1374,7 +1550,13 @@ impl Renderer {
             if !image_covers(row_images, c) && !cell.wide && cell.ch != ' ' && !cell.ch.is_control()
             {
                 let cluster = cluster_for(row_clusters, c);
-                let key = self.resolve_cell_key(cluster, cell);
+                // A ligature-owned column draws the shaped primary glyph (the lead
+                // cells of a ligature get the empty placeholder, the final cell the
+                // wide ligature glyph); all other columns use per-cell dispatch.
+                let key = match plan.get(c).copied().unwrap_or(ColumnGlyph::PerCell) {
+                    ColumnGlyph::Ligated(gid) => self.ligature_key(gid, cell_style(cell)),
+                    ColumnGlyph::PerCell => self.resolve_cell_key(cluster, cell),
+                };
                 self.blit(
                     pixels,
                     w,
@@ -1473,14 +1655,26 @@ impl Renderer {
                 self.fill_rect(pixels, w, h, rx, ry, rw, rh, self.theme.cursor);
             }
             if matches!(style, CursorStyle::BlinkingBlock | CursorStyle::SteadyBlock) {
-                let cells = &input.cells[cr];
-                if let Some(cell) = cells.get(cc)
+                let cell = input.cells[cr].get(cc).copied();
+                if let Some(cell) = cell
                     && !cell.wide
                     && cell.ch != ' '
                     && !cell.ch.is_control()
                 {
-                    let cluster = cluster_for(&input.clusters[cr], cc);
-                    let key = self.resolve_cell_key(cluster, cell);
+                    // The cut-out re-draws whatever this cell actually shows in
+                    // the cell bg colour. Consult the SAME ligature plan as the
+                    // base pass so a block cursor over a ligature glyph cuts out
+                    // the ligature glyph (not the per-cell char) — CPU/GPU parity.
+                    let break_cols = ligature_break_cols(input, cr, &self.shaping);
+                    let mut plan: Vec<ColumnGlyph> = Vec::new();
+                    self.row_glyph_plan(input, cr, &break_cols, &mut plan);
+                    let key = match plan.get(cc).copied().unwrap_or(ColumnGlyph::PerCell) {
+                        ColumnGlyph::Ligated(gid) => self.ligature_key(gid, cell_style(&cell)),
+                        ColumnGlyph::PerCell => {
+                            let cluster = cluster_for(&input.clusters[cr], cc);
+                            self.resolve_cell_key(cluster, &cell)
+                        }
+                    };
                     self.blit(
                         pixels,
                         w,
@@ -2271,8 +2465,32 @@ pub fn mark_cell_x(c: usize, rcw: usize, gw: usize, xmin: i32, scale: Scale) -> 
     cell_left + (rcw as i32 - gw as i32 * xs) / 2 - xmin * xs
 }
 
-/// The synthetic-style bits for a cell (SGR 1 bold / SGR 3 italic).
-fn cell_style(cell: &RenderCell) -> StyleBits {
+/// Columns of row `r` that must stay PER-CELL this frame for ligature purposes:
+/// under `LigatureMode::CursorDisabled` the cursor cell is excluded from any run
+/// so the cursor never sits on a ligature glyph (matching the documented mode).
+/// Other modes return an empty list. Shared by both renderers so the break set —
+/// and therefore the plan — is identical, preserving CPU/GPU parity.
+fn ligature_break_cols(
+    input: &RenderInput,
+    r: usize,
+    shaping: &aterm_types::text_shaping::TextShapingConfig,
+) -> Vec<usize> {
+    if matches!(
+        shaping.ligature_mode,
+        aterm_types::text_shaping::LigatureMode::CursorDisabled
+    ) && input.cursor_visible
+        && input.cursor_row == r
+        && input.cursor_col < input.cols
+    {
+        vec![input.cursor_col]
+    } else {
+        Vec::new()
+    }
+}
+
+/// The synthetic-style bits for a cell (SGR 1 bold / SGR 3 italic). Public so the
+/// GPU instance builder keys ligature glyphs with the same style as the CPU.
+pub fn cell_style(cell: &RenderCell) -> StyleBits {
     let mut bits = 0u8;
     if cell.bold {
         bits |= StyleBits::BOLD.0;

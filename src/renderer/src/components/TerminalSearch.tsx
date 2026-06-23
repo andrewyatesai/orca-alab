@@ -6,10 +6,25 @@ import type { SearchState } from '@/components/terminal-pane/keyboard-handlers'
 import { translate } from '@/i18n/i18n'
 import { getFindRequestQuery } from '@/lib/find-query-bounds'
 
+/** The aterm in-page renderer's search surface (subset of AtermPaneController).
+ *  When the active pane is aterm-rendered, find/next/prev/clear route here
+ *  instead of through the (absent) xterm SearchAddon. */
+export type AtermSearchSurface = {
+  findMatches: (query: string, caseSensitive: boolean) => number
+  findNextMatch: () => void
+  findPreviousMatch: () => void
+  clearSearch: () => void
+  searchMatchCount: () => number
+  searchActiveMatchIndex: () => number
+}
+
 type TerminalSearchProps = {
   isOpen: boolean
   onClose: () => void
   searchAddon: SearchAddon | null
+  /** Present when the active pane uses the aterm renderer; routes search to the
+   *  canvas controller (the xterm SearchAddon is null for these panes). */
+  atermSearch?: AtermSearchSurface | null
   searchStateRef: React.RefObject<SearchState>
 }
 
@@ -17,11 +32,14 @@ export default function TerminalSearch({
   isOpen,
   onClose,
   searchAddon,
+  atermSearch,
   searchStateRef
 }: TerminalSearchProps): React.JSX.Element | null {
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [regex, setRegex] = useState(false)
+  // Match-count label ("3 / 12"), driven by the aterm controller's exact counts.
+  const [matchLabel, setMatchLabel] = useState('')
   const requestQuery = getFindRequestQuery(query)
 
   // Why: the default xterm SearchAddon highlights blend into common
@@ -47,17 +65,38 @@ export default function TerminalSearch({
     [caseSensitive, regex]
   )
 
+  // Reflect the aterm controller's exact match count ("active / total") in the
+  // label. The xterm SearchAddon surfaces counts via a different (async) callback
+  // not wired here, so the label is aterm-only for now.
+  const syncAtermMatchLabel = useCallback(() => {
+    if (!atermSearch) {
+      return
+    }
+    const total = atermSearch.searchMatchCount()
+    setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
+  }, [atermSearch])
+
   const findNext = useCallback(() => {
+    if (atermSearch) {
+      atermSearch.findNextMatch()
+      syncAtermMatchLabel()
+      return
+    }
     if (searchAddon && requestQuery) {
       searchAddon.findNext(requestQuery, searchOptions())
     }
-  }, [searchAddon, requestQuery, searchOptions])
+  }, [atermSearch, searchAddon, requestQuery, searchOptions, syncAtermMatchLabel])
 
   const findPrevious = useCallback(() => {
+    if (atermSearch) {
+      atermSearch.findPreviousMatch()
+      syncAtermMatchLabel()
+      return
+    }
     if (searchAddon && requestQuery) {
       searchAddon.findPrevious(requestQuery, searchOptions())
     }
-  }, [searchAddon, requestQuery, searchOptions])
+  }, [atermSearch, searchAddon, requestQuery, searchOptions, syncAtermMatchLabel])
 
   const handleInputRef = useCallback((input: HTMLInputElement | null): void => {
     input?.focus()
@@ -70,16 +109,37 @@ export default function TerminalSearch({
 
     if (!isOpen) {
       searchAddon?.clearDecorations()
+      atermSearch?.clearSearch()
+      setMatchLabel('')
       return
     }
     if (!requestQuery) {
       searchAddon?.clearDecorations()
+      atermSearch?.clearSearch()
+      setMatchLabel('')
+      return
+    }
+    // aterm panes: run the canvas search (highlight + scroll-to-match). aterm's
+    // engine search is plain substring (regex not exposed), so `regex` is ignored
+    // there for now; case sensitivity is honored.
+    if (atermSearch) {
+      const total = atermSearch.findMatches(requestQuery, caseSensitive)
+      setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
       return
     }
     if (searchAddon) {
       searchAddon.findNext(requestQuery, searchOptions(true))
     }
-  }, [requestQuery, searchAddon, isOpen, caseSensitive, regex, searchStateRef, searchOptions])
+  }, [
+    requestQuery,
+    searchAddon,
+    atermSearch,
+    isOpen,
+    caseSensitive,
+    regex,
+    searchStateRef,
+    searchOptions
+  ])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -115,6 +175,12 @@ export default function TerminalSearch({
         placeholder={translate('auto.components.TerminalSearch.e07012f26e', 'Search...')}
         className="min-w-0 flex-1 border-none bg-transparent text-sm text-white outline-none placeholder:text-zinc-500"
       />
+
+      {matchLabel && (
+        <span className="shrink-0 px-1 text-xs tabular-nums text-zinc-400" data-terminal-search-count>
+          {matchLabel}
+        </span>
+      )}
 
       <Button
         type="button"

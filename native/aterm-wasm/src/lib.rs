@@ -60,7 +60,14 @@ impl AtermTerminal {
             cursor,
             selection,
         };
-        let renderer = Renderer::from_bytes(font_bytes, px, theme)?;
+        let mut renderer = Renderer::from_bytes(font_bytes, px, theme)?;
+        // Programming ligatures ON for the in-page renderer (the bundled
+        // JetBrains Mono carries =>, !=, === …). Explicit, though Enabled is the
+        // default, so the intent survives any future default change.
+        renderer.set_text_shaping(aterm_render::TextShapingConfig {
+            ligature_mode: aterm_render::LigatureMode::Enabled,
+            ..Default::default()
+        });
         Ok(Self {
             term: Terminal::new(rows, cols),
             renderer,
@@ -235,6 +242,68 @@ impl AtermTerminal {
     pub fn row_text(&self, row: u16) -> Option<String> {
         self.term.display_row_text(row as usize)
     }
+
+    /// Search the full retained buffer (scrollback + visible) for `query`,
+    /// returning matches as a flat `[abs_line, start_col, len]` triplet array so
+    /// the JS host can highlight + scroll without re-scanning text. Lines are
+    /// ABSOLUTE rows (the index's native coordinate); the host maps them to
+    /// display rows via [`AtermTerminal::search_display_origin`] /
+    /// [`AtermTerminal::scroll_search_line_into_view`], which stay correct as the
+    /// viewport scrolls. Empty `query` (or a regex error) yields an empty array.
+    pub fn search(&mut self, query: &str, case_sensitive: bool) -> Vec<u32> {
+        if query.is_empty() {
+            return Vec::new();
+        }
+        // Reuse the cached full-content index (O(1) on unchanged content); plain
+        // substring search (is_regex=false) matches the xterm search default.
+        let Ok(results) = self.term.indexed_search().search_results_opts(
+            query,
+            case_sensitive,
+            false,
+        ) else {
+            return Vec::new();
+        };
+        let mut out = Vec::with_capacity(results.matches.len() * 3);
+        for m in &results.matches {
+            out.push(u32::try_from(m.line).unwrap_or(u32::MAX));
+            out.push(u32::try_from(m.start_col).unwrap_or(u32::MAX));
+            out.push(u32::try_from(m.len()).unwrap_or(u32::MAX));
+        }
+        out
+    }
+
+    /// Absolute row of display row 0 at the live bottom (`display_offset == 0`):
+    /// `oldest_absolute_row + scrollback_lines`. A match at absolute `line` is at
+    /// display row `line - origin + display_offset`, so the host computes the
+    /// on-screen cell of any [`AtermTerminal::search`] match without a round-trip.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn search_display_origin(&self) -> u32 {
+        let grid = self.term.grid();
+        let origin = grid
+            .oldest_absolute_row()
+            .saturating_add(grid.scrollback_lines() as u64);
+        u32::try_from(origin).unwrap_or(u32::MAX)
+    }
+
+    /// Scroll the viewport so the match at absolute `line` is visible, placing it
+    /// at (or near) the top row. Clamps the target display_offset to the retained
+    /// scrollback so a live-region match snaps to the bottom. Host redraws after.
+    pub fn scroll_search_line_into_view(&mut self, line: u32) {
+        let grid = self.term.grid();
+        let origin = grid
+            .oldest_absolute_row()
+            .saturating_add(grid.scrollback_lines() as u64);
+        let scrollback = grid.scrollback_lines();
+        let current = grid.display_offset();
+        // Target offset that lands `line` on display row 0; clamp to [0, scrollback].
+        let want = origin.saturating_sub(u64::from(line));
+        let want = (want as usize).min(scrollback);
+        // scroll_display takes a delta (positive = older); convert from current.
+        let delta = want as i64 - current as i64;
+        if let Ok(delta) = i32::try_from(delta) {
+            self.term.scroll_display(delta);
+        }
+    }
 }
 
 impl AtermTerminal {
@@ -401,6 +470,40 @@ mod tests {
         t.selection_finish();
         let selected = t.selection_text().expect("a drag selects text");
         assert!(!selected.is_empty(), "selection should not be empty");
+    }
+
+    #[test]
+    fn search_finds_a_token_in_scrollback_and_scrolls_it_into_view() {
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping search test");
+            return;
+        };
+        // Push a unique token far into scrollback, then bury it under filler.
+        t.process(b"UNIQUE_SEARCH_TOKEN here\r\n");
+        for i in 0..200 {
+            t.process(format!("filler line {i}\r\n").as_bytes());
+        }
+        let hits = t.search("UNIQUE_SEARCH_TOKEN", true);
+        assert_eq!(hits.len(), 3, "exactly one match → one [line,col,len] triple");
+        let (line, col, len) = (hits[0], hits[1], hits[2]);
+        assert_eq!(col, 0, "token starts at column 0");
+        assert_eq!(len, "UNIQUE_SEARCH_TOKEN".len() as u32, "match length");
+        // The match is in scrollback, so it is not visible at the live bottom.
+        let origin = t.search_display_origin();
+        assert!(line < origin, "token line is above the live viewport origin");
+        // Scrolling it into view must move the viewport off the bottom and land
+        // the match within the visible rows.
+        assert_eq!(t.display_offset(), 0, "starts at the live bottom");
+        t.scroll_search_line_into_view(line);
+        assert!(t.display_offset() > 0, "viewport scrolled up to the match");
+        let display_row = (line as i64) - (origin as i64) + (t.display_offset() as i64);
+        assert!(
+            (0..24).contains(&display_row),
+            "match landed on a visible row, got {display_row}"
+        );
+        // A case-sensitive miss and an empty query both yield nothing.
+        assert!(t.search("unique_search_token", true).is_empty());
+        assert!(t.search("", false).is_empty());
     }
 
     #[test]

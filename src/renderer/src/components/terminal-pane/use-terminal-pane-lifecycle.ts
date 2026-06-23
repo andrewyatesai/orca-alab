@@ -11,8 +11,13 @@ import {
   createFilePathLinkProvider,
   getTerminalFileOpenHint,
   getTerminalUrlOpenHint,
-  installFilePathLinkClickFallback
+  installFilePathLinkClickFallback,
+  openDetectedFilePath
 } from './terminal-link-handlers'
+import {
+  extractTerminalFileLinkCandidates,
+  resolveTerminalFileLink
+} from '@/lib/terminal-links'
 import { createTerminalHandleLinkProvider } from './terminal-handle-links'
 import type { LinkHandlerDeps } from './terminal-link-handlers'
 import { handleOscLink } from './terminal-osc-link-routing'
@@ -520,6 +525,75 @@ export function useTerminalPaneLifecycle({
         return ptyId ? getRemoteRuntimePtyEnvironmentId(ptyId) : null
       }
     }
+
+    // Pending file-link-opener install timers (per pane), cleared on teardown so
+    // the bounded poll can't outlive the effect.
+    const atermFileLinkOpenerTimers = new Map<number, number>()
+
+    type AtermLinkBindablePane = {
+      id: number
+      atermController?: {
+        setFileLinkOpener: (fn: (raw: string, sys: boolean) => void) => void
+        setUrlLinkContext: (context: {
+          worktreeId?: string | null
+          requestOpenLinksInAppPreference?: TerminalLinkRoutingPreferenceRequester
+        }) => void
+      } | null
+    }
+
+    // Bind the aterm controller's file-path (kind 2) opener to orca's file-open
+    // seam — resolving the raw path against the pane's cwd/runtime exactly like
+    // the xterm link handler (terminal-link-handlers.ts) does. The aterm
+    // controller resolves asynchronously (wasm/font load), so this is called both
+    // in onPaneCreated and via a bounded poll until the controller appears;
+    // setFileLinkOpener is idempotent so re-setting is harmless.
+    const installAtermFileLinkOpener = (pane: AtermLinkBindablePane): boolean => {
+      const controller = pane.atermController
+      if (!controller) {
+        return false
+      }
+      // Honor the in-app/system-browser preference for URL clicks (kinds 0/1).
+      controller.setUrlLinkContext({ worktreeId, requestOpenLinksInAppPreference })
+      controller.setFileLinkOpener((rawPathText, openWithSystemDefault) => {
+        // Parse the matched span the same way the xterm path does, then resolve
+        // against the live cwd (startupCwd) + home so relative/tilde paths open.
+        const [parsed] = extractTerminalFileLinkCandidates(rawPathText)
+        if (!parsed || !startupCwd) {
+          return
+        }
+        const resolved = resolveTerminalFileLink(parsed, startupCwd, terminalHomePath)
+        if (!resolved) {
+          return
+        }
+        openDetectedFilePath(resolved.absolutePath, resolved.line, resolved.column, {
+          worktreeId,
+          worktreePath,
+          runtimeEnvironmentId: linkDeps.getRuntimeEnvironmentIdForPane?.(pane.id) ?? null,
+          openWithSystemDefault
+        })
+      })
+      return true
+    }
+
+    // Poll briefly for a pane's async aterm controller, then bind its file opener.
+    // Bounded (~2.5s) so a non-aterm pane or a failed/late controller never leaks
+    // a forever-running timer; the lifecycle teardown also clears any pending one.
+    const scheduleAtermFileLinkOpenerInstall = (pane: AtermLinkBindablePane): void => {
+      if (installAtermFileLinkOpener(pane)) {
+        return
+      }
+      let attempts = 0
+      const tick = (): void => {
+        if (managerRef.current === null || installAtermFileLinkOpener(pane) || attempts >= 50) {
+          atermFileLinkOpenerTimers.delete(pane.id)
+          return
+        }
+        attempts += 1
+        atermFileLinkOpenerTimers.set(pane.id, window.setTimeout(tick, 50))
+      }
+      tick()
+    }
+
     let resizeRaf: number | null = null
     const queueResizeAll = (focusActive: boolean): void => {
       if (resizeRaf !== null) {
@@ -900,6 +974,8 @@ export function useTerminalPaneLifecycle({
         // unaffected by this clear.
         ptyDeps.startup = null
         panePtyBindings.set(pane.id, panePtyBinding)
+        // Bind aterm file-path link opening once the (async) controller appears.
+        scheduleAtermFileLinkOpenerInstall(pane)
         syncPaneCount()
         scheduleRuntimeGraphSync()
         queueResizeAll(true)
@@ -1356,6 +1432,10 @@ export function useTerminalPaneLifecycle({
         cancelAnimationFrame(resizeRaf)
       }
       restoreExpandedLayoutFrom(expandedStyleSnapshots)
+      for (const timer of atermFileLinkOpenerTimers.values()) {
+        window.clearTimeout(timer)
+      }
+      atermFileLinkOpenerTimers.clear()
       for (const disposable of linkDisposables.values()) {
         disposable.dispose()
       }

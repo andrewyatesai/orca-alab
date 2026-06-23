@@ -2494,6 +2494,21 @@ impl GpuRenderer {
         // is moved OUT of `self.inst` (swapping in an empty placeholder) so the
         // `self.cell_key`/`self.cpu.glyph_key` calls below can borrow `self`
         // freely; it is moved back before being read.
+        // Ligature plan per active row, built via the SHARED CPU planner so the
+        // GPU keys + quads the IDENTICAL `mono_gid` glyph at the IDENTICAL column
+        // the CPU blits — the CPU==GPU byte-identical invariant. Built BEFORE the
+        // atlas/key loops so those can borrow `self.cpu` (the planner needs `&mut`).
+        // Empty rows / globally-off ligatures yield all-`PerCell` plans (the
+        // pre-ligature key set, byte-identical).
+        let mut row_plans: Vec<Vec<aterm_render::ColumnGlyph>> = vec![Vec::new(); rendered.len()];
+        for (r, plan) in row_plans.iter_mut().enumerate() {
+            if !row_active(r) {
+                continue;
+            }
+            let break_cols = self.cpu.ligature_break_cols_for_row(input, r);
+            self.cpu.row_glyph_plan(input, r, &break_cols, plan);
+        }
+
         let mut keys = std::mem::take(&mut self.inst.keys);
         for (r, cells) in rendered.iter().enumerate() {
             // A scissored Dirty repaint only re-encodes its dirty rows (the instance
@@ -2503,12 +2518,23 @@ impl GpuRenderer {
             if !row_active(r) {
                 continue;
             }
+            let plan = &row_plans[r];
             for (c, cell) in cells.iter().take(cols).enumerate() {
                 // An image-covered cell skips its glyph (image-vs-glyph
                 // precedence, mirroring the CPU `image_covers` guard), so it
                 // contributes no atlas key.
                 if Self::drawable(cell) && input.image_at(r, c).is_none() {
-                    let key = self.cell_key(input.cluster_at(r, c), cell);
+                    // A ligature-owned column contributes the shaped `mono_gid`
+                    // key (matching the CPU plan); other columns the per-cell key.
+                    let key = match plan.get(c).copied().unwrap_or(aterm_render::ColumnGlyph::PerCell)
+                    {
+                        aterm_render::ColumnGlyph::Ligated(gid) => {
+                            self.cpu.ligature_key(gid, aterm_render::cell_style(cell))
+                        }
+                        aterm_render::ColumnGlyph::PerCell => {
+                            self.cell_key(input.cluster_at(r, c), cell)
+                        }
+                    };
                     keys.insert(key);
                     // Combining-mark glyphs share the mono atlas.
                     if input.cluster_at(r, c).is_none()
@@ -2626,8 +2652,21 @@ impl GpuRenderer {
                 }
                 // Cached resolve (the atlas pass above already keyed this char).
                 // Direct `self.cpu` field access (not the `cell_key` method) so
-                // the `mono_res`/`color_res` borrows above stay disjoint.
-                let key = self.cpu.resolve_cell_key(input.cluster_at(r, c), cell);
+                // the `mono_res`/`color_res` borrows above stay disjoint. A
+                // ligature-owned column draws the shaped `mono_gid` glyph at the
+                // column origin, IDENTICAL to the CPU plan (parity).
+                let key = match row_plans[r]
+                    .get(c)
+                    .copied()
+                    .unwrap_or(aterm_render::ColumnGlyph::PerCell)
+                {
+                    aterm_render::ColumnGlyph::Ligated(gid) => {
+                        self.cpu.ligature_key(gid, aterm_render::cell_style(cell))
+                    }
+                    aterm_render::ColumnGlyph::PerCell => {
+                        self.cpu.resolve_cell_key(input.cluster_at(r, c), cell)
+                    }
+                };
                 let is_cursor = block_cursor && r == cr && c == cc;
                 // Colour emoji: blit straight RGBA from the colour atlas. The
                 // emoji carries its own colour, so the instance `color` is unused

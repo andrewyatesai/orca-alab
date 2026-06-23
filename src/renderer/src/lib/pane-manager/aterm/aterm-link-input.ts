@@ -5,6 +5,11 @@ import type { AtermTerminal } from './aterm_wasm.js'
  *  escape hatch). */
 export type AtermLinkOpener = (url: string, opts: { forceSystemBrowser: boolean }) => void
 
+/** Opens a detected file-path link (kind 2). `rawPathText` is the matched span
+ *  exactly as it appeared on the row; the closure resolves it against the pane's
+ *  cwd/runtime and opens it. `openWithSystemDefault` mirrors xterm's Shift hatch. */
+export type AtermFileLinkOpener = (rawPathText: string, openWithSystemDefault: boolean) => void
+
 export type AtermLinkDeps = {
   canvas: HTMLCanvasElement
   term: AtermTerminal
@@ -14,6 +19,9 @@ export type AtermLinkDeps = {
   redraw: () => void
   isDisposed: () => boolean
   openUrl: AtermLinkOpener
+  /** Latest file-path opener (kind 2), late-bound by the controller. Null until
+   *  the pane's cwd/runtime context is threaded in; then kind-2 clicks open. */
+  getFileLinkOpener: () => AtermFileLinkOpener | null
 }
 
 export type AtermLinkInput = {
@@ -23,6 +31,7 @@ export type AtermLinkInput = {
 // Link kinds from the wasm engine: 0=osc8, 1=url, 2=file_path, 3=other.
 const LINK_KIND_OSC8 = 0
 const LINK_KIND_URL = 1
+const LINK_KIND_FILE_PATH = 2
 
 // Map a pointer position to a (col, display-row) grid cell. Identical mapping to
 // aterm-selection-input.ts: clientX/Y minus the canvas rect (not offsetX/Y) so
@@ -49,7 +58,7 @@ function isLinkActivation(event: MouseEvent): boolean {
  *  attachAtermSelectionInput's structure; the wasm engine does the link
  *  detection via link_at, and we only paint a pointer cursor + open URLs. */
 export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
-  const { canvas, term, isDisposed, openUrl } = deps
+  const { canvas, term, isDisposed, openUrl, getFileLinkOpener } = deps
   let moveScheduled = false
   let lastCol = -1
   let lastRow = -1
@@ -108,14 +117,20 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     if (!hit) {
       return
     }
-    // URLs/OSC-8 hyperlinks are the priority this round; kind 2 (file_path) needs
-    // the runtime file-open seam (worktree/SSH path resolution) that isn't
-    // threaded into this canvas-only glue yet.
-    // TODO(aterm-file-links): open kind 2 via openDetectedFilePath once the
-    // pane's worktree/runtime context reaches the controller.
     if (hit.kind === LINK_KIND_OSC8 || hit.kind === LINK_KIND_URL) {
       event.preventDefault()
       openUrl(hit.url, { forceSystemBrowser: event.shiftKey })
+      return
+    }
+    // File paths: defer to the late-bound opener (resolves cwd/runtime + opens).
+    // Null until the pane's context is threaded in → no-op, never a crash.
+    if (hit.kind === LINK_KIND_FILE_PATH) {
+      const openFileLink = getFileLinkOpener()
+      if (!openFileLink) {
+        return
+      }
+      event.preventDefault()
+      openFileLink(hit.url, event.shiftKey)
     }
   }
 

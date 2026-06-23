@@ -22,6 +22,9 @@ disk-tier = ["aterm-core/disk-tier", "aterm-render-api/disk-tier"]
 # crate's own default = ["disk-tier"], so the native closure is unchanged.
 aterm-core = { path = "../aterm-core", default-features = false }
 aterm-render-api = { path = "../aterm-render-api", default-features = false }
+# Ligature config (LigatureMode / TextShapingConfig / FontFeature): the shaping
+# settings that gate liga/calt. Plain data types, no default features.
+aterm-types = { workspace = true }
 fontdue = "0.9"
 png = "0.17"
 rustybuzz = "0.20.1"
@@ -33,6 +36,8 @@ ttf-parser = "0.25"
 libc = { workspace = true }
 # Base64 encoder for the inline-image (OSC 1337) integration tests.
 aterm-codec = { workspace = true }
+# Direct shaping access for the ligature gate (pre-check that "=>" ligates).
+rustybuzz = "0.20.1"
 
 [lints]
 workspace = true

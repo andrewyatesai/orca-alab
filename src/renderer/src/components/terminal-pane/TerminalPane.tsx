@@ -2450,10 +2450,11 @@ export default function TerminalPane({
           <TerminalSearch
             isOpen={searchOpen}
             onClose={() => setSearchOpen(false)}
-            // Why: SearchAddon is not loaded on aterm panes, so pass null to
-            // keep the overlay's find calls no-ops (TerminalSearch guards on a
-            // truthy addon). aterm-native search highlight is Phase 3.
+            // Why: SearchAddon isn't loaded on aterm panes (the canvas owns
+            // rendering), so route find/next/prev/clear + count through the aterm
+            // controller's search instead; xterm panes keep the SearchAddon path.
             searchAddon={activePane.atermController ? null : (activePane.searchAddon ?? null)}
+            atermSearch={activePane.atermController ?? null}
             searchStateRef={searchStateRef}
           />,
           activePane.container

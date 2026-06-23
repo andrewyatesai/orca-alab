@@ -455,6 +455,7 @@ dependencies = [
  "aterm-codec",
  "aterm-core",
  "aterm-render-api",
+ "aterm-types",
  "fontdue",
  "libc",
  "png",

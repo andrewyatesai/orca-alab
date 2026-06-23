@@ -19,7 +19,9 @@ function findController(): Probe {
       getPanes?: () => { atermController?: Probe | null }[]
     }
     const pane = mgr.getActivePane?.() ?? mgr.getPanes?.()[0] ?? null
-    if (pane?.atermController) return pane.atermController
+    if (pane?.atermController) {
+      return pane.atermController
+    }
   }
   throw new Error('no aterm controller')
 }
@@ -29,9 +31,9 @@ function sixelBlock(): string {
   const ESC = '\x1b'
   let s = `${ESC}Pq#0;2;100;0;100#0`
   for (let band = 0; band < 2; band++) {
-    s += '#0' + '~'.repeat(24) + '$-'
+    s += `#0${'~'.repeat(24)}$-`
   }
-  return s + `${ESC}\\`
+  return `${s}${ESC}\\`
 }
 
 test.describe('aterm showcase', () => {
@@ -59,11 +61,13 @@ test.describe('aterm showcase', () => {
       '\x1b[2J\x1b[H',
       '\x1b[1;38;5;81m aterm\x1b[0m \x1b[2min orca — GPU terminal\x1b[0m\r\n\r\n',
       // 256-color ramp
-      Array.from({ length: 32 }, (_, i) => `\x1b[48;5;${16 + i * 6}m \x1b[0m`).join('') + '\r\n',
+      Array.from({ length: 32 }, (_, i) => `\x1b[48;5;${16 + i * 6}m \x1b[0m`).join(''),
+      '\r\n',
       // true-color gradient
       Array.from({ length: 32 }, (_, i) => `\x1b[48;2;${i * 8};${128};${255 - i * 8}m \x1b[0m`).join(
         ''
-      ) + '\r\n\r\n',
+      ),
+      '\r\n\r\n',
       // box-drawing table
       '\x1b[38;5;245m┌─────────────┬──────────┐\r\n',
       '│ \x1b[36mfeature\x1b[38;5;245m     │ \x1b[36mstatus\x1b[38;5;245m   │\r\n',
@@ -100,12 +104,16 @@ test.describe('aterm showcase', () => {
               '[data-testid="aterm-canvas"]'
             ) as HTMLCanvasElement | null
             const ctx = c?.getContext('2d')
-            if (!c || !ctx || !c.width) return 0
+            if (!c || !ctx || !c.width) {
+              return 0
+            }
             const d = ctx.getImageData(0, 0, c.width, c.height).data
             const bg = [d[0], d[1], d[2]]
             let n = 0
             for (let i = 0; i < d.length; i += 4) {
-              if (d[i] !== bg[0] || d[i + 1] !== bg[1] || d[i + 2] !== bg[2]) n++
+              if (d[i] !== bg[0] || d[i + 1] !== bg[1] || d[i + 2] !== bg[2]) {
+                n++
+              }
             }
             return n
           }),

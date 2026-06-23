@@ -187,6 +187,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       searchRefreshPending = false
       return pendingRefresh
     },
+    getHoveredLinkSpan: () => linkInput.hoveredSpan(),
+    fgColor: themeColors.fg,
     onContextLoss: () => config.onContextLoss()
   })
 
@@ -196,7 +198,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
         cellWidth,
         cellHeight,
         getDpr: () => dpr,
-        getRows: () => rows
+        getRows: () => rows,
+        getHoveredLinkSpan: () => linkInput.hoveredSpan(),
+        fgColor: themeColors.fg
       })
     : null
 

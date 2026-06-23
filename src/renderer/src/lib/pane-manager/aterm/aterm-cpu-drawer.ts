@@ -63,7 +63,9 @@ export async function loadAtermCpuDrawer(
         getRows: binding.getRows,
         getSearchMatches: binding.getSearchMatches,
         getSearchActiveIndex: binding.getSearchActiveIndex,
-        takeSearchRefresh: binding.takeSearchRefresh
+        takeSearchRefresh: binding.takeSearchRefresh,
+        getHoveredLinkSpan: binding.getHoveredLinkSpan,
+        fgColor: binding.fgColor
       })
       return {
         term,

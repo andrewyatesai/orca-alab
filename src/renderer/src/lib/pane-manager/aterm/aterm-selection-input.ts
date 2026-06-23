@@ -62,9 +62,23 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
     if (shouldForwardMouse(term, event)) {
       return
     }
-    // Fresh selection on every primary click.
-    term.selection_clear()
     const { col, row } = pointToCell(event, deps)
+    // Double-click → word/URL (semantic) selection; triple-click → whole line.
+    // The engine sets the grid selection (so the highlight paints on redraw) and
+    // returns the selected text, which we copy to match drag-select's copy-on-up.
+    // detail counts clicks in a burst, so a drag started this same press would
+    // override these; we don't set `dragging`, so the click select stands.
+    if (event.detail === 2 || event.detail === 3) {
+      const selected =
+        event.detail === 2 ? term.selection_word(row, col) : term.selection_line(row, col)
+      redraw()
+      if (selected !== undefined && selected.length > 0) {
+        onCopy(selected)
+      }
+      return
+    }
+    // Fresh selection on every primary single click.
+    term.selection_clear()
     term.selection_start(row, col)
     dragging = true
     redraw()

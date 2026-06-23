@@ -1,4 +1,8 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
+import {
+  paintAtermLinkUnderline,
+  type AtermHoveredLinkSpan
+} from './aterm-link-underline-overlay'
 import type { AtermSearchMatch } from './aterm-search'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -25,6 +29,11 @@ export function createAtermSearchOverlayCanvas(
     cellHeight: number
     getDpr: () => number
     getRows: () => number
+    /** Hovered link span (or null) for the GPU-path hover underline; painted on
+     *  this same stacked 2d overlay above the search highlights. */
+    getHoveredLinkSpan: () => AtermHoveredLinkSpan | null
+    /** Theme fg (0x00RRGGBB) — the hover underline color. */
+    fgColor: number
   }
 ): AtermSearchOverlayCanvas {
   const overlay = document.createElement('canvas')
@@ -58,13 +67,19 @@ export function createAtermSearchOverlayCanvas(
       const dpr = deps.getDpr()
       overlay.style.width = `${width / dpr}px`
       overlay.style.height = `${height / dpr}px`
-      // Always clear (a previous frame may have painted highlights now gone).
+      // Always clear (a previous frame may have painted highlights/underline now
+      // gone) so a cleared hover or search leaves no stuck marks.
       ctx.clearRect(0, 0, width, height)
       paintAtermSearchHighlights(ctx, matches, activeIndex, {
         term: deps.term,
         cellWidth: deps.cellWidth,
         cellHeight: deps.cellHeight,
         rows: deps.getRows()
+      })
+      paintAtermLinkUnderline(ctx, deps.getHoveredLinkSpan(), deps.fgColor, {
+        cellWidth: deps.cellWidth,
+        cellHeight: deps.cellHeight,
+        dpr
       })
     },
     dispose: () => {

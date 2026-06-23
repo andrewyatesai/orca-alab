@@ -1,4 +1,8 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
+import {
+  paintAtermLinkUnderline,
+  type AtermHoveredLinkSpan
+} from './aterm-link-underline-overlay'
 import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
 import type { AtermDrawScheduler } from './aterm-draw-scheduler'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -20,6 +24,11 @@ export type AtermFramePainterDeps = {
   getSearchActiveIndex: () => number
   /** Whether a search re-index is queued; cleared by the painter once consumed. */
   takeSearchRefresh: () => boolean
+  /** The link span under the pointer (or null); painted as a hover underline atop
+   *  the glyphs each frame, on the SAME 2d context as the search highlights. */
+  getHoveredLinkSpan: () => AtermHoveredLinkSpan | null
+  /** Theme fg (0x00RRGGBB) — the hover underline color. */
+  fgColor: number
 }
 
 /** Build the draw() callback that renders one frame: re-index search (coalesced),
@@ -67,6 +76,12 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
       cellWidth,
       cellHeight,
       rows: getRows()
+    })
+    // Then the hovered-link underline (its own affordance, above the glyphs).
+    paintAtermLinkUnderline(ctx, deps.getHoveredLinkSpan(), deps.fgColor, {
+      cellWidth,
+      cellHeight,
+      dpr
     })
   }
 }

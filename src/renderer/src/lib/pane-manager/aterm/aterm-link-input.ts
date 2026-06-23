@@ -1,5 +1,6 @@
 import type { AtermTerminal } from './aterm_wasm.js'
 import { shouldForwardMouse } from './aterm-mouse-input'
+import type { AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
 
 /** Opens a detected link target; the controller threads orca's URL opener here
  *  (forceSystemBrowser mirrors xterm's Shift+modifier "open in system browser"
@@ -26,6 +27,10 @@ export type AtermLinkDeps = {
 }
 
 export type AtermLinkInput = {
+  /** The display-row cell span of the link currently under the pointer, or null.
+   *  The draw paths read this each frame to paint the hover underline; it's
+   *  cleared whenever the pointer leaves the link / a non-link cell / alt-screen. */
+  hoveredSpan: () => AtermHoveredLinkSpan | null
   dispose: () => void
 }
 
@@ -47,6 +52,15 @@ function pointToCell(event: MouseEvent, deps: AtermLinkDeps): { col: number; row
   return { col, row }
 }
 
+// Two hovered link spans are equal when they cover the same cells; used to avoid
+// redrawing the underline while the pointer moves within one link span.
+function spansEqual(a: AtermHoveredLinkSpan | null, b: AtermHoveredLinkSpan | null): boolean {
+  if (a === null || b === null) {
+    return a === b
+  }
+  return a.row === b.row && a.startCol === b.startCol && a.endCol === b.endCol
+}
+
 // Platform link-activation modifier: Cmd on macOS, Ctrl elsewhere. Mirrors
 // terminal-link-handlers.isTerminalLinkActivation so the aterm path matches the
 // default terminal's "modifier+click opens the link" convention.
@@ -59,16 +73,27 @@ function isLinkActivation(event: MouseEvent): boolean {
  *  attachAtermSelectionInput's structure; the wasm engine does the link
  *  detection via link_at, and we only paint a pointer cursor + open URLs. */
 export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
-  const { canvas, term, isDisposed, openUrl, getFileLinkOpener } = deps
+  const { canvas, term, redraw, isDisposed, openUrl, getFileLinkOpener } = deps
   let moveScheduled = false
   let lastCol = -1
   let lastRow = -1
   let pendingEvent: MouseEvent | null = null
   // Tracked so dispose() can cancel a pending hover frame (cleared when it fires).
   let hoverRafId: number | null = null
+  // The link span under the pointer (display-row cells); the draw paths read it to
+  // paint the hover underline. Cleared whenever the cursor affordance is cleared,
+  // and a redraw is requested only when it actually changes so the underline
+  // appears/disappears without per-pixel repaints.
+  let hovered: AtermHoveredLinkSpan | null = null
 
+  // Drop the link affordance (pointer cursor + underline). Requests a redraw only
+  // when an underline was actually showing, so a non-link move stays cheap.
   const clearCursor = (): void => {
     canvas.style.cursor = ''
+    if (hovered) {
+      hovered = null
+      redraw()
+    }
   }
 
   // Throttle hover hit-testing to one rAF frame, and skip re-querying when the
@@ -97,6 +122,16 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     // NOTE: the wasm signature is link_at(row, col) — match the .d.ts order.
     const hit = term.link_at(row, col)
     canvas.style.cursor = hit ? 'pointer' : ''
+    // Track the hovered span so the draw paths underline it; redraw only when the
+    // span actually changes (entering/leaving a link, or moving to a different
+    // link span) — moving within the same link span is a no-op.
+    const nextSpan: AtermHoveredLinkSpan | null = hit
+      ? { row, startCol: hit.start_col, endCol: hit.end_col }
+      : null
+    if (!spansEqual(hovered, nextSpan)) {
+      hovered = nextSpan
+      redraw()
+    }
   }
 
   const onMouseMove = (event: MouseEvent): void => {
@@ -146,6 +181,7 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
   canvas.addEventListener('click', onClick)
 
   return {
+    hoveredSpan: () => hovered,
     dispose: () => {
       // Cancel a queued hover frame so evaluateHover can't run after teardown.
       if (hoverRafId !== null) {

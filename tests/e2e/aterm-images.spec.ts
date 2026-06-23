@@ -4,9 +4,10 @@ import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { readAtermRgba } from './helpers/aterm-canvas-pixels'
 
 // Proves the aterm in-page renderer DISPLAYS INLINE IMAGES on its <canvas> for
-// BOTH supported protocols:
+// ALL THREE supported protocols:
 //   (a) iTerm2 OSC 1337 `File=inline=1:<base64 PNG>` — a tiny solid RED 8x8 PNG.
 //   (b) Sixel DCS (`ESC P q … ST`) — a solid GREEN raster block.
+//   (c) Kitty graphics (APC `_G` … ST) — a direct-transmission solid BLUE raster.
 // For each, we feed the sequence through the pane's aterm controller (the same
 // process() seam the PTY output mirror uses) and assert the canvas contains a
 // CLUSTER of pixels of the image's color that is neither the theme bg nor fg —
@@ -62,6 +63,32 @@ const RED_ITERM2 = `]1337;File=inline=1:${RED_PNG_B64}`
 // The `q` final byte after the (empty) DCS params is REQUIRED for the engine to
 // route the body to the sixel decoder. ESC \ is the ST terminator.
 const GREEN_SIXEL = 'Pq"1;1;16;12#1;2;0;100;0#1!16~-#1!16~\\'
+
+// Build a Kitty graphics direct-transmission sequence for a solid-color raw RGB
+// (`f=24`) raster of `size`x`size` px, displayed at the cursor (`a=T`). Framing:
+// ESC _ G <control> ; <base64 payload> ESC \ .
+//   a=T — transmit AND display immediately (KittyAction::TransmitAndDisplay).
+//   f=24 — packed RGB, 3 bytes/pixel (the engine expands to RGBA).
+//   s=<w>,v=<h> — REQUIRED source pixel dims for raw formats (else build_kitty_image
+//                 rejects the buffer); the payload MUST be exactly w*h*3 bytes.
+//   t=d — direct medium: the payload IS the (base64) image data.
+// The engine decodes this into the SAME RenderInput.images path sixel/iTerm2 use,
+// so a solid raster blits a cluster of that color on the canvas. Pure ASCII, so it
+// survives the controller's string process() (UTF-8 encoded to the engine).
+function kittyRgbSolid(size: number, rgb: [number, number, number]): string {
+  const raw = Buffer.alloc(size * size * 3)
+  for (let i = 0; i < raw.length; i += 3) {
+    raw[i] = rgb[0]
+    raw[i + 1] = rgb[1]
+    raw[i + 2] = rgb[2]
+  }
+  const b64 = raw.toString('base64')
+  return `\x1b_Ga=T,f=24,s=${size},v=${size},t=d;${b64}\x1b\\`
+}
+
+// A 32x32 solid BLUE (0,0,255) Kitty raster — wide/tall enough to span several
+// cells so the matched-pixel cluster is unambiguous.
+const BLUE_KITTY = kittyRgbSolid(32, [0, 0, 255])
 
 type ColorProbe = {
   matched: number
@@ -158,6 +185,20 @@ test.describe('aterm inline images', () => {
     expect(
       greenProbe!.matched,
       `the Sixel green block must blit a cluster of green pixels (got ${greenProbe!.matched})`
+    ).toBeGreaterThan(20)
+
+    // (c) Kitty graphics (APC _G): a direct-transmission solid BLUE raster must
+    // blit blue pixels on the same canvas, proving the engine routes Kitty images
+    // into the shared RenderInput.images path (parity with sixel/iTerm2).
+    const blueProbe = await countColor(BLUE_KITTY, [0, 0, 255], 56)
+    expect(blueProbe, 'should read the canvas after the Kitty image').not.toBeNull()
+    expect(
+      blueProbe!.bg,
+      'the theme background must not itself be blue (else the test is vacuous)'
+    ).not.toEqual([0, 0, 255])
+    expect(
+      blueProbe!.matched,
+      `the Kitty APC _G blue raster must blit a cluster of blue pixels (got ${blueProbe!.matched})`
     ).toBeGreaterThan(20)
   })
 })

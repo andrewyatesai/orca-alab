@@ -84,6 +84,15 @@ export async function createAtermPaneController(
       const { benchAtermGpuVsCpu } = await import('./aterm-gpu-cpu-bench')
       return benchAtermGpuVsCpu({ sizes, frames, fontPx, themeColors })
     }
+    // e2e-only keystroke-latency benchmark: render-half (single-cell
+    // process→render→present) median/p95 for the aterm CPU + GPU paths, plus a
+    // head-to-head per-frame table vs a real off-screen xterm + WebGL addon (the
+    // renderer Orca replaced). Self-contained (throwaway engines/canvases), so it's
+    // exposed whenever the aterm renderer is up, independent of this pane's path.
+    window.__atermLatencyBench = async (sizes, iterations, warmup, frames) => {
+      const { benchAtermLatency } = await import('./aterm-latency-bench')
+      return benchAtermLatency({ sizes, iterations, warmup, frames, fontPx, themeColors })
+    }
   }
   if (pending.kind === 'gpu' && e2eConfig.exposeStore) {
     // e2e proof hooks: the wgpu WebGL adapter string + a GPU==CPU parity probe.

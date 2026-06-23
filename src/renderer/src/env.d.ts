@@ -4,6 +4,7 @@ import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { OnboardingFeatureSetupDeps } from '@/components/onboarding/onboarding-feature-setup'
 import type { AtermGpuCpuCompareResult } from '@/lib/pane-manager/aterm/aterm-gpu-cpu-compare'
 import type { AtermGpuCpuBenchResult } from '@/lib/pane-manager/aterm/aterm-gpu-cpu-bench'
+import type { AtermLatencyBenchResult } from '@/lib/pane-manager/aterm/aterm-latency-bench'
 import type { languages } from 'monaco-editor'
 
 declare module 'monaco-editor/esm/vs/basic-languages/python/python.js' {
@@ -54,6 +55,15 @@ declare global {
       sizes: [number, number][],
       frames: number
     ) => Promise<AtermGpuCpuBenchResult>
+    // e2e only: keystroke render-latency benchmark. Times single-cell
+    // process→render→present (median/p95) for the aterm CPU + GPU paths and a
+    // head-to-head per-frame table vs a real off-screen xterm + WebGL addon.
+    __atermLatencyBench?: (
+      sizes: [number, number][],
+      iterations: number,
+      warmup: number,
+      frames: number
+    ) => Promise<AtermLatencyBenchResult>
     // e2e only: resolves the configured terminal theme bg through the real
     // pipeline (independent of what the renderer painted) for theme assertions.
     __resolveAtermThemeBg?: () => [number, number, number]

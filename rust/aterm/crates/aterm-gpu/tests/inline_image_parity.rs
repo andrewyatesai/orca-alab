@@ -263,6 +263,90 @@ fn image_pixels_gpu_match_cpu() {
 }
 
 #[test]
+fn sixel_rawrgba8_pixels_gpu_match_cpu() {
+    // THE sixel pixel-pass gate: a DECODED sixel image — tagged
+    // `ImageFormat::RawRgba8`, the format the shipped GUI now renders — must paint
+    // the SAME pixels on the GPU as the CPU's `blit_image_cell` composite, within
+    // the usual 8-LSB blend tolerance. This mirrors `image_pixels_gpu_match_cpu`
+    // (the PNG gate) but drives a REAL sixel DCS through the Terminal so the
+    // RawRgba8 decode→place→render path is what is under test, not a PNG.
+    //
+    // Build is sixel-enabled for aterm-gpu's TEST build (Cargo.toml dev-dep
+    // re-declares aterm-core with `features = ["sixel"]`); without it the DCS would
+    // be consumed as Unknown and no image would be placed, so the sanity check
+    // below (GPU actually drew the sixel red) doubles as a "feature really on" gate.
+    let theme = Theme::default();
+    let px = 18.0;
+    let mut gpu = match aterm_gpu::GpuRenderer::new(px, theme) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("SKIP: no GPU/font available: {e}");
+            return;
+        }
+    };
+    let Some(mut cpu) = Renderer::from_system(px, theme) else {
+        eprintln!("SKIP: no system monospace font");
+        return;
+    };
+    let (cw, ch) = cpu.cell_size();
+    let (rows, cols) = (4usize, 8usize);
+
+    // A sixel whose raster is `2*cw` px wide × 6 px tall (one sixel band): the LEFT
+    // `cw` columns are full opaque red (`~` = all six band rows set), the RIGHT
+    // `cw` columns are UNPAINTED (`?` = empty column) so they stay transparent.
+    // At the cw×ch cell metric the footprint is 2×1 cells: the left cell is opaque
+    // red, the right cell is fully transparent (cell bg shows through) — exactly
+    // the opaque-blit AND straight-alpha-over composite the PNG gate exercises,
+    // but via RawRgba8.
+    let mut dcs: Vec<u8> = Vec::new();
+    // raster attrs 1;1;Ph;Pv with Ph=2*cw, Pv=6; define color 1 = RGB% red; select it.
+    dcs.extend_from_slice(format!("\x1bP0;0;8q\"1;1;{};6#1;2;100;0;0#1", 2 * cw).as_bytes());
+    for _ in 0..cw {
+        dcs.push(b'~'); // opaque red column (all 6 rows)
+    }
+    for _ in 0..cw {
+        dcs.push(b'?'); // empty (transparent) column
+    }
+    dcs.extend_from_slice(b"$-\x1b\\"); // graphics CR + NL, then ST
+
+    let mut term = Terminal::new(rows as u16, cols as u16);
+    term.set_cell_pixel_size(cw as u16, ch as u16);
+    term.process(b"\x1b[44m"); // blue cell background (shows through the transparent cell)
+    term.process(&dcs);
+
+    // The sixel must have been DECODED + placed as a RawRgba8 image (proves the
+    // feature is wired and the DCS path produced the format under test).
+    assert!(
+        !term.images_row(0).is_empty(),
+        "sixel DCS must place a RawRgba8 inline image on row 0"
+    );
+
+    let mut win = aterm_gpu::WindowGpu::new();
+    let input = term.cell_frame(rows, cols);
+    let cpu_frame = cpu.render_input(&input);
+    let gpu_frame = gpu.render_input(&mut win, &input);
+    let delta = max_channel_delta(&cpu_frame, &gpu_frame);
+    assert!(delta <= 8, "sixel RawRgba8 CPU/GPU diverge by {delta} > 8");
+
+    // Sanity: the GPU actually drew the opaque red sixel pixels in cell (0,0), so a
+    // do-nothing GPU pass cannot pass the delta check by both renderers being blank.
+    let red = |f: &Frame, row: usize, col: usize| -> usize {
+        cell_pixels(f, cw, ch, row, col)
+            .iter()
+            .filter(|&&p| rr(p) > 150 && gg(p) < 90 && bb(p) < 90)
+            .count()
+    };
+    assert!(
+        red(&gpu_frame, 0, 0) > 0,
+        "GPU must paint the opaque sixel red pixels"
+    );
+    assert!(
+        red(&cpu_frame, 0, 0) > 0,
+        "CPU must paint the opaque sixel red pixels"
+    );
+}
+
+#[test]
 fn image_scissored_present_byte_identical_to_full() {
     // No-regression gate for the scissored present path WITH images: a reused
     // renderer driven through an image frame then a single-cell change (which

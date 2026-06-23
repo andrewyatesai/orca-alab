@@ -253,18 +253,27 @@ impl TerminalHandler<'_> {
             cols,
             rows,
         });
-        self.place_image(&image, cols, rows);
+        // iTerm2 inline images are LEFT-anchored at the margin (column 0).
+        self.place_image(&image, cols, rows, 0);
     }
 
-    /// Stamp `image` onto a `rows`×`cols` block of cells starting at the cursor
-    /// (column 0, matching iTerm2's left-anchored inline placement), advancing the
-    /// cursor down one line per footprint row so following output lands BELOW the
-    /// image. Each footprint row scrolls via `line_feed`, so an image taller than
-    /// the remaining screen scrolls the grid exactly as text would.
-    fn place_image(&mut self, image: &Arc<ImageData>, cols: u16, rows: u16) {
-        // iTerm2 places inline images from the left margin; move there first so the
-        // footprint tiles map cleanly onto whole columns.
-        let start_col = 0u16;
+    /// Stamp `image` onto a `rows`×`cols` block of cells starting at `start_col`,
+    /// advancing the cursor down one line per footprint row so following output
+    /// lands BELOW the image. Each footprint row scrolls via `line_feed`, so an
+    /// image taller than the remaining screen scrolls the grid exactly as text
+    /// would.
+    ///
+    /// `start_col` is the anchoring column: the iTerm2 OSC 1337 path passes `0`
+    /// (left-anchored at the margin, per spec); the sixel path passes the CURRENT
+    /// cursor column so a mid-line sixel paints at the cursor instead of snapping
+    /// to column 0 (VT340/xterm). Cells whose column would fall past the right
+    /// edge are clipped (not wrapped), so a wide image anchored near the margin is
+    /// truncated rather than overprinting the next row.
+    fn place_image(&mut self, image: &Arc<ImageData>, cols: u16, rows: u16, start_col: u16) {
+        // Anchor at `start_col`; the per-row stamp loop below restores this column
+        // after every line_feed so the footprint tiles map cleanly onto whole
+        // columns from the anchor.
+        let start_col = start_col.min(self.grid.cols().saturating_sub(1));
         self.grid.set_cursor(self.grid.cursor_row(), start_col);
 
         for cell_row in 0..rows {
@@ -352,18 +361,23 @@ impl TerminalHandler<'_> {
             rows,
         });
 
+        // Sixel anchors at the CURRENT cursor column (VT340/xterm), NOT at the
+        // left margin like iTerm2's OSC 1337 path: a sixel emitted mid-line paints
+        // starting at the cursor and does not overprint the cells to its left.
+        let anchor_col = self.grid.cursor_col();
+
         if self.modes.sixel_display_mode {
             // Display mode (DECSDM set): paint at the cursor, then restore it so
             // the cursor does not move. `place_image` mutates the cursor as it
             // stamps + line-feeds, so save and restore around it.
             let save_row = self.grid.cursor_row();
             let save_col = self.grid.cursor_col();
-            self.place_image(&image_data, cols, rows);
+            self.place_image(&image_data, cols, rows, anchor_col);
             self.grid.set_cursor(save_row, save_col);
         } else {
             // Scrolling mode (DECSDM reset, default): cursor advances below the
             // image, matching text flow.
-            self.place_image(&image_data, cols, rows);
+            self.place_image(&image_data, cols, rows, anchor_col);
         }
     }
 }

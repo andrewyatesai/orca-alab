@@ -33,6 +33,12 @@ export type AtermSearchController = {
   prev: () => void
   /** Drop all highlights (search closed / query emptied). */
   clear: () => void
+  /** Re-run the active query against the (now-changed) buffer so highlights track
+   *  current content; no-op when no query is active. Preserves the active match
+   *  position where possible. Called when process() feeds new output. */
+  refresh: () => void
+  /** Whether a non-empty query is currently active (highlights are live). */
+  hasActiveQuery: () => boolean
   /** Total matches for the current query. */
   count: () => number
   /** 1-based index of the active match, or 0 when there are none. */
@@ -44,7 +50,10 @@ export type AtermSearchController = {
 // the natural top-to-bottom order for next/prev navigation.
 function decodeMatches(flat: Uint32Array): AtermSearchMatch[] {
   const matches: AtermSearchMatch[] = []
-  for (let i = 0; i + 2 < flat.length; i += 3) {
+  // Each match is a [line, startCol, len] triplet. The bound must admit the
+  // FINAL complete triplet: `i + 2 < length` drops it when it ends at the last
+  // index, so require the whole triplet to fit (`i + 3 <= length`).
+  for (let i = 0; i + 3 <= flat.length; i += 3) {
     matches.push({ line: flat[i], startCol: flat[i + 1], length: flat[i + 2] })
   }
   return matches
@@ -59,6 +68,10 @@ export function createAtermSearchController(
 ): AtermSearchController {
   let matches: AtermSearchMatch[] = []
   let active = -1
+  // Last query + case flag so a content change (process()) can re-run the search
+  // and keep highlights pinned to the right cells. Empty query == no active search.
+  let query = ''
+  let caseSensitiveQuery = false
 
   const apply = (): void => {
     hooks.setSearchHighlights(matches, active)
@@ -68,12 +81,14 @@ export function createAtermSearchController(
     hooks.redraw()
   }
 
-  const find = (query: string, caseSensitive: boolean): number => {
-    if (!query) {
+  const find = (nextQuery: string, caseSensitive: boolean): number => {
+    if (!nextQuery) {
       clear()
       return 0
     }
-    matches = decodeMatches(term.search(query, caseSensitive))
+    query = nextQuery
+    caseSensitiveQuery = caseSensitive
+    matches = decodeMatches(term.search(nextQuery, caseSensitive))
     // Select the LAST match (newest / closest to the live bottom) so the first
     // find jumps near where output is, matching xterm's findNext-from-bottom feel.
     active = matches.length > 0 ? matches.length - 1 : -1
@@ -92,7 +107,23 @@ export function createAtermSearchController(
   const clear = (): void => {
     matches = []
     active = -1
+    query = ''
+    caseSensitiveQuery = false
     hooks.setSearchHighlights([], -1)
+    hooks.redraw()
+  }
+
+  // Re-run the active query against the changed buffer so highlights stay on the
+  // correct cells after new output. Re-highlight only (no scroll) to avoid
+  // yanking the viewport on every output frame; preserve the active position by
+  // index, clamped to the new match count.
+  const refresh = (): void => {
+    if (!query) {
+      return
+    }
+    matches = decodeMatches(term.search(query, caseSensitiveQuery))
+    active = matches.length === 0 ? -1 : Math.min(Math.max(active, 0), matches.length - 1)
+    hooks.setSearchHighlights(matches, active)
     hooks.redraw()
   }
 
@@ -101,6 +132,8 @@ export function createAtermSearchController(
     next: () => step(1),
     prev: () => step(-1),
     clear,
+    refresh,
+    hasActiveQuery: () => query.length > 0,
     count: () => matches.length,
     activeIndex: () => (active >= 0 ? active + 1 : 0)
   }

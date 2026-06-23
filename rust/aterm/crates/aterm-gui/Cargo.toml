@@ -14,7 +14,17 @@ name = "aterm-gui"
 path = "src/main.rs"
 
 [features]
-default = []
+# `sixel` is ON by default so the SHIPPED GUI binary decodes + renders sixel
+# graphics and DA1 advertises code 4. It forwards to aterm-core's `sixel`
+# feature (which pulls in the `aterm-sixel` decoder and routes a decoded raster
+# into the inline-image placement/blit path). The production `cargo build
+# -p aterm-gui` therefore renders sixel; a consumer that wants the byte-identical
+# no-sixel engine can still build with `--no-default-features`.
+default = ["sixel"]
+# Sixel graphics rendering in the shipped app (see `default` above). A thin
+# forward to aterm-core/sixel: aterm-gui carries no sixel code of its own, so
+# this only flips the engine feature on for this binary.
+sixel = ["aterm-core/sixel"]
 # Opt-in macOS NSAccessibility publishing (accessibility.rs): publishes the
 # visible grid text / role / label to the content NSView so VoiceOver can read
 # the terminal. OFF by default — the pure accessibility snapshot builder always

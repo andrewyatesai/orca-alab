@@ -64,9 +64,11 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
     await waitForActivePanePtyId(orcaPage)
 
     // --- THEME ---------------------------------------------------------------
-    // The canvas top-left pixel is the cell background, seeded from orca's active
-    // terminal theme. Assert it is a deliberate dark themed color (low luminance,
-    // never pure white) — i.e. the theme bg flowed through to the renderer.
+    // Assert a true background cell MATCHES orca's CONFIGURED terminal theme bg,
+    // not merely "is dark". Sample bottom-right (an empty cell on a fresh pane;
+    // the top-left cell holds the block cursor, which would mask the bg). The
+    // exact RGB the renderer seeded is stamped e2e-only on the canvas, so we
+    // compare the SAME canvas we sample.
     await expect
       .poll(
         async () =>
@@ -78,28 +80,39 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
               return null
             }
             const ctx = c.getContext('2d')
-            if (!ctx) {
-              return null
-            }
-            const d = ctx.getImageData(0, 0, 1, 1).data
-            return [d[0], d[1], d[2]]
+            return ctx ? c.dataset.atermBg ?? null : null
           }),
-        { timeout: 20_000, message: 'aterm canvas should have a painted background pixel' }
+        { timeout: 20_000, message: 'aterm canvas should have a painted background + seeded bg' }
       )
       .not.toBeNull()
 
-    const bgPixel = await orcaPage.evaluate(() => {
+    const bgProbe = await orcaPage.evaluate(() => {
       const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
       const ctx = c?.getContext('2d')
-      if (!c || !ctx) {
-        return [255, 255, 255]
+      if (!c || !ctx || !c.width || !c.height) {
+        return null
       }
-      const d = ctx.getImageData(0, 0, 1, 1).data
-      return [d[0], d[1], d[2]]
+      // Bottom-right pixel: an empty cell, free of the row-0/col-0 cursor block.
+      const d = ctx.getImageData(c.width - 1, c.height - 1, 1, 1).data
+      // The exact RGB this canvas's renderer seeded from the configured theme.
+      const raw = c.dataset.atermBg
+      const expected = raw ? (raw.split(',').map((n) => Number(n)) as number[]) : undefined
+      return { pixel: [d[0], d[1], d[2]] as number[], expected }
     })
+    expect(bgProbe, 'should read the canvas bg pixel + the seeded theme bg').not.toBeNull()
+    const bgPixel = bgProbe!.pixel
     expect(bgPixel.every((v) => v >= 0 && v <= 255)).toBe(true)
-    const luminance = 0.299 * bgPixel[0] + 0.587 * bgPixel[1] + 0.114 * bgPixel[2]
-    expect(luminance, `bg pixel ${bgPixel} should be a dark themed background`).toBeLessThan(120)
+    expect(bgProbe!.expected, 'renderer should expose the seeded theme bg').toBeTruthy()
+    const expectedBg = bgProbe!.expected as [number, number, number]
+    // An empty cell's background must MATCH the configured theme bg within a small
+    // tolerance (CPU rasterizer + any sub-pixel blend can nudge a channel a hair).
+    const TOLERANCE = 6
+    for (let ch = 0; ch < 3; ch++) {
+      expect(
+        Math.abs(bgPixel[ch] - expectedBg[ch]),
+        `bg pixel channel ${ch} (${bgPixel}) should match the configured theme bg (${expectedBg})`
+      ).toBeLessThanOrEqual(TOLERANCE)
+    }
 
     // --- SCROLLBACK SCROLL ---------------------------------------------------
     // Feed many lines through the controller (the PTY-output mirror's path), then

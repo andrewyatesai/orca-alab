@@ -646,6 +646,15 @@ impl GpuImageCache {
         self.entries.last().map(|(_, v)| v)
     }
 
+    /// Immutable lookup that does NOT promote to MRU — for batch reads (the
+    /// image-plane pack) that hold several entries borrowed at once, where a
+    /// `&mut self` `get` per item would conflict. Recency is unaffected: the
+    /// pack runs right after the placements loop already promoted every placed
+    /// key in `order` sequence, so re-promoting here would be a no-op anyway.
+    fn peek(&self, key: (usize, usize, usize)) -> Option<&GpuDecodedImage> {
+        self.entries.iter().find(|(k, _)| *k == key).map(|(_, v)| v)
+    }
+
     /// Insert a freshly decoded image, evicting the LRU entry past the cap.
     fn put(&mut self, key: (usize, usize, usize), value: GpuDecodedImage) {
         if self.entries.len() >= Self::MAX {
@@ -1666,6 +1675,41 @@ impl GpuRenderer {
         self.resident_keys = keys.clone();
     }
 
+    /// Pack each placed footprint's RGBA rows into a stacked `tw`×`th` plane
+    /// buffer. `items` is `(y0, dw, dh, rgba)` per footprint. When a footprint
+    /// spans the full plane width (`dw == tw`) its rows are contiguous in both
+    /// source and destination, so the whole footprint copies in ONE memcpy;
+    /// otherwise rows are copied individually (right padding stays transparent).
+    /// Byte-identical either way — factored out of [`build_image_plane`] so the
+    /// copy can be unit-tested and benchmarked in isolation from GPU upload.
+    ///
+    /// `#[doc(hidden)] pub` ONLY so the `image_plane` bench can call it directly;
+    /// not part of the public API.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn pack_image_plane(items: &[(u32, u32, u32, &[u8])], tw: u32, th: u32) -> Vec<u8> {
+        let mut data = vec![0u8; (tw * th * 4) as usize];
+        for &(y0, dw, dh, rgba) in items {
+            if dw == tw {
+                // Footprint spans the full plane width: rows are contiguous in both
+                // source and destination, so collapse the `dh` per-row copies into
+                // one memcpy (the common cell-sized / single-image case).
+                let dst = (y0 * tw) as usize * 4;
+                let len = (dw * dh * 4) as usize;
+                data[dst..dst + len].copy_from_slice(&rgba[..len]);
+            } else {
+                // Narrower than the plane: each row has right padding — copy row by row.
+                for y in 0..dh {
+                    let src = (y * dw * 4) as usize;
+                    let dst = ((y0 + y) * tw) as usize * 4;
+                    data[dst..dst + (dw * 4) as usize]
+                        .copy_from_slice(&rgba[src..src + (dw * 4) as usize]);
+                }
+            }
+        }
+        data
+    }
+
     /// Build the per-frame inline-image texture (iTerm2 OSC 1337) from every
     /// DISTINCT image visible in `input`'s rows (whole grid — every image cell is
     /// repainted; the scissor path falls back to FULL whenever images differ, see
@@ -1749,32 +1793,18 @@ impl GpuRenderer {
         // never sampled — a cell only reads its own `(cell_col*cw, y0+cell_row*ch)`
         // tile, fully inside its footprint.
         let (tw, th) = (max_w, total_h);
-        let mut data = vec![0u8; (tw * th * 4) as usize];
+        // Gather each placed footprint's source rows, then pack them in one pass
+        // (extracted to `pack_image_plane` so the copy is unit-tested + benched in
+        // isolation from GPU upload).
+        let mut items: Vec<(u32, u32, u32, &[u8])> = Vec::with_capacity(order.len());
         for &key in &order {
             let Some(&(y0, dw, dh)) = placements.get(&key) else {
                 continue;
             };
-            let decoded = win.image_cache.get(key).expect("placed image is cached");
-            if dw == tw {
-                // Footprint spans the full plane width: its rows are contiguous in
-                // both source (decoded.rgba, row-major dw*dh*4) and destination
-                // (data rows y0..y0+dh, no right padding). Collapse the dh per-row
-                // copies into one memcpy — same bytes, same layout. This is the
-                // common cell-sized / single-image case.
-                let dst = (y0 * tw) as usize * 4;
-                let len = (dw * dh * 4) as usize;
-                data[dst..dst + len].copy_from_slice(&decoded.rgba[..len]);
-            } else {
-                // Mixed-width footprints: this one is narrower than the plane, so
-                // each row has right padding in `data` — copy row by row.
-                for y in 0..dh {
-                    let src = (y * dw * 4) as usize;
-                    let dst = ((y0 + y) * tw) as usize * 4;
-                    data[dst..dst + (dw * 4) as usize]
-                        .copy_from_slice(&decoded.rgba[src..src + (dw * 4) as usize]);
-                }
-            }
+            let decoded = win.image_cache.peek(key).expect("placed image is cached");
+            items.push((y0, dw, dh, decoded.rgba.as_slice()));
         }
+        let data = Self::pack_image_plane(&items, tw, th);
 
         let device = &self.ctx.device;
         let tex = device.create_texture(&wgpu::TextureDescriptor {
@@ -3398,6 +3428,43 @@ mod tests {
     use super::*;
     use aterm_core::terminal::Terminal;
     use aterm_render::Theme;
+
+    /// `pack_image_plane`'s `dw == tw` single-memcpy fast path must produce
+    /// BYTE-IDENTICAL output to a naive row-by-row pack — the invariant the GPU
+    /// build path relies on (also guarded end-to-end by `inline_image_parity`).
+    #[test]
+    fn pack_image_plane_fast_path_matches_per_row() {
+        // Reference: always copy row by row (the pre-optimization path).
+        fn per_row(items: &[(u32, u32, u32, &[u8])], tw: u32, th: u32) -> Vec<u8> {
+            let mut data = vec![0u8; (tw * th * 4) as usize];
+            for &(y0, dw, dh, rgba) in items {
+                for y in 0..dh {
+                    let src = (y * dw * 4) as usize;
+                    let dst = ((y0 + y) * tw) as usize * 4;
+                    data[dst..dst + (dw * 4) as usize]
+                        .copy_from_slice(&rgba[src..src + (dw * 4) as usize]);
+                }
+            }
+            data
+        }
+        // Deterministic raster: distinct bytes per pixel so a mis-copy is visible.
+        let raster = |w: u32, h: u32, seed: u8| -> Vec<u8> {
+            (0..(w * h * 4)).map(|i| (i as u8).wrapping_add(seed)).collect()
+        };
+        let a = raster(7, 5, 1);
+        // Case 1: single full-width image (dw == tw -> fast path).
+        let items = [(0u32, 7u32, 5u32, a.as_slice())];
+        assert_eq!(GpuRenderer::pack_image_plane(&items, 7, 5), per_row(&items, 7, 5));
+        // Case 2: two stacked same-width images (both hit the fast path).
+        let b = raster(7, 3, 9);
+        let items = [(0u32, 7, 5, a.as_slice()), (5u32, 7, 3, b.as_slice())];
+        assert_eq!(GpuRenderer::pack_image_plane(&items, 7, 8), per_row(&items, 7, 8));
+        // Case 3: a narrow image under a wider plane (dw < tw -> else path).
+        let narrow = raster(3, 4, 4);
+        let wide = raster(7, 2, 7);
+        let items = [(0u32, 7, 2, wide.as_slice()), (2u32, 3, 4, narrow.as_slice())];
+        assert_eq!(GpuRenderer::pack_image_plane(&items, 7, 6), per_row(&items, 7, 6));
+    }
 
     /// SACRED CONSTRAINT (rendering architecture): the GPU consumes the CPU
     /// renderer's EXACT glyph bytes. For every glyph of a representative frame

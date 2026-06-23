@@ -217,11 +217,20 @@ function loadBufferOnlyAddons(pane: ManagedPaneInternal): void {
 export function openXtermRenderer(pane: ManagedPaneInternal): void {
   const { terminal, xtermContainer, linkTooltip, fitAddon, searchAddon, webLinksAddon } = pane
 
-  // Why: a failed aterm init can leave its <canvas> appended to xtermContainer
-  // (the canvas is added before the async wasm load that rejected). Remove any
-  // leftover aterm canvas so the fallback opens a clean xterm pane.
+  // Why: a failed aterm init can leave its DOM shim appended to xtermContainer
+  // — the whole `.xterm` wrapper buildAtermInputDom created (wrapper >
+  // .xterm-screen > canvas + .xterm-helpers), added before the async wasm load
+  // that rejected. Remove that ENTIRE wrapper (identified as the `.xterm`
+  // ancestor of the aterm canvas) so terminal.open() builds a clean xterm pane;
+  // removing only the canvas would strand the shim's wrapper/screen/helpers.
   for (const canvas of xtermContainer.querySelectorAll('[data-testid="aterm-canvas"]')) {
-    canvas.remove()
+    const atermWrapper = canvas.closest('.xterm')
+    if (atermWrapper && atermWrapper.parentElement === xtermContainer) {
+      atermWrapper.remove()
+    } else {
+      // No shim wrapper (older shape / partial build): drop the bare canvas.
+      canvas.remove()
+    }
   }
 
   // Open terminal into DOM

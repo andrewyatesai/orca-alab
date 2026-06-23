@@ -26,8 +26,39 @@ describe('encodeKeyEventToBytes', () => {
     expect(encodeKeyEventToBytes(keyEvent('c', { ctrlKey: true }))).toBe('\x03')
   })
 
-  it('encodes ArrowUp as the CSI A sequence', () => {
+  it('encodes ArrowUp as the CSI A sequence in normal cursor mode', () => {
     expect(encodeKeyEventToBytes(keyEvent('ArrowUp'))).toBe('\x1b[A')
+  })
+
+  it('encodes arrows as SS3 in application-cursor mode (DECCKM)', () => {
+    expect(encodeKeyEventToBytes(keyEvent('ArrowUp'), { appCursor: true })).toBe('\x1bOA')
+    expect(encodeKeyEventToBytes(keyEvent('ArrowDown'), { appCursor: true })).toBe('\x1bOB')
+    expect(encodeKeyEventToBytes(keyEvent('ArrowRight'), { appCursor: true })).toBe('\x1bOC')
+    expect(encodeKeyEventToBytes(keyEvent('ArrowLeft'), { appCursor: true })).toBe('\x1bOD')
+  })
+
+  it('encodes arrows as CSI when app-cursor mode is off', () => {
+    expect(encodeKeyEventToBytes(keyEvent('ArrowUp'), { appCursor: false })).toBe('\x1b[A')
+    expect(encodeKeyEventToBytes(keyEvent('ArrowLeft'), { appCursor: false })).toBe('\x1b[D')
+  })
+
+  it('splits Home/End between SS3 (app-cursor) and CSI (normal)', () => {
+    expect(encodeKeyEventToBytes(keyEvent('Home'))).toBe('\x1b[H')
+    expect(encodeKeyEventToBytes(keyEvent('End'))).toBe('\x1b[F')
+    expect(encodeKeyEventToBytes(keyEvent('Home'), { appCursor: true })).toBe('\x1bOH')
+    expect(encodeKeyEventToBytes(keyEvent('End'), { appCursor: true })).toBe('\x1bOF')
+  })
+
+  it('encodes Alt+Ctrl+A as ESC + the ^A control byte', () => {
+    expect(encodeKeyEventToBytes(keyEvent('a', { ctrlKey: true, altKey: true }))).toBe('\x1b\x01')
+  })
+
+  it('encodes Alt+Ctrl+C as ESC + the ^C control byte', () => {
+    expect(encodeKeyEventToBytes(keyEvent('c', { ctrlKey: true, altKey: true }))).toBe('\x1b\x03')
+  })
+
+  it('returns null for Alt+Ctrl with a non-control key', () => {
+    expect(encodeKeyEventToBytes(keyEvent('F13', { ctrlKey: true, altKey: true }))).toBeNull()
   })
 
   it('encodes F5 as its xterm CSI sequence', () => {
@@ -38,8 +69,11 @@ describe('encodeKeyEventToBytes', () => {
     expect(encodeKeyEventToBytes(keyEvent('b', { altKey: true }))).toBe('\x1bb')
   })
 
-  it('passes a plain printable character through', () => {
-    expect(encodeKeyEventToBytes(keyEvent('a'))).toBe('a')
+  it('returns null for a plain printable character (sent via the input path)', () => {
+    // Under the input model, plain typed chars flow through the textarea
+    // 'input'/IME path, not keydown — so the encoder must not emit them here
+    // (otherwise the character is double-sent).
+    expect(encodeKeyEventToBytes(keyEvent('a'))).toBeNull()
   })
 
   it('encodes Shift+Tab as the back-tab sequence', () => {

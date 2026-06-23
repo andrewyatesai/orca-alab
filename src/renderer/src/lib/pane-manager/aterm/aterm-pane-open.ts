@@ -35,6 +35,10 @@ export function openAtermPane(
         controller.dispose()
         return
       }
+      // Guard against double-attach: if a prior controller's mirror is still
+      // registered (re-open without a teardown), tear it down before replacing it
+      // so we don't leak a duplicate output subscription onto the terminal.
+      pane.atermMirrorCleanup?.()
       pane.atermController = controller
       // Mirror PTY output (routed through writeTerminalOutput) onto the canvas.
       pane.atermMirrorCleanup = registerAtermOutputMirror(pane.terminal, controller)

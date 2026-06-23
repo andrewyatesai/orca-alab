@@ -1,5 +1,5 @@
 import { loadAterm } from './load-aterm'
-import { encodeKeyEventToBytes } from './aterm-key-encoding'
+import { attachAtermTextareaInput } from './aterm-textarea-input'
 import { resolveAtermThemeColors } from './aterm-theme-colors'
 import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
@@ -12,6 +12,7 @@ import {
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
 import { buildAtermInputDom } from './aterm-input-dom'
 import { createAtermUrlOpener, type AtermLinkContext } from './aterm-url-link-routing'
+import { e2eConfig } from '@/lib/e2e-config'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 export type { AtermLinkContext } from './aterm-url-link-routing'
@@ -109,6 +110,14 @@ export async function createAtermPaneController(
   // Seed the renderer's default fg/bg/cursor/selection from orca's active
   // terminal theme so the canvas matches the rest of the app at pane creation.
   const themeColors = resolveAtermThemeColors()
+  // E2E only: stamp the exact RGB the renderer seeds as the default bg onto THIS
+  // canvas (per-pane, so multiple panes don't clobber a shared global) so the
+  // theme test can assert the painted top-left pixel MATCHES the configured theme
+  // background (not merely "is dark"). 0x00RRGGBB → "r,g,b".
+  if (e2eConfig.exposeStore) {
+    const { bg } = themeColors
+    canvas.dataset.atermBg = `${(bg >> 16) & 0xff},${(bg >> 8) & 0xff},${bg & 0xff}`
+  }
   // Build once at an arbitrary 1x1 grid to read the engine's cell metrics, then
   // size the real grid to the container.
   const term: AtermTerminal = new AtermTerminalCtor(
@@ -183,6 +192,12 @@ export async function createAtermPaneController(
     term.process(new TextEncoder().encode(data))
     if (wasAtBottom && term.display_offset !== 0) {
       term.scroll_to_bottom()
+    }
+    // New output changed buffer content but search matches are stored as absolute
+    // rows; re-run the active query so highlights track current content instead
+    // of stranding on stale cells (the wasm search is indexed/cheap).
+    if (searchController.hasActiveQuery()) {
+      searchController.refresh()
     }
     scheduleDraw()
   }
@@ -279,46 +294,17 @@ export async function createAtermPaneController(
   resizeObserver.observe(container)
 
   const { textarea } = inputDom
-  // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
-  const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
-  let composing = false
-  const onKeyDown = (event: KeyboardEvent): void => {
-    // Let the IME own keys while a composition is active.
-    if (event.isComposing || composing) {
-      return
-    }
-    // Cmd/Ctrl+C copies the canvas selection (when any) instead of sending ^C,
-    // matching the default terminal's copy behavior.
-    const copyChord = (isMac ? event.metaKey : event.ctrlKey) && event.key.toLowerCase() === 'c'
-    if (copyChord && selectionInput.copySelection()) {
-      event.preventDefault()
-      return
-    }
-    const bytes = encodeKeyEventToBytes(event)
-    if (bytes === null) {
-      return
-    }
-    event.preventDefault()
-    inputSink(bytes)
-    // Clear so the sink-bound textarea never accumulates the typed characters.
-    textarea.value = ''
-  }
-  // IME: buffer composing keystrokes, then send the committed string on end.
-  const onCompositionStart = (): void => {
-    composing = true
-  }
-  const onCompositionEnd = (event: CompositionEvent): void => {
-    composing = false
-    if (event.data) {
-      inputSink(event.data)
-    }
-    textarea.value = ''
-  }
-  textarea.addEventListener('keydown', onKeyDown)
-  textarea.addEventListener('compositionstart', onCompositionStart)
-  textarea.addEventListener('compositionend', onCompositionEnd)
-  // No competing paste handler: the textarea's 'xterm-helper-textarea' class lets
-  // the app's existing paste path own Cmd/Ctrl+V and primary-selection paste.
+  // Keyboard + text wiring (keydown = non-text keys, 'input'/IME = text/paste),
+  // owned by a focused module so this controller stays under the line budget.
+  // Cmd/Ctrl+V and primary-selection paste route through the app's existing paste
+  // path (keyed off the 'xterm-helper-textarea' class), which setRangeText()s the
+  // text and dispatches an InputEvent — captured by the input handler.
+  const textareaInput = attachAtermTextareaInput({
+    textarea,
+    term,
+    inputSink,
+    copySelection: () => selectionInput.copySelection()
+  })
 
   // Click anywhere on the canvas starts selection (canvas mousedown) AND lands
   // keyboard focus on the helper textarea so typing routes to the PTY.
@@ -369,9 +355,7 @@ export async function createAtermPaneController(
       }
       disposed = true
       resizeObserver.disconnect()
-      textarea.removeEventListener('keydown', onKeyDown)
-      textarea.removeEventListener('compositionstart', onCompositionStart)
-      textarea.removeEventListener('compositionend', onCompositionEnd)
+      textareaInput.dispose()
       canvas.removeEventListener('pointerdown', onPointerDown)
       selectionInput.dispose()
       scrollInput.dispose()

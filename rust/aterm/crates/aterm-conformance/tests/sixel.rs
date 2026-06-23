@@ -331,6 +331,68 @@ fn cursor_unmoved_after_sixel_with_decsdm_set() {
     );
 }
 
+// --- D2. mid-line column anchoring -------------------------------------------
+// Spec (VT340 / xterm): a sixel image anchors at the CURRENT cursor column, NOT
+// at the left margin like iTerm2's OSC 1337 inline images. A sixel emitted after
+// some text must paint starting at the cursor's column and must not overprint the
+// cells to its left.
+
+#[test]
+fn sixel_anchors_at_cursor_column_mid_line() {
+    // Scrolling mode (default). Move the cursor to row 0, column 5 (1-based
+    // CUP column 6) and emit the 1x1-footprint sixel: it must land at column 5,
+    // and there must be NO image cell at columns 0..5.
+    let mut s = Screen::new(24, 80);
+    s.feed(b"\x1b[?80l\x1b[1;6H");
+    s.feed(SIXEL_4X6);
+
+    let row = s.images_row(0);
+    assert_eq!(row.len(), 1, "exactly one image cell on row 0");
+    let (col, ref iref) = row[0];
+    assert_eq!(col, 5, "sixel anchors at the cursor column (5), not column 0");
+    // The image's own tile coordinate is still (0,0): anchoring shifts where the
+    // footprint lands on the grid, not the image's internal tiling.
+    assert_eq!(iref.cell_row, 0, "image top-left tile row");
+    assert_eq!(iref.cell_col, 0, "image top-left tile col");
+    // Cursor moved to the line below (scrolling mode), back at column 0.
+    assert_eq!(s.cursor(), (1, 0), "scrolling mode: cursor below image at col 0");
+}
+
+#[test]
+fn sixel_mid_line_does_not_overprint_cells_to_its_left() {
+    // Text "ABCDE" occupies columns 0..5; the cursor is then at column 5. A sixel
+    // emitted there must anchor at column 5 and leave the five glyph cells intact
+    // (image cells live in EXTRAS, not glyph cells, so the text also survives).
+    let mut s = Screen::new(24, 80);
+    s.feed(b"ABCDE");
+    assert_eq!(s.cursor(), (0, 5), "cursor sits just past the text");
+    s.feed(SIXEL_4X6);
+
+    let row = s.images_row(0);
+    assert_eq!(row.len(), 1, "one image cell placed");
+    assert_eq!(row[0].0, 5, "anchored at the cursor column (5), not 0");
+    // The text to the left is untouched — the image did not snap to column 0.
+    assert_eq!(&s.row(0)[..5], "ABCDE", "glyphs left of the sixel are intact");
+}
+
+#[test]
+fn sixel_mid_line_anchors_at_cursor_in_display_mode() {
+    // Display mode (DECSDM set): the image anchors at the cursor column AND the
+    // cursor is restored to where it was. Position at row 2, column 7.
+    let mut s = Screen::new(24, 80);
+    s.feed(b"\x1b[?80h\x1b[3;8H");
+    s.feed(SIXEL_4X6);
+
+    let row = s.images_row(2);
+    assert_eq!(row.len(), 1, "image on the cursor row (2)");
+    assert_eq!(row[0].0, 7, "display mode also anchors at the cursor column (7)");
+    assert_eq!(
+        s.cursor(),
+        (2, 7),
+        "display mode (DECSDM set): cursor unmoved, still at (row 2, col 7)"
+    );
+}
+
 // --- E. image observability ---------------------------------------------------
 // The decoder is compiled in (conformance enables `sixel`), so the placed image
 // is observable: footprint, RawRgba8 format with the post-clamp raster size, and
@@ -347,7 +409,10 @@ fn sixel_image_decodes_to_expected_raster_and_is_placed() {
     let row = s.images_row(0);
     assert_eq!(row.len(), 1, "one image cell on row 0");
     let (col, ref iref) = row[0];
-    assert_eq!(col, 0, "left-anchored at column 0");
+    // The cursor was at column 0 (fresh screen) and sixel anchors at the CURRENT
+    // cursor column, so the image lands at column 0 here. The mid-line case (a
+    // nonzero cursor column) is locked by `sixel_anchors_at_cursor_column_mid_line`.
+    assert_eq!(col, 0, "anchored at the cursor column (0 on a fresh screen)");
     assert_eq!(iref.cell_row, 0);
     assert_eq!(iref.cell_col, 0);
 

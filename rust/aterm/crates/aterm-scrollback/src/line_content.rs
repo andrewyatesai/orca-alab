@@ -29,18 +29,25 @@ impl InlineBuf {
     fn from_slice(bytes: &[u8]) -> Self {
         debug_assert!(bytes.len() <= INLINE_SIZE);
         let mut buf = [0u8; INLINE_SIZE];
-        buf[..bytes.len()].copy_from_slice(bytes);
-        // SAFETY of the cast: `bytes.len() <= INLINE_SIZE <= u8::MAX`, asserted
-        // above; from_bytes only constructs this when the length check passed.
-        Self {
-            buf,
-            len: bytes.len() as u8,
+        let n = bytes.len();
+        // Checked copy: `n <= INLINE_SIZE` by contract, but invisible to the
+        // panic-freedom verifier — use total `get_mut`/`get` so there is no
+        // slice-bounds panic path. Both sub-slices are length `n`, so
+        // `copy_from_slice` is total too. Identical for every reachable state.
+        if let (Some(dst), Some(src)) = (buf.get_mut(..n), bytes.get(..n)) {
+            dst.copy_from_slice(src);
         }
+        // `n <= INLINE_SIZE <= u8::MAX` by contract, so the `as u8` is exact.
+        Self { buf, len: n as u8 }
     }
 
     #[inline]
     fn as_slice(&self) -> &[u8] {
-        &self.buf[..self.len as usize]
+        // `len <= INLINE_SIZE` by construction (`from_slice` asserts it). Use a
+        // CHECKED access (`get`, which is total) instead of the panicking index, so
+        // there is no slice-bounds panic path to prove away — `unwrap_or` falls back
+        // to the whole buffer for the (unreachable) `len > INLINE_SIZE` case.
+        self.buf.get(..self.len as usize).unwrap_or(&self.buf)
     }
 
     #[inline]

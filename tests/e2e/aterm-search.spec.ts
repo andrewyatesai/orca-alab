@@ -98,15 +98,16 @@ test.describe('aterm in-terminal search', () => {
     expect(result.missCount, 'a case-sensitive miss finds nothing').toBe(0)
 
     // Re-run the search, snapshot the canvas, then assert the highlight overlay
-    // changed pixels: clear (no highlight) vs. found (translucent rect painted).
-    const highlightChanged = await orcaPage.evaluate(async (findSrc: string) => {
+    // changed pixels AND that the change is CONCENTRATED in the match region (a
+    // single highlighted row band), not scattered noise across the whole canvas.
+    const highlight = await orcaPage.evaluate(async (findSrc: string) => {
       // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
       const find = new Function(`return (${findSrc})()`) as () => AtermSearchControllerProbe
       const ctrl = find()
       const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
       const ctx = c?.getContext('2d')
       if (!c || !ctx || !c.width || !c.height) {
-        return -1
+        return null
       }
       const raf = (): Promise<void> =>
         new Promise((resolve) => requestAnimationFrame(() => resolve()))
@@ -120,22 +121,44 @@ test.describe('aterm in-terminal search', () => {
       await raf()
       await raf()
       const after = ctx.getImageData(0, 0, c.width, c.height).data
+      // Track changed-pixel count + the vertical band the changes fall in.
       let changed = 0
-      for (let i = 0; i < after.length; i += 4) {
-        if (
-          after[i] !== before[i] ||
-          after[i + 1] !== before[i + 1] ||
-          after[i + 2] !== before[i + 2]
-        ) {
-          changed++
+      let minY = c.height
+      let maxY = -1
+      for (let y = 0; y < c.height; y++) {
+        for (let x = 0; x < c.width; x++) {
+          const i = (y * c.width + x) * 4
+          if (
+            after[i] !== before[i] ||
+            after[i + 1] !== before[i + 1] ||
+            after[i + 2] !== before[i + 2]
+          ) {
+            changed++
+            if (y < minY) {
+              minY = y
+            }
+            if (y > maxY) {
+              maxY = y
+            }
+          }
         }
       }
-      return changed
+      const bandHeight = maxY >= minY ? maxY - minY + 1 : 0
+      return { changed, bandHeight, canvasHeight: c.height }
     }, findActiveController.toString())
 
+    expect(highlight, 'should read the canvas before/after the highlight paint').not.toBeNull()
     expect(
-      highlightChanged,
+      highlight!.changed,
       'painting the search highlight overlay must change canvas pixels'
     ).toBeGreaterThan(0)
+    // The highlight is a single-row translucent rect over the match; clearing it
+    // reverts exactly those pixels. So the changed pixels must form a thin band
+    // (a few cell-rows tall at most), NOT span most of the canvas — proving the
+    // diff is the match-region highlight, not an unrelated full-canvas redraw.
+    expect(
+      highlight!.bandHeight,
+      `changed pixels should be a thin band near the match (got ${highlight!.bandHeight}px of ${highlight!.canvasHeight}px)`
+    ).toBeLessThan(highlight!.canvasHeight * 0.4)
   })
 })

@@ -37,7 +37,12 @@ export default function TerminalSearch({
 }: TerminalSearchProps): React.JSX.Element | null {
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
-  const [regex, setRegex] = useState(false)
+  const [regexEnabled, setRegexEnabled] = useState(false)
+  // aterm's engine search is plain substring (regex not exposed), so the regex
+  // toggle is meaningless there. Force it off + disable the button for aterm panes
+  // so the UI is honest about what the active renderer supports.
+  const regexSupported = !atermSearch
+  const regex = regexSupported && regexEnabled
   // Match-count label ("3 / 12"), driven by the aterm controller's exact counts.
   const [matchLabel, setMatchLabel] = useState('')
   const requestQuery = getFindRequestQuery(query)
@@ -199,11 +204,21 @@ export default function TerminalSearch({
         type="button"
         variant="ghost"
         size="icon-xs"
-        onClick={() => setRegex((v) => !v)}
+        disabled={!regexSupported}
+        onClick={() => setRegexEnabled((v) => !v)}
         className={`flex size-6 shrink-0 items-center justify-center rounded ${
-          regex ? 'bg-zinc-700/50 text-blue-400' : 'text-zinc-400 hover:text-zinc-200'
+          regex
+            ? 'bg-zinc-700/50 text-blue-400'
+            : 'text-zinc-400 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-zinc-400'
         }`}
-        title={translate('auto.components.TerminalSearch.42e466b9f1', 'Regex')}
+        title={
+          regexSupported
+            ? translate('auto.components.TerminalSearch.42e466b9f1', 'Regex')
+            : translate(
+                'auto.components.TerminalSearch.regexUnsupportedAterm',
+                'Regex unavailable — this terminal uses substring search'
+              )
+        }
       >
         <Regex size={14} />
       </Button>

@@ -169,6 +169,14 @@ impl AtermTerminal {
         self.term.is_alternate_screen()
     }
 
+    /// True when DECCKM (application cursor keys) is set: the host must encode
+    /// arrows/Home/End as SS3 (ESC O A) instead of CSI (ESC [ A) so full-screen
+    /// apps (vi, less, readline) receive the sequences they expect.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_app_cursor_mode(&self) -> bool {
+        self.term.modes().application_cursor_keys()
+    }
+
     /// Begin a character selection at display `row`/`col` (clears any prior one).
     pub fn selection_start(&mut self, row: i32, col: u16) {
         self.term
@@ -504,6 +512,20 @@ mod tests {
         // A case-sensitive miss and an empty query both yield nothing.
         assert!(t.search("unique_search_token", true).is_empty());
         assert!(t.search("", false).is_empty());
+    }
+
+    #[test]
+    fn tracks_application_cursor_mode_via_decckm() {
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping app-cursor-mode test");
+            return;
+        };
+        assert!(!t.is_app_cursor_mode(), "DECCKM defaults off (cursor → CSI)");
+        // CSI ? 1 h sets DECCKM (application cursor keys); CSI ? 1 l resets it.
+        t.process(b"\x1b[?1h");
+        assert!(t.is_app_cursor_mode(), "DECCKM set → application cursor keys");
+        t.process(b"\x1b[?1l");
+        assert!(!t.is_app_cursor_mode(), "DECCKM reset → normal cursor keys");
     }
 
     #[test]

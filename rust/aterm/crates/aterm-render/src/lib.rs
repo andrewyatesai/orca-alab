@@ -2467,14 +2467,20 @@ pub fn mark_cell_x(c: usize, rcw: usize, gw: usize, xmin: i32, scale: Scale) -> 
 
 /// Columns of row `r` that must stay PER-CELL this frame for ligature purposes:
 /// under `LigatureMode::CursorDisabled` the cursor cell is excluded from any run
-/// so the cursor never sits on a ligature glyph (matching the documented mode).
-/// Other modes return an empty list. Shared by both renderers so the break set —
-/// and therefore the plan — is identical, preserving CPU/GPU parity.
+/// so the cursor never sits on a ligature glyph (matching the documented mode);
+/// AND any column whose selected-state would make a ligature unsafe — a selected
+/// cell, or a cell adjacent to a selected-state change. Without the selection
+/// breaks a ligature glyph would paint across cells with DIFFERENT backgrounds
+/// (selected steel-blue vs cell bg), so the highlight would be visibly wrong;
+/// breaking keeps selected cells per-cell with the selection background.
+/// Shared by both renderers so the break set — and therefore the plan — is
+/// identical, preserving CPU/GPU parity.
 fn ligature_break_cols(
     input: &RenderInput,
     r: usize,
     shaping: &aterm_types::text_shaping::TextShapingConfig,
 ) -> Vec<usize> {
+    let mut cols: Vec<usize> = Vec::new();
     if matches!(
         shaping.ligature_mode,
         aterm_types::text_shaping::LigatureMode::CursorDisabled
@@ -2482,10 +2488,34 @@ fn ligature_break_cols(
         && input.cursor_row == r
         && input.cursor_col < input.cols
     {
-        vec![input.cursor_col]
-    } else {
-        Vec::new()
+        cols.push(input.cursor_col);
     }
+    // Break on selection so no shaped run spans a selection-highlight boundary.
+    // Selection rows are live-screen coords (viewport row r shows live row
+    // r - display_offset), matching `render_row`'s per-cell selection fill.
+    if input.selection.has_selection() {
+        let n = input.cols.min(input.cells.get(r).map_or(0, Vec::len));
+        let row_cells = &input.cells[r];
+        let sel_row = r as i32 - input.display_offset;
+        let selected = |c: usize| {
+            let cell = &row_cells[c];
+            let is_wide_lead = row_cells.get(c + 1).is_some_and(|next| next.wide);
+            input
+                .selection
+                .contains_cell(sel_row, c as u16, is_wide_lead, cell.wide)
+        };
+        let mut prev = false;
+        for c in 0..n {
+            let sel = selected(c);
+            // A selected cell stays per-cell; a state change between adjacent
+            // columns also breaks so the run never straddles the boundary.
+            if sel || sel != prev {
+                cols.push(c);
+            }
+            prev = sel;
+        }
+    }
+    cols
 }
 
 /// The synthetic-style bits for a cell (SGR 1 bold / SGR 3 italic). Public so the

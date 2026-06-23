@@ -584,7 +584,11 @@ export function useTerminalPaneLifecycle({
       }
       let attempts = 0
       const tick = (): void => {
-        if (managerRef.current === null || installAtermFileLinkOpener(pane) || attempts >= 50) {
+        // Stop if the manager is gone, the pane was closed (guard mirrors
+        // pushMode2031ForPane so the poll can't keep firing on a disposed pane),
+        // the opener bound, or the attempt budget is spent.
+        const paneStillOpen = managerRef.current?.getPanes().some((p) => p.id === pane.id) ?? false
+        if (!paneStillOpen || installAtermFileLinkOpener(pane) || attempts >= 50) {
           atermFileLinkOpenerTimers.delete(pane.id)
           return
         }
@@ -1038,6 +1042,13 @@ export function useTerminalPaneLifecycle({
         if (mouseHideDisposable) {
           mouseHideDisposable.dispose()
           mouseHideDisposablesRef.current.delete(paneId)
+        }
+        // Why: cancel the bounded aterm file-link-opener poll for this pane so it
+        // can't keep firing setTimeout ticks against a now-disposed pane.
+        const atermFileLinkOpenerTimer = atermFileLinkOpenerTimers.get(paneId)
+        if (atermFileLinkOpenerTimer !== undefined) {
+          window.clearTimeout(atermFileLinkOpenerTimer)
+          atermFileLinkOpenerTimers.delete(paneId)
         }
         const transport = paneTransportsRef.current.get(paneId)
         const panePtyBinding = panePtyBindings.get(paneId)

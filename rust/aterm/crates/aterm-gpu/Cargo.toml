@@ -32,6 +32,14 @@ criterion = "0.5"
 # Inline-image (OSC 1337) parity tests: encode test PNGs + base64 payloads.
 png = "0.17"
 aterm-codec = { workspace = true }
+# Test-only: enable the engine's `sixel` feature in aterm-gpu's TEST build so the
+# RawRgba8 CPU/GPU parity gate (tests/inline_image_parity.rs
+# `sixel_rawrgba8_pixels_gpu_match_cpu`) can drive a REAL sixel DCS through the
+# Terminal and produce an `ImageData{RawRgba8}` image — the exact format the
+# shipped GUI renders. Cargo unifies this with the plain `[dependencies]`
+# aterm-core for the test build only; the production `cargo build -p aterm-gpu`
+# ignores dev-deps and stays byte-identical (no sixel, no `aterm-sixel`).
+aterm-core = { workspace = true, features = ["sixel"] }
 # Test-only: Tier-1 `GpuEncode.tla` conformance (`tests/conformance_gpuencode.rs`)
 # drives the real slice-precondition decision over the bg-instance count.
 aterm-spec = { workspace = true }
@@ -42,6 +50,10 @@ aterm-types = { workspace = true }
 
 [[bench]]
 name = "gpu_frame"
+harness = false
+
+[[bench]]
+name = "image_plane"
 harness = false
 
 [lints]

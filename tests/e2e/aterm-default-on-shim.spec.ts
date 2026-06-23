@@ -81,10 +81,13 @@ test.describe('aterm renderer as the default', () => {
     expect(shim.insideScreen, 'textarea inside .xterm-screen').toBe(true)
     expect(shim.focusable, 'textarea is an enabled, tabbable keyboard surface').toBe(true)
 
-    // 2) Keyboard through the shim: dispatch real keydown events on the helper
-    //    textarea (the exact handler the shim installs) → encoder → terminal.input
-    //    → PTY → output mirror → canvas. (Dispatching events needs no OS focus, so
-    //    this is deterministic under the hidden headless window.)
+    // 2) Keyboard through the shim. Under the input model (mirrors xterm) printable
+    //    text flows through the textarea 'input' event (typing/paste/IME), while
+    //    non-text keys (Enter) flow through keydown. Drive each accordingly so the
+    //    test genuinely exercises the path real typed/pasted text takes:
+    //    input → controller onInput → terminal.input → PTY → output mirror → canvas.
+    //    (Dispatching events needs no OS focus, so this is deterministic under the
+    //    hidden headless window.)
     // Snapshot the canvas, then dispatch the keystrokes; the typed echo + command
     // output must CHANGE the canvas (terminal output isn't monotonic in pixel
     // count — it scrolls/redraws — so assert a pixel DIFF, not a count increase).
@@ -97,11 +100,22 @@ test.describe('aterm renderer as the default', () => {
         ?.closest('.xterm')
         ?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
       if (!ta) throw new Error('no aterm helper textarea')
-      const send = (key: string): void => {
+      // Printable text: set value + dispatch an InputEvent (the path setRangeText
+      // paste and typing both produce). data carries the inserted character.
+      const type = (text: string): void => {
+        for (const ch of text) {
+          ta.value = ch
+          ta.dispatchEvent(
+            new InputEvent('input', { data: ch, inputType: 'insertText', bubbles: true })
+          )
+        }
+      }
+      // Non-text key: dispatch keydown (the encoder owns Enter → CR).
+      const press = (key: string): void => {
         ta.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
       }
-      for (const ch of 'echo aterm-keyboard-proof-XYZ') send(ch)
-      send('Enter')
+      type('echo aterm-keyboard-proof-XYZ')
+      press('Enter')
     })
 
     await expect
@@ -129,8 +143,10 @@ test.describe('aterm renderer as the default', () => {
       .toBeGreaterThan(2000)
 
     // 3) Link detection: feed a line with a URL through the same output path the
-    //    PTY uses, then assert the controller detects a URL at the URL's cells.
-    const link = await orcaPage.evaluate(() => {
+    //    PTY uses, then assert (a) the controller detects a URL at the URL's cells
+    //    AND (b) the URL's characters actually RENDERED — the canvas changed after
+    //    process(), so detection isn't asserting against an unrendered buffer.
+    const link = await orcaPage.evaluate(async () => {
       const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
       if (!managers) return null
       let controller: {
@@ -149,23 +165,45 @@ test.describe('aterm renderer as the default', () => {
         }
       }
       if (!controller) return null
-      // Land the URL on a fresh line at a known column (after "see ").
+      const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
+      const ctx = c?.getContext('2d')
+      const raf = (): Promise<void> =>
+        new Promise((resolve) => requestAnimationFrame(() => resolve()))
+      // Baseline the canvas, then land the URL on a fresh line at a known column.
+      const before =
+        c && ctx && c.width ? ctx.getImageData(0, 0, c.width, c.height).data.slice() : null
       controller.process('\r\nsee https://aterm.example.com/proof here\r\n')
+      await raf()
+      await raf()
+      let renderedPixelDiff = 0
+      if (c && ctx && c.width && before) {
+        const after = ctx.getImageData(0, 0, c.width, c.height).data
+        for (let i = 0; i < after.length; i += 4) {
+          if (after[i] !== before[i] || after[i + 1] !== before[i + 1] || after[i + 2] !== before[i + 2]) {
+            renderedPixelDiff++
+          }
+        }
+      }
       // Scan the row(s) for a URL hit; the prompt + wrap make the exact row vary,
       // so probe a small window of recent rows × the URL columns.
       for (let row = 0; row < 40; row++) {
         for (let col = 4; col < 36; col++) {
           const hit = controller.linkAt(row, col)
           if (hit && /aterm\.example\.com/.test(hit.url)) {
-            return { url: hit.url, kind: hit.kind }
+            return { url: hit.url, kind: hit.kind, renderedPixelDiff }
           }
         }
       }
-      return null
+      return { url: '', kind: -1, renderedPixelDiff }
     })
     expect(link, 'controller should detect the URL link').not.toBeNull()
     expect(link?.url).toContain('aterm.example.com')
     expect([0, 1]).toContain(link?.kind) // 0 = OSC-8, 1 = detected URL
+    // The URL's glyphs must have actually painted (not just detected in the buffer).
+    expect(
+      link?.renderedPixelDiff ?? 0,
+      'the URL characters should render → canvas pixels change in the URL row'
+    ).toBeGreaterThan(0)
 
     const dataUrl = await orcaPage.evaluate(() => {
       const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null

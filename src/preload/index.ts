@@ -1601,6 +1601,12 @@ const api = {
       ipcRenderer.invoke('diagnostics:deleteBundle', ticketId)
   },
 
+  fonts: {
+    // Local OS fallback fonts (CJK + colour emoji) for the aterm terminal renderer.
+    getTerminalFallbackFonts: (): Promise<{ cjk?: Uint8Array; emoji?: Uint8Array }> =>
+      ipcRenderer.invoke('fonts:getTerminalFallbackFonts')
+  },
+
   settings: {
     get: (): Promise<unknown> => ipcRenderer.invoke('settings:get'),
 

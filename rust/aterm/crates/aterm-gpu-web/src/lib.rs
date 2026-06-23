@@ -82,6 +82,14 @@ pub struct AtermGpuTerminal {
     // link detection via smart_word_at; reused across link_at calls. Mirrors
     // the aterm-wasm crate so the ONE engine per pane serves both draw + state.
     smart: SmartSelection,
+    // Host-injected OS fallback faces (CJK/symbols + colour emoji). Kept so `init`
+    // can RE-APPLY them to the fresh GPU CPU face it builds from `font_bytes`
+    // (which lacks the fallbacks); fonts injected before init would otherwise be
+    // lost. Empty until the host calls `set_fallback_font` / `set_emoji_font`.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    fallback_font: Option<Vec<u8>>,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    emoji_font: Option<Vec<u8>>,
 }
 
 /// The GPU half of the terminal, populated by [`AtermGpuTerminal::init`].
@@ -138,12 +146,40 @@ impl AtermGpuTerminal {
             fb_width: 0,
             fb_height: 0,
             smart: SmartSelection::with_builtin_rules(),
+            fallback_font: None,
+            emoji_font: None,
         })
     }
 
     /// Feed raw PTY output bytes into the engine.
     pub fn process(&mut self, bytes: &[u8]) {
         self.term.process(bytes);
+    }
+
+    /// Inject a broad-coverage (CJK + symbols) fallback face from font bytes, so
+    /// glyphs the primary face lacks render real shapes instead of `.notdef` tofu.
+    /// Applies to the CPU face (metrics) and the live GPU face if `init` already
+    /// ran; the bytes are also remembered so `init` re-applies them to the fresh
+    /// GPU face it builds. No-throw: a bad blob leaves the existing faces untouched.
+    pub fn set_fallback_font(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.cpu.set_fallback_bytes(bytes)?;
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_fallback_font_bytes(bytes)?;
+        }
+        self.fallback_font = Some(bytes.to_vec());
+        Ok(())
+    }
+
+    /// Inject a colour-emoji (sbix) face from font bytes, driving the existing
+    /// ColorEmoji colour path. Same wiring as [`set_fallback_font`]. No-throw
+    /// (the `String` Err surfaces as a catchable JS exception).
+    pub fn set_emoji_font(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.cpu.set_color_font_bytes(bytes.to_vec())?;
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_emoji_font_bytes(bytes.to_vec())?;
+        }
+        self.emoji_font = Some(bytes.to_vec());
+        Ok(())
     }
 
     /// Resize the grid AND, if the GPU is live, the swapchain to match the new
@@ -638,7 +674,15 @@ impl AtermGpuTerminal {
         // Build the CPU face from the injected font bytes (no system font
         // discovery on wasm) and assemble the portable GPU renderer on the
         // acquired context — this builds every wgpu pipeline.
-        let cpu = Renderer::from_bytes(&self.font_bytes, self.px, self.theme)?;
+        let mut cpu = Renderer::from_bytes(&self.font_bytes, self.px, self.theme)?;
+        // Re-apply any fonts the host injected BEFORE init: the fresh face above is
+        // built from `font_bytes` alone, so it lacks them otherwise.
+        if let Some(bytes) = self.fallback_font.as_ref() {
+            cpu.set_fallback_bytes(bytes)?;
+        }
+        if let Some(bytes) = self.emoji_font.as_ref() {
+            cpu.set_color_font_bytes(bytes.clone())?;
+        }
         let renderer = GpuRenderer::from_parts(ctx, cpu, None, self.theme)?;
 
         // Configure the already-created canvas swapchain (NON-sRGB format, sized

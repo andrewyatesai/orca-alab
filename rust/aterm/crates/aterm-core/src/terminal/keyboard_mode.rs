@@ -35,6 +35,21 @@ pub(crate) fn keyboard_mode_from_state(
     if modes.backarrow_sends_bs {
         km.insert(KeyboardMode::BACKARROW_SENDS_BS);
     }
+    // xterm keyboard private modes 1035/1036/1039 are likewise legacy-encoding
+    // concerns folded in here. Each is modeled so the `empty()`/default mode
+    // preserves the historical encoder contract:
+    //   - 1039 altSendsEscape: a NEGATIVE flag — reset suppresses the Alt ESC.
+    //   - 1036 metaSendsEscape: a POSITIVE flag — set adds the Meta ESC.
+    //   - 1035 numLock: a NEGATIVE flag — reset strips the NumLock modifier.
+    if !modes.alt_send_escape {
+        km.insert(KeyboardMode::ALT_NO_ESC);
+    }
+    if modes.meta_send_escape {
+        km.insert(KeyboardMode::META_SENDS_ESC);
+    }
+    if !modes.special_modifiers {
+        km.insert(KeyboardMode::NO_SPECIAL_MODIFIERS);
+    }
     km
 }
 

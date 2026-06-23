@@ -789,3 +789,86 @@ fn legacy_backspace_decbkm_sends_bs() {
         vec![0x1b, 0x08]
     );
 }
+
+// =========================================================================
+// xterm keyboard private modes 1035/1036/1039 (numLock / metaSendsEscape /
+// altSendsEscape). These are folded into KeyboardMode by aterm-core's
+// keyboard_mode_from_state; here we exercise the encoder-facing flags directly.
+// =========================================================================
+
+#[test]
+fn legacy_alt_sends_escape_default_prefixes_esc() {
+    // Mode 1039 SET (default): Alt+key -> ESC + key. Matches the historical
+    // `empty()` contract (no ALT_NO_ESC flag present).
+    assert_eq!(
+        encode_key(&Key::Character('a'), Modifiers::ALT, KeyboardMode::empty()),
+        vec![0x1b, b'a']
+    );
+}
+
+#[test]
+fn legacy_alt_no_esc_suppresses_esc_prefix() {
+    // Mode 1039 RESET (ALT_NO_ESC): Alt+key -> bare key, no ESC prefix.
+    let mode = KeyboardMode::ALT_NO_ESC;
+    assert_eq!(
+        encode_key(&Key::Character('a'), Modifiers::ALT, mode),
+        vec![b'a']
+    );
+    // Ctrl+Alt still folds to the control byte, but without the ESC prefix.
+    assert_eq!(
+        encode_key(&Key::Character('c'), Modifiers::CTRL | Modifiers::ALT, mode),
+        vec![0x03]
+    );
+}
+
+#[test]
+fn legacy_meta_sends_escape_off_by_default() {
+    // Without META_SENDS_ESC, a Meta-modified key is unhandled in the legacy
+    // path and falls through to the plain glyph (prior behavior).
+    assert_eq!(
+        encode_key(&Key::Character('a'), Modifiers::META, KeyboardMode::empty()),
+        vec![b'a']
+    );
+}
+
+#[test]
+fn legacy_meta_sends_escape_on_prefixes_esc() {
+    // Mode 1036 SET (META_SENDS_ESC): Meta+key -> ESC + key, mirroring Alt.
+    let mode = KeyboardMode::META_SENDS_ESC;
+    assert_eq!(
+        encode_key(&Key::Character('a'), Modifiers::META, mode),
+        vec![0x1b, b'a']
+    );
+    // Ctrl+Meta folds to the control byte WITH the ESC prefix.
+    assert_eq!(
+        encode_key(
+            &Key::Character('c'),
+            Modifiers::CTRL | Modifiers::META,
+            mode
+        ),
+        vec![0x1b, 0x03]
+    );
+}
+
+#[test]
+fn legacy_special_modifiers_off_strips_numlock() {
+    // Mode 1035 RESET (NO_SPECIAL_MODIFIERS): the NumLock modifier bit is
+    // dropped before encoding, so NumLock alone behaves like no modifier.
+    let mode = KeyboardMode::NO_SPECIAL_MODIFIERS;
+    assert_eq!(
+        encode_key(&Key::Character('a'), Modifiers::NUM_LOCK, mode),
+        vec![b'a']
+    );
+    // With NumLock kept as a special modifier (default), it would NOT be
+    // stripped — but it is also not a legacy chord, so the bare glyph results
+    // either way for a plain character; the load-bearing case is that the flag
+    // does not corrupt an accompanying real modifier:
+    assert_eq!(
+        encode_key(
+            &Key::Character('a'),
+            Modifiers::NUM_LOCK | Modifiers::ALT,
+            mode,
+        ),
+        vec![0x1b, b'a']
+    );
+}

@@ -43,6 +43,22 @@ bitflags! {
         /// of the default DEL (0x7f). Affects only legacy encoding; the Ctrl
         /// modifier inverts it (xterm `backarrowKey`).
         const BACKARROW_SENDS_BS = 1 << 11;
+        /// xterm `altSendsEscape` OFF (DEC private mode 1039 reset): when present,
+        /// an `Alt`-modified key in legacy encoding is sent WITHOUT the ESC (0x1b)
+        /// prefix. Absent (the default) keeps xterm's ESC-prefixed Alt behavior.
+        /// Modeled as a negative flag so the default `empty()` mode preserves the
+        /// historical "Alt always prefixes ESC" contract.
+        const ALT_NO_ESC = 1 << 12;
+        /// xterm `metaSendsEscape` ON (DEC private mode 1036 set): when present,
+        /// a `Meta`-modified key in legacy encoding is prefixed with ESC (0x1b),
+        /// mirroring the `Alt` ESC behavior. Absent (the default) leaves Meta
+        /// unhandled in the legacy path, matching prior behavior.
+        const META_SENDS_ESC = 1 << 13;
+        /// xterm `numLock`/special-modifiers OFF (DEC private mode 1035 reset):
+        /// when present, the `NumLock` modifier bit is NOT treated as a real
+        /// modifier and is stripped before encoding. Absent (the default) keeps
+        /// NumLock as a special modifier, matching xterm's power-on `numLock`.
+        const NO_SPECIAL_MODIFIERS = 1 << 14;
     }
 }
 

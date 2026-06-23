@@ -114,6 +114,110 @@ test.describe('aterm showcase', () => {
       .toBeGreaterThan(5000)
     void nonBg
 
+    // CJK + emoji are NOT tofu: the canvas renderer ships only JetBrains Mono
+    // (Latin), so without the host OS fallback fonts injected over IPC the CJK
+    // "你好世界" run renders as .notdef boxes and the emoji as monochrome/blank.
+    // The CJK+emoji line is the one carrying multi-coloured pixels (emoji), so we
+    // FIND that row band by its colour, then assert: (a) CJK glyphs cover the left
+    // of the band (real glyphs, not boxes), and (b) the emoji band on the right
+    // has many DISTINCT colours (real colour emoji, not mono tofu).
+    const fallback = await orcaPage.evaluate(() => {
+      const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
+      const ctx = c?.getContext('2d')
+      if (!c || !ctx || !c.width) {
+        return null
+      }
+      const W = c.width
+      const H = c.height
+      const d = ctx.getImageData(0, 0, W, H).data
+      const at = (x: number, y: number): [number, number, number] => {
+        const i = (y * W + x) * 4
+        return [d[i], d[i + 1], d[i + 2]]
+      }
+      const bg = at(0, 0)
+      const isBg = (p: [number, number, number]): boolean =>
+        p[0] === bg[0] && p[1] === bg[1] && p[2] === bg[2]
+      // A chromatic pixel (channel spread): neither background nor grey/white
+      // text — the signature of colour emoji (and the colour ramp/gradient/sixel).
+      const isColourful = (p: [number, number, number]): boolean => {
+        const max = Math.max(p[0], p[1], p[2])
+        const min = Math.min(p[0], p[1], p[2])
+        return max - min > 40 && max > 60
+      }
+      // Find the emoji LINE. The emoji band is SPARSE (mostly background, a few
+      // colourful glyph clusters) and MULTI-HUE, unlike the dense, full-width
+      // colour ramp/gradient rows and the single-hue magenta sixel block. So for
+      // each row scan the right ~55% (where the emoji sit, past "CJK 你好世界 …"):
+      // qualify a row by colourful pixels spanning MANY distinct quantised hues,
+      // and pick the row with the most distinct hues.
+      const emojiX0 = Math.floor(W * 0.45)
+      const quant = (p: [number, number, number]): number =>
+        ((p[0] >> 4) << 8) | ((p[1] >> 4) << 4) | (p[2] >> 4)
+      let bestRow = -1
+      let bestHues = 0
+      for (let y = 0; y < H; y++) {
+        const hues = new Set<number>()
+        for (let x = emojiX0; x < W; x++) {
+          const p = at(x, y)
+          if (isColourful(p)) {
+            hues.add(quant(p))
+          }
+        }
+        // The dense ramp/gradient rows live in the LEFT 40% and have ~0 colour in
+        // the right 55%, so they never win here; the magenta sixel is one hue.
+        if (hues.size > bestHues) {
+          bestHues = hues.size
+          bestRow = y
+        }
+      }
+      if (bestRow < 0) {
+        return { found: false }
+      }
+      // Sample a vertical band around the detected row (a glyph spans many rows).
+      const y0 = Math.max(0, bestRow - 10)
+      const y1 = Math.min(H - 1, bestRow + 10)
+      // CJK region: the left ~40% holds "CJK 你好世界  café …". Count non-bg
+      // pixels (real glyphs paint many; blank/sparse .notdef paints far fewer).
+      const cjkX1 = Math.floor(W * 0.4)
+      let cjkNonBg = 0
+      for (let y = y0; y <= y1; y++) {
+        for (let x = 0; x < cjkX1; x++) {
+          if (!isBg(at(x, y))) {
+            cjkNonBg++
+          }
+        }
+      }
+      // Emoji region (right of the CJK/Latin run): count chromatic pixels and the
+      // DISTINCT quantised colours among them — colour emoji yield many; a mono
+      // tofu box or blank slot yields ~0-1.
+      const colours = new Set<number>()
+      let emojiColourful = 0
+      for (let y = y0; y <= y1; y++) {
+        for (let x = emojiX0; x < W; x++) {
+          const p = at(x, y)
+          if (isColourful(p)) {
+            emojiColourful++
+            colours.add(quant(p))
+          }
+        }
+      }
+      return {
+        found: true,
+        cjkNonBg,
+        emojiColourful,
+        distinctEmojiColours: colours.size
+      }
+    })
+
+    expect(fallback?.found).toBe(true)
+    // CJK "你好世界" rendered real glyphs (not blank, not sparse .notdef boxes).
+    expect(fallback?.cjkNonBg ?? 0).toBeGreaterThan(400)
+    // Colour emoji rendered: a meaningful count of chromatic pixels spanning many
+    // distinct colours (rocket/fire/sparkles/crab are multi-hue). Mono tofu or a
+    // blank slot would yield near-zero of each.
+    expect(fallback?.emojiColourful ?? 0).toBeGreaterThan(200)
+    expect(fallback?.distinctEmojiColours ?? 0).toBeGreaterThan(8)
+
     const dataUrl = await orcaPage.evaluate(() => {
       const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
       return c ? c.toDataURL('image/png') : ''

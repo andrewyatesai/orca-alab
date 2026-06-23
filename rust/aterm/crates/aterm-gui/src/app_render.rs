@@ -107,6 +107,42 @@ pub(crate) fn strip_col_for_pixel(
     Some((gx / cw.max(1)).min(cols.saturating_sub(1) as usize) as u16)
 }
 
+/// Selection-drag AUTOSCROLL trigger: given the pointer's raw window pixel `y`, the
+/// interior `pad`, the tab-strip pixel height (`strip_rows * ch`), the cell height
+/// `ch`, and the terminal `rows`, return the number of scrollback lines to move so a
+/// drag PAST the top/bottom viewport edge extends the selection into off-screen
+/// content. Positive = scroll toward OLDER history (drag above the top edge); negative
+/// = scroll toward the live BOTTOM (drag below the bottom edge); `0` = the pointer is
+/// inside the grid, no autoscroll.
+///
+/// The magnitude grows with how far past the edge the pointer is (one line per cell
+/// height of overshoot, min 1), so a fast flick to the window edge scrolls briskly
+/// while a hair past the edge creeps — the familiar text-editor feel. Pure (no
+/// window/term), so the edge math is unit-testable.
+pub(crate) fn selection_autoscroll_lines(
+    y: f64,
+    pad: usize,
+    strip_px: usize,
+    ch: usize,
+    rows: u16,
+) -> i32 {
+    let ch = ch.max(1);
+    let top = (pad + strip_px) as f64; // first device pixel of terminal row 0
+    let bottom = top + (rows as usize * ch) as f64; // one past the last terminal row
+    if y < top {
+        // Above the top edge → scroll into history. One line per cell-height of
+        // overshoot (min 1), so the further out, the faster.
+        let over = (top - y) as usize;
+        (over / ch + 1) as i32
+    } else if y >= bottom {
+        // Below the bottom edge → scroll toward the live bottom (negative offset).
+        let over = (y - bottom) as usize;
+        -((over / ch + 1) as i32)
+    } else {
+        0
+    }
+}
+
 /// Shift the composed frame `dst` DOWN by `strip_rows.len()` rows and prepend those
 /// painted tab-strip rows at the top, keeping every per-row vector
 /// (`cells`/`clusters`/`combining`/`images`/`line_sizes`) aligned and moving the

@@ -219,12 +219,27 @@ impl App {
         // shift-click press (which has no pixel position of its own) can
         // anchor by the half that was pressed. Subtract the `pad` inset first so
         // the half-split lines up with the (padded) cell, matching `pixel_to_cell`.
-        let cw = self.cell_size().0.max(1);
+        let (cw, ch) = self.cell_size();
+        let cw = cw.max(1);
+        let ch = ch.max(1);
         let gx = (x - self.backend.pad() as f64).max(0.0) as usize;
         let side = if (gx % cw) * 2 >= cw {
             SelectionSide::Right
         } else {
             SelectionSide::Left
+        };
+        // Sub-cell pixel offset of the pointer inside its cell, measured from the
+        // real winit cursor (pad- and strip-stripped) so a DEC 1016 (SGR-pixel)
+        // report carries a GENUINE sub-cell coordinate, not a cell-origin one. The
+        // strip occupies the top rows, so subtract its pixel height from `y` before
+        // taking the per-cell remainder (matches `pixel_to_term_cell`). Ignored by
+        // every cell-coordinate encoding — see [`crate::input::PixelOffset`].
+        let strip_px = self.tab_strip_rows as usize * ch;
+        let gy = (y - self.backend.pad() as f64).max(0.0) as usize;
+        let gy = gy.saturating_sub(strip_px);
+        let px_off = crate::input::PixelOffset {
+            x: (gx % cw) as u16,
+            y: (gy % ch) as u16,
         };
         // Phase 0.5: the cell-half (`side`) is GUI-derived (it needs the pixel x),
         // then handed to the seam as DATA. The seam runs the `self.selecting` local
@@ -242,6 +257,20 @@ impl App {
             .get(&wid)
             .and_then(|ws| ws.held_mouse_button)
             .map_or(3u8, |b| b.code());
+        // Remember the sub-cell offset so a follow-up button press / wheel notch
+        // (winit delivers no pixel position on those) reports the same pixel the
+        // pointer last hovered, under DEC 1016.
+        if let Some(ws) = self.windows.get_mut(&wid) {
+            ws.last_mouse_px_off = px_off;
+        }
+        // SELECTION AUTOSCROLL: a drag dragged past the top/bottom grid edge scrolls
+        // the scrollback so the selection extends into off-screen content. Done
+        // BEFORE the MouseMove drag below so `drag_selection` (which maps the row
+        // through the now-updated `display_offset`) grows the selection to the
+        // freshly-revealed edge row. A no-op when no selection drag is active or the
+        // pointer is inside the grid. `row`/`col` are already clamped to the grid by
+        // `pixel_to_cell`, so the edge row is 0 (top) or rows-1 (bottom).
+        self.selection_autoscroll(wid, y);
         self.input(
             wid,
             InputEvent::MouseMove {
@@ -250,6 +279,7 @@ impl App {
                 col,
                 mods,
                 side,
+                px_off,
             },
             Source::Human,
         );
@@ -323,6 +353,48 @@ impl App {
         if let Some(w) = &fws.os_window {
             w.request_redraw();
         }
+    }
+
+    /// While a left-drag selection is in flight, AUTOSCROLL the scrollback when the
+    /// pointer is dragged PAST the top/bottom viewport edge, so the selection can
+    /// extend into content that is currently off-screen (the standard text-editor
+    /// "drag to the edge to keep selecting" gesture). Returns `true` iff the viewport
+    /// actually moved (the caller then re-grows the selection to the freshly-revealed
+    /// edge row and repaints).
+    ///
+    /// A NO-OP unless a selection drag is active (`selecting`) — a plain hover past
+    /// the edge never scrolls. The line count + direction come from the pure
+    /// [`crate::app_render::selection_autoscroll_lines`] (so the edge math is
+    /// unit-testable); `scroll_display` clamps at the history ends, so dragging past
+    /// the oldest/newest line is harmless.
+    pub(crate) fn selection_autoscroll(&mut self, wid: WindowId, y: f64) -> bool {
+        let Some(ws) = self.windows.get(&wid) else {
+            return false;
+        };
+        if !ws.selecting {
+            return false;
+        }
+        let rows = ws.rows;
+        let ch = self.cell_size().1.max(1);
+        let pad = self.backend.pad();
+        let strip_px = self.tab_strip_rows as usize * ch;
+        let lines = crate::app_render::selection_autoscroll_lines(y, pad, strip_px, ch, rows);
+        if lines == 0 {
+            return false;
+        }
+        let Some(ws) = self.windows.get(&wid) else {
+            return false;
+        };
+        let moved = {
+            let mut term = term_lock(&ws.term);
+            let before = term.grid().display_offset();
+            term.scroll_display(lines);
+            term.grid().display_offset() != before
+        };
+        if moved && let Some(w) = &ws.os_window {
+            w.request_redraw();
+        }
+        moved
     }
 
     /// Left press with mouse tracking OFF — the selection-gesture dispatcher.
@@ -485,14 +557,25 @@ impl App {
 
     /// Left release ending a drag: complete the selection — unless the pointer
     /// never left the press cell, in which case a plain click deselects.
-    pub(crate) fn finish_selection(&mut self, wid: WindowId) {
+    ///
+    /// COPY-ON-SELECT: when `copy_on_select` is enabled (config, default off) and
+    /// the release actually COMPLETED a selection (a real drag, not a deselecting
+    /// click), the selected text is copied to the system clipboard right here — no
+    /// explicit Cmd-C needed. The highlight is left intact (`copy_selection` does
+    /// not clear it), so Cmd-C still works on the same selection afterwards.
+    ///
+    /// Returns whether the copy-on-select path FIRED (an opted-in completed drag) —
+    /// the auto-copy trigger, independent of whether `pbcopy` itself succeeded — so
+    /// the firing CONDITION is unit-testable without touching the system clipboard.
+    pub(crate) fn finish_selection(&mut self, wid: WindowId) -> bool {
         let Some(ws) = self.windows.get_mut(&wid) else {
-            return;
+            return false;
         };
+        let completed = ws.sel_dragged;
         {
             let mut term = term_lock(&ws.term);
             let sel = term.text_selection_mut();
-            if ws.sel_dragged {
+            if completed {
                 sel.complete_selection();
             } else {
                 sel.clear();
@@ -503,6 +586,14 @@ impl App {
         if let Some(w) = &ws.os_window {
             w.request_redraw();
         }
+        // A completed drag-select auto-copies when the user opted in. Done AFTER
+        // the borrow above ends (it re-locks the term to stringify the selection)
+        // and only for a real selection — a plain click that cleared never copies.
+        let fired = completed && self.copy_on_select;
+        if fired {
+            self.copy_selection();
+        }
+        fired
     }
 
     /// The URL under the pointer, if any: an (authorized) OSC 8 hyperlink on the
@@ -615,6 +706,14 @@ impl App {
             .windows
             .get(&wid)
             .map_or(SelectionSide::Left, |ws| ws.last_mouse_side);
+        // The sub-cell pixel offset of the last pointer move (a press carries no
+        // pixel of its own) so a DEC 1016 press/release lands on the genuine pixel.
+        let px_off = self
+            .windows
+            .get(&wid)
+            .map_or(crate::input::PixelOffset::CELL_ORIGIN, |ws| {
+                ws.last_mouse_px_off
+            });
         // Snapshot the block-select intent (held Alt/Option) HERE, at build time,
         // into event DATA — so the seam's selection-type decision is source-blind
         // (it reads `block`, never `self.mods`). A controller sends `block=1` for
@@ -637,6 +736,7 @@ impl App {
                 click_count,
                 side,
                 block,
+                px_off,
             },
             Source::Human,
         );
@@ -677,6 +777,12 @@ impl App {
             .get(&wid)
             .map_or((0, 0), |ws| ws.last_mouse_cell);
         let mods = self.mouse_modifiers(wid);
+        let px_off = self
+            .windows
+            .get(&wid)
+            .map_or(crate::input::PixelOffset::CELL_ORIGIN, |ws| {
+                ws.last_mouse_px_off
+            });
         // Phase 0.5: the seam decides tracking-ON (N reports / N lines — kills e)
         // vs tracking-OFF (scroll the viewport `lines`) under one mode read.
         self.input(
@@ -687,6 +793,7 @@ impl App {
                 row,
                 col,
                 mods,
+                px_off,
             },
             Source::Human,
         );

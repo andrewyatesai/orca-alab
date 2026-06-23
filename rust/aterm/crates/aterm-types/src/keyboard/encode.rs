@@ -421,8 +421,17 @@ fn shifted_character(c: char, modifiers: Modifiers) -> Option<char> {
 
 /// Encode using legacy terminal sequences.
 fn encode_legacy(key: &Key, modifiers: Modifiers, mode: KeyboardMode) -> Vec<u8> {
+    // DEC private mode 1035 (xterm `numLock`): when reset the terminal advertises
+    // `NO_SPECIAL_MODIFIERS`, so NumLock is no longer treated as a real modifier
+    // and is dropped before any encoding decision is made (both the character and
+    // named paths see the normalized set).
+    let modifiers = if mode.contains(KeyboardMode::NO_SPECIAL_MODIFIERS) {
+        modifiers & !Modifiers::NUM_LOCK
+    } else {
+        modifiers
+    };
     match key {
-        Key::Character(c) => encode_character_legacy(*c, modifiers),
+        Key::Character(c) => encode_character_legacy(*c, modifiers, mode),
         Key::Named(named) => encode_named_legacy(*named, modifiers, mode),
     }
 }

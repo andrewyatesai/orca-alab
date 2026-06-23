@@ -12,6 +12,7 @@ use aterm_render::Theme;
 use winit::dpi::PhysicalSize;
 
 use crate::input::{InputEvent, Source};
+use crate::platform::AppRt;
 use crate::{
     App, Backend, FONT_PX, FONT_PX_MAX, FONT_PX_MIN, PresentTarget, WindowId, build_backend,
     keybinding, pad_for_scale, term_lock,
@@ -81,6 +82,13 @@ pub(crate) struct Config {
     /// produces the OS-composed character (`å`) instead. ABSENT keeps the current
     /// default (Meta), so no config = byte-identical. See [`Config::option_as_meta_or_default`].
     pub(crate) option_as_meta: Option<bool>,
+    /// Copy a mouse selection to the system clipboard automatically the moment a
+    /// drag-select completes (mouse-up), so no explicit Cmd-C is needed. DEFAULT
+    /// OFF (ghostty's own default `copy-on-select = false` — macOS users expect an
+    /// explicit copy and the primary-selection convention is X11, not macOS). The
+    /// selection is left highlighted either way, so Cmd-C still works. See
+    /// [`Config::copy_on_select_or_default`].
+    pub(crate) copy_on_select: Option<bool>,
     /// User keyboard shortcuts: a `[keybindings]` table mapping chord strings
     /// (`"cmd+shift+t"`) to action names (`"new_tab"`). Parsed into a
     /// `HashMap<Chord, Action>` checked first in `on_key`; a miss falls through to
@@ -201,6 +209,14 @@ impl Config {
         self.option_as_meta.unwrap_or(true)
     }
 
+    /// Whether a completed mouse selection auto-copies to the clipboard. DEFAULT
+    /// when absent is `false` — ghostty's own default (`copy-on-select = false`),
+    /// and the macOS expectation is an explicit copy. Setting `copy_on_select =
+    /// true` opts into the X11-style copy-on-select convenience.
+    pub(crate) fn copy_on_select_or_default(&self) -> bool {
+        self.copy_on_select.unwrap_or(false)
+    }
+
     /// Resolve the window-chrome appearance ([`WindowTheme`]) from config. The
     /// DEFAULT when the key is absent is [`WindowTheme::Auto`] — follow the OS
     /// effective appearance — so an unset config no longer forces dark chrome on a
@@ -224,7 +240,7 @@ impl Config {
 /// Window-CHROME appearance (titlebar + traffic lights), distinct from the
 /// terminal-body color scheme. Resolved from config `window_theme` via
 /// [`Config::window_theme_or_default`] and applied to the NSWindow appearance in
-/// `app_window::match_window_colorspace_to_content` (macOS).
+/// `platform::AppRtMacOS::window_set_appearance` (macOS).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(crate) enum WindowTheme {
     /// Follow the OS light/dark setting (no `NSAppearance` override), so the
@@ -784,6 +800,9 @@ impl App {
         // default (Meta) — both diff-free, costing nothing when unchanged.
         self.keybindings = keybinding::Keybindings::from_config(config.keybindings.as_ref());
         self.option_as_meta = config.option_as_meta_or_default();
+        // Copy-on-select is a live input-policy toggle: a reload that flips it takes
+        // effect on the next selection (dropping the key reverts to the off default).
+        self.copy_on_select = config.copy_on_select_or_default();
 
         // Tab-strip rows are window chrome: a change re-splits the window between the
         // strip and the terminal, so re-grid (like a resize) if it changed.
@@ -877,14 +896,15 @@ impl App {
             // already differs the cache key, which folds in `cols`).
             if theme_changed {
                 let bg = self.theme.bg;
+                let apprt = &self.apprt;
                 for ws in self.windows.values_mut() {
                     ws.last_strip_fp = None;
-                    // Keep the seamless titlebar (set_window_background_color) in step
+                    // Keep the seamless titlebar (window_set_background_color) in step
                     // with the new terminal bg, so a live theme change does not reopen a
-                    // colour seam between the compact bar and the terminal body.
-                    #[cfg(target_os = "macos")]
+                    // colour seam between the compact bar and the terminal body. No-op
+                    // off macOS (the Linux apprt does nothing here).
                     if let Some(w) = ws.os_window.as_ref() {
-                        crate::app_window::set_window_background_color(w, bg);
+                        apprt.window_set_background_color(w, bg);
                     }
                 }
             }

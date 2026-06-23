@@ -539,6 +539,7 @@ pub(crate) fn parse_mouse(rest: &str) -> Result<InputEvent, String> {
                     col,
                     mods,
                     side,
+                    px_off: crate::input::PixelOffset::CELL_ORIGIN,
                 }
             }
             [b, r, c] => {
@@ -550,6 +551,7 @@ pub(crate) fn parse_mouse(rest: &str) -> Result<InputEvent, String> {
                     col,
                     mods,
                     side,
+                    px_off: crate::input::PixelOffset::CELL_ORIGIN,
                 }
             }
             _ => return Err(MOUSE_USAGE.to_string()),
@@ -572,6 +574,7 @@ pub(crate) fn parse_mouse(rest: &str) -> Result<InputEvent, String> {
                     click_count,
                     side,
                     block,
+                    px_off: crate::input::PixelOffset::CELL_ORIGIN,
                 },
                 "release" => InputEvent::MouseButton {
                     button,
@@ -582,6 +585,7 @@ pub(crate) fn parse_mouse(rest: &str) -> Result<InputEvent, String> {
                     click_count,
                     side,
                     block,
+                    px_off: crate::input::PixelOffset::CELL_ORIGIN,
                 },
                 "wheelup" => InputEvent::Wheel {
                     dir_up: true,
@@ -589,6 +593,7 @@ pub(crate) fn parse_mouse(rest: &str) -> Result<InputEvent, String> {
                     row,
                     col,
                     mods,
+                    px_off: crate::input::PixelOffset::CELL_ORIGIN,
                 },
                 _ => InputEvent::Wheel {
                     dir_up: false,
@@ -596,6 +601,7 @@ pub(crate) fn parse_mouse(rest: &str) -> Result<InputEvent, String> {
                     row,
                     col,
                     mods,
+                    px_off: crate::input::PixelOffset::CELL_ORIGIN,
                 },
             }
         }

@@ -121,6 +121,40 @@ pub struct TerminalModes {
     /// instead of the default DEL (0x7f). Folded into the legacy `KeyboardMode`.
     /// Off by default (DEL), matching xterm's power-on `backarrowKey` state.
     pub backarrow_sends_bs: bool,
+    /// xterm `numLock` / special modifiers (DEC private mode 1035).
+    ///
+    /// When set (the power-on default, matching xterm's `numLock` resource),
+    /// `NumLock` (and `Alt`) act as real keyboard modifiers. When reset, the
+    /// `NumLock` modifier bit is stripped before keyboard encoding so it no
+    /// longer participates in modifier composition. Folded into the legacy
+    /// `KeyboardMode` (as the negative flag `NO_SPECIAL_MODIFIERS` when reset).
+    /// Default `true`, set by [`TerminalModes::new`].
+    pub special_modifiers: bool,
+    /// xterm `metaSendsEscape` (DEC private mode 1036).
+    ///
+    /// When set, a `Meta`-modified key is prefixed with ESC (0x1b) in legacy
+    /// encoding, mirroring the `Alt` ESC behavior. When reset (the default),
+    /// `Meta` is left unhandled in the legacy path. Folded into the legacy
+    /// `KeyboardMode` as `META_SENDS_ESC` when set. Default `false`.
+    pub meta_send_escape: bool,
+    /// xterm `altSendsEscape` (DEC private mode 1039).
+    ///
+    /// When set (the default in this engine, preserving the historical
+    /// "Alt always prefixes ESC" contract), an `Alt`-modified key is prefixed
+    /// with ESC (0x1b) in legacy encoding. When reset, the ESC prefix is
+    /// suppressed and the bare key is sent. Folded into the legacy
+    /// `KeyboardMode` as the negative flag `ALT_NO_ESC` when reset. Default
+    /// `true`, set by [`TerminalModes::new`].
+    pub alt_send_escape: bool,
+    /// DEC private mode 1045: tracked-only xterm private mode.
+    ///
+    /// xterm does not assign a keyboard-input meaning to mode 1045 (it is not
+    /// one of the `numLock`/`metaSendsEscape`/`altSendsEscape` keyboard
+    /// resources), so this is implemented as a minimal tracked DEC private
+    /// flag — DECSET/DECRST toggle it and DECRQM reports it — without any
+    /// effect on encoding, mirroring how other tracked-but-minimal modes are
+    /// handled. Default `false` (reset).
+    pub mode_1045: bool,
     /// DEC private mode 2048: in-band size reports. When set, the terminal emits
     /// `CSI 48 ; rows ; cols ; pixH ; pixW t` on enable and on every resize, so
     /// apps (neovim 0.10+) learn the geometry without an ioctl. Off by default.
@@ -295,6 +329,11 @@ impl TerminalModes {
             // VT520 DECSACE: the power-on extent is Ps = 0 = character
             // stream (xterm's cur_decsace likewise starts non-exact).
             stream_attribute_extent: true,
+            // xterm keyboard power-on defaults: `numLock` (mode 1035) and
+            // `altSendsEscape` (mode 1039) are ON; `metaSendsEscape` (mode 1036)
+            // is left OFF so the legacy path keeps its prior Meta behavior.
+            special_modifiers: true,
+            alt_send_escape: true,
             ..Default::default()
         }
     }

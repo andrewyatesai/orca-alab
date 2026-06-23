@@ -4,135 +4,23 @@
 //! Window lifecycle: logical + OS window create/attach/close/focus orchestration
 //! (`create_window_logical`/`create_window_internal`/`attach_os_window`,
 //! `close_window`/`close_window_logical`/`escalate_pending_close`, focus
-//! bookkeeping), the `front`/`front_mut` accessors, and `apply_title`. Plus the
-//! macOS colour-space match. A verbatim inherent-impl split of `App`.
+//! bookkeeping), the `front`/`front_mut` accessors, and `apply_title`. The native
+//! window chrome (colour-space/appearance, background, toolbar, menu) is reached
+//! through the platform [`crate::platform::AppRt`] seam. A verbatim inherent-impl
+//! split of `App`.
 
 use std::sync::Arc;
 
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
-#[cfg(target_os = "macos")]
-use crate::app_config::WindowTheme;
 use crate::app_config::resolve_force_scale;
+use crate::platform::AppRt;
 use crate::spawn::spawn_session;
 use crate::{
     App, Backend, CloseOutcome, FONT_PX, FONT_PX_MAX, FONT_PX_MIN, PresentTarget, Session,
-    TabIndex, WindowId, WindowState, build_backend, menu, pad_for_scale, pane, toolbar,
+    TabIndex, WindowId, WindowState, build_backend, pad_for_scale, pane,
 };
-
-/// Make the window's colour space match softbuffer's device-RGB content so
-/// CoreAnimation does NOT run a per-frame colour-space conversion on the main
-/// thread. softbuffer (`backends/cg.rs`) builds its CGImage with
-/// `CGColorSpace::new_device_rgb()`; on a wide-gamut (P3) display CoreAnimation
-/// otherwise converts device-RGB → display-P3 on *every* commit
-/// (`CA::Render::prepare_image` → `vImageConvert_AnyToAny`) — profiled at ~half of
-/// all present cost during heavy output. Tagging the NSWindow device-RGB makes
-/// content and window the same space, so the conversion is skipped; the final
-/// space→panel mapping is done once by the WindowServer, not per app frame.
-/// aterm's framebuffer pixels are unchanged — only the redundant gamut round-trip
-/// is removed. `$ATERM_NO_COLORSPACE_MATCH` opts out.
-#[cfg(target_os = "macos")]
-pub(crate) fn match_window_colorspace_to_content(window: &Window, window_theme: WindowTheme) {
-    use objc2_app_kit::{NSColorSpace, NSView};
-    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    let Ok(handle) = window.window_handle() else {
-        return;
-    };
-    let RawWindowHandle::AppKit(h) = handle.as_raw() else {
-        return;
-    };
-    // SAFETY: `ns_view` points at this window's live NSView (owned by winit for
-    // the window's lifetime); we only borrow it — on the main thread, as AppKit
-    // requires — to read its `window` and configure it.
-    let view: &NSView = unsafe { &*(h.ns_view.as_ptr() as *const NSView) };
-    let Some(ns_window) = view.window() else {
-        return;
-    };
-    // Colour-space match (device-RGB) — see fn doc. SAFETY: standard AppKit calls.
-    if std::env::var_os("ATERM_NO_COLORSPACE_MATCH").is_none() {
-        unsafe {
-            let cs = NSColorSpace::deviceRGBColorSpace();
-            ns_window.setColorSpace(Some(&cs));
-        }
-    }
-    // Ghostty-style unified chrome: a transparent titlebar so the window frame
-    // (titlebar + traffic lights) reads as a seamless extension of the terminal
-    // body. The titlebar's LIGHT/DARK appearance now follows config `window_theme`
-    // ([`WindowTheme`]): Dark -> NSAppearanceNameDarkAqua, Light ->
-    // NSAppearanceNameAqua, Auto -> leave the appearance UNSET so the window tracks
-    // the OS `effectiveAppearance` (including live day-night switches). This
-    // replaces the old unconditional dark force that left light-desktop users with
-    // permanently dark chrome. `ATERM_NO_DARK_CHROME` still forces Auto (no
-    // override) regardless of config, for callers that scripted the old opt-out.
-    // SAFETY: `appearanceNamed:`/`setAppearance:`/`setTitlebarAppearsTransparent:` are
-    // standard NSWindow/NSAppearance calls on the main thread; the appearance object
-    // is autoreleased and used immediately within this pool.
-    let resolved = if std::env::var_os("ATERM_NO_DARK_CHROME").is_some() {
-        WindowTheme::Auto
-    } else {
-        window_theme
-    };
-    let appearance_name: Option<&str> = match resolved {
-        WindowTheme::Auto => None,
-        WindowTheme::Light => Some("NSAppearanceNameAqua"),
-        WindowTheme::Dark => Some("NSAppearanceNameDarkAqua"),
-    };
-    unsafe {
-        use objc2::runtime::AnyObject;
-        use objc2::{class, msg_send};
-        use objc2_foundation::NSString;
-        if let Some(name) = appearance_name {
-            let name = NSString::from_str(name);
-            let appearance: *mut AnyObject =
-                msg_send![class!(NSAppearance), appearanceNamed: &*name];
-            if !appearance.is_null() {
-                let _: () = msg_send![&*ns_window, setAppearance: appearance];
-            }
-        }
-        // Transparent titlebar is desired in every mode (it is the chrome-unification
-        // half, independent of light/dark).
-        let _: () = msg_send![&*ns_window, setTitlebarAppearsTransparent: true];
-    }
-}
-
-/// Paint the NSWindow background the terminal's theme background colour (`bg`, as
-/// `0x00RRGGBB`), so the transparent titlebar and the bare single-tab compact bar
-/// read as a SEAMLESS extension of the terminal body rather than a distinct, lighter
-/// chrome strip. This is the window-level half of the Ghostty "transparent" titlebar
-/// look (the toolbar.rs strip toggling is the other half). The terminal content view
-/// (softbuffer/Metal layer) paints its own background over the content area, so this
-/// colour only ever shows in the titlebar region the content view does not cover.
-///
-/// Best-effort, mirroring [`match_window_colorspace_to_content`]: off the main thread
-/// or with no AppKit `NSWindow`, it is simply a no-op.
-#[cfg(target_os = "macos")]
-pub(crate) fn set_window_background_color(window: &Window, bg: u32) {
-    use objc2_app_kit::{NSColor, NSView};
-    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    let Ok(handle) = window.window_handle() else {
-        return;
-    };
-    let RawWindowHandle::AppKit(h) = handle.as_raw() else {
-        return;
-    };
-    // SAFETY: `ns_view` points at this window's live NSView (owned by winit for the
-    // window's lifetime); we only borrow it — on the main thread, as AppKit requires —
-    // to reach its `window` and set the background colour.
-    let view: &NSView = unsafe { &*(h.ns_view.as_ptr() as *const NSView) };
-    let Some(ns_window) = view.window() else {
-        return;
-    };
-    let r = f64::from((bg >> 16) & 0xff) / 255.0;
-    let g = f64::from((bg >> 8) & 0xff) / 255.0;
-    let b = f64::from(bg & 0xff) / 255.0;
-    // SAFETY: standard AppKit colour construction + a plain setter on the main thread;
-    // the colour is autoreleased and consumed within this call.
-    unsafe {
-        let color = NSColor::colorWithSRGBRed_green_blue_alpha(r, g, b, 1.0);
-        ns_window.setBackgroundColor(Some(&color));
-    }
-}
 
 impl App {
     /// The frontmost logical window's state (immutable). Transitional — every
@@ -326,7 +214,7 @@ impl App {
         if self._menu.is_none()
             && let Some(proxy) = self.proxy.as_ref()
         {
-            self._menu = menu::install(proxy);
+            self._menu = self.apprt.install_menu(proxy);
         }
         // IME-1: opt into IME so the window receives `WindowEvent::Ime`
         // (Preedit/Commit) for CJK/dead-key/Option composition. Never enabled
@@ -402,7 +290,7 @@ impl App {
         // never reached under `--headless`. Cloning the proxy avoids borrowing `self`
         // immutably (proxy) and mutably (`_toolbars`) at once.
         if let Some(proxy) = self.proxy.clone()
-            && let Some(handle) = toolbar::install_window_toolbar(&window, &proxy, wid)
+            && let Some(handle) = self.apprt.install_toolbar(&window, &proxy, wid)
         {
             self._toolbars.insert(wid, handle);
         }
@@ -410,9 +298,10 @@ impl App {
         // transparent titlebar — and the bare single-tab compact bar — reads as a
         // seamless extension of the terminal body instead of a distinct lighter chrome
         // strip (Ghostty's "transparent" titlebar look). Runs for BOTH backends: the
-        // GPU arm `return`s below, so this must precede the split. No-op off macOS.
-        #[cfg(target_os = "macos")]
-        set_window_background_color(&window, self.theme.bg);
+        // GPU arm `return`s below, so this must precede the split. No-op off macOS
+        // (the Linux apprt's `window_set_background_color` does nothing).
+        self.apprt
+            .window_set_background_color(&window, self.theme.bg);
         if self.backend.is_gpu() {
             // GPU mode: a wgpu swapchain on the SAME instance/adapter as the
             // offscreen renderer. The offscreen frame is blitted into it and
@@ -451,11 +340,11 @@ impl App {
         let context = softbuffer::Context::new(window.clone()).expect("softbuffer context");
         let surface =
             softbuffer::Surface::new(&context, window.clone()).expect("softbuffer surface");
-        // Drop CoreAnimation's per-frame colour-space conversion (see fn docs):
-        // softbuffer tags its content device-RGB; match the window so the
-        // compositor doesn't CMS-convert every frame on the main thread.
-        #[cfg(target_os = "macos")]
-        match_window_colorspace_to_content(&window, self.window_theme);
+        // Drop CoreAnimation's per-frame colour-space conversion (see the apprt
+        // method's docs): softbuffer tags its content device-RGB; match the window
+        // so the compositor doesn't CMS-convert every frame on the main thread. Also
+        // sets the titlebar light/dark appearance. No-op off macOS.
+        self.apprt.window_set_appearance(&window, self.window_theme);
         self.winit_to_window.insert(window.id(), wid);
         if let Some(ws) = self.windows.get_mut(&wid) {
             ws.os_window = Some(window);

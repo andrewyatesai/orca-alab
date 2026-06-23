@@ -1,4 +1,5 @@
 import { loadAtermGpu } from './load-aterm-gpu'
+import { injectTerminalFallbackFonts } from './inject-terminal-fallback-fonts'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer-config'
@@ -43,6 +44,9 @@ export async function loadAtermGpuDrawer(
     themeColors.cursor,
     themeColors.selection
   )
+  // Inject the local OS CJK + colour-emoji fallback faces BEFORE init so the
+  // engine re-applies them to the GPU face it builds there (else CJK/emoji tofu).
+  await injectTerminalFallbackFonts(gpuTerm)
   // ASYNC: acquire the GPU + create the WebGL2 surface on this canvas. Throws a
   // JS string if WebGL is unavailable; the caller catches → CPU fallback.
   await gpuTerm.init(canvas)

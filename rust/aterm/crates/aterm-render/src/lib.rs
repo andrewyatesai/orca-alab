@@ -1352,6 +1352,31 @@ impl Renderer {
         Ok(())
     }
 
+    /// Install a monochrome SYMBOL fallback face from explicit bytes (eagerly).
+    /// Consulted only after the primary + broad fallback miss; mirrors
+    /// [`set_fallback_bytes`] for the symbol slot. Clearing the candidate paths
+    /// stops the lazy system scan from later overwriting the injected face.
+    pub fn set_symbol_fallback_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        let f = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
+            .map_err(|e| e.to_string())?;
+        self.symbol_fallback = Some(f);
+        self.symbol_fallback_paths.clear();
+        Ok(())
+    }
+
+    /// Install the colour-emoji (sbix) font from explicit bytes (eagerly).
+    /// Mirrors how [`ensure_color_font`] populates `color_font`, so the existing
+    /// ColorEmoji colour path renders the injected emoji face. Clearing the
+    /// candidate paths stops the lazy system scan from later overwriting it. Bytes
+    /// are validated as a parseable face (a `ttf_parser::Face` borrows them per
+    /// rasterization), so a bad blob fails loudly instead of yielding tofu later.
+    pub fn set_color_font_bytes(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        ttf_parser::Face::parse(&bytes, 0).map_err(|e| e.to_string())?;
+        self.color_font = Some(bytes);
+        self.color_font_paths.clear();
+        Ok(())
+    }
+
     /// Build from the first available system monospace font ($ATERM_FONT first).
     /// The Unicode fallback ($ATERM_FALLBACK_FONT first) is recorded but loaded
     /// LAZILY on the first code point that misses the primary face.

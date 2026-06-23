@@ -53,6 +53,7 @@ mod menu;
 mod metrics;
 mod notify;
 mod pane;
+mod platform;
 mod proxy;
 mod session_store;
 mod snapshot_path;
@@ -68,6 +69,7 @@ use app_config::{
 use app_search::{MAX_SEARCH_HISTORY, SearchState};
 use cli::{Cli, parse_cli};
 use input::{InputEvent, InputOutcome, Source};
+use platform::AppRt;
 use spawn::{SessionFactory, spawn_session};
 
 // Default glyph rasterization size in PHYSICAL px. On a 2× Retina display the
@@ -987,6 +989,12 @@ struct WindowState {
     /// carries no pixel position of its own) can tell whether the pointer is over
     /// the tab strip ([`Self::strip_col_at`]) before mapping to a terminal cell.
     last_cursor_px: (f64, f64),
+    /// Sub-cell pixel offset of the last pointer move inside its grid cell, so a
+    /// button press / wheel notch (winit delivers no pixel position on those) can
+    /// still report a genuine sub-cell PIXEL coordinate under DEC 1016 (SGR-pixel
+    /// mouse mode). Updated on every `CursorMoved`; `CELL_ORIGIN` until the first
+    /// move. Ignored by every cell-coordinate encoding — see [`crate::input::PixelOffset`].
+    last_mouse_px_off: crate::input::PixelOffset,
     /// Whether the OS cursor is currently the link "pointer" (Cmd-hovering a link),
     /// so `set_cursor` is only called on a state change, not every mouse move.
     hover_pointer: bool,
@@ -1150,6 +1158,7 @@ impl WindowState {
             last_mouse_cell: (0, 0),
             last_mouse_window_cell: (0, 0),
             last_cursor_px: (0.0, 0.0),
+            last_mouse_px_off: crate::input::PixelOffset::CELL_ORIGIN,
             hover_pointer: false,
             selecting: false,
             sel_dragged: false,
@@ -1184,6 +1193,13 @@ impl WindowState {
 }
 
 struct App {
+    /// The native application-runtime (`apprt`) seam: the platform impl that backs
+    /// every OS-integration operation (window chrome colour/appearance, menu bar,
+    /// toolbar tab strip, notification delivery). [`platform::AppRtMacOS`] on macOS
+    /// (runs the real objc2 calls), [`platform::AppRtLinux`] elsewhere (graceful
+    /// no-ops). Zero-sized, so it costs nothing; routing through it keeps the rest
+    /// of `App` platform-neutral.
+    apprt: platform::PlatformAppRt,
     /// Process-global pool that OWNS every live `Session` (≥1), keyed by stable
     /// id and refcounted by view-count. Each window's `tab_ids`/`tabs` index INTO
     /// this pool; the active tab's `term`/`master` are mirrored into the front
@@ -1315,10 +1331,15 @@ struct App {
     /// `option_as_meta`, default `true`). When `false`, Option types the OS-
     /// composed character instead. Read in `on_key`. GLOBAL (window-uniform).
     option_as_meta: bool,
+    /// Whether a completed mouse selection auto-copies to the system clipboard
+    /// (config `copy_on_select`, default `false` — ghostty's own default). Read in
+    /// `finish_selection` when a drag-select settles. Live-reloadable. GLOBAL
+    /// (window-uniform).
+    copy_on_select: bool,
     /// Window-CHROME appearance (config `window_theme`, default
     /// [`WindowTheme::Auto`]): Auto follows the OS effective appearance, Light/Dark
     /// force an `NSAppearance`. Applied to the NSWindow in
-    /// [`app_window::match_window_colorspace_to_content`] at window attach. GLOBAL
+    /// [`platform::AppRt::window_set_appearance`] at window attach. GLOBAL
     /// (window-uniform); macOS-only effect (inert elsewhere).
     window_theme: app_config::WindowTheme,
     /// User keyboard shortcuts (config `[keybindings]`). Consulted FIRST in
@@ -1574,7 +1595,7 @@ impl App {
         // seed the suppression set with {0} — byte-identical to the old
         // focused=true/active=0 pair.
         let notify_suppress = Arc::new(Mutex::new(std::collections::HashSet::from([0u64])));
-        let notify_tx = notify::spawn_delivery(notify_suppress.clone());
+        let notify_tx = platform::platform_apprt().send_notification_init(notify_suppress.clone());
 
         let theme = Theme::default();
         // A real CPU renderer (the test env has a system monospace font, exactly as
@@ -1616,6 +1637,7 @@ impl App {
         pool.insert(session0);
 
         App {
+            apprt: platform::platform_apprt(),
             pool,
             next_session_id: 1,
             hold: false,
@@ -1633,6 +1655,7 @@ impl App {
             theme,
             font_family: None,
             option_as_meta: true,
+            copy_on_select: false,
             window_theme: app_config::WindowTheme::default(),
             keybindings: keybinding::Keybindings::default(),
             windows: {
@@ -2890,7 +2913,7 @@ fn main() {
     // initial App state (focused window, tab 0 / session 0 active). `notify_tx` is
     // cloned into each tab's engine callbacks via the factory.
     let notify_suppress = Arc::new(Mutex::new(std::collections::HashSet::from([0u64])));
-    let notify_tx = notify::spawn_delivery(notify_suppress.clone());
+    let notify_tx = platform::platform_apprt().send_notification_init(notify_suppress.clone());
 
     // The session factory captures everything a NEW tab's `spawn_session` needs
     // (the by-reference spawn/sandbox caps from the SINGLE root authority above,
@@ -3065,6 +3088,7 @@ fn main() {
     pool.insert(session0);
 
     let mut app = App {
+        apprt: platform::platform_apprt(),
         pool,
         next_session_id: 1,
         hold,
@@ -3083,6 +3107,7 @@ fn main() {
         // GLOBAL config (window-uniform): font family, Option-as-Meta, keybindings.
         font_family,
         option_as_meta: config.option_as_meta_or_default(),
+        copy_on_select: config.copy_on_select_or_default(),
         window_theme: config.window_theme_or_default(),
         keybindings: keybinding::Keybindings::from_config(config.keybindings.as_ref()),
         windows: {
@@ -3705,6 +3730,72 @@ mod multi_window_tests {
         );
         assert_eq!(app.pool.views(0), None, "the session is gone from the pool");
         assert_eq!(app.pool.iter().count(), 0, "the pool is empty");
+    }
+
+    /// COPY-ON-SELECT fires on selection-COMPLETE only when opted in. A completed
+    /// drag-select (`sel_dragged == true`) with `copy_on_select == true` triggers the
+    /// auto-copy (the `finish_selection` return reports the firing, independent of the
+    /// system clipboard); the SAME drag with the toggle OFF does NOT fire; and a plain
+    /// click (no drag, `sel_dragged == false`) never fires even when opted in. The
+    /// selection is also LEFT intact after an opted-in copy so a follow-up Cmd-C works.
+    #[test]
+    fn copy_on_select_fires_only_on_completed_drag_when_enabled() {
+        use aterm_core::selection::{SelectionSide, SelectionType};
+
+        // Arm a real (non-empty) selection over some on-screen text, then mark the
+        // window mid-drag so `finish_selection` treats the release as a completed drag.
+        fn arm_drag(app: &mut App) {
+            let ws = app.windows.get(&WindowId(0)).expect("window 0");
+            {
+                let mut term = crate::term_lock(&ws.term);
+                term.process(b"hello world");
+                let sel = term.text_selection_mut();
+                sel.start_selection(0, 0, SelectionSide::Left, SelectionType::Simple);
+                sel.update_selection(0, 4, SelectionSide::Right);
+            }
+            let ws = app.windows.get_mut(&WindowId(0)).expect("window 0");
+            ws.selecting = true;
+            ws.sel_dragged = true;
+        }
+
+        // OFF (the default): a completed drag does NOT auto-copy.
+        let mut app = App::headless_for_test();
+        assert!(!app.copy_on_select, "default is off (ghostty parity)");
+        arm_drag(&mut app);
+        assert!(
+            !app.finish_selection(WindowId(0)),
+            "copy-on-select must NOT fire when the toggle is off"
+        );
+
+        // ON: a completed drag auto-copies, and the highlight survives the copy.
+        let mut app = App::headless_for_test();
+        app.copy_on_select = true;
+        arm_drag(&mut app);
+        assert!(
+            app.finish_selection(WindowId(0)),
+            "copy-on-select must fire on a completed drag when enabled"
+        );
+        {
+            let ws = app.windows.get(&WindowId(0)).expect("window 0");
+            assert!(
+                crate::term_lock(&ws.term).text_selection().has_selection(),
+                "the selection is preserved after copy-on-select (Cmd-C still works)"
+            );
+        }
+
+        // ON but a PLAIN CLICK (no drag): `finish_selection` clears the selection and
+        // never copies — auto-copy is for real selections only.
+        let mut app = App::headless_for_test();
+        app.copy_on_select = true;
+        {
+            let ws = app.windows.get_mut(&WindowId(0)).expect("window 0");
+            ws.selecting = true;
+            ws.sel_dragged = false; // a press+release within one cell: a deselecting click
+        }
+        assert!(
+            !app.finish_selection(WindowId(0)),
+            "a plain click never auto-copies, even when enabled"
+        );
     }
 
     /// REGRESSION (audit): a CO-VIEWED (Cmd-Shift-O) session has ONE reader thread,
@@ -4816,6 +4907,29 @@ mod tests {
             toml::from_str::<Config>("option_as_meta = true")
                 .unwrap()
                 .option_as_meta_or_default()
+        );
+    }
+
+    /// `copy_on_select` defaults to `false` (ghostty's own default — macOS expects
+    /// an explicit copy) when absent; an explicit `true` opts into the X11-style
+    /// copy-on-select convenience.
+    #[test]
+    fn copy_on_select_defaults_false() {
+        assert!(!Config::default().copy_on_select_or_default());
+        assert!(
+            !toml::from_str::<Config>("font_px = 18.0")
+                .unwrap()
+                .copy_on_select_or_default()
+        );
+        assert!(
+            toml::from_str::<Config>("copy_on_select = true")
+                .unwrap()
+                .copy_on_select_or_default()
+        );
+        assert!(
+            !toml::from_str::<Config>("copy_on_select = false")
+                .unwrap()
+                .copy_on_select_or_default()
         );
     }
 
@@ -7446,6 +7560,72 @@ mod tab_strip_math_tests {
         assert_eq!(frame.cells, snapshot, "no strip → grid unchanged");
         assert_eq!(frame.rows, rows);
         assert_eq!(frame.cursor_row, cursor);
+    }
+
+    /// SELECTION AUTOSCROLL trigger: a pointer INSIDE the grid never autoscrolls
+    /// (`0`); ABOVE the top edge scrolls into history (positive, toward older
+    /// content); BELOW the bottom edge scrolls toward the live bottom (negative);
+    /// and the magnitude grows one line per cell-height of overshoot.
+    #[test]
+    fn selection_autoscroll_edges() {
+        use crate::app_render::selection_autoscroll_lines;
+        // 16px cells, no pad, no strip, 24 rows → grid spans y ∈ [0, 384).
+        let (ch, pad, strip_px, rows) = (16usize, 0usize, 0usize, 24u16);
+        // Inside the grid → no autoscroll.
+        assert_eq!(selection_autoscroll_lines(0.0, pad, strip_px, ch, rows), 0);
+        assert_eq!(
+            selection_autoscroll_lines(200.0, pad, strip_px, ch, rows),
+            0
+        );
+        assert_eq!(
+            selection_autoscroll_lines(383.0, pad, strip_px, ch, rows),
+            0
+        );
+        // Just above the top edge → +1 (one line into history).
+        assert_eq!(selection_autoscroll_lines(-1.0, pad, strip_px, ch, rows), 1);
+        // A full cell-height above → +2 (overshoot/ch + 1).
+        assert_eq!(
+            selection_autoscroll_lines(-16.0, pad, strip_px, ch, rows),
+            2
+        );
+        // At/below the bottom edge (y == 384) → -1 (toward the live bottom).
+        assert_eq!(
+            selection_autoscroll_lines(384.0, pad, strip_px, ch, rows),
+            -1
+        );
+        // A full cell-height below the bottom → -2.
+        assert_eq!(
+            selection_autoscroll_lines(400.0, pad, strip_px, ch, rows),
+            -2
+        );
+    }
+
+    /// The autoscroll edges shift by the interior `pad` and the tab-strip pixel
+    /// band: the terminal grid starts at `pad + strip_px`, so the top edge moves
+    /// down by both and the "inside" band is offset accordingly.
+    #[test]
+    fn selection_autoscroll_respects_pad_and_strip() {
+        use crate::app_render::selection_autoscroll_lines;
+        let (ch, pad, rows) = (16usize, 8usize, 10u16);
+        let strip_px = ch; // a 1-row strip
+        let top = (pad + strip_px) as f64; // = 24.0
+        // A pixel exactly at the grid top is INSIDE (not above) → 0.
+        assert_eq!(selection_autoscroll_lines(top, pad, strip_px, ch, rows), 0);
+        // One pixel above the grid top → scroll into history.
+        assert_eq!(
+            selection_autoscroll_lines(top - 1.0, pad, strip_px, ch, rows),
+            1
+        );
+        // The bottom edge is top + rows*ch = 24 + 160 = 184; at/below → negative.
+        let bottom = top + (rows as usize * ch) as f64;
+        assert_eq!(
+            selection_autoscroll_lines(bottom, pad, strip_px, ch, rows),
+            -1
+        );
+        assert_eq!(
+            selection_autoscroll_lines(bottom - 1.0, pad, strip_px, ch, rows),
+            0
+        );
     }
 }
 

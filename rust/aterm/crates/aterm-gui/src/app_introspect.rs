@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use crate::app_render::apply_bell_invert;
 #[cfg(target_os = "macos")]
-use crate::toolbar;
+use crate::platform::AppRt;
 use crate::{App, accessibility, control_auth, snapshot_path, term_lock};
 
 impl App {
@@ -238,7 +238,7 @@ impl App {
         // the hidden switcher). Read off the retained handle (we own the control), not
         // via a toolbar-item view downcast (objc2 0.5 has no `Retained::downcast`).
         if let Some(handle) = self.frontmost_window.and_then(|w| self._toolbars.get(&w))
-            && let Some(line) = toolbar::read_tab_chrome(handle)
+            && let Some(line) = self.apprt.read_toolbar_chrome(handle)
         {
             out.push(line);
         }

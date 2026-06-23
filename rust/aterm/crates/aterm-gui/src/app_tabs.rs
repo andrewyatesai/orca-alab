@@ -10,10 +10,10 @@
 
 use winit::event_loop::ActiveEventLoop;
 
+use crate::platform::AppRt;
 use crate::spawn::spawn_session;
 use crate::{
     App, TabAction, TabIndex, WindowId, WindowState, pane, session_store, tab_bar, term_lock,
-    toolbar,
 };
 
 impl App {
@@ -607,7 +607,7 @@ impl App {
             ws.strip_shadow.set((titles.len(), active));
         }
         if let Some(handle) = self._toolbars.get(&wid) {
-            toolbar::set_window_tabs(handle, &titles, active);
+            self.apprt.set_toolbar_tabs(handle, &titles, active);
         }
     }
 

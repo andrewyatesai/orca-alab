@@ -2404,6 +2404,7 @@ mod tests {
                 click_count: 1,
                 side: SelectionSide::Left,
                 block: false,
+                px_off: crate::input::PixelOffset::CELL_ORIGIN,
             }),
         );
         // Full grammar, tokens in any position.
@@ -2418,6 +2419,7 @@ mod tests {
                 click_count: 2,
                 side: SelectionSide::Right,
                 block: true,
+                px_off: crate::input::PixelOffset::CELL_ORIGIN,
             }),
         );
         // count clamps to 1..=3.
@@ -2434,7 +2436,8 @@ mod tests {
                 row: 7,
                 col: 3,
                 mods: 0,
-                side: SelectionSide::Left
+                side: SelectionSide::Left,
+                px_off: crate::input::PixelOffset::CELL_ORIGIN,
             }),
         );
         let Ok(InputEvent::MouseMove { buttons, .. }) = parse_mouse("move left 7 3") else {
@@ -2449,7 +2452,8 @@ mod tests {
                 lines: 1,
                 row: 2,
                 col: 4,
-                mods: 0
+                mods: 0,
+                px_off: crate::input::PixelOffset::CELL_ORIGIN,
             }),
         );
         // errors.

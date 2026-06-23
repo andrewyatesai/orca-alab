@@ -89,6 +89,22 @@ impl AtermTerminal {
         self.term.process(bytes);
     }
 
+    /// Inject a broad-coverage (CJK + symbols) fallback face from font bytes, so
+    /// glyphs the primary face lacks render real shapes instead of `.notdef` tofu.
+    /// The canvas renderer can't read the host filesystem, so the host pushes the
+    /// OS font bytes in. No-throw: a bad blob leaves the existing face untouched.
+    pub fn set_fallback_font(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.renderer.set_fallback_bytes(bytes)
+    }
+
+    /// Inject a colour-emoji (sbix) face from font bytes, driving the existing
+    /// ColorEmoji colour path. Same rationale as [`set_fallback_font`]: the host
+    /// supplies the OS emoji font. No-throw (the `String` Err surfaces as a
+    /// catchable JS exception); a bad blob leaves the slot untouched.
+    pub fn set_emoji_font(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.renderer.set_color_font_bytes(bytes.to_vec())
+    }
+
     /// Resize the grid (after the host recomputes cols/rows for the canvas).
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.term.resize(rows, cols);

@@ -2,6 +2,7 @@ import { BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import type { Store } from '../persistence'
 import type { GlobalSettings, PersistedState } from '../../shared/types'
 import { listSystemFontFamilies } from '../system-fonts'
+import { getTerminalFallbackFonts } from '../terminal-fallback-fonts'
 import { previewGhosttyImport } from '../ghostty/index'
 import { previewWarpThemeImport } from '../warp-themes'
 import { setMainUiLanguage } from '../i18n/main-i18n'
@@ -161,6 +162,14 @@ export function registerSettingsHandlers(
 
   ipcMain.handle('settings:listFonts', () => {
     return listSystemFontFamilies()
+  })
+
+  // Local OS fallback fonts (CJK + colour emoji) for the aterm terminal renderer,
+  // which rasterizes glyphs itself and ships only JetBrains Mono — without these
+  // CJK/emoji render as .notdef tofu. Always the LOCAL host's fonts (rendering is
+  // always local, even over SSH).
+  ipcMain.handle('fonts:getTerminalFallbackFonts', () => {
+    return getTerminalFallbackFonts()
   })
 
   ipcMain.handle('settings:previewGhosttyImport', () => {

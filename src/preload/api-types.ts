@@ -1776,6 +1776,12 @@ export type PreloadApi = {
    *  intervene). Subject to the same per-session consent-mutation rate
    *  limit as `telemetrySetOptIn`. */
   telemetryAcknowledgeBanner: () => Promise<void>
+  fonts: {
+    /** Local OS fallback fonts (CJK + colour emoji) the aterm terminal renderer
+     *  injects so non-Latin scripts render real glyphs instead of .notdef tofu.
+     *  A category is absent when the host has no candidate font for it. */
+    getTerminalFallbackFonts: () => Promise<{ cjk?: Uint8Array; emoji?: Uint8Array }>
+  }
   settings: {
     get: () => Promise<GlobalSettings>
     set: (args: Partial<GlobalSettings>) => Promise<GlobalSettings>

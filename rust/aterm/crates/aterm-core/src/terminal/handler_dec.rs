@@ -258,6 +258,29 @@ impl TerminalHandler<'_> {
                 67 => {
                     self.modes.backarrow_sends_bs = set;
                 }
+                // xterm `numLock` (mode 1035): special modifiers for Alt/NumLock.
+                // When reset, NumLock is no longer treated as a real modifier.
+                // Folded into the legacy keyboard encoding.
+                1035 => {
+                    self.modes.special_modifiers = set;
+                }
+                // xterm `metaSendsEscape` (mode 1036): when set, Meta-modified
+                // keys are ESC-prefixed. Folded into the legacy keyboard encoding.
+                1036 => {
+                    self.modes.meta_send_escape = set;
+                }
+                // xterm `altSendsEscape` (mode 1039): when set (default), an
+                // Alt-modified key is ESC-prefixed; when reset, the prefix is
+                // suppressed. Folded into the legacy keyboard encoding.
+                1039 => {
+                    self.modes.alt_send_escape = set;
+                }
+                // Mode 1045: tracked-only xterm private mode (no encoding effect).
+                // xterm does not assign it a keyboard-input meaning, so we track
+                // the flag for DECRQM fidelity without changing key encoding.
+                1045 => {
+                    self.modes.mode_1045 = set;
+                }
                 // Mode 1048: xterm save/restore cursor (equivalent to DECSC/DECRC)
                 1048 => {
                     if set {
@@ -782,6 +805,12 @@ impl TerminalHandler<'_> {
             66 => state(self.modes.application_keypad),
             67 => state(self.modes.backarrow_sends_bs),
             69 => state(self.modes.left_right_margin_mode),
+            // xterm keyboard private modes (numLock / metaSendsEscape /
+            // altSendsEscape) and the tracked-only mode 1045.
+            1035 => state(self.modes.special_modifiers),
+            1036 => state(self.modes.meta_send_escape),
+            1039 => state(self.modes.alt_send_escape),
+            1045 => state(self.modes.mode_1045),
             80 => state(self.modes.sixel_display_mode),
             95 => state(self.modes.decncsm),
             9 => state(self.modes.mouse_mode == MouseMode::X10),
@@ -1254,6 +1283,135 @@ mod decbkm_tests {
         term.process(b"\x1b[?67h");
         term.process(b"\x1b[?67$p");
         assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?67;1$y");
+    }
+}
+
+#[cfg(test)]
+mod xterm_keyboard_mode_tests {
+    use crate::terminal::Terminal;
+    use aterm_types::keyboard::{Key, KeyboardMode, Modifiers, encode_key};
+
+    // --- DECSET/DECRST -> KeyboardMode projection ---
+
+    #[test]
+    fn mode_1039_alt_send_escape_default_set() {
+        let term = Terminal::new(24, 80);
+        // altSendsEscape is ON by default, so ALT_NO_ESC must be absent.
+        assert!(!term.keyboard_mode().contains(KeyboardMode::ALT_NO_ESC));
+    }
+
+    #[test]
+    fn mode_1039_reset_sets_alt_no_esc_flag() {
+        let mut term = Terminal::new(24, 80);
+        term.process(b"\x1b[?1039l");
+        assert!(term.keyboard_mode().contains(KeyboardMode::ALT_NO_ESC));
+        term.process(b"\x1b[?1039h");
+        assert!(!term.keyboard_mode().contains(KeyboardMode::ALT_NO_ESC));
+    }
+
+    #[test]
+    fn mode_1036_meta_send_escape_toggles_flag() {
+        let mut term = Terminal::new(24, 80);
+        assert!(!term.keyboard_mode().contains(KeyboardMode::META_SENDS_ESC));
+        term.process(b"\x1b[?1036h");
+        assert!(term.keyboard_mode().contains(KeyboardMode::META_SENDS_ESC));
+        term.process(b"\x1b[?1036l");
+        assert!(!term.keyboard_mode().contains(KeyboardMode::META_SENDS_ESC));
+    }
+
+    #[test]
+    fn mode_1035_special_modifiers_toggles_flag() {
+        let mut term = Terminal::new(24, 80);
+        // numLock special modifiers ON by default -> NO_SPECIAL_MODIFIERS absent.
+        assert!(
+            !term
+                .keyboard_mode()
+                .contains(KeyboardMode::NO_SPECIAL_MODIFIERS)
+        );
+        term.process(b"\x1b[?1035l");
+        assert!(
+            term.keyboard_mode()
+                .contains(KeyboardMode::NO_SPECIAL_MODIFIERS)
+        );
+        term.process(b"\x1b[?1035h");
+        assert!(
+            !term
+                .keyboard_mode()
+                .contains(KeyboardMode::NO_SPECIAL_MODIFIERS)
+        );
+    }
+
+    // --- end-to-end: the mode changes the encoded bytes ---
+
+    #[test]
+    fn mode_1039_reset_drops_alt_escape_prefix_in_encoding() {
+        let mut term = Terminal::new(24, 80);
+        // Default: Alt+a -> ESC a.
+        assert_eq!(
+            encode_key(&Key::Character('a'), Modifiers::ALT, term.keyboard_mode()),
+            vec![0x1b, b'a']
+        );
+        // After DECRST 1039: Alt+a -> bare 'a'.
+        term.process(b"\x1b[?1039l");
+        assert_eq!(
+            encode_key(&Key::Character('a'), Modifiers::ALT, term.keyboard_mode()),
+            vec![b'a']
+        );
+    }
+
+    #[test]
+    fn mode_1036_set_adds_meta_escape_prefix_in_encoding() {
+        let mut term = Terminal::new(24, 80);
+        // Default: Meta+a -> bare 'a' (Meta unhandled in legacy path).
+        assert_eq!(
+            encode_key(&Key::Character('a'), Modifiers::META, term.keyboard_mode()),
+            vec![b'a']
+        );
+        // After DECSET 1036: Meta+a -> ESC a.
+        term.process(b"\x1b[?1036h");
+        assert_eq!(
+            encode_key(&Key::Character('a'), Modifiers::META, term.keyboard_mode()),
+            vec![0x1b, b'a']
+        );
+    }
+
+    // --- DECRQM reporting ---
+
+    #[test]
+    fn decrqm_reports_keyboard_mode_states() {
+        let mut term = Terminal::new(24, 80);
+        // Defaults: 1035 set (1), 1036 reset (2), 1039 set (1), 1045 reset (2).
+        term.process(b"\x1b[?1035$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?1035;1$y");
+        term.process(b"\x1b[?1036$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?1036;2$y");
+        term.process(b"\x1b[?1039$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?1039;1$y");
+        term.process(b"\x1b[?1045$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?1045;2$y");
+
+        // Toggle each and re-query.
+        term.process(b"\x1b[?1035l");
+        term.process(b"\x1b[?1036h");
+        term.process(b"\x1b[?1039l");
+        term.process(b"\x1b[?1045h");
+        term.process(b"\x1b[?1035$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?1035;2$y");
+        term.process(b"\x1b[?1036$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?1036;1$y");
+        term.process(b"\x1b[?1039$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?1039;2$y");
+        term.process(b"\x1b[?1045$p");
+        assert_eq!(term.take_response().unwrap_or_default(), b"\x1b[?1045;1$y");
+    }
+
+    #[test]
+    fn mode_1045_tracked_but_does_not_affect_encoding() {
+        let mut term = Terminal::new(24, 80);
+        let before = term.keyboard_mode();
+        term.process(b"\x1b[?1045h");
+        // Mode 1045 is tracked-only: the encoder-facing KeyboardMode is unchanged.
+        assert_eq!(term.keyboard_mode(), before);
     }
 }
 

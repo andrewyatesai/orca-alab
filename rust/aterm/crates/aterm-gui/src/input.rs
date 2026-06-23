@@ -86,6 +86,13 @@ pub enum InputEvent {
         /// Controller: the `block=…` token (default `false`). Read ONLY here, as
         /// DATA — the seam never re-reads ambient modifier state for the type.
         block: bool,
+        /// Sub-cell pixel offset INSIDE the (`row`,`col`) cell, for DEC 1016
+        /// SGR-pixel mouse mode (the genuine winit cursor x/y minus the cell
+        /// origin). The seam combines it with the cell origin + the engine's
+        /// cell pixel size to emit a true pixel coordinate ONLY when 1016 is
+        /// active; the cell-coordinate encodings (X10/SGR/urxvt/utf8) ignore it.
+        /// Human: the real pointer offset. Controller: `(0, 0)` (cell origin).
+        px_off: PixelOffset,
     },
     /// Pointer motion. `buttons == 3` is a no-button hover (motion report code 3);
     /// `buttons != 3` is a held-button drag (kills c). `side` is the cell-half.
@@ -95,6 +102,9 @@ pub enum InputEvent {
         col: u16,
         mods: u8,
         side: SelectionSide,
+        /// Sub-cell pixel offset inside the (`row`,`col`) cell for DEC 1016 (see
+        /// [`InputEvent::MouseButton::px_off`]).
+        px_off: PixelOffset,
     },
     /// A wheel notch / trackpad flick of `lines` lines (kills e: one report per
     /// line when tracking is on, else the viewport scrolls `lines`). `lines` is
@@ -106,6 +116,9 @@ pub enum InputEvent {
         row: u16,
         col: u16,
         mods: u8,
+        /// Sub-cell pixel offset inside the (`row`,`col`) cell for DEC 1016 (see
+        /// [`InputEvent::MouseButton::px_off`]).
+        px_off: PixelOffset,
     },
     /// Explicit, tracking-agnostic scrollback navigation (the `scroll` verb).
     /// Never emits wheel reports; it only moves the local viewport. A controller
@@ -129,6 +142,32 @@ pub enum InputEvent {
     },
     /// Focus gained/lost — DEC 1004 focus reporting (kills j). `true` = focus-in.
     Focus(bool),
+}
+
+/// Sub-cell pixel offset of the pointer INSIDE its grid cell, carried on every
+/// mouse event so the seam can produce a genuine PIXEL coordinate for DEC 1016
+/// (SGR-pixel) mouse mode without re-reading any winit/GUI state.
+///
+/// `x`/`y` are the device-pixel distance from the cell's top-left corner; combined
+/// with the cell origin (`col * cell_w`, `row * cell_h`) and the engine's reported
+/// cell pixel size, the seam reconstructs the exact winit cursor pixel. They are
+/// IGNORED by every cell-coordinate encoding (X10/SGR/urxvt/utf8) — only the 1016
+/// encoder consults them — so a non-pixel session's bytes are unaffected. The Human
+/// path fills the real `(x - pad) % cell_w` / per-cell `y`; a Controller (which has
+/// no real pointer) sends [`PixelOffset::CELL_ORIGIN`] (`0, 0`), i.e. the cell's
+/// top-left, so a controller-driven 1016 press still lands on the right cell.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PixelOffset {
+    /// Horizontal device pixels from the cell's left edge (`0..cell_w`).
+    pub x: u16,
+    /// Vertical device pixels from the cell's top edge (`0..cell_h`).
+    pub y: u16,
+}
+
+impl PixelOffset {
+    /// The cell's top-left corner — the offset a Controller (no real pointer)
+    /// uses, so a 1016 report it drives is exactly the cell origin in pixels.
+    pub const CELL_ORIGIN: Self = Self { x: 0, y: 0 };
 }
 
 /// Tracking-agnostic scrollback navigation for [`InputEvent::ScrollView`].
@@ -232,6 +271,36 @@ pub enum Egress {
     TrackingOff { wheel_lines: i32, wheel_up: bool },
 }
 
+/// Resolve the `(x, y)` numbers a mouse report should carry for `term`'s CURRENT
+/// encoding: a genuine device-PIXEL coordinate for DEC 1016 (SGR-pixel), else the
+/// 0-based grid CELL (`col`, `row`) unchanged.
+///
+/// For 1016 the pixel coordinate is reconstructed from the cell origin
+/// (`col * cell_w`, `row * cell_h`) plus the sub-cell `px_off` the frontend
+/// measured from the real winit cursor — the engine's `cell_pixel_size()` (the
+/// frontend's reported font metrics) supplies the cell size. The result is 0-based;
+/// `encode_mouse` (`encode_sgr`) adds the spec's `+1`, so a pointer at the very
+/// top-left pixel of cell (0,0) reports `1;1`. Saturating arithmetic keeps a huge
+/// grid from wrapping (the SGR field is `u16`-wide as the rest of the pipeline).
+///
+/// This is the SOLE reader of `mouse_encoding()` for coordinate selection; it runs
+/// under the caller's existing `term_lock`, so it adds no extra mode-read window.
+fn report_coords(t: &Terminal, col: u16, row: u16, px_off: PixelOffset) -> (u16, u16) {
+    use aterm_types::mouse::MouseEncoding;
+    if t.mouse_encoding() == MouseEncoding::SgrPixel {
+        let (cw, ch) = t.cell_pixel_size();
+        let px = col
+            .saturating_mul(cw)
+            .saturating_add(px_off.x.min(cw.saturating_sub(1)));
+        let py = row
+            .saturating_mul(ch)
+            .saturating_add(px_off.y.min(ch.saturating_sub(1)));
+        (px, py)
+    } else {
+        (col, row)
+    }
+}
+
 /// THE source-blind byte-producing core of the seam (design A.2 / A.7). It is the
 /// SOLE reader of `keyboard_mode()`/`mouse_tracking_enabled()` and the SOLE caller
 /// of `encode_key_with_layout` / the `encode_mouse_*` family / `encode_committed_
@@ -293,15 +362,20 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
             row,
             col,
             mods,
+            px_off,
             ..
         } => {
             let report = {
                 let t = term_lock(term);
                 if t.mouse_tracking_enabled() {
+                    // DEC 1016 (SGR-pixel) reports a genuine PIXEL coordinate; every
+                    // other encoding reports the cell. `report_coords` resolves which
+                    // under the SAME lock that reads the mode (no extra read window).
+                    let (rx, ry) = report_coords(&t, *col, *row, *px_off);
                     if *pressed {
-                        Some(t.encode_mouse_press(button.code(), *col, *row, *mods))
+                        Some(t.encode_mouse_press(button.code(), rx, ry, *mods))
                     } else {
-                        Some(t.encode_mouse_release(button.code(), *col, *row, *mods))
+                        Some(t.encode_mouse_release(button.code(), rx, ry, *mods))
                     }
                 } else {
                     None
@@ -326,12 +400,14 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
             row,
             col,
             mods,
+            px_off,
             ..
         } => {
             let report = {
                 let t = term_lock(term);
                 if t.mouse_tracking_enabled() {
-                    Some(t.encode_mouse_motion(*buttons, *col, *row, *mods))
+                    let (rx, ry) = report_coords(&t, *col, *row, *px_off);
+                    Some(t.encode_mouse_motion(*buttons, rx, ry, *mods))
                 } else {
                     None
                 }
@@ -356,6 +432,7 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
             row,
             col,
             mods,
+            px_off,
         } => {
             // The invariant lives HERE: clamp `lines` to >= 1 so a non-positive
             // count (a future verb/grammar bug) cannot silently emit zero reports
@@ -365,7 +442,8 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
             let report = {
                 let t = term_lock(term);
                 if t.mouse_tracking_enabled() {
-                    Some(t.encode_mouse_wheel(*dir_up, *col, *row, *mods))
+                    let (rx, ry) = report_coords(&t, *col, *row, *px_off);
+                    Some(t.encode_mouse_wheel(*dir_up, rx, ry, *mods))
                 } else {
                     None
                 }
@@ -559,6 +637,7 @@ mod tests {
                 click_count: 2,
                 side: SelectionSide::Right,
                 block: true,
+                px_off: PixelOffset { x: 3, y: 7 },
             },
             InputEvent::MouseButton {
                 button: MouseButton::Right,
@@ -569,6 +648,7 @@ mod tests {
                 click_count: 1,
                 side: SelectionSide::Left,
                 block: false,
+                px_off: PixelOffset::CELL_ORIGIN,
             },
             InputEvent::MouseMove {
                 buttons: 0,
@@ -576,6 +656,7 @@ mod tests {
                 col: 3,
                 mods: 0,
                 side: SelectionSide::Left,
+                px_off: PixelOffset { x: 1, y: 2 },
             },
             InputEvent::MouseMove {
                 buttons: 3,
@@ -583,6 +664,7 @@ mod tests {
                 col: 3,
                 mods: 0,
                 side: SelectionSide::Left,
+                px_off: PixelOffset::CELL_ORIGIN,
             },
             InputEvent::Wheel {
                 dir_up: true,
@@ -590,6 +672,7 @@ mod tests {
                 row: 2,
                 col: 4,
                 mods: 0,
+                px_off: PixelOffset::CELL_ORIGIN,
             },
             InputEvent::Wheel {
                 dir_up: false,
@@ -597,6 +680,7 @@ mod tests {
                 row: 2,
                 col: 4,
                 mods: 0,
+                px_off: PixelOffset::CELL_ORIGIN,
             },
             InputEvent::Paste("rm -rf safe".to_string()),
             InputEvent::Focus(true),
@@ -716,6 +800,9 @@ mod tests {
             click_count: 2,
             side: SelectionSide::Right,
             block: true,
+            // The control verb carries no real pointer, so it (and the human
+            // builder, for this struct-equality check) uses the cell origin.
+            px_off: PixelOffset::CELL_ORIGIN,
         };
         assert_eq!(human_press, ctrl_press, "mouse-press builder mismatch");
 
@@ -727,6 +814,7 @@ mod tests {
             row: 2,
             col: 4,
             mods: 0,
+            px_off: PixelOffset::CELL_ORIGIN,
         };
         assert_eq!(human_wheel, ctrl_wheel, "wheel builder mismatch");
     }
@@ -807,6 +895,7 @@ mod tests {
                 row: 2,
                 col: 4,
                 mods: 0,
+                px_off: PixelOffset::CELL_ORIGIN,
             },
         );
         for bad in [0, -1, -3] {
@@ -818,6 +907,7 @@ mod tests {
                     row: 2,
                     col: 4,
                     mods: 0,
+                    px_off: PixelOffset::CELL_ORIGIN,
                 },
             );
             assert_eq!(
@@ -825,5 +915,92 @@ mod tests {
                 "wheel lines={bad} must clamp to exactly one report"
             );
         }
+    }
+
+    /// DEC 1016 (SGR-PIXEL) mouse mode reports a GENUINE PIXEL coordinate, not the
+    /// cell origin. With a 10×20 cell and a press in cell (col=3,row=2) at the
+    /// sub-cell pixel offset (x=4,y=7), the reported pixel is `col*cw+x = 34`,
+    /// `row*ch+y = 47`; `encode_sgr` adds the spec's +1, so the bytes are
+    /// `ESC [ < 0 ; 35 ; 48 M`. This is the whole point of the lane: the report
+    /// carries the real winit sub-cell pixel, not a cell-derived one.
+    #[test]
+    fn sgr_pixel_1016_reports_true_pixel_coordinate() {
+        let term = Arc::new(Mutex::new(Terminal::new(24, 80)));
+        {
+            let mut t = term.lock().unwrap();
+            t.set_cell_pixel_size(10, 20); // real font metrics the frontend reports
+            t.process(b"\x1b[?1000h"); // Normal mouse tracking ON
+            t.process(b"\x1b[?1016h"); // SGR-pixel encoding (DEC 1016)
+        }
+        let press = InputEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+            row: 2,
+            col: 3,
+            mods: 0,
+            click_count: 1,
+            side: SelectionSide::Left,
+            block: false,
+            px_off: PixelOffset { x: 4, y: 7 },
+        };
+        assert_eq!(egress_bytes(&term, &press), b"\x1b[<0;35;48M");
+
+        // The SAME logical press in plain SGR (1006, cell coords) reports the CELL
+        // (col+1, row+1) — proving the pixel math is gated on 1016, not always on.
+        let term_cell = term_with(&[b"\x1b[?1000h", b"\x1b[?1006h"]);
+        assert_eq!(egress_bytes(&term_cell, &press), b"\x1b[<0;4;3M");
+    }
+
+    /// A 1016 report with the cell-origin offset (`CELL_ORIGIN`, the value a
+    /// Controller sends) lands on the cell's top-left pixel: col=3,row=2 → pixel
+    /// (30, 40) → `ESC [ < 0 ; 31 ; 41 M`. So a controller-driven 1016 press is
+    /// still pixel-correct (the cell origin), and the sub-cell offset is purely
+    /// additive on top.
+    #[test]
+    fn sgr_pixel_1016_cell_origin_is_top_left_pixel() {
+        let term = Arc::new(Mutex::new(Terminal::new(24, 80)));
+        {
+            let mut t = term.lock().unwrap();
+            t.set_cell_pixel_size(10, 20);
+            t.process(b"\x1b[?1000h");
+            t.process(b"\x1b[?1016h");
+        }
+        let press = InputEvent::MouseButton {
+            button: MouseButton::Left,
+            pressed: true,
+            row: 2,
+            col: 3,
+            mods: 0,
+            click_count: 1,
+            side: SelectionSide::Left,
+            block: false,
+            px_off: PixelOffset::CELL_ORIGIN,
+        };
+        assert_eq!(egress_bytes(&term, &press), b"\x1b[<0;31;41M");
+    }
+
+    /// `report_coords` is the SOLE coordinate selector: pixel for 1016, cell for
+    /// every other encoding, with the sub-cell offset clamped inside the cell so a
+    /// stray over-range offset can't bleed into the next cell's pixel range.
+    #[test]
+    fn report_coords_selects_pixel_only_for_1016() {
+        let mut t = Terminal::new(24, 80);
+        t.set_cell_pixel_size(10, 20);
+        // Cell encodings ignore the offset entirely.
+        t.process(b"\x1b[?1000h");
+        t.process(b"\x1b[?1006h"); // SGR (cell)
+        assert_eq!(report_coords(&t, 3, 2, PixelOffset { x: 9, y: 19 }), (3, 2));
+        // 1016: pixel = cell origin + (clamped) offset.
+        t.process(b"\x1b[?1016h");
+        assert_eq!(
+            report_coords(&t, 3, 2, PixelOffset { x: 4, y: 7 }),
+            (34, 47)
+        );
+        // An offset at/over the cell size is clamped to the last in-cell pixel
+        // (cw-1 / ch-1), so it never crosses into the next cell's range.
+        assert_eq!(
+            report_coords(&t, 3, 2, PixelOffset { x: 99, y: 99 }),
+            (3 * 10 + 9, 2 * 20 + 19)
+        );
     }
 }

@@ -1423,6 +1423,33 @@ impl GpuRenderer {
         self.color_res = None;
     }
 
+    /// Inject a broad-coverage (CJK + symbols) fallback face into the GPU's CPU
+    /// face from font bytes and invalidate the atlas so the next frame
+    /// re-rasterizes the new coverage. The browser GPU path has no system-font
+    /// discovery, so the host pushes OS font bytes in.
+    pub fn set_fallback_font_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.cpu.set_fallback_bytes(bytes)?;
+        self.invalidate_atlas();
+        Ok(())
+    }
+
+    /// Inject a colour-emoji (sbix) face into the GPU's CPU face from font bytes
+    /// and invalidate the atlas so the colour atlas re-rasterizes with the new
+    /// emoji coverage. Mirrors [`set_fallback_font_bytes`].
+    pub fn set_emoji_font_bytes(&mut self, bytes: Vec<u8>) -> Result<(), String> {
+        self.cpu.set_color_font_bytes(bytes)?;
+        self.invalidate_atlas();
+        Ok(())
+    }
+
+    /// Drop the resident atlases + key set so the next present rebuilds them with
+    /// the current CPU face's coverage (mirrors [`set_face`]'s invalidation).
+    fn invalidate_atlas(&mut self) {
+        self.resident_keys.clear();
+        self.mono_res = None;
+        self.color_res = None;
+    }
+
     /// TEST/DIAGNOSTIC: number of `render_input_cached` calls that took the
     /// dirty-gate (re-presented cached pixels with ZERO GPU work).
     #[doc(hidden)]

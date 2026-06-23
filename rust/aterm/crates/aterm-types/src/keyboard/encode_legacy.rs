@@ -6,17 +6,30 @@
 
 use super::{KeyboardMode, Modifiers, NamedKey};
 
-pub(super) fn encode_character_legacy(c: char, modifiers: Modifiers) -> Vec<u8> {
+pub(super) fn encode_character_legacy(
+    c: char,
+    modifiers: Modifiers,
+    mode: KeyboardMode,
+) -> Vec<u8> {
+    // DEC private mode 1039 (xterm `altSendsEscape`): set (the default) prefixes
+    // an Alt-modified key with ESC. Reset (`ALT_NO_ESC`) suppresses the prefix.
+    let alt_sends_escape =
+        modifiers.contains(Modifiers::ALT) && !mode.contains(KeyboardMode::ALT_NO_ESC);
+    // DEC private mode 1036 (xterm `metaSendsEscape`): when set (`META_SENDS_ESC`)
+    // a Meta-modified key is ESC-prefixed, mirroring Alt. Off by default.
+    let meta_sends_escape =
+        modifiers.contains(Modifiers::META) && mode.contains(KeyboardMode::META_SENDS_ESC);
+
     if modifiers.contains(Modifiers::CTRL)
         && let Some(ctrl_char) = ctrl_character(c)
     {
-        if modifiers.contains(Modifiers::ALT) {
+        if alt_sends_escape || meta_sends_escape {
             return vec![0x1b, ctrl_char];
         }
         return vec![ctrl_char];
     }
 
-    if modifiers.contains(Modifiers::ALT) {
+    if alt_sends_escape || meta_sends_escape {
         let mut buf = vec![0x1b];
         // Meta sends ESC + the glyph that would be typed. Under SHIFT that is the
         // SHIFTED glyph, not merely an uppercased letter — `to_ascii_uppercase`
@@ -71,7 +84,7 @@ pub(super) fn encode_named_legacy(
         return encoded;
     }
 
-    if let Some(encoded) = encode_numpad_named_legacy(key, app_keypad, vt52, modifiers) {
+    if let Some(encoded) = encode_numpad_named_legacy(key, app_keypad, vt52, modifiers, mode) {
         return encoded;
     }
 
@@ -225,6 +238,7 @@ fn encode_numpad_named_legacy(
     app_keypad: bool,
     vt52: bool,
     modifiers: Modifiers,
+    mode: KeyboardMode,
 ) -> Option<Vec<u8>> {
     Some(match key {
         NamedKey::Numpad0 => encode_numpad(b'p', '0', app_keypad, vt52, modifiers),
@@ -245,7 +259,7 @@ fn encode_numpad_named_legacy(
         // NumpadEnter: SS3 M in DECKPAM, CR otherwise. Per VT420 spec,
         // this distinguishes numpad Enter from main Enter (#7558).
         NamedKey::NumpadEnter => encode_numpad(b'M', '\r', app_keypad, vt52, modifiers),
-        NamedKey::NumpadEqual => encode_character_legacy('=', modifiers),
+        NamedKey::NumpadEqual => encode_character_legacy('=', modifiers, mode),
         // NumpadSeparator: comma on some international keyboards (SS3 l in DECKPAM).
         NamedKey::NumpadSeparator => encode_numpad(b'l', ',', app_keypad, vt52, modifiers),
         // NumpadBegin (KP_BEGIN / center 5 key): SS3 E in DECKPAM, '5' otherwise.

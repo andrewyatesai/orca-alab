@@ -416,6 +416,282 @@ pub fn builtin_themes() -> Vec<(&'static str, &'static str)> {
         .collect()
 }
 
+/// Error from parsing a disk theme definition ([`parse_scheme_str`]) or loading a
+/// theme by name ([`load`]). Stringly-typed line context so a bad user theme file
+/// produces an actionable diagnostic rather than a silent fallback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThemeError {
+    /// `load(name)`: neither a built-in nor a file at any candidate path matched.
+    /// Carries the name the user asked for.
+    NotFound(String),
+    /// The file existed but could not be read (permissions, I/O). Carries the
+    /// `Display` of the underlying error.
+    Io(String),
+    /// A line was syntactically malformed (no `=`, bad colour, unknown key), or a
+    /// required key was missing.
+    Parse {
+        /// 1-based line number of the offending line (`0` for a whole-file problem
+        /// such as a missing required key).
+        line: usize,
+        /// Short human-readable reason for the failure.
+        reason: String,
+    },
+}
+
+impl core::fmt::Display for ThemeError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ThemeError::NotFound(name) => {
+                write!(
+                    f,
+                    "theme {name:?} not found (no built-in and no theme file)"
+                )
+            }
+            ThemeError::Io(e) => write!(f, "theme file read error: {e}"),
+            ThemeError::Parse { line, reason } => {
+                write!(f, "theme parse error on line {line}: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ThemeError {}
+
+/// Parse a `#RRGGBB` (or bare `RRGGBB`) hex colour. `None` on malformed input.
+/// Mirrors the GUI's `app_config::parse_hex_color` but lives here so the loader is
+/// self-contained (no GUI dependency in this bottom-of-graph crate).
+fn parse_hex(s: &str) -> Option<Rgb> {
+    let h = s.trim();
+    let h = h.strip_prefix('#').unwrap_or(h);
+    if h.len() != 6 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(Rgb::new(
+        u8::from_str_radix(&h[0..2], 16).ok()?,
+        u8::from_str_radix(&h[2..4], 16).ok()?,
+        u8::from_str_radix(&h[4..6], 16).ok()?,
+    ))
+}
+
+/// Parse a minimal disk theme definition into a [`ColorScheme`].
+///
+/// FORMAT — a deliberately tiny, dependency-free `key = value` line format (so this
+/// bottom-of-graph crate needs no TOML/serde at runtime), mirroring the Ghostty /
+/// Alacritty-`.conf` style users already know:
+///
+/// ```text
+/// # comments start with '#' (or ';'); blank lines ignored
+/// name       = My Theme         # optional display name
+/// appearance = dark             # dark (default) | light
+/// foreground = #c0caf5
+/// background = #1a1b26
+/// cursor     = #7aa2f7          # optional; omitted => follows foreground
+/// selection  = #283457          # optional; omitted => renderer default
+/// # the 16 ANSI slots, by 0-based index (0-7 normal, 8-15 bright):
+/// color0 = #15161e
+/// color1 = #f7768e
+/// # … through color15. Aliases: `palette0`/`ansi0` also accepted.
+/// ```
+///
+/// SEMANTICS: `foreground` and `background` are REQUIRED (a theme with no fg/bg is
+/// rejected). Any unspecified `colorN` defaults to that slot's
+/// [`ColorPalette::default_color`], so a partial palette is still well-formed. An
+/// unknown key, a malformed colour, or a duplicate key is a [`ThemeError::Parse`]
+/// with the 1-based line number. Keys are case-insensitive.
+///
+/// # Errors
+/// Returns [`ThemeError::Parse`] for a malformed line, a bad colour value, an
+/// unknown key, or a missing required `foreground`/`background`.
+pub fn parse_scheme_str(text: &str) -> Result<ColorScheme, ThemeError> {
+    let mut name = String::new();
+    let mut appearance = Appearance::Dark;
+    let mut foreground: Option<Rgb> = None;
+    let mut background: Option<Rgb> = None;
+    let mut cursor: Option<Rgb> = None;
+    let mut selection: Option<Rgb> = None;
+    // Start from the engine defaults so an omitted `colorN` is render-identical to
+    // an unthemed slot.
+    let mut ansi = [Rgb::new(0, 0, 0); 16];
+    for (i, slot) in ansi.iter_mut().enumerate() {
+        *slot = ColorPalette::default_color(i as u8);
+    }
+    // Track which ANSI slots were explicitly set so a duplicate `colorN` is caught.
+    let mut ansi_seen = [false; 16];
+
+    for (idx, raw) in text.lines().enumerate() {
+        let lineno = idx + 1;
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        // Strip an inline trailing comment (`key = #fff  # note`) — but NOT a '#'
+        // that begins a hex value. We split on the FIRST '=' to isolate the value,
+        // then trim a comment that starts with whitespace-' #'/';'.
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(ThemeError::Parse {
+                line: lineno,
+                reason: format!("missing '=' in {line:?}"),
+            });
+        };
+        let key = key.trim().to_ascii_lowercase();
+        let value = strip_inline_comment(value).trim().to_string();
+        if value.is_empty() {
+            return Err(ThemeError::Parse {
+                line: lineno,
+                reason: format!("empty value for key {key:?}"),
+            });
+        }
+
+        let bad_color = |reason_key: &str| ThemeError::Parse {
+            line: lineno,
+            reason: format!("invalid #RRGGBB colour for {reason_key:?}: {value:?}"),
+        };
+
+        match key.as_str() {
+            "name" => name = value,
+            "appearance" => {
+                appearance = match value.to_ascii_lowercase().as_str() {
+                    "dark" => Appearance::Dark,
+                    "light" => Appearance::Light,
+                    _ => {
+                        return Err(ThemeError::Parse {
+                            line: lineno,
+                            reason: format!("appearance must be dark|light, got {value:?}"),
+                        });
+                    }
+                };
+            }
+            "foreground" | "fg" => {
+                foreground = Some(parse_hex(&value).ok_or_else(|| bad_color("foreground"))?)
+            }
+            "background" | "bg" => {
+                background = Some(parse_hex(&value).ok_or_else(|| bad_color("background"))?)
+            }
+            "cursor" => cursor = Some(parse_hex(&value).ok_or_else(|| bad_color("cursor"))?),
+            "selection" => {
+                selection = Some(parse_hex(&value).ok_or_else(|| bad_color("selection"))?);
+            }
+            other => {
+                // colorN / paletteN / ansiN, N in 0..=15.
+                let n = other
+                    .strip_prefix("color")
+                    .or_else(|| other.strip_prefix("palette"))
+                    .or_else(|| other.strip_prefix("ansi"))
+                    .and_then(|d| d.parse::<usize>().ok());
+                match n {
+                    Some(n) if n < 16 => {
+                        if ansi_seen[n] {
+                            return Err(ThemeError::Parse {
+                                line: lineno,
+                                reason: format!("duplicate colour index {n}"),
+                            });
+                        }
+                        ansi[n] = parse_hex(&value).ok_or_else(|| bad_color(other))?;
+                        ansi_seen[n] = true;
+                    }
+                    _ => {
+                        return Err(ThemeError::Parse {
+                            line: lineno,
+                            reason: format!("unknown key {other:?}"),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let foreground = foreground.ok_or_else(|| ThemeError::Parse {
+        line: 0,
+        reason: "missing required key 'foreground'".to_string(),
+    })?;
+    let background = background.ok_or_else(|| ThemeError::Parse {
+        line: 0,
+        reason: "missing required key 'background'".to_string(),
+    })?;
+
+    Ok(ColorScheme {
+        name,
+        appearance,
+        foreground,
+        background,
+        cursor,
+        selection,
+        ansi,
+    })
+}
+
+/// Strip a trailing ` #…` / ` ;…` inline comment from a value, but never a leading
+/// `#` that is part of a hex colour. Only whitespace-preceded `#`/`;` (or one at the
+/// very start, which can't be a value) is treated as a comment.
+fn strip_inline_comment(value: &str) -> &str {
+    let mut prev_ws = true; // start is a boundary
+    for (i, b) in value.bytes().enumerate() {
+        if (b == b'#' || b == b';') && prev_ws {
+            // A whitespace-preceded `#`/`;` is a comment UNLESS it is the leading
+            // token (i.e. everything before it is blank) — that case is a hex value
+            // like ` #fff`, which must be kept.
+            if value[..i].trim().is_empty() {
+                prev_ws = false;
+                continue;
+            }
+            return &value[..i];
+        }
+        prev_ws = b.is_ascii_whitespace();
+    }
+    value
+}
+
+/// Resolve a theme by NAME: a built-in (via [`builtin`]) wins; otherwise a user
+/// theme file is loaded and parsed via [`parse_scheme_str`].
+///
+/// FILE LOCATION — a `<name>.conf` file under the user theme directory, which
+/// mirrors the GUI config convention (`app_config`): `$XDG_CONFIG_HOME/aterm/themes/`
+/// when `XDG_CONFIG_HOME` is set, else `~/.config/aterm/themes/`. (We intentionally
+/// use the same `~/.config/aterm` root as `aterm.toml` rather than the platform
+/// `dirs::config_dir`, so themes sit beside the config the user already edits.) The
+/// name is matched VERBATIM as the file stem, so `load("My Theme")` reads
+/// `…/themes/My Theme.conf`. Theme PACKS (e.g. a checkout of
+/// github.com/mbadolato/iTerm2-Color-Schemes converted to this format) drop their
+/// `*.conf` files straight into that directory.
+///
+/// # Errors
+/// [`ThemeError::NotFound`] if neither a built-in nor a file matched;
+/// [`ThemeError::Io`] if the file existed but could not be read;
+/// [`ThemeError::Parse`] (via [`parse_scheme_str`]) for a malformed file.
+pub fn load(name: &str) -> Result<ColorScheme, ThemeError> {
+    if let Some(s) = builtin(name) {
+        return Ok(s);
+    }
+    let Some(path) = user_theme_path(name) else {
+        return Err(ThemeError::NotFound(name.to_string()));
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(text) => parse_scheme_str(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Err(ThemeError::NotFound(name.to_string()))
+        }
+        Err(e) => Err(ThemeError::Io(e.to_string())),
+    }
+}
+
+/// The user theme directory (`<config>/aterm/themes`), or `None` when no config
+/// home can be resolved (no `XDG_CONFIG_HOME` and no `HOME`). Public so a packaging
+/// / `--list-themes` caller can tell users exactly where to drop theme packs.
+#[must_use]
+pub fn user_theme_dir() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    if let Some(x) = std::env::var_os("XDG_CONFIG_HOME").filter(|x| !x.is_empty()) {
+        return Some(PathBuf::from(x).join("aterm").join("themes"));
+    }
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config/aterm/themes"))
+}
+
+/// The candidate file path for a named user theme (`<theme dir>/<name>.conf`), or
+/// `None` if no config home is resolvable.
+fn user_theme_path(name: &str) -> Option<std::path::PathBuf> {
+    user_theme_dir().map(|d| d.join(format!("{name}.conf")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -523,5 +799,176 @@ mod tests {
         assert_eq!(g("Solarized Dark").background, Rgb::new(0x00, 0x2b, 0x36));
         assert_eq!(g("Gruvbox Dark").foreground, Rgb::new(0xeb, 0xdb, 0xb2));
         assert_eq!(g("One Dark").ansi[4], Rgb::new(0x61, 0xaf, 0xef));
+    }
+
+    /// A full disk theme string parses into the expected `ColorScheme`: chrome,
+    /// appearance, name, and every ANSI slot (with both `colorN` and alias keys).
+    #[test]
+    fn parse_scheme_str_full_theme() {
+        let src = "\
+# a sample user theme (Tokyo Night-ish)
+name = My Night
+appearance = dark
+foreground = #c0caf5
+background = #1a1b26
+cursor = #7aa2f7
+selection = #283457
+color0  = #15161e
+color1  = #f7768e
+palette2 = #9ece6a   # alias `paletteN`
+ansi3    = #e0af68   ; alias `ansiN`
+color4  = #7aa2f7
+color5  = #bb9af7
+color6  = #7dcfff
+color7  = #a9b1d6
+color8  = #414868
+color9  = #ff899d
+color10 = #9fe044
+color11 = #faba4a
+color12 = #8db0ff
+color13 = #c7a9ff
+color14 = #a4daff
+color15 = #c0caf5
+";
+        let s = parse_scheme_str(src).expect("valid theme parses");
+        assert_eq!(s.name, "My Night");
+        assert_eq!(s.appearance, Appearance::Dark);
+        assert_eq!(s.foreground, Rgb::new(0xc0, 0xca, 0xf5));
+        assert_eq!(s.background, Rgb::new(0x1a, 0x1b, 0x26));
+        assert_eq!(s.cursor, Some(Rgb::new(0x7a, 0xa2, 0xf7)));
+        assert_eq!(s.selection, Some(Rgb::new(0x28, 0x34, 0x57)));
+        // ANSI slots, including the two alias-keyed entries.
+        assert_eq!(s.ansi[0], Rgb::new(0x15, 0x16, 0x1e));
+        assert_eq!(s.ansi[1], Rgb::new(0xf7, 0x76, 0x8e));
+        assert_eq!(s.ansi[2], Rgb::new(0x9e, 0xce, 0x6a)); // palette2
+        assert_eq!(s.ansi[3], Rgb::new(0xe0, 0xaf, 0x68)); // ansi3
+        assert_eq!(s.ansi[15], Rgb::new(0xc0, 0xca, 0xf5));
+        // It projects through the existing sinks exactly like a built-in.
+        assert_eq!(s.to_theme_parts().bg, 0x001a_1b26);
+        assert_eq!(s.to_color_palette().get(1), Rgb::new(0xf7, 0x76, 0x8e));
+    }
+
+    /// A minimal theme (only the required fg/bg) is well-formed: missing ANSI slots
+    /// fall back to the engine defaults, cursor/selection stay `None`.
+    #[test]
+    fn parse_scheme_str_minimal_defaults_unset_slots() {
+        let s = parse_scheme_str("foreground = #ffffff\nbackground = #000000\n")
+            .expect("minimal theme parses");
+        assert_eq!(s.foreground, Rgb::new(0xff, 0xff, 0xff));
+        assert_eq!(s.background, Rgb::new(0, 0, 0));
+        assert_eq!(s.cursor, None);
+        assert_eq!(s.selection, None);
+        // Unspecified slots equal the engine defaults (render-identical to unthemed).
+        for i in 0u8..16 {
+            assert_eq!(
+                s.ansi[i as usize],
+                ColorPalette::default_color(i),
+                "slot {i}"
+            );
+        }
+        // `fg`/`bg` short aliases also work.
+        let s2 = parse_scheme_str("fg = #abcdef\nbg = #123456\n").unwrap();
+        assert_eq!(s2.foreground, Rgb::new(0xab, 0xcd, 0xef));
+        assert_eq!(s2.background, Rgb::new(0x12, 0x34, 0x56));
+    }
+
+    /// Malformed inputs surface a precise `ThemeError::Parse` (line + reason);
+    /// missing required keys are rejected.
+    #[test]
+    fn parse_scheme_str_rejects_malformed() {
+        // No '=' on a content line.
+        let e = parse_scheme_str("foreground = #fff000\nnonsense\n").unwrap_err();
+        assert!(matches!(e, ThemeError::Parse { line: 2, .. }), "{e:?}");
+        // Bad colour.
+        let e = parse_scheme_str("foreground = #zzzzzz\nbackground = #000000\n").unwrap_err();
+        assert!(matches!(e, ThemeError::Parse { line: 1, .. }), "{e:?}");
+        // Unknown key.
+        let e =
+            parse_scheme_str("foreground = #fff000\nbackground=#000000\nwidth = 80\n").unwrap_err();
+        assert!(matches!(e, ThemeError::Parse { line: 3, .. }), "{e:?}");
+        // Out-of-range index.
+        let e = parse_scheme_str("foreground=#ffffff\nbackground=#000000\ncolor16=#111111\n")
+            .unwrap_err();
+        assert!(matches!(e, ThemeError::Parse { .. }), "{e:?}");
+        // Short (3-digit) colour is rejected — the format requires #RRGGBB.
+        let e = parse_scheme_str("fg=#fff\n").unwrap_err();
+        assert!(matches!(e, ThemeError::Parse { line: 1, .. }), "{e:?}");
+        // Duplicate colour index.
+        let e = parse_scheme_str(
+            "foreground=#ffffff\nbackground=#000000\ncolor1=#111111\ncolor1=#222222\n",
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&e, ThemeError::Parse { reason, .. } if reason.contains("duplicate")),
+            "{e:?}"
+        );
+        // Missing required background.
+        let e = parse_scheme_str("foreground = #ffffff\n").unwrap_err();
+        assert!(
+            matches!(&e, ThemeError::Parse { reason, .. } if reason.contains("background")),
+            "{e:?}"
+        );
+    }
+
+    /// `load` resolves a built-in by name without ever touching the filesystem.
+    #[test]
+    fn load_resolves_builtin_first() {
+        assert_eq!(load("Default").unwrap(), ColorScheme::default());
+        assert_eq!(load("dracula").unwrap().name, "Dracula");
+    }
+
+    /// `load` reads and parses a user theme file from the resolved theme dir, and
+    /// reports `NotFound` for an absent name. Drives the real disk path via a
+    /// scoped `XDG_CONFIG_HOME` override.
+    #[test]
+    fn load_reads_user_theme_file_then_not_found() {
+        // Isolate to a temp config home so the test never touches the real one.
+        let tmp = std::env::temp_dir().join(format!(
+            "aterm-theme-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let theme_dir = tmp.join("aterm").join("themes");
+        std::fs::create_dir_all(&theme_dir).expect("mk theme dir");
+        std::fs::write(
+            theme_dir.join("Custom.conf"),
+            "name = Custom\nforeground = #ddeeff\nbackground = #102030\ncolor1 = #ff0000\n",
+        )
+        .expect("write theme");
+
+        // SAFETY: single-threaded test; we set and restore the var around the calls.
+        let prev = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &tmp);
+        }
+        let loaded = load("Custom");
+        let missing = load("DoesNotExist_xyz");
+        // Restore before asserting so a failure can't leak the override.
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let s = loaded.expect("user theme loads");
+        assert_eq!(s.name, "Custom");
+        assert_eq!(s.foreground, Rgb::new(0xdd, 0xee, 0xff));
+        assert_eq!(s.background, Rgb::new(0x10, 0x20, 0x30));
+        assert_eq!(s.ansi[1], Rgb::new(0xff, 0x00, 0x00));
+        assert!(matches!(missing, Err(ThemeError::NotFound(_))));
+    }
+
+    /// Inline comments after a value are stripped; a leading `#` hex value is kept.
+    #[test]
+    fn parse_scheme_str_inline_comments() {
+        let s = parse_scheme_str("foreground = #abcdef  # the fg\nbackground = #001122 ; bg\n")
+            .expect("parses with inline comments");
+        assert_eq!(s.foreground, Rgb::new(0xab, 0xcd, 0xef));
+        assert_eq!(s.background, Rgb::new(0x00, 0x11, 0x22));
     }
 }

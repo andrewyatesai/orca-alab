@@ -69,6 +69,13 @@ pub(crate) struct Config {
     /// `$ATERM_FONT` then the built-in [`FONT_CANDIDATES`], so an unset / unknown
     /// family is byte-identical to before.
     pub(crate) font_family: Option<String>,
+    /// Window CHROME appearance (titlebar / traffic lights), independent of the
+    /// terminal body theme: `"auto"` (default — follow the OS light/dark setting,
+    /// including live day-night switches), `"light"`, or `"dark"`. Maps to
+    /// [`WindowTheme`] via [`Config::window_theme_or_default`]; an unknown value
+    /// warns and falls back to `auto`. macOS-only today (the field is parsed but
+    /// inert on other platforms). Replaces the old unconditional dark-chrome force.
+    pub(crate) window_theme: Option<String>,
     /// macOS: when `true`, the Option (Alt) modifier sends ESC-prefixed (Meta)
     /// key sequences — the standard terminal expectation. When `false`, Option
     /// produces the OS-composed character (`å`) instead. ABSENT keeps the current
@@ -140,17 +147,19 @@ pub(crate) fn resolve_tab_strip_rows(config: &Config) -> u16 {
 
 impl Config {
     /// Resolve the BASE color scheme this config selects: the named built-in `theme`
-    /// (case-insensitive) or the built-in [`aterm_types::ColorScheme::default`] when
-    /// no theme — or an unknown one — is set. The per-key color overrides
+    /// (case-insensitive), a user theme FILE of that name
+    /// (`~/.config/aterm/themes/<name>.conf` — see [`aterm_types::scheme::load`]), or
+    /// the built-in [`aterm_types::ColorScheme::default`] when no theme — or an
+    /// unresolvable / malformed one — is set. The per-key color overrides
     /// (`foreground`/…/`palette`) are layered ON TOP of this base by the callers
     /// ([`Self::theme`] and [`Self::terminal_config`]), so they always win.
     fn base_scheme(&self) -> aterm_types::ColorScheme {
-        // Resolves SILENTLY (unknown name → Default): both `theme()` and
-        // `terminal_config()` call this, so warning here would double-print. The
+        // Resolves SILENTLY (unresolvable/malformed name → Default): both `theme()`
+        // and `terminal_config()` call this, so warning here would double-print. The
         // single "unknown theme" diagnostic is emitted in `terminal_config`.
         match self.theme.as_deref() {
             None => aterm_types::ColorScheme::default(),
-            Some(name) => aterm_types::scheme::builtin(name).unwrap_or_default(),
+            Some(name) => aterm_types::scheme::load(name).unwrap_or_default(),
         }
     }
 
@@ -190,6 +199,54 @@ impl Config {
     /// opts into OS-composed characters (`å`) instead.
     pub(crate) fn option_as_meta_or_default(&self) -> bool {
         self.option_as_meta.unwrap_or(true)
+    }
+
+    /// Resolve the window-chrome appearance ([`WindowTheme`]) from config. The
+    /// DEFAULT when the key is absent is [`WindowTheme::Auto`] — follow the OS
+    /// effective appearance — so an unset config no longer forces dark chrome on a
+    /// light desktop. An unknown / malformed value warns and falls back to `Auto`.
+    pub(crate) fn window_theme_or_default(&self) -> WindowTheme {
+        match self.window_theme.as_deref() {
+            None => WindowTheme::Auto,
+            Some(s) => match WindowTheme::parse(s) {
+                Some(t) => t,
+                None => {
+                    eprintln!(
+                        "aterm-gui: config window_theme: expected auto|light|dark, got {s:?}; using auto"
+                    );
+                    WindowTheme::Auto
+                }
+            },
+        }
+    }
+}
+
+/// Window-CHROME appearance (titlebar + traffic lights), distinct from the
+/// terminal-body color scheme. Resolved from config `window_theme` via
+/// [`Config::window_theme_or_default`] and applied to the NSWindow appearance in
+/// `app_window::match_window_colorspace_to_content` (macOS).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum WindowTheme {
+    /// Follow the OS light/dark setting (no `NSAppearance` override), so the
+    /// chrome tracks live day-night appearance switches. The default.
+    #[default]
+    Auto,
+    /// Force light chrome (`NSAppearanceNameAqua`).
+    Light,
+    /// Force dark chrome (`NSAppearanceNameDarkAqua`).
+    Dark,
+}
+
+impl WindowTheme {
+    /// Parse a config `window_theme` value (case-insensitive, trimmed): `auto`,
+    /// `light`, or `dark`. `None` on any other value (caller defaults to `Auto`).
+    pub(crate) fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "light" => Some(Self::Light),
+            "dark" => Some(Self::Dark),
+            _ => None,
+        }
     }
 }
 
@@ -246,14 +303,28 @@ impl Config {
         // (last-wins). No theme = this block is skipped, so the per-key path stays
         // byte-identical to before.
         if let Some(name) = self.theme.as_deref() {
-            // Single point that warns on an unknown theme name (base_scheme resolves
-            // silently, so this never double-prints from theme() + here).
-            if !name.eq_ignore_ascii_case("default") && aterm_types::scheme::builtin(name).is_none()
-            {
-                eprintln!(
-                    "aterm-gui: config theme: unknown theme {name:?}; using Default (available: {})",
-                    aterm_types::scheme::builtin_names().join(", ")
-                );
+            // Single point that warns on a theme that does not resolve to a built-in
+            // OR a parseable user theme file (base_scheme resolves silently, so this
+            // never double-prints from theme() + here). A NotFound names the built-in
+            // set + the user theme dir; a Parse error surfaces the offending line.
+            if !name.eq_ignore_ascii_case("default") {
+                match aterm_types::scheme::load(name) {
+                    Ok(_) => {}
+                    Err(aterm_types::scheme::ThemeError::NotFound(_)) => {
+                        let where_ = aterm_types::scheme::user_theme_dir()
+                            .map(|p| format!(" or a file in {}", p.display()))
+                            .unwrap_or_default();
+                        eprintln!(
+                            "aterm-gui: config theme: unknown theme {name:?}; using Default (built-ins: {}{where_})",
+                            aterm_types::scheme::builtin_names().join(", ")
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "aterm-gui: config theme: failed to load {name:?} ({e}); using Default"
+                        );
+                    }
+                }
             }
             let s = self.base_scheme();
             tc.default_foreground = s.foreground;
@@ -891,5 +962,71 @@ mod cfg_engine_tests {
         assert!(!tc.allow_window_ops);
         assert!(!tc.allow_notifications);
         assert!(!tc.allow_palette_reconfigure);
+    }
+}
+
+#[cfg(test)]
+mod window_theme_tests {
+    use super::{Config, WindowTheme};
+
+    fn cfg(toml: &str) -> Config {
+        toml::from_str(toml).expect("valid toml")
+    }
+
+    #[test]
+    fn window_theme_defaults_to_auto_when_absent() {
+        // No key at all -> Auto (follow the OS), so a light desktop is no longer
+        // forced dark.
+        assert_eq!(
+            Config::default().window_theme_or_default(),
+            WindowTheme::Auto
+        );
+        assert_eq!(
+            cfg("font_px = 14.0").window_theme_or_default(),
+            WindowTheme::Auto
+        );
+    }
+
+    #[test]
+    fn window_theme_auto_light_dark_parse() {
+        assert_eq!(
+            cfg("window_theme = \"auto\"").window_theme_or_default(),
+            WindowTheme::Auto
+        );
+        assert_eq!(
+            cfg("window_theme = \"light\"").window_theme_or_default(),
+            WindowTheme::Light
+        );
+        assert_eq!(
+            cfg("window_theme = \"dark\"").window_theme_or_default(),
+            WindowTheme::Dark
+        );
+    }
+
+    #[test]
+    fn window_theme_is_case_insensitive_and_trimmed() {
+        assert_eq!(
+            cfg("window_theme = \" Dark \"").window_theme_or_default(),
+            WindowTheme::Dark
+        );
+        assert_eq!(
+            cfg("window_theme = \"LIGHT\"").window_theme_or_default(),
+            WindowTheme::Light
+        );
+    }
+
+    #[test]
+    fn window_theme_invalid_defaults_to_auto() {
+        assert_eq!(
+            cfg("window_theme = \"midnight\"").window_theme_or_default(),
+            WindowTheme::Auto
+        );
+        assert_eq!(
+            cfg("window_theme = \"\"").window_theme_or_default(),
+            WindowTheme::Auto
+        );
+        // Direct parser: unknown -> None (caller defaults).
+        assert_eq!(WindowTheme::parse("nope"), None);
+        assert_eq!(WindowTheme::parse("auto"), Some(WindowTheme::Auto));
     }
 }

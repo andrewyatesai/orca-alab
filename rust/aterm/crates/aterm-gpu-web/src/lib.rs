@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Copyright 2026 The aterm Authors
 //
 // `aterm-gpu-web` — the GPU rendering substrate for the Electron renderer.
 //
@@ -101,6 +102,7 @@ impl AtermGpuTerminal {
     /// wasm. `px` is the cell font-size; `fg`/`bg`/`cursor`/`selection` are
     /// 0x00RRGGBB and seed the DEFAULT theme (per-cell SGR colors still flow
     /// through the grid independently).
+    #[allow(clippy::too_many_arguments)]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
     pub fn new(
         rows: u16,
@@ -152,7 +154,8 @@ impl AtermGpuTerminal {
         self.cols = cols as usize;
         if let Some(gpu) = self.gpu.as_mut() {
             let (w, h) = gpu.renderer.frame_size(self.rows, self.cols);
-            gpu.renderer.resize_surface(&mut gpu.surface, w as u32, h as u32);
+            gpu.renderer
+                .resize_surface(&mut gpu.surface, w as u32, h as u32);
         }
     }
 
@@ -298,9 +301,42 @@ impl AtermGpuTerminal {
 
     /// Begin a character selection at display `row`/`col` (clears any prior one).
     pub fn selection_start(&mut self, row: i32, col: u16) {
-        self.term
-            .text_selection_mut()
-            .start_selection(row, col, SelectionSide::Left, SelectionType::Simple);
+        self.term.text_selection_mut().start_selection(
+            row,
+            col,
+            SelectionSide::Left,
+            SelectionType::Simple,
+        );
+    }
+
+    /// Select the whole word/URL at display `row`/`col` (double-click) and return
+    /// its text. Mirrors aterm-gui's select_word: a Semantic selection EXPANDED to
+    /// the word's inclusive cell span (smart_word_at's end col is exclusive); on
+    /// whitespace it falls back to the clicked cell. The selection stays active so
+    /// the highlight paints.
+    pub fn selection_word(&mut self, row: i32, col: u16) -> Option<String> {
+        let (start, last) = match self.term.smart_word_at(row as usize, col as usize, &self.smart) {
+            Some((s, e)) => (s as u16, e.saturating_sub(1).max(s) as u16),
+            None => (col, col),
+        };
+        let sel = self.term.text_selection_mut();
+        sel.start_selection(row, col, SelectionSide::Left, SelectionType::Semantic);
+        sel.expand_semantic(start, last);
+        sel.complete_selection();
+        self.term.selection_to_string()
+    }
+
+    /// Select the whole line at display `row` (triple-click) and return its text.
+    /// Mirrors aterm-gui's select_line: a Lines selection expanded to the full row
+    /// width. `col` is accepted for a uniform host API but unused (whole row).
+    pub fn selection_line(&mut self, row: i32, col: u16) -> Option<String> {
+        let _ = col;
+        let max_col = (self.cols as u16).saturating_sub(1);
+        let sel = self.term.text_selection_mut();
+        sel.start_selection(row, 0, SelectionSide::Left, SelectionType::Lines);
+        sel.expand_lines(max_col);
+        sel.complete_selection();
+        self.term.selection_to_string()
     }
 
     /// Move the selection endpoint to `row`/`col` (during a drag).
@@ -536,9 +572,7 @@ struct WebDisplay;
 
 #[cfg(target_arch = "wasm32")]
 impl wgpu::rwh::HasDisplayHandle for WebDisplay {
-    fn display_handle(
-        &self,
-    ) -> Result<wgpu::rwh::DisplayHandle<'_>, wgpu::rwh::HandleError> {
+    fn display_handle(&self) -> Result<wgpu::rwh::DisplayHandle<'_>, wgpu::rwh::HandleError> {
         let raw = wgpu::rwh::RawDisplayHandle::Web(wgpu::rwh::WebDisplayHandle::new());
         // SAFETY: the Web display handle is an empty marker (no borrowed data),
         // so a 'static borrow is sound — there is nothing for it to outlive.
@@ -566,10 +600,7 @@ impl AtermGpuTerminal {
     ///
     /// Returns `Err` (a JS string) if WebGL is unavailable or any step fails, so
     /// the host can fall back to the CPU `aterm-wasm` path.
-    pub async fn init(
-        &mut self,
-        canvas: web_sys::HtmlCanvasElement,
-    ) -> Result<(), String> {
+    pub async fn init(&mut self, canvas: web_sys::HtmlCanvasElement) -> Result<(), String> {
         // The browser WebGL2 backend. GL is the only backend compiled into the
         // wasm closure (default-features = false + features=["webgl"]); wgpu maps
         // `Backends::GL` to the canvas WebGL2 context on wasm32.
@@ -636,10 +667,7 @@ impl AtermGpuTerminal {
     /// CPU==GPU parity tests gate, now on the WebGL backend.
     pub fn render(&mut self) -> Result<(), String> {
         let input = self.term.cell_frame(self.rows, self.cols);
-        let gpu = self
-            .gpu
-            .as_mut()
-            .ok_or("render() before init()")?;
+        let gpu = self.gpu.as_mut().ok_or("render() before init()")?;
         // `invert == false`: straight present (the visual-bell flash is host-driven).
         gpu.renderer
             .present_input(&mut gpu.win, &mut gpu.surface, &input, false);

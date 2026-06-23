@@ -14,15 +14,9 @@ import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 // pointToCell, so a click a few pixels into the grid lands on the first cell —
 // where the cursor (and our text) sits after a home + write.
 //
-// Engine-binding caveat (load-bearing for the assertions): the re-vendored
-// aterm wasm `selection_word`/`selection_line` set the selection TYPE (Semantic
-// / Lines) at the clicked cell but do NOT yet apply the word/line COLUMN extents
-// (they never call the engine's `expand_semantic`/`expand_lines`), so
-// `selection_to_string` reads back just the clicked cell's character. This spec
-// therefore asserts the orc WIRING contract — that detail 2/3 drive the engine
-// word/line path and selectionText() reflects the engine selection — which is
-// what orc owns. When the engine binding starts applying the extents, the FULL
-// word/line flows through this exact path with NO orc change.
+// The aterm bindings' selection_word (Semantic + expand_semantic) and
+// selection_line (Lines + expand_lines) apply the full word/line extents, so a
+// double-click selects the whole word and a triple-click the whole line.
 
 type AtermSelectionControllerProbe = {
   process: (data: string) => void
@@ -115,25 +109,12 @@ test.describe('aterm word/line selection', () => {
     }, findActiveController.toString())
 
     expect(result, 'should reach the controller + canvas').not.toBeNull()
-    // The double-click drove the engine word selection: the selection now starts
-    // at the clicked character ('h' of "hello"). (With the current engine binding
-    // this is exactly the clicked cell; see the caveat at the top of the file.)
-    expect(
-      result!.afterWord,
-      'double-click drives word selection (starts at the clicked char)'
-    ).toBe('h')
-    expect(
-      result!.afterWord.length,
-      'double-click produces a non-empty selection that selectionText() reflects'
-    ).toBeGreaterThan(0)
-    // The triple-click drove the engine line selection over the same row.
-    expect(
-      result!.afterLine,
-      'triple-click drives line selection (starts at the clicked char)'
-    ).toBe('h')
-    expect(
-      result!.afterLine.length,
-      'triple-click produces a non-empty selection that selectionText() reflects'
-    ).toBeGreaterThan(0)
+    // Double-click on the 'h' selects the WHOLE word "hello" (engine Semantic
+    // selection expanded to word boundaries via expand_semantic).
+    expect(result!.afterWord, 'double-click selects the whole word').toBe('hello')
+    // Triple-click selects the WHOLE line (expand_lines, trailing blanks trimmed).
+    expect(result!.afterLine, 'triple-click selects the whole line').toBe(
+      'hello world from aterm'
+    )
   })
 })

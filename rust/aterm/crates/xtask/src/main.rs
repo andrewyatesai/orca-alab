@@ -162,7 +162,13 @@ fn write_harness_manifest() -> std::io::Result<PathBuf> {
     Ok(out_path)
 }
 
-/// Recursively collect `*.rs` files under `dir` (skipping `target/`).
+/// Recursively collect `*.rs` files under `dir`, skipping `target/` and any
+/// hidden directory (name starting with `.`). The hidden-dir skip matters
+/// because this tool's own workflow worktrees live under `.claude/worktrees/`
+/// (each a full repo checkout); descending into them would count every source
+/// file N+1 times. This matches the `grep -rn` semantics the count gates cite
+/// (BSD/GNU `grep -r .` does not descend into dot-directories), so a developer
+/// with active worktrees gets the same counts as a clean checkout.
 pub(crate) fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if !dir.exists() {
         return Ok(());
@@ -170,7 +176,8 @@ pub(crate) fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::R
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
         if path.is_dir() {
-            if path.file_name().and_then(|n| n.to_str()) == Some("target") {
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if name == "target" || name.starts_with('.') {
                 continue;
             }
             collect_rs_files(&path, out)?;

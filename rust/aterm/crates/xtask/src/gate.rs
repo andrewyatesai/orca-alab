@@ -25,14 +25,21 @@
 //!   and every armed name must have a real injection site. Keeps the deterministic
 //!   fault-injection harness honest — an untested fail-closed path rots silently.
 //! - `lint`: clippy `-D warnings` + rustfmt + grep_guard + license headers.
+//! - `counts`: ASSERTED-vs-COMPUTED. The README states a `#[kani::proof]` harness
+//!   count (and file count) in prose; this gate recomputes both with the exact
+//!   `grep -rn '^\s*#[kani::proof]'` semantics the README cites and FAILS if the
+//!   asserted numbers have rotted. Keeps a hand-typed claim from drifting silently.
+//! - `miri`: UB-FLOOR (skip-if-unavailable). Runs `cargo +nightly miri test` over
+//!   the allocator/buffer/grid crates when a nightly miri is installed; otherwise
+//!   prints a clear SKIP and passes (never a hard fail on a box without miri).
 //! - `perf`: MEM-BUDGET retained-heap ceiling (M2); wall-clock baseline deferred.
 //! - `linux` (opt-in, NOT in `all`): the codebase must keep compiling for
 //!   `x86_64-unknown-linux-gnu` (no macOS-only API sneaks in un-cfg-gated). With
 //!   `cargo-zigbuild` on PATH it checks the WHOLE WORKSPACE (zig cc cross-compiles
 //!   the zstd C-dep); else the pure-Rust engine. Skips gracefully if that rustup
 //!   target is absent. Matches M5's "uname-gated state probe".
-//! - `all`: every check above EXCEPT `linux` (which needs the Linux target); what
-//!   the pre-push hook runs.
+//! - `all`: every check above EXCEPT `linux` (needs the Linux target) and `miri`
+//!   (needs a nightly miri toolchain); what the pre-push hook runs.
 //!
 //! See docs/EXCEED_GHOSTTY_PLAN.md.
 
@@ -48,6 +55,8 @@ pub(crate) fn run(check: Option<&str>) -> ExitCode {
         Some("fault") => gate_fault(),
         Some("linux") => gate_linux(),
         Some("lint") => gate_lint(),
+        Some("counts") => gate_counts(),
+        Some("miri") => gate_miri(),
         Some("perf") => gate_perf(),
         Some("all") => {
             // Run all; report every failure (don't short-circuit) so one run
@@ -56,6 +65,7 @@ pub(crate) fn run(check: Option<&str>) -> ExitCode {
                 ("drift", gate_drift()),
                 ("dormant", gate_dormant()),
                 ("fault", gate_fault()),
+                ("counts", gate_counts()),
                 ("perf", gate_perf()),
                 ("lint", gate_lint()),
             ];
@@ -65,7 +75,9 @@ pub(crate) fn run(check: Option<&str>) -> ExitCode {
                 .map(|(n, _)| *n)
                 .collect();
             if failed.is_empty() {
-                eprintln!("\ngate all: GREEN — drift, dormant, fault, perf, lint all passed.");
+                eprintln!(
+                    "\ngate all: GREEN — drift, dormant, fault, counts, perf, lint all passed."
+                );
                 true
             } else {
                 eprintln!("\ngate all: FAILED — {}", failed.join(", "));
@@ -74,7 +86,7 @@ pub(crate) fn run(check: Option<&str>) -> ExitCode {
         }
         other => {
             eprintln!(
-                "usage: xtask gate <all|drift|dormant|fault|linux|lint|perf>\n\
+                "usage: xtask gate <all|drift|dormant|fault|linux|lint|counts|miri|perf>\n\
                  (unknown check {other:?})"
             );
             false
@@ -602,6 +614,176 @@ fn gate_lint() -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// G-COUNTS (asserted-vs-computed: the README's kani-harness count must not rot)
+// ---------------------------------------------------------------------------
+
+/// Recompute `(harnesses, files)` with the EXACT semantics of the command the
+/// README cites — `grep -rn '^\s*#[kani::proof]'` over `*.rs` whole-tree:
+/// `harnesses` is the number of matching lines, `files` is the number of files with
+/// at least one match. The walk reuses [`collect_rs_files`] (skips `target/`).
+///
+/// The leading-whitespace anchor matches the attribute ONLY where it is actually
+/// applied (a real `#[kani::proof]` at the start of an indented line), so a
+/// backticked mention inside a doc-comment or a string literal — e.g. in THIS very
+/// tool, or in README prose — is not miscounted as a harness. That self-reference
+/// trap is the whole reason a plain `grep '#[kani::proof]'` would drift the moment
+/// the gate is edited to name the token.
+fn kani_proof_counts() -> std::io::Result<(usize, usize)> {
+    let root = workspace_root();
+    let mut files = Vec::new();
+    collect_rs_files(&root, &mut files)?;
+    let (mut harnesses, mut hit_files) = (0usize, 0usize);
+    for file in &files {
+        let Ok(text) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        // A real attribute line: optional indentation, then `#[kani::proof]`.
+        let n = text
+            .lines()
+            .filter(|l| l.trim_start().starts_with("#[kani::proof]"))
+            .count();
+        if n > 0 {
+            harnesses += n;
+            hit_files += 1;
+        }
+    }
+    Ok((harnesses, hit_files))
+}
+
+/// The first integer immediately preceding `marker` in `text` (e.g. the `417` in
+/// "417 `#[kani::proof]` harnesses"). `None` if no such "<int> <marker>" appears.
+fn asserted_int_before(text: &str, marker: &str) -> Option<usize> {
+    let idx = text.find(marker)?;
+    let before = text[..idx].trim_end();
+    let digits: String = before
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.chars().rev().collect::<String>().parse().ok()
+}
+
+fn gate_counts() -> bool {
+    eprintln!("=== gate counts (README kani-harness count is computed, not asserted) ===");
+    let (harnesses, files) = match kani_proof_counts() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("gate counts: FAILED — could not scan workspace ({e})");
+            return false;
+        }
+    };
+
+    let readme_path = workspace_root().join("README.md");
+    let readme = match std::fs::read_to_string(&readme_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("gate counts: FAILED — could not read {readme_path:?} ({e})");
+            return false;
+        }
+    };
+
+    // README phrasing: "417 `#[kani::proof]` harnesses across 51 files".
+    let asserted_harnesses = asserted_int_before(&readme, "`#[kani::proof]` harnesses");
+    // Anchor the file-count claim to the harness sentence (search from the
+    // harness marker), so an unrelated "…files…" elsewhere can't be mistaken for it.
+    let asserted_files = readme
+        .find("`#[kani::proof]` harnesses")
+        .map(|i| &readme[i..])
+        .and_then(|tail| asserted_int_before(tail, "files"));
+
+    let mut ok = true;
+    match asserted_harnesses {
+        Some(n) if n == harnesses => {
+            eprintln!("  ok    harness count: README {n} == computed {harnesses}");
+        }
+        Some(n) => {
+            eprintln!(
+                "  FAIL  harness count: README says {n} but `grep -rn '^\\s*#[kani::proof]'` \
+                 computes {harnesses} — update README.md."
+            );
+            ok = false;
+        }
+        None => {
+            eprintln!(
+                "  FAIL  harness count: could not find the asserted \
+                 \"<N> `#[kani::proof]` harnesses\" claim in README.md."
+            );
+            ok = false;
+        }
+    }
+    match asserted_files {
+        Some(n) if n == files => {
+            eprintln!("  ok    file count: README {n} == computed {files}");
+        }
+        Some(n) => {
+            eprintln!(
+                "  FAIL  file count: README says {n} files but {files} files contain a \
+                 `#[kani::proof]` — update README.md."
+            );
+            ok = false;
+        }
+        None => {
+            eprintln!("  FAIL  file count: could not find the asserted \"<N> files\" claim.");
+            ok = false;
+        }
+    }
+
+    if ok {
+        eprintln!("gate counts: GREEN ({harnesses} harnesses across {files} files)");
+    } else {
+        eprintln!("gate counts: FAILED");
+    }
+    ok
+}
+
+// ---------------------------------------------------------------------------
+// G-MIRI (UB-floor; skip-if-unavailable — never a hard fail without a nightly miri)
+// ---------------------------------------------------------------------------
+
+/// Run `cargo +nightly miri test` over the unsafe-bearing leaf crates IF a nightly
+/// miri is installed; otherwise print a clear SKIP and pass. Mirrors `gate_linux`'s
+/// skip-don't-fail discipline: a box without miri is not a merge-contract failure,
+/// but where miri IS present it is a real UB floor. Opt-in (NOT in `gate all`).
+fn gate_miri() -> bool {
+    // Probe for a nightly miri without committing to a heavy run: `+nightly miri --version`.
+    let probe = Command::new("cargo")
+        .args(["+nightly", "miri", "--version"])
+        .current_dir(workspace_root())
+        .output();
+    let have_miri = matches!(probe, Ok(ref o) if o.status.success());
+    if !have_miri {
+        eprintln!(
+            "gate miri: SKIPPED — no nightly miri found \
+             (`rustup +nightly component add miri`). Not a failure."
+        );
+        return true;
+    }
+
+    eprintln!("=== gate miri (UB floor: cargo +nightly miri test over alloc/buffer/grid) ===");
+    let ok = run_shell(
+        "miri",
+        "cargo",
+        &[
+            "+nightly",
+            "miri",
+            "test",
+            "-p",
+            "aterm-alloc",
+            "-p",
+            "aterm-buffer",
+            "-p",
+            "aterm-grid",
+        ],
+    );
+    if ok {
+        eprintln!("gate miri: GREEN — no UB detected.");
+    } else {
+        eprintln!("gate miri: FAILED — miri reported undefined behavior.");
+    }
+    ok
+}
+
+// ---------------------------------------------------------------------------
 // G-FAULT (M7: every injected fault point must be exercised by a test)
 // ---------------------------------------------------------------------------
 
@@ -739,7 +921,7 @@ fn gate_perf() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::extract_call_string_args;
+    use super::{asserted_int_before, extract_call_string_args};
 
     #[test]
     fn extracts_triggered_names() {
@@ -766,5 +948,26 @@ mod tests {
     #[test]
     fn no_match_returns_empty() {
         assert!(extract_call_string_args("let x = 1;", "triggered").is_empty());
+    }
+
+    #[test]
+    fn asserted_int_before_reads_the_count_in_front_of_the_marker() {
+        let prose = "sit **441 `#[kani::proof]` harnesses across 58 files**";
+        assert_eq!(
+            asserted_int_before(prose, "`#[kani::proof]` harnesses"),
+            Some(441)
+        );
+        // Anchored file-count read (the tail after the harness marker).
+        let tail = &prose[prose.find("`#[kani::proof]` harnesses").unwrap()..];
+        assert_eq!(asserted_int_before(tail, "files"), Some(58));
+    }
+
+    #[test]
+    fn asserted_int_before_is_none_without_a_preceding_integer() {
+        assert_eq!(asserted_int_before("no number here files", "files"), None);
+        assert_eq!(
+            asserted_int_before("missing marker entirely", "files"),
+            None
+        );
     }
 }

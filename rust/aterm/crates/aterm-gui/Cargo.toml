@@ -55,6 +55,9 @@ aterm-containment = { workspace = true }
 aterm-log = { workspace = true }
 aterm-render = { workspace = true }
 aterm-gpu = { workspace = true }
+# Cmd-F find bar: back the find over the live screen + scrollback with the shared
+# trigram/Bloom search engine instead of a hand-rolled scan (app_search.rs).
+aterm-search = { workspace = true }
 # build_info: FxHash the running binary into a content signature (no crypto dep).
 aterm-hash = { workspace = true }
 # K-2: enable the winit→engine key map so the GUI and the future native shell

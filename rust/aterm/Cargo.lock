@@ -393,6 +393,7 @@ dependencies = [
  "aterm-render",
  "aterm-sandbox",
  "aterm-scrollback",
+ "aterm-search",
  "aterm-session",
  "aterm-spec",
  "aterm-spec-models",

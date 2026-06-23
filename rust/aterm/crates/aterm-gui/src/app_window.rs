@@ -12,6 +12,8 @@ use std::sync::Arc;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
+#[cfg(target_os = "macos")]
+use crate::app_config::WindowTheme;
 use crate::app_config::resolve_force_scale;
 use crate::spawn::spawn_session;
 use crate::{
@@ -31,7 +33,7 @@ use crate::{
 /// aterm's framebuffer pixels are unchanged — only the redundant gamut round-trip
 /// is removed. `$ATERM_NO_COLORSPACE_MATCH` opts out.
 #[cfg(target_os = "macos")]
-pub(crate) fn match_window_colorspace_to_content(window: &Window) {
+pub(crate) fn match_window_colorspace_to_content(window: &Window, window_theme: WindowTheme) {
     use objc2_app_kit::{NSColorSpace, NSView};
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     let Ok(handle) = window.window_handle() else {
@@ -54,25 +56,43 @@ pub(crate) fn match_window_colorspace_to_content(window: &Window) {
             ns_window.setColorSpace(Some(&cs));
         }
     }
-    // Ghostty-style DARK, unified chrome: force a dark NSAppearance + a transparent
-    // titlebar so the window frame (titlebar + traffic lights) matches the dark
-    // terminal body instead of the light system bar. Opt out with ATERM_NO_DARK_CHROME.
+    // Ghostty-style unified chrome: a transparent titlebar so the window frame
+    // (titlebar + traffic lights) reads as a seamless extension of the terminal
+    // body. The titlebar's LIGHT/DARK appearance now follows config `window_theme`
+    // ([`WindowTheme`]): Dark -> NSAppearanceNameDarkAqua, Light ->
+    // NSAppearanceNameAqua, Auto -> leave the appearance UNSET so the window tracks
+    // the OS `effectiveAppearance` (including live day-night switches). This
+    // replaces the old unconditional dark force that left light-desktop users with
+    // permanently dark chrome. `ATERM_NO_DARK_CHROME` still forces Auto (no
+    // override) regardless of config, for callers that scripted the old opt-out.
     // SAFETY: `appearanceNamed:`/`setAppearance:`/`setTitlebarAppearsTransparent:` are
     // standard NSWindow/NSAppearance calls on the main thread; the appearance object
     // is autoreleased and used immediately within this pool.
-    if std::env::var_os("ATERM_NO_DARK_CHROME").is_none() {
+    let resolved = if std::env::var_os("ATERM_NO_DARK_CHROME").is_some() {
+        WindowTheme::Auto
+    } else {
+        window_theme
+    };
+    let appearance_name: Option<&str> = match resolved {
+        WindowTheme::Auto => None,
+        WindowTheme::Light => Some("NSAppearanceNameAqua"),
+        WindowTheme::Dark => Some("NSAppearanceNameDarkAqua"),
+    };
+    unsafe {
         use objc2::runtime::AnyObject;
         use objc2::{class, msg_send};
         use objc2_foundation::NSString;
-        unsafe {
-            let name = NSString::from_str("NSAppearanceNameDarkAqua");
+        if let Some(name) = appearance_name {
+            let name = NSString::from_str(name);
             let appearance: *mut AnyObject =
                 msg_send![class!(NSAppearance), appearanceNamed: &*name];
             if !appearance.is_null() {
                 let _: () = msg_send![&*ns_window, setAppearance: appearance];
             }
-            let _: () = msg_send![&*ns_window, setTitlebarAppearsTransparent: true];
         }
+        // Transparent titlebar is desired in every mode (it is the chrome-unification
+        // half, independent of light/dark).
+        let _: () = msg_send![&*ns_window, setTitlebarAppearsTransparent: true];
     }
 }
 
@@ -435,7 +455,7 @@ impl App {
         // softbuffer tags its content device-RGB; match the window so the
         // compositor doesn't CMS-convert every frame on the main thread.
         #[cfg(target_os = "macos")]
-        match_window_colorspace_to_content(&window);
+        match_window_colorspace_to_content(&window, self.window_theme);
         self.winit_to_window.insert(window.id(), wid);
         if let Some(ws) = self.windows.get_mut(&wid) {
             ws.os_window = Some(window);

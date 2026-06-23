@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 The aterm Authors
+
 //! `aterm-wasm` — the in-page rendering substrate that replaces `@xterm/xterm`'s
 //! rendering in the Electron renderer.
 //!
@@ -41,6 +44,7 @@ impl AtermTerminal {
     /// keeping the engine free of filesystem font discovery. `fg`/`bg`/`cursor`/
     /// `selection` are 0x00RRGGBB and seed the renderer's DEFAULT theme colors;
     /// per-cell SGR colors still flow through the grid independently.
+    #[allow(clippy::too_many_arguments)]
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
     pub fn new(
         rows: u16,
@@ -258,9 +262,42 @@ impl AtermTerminal {
 
     /// Begin a character selection at display `row`/`col` (clears any prior one).
     pub fn selection_start(&mut self, row: i32, col: u16) {
-        self.term
-            .text_selection_mut()
-            .start_selection(row, col, SelectionSide::Left, SelectionType::Simple);
+        self.term.text_selection_mut().start_selection(
+            row,
+            col,
+            SelectionSide::Left,
+            SelectionType::Simple,
+        );
+    }
+
+    /// Select the whole word/URL at display `row`/`col` (double-click) and return
+    /// its text. Mirrors aterm-gui's select_word: a Semantic selection EXPANDED to
+    /// the word's inclusive cell span (smart_word_at's end col is exclusive); on
+    /// whitespace it falls back to the clicked cell. The selection stays active so
+    /// the highlight paints.
+    pub fn selection_word(&mut self, row: i32, col: u16) -> Option<String> {
+        let (start, last) = match self.term.smart_word_at(row as usize, col as usize, &self.smart) {
+            Some((s, e)) => (s as u16, e.saturating_sub(1).max(s) as u16),
+            None => (col, col),
+        };
+        let sel = self.term.text_selection_mut();
+        sel.start_selection(row, col, SelectionSide::Left, SelectionType::Semantic);
+        sel.expand_semantic(start, last);
+        sel.complete_selection();
+        self.term.selection_to_string()
+    }
+
+    /// Select the whole line at display `row` (triple-click) and return its text.
+    /// Mirrors aterm-gui's select_line: a Lines selection expanded to the full row
+    /// width. `col` is accepted for a uniform host API but unused (whole row).
+    pub fn selection_line(&mut self, row: i32, col: u16) -> Option<String> {
+        let _ = col;
+        let max_col = (self.cols as u16).saturating_sub(1);
+        let sel = self.term.text_selection_mut();
+        sel.start_selection(row, 0, SelectionSide::Left, SelectionType::Lines);
+        sel.expand_lines(max_col);
+        sel.complete_selection();
+        self.term.selection_to_string()
     }
 
     /// Move the selection endpoint to `row`/`col` (during a drag).
@@ -343,11 +380,11 @@ impl AtermTerminal {
         }
         // Reuse the cached full-content index (O(1) on unchanged content); plain
         // substring search (is_regex=false) matches the xterm search default.
-        let Ok(results) = self.term.indexed_search().search_results_opts(
-            query,
-            case_sensitive,
-            false,
-        ) else {
+        let Ok(results) =
+            self.term
+                .indexed_search()
+                .search_results_opts(query, case_sensitive, false)
+        else {
             return Vec::new();
         };
         let mut out = Vec::with_capacity(results.matches.len() * 3);
@@ -560,6 +597,22 @@ mod tests {
     }
 
     #[test]
+    fn double_click_selects_whole_word_triple_click_whole_line() {
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping word/line select test");
+            return;
+        };
+        t.process(b"hello world");
+        // Double-click anywhere in "hello" (cols 0..5) selects the WHOLE word,
+        // not just the clicked cell — the expand_semantic fix.
+        let word = t.selection_word(0, 2).expect("word selection");
+        assert_eq!(word, "hello", "double-click selects the full word");
+        // Triple-click selects the whole line (trailing blanks trimmed).
+        let line = t.selection_line(0, 2).expect("line selection");
+        assert_eq!(line, "hello world", "triple-click selects the full line");
+    }
+
+    #[test]
     fn search_finds_a_token_in_scrollback_and_scrolls_it_into_view() {
         let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
             eprintln!("no system font; skipping search test");
@@ -571,13 +624,20 @@ mod tests {
             t.process(format!("filler line {i}\r\n").as_bytes());
         }
         let hits = t.search("UNIQUE_SEARCH_TOKEN", true);
-        assert_eq!(hits.len(), 3, "exactly one match → one [line,col,len] triple");
+        assert_eq!(
+            hits.len(),
+            3,
+            "exactly one match → one [line,col,len] triple"
+        );
         let (line, col, len) = (hits[0], hits[1], hits[2]);
         assert_eq!(col, 0, "token starts at column 0");
         assert_eq!(len, "UNIQUE_SEARCH_TOKEN".len() as u32, "match length");
         // The match is in scrollback, so it is not visible at the live bottom.
         let origin = t.search_display_origin();
-        assert!(line < origin, "token line is above the live viewport origin");
+        assert!(
+            line < origin,
+            "token line is above the live viewport origin"
+        );
         // Scrolling it into view must move the viewport off the bottom and land
         // the match within the visible rows.
         assert_eq!(t.display_offset(), 0, "starts at the live bottom");
@@ -599,10 +659,16 @@ mod tests {
             eprintln!("no system font; skipping app-cursor-mode test");
             return;
         };
-        assert!(!t.is_app_cursor_mode(), "DECCKM defaults off (cursor → CSI)");
+        assert!(
+            !t.is_app_cursor_mode(),
+            "DECCKM defaults off (cursor → CSI)"
+        );
         // CSI ? 1 h sets DECCKM (application cursor keys); CSI ? 1 l resets it.
         t.process(b"\x1b[?1h");
-        assert!(t.is_app_cursor_mode(), "DECCKM set → application cursor keys");
+        assert!(
+            t.is_app_cursor_mode(),
+            "DECCKM set → application cursor keys"
+        );
         t.process(b"\x1b[?1l");
         assert!(!t.is_app_cursor_mode(), "DECCKM reset → normal cursor keys");
     }
@@ -627,7 +693,10 @@ mod tests {
         let release = t.encode_mouse_release(4, 2, 0, 0).expect("release encoded");
         assert_eq!(release, b"\x1b[<0;5;3m", "SGR release uses lowercase m");
         // Normal mode (1000) reports no motion.
-        assert!(t.encode_mouse_motion(0, 0, 0, 0).is_none(), "1000 no motion");
+        assert!(
+            t.encode_mouse_motion(0, 0, 0, 0).is_none(),
+            "1000 no motion"
+        );
         // Switch to 1002 (button-event) → motion while a button is held.
         t.process(b"\x1b[?1002h");
         assert!(t.mouse_wants_motion(), "1002 reports drag motion");
@@ -640,7 +709,10 @@ mod tests {
         assert_eq!(wheel, b"\x1b[<64;5;3M", "SGR wheel-up report");
         // DECRST 1003/1002/1000 clears tracking entirely.
         t.process(b"\x1b[?1003l\x1b[?1002l\x1b[?1000l");
-        assert!(!t.is_mouse_tracking(), "clearing all modes disables tracking");
+        assert!(
+            !t.is_mouse_tracking(),
+            "clearing all modes disables tracking"
+        );
     }
 
     #[test]
@@ -653,7 +725,10 @@ mod tests {
         t.process(b"\x1b[?1004h");
         assert!(t.is_focus_event_mode(), "1004 enables focus reporting");
         t.process(b"\x1b[?1004l");
-        assert!(!t.is_focus_event_mode(), "1004 reset disables focus reporting");
+        assert!(
+            !t.is_focus_event_mode(),
+            "1004 reset disables focus reporting"
+        );
     }
 
     #[test]

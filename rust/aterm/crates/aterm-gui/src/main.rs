@@ -1315,6 +1315,12 @@ struct App {
     /// `option_as_meta`, default `true`). When `false`, Option types the OS-
     /// composed character instead. Read in `on_key`. GLOBAL (window-uniform).
     option_as_meta: bool,
+    /// Window-CHROME appearance (config `window_theme`, default
+    /// [`WindowTheme::Auto`]): Auto follows the OS effective appearance, Light/Dark
+    /// force an `NSAppearance`. Applied to the NSWindow in
+    /// [`app_window::match_window_colorspace_to_content`] at window attach. GLOBAL
+    /// (window-uniform); macOS-only effect (inert elsewhere).
+    window_theme: app_config::WindowTheme,
     /// User keyboard shortcuts (config `[keybindings]`). Consulted FIRST in
     /// `on_key`; a miss falls through to the hardcoded matches. Empty (the
     /// default) means the lookup is a single always-missing probe. GLOBAL: the
@@ -1627,6 +1633,7 @@ impl App {
             theme,
             font_family: None,
             option_as_meta: true,
+            window_theme: app_config::WindowTheme::default(),
             keybindings: keybinding::Keybindings::default(),
             windows: {
                 let mut m = BTreeMap::new();
@@ -3076,6 +3083,7 @@ fn main() {
         // GLOBAL config (window-uniform): font family, Option-as-Meta, keybindings.
         font_family,
         option_as_meta: config.option_as_meta_or_default(),
+        window_theme: config.window_theme_or_default(),
         keybindings: keybinding::Keybindings::from_config(config.keybindings.as_ref()),
         windows: {
             let mut m = BTreeMap::new();

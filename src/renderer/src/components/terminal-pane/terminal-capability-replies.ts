@@ -46,12 +46,38 @@ function disposeAll(disposables: IDisposable[]): void {
   }
 }
 
+/** Device-pixel sizes the renderer knows (text-area framebuffer + cell). The
+ *  aterm canvas controller is authoritative here; an unopened xterm shim has no
+ *  DOM to measure. */
+export type TerminalRendererPixelSize = {
+  width: number
+  height: number
+  cellWidth: number
+  cellHeight: number
+}
+
 export function createTerminalPixelSizeQueryResponder(
   terminal: Pick<Terminal, 'cols' | 'rows' | 'element'>,
-  sendInput: (data: string) => boolean | void
+  sendInput: (data: string) => boolean | void,
+  // Live aterm pixel-size source. When the pane is aterm-rendered the xterm is
+  // unopened (no .xterm-screen to measure), so the canvas controller owns pixel
+  // size; read it live so a settings/DPI change is reflected. Returns null when
+  // not aterm-rendered (then fall back to the xterm DOM measurement).
+  getRendererPixelSize?: () => TerminalRendererPixelSize | null
 ): (data: string) => void {
   let pending = ''
   const respond = (reportsWindowPixels: boolean): void => {
+    const rendererPixels = getRendererPixelSize?.() ?? null
+    if (rendererPixels) {
+      const width = reportsWindowPixels ? rendererPixels.width : rendererPixels.cellWidth
+      const height = reportsWindowPixels ? rendererPixels.height : rendererPixels.cellHeight
+      // Skip a zero-sized framebuffer (pre-first-render) so we never emit a
+      // bogus "\x1b[4;0;0t"; wait for a real size.
+      if (width > 0 && height > 0) {
+        sendInput(`\x1b[${reportsWindowPixels ? 4 : 6};${height};${width}t`)
+      }
+      return
+    }
     const cell = measureCellPixels(terminal)
     if (!cell) {
       return
@@ -81,6 +107,60 @@ export function createTerminalPixelSizeQueryResponder(
         continue
       }
       offset = queryIndex + 2
+    }
+  }
+}
+
+/** OSC 10 (foreground) / OSC 11 (background) color sources as 0x00RRGGBB. The
+ *  aterm renderer owns the theme, so it answers these; the daemon and unopened
+ *  xterm shim cannot. Returns null when not aterm-rendered (no reply — the
+ *  legacy xterm path renders to a DOM and answers OSC colors itself). */
+export type TerminalRendererThemeColors = { fg: number; bg: number }
+
+function u32ToXtermRgb(color: number): string {
+  // xterm reports OSC color components as 16-bit (each 8-bit byte doubled), e.g.
+  // 0x1a2b3c -> "rgb:1a1a/2b2b/3c3c". This matches xterm/VTE's reply format.
+  const r = (color >> 16) & 0xff
+  const g = (color >> 8) & 0xff
+  const b = color & 0xff
+  const dup = (n: number): string => n.toString(16).padStart(2, '0').repeat(2)
+  return `rgb:${dup(r)}/${dup(g)}/${dup(b)}`
+}
+
+// OSC 10/11 color QUERY: ESC ] 10 ; ? ST  and  ESC ] 11 ; ? ST (ST = BEL or ESC \).
+const OSC_COLOR_QUERY_FG = '\x1b]10;?'
+const OSC_COLOR_QUERY_BG = '\x1b]11;?'
+
+export function createTerminalOscColorQueryResponder(
+  sendInput: (data: string) => boolean | void,
+  getRendererThemeColors: () => TerminalRendererThemeColors | null,
+  isReplaying: () => boolean
+): (data: string) => void {
+  let pending = ''
+  return (data) => {
+    const input = pending + data
+    // Only carry an UNTERMINATED trailing partial of either query (max length 6)
+    // so a query split across chunks still matches once — without re-matching a
+    // fully-consumed query on the next call (that would double-reply).
+    const tail = input.slice(-(OSC_COLOR_QUERY_FG.length - 1))
+    pending =
+      OSC_COLOR_QUERY_FG.startsWith(tail) || OSC_COLOR_QUERY_BG.startsWith(tail) ? tail : ''
+    if (isReplaying()) {
+      // Why: replayed scrollback may contain old OSC color queries; answering
+      // those into the fresh shell would leak stray "]11;rgb:..." input.
+      return
+    }
+    const colors = getRendererThemeColors()
+    if (!colors) {
+      return
+    }
+    // Consume the matched query span(s) so the carried tail can't re-trigger.
+    const consumed = input.slice(0, input.length - pending.length)
+    if (consumed.includes(OSC_COLOR_QUERY_FG)) {
+      sendInput(`\x1b]10;${u32ToXtermRgb(colors.fg)}\x07`)
+    }
+    if (consumed.includes(OSC_COLOR_QUERY_BG)) {
+      sendInput(`\x1b]11;${u32ToXtermRgb(colors.bg)}\x07`)
     }
   }
 }

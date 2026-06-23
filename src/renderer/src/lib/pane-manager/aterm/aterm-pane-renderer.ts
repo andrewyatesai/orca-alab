@@ -17,6 +17,8 @@ import { createAtermFramePainter } from './aterm-frame-painter'
 import { buildAtermSearchApi } from './aterm-search-api'
 import { buildAtermInputDom } from './aterm-input-dom'
 import { createAtermUrlOpener, type AtermLinkContext } from './aterm-url-link-routing'
+import { buildAtermRendererReplySurface, type AtermRendererReplySurface } from './aterm-renderer-reply-surface'
+import { copyAtermSelectionToClipboard } from './aterm-clipboard-copy'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -30,7 +32,9 @@ export type AtermPaneResizeSink = (cols: number, rows: number) => void
 /** Send PASTED text; wraps with bracketed-paste markers when DECSET 2004 is on. */
 export type AtermPanePasteSink = (data: string) => void
 
-export type AtermPaneController = {
+// The renderer-authoritative reply surface (pixelSize / themeColors / e2e
+// benchmarkRender) is mixed in so CSI 14t/16t + OSC 10/11 answers live with it.
+export type AtermPaneController = AtermRendererReplySurface & {
   /** Feed PTY/replay output bytes; coalesces draws into one rAF frame. */
   process: (data: string) => void
   /** Lines the viewport is scrolled up from the live bottom (0 = at bottom). */
@@ -190,16 +194,6 @@ export async function createAtermPaneController(
     scheduleDraw()
   }
 
-  // Copy selected text via Electron's clipboard IPC (same seam the rest of the
-  // app uses); also surface it on a window field so e2e can assert copies under
-  // a hidden window where navigator.clipboard is unavailable.
-  const copyToClipboard = (text: string): void => {
-    ;(window as unknown as { __atermLastCopied?: string }).__atermLastCopied = text
-    void window.api?.ui?.writeClipboardText?.(text)?.catch(() => {
-      /* ignore clipboard write failures */
-    })
-  }
-
   // Deps held in named objects (not inline literals) so the DPI-change listener
   // can mutate `dpr` in place; selection/scroll/link read `deps.dpr` live (M2).
   const selectionDeps = {
@@ -210,7 +204,7 @@ export async function createAtermPaneController(
     cellHeight,
     redraw: scheduleDraw,
     isDisposed: () => disposed,
-    onCopy: copyToClipboard
+    onCopy: copyAtermSelectionToClipboard
   }
   const selectionInput = attachAtermSelectionInput(selectionDeps)
 
@@ -387,6 +381,9 @@ export async function createAtermPaneController(
   resizeSink(cols, rows)
   scheduleDraw()
 
+  const getGrid = (): { cols: number; rows: number } => ({ cols, rows })
+  const replySurface = buildAtermRendererReplySurface({ term, cellWidth, cellHeight, themeColors, getGrid, scheduleDraw })
+
   return {
     process,
     displayOffset: () => term.display_offset,
@@ -410,6 +407,9 @@ export async function createAtermPaneController(
       activeLinkContext = context
     },
     lastMouseReport: () => eventReportingInput.lastMouseReport(),
+    // Renderer-authoritative reply surface: pixel size (14t/16t), theme colors
+    // (OSC 10/11), perf seam — see buildAtermRendererReplySurface.
+    ...replySurface,
     dispose: () => {
       if (disposed) {
         return

@@ -91,6 +91,7 @@ import { getEagerPtyBufferHandle } from './pty-dispatcher'
 import { createTerminalGitHubPRLinkDetector } from '@/lib/terminal-github-pr-link-detector'
 import {
   CONPTY_DA1_RESPONSE,
+  createTerminalOscColorQueryResponder,
   createTerminalPixelSizeQueryResponder,
   installTerminalCapabilityReplyHandlers
 } from './terminal-capability-replies'
@@ -1867,9 +1868,32 @@ export function connectPanePty(
     isReplaying: () => isPaneReplaying(deps.replayingPanesRef, pane.id),
     ...(isNativeWindowsConpty ? { da1Response: CONPTY_DA1_RESPONSE } : {})
   })
+  // Resolve the live pane's aterm controller by stable leafId (not the closed-over
+  // `pane`): React StrictMode double-mount can leave the closed-over object's
+  // atermController null while a newer pane object holds the attached controller.
+  const resolveLiveAtermController = (): ManagedPane['atermController'] =>
+    manager.getPanes().find((candidate) => candidate.leafId === pane.leafId)?.atermController ??
+    pane.atermController ??
+    null
   const respondToTerminalPixelSizeQueries = createTerminalPixelSizeQueryResponder(
     pane.terminal,
-    (data) => transport.sendInput(data)
+    (data) => transport.sendInput(data),
+    // An aterm pane's xterm is unopened (no .xterm-screen to measure), so the
+    // canvas controller is the only one that knows the pixel size; null falls
+    // back to the xterm DOM measurement for the default xterm path.
+    () => resolveLiveAtermController()?.pixelSize() ?? null
+  )
+  // Why aterm answers OSC 10/11 here: the renderer is the authoritative color
+  // responder (the daemon deliberately doesn't reply, and the unopened xterm
+  // shim has no color service so it never auto-replies to OSC 10/11). The aterm
+  // canvas owns the theme, so it answers from its seeded fg/bg.
+  const respondToTerminalOscColorQueries = createTerminalOscColorQueryResponder(
+    (data) => transport.sendInput(data),
+    () => {
+      const colors = resolveLiveAtermController()?.themeColors()
+      return colors ? { fg: colors.fg, bg: colors.bg } : null
+    },
+    () => isPaneReplaying(deps.replayingPanesRef, pane.id)
   )
 
   const onDataDisposable = pane.terminal.onData((data) => {
@@ -3292,6 +3316,7 @@ export function connectPanePty(
       }
       resetHiddenOutputRestoreIfPtyChanged()
       respondToTerminalPixelSizeQueries(data)
+      respondToTerminalOscColorQueries(data)
       observeTerminalBracketedPasteModeOutput(pane.terminal, data)
       for (const link of observeTerminalGitHubPRLink(data)) {
         useAppStore.getState().observeTerminalGitHubPullRequestLink(deps.worktreeId, link)

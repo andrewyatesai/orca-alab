@@ -693,6 +693,9 @@ pub struct GpuRenderer {
     /// auto-scale) re-resolves the SAME family instead of silently falling back to the
     /// system monospace. Without this, a Retina rebuild on the first frame dropped a
     /// configured family out of the box on the GPU backend.
+    // Read only by the native font-discovery rebuild (`set_font_theme`), which is
+    // cfg'd out on wasm (no system fonts in the browser) — hence unused there.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     font_family: Option<String>,
     theme: Theme,
     uniform_buf: wgpu::Buffer,
@@ -1276,6 +1279,13 @@ fn build_blit_resources(
 impl GpuRenderer {
     /// Acquire a GPU and a CPU font face. `px`/`theme` must match the CPU
     /// renderer you want to reproduce.
+    ///
+    /// NATIVE ONLY: uses `pollster::block_on` (GPU init) + `std::thread::spawn`
+    /// (font load) + system font discovery, none of which exist on the browser
+    /// wasm target. The wasm path builds a [`GpuContext`] asynchronously and a CPU
+    /// [`Renderer`] from injected font bytes, then assembles the renderer via
+    /// [`GpuRenderer::from_parts`].
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(px: f32, theme: Theme) -> Result<Self, String> {
         Self::new_with_family(None, px, theme)
     }
@@ -1283,7 +1293,8 @@ impl GpuRenderer {
     /// Like [`GpuRenderer::new`], but resolves a configured font FAMILY first
     /// (then `$ATERM_FONT`, then the built-in candidates), mirroring the CPU
     /// renderer's [`Renderer::from_system_with_family`]. `None` is identical to
-    /// [`GpuRenderer::new`].
+    /// [`GpuRenderer::new`]. NATIVE ONLY (see [`GpuRenderer::new`]).
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new_with_family(family: Option<&str>, px: f32, theme: Theme) -> Result<Self, String> {
         // Cold-launch overlap: font resolution + rasterization (CPU-bound, GPU-
         // independent) and GPU adapter/device init (blocking driver round-trips)
@@ -1301,6 +1312,21 @@ impl GpuRenderer {
             .join()
             .map_err(|_| "font-load thread panicked".to_string())?
             .ok_or("no system monospace font")?;
+        Self::from_parts(ctx, cpu, family.map(String::from), theme)
+    }
+
+    /// Assemble a `GpuRenderer` from an already-acquired [`GpuContext`] and a
+    /// pre-built CPU [`Renderer`] (font face). This is the PORTABLE core that does
+    /// no GPU acquisition, no threads, and no font discovery — every wgpu pipeline
+    /// is built here. The native constructors call it after their blocking init;
+    /// the wasm WebGPU path calls it after awaiting the device + building the CPU
+    /// face from injected font bytes (`Renderer::from_bytes`).
+    pub fn from_parts(
+        ctx: GpuContext,
+        cpu: Renderer,
+        font_family: Option<String>,
+        theme: Theme,
+    ) -> Result<Self, String> {
         let device = &ctx.device;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1323,7 +1349,7 @@ impl GpuRenderer {
         Ok(Self {
             ctx,
             cpu,
-            font_family: family.map(String::from),
+            font_family,
             theme,
             uniform_buf,
             uniform_bg,
@@ -1358,16 +1384,28 @@ impl GpuRenderer {
     /// device would orphan every other window's surface). Only the CPU face and the
     /// glyph atlas are font-dependent: rebuild the face at the new px/theme and
     /// invalidate the atlas so the next frame re-rasterizes on the SAME device.
+    ///
+    /// NATIVE ONLY: re-resolves the face via system font discovery. The wasm path
+    /// rebuilds the face from injected font bytes via [`GpuRenderer::set_face`].
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn set_font_theme(&mut self, px: f32, theme: Theme) -> Result<(), String> {
         // Re-resolve the CONFIGURED family (not system default) so a zoom / config
         // reload / Retina auto-scale rebuild keeps the user's font.
-        self.cpu = Renderer::from_system_with_family(self.font_family.as_deref(), px, theme)
+        let cpu = Renderer::from_system_with_family(self.font_family.as_deref(), px, theme)
             .ok_or("no system monospace font")?;
+        self.set_face(cpu, theme);
+        Ok(())
+    }
+
+    /// Swap in an already-built CPU face + theme IN PLACE (no device rebuild, no
+    /// font discovery). The portable core of [`set_font_theme`]; the wasm path
+    /// calls it directly with a face built from injected font bytes.
+    pub fn set_face(&mut self, cpu: Renderer, theme: Theme) {
+        self.cpu = cpu;
         self.theme = theme;
         self.resident_keys.clear();
         self.mono_res = None;
         self.color_res = None;
-        Ok(())
     }
 
     /// TEST/DIAGNOSTIC: number of `render_input_cached` calls that took the
@@ -1966,6 +2004,59 @@ impl GpuRenderer {
         surf.config.width = width.max(1);
         surf.config.height = height.max(1);
         surf.surface.configure(&self.ctx.device, &surf.config);
+    }
+
+    /// Clear `surf`'s swapchain to a solid `rgb` (0x00RRGGBB) and present it.
+    ///
+    /// The minimal "GPU is live" present: no offscreen, no atlas, no instances —
+    /// just acquire → clear → present. Used by the WebGPU-from-canvas proving slice
+    /// (`native/aterm-gpu-web`) to confirm the whole instance→adapter→device→
+    /// surface→present chain works under the browser WebGPU backend before the
+    /// instanced-cell-quad encode (`present_input`) is wired in.
+    pub fn clear_surface(&self, surf: &mut GpuSurface, rgb: u32) {
+        use wgpu::CurrentSurfaceTexture as C;
+        let frame = match surf.surface.get_current_texture() {
+            C::Success(f) | C::Suboptimal(f) => f,
+            C::Outdated | C::Lost => {
+                surf.surface.configure(&self.ctx.device, &surf.config);
+                return;
+            }
+            C::Timeout | C::Occluded | C::Validation => return,
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut enc = self
+            .ctx
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("aterm-gpu clear-surface"),
+            });
+        {
+            let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("aterm-gpu clear-surface pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: ((rgb >> 16) & 0xff) as f64 / 255.0,
+                            g: ((rgb >> 8) & 0xff) as f64 / 255.0,
+                            b: (rgb & 0xff) as f64 / 255.0,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+        self.ctx.queue.submit([enc.finish()]);
+        frame.present();
     }
 
     /// Render the frame offscreen (the single source of truth) and PRESENT it on

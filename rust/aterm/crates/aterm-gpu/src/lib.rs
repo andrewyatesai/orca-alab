@@ -49,6 +49,12 @@ fn padded_bytes_per_row(width: usize) -> usize {
 impl GpuContext {
     /// Acquire a GPU. Works headless (no window/surface needed) — picks the
     /// default high-performance adapter (Metal on macOS).
+    ///
+    /// NATIVE ONLY: this uses `pollster::block_on`, which has no browser
+    /// equivalent (blocking the wasm main thread is forbidden). The wasm WebGPU
+    /// path awaits the adapter/device futures instead — see [`GpuContext::request`]
+    /// — so this synchronous constructor is excluded from the wasm32 build.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Result<Self, String> {
         // This instance must OUTLIVE device creation: it is kept on `GpuContext`
         // so a window surface can be created from it for the on-glass present
@@ -60,22 +66,34 @@ impl GpuContext {
             backends: wgpu::Backends::PRIMARY,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .map_err(|e| format!("no GPU adapter available: {e}"))?;
+        pollster::block_on(Self::from_instance(instance))
+    }
+
+    /// ASYNC adapter+device acquisition on an existing `wgpu::Instance`. Shared by
+    /// the native (`pollster::block_on`) and wasm (`.await`) init paths so both
+    /// hit the SAME adapter/device descriptors. The instance is moved in and kept
+    /// alive on the returned `GpuContext` (surfaces are created from it later).
+    pub async fn from_instance(instance: wgpu::Instance) -> Result<Self, String> {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            })
+            .await
+            .map_err(|e| format!("no GPU adapter available: {e}"))?;
         let info = adapter.get_info();
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("aterm-gpu device"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::default(),
-            experimental_features: wgpu::ExperimentalFeatures::disabled(),
-            memory_hints: wgpu::MemoryHints::Performance,
-            trace: wgpu::Trace::Off,
-        }))
-        .map_err(|e| e.to_string())?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("aterm-gpu device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: wgpu::Trace::Off,
+            })
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(Self {
             device,
             queue,

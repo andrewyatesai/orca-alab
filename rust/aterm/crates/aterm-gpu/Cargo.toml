@@ -18,14 +18,34 @@ default = []
 spec-anchors = ["dep:aterm-spec"]
 
 [dependencies]
-aterm-core = { workspace = true }
-aterm-render = { workspace = true }
-aterm-render-api = { workspace = true }
-wgpu = "29"
-pollster = "0.3"
+# Path (not `workspace = true`) with default-features = false so aterm-gpu never
+# FORCES the engine's default `disk-tier` cold scrollback (libc mmap + zstd-sys C),
+# which cannot target wasm32-unknown-unknown. A GPU renderer consumes a RenderInput
+# snapshot — it needs no disk tier. Native builds are unchanged: any other workspace
+# consumer (aterm-gui) that wants disk-tier re-enables it via Cargo feature
+# unification, so the native closure is byte-identical; this dep just stops the GPU
+# crate from pulling zstd into the wasm32 closure.
+aterm-core = { path = "../aterm-core", default-features = false }
+aterm-render = { path = "../aterm-render", default-features = false }
+aterm-render-api = { path = "../aterm-render-api", default-features = false }
+wgpu = { version = "29", default-features = false }
 bytemuck = { version = "1", features = ["derive"] }
 # Optional: only pulled in by the off-by-default `spec-anchors` feature.
 aterm-spec = { workspace = true, optional = true }
+
+# Native (non-wasm) GPU backends + the synchronous adapter/device init the native
+# renderer uses. `pollster::block_on` has no browser equivalent, so it is native-only;
+# the wasm WebGPU init path (native/aterm-gpu-web) awaits the futures instead.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "0.3"
+wgpu = { version = "29", default-features = false, features = ["metal", "vulkan", "dx12", "gles", "wgsl"] }
+
+# wasm32: the WebGPU backend (wgpu's `webgpu` feature targets
+# wasm32-unknown-unknown via wasm-bindgen/web-sys) + WGSL. `fragile-send-sync-non-
+# atomic-wasm` lets the non-Send GPU handles satisfy wgpu's Send/Sync bounds on
+# single-threaded wasm. This proves the GPU crate itself is wasm-compilable.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "29", default-features = false, features = ["webgpu", "wgsl", "fragile-send-sync-non-atomic-wasm"] }
 
 [dev-dependencies]
 criterion = "0.5"

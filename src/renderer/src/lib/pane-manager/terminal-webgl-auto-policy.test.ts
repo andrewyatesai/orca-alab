@@ -80,13 +80,45 @@ describe('terminal WebGL auto policy', () => {
     expect(isLinuxRendererHost('Linux x86_64', 'Node.js/24')).toBe(false)
   })
 
-  it('allows non-Linux auto panes to try WebGL without probing renderer identity', () => {
+  it('allows non-Linux auto panes when the renderer identity is unknown (no debug ext)', () => {
     stubNavigator('MacIntel', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')
     stubNoDocument()
 
     expect(getTerminalWebglAutoDecision()).toMatchObject({
       allowWebgl: true,
-      reason: 'non-linux'
+      reason: 'non-linux-renderer-unknown'
+    })
+  })
+
+  it('allows non-Linux auto panes for identifiable hardware renderers', () => {
+    stubNavigator('MacIntel', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')
+    stubWebglRendererInfo({ renderer: 'Apple M2', vendor: 'Apple' })
+
+    expect(getTerminalWebglAutoDecision()).toEqual({
+      allowWebgl: true,
+      reason: 'non-linux-hardware-renderer',
+      renderer: 'Apple M2',
+      vendor: 'Apple'
+    })
+  })
+
+  it.each([
+    ['MacIntel', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'SwiftShader'],
+    [
+      'Win32',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      'ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0)'
+    ],
+    ['Win32', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'llvmpipe (LLVM 17.0.6, 256 bits)'],
+    ['MacIntel', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', 'Apple Software Renderer']
+  ])('blocks non-Linux auto panes on a software renderer (%s / %s)', (platform, ua, renderer) => {
+    stubNavigator(platform, ua)
+    stubWebglRendererInfo({ renderer, vendor: 'Google Inc.' })
+
+    expect(getTerminalWebglAutoDecision()).toMatchObject({
+      allowWebgl: false,
+      reason: 'non-linux-software-renderer',
+      renderer
     })
   })
 

@@ -8,6 +8,10 @@ export type AtermInputDom = {
   wrapper: HTMLElement
   /** Hidden focus/keyboard/IME/paste sink (class 'xterm-helper-textarea'). */
   textarea: HTMLTextAreaElement
+  /** Off-screen ARIA live region; screen readers read terminal output from here
+   *  (the canvas itself is opaque to them). Mirrored from the engine grid on draw
+   *  by `aterm-a11y-mirror`. */
+  liveRegion: HTMLElement
 }
 
 /** Build `div.xterm > div.xterm-screen > (canvas + div.xterm-helpers >
@@ -54,10 +58,32 @@ export function buildAtermInputDom(canvas: HTMLCanvasElement): AtermInputDom {
     border: '0'
   } satisfies Partial<CSSStyleDeclaration>)
 
+  // Off-screen ARIA live region: the canvas is invisible to screen readers (and
+  // xterm's AccessibilityManager never runs under aterm because terminal.open()
+  // is never called), so without this NO terminal output is announced. role="log"
+  // + aria-live="polite" makes assistive tech read appended rows; aria-atomic
+  // false so only the changed text is announced, not the whole grid each update.
+  // Positioned off-screen (NOT display:none — screen readers ignore display:none).
+  const liveRegion = document.createElement('div')
+  liveRegion.setAttribute('role', 'log')
+  liveRegion.setAttribute('aria-live', 'polite')
+  liveRegion.setAttribute('aria-atomic', 'false')
+  liveRegion.setAttribute('aria-label', 'Terminal output')
+  Object.assign(liveRegion.style, {
+    position: 'absolute',
+    left: '-9999em',
+    top: '0',
+    width: '1px',
+    height: '1px',
+    overflow: 'hidden',
+    whiteSpace: 'pre-wrap'
+  } satisfies Partial<CSSStyleDeclaration>)
+
   helpers.appendChild(textarea)
+  helpers.appendChild(liveRegion)
   screen.appendChild(canvas)
   screen.appendChild(helpers)
   wrapper.appendChild(screen)
 
-  return { wrapper, textarea }
+  return { wrapper, textarea, liveRegion }
 }

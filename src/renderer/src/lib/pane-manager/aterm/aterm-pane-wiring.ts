@@ -12,6 +12,7 @@ import { createAtermUrlOpener, type AtermLinkContext } from './aterm-url-link-ro
 import { buildAtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import { copyAtermSelectionToClipboard } from './aterm-clipboard-copy'
 import { createAtermSearchOverlayCanvas } from './aterm-search-overlay-canvas'
+import { createAtermA11yMirror } from './aterm-a11y-mirror'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -29,6 +30,8 @@ export type AtermPaneWiringConfig = {
   canvas: HTMLCanvasElement
   container: HTMLElement
   textarea: HTMLTextAreaElement
+  /** Off-screen ARIA live region the draw path mirrors grid text into (a11y). */
+  liveRegion: HTMLElement
   themeColors: AtermThemeColors
   inputSink: AtermPaneInputSink
   resizeSink: AtermPaneResizeSink
@@ -64,7 +67,7 @@ export type AtermWiredPane = {
  *  observers. Returns the public controller surface. All input handlers bind to
  *  `pending.term`, which exposes the SAME state surface for CPU and GPU. */
 export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
-  const { pending, canvas, container, textarea, themeColors, shared } = config
+  const { pending, canvas, container, textarea, liveRegion, themeColors, shared } = config
   const { inputSink, resizeSink, pasteSink, controllerOptions } = config
   const term = pending.term
   const cellWidth = pending.cellWidth
@@ -204,11 +207,23 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       })
     : null
 
+  // Mirror the engine's visible rows into the off-screen ARIA live region so
+  // screen readers can read output (the canvas is opaque to them). Reads the
+  // engine, not the canvas, so one mirror covers both the CPU + GPU draw paths.
+  const a11yMirror = createAtermA11yMirror({
+    liveRegion,
+    term,
+    getRows: () => rows,
+    isDisposed: () => disposed
+  })
+
   // draw = present the engine grid, then (GPU) paint search on the overlay. The
-  // CPU strategy's drawFrame already overlays search on its own 2d canvas.
+  // CPU strategy's drawFrame already overlays search on its own 2d canvas. The
+  // a11y mirror is scheduled (debounced) here so it tracks rendered content.
   draw = (): void => {
     strategy.drawFrame()
     searchOverlay?.paint(searchMatches, searchActiveIndex)
+    a11yMirror.schedule()
   }
 
   const searchApi = buildAtermSearchApi({
@@ -289,6 +304,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     }
     disposed = true
     drawScheduler.dispose()
+    a11yMirror.dispose()
     resizeObserver.disconnect()
     dprTracker.dispose()
     textareaInput.dispose()

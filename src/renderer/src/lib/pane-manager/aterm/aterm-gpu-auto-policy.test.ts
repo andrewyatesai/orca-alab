@@ -22,7 +22,7 @@ vi.mock('./aterm-gpu-probe', () => ({
 vi.mock('../terminal-webgl-auto-policy', () => ({
   getTerminalWebglAutoDecision: () => ({
     allowWebgl: webglHolder.allowWebgl,
-    reason: 'non-linux',
+    reason: 'non-linux-hardware-renderer',
     renderer: null,
     vendor: null
   })

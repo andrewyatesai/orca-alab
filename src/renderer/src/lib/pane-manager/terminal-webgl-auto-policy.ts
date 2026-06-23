@@ -1,7 +1,9 @@
 export type TerminalWebglAutoDecision = {
   allowWebgl: boolean
   reason:
-    | 'non-linux'
+    | 'non-linux-hardware-renderer'
+    | 'non-linux-renderer-unknown'
+    | 'non-linux-software-renderer'
     | 'linux-hardware-renderer'
     | 'linux-webgl2-unavailable'
     | 'linux-renderer-unavailable'
@@ -12,8 +14,13 @@ export type TerminalWebglAutoDecision = {
 
 let cachedDecision: TerminalWebglAutoDecision | null = null
 
-const LINUX_SOFTWARE_RENDERER_PATTERN =
-  /\b(swiftshader|llvmpipe|softpipe|software rasterizer|software adapter|basic render|virgl|svga3d)\b/i
+// Why: software GL backends (SwiftShader/llvmpipe/Microsoft Basic Render etc.)
+// are slow + buggy for terminal rendering and show up on ALL platforms — common
+// inside VMs, RDP/remote-desktop, and headless runners — not just Linux. The
+// generic `software` token catches "Software Rasterizer"/"Software Adapter"
+// variants; `basic render`/`microsoft basic render` is the Windows WARP driver.
+const SOFTWARE_RENDERER_PATTERN =
+  /\b(swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic render driver|virgl|svga3d)\b/i
 
 export function resetTerminalWebglAutoDecision(): void {
   cachedDecision = null
@@ -62,18 +69,52 @@ function readWebglRendererInfo(): Pick<TerminalWebglAutoDecision, 'renderer' | '
   }
 }
 
+/** macOS/Windows gate: unlike Linux (where corruption can leave WebGL alive but
+ *  wrong), a missing renderer string on a non-Linux host is NOT itself a reason
+ *  to fall back — we only block KNOWN software backends (SwiftShader/llvmpipe/
+ *  Microsoft Basic Render etc.), which run terminal rendering on a slow/buggy
+ *  software GL path inside VMs/RDP/remote desktop. Hardware + unidentifiable
+ *  renderers are allowed (the prior non-Linux default), so this only narrows the
+ *  set that previously got an unconditional yes. */
+function decideNonLinuxWebgl(): TerminalWebglAutoDecision {
+  const rendererInfo = readWebglRendererInfo()
+  // No renderer identity (no WebGL2 context, or no debug-renderer-info extension):
+  // keep the historical non-Linux default of trying WebGL — we can't prove it's
+  // software, and non-Linux hardware GL stays robust even without the debug ext.
+  if (!rendererInfo.hasRendererInfo) {
+    return {
+      allowWebgl: true,
+      reason: 'non-linux-renderer-unknown',
+      renderer: rendererInfo.renderer,
+      vendor: rendererInfo.vendor
+    }
+  }
+
+  const identity = `${rendererInfo.vendor ?? ''} ${rendererInfo.renderer ?? ''}`
+  if (SOFTWARE_RENDERER_PATTERN.test(identity)) {
+    return {
+      allowWebgl: false,
+      reason: 'non-linux-software-renderer',
+      renderer: rendererInfo.renderer,
+      vendor: rendererInfo.vendor
+    }
+  }
+
+  return {
+    allowWebgl: true,
+    reason: 'non-linux-hardware-renderer',
+    renderer: rendererInfo.renderer,
+    vendor: rendererInfo.vendor
+  }
+}
+
 export function getTerminalWebglAutoDecision(): TerminalWebglAutoDecision {
   if (cachedDecision) {
     return cachedDecision
   }
 
   if (!isLinuxRendererHost()) {
-    cachedDecision = {
-      allowWebgl: true,
-      reason: 'non-linux',
-      renderer: null,
-      vendor: null
-    }
+    cachedDecision = decideNonLinuxWebgl()
     return cachedDecision
   }
 
@@ -101,7 +142,7 @@ export function getTerminalWebglAutoDecision(): TerminalWebglAutoDecision {
   }
 
   const identity = `${rendererInfo.vendor ?? ''} ${rendererInfo.renderer ?? ''}`
-  if (LINUX_SOFTWARE_RENDERER_PATTERN.test(identity)) {
+  if (SOFTWARE_RENDERER_PATTERN.test(identity)) {
     cachedDecision = {
       allowWebgl: false,
       reason: 'linux-software-renderer',

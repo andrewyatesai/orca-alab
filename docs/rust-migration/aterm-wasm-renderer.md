@@ -33,8 +33,10 @@ keyboard/mouse ──▶ renderer ──▶ input bytes ──▶ daemon PTY
   rustybuzz + ttf-parser), no GPU/DOM dependency. Used as the fallback when the GL
   string is a known software renderer (SwiftShader/llvmpipe/etc., on **all**
   platforms), GPU init fails, or the WebGL2 context is lost at runtime.
-- GPU and CPU output are pixel-identical (parity proven in `aterm-webgl.spec.ts`
-  and the native `gpu_matches_cpu` test).
+- GPU and CPU output are **pixel-equivalent within a small antialiasing/rounding
+  tolerance** (≤8 LSB per channel) — the bound the parity tests actually assert
+  (`gpu_matches_cpu` checks `delta <= 8`; `aterm-webgl.spec.ts` uses a ±6 tolerance).
+  Not bit-identical; only sub-perceptual rounding differs.
 
 ## What xterm.js is still used for (the shim — not yet removed)
 
@@ -42,8 +44,16 @@ A single hidden, never-opened `@xterm/xterm` `Terminal` per pane is fed all PTY
 output and provides the back-compat surface aterm doesn't yet own:
 
 - **serialize / restore** of saved sessions (xterm-serialize-compatible snapshots).
-- **terminal query replies** (CPR / DA1 / DSR) emitted via its `onData`.
+- **terminal query replies** (CPR / DA1 / DSR / DECRQM) emitted via its `onData`.
 - **OSC-7 cwd** tracking and **OSC-52 clipboard** handling.
+
+Honest consequence worth stating plainly: because xterm still owns the replies,
+**aterm's own reply layer is currently dead code in the shipped renderer** — its
+DA1/DSR/CPR/DECRQM implementation exists and is tested in the engine but is not
+wired to the PTY, so the live terminal identity an app sees is xterm's `?1;2c`, not
+aterm's. (This is the next thing to fix; see Phase 3.) And both engines parse every
+PTY byte per pane — "shim" undersells that xterm is a second full VT parser, not a
+passive adapter.
 
 Removing this shim (re-homing serialize + query replies + OSC into aterm) is Phase 3.
 
@@ -81,12 +91,23 @@ is only the software-GL fallback.
 
 ## Verification — what is and isn't proven
 
-- **Is**: the VT/grid/mode state machines are model-checked (TLA+/TRUST), key
-  invariants carry Kani/SMT (Z3) proofs, and behaviour is checked against a
-  differential conformance corpus + a fuzzer (`tools/conformance`).
-- **Isn't**: there is no single mechanized refinement proof tying the formal spec
-  to the exact bytes the shipped wasm renders. "Model-checked + proof-assisted +
-  differentially conformance-tested" is accurate; "formally verified terminal" is not.
+- **Is (strongest layer)**: ~444 `#[kani::proof]` harnesses drive the **real**
+  shipped functions (e.g. `Parser::advance` over symbolic input — `parser_never_panics`,
+  `params_bounded`), so panic-freedom / bounds on the actual parser are model-checked,
+  not just on a paper model.
+- **Is (abstract layer)**: hand-written abstract *models* of the VT/grid/mode
+  disciplines are model-checked (TLA+ via the `ty` checker), bound to the Rust by
+  named proof-anchors and a refinement-coverage ledger.
+- **Is**: behaviour is checked against a differential conformance corpus + a fuzzer
+  (`tools/conformance`).
+- **Isn't**: (1) the TLA+ layer checks the abstract models, **not** the 33k-line
+  engine line-for-line — there is no mechanized refinement proof tying the formal
+  spec to the exact bytes the shipped wasm renders. (2) The spec gate is fail-closed
+  but currently **runs on-demand only**, needs an unpublished local Trust toolchain
+  (`~/trust/first-party/{ty,trust-ir}`), and is **not enforced in CI** (this repo's
+  workflows were removed). So "model-checked + Kani/SMT proofs on real functions +
+  differential conformance" is accurate; "formally verified terminal" and "always-on
+  verification ratchet" are not.
 
 ## Remaining (Phase 3)
 

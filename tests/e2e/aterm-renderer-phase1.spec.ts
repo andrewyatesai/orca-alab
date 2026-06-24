@@ -1,5 +1,6 @@
 import { test, expect } from './helpers/orca-app'
 import { waitForActivePanePtyId } from './helpers/terminal'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { atermCanvasReady, readAtermPixel, readAtermRgba } from './helpers/aterm-canvas-pixels'
 import { writeFileSync } from 'node:fs'
@@ -63,6 +64,9 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
       timeout: 20_000
     })
     await waitForActivePanePtyId(orcaPage)
+    // Wait for the async aterm controller (wasm/font/GPU load) so the in-page probe
+    // below finds it — under parallel e2e load it can attach after the PTY binds.
+    await waitForActiveAtermController(orcaPage)
 
     // --- THEME ---------------------------------------------------------------
     // Assert a true background cell MATCHES orca's CONFIGURED terminal theme bg,

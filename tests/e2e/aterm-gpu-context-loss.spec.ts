@@ -1,5 +1,6 @@
 import { test, expect } from './helpers/orca-app'
 import { execInTerminal, waitForActivePanePtyId } from './helpers/terminal'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { readAtermRgba } from './helpers/aterm-canvas-pixels'
 
@@ -34,6 +35,9 @@ function countChangedPixels(before: number[], after: number[]): number {
 
 test.describe('aterm GPU context-loss recovery', () => {
   test('a lost WebGL2 context swaps the pane to CPU and keeps rendering', async ({ orcaPage }) => {
+    // Heaviest aterm spec — forces a GPU context loss, swaps to CPU, then waits on
+    // rAF-throttled redraws; needs headroom beyond the default under parallel load.
+    test.setTimeout(120_000)
     orcaPage.on('console', (msg) => {
       const t = msg.text()
       if (/aterm|gpu|webgl|wgpu|panic|context/i.test(t)) {
@@ -71,6 +75,10 @@ test.describe('aterm GPU context-loss recovery', () => {
       timeout: 20_000
     })
     const ptyId = await waitForActivePanePtyId(orcaPage)
+    // Wait for the async aterm controller (wasm/font/GPU load) so the GPU path is
+    // live before we force the context loss — under parallel e2e load it can attach
+    // after the PTY binds.
+    await waitForActiveAtermController(orcaPage)
 
     // The pane started on the GPU path: the live canvas is webgl2-owned (a webgl2
     // canvas returns null for getContext('2d'), so this is unambiguous).
@@ -145,7 +153,9 @@ test.describe('aterm GPU context-loss recovery', () => {
           return after ? countChangedPixels(beforeOutput!.data, after.data) : 0
         },
         {
-          timeout: 20_000,
+          // Generous: the post-swap redraw rides the rAF draw scheduler, which the
+          // hidden e2e window throttles hard under heavy parallel load.
+          timeout: 35_000,
           message: 'the recovered CPU pane must keep rendering — new output changes the canvas'
         }
       )

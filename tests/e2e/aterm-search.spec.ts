@@ -1,5 +1,6 @@
 import { test, expect } from './helpers/orca-app'
 import { waitForActivePanePtyId } from './helpers/terminal'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 
 // Proves in-terminal SEARCH works under the aterm renderer (the default): feed
@@ -63,6 +64,9 @@ test.describe('aterm in-terminal search', () => {
     const canvas = orcaPage.locator('[data-testid="aterm-canvas"]').first()
     await expect(canvas, 'aterm canvas should mount').toBeAttached({ timeout: 20_000 })
     await waitForActivePanePtyId(orcaPage)
+    // Wait for the async aterm controller (wasm/font/GPU load) so the in-page probe
+    // below finds it — under parallel e2e load it can attach after the PTY binds.
+    await waitForActiveAtermController(orcaPage)
 
     // Feed a unique token deep into scrollback, then bury it under filler so the
     // match is NOT visible at the live bottom — a search must scroll to find it.

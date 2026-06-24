@@ -1,5 +1,6 @@
 import { test, expect } from './helpers/orca-app'
 import { sendToTerminal, waitForActivePanePtyId } from './helpers/terminal'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 
 // Proves MOUSE REPORTING works under the aterm renderer (the default): a TUI
@@ -56,6 +57,9 @@ test.describe('aterm mouse reporting', () => {
     const canvas = orcaPage.locator('[data-testid="aterm-canvas"]').first()
     await expect(canvas, 'aterm canvas should mount').toBeAttached({ timeout: 20_000 })
     const ptyId = await waitForActivePanePtyId(orcaPage)
+    // Wait for the async aterm controller (wasm/font/GPU load) so the in-page probe
+    // below finds it — under parallel e2e load it can attach after the PTY binds.
+    await waitForActiveAtermController(orcaPage)
 
     // Enable mouse tracking exactly as a TUI would: DECSET 1000 (normal tracking)
     // + 1006 (SGR encoding). Write through the PTY so the daemon round-trips the
@@ -75,7 +79,7 @@ test.describe('aterm mouse reporting', () => {
             const c = document.querySelector(
               '[data-testid="aterm-canvas"]'
             ) as (HTMLCanvasElement & { __t?: unknown }) | null
-            return c ? true : false
+            return c !== null
           }, findActiveController.toString()),
         { timeout: 20_000, message: 'controller reachable + tracking sequences fed' }
       )
@@ -131,14 +135,19 @@ test.describe('aterm mouse reporting', () => {
       return { pressSent, releaseSent, shiftSent }
     }, findActiveController.toString())
 
+    // ESC built at runtime (not a source control char) so the regexes below stay
+    // free of the no-control-regex lint while still matching the real reply bytes;
+    // afterSgr strips the leading ESC [ so the regex asserts the remainder.
+    const ESC = String.fromCharCode(27)
+    const afterSgr = (r: string | null): string => (r && r.startsWith(`${ESC}[`) ? r.slice(2) : '')
     // The no-Shift press was encoded as an SGR press report: ESC [ < 0 ; C ; R M.
     expect(report.pressSent, 'a mouse press report was forwarded to the PTY').not.toBeNull()
-    expect(report.pressSent, 'the report is an SGR left-button press (\\e[<0;C;RM)').toMatch(
-      /^\x1b\[<0;\d+;\d+M$/
+    expect(afterSgr(report.pressSent), 'the report is an SGR left-button press (e[<0;C;RM)').toMatch(
+      /^<0;\d+;\d+M$/
     )
     // The release forwards the matching SGR release (lowercase 'm' final byte).
-    expect(report.releaseSent, 'the release forwards an SGR release (\\e[<0;C;Rm)').toMatch(
-      /^\x1b\[<0;\d+;\d+m$/
+    expect(afterSgr(report.releaseSent), 'the release forwards an SGR release (e[<0;C;Rm)').toMatch(
+      /^<0;\d+;\d+m$/
     )
     // The Shift-held press must NOT forward (it fell through to selection), so the
     // last report stays the prior release — Shift did not encode a new report.

@@ -3,6 +3,7 @@ import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { ElectronApplication, Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 import {
   sendToTerminal,
   waitForActivePanePtyId,
@@ -174,6 +175,10 @@ test.describe('aterm renderer clipboard capabilities', () => {
     orcaPage
   }) => {
     const ptyId = await openAtermTerminal(orcaPage)
+    // The textarea 'input' paste listener is attached only when the async aterm
+    // controller finishes loading — wait for it so the dispatched paste below
+    // isn't silently dropped under parallel load (before the handler exists).
+    await waitForActiveAtermController(orcaPage)
     await installTerminalPtyWriteSpy(electronApp)
 
     // 1) BRACKETED PASTE ON. Have the SHELL emit DECSET 2004h so BOTH the kept

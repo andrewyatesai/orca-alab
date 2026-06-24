@@ -298,6 +298,14 @@ export function createMainWindow(
   // renderer should be allowed to request Electron's native paste operation.
   setTrustedUIRendererWebContentsId(rendererWebContentsId)
 
+  // Why: under E2E headless the main window stays hidden, and a hidden window
+  // throttles requestAnimationFrame to near-zero on Linux/Windows — starving the
+  // aterm draw scheduler the pixel-assertion specs depend on. Disable throttling
+  // for headless runs on every platform (macOS is also covered by the block below).
+  if (getMainE2EConfig().headless) {
+    mainWindow.webContents.setBackgroundThrottling(false)
+  }
+
   if (process.platform === 'darwin') {
     // Why: persistent browser webviews use separate compositor layers, and on
     // recent macOS releases those layers can fail to repaint after occlusion or

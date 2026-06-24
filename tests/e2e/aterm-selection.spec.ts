@@ -1,5 +1,6 @@
 import { test, expect } from './helpers/orca-app'
 import { waitForActivePanePtyId } from './helpers/terminal'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 
 // Proves DOUBLE/TRIPLE-CLICK selection is WIRED under the aterm renderer (the
@@ -63,6 +64,9 @@ test.describe('aterm word/line selection', () => {
     const canvas = orcaPage.locator('[data-testid="aterm-canvas"]').first()
     await expect(canvas, 'aterm canvas should mount').toBeAttached({ timeout: 20_000 })
     await waitForActivePanePtyId(orcaPage)
+    // Wait for the async aterm controller (wasm/font/GPU load) so the in-page probe
+    // below finds it — under parallel e2e load it can attach after the PTY binds.
+    await waitForActiveAtermController(orcaPage)
 
     const result = await orcaPage.evaluate((findSrc: string) => {
       // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func

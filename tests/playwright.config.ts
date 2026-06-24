@@ -26,10 +26,14 @@ export default defineConfig({
   // substantially. The few visible-window tests that still rely on real
   // pointer interaction are marked serial in their spec file instead.
   fullyParallel: true,
-  // Why: each CI worker launches real Electron/Chromium process trees. Ubuntu
+  // Why: each worker launches a real Electron/Chromium process tree. CI Ubuntu
   // runners have 4 vCPUs, but 4 parallel apps can exhaust Chromium GPU/zygote
-  // subprocess startup under Xvfb, so keep headless E2E below that ceiling.
-  workers: process.env.CI ? 2 : undefined,
+  // subprocess startup under Xvfb, so CI stays at 2. Locally, `undefined` used
+  // ~50% of cores (≈9 apps on an 18-core box); that CPU/GPU contention throttled
+  // rAF-driven draws and slowed PTY round-trips enough to flake the timing-
+  // sensitive terminal specs (aterm redraw/clipboard/latency). Cap local runs at
+  // 4 concurrent apps — set PW_WORKERS to override.
+  workers: process.env.PW_WORKERS ? Number(process.env.PW_WORKERS) : process.env.CI ? 2 : 4,
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: 'list',

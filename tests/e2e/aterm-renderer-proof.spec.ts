@@ -1,5 +1,6 @@
 import { test, expect } from './helpers/orca-app'
 import { execInTerminal, waitForActivePanePtyId } from './helpers/terminal'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { countAtermNonBgPixels } from './helpers/aterm-canvas-pixels'
 import { writeFileSync } from 'node:fs'
@@ -34,6 +35,9 @@ test.describe('aterm in-page renderer', () => {
 
     // Run a colored command; output flows PTY → writeTerminalOutput → aterm canvas.
     const ptyId = await waitForActivePanePtyId(orcaPage)
+    // Wait for the async aterm controller (wasm/font/GPU load) before driving it —
+    // under parallel e2e load it can attach after the PTY binds.
+    await waitForActiveAtermController(orcaPage)
     await execInTerminal(
       orcaPage,
       ptyId,

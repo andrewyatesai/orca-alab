@@ -2195,7 +2195,11 @@ export function connectPanePty(
         }
       )
       const unregisterTitleSource = registerPtyTitleSource(ptyId, (handler) =>
-        pane.terminal.onTitleChange(handler)
+        // aterm panes emit titles from the engine (re-homed off xterm's
+        // onTitleChange); legacy xterm panes still use the shim's emitter.
+        pane.atermController
+          ? pane.atermController.onTitleChange(handler)
+          : pane.terminal.onTitleChange(handler)
       )
       const origOnDataDisposableDispose = onDataDisposable.dispose.bind(onDataDisposable)
       onDataDisposable.dispose = () => {

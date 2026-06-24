@@ -284,6 +284,7 @@ export async function createAtermPaneController(
     serialize: (scrollbackRows) => wired.controller.serialize(scrollbackRows),
     serializeScrollback: (maxRows) => wired.controller.serializeScrollback(maxRows),
     title: () => wired.controller.title(),
+    onTitleChange: (handler) => wired.controller.onTitleChange(handler),
     gridSize: () => wired.controller.gridSize(),
     isAltScreen: () => wired.controller.isAltScreen(),
     pixelSize: () => wired.controller.pixelSize(),

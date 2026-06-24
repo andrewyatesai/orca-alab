@@ -96,6 +96,19 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     drawScheduler.schedule()
   }
 
+  // OSC 0/2 window-title channel re-homed off the shadow xterm: track the engine's
+  // title and notify subscribers (agent detection / mobile streaming) on change, so
+  // the title source no longer depends on xterm's onTitleChange.
+  let lastTitle = term.title() ?? ''
+  const titleListeners = new Set<(title: string) => void>()
+  const emitTitleIfChanged = (): void => {
+    const next = term.title() ?? ''
+    if (next !== lastTitle) {
+      lastTitle = next
+      titleListeners.forEach((listener) => listener(next))
+    }
+  }
+
   const process = (data: string): void => {
     if (disposed) {
       return
@@ -105,6 +118,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     term.process(new TextEncoder().encode(data))
     // aterm is the authoritative query responder — drain + forward its replies.
     drainAtermReplies(term, inputSink)
+    emitTitleIfChanged()
     if (wasAtBottom && term.display_offset !== 0) {
       term.scroll_to_bottom()
     }
@@ -355,6 +369,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     serialize: (scrollbackRows?: number) => term.serialize(scrollbackRows),
     serializeScrollback: (maxRows?: number) => term.serialize_scrollback(maxRows),
     title: () => term.title() ?? null,
+    onTitleChange: (handler: (title: string) => void) => {
+      titleListeners.add(handler)
+      return { dispose: () => void titleListeners.delete(handler) }
+    },
     gridSize: () => getGrid(),
     isAltScreen: () => term.is_alt_screen,
     // Re-theme this live engine in place (host theme change), avoiding a pane

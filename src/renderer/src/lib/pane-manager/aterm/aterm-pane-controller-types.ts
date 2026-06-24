@@ -65,6 +65,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
   serializeScrollback: (maxRows?: number) => string
   /** Window title (OSC 0/2), or null when unset. */
   title: () => string | null
+  /** Subscribe to OSC 0/2 title changes (re-homed off xterm's onTitleChange).
+   *  Returns an xterm-compatible disposable. */
+  onTitleChange: (handler: (title: string) => void) => { dispose: () => void }
   /** Current grid size (cols × rows) — for snapshot metadata without xterm. */
   gridSize: () => { cols: number; rows: number }
   /** True when the alternate screen (TUI) is active — snapshot hydration uses this

@@ -2169,6 +2169,26 @@ impl Renderer {
     /// should call [`render_input_cached`](Self::render_input_cached) instead,
     /// which hands back a borrow and elides this clone; both share the one
     /// rendering code path below, so they are byte-identical by construction.
+    /// Wholesale-clear the monotonically-growing glyph caches past a generous cap.
+    /// They memoize rasterized bitmaps + key/shape lookups and otherwise only grow,
+    /// so a long-lived pane rendering a huge distinct-glyph set (CJK + emoji + many
+    /// ligature shapes) would accrete unbounded CPU RAM. After a clear the next
+    /// render re-memoizes only the ~thousands of currently-visible glyphs, so len
+    /// drops far below the cap and growth restarts slowly — no per-frame thrash.
+    /// Mirrors the existing RuntimeFallback decision-cap.
+    fn evict_glyph_caches_if_large(&mut self) {
+        const GLYPH_CACHE_CAP: usize = 16_384;
+        if self.glyphs.len() <= GLYPH_CACHE_CAP {
+            return;
+        }
+        self.glyphs.clear();
+        self.keys.clear();
+        self.emoji_keys.clear();
+        self.styled_keys.clear();
+        self.cluster_gids.clear();
+        self.shaped_runs.clear();
+    }
+
     pub fn render_input(&mut self, input: &RenderInput) -> Frame {
         // ONE rendering code path: do the damage render into the cache, then
         // clone the borrowed result into an owned Frame. The clone is the price
@@ -2209,6 +2229,8 @@ impl Renderer {
         wc: &'a mut WindowCpu,
         input: &RenderInput,
     ) -> RenderView<'a> {
+        // Bound the otherwise-unbounded glyph caches before they're consulted below.
+        self.evict_glyph_caches_if_large();
         let (rows, cols) = (input.rows, input.cols);
         let (w, h) = self.frame_size(rows, cols);
 

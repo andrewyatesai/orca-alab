@@ -61,4 +61,7 @@ export type AtermPaneControllerOptions = {
   /** Latest terminalClipboardOnSelect (xterm's copyOnSelect); when true, drag /
    *  double / triple-click auto-copy the selection. Defaults to false. */
   getCopyOnSelect?: () => boolean
+  /** Latest terminalCursorBlink (xterm's cursorBlink); when true the focused cursor
+   *  blinks on a ~530ms timer, else it's steady-on. Defaults to true. */
+  getCursorBlink?: () => boolean
 }

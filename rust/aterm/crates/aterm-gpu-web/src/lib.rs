@@ -31,7 +31,7 @@ use wasm_bindgen::prelude::*;
 
 use aterm_core::selection::SmartSelection;
 use aterm_core::selection::{SelectionSide, SelectionType};
-use aterm_core::terminal::{MouseMode, Terminal};
+use aterm_core::terminal::{CursorStyle, MouseMode, Terminal};
 use aterm_render::{Renderer, Theme};
 
 // GpuContext is used only by the wasm async init path (`init`); on the native
@@ -189,6 +189,25 @@ impl AtermGpuTerminal {
     /// GPU and CPU-fallback draw paths. Per-cell truecolor SGR flows independently.
     pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) {
         self.term.set_palette_color_components(index, r, g, b);
+    }
+
+    /// Set the cursor blink phase (see aterm-wasm). Applies to the live GPU renderer
+    /// AND the CPU face so the GPU present + offscreen readback paths agree.
+    pub fn set_cursor_blink_phase(&mut self, on: bool) {
+        self.cpu.set_cursor_blink_phase(on);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_cursor_blink_phase(on);
+        }
+    }
+
+    /// Force a hollow (unfocused) cursor when `true`, or restore the terminal's
+    /// DECSCUSR style when `false`. Applies to both GPU and CPU faces.
+    pub fn set_cursor_hollow(&mut self, hollow: bool) {
+        let style = if hollow { Some(CursorStyle::HollowBlock) } else { None };
+        self.cpu.set_cursor_style_override(style);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_cursor_style_override(style);
+        }
     }
 
     /// Resize the grid AND, if the GPU is live, the swapchain to match the new

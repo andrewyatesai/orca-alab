@@ -1,0 +1,94 @@
+// Cursor blink + focus affordance for the aterm renderer. The engine paints the
+// DECSCUSR-shaped cursor but has no timer of its own, so without this the cursor
+// is a steady solid block that never blinks and gives no focus cue. This drives
+// the engine's blink phase on a ~530ms timer (xterm's interval) while focused, and
+// forces a HOLLOW cursor while the pane is unfocused — the standard terminal cue.
+
+export type AtermCursorTarget = {
+  set_cursor_blink_phase: (on: boolean) => void
+  set_cursor_hollow: (hollow: boolean) => void
+}
+
+export type AtermCursorBlinkDeps = {
+  term: AtermCursorTarget
+  /** The helper textarea whose focus/blur mirrors pane focus. */
+  textarea: HTMLTextAreaElement
+  redraw: () => void
+  isDisposed: () => boolean
+  /** Live terminalCursorBlink (xterm's cursorBlink); default true. When false the
+   *  focused cursor is steady-on (no timer), matching xterm. */
+  getCursorBlink?: () => boolean
+}
+
+// xterm's cursor blink interval.
+const BLINK_INTERVAL_MS = 530
+
+export type AtermCursorBlink = { dispose: () => void }
+
+export function attachAtermCursorBlink(deps: AtermCursorBlinkDeps): AtermCursorBlink {
+  const { term, textarea, redraw, isDisposed, getCursorBlink } = deps
+  let timer: ReturnType<typeof setInterval> | null = null
+  let phase = true
+
+  const stopTimer = (): void => {
+    if (timer !== null) {
+      clearInterval(timer)
+      timer = null
+    }
+  }
+
+  const setPhase = (on: boolean): void => {
+    phase = on
+    term.set_cursor_blink_phase(on)
+    redraw()
+  }
+
+  // Focused: blink (toggle phase on the timer) when enabled, else steady-on.
+  const startFocused = (): void => {
+    stopTimer()
+    if (isDisposed()) {
+      return
+    }
+    term.set_cursor_hollow(false)
+    setPhase(true)
+    if (getCursorBlink?.() ?? true) {
+      timer = setInterval(() => {
+        if (isDisposed()) {
+          stopTimer()
+          return
+        }
+        setPhase(!phase)
+      }, BLINK_INTERVAL_MS)
+    }
+  }
+
+  // Unfocused: steady HOLLOW box, no blink.
+  const goUnfocused = (): void => {
+    stopTimer()
+    if (isDisposed()) {
+      return
+    }
+    term.set_cursor_hollow(true)
+    setPhase(true)
+  }
+
+  const onFocus = (): void => startFocused()
+  const onBlur = (): void => goUnfocused()
+
+  // Seed from the current focus state so the cursor is correct before any event.
+  if (document.activeElement === textarea) {
+    startFocused()
+  } else {
+    goUnfocused()
+  }
+  textarea.addEventListener('focus', onFocus)
+  textarea.addEventListener('blur', onBlur)
+
+  return {
+    dispose: (): void => {
+      stopTimer()
+      textarea.removeEventListener('focus', onFocus)
+      textarea.removeEventListener('blur', onBlur)
+    }
+  }
+}

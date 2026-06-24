@@ -39,7 +39,10 @@ export function openAtermPane(
     // clipboard unless the user opted in.
     {
       getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true,
-      getCopyOnSelect: () => useAppStore.getState().settings?.terminalClipboardOnSelect === true
+      getCopyOnSelect: () => useAppStore.getState().settings?.terminalClipboardOnSelect === true,
+      // Mirror xterm's cursorBlink (kept in sync on the headless Terminal by
+      // applyTerminalAppearance) so the aterm cursor honors the toggle live.
+      getCursorBlink: () => pane.terminal.options.cursorBlink !== false
     }
   )
     .then((controller) => {

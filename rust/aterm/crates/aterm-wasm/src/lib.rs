@@ -17,7 +17,7 @@ use wasm_bindgen::prelude::*;
 
 use aterm_core::selection::SmartSelection;
 use aterm_core::selection::{SelectionSide, SelectionType};
-use aterm_core::terminal::{MouseMode, Terminal};
+use aterm_core::terminal::{CursorStyle, MouseMode, Terminal};
 use aterm_render::{Renderer, Theme};
 
 /// A terminal + CPU renderer pair. Feed PTY bytes with [`AtermTerminal::process`],
@@ -111,6 +111,19 @@ impl AtermTerminal {
     /// defaults. Per-cell truecolor SGR still flows independently.
     pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) {
         self.term.set_palette_color_components(index, r, g, b);
+    }
+
+    /// Set the cursor blink phase: `true` draws the cursor this frame, `false`
+    /// hides it. The host drives a ~530ms blink timer; independent of DECSCUSR.
+    pub fn set_cursor_blink_phase(&mut self, on: bool) {
+        self.renderer.set_cursor_blink_phase(on);
+    }
+
+    /// Force a hollow (unfocused) cursor when `true`, or restore the terminal's
+    /// DECSCUSR style when `false` — the standard focused/unfocused affordance.
+    pub fn set_cursor_hollow(&mut self, hollow: bool) {
+        self.renderer
+            .set_cursor_style_override(if hollow { Some(CursorStyle::HollowBlock) } else { None });
     }
 
     /// Resize the grid (after the host recomputes cols/rows for the canvas).

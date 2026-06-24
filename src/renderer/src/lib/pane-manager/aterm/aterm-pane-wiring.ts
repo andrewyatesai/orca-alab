@@ -1,6 +1,7 @@
 import { attachAtermTextareaInput } from './aterm-textarea-input'
 import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
+import { attachAtermCursorBlink } from './aterm-cursor-blink'
 import { attachAtermEventReportingInput } from './aterm-event-reporting-input'
 import { computeGrid } from './aterm-grid-size'
 import { attachAtermLinkInput, type AtermFileLinkOpener } from './aterm-link-input'
@@ -281,6 +282,16 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getMacOptionIsMeta: controllerOptions?.getMacOptionIsMeta
   })
 
+  // Blink the cursor (focused) + draw it hollow (unfocused); the engine paints the
+  // cursor but has no timer/focus model of its own.
+  const cursorBlink = attachAtermCursorBlink({
+    term,
+    textarea,
+    redraw: scheduleDraw,
+    isDisposed: () => disposed,
+    getCursorBlink: controllerOptions?.getCursorBlink
+  })
+
   const onPointerDown = (): void => {
     textarea.focus()
   }
@@ -309,6 +320,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     resizeObserver.disconnect()
     dprTracker.dispose()
     textareaInput.dispose()
+    cursorBlink.dispose()
     canvas.removeEventListener('pointerdown', onPointerDown)
     selectionInput.dispose()
     scrollInput.dispose()

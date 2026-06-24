@@ -1,4 +1,5 @@
 import { readFile } from 'fs/promises'
+import { execFile } from 'child_process'
 
 // The aterm canvas/WebGL renderers rasterize glyphs themselves from injected
 // font bytes and ship only JetBrains Mono, so CJK and emoji render as .notdef
@@ -47,6 +48,37 @@ function candidatesFor(table: Record<NodeJS.Platform, readonly string[]>): reado
   return table[process.platform] ?? []
 }
 
+// Resolve a font file via fontconfig. The hardcoded /usr/share paths above miss on
+// many distros (the font is installed but elsewhere), so on Linux we ask fc-match
+// for the best file matching a query first. Best-effort: returns undefined if
+// fontconfig is absent or errors, so the hardcoded candidates still apply.
+function fcMatchFile(query: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    execFile(
+      'fc-match',
+      ['-f', '%{file}', query],
+      { encoding: 'utf8', timeout: 3000 },
+      (error, stdout) => {
+        if (error) {
+          resolve(undefined)
+          return
+        }
+        const file = stdout.trim()
+        resolve(file.length > 0 ? file : undefined)
+      }
+    )
+  })
+}
+
+// Linux-only fontconfig candidates, prepended ahead of the hardcoded paths.
+async function linuxFcCandidates(query: string): Promise<string[]> {
+  if (process.platform !== 'linux') {
+    return []
+  }
+  const file = await fcMatchFile(query)
+  return file ? [file] : []
+}
+
 // Read the first candidate that exists and parses as readable bytes; a missing or
 // unreadable file just moves to the next candidate. Returns undefined when none
 // of the platform's candidates are present (the renderer keeps JetBrains Mono).
@@ -68,9 +100,15 @@ export async function getTerminalFallbackFonts(): Promise<TerminalFallbackFonts>
   if (cached) {
     return cached
   }
+  // On Linux, ask fontconfig first (covers distros where the hardcoded paths miss):
+  // a CJK-covering font (:lang=zh) and an emoji-covering font (:charset=1F600 = 😀).
+  const [cjkFc, emojiFc] = await Promise.all([
+    linuxFcCandidates(':lang=zh'),
+    linuxFcCandidates(':charset=1F600')
+  ])
   const [cjk, emoji] = await Promise.all([
-    readFirstExisting(candidatesFor(CJK_CANDIDATES)),
-    readFirstExisting(candidatesFor(EMOJI_CANDIDATES))
+    readFirstExisting([...cjkFc, ...candidatesFor(CJK_CANDIDATES)]),
+    readFirstExisting([...emojiFc, ...candidatesFor(EMOJI_CANDIDATES)])
   ])
   cached = { cjk, emoji }
   return cached

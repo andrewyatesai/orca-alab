@@ -16,6 +16,9 @@ export type AtermThemeColors = {
   bg: number
   cursor: number
   selection: number
+  /** Explicit foreground for SELECTED text (theme `selectionForeground`), 0x00RRGGBB,
+   *  or null to keep the engine's WCAG contrast-floor default. */
+  selectionForeground: number | null
   /** ANSI/indexed palette overrides (index 0–15) parsed from the theme; indices
    *  absent here keep the engine's built-in default. 0x00RRGGBB. */
   palette: { index: number; rgb: number }[]
@@ -29,6 +32,7 @@ const DEFAULT_COLORS: AtermThemeColors = {
   bg: 0x111318,
   cursor: 0x50fa7b,
   selection: 0x264f78,
+  selectionForeground: null,
   palette: []
 }
 
@@ -105,6 +109,7 @@ export function seedAtermReplyDefaults(
 export function applyAtermLiveTheme(
   term: {
     set_theme: (fg: number, bg: number, cursor: number, selection: number) => void
+    set_selection_fg: (fg: number | undefined) => void
     set_palette_color: (index: number, r: number, g: number, b: number) => void
     set_default_foreground: (r: number, g: number, b: number) => void
     set_default_background: (r: number, g: number, b: number) => void
@@ -115,6 +120,9 @@ export function applyAtermLiveTheme(
   cellHeight: number
 ): void {
   term.set_theme(colors.fg, colors.bg, colors.cursor, colors.selection)
+  // null → undefined: keep the engine's WCAG contrast-floor default when the theme
+  // sets no explicit selectionForeground.
+  term.set_selection_fg(colors.selectionForeground ?? undefined)
   seedAtermPalette(term, colors)
   seedAtermReplyDefaults(term, colors, cellWidth, cellHeight)
 }
@@ -243,6 +251,9 @@ export function atermThemeColorsFromITheme(theme: ITheme): AtermThemeColors {
     bg,
     cursor: pick(theme.cursor, DEFAULT_COLORS.cursor),
     selection: pick(theme.selectionBackground, DEFAULT_COLORS.selection),
+    // Explicit selected-text fg if the theme sets one; null keeps the engine's
+    // WCAG contrast-floor default (cssColorToU32 returns null when absent/unparseable).
+    selectionForeground: cssColorToU32(theme.selectionForeground),
     // The 16 ANSI palette colours so SGR-indexed cell colours match the theme.
     palette: resolveAtermPalette(theme)
   }

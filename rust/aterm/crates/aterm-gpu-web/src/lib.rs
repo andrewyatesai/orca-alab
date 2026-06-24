@@ -255,6 +255,17 @@ impl AtermGpuTerminal {
         }
     }
 
+    /// Explicit selected-text foreground (theme `selectionForeground`), 0x00RRGGBB,
+    /// or `undefined` for the WCAG contrast-floor default. Set on both the CPU
+    /// fallback face and the live GPU renderer; forces a full present (appearance).
+    pub fn set_selection_fg(&mut self, fg: Option<u32>) {
+        self.cpu.set_selection_fg(fg);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_selection_fg(fg);
+            gpu.win.invalidate_present();
+        }
+    }
+
     /// Resize the grid AND, if the GPU is live, the swapchain to match the new
     /// pixel extent (host recomputes cols/rows for the canvas first).
     pub fn resize(&mut self, rows: u16, cols: u16) {

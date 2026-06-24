@@ -457,6 +457,11 @@ pub struct Renderer {
     pad: usize,
     baseline: i32,
     theme: Theme,
+    /// Optional explicit foreground for SELECTED text (theme `selectionForeground`).
+    /// `None` keeps the default behaviour — floor the cell's SGR fg against the
+    /// selection bg for WCAG-legible contrast; `Some(rgb)` paints all selected
+    /// glyphs in this colour. GPU mirrors this identically (parity).
+    selection_fg: Option<u32>,
     /// The glyph cache, keyed by full rasterization identity.
     glyphs: HashMap<GlyphKey, GlyphImage>,
     /// Per-char key resolve cache (primary-vs-fallback dispatch happens once
@@ -1414,6 +1419,7 @@ impl Renderer {
             pad: 0,
             baseline,
             theme,
+            selection_fg: None,
             glyphs: HashMap::new(),
             keys: HashMap::new(),
             emoji_keys: HashMap::new(),
@@ -1595,6 +1601,21 @@ impl Renderer {
     /// invalidation is needed — the next render paints with the new colours.
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
+    }
+
+    /// Set the explicit selected-text foreground (theme `selectionForeground`), or
+    /// `None` to restore the WCAG contrast-floor default. Applied at blit time like
+    /// the theme, so no glyph-cache invalidation is needed.
+    pub fn set_selection_fg(&mut self, fg: Option<u32>) {
+        self.selection_fg = fg;
+    }
+
+    /// The current explicit selected-text foreground override (or `None` for the
+    /// contrast-floor default). The GPU renderer reads this off its wrapped CPU
+    /// face so both paths resolve selected-glyph colour identically.
+    #[must_use]
+    pub fn selection_fg(&self) -> Option<u32> {
+        self.selection_fg
     }
 
     /// The current interior padding (px per edge). `0` is the historical no-pad
@@ -2610,7 +2631,10 @@ impl Renderer {
                     cells.get(c + 1).is_some_and(|n| n.wide),
                     cell.wide,
                 ) {
-                    floor_selection_fg(rgb_to_u32(cell.fg), self.theme.selection)
+                    // An explicit theme selectionForeground wins; otherwise floor
+                    // the SGR fg against the selection bg for legible contrast.
+                    self.selection_fg
+                        .unwrap_or_else(|| floor_selection_fg(rgb_to_u32(cell.fg), self.theme.selection))
                 } else {
                     rgb_to_u32(cell.fg)
                 };

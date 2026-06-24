@@ -130,3 +130,55 @@ fn selection_highlight_gpu_matches_cpu() {
         }
     }
 }
+
+#[test]
+fn selection_fg_override_gpu_matches_cpu() {
+    // With an explicit selectionForeground override, the GPU and CPU must paint
+    // selected glyphs in that colour identically (parity), instead of the WCAG
+    // contrast-floor default.
+    let theme = Theme::default();
+    let px = 18.0;
+    let mut gpu = match aterm_gpu::GpuRenderer::new(px, theme) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("SKIP: no GPU/font available: {e}");
+            return;
+        }
+    };
+    let Some(mut cpu) = Renderer::from_system(px, theme) else {
+        eprintln!("SKIP: no system monospace font");
+        return;
+    };
+    // Distinctive override unlike the default fg/bg/selection, on BOTH paths.
+    let sel_fg = 0x00ff_00ffu32;
+    cpu.set_selection_fg(Some(sel_fg));
+    gpu.set_selection_fg(Some(sel_fg));
+
+    let (rows, cols) = (4usize, 10usize);
+    let mut term = Terminal::new(rows as u16, cols as u16);
+    term.process(b"hello\r\nworld");
+    let sel = term.text_selection_mut();
+    sel.start_selection(0, 0, SelectionSide::Left, SelectionType::Simple);
+    sel.update_selection(0, 4, SelectionSide::Right);
+    sel.complete_selection();
+
+    let mut win = aterm_gpu::WindowGpu::new();
+    let (cw, ch) = cpu.cell_size();
+    let input = term.cell_frame(rows, cols);
+    let cpu_frame = cpu.render_input(&input);
+    let gpu_frame = gpu.render_input(&mut win, &input);
+
+    let delta = max_channel_delta(&cpu_frame, &gpu_frame);
+    assert!(
+        delta <= 8,
+        "selection_fg override: GPU/CPU diverge, max per-channel delta {delta} > 8"
+    );
+    // The override colour must actually paint in a selected glyph's pixels (it is
+    // unlike fg/bg/selection, so any near-hit proves the override took effect).
+    let sel_px = cell_pixels(&cpu_frame, cw, ch, 0, 1); // selected 'e'
+    let hits = sel_px.iter().filter(|&&p| near(p, sel_fg, 40)).count();
+    assert!(
+        hits > 0,
+        "selected glyph should paint the selectionForeground override (hits={hits})"
+    );
+}

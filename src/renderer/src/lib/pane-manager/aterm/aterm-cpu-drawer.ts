@@ -50,6 +50,8 @@ export async function loadAtermCpuDrawer(
   // Seed the 16 ANSI palette colours from the theme so SGR-indexed cell colours
   // (ls/git/prompts) render in the user's theme, not the engine's VGA defaults.
   seedAtermPalette(term, themeColors)
+  // Seed the theme's selectionForeground (null → keep the WCAG floor default).
+  term.set_selection_fg(themeColors.selectionForeground ?? undefined)
   const cellWidth = term.cell_width
   const cellHeight = term.cell_height
   // Seed default colours + cell pixel size so aterm answers OSC 10/11 + CSI 14t/16t.

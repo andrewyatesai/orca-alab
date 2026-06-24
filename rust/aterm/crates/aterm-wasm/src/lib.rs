@@ -181,6 +181,14 @@ impl AtermTerminal {
         });
     }
 
+    /// Set the explicit selected-text foreground (theme `selectionForeground`),
+    /// 0x00RRGGBB, or `undefined` to restore the WCAG contrast-floor default.
+    /// Appearance-only, so force one full repaint next frame.
+    pub fn set_selection_fg(&mut self, fg: Option<u32>) {
+        self.force_full_repaint = true;
+        self.renderer.set_selection_fg(fg);
+    }
+
     /// Resize the grid (after the host recomputes cols/rows for the canvas).
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.term.resize(rows, cols);

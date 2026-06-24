@@ -1441,6 +1441,13 @@ impl GpuRenderer {
         self.cpu.set_theme(theme);
     }
 
+    /// Explicit selected-text foreground (theme `selectionForeground`), or `None`
+    /// for the contrast-floor default. Routed through the wrapped CPU face so the
+    /// GPU and CPU selection-glyph colours stay byte-identical.
+    pub fn set_selection_fg(&mut self, fg: Option<u32>) {
+        self.cpu.set_selection_fg(fg);
+    }
+
     /// Inject a broad-coverage (CJK + symbols) fallback face into the GPU's CPU
     /// face from font bytes and invalidate the atlas so the next frame
     /// re-rasterizes the new coverage. The browser GPU path has no system-font
@@ -2865,6 +2872,9 @@ impl GpuRenderer {
         // Captured once so the per-cell selection-fg floor below doesn't borrow self
         // inside the loop (where self.cpu is borrowed for glyph-key resolution).
         let theme_selection = self.theme.selection;
+        // Explicit selectionForeground override (read off the CPU face — the single
+        // source of truth — so GPU/CPU selected-glyph colour stays identical).
+        let selection_fg = self.cpu.selection_fg();
         for (r, cells) in rendered.iter().enumerate() {
             if !row_active(r) {
                 continue;
@@ -2985,10 +2995,12 @@ impl GpuRenderer {
                     cells.get(c + 1).is_some_and(|n| n.wide),
                     cell.wide,
                 ) {
-                    rgb4_u32(aterm_render::floor_selection_fg(
-                        aterm_render::rgb_to_u32(cell.fg),
-                        theme_selection,
-                    ))
+                    rgb4_u32(selection_fg.unwrap_or_else(|| {
+                        aterm_render::floor_selection_fg(
+                            aterm_render::rgb_to_u32(cell.fg),
+                            theme_selection,
+                        )
+                    }))
                 } else {
                     rgb4(cell.fg)
                 };

@@ -51,6 +51,8 @@ export async function loadAtermGpuDrawer(
   // Seed the 16 ANSI palette colours from the theme so SGR-indexed cell colours
   // (ls/git/prompts) render in the user's theme, not the engine's VGA defaults.
   seedAtermPalette(gpuTerm, themeColors)
+  // Seed the theme's selectionForeground (null → keep the WCAG floor default).
+  gpuTerm.set_selection_fg(themeColors.selectionForeground ?? undefined)
   // ASYNC: acquire the GPU + create the WebGL2 surface on this canvas. Throws a
   // JS string if WebGL is unavailable; the caller catches → CPU fallback.
   await gpuTerm.init(canvas)

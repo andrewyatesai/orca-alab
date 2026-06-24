@@ -195,7 +195,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       return pendingRefresh
     },
     getHoveredLinkSpan: () => linkInput.hoveredSpan(),
-    fgColor: themeColors.fg,
+    getFgColor: () => themeColors.fg,
     onContextLoss: () => config.onContextLoss()
   })
 
@@ -207,7 +207,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
         getDpr: () => dpr,
         getRows: () => rows,
         getHoveredLinkSpan: () => linkInput.hoveredSpan(),
-        fgColor: themeColors.fg
+        getFgColor: () => themeColors.fg
       })
     : null
 
@@ -355,6 +355,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // iterates live panes; scheduleDraw no-ops if disposed.
     updateTheme: (colors: AtermThemeColors) => {
       applyAtermLiveTheme(term, colors, cellWidth, cellHeight)
+      // Mutate the shared themeColors IN PLACE (not reassign) so the live getters
+      // — link-underline fg + the reply surface's OSC 10/11 color source, both of
+      // which captured this object — read the new theme without a pane rebuild.
+      Object.assign(themeColors, colors)
       scheduleDraw()
     },
     ...replySurface,

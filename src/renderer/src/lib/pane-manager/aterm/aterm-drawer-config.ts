@@ -30,8 +30,9 @@ export type AtermPainterBinding = {
   /** The link span under the pointer (or null) for the hover underline; both
    *  drawers paint it on their 2d overlay (CPU: grid context; GPU: stacked one). */
   getHoveredLinkSpan: () => AtermHoveredLinkSpan | null
-  /** Theme fg (0x00RRGGBB) — the hover underline color. */
-  fgColor: number
+  /** Theme fg (0x00RRGGBB) — the hover underline color. A getter so a live
+   *  re-theme (updateTheme) is reflected without rebinding the painter. */
+  getFgColor: () => number
   /** GPU path only: called when the WebGL2 context is lost so the controller can
    *  dispose the GPU strategy and swap to CPU. The CPU drawer ignores it. */
   onContextLoss: () => void

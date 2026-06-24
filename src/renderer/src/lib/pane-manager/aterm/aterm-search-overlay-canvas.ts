@@ -32,8 +32,9 @@ export function createAtermSearchOverlayCanvas(
     /** Hovered link span (or null) for the GPU-path hover underline; painted on
      *  this same stacked 2d overlay above the search highlights. */
     getHoveredLinkSpan: () => AtermHoveredLinkSpan | null
-    /** Theme fg (0x00RRGGBB) — the hover underline color. */
-    fgColor: number
+    /** Theme fg (0x00RRGGBB) — the hover underline color. Read live each paint so
+     *  a re-theme (updateTheme) recolors the underline without recreating the pane. */
+    getFgColor: () => number
   }
 ): AtermSearchOverlayCanvas {
   const overlay = document.createElement('canvas')
@@ -76,7 +77,7 @@ export function createAtermSearchOverlayCanvas(
         cellHeight: deps.cellHeight,
         rows: deps.getRows()
       })
-      paintAtermLinkUnderline(ctx, deps.getHoveredLinkSpan(), deps.fgColor, {
+      paintAtermLinkUnderline(ctx, deps.getHoveredLinkSpan(), deps.getFgColor(), {
         cellWidth: deps.cellWidth,
         cellHeight: deps.cellHeight,
         dpr

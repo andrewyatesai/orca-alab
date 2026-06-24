@@ -6,14 +6,17 @@ import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 // HONEST per-pane MEMORY measurement, run in the real Electron renderer — answers
 // the adversarial review's "a whole VT engine per pane is bloated, and it's
 // unmeasured". window.__atermMemoryBench builds several LIVE aterm engines (each
-// fed scrollback + rendered) and reports the wasm-heap growth per pane. It is a
-// MEASUREMENT (loose sanity asserts), not a gate; the number is logged.
+// fed glyph-diverse scrollback + rendered) and reports the wasm-heap growth per
+// pane. It is a MEASUREMENT (loose sanity asserts), not a gate; the number is logged.
 //
 // Key honesty points the bench encodes: (1) the big OS fallback fonts (CJK ~100MB,
 // emoji ~180MB) are interned to ONE shared copy across panes (aterm-render intern +
 // its native unit test), so they're a one-time cost, NOT per-pane — excluded here.
-// (2) The kept xterm shim's per-pane buffer is a SEPARATE JS-heap cost (Phase-3
-// removal target), not in the wasm heap measured here.
+// (2) It measures the CPU-fallback engine, whose wasm heap holds the RGBA
+// framebuffer — so the figure is the UPPER BOUND; the shipped GPU default keeps the
+// framebuffer in GPU textures (not wasm), so it's lighter per pane. (3) The kept
+// xterm shim's per-pane buffer is a SEPARATE JS-heap cost (Phase-3 removal target),
+// not in the wasm heap measured here.
 
 type MemBenchResult = {
   panes: number
@@ -77,8 +80,9 @@ test.describe('aterm per-pane memory @aterm-memory', () => {
 
     const line =
       `[aterm-memory] ${r.panes} live panes @ ${r.cols}x${r.rows}, ${r.scrollbackLines} ` +
-      `scrollback lines each → ${r.kbPerPane} KB/pane (wasm heap: grid + scrollback + ` +
-      `framebuffer + atlas; OS fallback fonts are deduped to one shared copy, excluded). ` +
+      `scrollback lines each → ${r.kbPerPane} KB/pane (CPU-engine upper bound — wasm heap: ` +
+      `grid + scrollback + framebuffer + atlas; GPU default lighter, framebuffer in GPU ` +
+      `textures; OS fallback fonts deduped to one shared copy, excluded). ` +
       `total wasm heap ${(r.totalHeapBytes / (1024 * 1024)).toFixed(1)} MB.`
     // eslint-disable-next-line no-console
     console.log(`\n${line}\n`)

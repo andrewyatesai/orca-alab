@@ -29,20 +29,27 @@ pub use aterm_types::text_shaping::{LigatureMode, TextShapingConfig};
 pub use ligature_shaping::ColumnGlyph;
 
 thread_local! {
-    /// Dedup the large raw color-emoji font bytes (Apple Color Emoji is ~180MB)
-    /// across every `Renderer` in this address space. In the wasm renderer all
-    /// terminal panes share ONE linear memory and inject the SAME OS emoji font, so
-    /// without interning each pane held its own ~180MB copy. Share one `Arc` keyed
-    /// by content instead; bounded by the handful of distinct fonts ever injected.
-    static COLOR_FONT_INTERN: std::cell::RefCell<Vec<std::sync::Arc<Vec<u8>>>> =
+    /// Dedup large RAW font bytes (Apple Color Emoji ~180MB, Noto CJK ~100MB) across
+    /// every `Renderer`/embedder in this address space. In the wasm renderer all
+    /// terminal panes share ONE linear memory and inject the SAME OS fonts, so
+    /// without interning each pane held its own copy. Share one `Arc` keyed by
+    /// content; bounded by the handful of distinct fonts ever injected.
+    static FONT_BYTES_INTERN: std::cell::RefCell<Vec<std::sync::Arc<Vec<u8>>>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    /// Dedup PARSED fallback faces (a broad Unicode fallback is ~370MB once fontdue
+    /// parses it) keyed by their source bytes, so N panes injecting the same fallback
+    /// share ONE parsed face instead of paying ~370MB each.
+    static PARSED_FONT_INTERN: std::cell::RefCell<
+        Vec<(std::sync::Arc<Vec<u8>>, std::sync::Arc<fontdue::Font>)>,
+    > = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Return a shared `Arc` for `bytes`, reusing an already-interned identical blob so
-/// N panes injecting the same emoji font cost one copy, not N. The byte-equality
-/// check only runs against same-length entries and only at injection time.
-fn intern_color_font(bytes: Vec<u8>) -> std::sync::Arc<Vec<u8>> {
-    COLOR_FONT_INTERN.with(|cell| {
+/// N panes injecting the same font cost one copy, not N. The byte-equality check
+/// only runs against same-length entries and only at injection time. `pub` so the
+/// GPU-web embedder can intern its reinit-retention byte copies too.
+pub fn intern_font_bytes(bytes: Vec<u8>) -> std::sync::Arc<Vec<u8>> {
+    FONT_BYTES_INTERN.with(|cell| {
         let mut store = cell.borrow_mut();
         if let Some(existing) = store
             .iter()
@@ -53,6 +60,29 @@ fn intern_color_font(bytes: Vec<u8>) -> std::sync::Arc<Vec<u8>> {
         let arc = std::sync::Arc::new(bytes);
         store.push(arc.clone());
         arc
+    })
+}
+
+/// Parse a fallback `fontdue::Font` from `bytes`, sharing ONE parsed instance across
+/// all Renderers for identical bytes (a broad Unicode fallback is ~370MB parsed, so
+/// without this every pane paid it). Content-keyed by byte equality.
+fn intern_parsed_font(bytes: &[u8]) -> Result<std::sync::Arc<fontdue::Font>, String> {
+    PARSED_FONT_INTERN.with(|cell| {
+        {
+            let store = cell.borrow();
+            if let Some((_, font)) = store
+                .iter()
+                .find(|(src, _)| src.len() == bytes.len() && src.as_slice() == bytes)
+            {
+                return Ok(font.clone());
+            }
+        }
+        let parsed = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
+            .map_err(|e| e.to_string())?;
+        let font = std::sync::Arc::new(parsed);
+        cell.borrow_mut()
+            .push((std::sync::Arc::new(bytes.to_vec()), font.clone()));
+        Ok(font)
     })
 }
 
@@ -384,14 +414,14 @@ pub struct Renderer {
     /// Arial Unicode, 50k glyphs) costs ~370 MB once fontdue parses it, so it is
     /// NOT loaded until a code point actually misses the primary face. Sessions
     /// that only show Latin/box-drawing never pay it (idle RSS ~70 MB, not ~450).
-    fallback: Option<fontdue::Font>,
+    fallback: Option<std::sync::Arc<fontdue::Font>>,
     /// Candidate fallback font paths, tried on first miss; emptied once consumed.
     fallback_paths: Vec<String>,
     /// Monochrome SYMBOL fallback face ([`FaceId::SymbolFallback`]), loaded
     /// LAZILY the first time a code point misses BOTH the primary and broad
     /// fallback faces. Covers the default-text symbols (⏸⏹⏺ and friends) that
     /// would otherwise have no monochrome glyph anywhere on the system.
-    symbol_fallback: Option<fontdue::Font>,
+    symbol_fallback: Option<std::sync::Arc<fontdue::Font>>,
     /// Candidate symbol-fallback font paths, tried on first symbol miss; emptied once consumed.
     symbol_fallback_paths: Vec<String>,
     /// Apple Color Emoji font bytes, loaded LAZILY on the first emoji miss (a
@@ -1388,9 +1418,9 @@ impl Renderer {
     /// of going blank. Prefer the lazy path (`from_system`) unless you have a
     /// reason to pay the parse cost upfront.
     pub fn set_fallback_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let f = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
-            .map_err(|e| e.to_string())?;
-        self.fallback = Some(f);
+        // Interned: a ~370MB parsed broad fallback is shared across panes injecting
+        // the same bytes (every terminal pane injects the same OS fallback).
+        self.fallback = Some(intern_parsed_font(bytes)?);
         self.fallback_paths.clear();
         Ok(())
     }
@@ -1400,9 +1430,7 @@ impl Renderer {
     /// [`set_fallback_bytes`] for the symbol slot. Clearing the candidate paths
     /// stops the lazy system scan from later overwriting the injected face.
     pub fn set_symbol_fallback_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
-        let f = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
-            .map_err(|e| e.to_string())?;
-        self.symbol_fallback = Some(f);
+        self.symbol_fallback = Some(intern_parsed_font(bytes)?);
         self.symbol_fallback_paths.clear();
         Ok(())
     }
@@ -1415,7 +1443,7 @@ impl Renderer {
     /// rasterization), so a bad blob fails loudly instead of yielding tofu later.
     pub fn set_color_font_bytes(&mut self, bytes: Vec<u8>) -> Result<(), String> {
         ttf_parser::Face::parse(&bytes, 0).map_err(|e| e.to_string())?;
-        self.color_font = Some(intern_color_font(bytes));
+        self.color_font = Some(intern_font_bytes(bytes));
         self.color_font_paths.clear();
         Ok(())
     }
@@ -1474,9 +1502,9 @@ impl Renderer {
         let paths = std::mem::take(&mut self.fallback_paths);
         for p in paths {
             if let Ok(bytes) = std::fs::read(&p)
-                && let Ok(f) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
+                && let Ok(font) = intern_parsed_font(&bytes)
             {
-                self.fallback = Some(f);
+                self.fallback = Some(font);
                 return;
             }
         }
@@ -1492,9 +1520,9 @@ impl Renderer {
         let paths = std::mem::take(&mut self.symbol_fallback_paths);
         for p in paths {
             if let Ok(bytes) = std::fs::read(&p)
-                && let Ok(f) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
+                && let Ok(font) = intern_parsed_font(&bytes)
             {
-                self.symbol_fallback = Some(f);
+                self.symbol_fallback = Some(font);
                 return;
             }
         }
@@ -1522,7 +1550,7 @@ impl Renderer {
             if let Ok(bytes) = std::fs::read(&p) {
                 // Validate it parses as a colour (sbix) face before keeping it.
                 if ttf_parser::Face::parse(&bytes, 0).is_ok() {
-                    self.color_font = Some(intern_color_font(bytes));
+                    self.color_font = Some(intern_font_bytes(bytes));
                     return;
                 }
             }
@@ -2024,11 +2052,12 @@ impl Renderer {
                     | FaceId::ColorEmojiMono => &self.font,
                     FaceId::Fallback => {
                         self.ensure_fallback();
-                        self.fallback.as_ref().unwrap_or(&self.font)
+                        // as_deref: Arc<Font> -> &Font, to unify with &self.font.
+                        self.fallback.as_deref().unwrap_or(&self.font)
                     }
                     FaceId::SymbolFallback => {
                         self.ensure_symbol_fallback();
-                        self.symbol_fallback.as_ref().unwrap_or(&self.font)
+                        self.symbol_fallback.as_deref().unwrap_or(&self.font)
                     }
                     // A runtime-discovered fallback face (M3 FONT-DISCOVERY): the
                     // per-code-point decision was cached by `glyph_key` before this
@@ -3673,16 +3702,31 @@ pub fn rgb_to_u32([r, g, b]: [u8; 3]) -> u32 {
     (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
 }
 
+/// Per-value sRGB→linear lookup, built once: `LUT[c]` = the WCAG-linearized
+/// value of the 8-bit channel `c`. A 256-entry table keeps `relative_luminance`
+/// (hot in the selection-contrast floor, called per selected glyph) three table
+/// reads instead of three `powf`. Endpoints are exact by construction.
+fn srgb_linear_lut() -> &'static [f32; 256] {
+    use std::sync::OnceLock;
+    static LUT: OnceLock<[f32; 256]> = OnceLock::new();
+    LUT.get_or_init(|| {
+        let mut t = [0.0f32; 256];
+        for (c, slot) in t.iter_mut().enumerate() {
+            let n = c as f32 / 255.0;
+            *slot = if n <= 0.03928 {
+                n / 12.92
+            } else {
+                ((n + 0.055) / 1.055).powf(2.4)
+            };
+        }
+        t
+    })
+}
+
 /// sRGB relative luminance (WCAG) of a `0x00RRGGBB` colour.
 fn relative_luminance(rgb: u32) -> f32 {
-    let chan = |c: u32| -> f32 {
-        let n = (c & 0xff) as f32 / 255.0;
-        if n <= 0.03928 {
-            n / 12.92
-        } else {
-            ((n + 0.055) / 1.055).powf(2.4)
-        }
-    };
+    let lut = srgb_linear_lut();
+    let chan = |c: u32| -> f32 { lut[(c & 0xff) as usize] };
     0.2126 * chan(rgb >> 16) + 0.7152 * chan(rgb >> 8) + 0.0722 * chan(rgb)
 }
 
@@ -5127,13 +5171,13 @@ mod tests {
     /// separate. Content-keyed, so independent of font parsing.
     #[test]
     fn color_font_bytes_are_interned() {
-        let a1 = intern_color_font(vec![1, 2, 3, 4]);
-        let a2 = intern_color_font(vec![1, 2, 3, 4]);
+        let a1 = intern_font_bytes(vec![1, 2, 3, 4]);
+        let a2 = intern_font_bytes(vec![1, 2, 3, 4]);
         assert!(
             std::sync::Arc::ptr_eq(&a1, &a2),
             "identical emoji-font bytes must share one Arc across renderers"
         );
-        let b = intern_color_font(vec![9, 9, 9]);
+        let b = intern_font_bytes(vec![9, 9, 9]);
         assert!(
             !std::sync::Arc::ptr_eq(&a1, &b),
             "different font bytes must not be aliased"

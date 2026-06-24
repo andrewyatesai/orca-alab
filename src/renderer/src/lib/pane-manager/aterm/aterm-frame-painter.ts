@@ -27,8 +27,9 @@ export type AtermFramePainterDeps = {
   /** The link span under the pointer (or null); painted as a hover underline atop
    *  the glyphs each frame, on the SAME 2d context as the search highlights. */
   getHoveredLinkSpan: () => AtermHoveredLinkSpan | null
-  /** Theme fg (0x00RRGGBB) — the hover underline color. */
-  fgColor: number
+  /** Theme fg (0x00RRGGBB) — the hover underline color. Read live each frame so
+   *  a re-theme (updateTheme) recolors the underline without a painter rebind. */
+  getFgColor: () => number
 }
 
 /** Build the draw() callback that renders one frame: re-index search (coalesced),
@@ -78,7 +79,7 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
       rows: getRows()
     })
     // Then the hovered-link underline (its own affordance, above the glyphs).
-    paintAtermLinkUnderline(ctx, deps.getHoveredLinkSpan(), deps.fgColor, {
+    paintAtermLinkUnderline(ctx, deps.getHoveredLinkSpan(), deps.getFgColor(), {
       cellWidth,
       cellHeight,
       dpr

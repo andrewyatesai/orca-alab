@@ -439,6 +439,50 @@ fn gpu_scissor_one_cell_change_preserves_other_rows() {
     );
 }
 
+/// A theme change re-themes the selection band / idle cursor / padding — pixels
+/// that are NOT cell content, so the dirty-row diff alone would leave them stale
+/// on an idle GPU pane. `WindowGpu::invalidate_present` (called by the gpu-web
+/// `set_theme` path) must drop the prior-frame validity so the NEXT present is a
+/// FULL repaint even for a frame that would otherwise scissor (zero dirty rows).
+#[test]
+fn gpu_invalidate_present_forces_full_repaint() {
+    let Some(mut gpu) = fresh_gpu() else { return };
+    let mut win = aterm_gpu::WindowGpu::new();
+
+    let mut term = Terminal::new(ROWS as u16, COLS as u16);
+    term.process(b"$ themed prompt");
+    gpu.set_cursor_blink_phase(true);
+    gpu.set_cursor_style_override(None);
+
+    // Frame 1: first paint — FULL (no prior frame).
+    let input = term.cell_frame(ROWS, COLS);
+    let _ = gpu.present_input_readback(&mut win, &input);
+    assert_eq!(gpu.full_repaints(), 1, "first frame must be a full repaint");
+
+    // Frame 2: idle, unchanged ⇒ would normally SCISSOR (zero dirty rows).
+    let scissor_before = gpu.scissor_taken();
+    let _ = gpu.present_input_readback(&mut win, &input);
+    assert!(
+        gpu.scissor_taken() > scissor_before,
+        "an unchanged idle frame must scissor without invalidation"
+    );
+
+    // Invalidate (the theme-change hook), then present the SAME idle frame: it
+    // MUST fall back to a full repaint despite zero dirty rows, and the pixels
+    // must still equal a fresh full render of that input.
+    win.invalidate_present();
+    let full_before = gpu.full_repaints();
+    let got = gpu.present_input_readback(&mut win, &input).pixels;
+    assert!(
+        gpu.full_repaints() > full_before,
+        "invalidate_present must force the next present to a FULL repaint"
+    );
+    assert!(
+        got == fresh_render(&input, true, None),
+        "the forced full repaint must be byte-identical to a fresh render"
+    );
+}
+
 /// Diagnostic (run with `--ignored --nocapture`): the changed-frame GPU
 /// encode/instance-build cost for a 1-ROW change at 50x200 via the SCISSORED
 /// present path vs a FULL repaint of the same frame. Both read the whole texture

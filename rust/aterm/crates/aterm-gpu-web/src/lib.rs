@@ -86,10 +86,12 @@ pub struct AtermGpuTerminal {
     // can RE-APPLY them to the fresh GPU CPU face it builds from `font_bytes`
     // (which lacks the fallbacks); fonts injected before init would otherwise be
     // lost. Empty until the host calls `set_fallback_font` / `set_emoji_font`.
+    // INTERNED Arc (shared across panes via aterm_render::intern_font_bytes) so this
+    // reinit-retention copy isn't a per-pane ~180MB (emoji) / ~100MB (CJK) duplicate.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    fallback_font: Option<Vec<u8>>,
+    fallback_font: Option<std::sync::Arc<Vec<u8>>>,
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    emoji_font: Option<Vec<u8>>,
+    emoji_font: Option<std::sync::Arc<Vec<u8>>>,
 }
 
 /// The GPU half of the terminal, populated by [`AtermGpuTerminal::init`].
@@ -166,7 +168,7 @@ impl AtermGpuTerminal {
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.renderer.set_fallback_font_bytes(bytes)?;
         }
-        self.fallback_font = Some(bytes.to_vec());
+        self.fallback_font = Some(aterm_render::intern_font_bytes(bytes.to_vec()));
         Ok(())
     }
 
@@ -178,7 +180,7 @@ impl AtermGpuTerminal {
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.renderer.set_emoji_font_bytes(bytes.to_vec())?;
         }
-        self.emoji_font = Some(bytes.to_vec());
+        self.emoji_font = Some(aterm_render::intern_font_bytes(bytes.to_vec()));
         Ok(())
     }
 
@@ -246,6 +248,10 @@ impl AtermGpuTerminal {
         self.cpu.set_theme(theme);
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.renderer.set_theme(theme);
+            // Force the next present to repaint everything: the selection band,
+            // idle cursor, and padding border are theme-derived but not content,
+            // so the dirty-row diff alone would leave them in the OLD theme.
+            gpu.win.invalidate_present();
         }
     }
 
@@ -747,10 +753,12 @@ impl AtermGpuTerminal {
         let mut cpu = Renderer::from_bytes(&self.font_bytes, self.px, self.theme)?;
         // Re-apply any fonts the host injected BEFORE init: the fresh face above is
         // built from `font_bytes` alone, so it lacks them otherwise.
-        if let Some(bytes) = self.fallback_font.as_ref() {
+        if let Some(bytes) = self.fallback_font.as_deref() {
             cpu.set_fallback_bytes(bytes)?;
         }
-        if let Some(bytes) = self.emoji_font.as_ref() {
+        if let Some(bytes) = self.emoji_font.as_deref() {
+            // The transient Vec clone is re-interned to the shared Arc inside
+            // set_color_font_bytes, so no persistent per-pane duplicate remains.
             cpu.set_color_font_bytes(bytes.clone())?;
         }
         let renderer = GpuRenderer::from_parts(ctx, cpu, None, self.theme)?;

@@ -608,6 +608,15 @@ impl WindowGpu {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Drop this window's prior-frame validity so the NEXT `present_input` is a
+    /// FULL repaint (Clear + all rows) rather than a scissored dirty-row diff.
+    /// Needed after a theme change: the steady selection band, idle cursor, and
+    /// padding border are theme-derived but NOT content, so the dirty-row diff
+    /// would leave them painted in the OLD theme until cell content changes.
+    pub fn invalidate_present(&mut self) {
+        self.present_prev = None;
+    }
 }
 
 /// One decoded + footprint-scaled inline image, ready to upload as an RGBA8

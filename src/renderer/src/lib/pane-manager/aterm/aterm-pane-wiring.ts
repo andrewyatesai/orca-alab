@@ -350,6 +350,13 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     setFileLinkOpener: (fn: AtermFileLinkOpener) => void (shared.fileLinkOpener = fn),
     setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),
     lastMouseReport: () => eventReportingInput.lastMouseReport(),
+    // aterm-native serialize (replaces xterm's SerializeAddon). The wasm methods are
+    // snake_case; undefined scrollback → all history.
+    serialize: (scrollbackRows?: number) => term.serialize(scrollbackRows),
+    serializeScrollback: (maxRows?: number) => term.serialize_scrollback(maxRows),
+    title: () => term.title() ?? null,
+    gridSize: () => getGrid(),
+    isAltScreen: () => term.is_alt_screen,
     // Re-theme this live engine in place (host theme change), avoiding a pane
     // rebuild that would drop scrollback. Caller (applyTerminalAppearance) only
     // iterates live panes; scheduleDraw no-ops if disposed.

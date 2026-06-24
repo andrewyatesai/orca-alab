@@ -25,6 +25,7 @@ import { safeFit } from '@/lib/pane-manager/pane-tree-ops'
 import { getFitOverrideForPty, bindPanePtyId } from '@/lib/pane-manager/mobile-fit-overrides'
 import { isPtyLocked } from '@/lib/pane-manager/mobile-driver-state'
 import { isPaneReplaying, replayIntoTerminal, replayIntoTerminalAsync } from './replay-guard'
+import { serializePaneBuffer } from './pane-buffer-snapshot'
 import { terminalOutputPrefersRenderRefresh } from '@/lib/pane-manager/terminal-complex-script'
 import {
   PANE_PTY_RESIZE_HOLD_FLUSH_EVENT,
@@ -2155,15 +2156,22 @@ export function connectPanePty(
             // altScreenForcesZeroRows so normal-buffer scrollback isn't bled
             // into the seed when the user is mid-TUI; the read-fallback path
             // omits it because it wants the user's currently-visible content.
-            const alt = pane.terminal.buffer.active.type === 'alternate'
+            // Prefer the aterm engine for both the alt-screen check and the
+            // snapshot itself; legacy xterm panes fall back to the shim + addon.
+            const alt = pane.atermController
+              ? pane.atermController.isAltScreen()
+              : pane.terminal.buffer.active.type === 'alternate'
             const data =
               opts?.altScreenForcesZeroRows && alt
-                ? pane.serializeAddon.serialize({ scrollback: 0 })
-                : pane.serializeAddon.serialize({ scrollback: opts?.scrollbackRows })
+                ? serializePaneBuffer(pane, 0)
+                : serializePaneBuffer(pane, opts?.scrollbackRows)
+            const grid = pane.atermController
+              ? pane.atermController.gridSize()
+              : { cols: pane.terminal.cols, rows: pane.terminal.rows }
             return {
               data,
-              cols: pane.terminal.cols,
-              rows: pane.terminal.rows
+              cols: grid.cols,
+              rows: grid.rows
             }
           } catch {
             return null

@@ -281,6 +281,11 @@ export async function createAtermPaneController(
     setUrlLinkContext: (context) => wired.controller.setUrlLinkContext(context),
     updateTheme: (colors) => wired.controller.updateTheme(colors),
     lastMouseReport: () => wired.controller.lastMouseReport(),
+    serialize: (scrollbackRows) => wired.controller.serialize(scrollbackRows),
+    serializeScrollback: (maxRows) => wired.controller.serializeScrollback(maxRows),
+    title: () => wired.controller.title(),
+    gridSize: () => wired.controller.gridSize(),
+    isAltScreen: () => wired.controller.isAltScreen(),
     pixelSize: () => wired.controller.pixelSize(),
     themeColors: () => wired.controller.themeColors(),
     ...(wired.controller.benchmarkRender

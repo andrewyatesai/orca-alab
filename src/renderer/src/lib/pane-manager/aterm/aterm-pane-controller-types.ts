@@ -55,6 +55,21 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  "\x1b[<0;C;RM" press), or null if none. Proves a tracked mouse event was
    *  encoded + sent without relying on shell echo under a hidden window. */
   lastMouseReport: () => string | null
+  /** Serialize the buffer to replayable ANSI — the aterm-native replacement for
+   *  xterm's SerializeAddon (snapshot / reattach / fork / layout-persist). Mirrors
+   *  `serialize({scrollback})`: `scrollbackRows` undefined → all history, `n` → the
+   *  last n rows, `0` → viewport only. */
+  serialize: (scrollbackRows?: number) => string
+  /** Scrollback HISTORY only (the main buffer's off-screen lines) — the only
+   *  recoverable history when cold-restoring an alt-screen (vim/htop) session. */
+  serializeScrollback: (maxRows?: number) => string
+  /** Window title (OSC 0/2), or null when unset. */
+  title: () => string | null
+  /** Current grid size (cols × rows) — for snapshot metadata without xterm. */
+  gridSize: () => { cols: number; rows: number }
+  /** True when the alternate screen (TUI) is active — snapshot hydration uses this
+   *  to avoid bleeding normal-buffer scrollback into a mid-TUI seed. */
+  isAltScreen: () => boolean
   dispose: () => void
 }
 

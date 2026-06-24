@@ -1,5 +1,6 @@
 import { toast } from 'sonner'
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
+import { serializePaneBuffer } from './pane-buffer-snapshot'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import { buildAgentSessionForkPrompt } from '@/lib/agent-session-fork-context'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
@@ -136,9 +137,10 @@ export function prepareAgentSessionForkFromPane({
   )
   const agent = sourceAgent ?? tabAgent
   // Why: v1 is a context fork, not a process clone. Capturing scrollback keeps
-  // SSH and local panes on the same path because both expose xterm state here.
+  // SSH and local panes on the same path. Prefers the aterm engine's native
+  // serialize; only legacy xterm panes fall back to the SerializeAddon.
   const prompt = buildAgentSessionForkPrompt({
-    capturedText: pane.serializeAddon.serialize({ scrollback: 800 }),
+    capturedText: serializePaneBuffer(pane, 800),
     sourceLabel: paneKey,
     agentLabel: agent
   })

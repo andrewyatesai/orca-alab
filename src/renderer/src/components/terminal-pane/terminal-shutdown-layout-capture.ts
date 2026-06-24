@@ -3,13 +3,17 @@ import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
 import { flushTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
 import { serializeTerminalLayout } from './layout-serialization'
+import { serializePaneBuffer } from './pane-buffer-snapshot'
 import { mergeCapturedLeafState } from './merge-captured-leaf-state'
 import { TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT } from '../../../../shared/terminal-scrollback-limits'
 import { measureUtf8ByteLength } from '../../../../shared/utf8-byte-limits'
 
 const MAX_BUFFER_BYTES = TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT
 
-type ShutdownPane = Pick<ManagedPane, 'id' | 'leafId' | 'terminal' | 'serializeAddon'>
+type ShutdownPane = Pick<
+  ManagedPane,
+  'id' | 'leafId' | 'terminal' | 'serializeAddon' | 'atermController'
+>
 
 type ShutdownPaneManager = {
   getPanes(): ShutdownPane[]
@@ -64,8 +68,8 @@ export function captureTerminalShutdownLayout({
         // push them into xterm before taking the shutdown scrollback snapshot.
         flushTerminalOutput(pane.terminal)
         const leafId = pane.leafId
-        let scrollback = pane.terminal.options.scrollback ?? 10_000
-        let serialized = pane.serializeAddon.serialize({ scrollback })
+        const scrollback = pane.terminal.options.scrollback ?? 10_000
+        let serialized = serializePaneBuffer(pane, scrollback)
         // Why: SSH sleep keeps this string in session JSON; cap by UTF-8
         // bytes so non-ASCII scrollback cannot bypass the intended bound.
         if (!fitsSessionScrollbackByteLimit(serialized) && scrollback > 1) {
@@ -74,7 +78,7 @@ export function captureTerminalShutdownLayout({
           let best = ''
           while (lo <= hi) {
             const mid = Math.floor((lo + hi) / 2)
-            const attempt = pane.serializeAddon.serialize({ scrollback: mid })
+            const attempt = serializePaneBuffer(pane, mid)
             if (fitsSessionScrollbackByteLimit(attempt)) {
               best = attempt
               lo = mid + 1

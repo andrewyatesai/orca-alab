@@ -1916,14 +1916,20 @@ export function connectPanePty(
     () => isPaneReplaying(deps.replayingPanesRef, pane.id)
   )
 
-  const onDataDisposable = pane.terminal.onData((data) => {
+  // The full input→PTY pipeline (replay-guard drop, Codex-stale + presence-lock
+  // gates, agent-interrupt intent inference, hibernation). Extracted as a named
+  // function so BOTH xterm's onData (legacy panes) AND the aterm input sink (which
+  // sets pane.routePtyInput) can drive it directly — so aterm input no longer has
+  // to route through the shadow xterm Terminal. aterm's drained query replies hit
+  // this too and are dropped by the same replay guard at the top.
+  const routePtyInputData = (data: string): void => {
     // Why: xterm auto-replies to embedded query sequences (DA1, DECRQM,
     // OSC 10/11, focus, CPR) via onData. When we replay recorded PTY bytes
     // into xterm for scrollback/cold-restore/snapshot, those queries would
     // otherwise pipe replies into the freshly spawned shell as stray input
     // ("?1;2c", "2026;2$y", OSC color fragments, ...). The replay sites
     // engage the guard via replayIntoTerminal; here we drop everything
-    // xterm emits while the guard is active. See replay-guard.ts.
+    // emitted while the guard is active. See replay-guard.ts.
     if (isPaneReplaying(deps.replayingPanesRef, pane.id)) {
       return
     }
@@ -1991,7 +1997,12 @@ export function connectPanePty(
     } else {
       clearPendingTerminalInputIntent()
     }
-  })
+  }
+  // Legacy xterm panes: their Terminal.input()/auto-replies flow through onData.
+  const onDataDisposable = pane.terminal.onData(routePtyInputData)
+  // aterm panes: route keystrokes/paste/drained-replies straight into the same
+  // pipeline (set live so the aterm input sink, wired at pane creation, finds it).
+  pane.routePtyInput = routePtyInputData
 
   const shouldSuppressDesktopPtyResize = (): boolean => {
     const currentPtyId = transport.getPtyId()
@@ -4195,6 +4206,9 @@ export function connectPanePty(
         connectFrame = null
       }
       onDataDisposable.dispose()
+      // Drop the aterm input router so a disposed pane can't drive the torn-down
+      // transport (a reconnect re-installs it).
+      pane.routePtyInput = undefined
       terminalCapabilityRepliesDisposable.dispose()
       onResizeDisposable.dispose()
       pane.container.removeEventListener(PANE_PTY_RESIZE_HOLD_FLUSH_EVENT, onHeldPtyResizeFlush)

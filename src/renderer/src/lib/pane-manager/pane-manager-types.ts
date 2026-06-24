@@ -81,6 +81,11 @@ export type ManagedPane = {
   // Present only when the experimental aterm canvas renderer owns painting and
   // sizing for this pane; xterm stays unopened but keeps buffer/serialize state.
   atermController?: AtermPaneController | null
+  // The input→PTY router installed by connectPanePty: aterm's input sink calls this
+  // to drive keystrokes/paste/drained-replies through the full intent/presence/replay
+  // pipeline WITHOUT going through the xterm shim's Terminal.input(). Undefined until
+  // the pane's PTY is connected (before that, the sink falls back to xterm.input).
+  routePtyInput?: (data: string) => void
 }
 
 export type PaneRenderingDiagnostics = {

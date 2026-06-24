@@ -26,7 +26,10 @@ export function openAtermPane(
 ): void {
   void createAtermPaneController(
     pane.xtermContainer,
-    (data) => pane.terminal.input(data),
+    // Route input through connectPanePty's PTY pipeline directly (intent/presence/
+    // replay), bypassing the xterm shim, once it's wired; fall back to xterm.input
+    // only in the pre-connect window. Drained query replies use the same sink.
+    (data) => (pane.routePtyInput ? pane.routePtyInput(data) : pane.terminal.input(data)),
     (cols, rows) => pane.terminal.resize(cols, rows),
     // Pastes go through terminal.paste() (not input()) so DECSET 2004 wraps them
     // with \e[200~..\e[201~; input() sends raw and would let an app auto-run paste.

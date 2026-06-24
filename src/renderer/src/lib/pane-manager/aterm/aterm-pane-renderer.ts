@@ -104,6 +104,12 @@ export async function createAtermPaneController(
       const { benchAtermLatency } = await import('./aterm-latency-bench')
       return benchAtermLatency({ sizes, iterations, warmup, frames, fontPx, themeColors })
     }
+    // e2e-only per-pane memory bench: wasm-heap growth per live engine (grid +
+    // scrollback + framebuffer + atlas); fonts are interned/shared, so excluded.
+    window.__atermMemoryBench = async (cols, rows, scrollbackLines, panes) => {
+      const { benchAtermMemory } = await import('./aterm-memory-bench')
+      return benchAtermMemory({ cols, rows, scrollbackLines, panes, fontPx, themeColors })
+    }
   }
   if (pending.kind === 'gpu' && e2eConfig.exposeStore) {
     // e2e proof hooks: the wgpu WebGL adapter string + a GPU==CPU parity probe.

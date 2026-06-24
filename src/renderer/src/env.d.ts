@@ -5,6 +5,7 @@ import type { OnboardingFeatureSetupDeps } from '@/components/onboarding/onboard
 import type { AtermGpuCpuCompareResult } from '@/lib/pane-manager/aterm/aterm-gpu-cpu-compare'
 import type { AtermGpuCpuBenchResult } from '@/lib/pane-manager/aterm/aterm-gpu-cpu-bench'
 import type { AtermLatencyBenchResult } from '@/lib/pane-manager/aterm/aterm-latency-bench'
+import type { AtermMemoryBenchResult } from '@/lib/pane-manager/aterm/aterm-memory-bench'
 import type { languages } from 'monaco-editor'
 
 declare module 'monaco-editor/esm/vs/basic-languages/python/python.js' {
@@ -64,6 +65,14 @@ declare global {
       warmup: number,
       frames: number
     ) => Promise<AtermLatencyBenchResult>
+    // e2e only: per-pane wasm memory footprint (grid + scrollback + framebuffer +
+    // atlas) averaged over `panes` live engines; fonts are deduped, so excluded.
+    __atermMemoryBench?: (
+      cols: number,
+      rows: number,
+      scrollbackLines: number,
+      panes: number
+    ) => Promise<AtermMemoryBenchResult>
     // e2e only: resolves the configured terminal theme bg through the real
     // pipeline (independent of what the renderer painted) for theme assertions.
     __resolveAtermThemeBg?: () => [number, number, number]

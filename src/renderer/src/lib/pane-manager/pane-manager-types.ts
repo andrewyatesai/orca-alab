@@ -86,6 +86,10 @@ export type ManagedPane = {
   // pipeline WITHOUT going through the xterm shim's Terminal.input(). Undefined until
   // the pane's PTY is connected (before that, the sink falls back to xterm.input).
   routePtyInput?: (data: string) => void
+  // The resize→PTY router installed by connectPanePty (presence/held-resize gates);
+  // aterm's resize sink calls it directly so resize doesn't go through the xterm
+  // shim. Undefined until the PTY is connected (sink falls back to xterm.resize).
+  routePtyResize?: (cols: number, rows: number) => void
 }
 
 export type PaneRenderingDiagnostics = {

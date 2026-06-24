@@ -30,7 +30,10 @@ export function openAtermPane(
     // replay), bypassing the xterm shim, once it's wired; fall back to xterm.input
     // only in the pre-connect window. Drained query replies use the same sink.
     (data) => (pane.routePtyInput ? pane.routePtyInput(data) : pane.terminal.input(data)),
-    (cols, rows) => pane.terminal.resize(cols, rows),
+    // Resize straight to the PTY pipeline (presence/held-resize gates), bypassing
+    // the shim — its buffer dims are unused for aterm panes. Pre-connect fallback only.
+    (cols, rows) =>
+      pane.routePtyResize ? pane.routePtyResize(cols, rows) : pane.terminal.resize(cols, rows),
     // Paste, wrapped + routed natively (off the xterm shim). Matches xterm.paste:
     // normalize \r?\n→\r, and in bracketed-paste mode (DECSET 2004) wrap in
     // ESC[200~..ESC[201~ with embedded ESC bytes neutralized (paste-injection guard)

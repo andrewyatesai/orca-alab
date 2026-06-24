@@ -2048,7 +2048,11 @@ export function connectPanePty(
   }
   pane.container.addEventListener(PANE_PTY_RESIZE_HOLD_FLUSH_EVENT, onHeldPtyResizeFlush)
 
-  const onResizeDisposable = pane.terminal.onResize(({ cols, rows }) => {
+  // The resize→PTY pipeline (snapshot-replay + presence + held-resize gates).
+  // Extracted so aterm's resize sink can drive it directly (via pane.routePtyResize)
+  // without resizing the shadow xterm buffer — that buffer's dims are unused for
+  // aterm panes (snapshot dims, CPR, and 14t/16t all come from the engine now).
+  const routePtyResize = (cols: number, rows: number): void => {
     if (suppressSnapshotReplayPtyResize) {
       return
     }
@@ -2062,7 +2066,9 @@ export function connectPanePty(
       return
     }
     transport.resize(cols, rows)
-  })
+  }
+  const onResizeDisposable = pane.terminal.onResize(({ cols, rows }) => routePtyResize(cols, rows))
+  pane.routePtyResize = routePtyResize
 
   // Why: while a mobile-fit override is active, the onResize listener above
   // and the matching server-side gate both correctly drop pty:resize so the
@@ -4210,9 +4216,10 @@ export function connectPanePty(
         connectFrame = null
       }
       onDataDisposable.dispose()
-      // Drop the aterm input router so a disposed pane can't drive the torn-down
-      // transport (a reconnect re-installs it).
+      // Drop the aterm input/resize routers so a disposed pane can't drive the
+      // torn-down transport (a reconnect re-installs them).
       pane.routePtyInput = undefined
+      pane.routePtyResize = undefined
       terminalCapabilityRepliesDisposable.dispose()
       onResizeDisposable.dispose()
       pane.container.removeEventListener(PANE_PTY_RESIZE_HOLD_FLUSH_EVENT, onHeldPtyResizeFlush)

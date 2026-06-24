@@ -347,6 +347,74 @@ impl AtermGpuTerminal {
         self.term.is_alternate_screen()
     }
 
+    /// Serialize the terminal to a REPLAYABLE ANSI string (mirrors the CPU
+    /// `AtermTerminal::serialize`) — the aterm-native replacement for xterm's
+    /// SerializeAddon. `scrollback_rows`: None = all history, Some(n) = last n,
+    /// Some(0) = viewport only. Operates on the shared engine grid.
+    pub fn serialize(&self, scrollback_rows: Option<u32>) -> String {
+        let grid = self.term.grid();
+        let cap = scrollback_rows.map(|n| n as usize);
+        let active_history = grid.scrollback_lines();
+        let take = cap.map_or(active_history, |n| n.min(active_history));
+        let mut out = String::from("\x1b[0m");
+        for i in (active_history - take)..active_history {
+            let line = grid
+                .get_history_line(i)
+                .and_then(|l| l.as_str().map(|s| s.trim_end().to_string()))
+                .unwrap_or_default();
+            out.push_str(&line);
+            out.push_str("\r\n");
+        }
+        out.push_str("\x1b[H");
+        for r in 0..self.rows as u16 {
+            out.push_str(&format!("\x1b[{};1H\x1b[K", r + 1));
+            if let Some(row_ansi) = grid.row_ansi_text(r) {
+                out.push_str(&row_ansi);
+            }
+            out.push_str("\x1b[0m");
+        }
+        let c = self.term.cursor();
+        out.push_str(&format!("\x1b[{};{}H", c.row as usize + 1, c.col as usize + 1));
+        out
+    }
+
+    /// Scrollback HISTORY only (main buffer) — mirrors the CPU
+    /// `AtermTerminal::serialize_scrollback`.
+    pub fn serialize_scrollback(&self, max_rows: Option<u32>) -> String {
+        let grid = self.term.main_grid();
+        let history = grid.scrollback_lines();
+        if history == 0 {
+            return String::new();
+        }
+        let take = max_rows.map_or(history, |n| (n as usize).min(history));
+        let mut out = String::new();
+        for i in (history - take)..history {
+            let line = grid
+                .get_history_line(i)
+                .and_then(|l| l.as_str().map(|s| s.trim_end().to_string()))
+                .unwrap_or_default();
+            out.push_str(&line);
+            out.push_str("\r\n");
+        }
+        out
+    }
+
+    /// The window title (OSC 0/2), or `None` when unset (mirrors the CPU binding).
+    pub fn title(&self) -> Option<String> {
+        let title = self.term.title();
+        if title.is_empty() {
+            None
+        } else {
+            Some(title.to_string())
+        }
+    }
+
+    /// Whether bracketed-paste mode (DECSET 2004) is active (mirrors the CPU binding).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn bracketed_paste_mode(&self) -> bool {
+        self.term.modes().bracketed_paste()
+    }
+
     /// True when DECCKM (application cursor keys) is set: the host encodes
     /// arrows/Home/End as SS3 instead of CSI for full-screen apps.
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]

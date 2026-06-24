@@ -132,6 +132,9 @@ test.describe('aterm renderer query replies', () => {
       const da1 = decodeReply(content, runId, 'DA1')
       expect(da1, 'captured a DA1 reply').not.toBeNull()
       expect(afterCsi(da1), 'DA1 reply matches ESC[?...c').toMatch(/^\?[\d;]*c/)
+      // aterm rasterizes Sixel (+ Kitty/iTerm2), so an aterm pane's DA1 advertises
+      // the Sixel bit (param 4) — apps gate inline-image support on this.
+      expect(afterCsi(da1), 'aterm DA1 advertises Sixel (param 4)').toMatch(/[?;]4[;c]/)
 
       // 3) OSC-11 background color: the UNOPENED xterm shim has no color service
       //    so it does NOT auto-reply to OSC 10/11 — the aterm renderer (which owns

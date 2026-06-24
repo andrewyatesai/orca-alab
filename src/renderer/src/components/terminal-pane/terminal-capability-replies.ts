@@ -2,13 +2,19 @@ import type { IDisposable, IParser, Terminal } from '@xterm/xterm'
 
 export const DEFAULT_DA1_RESPONSE = '\x1b[?1;2c'
 export const CONPTY_DA1_RESPONSE = '\x1b[?61;4c'
+// VT100 + AVO/printer (the default identity) + Sixel (param 4). Advertised for
+// panes the aterm renderer draws — aterm rasterizes Sixel (and Kitty/iTerm2)
+// images, so apps that gate Sixel on the DA1 `;4` bit will actually send it.
+export const DA1_RESPONSE_WITH_SIXEL = '\x1b[?1;2;4c'
 
 type TerminalCapabilityRepliesDeps = {
   terminal: Pick<Terminal, 'cols' | 'rows' | 'element'>
   parser: Pick<IParser, 'registerCsiHandler'>
   sendInput: (data: string) => boolean | void
   isReplaying: () => boolean
-  da1Response?: string
+  /** DA1 reply — a string, or a getter resolved at reply time so it can depend on
+   *  live pane state (e.g. whether the aterm canvas, which renders Sixel, is up). */
+  da1Response?: string | (() => string)
 }
 
 function isPrimaryDeviceAttributesQuery(params: (number | number[])[]): boolean {
@@ -176,7 +182,9 @@ export function installTerminalCapabilityReplyHandlers(
       // Why: restored scrollback may contain old DA1 queries; answering those
       // into the fresh shell recreates the stray-input leak this handler fixes.
       if (!deps.isReplaying()) {
-        deps.sendInput(deps.da1Response ?? DEFAULT_DA1_RESPONSE)
+        const da1 =
+          typeof deps.da1Response === 'function' ? deps.da1Response() : deps.da1Response
+        deps.sendInput(da1 ?? DEFAULT_DA1_RESPONSE)
       }
       return true
     })

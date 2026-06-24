@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Terminal } from '@xterm/headless'
 import {
   CONPTY_DA1_RESPONSE,
+  DA1_RESPONSE_WITH_SIXEL,
   DEFAULT_DA1_RESPONSE,
   createTerminalOscColorQueryResponder,
   createTerminalPixelSizeQueryResponder,
@@ -36,6 +37,34 @@ describe('installTerminalCapabilityReplyHandlers', () => {
 
       expect(sendInput).toHaveBeenCalledTimes(1)
       expect(sendInput).toHaveBeenCalledWith(DEFAULT_DA1_RESPONSE)
+    } finally {
+      disposable.dispose()
+      term.dispose()
+    }
+  })
+
+  it('resolves a da1Response getter live (aterm panes advertise Sixel)', async () => {
+    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
+    const sendInput = vi.fn<(data: string) => boolean>(() => true)
+    let atermActive = false
+    const disposable = installTerminalCapabilityReplyHandlers({
+      terminal: term as never,
+      parser: term.parser,
+      sendInput,
+      isReplaying: () => false,
+      // Getter form: the renderer-authoritative DA1 depends on live pane state.
+      da1Response: () => (atermActive ? DA1_RESPONSE_WITH_SIXEL : DEFAULT_DA1_RESPONSE)
+    })
+
+    try {
+      await writeTerminal(term, '\x1b[c')
+      expect(sendInput).toHaveBeenLastCalledWith(DEFAULT_DA1_RESPONSE)
+      // The Sixel DA1 carries param 4 (the bit apps gate Sixel support on).
+      expect(DA1_RESPONSE_WITH_SIXEL).toContain(';4c')
+
+      atermActive = true
+      await writeTerminal(term, '\x1b[c')
+      expect(sendInput).toHaveBeenLastCalledWith(DA1_RESPONSE_WITH_SIXEL)
     } finally {
       disposable.dispose()
       term.dispose()

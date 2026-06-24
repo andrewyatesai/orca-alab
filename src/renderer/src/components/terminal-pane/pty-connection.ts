@@ -91,6 +91,8 @@ import { getEagerPtyBufferHandle } from './pty-dispatcher'
 import { createTerminalGitHubPRLinkDetector } from '@/lib/terminal-github-pr-link-detector'
 import {
   CONPTY_DA1_RESPONSE,
+  DA1_RESPONSE_WITH_SIXEL,
+  DEFAULT_DA1_RESPONSE,
   createTerminalOscColorQueryResponder,
   createTerminalPixelSizeQueryResponder,
   installTerminalCapabilityReplyHandlers
@@ -1865,13 +1867,6 @@ export function connectPanePty(
     ? createRemoteRuntimePtyTransport(runtimeEnvironmentId, transportOptions)
     : createIpcPtyTransport(transportOptions)
   deps.paneTransportsRef.current.set(pane.id, transport)
-  const terminalCapabilityRepliesDisposable = installTerminalCapabilityReplyHandlers({
-    terminal: pane.terminal,
-    parser: pane.terminal.parser,
-    sendInput: (data) => transport.sendInput(data),
-    isReplaying: () => isPaneReplaying(deps.replayingPanesRef, pane.id),
-    ...(isNativeWindowsConpty ? { da1Response: CONPTY_DA1_RESPONSE } : {})
-  })
   // Resolve the live pane's aterm controller by stable leafId (not the closed-over
   // `pane`): React StrictMode double-mount can leave the closed-over object's
   // atermController null while a newer pane object holds the attached controller.
@@ -1879,6 +1874,21 @@ export function connectPanePty(
     manager.getPanes().find((candidate) => candidate.leafId === pane.leafId)?.atermController ??
     pane.atermController ??
     null
+  const terminalCapabilityRepliesDisposable = installTerminalCapabilityReplyHandlers({
+    terminal: pane.terminal,
+    parser: pane.terminal.parser,
+    sendInput: (data) => transport.sendInput(data),
+    isReplaying: () => isPaneReplaying(deps.replayingPanesRef, pane.id),
+    // DA1 resolved live: aterm panes advertise Sixel (the canvas renders Sixel/
+    // Kitty/iTerm2 images, so apps that gate on the `;4` bit will send it); the
+    // ConPTY transport keeps its identity; the xterm fallback (no Sixel) the default.
+    da1Response: () => {
+      if (isNativeWindowsConpty) {
+        return CONPTY_DA1_RESPONSE
+      }
+      return resolveLiveAtermController() ? DA1_RESPONSE_WITH_SIXEL : DEFAULT_DA1_RESPONSE
+    }
+  })
   const respondToTerminalPixelSizeQueries = createTerminalPixelSizeQueryResponder(
     pane.terminal,
     (data) => transport.sendInput(data),

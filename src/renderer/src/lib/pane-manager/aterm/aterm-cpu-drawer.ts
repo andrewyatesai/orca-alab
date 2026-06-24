@@ -1,5 +1,6 @@
 import { loadAterm } from './load-aterm'
 import { injectTerminalFallbackFonts } from './inject-terminal-fallback-fonts'
+import { seedAtermPalette } from './aterm-theme-colors'
 import { createAtermFramePainter } from './aterm-frame-painter'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
@@ -46,6 +47,9 @@ export async function loadAtermCpuDrawer(
   // Inject the local OS CJK + colour-emoji fallback faces so non-Latin scripts
   // render real glyphs instead of .notdef tofu (JetBrains Mono is Latin-only).
   await injectTerminalFallbackFonts(term)
+  // Seed the 16 ANSI palette colours from the theme so SGR-indexed cell colours
+  // (ls/git/prompts) render in the user's theme, not the engine's VGA defaults.
+  seedAtermPalette(term, themeColors)
   const cellWidth = term.cell_width
   const cellHeight = term.cell_height
 

@@ -9,21 +9,75 @@ import { composeActiveTerminalTheme } from '@/components/terminal-pane/terminal-
 import { e2eConfig } from '@/lib/e2e-config'
 
 /** 0x00RRGGBB color seeds for the aterm renderer's DEFAULT theme (fg/bg/cursor/
- *  selection-highlight). Per-cell SGR colors flow through the grid separately. */
+ *  selection-highlight) plus the 16 ANSI palette entries the theme specifies.
+ *  Per-cell SGR truecolor flows through the grid separately. */
 export type AtermThemeColors = {
   fg: number
   bg: number
   cursor: number
   selection: number
+  /** ANSI/indexed palette overrides (index 0–15) parsed from the theme; indices
+   *  absent here keep the engine's built-in default. 0x00RRGGBB. */
+  palette: { index: number; rgb: number }[]
 }
 
 // Engine defaults (aterm_render::Theme::default) — used when a color is absent
-// or unparseable so the constructor always gets a sane value.
+// or unparseable so the constructor always gets a sane value. An empty palette
+// means "use the engine's built-in ANSI defaults".
 const DEFAULT_COLORS: AtermThemeColors = {
   fg: 0xd0d0d0,
   bg: 0x111318,
   cursor: 0x50fa7b,
-  selection: 0x264f78
+  selection: 0x264f78,
+  palette: []
+}
+
+// xterm ITheme's 16 ANSI colour fields → engine palette indices 0–15 (normal 0–7,
+// bright 8–15). Resolved into AtermThemeColors.palette and seeded after construction.
+const ANSI_THEME_KEYS: { key: keyof ITheme; index: number }[] = [
+  { key: 'black', index: 0 },
+  { key: 'red', index: 1 },
+  { key: 'green', index: 2 },
+  { key: 'yellow', index: 3 },
+  { key: 'blue', index: 4 },
+  { key: 'magenta', index: 5 },
+  { key: 'cyan', index: 6 },
+  { key: 'white', index: 7 },
+  { key: 'brightBlack', index: 8 },
+  { key: 'brightRed', index: 9 },
+  { key: 'brightGreen', index: 10 },
+  { key: 'brightYellow', index: 11 },
+  { key: 'brightBlue', index: 12 },
+  { key: 'brightMagenta', index: 13 },
+  { key: 'brightCyan', index: 14 },
+  { key: 'brightWhite', index: 15 }
+]
+
+/** Resolve the theme's 16 ANSI colours to engine palette overrides; skip any the
+ *  theme doesn't specify (so the engine default stands for that index). */
+function resolveAtermPalette(theme: ITheme): { index: number; rgb: number }[] {
+  const out: { index: number; rgb: number }[] = []
+  for (const { key, index } of ANSI_THEME_KEYS) {
+    const rgb = cssColorToU32(theme[key] as string | undefined)
+    if (rgb !== null) {
+      out.push({ index, rgb })
+    }
+  }
+  return out
+}
+
+/** Seed the engine's ANSI/indexed palette from the resolved theme so SGR-indexed
+ *  cell colours (ls/git/prompts) render in the user's theme instead of the engine's
+ *  built-in VGA defaults. Indices the theme omits keep the engine default. Works on
+ *  both the CPU (AtermTerminal) and GPU (AtermGpuTerminal) engines — the palette
+ *  lives on the shared grid. */
+export function seedAtermPalette(
+  term: { set_palette_color: (index: number, r: number, g: number, b: number) => void },
+  colors: AtermThemeColors
+): void {
+  for (const { index, rgb } of colors.palette) {
+    term.set_palette_color(index, (rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff)
+  }
 }
 
 /** Parse a CSS color (`#rgb`, `#rrggbb`, `rgb()/rgba()`) to 0x00RRGGBB.
@@ -142,7 +196,9 @@ export function resolveAtermThemeColors(): AtermThemeColors {
     fg: enforceDefaultContrast(pick(theme.foreground, DEFAULT_COLORS.fg), bg),
     bg,
     cursor: pick(theme.cursor, DEFAULT_COLORS.cursor),
-    selection: pick(theme.selectionBackground, DEFAULT_COLORS.selection)
+    selection: pick(theme.selectionBackground, DEFAULT_COLORS.selection),
+    // The 16 ANSI palette colours so SGR-indexed cell colours match the theme.
+    palette: resolveAtermPalette(theme)
   }
 }
 
@@ -158,4 +214,16 @@ if (e2eConfig.exposeStore && typeof window !== 'undefined') {
     const { bg } = resolveAtermThemeColors()
     return [(bg >> 16) & 0xff, (bg >> 8) & 0xff, bg & 0xff]
   }
+  // E2E only: the resolved ANSI palette (index → [r,g,b]) the renderer seeds into
+  // the engine, so the palette spec can assert a rendered SGR-indexed block matches
+  // the THEME colour (proving the seed reached pixels), not the engine VGA default.
+  ;(
+    window as unknown as {
+      __resolveAtermThemePalette?: () => { index: number; rgb: [number, number, number] }[]
+    }
+  ).__resolveAtermThemePalette = () =>
+    resolveAtermThemeColors().palette.map(({ index, rgb }) => ({
+      index,
+      rgb: [(rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff]
+    }))
 }

@@ -182,6 +182,15 @@ impl AtermGpuTerminal {
         Ok(())
     }
 
+    /// Set an ANSI/indexed palette colour (index 0–255; 0–15 are the 16 ANSI
+    /// colours) to RGB components, so SGR-indexed cell colours resolve through the
+    /// host's theme palette instead of the engine's built-in VGA defaults. The
+    /// palette lives on the shared grid (`self.term`), so this applies to both the
+    /// GPU and CPU-fallback draw paths. Per-cell truecolor SGR flows independently.
+    pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) {
+        self.term.set_palette_color_components(index, r, g, b);
+    }
+
     /// Resize the grid AND, if the GPU is live, the swapchain to match the new
     /// pixel extent (host recomputes cols/rows for the canvas first).
     pub fn resize(&mut self, rows: u16, cols: u16) {
@@ -351,7 +360,10 @@ impl AtermGpuTerminal {
     /// whitespace it falls back to the clicked cell. The selection stays active so
     /// the highlight paints.
     pub fn selection_word(&mut self, row: i32, col: u16) -> Option<String> {
-        let (start, last) = match self.term.smart_word_at(row as usize, col as usize, &self.smart) {
+        let (start, last) = match self
+            .term
+            .smart_word_at(row as usize, col as usize, &self.smart)
+        {
             Some((s, e)) => (s as u16, e.saturating_sub(1).max(s) as u16),
             None => (col, col),
         };

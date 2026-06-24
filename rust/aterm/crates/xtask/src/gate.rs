@@ -54,6 +54,7 @@ pub(crate) fn run(check: Option<&str>) -> ExitCode {
         Some("dormant") => gate_dormant(),
         Some("fault") => gate_fault(),
         Some("linux") => gate_linux(),
+        Some("web") => gate_web(),
         Some("lint") => gate_lint(),
         Some("counts") => gate_counts(),
         Some("miri") => gate_miri(),
@@ -86,7 +87,7 @@ pub(crate) fn run(check: Option<&str>) -> ExitCode {
         }
         other => {
             eprintln!(
-                "usage: xtask gate <all|drift|dormant|fault|linux|lint|counts|miri|perf>\n\
+                "usage: xtask gate <all|drift|dormant|fault|linux|web|lint|counts|miri|perf>\n\
                  (unknown check {other:?})"
             );
             false
@@ -516,6 +517,53 @@ fn on_path(bin: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+/// `gate web` — the web renderers (`aterm-wasm` CPU, `aterm-gpu-web` GPU/WebGL2)
+/// exist ONLY to run in the Electron renderer on `wasm32`. `gate all`/clippy check
+/// the HOST target, so every `#[cfg(target_arch = "wasm32")]` block — the
+/// `wasm_bindgen` exports, the async WebGL surface init — is otherwise NEVER
+/// compiled. This verb is the only thing that proves the web crates still build for
+/// their real target. Kept OUT of `gate all` (like `gate linux`): it's an optional
+/// cross-compile; run it on demand (or before pushing web changes). Skips cleanly
+/// when the `wasm32` target isn't installed, so it never blocks a non-web machine.
+fn gate_web() -> bool {
+    const TARGET: &str = "wasm32-unknown-unknown";
+    let mut cmd = Command::new("cargo");
+    cmd.current_dir(workspace_root())
+        .arg("build")
+        .arg("--target")
+        .arg(TARGET)
+        .args(["-p", "aterm-wasm", "-p", "aterm-gpu-web"]);
+    eprintln!("=== gate web (aterm-wasm + aterm-gpu-web build for {TARGET}) ===");
+    match cmd.output() {
+        Ok(o) if o.status.success() => {
+            eprintln!("gate web: GREEN — the wasm web renderers build for {TARGET}.");
+            true
+        }
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            // The wasm32 target's std isn't installed here — skip, don't fail.
+            if stderr.contains("may not be installed")
+                || stderr.contains("can't find crate for `std`")
+                || stderr.contains(&format!("note: the `{TARGET}` target"))
+            {
+                eprintln!(
+                    "gate web: SKIPPED — rustup target {TARGET} not installed \
+                     (`rustup target add {TARGET}`). Not a failure."
+                );
+                true
+            } else {
+                eprintln!("gate web: FAILED — the web renderers no longer build for wasm32:");
+                eprintln!("{stderr}");
+                false
+            }
+        }
+        Err(e) => {
+            eprintln!("gate web: could not run cargo ({e}); skipping.");
+            true
+        }
+    }
 }
 
 fn gate_linux() -> bool {

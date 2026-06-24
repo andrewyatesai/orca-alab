@@ -105,6 +105,14 @@ impl AtermTerminal {
         self.renderer.set_color_font_bytes(bytes.to_vec())
     }
 
+    /// Set an ANSI/indexed palette colour (index 0–255; 0–15 are the 16 ANSI
+    /// colours) to RGB components, so the renderer resolves SGR-indexed cell colours
+    /// through the host's theme palette instead of the engine's built-in VGA
+    /// defaults. Per-cell truecolor SGR still flows independently.
+    pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) {
+        self.term.set_palette_color_components(index, r, g, b);
+    }
+
     /// Resize the grid (after the host recomputes cols/rows for the canvas).
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.term.resize(rows, cols);
@@ -292,7 +300,10 @@ impl AtermTerminal {
     /// whitespace it falls back to the clicked cell. The selection stays active so
     /// the highlight paints.
     pub fn selection_word(&mut self, row: i32, col: u16) -> Option<String> {
-        let (start, last) = match self.term.smart_word_at(row as usize, col as usize, &self.smart) {
+        let (start, last) = match self
+            .term
+            .smart_word_at(row as usize, col as usize, &self.smart)
+        {
             Some((s, e)) => (s as u16, e.saturating_sub(1).max(s) as u16),
             None => (col, col),
         };

@@ -154,7 +154,11 @@ fn oversized_inline_image_png_draws_nothing_without_huge_alloc() {
     };
     let (cw, ch) = r.cell_size();
     let bomb = png_with_declared_dims(30_000, 30_000);
-    assert!(bomb.len() < 1024, "bomb payload stays tiny: {} bytes", bomb.len());
+    assert!(
+        bomb.len() < 1024,
+        "bomb payload stays tiny: {} bytes",
+        bomb.len()
+    );
 
     // The guard's load-bearing claim: the footprint decode is rejected (returns
     // nothing), so no `30000*30000*4` buffer is ever allocated.
@@ -182,7 +186,10 @@ fn oversized_inline_image_png_draws_nothing_without_huge_alloc() {
     let mut ctrl_r = Renderer::from_system(16.0, Theme::default()).expect("font");
     let mut ctrl = Terminal::new(6, 10);
     ctrl.set_cell_pixel_size(cw as u16, ch as u16);
-    ctrl.process(&osc_1337_file("inline=1;width=4;height=2", b"not a png at all"));
+    ctrl.process(&osc_1337_file(
+        "inline=1;width=4;height=2",
+        b"not a png at all",
+    ));
     let control = ctrl_r.render_input(&ctrl.cell_frame(6, 10));
 
     for y in 0..ch {

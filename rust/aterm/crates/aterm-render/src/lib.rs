@@ -4897,13 +4897,8 @@ mod tests {
         );
         // And so does the public inline-image footprint path the SSH peer reaches.
         assert!(
-            decode_image_to_footprint(
-                &bomb,
-                aterm_core::grid::extra::ImageFormat::Png,
-                8,
-                8
-            )
-            .is_none(),
+            decode_image_to_footprint(&bomb, aterm_core::grid::extra::ImageFormat::Png, 8, 8)
+                .is_none(),
             "oversized inline-image PNG must decode to nothing"
         );
     }
@@ -4914,7 +4909,10 @@ mod tests {
     fn png_over_cap_on_a_single_axis_is_rejected() {
         let tall = png_with_declared_dims(1, IMAGE_MAX_DIMENSION + 1);
         let wide = png_with_declared_dims(IMAGE_MAX_DIMENSION + 1, 1);
-        assert!(decode_png_rgba8(&tall).is_none(), "height past cap rejected");
+        assert!(
+            decode_png_rgba8(&tall).is_none(),
+            "height past cap rejected"
+        );
         assert!(decode_png_rgba8(&wide).is_none(), "width past cap rejected");
     }
 
@@ -4928,13 +4926,8 @@ mod tests {
         assert_eq!(&rgba[0..4], &[200, 30, 30, 255], "first pixel is the fill");
 
         // And it flows through the footprint path to a non-empty 16×16 raster.
-        let fp = decode_image_to_footprint(
-            &png,
-            aterm_core::grid::extra::ImageFormat::Png,
-            16,
-            16,
-        )
-        .expect("small PNG resamples to its footprint");
+        let fp = decode_image_to_footprint(&png, aterm_core::grid::extra::ImageFormat::Png, 16, 16)
+            .expect("small PNG resamples to its footprint");
         assert_eq!(fp.len(), 16 * 16 * 4);
     }
 }

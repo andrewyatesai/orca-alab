@@ -1,6 +1,7 @@
 import type { AtermFileLinkOpener } from './aterm-link-input'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
+import type { AtermThemeColors } from './aterm-theme-colors'
 
 export type AtermPaneInputSink = (data: string) => void
 export type AtermPaneResizeSink = (cols: number, rows: number) => void
@@ -45,6 +46,10 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** Late-bind the URL link context (worktreeId + in-app-link preference) so URL
    *  clicks honor orca's open-links-in-app preference once the lifecycle has it. */
   setUrlLinkContext: (context: AtermLinkContext) => void
+  /** Re-theme the live engine in place (host theme change) without rebuilding the
+   *  pane — updates default fg/bg/cursor/selection + ANSI palette + reply defaults
+   *  and redraws, preserving scrollback. */
+  updateTheme: (colors: AtermThemeColors) => void
   /** e2e/test hook: the last mouse REPORT forwarded to the PTY (e.g. an SGR
    *  "\x1b[<0;C;RM" press), or null if none. Proves a tracked mouse event was
    *  encoded + sent without relying on shell echo under a hidden window. */

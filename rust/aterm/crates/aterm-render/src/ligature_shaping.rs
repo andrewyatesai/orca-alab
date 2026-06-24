@@ -21,9 +21,46 @@
 //! the pre-ligature renderer).
 
 use aterm_core::terminal::RenderCell;
+use aterm_types::text_shaping::FontFeature;
 use rustybuzz::ttf_parser::Tag;
 
 use crate::StyleBits;
+
+/// Build the rustybuzz feature list applied to every ligature shaping run.
+///
+/// The base list is the programming-ligature pair `liga=1`, `calt=1` (the
+/// features [`shape_ligature_run`] has always turned on). The caller's
+/// OpenType `font_features` (`ss01`, `cv01`, `zero`, stylistic sets, …) are
+/// appended AFTER the base pair. rustybuzz/HarfBuzz resolve overlapping
+/// features by LAST-writer-wins for a given tag+range, so an explicit user
+/// feature for `liga`/`calt` (e.g. `liga=0` to force ligatures off for that
+/// tag) overrides the base value — i.e. **explicit user features win for
+/// their tag**, while leaving the ligature on/off *run gating*
+/// ([`crate::Renderer::row_glyph_plan`]'s `LigatureMode` short-circuit)
+/// untouched.
+///
+/// Each user [`FontFeature`] maps to a GLOBAL-range feature
+/// (`Feature::new(tag, value, ..)`), so it applies across the whole shaped run
+/// (every cluster), matching how the on/off `liga`/`calt` features are applied.
+///
+/// HOT-PATH NOTE: this is built ONCE when the shaping config is resolved
+/// ([`crate::Renderer::set_text_shaping`]) and stored on the renderer — it is
+/// NOT called per row/run/cell. When `user` is empty the result is exactly the
+/// two-element base list, so the empty-features path costs the same as before.
+#[must_use]
+pub fn build_feature_list(user: &[FontFeature]) -> Vec<rustybuzz::Feature> {
+    let mut features = Vec::with_capacity(2 + user.len());
+    features.push(rustybuzz::Feature::new(Tag::from_bytes(b"liga"), 1, ..));
+    features.push(rustybuzz::Feature::new(Tag::from_bytes(b"calt"), 1, ..));
+    for f in user {
+        features.push(rustybuzz::Feature::new(
+            Tag::from_bytes(&f.tag),
+            f.value,
+            ..,
+        ));
+    }
+    features
+}
 
 /// What to draw at one column of a row, resolved by [`plan_row_runs`].
 ///
@@ -61,10 +98,18 @@ pub fn cell_is_shapeable(cell: &RenderCell, has_cluster: bool, image_covered: bo
         && !image_covered
 }
 
-/// Shape one run string with `liga`+`calt` and return the per-INPUT-CHARACTER
-/// primary-face glyph ids, or `None` if the run did not ligate (shaping produced
-/// one glyph per char with the SAME ids the per-cell path would use, so there is
-/// nothing to override — the caller keeps the plain path, byte-identical).
+/// Shape one run string with the resolved `features` list and return the
+/// per-INPUT-CHARACTER primary-face glyph ids, or `None` if the run did not
+/// ligate (shaping produced one glyph per char with the SAME ids the per-cell
+/// path would use, so there is nothing to override — the caller keeps the plain
+/// path, byte-identical).
+///
+/// `features` is the prebuilt rustybuzz feature array (see
+/// [`build_feature_list`]): the base `liga`+`calt` pair plus the user's
+/// OpenType `font_features`. It is built ONCE where the shaping config is
+/// resolved and passed in by reference, so no feature allocation happens on the
+/// per-run hot path. When the user supplied no features this is just the base
+/// `[liga, calt]` pair — identical to the pre-feature behaviour.
 ///
 /// The run must be all single-`char` cells on a monospace cadence (the caller
 /// guarantees this via [`cell_is_shapeable`] over BMP operator chars). Shaping is
@@ -78,6 +123,7 @@ pub fn shape_ligature_run(
     run: &str,
     run_chars: &[char],
     enable: bool,
+    features: &[rustybuzz::Feature],
 ) -> Option<Box<[u16]>> {
     if !enable || run_chars.len() < 2 {
         return None;
@@ -85,11 +131,7 @@ pub fn shape_ligature_run(
     let face = rustybuzz::Face::from_slice(rb_bytes, 0)?;
     let mut buf = rustybuzz::UnicodeBuffer::new();
     buf.push_str(run);
-    let features = [
-        rustybuzz::Feature::new(Tag::from_bytes(b"liga"), 1, ..),
-        rustybuzz::Feature::new(Tag::from_bytes(b"calt"), 1, ..),
-    ];
-    let shaped = rustybuzz::shape(&face, &features, buf);
+    let shaped = rustybuzz::shape(&face, features, buf);
     let infos = shaped.glyph_infos();
     // Monospace-preserving fonts emit one glyph per input cell. A different count
     // means a collapsing/proportional shape we cannot map onto the grid cadence —
@@ -219,6 +261,70 @@ pub fn plan_row_runs<S, F>(
 mod tests {
     use super::*;
     use aterm_core::terminal::{RenderCell, UnderlineStyle};
+
+    /// WIRE-FONTFEAT — the EMPTY-features path is unchanged: with no user
+    /// features the built array is exactly the base `[liga, calt]` pair (the
+    /// pre-feature behaviour). This is the common/hot path; it must not grow.
+    #[test]
+    fn build_feature_list_empty_is_base_liga_calt() {
+        let features = build_feature_list(&[]);
+        assert_eq!(features.len(), 2, "empty user features => only liga+calt");
+        assert_eq!(features[0].tag.to_bytes(), *b"liga");
+        assert_eq!(features[0].value, 1);
+        assert_eq!(features[1].tag.to_bytes(), *b"calt");
+        assert_eq!(features[1].value, 1);
+        // Both are GLOBAL-range (apply across the whole run), like before.
+        assert_eq!(features[0].start, 0);
+        assert_eq!(features[0].end, u32::MAX);
+    }
+
+    /// WIRE-FONTFEAT — a user `FontFeature` is BUILT INTO the rustybuzz array
+    /// with the right tag bytes + value, appended after the base pair, over the
+    /// global run range. This is the testable seam the renderer feeds to
+    /// `rustybuzz::shape`.
+    #[test]
+    fn build_feature_list_appends_user_feature_with_tag_and_value() {
+        // 'ss01' enabled and 'zero' (slashed zero) enabled.
+        let user = [FontFeature::new(*b"ss01", 1), FontFeature::new(*b"zero", 1)];
+        let features = build_feature_list(&user);
+        assert_eq!(features.len(), 4, "liga + calt + 2 user features");
+        // Base pair first.
+        assert_eq!(features[0].tag.to_bytes(), *b"liga");
+        assert_eq!(features[1].tag.to_bytes(), *b"calt");
+        // User features appended in order, global range, exact value.
+        assert_eq!(features[2].tag.to_bytes(), *b"ss01");
+        assert_eq!(features[2].value, 1);
+        assert_eq!(features[2].start, 0);
+        assert_eq!(features[2].end, u32::MAX);
+        assert_eq!(features[3].tag.to_bytes(), *b"zero");
+        assert_eq!(features[3].value, 1);
+    }
+
+    /// WIRE-FONTFEAT — a stylistic-alternate VALUE > 1 (e.g. `cv01=2`) and an
+    /// OFF value (`liga=0`) round-trip exactly: the user feature carries an
+    /// arbitrary u32, not just on/off.
+    #[test]
+    fn build_feature_list_preserves_arbitrary_value() {
+        let user = [FontFeature::new(*b"cv01", 2), FontFeature::new(*b"liga", 0)];
+        let features = build_feature_list(&user);
+        assert_eq!(features[2].tag.to_bytes(), *b"cv01");
+        assert_eq!(features[2].value, 2);
+        // PRECEDENCE: the explicit user `liga=0` is appended AFTER the base
+        // `liga=1`. rustybuzz resolves a tag+range by last-writer-wins, so the
+        // user's value wins — explicit user features win for their tag.
+        assert_eq!(features[3].tag.to_bytes(), *b"liga");
+        assert_eq!(features[3].value, 0);
+        let liga_entries: Vec<u32> = features
+            .iter()
+            .filter(|f| f.tag.to_bytes() == *b"liga")
+            .map(|f| f.value)
+            .collect();
+        assert_eq!(
+            liga_entries,
+            vec![1, 0],
+            "base liga=1 precedes user liga=0 (last wins)"
+        );
+    }
 
     /// A plain single-`char` cell (the kind a `=>` operator occupies). All
     /// rendition flags off so it is shapeable by default.

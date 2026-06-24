@@ -233,6 +233,22 @@ impl AtermGpuTerminal {
         self.term.set_cell_pixel_size(width, height);
     }
 
+    /// Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB) on both the
+    /// GPU renderer and the CPU face, so a host theme change re-themes the pane
+    /// without a device/face rebuild.
+    pub fn set_theme(&mut self, fg: u32, bg: u32, cursor: u32, selection: u32) {
+        let theme = Theme {
+            fg,
+            bg,
+            cursor,
+            selection,
+        };
+        self.cpu.set_theme(theme);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_theme(theme);
+        }
+    }
+
     /// Resize the grid AND, if the GPU is live, the swapchain to match the new
     /// pixel extent (host recomputes cols/rows for the canvas first).
     pub fn resize(&mut self, rows: u16, cols: u16) {

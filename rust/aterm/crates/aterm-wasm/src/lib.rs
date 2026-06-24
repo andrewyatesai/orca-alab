@@ -151,6 +151,18 @@ impl AtermTerminal {
         self.term.set_cell_pixel_size(width, height);
     }
 
+    /// Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB), so a host
+    /// theme change re-themes the pane without rebuilding it. Per-cell SGR colours
+    /// flow independently; pair with set_palette_color for the ANSI palette.
+    pub fn set_theme(&mut self, fg: u32, bg: u32, cursor: u32, selection: u32) {
+        self.renderer.set_theme(Theme {
+            fg,
+            bg,
+            cursor,
+            selection,
+        });
+    }
+
     /// Resize the grid (after the host recomputes cols/rows for the canvas).
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.term.resize(rows, cols);

@@ -99,6 +99,26 @@ export function seedAtermReplyDefaults(
   term.set_cell_pixel_size(Math.max(1, Math.round(cellWidth)), Math.max(1, Math.round(cellHeight)))
 }
 
+/** Apply a full theme change to a live engine IN PLACE (no pane rebuild): the
+ *  renderer fg/bg/cursor/selection, the 16 ANSI palette, and the reply-default
+ *  colours. The caller schedules a redraw. */
+export function applyAtermLiveTheme(
+  term: {
+    set_theme: (fg: number, bg: number, cursor: number, selection: number) => void
+    set_palette_color: (index: number, r: number, g: number, b: number) => void
+    set_default_foreground: (r: number, g: number, b: number) => void
+    set_default_background: (r: number, g: number, b: number) => void
+    set_cell_pixel_size: (width: number, height: number) => void
+  },
+  colors: AtermThemeColors,
+  cellWidth: number,
+  cellHeight: number
+): void {
+  term.set_theme(colors.fg, colors.bg, colors.cursor, colors.selection)
+  seedAtermPalette(term, colors)
+  seedAtermReplyDefaults(term, colors, cellWidth, cellHeight)
+}
+
 /** Parse a CSS color (`#rgb`, `#rrggbb`, `rgb()/rgba()`) to 0x00RRGGBB.
  *  Returns null when the value isn't a form we recognize so the caller can
  *  fall back to the engine default. Alpha is dropped — aterm seeds opaque
@@ -208,6 +228,13 @@ export function resolveAtermThemeColors(): AtermThemeColors {
   if (!theme) {
     return DEFAULT_COLORS
   }
+  return atermThemeColorsFromITheme(theme)
+}
+
+/** Reduce a composed xterm ITheme to the aterm renderer's colour seeds. Shared by
+ *  resolveAtermThemeColors (store path) and the live re-theme path
+ *  (applyTerminalAppearance), so both produce identical colours. */
+export function atermThemeColorsFromITheme(theme: ITheme): AtermThemeColors {
   const bg = pick(theme.background, DEFAULT_COLORS.bg)
   return {
     // Floor the default fg's contrast against bg so body text is readable on

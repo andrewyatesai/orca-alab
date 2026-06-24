@@ -3,6 +3,7 @@ import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
 import { attachAtermCursorBlink } from './aterm-cursor-blink'
 import { drainAtermReplies } from './aterm-reply-drain'
+import { applyAtermLiveTheme } from './aterm-theme-colors'
 import { attachAtermEventReportingInput } from './aterm-event-reporting-input'
 import { computeGrid } from './aterm-grid-size'
 import { attachAtermLinkInput, type AtermFileLinkOpener } from './aterm-link-input'
@@ -107,9 +108,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     if (wasAtBottom && term.display_offset !== 0) {
       term.scroll_to_bottom()
     }
-    if (searchController.hasActiveQuery()) {
-      searchRefreshPending = true
-    }
+    searchRefreshPending ||= searchController.hasActiveQuery()
     scheduleDraw()
   }
 
@@ -348,13 +347,16 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       return hit ? { url: hit.url, kind: hit.kind } : null
     },
     ...searchApi,
-    setFileLinkOpener: (fn: AtermFileLinkOpener) => {
-      shared.fileLinkOpener = fn
-    },
-    setUrlLinkContext: (context: AtermLinkContext) => {
-      shared.activeLinkContext = context
-    },
+    setFileLinkOpener: (fn: AtermFileLinkOpener) => void (shared.fileLinkOpener = fn),
+    setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),
     lastMouseReport: () => eventReportingInput.lastMouseReport(),
+    // Re-theme this live engine in place (host theme change), avoiding a pane
+    // rebuild that would drop scrollback. Caller (applyTerminalAppearance) only
+    // iterates live panes; scheduleDraw no-ops if disposed.
+    updateTheme: (colors: AtermThemeColors) => {
+      applyAtermLiveTheme(term, colors, cellWidth, cellHeight)
+      scheduleDraw()
+    },
     ...replySurface,
     dispose: teardown
   }

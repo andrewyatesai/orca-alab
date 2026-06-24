@@ -1,4 +1,5 @@
 import type { IDisposable, IParser, ITheme } from '@xterm/xterm'
+import { atermThemeColorsFromITheme } from '@/lib/pane-manager/aterm/aterm-theme-colors'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { GlobalSettings } from '../../../../shared/types'
 import { mode2031SequenceFor } from '../../../../shared/terminal-color-scheme-protocol'
@@ -224,6 +225,10 @@ export function applyTerminalAppearance(
   for (const pane of manager.getPanes()) {
     if (theme) {
       pane.terminal.options.theme = theme
+      // aterm panes don't read xterm's options.theme — re-theme the canvas engine
+      // in place so a theme change applies to OPEN aterm panes (preserving
+      // scrollback) instead of only new ones.
+      pane.atermController?.updateTheme(atermThemeColorsFromITheme(theme))
     }
     // Why: xterm's allowTransparency has measurable rendering cost, so clear
     // it explicitly when opacity is at (or above) 1 to avoid a stale `true`

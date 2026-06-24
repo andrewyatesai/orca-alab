@@ -227,6 +227,7 @@ export async function createAtermPaneController(
     searchActiveMatchRect: () => wired.controller.searchActiveMatchRect(),
     setFileLinkOpener: (fn) => wired.controller.setFileLinkOpener(fn),
     setUrlLinkContext: (context) => wired.controller.setUrlLinkContext(context),
+    updateTheme: (colors) => wired.controller.updateTheme(colors),
     lastMouseReport: () => wired.controller.lastMouseReport(),
     pixelSize: () => wired.controller.pixelSize(),
     themeColors: () => wired.controller.themeColors(),

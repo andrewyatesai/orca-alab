@@ -1423,6 +1423,15 @@ impl GpuRenderer {
         self.color_res = None;
     }
 
+    /// Replace just the fg/bg/cursor/selection theme live (host theme change) on both
+    /// the GPU presentation state and the CPU face, so a pane re-themes without a
+    /// device/face rebuild. Glyphs are coverage masks coloured at draw time, so no
+    /// atlas invalidation is needed.
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+        self.cpu.set_theme(theme);
+    }
+
     /// Inject a broad-coverage (CJK + symbols) fallback face into the GPU's CPU
     /// face from font bytes and invalidate the atlas so the next frame
     /// re-rasterizes the new coverage. The browser GPU path has no system-font

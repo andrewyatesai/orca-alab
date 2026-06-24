@@ -61,8 +61,14 @@ fn rustybuzz_shapes_arrow_ligature() {
         eprintln!("SKIP: no ligature test font (set ATERM_FONT or add the repo fixture)");
         return;
     };
-    let shaped =
-        aterm_render::ligature_shaping::shape_ligature_run(&bytes, "=>", &['=', '>'], true);
+    let features = aterm_render::ligature_shaping::build_feature_list(&[]);
+    let shaped = aterm_render::ligature_shaping::shape_ligature_run(
+        &bytes,
+        "=>",
+        &['=', '>'],
+        true,
+        &features,
+    );
     assert!(
         shaped.is_some(),
         "=> must shape to a ligature (glyph ids differ from plain cmap)"
@@ -440,5 +446,107 @@ fn fixture_font_has_ligature_features_and_still_ligates() {
     assert_ne!(
         on.pixels, off.pixels,
         "the fixture must still ligate with the GSUB-gated fast-path in place"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// WIRE-FONTFEAT-OPENTYPE: the user's `font_features` (ss01/cv01/zero/stylistic
+// sets) must actually reach `rustybuzz::shape`, not be silently dropped. These
+// tests drive the SHARED feature-list seam plus an end-to-end rustybuzz shape
+// against the embedded DejaVu Sans Mono face (always present — no SKIP).
+// ---------------------------------------------------------------------------
+
+use aterm_types::text_shaping::{FontFeature, FontFeatureSet};
+use rustybuzz::ttf_parser::Tag;
+
+/// The embedded last-resort face (DejaVu Sans Mono). Always available, so these
+/// tests never SKIP. DejaVu's GSUB advertises `liga`, `rlig`, `dlig`, … — we use
+/// the discretionary-ligature `dlig` feature as a concrete user feature whose
+/// effect on `rustybuzz::shape` is observable (it ligates "fi" -> one glyph).
+const DEJAVU: &[u8] = include_bytes!("../assets/DejaVuSansMono.ttf");
+
+fn shape_gids(bytes: &[u8], s: &str, features: &[rustybuzz::Feature]) -> Vec<u32> {
+    let face = rustybuzz::Face::from_slice(bytes, 0).unwrap();
+    let mut buf = rustybuzz::UnicodeBuffer::new();
+    buf.push_str(s);
+    let out = rustybuzz::shape(&face, features, buf);
+    out.glyph_infos().iter().map(|i| i.glyph_id).collect()
+}
+
+/// END-TO-END: a user `FontFeature` built by the renderer's feature seam
+/// genuinely changes `rustybuzz::shape` output. The base `[liga, calt]` list
+/// leaves "fi" as two glyphs; adding the user `dlig=1` feature collapses it to
+/// the single discretionary-ligature glyph. If the user feature were dropped
+/// (the pre-WIRE-FONTFEAT bug) the two shapes would be identical.
+#[test]
+fn user_feature_changes_rustybuzz_shape_output() {
+    let base = aterm_render::ligature_shaping::build_feature_list(&[]);
+    let with_dlig =
+        aterm_render::ligature_shaping::build_feature_list(&[FontFeature::new(*b"dlig", 1)]);
+    let base_gids = shape_gids(DEJAVU, "fi", &base);
+    let dlig_gids = shape_gids(DEJAVU, "fi", &with_dlig);
+    assert_ne!(
+        base_gids, dlig_gids,
+        "the user 'dlig' feature must reach rustybuzz::shape and change the result \
+         (base={base_gids:?}, dlig={dlig_gids:?}) — it was silently dropped"
+    );
+    // Sanity: the user feature really is present in the built array with the
+    // right tag + value (the testable seam), appended after the base pair.
+    assert!(
+        with_dlig
+            .iter()
+            .any(|f| f.tag == Tag::from_bytes(b"dlig") && f.value == 1),
+        "built feature array must contain the user 'dlig=1' feature"
+    );
+}
+
+/// The renderer resolves `TextShapingConfig.font_features` (the per-font Vec the
+/// config round-trips) into its feature array. A config with an `ss01` feature on
+/// the PRIMARY font (`font_id == 0`) must yield a built array whose shape of a
+/// stylistic-set input differs from the no-feature config — proving the Vec is
+/// applied, not carried-and-dropped. We assert at the seam: setting the config
+/// changes what the renderer shapes.
+#[test]
+fn renderer_applies_config_font_features() {
+    // Build the resolved array the way the renderer does, from a config that
+    // carries a primary-font 'dlig' feature.
+    let cfg = TextShapingConfig {
+        font_features: vec![FontFeatureSet {
+            font_id: 0,
+            features: vec![FontFeature::new(*b"dlig", 1)],
+        }],
+        ..Default::default()
+    };
+    // A second font_id (1) must NOT leak into the primary face's features.
+    let cfg_other_font = TextShapingConfig {
+        font_features: vec![FontFeatureSet {
+            font_id: 1,
+            features: vec![FontFeature::new(*b"dlig", 1)],
+        }],
+        ..Default::default()
+    };
+
+    let mut r = Renderer::from_bytes(DEJAVU, 18.0, Theme::default()).unwrap();
+
+    // Apply the dlig config and confirm the renderer's resolved feature array
+    // changes shaping output for "fi" versus the empty-features default.
+    r.set_text_shaping(cfg);
+    let dlig_gids = shape_gids(DEJAVU, "fi", r.resolved_features_for_test());
+
+    r.set_text_shaping(TextShapingConfig::default());
+    let base_gids = shape_gids(DEJAVU, "fi", r.resolved_features_for_test());
+    assert_ne!(
+        base_gids, dlig_gids,
+        "configuring a primary-font 'dlig' feature must change the renderer's \
+         resolved shaping (base={base_gids:?}, dlig={dlig_gids:?})"
+    );
+
+    // A feature scoped to a DIFFERENT font_id must not affect the primary face:
+    // its resolved array equals the empty/default one.
+    r.set_text_shaping(cfg_other_font);
+    let other_gids = shape_gids(DEJAVU, "fi", r.resolved_features_for_test());
+    assert_eq!(
+        base_gids, other_gids,
+        "a feature scoped to font_id != 0 must not apply to the primary face"
     );
 }

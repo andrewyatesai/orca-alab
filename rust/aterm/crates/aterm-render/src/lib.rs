@@ -366,6 +366,15 @@ pub struct Renderer {
     /// per-cell path is byte-identical to before. Threaded into both renderers so
     /// CPU and GPU shape identically.
     shaping: aterm_types::text_shaping::TextShapingConfig,
+    /// The rustybuzz feature array applied to every ligature shaping run,
+    /// RESOLVED ONCE from [`Self::shaping`] (the base `liga`+`calt` pair plus the
+    /// user's OpenType `font_features`). Rebuilt only when the shaping config
+    /// changes ([`Self::set_text_shaping`]) — NEVER per row/run/cell — so the
+    /// per-run hot loop borrows this slice without allocating or scanning the
+    /// `font_features` Vec. When the user supplied no features this is exactly the
+    /// two-element `[liga, calt]` base list, so the common path is unchanged.
+    /// See [`ligature_shaping::build_feature_list`].
+    resolved_features: Vec<rustybuzz::Feature>,
     /// Shaped-run cache: a `(run string, style)` -> the per-character shaped
     /// primary-glyph ids (or `None` when the run did not ligate, i.e. shaping
     /// changed nothing, so the caller uses the plain per-cell path). Keyed by the
@@ -1345,6 +1354,9 @@ impl Renderer {
             // so the planner short-circuits shaping for them (byte-identical, faster).
             has_ligature_features: ligature_shaping::font_has_ligature_features(bytes),
             shaping: aterm_types::text_shaping::TextShapingConfig::default(),
+            // Default config has no user features, so this resolves to the base
+            // `[liga, calt]` pair — identical to the pre-feature shaping behaviour.
+            resolved_features: ligature_shaping::build_feature_list(&[]),
             shaped_runs: HashMap::new(),
             fallback: None,
             fallback_paths: Vec::new(),
@@ -1535,6 +1547,14 @@ impl Renderer {
 
     pub fn cell_size(&self) -> (usize, usize) {
         (self.cell_w, self.cell_h)
+    }
+
+    /// Replace the default fg/bg/cursor/selection theme live (host theme change),
+    /// so a pane re-themes WITHOUT being rebuilt. Glyphs are coverage masks coloured
+    /// at blit time from the cell's SGR colour or this theme, so no glyph-cache
+    /// invalidation is needed — the next render paints with the new colours.
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
     }
 
     /// The current interior padding (px per edge). `0` is the historical no-pad
@@ -1777,12 +1797,46 @@ impl Renderer {
     /// effect on the next frame.
     pub fn set_text_shaping(&mut self, shaping: aterm_types::text_shaping::TextShapingConfig) {
         self.shaping = shaping;
+        // Resolve the rustybuzz feature array ONCE here (not per row/run/cell):
+        // the base `liga`+`calt` pair plus the user's OpenType features for the
+        // PRIMARY face (`font_id == 0`, the face this shaper covers). Done off the
+        // hot path so the per-run loop just borrows the prebuilt slice.
+        self.resolved_features = Self::resolve_features(&self.shaping);
         self.shaped_runs.clear();
+    }
+
+    /// Flatten the shaping config's per-font `font_features` into the rustybuzz
+    /// feature array for the PRIMARY face (`font_id == 0`, the only face the
+    /// ligature shaper drives). When no primary-face features are configured this
+    /// returns just the base `[liga, calt]` pair, so the empty-features (common)
+    /// path is byte-identical to the pre-feature renderer. Called only when the
+    /// config changes — never on the per-frame hot path.
+    fn resolve_features(
+        shaping: &aterm_types::text_shaping::TextShapingConfig,
+    ) -> Vec<rustybuzz::Feature> {
+        let primary: Vec<aterm_types::text_shaping::FontFeature> = shaping
+            .font_features
+            .iter()
+            .filter(|set| set.font_id == 0)
+            .flat_map(|set| set.features.iter().copied())
+            .collect();
+        ligature_shaping::build_feature_list(&primary)
     }
 
     /// The current text-shaping config.
     pub fn text_shaping(&self) -> &aterm_types::text_shaping::TextShapingConfig {
         &self.shaping
+    }
+
+    /// The rustybuzz feature array currently applied to ligature shaping runs
+    /// (base `liga`+`calt` plus the resolved primary-face user `font_features`).
+    /// Exposed for the WIRE-FONTFEAT integration tests, which assert the user's
+    /// configured features actually reach the shaping call rather than being
+    /// silently dropped. Not part of the rendering contract.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn resolved_features_for_test(&self) -> &[rustybuzz::Feature] {
+        &self.resolved_features
     }
 
     /// Whether the primary face advertises a `liga`/`calt` `GSUB` feature (probed
@@ -1854,6 +1908,9 @@ impl Renderer {
         let rb = self.rb_primary_bytes.clone();
         let mut newly_shaped: Vec<(ShapedRunKey, ShapedRunGlyphs)> = Vec::new();
         let cache = &self.shaped_runs;
+        // Borrow the feature array resolved once at config time — no per-run alloc
+        // or scan of `font_features`. Empty user features => the base [liga, calt].
+        let features = &self.resolved_features;
         ligature_shaping::plan_row_runs(
             cells,
             cols,
@@ -1864,9 +1921,9 @@ impl Renderer {
                 if let Some(c) = cache.get(&ck) {
                     return c.clone();
                 }
-                let res = rb
-                    .as_ref()
-                    .and_then(|b| ligature_shaping::shape_ligature_run(b, run, run_chars, true));
+                let res = rb.as_ref().and_then(|b| {
+                    ligature_shaping::shape_ligature_run(b, run, run_chars, true, features)
+                });
                 newly_shaped.push((ck, res.clone()));
                 res
             },

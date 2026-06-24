@@ -2561,15 +2561,19 @@ impl Renderer {
                     ColumnGlyph::Ligated(gid) => self.ligature_key(gid, cell_style(cell)),
                     ColumnGlyph::PerCell => self.resolve_cell_key(cluster, cell),
                 };
-                self.blit(
-                    pixels,
-                    w,
-                    (pad_x + c * cw) as i32,
-                    anchor_y,
-                    key,
-                    rgb_to_u32(cell.fg),
-                    scale,
-                );
+                // Selected cells floor their glyph fg against the selection bg so
+                // colour-on-selection stays legible (GPU mirrors this identically).
+                let fg = if selection.contains_cell(
+                    sel_row,
+                    c as u16,
+                    cells.get(c + 1).is_some_and(|n| n.wide),
+                    cell.wide,
+                ) {
+                    floor_selection_fg(rgb_to_u32(cell.fg), self.theme.selection)
+                } else {
+                    rgb_to_u32(cell.fg)
+                };
+                self.blit(pixels, w, (pad_x + c * cw) as i32, anchor_y, key, fg, scale);
                 // Overlay combining diacritics (é, ñ, …) on the base. A
                 // combining mark's own metrics assume the pen sits at the
                 // base's advance (a large negative left bearing backs it up
@@ -2587,6 +2591,8 @@ impl Renderer {
                             (mi.width(), mi.xmin())
                         };
                         let cx = mark_cell_x(c, cw, gw, xmin, scale) + pad_x as i32;
+                        // Combining marks keep the raw fg (unfloored) on BOTH paths
+                        // so the GPU combining loop stays pixel-equivalent.
                         self.blit(pixels, w, cx, anchor_y, mk, rgb_to_u32(cell.fg), scale);
                     }
                 }
@@ -3663,8 +3669,60 @@ fn empty_rgba() -> GlyphImage {
 }
 
 /// Pack an `[r, g, b]` triple into the framebuffer's `0x00RRGGBB` format.
-fn rgb_to_u32([r, g, b]: [u8; 3]) -> u32 {
+pub fn rgb_to_u32([r, g, b]: [u8; 3]) -> u32 {
     (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
+}
+
+/// sRGB relative luminance (WCAG) of a `0x00RRGGBB` colour.
+fn relative_luminance(rgb: u32) -> f32 {
+    let chan = |c: u32| -> f32 {
+        let n = (c & 0xff) as f32 / 255.0;
+        if n <= 0.03928 {
+            n / 12.92
+        } else {
+            ((n + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * chan(rgb >> 16) + 0.7152 * chan(rgb >> 8) + 0.0722 * chan(rgb)
+}
+
+/// WCAG contrast ratio (>= 1) between two `0x00RRGGBB` colours.
+fn contrast_ratio(a: u32, b: u32) -> f32 {
+    let (la, lb) = (relative_luminance(a), relative_luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// Floor a glyph foreground's contrast against the SELECTION background so selected
+/// text stays legible even when its SGR colour is close to the selection colour
+/// (xterm's minimumContrastRatio, applied to the selection band). Blends the fg
+/// toward black/white — whichever the selection bg contrasts with — by the smallest
+/// step that clears ~4.5:1, preserving hue where possible. Identical on the CPU and
+/// GPU paths (same inputs) so selection rendering stays pixel-equivalent.
+pub fn floor_selection_fg(fg: u32, selection_bg: u32) -> u32 {
+    const MIN: f32 = 4.5;
+    if contrast_ratio(fg, selection_bg) >= MIN {
+        return fg;
+    }
+    let target: u32 = if relative_luminance(selection_bg) > 0.5 {
+        0x0000_0000
+    } else {
+        0x00ff_ffff
+    };
+    let mix = |fg: u32, shift: u32, t: f32| -> u32 {
+        let f = ((fg >> shift) & 0xff) as f32;
+        let g = ((target >> shift) & 0xff) as f32;
+        ((f + (g - f) * t).round() as u32) & 0xff
+    };
+    let mut step = 1u32;
+    while step <= 10 {
+        let t = step as f32 / 10.0;
+        let cand = (mix(fg, 16, t) << 16) | (mix(fg, 8, t) << 8) | mix(fg, 0, t);
+        if contrast_ratio(cand, selection_bg) >= MIN {
+            return cand;
+        }
+        step += 1;
+    }
+    target
 }
 
 /// Blend `fg` over `bg` by coverage `t` (0..=255), per channel.
@@ -5039,6 +5097,29 @@ mod tests {
         let fp = decode_image_to_footprint(&png, aterm_core::grid::extra::ImageFormat::Png, 16, 16)
             .expect("small PNG resamples to its footprint");
         assert_eq!(fp.len(), 16 * 16 * 4);
+    }
+
+    /// Selection-fg flooring: a low-contrast fg vs the selection bg is nudged to a
+    /// legible contrast (>= 4.5:1), while an already-legible fg is returned as-is.
+    #[test]
+    fn floor_selection_fg_enforces_legible_contrast() {
+        // Dark-blue fg on a dark selection bg is illegible → must be floored.
+        let sel_bg = 0x0020_2a40; // a typical dark selection
+        let low = 0x0022_2c44; // nearly the same dark blue
+        let floored = floor_selection_fg(low, sel_bg);
+        assert_ne!(floored, low, "a low-contrast fg must be adjusted");
+        assert!(
+            contrast_ratio(floored, sel_bg) >= 4.5,
+            "floored fg must clear the 4.5:1 legibility floor (got {})",
+            contrast_ratio(floored, sel_bg)
+        );
+        // An already-legible fg (white on dark selection) is unchanged.
+        let high = 0x00ff_ffff;
+        assert_eq!(
+            floor_selection_fg(high, sel_bg),
+            high,
+            "an already-legible fg must be left untouched"
+        );
     }
 
     /// The color-emoji font bytes are interned: injecting the SAME blob twice

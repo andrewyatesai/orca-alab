@@ -2853,6 +2853,9 @@ impl GpuRenderer {
         let cursor_glyph_inst = &mut self.inst.cursor_glyph;
         let cursor_color_inst = &mut self.inst.cursor_color;
         let theme_bg = rgb4_u32(self.theme.bg);
+        // Captured once so the per-cell selection-fg floor below doesn't borrow self
+        // inside the loop (where self.cpu is borrowed for glyph-key resolution).
+        let theme_selection = self.theme.selection;
         for (r, cells) in rendered.iter().enumerate() {
             if !row_active(r) {
                 continue;
@@ -2963,8 +2966,23 @@ impl GpuRenderer {
                     continue;
                 }
                 // Under the block cursor the glyph is "cut out" in the cell bg
-                // colour and drawn AFTER the cursor fill; otherwise normal fg.
-                let color = if is_cursor { cell.bg } else { cell.fg };
+                // colour and drawn AFTER the cursor fill; otherwise normal fg —
+                // floored against the selection bg for selected cells (matches CPU).
+                let glyph_color = if is_cursor {
+                    rgb4(cell.bg)
+                } else if selection.contains_cell(
+                    sel_row,
+                    c as u16,
+                    cells.get(c + 1).is_some_and(|n| n.wide),
+                    cell.wide,
+                ) {
+                    rgb4_u32(aterm_render::floor_selection_fg(
+                        aterm_render::rgb_to_u32(cell.fg),
+                        theme_selection,
+                    ))
+                } else {
+                    rgb4(cell.fg)
+                };
                 let Some((rect, uv)) = aterm_render::glyph_quad(
                     (pad + c * rcw) as f32,
                     anchor_y,
@@ -2984,7 +3002,7 @@ impl GpuRenderer {
                 let inst = GlyphInstance {
                     rect,
                     uv,
-                    color: rgb4(color),
+                    color: glyph_color,
                 };
                 if is_cursor {
                     cursor_glyph_inst.push(inst)

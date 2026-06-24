@@ -1,5 +1,6 @@
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
 import { writeForegroundTerminalChunk } from '@/lib/pane-manager/pane-terminal-foreground-render-settle'
+import { mirrorOutputToAterm } from '@/lib/pane-manager/aterm/aterm-output-mirror'
 
 // Why: xterm.js auto-responds to terminal query sequences (DA1 `CSI c`,
 // DECRQM `CSI ? Ps $ p`, OSC 10/11 color queries, focus events, CPR) by
@@ -45,6 +46,12 @@ export function replayIntoTerminal(
   }
   const map = replayingPanesRef.current
   map.set(pane.id, (map.get(pane.id) ?? 0) + 1)
+  // Also paint the restored bytes onto the aterm canvas if this pane is aterm-
+  // rendered (snapshot/reattach/cold-restore only fed xterm before, leaving the
+  // visible canvas stale on reconnect). Raw PTY bytes, so safe to process; this
+  // runs synchronously while the replay counter is up, so aterm's drained query
+  // replies are dropped by the same onData guard as xterm's. No-op for xterm panes.
+  mirrorOutputToAterm(pane.terminal, data)
   const onParsed = (): void => {
     const remaining = (map.get(pane.id) ?? 1) - 1
     if (remaining <= 0) {
@@ -72,6 +79,8 @@ export function replayIntoTerminalAsync(
   }
   const map = replayingPanesRef.current
   map.set(pane.id, (map.get(pane.id) ?? 0) + 1)
+  // Mirror the restored bytes to the aterm canvas too (see replayIntoTerminal).
+  mirrorOutputToAterm(pane.terminal, data)
   return new Promise((resolve) => {
     writeForegroundTerminalChunk(pane.terminal, data, {
       forceViewportRefresh: true,

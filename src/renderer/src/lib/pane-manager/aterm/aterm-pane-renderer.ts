@@ -137,11 +137,17 @@ export async function createAtermPaneController(
   // transparently moves the live pane onto the CPU path (mirrors the auto-policy
   // fallback). Guarded so a second loss event during teardown is a no-op.
   let swapping = false
+  // PTY bytes that arrive during the async GPU→CPU swap (teardown is synchronous,
+  // the new wiring resolves a tick later). While non-null the stable controller
+  // buffers output here instead of dropping it on the torn-down wiring; the new
+  // engine replays it in order once ready, so no live output is lost mid-swap.
+  let swapBuffer: string[] | null = null
   const swapToCpu = (): void => {
     if (swapping || controllerDisposed) {
       return
     }
     swapping = true
+    swapBuffer = []
     console.warn('[aterm] WebGL2 context lost; swapping pane to the CPU renderer')
     wired.teardown()
     if (e2eConfig.exposeStore) {
@@ -167,6 +173,7 @@ export async function createAtermPaneController(
           /* ignore */
         }
         freshCanvas.remove()
+        swapBuffer = null // pane gone; drop the buffered gap output
         return
       }
       const nextPending: AtermPendingStrategy = {
@@ -191,11 +198,18 @@ export async function createAtermPaneController(
         shared,
         onContextLoss: () => undefined // CPU never loses a GL context
       })
-      // Note: we deliberately do NOT replay the xterm shim's serialized buffer into
-      // the fresh CPU engine here — xterm's SerializeAddon output isn't guaranteed
-      // compatible with aterm's parser and was observed to corrupt the recovered
-      // engine's state. The recovered pane is briefly blank until the next PTY
-      // output repaints it (a rare-event, self-healing glitch on context loss).
+      // Flush PTY output that arrived during the swap into the fresh engine, in
+      // arrival order, BEFORE clearing the buffer so subsequent live bytes follow.
+      const buffered = swapBuffer ?? []
+      swapBuffer = null
+      for (const chunk of buffered) {
+        wired.controller.process(chunk)
+      }
+      // We deliberately do NOT replay the xterm shim's SerializeAddon buffer into
+      // the fresh engine — its reconstructed output isn't guaranteed compatible with
+      // aterm's parser and was observed to corrupt the recovered state. So a pane
+      // with NO output during/after the swap stays blank until the next PTY write
+      // repaints it (self-healing); the gap's live output above is preserved.
       swapping = false
     })
   }
@@ -219,7 +233,15 @@ export async function createAtermPaneController(
   // Stable controller: every method delegates to the CURRENT wiring so a
   // context-loss swap is invisible to the caller (which holds this object).
   return {
-    process: (data) => wired.controller.process(data),
+    // Buffer output during a GPU→CPU swap (the old wiring is torn down and the new
+    // one resolves a tick later); the new engine replays it. Else delegate live.
+    process: (data) => {
+      if (swapBuffer) {
+        swapBuffer.push(data)
+        return
+      }
+      wired.controller.process(data)
+    },
     displayOffset: () => wired.controller.displayOffset(),
     scrollLines: (delta) => wired.controller.scrollLines(delta),
     selectionText: () => wired.controller.selectionText(),

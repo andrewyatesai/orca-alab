@@ -1,6 +1,6 @@
 import { loadAterm } from './load-aterm'
 import { injectTerminalFallbackFonts } from './inject-terminal-fallback-fonts'
-import { seedAtermPalette } from './aterm-theme-colors'
+import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
 import { createAtermFramePainter } from './aterm-frame-painter'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
@@ -52,6 +52,8 @@ export async function loadAtermCpuDrawer(
   seedAtermPalette(term, themeColors)
   const cellWidth = term.cell_width
   const cellHeight = term.cell_height
+  // Seed default colours + cell pixel size so aterm answers OSC 10/11 + CSI 14t/16t.
+  seedAtermReplyDefaults(term, themeColors, cellWidth, cellHeight)
 
   return {
     term,

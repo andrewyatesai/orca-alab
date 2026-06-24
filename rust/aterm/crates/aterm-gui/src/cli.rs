@@ -71,6 +71,15 @@ const HELP_TEXT: &str = concat!(
     "                                   and exit.\n",
     "        --validate-config          Parse the config file, report OK/errors, exit\n",
     "                                   0 if valid (non-zero if not).\n",
+    "        --list-fonts               List the font search dirs and discoverable\n",
+    "                                   font families, then exit.\n",
+    "        --show-config              Print the effective resolved config (env >\n",
+    "                                   config > default) and exit.\n",
+    "        --list-keybinds            List the built-in keybindings, any configured\n",
+    "                                   [keybindings], and bindable actions, then exit.\n",
+    "        --show-face [family]       Print the resolved font face (path + metrics)\n",
+    "                                   for [family] (or the configured font) and exit.\n",
+    "        --list-themes              List the built-in colour themes and exit.\n",
     "    -h, --help                     Print this help and exit.\n",
     "    -V, --version                  Print the version and exit.\n\n",
     "KEYS (in the window):\n",
@@ -176,6 +185,30 @@ pub(crate) fn parse_cli() -> Cli {
                 let (msg, ok) = crate::diagnostics::validate_config();
                 println!("{msg}");
                 std::process::exit(i32::from(!ok));
+            }
+            "--list-fonts" => {
+                print!("{}", crate::diagnostics::list_fonts());
+                std::process::exit(0);
+            }
+            "--show-config" => {
+                print!("{}", crate::diagnostics::show_config());
+                std::process::exit(0);
+            }
+            "--list-keybinds" => {
+                print!("{}", crate::diagnostics::list_keybinds());
+                std::process::exit(0);
+            }
+            "--show-face" => {
+                // Optional family argument; empty falls back to the effective
+                // font_family (env > config). Exits non-zero if it does not resolve.
+                let family = args.next().unwrap_or_default();
+                let (msg, ok) = crate::diagnostics::show_face(&family);
+                print!("{msg}");
+                std::process::exit(i32::from(!ok));
+            }
+            "--list-themes" => {
+                print!("{}", crate::diagnostics::list_themes());
+                std::process::exit(0);
             }
             "-d" | "--working-directory" => {
                 let dir = flag_value("-d/--working-directory", &mut args);
@@ -287,13 +320,43 @@ pub(crate) fn parse_cli() -> Cli {
 mod tests {
     use super::HELP_TEXT;
 
+    /// Every user-facing diagnostic verb. The advertise-vs-dispatch gate below
+    /// requires EACH entry to be both documented in `--help` AND have a real match
+    /// arm in [`parse_cli`], so a new verb can never be added to one without the
+    /// other (or silently advertised without a handler).
+    const DIAGNOSTIC_VERBS: &[&str] = &[
+        "--diagnose",
+        "--list-actions",
+        "--validate-config",
+        "--list-fonts",
+        "--show-config",
+        "--list-keybinds",
+        "--show-face",
+        "--list-themes",
+    ];
+
     #[test]
     fn help_advertises_diagnostic_flags() {
         // Every user-facing diagnostic flag must be discoverable in --help.
-        for flag in ["--diagnose", "--list-actions", "--validate-config"] {
+        for flag in DIAGNOSTIC_VERBS {
             assert!(
                 HELP_TEXT.contains(flag),
                 "{flag} must be advertised in the help text"
+            );
+        }
+    }
+
+    #[test]
+    fn every_advertised_verb_is_dispatchable() {
+        // Each advertised verb must have a real `"<flag>" =>` match arm in this
+        // file (the dispatch side). Reading the source keeps the gate honest
+        // without invoking the arms (they call `std::process::exit`).
+        let src = include_str!("cli.rs");
+        for flag in DIAGNOSTIC_VERBS {
+            let arm = format!("\"{flag}\" =>");
+            assert!(
+                src.contains(&arm),
+                "{flag} is advertised but has no dispatch arm ({arm})"
             );
         }
     }

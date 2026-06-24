@@ -80,6 +80,25 @@ export function seedAtermPalette(
   }
 }
 
+/** Seed the engine state its OWN query replies report, so aterm can be the
+ *  authoritative responder (OSC 10/11 colour + CSI 14t/16t pixel-size): the
+ *  default fg/bg the engine reports for OSC 10/11, and the real device-pixel cell
+ *  size for the window/cell-size reports (the engine has no canvas to measure). */
+export function seedAtermReplyDefaults(
+  term: {
+    set_default_foreground: (r: number, g: number, b: number) => void
+    set_default_background: (r: number, g: number, b: number) => void
+    set_cell_pixel_size: (width: number, height: number) => void
+  },
+  colors: AtermThemeColors,
+  cellWidth: number,
+  cellHeight: number
+): void {
+  term.set_default_foreground((colors.fg >> 16) & 0xff, (colors.fg >> 8) & 0xff, colors.fg & 0xff)
+  term.set_default_background((colors.bg >> 16) & 0xff, (colors.bg >> 8) & 0xff, colors.bg & 0xff)
+  term.set_cell_pixel_size(Math.max(1, Math.round(cellWidth)), Math.max(1, Math.round(cellHeight)))
+}
+
 /** Parse a CSS color (`#rgb`, `#rrggbb`, `rgb()/rgba()`) to 0x00RRGGBB.
  *  Returns null when the value isn't a form we recognize so the caller can
  *  fall back to the engine default. Alpha is dropped — aterm seeds opaque

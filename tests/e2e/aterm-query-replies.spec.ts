@@ -18,16 +18,17 @@ import {
 // terminal queries (see src/main/daemon/session.test.ts "emulator does not reply
 // to terminal queries"); the RENDERER is the authoritative responder. With the
 // aterm renderer default-on, the kept xterm Terminal stays UNOPENED (a shim for
-// serialize). Two responder paths must keep working for an aterm pane:
-//   - CPR (\e[6n) + DA1 (\e[c): the unopened xterm shim auto-replies via its
-//     parser on write(), emitting the reply through onData — which connectPanePty
-//     wires to transport.sendInput for EVERY pane (the shared setup, not the
-//     xterm-open path). (The shim does NOT auto-reply to OSC 10/11; see below.)
-//   - OSC-11 (\e]11;?\a) + CSI 14t/16t: the unopened shim has no color/pixel
-//     service, so the aterm renderer answers these from its theme + canvas size.
-// This proves all of them round-trip to the PTY: a child program issues each
-// query and reads the reply back, and the main-process pty:write spy confirms
-// the reply reached the PTY (not just the xterm DOM path).
+// serialize). aterm is now the authoritative responder for an aterm pane:
+//   - CPR (\e[6n) + DA1 (\e[c) + DA2/DSR/DECRQM + OSC-11 (\e]11;?\a): the aterm
+//     ENGINE answers these — connectPanePty drains the engine's response buffer
+//     after each process() and forwards it to the PTY, while the unopened xterm
+//     shim's OWN auto-replies for those are SUPPRESSED at its parser so they don't
+//     double-answer. (aterm's DA1 is VT420 + Sixel, so apps send inline images.)
+//   - CSI 14t/16t (pixel size): the engine has no canvas/window callback, so the
+//     renderer-side responder answers these from the live canvas pixel size.
+// This proves all of them round-trip to the PTY exactly once: a child program
+// issues each query and reads the reply back, and the main-process pty:write spy
+// confirms the reply reached the PTY (and that CPR/DA1 appear exactly once).
 
 function queryReplyScript(runId: string): string {
   // Issue each query in turn, read the reply with a short timeout, and print it
@@ -76,7 +77,7 @@ function decodeReply(content: string, runId: string, label: string): string | nu
 }
 
 test.describe('aterm renderer query replies', () => {
-  test('CPR / DA1 / OSC-11 queries round-trip to the PTY via the xterm shim', async ({
+  test('CPR / DA1 / OSC-11 queries round-trip to the PTY via aterm engine drain', async ({
     electronApp,
     orcaPage
   }) => {
@@ -158,10 +159,9 @@ test.describe('aterm renderer query replies', () => {
       expect(afterCsi(px16), 'CSI 16t reply matches ESC[6;H;Wt').toMatch(/^6;[1-9]\d*;[1-9]\d*t/)
 
       // 6) Authoritative round-trip proof: the renderer-generated replies were
-      //    sent to the PTY (pty:write). CPR/DA1 come from the unopened xterm
-      //    shim's onData → transport.sendInput (proving onData is active for the
-      //    aterm pane), while OSC-11 and 14t/16t come from the renderer-side
-      //    aterm responders — all reach the PTY, not just the xterm DOM path.
+      //    sent to the PTY (pty:write). CPR/DA1/OSC-11 come from the aterm engine's
+      //    drained response buffer, and 14t/16t from the renderer pixel responder —
+      //    all reach the PTY, not just the xterm DOM path.
       const writes = (await readTerminalPtyWrites(electronApp)).join('')
       expect(writes, 'a CPR reply hit the PTY').toMatch(new RegExp(`${ESC}\\[\\d+;\\d+R`))
       expect(writes, 'a DA1 reply hit the PTY').toMatch(new RegExp(`${ESC}\\[\\?[\\d;]*c`))
@@ -172,6 +172,20 @@ test.describe('aterm renderer query replies', () => {
       expect(writes, 'a CSI 16t reply hit the PTY').toMatch(
         new RegExp(`${ESC}\\[6;[1-9]\\d*;[1-9]\\d*t`)
       )
+      // 7) NO double-answer: aterm now drains its OWN CPR/DA1 and the xterm shim's
+      //    auto-replies for those are suppressed at the parser. The child issued each
+      //    query exactly once, so each reply must appear in the PTY writes exactly
+      //    once — a count > 1 means both aterm AND xterm answered (the regression
+      //    this migration's parser-suppression prevents).
+      const countMatches = (re: RegExp): number => (writes.match(re) ?? []).length
+      expect(
+        countMatches(new RegExp(`${ESC}\\[\\d+;\\d+R`, 'g')),
+        'exactly one CPR reply (no aterm+xterm double-answer)'
+      ).toBe(1)
+      expect(
+        countMatches(new RegExp(`${ESC}\\[\\?[\\d;]*c`, 'g')),
+        'exactly one DA1 reply (no aterm+xterm double-answer)'
+      ).toBe(1)
     } finally {
       await sendToTerminal(orcaPage, ptyId, '\x03').catch(() => undefined)
       rmSync(scriptPath, { force: true })

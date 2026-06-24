@@ -1002,6 +1002,13 @@ struct WindowState {
     /// True while a left-button drag is building a text selection (only when
     /// no app is tracking the mouse). Cleared on release.
     selecting: bool,
+    /// The divider currently being DRAGGED to resize a split (`Some` between a
+    /// left-press that landed on a pane divider and its release). While set, pointer
+    /// motion maps to the divider's split ratio ([`pane::PaneTree::set_divider_ratio`])
+    /// instead of growing a selection — a pure data edit that relays out + repaints.
+    /// Mutually exclusive with `selecting` (a press is either a selection or a
+    /// divider drag). `None` on the single-pane path and whenever no divider is held.
+    divider_drag: Option<pane::DividerHit>,
     /// Whether the pointer left the press cell during the current drag: a
     /// press+release within one cell is a plain click, which deselects.
     sel_dragged: bool,
@@ -1162,6 +1169,7 @@ impl WindowState {
             last_mouse_px_off: crate::input::PixelOffset::CELL_ORIGIN,
             hover_pointer: false,
             selecting: false,
+            divider_drag: None,
             sel_dragged: false,
             sel_press_cell: (0, 0),
             last_press: None,
@@ -3962,6 +3970,94 @@ mod multi_window_tests {
             "pool dropped by EXACTLY the 2 panes"
         );
         assert_eq!(app.frontmost_window, Some(w1));
+        assert!(app.structural_invariants_ok());
+    }
+
+    /// Headless divider drag-to-resize: a left press ON a split's divider arms the
+    /// drag (`begin_divider_drag`), pointer motion maps to the split ratio and moves
+    /// the boundary (`drag_divider`), and release ends it (`finish_divider_drag`).
+    /// Drives the SAME `App` glue the GUI uses, just seeding `last_mouse_window_cell`
+    /// directly (no pixel mapping / event loop needed). The window is 24x80, so a
+    /// fresh vertical split has its divider at window column 40.
+    #[test]
+    fn divider_drag_resizes_split_headless() {
+        let mut app = App::headless_for_test(); // window 0 = 24x80, session 0
+        let new_sid = app.split_active_stub_tab(WindowId(0)); // 1 | 2 vertical, divider @ col 40
+        let wid = WindowId(0);
+
+        // The fresh split is 50/50: left pane is 40 cols wide.
+        let left_before = app
+            .active_tree(wid)
+            .unwrap()
+            .compute_layout(24, 80)
+            .into_iter()
+            .find(|r| r.session == 0)
+            .unwrap()
+            .cols;
+        assert_eq!(left_before, 40, "fresh split is 50/50");
+
+        // A press OFF the divider (inside a pane) does NOT arm a drag.
+        if let Some(ws) = app.windows.get_mut(&wid) {
+            ws.last_mouse_window_cell = (5, 10);
+        }
+        assert!(
+            !app.begin_divider_drag(wid),
+            "a press inside a pane never grabs the divider"
+        );
+        assert!(app.windows[&wid].divider_drag.is_none());
+
+        // A press ON the divider column (40) arms the drag.
+        if let Some(ws) = app.windows.get_mut(&wid) {
+            ws.last_mouse_window_cell = (5, 40);
+        }
+        assert!(
+            app.begin_divider_drag(wid),
+            "press on the divider arms a drag"
+        );
+        assert!(app.windows[&wid].divider_drag.is_some());
+
+        // Drag LEFT to column 20: the left pane shrinks toward ~20 cols.
+        if let Some(ws) = app.windows.get_mut(&wid) {
+            ws.last_mouse_window_cell = (5, 20);
+        }
+        app.drag_divider(wid);
+        let left_mid = app
+            .active_tree(wid)
+            .unwrap()
+            .compute_layout(24, 80)
+            .into_iter()
+            .find(|r| r.session == 0)
+            .unwrap()
+            .cols;
+        assert_eq!(left_mid, 20, "drag to col 20 moved the boundary to 20 cols");
+
+        // The dragged pane's engine was relaid out to its new sub-rect.
+        {
+            let t = super::term_lock(&app.pool.get(0).unwrap().term);
+            assert_eq!(
+                t.cols(),
+                20,
+                "resize_panes reflowed the left pane to 20 cols"
+            );
+        }
+
+        // Drag PAST the left edge (col 0): the clamp pins it, never a zero-width pane.
+        if let Some(ws) = app.windows.get_mut(&wid) {
+            ws.last_mouse_window_cell = (5, 0);
+        }
+        app.drag_divider(wid);
+        for r in app.active_tree(wid).unwrap().compute_layout(24, 80) {
+            assert!(r.cols >= 1, "clamp keeps every pane non-empty: {r:?}");
+        }
+
+        // Release ends the drag; a second release is a no-op.
+        assert!(app.finish_divider_drag(wid), "release ends the active drag");
+        assert!(app.windows[&wid].divider_drag.is_none());
+        assert!(
+            !app.finish_divider_drag(wid),
+            "no drag in flight → release is a no-op"
+        );
+        let _ = new_sid;
         assert!(app.structural_invariants_ok());
     }
 

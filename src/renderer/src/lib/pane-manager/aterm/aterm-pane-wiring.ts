@@ -2,6 +2,7 @@ import { attachAtermTextareaInput } from './aterm-textarea-input'
 import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
 import { attachAtermCursorBlink } from './aterm-cursor-blink'
+import { drainAtermReplies } from './aterm-reply-drain'
 import { attachAtermEventReportingInput } from './aterm-event-reporting-input'
 import { computeGrid } from './aterm-grid-size'
 import { attachAtermLinkInput, type AtermFileLinkOpener } from './aterm-link-input'
@@ -101,6 +102,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // Follow the bottom on new output ONLY if already at the bottom (aterm SCR-1).
     const wasAtBottom = term.display_offset === 0
     term.process(new TextEncoder().encode(data))
+    // aterm is the authoritative query responder — drain + forward its replies.
+    drainAtermReplies(term, inputSink)
     if (wasAtBottom && term.display_offset !== 0) {
       term.scroll_to_bottom()
     }
@@ -292,9 +295,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getCursorBlink: controllerOptions?.getCursorBlink
   })
 
-  const onPointerDown = (): void => {
-    textarea.focus()
-  }
+  // Focus the helper textarea on canvas click.
+  const onPointerDown = (): void => textarea.focus()
   canvas.addEventListener('pointerdown', onPointerDown)
 
   resizeSink(cols, rows)

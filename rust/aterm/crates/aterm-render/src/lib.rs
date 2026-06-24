@@ -1170,8 +1170,11 @@ pub fn resolve_font_family(family: &str) -> Option<String> {
     prefix_hit
 }
 
-/// The font directories to scan, with `$HOME/Library/Fonts` expanded.
-fn font_search_dirs() -> Vec<std::path::PathBuf> {
+/// The font directories to scan, with `$HOME/Library/Fonts` expanded. Public so
+/// diagnostics (`aterm list-fonts`) can report the exact directories the resolver
+/// scans, rather than re-deriving them.
+#[must_use]
+pub fn font_search_dirs() -> Vec<std::path::PathBuf> {
     let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
     FONT_DIRS
         .iter()

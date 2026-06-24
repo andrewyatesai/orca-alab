@@ -1882,12 +1882,17 @@ export function connectPanePty(
     // DA1 resolved live: aterm panes advertise Sixel (the canvas renders Sixel/
     // Kitty/iTerm2 images, so apps that gate on the `;4` bit will send it); the
     // ConPTY transport keeps its identity; the xterm fallback (no Sixel) the default.
+    // This is the FALLBACK value used only before the aterm controller attaches —
+    // once it has, isAtermReplyOwned makes the engine drain answer DA1 itself.
     da1Response: () => {
       if (isNativeWindowsConpty) {
         return CONPTY_DA1_RESPONSE
       }
       return resolveLiveAtermController() ? DA1_RESPONSE_WITH_SIXEL : DEFAULT_DA1_RESPONSE
-    }
+    },
+    // Once the aterm controller is live it drains + forwards its own DA1 (VT420 +
+    // Sixel); answer here only until then / on the xterm fallback.
+    isAtermReplyOwned: () => resolveLiveAtermController() !== null
   })
   const respondToTerminalPixelSizeQueries = createTerminalPixelSizeQueryResponder(
     pane.terminal,
@@ -3397,8 +3402,16 @@ export function connectPanePty(
         data = scanned.output
       }
       resetHiddenOutputRestoreIfPtyChanged()
+      // Pixel-size (CSI 14t/16t): the engine has no canvas + no host window callback,
+      // so the renderer-side responder stays authoritative for ALL panes
+      // (controller.pixelSize() for aterm, xterm DOM measurement otherwise).
       respondToTerminalPixelSizeQueries(data)
-      respondToTerminalOscColorQueries(data)
+      // OSC 10/11 colour: aterm drains its OWN reply (seeded from the theme), so skip
+      // the renderer-side OSC responder for aterm to avoid double-answering; the
+      // xterm fallback (no aterm controller) keeps it.
+      if (!resolveLiveAtermController()) {
+        respondToTerminalOscColorQueries(data)
+      }
       observeTerminalBracketedPasteModeOutput(pane.terminal, data)
       for (const link of observeTerminalGitHubPRLink(data)) {
         useAppStore.getState().observeTerminalGitHubPullRequestLink(deps.worktreeId, link)

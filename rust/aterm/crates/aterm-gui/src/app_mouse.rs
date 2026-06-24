@@ -15,7 +15,8 @@ use winit::window::CursorIcon;
 use crate::app_render::{pixel_to_term_cell, strip_col_for_pixel};
 use crate::input::{InputEvent, Source};
 use crate::{
-    App, GestureOrigin, MULTI_CLICK_MS, WindowId, control, is_safe_url, plain_url_at, term_lock,
+    App, GestureOrigin, MULTI_CLICK_MS, WindowId, control, is_safe_url, pane, plain_url_at,
+    term_lock,
 };
 
 /// Map a winit mouse button to the engine's [`aterm_types::mouse::MouseButton`]
@@ -90,6 +91,89 @@ impl App {
         }
         self.sync_window(wid);
         true
+    }
+
+    /// If window `wid`'s last pointer position lands on a pane DIVIDER, arm a
+    /// divider-resize drag on it and return `true` (the caller then swallows the
+    /// press — it neither focuses a pane nor starts a selection). Returns `false`
+    /// for a press inside a pane / a single-pane (or zoomed) tab, so the normal
+    /// press path proceeds. The armed [`pane::DividerHit`] is held in
+    /// `ws.divider_drag` until release; `drag_divider` consumes it on each move.
+    pub(crate) fn begin_divider_drag(&mut self, wid: WindowId) -> bool {
+        let Some(ws) = self.windows.get(&wid) else {
+            return false;
+        };
+        let tree = &ws.layouts[ws.tabs.active];
+        if tree.len() == 1 {
+            return false; // no divider to grab
+        }
+        let (wr, wc) = ws.last_mouse_window_cell;
+        let (rows, cols) = (ws.rows, ws.cols);
+        let Some(hit) = tree.divider_at(wr, wc, rows, cols) else {
+            return false; // not on a divider
+        };
+        // Resize-cursor affordance for the drag: E-W for a vertical divider (columns
+        // move), N-S for a horizontal one (rows move).
+        let icon = match hit.dir {
+            pane::SplitDir::Vertical => CursorIcon::ColResize,
+            pane::SplitDir::Horizontal => CursorIcon::RowResize,
+        };
+        if let Some(ws) = self.windows.get_mut(&wid) {
+            ws.divider_drag = Some(hit);
+            if let Some(w) = &ws.os_window {
+                w.set_cursor(icon);
+            }
+        }
+        true
+    }
+
+    /// Mid-drag of a pane divider: map the current pointer (window cell) to the held
+    /// divider's split ratio and apply it, then relay out (resize every pane's
+    /// engine/PTY) and repaint. A no-op when no divider is being dragged. The ratio
+    /// is clamped inside [`pane::PaneTree::set_divider_ratio`], so a drag past either
+    /// edge just pins the boundary at the `[MIN_RATIO, MAX_RATIO]` floor/ceiling.
+    pub(crate) fn drag_divider(&mut self, wid: WindowId) {
+        let Some(ws) = self.windows.get(&wid) else {
+            return;
+        };
+        let Some(hit) = ws.divider_drag.clone() else {
+            return;
+        };
+        let (wr, wc) = ws.last_mouse_window_cell;
+        let tree = &ws.layouts[ws.tabs.active];
+        let Some(ratio) = tree.ratio_for_pointer(&hit, wr, wc) else {
+            return;
+        };
+        let applied = self
+            .active_tree_mut(wid)
+            .is_some_and(|t| t.set_divider_ratio(&hit, ratio));
+        if !applied {
+            return;
+        }
+        // Resize every pane's engine/PTY to its new sub-rect, then repaint the frame.
+        self.resize_panes(wid);
+        if let Some(w) = self.windows.get(&wid).and_then(|ws| ws.os_window.as_ref()) {
+            w.request_redraw();
+        }
+    }
+
+    /// End any in-flight divider drag (left release). Returns whether a drag was
+    /// active (the caller then swallows the release rather than completing a
+    /// selection that never started).
+    pub(crate) fn finish_divider_drag(&mut self, wid: WindowId) -> bool {
+        match self.windows.get_mut(&wid) {
+            Some(ws) if ws.divider_drag.is_some() => {
+                ws.divider_drag = None;
+                // Restore the default cursor (the hover state machine re-asserts the
+                // link pointer on the next move if warranted).
+                ws.hover_pointer = false;
+                if let Some(w) = &ws.os_window {
+                    w.set_cursor(CursorIcon::Default);
+                }
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Cmd-C: copy the selected text to the macOS system clipboard (`pbcopy`).
@@ -212,6 +296,17 @@ impl App {
             // pane-local cell (for PTY mouse reports).
             ws.last_mouse_window_cell = (row, col);
             ws.last_mouse_cell = (row.saturating_sub(ro), col.saturating_sub(co));
+        }
+        // SPLIT-PANE DIVIDER DRAG: while a divider is held, motion resizes the split
+        // (relayout + repaint) and short-circuits the selection / mouse-report path —
+        // the drag is GUI chrome, not terminal input. A no-op when none is held.
+        if self
+            .windows
+            .get(&wid)
+            .is_some_and(|ws| ws.divider_drag.is_some())
+        {
+            self.drag_divider(wid);
+            return;
         }
         self.update_hover_cursor(wid);
         // Which half of the cell the pointer is in: the right half includes
@@ -656,6 +751,22 @@ impl App {
                 .map_or((0.0, 0.0), |ws| ws.last_cursor_px);
             if let Some(col) = self.strip_col_at(wid, px, py) {
                 self.handle_tab_strip_click(wid, col);
+                return;
+            }
+        }
+        // SPLIT-PANE DIVIDER DRAG: a left press ON a divider grabs it to resize the
+        // split (and stops there — no focus change, no selection). Release ends the
+        // drag. Checked BEFORE pane-focus so a press on the gap between panes resizes
+        // rather than mis-focusing. A no-op on the single-pane path.
+        if button == WinitMouseButton::Left {
+            if pressed {
+                if self.begin_divider_drag(wid) {
+                    return;
+                }
+            } else if self.finish_divider_drag(wid) {
+                if let Some(ws) = self.windows.get_mut(&wid) {
+                    ws.held_mouse_button = None;
+                }
                 return;
             }
         }

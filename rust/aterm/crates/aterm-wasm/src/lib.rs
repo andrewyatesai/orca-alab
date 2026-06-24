@@ -17,7 +17,7 @@ use wasm_bindgen::prelude::*;
 
 use aterm_core::selection::SmartSelection;
 use aterm_core::selection::{SelectionSide, SelectionType};
-use aterm_core::terminal::{CursorStyle, MouseMode, Terminal};
+use aterm_core::terminal::{CursorStyle, MouseMode, Rgb, Terminal};
 use aterm_render::{Renderer, Theme};
 
 /// A terminal + CPU renderer pair. Feed PTY bytes with [`AtermTerminal::process`],
@@ -124,6 +124,31 @@ impl AtermTerminal {
     pub fn set_cursor_hollow(&mut self, hollow: bool) {
         self.renderer
             .set_cursor_style_override(if hollow { Some(CursorStyle::HollowBlock) } else { None });
+    }
+
+    /// Drain the engine's pending query replies (DA1/DA2/DSR/CPR/DECRQM/OSC color/
+    /// window-size, …) — the host forwards these to the PTY so the RENDERER (not the
+    /// daemon, which stays silent) is the authoritative responder. Call after each
+    /// `process`; returns `None` when nothing is pending.
+    pub fn take_response(&mut self) -> Option<Vec<u8>> {
+        self.term.take_response()
+    }
+
+    /// Seed the engine's DEFAULT foreground/background so its OSC 10/11 colour-query
+    /// replies report the host theme (the engine otherwise reports its built-in
+    /// defaults). RGB components, 0–255.
+    pub fn set_default_foreground(&mut self, r: u8, g: u8, b: u8) {
+        self.term.set_default_foreground(Rgb { r, g, b });
+    }
+
+    pub fn set_default_background(&mut self, r: u8, g: u8, b: u8) {
+        self.term.set_default_background(Rgb { r, g, b });
+    }
+
+    /// Tell the engine the real device-pixel cell size so its CSI 14t/16t
+    /// window/cell-pixel reports are accurate (the engine has no canvas otherwise).
+    pub fn set_cell_pixel_size(&mut self, width: u16, height: u16) {
+        self.term.set_cell_pixel_size(width, height);
     }
 
     /// Resize the grid (after the host recomputes cols/rows for the canvas).

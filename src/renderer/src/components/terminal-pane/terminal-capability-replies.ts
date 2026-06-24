@@ -15,6 +15,10 @@ type TerminalCapabilityRepliesDeps = {
   /** DA1 reply — a string, or a getter resolved at reply time so it can depend on
    *  live pane state (e.g. whether the aterm canvas, which renders Sixel, is up). */
   da1Response?: string | (() => string)
+  /** When true (aterm pane), the engine drains + forwards its OWN DA1 reply, so this
+   *  renderer-side responder must NOT also answer (it would double-answer the PTY).
+   *  It still CONSUMES the query so the xterm shim doesn't auto-reply. */
+  isAtermReplyOwned?: () => boolean
 }
 
 function isPrimaryDeviceAttributesQuery(params: (number | number[])[]): boolean {
@@ -181,13 +185,31 @@ export function installTerminalCapabilityReplyHandlers(
       }
       // Why: restored scrollback may contain old DA1 queries; answering those
       // into the fresh shell recreates the stray-input leak this handler fixes.
-      if (!deps.isReplaying()) {
+      // Consume the query either way so the xterm shim never auto-replies; only
+      // ANSWER here when aterm isn't the owner (else aterm drains its own DA1).
+      if (!deps.isReplaying() && !deps.isAtermReplyOwned?.()) {
         const da1 =
           typeof deps.da1Response === 'function' ? deps.da1Response() : deps.da1Response
         deps.sendInput(da1 ?? DEFAULT_DA1_RESPONSE)
       }
       return true
-    })
+    }),
+    // For aterm panes the engine drains + forwards its own DA2 / DSR-CPR / DECRQM
+    // replies, so CONSUME those queries here (return true) to stop the xterm shim
+    // double-answering them via onData. For the xterm fallback (not aterm-owned)
+    // return false so xterm answers as before. Pure queries with no state effect, so
+    // consuming is safe. (DA1 is handled above; OSC colour + CSI 14t/16t pixel-size
+    // are drained by aterm and skipped renderer-side in pty-connection.)
+    deps.parser.registerCsiHandler({ final: 'n' }, () => deps.isAtermReplyOwned?.() ?? false),
+    deps.parser.registerCsiHandler({ prefix: '?', final: 'n' }, () =>
+      deps.isAtermReplyOwned?.() ?? false
+    ),
+    deps.parser.registerCsiHandler({ prefix: '?', intermediates: '$', final: 'p' }, () =>
+      deps.isAtermReplyOwned?.() ?? false
+    ),
+    deps.parser.registerCsiHandler({ prefix: '>', final: 'c' }, () =>
+      deps.isAtermReplyOwned?.() ?? false
+    )
   ]
 
   return {

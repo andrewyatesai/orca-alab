@@ -94,6 +94,39 @@ pub struct PaneTree {
 /// later divider drag adjusts a [`PaneNode::Split::ratio`]; the MVP fixes it here.
 const DEFAULT_RATIO: f32 = 0.5;
 
+/// The smallest fraction a divider drag may leave the FIRST child (and, by
+/// symmetry via `1 - MIN_RATIO` = [`MAX_RATIO`], the second). Keeps both panes
+/// visibly non-trivial so a drag to the very edge never collapses a pane to a
+/// sliver. (`split_extent` still clamps each side to ≥ 1 cell; this is the
+/// higher-level ergonomic floor a drag is held to.)
+const MIN_RATIO: f32 = 0.05;
+/// The largest fraction a divider drag may give the first child — the mirror of
+/// [`MIN_RATIO`], so the SECOND child also keeps at least `MIN_RATIO`.
+const MAX_RATIO: f32 = 0.95;
+
+/// One pane divider's identity + geometry, produced by [`PaneTree::divider_at`] and
+/// consumed by [`PaneTree::ratio_for_pointer`] / [`PaneTree::set_divider_ratio`] to
+/// drive a drag-to-resize. The `path` names the exact [`PaneNode::Split`] whose
+/// divider was hit (a root-to-node walk: `false` = descend into `first`, `true` =
+/// into `second`), so the mutator edits THAT split even in a deep tree. `dir`,
+/// `span_start`, and `span_len` carry the split's geometry along the divided axis
+/// (columns for a `Vertical` split, rows for `Horizontal`) so a pointer position
+/// maps back to a ratio without re-walking the tree.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DividerHit {
+    /// Root-to-split branch walk (`false` = `first`, `true` = `second`).
+    path: Vec<bool>,
+    /// Which way the hit split divides (vertical divider = columns, horizontal =
+    /// rows). Lets the GUI pick the resize cursor (E-W vs N-S).
+    pub dir: SplitDir,
+    /// First splittable cell along the divided axis (the split rect's `col_off` for
+    /// `Vertical`, `row_off` for `Horizontal`).
+    span_start: u16,
+    /// The split's extent along the divided axis (its `cols` for `Vertical`, `rows`
+    /// for `Horizontal`) — the same `extent` `split_extent` divides.
+    span_len: u16,
+}
+
 impl PaneTree {
     /// A new single-pane tab holding `session` (the day-one one-session-per-tab
     /// layout). Focus is that one session.
@@ -426,6 +459,161 @@ impl PaneTree {
             }
         }
         best.map(|(r, _, _)| r.session)
+    }
+
+    /// Hit-test a DIVIDER: if cell `(row, col)` lands on a split's 1-cell divider
+    /// line (the gap [`compute_layout`] reserves between a split's children, owned
+    /// by no pane), return that divider's [`DividerHit`]; otherwise `None` (the cell
+    /// is inside a pane or outside the grid). Used by drag-to-resize to start a
+    /// divider drag. Zoomed or single-pane tabs have no draggable divider (the
+    /// focused pane fills the window), so this is always `None` for them.
+    #[must_use]
+    pub fn divider_at(&self, row: u16, col: u16, rows: u16, cols: u16) -> Option<DividerHit> {
+        if self.len() == 1 || (self.zoomed && self.len() > 1) {
+            return None;
+        }
+        let mut path = Vec::new();
+        divider_at_in(
+            &self.root,
+            0,
+            0,
+            rows.max(1),
+            cols.max(1),
+            row,
+            col,
+            &mut path,
+        )
+    }
+
+    /// Map a pointer at cell `(row, col)` to the new FIRST-child fraction for the
+    /// split named by `hit`, BEFORE clamping (the raw geometric ratio). The pointer
+    /// is projected onto the hit split's divided axis and divided by the split's
+    /// splittable extent (the same extent [`split_extent`] divides), so dropping the
+    /// divider where the pointer is yields that ratio. Returns `None` only for a
+    /// degenerate split too small to hold a divider. The caller passes the result to
+    /// [`Self::set_divider_ratio`], which applies the `[MIN_RATIO, MAX_RATIO]` clamp.
+    #[must_use]
+    pub fn ratio_for_pointer(&self, hit: &DividerHit, row: u16, col: u16) -> Option<f32> {
+        // The pointer position along the divided axis (col for Vertical, row for
+        // Horizontal). `split_extent` reserves 1 cell for the divider, so the
+        // splittable extent is `span_len - 1`.
+        let pointer = match hit.dir {
+            SplitDir::Vertical => col,
+            SplitDir::Horizontal => row,
+        };
+        let splittable = hit.span_len.saturating_sub(1);
+        if splittable < 2 {
+            return None;
+        }
+        // Offset of the pointer from the split's start, clamped into the split.
+        let offset = pointer.saturating_sub(hit.span_start).min(splittable);
+        Some(f32::from(offset) / f32::from(splittable))
+    }
+
+    /// Set the FIRST-child fraction of the split named by `hit` to `ratio`, clamped
+    /// to `[MIN_RATIO, MAX_RATIO]` so neither pane collapses to a sliver. Returns
+    /// `true` once the targeted split's `ratio` was written (it always is for a
+    /// `hit` produced by [`Self::divider_at`] on the same tree); `false` if the path
+    /// no longer names a split (e.g. the tree changed under a stale hit), leaving the
+    /// tree untouched. A pure DATA edit — no structural change, so focus/zoom are
+    /// preserved; the caller relays out + repaints.
+    pub fn set_divider_ratio(&mut self, hit: &DividerHit, ratio: f32) -> bool {
+        let clamped = ratio.clamp(MIN_RATIO, MAX_RATIO);
+        let mut node = &mut self.root;
+        for &go_second in &hit.path {
+            let PaneNode::Split { first, second, .. } = node else {
+                return false; // path ran off a leaf: stale hit
+            };
+            node = if go_second { second } else { first };
+        }
+        if let PaneNode::Split { ratio: r, .. } = node {
+            *r = clamped;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Walk `node` placed at `(r0, c0)` of size `rows`×`cols` (mirroring [`layout_into`])
+/// looking for the SPLIT whose 1-cell divider contains `(row, col)`. `path` is the
+/// running root-to-`node` branch trail (`false`/`true` = `first`/`second`); on a hit
+/// it names the matched split. Returns that split's [`DividerHit`], or `None` when
+/// the cell is inside a pane / off the divider. Recurses into the child whose
+/// sub-rect contains the cell so a nested split's divider is found too.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "mirrors layout_into's rect walk plus the probe cell + path accumulator; bundling only relocates the list"
+)]
+fn divider_at_in(
+    node: &PaneNode,
+    r0: u16,
+    c0: u16,
+    rows: u16,
+    cols: u16,
+    row: u16,
+    col: u16,
+    path: &mut Vec<bool>,
+) -> Option<DividerHit> {
+    let PaneNode::Split {
+        dir,
+        ratio,
+        first,
+        second,
+    } = node
+    else {
+        return None; // a leaf has no divider
+    };
+    match dir {
+        SplitDir::Vertical => {
+            // The first child's column extent + the divider column, exactly as
+            // `layout_into` computes them (so the test cell matches what was drawn).
+            let (a, b) = split_extent(cols, *ratio);
+            let div_col = c0 + a;
+            if row >= r0 && row < r0 + rows && col == div_col {
+                return Some(DividerHit {
+                    path: path.clone(),
+                    dir: SplitDir::Vertical,
+                    span_start: c0,
+                    span_len: cols,
+                });
+            }
+            // Recurse into whichever child's column band holds the cell.
+            if col < div_col {
+                path.push(false);
+                let hit = divider_at_in(first, r0, c0, rows, a, row, col, path);
+                path.pop();
+                hit
+            } else {
+                path.push(true);
+                let hit = divider_at_in(second, r0, c0 + a + 1, rows, b, row, col, path);
+                path.pop();
+                hit
+            }
+        }
+        SplitDir::Horizontal => {
+            let (a, b) = split_extent(rows, *ratio);
+            let div_row = r0 + a;
+            if col >= c0 && col < c0 + cols && row == div_row {
+                return Some(DividerHit {
+                    path: path.clone(),
+                    dir: SplitDir::Horizontal,
+                    span_start: r0,
+                    span_len: rows,
+                });
+            }
+            if row < div_row {
+                path.push(false);
+                let hit = divider_at_in(first, r0, c0, a, cols, row, col, path);
+                path.pop();
+                hit
+            } else {
+                path.push(true);
+                let hit = divider_at_in(second, r0 + a + 1, c0, b, cols, row, col, path);
+                path.pop();
+                hit
+            }
+        }
     }
 }
 
@@ -845,6 +1033,151 @@ mod tests {
                 "no 0-extent pane: {rect:?}"
             );
         }
+    }
+
+    /// Divider drag on a vertical split: hitting the divider column yields a
+    /// `DividerHit`, and `set_divider_ratio` moves the boundary — the left pane
+    /// grows/shrinks while the geometry stays a valid 2-pane split.
+    #[test]
+    fn vertical_divider_drag_moves_boundary() {
+        let mut t = PaneTree::new(1);
+        t.split_focused(SplitDir::Vertical, 2); // 80 cols -> 40 | divider(40) | 39
+        // The divider sits at column 40, any row.
+        let hit = t.divider_at(5, 40, 24, 80).expect("divider hit at col 40");
+        assert_eq!(hit.dir, SplitDir::Vertical);
+        // A cell inside a pane is NOT on the divider.
+        assert!(t.divider_at(5, 10, 24, 80).is_none());
+        assert!(t.divider_at(5, 60, 24, 80).is_none());
+        // Drag the divider left to column 20: ratio ~ 20/79.
+        let ratio = t.ratio_for_pointer(&hit, 5, 20).expect("ratio for pointer");
+        assert!((ratio - 20.0 / 79.0).abs() < 1e-3, "ratio {ratio}");
+        assert!(t.set_divider_ratio(&hit, ratio));
+        let mut rects = t.compute_layout(24, 80);
+        rects.sort_by_key(|r| r.col_off);
+        // Left pane shrank to ~20 cols; divider is now just past it.
+        assert_eq!(rects[0].session, 1);
+        assert_eq!(rects[0].cols, 20);
+        assert_eq!(rects[1].col_off, 21);
+        assert_eq!(rects[1].cols, 59); // 79 splittable - 20 first
+    }
+
+    /// `set_divider_ratio` CLAMPS to `[MIN_RATIO, MAX_RATIO]`: dragging the divider
+    /// to (or past) an edge never collapses a pane to zero.
+    #[test]
+    fn divider_ratio_clamps() {
+        let mut t = PaneTree::new(1);
+        t.split_focused(SplitDir::Vertical, 2);
+        let hit = t.divider_at(5, 40, 24, 80).expect("divider hit");
+        // Drag hard left (ratio 0.0) clamps to MIN_RATIO; both panes survive.
+        assert!(t.set_divider_ratio(&hit, 0.0));
+        for r in t.compute_layout(24, 80) {
+            assert!(r.cols >= 1, "no zero-width pane after min clamp: {r:?}");
+        }
+        let left = t
+            .compute_layout(24, 80)
+            .into_iter()
+            .min_by_key(|r| r.col_off)
+            .unwrap();
+        // MIN_RATIO of 79 splittable ≈ 4 cells (round(0.05*79)=4), well above 0.
+        assert!(left.cols >= (MIN_RATIO * 79.0).floor() as u16);
+        // Drag hard right (ratio 1.0) clamps to MAX_RATIO; right pane survives.
+        assert!(t.set_divider_ratio(&hit, 1.0));
+        for r in t.compute_layout(24, 80) {
+            assert!(r.cols >= 1, "no zero-width pane after max clamp: {r:?}");
+        }
+    }
+
+    /// Headless hit-test → ratio mapping over a horizontal split: the divider row is
+    /// found and a pointer maps to the proportional ratio along the rows.
+    #[test]
+    fn horizontal_divider_hit_and_ratio() {
+        let mut t = PaneTree::new(1);
+        t.split_focused(SplitDir::Horizontal, 2); // 24 rows -> 12 | divider(12) | 11
+        let hit = t.divider_at(12, 30, 24, 80).expect("divider hit at row 12");
+        assert_eq!(hit.dir, SplitDir::Horizontal);
+        // Off the divider row → None.
+        assert!(t.divider_at(3, 30, 24, 80).is_none());
+        // Drag to row 6: ratio ~ 6/23.
+        let ratio = t.ratio_for_pointer(&hit, 6, 30).expect("ratio");
+        assert!((ratio - 6.0 / 23.0).abs() < 1e-3, "ratio {ratio}");
+        assert!(t.set_divider_ratio(&hit, ratio));
+        let mut rects = t.compute_layout(24, 80);
+        rects.sort_by_key(|r| r.row_off);
+        assert_eq!(rects[0].rows, 6);
+        assert_eq!(rects[1].row_off, 7);
+    }
+
+    /// In a NESTED tree the hit-test targets the correct (inner) split: dragging the
+    /// inner divider edits only that split, leaving the outer one untouched.
+    #[test]
+    fn nested_divider_targets_inner_split() {
+        // 1 | (2 / 3): vertical outer, horizontal inner on the right band.
+        let mut t = PaneTree::new(1);
+        t.split_focused(SplitDir::Vertical, 2);
+        t.split_focused(SplitDir::Horizontal, 3);
+        let rects = t.compute_layout(24, 80);
+        let top = rects.iter().find(|r| r.session == 2).unwrap();
+        let bot = rects.iter().find(|r| r.session == 3).unwrap();
+        // The inner (horizontal) divider row sits between panes 2 and 3, in the
+        // right column band. It is the row just past pane 2's bottom.
+        let div_row = top.row_off + top.rows;
+        let probe_col = top.col_off + 1;
+        let hit = t
+            .divider_at(div_row, probe_col, 24, 80)
+            .expect("inner divider hit");
+        assert_eq!(hit.dir, SplitDir::Horizontal, "inner split is horizontal");
+        // Record the OUTER (left) pane width; editing the inner split must not move it.
+        let left_before = rects.iter().find(|r| r.session == 1).unwrap().cols;
+        // Drag the inner divider up.
+        let ratio = t
+            .ratio_for_pointer(&hit, top.row_off + 2, probe_col)
+            .unwrap();
+        assert!(t.set_divider_ratio(&hit, ratio));
+        let after = t.compute_layout(24, 80);
+        let left_after = after.iter().find(|r| r.session == 1).unwrap().cols;
+        assert_eq!(left_before, left_after, "outer split untouched");
+        // Pane 2 (the inner first child) actually moved.
+        let top_after = after.iter().find(|r| r.session == 2).unwrap();
+        assert_ne!(top_after.rows, top.rows, "inner first child resized");
+        // Sanity: still three disjoint panes.
+        assert_eq!(after.len(), 3);
+        assert!(rects_disjoint(&after));
+        let _ = bot;
+    }
+
+    /// A single-pane (and a zoomed) tab has NO draggable divider.
+    #[test]
+    fn no_divider_when_single_or_zoomed() {
+        let t = PaneTree::new(1);
+        assert!(
+            t.divider_at(5, 5, 24, 80).is_none(),
+            "single pane: no divider"
+        );
+        let mut z = PaneTree::new(1);
+        z.split_focused(SplitDir::Vertical, 2);
+        assert!(
+            z.divider_at(5, 40, 24, 80).is_some(),
+            "split: has a divider"
+        );
+        z.toggle_zoom();
+        assert!(
+            z.divider_at(5, 40, 24, 80).is_none(),
+            "zoomed: focused pane fills window, no divider"
+        );
+    }
+
+    /// A stale `DividerHit` whose path no longer names a split is a safe no-op
+    /// (`set_divider_ratio` returns false, the tree is untouched).
+    #[test]
+    fn stale_divider_hit_is_noop() {
+        let mut t = PaneTree::new(1);
+        t.split_focused(SplitDir::Vertical, 2);
+        let hit = t.divider_at(5, 40, 24, 80).unwrap();
+        // Collapse back to one pane — the split the hit named is gone.
+        t.close_pane(2);
+        let before = t.compute_layout(24, 80);
+        assert!(!t.set_divider_ratio(&hit, 0.3), "stale path → no write");
+        assert_eq!(before, t.compute_layout(24, 80), "tree untouched");
     }
 
     /// Helper: are all rects pairwise cell-disjoint? (No two panes claim the same

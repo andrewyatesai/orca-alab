@@ -31,7 +31,7 @@ use wasm_bindgen::prelude::*;
 
 use aterm_core::selection::SmartSelection;
 use aterm_core::selection::{SelectionSide, SelectionType};
-use aterm_core::terminal::{CursorStyle, MouseMode, Terminal};
+use aterm_core::terminal::{CursorStyle, MouseMode, Rgb, Terminal};
 use aterm_render::{Renderer, Theme};
 
 // GpuContext is used only by the wasm async init path (`init`); on the native
@@ -208,6 +208,29 @@ impl AtermGpuTerminal {
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.renderer.set_cursor_style_override(style);
         }
+    }
+
+    /// Drain the engine's pending query replies (DA1/DA2/DSR/CPR/DECRQM/OSC color/
+    /// window-size, …) so the host can forward them to the PTY — the renderer is the
+    /// authoritative responder. Call after each `process`.
+    pub fn take_response(&mut self) -> Option<Vec<u8>> {
+        self.term.take_response()
+    }
+
+    /// Seed the engine's DEFAULT foreground/background so OSC 10/11 colour-query
+    /// replies report the host theme. RGB components, 0–255.
+    pub fn set_default_foreground(&mut self, r: u8, g: u8, b: u8) {
+        self.term.set_default_foreground(Rgb { r, g, b });
+    }
+
+    pub fn set_default_background(&mut self, r: u8, g: u8, b: u8) {
+        self.term.set_default_background(Rgb { r, g, b });
+    }
+
+    /// Tell the engine the real device-pixel cell size so CSI 14t/16t reports are
+    /// accurate (the engine has no canvas otherwise).
+    pub fn set_cell_pixel_size(&mut self, width: u16, height: u16) {
+        self.term.set_cell_pixel_size(width, height);
     }
 
     /// Resize the grid AND, if the GPU is live, the swapchain to match the new

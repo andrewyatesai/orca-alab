@@ -73,6 +73,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** True when the alternate screen (TUI) is active — snapshot hydration uses this
    *  to avoid bleeding normal-buffer scrollback into a mid-TUI seed. */
   isAltScreen: () => boolean
+  /** True when bracketed-paste mode (DECSET 2004) is active — the paste sink wraps
+   *  pasted text in ESC[200~..ESC[201~ itself instead of routing through xterm.paste. */
+  bracketedPasteMode: () => boolean
   dispose: () => void
 }
 

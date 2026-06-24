@@ -287,6 +287,7 @@ export async function createAtermPaneController(
     onTitleChange: (handler) => wired.controller.onTitleChange(handler),
     gridSize: () => wired.controller.gridSize(),
     isAltScreen: () => wired.controller.isAltScreen(),
+    bracketedPasteMode: () => wired.controller.bracketedPasteMode(),
     pixelSize: () => wired.controller.pixelSize(),
     themeColors: () => wired.controller.themeColors(),
     ...(wired.controller.benchmarkRender

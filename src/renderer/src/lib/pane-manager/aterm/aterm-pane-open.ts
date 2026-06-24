@@ -31,9 +31,22 @@ export function openAtermPane(
     // only in the pre-connect window. Drained query replies use the same sink.
     (data) => (pane.routePtyInput ? pane.routePtyInput(data) : pane.terminal.input(data)),
     (cols, rows) => pane.terminal.resize(cols, rows),
-    // Pastes go through terminal.paste() (not input()) so DECSET 2004 wraps them
-    // with \e[200~..\e[201~; input() sends raw and would let an app auto-run paste.
-    (text) => pane.terminal.paste(text),
+    // Paste, wrapped + routed natively (off the xterm shim). Matches xterm.paste:
+    // normalize \r?\n→\r, and in bracketed-paste mode (DECSET 2004) wrap in
+    // ESC[200~..ESC[201~ with embedded ESC bytes neutralized (paste-injection guard)
+    // so an app gets one atomic, un-auto-run paste. Routes through the PTY pipeline
+    // (pane.routePtyInput); pre-connect it falls back to the shim.
+    (text) => {
+      const normalized = text.replace(/\r?\n/g, '\r')
+      const data = pane.atermController?.bracketedPasteMode()
+        ? `\x1b[200~${normalized.replace(/\x1b/g, '␛')}\x1b[201~`
+        : normalized
+      if (pane.routePtyInput) {
+        pane.routePtyInput(data)
+      } else {
+        pane.terminal.paste(text)
+      }
+    },
     linkContext,
     // Read macOptionIsMeta live off the (headless) xterm Terminal — the same
     // option applyTerminalAppearance keeps in sync — so the aterm encoder honors

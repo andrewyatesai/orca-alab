@@ -375,6 +375,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     },
     gridSize: () => getGrid(),
     isAltScreen: () => term.is_alt_screen,
+    bracketedPasteMode: () => term.bracketed_paste_mode,
     // Re-theme this live engine in place (host theme change), avoiding a pane
     // rebuild that would drop scrollback. Caller (applyTerminalAppearance) only
     // iterates live panes; scheduleDraw no-ops if disposed.

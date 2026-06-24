@@ -46,6 +46,17 @@ function buildAtermGridCanvas(themeColors: { bg: number }): HTMLCanvasElement {
   return canvas
 }
 
+/** Force-release a canvas's WebGL2 context so it returns to the browser's hard
+ *  ~16-live-context budget immediately instead of lingering until GC. No-op for a
+ *  2d (CPU) canvas — `getContext('webgl2')` returns null once a 2d context exists. */
+function releaseGlContext(c: HTMLCanvasElement): void {
+  try {
+    c.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext()
+  } catch {
+    /* ignore */
+  }
+}
+
 export async function createAtermPaneController(
   container: HTMLElement,
   onInput: AtermPaneInputSink,
@@ -110,6 +121,9 @@ export async function createAtermPaneController(
   }
 
   let wired: AtermWiredPane
+  // Set by dispose() so an in-flight context-loss swap that resolves AFTER teardown
+  // doesn't build a fresh (never-torn-down) engine + listeners.
+  let controllerDisposed = false
 
   // Context-loss rebuild: a lost WebGL2 context can't draw, so tear down the GPU
   // wiring + its poisoned canvas, build a fresh canvas, load the CPU drawer, and
@@ -118,7 +132,7 @@ export async function createAtermPaneController(
   // fallback). Guarded so a second loss event during teardown is a no-op.
   let swapping = false
   const swapToCpu = (): void => {
-    if (swapping) {
+    if (swapping || controllerDisposed) {
       return
     }
     swapping = true
@@ -129,12 +143,26 @@ export async function createAtermPaneController(
       window.__atermGpuAdapterInfo = undefined
       window.__atermGpuVsCpuCompare = undefined
     }
+    // Don't loseContext() the old canvas here: its GL context is ALREADY lost (that
+    // triggered this swap), and re-touching it was observed to break the recovered
+    // pane's rendering. The browser reclaims the dead context on its own.
     const freshCanvas = buildAtermGridCanvas(themeColors)
     // The canvas lives inside the xterm-screen div; swap it there in place so the
     // helper textarea + DOM shim are untouched.
     canvas.parentElement?.replaceChild(freshCanvas, canvas)
     canvas = freshCanvas
     void loadAtermCpuDrawer({ canvas, themeColors, fontPx }).then((cpu) => {
+      // The pane was disposed while the CPU drawer loaded: free the just-built
+      // engine and drop the canvas rather than wiring a pane nothing tears down.
+      if (controllerDisposed) {
+        try {
+          cpu.term.free()
+        } catch {
+          /* ignore */
+        }
+        freshCanvas.remove()
+        return
+      }
       const nextPending: AtermPendingStrategy = {
         kind: 'cpu',
         term: cpu.term,
@@ -157,6 +185,11 @@ export async function createAtermPaneController(
         shared,
         onContextLoss: () => undefined // CPU never loses a GL context
       })
+      // Note: we deliberately do NOT replay the xterm shim's serialized buffer into
+      // the fresh CPU engine here — xterm's SerializeAddon output isn't guaranteed
+      // compatible with aterm's parser and was observed to corrupt the recovered
+      // engine's state. The recovered pane is briefly blank until the next PTY
+      // output repaints it (a rare-event, self-healing glitch on context loss).
       swapping = false
     })
   }
@@ -201,8 +234,12 @@ export async function createAtermPaneController(
       ? { benchmarkRender: (cols, rows, frames) => wired.controller.benchmarkRender!(cols, rows, frames) }
       : {}),
     dispose: () => {
+      controllerDisposed = true
       inputDom.wrapper.remove()
       wired.teardown()
+      // Release the live canvas's WebGL2 context (no-op on the CPU path) so closing
+      // panes don't accumulate against the browser's GL-context budget.
+      releaseGlContext(canvas)
     }
   }
 }

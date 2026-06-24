@@ -58,4 +58,7 @@ export type AtermPaneControllerOptions = {
   /** Latest macOptionIsMeta (xterm's option of the same name); controls whether
    *  macOS Option meta-prefixes or composes a glyph. Defaults to false. */
   getMacOptionIsMeta?: () => boolean
+  /** Latest terminalClipboardOnSelect (xterm's copyOnSelect); when true, drag /
+   *  double / triple-click auto-copy the selection. Defaults to false. */
+  getCopyOnSelect?: () => boolean
 }

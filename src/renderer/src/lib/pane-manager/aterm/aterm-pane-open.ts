@@ -1,4 +1,5 @@
 import type { ManagedPaneInternal } from '../pane-manager-types'
+import { useAppStore } from '@/store'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { registerAtermOutputMirror } from './aterm-output-mirror'
 
@@ -33,8 +34,13 @@ export function openAtermPane(
     linkContext,
     // Read macOptionIsMeta live off the (headless) xterm Terminal — the same
     // option applyTerminalAppearance keeps in sync — so the aterm encoder honors
-    // a settings toggle without recreating the pane.
-    { getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true }
+    // a settings toggle without recreating the pane. copy-on-select is read live
+    // off the app settings (default false) so drag-select doesn't clobber the
+    // clipboard unless the user opted in.
+    {
+      getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true,
+      getCopyOnSelect: () => useAppStore.getState().settings?.terminalClipboardOnSelect === true
+    }
   )
     .then((controller) => {
       // If the pane was torn down while wasm/font loaded, drop the controller.

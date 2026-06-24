@@ -117,7 +117,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     cellHeight,
     redraw: scheduleDraw,
     isDisposed: () => disposed,
-    onCopy: copyAtermSelectionToClipboard
+    onCopy: copyAtermSelectionToClipboard,
+    getCopyOnSelect: controllerOptions?.getCopyOnSelect
   }
   const selectionInput = attachAtermSelectionInput(selectionDeps)
 

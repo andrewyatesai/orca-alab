@@ -175,10 +175,11 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
       'wheel-up should scroll the viewport into scrollback'
     ).toBeGreaterThan(0)
 
-    // --- SELECTION + COPY ----------------------------------------------------
-    // Snap to bottom, print known rows, then drag across them with synthetic
-    // mouse events and assert the selection text + clipboard captured content.
-    const selection = await orcaPage.evaluate((findSrc: string) => {
+    // --- SELECTION + COPY (gated by terminalClipboardOnSelect) ---------------
+    // Snap to bottom, print known rows, then drag across them with synthetic mouse
+    // events. Assert the gate BOTH ways: with copy-on-select OFF (the default) a
+    // drag selects but must NOT touch the clipboard; with it ON the drag auto-copies.
+    const selection = await orcaPage.evaluate(async (findSrc: string) => {
       // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
       const find = new Function(`return (${findSrc})()`) as () => AtermControllerProbe
       const ctrl = find()
@@ -203,22 +204,47 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
           bubbles: true,
           cancelable: true
         })
-      c.dispatchEvent(mk('mousedown', 4, 4))
-      c.dispatchEvent(mk('mousemove', 400, 80))
-      window.dispatchEvent(mk('mouseup', 400, 80))
-
-      return {
-        text: ctrl.selectionText(),
-        copied: (window as unknown as { __atermLastCopied?: string }).__atermLastCopied ?? ''
+      const win = window as unknown as { __atermLastCopied?: string }
+      const drag = (): void => {
+        c.dispatchEvent(mk('mousedown', 4, 4))
+        c.dispatchEvent(mk('mousemove', 400, 80))
+        window.dispatchEvent(mk('mouseup', 400, 80))
       }
+
+      // copy-on-select OFF (default): drag selects but the clipboard stays untouched.
+      await window.__store?.getState().updateSettings({ terminalClipboardOnSelect: false })
+      win.__atermLastCopied = ''
+      drag()
+      const offText = ctrl.selectionText()
+      const offCopied = win.__atermLastCopied ?? ''
+
+      // copy-on-select ON: the same drag now auto-copies the selection.
+      await window.__store?.getState().updateSettings({ terminalClipboardOnSelect: true })
+      win.__atermLastCopied = ''
+      drag()
+      const onText = ctrl.selectionText()
+      const onCopied = win.__atermLastCopied ?? ''
+
+      return { offText, offCopied, onText, onCopied }
     }, findActiveController.toString())
 
-    expect(selection.text.length, 'a canvas drag should produce a non-empty selection').toBeGreaterThan(0)
     expect(
-      selection.copied.length,
-      'mouseup should copy the selection to the clipboard'
+      selection.offText.length,
+      'a canvas drag should produce a non-empty selection'
     ).toBeGreaterThan(0)
-    expect(selection.copied, 'clipboard should hold the selected text').toBe(selection.text)
+    expect(
+      selection.offCopied,
+      'with copy-on-select OFF (default), a drag must NOT write the clipboard'
+    ).toBe('')
+    expect(
+      selection.onText.length,
+      'a canvas drag should produce a non-empty selection'
+    ).toBeGreaterThan(0)
+    expect(
+      selection.onCopied.length,
+      'with copy-on-select ON, mouseup copies the selection'
+    ).toBeGreaterThan(0)
+    expect(selection.onCopied, 'clipboard should hold the selected text').toBe(selection.onText)
 
     // Screenshot the final canvas state.
     const dataUrl = await orcaPage.evaluate(() => {

@@ -11,6 +11,11 @@ export type AtermSelectionDeps = {
   isDisposed: () => boolean
   /** Last copied text, surfaced for tests; production also writes the clipboard. */
   onCopy: (text: string) => void
+  /** Whether drag / double-click / triple-click should AUTO-copy the selection
+   *  (xterm's copyOnSelect; orca's terminalClipboardOnSelect, default false). When
+   *  false, selecting must NOT touch the clipboard — only explicit Cmd/Ctrl+C does.
+   *  Read live so a settings toggle applies without recreating the pane. */
+  getCopyOnSelect?: () => boolean
 }
 
 export type AtermSelectionInput = {
@@ -40,8 +45,9 @@ function pointToCell(
  *  action (shared by mouseup and Cmd/Ctrl+C). The CPU renderer paints the
  *  highlight from the grid's selection, so we only redraw after each change. */
 export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelectionInput {
-  const { canvas, term, redraw, isDisposed, onCopy } = deps
+  const { canvas, term, redraw, isDisposed, onCopy, getCopyOnSelect } = deps
   let dragging = false
+  const copyOnSelect = (): boolean => getCopyOnSelect?.() ?? false
 
   const copySelection = (): boolean => {
     const text = term.selection_text()
@@ -72,7 +78,9 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
       const selected =
         event.detail === 2 ? term.selection_word(row, col) : term.selection_line(row, col)
       redraw()
-      if (selected !== undefined && selected.length > 0) {
+      // Auto-copy only when copy-on-select is enabled (default off) — otherwise the
+      // selection just highlights and Cmd/Ctrl+C copies it.
+      if (selected !== undefined && selected.length > 0 && copyOnSelect()) {
         onCopy(selected)
       }
       return
@@ -103,7 +111,12 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
     }
     term.selection_finish()
     redraw()
-    copySelection()
+    // Drag-select auto-copies ONLY when copy-on-select is on (default off); without
+    // this guard every drag clobbered the user's clipboard. Cmd/Ctrl+C still copies
+    // unconditionally via copySelection() below.
+    if (copyOnSelect()) {
+      copySelection()
+    }
   }
 
   canvas.addEventListener('mousedown', onMouseDown)

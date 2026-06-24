@@ -415,13 +415,15 @@ const DORMANCY_REGISTRY: &[DormantWatch] = &[
         enforced: true,
     },
     // WIRE-COLORSCHEME: the engine reports/pushes the OS color scheme (DEC 2031 +
-    // DSR ?996n). Feeding it the REAL OS appearance is the GUI's job — pending
-    // until M5 WINDOW-THEME-AUTO calls set_color_scheme from NSAppearance.
+    // DSR ?996n). Feeding it the REAL OS appearance is the GUI's job — now WIRED:
+    // `app_window::attach_os_window` seeds it from winit `Window::theme()` and
+    // `WindowEvent::ThemeChanged` forwards live OS toggles, both via
+    // `app_colorscheme::apply_os_color_scheme` → `Terminal::set_color_scheme`.
     DormantWatch {
         feature: "OS color-scheme source",
         producer: "set_color_scheme",
         consumer_path: "crates/aterm-gui/src",
-        enforced: false,
+        enforced: true,
     },
     // WIRE-INBAND-SIZE: DEC mode 2048 must emit a report on enable AND on resize.
     // Enforced: the report builder must be called (handler_dec enable + resize).

@@ -28,6 +28,34 @@ pub mod procedural;
 pub use aterm_types::text_shaping::{LigatureMode, TextShapingConfig};
 pub use ligature_shaping::ColumnGlyph;
 
+thread_local! {
+    /// Dedup the large raw color-emoji font bytes (Apple Color Emoji is ~180MB)
+    /// across every `Renderer` in this address space. In the wasm renderer all
+    /// terminal panes share ONE linear memory and inject the SAME OS emoji font, so
+    /// without interning each pane held its own ~180MB copy. Share one `Arc` keyed
+    /// by content instead; bounded by the handful of distinct fonts ever injected.
+    static COLOR_FONT_INTERN: std::cell::RefCell<Vec<std::sync::Arc<Vec<u8>>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Return a shared `Arc` for `bytes`, reusing an already-interned identical blob so
+/// N panes injecting the same emoji font cost one copy, not N. The byte-equality
+/// check only runs against same-length entries and only at injection time.
+fn intern_color_font(bytes: Vec<u8>) -> std::sync::Arc<Vec<u8>> {
+    COLOR_FONT_INTERN.with(|cell| {
+        let mut store = cell.borrow_mut();
+        if let Some(existing) = store
+            .iter()
+            .find(|a| a.len() == bytes.len() && a.as_slice() == bytes.as_slice())
+        {
+            return existing.clone();
+        }
+        let arc = std::sync::Arc::new(bytes);
+        store.push(arc.clone());
+        arc
+    })
+}
+
 /// Colours as 0x00RR_GGBB: default foreground/background, the block cursor
 /// fill, and the selection-highlight background (painted under selected cells
 /// in place of the cell bg; the glyph keeps its own foreground).
@@ -361,7 +389,7 @@ pub struct Renderer {
     /// large `sbix` font; sessions without emoji never pay it). Stored as raw
     /// bytes because a `ttf_parser::Face` borrows them — a fresh Face is parsed
     /// per emoji rasterization, which is rare and off the hot path.
-    color_font: Option<Vec<u8>>,
+    color_font: Option<std::sync::Arc<Vec<u8>>>,
     /// Candidate colour-emoji font paths, tried on first emoji; emptied once consumed.
     color_font_paths: Vec<String>,
     /// Runtime per-codepoint font fallback (M3 FONT-DISCOVERY): when a code point
@@ -1372,7 +1400,7 @@ impl Renderer {
     /// rasterization), so a bad blob fails loudly instead of yielding tofu later.
     pub fn set_color_font_bytes(&mut self, bytes: Vec<u8>) -> Result<(), String> {
         ttf_parser::Face::parse(&bytes, 0).map_err(|e| e.to_string())?;
-        self.color_font = Some(bytes);
+        self.color_font = Some(intern_color_font(bytes));
         self.color_font_paths.clear();
         Ok(())
     }
@@ -1479,7 +1507,7 @@ impl Renderer {
             if let Ok(bytes) = std::fs::read(&p) {
                 // Validate it parses as a colour (sbix) face before keeping it.
                 if ttf_parser::Face::parse(&bytes, 0).is_ok() {
-                    self.color_font = Some(bytes);
+                    self.color_font = Some(intern_color_font(bytes));
                     return;
                 }
             }
@@ -1489,7 +1517,7 @@ impl Renderer {
     /// Whether the colour-emoji face has a glyph for `ch` (loads it lazily).
     fn color_font_has(&mut self, ch: char) -> bool {
         self.ensure_color_font();
-        let Some(bytes) = self.color_font.as_ref() else {
+        let Some(bytes) = self.color_font.as_deref() else {
             return false;
         };
         let Ok(face) = ttf_parser::Face::parse(bytes, 0) else {
@@ -1712,7 +1740,7 @@ impl Renderer {
 
     fn shape_cluster_uncached(&mut self, cluster: &str) -> Option<u16> {
         self.ensure_color_font();
-        let bytes = self.color_font.as_ref()?;
+        let bytes = self.color_font.as_deref()?;
         let face = rustybuzz::Face::from_slice(bytes, 0)?;
         let mut buf = rustybuzz::UnicodeBuffer::new();
         buf.push_str(cluster);
@@ -2021,7 +2049,7 @@ impl Renderer {
     /// like every other mono glyph.
     fn rasterize_color_emoji_mono(&mut self, ch: char) -> Option<GlyphImage> {
         self.ensure_color_font();
-        let bytes = self.color_font.as_ref()?;
+        let bytes = self.color_font.as_deref()?;
         let face = ttf_parser::Face::parse(bytes, 0).ok()?;
         let gid = face.glyph_index(ch)?;
         let raster = face.glyph_raster_image(gid, self.cell_h.max(1) as u16)?;
@@ -2058,7 +2086,7 @@ impl Renderer {
     /// is missing.
     fn rasterize_color_emoji(&mut self, ch: char) -> Option<GlyphImage> {
         self.ensure_color_font();
-        let bytes = self.color_font.as_ref()?;
+        let bytes = self.color_font.as_deref()?;
         let gid = ttf_parser::Face::parse(bytes, 0).ok()?.glyph_index(ch)?;
         self.rasterize_color_emoji_gid(gid)
     }
@@ -2069,7 +2097,7 @@ impl Renderer {
     /// emoji are full-width. Returns `None` if the bitmap is missing/undecodable.
     fn rasterize_color_emoji_gid(&mut self, gid: ttf_parser::GlyphId) -> Option<GlyphImage> {
         self.ensure_color_font();
-        let bytes = self.color_font.as_ref()?;
+        let bytes = self.color_font.as_deref()?;
         let face = ttf_parser::Face::parse(bytes, 0).ok()?;
         // Ask for a strike at least as tall as the cell so we DOWNscale (sharper)
         // rather than upscale; Apple strikes are 20/32/40/48/64/96/160 px.
@@ -4929,5 +4957,23 @@ mod tests {
         let fp = decode_image_to_footprint(&png, aterm_core::grid::extra::ImageFormat::Png, 16, 16)
             .expect("small PNG resamples to its footprint");
         assert_eq!(fp.len(), 16 * 16 * 4);
+    }
+
+    /// The color-emoji font bytes are interned: injecting the SAME blob twice
+    /// shares ONE Arc (the per-pane ~180MB-copy dedup), while distinct blobs stay
+    /// separate. Content-keyed, so independent of font parsing.
+    #[test]
+    fn color_font_bytes_are_interned() {
+        let a1 = intern_color_font(vec![1, 2, 3, 4]);
+        let a2 = intern_color_font(vec![1, 2, 3, 4]);
+        assert!(
+            std::sync::Arc::ptr_eq(&a1, &a2),
+            "identical emoji-font bytes must share one Arc across renderers"
+        );
+        let b = intern_color_font(vec![9, 9, 9]);
+        assert!(
+            !std::sync::Arc::ptr_eq(&a1, &b),
+            "different font bytes must not be aliased"
+        );
     }
 }

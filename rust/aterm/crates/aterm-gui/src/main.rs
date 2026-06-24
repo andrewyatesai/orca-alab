@@ -29,6 +29,7 @@ use winit::keyboard::ModifiersState;
 use winit::window::{UserAttentionType, Window, WindowId as WinitWindowId};
 
 mod accessibility;
+mod app_colorscheme;
 mod app_config;
 mod app_input;
 mod app_introspect;
@@ -2462,6 +2463,15 @@ impl ApplicationHandler<Wake> for App {
             // then re-grids the window at the new cell metrics.
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.on_scale_factor_changed(scale_factor);
+            }
+            // The OS desktop appearance toggled (light↔dark) while running. Forward
+            // the REAL new theme into every session of THIS window's engine so apps
+            // that subscribed to DEC mode 2031 live-update their own theme (the engine
+            // queues the `CSI ? 997 ; Ps n` push, which `apply_os_color_scheme` drains
+            // to the PTY). The first window's theme is seeded at attach in
+            // `attach_os_window`; this keeps it in sync for the window's whole life.
+            WindowEvent::ThemeChanged(theme) => {
+                self.apply_os_color_scheme(wid, app_colorscheme::theme_to_appearance(Some(theme)));
             }
             _ => {}
         }

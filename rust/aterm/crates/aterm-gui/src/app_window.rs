@@ -220,6 +220,16 @@ impl App {
         // (Preedit/Commit) for CJK/dead-key/Option composition. Never enabled
         // before, so composition input was impossible.
         window.set_ime_allowed(true);
+        // OS color-scheme source: seed every session of this window with the REAL
+        // desktop light/dark appearance (winit's `Window::theme()`, cross-platform).
+        // The engine REPORTS the scheme to apps (DEC 2031 + DSR ?996n); this is what
+        // actually feeds it the host value at startup. Live OS toggles are handled by
+        // `WindowEvent::ThemeChanged`. `None` (indeterminate OS) maps to the engine's
+        // own `Dark` default, so this is a no-op there.
+        self.apply_os_color_scheme(
+            wid,
+            crate::app_colorscheme::theme_to_appearance(window.theme()),
+        );
         // HiDPI / Retina auto-scale. aterm rasterizes glyphs at `font_px` PHYSICAL
         // pixels and works in physical units throughout, so on a 2× Retina display
         // the built-in 13 px default renders at ~6.5 LOGICAL points — crisp but tiny.

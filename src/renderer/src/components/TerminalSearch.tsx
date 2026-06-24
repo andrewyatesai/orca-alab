@@ -11,7 +11,7 @@ import { getFindRequestQuery } from '@/lib/find-query-bounds'
  *  When the active pane is aterm-rendered, find/next/prev/clear route here
  *  instead of through the (absent) xterm SearchAddon. */
 export type AtermSearchSurface = {
-  findMatches: (query: string, caseSensitive: boolean) => number
+  findMatches: (query: string, caseSensitive: boolean, isRegex: boolean) => number
   findNextMatch: () => void
   findPreviousMatch: () => void
   clearSearch: () => void
@@ -72,11 +72,9 @@ export default function TerminalSearch({
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [regexEnabled, setRegexEnabled] = useState(false)
-  // aterm's engine search is plain substring (regex not exposed), so the regex
-  // toggle is meaningless there. Force it off + disable the button for aterm panes
-  // so the UI is honest about what the active renderer supports.
-  const regexSupported = !atermSearch
-  const regex = regexSupported && regexEnabled
+  // Both renderers support regex search: the xterm SearchAddon natively, and the
+  // aterm engine via search_results_opts(is_regex) (invalid pattern → 0 matches).
+  const regex = regexEnabled
   // Match-count label ("3 / 12"), driven by the aterm controller's exact counts.
   const [matchLabel, setMatchLabel] = useState('')
   const requestQuery = getFindRequestQuery(query)
@@ -158,11 +156,10 @@ export default function TerminalSearch({
       setMatchLabel('')
       return
     }
-    // aterm panes: run the canvas search (highlight + scroll-to-match). aterm's
-    // engine search is plain substring (regex not exposed), so `regex` is ignored
-    // there for now; case sensitivity is honored.
+    // aterm panes: run the canvas search (highlight + scroll-to-match) honoring
+    // both case sensitivity and the regex toggle (the engine compiles the pattern).
     if (atermSearch) {
-      const total = atermSearch.findMatches(requestQuery, caseSensitive)
+      const total = atermSearch.findMatches(requestQuery, caseSensitive, regex)
       setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
       return
     }
@@ -237,20 +234,12 @@ export default function TerminalSearch({
       </SearchButton>
 
       <SearchButton
-        disabled={!regexSupported}
-        tip={
-          regexSupported
-            ? translate('auto.components.TerminalSearch.42e466b9f1', 'Regex')
-            : translate(
-                'auto.components.TerminalSearch.regexUnsupportedAterm',
-                'Regex unavailable — this terminal uses substring search'
-              )
-        }
+        tip={translate('auto.components.TerminalSearch.42e466b9f1', 'Regex')}
         onClick={() => setRegexEnabled((v) => !v)}
         className={`flex size-6 shrink-0 items-center justify-center rounded ${
           regex
             ? 'bg-accent text-accent-foreground'
-            : 'text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted-foreground'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <Regex size={14} />

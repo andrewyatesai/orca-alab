@@ -22,8 +22,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** Detected link at a display cell (url + kind), or null — for hit-test/tests. */
   linkAt: (row: number, col: number) => { url: string; kind: number } | null
   /** Run an in-terminal search: highlights matches, scrolls to the nearest, and
-   *  returns the match count. Empty query clears highlights. */
-  findMatches: (query: string, caseSensitive: boolean) => number
+   *  returns the match count. Empty query clears highlights. `isRegex` compiles the
+   *  query as a regex (invalid pattern → 0 matches). */
+  findMatches: (query: string, caseSensitive: boolean, isRegex: boolean) => number
   /** Move the active highlight to the next match (wraps); scrolls into view. */
   findNextMatch: () => void
   /** Move the active highlight to the previous match (wraps); scrolls into view. */

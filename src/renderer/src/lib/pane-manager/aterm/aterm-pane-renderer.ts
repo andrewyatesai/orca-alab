@@ -269,7 +269,8 @@ export async function createAtermPaneController(
     scrollLines: (delta) => wired.controller.scrollLines(delta),
     selectionText: () => wired.controller.selectionText(),
     linkAt: (row, col) => wired.controller.linkAt(row, col),
-    findMatches: (query, caseSensitive) => wired.controller.findMatches(query, caseSensitive),
+    findMatches: (query, caseSensitive, isRegex) =>
+      wired.controller.findMatches(query, caseSensitive, isRegex),
     findNextMatch: () => wired.controller.findNextMatch(),
     findPreviousMatch: () => wired.controller.findPreviousMatch(),
     clearSearch: () => wired.controller.clearSearch(),

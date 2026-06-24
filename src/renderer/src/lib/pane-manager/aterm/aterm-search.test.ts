@@ -4,9 +4,11 @@ import type { AtermTerminal } from './aterm_wasm.js'
 
 // A minimal AtermTerminal stand-in: only `search` is exercised by the controller.
 // `search` returns a flat [line, startCol, len, …] Uint32Array, mirroring the wasm.
-function fakeTerm(searchImpl: (q: string, cs: boolean) => number[]): AtermTerminal {
+function fakeTerm(
+  searchImpl: (q: string, cs: boolean, rx: boolean) => number[]
+): AtermTerminal {
   return {
-    search: (q: string, cs: boolean) => new Uint32Array(searchImpl(q, cs))
+    search: (q: string, cs: boolean, rx: boolean) => new Uint32Array(searchImpl(q, cs, rx))
   } as unknown as AtermTerminal
 }
 
@@ -21,7 +23,7 @@ describe('createAtermSearchController', () => {
       scrollToMatch: vi.fn(),
       redraw: vi.fn()
     })
-    const count = controller.find('q', true)
+    const count = controller.find('q', true, false)
     expect(count).toBe(2)
     const [matches] = setSearchHighlights.mock.calls.at(-1) ?? []
     expect(matches).toEqual([
@@ -41,7 +43,7 @@ describe('createAtermSearchController', () => {
     })
 
     expect(controller.hasActiveQuery()).toBe(false)
-    controller.find('tok', false)
+    controller.find('tok', false, false)
     expect(controller.hasActiveQuery()).toBe(true)
     expect(controller.count()).toBe(1)
 
@@ -60,11 +62,26 @@ describe('createAtermSearchController', () => {
       scrollToMatch: vi.fn(),
       redraw: vi.fn()
     })
-    controller.find('q', false)
+    controller.find('q', false, false)
     controller.clear()
     expect(controller.hasActiveQuery()).toBe(false)
     expect(controller.count()).toBe(0)
     expect(setSearchHighlights).toHaveBeenLastCalledWith([], -1)
+  })
+
+  it('forwards the case + regex flags to the engine on find and refresh', () => {
+    const search = vi.fn(() => new Uint32Array([0, 0, 2]))
+    const term = { search } as unknown as AtermTerminal
+    const controller = createAtermSearchController(term, {
+      setSearchHighlights: vi.fn(),
+      scrollToMatch: vi.fn(),
+      redraw: vi.fn()
+    })
+    controller.find('a.+b', true, true)
+    expect(search).toHaveBeenLastCalledWith('a.+b', true, true)
+    // refresh re-runs the SAME query with the stored case + regex flags.
+    controller.refresh()
+    expect(search).toHaveBeenLastCalledWith('a.+b', true, true)
   })
 
   it('refresh is a no-op when no query is active', () => {

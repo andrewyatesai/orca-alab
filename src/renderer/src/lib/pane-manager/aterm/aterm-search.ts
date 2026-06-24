@@ -25,8 +25,9 @@ export type AtermSearchRendererHooks = {
  *  surfaced for the search UI. Owns no DOM/canvas — it calls renderer hooks. */
 export type AtermSearchController = {
   /** Run a search; highlights all matches, selects + scrolls to the nearest one,
-   *  and returns the result count. Empty query clears highlights → count 0. */
-  find: (query: string, caseSensitive: boolean) => number
+   *  and returns the result count. Empty query clears highlights → count 0.
+   *  `isRegex` compiles the query as a regex (invalid pattern → 0 matches). */
+  find: (query: string, caseSensitive: boolean, isRegex: boolean) => number
   /** Advance to the next match (wraps); scrolls + restyles. No-op with 0 matches. */
   next: () => void
   /** Step to the previous match (wraps); scrolls + restyles. No-op with 0 matches. */
@@ -72,6 +73,7 @@ export function createAtermSearchController(
   // and keep highlights pinned to the right cells. Empty query == no active search.
   let query = ''
   let caseSensitiveQuery = false
+  let isRegexQuery = false
 
   const apply = (): void => {
     hooks.setSearchHighlights(matches, active)
@@ -81,14 +83,15 @@ export function createAtermSearchController(
     hooks.redraw()
   }
 
-  const find = (nextQuery: string, caseSensitive: boolean): number => {
+  const find = (nextQuery: string, caseSensitive: boolean, isRegex: boolean): number => {
     if (!nextQuery) {
       clear()
       return 0
     }
     query = nextQuery
     caseSensitiveQuery = caseSensitive
-    matches = decodeMatches(term.search(nextQuery, caseSensitive))
+    isRegexQuery = isRegex
+    matches = decodeMatches(term.search(nextQuery, caseSensitive, isRegex))
     // Select the LAST match (newest / closest to the live bottom) so the first
     // find jumps near where output is, matching xterm's findNext-from-bottom feel.
     active = matches.length > 0 ? matches.length - 1 : -1
@@ -109,6 +112,7 @@ export function createAtermSearchController(
     active = -1
     query = ''
     caseSensitiveQuery = false
+    isRegexQuery = false
     hooks.setSearchHighlights([], -1)
     hooks.redraw()
   }
@@ -121,7 +125,7 @@ export function createAtermSearchController(
     if (!query) {
       return
     }
-    matches = decodeMatches(term.search(query, caseSensitiveQuery))
+    matches = decodeMatches(term.search(query, caseSensitiveQuery, isRegexQuery))
     active = matches.length === 0 ? -1 : Math.min(Math.max(active, 0), matches.length - 1)
     hooks.setSearchHighlights(matches, active)
     hooks.redraw()

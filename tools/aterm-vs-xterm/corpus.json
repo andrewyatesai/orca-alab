@@ -1,0 +1,102 @@
+[
+  {
+    "name": "plain-text-wrap-col80",
+    "bytes": "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs."
+  },
+  {
+    "name": "cr-lf-tab-handling",
+    "bytes": "alpha\tbeta\tgamma\r\ndelta\tepsilon\r\nzeta\tone\ttwo\tthree\tfour\tfive\r\noverwrite-this\rNEW"
+  },
+  {
+    "name": "cursor-cup-positioning",
+    "bytes": "[2J[10;20HmiddleX[1;1Htop-left[24;1Hbottom-left[5;40Hcenter"
+  },
+  {
+    "name": "cursor-cuu-cud-cuf-cub",
+    "bytes": "[2J[12;40HCENTER[3AUP3[5BDOWN5[10CRIGHT10[20DLEFT20"
+  },
+  {
+    "name": "sgr-basic-16-colors",
+    "bytes": "[31mred[32mgreen[33myellow[34mblue[35mmagenta[36mcyan[37mwhite[1mbold[4munderline[7mreverse[0mreset[90mbright-black[97mbright-white[0m"
+  },
+  {
+    "name": "sgr-256-color",
+    "bytes": "[38;5;196mfg196[48;5;21mbg21[38;5;231;48;5;16mwhite-on-black[0m[38;5;244mgrey[0m"
+  },
+  {
+    "name": "sgr-rgb-truecolor",
+    "bytes": "[38;2;255;128;0morange[48;2;0;64;128mteal-bg[0m[38;2;10;200;75mgreenish[0m"
+  },
+  {
+    "name": "el-erase-in-line-variants",
+    "bytes": "[2J[3;1HXXXXXXXXXXXXXXXXXXXX[3;10H[0K[4;1HYYYYYYYYYYYYYYYYYYYY[4;10H[1K[5;1HZZZZZZZZZZZZZZZZZZZZ[5;10H[2K"
+  },
+  {
+    "name": "ed-erase-in-display-variants",
+    "bytes": "[2J[1;1Hfill1[2;1Hfill2[3;1Hfill3[4;1Hfill4[5;1Hfill5[3;3H[0J[10;1Hbelow[5;1H[1Jabove-cleared"
+  },
+  {
+    "name": "ich-dch-insert-delete-chars",
+    "bytes": "[2J[1;1HABCDEFGHIJ[1;4H[3@[2;1HABCDEFGHIJ[2;4H[3P"
+  },
+  {
+    "name": "il-dl-insert-delete-lines",
+    "bytes": "[2J[1;1Hline1[2;1Hline2[3;1Hline3[4;1Hline4[2;1H[2L[6;1Hline6[7;1Hline7[6;1H[1M"
+  },
+  {
+    "name": "scroll-region-decstbm",
+    "bytes": "[2J[5;15r[5;1HtopOfRegion[15;1Hline\nline\nline\nline\nwrap-around-region[r"
+  },
+  {
+    "name": "scroll-up-down-su-sd",
+    "bytes": "[2J[1;1HA[2;1HB[3;1HC[4;1HD[5;1HE[3S[2T"
+  },
+  {
+    "name": "save-restore-cursor-decsc-decrc",
+    "bytes": "[2J[8;8Hhere77[20;40Helsewhere88RESTORED[s[2;2Hagain[uBACK"
+  },
+  {
+    "name": "save-restore-cursor-with-sgr",
+    "bytes": "[2J[31m7[0m[5;5Hplain8still-red[0m"
+  },
+  {
+    "name": "autowrap-decawm-off-on",
+    "bytes": "[2J[?7l[1;75HABCDEFGHIJKLMNOP-nowrap[?7h[2;75HABCDEFGHIJKLMNOP-wrap"
+  },
+  {
+    "name": "tab-stops-hts-tbc",
+    "bytes": "[2J[1;1H[3g[1;5HH[1;25HH[1;50HH[2;1H\tA\tB\tC[3;1H[1;10H[g[4;1H\tafter-clear"
+  },
+  {
+    "name": "origin-mode-decom",
+    "bytes": "[2J[10;20r[?6h[1;1Horigin-relative[5;3Hwithin[?6l[1;1Habsolute-top"
+  },
+  {
+    "name": "overlong-params",
+    "bytes": "[2J[999999999;888888888Hclamped[38;5;99999999mcolor[0m[1000000Adone"
+  },
+  {
+    "name": "csi-many-params",
+    "bytes": "[1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25mmany-sgr[0m"
+  },
+  {
+    "name": "malformed-esc-no-final-byte",
+    "bytes": "beforeafter-bare-esc[after-csi-no-final"
+  },
+  {
+    "name": "csi-huge-single-param",
+    "bytes": "[2J[1;1H[2147483648Bclamp-down[99999999999999999999Ctext"
+  },
+  {
+    "name": "partial-and-intermediate-sequences",
+    "bytes": "[?25l[?25hcursor-toggle[ q#8DEC-align%Gutf8(0lqkx(Bback-ascii"
+  },
+  {
+    "name": "mixed-utf8-multibyte-and-sgr",
+    "bytes": "[2J[1;1H[33méèê 你好 «quoted» —em— ±×÷ [0mÁ-combining"
+  },
+  {
+    "name": "complex-fullscreen-altscreen",
+    "bytes": "[?1049h[2J[H[44;37m[2K Status Bar [0m[3;1H[32m> prompt[0m[5;10Hitem A[6;10Hitem B[5;3Hitem C[?1049l[0mexit-altscreen"
+  }
+]

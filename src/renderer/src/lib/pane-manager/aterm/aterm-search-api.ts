@@ -4,7 +4,7 @@ import type { AtermTerminal } from './aterm_wasm.js'
 
 /** The find/next/prev/clear/count/index/rect surface the controller exposes. */
 export type AtermSearchApi = {
-  findMatches: (query: string, caseSensitive: boolean) => number
+  findMatches: (query: string, caseSensitive: boolean, isRegex: boolean) => number
   findNextMatch: () => void
   findPreviousMatch: () => void
   clearSearch: () => void
@@ -35,8 +35,8 @@ export type AtermSearchApiDeps = {
 export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
   const { searchController, term, cellWidth, cellHeight, isDisposed, getRows } = deps
   return {
-    findMatches: (query, caseSensitive) =>
-      isDisposed() ? 0 : searchController.find(query, caseSensitive),
+    findMatches: (query, caseSensitive, isRegex) =>
+      isDisposed() ? 0 : searchController.find(query, caseSensitive, isRegex),
     findNextMatch: () => searchController.next(),
     findPreviousMatch: () => searchController.prev(),
     clearSearch: () => searchController.clear(),

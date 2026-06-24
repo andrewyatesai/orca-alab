@@ -480,16 +480,18 @@ impl AtermTerminal {
     /// display rows via [`AtermTerminal::search_display_origin`] /
     /// [`AtermTerminal::scroll_search_line_into_view`], which stay correct as the
     /// viewport scrolls. Empty `query` (or a regex error) yields an empty array.
-    pub fn search(&mut self, query: &str, case_sensitive: bool) -> Vec<u32> {
+    pub fn search(&mut self, query: &str, case_sensitive: bool, is_regex: bool) -> Vec<u32> {
         if query.is_empty() {
             return Vec::new();
         }
-        // Reuse the cached full-content index (O(1) on unchanged content); plain
-        // substring search (is_regex=false) matches the xterm search default.
+        // Reuse the cached full-content index (O(1) on unchanged content). When
+        // is_regex is false this is a plain substring search; when true the engine
+        // compiles `query` as a regex (an invalid pattern yields Err → empty array,
+        // so a half-typed regex highlights nothing rather than throwing).
         let Ok(results) =
             self.term
                 .indexed_search()
-                .search_results_opts(query, case_sensitive, false)
+                .search_results_opts(query, case_sensitive, is_regex)
         else {
             return Vec::new();
         };
@@ -789,7 +791,7 @@ mod tests {
         for i in 0..200 {
             t.process(format!("filler line {i}\r\n").as_bytes());
         }
-        let hits = t.search("UNIQUE_SEARCH_TOKEN", true);
+        let hits = t.search("UNIQUE_SEARCH_TOKEN", true, false);
         assert_eq!(
             hits.len(),
             3,
@@ -815,8 +817,12 @@ mod tests {
             "match landed on a visible row, got {display_row}"
         );
         // A case-sensitive miss and an empty query both yield nothing.
-        assert!(t.search("unique_search_token", true).is_empty());
-        assert!(t.search("", false).is_empty());
+        assert!(t.search("unique_search_token", true, false).is_empty());
+        assert!(t.search("", false, false).is_empty());
+        // Regex search: a pattern matches the token; an invalid pattern is Err →
+        // empty (so a half-typed regex highlights nothing rather than throwing).
+        assert_eq!(t.search("UNIQUE_[A-Z_]+TOKEN", true, true).len(), 3, "regex matches");
+        assert!(t.search("UNIQUE_[", true, true).is_empty(), "invalid regex → empty");
     }
 
     #[test]

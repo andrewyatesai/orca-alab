@@ -204,10 +204,22 @@ export function installTerminalCapabilityReplyHandlers(
     deps.parser.registerCsiHandler({ prefix: '?', final: 'n' }, () =>
       deps.isAtermReplyOwned?.() ?? false
     ),
+    // DECRQM — BOTH the private (CSI ? Ps $ p) and ANSI (CSI Ps $ p) variants; xterm
+    // and aterm each answer both, so suppress both on aterm panes.
     deps.parser.registerCsiHandler({ prefix: '?', intermediates: '$', final: 'p' }, () =>
       deps.isAtermReplyOwned?.() ?? false
     ),
+    deps.parser.registerCsiHandler({ intermediates: '$', final: 'p' }, () =>
+      deps.isAtermReplyOwned?.() ?? false
+    ),
+    // DA2 (CSI > c) and XTVERSION (CSI > q) — the xterm shim auto-answers both, and
+    // so does aterm; without suppression XTVERSION leaks a second "xterm.js(...)"
+    // reply into the shell. (DECSCUSR is CSI Ps SP q — different intermediate — so
+    // this `>`-prefixed q handler doesn't touch it.)
     deps.parser.registerCsiHandler({ prefix: '>', final: 'c' }, () =>
+      deps.isAtermReplyOwned?.() ?? false
+    ),
+    deps.parser.registerCsiHandler({ prefix: '>', final: 'q' }, () =>
       deps.isAtermReplyOwned?.() ?? false
     )
   ]

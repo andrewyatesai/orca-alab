@@ -92,6 +92,38 @@ describe('installTerminalCapabilityReplyHandlers', () => {
     }
   })
 
+  it('suppresses xterm XTVERSION + ANSI-DECRQM auto-replies for aterm-owned panes', async () => {
+    // aterm drains its OWN XTVERSION/DECRQM; the kept xterm shim must NOT also
+    // auto-reply (it would leak a second "xterm.js(...)" / "$y" into the shell).
+    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
+    const onData = vi.fn<(data: string) => void>()
+    term.onData(onData)
+    let atermOwned = true
+    const disposable = installTerminalCapabilityReplyHandlers({
+      terminal: term as never,
+      parser: term.parser,
+      sendInput: vi.fn(),
+      isReplaying: () => false,
+      isAtermReplyOwned: () => atermOwned
+    })
+
+    try {
+      // aterm-owned: xterm's own XTVERSION (CSI > q) + ANSI DECRQM (CSI 4 $ p)
+      // replies are consumed, so onData never fires.
+      await writeTerminal(term, '\x1b[>q')
+      await writeTerminal(term, '\x1b[4$p')
+      expect(onData, 'xterm must not auto-reply while aterm owns replies').not.toHaveBeenCalled()
+
+      // Non-aterm (xterm fallback): xterm answers XTVERSION itself again.
+      atermOwned = false
+      await writeTerminal(term, '\x1b[>q')
+      expect(onData, 'xterm answers XTVERSION on the non-aterm path').toHaveBeenCalled()
+    } finally {
+      disposable.dispose()
+      term.dispose()
+    }
+  })
+
   it('answers window and cell pixel-size reports from renderer geometry', () => {
     const sendInput = vi.fn<(data: string) => boolean>(() => true)
     const observe = createTerminalPixelSizeQueryResponder(

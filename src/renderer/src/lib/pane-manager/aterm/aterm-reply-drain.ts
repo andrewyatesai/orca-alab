@@ -5,8 +5,13 @@
 // guards as keystrokes. The xterm shim's own auto-replies are dropped for aterm
 // panes (see pty-connection), so this is the single source of replies.
 
-/** Drain + forward the engine's pending query replies. Reply bytes are ASCII, so
- *  latin1 decode (char code === byte) preserves them exactly for the PTY write. */
+/** Drain + forward the engine's pending query replies. The replies aterm emits
+ *  (DA1/DA2/DSR/CPR/DECRQM/OSC colour/XTVERSION/DECRQSS) are all ASCII, so latin1
+ *  decode (char code === byte) preserves them exactly for the PTY write. The only
+ *  reply path that could carry non-ASCII — XTWINOPS title reports — requires
+ *  `allow_window_ops` (off by default), so the ASCII invariant holds in practice;
+ *  any byte ≥ 0x80 is dropped here rather than letting the UTF-8 PTY stream
+ *  re-encode (and corrupt) it. */
 export function drainAtermReplies(
   term: { take_response: () => Uint8Array | undefined },
   inputSink: (data: string) => void
@@ -17,7 +22,11 @@ export function drainAtermReplies(
   }
   let out = ''
   for (let i = 0; i < reply.length; i++) {
-    out += String.fromCharCode(reply[i])
+    // Guard the ASCII invariant: a stray non-ASCII byte would be re-encoded by the
+    // UTF-8 PTY write into different bytes, so skip it rather than corrupt the reply.
+    if (reply[i] < 0x80) {
+      out += String.fromCharCode(reply[i])
+    }
   }
   inputSink(out)
 }

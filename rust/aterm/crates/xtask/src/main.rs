@@ -39,6 +39,7 @@ use aterm_spec::tla_check::TlaSpec;
 use aterm_spec::xref::{self, SpecModule};
 
 mod gate;
+mod perf;
 
 // Force the proof-anchor-bearing rlibs into the link graph: `inventory` only collects
 // `submit!`s from LINKED object code, and a bin that references NOTHING from these

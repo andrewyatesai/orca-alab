@@ -473,6 +473,88 @@ impl AtermTerminal {
         self.term.display_row_text(row as usize)
     }
 
+    /// Serialize the terminal to a REPLAYABLE ANSI string — the aterm-native
+    /// replacement for `@xterm/addon-serialize`'s `serialize({scrollback})`, so the
+    /// renderer no longer needs a shadow xterm.js buffer to snapshot/restore/fork a
+    /// pane. Layout: SGR reset, then the capped recent history (text + CRLF), then
+    /// `CSI H`, then each visible row placed with absolute CUP + erase-line (so a
+    /// full-width row can't autowrap on replay) emitted via the engine's
+    /// `row_ansi_text` (minimal change-based SGR, wide-char aware), then the cursor
+    /// restored. `scrollback_rows` = `None` prepends ALL history, `Some(n)` the last
+    /// `n`, `Some(0)` viewport-only. Ported from the daemon's proven `serialize_ansi`
+    /// (orca-terminal headless) so the output stays byte-compatible with the existing
+    /// string-based replay pipeline.
+    pub fn serialize(&self, scrollback_rows: Option<u32>) -> String {
+        let grid = self.term.grid();
+        let cap = scrollback_rows.map(|n| n as usize);
+        let active_history = grid.scrollback_lines();
+        let take = cap.map_or(active_history, |n| n.min(active_history));
+        let mut out = String::from("\x1b[0m");
+        for i in (active_history - take)..active_history {
+            let line = grid
+                .get_history_line(i)
+                .and_then(|l| l.as_str().map(|s| s.trim_end().to_string()))
+                .unwrap_or_default();
+            out.push_str(&line);
+            out.push_str("\r\n");
+        }
+        out.push_str("\x1b[H");
+        for r in 0..self.rows as u16 {
+            out.push_str(&format!("\x1b[{};1H\x1b[K", r + 1));
+            if let Some(row_ansi) = grid.row_ansi_text(r) {
+                out.push_str(&row_ansi);
+            }
+            out.push_str("\x1b[0m");
+        }
+        let c = self.term.cursor();
+        out.push_str(&format!("\x1b[{};{}H", c.row as usize + 1, c.col as usize + 1));
+        out
+    }
+
+    /// Scrollback HISTORY ONLY (the off-screen lines above the viewport) as flowing
+    /// text + CRLF, no cursor/grid framing. Reads the MAIN buffer's scrollback (aterm
+    /// keeps it in the inactive grid while the alt screen is active) so an in-alt
+    /// (vim/htop/less) snapshot still recovers the pre-TUI history — the only
+    /// recoverable history on cold-restore of an alt-screen session. `max_rows` caps
+    /// to the last `n` lines (`None` = all). Mirrors the daemon's serialize_scrollback_ansi.
+    pub fn serialize_scrollback(&self, max_rows: Option<u32>) -> String {
+        let grid = self.term.main_grid();
+        let history = grid.scrollback_lines();
+        if history == 0 {
+            return String::new();
+        }
+        let take = max_rows.map_or(history, |n| (n as usize).min(history));
+        let mut out = String::new();
+        for i in (history - take)..history {
+            let line = grid
+                .get_history_line(i)
+                .and_then(|l| l.as_str().map(|s| s.trim_end().to_string()))
+                .unwrap_or_default();
+            out.push_str(&line);
+            out.push_str("\r\n");
+        }
+        out
+    }
+
+    /// The window title (OSC 0/2), or `None` when unset — replaces the separate
+    /// title channel that fed off the shadow xterm so snapshots keep window titles.
+    pub fn title(&self) -> Option<String> {
+        let title = self.term.title();
+        if title.is_empty() {
+            None
+        } else {
+            Some(title.to_string())
+        }
+    }
+
+    /// Whether bracketed-paste mode (DECSET 2004) is active. The input seam reads
+    /// this to wrap pasted text in `ESC[200~ … ESC[201~` itself (replacing the old
+    /// reliance on xterm's `terminal.paste()`, which consulted xterm's own mode).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn bracketed_paste_mode(&self) -> bool {
+        self.term.modes().bracketed_paste()
+    }
+
     /// Search the full retained buffer (scrollback + visible) for `query`,
     /// returning matches as a flat `[abs_line, start_col, len]` triplet array so
     /// the JS host can highlight + scroll without re-scanning text. Lines are
@@ -663,6 +745,43 @@ impl AtermTerminal {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serialize_round_trips_visible_grid_into_a_fresh_engine() {
+        // The serialize output is replayable ANSI: feeding it into a fresh engine
+        // must reproduce the visible rows — proving it can replace xterm's
+        // SerializeAddon for snapshot/restore without a shadow xterm buffer.
+        let Some(mut a) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            return;
+        };
+        a.process(b"\x1b[1;32mhello\x1b[0m world\r\nsecond line\r\n$ ");
+        let snapshot = a.serialize(None);
+        assert!(snapshot.contains("hello"), "serialize carries visible text");
+
+        let Some(mut b) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            return;
+        };
+        b.process(snapshot.as_bytes());
+        for r in 0..3u16 {
+            assert_eq!(
+                a.row_text(r),
+                b.row_text(r),
+                "row {r} differs after serialize→replay"
+            );
+        }
+    }
+
+    #[test]
+    fn serialize_scrollback_is_history_only() {
+        let Some(mut a) = AtermTerminal::new_from_system(4, 20, 16.0) else {
+            return;
+        };
+        for i in 0..12 {
+            a.process(format!("line {i}\r\n").as_bytes());
+        }
+        let hist = a.serialize_scrollback(None);
+        assert!(hist.contains("line 0"), "scrollback keeps the oldest line");
+    }
 
     #[test]
     fn renders_text_to_a_nonempty_rgba_framebuffer() {

@@ -952,19 +952,21 @@ fn gate_perf() -> bool {
         "cargo",
         &["test", "-p", "aterm-core", "--test", "perf_scaling"],
     );
-    // The wall-clock THROUGHPUT baseline (tools/golden/perf-baseline.json) stays
-    // deferred: flaky on shared/throttled machines, needs median-of-N + a generous
-    // threshold. The deterministic allocation guards above are the enforced substrate.
-    let baseline = workspace_root().join("tools/golden/perf-baseline.json");
-    if baseline.exists() {
-        eprintln!("  perf-baseline.json present; wall-clock throughput comparison lands later.");
-    } else {
-        eprintln!("  (wall-clock throughput baseline deferred; deterministic guards enforced.)");
-    }
+    // WALL-CLOCK THROUGHPUT (PERF-WALLCLOCK-BASELINE lane): median-of-N MB/s of the
+    // engine's parse/process hot path against a committed, generously-thresholded
+    // baseline. Designed for a NO-CI multi-machine repo: it catches a CATASTROPHIC
+    // regression (debug-build slip, algorithmic blow-up, lock contention) but NEVER
+    // flakes on a normal/slower box — see `perf.rs`. Report-only (PASS) when no
+    // baseline is present, so a fresh checkout is never blocked.
+    ok &= crate::perf::gate_throughput();
     if ok {
-        eprintln!("gate perf: GREEN — MEM-BUDGET + PERF-BASELINE (allocation) within bounds.");
+        eprintln!(
+            "gate perf: GREEN — MEM-BUDGET + PERF-BASELINE (allocation) + wall-clock throughput within bounds."
+        );
     } else {
-        eprintln!("gate perf: FAILED — perf regression (memory or allocation scaling).");
+        eprintln!(
+            "gate perf: FAILED — perf regression (memory, allocation scaling, or wall-clock throughput)."
+        );
     }
     ok
 }

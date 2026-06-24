@@ -28,6 +28,10 @@ pub mod procedural;
 pub use aterm_types::text_shaping::{LigatureMode, TextShapingConfig};
 pub use ligature_shaping::ColumnGlyph;
 
+/// An interned parsed fallback face: its source bytes paired with the parsed
+/// `fontdue::Font`, so identical injected fonts share one ~370MB parse.
+type InternedFace = (std::sync::Arc<Vec<u8>>, std::sync::Arc<fontdue::Font>);
+
 thread_local! {
     /// Dedup large RAW font bytes (Apple Color Emoji ~180MB, Noto CJK ~100MB) across
     /// every `Renderer`/embedder in this address space. In the wasm renderer all
@@ -39,9 +43,8 @@ thread_local! {
     /// Dedup PARSED fallback faces (a broad Unicode fallback is ~370MB once fontdue
     /// parses it) keyed by their source bytes, so N panes injecting the same fallback
     /// share ONE parsed face instead of paying ~370MB each.
-    static PARSED_FONT_INTERN: std::cell::RefCell<
-        Vec<(std::sync::Arc<Vec<u8>>, std::sync::Arc<fontdue::Font>)>,
-    > = const { std::cell::RefCell::new(Vec::new()) };
+    static PARSED_FONT_INTERN: std::cell::RefCell<Vec<InternedFace>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Return a shared `Arc` for `bytes`, reusing an already-interned identical blob so

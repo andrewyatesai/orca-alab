@@ -232,6 +232,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     liveRegion,
     term,
     getRows: () => rows,
+    isAltScreen: () => term.is_alt_screen,
     isDisposed: () => disposed
   })
 

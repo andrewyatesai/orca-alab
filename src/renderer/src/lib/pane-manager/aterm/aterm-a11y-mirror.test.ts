@@ -4,83 +4,121 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createAtermA11yMirror } from './aterm-a11y-mirror'
 
-type RowReader = { row_text: (row: number) => string | undefined }
+type FakeTerm = {
+  row_text: (row: number) => string | undefined
+  display_offset: number
+}
 
-function makeRows(rows: string[]): RowReader {
-  return { row_text: (r: number) => rows[r] }
+function makeTerm(rows: string[], displayOffset = 0): FakeTerm {
+  return { row_text: (r: number) => rows[r], display_offset: displayOffset }
 }
 
 describe('createAtermA11yMirror', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-  })
-  afterEach(() => {
-    vi.useRealTimers()
-  })
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
 
-  it('mirrors the visible grid text into the live region after the debounce', () => {
+  it('appends visible main-screen output into the live region after the debounce', () => {
     const liveRegion = document.createElement('div')
-    const term = makeRows(['$ echo hi', 'hi', ''])
+    const term = makeTerm(['$ echo hi', 'hi', ''])
     const mirror = createAtermA11yMirror({
       liveRegion,
       term,
       getRows: () => 3,
+      isAltScreen: () => false,
       isDisposed: () => false
     })
 
     mirror.schedule()
     expect(liveRegion.textContent).toBe('') // debounced; nothing yet
     vi.advanceTimersByTime(250)
-    // Trailing blank rows trimmed; visible content preserved.
-    expect(liveRegion.textContent).toBe('$ echo hi\nhi')
+    // Trailing blank rows trimmed; each line is its own appended node.
+    expect(liveRegion.childElementCount).toBe(2)
+    expect(liveRegion.textContent).toContain('$ echo hi')
+    expect(liveRegion.textContent).toContain('hi')
   })
 
-  it('coalesces a burst of schedules into a single write', () => {
+  it('appends ONLY the new tail as output scrolls (no re-announce of old lines)', () => {
     const liveRegion = document.createElement('div')
-    const term = makeRows(['line one', 'line two'])
-    const setSpy = vi.spyOn(liveRegion, 'textContent', 'set')
+    let rows = ['line 1', 'line 2', 'line 3']
+    const term: FakeTerm = { row_text: (r) => rows[r], display_offset: 0 }
+    const mirror = createAtermA11yMirror({
+      liveRegion,
+      term,
+      getRows: () => 3,
+      isAltScreen: () => false,
+      isDisposed: () => false
+    })
+
+    mirror.schedule()
+    vi.advanceTimersByTime(250)
+    expect(liveRegion.childElementCount).toBe(3)
+
+    // Output scrolled up by one: the window is now lines 2..4; only "line 4" is new.
+    rows = ['line 2', 'line 3', 'line 4']
+    mirror.schedule()
+    vi.advanceTimersByTime(250)
+    expect(liveRegion.childElementCount).toBe(4) // appended exactly one
+    expect(liveRegion.lastChild?.textContent).toBe('line 4')
+  })
+
+  it('does not append when the screen is unchanged', () => {
+    const liveRegion = document.createElement('div')
+    const term = makeTerm(['same'])
+    const mirror = createAtermA11yMirror({
+      liveRegion,
+      term,
+      getRows: () => 1,
+      isAltScreen: () => false,
+      isDisposed: () => false
+    })
+
+    mirror.schedule()
+    vi.advanceTimersByTime(250)
+    mirror.schedule()
+    vi.advanceTimersByTime(250)
+    expect(liveRegion.childElementCount).toBe(1) // appended once, not twice
+  })
+
+  it('does not append while the viewport is scrolled back (review mode)', () => {
+    const liveRegion = document.createElement('div')
+    const term = makeTerm(['history line'], 5) // display_offset > 0
+    const mirror = createAtermA11yMirror({
+      liveRegion,
+      term,
+      getRows: () => 1,
+      isAltScreen: () => false,
+      isDisposed: () => false
+    })
+
+    mirror.schedule()
+    vi.advanceTimersByTime(250)
+    expect(liveRegion.childElementCount).toBe(0)
+  })
+
+  it('mirrors the visible grid verbatim on the alternate screen (TUI)', () => {
+    const liveRegion = document.createElement('div')
+    const term = makeTerm(['TUI top', 'TUI bottom'])
     const mirror = createAtermA11yMirror({
       liveRegion,
       term,
       getRows: () => 2,
-      isDisposed: () => false
-    })
-
-    mirror.schedule()
-    mirror.schedule()
-    mirror.schedule()
-    vi.advanceTimersByTime(250)
-    expect(setSpy).toHaveBeenCalledTimes(1)
-    expect(liveRegion.textContent).toBe('line one\nline two')
-  })
-
-  it('does not rewrite the live region when the text is unchanged', () => {
-    const liveRegion = document.createElement('div')
-    const term = makeRows(['same'])
-    const setSpy = vi.spyOn(liveRegion, 'textContent', 'set')
-    const mirror = createAtermA11yMirror({
-      liveRegion,
-      term,
-      getRows: () => 1,
+      isAltScreen: () => true,
       isDisposed: () => false
     })
 
     mirror.schedule()
     vi.advanceTimersByTime(250)
-    mirror.schedule()
-    vi.advanceTimersByTime(250)
-    // Two refreshes ran, but the identical text is written only once.
-    expect(setSpy).toHaveBeenCalledTimes(1)
+    expect(liveRegion.textContent).toBe('TUI top\nTUI bottom')
   })
 
   it('skips the refresh when disposed before the timer fires', () => {
     const liveRegion = document.createElement('div')
-    const term = makeRows(['content'])
     let disposed = false
     const mirror = createAtermA11yMirror({
       liveRegion,
-      term,
+      term: makeTerm(['content']),
       getRows: () => 1,
+      isAltScreen: () => false,
       isDisposed: () => disposed
     })
 
@@ -92,11 +130,11 @@ describe('createAtermA11yMirror', () => {
 
   it('dispose cancels a pending refresh', () => {
     const liveRegion = document.createElement('div')
-    const term = makeRows(['content'])
     const mirror = createAtermA11yMirror({
       liveRegion,
-      term,
+      term: makeTerm(['content']),
       getRows: () => 1,
+      isAltScreen: () => false,
       isDisposed: () => false
     })
 

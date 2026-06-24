@@ -266,6 +266,17 @@ impl AtermGpuTerminal {
         }
     }
 
+    /// Re-rasterize at a new cell font px (host DPI / devicePixelRatio change) on
+    /// both the CPU fallback face and the live GPU renderer (which also drops its
+    /// atlas). The host re-reads cell_width/cell_height + resizes the grid after.
+    pub fn set_px(&mut self, px: f32) {
+        self.cpu.set_px(px);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_px(px);
+            gpu.win.invalidate_present();
+        }
+    }
+
     /// Resize the grid AND, if the GPU is live, the swapchain to match the new
     /// pixel extent (host recomputes cols/rows for the canvas first).
     pub fn resize(&mut self, rows: u16, cols: u16) {

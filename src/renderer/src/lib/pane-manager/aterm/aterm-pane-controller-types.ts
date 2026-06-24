@@ -3,6 +3,11 @@ import type { AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import type { AtermThemeColors } from './aterm-theme-colors'
 
+/** Base cell font size in CSS px; scaled by devicePixelRatio for device-px
+ *  rendering. Shared home so the wiring (dpr re-rasterize) and the pane renderer
+ *  (construction fontPx) agree without a circular import. */
+export const ATERM_RENDERER_FONT_PX = 14
+
 export type AtermPaneInputSink = (data: string) => void
 export type AtermPaneResizeSink = (cols: number, rows: number) => void
 /** Send PASTED text; wraps with bracketed-paste markers when DECSET 2004 is on. */

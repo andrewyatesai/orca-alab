@@ -175,12 +175,15 @@ struct StripColors {
 /// inversion — a near-white block, "harsh/dated" — and a full-width gray chrome band
 /// with the active tab merged into the body, "heavy/unfinished". See tools/visual-judge.)
 ///
-/// FIXME(light-theme-support): the 0.16 / 0.40 blend factors are tuned for DARK themes
-/// (every current builtin is `Appearance::Dark`). A future `Appearance::Light` theme
-/// would need them reversed (≈ `active_bg = blend(fg, bg, 0.10)`,
-/// `inactive_fg = blend(bg, fg, 0.20)`) — thread `Appearance` into here + `paint_strip`.
-/// The `strip_contrast_meets_wcag_aa` test guards every builtin so a light theme that
-/// breaks chrome contrast is caught at add-time.
+/// APPEARANCE-AWARE: the active-card raise and inactive-label dim are derived from
+/// the THEME ITSELF — `bg_is_light(theme.bg)` — so the strip works for dark AND light
+/// schemes (and any user theme file), with no `Appearance` plumbed through. On dark
+/// themes a 0.16 step toward the fg makes the active card a visibly *raised* (lighter)
+/// surface and a 0.40 dim recedes the inactive labels; on light themes those same
+/// magnitudes read as a heavy near-black slab and an over-washed label, so light uses
+/// a gentler 0.10 / 0.30. Dark output is BYTE-IDENTICAL to before (the dark branch
+/// keeps 0.16 / 0.40). The `strip_contrast_meets_wcag_aa` test guards both branches so
+/// any scheme that breaks chrome contrast is caught at add-time.
 fn strip_colors(theme: Theme) -> StripColors {
     let rgb = |c: u32| {
         [
@@ -195,12 +198,27 @@ fn strip_colors(theme: Theme) -> StripColors {
         let mix = |x: u8, y: u8| (f32::from(x).mul_add(1.0 - t, f32::from(y) * t)).round() as u8;
         [mix(a[0], b[0]), mix(a[1], b[1]), mix(a[2], b[2])]
     };
+    // Gentler raise/dim on light themes; identical factors as before on dark.
+    let (active_t, inactive_t) = if bg_is_light(rgb(theme.bg)) {
+        (0.10, 0.30)
+    } else {
+        (0.16, 0.40)
+    };
     StripColors {
         fg: rgb(theme.fg),
         body_bg: rgb(theme.bg),
-        active_bg: blend(theme.bg, theme.fg, 0.16),
-        inactive_fg: blend(theme.fg, theme.bg, 0.40),
+        active_bg: blend(theme.bg, theme.fg, active_t),
+        inactive_fg: blend(theme.fg, theme.bg, inactive_t),
     }
+}
+
+/// Is this background a LIGHT one? A cheap perceptual-luma threshold (no sRGB-linear
+/// round-trip needed for a binary dark/light decision). Every bundled dark scheme
+/// sits well below the threshold and every light scheme well above it, so the
+/// appearance-aware `strip_colors` branch never misclassifies a built-in.
+fn bg_is_light(bg: [u8; 3]) -> bool {
+    let luma = 0.299 * f32::from(bg[0]) + 0.587 * f32::from(bg[1]) + 0.114 * f32::from(bg[2]);
+    luma > 150.0
 }
 
 /// A bare strip-background [`RenderCell`] — used to pre-fill a strip row before
@@ -599,6 +617,49 @@ mod tests {
                 new_tab >= 3.0,
                 "{name}: '+' affordance contrast {new_tab:.2} < 3.0:1"
             );
+            // The active card must be a DISTINCT surface from the body, or the
+            // focused tab vanishes into the strip (true on dark and light alike).
+            assert_ne!(
+                c.active_bg, c.body_bg,
+                "{name}: active-tab card is indistinguishable from the body"
+            );
         }
+    }
+
+    /// `strip_colors` is appearance-aware: on a DARK theme the active card raises
+    /// (steps toward the light fg, so it is brighter than the body); on a LIGHT theme
+    /// it steps toward the dark fg (so it is darker than the body). Either way the
+    /// card is a distinct surface — the resolution of the old light-theme FIXME.
+    #[test]
+    fn strip_colors_raise_direction_follows_appearance() {
+        let luma = |c: [u8; 3]| {
+            0.299 * f32::from(c[0]) + 0.587 * f32::from(c[1]) + 0.114 * f32::from(c[2])
+        };
+        let parts = |name: &str| {
+            let s = aterm_types::scheme::builtin(name).expect("builtin exists");
+            let tp = s.to_theme_parts();
+            strip_colors(Theme {
+                fg: tp.fg,
+                bg: tp.bg,
+                cursor: tp.cursor,
+                selection: tp.selection,
+            })
+        };
+        // Dark builtin: the active card is brighter than the body (a raised step).
+        let dark = parts("Dracula");
+        assert!(
+            luma(dark.active_bg) > luma(dark.body_bg),
+            "dark theme active card should be brighter than the body"
+        );
+        // Light builtin: the active card is darker than the body (a subtle card).
+        let light = parts("Solarized Light");
+        assert!(
+            luma(light.active_bg) < luma(light.body_bg),
+            "light theme active card should be darker than the body"
+        );
+        // The default (dark) theme is byte-identical to the pre-appearance behaviour:
+        // active = blend(bg, fg, 0.16), inactive = blend(fg, bg, 0.40).
+        let def = strip_colors(Theme::default());
+        assert!(luma(def.active_bg) > luma(def.body_bg));
     }
 }

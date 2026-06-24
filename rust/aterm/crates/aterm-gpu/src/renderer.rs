@@ -1448,6 +1448,14 @@ impl GpuRenderer {
         self.cpu.set_selection_fg(fg);
     }
 
+    /// Re-rasterize at a new pixel size (host DPI / devicePixelRatio change): update
+    /// the wrapped CPU face's metrics + glyph caches and drop the GPU atlas so the
+    /// next frame re-uploads glyphs at the new size. The host then resizes the grid.
+    pub fn set_px(&mut self, px: f32) {
+        self.cpu.set_px(px);
+        self.invalidate_atlas();
+    }
+
     /// Inject a broad-coverage (CJK + symbols) fallback face into the GPU's CPU
     /// face from font bytes and invalidate the atlas so the next frame
     /// re-rasterizes the new coverage. The browser GPU path has no system-font

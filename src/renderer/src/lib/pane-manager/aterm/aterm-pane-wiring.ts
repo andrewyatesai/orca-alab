@@ -26,6 +26,7 @@ import type {
   AtermPaneResizeSink,
   AtermPaneControllerOptions
 } from './aterm-pane-controller-types'
+import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 
 /** Everything the wiring needs to turn a loaded strategy into a live pane. */
 export type AtermPaneWiringConfig = {
@@ -73,8 +74,11 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const { pending, canvas, container, textarea, liveRegion, themeColors, shared } = config
   const { inputSink, resizeSink, pasteSink, controllerOptions } = config
   const term = pending.term
-  const cellWidth = pending.cellWidth
-  const cellHeight = pending.cellHeight
+  // Mutable: a host DPI / devicePixelRatio change re-rasterizes the engine at a new
+  // font px (term.set_px) and these are re-read, so the grid + overlays resize
+  // instead of staying frozen at the construction-dpr cell size.
+  let cellWidth = pending.cellWidth
+  let cellHeight = pending.cellHeight
 
   let dpr = window.devicePixelRatio || 1
   let disposed = false
@@ -281,7 +285,14 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     isDisposed: () => disposed,
     onDprChange: (nextDpr) => {
       dpr = nextDpr
+      // Re-rasterize at the new density's cell font px so cell metrics rebuild
+      // (otherwise the grid stays sized for the construction dpr — wrong columns).
+      term.set_px(Math.round(ATERM_RENDERER_FONT_PX * nextDpr))
+      cellWidth = term.cell_width
+      cellHeight = term.cell_height
       selectionDeps.dpr = nextDpr
+      selectionDeps.cellWidth = cellWidth
+      selectionDeps.cellHeight = cellHeight
       scrollDeps.dpr = nextDpr
       linkDeps.dpr = nextDpr
       eventReportingInput.setDpr(nextDpr)

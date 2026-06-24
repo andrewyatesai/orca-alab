@@ -1603,6 +1603,34 @@ impl Renderer {
         self.theme = theme;
     }
 
+    /// Re-rasterize at a new pixel size — for a host DPI / devicePixelRatio change,
+    /// so a pane moved to a different-density display rebuilds its cell metrics
+    /// instead of staying frozen at the construction-dpr size (which would mis-size
+    /// the grid). Re-derives cell_w/cell_h/baseline from the font's metrics at `px`
+    /// and drops the glyph caches (they were rasterized at the old px). No-op if the
+    /// size is unchanged or the font lacks metrics at `px`.
+    pub fn set_px(&mut self, px: f32) {
+        if (px - self.px).abs() < 0.01 {
+            return;
+        }
+        let Some(lm) = self.font.horizontal_line_metrics(px) else {
+            return;
+        };
+        let adv = self.font.metrics('M', px).advance_width;
+        self.px = px;
+        self.px_q = GlyphKey::quantize_px(px);
+        self.cell_w = adv.ceil().max(1.0) as usize;
+        self.cell_h = lm.new_line_size.ceil().max(1.0) as usize;
+        self.baseline = lm.ascent.round() as i32;
+        // Glyphs were rasterized at the old px; drop the caches so they re-rasterize.
+        self.glyphs.clear();
+        self.keys.clear();
+        self.emoji_keys.clear();
+        self.styled_keys.clear();
+        self.cluster_gids.clear();
+        self.shaped_runs.clear();
+    }
+
     /// Set the explicit selected-text foreground (theme `selectionForeground`), or
     /// `None` to restore the WCAG contrast-floor default. Applied at blit time like
     /// the theme, so no glyph-cache invalidation is needed.

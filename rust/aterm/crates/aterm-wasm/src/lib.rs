@@ -189,6 +189,14 @@ impl AtermTerminal {
         self.renderer.set_selection_fg(fg);
     }
 
+    /// Re-rasterize at a new cell font px (host DPI / devicePixelRatio change) so the
+    /// pane rebuilds its cell metrics instead of staying frozen at the construction
+    /// dpr. The host re-reads cell_width/cell_height + recomputes the grid after.
+    pub fn set_px(&mut self, px: f32) {
+        self.force_full_repaint = true;
+        self.renderer.set_px(px);
+    }
+
     /// Resize the grid (after the host recomputes cols/rows for the canvas).
     pub fn resize(&mut self, rows: u16, cols: u16) {
         self.term.resize(rows, cols);

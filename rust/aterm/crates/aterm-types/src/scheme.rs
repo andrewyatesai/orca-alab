@@ -362,6 +362,127 @@ static BUILTINS: &[Builtin] = &[
             c(0xab, 0xb2, 0xbf),
         ],
     },
+    // ── Light schemes ─────────────────────────────────────────────────────────
+    // Light counterparts so the OS-appearance bridge (`aterm-gui` feeds the live
+    // `winit` light/dark theme into the engine) has a real light scheme to switch
+    // to. Same provenance as the dark set (github.com/mbadolato/iTerm2-Color-Schemes,
+    // ghostty format). NOTE: several upstream light files set `selection` to the dark
+    // *foreground* (they rely on a selection-foreground swap aterm doesn't do — it
+    // paints selection as a BACKGROUND only). Those would render selected text
+    // invisibly (dark-on-dark), so each is replaced with that theme's proper LIGHT
+    // selection surface — the mirror of the Nord/Catppuccin dark-selection fix above.
+    // The `selection_is_legible_over_foreground` test guards every substitution.
+    Builtin {
+        name: "Solarized Light",
+        appearance: Appearance::Light,
+        fg: c(0x65, 0x7b, 0x83),
+        bg: c(0xfd, 0xf6, 0xe3),
+        cursor: c(0x65, 0x7b, 0x83),
+        selection: c(0xee, 0xe8, 0xd5), // base2 — upstream value, already a light surface
+        ansi: [
+            c(0x07, 0x36, 0x42),
+            c(0xdc, 0x32, 0x2f),
+            c(0x85, 0x99, 0x00),
+            c(0xb5, 0x89, 0x00),
+            c(0x26, 0x8b, 0xd2),
+            c(0xd3, 0x36, 0x82),
+            c(0x2a, 0xa1, 0x98),
+            c(0xbb, 0xb5, 0xa2),
+            c(0x00, 0x2b, 0x36),
+            c(0xcb, 0x4b, 0x16),
+            c(0x58, 0x6e, 0x75),
+            c(0x65, 0x7b, 0x83),
+            c(0x83, 0x94, 0x96),
+            c(0x6c, 0x71, 0xc4),
+            c(0x93, 0xa1, 0xa1),
+            c(0xfd, 0xf6, 0xe3),
+        ],
+    },
+    Builtin {
+        name: "Gruvbox Light",
+        appearance: Appearance::Light,
+        fg: c(0x3c, 0x38, 0x36),
+        bg: c(0xfb, 0xf1, 0xc7),
+        cursor: c(0x3c, 0x38, 0x36),
+        // Upstream selection is the dark fg #3c3836 (invisible as a bg highlight);
+        // replaced with Gruvbox light3 #bdae93 — the mirror of dark3 #665c54 used by
+        // Gruvbox Dark above.
+        selection: c(0xbd, 0xae, 0x93),
+        ansi: [
+            c(0xfb, 0xf1, 0xc7),
+            c(0xcc, 0x24, 0x1d),
+            c(0x98, 0x97, 0x1a),
+            c(0xd7, 0x99, 0x21),
+            c(0x45, 0x85, 0x88),
+            c(0xb1, 0x62, 0x86),
+            c(0x68, 0x9d, 0x6a),
+            c(0x7c, 0x6f, 0x64),
+            c(0x92, 0x83, 0x74),
+            c(0x9d, 0x00, 0x06),
+            c(0x79, 0x74, 0x0e),
+            c(0xb5, 0x76, 0x14),
+            c(0x07, 0x66, 0x78),
+            c(0x8f, 0x3f, 0x71),
+            c(0x42, 0x7b, 0x58),
+            c(0x3c, 0x38, 0x36),
+        ],
+    },
+    Builtin {
+        name: "Catppuccin Latte",
+        appearance: Appearance::Light,
+        fg: c(0x4c, 0x4f, 0x69),
+        bg: c(0xef, 0xf1, 0xf5),
+        cursor: c(0xdc, 0x8a, 0x78), // Rosewater (mirrors Mocha's Rosewater cursor)
+        // Upstream selection is the Rosewater accent; replaced with Latte Surface2
+        // #acb0be — the mirror of the Mocha Surface2 #585b70 substitution above.
+        selection: c(0xac, 0xb0, 0xbe),
+        ansi: [
+            c(0xbc, 0xc0, 0xcc),
+            c(0xd2, 0x0f, 0x39),
+            c(0x40, 0xa0, 0x2b),
+            c(0xdf, 0x8e, 0x1d),
+            c(0x1e, 0x66, 0xf5),
+            c(0xea, 0x76, 0xcb),
+            c(0x17, 0x92, 0x99),
+            c(0x5c, 0x5f, 0x77),
+            c(0xac, 0xb0, 0xbe),
+            c(0xe7, 0x10, 0x3f),
+            c(0x46, 0xb0, 0x2f),
+            c(0xe4, 0x99, 0x31),
+            c(0x38, 0x78, 0xf6),
+            c(0xef, 0x95, 0xd7),
+            c(0x19, 0xa1, 0xa8),
+            c(0x6c, 0x6f, 0x85),
+        ],
+    },
+    Builtin {
+        name: "GitHub Light",
+        appearance: Appearance::Light,
+        fg: c(0x1f, 0x23, 0x28),
+        bg: c(0xff, 0xff, 0xff),
+        cursor: c(0x09, 0x69, 0xda), // GitHub accent blue — upstream value, highly legible
+        // Upstream selection is the dark fg #1f2328 (invisible as a bg highlight);
+        // replaced with Primer blue-1 #b6e3ff, GitHub's own light selection tint.
+        selection: c(0xb6, 0xe3, 0xff),
+        ansi: [
+            c(0x24, 0x29, 0x2f),
+            c(0xcf, 0x22, 0x2e),
+            c(0x11, 0x63, 0x29),
+            c(0x4d, 0x2d, 0x00),
+            c(0x09, 0x69, 0xda),
+            c(0x82, 0x50, 0xdf),
+            c(0x1b, 0x7c, 0x83),
+            c(0x6e, 0x77, 0x81),
+            c(0x57, 0x60, 0x6a),
+            c(0xa4, 0x0e, 0x26),
+            c(0x1a, 0x7f, 0x37),
+            c(0x63, 0x3c, 0x01),
+            c(0x21, 0x8b, 0xff),
+            c(0xa4, 0x75, 0xf9),
+            c(0x31, 0x92, 0xaa),
+            c(0x8c, 0x95, 0x9f),
+        ],
+    },
 ];
 
 /// Look up a built-in scheme by name (case-insensitive). `"Default"` resolves to
@@ -401,6 +522,10 @@ pub fn builtin_description(name: &str) -> &'static str {
         "Gruvbox Dark" => "retro-groove dark theme, warm earthy colours",
         "Solarized Dark" => "dark variant of the Solarized precision palette",
         "One Dark" => "Atom One Dark — atom-inspired dark theme",
+        "Solarized Light" => "light variant of the Solarized precision palette",
+        "Gruvbox Light" => "retro-groove light theme, warm earthy colours",
+        "Catppuccin Latte" => "warm, soothing light theme (Catppuccin latte)",
+        "GitHub Light" => "GitHub's light UI palette — crisp on white",
         _ => "a built-in colour scheme",
     }
 }
@@ -799,6 +924,64 @@ mod tests {
         assert_eq!(g("Solarized Dark").background, Rgb::new(0x00, 0x2b, 0x36));
         assert_eq!(g("Gruvbox Dark").foreground, Rgb::new(0xeb, 0xdb, 0xb2));
         assert_eq!(g("One Dark").ansi[4], Rgb::new(0x61, 0xaf, 0xef));
+        // Light schemes: a chrome anchor + the deliberate light-selection
+        // substitutions (so a corrupted constant can't pass vacuously).
+        assert_eq!(g("Solarized Light").background, Rgb::new(0xfd, 0xf6, 0xe3));
+        assert_eq!(
+            g("Solarized Light").selection,
+            Some(Rgb::new(0xee, 0xe8, 0xd5))
+        );
+        assert_eq!(g("Gruvbox Light").background, Rgb::new(0xfb, 0xf1, 0xc7));
+        assert_eq!(
+            g("Gruvbox Light").selection,
+            Some(Rgb::new(0xbd, 0xae, 0x93))
+        );
+        assert_eq!(g("Catppuccin Latte").background, Rgb::new(0xef, 0xf1, 0xf5));
+        assert_eq!(
+            g("Catppuccin Latte").selection,
+            Some(Rgb::new(0xac, 0xb0, 0xbe))
+        );
+        assert_eq!(g("GitHub Light").background, Rgb::new(0xff, 0xff, 0xff));
+        assert_eq!(
+            g("GitHub Light").selection,
+            Some(Rgb::new(0xb6, 0xe3, 0xff))
+        );
+    }
+
+    /// Every built-in light scheme is actually light (`Appearance::Light` AND a
+    /// background brighter than its foreground), and on EVERY built-in — dark or
+    /// light — the default foreground stays legible OVER the selection surface
+    /// (contrast ≥ 3.0:1). aterm paints selection as a background ONLY, so a scheme
+    /// whose `selection` collapses onto the text colour would render selected text
+    /// invisibly; this guards the light-theme dark-fg→light-surface substitutions.
+    #[test]
+    fn light_builtins_are_light_and_selection_legible() {
+        // A quick perceptual luma (0-255) so "light" means what the eye sees.
+        let luma =
+            |c: Rgb| 0.299 * f64::from(c.r) + 0.587 * f64::from(c.g) + 0.114 * f64::from(c.b);
+        let mut saw_light = 0;
+        for name in builtin_names() {
+            let s = builtin(name).expect("builtin resolves");
+            if s.appearance == Appearance::Light {
+                saw_light += 1;
+                assert!(
+                    luma(s.background) > luma(s.foreground),
+                    "{name}: a Light scheme must have a background brighter than its fg"
+                );
+            }
+            // Selection legibility: the selection background (or the renderer default
+            // when unset) must hold ≥ 3.0:1 against the default foreground.
+            let sel = s.selection.unwrap_or(SELECTION_DEFAULT);
+            let contrast = s.foreground.contrast(sel);
+            assert!(
+                contrast >= 3.0,
+                "{name}: fg-over-selection contrast {contrast:.2} < 3.0:1 (selected text would be illegible)"
+            );
+        }
+        assert!(
+            saw_light >= 4,
+            "expected the bundled light schemes to be present"
+        );
     }
 
     /// A full disk theme string parses into the expected `ColorScheme`: chrome,

@@ -23,7 +23,10 @@ export type {
 } from './aterm-pane-controller-types'
 
 // Font cell size in CSS pixels; multiplied by devicePixelRatio for the engine.
-export const ATERM_RENDERER_FONT_PX = 14
+// Imported from the shared home (used at construction) + re-exported so existing
+// importers are unaffected.
+import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
+export { ATERM_RENDERER_FONT_PX }
 
 /** Build a grid `<canvas>` styled to fill the pane. `pixelated` keeps the
  *  device-pixel framebuffer crisp when scaled to CSS pixels (CPU + GPU both

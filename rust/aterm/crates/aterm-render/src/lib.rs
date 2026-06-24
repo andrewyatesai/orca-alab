@@ -525,6 +525,15 @@ impl WindowCpu {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Drop the damage cache so the NEXT `render_input_cached` is a full repaint.
+    /// Needed after an appearance change that is NOT cell content — theme, palette,
+    /// or font — since the dirty-row diff tracks content only and would otherwise
+    /// leave the selection band, idle cursor, padding, or recoloured cells stale.
+    /// (Mirrors `WindowGpu::invalidate_present` for the CPU presentation path.)
+    pub fn invalidate(&mut self) {
+        self.cache = None;
+    }
 }
 
 /// Decoded-image LRU for the CPU renderer's inline-image pass. Keyed by the

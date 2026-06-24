@@ -9,7 +9,10 @@ export const DA1_RESPONSE_WITH_SIXEL = '\x1b[?1;2;4c'
 
 type TerminalCapabilityRepliesDeps = {
   terminal: Pick<Terminal, 'cols' | 'rows' | 'element'>
-  parser: Pick<IParser, 'registerCsiHandler'>
+  // registerDcsHandler too: aterm also drains its OWN DECRQSS (DCS $q) reply, and
+  // xterm answers DECRQSS via a DCS handler — so suppressing the double-answer
+  // needs the DCS surface, not just CSI.
+  parser: Pick<IParser, 'registerCsiHandler' | 'registerDcsHandler'>
   sendInput: (data: string) => boolean | void
   isReplaying: () => boolean
   /** DA1 reply — a string, or a getter resolved at reply time so it can depend on
@@ -220,6 +223,22 @@ export function installTerminalCapabilityReplyHandlers(
       deps.isAtermReplyOwned?.() ?? false
     ),
     deps.parser.registerCsiHandler({ prefix: '>', final: 'q' }, () =>
+      deps.isAtermReplyOwned?.() ?? false
+    ),
+    // Kitty keyboard QUERY (CSI ? u): aterm answers it (current progressive-
+    // enhancement flags) and xterm answers it too when vtExtensions.kittyKeyboard
+    // is on (it is, for all panes), so suppress xterm's on aterm panes. Only the
+    // `?`-prefixed QUERY — the push/pop/set forms (CSI > u / < u / = u) still reach
+    // xterm so its input encoder tracks the same flags.
+    deps.parser.registerCsiHandler({ prefix: '?', final: 'u' }, () =>
+      deps.isAtermReplyOwned?.() ?? false
+    ),
+    // DECRQSS (DCS $ q ... ST): aterm drains its OWN status-string reply for
+    // DECSCUSR/SGR/DECSTBM/DECSCL/DECSCA queries, and xterm answers the identical
+    // set via its DCS handler — a second "DCS 1$r...ST" would leak into the shell
+    // (e.g. vim probing DECSCUSR at startup). Consume it on aterm panes; the DCS
+    // callback returning true stops xterm's built-in requestStatusString.
+    deps.parser.registerDcsHandler({ intermediates: '$', final: 'q' }, () =>
       deps.isAtermReplyOwned?.() ?? false
     )
   ]

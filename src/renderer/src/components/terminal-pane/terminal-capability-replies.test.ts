@@ -124,6 +124,42 @@ describe('installTerminalCapabilityReplyHandlers', () => {
     }
   })
 
+  it('suppresses xterm DECRQSS (DCS $q) + kitty ?u auto-replies for aterm-owned panes', async () => {
+    // aterm drains its OWN DECRQSS + kitty-keyboard-query replies; the kept xterm
+    // shim must NOT also auto-reply (it would leak a second "DCS 1$r...ST" / "[?Nu"
+    // into the shell). These live on the DCS surface (DECRQSS) and the ?u CSI — the
+    // exact double-answer class the CSI XTVERSION suppressor doesn't reach.
+    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
+    // Kitty query only fires when the extension is enabled (mirrors production).
+    term.options.vtExtensions = { kittyKeyboard: true }
+    const onData = vi.fn<(data: string) => void>()
+    term.onData(onData)
+    let atermOwned = true
+    const disposable = installTerminalCapabilityReplyHandlers({
+      terminal: term as never,
+      parser: term.parser,
+      sendInput: vi.fn(),
+      isReplaying: () => false,
+      isAtermReplyOwned: () => atermOwned
+    })
+
+    try {
+      // aterm-owned: xterm's DECRQSS (DCS $ q "q" ST → DECSCUSR) + kitty query (CSI ? u)
+      // are consumed, so onData never fires.
+      await writeTerminal(term, '\x1bP$q q\x1b\\')
+      await writeTerminal(term, '\x1b[?u')
+      expect(onData, 'xterm must not auto-reply DECRQSS/kitty while aterm owns replies').not.toHaveBeenCalled()
+
+      // Non-aterm (xterm fallback): xterm answers the kitty query itself again.
+      atermOwned = false
+      await writeTerminal(term, '\x1b[?u')
+      expect(onData, 'xterm answers the kitty query on the non-aterm path').toHaveBeenCalled()
+    } finally {
+      disposable.dispose()
+      term.dispose()
+    }
+  })
+
   it('answers window and cell pixel-size reports from renderer geometry', () => {
     const sendInput = vi.fn<(data: string) => boolean>(() => true)
     const observe = createTerminalPixelSizeQueryResponder(
@@ -318,7 +354,9 @@ describe('installTerminalCapabilityReplyHandlers', () => {
             const value = cb(params) as boolean
             returnValues.push(value)
             return value
-          })
+          }),
+        registerDcsHandler: (id, cb) =>
+          term.parser.registerDcsHandler(id, (data, params) => cb(data, params) as boolean)
       },
       sendInput,
       isReplaying: () => false

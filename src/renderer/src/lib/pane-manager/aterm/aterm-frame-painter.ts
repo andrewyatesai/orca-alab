@@ -63,8 +63,13 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
     term.render()
     const width = term.width
     const height = term.height
-    canvas.width = width
-    canvas.height = height
+    // Only assign on a real size change: writing canvas.width/height (even the same
+    // value) resets + reallocates the backing store every frame. putImageData below
+    // overwrites the whole canvas, so skipping the no-op assign is safe.
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
     // CSS size in logical pixels so the device-pixel framebuffer maps 1:1; reads
     // dpr live so a DPI move (M2) updates the on-screen size on the next frame.
     const dpr = getDpr()

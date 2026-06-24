@@ -18,7 +18,7 @@ use wasm_bindgen::prelude::*;
 use aterm_core::selection::SmartSelection;
 use aterm_core::selection::{SelectionSide, SelectionType};
 use aterm_core::terminal::{CursorStyle, MouseMode, Rgb, Terminal};
-use aterm_render::{Renderer, Theme};
+use aterm_render::{Renderer, Theme, WindowCpu};
 
 /// A terminal + CPU renderer pair. Feed PTY bytes with [`AtermTerminal::process`],
 /// then [`AtermTerminal::render`] to refresh the RGBA framebuffer, then read it
@@ -32,6 +32,14 @@ pub struct AtermTerminal {
     rgba: Vec<u8>,
     width: usize,
     height: usize,
+    // Persistent per-window damage cache: `render()` uses the damage-tracked
+    // `render_input_cached` so a 1-cell change re-rasterizes only its row, not the
+    // whole grid every frame. The GPU sibling already holds a persistent WindowGpu.
+    win: WindowCpu,
+    // Set by appearance-only changes (theme/palette/font) that the row-diff can't
+    // see; consumed by `render()` to force one full repaint. Without it the
+    // persistent cache would leave selection/cursor/recoloured cells stale.
+    force_full_repaint: bool,
     // Built-in smart-selection rules (url/file_path/email/...) for scroll-correct
     // link detection via smart_word_at; reused across link_at calls.
     smart: SmartSelection,
@@ -80,6 +88,8 @@ impl AtermTerminal {
             rgba: Vec::new(),
             width: 0,
             height: 0,
+            win: WindowCpu::new(),
+            force_full_repaint: false,
             smart: SmartSelection::with_builtin_rules(),
         })
     }
@@ -94,6 +104,7 @@ impl AtermTerminal {
     /// The canvas renderer can't read the host filesystem, so the host pushes the
     /// OS font bytes in. No-throw: a bad blob leaves the existing face untouched.
     pub fn set_fallback_font(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.force_full_repaint = true;
         self.renderer.set_fallback_bytes(bytes)
     }
 
@@ -102,6 +113,7 @@ impl AtermTerminal {
     /// supplies the OS emoji font. No-throw (the `String` Err surfaces as a
     /// catchable JS exception); a bad blob leaves the slot untouched.
     pub fn set_emoji_font(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.force_full_repaint = true;
         self.renderer.set_color_font_bytes(bytes.to_vec())
     }
 
@@ -110,6 +122,7 @@ impl AtermTerminal {
     /// through the host's theme palette instead of the engine's built-in VGA
     /// defaults. Per-cell truecolor SGR still flows independently.
     pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) {
+        self.force_full_repaint = true;
         self.term.set_palette_color_components(index, r, g, b);
     }
 
@@ -138,10 +151,12 @@ impl AtermTerminal {
     /// replies report the host theme (the engine otherwise reports its built-in
     /// defaults). RGB components, 0–255.
     pub fn set_default_foreground(&mut self, r: u8, g: u8, b: u8) {
+        self.force_full_repaint = true;
         self.term.set_default_foreground(Rgb { r, g, b });
     }
 
     pub fn set_default_background(&mut self, r: u8, g: u8, b: u8) {
+        self.force_full_repaint = true;
         self.term.set_default_background(Rgb { r, g, b });
     }
 
@@ -155,6 +170,9 @@ impl AtermTerminal {
     /// theme change re-themes the pane without rebuilding it. Per-cell SGR colours
     /// flow independently; pair with set_palette_color for the ANSI palette.
     pub fn set_theme(&mut self, fg: u32, bg: u32, cursor: u32, selection: u32) {
+        // Theme is appearance-only (selection band / idle cursor / padding / default
+        // cells) — not tracked by the row-diff — so force one full repaint next frame.
+        self.force_full_repaint = true;
         self.renderer.set_theme(Theme {
             fg,
             bg,
@@ -170,16 +188,27 @@ impl AtermTerminal {
         self.cols = cols as usize;
     }
 
-    /// Rasterize the current grid into the internal RGBA8 framebuffer.
+    /// Rasterize the current grid into the internal RGBA8 framebuffer via the
+    /// damage-tracked path: only rows that changed since the last frame are
+    /// re-rendered (the rest reuse the persistent cache), so streaming output and
+    /// single-keystroke edits don't re-rasterize the whole grid every frame.
     pub fn render(&mut self) {
+        // An appearance-only change (theme/palette/font) doesn't move any cell, so
+        // the row-diff wouldn't repaint it — drop the cache to force one full frame.
+        if self.force_full_repaint {
+            self.win.invalidate();
+            self.force_full_repaint = false;
+        }
         let input = self.term.cell_frame(self.rows, self.cols);
-        let frame = self.renderer.render_input(&input);
-        self.width = frame.width;
-        self.height = frame.height;
-        // aterm Frame pixels are packed 0x00RRGGBB; expand to RGBA8 for ImageData.
+        let view = self.renderer.render_input_cached(&mut self.win, &input);
+        self.width = view.width();
+        self.height = view.height();
+        // aterm pixels are packed 0x00RRGGBB; expand to RGBA8 for ImageData. (Field
+        // borrows are disjoint: `view` holds `self.win`, the loop writes `self.rgba`.)
+        let pixels = view.pixels();
         self.rgba.clear();
-        self.rgba.reserve(frame.pixels.len() * 4);
-        for &p in &frame.pixels {
+        self.rgba.reserve(pixels.len() * 4);
+        for &p in pixels {
             self.rgba.push((p >> 16) as u8);
             self.rgba.push((p >> 8) as u8);
             self.rgba.push(p as u8);
@@ -622,6 +651,8 @@ impl AtermTerminal {
             rgba: Vec::new(),
             width: 0,
             height: 0,
+            win: WindowCpu::new(),
+            force_full_repaint: false,
             smart: SmartSelection::with_builtin_rules(),
         })
     }
@@ -650,6 +681,64 @@ mod tests {
             rgba.chunks_exact(4).any(|px| px != bg),
             "rendered glyphs should produce non-background pixels"
         );
+    }
+
+    #[test]
+    fn incremental_render_is_byte_identical_to_a_single_full_render() {
+        // The persistent WindowCpu reuses unchanged rows across frames; the output
+        // must still equal a fresh full render of the same final content — proving
+        // the damage tracking is correct, not just faster.
+        let Some(mut warm) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping damage-parity test");
+            return;
+        };
+        let Some(mut fresh) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            return;
+        };
+        let steps: &[&[u8]] = &[b"$ ", b"ls -la\r\n", b"file one\r\n", b"\x1b[1;1HX"];
+        for s in steps {
+            warm.process(s);
+            warm.render(); // incremental every step → warm cache + dirty-row reuse
+            fresh.process(s);
+        }
+        fresh.render(); // one full render of the final state (cold cache)
+        assert_eq!(warm.width(), fresh.width());
+        assert_eq!(warm.height(), fresh.height());
+        assert_eq!(
+            warm.rgba(),
+            fresh.rgba(),
+            "incremental damage-tracked render must equal a fresh full render"
+        );
+    }
+
+    #[test]
+    fn set_theme_repaints_an_idle_pane_to_the_new_background() {
+        // With the persistent cache, an appearance-only change (no cell moved) would
+        // be skipped by the row-diff — set_theme must force a full repaint so the
+        // background actually re-themes on an otherwise-idle frame (CPU finding #7).
+        let Some(mut t) = AtermTerminal::new_from_system(24, 80, 16.0) else {
+            eprintln!("no system font; skipping set_theme repaint test");
+            return;
+        };
+        // Clear, then park the cursor in the far corner so the sampled centre cell
+        // is pure background (no glyph, no cursor).
+        t.process(b"\x1b[2J\x1b[24;80H");
+        t.render();
+        let w = t.width();
+        let centre = ((t.height() / 2) * w + w / 2) * 4;
+        let before = t.rgba()[centre..centre + 3].to_vec();
+
+        let new_bg = 0x0012_3456u32; // distinctive, unlike the default theme bg
+        t.set_theme(0x00ff_ffff, new_bg, 0x0050_fa7b, 0x0026_4f78);
+        t.render(); // idle frame: no content changed, only the theme
+        let after = t.rgba();
+        let want = [(new_bg >> 16) as u8, (new_bg >> 8) as u8, new_bg as u8];
+        assert_eq!(
+            &after[centre..centre + 3],
+            &want,
+            "an idle pane must repaint to the new theme bg after set_theme"
+        );
+        assert_ne!(before.as_slice(), &want, "test is meaningful: bg actually changed");
     }
 
     #[test]

@@ -74,13 +74,18 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const { pending, canvas, container, textarea, liveRegion, themeColors, shared } = config
   const { inputSink, resizeSink, pasteSink, controllerOptions } = config
   const term = pending.term
-  // Mutable: a host DPI / devicePixelRatio change re-rasterizes the engine at a new
-  // font px (term.set_px) and these are re-read, so the grid + overlays resize
-  // instead of staying frozen at the construction-dpr cell size.
-  let cellWidth = pending.cellWidth
-  let cellHeight = pending.cellHeight
-
   let dpr = window.devicePixelRatio || 1
+  // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
+  // the async load (GPU init can take seconds) gives the window time to settle to a
+  // different dpr (e.g. a headless window born at 2 settling to 1), which would leave
+  // cell metrics frozen at the load-time dpr → wrong column count. Re-rasterize to the
+  // live dpr now (set_px is a no-op when unchanged) so metrics + dpr agree from frame 1.
+  term.set_px(Math.round(ATERM_RENDERER_FONT_PX * dpr))
+  // Mutable: a later host DPI / devicePixelRatio change re-rasterizes the engine at a
+  // new font px (term.set_px) and these are re-read, so the grid + overlays resize
+  // instead of staying frozen at the construction-dpr cell size.
+  let cellWidth = term.cell_width
+  let cellHeight = term.cell_height
   let disposed = false
   let searchRefreshPending = false
 
@@ -260,9 +265,31 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getSearchActiveIndex: () => searchActiveIndex
   })
 
+  // Re-rasterize at a new density's cell font px so cell metrics rebuild; otherwise
+  // the grid stays sized for the construction dpr (wrong columns) when the window
+  // settles to a different dpr than it was born at.
+  const applyDpr = (nextDpr: number): void => {
+    dpr = nextDpr
+    term.set_px(Math.round(ATERM_RENDERER_FONT_PX * nextDpr))
+    cellWidth = term.cell_width
+    cellHeight = term.cell_height
+    selectionDeps.dpr = nextDpr
+    selectionDeps.cellWidth = cellWidth
+    selectionDeps.cellHeight = cellHeight
+    scrollDeps.dpr = nextDpr
+    linkDeps.dpr = nextDpr
+    eventReportingInput.setDpr(nextDpr)
+  }
+
   const reflowGrid = (): void => {
     if (disposed) {
       return
+    }
+    // The matchMedia resolution listener can miss the window's initial dpr settle
+    // (esp. headless); the ResizeObserver fires on layout changes, so reconcile here.
+    const liveDpr = window.devicePixelRatio || 1
+    if (liveDpr !== dpr) {
+      applyDpr(liveDpr)
     }
     const next = computeGrid(container, dpr, cellWidth, cellHeight)
     if (next.cols === cols && next.rows === rows) {
@@ -284,18 +311,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getDpr: () => dpr,
     isDisposed: () => disposed,
     onDprChange: (nextDpr) => {
-      dpr = nextDpr
-      // Re-rasterize at the new density's cell font px so cell metrics rebuild
-      // (otherwise the grid stays sized for the construction dpr — wrong columns).
-      term.set_px(Math.round(ATERM_RENDERER_FONT_PX * nextDpr))
-      cellWidth = term.cell_width
-      cellHeight = term.cell_height
-      selectionDeps.dpr = nextDpr
-      selectionDeps.cellWidth = cellWidth
-      selectionDeps.cellHeight = cellHeight
-      scrollDeps.dpr = nextDpr
-      linkDeps.dpr = nextDpr
-      eventReportingInput.setDpr(nextDpr)
+      applyDpr(nextDpr)
       reflowGrid()
       scheduleDraw()
     }

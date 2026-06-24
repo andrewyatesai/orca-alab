@@ -1318,6 +1318,14 @@ pub fn list_fonts() -> Vec<String> {
 /// Uses the SAME [`resolve_font_family`] the renderer uses, so the reported path
 /// is the one aterm would actually load. Metrics are at [`FaceInfo::PROBE_PX`].
 ///
+/// Device-pixel cell width from a monospace advance. Round (not ceil): ceil
+/// systematically over-widens the cell by up to ~1px, which at low dpr drops whole
+/// columns vs the count terminals fit by rounding — a wide table would wrap.
+#[inline]
+fn cell_w_from_advance(advance: f32) -> usize {
+    (advance.round() as usize).max(1)
+}
+
 /// This is the data behind `aterm show-face <family>`.
 #[must_use]
 pub fn face_info(family: &str) -> Option<FaceInfo> {
@@ -1334,7 +1342,7 @@ pub fn face_info(family: &str) -> Option<FaceInfo> {
         .unwrap_or(0);
     Some(FaceInfo {
         path,
-        cell_width: adv.ceil().max(1.0) as usize,
+        cell_width: cell_w_from_advance(adv),
         cell_height: lm.new_line_size.ceil().max(1.0) as usize,
         baseline: lm.ascent.round() as i32,
         glyph_count,
@@ -1390,7 +1398,7 @@ impl Renderer {
             .ok_or("font has no horizontal line metrics")?;
         // Monospace: every advance is equal; measure a representative glyph.
         let adv = font.metrics('M', px).advance_width;
-        let cell_w = adv.ceil().max(1.0) as usize;
+        let cell_w = cell_w_from_advance(adv);
         let cell_h = lm.new_line_size.ceil().max(1.0) as usize;
         let baseline = lm.ascent.round() as i32;
         Ok(Renderer {
@@ -1619,7 +1627,7 @@ impl Renderer {
         let adv = self.font.metrics('M', px).advance_width;
         self.px = px;
         self.px_q = GlyphKey::quantize_px(px);
-        self.cell_w = adv.ceil().max(1.0) as usize;
+        self.cell_w = cell_w_from_advance(adv);
         self.cell_h = lm.new_line_size.ceil().max(1.0) as usize;
         self.baseline = lm.ascent.round() as i32;
         // Glyphs were rasterized at the old px; drop the caches so they re-rasterize.

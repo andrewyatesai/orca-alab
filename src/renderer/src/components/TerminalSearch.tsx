@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, type ReactElement, type ReactNode } from 'react'
 import { ChevronUp, ChevronDown, X, CaseSensitive, Regex } from 'lucide-react'
 import type { SearchAddon } from '@xterm/addon-search'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { SearchState } from '@/components/terminal-pane/keyboard-handlers'
 import { translate } from '@/i18n/i18n'
 import { getFindRequestQuery } from '@/lib/find-query-bounds'
@@ -26,6 +27,39 @@ type TerminalSearchProps = {
    *  canvas controller (the xterm SearchAddon is null for these panes). */
   atermSearch?: AtermSearchSurface | null
   searchStateRef: React.RefObject<SearchState>
+}
+
+// A ghost icon-button with a styleguide Tooltip (replaces native title= attrs).
+function SearchButton({
+  tip,
+  className,
+  disabled,
+  onClick,
+  children
+}: {
+  tip: string
+  className: string
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+}): ReactElement {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          disabled={disabled}
+          onClick={onClick}
+          className={className}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{tip}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 export default function TerminalSearch({
@@ -190,33 +224,21 @@ export default function TerminalSearch({
         </span>
       )}
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
+      <SearchButton
+        tip={translate('auto.components.TerminalSearch.90c61387d9', 'Case sensitive')}
         onClick={() => setCaseSensitive((v) => !v)}
         className={`flex size-6 shrink-0 items-center justify-center rounded ${
           caseSensitive
             ? 'bg-accent text-accent-foreground'
             : 'text-muted-foreground hover:text-foreground'
         }`}
-        title={translate('auto.components.TerminalSearch.90c61387d9', 'Case sensitive')}
       >
         <CaseSensitive size={14} />
-      </Button>
+      </SearchButton>
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
+      <SearchButton
         disabled={!regexSupported}
-        onClick={() => setRegexEnabled((v) => !v)}
-        className={`flex size-6 shrink-0 items-center justify-center rounded ${
-          regex
-            ? 'bg-accent text-accent-foreground'
-            : 'text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted-foreground'
-        }`}
-        title={
+        tip={
           regexSupported
             ? translate('auto.components.TerminalSearch.42e466b9f1', 'Regex')
             : translate(
@@ -224,46 +246,43 @@ export default function TerminalSearch({
                 'Regex unavailable — this terminal uses substring search'
               )
         }
+        onClick={() => setRegexEnabled((v) => !v)}
+        className={`flex size-6 shrink-0 items-center justify-center rounded ${
+          regex
+            ? 'bg-accent text-accent-foreground'
+            : 'text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-muted-foreground'
+        }`}
       >
         <Regex size={14} />
-      </Button>
+      </SearchButton>
 
       <div className="mx-0.5 h-4 w-px bg-border" />
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
+      <SearchButton
+        tip={translate('auto.components.TerminalSearch.0f3066256e', 'Previous match')}
         onClick={findPrevious}
         className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-        title={translate('auto.components.TerminalSearch.0f3066256e', 'Previous match')}
       >
         <ChevronUp size={14} />
-      </Button>
+      </SearchButton>
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
+      <SearchButton
+        tip={translate('auto.components.TerminalSearch.7cb40c04eb', 'Next match')}
         onClick={findNext}
         className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-        title={translate('auto.components.TerminalSearch.7cb40c04eb', 'Next match')}
       >
         <ChevronDown size={14} />
-      </Button>
+      </SearchButton>
 
       <div className="mx-0.5 h-4 w-px bg-border" />
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-xs"
+      <SearchButton
+        tip={translate('auto.components.TerminalSearch.db234b7519', 'Close')}
         onClick={onClose}
         className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:text-foreground"
-        title={translate('auto.components.TerminalSearch.db234b7519', 'Close')}
       >
         <X size={14} />
-      </Button>
+      </SearchButton>
     </div>
   )
 }

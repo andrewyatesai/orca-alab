@@ -142,12 +142,18 @@ export async function createAtermPaneController(
   // buffers output here instead of dropping it on the torn-down wiring; the new
   // engine replays it in order once ready, so no live output is lost mid-swap.
   let swapBuffer: string[] | null = null
+  let swapBufferBytes = 0
+  // Bound the buffer: a normal swap drains in ms, so anything past this means the
+  // CPU-drawer load hung (rejection is handled separately). Past the cap we stop
+  // buffering — bytes are then dropped, but bounded, not an unbounded heap leak.
+  const SWAP_BUFFER_CAP = 8_000_000
   const swapToCpu = (): void => {
     if (swapping || controllerDisposed) {
       return
     }
     swapping = true
     swapBuffer = []
+    swapBufferBytes = 0
     console.warn('[aterm] WebGL2 context lost; swapping pane to the CPU renderer')
     wired.teardown()
     if (e2eConfig.exposeStore) {
@@ -211,6 +217,15 @@ export async function createAtermPaneController(
       // with NO output during/after the swap stays blank until the next PTY write
       // repaints it (self-healing); the gap's live output above is preserved.
       swapping = false
+    }).catch((err) => {
+      // The CPU-drawer load (first wasm/font fetch on a GPU pane) rejected — e.g.
+      // a transient/offline asset failure. Release the buffered output rather than
+      // holding it forever (the unbounded-leak guard the buffer needs); the pane
+      // can't recover here, but it must not grow the heap. swapping stays true so a
+      // repeat context-loss event doesn't re-enter a known-broken load.
+      console.error('[aterm] CPU renderer load failed after context loss', err)
+      swapBuffer = null
+      swapBufferBytes = 0
     })
   }
 
@@ -236,8 +251,16 @@ export async function createAtermPaneController(
     // Buffer output during a GPU→CPU swap (the old wiring is torn down and the new
     // one resolves a tick later); the new engine replays it. Else delegate live.
     process: (data) => {
+      if (controllerDisposed) {
+        return
+      }
       if (swapBuffer) {
-        swapBuffer.push(data)
+        // Stop appending past the cap (a hung load) so the buffer can't grow without
+        // bound; bytes past it are dropped but the heap stays bounded.
+        if (swapBufferBytes < SWAP_BUFFER_CAP) {
+          swapBuffer.push(data)
+          swapBufferBytes += data.length
+        }
         return
       }
       wired.controller.process(data)
@@ -264,6 +287,10 @@ export async function createAtermPaneController(
       : {}),
     dispose: () => {
       controllerDisposed = true
+      // Release any output buffered mid-swap so a pane disposed during a GPU→CPU
+      // swap doesn't retain it (the process() gate above also drops once disposed).
+      swapBuffer = null
+      swapBufferBytes = 0
       inputDom.wrapper.remove()
       wired.teardown()
       // Release the live canvas's WebGL2 context (no-op on the CPU path) so closing

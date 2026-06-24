@@ -19,17 +19,46 @@ export type AtermPendingStrategy = {
   bindPainter: (binding: AtermPainterBinding) => AtermDrawStrategy
 }
 
+// A broken/half-initialized GPU stack (software-GL passthrough, RDP, a wedged
+// driver) can leave the async adapter/surface acquire HANGING rather than
+// rejecting — `init` never settles and the pane would stay blank forever. Cap the
+// GPU init so we fall through to the guaranteed CPU path instead.
+const GPU_INIT_TIMEOUT_MS = 4000
+
 /** Pick + load the draw strategy for a pane. GPU is attempted when the
  *  auto-policy says so (the DEFAULT on capable hardware — see
- *  aterm-gpu-auto-policy); if GPU loading or `init` fails for any reason we fall
- *  back to the CPU drawer. So a pane ALWAYS gets a working renderer — the CPU
- *  path is the guaranteed fallback. */
+ *  aterm-gpu-auto-policy); if GPU loading or `init` fails OR HANGS we fall back to
+ *  the CPU drawer. So a pane ALWAYS gets a working renderer — the CPU path is the
+ *  guaranteed fallback. */
 export async function loadAtermStrategy(
   config: AtermDrawerBuildConfig
 ): Promise<AtermPendingStrategy> {
   if (isAtermGpuEnabled()) {
     try {
-      const gpu = await loadAtermGpuDrawer(config)
+      // Race init against a timeout so a hung adapter acquire can't wedge the pane;
+      // if the GPU drawer resolves AFTER we've timed out, free its orphaned engine.
+      const gpuPromise = loadAtermGpuDrawer(config)
+      let timedOut = false
+      void gpuPromise
+        .then((late) => {
+          if (timedOut) {
+            try {
+              late.term.free()
+            } catch {
+              /* ignore */
+            }
+          }
+        })
+        .catch(() => undefined)
+      const gpu = await Promise.race([
+        gpuPromise,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => {
+            timedOut = true
+            reject(new Error(`GPU init exceeded ${GPU_INIT_TIMEOUT_MS}ms`))
+          }, GPU_INIT_TIMEOUT_MS)
+        )
+      ])
       return {
         kind: 'gpu',
         term: gpu.term,

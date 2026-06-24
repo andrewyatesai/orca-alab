@@ -130,6 +130,10 @@ src/renderer/src/i18n/locales/.es-catalog-cache.json
 
 # aterm vendored engine build artifacts
 rust/aterm/target/
+# Offline-build scaffolding for the aterm sub-workspace (conformance snapshot tool):
+# regenerable `cargo vendor` output (~650MB) + its offline cargo config.
+rust/aterm/.aterm-vendor/
+rust/aterm/.cargo/
 
 # Cached pinned build tooling (wasm-bindgen-cli, etc.)
 config/.tooling/

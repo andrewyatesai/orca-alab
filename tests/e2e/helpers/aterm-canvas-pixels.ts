@@ -104,37 +104,6 @@ const PANE_CANVAS_BY_PTY = `(ptyId) => {
   return null
 }`
 
-/** The aterm canvas of the pane bound to `ptyId` — full RGBA buffer, or null. */
-export async function readAtermRgbaByPtyId(
-  page: Page,
-  ptyId: string
-): Promise<RgbaBuffer | null> {
-  return page.evaluate(
-    ({ ptyId, findSrc }) => {
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-      const find = new Function(`return (${findSrc})`)() as (id: string) => HTMLCanvasElement | null
-      const c = find(ptyId)
-      if (!c || !c.width || !c.height) {
-        return null
-      }
-      const w = c.width
-      const h = c.height
-      const gl = c.getContext('webgl2')
-      if (gl) {
-        const px = new Uint8Array(w * h * 4)
-        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px)
-        return { w, h, data: Array.from(px) }
-      }
-      const ctx = c.getContext('2d')
-      if (!ctx) {
-        return null
-      }
-      return { w, h, data: Array.from(ctx.getImageData(0, 0, w, h).data) }
-    },
-    { ptyId, findSrc: PANE_CANVAS_BY_PTY }
-  )
-}
-
 /** A small device-pixel REGION of the canvas of the pane bound to `ptyId`, as a
  *  flat RGBA array, or null. Reading a small rect (vs the whole multi-megapixel
  *  buffer) keeps the CDP payload tiny — a full-canvas readback can be ~17 MB and

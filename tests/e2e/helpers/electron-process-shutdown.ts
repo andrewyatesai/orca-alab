@@ -139,7 +139,16 @@ async function forceKillProcessTree(proc: ChildProcess): Promise<void> {
 }
 
 export async function closeElectronAppForE2E(app: ElectronApplication): Promise<void> {
-  const proc = app.process()
+  // Why: when the Electron app already exited/crashed (e.g. cold-start mount
+  // failure that triggers test.skip), Playwright's app.process() throws on the
+  // torn-down channel. Teardown must stay idempotent, so treat that as "no proc"
+  // and still attempt the (no-op) graceful close rather than failing the test.
+  let proc: ChildProcess | null = null
+  try {
+    proc = app.process()
+  } catch {
+    proc = null
+  }
   try {
     await withTimeout(app.close(), GRACEFUL_CLOSE_TIMEOUT_MS, 'Timed out closing Electron app')
     if (proc) {

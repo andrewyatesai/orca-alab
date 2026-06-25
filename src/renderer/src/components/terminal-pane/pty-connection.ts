@@ -3198,12 +3198,42 @@ export function connectPanePty(
       restoreScrollStateAfterLayout(pane.terminal, state)
     }
 
+    function liveBufferHoldsMoreScrollbackThanSnapshot(snapshotData: string): boolean {
+      // Why: a pane hidden on a worktree/tab switch keeps its full live engine
+      // scrollback (it is only hidden, never torn down). The daemon/headless
+      // snapshot is capped (HIDDEN_OUTPUT_RESTORE_SCROLLBACK_ROWS) and can hold
+      // far less history. Replaying it clears scrollback (\x1b[3J) and would
+      // discard the richer live history. Compare *scrollback* depth (rows above
+      // the viewport, excluding the current screen) so an empty/short live buffer
+      // never blocks a legitimate restore.
+      const buf = pane.terminal.buffer?.active
+      if (!buf || !Number.isFinite(buf.baseY) || buf.baseY <= 0) {
+        return false
+      }
+      let snapshotLines = 1
+      for (let i = 0; i < snapshotData.length; i++) {
+        if (snapshotData.charCodeAt(i) === 10) {
+          snapshotLines++
+        }
+      }
+      const snapshotScrollback = Math.max(0, snapshotLines - pane.terminal.rows)
+      return buf.baseY > snapshotScrollback
+    }
+
     function applyMainBufferSnapshot(snapshot: {
       data: string
       cols: number
       rows: number
       seq?: number
     }): void {
+      if (liveBufferHoldsMoreScrollbackThanSnapshot(snapshot.data)) {
+        // The hidden pane still holds richer live scrollback than this capped
+        // daemon snapshot; clearing+rebuilding from it (\x1b[3J) would discard
+        // that history. Keep the live buffer; pending live chunks (drained by
+        // the caller) carry the most recent bytes from the restore window.
+        hiddenRendererStateDirty = false
+        return
+      }
       const scrollState = captureScrollStateForSnapshotReplay()
       const colsBeforeReplay = pane.terminal.cols
       const rowsBeforeReplay = pane.terminal.rows

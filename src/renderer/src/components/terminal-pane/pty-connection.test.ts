@@ -6247,8 +6247,14 @@ describe('connectPanePty', () => {
     >
     const hidden = 'x'.repeat(2 * 1024 * 1024 + 1)
     const live = 'visible-after\r\n'
+    // Why: the snapshot must carry at least as much scrollback as the live
+    // buffer holds (baseY 100 + 30 rows), otherwise the replay is correctly
+    // skipped to avoid discarding richer live history. Use a header line plus
+    // 140 scrollback rows so the replay legitimately fires and the scroll-state
+    // restore this test asserts is exercised.
+    const snapshotData = `snapshot-state\r\n${'row\r\n'.repeat(140)}`
     getMainBufferSnapshot.mockResolvedValue({
-      data: 'snapshot-state\r\n',
+      data: snapshotData,
       cols: 100,
       rows: 30,
       seq: hidden.length + live.length
@@ -6272,8 +6278,60 @@ describe('connectPanePty', () => {
     })
     await flushAsyncTicks(20)
 
-    expect(pane.terminal.write).toHaveBeenCalledWith('snapshot-state\r\n', expect.any(Function))
+    expect(pane.terminal.write).toHaveBeenCalledWith(snapshotData, expect.any(Function))
     expect(pane.terminal.scrollToLine).toHaveBeenCalledWith(42)
+    disposable.dispose()
+  })
+
+  it('does not clobber richer live scrollback with a capped hidden-output snapshot', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-id')
+    const capturedDataCallback: {
+      current: ((data: string, meta?: { seq?: number; rawLength?: number }) => void) | null
+    } = { current: null }
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-id'
+    })
+    transportFactoryQueue.push(transport)
+    const getMainBufferSnapshot = window.api.pty.getMainBufferSnapshot as unknown as ReturnType<
+      typeof vi.fn
+    >
+    // A short, capped daemon snapshot — only a few scrollback rows.
+    getMainBufferSnapshot.mockResolvedValue({
+      data: 'capped-snapshot\r\n',
+      cols: 100,
+      rows: 30
+    })
+
+    const pane = createPane(1)
+    // The hidden-but-not-torn-down pane still holds 500 rows of live scrollback,
+    // far more than the capped snapshot would carry.
+    pane.terminal.buffer.active.baseY = 500
+    pane.terminal.buffer.active.viewportY = 500
+    const manager = createManager(1)
+    const deps = createDeps({ isVisibleRef: { current: false } })
+    const disposable = connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks(6)
+
+    const hidden = 'x'.repeat(2 * 1024 * 1024 + 1)
+    capturedDataCallback.current?.(hidden, { seq: hidden.length, rawLength: hidden.length })
+    ;(deps.isVisibleRef as { current: boolean }).current = true
+    capturedDataCallback.current?.('tail\r\n', {
+      seq: hidden.length + 6,
+      rawLength: 6
+    })
+    await flushAsyncTicks(20)
+
+    // The destructive clear+replay must NOT run — the live history is richer.
+    expect(pane.terminal.write).not.toHaveBeenCalledWith(
+      'capped-snapshot\r\n',
+      expect.any(Function)
+    )
+    expect(pane.terminal.write).not.toHaveBeenCalledWith(
+      '\x1b[2J\x1b[3J\x1b[H',
+      expect.any(Function)
+    )
     disposable.dispose()
   })
 

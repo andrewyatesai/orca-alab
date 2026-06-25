@@ -31,8 +31,10 @@ export type AtermGridReflow = {
    *  no layout. Re-rasterizes only when the live dpr or font size diverged from
    *  what the engine was last built at — closing the dpr-settle gap the
    *  matchMedia/ResizeObserver paths can miss (a pure dpr change leaves the CSS
-   *  box unchanged, so the observer never fires). */
-  reconcileIfNeeded: () => void
+   *  box unchanged, so the observer never fires). Returns true iff it actually
+   *  reconciled, so the caller can avoid presenting in the same turn it
+   *  reconfigured the GPU swapchain. */
+  reconcileIfNeeded: () => boolean
 }
 
 /** Own the grid's DPI/size reflow: a ResizeObserver on the container plus a DPR
@@ -83,15 +85,16 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
     scheduleDraw()
   }
 
-  const reconcileIfNeeded = (): void => {
+  const reconcileIfNeeded = (): boolean => {
     if (isDisposed()) {
-      return
+      return false
     }
     const liveDpr = window.devicePixelRatio || 1
     if (liveDpr === metrics.dpr && Math.round(getFontPx() * liveDpr) === appliedPx) {
-      return
+      return false
     }
     reflowGrid()
+    return true
   }
 
   const resizeObserver = new ResizeObserver(reflowGrid)

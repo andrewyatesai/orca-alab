@@ -99,14 +99,15 @@ describe('attachAtermGridReflow.reconcileIfNeeded', () => {
 
     // Window settles to Retina; the next frame's reconcile must catch it.
     setDpr(2)
-    reflow.reconcileIfNeeded()
+    const reconciled = reflow.reconcileIfNeeded()
 
+    expect(reconciled).toBe(true) // signals the draw loop to skip the same-turn GPU present
     expect(term.setPxCalls).toContain(28) // round(14 * 2) — full Retina resolution
     expect(metrics.dpr).toBe(2)
     reflow.dispose()
   })
 
-  it('does no work when the live dpr and font size already match the engine', () => {
+  it('does no work and returns false when the live dpr and font size already match', () => {
     setDpr(2)
     const term = makeTerm()
     const metrics: AtermMetrics = {
@@ -116,8 +117,9 @@ describe('attachAtermGridReflow.reconcileIfNeeded', () => {
     }
     const reflow = attach(term, metrics, () => 14)
 
-    reflow.reconcileIfNeeded()
+    const reconciled = reflow.reconcileIfNeeded()
 
+    expect(reconciled).toBe(false) // steady state: draw loop presents normally
     expect(term.setPxCalls).toEqual([]) // cheap guard: no re-rasterize, no layout
     reflow.dispose()
   })

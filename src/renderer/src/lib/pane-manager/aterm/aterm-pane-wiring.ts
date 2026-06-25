@@ -205,7 +205,18 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // at least once post-settle; the guard is a cheap compare and reconciles
     // (re-rasterize + resize) only on a real change. `gridReflow` is defined below
     // and only referenced once draw() runs (after wiring completes).
-    gridReflow.reconcileIfNeeded()
+    //
+    // CRITICAL (GPU path): a reconcile calls surface.configure to resize the WebGL2
+    // swapchain. Presenting into it in the SAME rAF turn makes get_current_texture()
+    // return Outdated, so the frame is dropped to a black canvas — and since the
+    // reconcile's own scheduleDraw() is swallowed while a frame is in flight, nothing
+    // re-arms and an idle shell never repaints. So when we reconcile, consume THIS
+    // frame and arm a clean one; the present lands next rAF on the stable swapchain.
+    if (gridReflow.reconcileIfNeeded()) {
+      drawScheduler.consume()
+      scheduleDraw()
+      return
+    }
     strategy.drawFrame()
     searchOverlay?.paint(searchMatches, searchActiveIndex)
     a11yMirror.schedule()

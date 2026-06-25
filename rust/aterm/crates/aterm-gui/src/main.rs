@@ -60,6 +60,7 @@ mod keymap;
 mod logging;
 mod menu;
 mod metrics;
+mod net_listen;
 mod notify;
 mod pane;
 mod platform;

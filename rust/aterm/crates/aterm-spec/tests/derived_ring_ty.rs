@@ -20,7 +20,8 @@
 // The 7 introspection models are iterated via `harness::instances()`, not named here.
 use aterm_spec::derive::{
     Model, active_handle_model, channel_bind_model, coalesce_model, cursor_model, evict_full_model,
-    idle_deadline_model, inject_floor_model, kernel_model, pane_tree_model,
+    idle_deadline_model, inject_floor_model, kernel_model,
+    net_capability_grant_model, net_dial_after_grant_model, pane_tree_model,
     presentation_gate_model, proxy_forward_model, read_image_seq_model, recording_model,
     ring_model, self_governor_model, session_pool_model, snapshot_model, spawn_locale_model,
     subscribe_model, tab_nav_model, tab_strip_model, tier_residency_model, transact_model,
@@ -183,6 +184,26 @@ fn derived_inject_floor_proves_and_catches_overdraft() {
 fn derived_channel_bind_proves_and_catches_replay() {
     let ty = ty("derived channel-bind spec");
     assert_proves_and_catches(&ty, &channel_bind_model());
+}
+
+/// L3 network drive: the listener's `verify_capability` grants ONLY when the
+/// (src, op) is a minted capability AND the channel-binding HMAC verifies. PROVES
+/// GrantImpliesKnownAndBound at Buggy=0, CATCHES the dropped-binding (forgery/
+/// replay) bug at Buggy=1. Bound to `aterm-net::verify_capability`.
+#[test]
+fn derived_net_capability_grant_proves_and_catches_dropped_binding() {
+    let ty = ty("derived net-capability-grant spec");
+    assert_proves_and_catches(&ty, &net_capability_grant_model());
+}
+
+/// L3 network drive: `accept_and_relay` dials the LOCAL control socket only AFTER
+/// the capability is granted, so a denied dialer never reaches it. PROVES
+/// DialImpliesGranted at Buggy=0, CATCHES the premature-dial bug at Buggy=1. Bound
+/// to `aterm-net::drive::accept_and_relay`.
+#[test]
+fn derived_net_dial_after_grant_proves_and_catches_premature_dial() {
+    let ty = ty("derived net-dial-after-grant spec");
+    assert_proves_and_catches(&ty, &net_dial_after_grant_model());
 }
 
 #[test]

@@ -16,42 +16,56 @@
 //! replay format for an *offline observer* and is the one genuinely external
 //! piece (a sibling repo, not on disk) — out of scope here.
 //!
-//! ## Status: a tested-in-isolation FOUNDATION, not yet wired in
+//! ## Status: built, tested, and wired into the listener (opt-in)
 //!
-//! Everything below is built and unit-tested over loopback, but **no crate
-//! consumes `aterm-net` yet** — it is not on any live control path. It is the L3
-//! foundation the RFC calls for, deliberately landed ahead of integration so the
-//! transport/capability shape is settled and reviewable; wiring it into the
-//! control server (a remote-dial verb + the astream record codec) is the
-//! follow-up. The pieces:
+//! Every piece below is built and tested (unit + end-to-end over real
+//! loopback-TLS). The LISTENER side is wired into `aterm-gui`'s control server via
+//! `net_listen` — **secure-default-OFF**: it binds only when an operator sets
+//! `ATERM_NET_LISTEN`/`_CERT`/`_KEY` (those selectors are deny-listed, so a nested
+//! aterm never inherits them). The DRIVER side ([`dial_and_relay`](drive::dial_and_relay))
+//! is complete and tested but has no shipping caller yet; the astream record codec
+//! for an offline observer remains the one genuinely external follow-up. The pieces:
 //!
 //! 1. [`Transport`] — generalizes `proxy.rs`'s `UnixStream::connect` dial to any
-//!    connected channel, yielding **owned** read/write halves (TLS/QUIC have no
-//!    `UnixStream::try_clone`, so the relay must own its halves — the teardown
-//!    pitfall the review flagged). [`LoopbackTransport`] is the 0-hop case.
+//!    connected channel, yielding **owned** read/write halves (TLS has no
+//!    `UnixStream::try_clone`, so the relay owns its halves — the teardown pitfall
+//!    the review flagged). [`LoopbackTransport`] is the 0-hop case; [`tls`] is the
+//!    real TLS 1.3 transport and [`drive`] composes both ends of the network drive.
 //! 2. [`pump`] — the transport-agnostic byte relay (the `connect_and_relay` core)
 //!    that carries any verb's framing verbatim, incl. binary.
 //! 3. [`channel_bind`] / [`verify_presented`] — the capability binding that
 //!    replaces the local same-uid `SO_PEERCRED` check, which has **no network
-//!    analog**. The presented secret is `H(edge_token, channel_exporter)`, so a
-//!    token captured on one connection **cannot replay** on another (a different
-//!    exporter → a different presented value the verifier rejects). Property
-//!    proven by `channel_bind_model` (`aterm-spec`).
-//! 4. [`RemoteEndpoint`] — the pinned `(host, sid, nonce, fingerprint)` a dial
-//!    checks BEFORE presenting the token, so a redirected dial fails the
-//!    handshake before any secret crosses the wire.
-//! 5. [`RemoteOp::DialRemote`] — the new object-capability gating WHICH remote
-//!    endpoint a node may dial (the local `Scope::Owner` is all-or-nothing).
-//!
-//! > **Crypto note.** [`channel_bind`] uses a fast non-cryptographic keyed digest
-//! > to demonstrate and model-check the channel-SEPARATION property. A shipping
-//! > deployment MUST replace it with HMAC-SHA256 over a TLS exporter (RFC 5705)
-//! > or an ssh-tunnel binding; the protocol shape and the replay-resistance
-//! > invariant are unchanged.
+//!    analog**. The presented secret is `HMAC-SHA256(edge_token, channel_exporter)`
+//!    (the token is the MAC key), verified in constant time, so a token captured
+//!    on one connection **cannot replay** on another (a different exporter → a
+//!    different tag the verifier rejects) and cannot be forged without the token.
+//!    Over the TLS 1.3 exporter ([`TlsTransport`](tls::TlsTransport), RFC 5705) it
+//!    resists even an active MITM. Proven by `channel_bind_model` +
+//!    `net_capability_grant_model` (`aterm-spec`).
+//! 4. [`RemoteEndpoint`] — the pinned `(host, sid, nonce, fingerprint)` a dialer
+//!    checks before presenting the token (the cert fingerprint is TLS-enforced; the
+//!    nonce rebind guard is the dialer's responsibility — see [`RemoteEndpoint`]).
+//! 5. [`RemoteOp::DialRemote`] — the object-capability gating WHICH remote endpoint
+//!    a node may dial (the local `Scope::Owner` is all-or-nothing).
 
 use std::io::{self, Read, Write};
 
 use aterm_session::EdgeToken;
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+/// HMAC-SHA256: the channel-binding MAC. The edge token is the key.
+type HmacSha256 = Hmac<Sha256>;
+
+/// TLS 1.3 transport (rustls) with the RFC 5705 keying-material exporter that
+/// binds the capability to the channel.
+pub mod tls;
+
+/// The network drive — both ends ([`serve`](drive::serve)/[`dial_and_relay`]
+/// (drive::dial_and_relay)) composed from the transport, the channel-bound
+/// capability, and the relay. Secure-default-OFF: nothing binds without an
+/// explicit operator-stood-up listener.
+pub mod drive;
 
 /// A connected network channel for the control protocol. Generalizes the local
 /// `UnixStream::connect` dial: the relay takes OWNED halves (no `try_clone`
@@ -122,36 +136,215 @@ pub fn pump<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<u64
     }
 }
 
-/// The channel-bound presented secret: `H(edge_token, channel_exporter)`. Binding
-/// the token to the connection's exporter means a value captured on one channel
-/// is rejected on any other — the network replacement for the same-uid peer check.
-///
-/// NON-CRYPTO digest (see the module docs); production uses HMAC over a TLS
-/// exporter. The PROPERTY — distinct exporter ⇒ distinct presented value — holds
-/// and is what `channel_bind_model` proves.
+/// The channel-bound presented secret: `HMAC-SHA256(edge_token, channel_exporter)`.
+/// The edge token is the HMAC KEY (the unforgeable secret) and the channel
+/// exporter (TLS RFC 5705 keying material — see [`TlsTransport`]) is the message,
+/// so the output is a MAC that depends on BOTH and cannot be produced without the
+/// token. Binding it to the connection's exporter means a value captured on one
+/// channel is rejected on any other — the network replacement for the same-uid
+/// peer check, and (over a real TLS exporter) it resists even an active MITM who
+/// terminates one TLS leg, because that attacker holds a different exporter.
 #[must_use]
-pub fn channel_bind(token: &EdgeToken, exporter: &[u8]) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = aterm_hash::FxHasher::default();
-    // Key material (the bearer token) THEN the channel exporter, so the output
-    // depends on both — a different channel cannot reproduce it.
-    token.to_hex().hash(&mut h);
-    exporter.hash(&mut h);
-    h.finish()
+pub fn channel_bind(token: &EdgeToken, exporter: &[u8]) -> [u8; 32] {
+    let mut mac = HmacSha256::new_from_slice(token.as_bytes())
+        .expect("HMAC-SHA256 accepts a key of any length");
+    mac.update(exporter);
+    let tag = mac.finalize().into_bytes();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&tag);
+    out
 }
 
 /// Verify a `presented` secret against `token` on the CURRENT channel's
-/// `exporter`. A token bound to a different channel (a captured replay) fails
-/// because its `presented` was computed over a different exporter.
+/// `exporter`, in **constant time**. Recomputes the HMAC and compares with
+/// [`Mac::verify_slice`] (constant-time tag compare), so a token bound to a
+/// different channel (a captured replay) fails — its `presented` was computed over
+/// a different exporter — and the comparison leaks no timing.
 #[must_use]
-pub fn verify_presented(token: &EdgeToken, exporter: &[u8], presented: u64) -> bool {
-    channel_bind(token, exporter) == presented
+pub fn verify_presented(token: &EdgeToken, exporter: &[u8], presented: &[u8]) -> bool {
+    let Ok(mut mac) = HmacSha256::new_from_slice(token.as_bytes()) else {
+        return false;
+    };
+    mac.update(exporter);
+    mac.verify_slice(presented).is_ok()
 }
 
-/// A pinned remote identity. A dial checks this BEFORE presenting the bound
-/// token, so a redirected/MITM'd endpoint fails the handshake before any secret
-/// crosses the wire (the filesystem `confine_proxy_sock` discipline has no
-/// network analog, so identity pinning replaces it).
+// ---------------------------------------------------------------------------
+// Capability handshake — the application-layer step that runs AFTER the TLS
+// handshake (so an exporter exists) and BEFORE any control bytes relay. The
+// dialer presents `channel_bind(token, exporter)`; the listener recomputes and
+// verifies it in constant time against the token it minted for that (src, op).
+// The token itself never crosses the wire; only the channel-bound MAC does.
+// ---------------------------------------------------------------------------
+
+/// What a verified dialer is authorized for: the driver identity (`src`) and the
+/// op it may drive (`op`). Returned by [`verify_capability`] on success.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Granted {
+    /// The driver/session id that presented the capability.
+    pub src: String,
+    /// The op the capability authorizes (e.g. `drive`, `read`).
+    pub op: String,
+}
+
+/// Upper bound on the AUTH line we will read before rejecting — a DoS guard so a
+/// peer cannot make us buffer unboundedly before the capability is even checked.
+const MAX_AUTH_LINE: usize = 4096;
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        // unwrap: a hex digit (0..=15) is always representable.
+        s.push(char::from_digit(u32::from(b >> 4), 16).unwrap());
+        s.push(char::from_digit(u32::from(b & 0x0f), 16).unwrap());
+    }
+    s
+}
+
+fn hex_decode(s: &str) -> Option<Vec<u8>> {
+    let b = s.as_bytes();
+    if !b.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(b.len() / 2);
+    let mut i = 0;
+    while i < b.len() {
+        let hi = char::from(b[i]).to_digit(16)?;
+        let lo = char::from(b[i + 1]).to_digit(16)?;
+        out.push((hi * 16 + lo) as u8);
+        i += 2;
+    }
+    Some(out)
+}
+
+/// Read one `\n`-terminated line (the `\n` is consumed, not returned), bounded by
+/// `max` bytes. Errors on EOF before any byte, on overflow, or on non-UTF-8.
+fn read_line<R: Read>(r: &mut R, max: usize) -> io::Result<String> {
+    let mut buf = Vec::new();
+    let mut one = [0u8; 1];
+    loop {
+        if r.read(&mut one)? == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "connection closed before the capability line",
+            ));
+        }
+        if one[0] == b'\n' {
+            break;
+        }
+        if buf.len() >= max {
+            return Err(io::Error::other("capability line exceeds the maximum length"));
+        }
+        buf.push(one[0]);
+    }
+    String::from_utf8(buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+/// Parse `AUTH <src> <op> <tag_hex>` (exactly four space-separated fields) into
+/// `(src, op, tag_bytes)`. Returns `None` on any structural mismatch.
+fn parse_auth(line: &str) -> Option<(String, String, Vec<u8>)> {
+    let mut it = line.split(' ');
+    if it.next()? != "AUTH" {
+        return None;
+    }
+    let src = it.next()?;
+    let op = it.next()?;
+    let tag_hex = it.next()?;
+    if it.next().is_some() {
+        return None; // exactly four fields
+    }
+    if src.is_empty() || op.is_empty() {
+        return None;
+    }
+    let tag = hex_decode(tag_hex)?;
+    Some((src.to_owned(), op.to_owned(), tag))
+}
+
+/// `src`/`op` must be single tokens — no whitespace — or the `AUTH` framing would
+/// be ambiguous on the wire.
+fn is_wire_token(s: &str) -> bool {
+    !s.is_empty() && !s.bytes().any(|b| b == b' ' || b == b'\n' || b == b'\r')
+}
+
+/// Dialer side: present the channel-bound capability over `stream` and await the
+/// listener's verdict. `exporter` is THIS channel's exporter (the TLS RFC 5705
+/// keying material from [`TlsTransport::exporter`](tls::TlsTransport::exporter)).
+/// Sends `AUTH <src> <op> <tag_hex>\n` where the tag is
+/// [`channel_bind(token, exporter)`](channel_bind), then reads back the verdict.
+///
+/// # Errors
+/// If `src`/`op` are not wire tokens, on I/O failure, or if the listener denies
+/// the capability (`Err` with the listener's reason).
+pub fn present_capability<S: Read + Write>(
+    stream: &mut S,
+    exporter: &[u8],
+    src: &str,
+    op: &str,
+    token: &EdgeToken,
+) -> io::Result<()> {
+    if !is_wire_token(src) || !is_wire_token(op) {
+        return Err(io::Error::other("src/op must not contain whitespace"));
+    }
+    let tag = channel_bind(token, exporter);
+    let line = format!("AUTH {src} {op} {}\n", hex_encode(&tag));
+    stream.write_all(line.as_bytes())?;
+    stream.flush()?;
+    let verdict = read_line(stream, MAX_AUTH_LINE)?;
+    if verdict == "OK" {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "capability denied by the listener: {verdict}"
+        )))
+    }
+}
+
+/// Listener side: read and verify the dialer's presentation over `stream`,
+/// returning the [`Granted`] `(src, op)` on success. `exporter` is THIS channel's
+/// exporter; `lookup(src, op)` yields the [`EdgeToken`] the listener minted for
+/// that driver+op (`None` ⇒ no such grant). The HMAC is verified in **constant
+/// time** ([`verify_presented`]); a captured tag from another channel fails
+/// because its exporter differs. Writes `OK\n` on success, `DENIED\n` otherwise,
+/// so the dialer gets a definite verdict either way.
+///
+/// # Errors
+/// On I/O failure, or if the presentation is malformed / unknown / fails
+/// verification (after a best-effort `DENIED` is written back).
+pub fn verify_capability<S, F>(stream: &mut S, exporter: &[u8], lookup: F) -> io::Result<Granted>
+where
+    S: Read + Write,
+    F: FnOnce(&str, &str) -> Option<EdgeToken>,
+{
+    let deny = |stream: &mut S, why: &str| -> io::Result<Granted> {
+        let _ = stream.write_all(b"DENIED\n");
+        let _ = stream.flush();
+        Err(io::Error::other(format!("capability rejected: {why}")))
+    };
+    let line = read_line(stream, MAX_AUTH_LINE)?;
+    let Some((src, op, tag)) = parse_auth(&line) else {
+        return deny(stream, "malformed AUTH line");
+    };
+    let Some(token) = lookup(&src, &op) else {
+        return deny(stream, "no capability for that (src, op)");
+    };
+    if verify_presented(&token, exporter, &tag) {
+        stream.write_all(b"OK\n")?;
+        stream.flush()?;
+        Ok(Granted { src, op })
+    } else {
+        deny(stream, "channel-binding verification failed")
+    }
+}
+
+/// A pinned remote identity. A dialer is expected to check this BEFORE presenting
+/// the bound token, so a redirected/MITM'd endpoint is rejected before any secret
+/// crosses the wire (the filesystem `confine_proxy_sock` discipline has no network
+/// analog, so identity pinning replaces it). The `fingerprint` half is enforced by
+/// the TLS layer ([`tls::client_config`] pins the cert); the `nonce` rebind half is
+/// checked via [`RemoteEndpoint::matches`] and, as documented on
+/// [`dial_and_relay`](drive::dial_and_relay), still needs a launch-identity
+/// exchange before a shipping dialer enforces it automatically. (`sid` is carried
+/// for the endpoint record but is not part of the `matches` check.)
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteEndpoint {
     /// Host/address the endpoint was published at.
@@ -224,17 +417,75 @@ mod tests {
 
         let presented_on_a = channel_bind(&token, &exporter_a);
         // Legit: presented on the SAME channel it was bound to -> accepted.
-        assert!(verify_presented(&token, &exporter_a, presented_on_a));
+        assert!(verify_presented(&token, &exporter_a, &presented_on_a));
         // Replay: the captured channel-A value presented on channel B -> rejected.
         assert!(
-            !verify_presented(&token, &exporter_b, presented_on_a),
+            !verify_presented(&token, &exporter_b, &presented_on_a),
             "a captured token must not replay on a different channel"
         );
+        // A wrong-length / garbage presentation is rejected (no panic).
+        assert!(!verify_presented(&token, &exporter_a, b"short"));
         // And the two channels yield distinct bindings.
         assert_ne!(
             channel_bind(&token, &exporter_a),
             channel_bind(&token, &exporter_b)
         );
+        // A DIFFERENT token cannot forge channel A's presentation (HMAC key).
+        let other = EdgeToken::generate();
+        assert!(!verify_presented(&other, &exporter_a, &presented_on_a));
+    }
+
+    #[test]
+    fn capability_handshake_grants_valid_and_denies_unknown_replay_and_forgery() {
+        use std::os::unix::net::UnixStream;
+
+        // One channel exporter shared by both ends; a DIFFERENT one stands in for
+        // a separate channel (the replay target).
+        let exporter = b"tls-exporter-live".to_vec();
+        let other_exporter = b"tls-exporter-other".to_vec();
+        let token = EdgeToken::generate(); // EdgeToken is Copy
+
+        // Helper: run one dialer presentation against a listener with `lookup`,
+        // returning (dialer_result, listener_result).
+        let run = |present_token: EdgeToken,
+                   present_exporter: Vec<u8>,
+                   verify_exporter: Vec<u8>,
+                   known: Option<EdgeToken>|
+         -> (io::Result<()>, io::Result<Granted>) {
+            let (mut c, mut s) = UnixStream::pair().unwrap();
+            let srv = std::thread::spawn(move || {
+                verify_capability(&mut s, &verify_exporter, |src, op| {
+                    if src == "driver-1" && op == "drive" {
+                        known
+                    } else {
+                        None
+                    }
+                })
+            });
+            let cres =
+                present_capability(&mut c, &present_exporter, "driver-1", "drive", &present_token);
+            let sres = srv.join().unwrap();
+            (cres, sres)
+        };
+
+        // 1) Valid: same exporter, known (src, op), real token -> granted.
+        let (c, s) = run(token, exporter.clone(), exporter.clone(), Some(token));
+        assert!(c.is_ok(), "valid presentation accepted by dialer");
+        assert_eq!(s.unwrap(), Granted { src: "driver-1".into(), op: "drive".into() });
+
+        // 2) Unknown (src, op): lookup returns None -> denied.
+        let (c, s) = run(token, exporter.clone(), exporter.clone(), None);
+        assert!(c.is_err() && s.is_err(), "unknown grant denied");
+
+        // 3) Replay: dialer computed its tag over `other_exporter`, listener is on
+        //    `exporter` -> the channel binding differs -> denied.
+        let (c, s) = run(token, other_exporter, exporter.clone(), Some(token));
+        assert!(c.is_err() && s.is_err(), "cross-channel replay denied");
+
+        // 4) Forgery: dialer holds a DIFFERENT token than the one the listener
+        //    minted -> HMAC mismatch -> denied.
+        let (c, s) = run(EdgeToken::generate(), exporter.clone(), exporter, Some(token));
+        assert!(c.is_err() && s.is_err(), "wrong-token forgery denied");
     }
 
     #[test]

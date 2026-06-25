@@ -52,6 +52,9 @@ aterm-buffer = { path = "../aterm-buffer" }
 aterm-codec = { workspace = true }
 aterm-pty = { workspace = true }
 aterm-session = { workspace = true }
+# L3 network drive: the opt-in (secure-default-OFF) TLS front-end that relays a
+# channel-bound remote driver into the local control socket (see net_listen.rs).
+aterm-net = { workspace = true }
 aterm-cap = { workspace = true }
 aterm-sandbox = { workspace = true }
 aterm-containment = { workspace = true }

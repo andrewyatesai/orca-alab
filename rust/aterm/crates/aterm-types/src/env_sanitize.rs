@@ -85,6 +85,22 @@ pub const ENV_EDGE_WRITE: &str = "ATERM_EDGE_WRITE";
 /// A `Signal` `EdgeToken` (`<64hex>`), parent → child. Fallback env channel.
 pub const ENV_EDGE_SIGNAL: &str = "ATERM_EDGE_SIGNAL";
 
+// ---------------------------------------------------------------------------
+// L3 network-drive selectors (aterm-gui `net_listen`): the bind address + the
+// operator's TLS cert/key PATHS that opt a ROOT instance into a network control
+// endpoint. ALL deny-listed so a nested aterm never (a) inherits the address and
+// stands up a SECOND network-reachable Owner-control surface, nor (b) fans the
+// operator's private-key path into every descendant. Only a top-level process
+// the operator explicitly configured ever sees them.
+// ---------------------------------------------------------------------------
+
+/// The network-drive listener bind address (e.g. `0.0.0.0:7100`). Deny-listed.
+pub const ENV_NET_LISTEN: &str = "ATERM_NET_LISTEN";
+/// Path to the operator's server certificate (DER) for the network listener.
+pub const ENV_NET_CERT: &str = "ATERM_NET_CERT";
+/// Path to the operator's server private key (PKCS#8 DER) for the listener.
+pub const ENV_NET_KEY: &str = "ATERM_NET_KEY";
+
 /// Exact env vars that should not leak into child shells.
 ///
 /// These are denied by exact name because other `ATERM_*` variables are
@@ -99,6 +115,12 @@ pub const ENV_DENY_VARS: &[&str] = &[
     // per-instance socket and never unlinks/steals the parent's explicit path.
     "ATERM_CONTROL_SOCK",
     "ATERM_NO_CONTROL_SOCK",
+    // Network-drive selectors: never inherit, so a nested aterm cannot open a
+    // second network control surface and the operator's key path is not fanned
+    // into every descendant (only the explicitly-configured root binds).
+    ENV_NET_LISTEN,
+    ENV_NET_CERT,
+    ENV_NET_KEY,
     // Recursion provisioning (re-injected fresh per direct child via env_add).
     ENV_SESSION_ID,
     ENV_LAUNCH_NONCE,
@@ -175,6 +197,16 @@ mod tests {
         }
         // Shell-integration ATERM_* vars are still preserved (not over-broad).
         assert!(!is_ai_env_var("ATERM_SHELL_INTEGRATION_DIR"));
+    }
+
+    /// L3 network drive: the listener bind address + the operator's TLS cert/key
+    /// PATHS must be stripped on every child hop, so a nested aterm can neither
+    /// open a second network control surface nor inherit the operator's key path.
+    #[test]
+    fn test_network_drive_selectors_are_denied_by_name() {
+        for v in [ENV_NET_LISTEN, ENV_NET_CERT, ENV_NET_KEY] {
+            assert!(is_ai_env_var(v), "{v} must be deny-listed so children never inherit it");
+        }
     }
 
     /// F1 (revised): the edge-token file now PERSISTS for the session so a child

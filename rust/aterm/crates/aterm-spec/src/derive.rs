@@ -1320,6 +1320,62 @@ pub fn channel_bind_model() -> Model {
     }
 }
 
+/// NETWORK-CAPABILITY GRANT SOUNDNESS — the L3 listener's `verify_capability`
+/// decision (`aterm-net`): a dialer is GRANTED only when BOTH conjuncts hold — the
+/// presented `(src, op)` names a capability the host minted (`lookup` returns a
+/// token, not `None`), AND the presented tag is the channel-bound
+/// `HMAC-SHA256(token, exporter)` for THIS TLS session (`verify_presented`
+/// succeeds in constant time). The real-code binding is aterm-net's
+/// `capability_handshake_grants_valid_and_denies_unknown_replay_and_forgery` test
+/// (valid → grant; unknown / cross-channel replay / wrong-token forgery → deny).
+///
+/// Where [`channel_bind_model`] proves the binding PRIMITIVE (a captured tag never
+/// replays on another channel), this proves the GRANT decision that consumes it:
+/// the two are the primitive and its caller. Modeled as a two-guard
+/// [`props::conjunctive_authz`]: `known` = the lookup hit, `bound` = the
+/// channel-binding HMAC verified. `Buggy` WAIVES the `bound` guard — the exact
+/// "grant a known `(src, op)` without actually checking the HMAC over the session
+/// exporter" regression, which would accept a forged or cross-channel-replayed
+/// tag. Invariant `GrantImpliesKnownAndBound`: a grant implies BOTH the lookup hit
+/// AND the binding verified. `ty` proves it at Buggy=0 and catches the
+/// dropped-binding disclosure at Buggy=1.
+pub fn net_capability_grant_model() -> Model {
+    props::conjunctive_authz(props::ConjunctiveAuthz {
+        name: "NetCapabilityGrant",
+        guards: vec!["known", "bound"],
+        decided: "granted",
+        pick: "Present",
+        decide: "Verify",
+        drop: "bound",
+        inv: "GrantImpliesKnownAndBound",
+    })
+}
+
+/// NETWORK DIAL-AFTER-GRANT ORDERING — the L3 listener dials its LOCAL control
+/// socket only AFTER the channel-bound capability is granted (`aterm-net`'s
+/// `accept_and_relay`: `verify_capability(...)?` runs to a grant BEFORE
+/// `connect_local()`). So a denied dialer NEVER reaches the local socket — the
+/// confused-deputy boundary at the network edge, the network twin of
+/// [`no_transitive_authority_model`]. The real-code binding is aterm-net's
+/// `a_denied_capability_never_reaches_the_local_socket` test (a forged capability
+/// is rejected AND `connect_local` is never called).
+///
+/// Modeled as a [`props::happens_before`] latch pair: `granted` (set by `Verify`)
+/// must precede `local_dialed` (set by `DialLocal`, guarded on `granted`). `Buggy`
+/// lets the dial race ahead of the grant — dialing the local socket for an
+/// unverified peer. Invariant `DialImpliesGranted`: `local_dialed = 0 \/ granted =
+/// 1`. `ty` proves it at Buggy=0 and catches the premature dial at Buggy=1.
+pub fn net_dial_after_grant_model() -> Model {
+    props::happens_before(props::Ordering {
+        name: "NetDialAfterGrant",
+        a: "granted",
+        a_act: "Verify",
+        b: "local_dialed",
+        b_act: "DialLocal",
+        inv: "DialImpliesGranted",
+    })
+}
+
 /// COLOUR-PRESENTATION GATE — a code point that defaults to TEXT presentation is
 /// never resolved to the colour-emoji face. The abstract twin of aterm-render's
 /// `select_face` (the real-code binding is aterm-render's

@@ -338,6 +338,14 @@ pub fn spawn(
         if let Some((sid, nonce)) = &root_identity {
             crate::proxy::write_graph_entry(&sock_dir, sid, &sock_path, nonce);
         }
+        // Secure-default-OFF network drive: only when the operator set
+        // ATERM_NET_LISTEN/_CERT/_KEY does this open a TLS port that relays a
+        // channel-bound remote driver into THIS control socket. A nested aterm
+        // cannot stand up a second surface because those three selectors are in
+        // `ENV_DENY_VARS` — stripped on every child hop — so ONLY a top-level
+        // process the operator explicitly configured ever sees them. The same
+        // per-launch token gates both the network and the local hop.
+        crate::net_listen::maybe_spawn(token.as_str(), &sock_path);
         let our_uid = control_auth::our_uid();
         for stream in listener.incoming() {
             let stream = match stream {

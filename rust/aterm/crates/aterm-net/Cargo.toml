@@ -17,6 +17,8 @@ workspace = true
 # The capability the network hop carries (the same EdgeToken the local one-hop
 # proxy mints), and the session/op identity it binds to.
 aterm-session = { workspace = true }
-# Keyed digest for the channel binding (a non-crypto stand-in for the property;
-# production swaps in HMAC-SHA256/HKDF — see the module docs).
-aterm-hash = { workspace = true }
+# Real capability crypto: HMAC-SHA256 binds the edge token to the channel
+# exporter; constant-time verify via `Mac::verify_slice`.
+hmac = { workspace = true }
+sha2 = { workspace = true }
+rustls = { workspace = true }

@@ -112,7 +112,7 @@ pub enum MenuAction {
     /// Show the previous tab (`App::cycle_tab(false)`).
     PrevTab,
     // Help menu
-    /// Help — open the project documentation in the browser (`open_help_url`).
+    /// Help — open the bundled, offline features guide (`open_help_url`).
     Help,
 }
 
@@ -820,9 +820,25 @@ mod macos {
         open_in_workspace(&path.to_string_lossy(), true);
     }
 
-    /// Help ▸ aterm Help: open the project documentation in the default browser.
+    /// Help ▸ aterm Help: open the bundled, offline features guide
+    /// (`Contents/Resources/Help.html`, written by `apps/aterm-mac/build-app.sh`) in
+    /// the default browser. Falls back to the project page when running outside the
+    /// `.app` (e.g. `cargo run`), where no bundled resource exists.
     pub fn open_help_url() {
-        open_in_workspace("https://github.com/andrewyatesai/aterm", false);
+        if let Some(help) = bundled_resource("Help.html") {
+            open_in_workspace(&help, true);
+        } else {
+            open_in_workspace("https://github.com/andrewyatesai/aterm", false);
+        }
+    }
+
+    /// Resolve a file inside the running app bundle's `Contents/Resources/`, returning
+    /// its path only when the file exists. The executable lives at
+    /// `<app>/Contents/MacOS/<bin>`, so resources are two levels up then `Resources/`.
+    fn bundled_resource(name: &str) -> Option<String> {
+        let exe = std::env::current_exe().ok()?;
+        let res = exe.parent()?.parent()?.join("Resources").join(name);
+        res.is_file().then(|| res.to_string_lossy().into_owned())
     }
 
     /// Open `s` via `NSWorkspace openURL:` — a file path (`is_file`) becomes a

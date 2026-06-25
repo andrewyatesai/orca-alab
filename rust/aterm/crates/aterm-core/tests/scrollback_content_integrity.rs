@@ -187,3 +187,50 @@ fn scrollback_preserves_line_content_in_order() {
         );
     }
 }
+
+#[test]
+fn synchronized_update_scrolls_nonblank_lines_into_scrollback() {
+    // Box-table repro: a tall batch emitted INSIDE a DEC-2026 synchronized-update
+    // frame (CSI ?2026h … CSI ?2026l) must scroll the exact same non-blank lines
+    // into scrollback as the un-synchronized path. Mode 2026 is a render-deferral
+    // ONLY; it must never gate scroll_up / drop history. (An ad-hoc host probe once
+    // mis-read off-screen rows as blank and suspected an engine bug here — this
+    // pins that the engine is correct, so a real regression fails loudly.)
+    let scrolled = |sync: bool| {
+        let mut term = Terminal::new(24, 80);
+        let mut input = Vec::new();
+        if sync {
+            input.extend_from_slice(b"\x1b[?2026h");
+        }
+        for i in 0..200u32 {
+            input.extend_from_slice(format!("SYNCROW{i}\r\n").as_bytes());
+        }
+        if sync {
+            input.extend_from_slice(b"\x1b[?2026l");
+        }
+        term.process(&input);
+        logical_history_lines(&term)
+    };
+
+    let with_sync = scrolled(true);
+    let without_sync = scrolled(false);
+
+    for i in [0u32, 1, 55, 150] {
+        let want = format!("SYNCROW{i}");
+        assert!(
+            with_sync.iter().any(|l| l == &want),
+            "{want} missing from scrollback under DEC-2026 synchronized update"
+        );
+    }
+    // Sync mode is irrelevant to scrolling: identical history either way.
+    assert_eq!(
+        with_sync, without_sync,
+        "DEC-2026 synchronized update changed which lines scrolled into scrollback"
+    );
+    let nonblank = with_sync.iter().filter(|l| !l.is_empty()).count();
+    assert!(
+        nonblank >= 150,
+        "scrollback should be densely non-blank, got {nonblank} of {}",
+        with_sync.len()
+    );
+}

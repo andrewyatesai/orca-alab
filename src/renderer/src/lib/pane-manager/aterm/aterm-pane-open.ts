@@ -43,6 +43,11 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
         return
       }
       pane.atermController = controller
+      // A pane created while its manager was rendering-suspended starts paused so
+      // a hidden/background manager paints no frames until resumeRendering().
+      if (pane.startRenderingSuspended) {
+        controller.setDrawSuspended(true)
+      }
       // Bind the controller (+ its DOM) into the facade and flush buffered output.
       pane.terminal.__attachController(controller, {
         element: controller.element,

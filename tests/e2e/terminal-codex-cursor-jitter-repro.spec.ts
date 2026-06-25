@@ -564,7 +564,11 @@ async function readCaptureTarget(page: Page, tabId: string, ptyId: string): Prom
         cursorX: terminal.buffer.active.cursorX,
         cursorY: terminal.buffer.active.cursorY,
         suppressed: false,
-        renderer: pane.webglAddon ? 'webgl' : 'dom',
+        renderer:
+          (manager?.getRenderingDiagnostics?.().find((d) => d.paneId === pane.id)?.hasWebgl ??
+          false)
+            ? 'webgl'
+            : 'dom',
         windowsPty: (terminal.options.windowsPty ?? null) as {
           backend?: string
           buildNumber?: number

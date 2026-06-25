@@ -91,6 +91,33 @@ export type ManagedPane = {
   routePtyResize?: (cols: number, rows: number) => void
 }
 
+/** Real per-pane renderer diagnostics, sourced from each pane's aterm
+ *  controller (its loaded draw path + adapter). The legacy xterm-WebGL field
+ *  names are kept so existing consumers keep reading the same keys, but they now
+ *  map to honest aterm state:
+ *   - `renderer`/`adapterInfo` — the live draw path ('gpu' = WebGL2 drawer, 'cpu'
+ *     = the 2d drawer / context-loss fallback) and its acquired adapter string.
+ *   - `hasWebgl`/`gpuRenderingEnabled` — true iff this pane is on the GPU path.
+ *   - `webglDisabledAfterContextLoss` — true iff the pane started on GPU (setting
+ *     allows it) but is now on CPU, i.e. a context-loss swap occurred.
+ *   - `webglAttachmentDeferred` — true while the async controller has not attached
+ *     yet (no live draw path to report).
+ *   - `hasComplexScriptOutput` — always false: aterm shapes complex scripts
+ *     natively and never downgrades the renderer for them. */
+export type PaneRenderingDiagnostics = {
+  paneId: number
+  /** Compatibility alias the older xterm specs read; equals `paneId`. */
+  leafId?: TerminalLeafId
+  terminalGpuAcceleration: GlobalSettings['terminalGpuAcceleration']
+  renderer: 'gpu' | 'cpu'
+  adapterInfo: string | null
+  hasWebgl: boolean
+  gpuRenderingEnabled: boolean
+  webglAttachmentDeferred: boolean
+  webglDisabledAfterContextLoss: boolean
+  hasComplexScriptOutput: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
@@ -131,6 +158,10 @@ export type ManagedPaneInternal = {
   // Set by disposePane so an in-flight async aterm controller creation can drop
   // its result instead of attaching a canvas to a torn-down pane.
   disposed?: boolean
+  // Set when the pane is created while its manager's rendering is suspended; the
+  // aterm controller starts with draw scheduling paused once it attaches so a
+  // hidden/background manager's panes paint no frames until resumeRendering().
+  startRenderingSuspended?: boolean
   debugLabel: string | null
 } & ManagedPane
 

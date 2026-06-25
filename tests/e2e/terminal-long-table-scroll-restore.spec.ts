@@ -558,8 +558,10 @@ async function readTerminalRenderDiagnostics(page: Page): Promise<TerminalRender
     // via the honest controller surface, not xterm's renderer-internal coreService.
     const cursorHidden = pane.atermController?.cursorHidden() ?? null
     const allPaneStates = Array.from(window.__paneManagers?.entries?.() ?? []).flatMap(
-      ([managerTabId, paneManager]) =>
-        (paneManager.getPanes?.() ?? []).map((managedPane) => {
+      ([managerTabId, paneManager]) => {
+        const diags = paneManager.getRenderingDiagnostics?.() ?? []
+        return (paneManager.getPanes?.() ?? []).map((managedPane) => {
+          const d = diags.find((e) => e.paneId === managedPane.id)
           const visibleText = Array.from({ length: managedPane.terminal.rows }, (_, row) => {
             const line = managedPane.terminal.buffer.active.getLine(
               managedPane.terminal.buffer.active.viewportY + row
@@ -570,19 +572,21 @@ async function readTerminalRenderDiagnostics(page: Page): Promise<TerminalRender
           return {
             tabId: managerTabId,
             paneId: managedPane.id,
-            hasComplexScriptOutput: managedPane.hasComplexScriptOutput === true,
+            hasComplexScriptOutput: d?.hasComplexScriptOutput ?? false,
             hasMarker: serializedText.includes('LONG_TABLE_SCROLL_RESTORE_'),
-            hasWebgl: Boolean(managedPane.webglAddon)
+            hasWebgl: d?.hasWebgl ?? false
           }
         })
+      }
     )
+    const activeDiag = manager?.getRenderingDiagnostics?.().find((e) => e.paneId === pane.id)
     return {
       cols: pane.terminal.cols,
       rows: pane.terminal.rows,
       viewportY: buffer.viewportY,
       baseY: buffer.baseY,
-      hasComplexScriptOutput: pane.hasComplexScriptOutput === true,
-      hasWebgl: Boolean(pane.webglAddon),
+      hasComplexScriptOutput: activeDiag?.hasComplexScriptOutput ?? false,
+      hasWebgl: activeDiag?.hasWebgl ?? false,
       canvasCount: pane.container.querySelectorAll('canvas').length,
       cursorHidden,
       visibleLineTails,

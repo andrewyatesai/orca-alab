@@ -302,6 +302,11 @@ export async function createAtermPaneController(
     setSelectionInactive: (inactive) => wired.controller.setSelectionInactive(inactive),
     setSelectionInactiveBg: (bg) => wired.controller.setSelectionInactiveBg(bg),
     scheduleDraw: () => wired.controller.scheduleDraw(),
+    // Read the CURRENT wiring's kind/adapter so a GPU→CPU swap is reflected (the
+    // swap replaces `wired`, so this delegates to whichever path is live now).
+    rendererKind: () => wired.controller.rendererKind(),
+    adapterInfo: () => wired.controller.adapterInfo(),
+    setDrawSuspended: (suspended) => wired.controller.setDrawSuspended(suspended),
     lastMouseReport: () => wired.controller.lastMouseReport(),
     serialize: (scrollbackRows) => wired.controller.serialize(scrollbackRows),
     serializeScrollback: (maxRows) => wired.controller.serializeScrollback(maxRows),
@@ -310,8 +315,7 @@ export async function createAtermPaneController(
     gridSize: () => wired.controller.gridSize(),
     isAltScreen: () => wired.controller.isAltScreen(),
     bracketedPasteMode: () => wired.controller.bracketedPasteMode(),
-    setClipboardWriteAuthorized: (allowed) =>
-      wired.controller.setClipboardWriteAuthorized(allowed),
+    setClipboardWriteAuthorized: (allowed) => wired.controller.setClipboardWriteAuthorized(allowed),
     // Stable DOM nodes: the wrapper/textarea persist across a GPU→CPU swap (only
     // the canvas inside the screen is replaced), so the facade can hold them.
     element: inputDom.wrapper,

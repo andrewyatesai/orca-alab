@@ -353,8 +353,6 @@ function createPane(paneId: number) {
 
 function createManager(paneCount = 1) {
   return {
-    setPaneGpuRendering: vi.fn(),
-    markPaneHasComplexScriptOutput: vi.fn(),
     rebuildPaneWebgl: vi.fn(),
     getPanes: vi.fn(() =>
       Array.from({ length: paneCount }, (_, index) => ({
@@ -6722,63 +6720,16 @@ describe('connectPanePty', () => {
 
     capturedDataCallback.current?.('Arabic: السلام عليكم\r\n')
 
-    expect(manager.markPaneHasComplexScriptOutput).not.toHaveBeenCalled()
     expect(pane.terminal.write).toHaveBeenCalledWith(
       'Arabic: السلام عليكم\r\n',
       expect.any(Function)
     )
   })
 
-  it('does not switch renderers when background SGR is split across PTY chunks', async () => {
-    const { connectPanePty } = await import('./pty-connection')
-    const transport = createMockTransport()
-    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
-    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
-      capturedDataCallback.current = callbacks.onData ?? null
-      return 'pty-id'
-    })
-    transportFactoryQueue.push(transport)
-
-    const pane = createPane(1)
-    const manager = createManager(1)
-    const deps = createDeps()
-
-    connectPanePty(pane as never, manager as never, deps as never)
-    await flushAsyncTicks(6)
-
-    capturedDataCallback.current?.('\x1b[48')
-    expect(manager.markPaneHasComplexScriptOutput).not.toHaveBeenCalled()
-
-    capturedDataCallback.current?.(';2;52;52;52m codex block \x1b[0m\r\n')
-
-    expect(manager.markPaneHasComplexScriptOutput).not.toHaveBeenCalled()
-  })
-
-  it('does not switch renderers across split background SGR PTY chunks', async () => {
-    const { connectPanePty } = await import('./pty-connection')
-    const transport = createMockTransport()
-    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
-    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
-      capturedDataCallback.current = callbacks.onData ?? null
-      return 'pty-id'
-    })
-    transportFactoryQueue.push(transport)
-
-    const pane = createPane(1)
-    const manager = createManager(1)
-    const deps = createDeps()
-
-    connectPanePty(pane as never, manager as never, deps as never)
-    await flushAsyncTicks(6)
-
-    capturedDataCallback.current?.('\x1b[4')
-    capturedDataCallback.current?.('8;2;52')
-    expect(manager.markPaneHasComplexScriptOutput).not.toHaveBeenCalled()
-
-    capturedDataCallback.current?.(';52;52m codex block \x1b[0m\r\n')
-
-    expect(manager.markPaneHasComplexScriptOutput).not.toHaveBeenCalled()
-  })
+  // Removed two "does not switch renderers across split background SGR chunks"
+  // tests: they only asserted the deleted xterm-era markPaneHasComplexScriptOutput
+  // never fired. aterm shapes complex scripts natively with no per-pane renderer
+  // switch, so the behavior they guarded no longer exists.
 
   it('forces a viewport refresh for foreground Codex-style background redraws', async () => {
     const { connectPanePty } = await import('./pty-connection')
@@ -6806,7 +6757,6 @@ describe('connectPanePty', () => {
 
     capturedDataCallback.current?.('\x1b[2J\x1b[H\x1b[48;2;52;52;52m codex block text \x1b[0m\r\n')
 
-    expect(manager.markPaneHasComplexScriptOutput).not.toHaveBeenCalled()
     expect(refresh).toHaveBeenCalledWith(0, 39, true)
   })
 
@@ -6839,7 +6789,6 @@ describe('connectPanePty', () => {
 
     capturedDataCallback.current?.(';2;52;52;52m codex block text \x1b[0m\r\n')
 
-    expect(manager.markPaneHasComplexScriptOutput).not.toHaveBeenCalled()
     expect(refresh).toHaveBeenCalledWith(0, 39, true)
   })
 
@@ -6894,7 +6843,6 @@ describe('connectPanePty', () => {
 
     capturedDataCallback.current?.('⠋ Working ├─ file.ts █ progress \uE0B0 prompt\r\n')
 
-    expect(manager.markPaneHasComplexScriptOutput).not.toHaveBeenCalled()
     expect(pane.terminal.write).toHaveBeenCalledWith(
       '⠋ Working ├─ file.ts █ progress \uE0B0 prompt\r\n',
       expect.any(Function)

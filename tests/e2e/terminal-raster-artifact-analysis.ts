@@ -78,10 +78,15 @@ async function readActiveTerminalRasterTarget(page: Page): Promise<TerminalRaste
     if (!pane) {
       throw new Error('No active terminal pane')
     }
-    const screen = pane.container.querySelector<HTMLElement>('.xterm-screen')
-    const dimensions = pane.terminal._core?._renderService?.dimensions?.css?.cell
+    // aterm paints to its own canvas; the unopened xterm shim never mounts a
+    // `.xterm-screen`. Measure the rendered surface from the aterm canvas and read
+    // the real CSS cell size from the controller (xterm's _renderService is gone).
+    const screen =
+      pane.container.querySelector<HTMLElement>('[data-testid="aterm-canvas"]') ??
+      pane.container.querySelector<HTMLElement>('.xterm-screen')
+    const dimensions = pane.atermController?.cellSizeCss() ?? null
     if (!screen || !dimensions) {
-      throw new Error('Active terminal has no measurable xterm screen')
+      throw new Error('Active terminal has no measurable aterm canvas')
     }
     const diagnostics = manager
       ?.getRenderingDiagnostics()

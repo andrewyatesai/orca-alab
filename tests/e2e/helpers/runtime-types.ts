@@ -13,6 +13,18 @@ export type AppStore = {
   getState(): AppState
 }
 
+export type PaneRenderingDiagnosticsLike = {
+  paneId: number
+  terminalGpuAcceleration: 'on' | 'off' | 'auto'
+  renderer: 'gpu' | 'cpu'
+  adapterInfo: string | null
+  hasWebgl: boolean
+  gpuRenderingEnabled: boolean
+  webglAttachmentDeferred: boolean
+  webglDisabledAfterContextLoss: boolean
+  hasComplexScriptOutput: boolean
+}
+
 export type PaneManagerLike = {
   getActivePane?(): ManagedPane | null
   getPanes?(): ManagedPane[]
@@ -21,6 +33,10 @@ export type PaneManagerLike = {
   setActivePane?(paneId: number, opts?: { focus?: boolean }): void
   suspendRendering?(): void
   resumeRendering?(): void
+  setTerminalGpuAcceleration?(mode: 'on' | 'off' | 'auto'): void
+  getRenderingDiagnostics?(): PaneRenderingDiagnosticsLike[]
+  resetWebglTextureAtlases?(): void
+  rebuildPaneWebgl?(paneId: number): void
 }
 
 export type ExplorerFileSummary = Pick<OpenFile, 'id' | 'filePath' | 'relativePath'>

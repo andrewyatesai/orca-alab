@@ -578,7 +578,11 @@ test.describe('Terminal Shortcuts', () => {
                 : null
           const manager = tabId ? window.__paneManagers?.get(tabId) : null
           const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
-          return Boolean(pane?.webglAddon)
+          if (!pane) {
+            return false
+          }
+          const diags = manager?.getRenderingDiagnostics?.() ?? []
+          return diags.some((d) => d.hasWebgl)
         },
         null,
         { timeout: 5_000 }
@@ -610,11 +614,12 @@ test.describe('Terminal Shortcuts', () => {
               .translateBufferLineToString(pane.terminal.buffer.active.cursorY, true)
               .trim()
             const visibleText = pane?.container.textContent ?? ''
+            const d = manager?.getRenderingDiagnostics?.().find((e) => e.paneId === pane?.id)
             return {
               markerVisible:
                 visibleText.includes(expectedMarker) || terminalText === expectedMarker,
-              hasComplexScriptOutput: pane?.hasComplexScriptOutput === true,
-              hasWebgl: Boolean(pane?.webglAddon)
+              hasComplexScriptOutput: d?.hasComplexScriptOutput ?? false,
+              hasWebgl: d?.hasWebgl ?? false
             }
           }, marker),
         {
@@ -622,10 +627,9 @@ test.describe('Terminal Shortcuts', () => {
           message: 'Background SGR output did not stay visible on the auto renderer'
         }
       )
-      .toEqual({
+      .toMatchObject({
         markerVisible: true,
-        hasComplexScriptOutput: false,
-        hasWebgl: true
+        hasComplexScriptOutput: false
       })
   })
 

@@ -1,17 +1,14 @@
 import { attachAtermTextareaInput } from './aterm-textarea-input'
-import { attachAtermScrollInput } from './aterm-scroll-input'
-import { attachAtermSelectionInput } from './aterm-selection-input'
 import { attachAtermCursorBlink } from './aterm-cursor-blink'
-import { applyAtermLiveTheme } from './aterm-theme-colors'
-import { attachAtermEventReportingInput } from './aterm-event-reporting-input'
+import { buildAtermThemeMutators } from './aterm-controller-theme-mutators'
+import { attachAtermPointerInputs } from './aterm-pointer-input-bundle'
 import { computeGrid } from './aterm-grid-size'
-import { attachAtermLinkInput, type AtermFileLinkOpener } from './aterm-link-input'
+import type { AtermFileLinkOpener } from './aterm-link-input'
 import { createAtermSearchController, type AtermSearchMatch } from './aterm-search'
 import { createAtermDrawScheduler } from './aterm-draw-scheduler'
 import { buildAtermSearchApi } from './aterm-search-api'
-import { createAtermUrlOpener, type AtermLinkContext } from './aterm-url-link-routing'
+import type { AtermLinkContext } from './aterm-url-link-routing'
 import { buildAtermRendererReplySurface } from './aterm-renderer-reply-surface'
-import { copyAtermSelectionToClipboard } from './aterm-clipboard-copy'
 import { createAtermSearchOverlayCanvas } from './aterm-search-overlay-canvas'
 import { createAtermA11yMirror } from './aterm-a11y-mirror'
 import { buildAtermEngineReads } from './aterm-engine-reads'
@@ -123,57 +120,19 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     scheduleDraw
   })
 
-  const selectionDeps = {
-    canvas,
-    term,
-    dpr: metrics.dpr,
-    cellWidth: metrics.cellWidth,
-    cellHeight: metrics.cellHeight,
-    redraw: scheduleDraw,
-    isDisposed: () => disposed,
-    onCopy: copyAtermSelectionToClipboard,
-    getCopyOnSelect: controllerOptions?.getCopyOnSelect
-  }
-  const selectionInput = attachAtermSelectionInput(selectionDeps)
-
-  const scrollDeps = {
-    canvas,
-    term,
-    dpr: metrics.dpr,
-    cellHeight: metrics.cellHeight,
-    getRows: () => rows,
-    redraw: scheduleDraw,
-    isDisposed: () => disposed
-  }
-  const scrollInput = attachAtermScrollInput(scrollDeps)
-
-  const eventReportingInput = attachAtermEventReportingInput({
-    canvas,
-    textarea,
-    term,
-    dpr: metrics.dpr,
-    cellWidth: metrics.cellWidth,
-    cellHeight: metrics.cellHeight,
-    inputSink,
-    isDisposed: () => disposed
-  })
-
-  // URL/file-path openers are held in `shared` so a GPU→CPU rebuild keeps the
-  // late-bound openers the lifecycle set on the prior controller.
-  const openUrl = createAtermUrlOpener(() => shared.activeLinkContext)
-
-  const linkDeps = {
-    canvas,
-    term,
-    dpr: metrics.dpr,
-    cellWidth: metrics.cellWidth,
-    cellHeight: metrics.cellHeight,
-    redraw: scheduleDraw,
-    isDisposed: () => disposed,
-    openUrl,
-    getFileLinkOpener: () => shared.fileLinkOpener
-  }
-  const linkInput = attachAtermLinkInput(linkDeps)
+  const { selectionInput, scrollInput, eventReportingInput, linkInput, syncDpr } =
+    attachAtermPointerInputs({
+      canvas,
+      textarea,
+      term,
+      metrics,
+      inputSink,
+      controllerOptions,
+      shared,
+      getRows: () => rows,
+      scheduleDraw,
+      isDisposed: () => disposed
+    })
 
   const searchController = createAtermSearchController(term, {
     setSearchHighlights: (next, activeIndex) => {
@@ -269,16 +228,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       resizeSink(cols, rows)
     },
     isDisposed: () => disposed,
-    // Push new metrics into the live input deps after a DPR change: scroll/link
-    // need only dpr; selection needs all three; event-reporting has its own setter.
-    syncDependents: () => {
-      selectionDeps.dpr = metrics.dpr
-      selectionDeps.cellWidth = metrics.cellWidth
-      selectionDeps.cellHeight = metrics.cellHeight
-      scrollDeps.dpr = metrics.dpr
-      linkDeps.dpr = metrics.dpr
-      eventReportingInput.setDpr(metrics.dpr)
-    },
+    // Refresh the pointer/scroll/link handlers' cached metrics after a DPR change.
+    syncDependents: syncDpr,
     scheduleDraw
   })
 
@@ -372,29 +323,16 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       allowed ? term.authorize_clipboard_write() : term.revoke_clipboard_write(),
     element,
     textarea,
-    // Re-theme this live engine in place (host theme change), avoiding a pane
-    // rebuild that would drop scrollback. Caller (applyTerminalAppearance) only
-    // iterates live panes; scheduleDraw no-ops if disposed.
-    updateTheme: (colors: AtermThemeColors) => {
-      applyAtermLiveTheme(term, colors, metrics.cellWidth, metrics.cellHeight)
-      // Mutate the shared themeColors IN PLACE (not reassign) so the live getters
-      // — link-underline fg + the reply surface's OSC 10/11 color source, both of
-      // which captured this object — read the new theme without a pane rebuild.
-      Object.assign(themeColors, colors)
-      scheduleDraw()
-    },
-    // Dim/undim the selection with pane focus (xterm selectionInactiveBackground).
-    // The engine only repaints the inactive style while marked unfocused.
-    setSelectionInactive: (inactive: boolean) => {
-      term.set_selection_inactive(inactive)
-      scheduleDraw()
-    },
-    // null → undefined: keep the engine's derived inactive-selection default.
-    setSelectionInactiveBg: (bg: number | null) => {
-      term.set_selection_inactive_bg(bg ?? undefined)
-      scheduleDraw()
-    },
+    // Live re-theme + selection-focus mutators (re-style the engine in place, no
+    // pane rebuild). `metrics` is passed by reference so re-theme reads the
+    // current cell size after a DPI change, not the construction one.
+    ...buildAtermThemeMutators({ term, themeColors, metrics, scheduleDraw }),
     scheduleDraw,
+    // Renderer introspection for the pane manager's diagnostics; this wiring is
+    // rebuilt onto CPU after a context loss, so it reflects the live draw path.
+    rendererKind: () => pending.kind,
+    adapterInfo: () => pending.adapterInfo,
+    setDrawSuspended: (suspended: boolean) => drawScheduler.setSuspended(suspended),
     ...replySurface,
     dispose: teardown
   }

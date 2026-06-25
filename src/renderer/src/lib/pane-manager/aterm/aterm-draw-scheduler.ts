@@ -10,6 +10,10 @@ export type AtermDrawScheduler = {
   consume: () => void
   /** True once a draw is scheduled and not yet consumed. */
   isScheduled: () => boolean
+  /** Pause/resume draw scheduling for a hidden pane. While suspended, schedule()
+   *  records that a draw is wanted but fires no rAF/timer; resume runs one draw
+   *  if anything was scheduled while paused so the pane repaints its latest state. */
+  setSuspended: (suspended: boolean) => void
   /** Cancel any pending rAF/timer (call on dispose). */
   dispose: () => void
 }
@@ -20,6 +24,7 @@ const BACKSTOP_TIMEOUT_MS = 33
 
 export function createAtermDrawScheduler(runDraw: () => void): AtermDrawScheduler {
   let scheduled = false
+  let suspended = false
   let timeoutId: ReturnType<typeof setTimeout> | null = null
 
   const clearTimer = (): void => {
@@ -29,16 +34,25 @@ export function createAtermDrawScheduler(runDraw: () => void): AtermDrawSchedule
     }
   }
 
+  const arm = (): void => {
+    requestAnimationFrame(runDraw)
+    // Replace any prior backstop so timers never accumulate across schedules.
+    clearTimer()
+    timeoutId = setTimeout(runDraw, BACKSTOP_TIMEOUT_MS)
+  }
+
   return {
     schedule: () => {
       if (scheduled) {
         return
       }
       scheduled = true
-      requestAnimationFrame(runDraw)
-      // Replace any prior backstop so timers never accumulate across schedules.
-      clearTimer()
-      timeoutId = setTimeout(runDraw, BACKSTOP_TIMEOUT_MS)
+      // Suspended (hidden pane): remember the request but don't burn a frame;
+      // setSuspended(false) replays one draw so the pane shows its latest state.
+      if (suspended) {
+        return
+      }
+      arm()
     },
     consume: () => {
       scheduled = false
@@ -46,6 +60,21 @@ export function createAtermDrawScheduler(runDraw: () => void): AtermDrawSchedule
       clearTimer()
     },
     isScheduled: () => scheduled,
+    setSuspended: (next: boolean) => {
+      if (next === suspended) {
+        return
+      }
+      suspended = next
+      if (suspended) {
+        // Drop any in-flight frame while paused; schedule() re-arms on resume.
+        clearTimer()
+        return
+      }
+      // Resuming: if a draw was wanted while paused, arm one now.
+      if (scheduled) {
+        arm()
+      }
+    },
     dispose: () => {
       scheduled = false
       clearTimer()

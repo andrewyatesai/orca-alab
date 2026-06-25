@@ -4,6 +4,7 @@ import type {
   PaneStyleOptions,
   ManagedPane,
   ManagedPaneInternal,
+  PaneRenderingDiagnostics,
   DropZone
 } from './pane-manager-types'
 import type { SplitPaneAroundLeafIdsOptions } from './pane-subtree-split'
@@ -27,6 +28,7 @@ import {
 import { toPublicPane } from './pane-public-view'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import { registerLivePaneManager, unregisterLivePaneManager } from './pane-manager-registry'
+import { applyAtermGpuMode, buildPaneRenderingDiagnostics } from './aterm-rendering-diagnostics'
 import { PaneIdentityRegistry } from './pane-identity-registry'
 import { closeManagedPane, splitManagedPane } from './pane-split-close'
 import { FIRST_PANE_ID } from '../../../../shared/pane-key'
@@ -42,6 +44,9 @@ export class PaneManager {
   private options: PaneManagerOptions
   private styleOptions: PaneStyleOptions = {}
   private destroyed = false
+  // While true, panes created here start with draw scheduling paused so a
+  // hidden/background manager paints no frames until resumeRendering().
+  private renderingSuspended = false
   private identities = new PaneIdentityRegistry()
   private pendingPaneReparentFrameIds = new Set<number>()
 
@@ -187,6 +192,60 @@ export class PaneManager {
     return pane ? toPublicPane(pane) : null
   }
 
+  /** Real per-pane renderer diagnostics sourced from each pane's aterm
+   *  controller (its live gpu/cpu draw path + adapter). */
+  getRenderingDiagnostics(): PaneRenderingDiagnostics[] {
+    return buildPaneRenderingDiagnostics(
+      this.panes.values(),
+      this.options.terminalGpuAcceleration ?? 'auto'
+    )
+  }
+
+  /** Set the GPU-acceleration preference so aterm panes honor it: persists it as
+   *  the live setting the aterm gpu auto-policy reads (subsequent panes) and
+   *  rebuilds open panes onto the matching draw path. */
+  setTerminalGpuAcceleration(mode: PaneManagerOptions['terminalGpuAcceleration']): void {
+    const next = mode ?? 'auto'
+    this.options.terminalGpuAcceleration = next
+    applyAtermGpuMode(this.panes.values(), next)
+  }
+
+  /** Pause draw scheduling for every pane (hidden pane gating): engines keep
+   *  ingesting PTY bytes but paint no frames until resumed. */
+  suspendRendering(): void {
+    this.renderingSuspended = true
+    for (const pane of this.panes.values()) {
+      pane.startRenderingSuspended = true
+      pane.atermController?.setDrawSuspended(true)
+    }
+  }
+
+  /** Resume draw scheduling for every pane; each repaints its latest state. */
+  resumeRendering(): void {
+    this.renderingSuspended = false
+    for (const pane of this.panes.values()) {
+      pane.startRenderingSuspended = false
+      pane.atermController?.setDrawSuspended(false)
+    }
+  }
+
+  /** Force a fresh full repaint of every pane. The aterm GPU drawer re-presents
+   *  the engine grid each frame (no persisted shared glyph atlas to invalidate),
+   *  so the honest aterm equivalent of the old xterm-WebGL atlas reset is to
+   *  re-rasterize the current frame. Kept under the legacy name the recovery
+   *  call sites use; also reached via resetAllTerminalWebglAtlases. */
+  resetWebglTextureAtlases(): void {
+    for (const pane of this.panes.values()) {
+      pane.atermController?.scheduleDraw()
+    }
+  }
+
+  /** Force a fresh repaint of a single pane (aterm has no per-pane WebGL atlas to
+   *  rebuild; re-rasterizing the current frame is the real equivalent). */
+  rebuildPaneWebgl(paneId: number): void {
+    this.panes.get(paneId)?.atermController?.scheduleDraw()
+  }
+
   getLeafId(numericPaneId: number): TerminalLeafId | null {
     return this.identities.getLeafId(numericPaneId)
   }
@@ -274,6 +333,9 @@ export class PaneManager {
         this.handlePaneMouseEnter(paneId, event)
       }
     )
+    // Start paused if the manager is currently suspended; openAtermPane applies
+    // this once the async controller attaches.
+    pane.startRenderingSuspended = this.renderingSuspended
     this.panes.set(id, pane)
     this.identities.register(id, leafId)
     return pane

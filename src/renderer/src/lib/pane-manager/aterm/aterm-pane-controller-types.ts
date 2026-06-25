@@ -74,6 +74,16 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  scheduler repaint the engine's mirrored state after a callback-only
    *  __schedulerWrite, which feeds no bytes and so schedules no draw of its own. */
   scheduleDraw: () => void
+  /** Which draw path this pane is on: 'gpu' = the WebGL2 drawer, 'cpu' = the 2d
+   *  drawer (default + the GPU→CPU context-loss fallback). Sourced from the loaded
+   *  strategy's `kind`; flips to 'cpu' after a context-loss swap. */
+  rendererKind: () => 'gpu' | 'cpu'
+  /** The acquired WebGL adapter/backend string on the GPU path, else null (CPU). */
+  adapterInfo: () => string | null
+  /** Pause/resume this pane's draw scheduling (hidden-pane gating). While
+   *  suspended the engine still ingests PTY bytes (state stays current) but no
+   *  frame is painted; resume repaints the latest state if a draw was wanted. */
+  setDrawSuspended: (suspended: boolean) => void
   /** e2e/test hook: the last mouse REPORT forwarded to the PTY (e.g. an SGR
    *  "\x1b[<0;C;RM" press), or null if none. Proves a tracked mouse event was
    *  encoded + sent without relying on shell echo under a hidden window. */

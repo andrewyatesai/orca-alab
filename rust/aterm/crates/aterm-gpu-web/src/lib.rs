@@ -31,7 +31,7 @@ use wasm_bindgen::prelude::*;
 
 use aterm_core::selection::SmartSelection;
 use aterm_core::selection::{SelectionSide, SelectionType};
-use aterm_core::terminal::{CursorStyle, MouseMode, Rgb, Terminal};
+use aterm_core::terminal::{ClipboardAccess, CursorStyle, MouseMode, Rgb, Terminal};
 use aterm_render::{Renderer, Theme};
 
 // GpuContext is used only by the wasm async init path (`init`); on the native
@@ -216,6 +216,20 @@ impl AtermGpuTerminal {
     /// GPU and CPU-fallback draw paths. Per-cell truecolor SGR flows independently.
     pub fn set_palette_color(&mut self, index: u8, r: u8, g: u8, b: u8) {
         self.term.set_palette_color_components(index, r, g, b);
+    }
+
+    /// Authorize OSC 52 clipboard *write* so the engine queues OSC 52 app-events
+    /// for the host to drain (see aterm-wasm). Without it the engine is fail-closed
+    /// (CF-004) and drops PTY-origin OSC 52 set sequences. The grid is shared, so
+    /// this covers both the GPU and CPU-fallback paths.
+    pub fn authorize_clipboard_write(&mut self) {
+        self.term.authorize_clipboard_access(ClipboardAccess::Write);
+    }
+
+    /// Revoke OSC 52 clipboard *write* authorization (user toggled the setting
+    /// off), returning the engine to its fail-closed default.
+    pub fn revoke_clipboard_write(&mut self) {
+        self.term.revoke_clipboard_access(ClipboardAccess::Write);
     }
 
     /// Set the cursor blink phase (see aterm-wasm). Applies to the live GPU renderer

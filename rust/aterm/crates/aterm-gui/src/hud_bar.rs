@@ -103,15 +103,23 @@ impl HudSamples {
     }
 
     /// The last `width` frame-render times as sparkline levels 0..=8, AUTO-SCALED to
-    /// `max(SPARK_FLOOR, rolling-max)` so the staircase stays varied on any workload.
+    /// `max(SPARK_FLOOR, rolling-max)` so the staircase stays varied on any workload,
+    /// PLUS the aligned per-bar frame-ms (same indexing, left-padded with 0) so the
+    /// painter can color each bar by absolute frame health rather than bar height.
     /// Oldest→newest, left-padded with empties (0).
-    fn spark(&self, width: usize) -> Vec<u8> {
+    fn spark(&self, width: usize) -> (Vec<u8>, Vec<f32>) {
         let ms: Vec<f64> = self
             .ring
             .iter()
             .map(|s| s.render_ns as f64 / 1.0e6)
             .collect();
-        levels_autoscaled(&ms, f64::from(SPARK_FLOOR_MS), width)
+        let levels = levels_autoscaled(&ms, f64::from(SPARK_FLOOR_MS), width);
+        let mut ms_aligned = vec![0.0f32; width];
+        let n = ms.len().min(width);
+        for (i, &v) in ms.iter().rev().take(n).enumerate() {
+            ms_aligned[width - 1 - i] = v as f32;
+        }
+        (levels, ms_aligned)
     }
 }
 
@@ -124,14 +132,17 @@ pub(crate) fn levels_autoscaled(values: &[f64], floor: f64, width: usize) -> Vec
     if width == 0 {
         return out;
     }
+    // Fold only finite samples into the scale (a stray NaN/±Inf must not poison the
+    // whole staircase), and clamp the floor up off zero so the divide is always safe.
     let scale = values
         .iter()
         .copied()
+        .filter(|v| v.is_finite())
         .fold(floor, f64::max)
         .max(f64::MIN_POSITIVE);
     let n = values.len().min(width);
     for (i, &v) in values.iter().rev().take(n).enumerate() {
-        out[width - 1 - i] = if v <= 0.0 {
+        out[width - 1 - i] = if !v.is_finite() || v <= 0.0 {
             0
         } else {
             ((v / scale) * 8.0).round().clamp(1.0, 8.0) as u8
@@ -157,6 +168,8 @@ pub(crate) struct HudView {
     pub has_present: bool,
     pub slow_frames: u64,
     pub spark: Vec<u8>,
+    /// Per-bar frame-ms aligned 1:1 with `spark`, for absolute-health bar coloring.
+    pub spark_ms: Vec<f32>,
 }
 
 impl HudView {
@@ -164,6 +177,7 @@ impl HudView {
         let m = crate::metrics::snapshot();
         let ms = |ns: u64| ns as f32 / 1.0e6;
         let last = samples.last();
+        let (spark, spark_ms) = samples.spark(spark_width);
         Self {
             backend_gpu: m.backend_gpu,
             fps: samples.fps(now),
@@ -173,7 +187,8 @@ impl HudView {
             max_present_ms: ms(samples.max_present_ns()),
             has_present: samples.any_present(),
             slow_frames: m.slow_frames,
-            spark: samples.spark(spark_width),
+            spark,
+            spark_ms,
         }
     }
 }
@@ -202,19 +217,84 @@ fn rgb(c: u32) -> [u8; 3] {
 }
 
 fn blend(a: u32, b: u32, t: f32) -> [u8; 3] {
-    let (a, b) = (rgb(a), rgb(b));
+    mix3(rgb(a), rgb(b), t)
+}
+
+/// Linear blend of two packed-RGB tones `a` toward `b` by `t ∈ [0,1]`.
+fn mix3(a: [u8; 3], b: [u8; 3], t: f32) -> [u8; 3] {
     let mix = |x: u8, y: u8| (f32::from(x).mul_add(1.0 - t, f32::from(y) * t)).round() as u8;
     [mix(a[0], b[0]), mix(a[1], b[1]), mix(a[2], b[2])]
 }
 
+/// Perceptual luma (cheap, no sRGB-linear round-trip — a binary dark/light decision),
+/// matching `tab_bar::bg_is_light` so HUD + tab strip classify a theme identically.
+fn bg_is_light(bg: [u8; 3]) -> bool {
+    let luma = 0.299 * f32::from(bg[0]) + 0.587 * f32::from(bg[1]) + 0.114 * f32::from(bg[2]);
+    luma > 150.0
+}
+
+/// WCAG relative-luminance contrast ratio between two tones (delegated to the single
+/// implementation in `aterm-types`, same one `tab_bar`'s contrast test uses).
+fn contrast(a: [u8; 3], b: [u8; 3]) -> f64 {
+    aterm_types::Rgb::new(a[0], a[1], a[2]).contrast(aterm_types::Rgb::new(b[0], b[1], b[2]))
+}
+
+/// Darken/lighten `c` toward the higher-contrast pole (black on a light bar, white on
+/// a dark one) JUST enough to clear `target` contrast against `bg`, preserving hue.
+/// Falls back to the max-contrast pole if `target` is unreachable, so a health color
+/// is NEVER invisible on any theme (the light-theme defect this fixes).
+fn ensure_contrast(c: [u8; 3], bg: [u8; 3], target: f64) -> [u8; 3] {
+    if contrast(c, bg) >= target {
+        return c;
+    }
+    let anchor = if bg_is_light(bg) {
+        [0, 0, 0]
+    } else {
+        [255, 255, 255]
+    };
+    let mut best = c;
+    let mut best_ratio = contrast(c, bg);
+    let mut step = 1u8;
+    while step <= 10 {
+        let m = mix3(c, anchor, f32::from(step) / 10.0);
+        let r = contrast(m, bg);
+        if r > best_ratio {
+            best = m;
+            best_ratio = r;
+        }
+        if r >= target {
+            return m;
+        }
+        step += 1;
+    }
+    best // unreachable target → strongest available contrast
+}
+
+/// On-theme HUD tones. The neutral band/label/value linear-blend from the active
+/// theme; the health colors (good/warn/hot) are appearance-aware semantic hues —
+/// bright on dark backgrounds, deep on light — each guaranteed-readable against the
+/// bar via [`ensure_contrast`]. Mirrors `tab_bar::strip_colors`' light/dark branch so
+/// the HUD stays legible (and WCAG-AA, see the contrast test) on every scheme.
 pub(crate) fn hud_colors(theme: Theme) -> HudColors {
+    let light = bg_is_light(rgb(theme.bg));
+    let bar_bg = blend(theme.bg, theme.fg, if light { 0.10 } else { 0.16 });
+    // Semantic health hues per appearance. Dark: bright pastels + the theme cursor for
+    // "good". Light: deep GitHub-style green/amber/red that read on a pale band.
+    let (good_base, warn_base, hot_base) = if light {
+        (rgb(0x0019_7A33), rgb(0x009A_6700), rgb(0x00CF_222E))
+    } else {
+        (rgb(theme.cursor), rgb(0x00F1_FA8C), rgb(0x00FF_6E67))
+    };
+    // AA for body text is 4.5:1; we aim there and let ensure_contrast fall back to the
+    // best available so no value is ever unreadable.
+    const AA: f64 = 4.5;
     HudColors {
-        bar_bg: blend(theme.bg, theme.fg, 0.16), // subtly raised band
-        label: blend(theme.fg, theme.bg, 0.48),  // dim comment-gray labels
-        value: rgb(theme.fg),                    // primary readout
-        good: rgb(theme.cursor),                 // cursor-green (healthy)
-        warn: rgb(0x00F1_FA8C),                  // tempered bright-yellow
-        hot: rgb(0x00FF_6E67),                   // tempered bright-red
+        bar_bg,
+        label: blend(theme.fg, theme.bg, if light { 0.40 } else { 0.48 }),
+        value: ensure_contrast(rgb(theme.fg), bar_bg, AA),
+        good: ensure_contrast(good_base, bar_bg, AA),
+        warn: ensure_contrast(warn_base, bar_bg, AA),
+        hot: ensure_contrast(hot_base, bar_bg, AA),
     }
 }
 
@@ -291,6 +371,9 @@ pub(crate) struct RowWriter<'a> {
     col: usize,
     c: HudColors,
     bar_bg: [u8; 3],
+    /// Reused per-field formatting buffer so the fixed-width numeric fields cost zero
+    /// heap allocations per paint (the panel sits on the measured present path).
+    scratch: String,
 }
 
 impl<'a> RowWriter<'a> {
@@ -302,6 +385,7 @@ impl<'a> RowWriter<'a> {
             col: 1, // leading inset
             c,
             bar_bg,
+            scratch: String::with_capacity(16),
         }
     }
 
@@ -324,12 +408,29 @@ impl<'a> RowWriter<'a> {
         }
     }
 
+    /// Like [`put`] for a `format_args!` value, formatting into the reused `scratch`
+    /// buffer (no per-field `String` allocation). The `scratch`/`row` borrows are
+    /// disjoint fields, so the char loop and the cell writes don't conflict.
+    pub(crate) fn put_num(&mut self, args: std::fmt::Arguments<'_>, fg: [u8; 3], bold: bool) {
+        use std::fmt::Write as _;
+        self.scratch.clear();
+        let _ = self.scratch.write_fmt(args);
+        for ch in self.scratch.chars() {
+            if self.col >= self.row.len() {
+                break;
+            }
+            self.row[self.col] = cell(ch, fg, self.bar_bg, bold, true);
+            self.col += 1;
+        }
+    }
+
     /// A dim separator between groups: ` │ `.
     pub(crate) fn sep(&mut self) {
         self.put(" \u{2502} ", self.c.label, false);
     }
 
-    /// A color-graded sparkline of `levels` (0..=8 each).
+    /// A sparkline of `levels` (0..=8 each), colored by HEIGHT (low→good, peak→hot).
+    /// Use for usage gauges (CPU/mem/throughput) where a taller bar IS the concern.
     pub(crate) fn sparkline(&mut self, levels: &[u8]) {
         for &lvl in levels {
             if self.col >= self.row.len() {
@@ -342,6 +443,20 @@ impl<'a> RowWriter<'a> {
                 false,
                 true,
             );
+            self.col += 1;
+        }
+    }
+
+    /// A sparkline whose bar HEIGHTS come from `levels` but whose COLORS are supplied
+    /// per-bar (e.g. graded by absolute frame-ms health, so fast frames stay green
+    /// even when the auto-scaled bar is tall). `colors` aligns 1:1 with `levels`.
+    pub(crate) fn sparkline_graded(&mut self, levels: &[u8], colors: &[[u8; 3]]) {
+        for (i, &lvl) in levels.iter().enumerate() {
+            if self.col >= self.row.len() {
+                break;
+            }
+            let col = colors.get(i).copied().unwrap_or(self.c.good);
+            self.row[self.col] = cell(spark_glyph(lvl), col, self.bar_bg, false, true);
             self.col += 1;
         }
     }
@@ -374,24 +489,40 @@ pub fn paint_hud(row: &mut [RenderCell], v: &HudView, theme: Theme) {
 
     // FPS — fixed width (right-justified 3), health-colored (60→good, 30→warn).
     let fps_col = grade_lo(v.fps as f32, 50.0, 30.0, w.colors());
-    w.put(&format!("{:>3}", v.fps), fps_col, true);
+    w.put_num(format_args!("{:>3}", v.fps), fps_col, true);
     w.put(" fps", label, false);
     w.sep();
 
-    // Sparkline — only if there's comfortable room for the trailing fields.
-    if w.room() > 30 {
-        let want = w.room().saturating_sub(28).clamp(6, v.spark.len().max(6));
+    // Sparkline — drawn only when the FULL trailing block (frame-ms + latency, ~38
+    // cells incl. separators) AND a >=6-cell spark both fit, so the latency readout is
+    // never truncated to a stub at common widths. Sized to the remaining gap. Bars are
+    // colored by ABSOLUTE frame health (grade_hi on ms), so fast frames stay green even
+    // when the auto-scaled bar is tall.
+    const TRAILING: usize = 38;
+    const MIN_SPARK: usize = 6;
+    if w.room() >= TRAILING + MIN_SPARK {
+        let want = (w.room() - TRAILING).min(v.spark.len());
         let start = v.spark.len().saturating_sub(want);
-        let levels = v.spark[start..].to_vec();
-        w.sparkline(&levels);
+        let levels = &v.spark[start..];
+        let colors: Vec<[u8; 3]> = v.spark_ms[start..]
+            .iter()
+            .map(|&ms| {
+                if ms <= 0.0 {
+                    label
+                } else {
+                    grade_hi(ms, 8.0, 16.0, w.colors())
+                }
+            })
+            .collect();
+        w.sparkline_graded(levels, &colors);
         w.sep();
     }
 
     // frame render ms — last (health-colored) / max (dim), fixed width.
     let fr_col = grade_hi(v.last_frame_ms, 8.0, 16.0, w.colors());
-    w.put(&format!("{:>5.1}", v.last_frame_ms), fr_col, true);
+    w.put_num(format_args!("{:>5.1}", v.last_frame_ms), fr_col, true);
     w.put("/", label, false);
-    w.put(&format!("{:>5.1}", v.max_frame_ms), label, false);
+    w.put_num(format_args!("{:>5.1}", v.max_frame_ms), label, false);
     w.put(" ms", label, false);
     w.sep();
 
@@ -399,9 +530,9 @@ pub fn paint_hud(row: &mut [RenderCell], v: &HudView, theme: Theme) {
     w.put("lat ", label, false);
     if v.has_present {
         let lat_col = grade_hi(v.last_present_ms, 8.0, 16.0, w.colors());
-        w.put(&format!("{:>5.1}", v.last_present_ms), lat_col, true);
+        w.put_num(format_args!("{:>5.1}", v.last_present_ms), lat_col, true);
         w.put("/", label, false);
-        w.put(&format!("{:>5.1}", v.max_present_ms), label, false);
+        w.put_num(format_args!("{:>5.1}", v.max_present_ms), label, false);
         w.put(" ms", label, false);
     } else {
         w.put("  —  ", label, false);
@@ -411,7 +542,7 @@ pub fn paint_hud(row: &mut [RenderCell], v: &HudView, theme: Theme) {
     if v.slow_frames > 0 {
         let hot = w.colors().hot;
         w.sep();
-        w.put(&format!("!{} slow", v.slow_frames), hot, true);
+        w.put_num(format_args!("!{} slow", v.slow_frames), hot, true);
     }
     let _ = value; // reserved for future fields
 }
@@ -459,6 +590,9 @@ fn push_ring(ring: &mut VecDeque<f64>, v: f64) {
 
 /// Human-readable short number: `850`, `12.0k`, `3.4M`, `1.2G`.
 fn fmt_short(v: f64) -> String {
+    if !v.is_finite() {
+        return "--".to_string();
+    }
     if v >= 1.0e9 {
         format!("{:.1}G", v / 1.0e9)
     } else if v >= 1.0e6 {
@@ -472,6 +606,9 @@ fn fmt_short(v: f64) -> String {
 
 /// Human-readable byte rate: `0 B/s`, `340K/s`, `1.2M/s`.
 fn fmt_rate(bps: f64) -> String {
+    if !bps.is_finite() {
+        return "-- B/s".to_string();
+    }
     if bps >= 1.0e9 {
         format!("{:.1}G/s", bps / 1.0e9)
     } else if bps >= 1.0e6 {
@@ -570,7 +707,7 @@ impl Panel for SysLoadPanel {
         if let Some(&l) = self.load.back() {
             let frac = l / self.ncpu;
             let col = grade_hi(frac as f32, 0.7, 1.0, w.colors());
-            w.put(&format!("{l:>4.2}"), col, true);
+            w.put_num(format_args!("{l:>4.2}"), col, true);
             let levels = levels_autoscaled(
                 &self.load.iter().copied().collect::<Vec<_>>(),
                 self.ncpu,
@@ -595,7 +732,7 @@ impl Panel for SysLoadPanel {
                 );
                 w.put(" ", label, false);
             }
-            w.put(&format!("{:>3.0}%", f * 100.0), col, true);
+            w.put_num(format_args!("{:>3.0}%", f * 100.0), col, true);
             let levels = levels_autoscaled(&self.mem.iter().copied().collect::<Vec<_>>(), 1.0, 12);
             w.put(" ", label, false);
             w.sparkline(&levels);
@@ -690,11 +827,19 @@ impl Panel for NetworkPanel {
 /// shows its latest value, derived per-second rate, and a throughput sparkline.
 pub(crate) struct AppFedPanel {
     enabled: bool,
+    /// Snapshot refreshed on the HUD `poll` tick (~3 fps), so `paint` (which runs on
+    /// the measured present path, potentially every frame) never takes the global
+    /// `app_fed` store lock nor rebuilds the per-stream views under contention with
+    /// the control-thread writer. Mirrors how SysLoad/Network sample on `poll`.
+    cache: Vec<crate::app_fed::StreamView>,
 }
 
 impl AppFedPanel {
     pub(crate) fn new(enabled: bool) -> Self {
-        Self { enabled }
+        Self {
+            enabled,
+            cache: Vec::new(),
+        }
     }
 }
 
@@ -708,10 +853,13 @@ impl Panel for AppFedPanel {
     fn set_enabled(&mut self, on: bool) {
         self.enabled = on;
     }
+    fn poll(&mut self, now: Instant) {
+        self.cache = crate::app_fed::snapshot(now, 8);
+    }
     fn paint(&self, row: &mut [RenderCell], theme: Theme) {
         let mut w = RowWriter::new(row, theme);
         let label = w.colors().label;
-        let streams = crate::app_fed::snapshot(Instant::now(), 8);
+        let streams = &self.cache;
         if streams.is_empty() {
             w.put("feed ", w.colors().good, true);
             w.put(
@@ -722,7 +870,7 @@ impl Panel for AppFedPanel {
             return;
         }
         let mut first = true;
-        for s in &streams {
+        for s in streams {
             if !first {
                 w.sep();
             }
@@ -756,6 +904,7 @@ mod tests {
             has_present: true,
             slow_frames: 0,
             spark: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            spark_ms: vec![2.0, 3.0, 4.0, 6.0, 8.0, 10.0, 14.0, 20.0],
         }
     }
 
@@ -788,6 +937,28 @@ mod tests {
         );
     }
 
+    /// Regression for the mis-sized sparkline budget that truncated the latency block
+    /// to a `lat   0.` stub across the most common terminal widths. The sparkline must
+    /// only draw when the FULL trailing block (frame-ms + present-latency, both `ms`
+    /// fields) still fits, so the headline latency is never clipped.
+    #[test]
+    fn latency_readout_is_not_truncated_at_common_widths() {
+        let theme = Theme::default();
+        for cols in [56usize, 64, 70, 80, 100, 120] {
+            let mut row = vec![blank_cell(theme); cols];
+            paint_hud(&mut row, &view(), theme);
+            let text: String = row.iter().map(|c| c.ch).collect();
+            assert!(
+                text.matches("ms").count() >= 2,
+                "cols={cols}: both frame and present 'ms' fields must render, got {text:?}"
+            );
+            assert!(
+                text.contains("0.8"),
+                "cols={cols}: the present-latency value must not be truncated, got {text:?}"
+            );
+        }
+    }
+
     #[test]
     fn sparkline_auto_scales_so_uniform_slow_frames_are_not_all_full_block() {
         // All frames ~40ms: with a FIXED 16ms scale every bar would be █ (level 8);
@@ -800,7 +971,7 @@ mod tests {
         {
             s.record(ns, 0, now + Duration::from_millis(i as u64 * 10));
         }
-        let levels = s.spark(4);
+        let (levels, _ms) = s.spark(4);
         assert!(
             levels.iter().any(|&l| l < 8),
             "auto-scaled sparkline must not pin every slow frame to a full block: {levels:?}"
@@ -811,11 +982,71 @@ mod tests {
         );
     }
 
+    /// Regression for the perf sparkline being colored by autoscaled bar HEIGHT (so a
+    /// uniformly-healthy workload painted an alarming all-yellow/red staircase). Bars
+    /// must be colored by ABSOLUTE frame health: fast frames stay `good` even when the
+    /// auto-scaled bar is at full height.
+    #[test]
+    fn perf_sparkline_colors_track_frame_health_not_bar_height() {
+        let theme = Theme::default();
+        let good = hud_colors(theme).good;
+        let mut v = view();
+        v.spark = vec![8; 8]; // all bars at full height (autoscaled to the window)
+        v.spark_ms = vec![2.0; 8]; // ...but every frame is a fast 2ms (healthy)
+        let mut row = vec![blank_cell(theme); 140];
+        paint_hud(&mut row, &v, theme);
+        let spark_cells: Vec<&RenderCell> = row
+            .iter()
+            .filter(|c| ('\u{2581}'..='\u{2588}').contains(&c.ch))
+            .collect();
+        assert!(
+            !spark_cells.is_empty(),
+            "sparkline should render at 140 cols"
+        );
+        assert!(
+            spark_cells.iter().all(|c| c.fg == good),
+            "healthy fast frames must color the sparkline 'good', not by bar height"
+        );
+    }
+
     #[test]
     fn sparkline_levels_map_to_block_glyphs() {
         assert_eq!(spark_glyph(0), ' ');
         assert_eq!(spark_glyph(1), '▁');
         assert_eq!(spark_glyph(8), '█');
         assert_eq!(spark_glyph(9), '█');
+    }
+
+    /// Every HUD health color (good/warn/hot) and the value/label tones must stay
+    /// READABLE against the bar background on EVERY built-in scheme — dark AND light.
+    /// This is the regression guard for the light-theme defect where the old fixed-hex
+    /// warn/hot collapsed to ~1.2:1 (invisible). Mirrors `tab_bar`'s contrast test; the
+    /// 3.0:1 floor is the WCAG-AA large/bold-text + non-text-contrast threshold (the
+    /// values render bold), while `hud_colors` itself aims for 4.5:1.
+    #[test]
+    fn hud_colors_meet_wcag_aa_on_every_builtin_scheme() {
+        for name in aterm_types::scheme::builtin_names() {
+            let s = aterm_types::scheme::builtin(name).expect("builtin exists");
+            let tp = s.to_theme_parts();
+            let theme = Theme {
+                fg: tp.fg,
+                bg: tp.bg,
+                cursor: tp.cursor,
+                selection: tp.selection,
+            };
+            let c = hud_colors(theme);
+            for (role, fg) in [
+                ("good", c.good),
+                ("warn", c.warn),
+                ("hot", c.hot),
+                ("value", c.value),
+            ] {
+                let ratio = contrast(fg, c.bar_bg);
+                assert!(
+                    ratio >= 3.0,
+                    "{name}: HUD {role} contrast {ratio:.2} < 3.0:1 against the bar"
+                );
+            }
+        }
     }
 }

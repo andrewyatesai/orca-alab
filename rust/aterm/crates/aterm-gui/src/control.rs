@@ -1464,9 +1464,10 @@ fn handle(
         // sessions without busy-polling. Read-side (observes lifecycle/blocks).
         "ready" => control_session::cmd_ready(term, store, session, rest, subscribers),
         // `await <idle|seq|match|block>`: block until the Observation Kernel (L0)
-        // latches the predicate. The event-driven, no-silent-loss successor to the
-        // OSC-133-only `ready`/`wait`; works for alt-screen agent TUIs (Claude).
-        // Registers a subscriber so it wakes on output (content predicates) AND at
+        // latches the predicate. The event-driven, no-silent-loss generalization of
+        // `ready`/`wait`: it adds the OSC-133-independent `idle`/`match`/`seq`
+        // predicates, so it works for alt-screen agent TUIs (Claude) — unlike
+        // `wait` (OSC-133-only). Registers a subscriber so it wakes on output AND at
         // the idle deadline — no fixed-interval poll.
         "await" => control_session::cmd_await(term, store, session, rest, subscribers),
         "send" => control_input::cmd_send(&ctx.sink, rest),

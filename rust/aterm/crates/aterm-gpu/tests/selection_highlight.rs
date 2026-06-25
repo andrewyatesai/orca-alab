@@ -185,7 +185,10 @@ fn inactive_selection_bg_gpu_matches_cpu() {
     for (name, f) in [("cpu", &cpu_inactive), ("gpu", &gpu_inactive)] {
         let sel_px = cell_pixels(f, cw, ch, 0, 2); // selected 'l'
         let n_inactive = sel_px.iter().filter(|&&p| near(p, inactive_bg, 8)).count();
-        let n_active = sel_px.iter().filter(|&&p| near(p, theme.selection, 8)).count();
+        let n_active = sel_px
+            .iter()
+            .filter(|&&p| near(p, theme.selection, 8))
+            .count();
         assert!(
             n_inactive > sel_px.len() / 2,
             "{name}: unfocused selected cell should use the INACTIVE bg ({n_inactive}/{})",

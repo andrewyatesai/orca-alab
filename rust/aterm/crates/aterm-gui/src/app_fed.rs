@@ -17,8 +17,11 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-/// Max distinct stream names (a new name past this is DROPPED, never evicting an
-/// existing stream — a hostile producer can't flush a legitimate one).
+/// Max distinct stream names. When full, a new name first reclaims slots held by
+/// streams gone STALE (no sample within [`TTL`] — already invisible on screen); only
+/// if none can be reclaimed is the new name dropped. So an ordinary producer that
+/// rotates names (build IDs, per-PID counters) can't permanently wedge the panel,
+/// while a still-LIVE stream is never evicted by a flood of new names.
 const MAX_STREAMS: usize = 32;
 /// Samples retained per stream (drop-oldest).
 const RING_CAP: usize = 64;
@@ -44,7 +47,18 @@ pub(crate) fn record(name: &str, value: f64, now: Instant) {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if !m.contains_key(name) && m.len() >= MAX_STREAMS {
-        return;
+        // At capacity for a NEW name: first reclaim slots held by streams that have
+        // gone stale (their newest sample is older than TTL — they render as nothing
+        // anyway). Live streams (a sample within TTL) are kept. Only refuse if the cap
+        // is still full of live streams.
+        m.retain(|_, r| {
+            r.samples
+                .back()
+                .is_some_and(|(t, _)| now.checked_duration_since(*t).is_none_or(|a| a <= TTL))
+        });
+        if m.len() >= MAX_STREAMS {
+            return;
+        }
     }
     let r = m.entry(name.to_string()).or_insert_with(|| Ring {
         samples: VecDeque::with_capacity(RING_CAP),

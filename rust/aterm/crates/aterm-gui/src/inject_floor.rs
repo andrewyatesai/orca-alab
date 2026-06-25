@@ -9,8 +9,10 @@
 //! `aterm-agent`. A raw control-socket client can `feed @.` in a loop without it,
 //! so the **mandatory** backstop must live at the control dispatch path, where no
 //! client can route around it. This is that floor: every SELF-targeted
-//! input-injection verb (`send`/`key`/`ctrl`/`feed`/`feed-bin`/`paste`) passes
-//! [`allow`] first, bounding the *rate* of self-injection so an output→observe→
+//! input-injection verb passes [`allow`] first — `send`/`key`/`ctrl`/`feed`/
+//! `mouse`/`paste` at the dispatch path (control.rs), and `feed-bin` in
+//! `run_feed_bin` (it is intercepted before dispatch) — bounding the *rate* of
+//! self-injection so an output→observe→
 //! write→output feedback storm hits backpressure (`ERR rate`) instead of
 //! saturating the engine. The cap is generous — legitimate driving (a prompt, an
 //! Enter) is orders of magnitude under it — so only a runaway loop is throttled.
@@ -65,10 +67,9 @@ pub(crate) fn allow(session: u64, nbytes: usize) -> bool {
     }
 }
 
-/// Drop a session's bucket when it closes (hygiene; the map is otherwise bounded
-/// by the number of concurrent sessions, so this is not load-bearing). Wired into
-/// `Session::drop` is a one-line follow-up in `main.rs`.
-#[allow(dead_code)]
+/// Drop a session's bucket when it closes. Called from the `Wake::Exit` handler
+/// (`main.rs`) so the per-session map cannot grow for the process lifetime as
+/// sessions open and close.
 pub(crate) fn forget(session: u64) {
     if let Some(m) = FLOOR.get() {
         m.lock().unwrap_or_else(|p| p.into_inner()).remove(&session);

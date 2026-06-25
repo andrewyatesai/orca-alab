@@ -8,8 +8,10 @@
 //!
 //! Write-class (it mutates shared state); auth (same-uid peer + per-launch token,
 //! and the Edge `write-input` scope) is handled by the dispatcher in `control.rs`.
-//! No repaint nudge is needed: when the app-fed panel is on, the HUD's refresh
-//! tick repaints it within `HUD_INTERVAL`.
+//! On the FOCUSED window the HUD's ~3 fps refresh tick repaints the panel within
+//! `HUD_INTERVAL` with no explicit nudge; an unfocused window (whose HUD tick is
+//! disarmed) reflects a pushed metric on its next focus/output, which is acceptable
+//! for an at-a-glance feed.
 
 /// Longest accepted metric name (bounds the store's key memory).
 const MAX_NAME: usize = 32;
@@ -20,7 +22,14 @@ pub(crate) fn cmd_metric(rest: &str) -> String {
     let (Some(name), Some(valstr), None) = (it.next(), it.next(), it.next()) else {
         return "ERR usage: metric <name> <number>\n".to_string();
     };
-    if name.is_empty() || name.len() > MAX_NAME || name.contains(char::is_whitespace) {
+    // Reject empties, over-long names, whitespace, AND control characters (ESC, other
+    // C0/C1): the name is untrusted input that flows straight into HUD render cells, so
+    // a control/escape byte must never reach the composed frame or misalign the band.
+    if name.is_empty()
+        || name.len() > MAX_NAME
+        || name.contains(char::is_whitespace)
+        || name.contains(char::is_control)
+    {
         return "ERR bad name\n".to_string();
     }
     let Ok(value) = valstr.parse::<f64>() else {
@@ -47,5 +56,8 @@ mod tests {
         assert!(cmd_metric("name nan").starts_with("ERR bad value"));
         let long = "x".repeat(40);
         assert!(cmd_metric(&format!("{long} 1")).starts_with("ERR bad name"));
+        // Control/escape bytes in the name are rejected (untrusted → render buffer).
+        assert!(cmd_metric("tok\u{1b}[31m 1").starts_with("ERR bad name"));
+        assert!(cmd_metric("a\u{7}b 1").starts_with("ERR bad name"));
     }
 }

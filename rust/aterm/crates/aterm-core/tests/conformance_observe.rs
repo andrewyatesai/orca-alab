@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 The aterm Authors
 
-//! Tier-1 conformance for the Observation Kernel (L0) — bind the abstract
-//! `watcher_latch_model` / `idle_deadline_model` (`aterm-spec`) to the REAL
-//! engine: drive a genuine [`Terminal`] through [`Terminal::process_at`] with
-//! armed watchers and check the real latch decisions, plus a negative control so
-//! a pass is never vacuous.
+//! Tier-1 conformance for the Observation Kernel (L0) — exercise the REAL engine
+//! against the BEHAVIOR the abstract `watcher_latch_model` /
+//! `idle_deadline_model` (`aterm-spec`) prove: drive a genuine [`Terminal`]
+//! through [`Terminal::process_at`] with armed watchers and check the real latch
+//! decisions, plus a negative control so a pass is never vacuous. (These are
+//! behavioral conformance tests — they do not import or trace-validate the
+//! abstract `Model`; that lives in `aterm-spec`'s own `ty` checks.)
 //!
 //! The headline property is **IdleFor-under-replay determinism**: feeding the
 //! same `(bytes, ClockReading)` schedule and expiring at *different* instants (a
@@ -147,4 +149,35 @@ fn watchers_are_excluded_from_checkpoint_hydration() {
         !hydrated.watchers_armed(),
         "hydrated engine has an empty kernel — watchers are not checkpointed"
     );
+}
+
+#[test]
+fn idle_baseline_is_arm_relative_not_reset_by_a_phantom_advance() {
+    // Regression: the activity clock's `last_seq` defaults to 0. Arming an
+    // `IdleFor` against a surface whose `content_seq` is ALREADY > 0 must NOT make
+    // the first post-arm batch look like a fresh content advance and reset the
+    // idle deadline. `Terminal::watch` seeds the baseline at arm to close this.
+    let base = Instant::now();
+    let mut t = Terminal::new(24, 80);
+    // Pre-existing content pushes content_seq well past 0.
+    t.process_at(b"hello world\r\nmore output\r\n", clock_at(base, 5));
+    assert!(
+        t.content_seq() > 0,
+        "precondition: content already advanced"
+    );
+
+    let dur = Duration::from_millis(300);
+    let arm_at = base + Duration::from_millis(10);
+    let id = t.watch(WatcherSpec::IdleFor { dur }, arm_at).expect("arm");
+
+    // A content-LESS batch (a DSR cursor query paints no cells, so content_seq
+    // does NOT advance) must not phantom-reset the idle deadline.
+    t.process_at(b"\x1b[6n", clock_at(base, 50));
+
+    // The deadline is ARM-relative: it fires at arm+dur, not at (50ms batch)+dur.
+    assert!(
+        t.watch_expire(arm_at + dur),
+        "idle must latch at arm+dur — a phantom advance would have pushed it later"
+    );
+    assert_eq!(t.watch_poll(id).expect("latched").at, arm_at + dur);
 }

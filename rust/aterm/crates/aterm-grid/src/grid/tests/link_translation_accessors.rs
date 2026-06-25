@@ -15,7 +15,10 @@ fn base_y_equals_oldest_absolute_plus_scrollback() {
         grid.line_feed();
     }
 
-    assert!(grid.scrollback_lines() > 0, "lines should have scrolled off");
+    assert!(
+        grid.scrollback_lines() > 0,
+        "lines should have scrolled off"
+    );
     // base_y is the absolute row of the live/last line.
     let expected = grid.oldest_absolute_row() as usize + grid.scrollback_lines();
     assert_eq!(grid.base_y(), expected);

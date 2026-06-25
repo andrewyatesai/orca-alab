@@ -345,10 +345,7 @@ mod tests {
     fn osc_7_queues_real_cwd_path() {
         let mut term = Terminal::new(24, 80);
         term.process(b"\x1b]7;file://host/home/user/project\x07");
-        assert_eq!(
-            term.current_working_directory(),
-            Some("/home/user/project")
-        );
+        assert_eq!(term.current_working_directory(), Some("/home/user/project"));
         assert_eq!(
             term.take_osc_event(),
             Some((7, "/home/user/project".to_string()))
@@ -392,7 +389,10 @@ mod tests {
         term.process(b"\x1b[?2031h");
         assert!(term.report_color_scheme_enabled(), "2031 set enables it");
         term.process(b"\x1b[?2031l");
-        assert!(!term.report_color_scheme_enabled(), "2031 reset disables it");
+        assert!(
+            !term.report_color_scheme_enabled(),
+            "2031 reset disables it"
+        );
     }
 
     /// CUP positions the cursor; the grid exposes the REAL display-relative col/row.

@@ -24,16 +24,23 @@
 //! one match at the seam; `IdleFor` additionally fires from [`WatcherSet::expire`]
 //! at a host-supplied instant. The kernel carries no vocabulary — the regex
 //! behind [`WatcherSpec::RowMatches`] is an opaque [`RowMatch`] built one crate up
-//! in `aterm-observe`, so `regex` never enters `aterm-core`'s dependency graph.
+//! in `aterm-observe`, so the kernel never constructs or names a regex and
+//! `aterm-core` takes no **direct** `regex` dependency (it remains a transitive
+//! dep via `aterm-search`'s `regex` feature; the purity test checks the direct
+//! production deps).
 //!
-//! ## Two hard invariants (model-checked + conformance-bound)
+//! ## Correctness properties (model-checked and/or conformance-bound)
 //!
 //! 1. **No silent loss.** A predicate that holds at *any* processed batch latches
-//!    at that batch, not on the consumer's later wake. Model: `watcher_latch_model`.
+//!    at that batch, not on the consumer's later wake. Modeled abstractly by
+//!    `watcher_latch_model` and behaviorally conformance-tested by
+//!    `conformance_observe.rs`.
 //! 2. **Deterministic idle.** `IdleFor` latches at the *exact computed deadline*
 //!    (`activity_at + dur`), never the observation instant — so a live wake and a
-//!    lazy replay tick latch the identical [`Satisfaction`]. Model:
-//!    `idle_deadline_model`.
+//!    lazy replay tick latch the identical [`Satisfaction`]. This is verified by
+//!    the unit + `conformance_observe` determinism tests. (`idle_deadline_model`
+//!    proves a related but distinct property: the host arms the *single earliest*
+//!    of all pending deadlines, via [`WatcherSet::next_deadline`].)
 //!
 //! ## Replay-safe by construction (IdleFor-under-replay)
 //!
@@ -57,9 +64,10 @@ pub struct WatchId(pub u64);
 
 /// An opaque, pre-compiled row matcher. The concrete implementation (regex) lives
 /// one crate up in `aterm-observe` (layer L0.5); the core stores it behind this
-/// trait so the `regex` vocabulary **never enters `aterm-core`'s dependency
-/// graph** (RFC R2 purity, CI-checked). The core evaluates a match; it cannot
-/// construct one from a pattern string.
+/// trait so the kernel never names or constructs a regex — `aterm-core` takes no
+/// **direct** `regex` dependency (RFC R2 purity, checked by
+/// `regex_is_not_in_aterm_core_production_deps`). The core evaluates a match; it
+/// cannot construct one from a pattern string.
 pub trait RowMatch: Send + Sync + std::fmt::Debug {
     /// Does `row` (one visible row's text) satisfy this matcher?
     fn matches(&self, row: &str) -> bool;
@@ -713,7 +721,10 @@ mod tests {
         }
         let base = t0();
         let mut w = WatcherSet::default();
-        let rows = [Some("booting".to_string()), Some("still booting".to_string())];
+        let rows = [
+            Some("booting".to_string()),
+            Some("still booting".to_string()),
+        ];
         let id = w
             .arm(
                 WatcherSpec::RowMatches {

@@ -16,7 +16,14 @@
 //! replay format for an *offline observer* and is the one genuinely external
 //! piece (a sibling repo, not on disk) — out of scope here.
 //!
-//! ## What this crate provides (built + tested over loopback)
+//! ## Status: a tested-in-isolation FOUNDATION, not yet wired in
+//!
+//! Everything below is built and unit-tested over loopback, but **no crate
+//! consumes `aterm-net` yet** — it is not on any live control path. It is the L3
+//! foundation the RFC calls for, deliberately landed ahead of integration so the
+//! transport/capability shape is settled and reviewable; wiring it into the
+//! control server (a remote-dial verb + the astream record codec) is the
+//! follow-up. The pieces:
 //!
 //! 1. [`Transport`] — generalizes `proxy.rs`'s `UnixStream::connect` dial to any
 //!    connected channel, yielding **owned** read/write halves (TLS/QUIC have no

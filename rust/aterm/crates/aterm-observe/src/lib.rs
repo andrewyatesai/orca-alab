@@ -9,9 +9,11 @@
 //! exposes a primitive that latches when a *content_seq* advances, a quiescence
 //! deadline elapses, or an opaque [`RowMatch`](aterm_core::terminal::RowMatch)
 //! fires — but it carries **no vocabulary**: it cannot turn a pattern string into
-//! a matcher. That vocabulary (`regex`) lives **here**, so `regex` never enters
-//! `aterm-core`'s production dependency graph (RFC requirement R2; enforced by
-//! [`tests::regex_is_not_in_aterm_core_production_deps`]). The agent layer
+//! a matcher. That vocabulary (`regex`) lives **here**, so `aterm-core` takes no
+//! **direct** `regex` dependency (RFC requirement R2; enforced by
+//! [`tests::regex_is_not_in_aterm_core_production_deps`], which checks the core's
+//! direct production deps — `regex` does still appear in the workspace's
+//! transitive closure via `aterm-search`'s `regex` feature). The agent layer
 //! (`aterm-agent`, L2) composes these predicates into turn-completion; it never
 //! reaches into the core enum directly.
 

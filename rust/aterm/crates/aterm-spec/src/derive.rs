@@ -1132,9 +1132,13 @@ pub fn idle_deadline_model() -> Model {
 /// circuit-breaker trips on sustained self-induced churn, NO self-write may
 /// proceed — the storm backstop that `await-idle` alone cannot provide (a
 /// self-write that produces output keeps `content_seq` advancing, so quiescence
-/// never settles). Scalar projection `<<tripped, wrote_while_tripped>>`: `Trip`
-/// latches the breaker; `Write` proceeds only while NOT tripped (the correct
-/// gate) and records a violation if it ever fires while tripped.
+/// never settles). This models the BREAKER condition of the real
+/// `SelfGovernor::allow_self_write` gate — the latching, hardest-to-reason-about
+/// one; the gate's other two fail-closed conditions (self-write disabled, or the
+/// token bucket empty) are non-latching and covered by `SelfGovernor`'s unit
+/// tests. Scalar projection `<<tripped, wrote_while_tripped>>`: `Trip` latches the
+/// breaker; `Write` proceeds only while NOT tripped (the correct gate) and records
+/// a violation if it ever fires while tripped.
 ///
 /// `Buggy = 0` (committed): `Write` is guarded on `tripped = 0`, so a write never
 /// happens after a trip and `FailClosed` holds. `Buggy = 1`: the guard drops, so

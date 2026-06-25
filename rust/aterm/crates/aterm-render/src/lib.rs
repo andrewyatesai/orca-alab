@@ -1781,8 +1781,9 @@ impl Renderer {
     #[must_use]
     pub fn effective_selection_bg(&self) -> u32 {
         if self.selection_inactive {
-            self.selection_inactive_bg
-                .unwrap_or_else(|| derive_inactive_selection_bg(self.theme.selection, self.theme.bg))
+            self.selection_inactive_bg.unwrap_or_else(|| {
+                derive_inactive_selection_bg(self.theme.selection, self.theme.bg)
+            })
         } else {
             self.theme.selection
         }
@@ -4829,14 +4830,19 @@ mod tests {
         // Two distinct parseable faces: the bundled DejaVu and Apple Symbols (or, if
         // absent, fall back to using DejaVu twice via interning — still two pushes).
         let a = embedded_font().to_vec();
-        let b = std::fs::read("/System/Library/Fonts/Apple Symbols.ttf").unwrap_or_else(|_| a.clone());
+        let b =
+            std::fs::read("/System/Library/Fonts/Apple Symbols.ttf").unwrap_or_else(|_| a.clone());
         r.set_fallback_bytes(&a).expect("face a parses");
         assert_eq!(r.fallback_chain.len(), 1, "set installs exactly one face");
         r.add_fallback_bytes(&b).expect("face b parses");
         assert_eq!(r.fallback_chain.len(), 2, "add appends a second face");
         // set RESETS back to one (drops the appended b).
         r.set_fallback_bytes(&a).expect("face a parses again");
-        assert_eq!(r.fallback_chain.len(), 1, "set resets the chain to one face");
+        assert_eq!(
+            r.fallback_chain.len(),
+            1,
+            "set resets the chain to one face"
+        );
     }
 
     /// REGRESSION (the ⏺ bug): a default-TEXT code point that only the colour
@@ -5810,7 +5816,10 @@ mod tests {
             let bg = (theme.bg >> shift) & 0xff;
             let dim = (derived >> shift) & 0xff;
             let (lo, hi) = (act.min(bg), act.max(bg));
-            assert!(lo <= dim && dim <= hi, "derived channel out of [bg,active] range");
+            assert!(
+                lo <= dim && dim <= hi,
+                "derived channel out of [bg,active] range"
+            );
         }
         // Unfocused WITH an explicit override: that exact colour wins.
         let custom = 0x0012_3456;

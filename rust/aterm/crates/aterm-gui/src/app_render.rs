@@ -541,6 +541,13 @@ impl App {
             ws.last_present = Some(key);
             title
         };
+        // HONEST render cost (fixes the HUD observer effect): capture the TERMINAL
+        // compose time HERE — after the grid snapshot is built but BEFORE the chrome
+        // (tab strip + HUD) is spliced and before the present — so turning the HUD on
+        // does not inflate the very `frame_ms` it reports. The HUD's own paint cost
+        // (row alloc + numeric formatting + sparkline) and the present both fall
+        // outside this window; present latency is reported separately below.
+        let render_ns = frame_started.elapsed().as_nanos() as u64;
         // SPLICE the visible tab strip ABOVE the just-filled terminal grid (shifting
         // the content + cursor down by `tab_strip_rows`). A no-op when the strip is
         // disabled, so `input_scratch` is then the terminal grid exactly as before
@@ -563,7 +570,7 @@ impl App {
         // Publish this frame's timing to the process-global metrics counters, read
         // back over the control socket's `metrics` verb so a driving AI can measure
         // responsiveness directly. Off the correctness path; only on a real present.
-        let render_ns = frame_started.elapsed().as_nanos() as u64;
+        // `render_ns` was captured above (terminal compose only, HUD-exclusive).
         metrics::record_present(present_latency_ns, render_ns);
         // Feed the HUD's rolling sample ring (fps window + sparkline) from the SAME
         // real presents the metrics counters see.

@@ -21,15 +21,18 @@
 //!    bound to this code by [`tests`].
 //!
 //! > **Layering note (the critic's gap).** This L2 governor is *policy*. The
-//! > *un-bypassable floor* — a hard rate-limit on self-targeted `feed` plus
-//! > `DeriveLoop` staying off-by-default — must additionally live at the
-//! > control/edge dispatch path (`aterm-gui`), because a raw control client can
-//! > drive `@.` in a loop without ever linking this crate. This crate is the rich
-//! > policy on top of that floor, not a substitute for it.
+//! > *un-bypassable floor* — a hard per-session rate-limit on self-targeted input
+//! > injection — lives at the control dispatch path (`aterm-gui::inject_floor`,
+//! > applied in `control.rs`/`run_feed_bin`), because a raw control client can
+//! > drive `@.` in a loop without ever linking this crate. (Cross-session
+//! > self-amplification is separately bounded by the proxy's per-op edge tokens,
+//! > whose `DeriveLoop` op is un-grantable by default — `ProxyEntry::token_for`
+//! > returns `None` for it.) This crate is the rich policy on top of that floor,
+//! > not a substitute for it.
 
 use std::time::Duration;
 
-use aterm_observe::{idle_for, row_matcher};
+use aterm_observe::row_matcher;
 
 /// The self-reflection feedback governor (R4). A bounded state machine whose
 /// `FailClosed` property — *a self-write is permitted only with a spare token, a
@@ -219,18 +222,6 @@ pub mod regex_error {
 }
 
 impl Turn {
-    /// Validate the ready pattern compiles (via `aterm-observe`, so `regex` is not
-    /// a direct dependency here either).
-    ///
-    /// # Errors
-    /// [`TurnError::BadPattern`] if `ready_pattern` is not a valid regex.
-    pub fn validate(&self) -> Result<(), TurnError<std::convert::Infallible>> {
-        row_matcher(&self.ready_pattern).map_err(TurnError::BadPattern)?;
-        // `idle_for` is infallible; referenced to document the composed predicate.
-        let _ = idle_for(self.idle);
-        Ok(())
-    }
-
     /// Drive one turn through `client`, gated by `gov` (the self-reflection
     /// governor — pass a permissive one for cross-session driving). Returns the
     /// settled surface text on completion.
@@ -490,12 +481,22 @@ mod tests {
     }
 
     #[test]
-    fn ready_pattern_is_validated() {
+    fn run_rejects_a_bad_ready_pattern_before_touching_the_transport() {
+        let mut client = MockClient {
+            sent: Vec::new(),
+            entered: 0,
+            screen: String::new(),
+        };
+        let mut gov = SelfGovernor::disabled(8, 1, 1000);
+        gov.enable_self_write();
         let turn = Turn {
             ready_pattern: "(unclosed".to_string(),
             ..Turn::default()
         };
-        assert!(matches!(turn.validate(), Err(TurnError::BadPattern(_))));
-        assert!(Turn::default().validate().is_ok());
+        assert!(matches!(
+            turn.run(&mut client, &mut gov, b"x"),
+            Err(TurnError::BadPattern(_))
+        ));
+        assert!(client.sent.is_empty(), "no bytes sent on a bad pattern");
     }
 }

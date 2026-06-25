@@ -2387,6 +2387,10 @@ impl ApplicationHandler<Wake> for App {
                         .unwrap_or_else(|p| p.into_inner())
                         .notify(session);
                 }
+                // Free the session's self-feed-floor bucket (D3 hygiene) so the
+                // per-session map cannot grow for the process lifetime as sessions
+                // open and close.
+                inject_floor::forget(session);
                 for o in to_close {
                     self.close_window(el, o);
                 }
@@ -7970,6 +7974,36 @@ mod tab_strip_math_tests {
         assert_eq!(frame.cells, snapshot, "no strip → grid unchanged");
         assert_eq!(frame.rows, rows);
         assert_eq!(frame.cursor_row, cursor);
+    }
+
+    /// An EMPTY HUD (`hud_rows == 0` → no rows to append) is a no-op: the frame is
+    /// byte-identical. This is the single most important daily-driver invariant — the
+    /// DEFAULT-OFF path for every non-HUD user must not perturb the rendered frame —
+    /// and it is the bottom-splice twin of `prepend_empty_is_noop`.
+    #[test]
+    fn append_empty_is_noop() {
+        let mut term = Terminal::new(2, 4);
+        term.process(b"AB\r\nCD");
+        let mut frame = RenderInput::empty();
+        term.cell_frame_into(&mut frame, 2, 4);
+        let snapshot = frame.cells.clone();
+        let rows = frame.rows;
+        let cursor = frame.cursor_row;
+        let seq = frame.snapshot_seq;
+        crate::app_render::append_hud_rows(&mut frame, Vec::new());
+        assert_eq!(
+            frame.cells, snapshot,
+            "no HUD → grid unchanged (byte-identical)"
+        );
+        assert_eq!(frame.rows, rows, "row count unchanged");
+        assert_eq!(
+            frame.cursor_row, cursor,
+            "cursor unchanged (HUD sits below grid)"
+        );
+        assert_eq!(
+            frame.snapshot_seq, seq,
+            "no snapshot churn on the no-op path"
+        );
     }
 
     /// SELECTION AUTOSCROLL trigger: a pointer INSIDE the grid never autoscrolls

@@ -1,4 +1,5 @@
-import type { IBufferLine, IBufferRange, IDisposable, Terminal } from '@xterm/xterm'
+import type { IBufferLine, IBufferRange, IDisposable } from '@xterm/xterm'
+import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import { openHttpLink } from '@/lib/http-link-routing'
 import { buildCandidateLogicalLinesForBufferPosition } from './terminal-file-link-hit-testing'
 import { rangeForParsedFileLink } from './wrapped-terminal-link-ranges'

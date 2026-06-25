@@ -2,20 +2,22 @@ import { attachAtermTextareaInput } from './aterm-textarea-input'
 import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
 import { attachAtermCursorBlink } from './aterm-cursor-blink'
-import { drainAtermReplies } from './aterm-reply-drain'
 import { applyAtermLiveTheme } from './aterm-theme-colors'
 import { attachAtermEventReportingInput } from './aterm-event-reporting-input'
 import { computeGrid } from './aterm-grid-size'
 import { attachAtermLinkInput, type AtermFileLinkOpener } from './aterm-link-input'
 import { createAtermSearchController, type AtermSearchMatch } from './aterm-search'
 import { createAtermDrawScheduler } from './aterm-draw-scheduler'
-import { attachAtermDprTracker } from './aterm-dpr-tracker'
 import { buildAtermSearchApi } from './aterm-search-api'
 import { createAtermUrlOpener, type AtermLinkContext } from './aterm-url-link-routing'
 import { buildAtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import { copyAtermSelectionToClipboard } from './aterm-clipboard-copy'
 import { createAtermSearchOverlayCanvas } from './aterm-search-overlay-canvas'
 import { createAtermA11yMirror } from './aterm-a11y-mirror'
+import { buildAtermEngineReads } from './aterm-engine-reads'
+import { createAtermTitleChannel } from './aterm-title-channel'
+import { createAtermProcessPump } from './aterm-process-pump'
+import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -33,6 +35,8 @@ export type AtermPaneWiringConfig = {
   pending: AtermPendingStrategy
   canvas: HTMLCanvasElement
   container: HTMLElement
+  /** The `.xterm` DOM wrapper (mirrors xterm's element node). */
+  element: HTMLElement
   textarea: HTMLTextAreaElement
   /** Off-screen ARIA live region the draw path mirrors grid text into (a11y). */
   liveRegion: HTMLElement
@@ -71,27 +75,28 @@ export type AtermWiredPane = {
  *  observers. Returns the public controller surface. All input handlers bind to
  *  `pending.term`, which exposes the SAME state surface for CPU and GPU. */
 export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
-  const { pending, canvas, container, textarea, liveRegion, themeColors, shared } = config
+  const { pending, canvas, container, element, textarea, liveRegion, themeColors, shared } = config
   const { inputSink, resizeSink, pasteSink, controllerOptions } = config
   const term = pending.term
-  let dpr = window.devicePixelRatio || 1
+  const initialDpr = window.devicePixelRatio || 1
   // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
   // the async load (GPU init can take seconds) gives the window time to settle to a
   // different dpr (e.g. a headless window born at 2 settling to 1), which would leave
   // cell metrics frozen at the load-time dpr → wrong column count. Re-rasterize to the
   // live dpr now (set_px is a no-op when unchanged) so metrics + dpr agree from frame 1.
-  term.set_px(Math.round(ATERM_RENDERER_FONT_PX * dpr))
-  // Mutable: a later host DPI / devicePixelRatio change re-rasterizes the engine at a
-  // new font px (term.set_px) and these are re-read, so the grid + overlays resize
-  // instead of staying frozen at the construction-dpr cell size.
-  let cellWidth = term.cell_width
-  let cellHeight = term.cell_height
+  term.set_px(Math.round(ATERM_RENDERER_FONT_PX * initialDpr))
+  // Mutable metrics shared with the input-handler deps: a later host DPI change
+  // re-rasterizes the engine (term.set_px) and updates these in place via the grid
+  // reflow, so the grid + overlays resize instead of freezing at construction dpr.
+  const metrics: AtermMetrics = {
+    dpr: initialDpr,
+    cellWidth: term.cell_width,
+    cellHeight: term.cell_height
+  }
   let disposed = false
   let searchRefreshPending = false
 
-  const initialGrid = computeGrid(container, dpr, cellWidth, cellHeight)
-  let cols = initialGrid.cols
-  let rows = initialGrid.rows
+  let { cols, rows } = computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
 
   let searchMatches: AtermSearchMatch[] = []
   let searchActiveIndex = -1
@@ -99,48 +104,31 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   let draw: () => void = () => undefined
   const drawScheduler = createAtermDrawScheduler(() => draw())
   const scheduleDraw = (): void => {
-    if (disposed) {
-      return
-    }
-    drawScheduler.schedule()
-  }
-
-  // OSC 0/2 window-title channel re-homed off the shadow xterm: track the engine's
-  // title and notify subscribers (agent detection / mobile streaming) on change, so
-  // the title source no longer depends on xterm's onTitleChange.
-  let lastTitle = term.title() ?? ''
-  const titleListeners = new Set<(title: string) => void>()
-  const emitTitleIfChanged = (): void => {
-    const next = term.title() ?? ''
-    if (next !== lastTitle) {
-      lastTitle = next
-      titleListeners.forEach((listener) => listener(next))
+    if (!disposed) {
+      drawScheduler.schedule()
     }
   }
 
-  const process = (data: string): void => {
-    if (disposed) {
-      return
-    }
-    // Follow the bottom on new output ONLY if already at the bottom (aterm SCR-1).
-    const wasAtBottom = term.display_offset === 0
-    term.process(new TextEncoder().encode(data))
-    // aterm is the authoritative query responder — drain + forward its replies.
-    drainAtermReplies(term, inputSink)
-    emitTitleIfChanged()
-    if (wasAtBottom && term.display_offset !== 0) {
-      term.scroll_to_bottom()
-    }
-    searchRefreshPending ||= searchController.hasActiveQuery()
-    scheduleDraw()
-  }
+  const titleChannel = createAtermTitleChannel(term)
+
+  const process = createAtermProcessPump({
+    term,
+    inputSink,
+    isDisposed: () => disposed,
+    emitTitleIfChanged: titleChannel.emitIfChanged,
+    hasActiveSearchQuery: () => searchController.hasActiveQuery(),
+    markSearchRefresh: () => {
+      searchRefreshPending = true
+    },
+    scheduleDraw
+  })
 
   const selectionDeps = {
     canvas,
     term,
-    dpr,
-    cellWidth,
-    cellHeight,
+    dpr: metrics.dpr,
+    cellWidth: metrics.cellWidth,
+    cellHeight: metrics.cellHeight,
     redraw: scheduleDraw,
     isDisposed: () => disposed,
     onCopy: copyAtermSelectionToClipboard,
@@ -151,8 +139,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const scrollDeps = {
     canvas,
     term,
-    dpr,
-    cellHeight,
+    dpr: metrics.dpr,
+    cellHeight: metrics.cellHeight,
     getRows: () => rows,
     redraw: scheduleDraw,
     isDisposed: () => disposed
@@ -163,9 +151,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     canvas,
     textarea,
     term,
-    dpr,
-    cellWidth,
-    cellHeight,
+    dpr: metrics.dpr,
+    cellWidth: metrics.cellWidth,
+    cellHeight: metrics.cellHeight,
     inputSink,
     isDisposed: () => disposed
   })
@@ -177,9 +165,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const linkDeps = {
     canvas,
     term,
-    dpr,
-    cellWidth,
-    cellHeight,
+    dpr: metrics.dpr,
+    cellWidth: metrics.cellWidth,
+    cellHeight: metrics.cellHeight,
     redraw: scheduleDraw,
     isDisposed: () => disposed,
     openUrl,
@@ -208,7 +196,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     drawScheduler,
     searchController,
     isDisposed: () => disposed,
-    getDpr: () => dpr,
+    getDpr: () => metrics.dpr,
     getRows: () => rows,
     getSearchMatches: () => searchMatches,
     getSearchActiveIndex: () => searchActiveIndex,
@@ -225,9 +213,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const searchOverlay = strategy.needsSearchOverlay
     ? createAtermSearchOverlayCanvas(canvas, {
         term,
-        cellWidth,
-        cellHeight,
-        getDpr: () => dpr,
+        cellWidth: metrics.cellWidth,
+        cellHeight: metrics.cellHeight,
+        getDpr: () => metrics.dpr,
         getRows: () => rows,
         getHoveredLinkSpan: () => linkInput.hoveredSpan(),
         getFgColor: () => themeColors.fg
@@ -257,64 +245,41 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const searchApi = buildAtermSearchApi({
     searchController,
     term,
-    cellWidth,
-    cellHeight,
+    cellWidth: metrics.cellWidth,
+    cellHeight: metrics.cellHeight,
     isDisposed: () => disposed,
     getRows: () => rows,
     getSearchMatches: () => searchMatches,
     getSearchActiveIndex: () => searchActiveIndex
   })
 
-  // Re-rasterize at a new density's cell font px so cell metrics rebuild; otherwise
-  // the grid stays sized for the construction dpr (wrong columns) when the window
-  // settles to a different dpr than it was born at.
-  const applyDpr = (nextDpr: number): void => {
-    dpr = nextDpr
-    term.set_px(Math.round(ATERM_RENDERER_FONT_PX * nextDpr))
-    cellWidth = term.cell_width
-    cellHeight = term.cell_height
-    selectionDeps.dpr = nextDpr
-    selectionDeps.cellWidth = cellWidth
-    selectionDeps.cellHeight = cellHeight
-    scrollDeps.dpr = nextDpr
-    linkDeps.dpr = nextDpr
-    eventReportingInput.setDpr(nextDpr)
-  }
-
-  const reflowGrid = (): void => {
-    if (disposed) {
-      return
-    }
-    // The matchMedia resolution listener can miss the window's initial dpr settle
-    // (esp. headless); the ResizeObserver fires on layout changes, so reconcile here.
-    const liveDpr = window.devicePixelRatio || 1
-    if (liveDpr !== dpr) {
-      applyDpr(liveDpr)
-    }
-    const next = computeGrid(container, dpr, cellWidth, cellHeight)
-    if (next.cols === cols && next.rows === rows) {
-      return
-    }
-    cols = next.cols
-    rows = next.rows
-    strategy.resize(rows, cols)
-    resizeSink(cols, rows)
-    scheduleDraw()
-  }
-
-  const resizeObserver = new ResizeObserver(reflowGrid)
-  resizeObserver.observe(container)
   // Size the real grid + report it so the PTY matches the canvas.
   strategy.resize(rows, cols)
 
-  const dprTracker = attachAtermDprTracker({
-    getDpr: () => dpr,
+  const getGrid = (): { cols: number; rows: number } => ({ cols, rows })
+  const gridReflow = attachAtermGridReflow({
+    term,
+    container,
+    metrics,
+    getGrid,
+    setGrid: (nextCols, nextRows) => {
+      cols = nextCols
+      rows = nextRows
+      strategy.resize(rows, cols)
+      resizeSink(cols, rows)
+    },
     isDisposed: () => disposed,
-    onDprChange: (nextDpr) => {
-      applyDpr(nextDpr)
-      reflowGrid()
-      scheduleDraw()
-    }
+    // Push new metrics into the live input deps after a DPR change: scroll/link
+    // need only dpr; selection needs all three; event-reporting has its own setter.
+    syncDependents: () => {
+      selectionDeps.dpr = metrics.dpr
+      selectionDeps.cellWidth = metrics.cellWidth
+      selectionDeps.cellHeight = metrics.cellHeight
+      scrollDeps.dpr = metrics.dpr
+      linkDeps.dpr = metrics.dpr
+      eventReportingInput.setDpr(metrics.dpr)
+    },
+    scheduleDraw
   })
 
   const textareaInput = attachAtermTextareaInput({
@@ -343,11 +308,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   resizeSink(cols, rows)
   scheduleDraw()
 
-  const getGrid = (): { cols: number; rows: number } => ({ cols, rows })
   const replySurface = buildAtermRendererReplySurface({
     term,
-    cellWidth,
-    cellHeight,
+    cellWidth: metrics.cellWidth,
+    cellHeight: metrics.cellHeight,
     themeColors,
     getGrid,
     scheduleDraw
@@ -360,8 +324,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     disposed = true
     drawScheduler.dispose()
     a11yMirror.dispose()
-    resizeObserver.disconnect()
-    dprTracker.dispose()
+    gridReflow.dispose()
     textareaInput.dispose()
     cursorBlink.dispose()
     canvas.removeEventListener('pointerdown', onPointerDown)
@@ -376,14 +339,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const controller: AtermPaneController = {
     process,
     displayOffset: () => term.display_offset,
-    scrollLines: (delta: number) => {
-      if (disposed) {
-        return
-      }
-      term.scroll_lines(delta)
-      scheduleDraw()
-    },
-    selectionText: () => term.selection_text() ?? '',
+    // Buffer/grid reads + scroll/selection commands (live engine state); extracted
+    // to keep this file focused.
+    ...buildAtermEngineReads(term, scheduleDraw, () => disposed),
     linkAt: (row: number, col: number) => {
       const hit = term.link_at(row, col)
       return hit ? { url: hit.url, kind: hit.kind } : null
@@ -396,19 +354,18 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // snake_case; undefined scrollback → all history.
     serialize: (scrollbackRows?: number) => term.serialize(scrollbackRows),
     serializeScrollback: (maxRows?: number) => term.serialize_scrollback(maxRows),
-    title: () => term.title() ?? null,
-    onTitleChange: (handler: (title: string) => void) => {
-      titleListeners.add(handler)
-      return { dispose: () => void titleListeners.delete(handler) }
-    },
+    title: titleChannel.title,
+    onTitleChange: titleChannel.onTitleChange,
     gridSize: () => getGrid(),
     isAltScreen: () => term.is_alt_screen,
     bracketedPasteMode: () => term.bracketed_paste_mode,
+    element,
+    textarea,
     // Re-theme this live engine in place (host theme change), avoiding a pane
     // rebuild that would drop scrollback. Caller (applyTerminalAppearance) only
     // iterates live panes; scheduleDraw no-ops if disposed.
     updateTheme: (colors: AtermThemeColors) => {
-      applyAtermLiveTheme(term, colors, cellWidth, cellHeight)
+      applyAtermLiveTheme(term, colors, metrics.cellWidth, metrics.cellHeight)
       // Mutate the shared themeColors IN PLACE (not reassign) so the live getters
       // — link-underline fg + the reply surface's OSC 10/11 color source, both of
       // which captured this object — read the new theme without a pane rebuild.

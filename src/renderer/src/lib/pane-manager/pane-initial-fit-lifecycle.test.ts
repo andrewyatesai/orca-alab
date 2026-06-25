@@ -26,11 +26,8 @@ function createPane(pendingInitialFitRafId: number | null): ManagedPaneInternal 
     pendingObservedFitRafId: null,
     searchAddon: { dispose: vi.fn() } as never,
     serializeAddon: { dispose: vi.fn() } as never,
-    unicode11Addon: { dispose: vi.fn() } as never,
-    webLinksAddon: { dispose: vi.fn() } as never,
     webglAddon: null,
     ligaturesAddon: null,
-    compositionHandler: null,
     pendingSplitScrollState: null,
     pendingSplitScrollBufferDisposable: null,
     debugLabel: null

@@ -2,7 +2,11 @@ import { resolveAtermThemeColors } from './aterm-theme-colors'
 import { buildAtermInputDom } from './aterm-input-dom'
 import { loadAtermStrategy, type AtermPendingStrategy } from './aterm-strategy-select'
 import { loadAtermCpuDrawer } from './aterm-cpu-drawer'
-import { wireAtermPane, type AtermSharedLateBindings, type AtermWiredPane } from './aterm-pane-wiring'
+import {
+  wireAtermPane,
+  type AtermSharedLateBindings,
+  type AtermWiredPane
+} from './aterm-pane-wiring'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import type {
@@ -172,70 +176,74 @@ export async function createAtermPaneController(
     // helper textarea + DOM shim are untouched.
     canvas.parentElement?.replaceChild(freshCanvas, canvas)
     canvas = freshCanvas
-    void loadAtermCpuDrawer({ canvas, themeColors, fontPx }).then((cpu) => {
-      // The pane was disposed while the CPU drawer loaded: free the just-built
-      // engine and drop the canvas rather than wiring a pane nothing tears down.
-      if (controllerDisposed) {
-        try {
-          cpu.term.free()
-        } catch {
-          /* ignore */
+    void loadAtermCpuDrawer({ canvas, themeColors, fontPx })
+      .then((cpu) => {
+        // The pane was disposed while the CPU drawer loaded: free the just-built
+        // engine and drop the canvas rather than wiring a pane nothing tears down.
+        if (controllerDisposed) {
+          try {
+            cpu.term.free()
+          } catch {
+            /* ignore */
+          }
+          freshCanvas.remove()
+          swapBuffer = null // pane gone; drop the buffered gap output
+          return
         }
-        freshCanvas.remove()
-        swapBuffer = null // pane gone; drop the buffered gap output
-        return
-      }
-      const nextPending: AtermPendingStrategy = {
-        kind: 'cpu',
-        term: cpu.term,
-        cellWidth: cpu.cellWidth,
-        cellHeight: cpu.cellHeight,
-        adapterInfo: null,
-        bindPainter: cpu.bindPainter
-      }
-      wired = wireAtermPane({
-        pending: nextPending,
-        canvas,
-        container,
-        textarea: inputDom.textarea,
-        liveRegion: inputDom.liveRegion,
-        themeColors,
-        inputSink: onInput,
-        resizeSink: onResize,
-        pasteSink: onPaste,
-        controllerOptions,
-        shared,
-        onContextLoss: () => undefined // CPU never loses a GL context
+        const nextPending: AtermPendingStrategy = {
+          kind: 'cpu',
+          term: cpu.term,
+          cellWidth: cpu.cellWidth,
+          cellHeight: cpu.cellHeight,
+          adapterInfo: null,
+          bindPainter: cpu.bindPainter
+        }
+        wired = wireAtermPane({
+          pending: nextPending,
+          canvas,
+          container,
+          element: inputDom.wrapper,
+          textarea: inputDom.textarea,
+          liveRegion: inputDom.liveRegion,
+          themeColors,
+          inputSink: onInput,
+          resizeSink: onResize,
+          pasteSink: onPaste,
+          controllerOptions,
+          shared,
+          onContextLoss: () => undefined // CPU never loses a GL context
+        })
+        // Flush PTY output that arrived during the swap into the fresh engine, in
+        // arrival order, BEFORE clearing the buffer so subsequent live bytes follow.
+        const buffered = swapBuffer ?? []
+        swapBuffer = null
+        for (const chunk of buffered) {
+          wired.controller.process(chunk)
+        }
+        // We deliberately do NOT replay the xterm shim's SerializeAddon buffer into
+        // the fresh engine — its reconstructed output isn't guaranteed compatible with
+        // aterm's parser and was observed to corrupt the recovered state. So a pane
+        // with NO output during/after the swap stays blank until the next PTY write
+        // repaints it (self-healing); the gap's live output above is preserved.
+        swapping = false
       })
-      // Flush PTY output that arrived during the swap into the fresh engine, in
-      // arrival order, BEFORE clearing the buffer so subsequent live bytes follow.
-      const buffered = swapBuffer ?? []
-      swapBuffer = null
-      for (const chunk of buffered) {
-        wired.controller.process(chunk)
-      }
-      // We deliberately do NOT replay the xterm shim's SerializeAddon buffer into
-      // the fresh engine — its reconstructed output isn't guaranteed compatible with
-      // aterm's parser and was observed to corrupt the recovered state. So a pane
-      // with NO output during/after the swap stays blank until the next PTY write
-      // repaints it (self-healing); the gap's live output above is preserved.
-      swapping = false
-    }).catch((err) => {
-      // The CPU-drawer load (first wasm/font fetch on a GPU pane) rejected — e.g.
-      // a transient/offline asset failure. Release the buffered output rather than
-      // holding it forever (the unbounded-leak guard the buffer needs); the pane
-      // can't recover here, but it must not grow the heap. swapping stays true so a
-      // repeat context-loss event doesn't re-enter a known-broken load.
-      console.error('[aterm] CPU renderer load failed after context loss', err)
-      swapBuffer = null
-      swapBufferBytes = 0
-    })
+      .catch((err) => {
+        // The CPU-drawer load (first wasm/font fetch on a GPU pane) rejected — e.g.
+        // a transient/offline asset failure. Release the buffered output rather than
+        // holding it forever (the unbounded-leak guard the buffer needs); the pane
+        // can't recover here, but it must not grow the heap. swapping stays true so a
+        // repeat context-loss event doesn't re-enter a known-broken load.
+        console.error('[aterm] CPU renderer load failed after context loss', err)
+        swapBuffer = null
+        swapBufferBytes = 0
+      })
   }
 
   wired = wireAtermPane({
     pending,
     canvas,
     container,
+    element: inputDom.wrapper,
     textarea: inputDom.textarea,
     liveRegion: inputDom.liveRegion,
     themeColors,
@@ -270,7 +278,12 @@ export async function createAtermPaneController(
     },
     displayOffset: () => wired.controller.displayOffset(),
     scrollLines: (delta) => wired.controller.scrollLines(delta),
+    scrollToBottom: () => wired.controller.scrollToBottom(),
+    scrollToTop: () => wired.controller.scrollToTop(),
+    scrollToLine: (line) => wired.controller.scrollToLine(line),
     selectionText: () => wired.controller.selectionText(),
+    clearSelection: () => wired.controller.clearSelection(),
+    selectionRange: () => wired.controller.selectionRange(),
     linkAt: (row, col) => wired.controller.linkAt(row, col),
     findMatches: (query, caseSensitive, isRegex) =>
       wired.controller.findMatches(query, caseSensitive, isRegex),
@@ -291,10 +304,30 @@ export async function createAtermPaneController(
     gridSize: () => wired.controller.gridSize(),
     isAltScreen: () => wired.controller.isAltScreen(),
     bracketedPasteMode: () => wired.controller.bracketedPasteMode(),
+    // Stable DOM nodes: the wrapper/textarea persist across a GPU→CPU swap (only
+    // the canvas inside the screen is replaced), so the facade can hold them.
+    element: inputDom.wrapper,
+    textarea: inputDom.textarea,
+    isFocusEventMode: () => wired.controller.isFocusEventMode(),
+    isColorSchemeUpdatesMode: () => wired.controller.isColorSchemeUpdatesMode(),
+    cursorX: () => wired.controller.cursorX(),
+    cursorY: () => wired.controller.cursorY(),
+    baseY: () => wired.controller.baseY(),
+    displayOriginAbsolute: () => wired.controller.displayOriginAbsolute(),
+    rowIsWrapped: (row) => wired.controller.rowIsWrapped(row),
+    rowLen: (row) => wired.controller.rowLen(row),
+    rowText: (row) => wired.controller.rowText(row),
+    cellText: (row, col) => wired.controller.cellText(row, col),
+    cellIsWide: (row, col) => wired.controller.cellIsWide(row, col),
+    drainBell: () => wired.controller.drainBell(),
+    takeOscEvents: () => wired.controller.takeOscEvents(),
     pixelSize: () => wired.controller.pixelSize(),
     themeColors: () => wired.controller.themeColors(),
     ...(wired.controller.benchmarkRender
-      ? { benchmarkRender: (cols, rows, frames) => wired.controller.benchmarkRender!(cols, rows, frames) }
+      ? {
+          benchmarkRender: (cols, rows, frames) =>
+            wired.controller.benchmarkRender!(cols, rows, frames)
+        }
       : {}),
     dispose: () => {
       controllerDisposed = true

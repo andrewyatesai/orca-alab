@@ -1,5 +1,8 @@
-import type { Terminal } from '@xterm/xterm'
+import type { AtermTerminalFacade } from './aterm/aterm-terminal-facade'
 import type { ScrollState } from './pane-manager-types'
+
+/** The pane terminal seen by scroll helpers — the aterm facade. */
+type Terminal = AtermTerminalFacade
 
 const terminalOutputEpochs = new WeakMap<Terminal, number>()
 const deferredScrollRestores = new WeakMap<

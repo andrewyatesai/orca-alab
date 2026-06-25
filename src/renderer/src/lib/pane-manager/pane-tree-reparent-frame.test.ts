@@ -65,8 +65,6 @@ function createPane(id: number, container = createMockElement('pane')): ManagedP
     fitAddon: {} as never,
     searchAddon: {} as never,
     serializeAddon: {} as never,
-    unicode11Addon: {} as never,
-    webLinksAddon: {} as never,
     terminalGpuAcceleration: 'on',
     gpuRenderingEnabled: true,
     webglAttachmentDeferred: false,
@@ -76,7 +74,6 @@ function createPane(id: number, container = createMockElement('pane')): ManagedP
     ligaturesAddon: null,
     fitResizeObserver: null,
     pendingObservedFitRafId: null,
-    compositionHandler: null,
     pendingSplitScrollState: null,
     debugLabel: null
   }

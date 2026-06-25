@@ -6,7 +6,6 @@ import {
   markComplexScriptOutput,
   resetTerminalWebglSuggestion
 } from './pane-webgl-renderer'
-import { openTerminal } from './pane-lifecycle'
 import { attachLigatures } from './pane-ligatures'
 import {
   buildDefaultTerminalOptions,
@@ -69,11 +68,8 @@ function createPane(): ManagedPaneInternal {
     pendingObservedFitRafId: null,
     searchAddon: {} as never,
     serializeAddon: {} as never,
-    unicode11Addon: {} as never,
     ligaturesAddon: null,
-    webLinksAddon: {} as never,
     webglAddon: null,
-    compositionHandler: null,
     pendingSplitScrollState: null,
     debugLabel: null
   }
@@ -368,117 +364,6 @@ describe('attachLigatures', () => {
   })
 })
 
-describe('openTerminal — Unicode 11 ordering', () => {
-  beforeEach(() => {
-    vi.stubGlobal('requestAnimationFrame', () => 1)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-  })
-
-  // Why: CJK / emoji / ZWJ widths get baked into the buffer at the active
-  // unicode version on write. If anything writes bytes through xterm before
-  // unicode v11 is activated (still on default v6 width tables), wide chars
-  // lay out as single cells. The bug surfaces as the broken `?`-style glyphs
-  // users saw on worktree switch.
-  it('activates unicode 11 before any caller-driven write would be possible', () => {
-    const events: string[] = []
-
-    const fitAddon = { fit: vi.fn() } as unknown as ManagedPaneInternal['fitAddon']
-    const searchAddon = {} as unknown as ManagedPaneInternal['searchAddon']
-    const serializeAddon = {} as unknown as ManagedPaneInternal['serializeAddon']
-    const unicode11Addon = {} as unknown as ManagedPaneInternal['unicode11Addon']
-    const webLinksAddon = {} as unknown as ManagedPaneInternal['webLinksAddon']
-
-    const unicodeProxy = {
-      _version: '6' as '6' | '11',
-      get activeVersion(): '6' | '11' {
-        return this._version
-      },
-      set activeVersion(v: '6' | '11') {
-        events.push(`activeVersion=${v}`)
-        this._version = v
-      }
-    }
-
-    const fakeContainer = {
-      appendChild: vi.fn(),
-      addEventListener: vi.fn(),
-      querySelectorAll: vi.fn(() => [])
-    } as unknown as HTMLDivElement
-    const fakeTooltip = {} as unknown as HTMLDivElement
-
-    const terminal = {
-      element: null as HTMLElement | null,
-      textarea: null,
-      cols: 80,
-      rows: 24,
-      open: vi.fn(() => {
-        events.push('open')
-      }),
-      loadAddon: vi.fn((addon: object) => {
-        if (addon === fitAddon) {
-          events.push('loadAddon:fit')
-        } else if (addon === searchAddon) {
-          events.push('loadAddon:search')
-        } else if (addon === serializeAddon) {
-          events.push('loadAddon:serialize')
-        } else if (addon === unicode11Addon) {
-          events.push('loadAddon:unicode11')
-        } else if (addon === webLinksAddon) {
-          events.push('loadAddon:webLinks')
-        }
-      }),
-      attachCustomWheelEventHandler: vi.fn(),
-      write: vi.fn(() => {
-        events.push('write')
-      }),
-      unicode: unicodeProxy,
-      buffer: { active: { cursorX: 0, cursorY: 0 } }
-    } as unknown as ManagedPaneInternal['terminal']
-
-    const leafId = '22222222-2222-4222-8222-222222222222' as never
-    const pane: ManagedPaneInternal = {
-      id: 1,
-      leafId,
-      stablePaneId: leafId,
-      terminal,
-      container: fakeContainer,
-      xtermContainer: fakeContainer,
-      linkTooltip: fakeTooltip,
-      terminalGpuAcceleration: 'off',
-      gpuRenderingEnabled: false,
-      webglAttachmentDeferred: false,
-      webglDisabledAfterContextLoss: false,
-      hasComplexScriptOutput: false,
-      fitAddon,
-      fitResizeObserver: null,
-      pendingObservedFitRafId: null,
-      searchAddon,
-      serializeAddon,
-      unicode11Addon,
-      ligaturesAddon: null,
-      webLinksAddon,
-      webglAddon: null,
-      compositionHandler: null,
-      pendingSplitScrollState: null,
-      debugLabel: null
-    }
-
-    openTerminal(pane)
-
-    expect(events).toContain('loadAddon:unicode11')
-    expect(events).toContain('activeVersion=11')
-
-    const unicodeIdx = events.indexOf('activeVersion=11')
-    const writeIdx = events.indexOf('write')
-    if (writeIdx !== -1) {
-      expect(unicodeIdx).toBeLessThan(writeIdx)
-    }
-
-    const loadUnicodeIdx = events.indexOf('loadAddon:unicode11')
-    expect(loadUnicodeIdx).toBeLessThan(unicodeIdx)
-    expect(events.indexOf('open')).toBeLessThan(loadUnicodeIdx)
-  })
-})
+// The xterm Unicode-11-activation ordering test was removed with
+// openXtermRenderer: aterm bakes Unicode 11 width tables into the engine, so
+// there is no xterm buffer to activate a width provider on before the first write.

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { IMarker, Terminal } from '@xterm/xterm'
+import type { IMarker } from '@xterm/xterm'
 import {
   captureScrollState,
   getTerminalOutputEpoch,
@@ -8,6 +8,7 @@ import {
   restoreScrollStateAfterLayout
 } from './pane-scroll'
 import type { ScrollState } from './pane-manager-types'
+import type { AtermTerminalFacade as Terminal } from './aterm/aterm-terminal-facade'
 
 function createTerminal(args: {
   viewportY: number

@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- Why: terminal pane lifecycle wiring is intentionally co-located so PTY attach, theme sync, and runtime graph publication remain consistent for live terminals. */
 import { useEffect, useRef } from 'react'
-import type { IDisposable, Terminal } from '@xterm/xterm'
+import type { IDisposable } from '@xterm/xterm'
+import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
 import { PaneManager } from '@/lib/pane-manager/pane-manager'
 import { consumePendingWebRuntimeSplitMirrorTelemetry } from '@/runtime/web-runtime-session'
@@ -19,10 +20,7 @@ import {
   installFilePathLinkClickFallback,
   openDetectedFilePath
 } from './terminal-link-handlers'
-import {
-  extractTerminalFileLinkCandidates,
-  resolveTerminalFileLink
-} from '@/lib/terminal-links'
+import { extractTerminalFileLinkCandidates, resolveTerminalFileLink } from '@/lib/terminal-links'
 import { createTerminalHandleLinkProvider } from './terminal-handle-links'
 import type { LinkHandlerDeps } from './terminal-link-handlers'
 import { handleOscLink } from './terminal-osc-link-routing'
@@ -862,10 +860,7 @@ export function useTerminalPaneLifecycle({
             if (!selection) {
               return
             }
-            if (
-              shouldWritePrimarySelection &&
-              selection.length <= PRIMARY_SELECTION_MAX_LENGTH
-            ) {
+            if (shouldWritePrimarySelection && selection.length <= PRIMARY_SELECTION_MAX_LENGTH) {
               setPrimarySelectionText(selection)
             }
             if (shouldWriteClipboard) {

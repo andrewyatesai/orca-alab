@@ -22,13 +22,10 @@ function makePane(): ManagedPaneInternal {
     pendingObservedFitRafId: null,
     searchAddon: { dispose: vi.fn() } as never,
     serializeAddon: { dispose: vi.fn() } as never,
-    unicode11Addon: { dispose: vi.fn() } as never,
-    webLinksAddon: { dispose: vi.fn() } as never,
     webglAddon: null,
     ligaturesAddon: null,
     panePointerDownHandler: vi.fn(),
     paneMouseEnterHandler: vi.fn(),
-    compositionHandler: null,
     pendingSplitScrollState: null,
     debugLabel: null
   }

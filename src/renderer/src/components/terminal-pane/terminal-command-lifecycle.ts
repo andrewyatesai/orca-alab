@@ -1,4 +1,5 @@
-import type { Terminal, IDisposable } from '@xterm/xterm'
+import type { IDisposable } from '@xterm/xterm'
+import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 
 type TerminalCommandLifecycleOptions = {
   onCommandFinished: (bestEffortExitCode: number | null) => void

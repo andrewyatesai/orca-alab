@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react'
-import type { IDisposable, Terminal } from '@xterm/xterm'
+import type { IDisposable } from '@xterm/xterm'
+import type { AtermTerminalFacade } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import { flushTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
+
+/** The pane terminal seen here — the aterm facade. */
+type Terminal = AtermTerminalFacade
 import {
   cancelDeferredScrollRestore,
   captureScrollState,
@@ -179,8 +183,10 @@ export function useTerminalScrollVisibilityMemory({
       if (disposables.has(pane.id)) {
         continue
       }
+      // aterm has no onScroll event (the wiring follows the bottom itself); this
+      // optional probe stays for any future facade addition and is skipped today.
       const onScroll = (
-        pane.terminal as Terminal & {
+        pane.terminal as unknown as {
           onScroll?: (listener: (position: number) => void) => IDisposable
         }
       ).onScroll

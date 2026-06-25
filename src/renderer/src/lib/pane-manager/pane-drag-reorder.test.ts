@@ -135,9 +135,6 @@ function createPane(id: number, container: FakeElement): ManagedPaneInternal {
     fitAddon: {} as never,
     searchAddon: {} as never,
     serializeAddon: {} as never,
-    unicode11Addon: {} as never,
-    webLinksAddon: {} as never,
-    compositionHandler: null,
     pendingSplitScrollState: null,
     debugLabel: null
   }

@@ -1,5 +1,6 @@
-import type { IBuffer, IDisposable } from '@xterm/xterm'
+import type { IDisposable } from '@xterm/xterm'
 import type { ManagedPaneInternal, ScrollState } from './pane-manager-types'
+import type { AtermFacadeBuffer } from './aterm/aterm-facade-buffer'
 import { releaseScrollStateMarker, restoreScrollState } from './pane-scroll'
 
 function refreshAfterReparent(pane: ManagedPaneInternal): void {
@@ -46,7 +47,7 @@ function runAfterNormalBuffer(
 ): void {
   clearPendingSplitScrollBufferDisposable(pane)
   let disposable: IDisposable | null = null
-  disposable = pane.terminal.buffer.onBufferChange((buffer: IBuffer) => {
+  disposable = pane.terminal.buffer.onBufferChange((buffer: AtermFacadeBuffer['active']) => {
     if (buffer.type === 'alternate') {
       return
     }

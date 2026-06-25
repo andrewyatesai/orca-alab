@@ -1,16 +1,17 @@
-import type { IDisposable, IMarker, Terminal } from '@xterm/xterm'
+import type { IDisposable, IMarker } from '@xterm/xterm'
 import type { ITerminalOptions } from '@xterm/xterm'
-import type { FitAddon } from '@xterm/addon-fit'
 import type { LigaturesAddon } from '@xterm/addon-ligatures'
-import type { SearchAddon } from '@xterm/addon-search'
-import type { Unicode11Addon } from '@xterm/addon-unicode11'
-import type { WebLinksAddon } from '@xterm/addon-web-links'
 import type { WebglAddon } from '@xterm/addon-webgl'
-import type { SerializeAddon } from '@xterm/addon-serialize'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import type { TerminalWebglAutoDecision } from './terminal-webgl-auto-policy'
 import type { AtermPaneController } from './aterm/aterm-pane-renderer'
+import type { AtermTerminalFacade } from './aterm/aterm-terminal-facade'
+import type {
+  AtermFitAddonFacade,
+  AtermSearchAddonFacade,
+  AtermSerializeAddonFacade
+} from './aterm/aterm-addon-facades'
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -72,12 +73,14 @@ export type ManagedPane = {
   leafId: TerminalLeafId
   /** Compatibility alias while callers migrate from the older stablePaneId name. */
   stablePaneId: TerminalLeafId
-  terminal: Terminal
+  // The pane terminal: an aterm-backed facade with the xterm-Terminal-shaped
+  // surface orca's consumers use (cols/rows/buffer/parser/write/onData/etc.).
+  terminal: AtermTerminalFacade
   container: HTMLElement // the .pane element
   linkTooltip: HTMLElement
-  fitAddon: FitAddon
-  searchAddon: SearchAddon
-  serializeAddon: SerializeAddon
+  fitAddon: AtermFitAddonFacade
+  searchAddon: AtermSearchAddonFacade
+  serializeAddon: AtermSerializeAddonFacade
   // Present only when the experimental aterm canvas renderer owns painting and
   // sizing for this pane; xterm stays unopened but keeps buffer/serialize state.
   atermController?: AtermPaneController | null
@@ -137,17 +140,11 @@ export type ManagedPaneInternal = {
   // Stored so disposePane() can cancel the post-WebGL-teardown refresh frame.
   pendingWebglRefreshRafId?: number | null
   pendingObservedFitRafId: number | null
-  serializeAddon: SerializeAddon
-  unicode11Addon: Unicode11Addon
-  webLinksAddon: WebLinksAddon
+  serializeAddon: AtermSerializeAddonFacade
   // Stored so disposePane() can remove pane-local DOM listeners explicitly.
   panePointerDownHandler?: ((event: PointerEvent) => void) | null
   paneMouseEnterHandler?: ((event: MouseEvent) => void) | null
   paneDragCleanup?: (() => void) | null
-  // Stored so disposePane() can remove it and avoid a memory leak.
-  compositionHandler: (() => void) | null
-  // Stored so disposePane() can remove DOM-renderer focus synchronization.
-  focusClassSyncCleanup?: (() => void) | null
   // Why: splitPane reparents DOM; its delayed restore owns scroll until the
   // browser settles, so intermediate fits must not compete with it.
   pendingSplitScrollState: ScrollState | null
@@ -161,13 +158,6 @@ export type ManagedPaneInternal = {
   // Set by disposePane so an in-flight async aterm controller creation can drop
   // its result instead of attaching a canvas to a torn-down pane.
   disposed?: boolean
-  // Why: xterm.loadAddon throws if the same addon instance is loaded twice. The
-  // aterm path pre-loads the buffer-only serialize/unicode addons so serialize
-  // keeps working on the headless terminal; a later xterm fallback must not
-  // re-load them. This flag records that they are already loaded.
-  bufferAddonsLoaded?: boolean
-  // Unregisters the terminal->aterm-controller output mirror on dispose.
-  atermMirrorCleanup?: (() => void) | null
   debugLabel: string | null
 } & ManagedPane
 

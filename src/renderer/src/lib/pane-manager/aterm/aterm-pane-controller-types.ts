@@ -22,6 +22,13 @@ export type AtermPaneController = AtermRendererReplySurface & {
   displayOffset: () => number
   /** Scroll scrollback (positive = older); redraws. Mirrors the wheel path. */
   scrollLines: (delta: number) => void
+  /** Snap the viewport to the live bottom (latest output); redraws. */
+  scrollToBottom: () => void
+  /** Snap the viewport to the oldest retained scrollback line; redraws. */
+  scrollToTop: () => void
+  /** Scroll so the ABSOLUTE buffer line `line` is at/near the top visible row
+   *  (xterm scrollToLine semantics); redraws. */
+  scrollToLine: (line: number) => void
   /** Current selection text, if any (empty string when nothing is selected). */
   selectionText: () => string
   /** Detected link at a display cell (url + kind), or null — for hit-test/tests. */
@@ -81,6 +88,44 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** True when bracketed-paste mode (DECSET 2004) is active — the paste sink wraps
    *  pasted text in ESC[200~..ESC[201~ itself instead of routing through xterm.paste. */
   bracketedPasteMode: () => boolean
+  /** True when DECSET 1004 (focus reporting) is active. */
+  isFocusEventMode: () => boolean
+  /** True when DEC mode 2031 (color-scheme update notifications) is active. */
+  isColorSchemeUpdatesMode: () => boolean
+  /** Display-relative cursor column (0-based). */
+  cursorX: () => number
+  /** Display-relative cursor row (0-based, top of viewport). */
+  cursorY: () => number
+  /** Absolute row index of the live bottom line (xterm buffer.active.baseY). */
+  baseY: () => number
+  /** Absolute row index of the TOP visible line (`base_y - display_offset`). */
+  displayOriginAbsolute: () => number
+  /** Soft-wrap flag for a visible display `row`, or undefined when out of range. */
+  rowIsWrapped: (row: number) => boolean | undefined
+  /** Logical length of a visible display `row` (last non-empty cell + 1), or
+   *  undefined when out of range. */
+  rowLen: (row: number) => number | undefined
+  /** Scroll-correct text of a display `row` (display_offset-aware), or undefined
+   *  when out of range. */
+  rowText: (row: number) => string | undefined
+  /** Grapheme text at a visible display cell (`row`/`col`); empty for blanks. */
+  cellText: (row: number, col: number) => string
+  /** Whether a visible display cell is a wide (double-width) char; undefined when
+   *  out of range. */
+  cellIsWide: (row: number, col: number) => boolean | undefined
+  /** Drain the edge-triggered BEL flag: true if a BEL fired since the last call. */
+  drainBell: () => boolean
+  /** Drain queued OSC app-events as a JSON string `[[code,payload],...]`, or
+   *  undefined when none are pending (matches the wasm take_osc_events shape). */
+  takeOscEvents: () => string | undefined
+  /** Current selection range in display cell coords, or null when none. */
+  selectionRange: () => { startX: number; startY: number; endX: number; endY: number } | null
+  /** Clear the active selection (removes highlight). */
+  clearSelection: () => void
+  /** The aterm `.xterm` DOM wrapper (mirrors xterm's element for hit-testing). */
+  element: HTMLElement
+  /** The aterm helper textarea (mirrors xterm's textarea for focus/IME). */
+  textarea: HTMLTextAreaElement
   dispose: () => void
 }
 

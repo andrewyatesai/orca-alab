@@ -4,6 +4,7 @@ import { expect } from '@stablyai/playwright-test'
 import { sendToTerminal } from './helpers/terminal'
 import { nodeTerminalCommand } from './terminal-node-command'
 import { buildFreshShellProbeInputSequence } from './terminal-probe-input-sequence'
+import { stripSerializedControlSequences } from './terminal-serialized-text'
 
 type TerminalPtyReadinessWindow = Window & {
   __paneManagers?: Map<
@@ -92,7 +93,13 @@ export async function waitForPtyShellEcho(
 
     const probeDeadline = Date.now() + Math.min(3_000, Math.max(0, deadline - Date.now()))
     while (Date.now() < probeDeadline) {
-      if ((await getTerminalContentForPtyId(page, ptyId, 30_000)).includes(marker)) {
+      // Why: a narrow terminal wraps this long marker across rows, and serialize
+      // splits it with cursor-move/clear-line controls. Strip those so the
+      // marker still matches regardless of the PTY's current column width.
+      const content = stripSerializedControlSequences(
+        await getTerminalContentForPtyId(page, ptyId, 30_000)
+      )
+      if (content.includes(marker)) {
         return
       }
       await page.waitForTimeout(100)

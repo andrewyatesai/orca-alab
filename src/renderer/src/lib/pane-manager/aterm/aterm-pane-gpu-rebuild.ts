@@ -18,9 +18,9 @@ export function rebuildAtermPaneForGpuMode(
   if (pane.disposed || !controller) {
     return
   }
-  // null = 'auto' (the policy decides per-host); don't churn a working pane when
-  // we can't say its current path is wrong.
-  if (desiredGpu !== null && (controller.rendererKind() === 'gpu') === desiredGpu) {
+  // null = 'auto': the per-host policy already chose this pane's path, so leave a
+  // working pane untouched. For explicit on/off, skip if the live path matches.
+  if (desiredGpu === null || (controller.rendererKind() === 'gpu') === desiredGpu) {
     return
   }
   // Snapshot the full buffer (history + viewport) as replayable ANSI before

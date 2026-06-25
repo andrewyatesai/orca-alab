@@ -140,6 +140,53 @@ async function readTuiCursorState(page: Page): Promise<TuiCursorState> {
   })
 }
 
+// Why: switching back to a hidden worktree finishes loading the pane's aterm
+// controller, which announces the grid to the PTY for the first time — a real
+// resize whose SIGWINCH makes the shell emit an async prompt redraw (CSI J
+// erase-below). Wait for the controller to be ready and the engine serialize to
+// stop changing so that redraw has fully landed before injecting live output.
+async function waitForResumedTerminalSettled(page: Page): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const store = window.__store
+          const state = store?.getState()
+          const worktreeId = state?.activeWorktreeId
+          const tabId =
+            state?.activeTabType === 'terminal'
+              ? state.activeTabId
+              : worktreeId
+                ? (state?.activeTabIdByWorktree?.[worktreeId] ?? null)
+                : null
+          const manager = tabId ? window.__paneManagers?.get(tabId) : null
+          const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
+          return pane?.atermController?.isReady?.() === true
+        }),
+      { timeout: 15_000, message: 'resumed terminal controller never became ready' }
+    )
+    .toBe(true)
+  // The startup resize's shell redraw lands shortly after the controller is
+  // ready; require the engine serialize to hold steady across several reads so
+  // the redraw has been processed before we inject the newer frame.
+  let previous: string | null = null
+  let stableReads = 0
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    const current = await getTerminalContent(page, 12_000)
+    if (current === previous) {
+      stableReads += 1
+      if (stableReads >= 5) {
+        return
+      }
+    } else {
+      stableReads = 0
+      previous = current
+    }
+    await page.waitForTimeout(120)
+  }
+}
+
 async function injectPaneData(
   page: Page,
   paneKey: string,
@@ -341,9 +388,23 @@ test.describe('Hidden terminal TUI visual restore', () => {
     await switchToWorktree(orcaPage, secondWorktreeId)
     await ensureTerminalVisible(orcaPage)
     await waitForActiveTerminalManager(orcaPage, 30_000)
-    await injectPaneData(orcaPage, paneKey, liveFrame, {
-      seq: hiddenFrame.length + liveFrame.length,
-      rawLength: liveFrame.length
+    // Why: the second worktree's aterm controller finishes loading (wasm+font)
+    // only as the pane becomes visible again. wireAtermPane then announces the
+    // pane's grid to the PTY for the first time — a real resize that SIGWINCHes
+    // the shell, whose async prompt redraw (CSI J erase-below) clears the row
+    // where renderer-injected live output lands. Injecting before that redraw
+    // settles races it and intermittently wipes the newer frame. The injection
+    // seam bypasses PTY ordering, so wait for the real post-resume settle (engine
+    // serialize stable after the controller is ready) before injecting — a real
+    // processed-state signal, not a timeout bump.
+    await waitForResumedTerminalSettled(orcaPage)
+    // Why: the settled state leaves the cursor parked after the shell prompt; a
+    // leading CRLF starts the live frame at column 1 so its marker is not split
+    // across a soft-wrap (matching the at-column-1 layout the frame assumes).
+    const liveFrameAtLineStart = `\r\n${liveFrame}`
+    await injectPaneData(orcaPage, paneKey, liveFrameAtLineStart, {
+      seq: hiddenFrame.length + liveFrameAtLineStart.length,
+      rawLength: liveFrameAtLineStart.length
     })
 
     await expect

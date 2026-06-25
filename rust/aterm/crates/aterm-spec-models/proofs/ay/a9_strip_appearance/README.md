@@ -4,7 +4,7 @@
 # A9 — appearance-aware tab strip + light schemes (discharged by `ay`)
 
 Re-checkable certificate for initiative **A9** of
-[`PROOF_CARRYING_PERFORMANCE.md`](../../../../../PROOF_CARRYING_PERFORMANCE.md):
+[`PROOF_CARRYING_PERFORMANCE.md`](../../../../../../PROOF_CARRYING_PERFORMANCE.md):
 the appearance-aware tab strip `strip_colors` / `bg_is_light`
 (`crates/aterm-gui/src/tab_bar.rs`) and the bundled light colour schemes
 (`crates/aterm-types/src/scheme.rs`).

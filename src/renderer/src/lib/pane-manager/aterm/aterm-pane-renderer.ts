@@ -32,9 +32,12 @@ export type {
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 export { ATERM_RENDERER_FONT_PX }
 
-/** Build a grid `<canvas>` styled to fill the pane. `pixelated` keeps the
- *  device-pixel framebuffer crisp when scaled to CSS pixels (CPU + GPU both
- *  present a device-pixel buffer). A fresh one is built per strategy because a
+/** Build a grid `<canvas>` styled to fill the pane. The framebuffer is sized to
+ *  device pixels (CSS = device/dpr), so at a correctly-reconciled dpr it maps 1:1
+ *  to the panel and needs no resampling; we deliberately do NOT set
+ *  `imageRendering: pixelated` — under any residual fractional-dpr mismatch
+ *  nearest-neighbor drops/doubles whole glyph rows, which is worse than the
+ *  browser's default smoothing. A fresh one is built per strategy because a
  *  webgl2-poisoned canvas can't be reused for the CPU 2d fallback. */
 function buildAtermGridCanvas(themeColors: { bg: number }): HTMLCanvasElement {
   const canvas = document.createElement('canvas')
@@ -42,7 +45,6 @@ function buildAtermGridCanvas(themeColors: { bg: number }): HTMLCanvasElement {
   canvas.style.width = '100%'
   canvas.style.height = '100%'
   canvas.style.display = 'block'
-  canvas.style.imageRendering = 'pixelated'
   canvas.style.outline = 'none'
   // E2E only: stamp the seeded default bg (per-pane) so the theme test can assert
   // the painted top-left pixel matches the configured theme background.
@@ -75,7 +77,10 @@ export async function createAtermPaneController(
   // Seed default fg/bg/cursor/selection from orca's active terminal theme.
   const themeColors = resolveAtermThemeColors()
   const dpr = window.devicePixelRatio || 1
-  const fontPx = Math.round(ATERM_RENDERER_FONT_PX * dpr)
+  // Base CSS font px from the user's terminalFontSize (else the engine default);
+  // scaled to device px so glyphs rasterize at full Retina resolution.
+  const baseFontPx = controllerOptions?.getFontPx?.() ?? ATERM_RENDERER_FONT_PX
+  const fontPx = Math.round(baseFontPx * dpr)
 
   // Mirror xterm's DOM so the app's focus/paste/IME/clipboard logic keeps working.
   let canvas = buildAtermGridCanvas(themeColors)

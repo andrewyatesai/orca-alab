@@ -75,13 +75,16 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const { pending, canvas, container, element, textarea, liveRegion, themeColors, shared } = config
   const { inputSink, resizeSink, pasteSink, controllerOptions } = config
   const term = pending.term
+  // Base CSS cell font size from the user's terminalFontSize (else engine default),
+  // read live so a settings change re-rasterizes via the reflow without a rebuild.
+  const getFontPx = (): number => controllerOptions?.getFontPx?.() ?? ATERM_RENDERER_FONT_PX
   const initialDpr = window.devicePixelRatio || 1
   // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
   // the async load (GPU init can take seconds) gives the window time to settle to a
   // different dpr (e.g. a headless window born at 2 settling to 1), which would leave
   // cell metrics frozen at the load-time dpr → wrong column count. Re-rasterize to the
   // live dpr now (set_px is a no-op when unchanged) so metrics + dpr agree from frame 1.
-  term.set_px(Math.round(ATERM_RENDERER_FONT_PX * initialDpr))
+  term.set_px(Math.round(getFontPx() * initialDpr))
   // Mutable metrics shared with the input-handler deps: a later host DPI change
   // re-rasterizes the engine (term.set_px) and updates these in place via the grid
   // reflow, so the grid + overlays resize instead of freezing at construction dpr.
@@ -196,6 +199,13 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // CPU strategy's drawFrame already overlays search on its own 2d canvas. The
   // a11y mirror is scheduled (debounced) here so it tracks rendered content.
   draw = (): void => {
+    // Self-heal a devicePixelRatio (or font-size) captured before the window
+    // settled onto its real backing store: a pane created pre-Retina-attach would
+    // be rasterized at dpr=1 and upscale to a dpr=2 panel (blur). Every pane draws
+    // at least once post-settle; the guard is a cheap compare and reconciles
+    // (re-rasterize + resize) only on a real change. `gridReflow` is defined below
+    // and only referenced once draw() runs (after wiring completes).
+    gridReflow.reconcileIfNeeded()
     strategy.drawFrame()
     searchOverlay?.paint(searchMatches, searchActiveIndex)
     a11yMirror.schedule()
@@ -220,6 +230,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     term,
     container,
     metrics,
+    getFontPx,
     getGrid,
     setGrid: (nextCols, nextRows) => {
       cols = nextCols

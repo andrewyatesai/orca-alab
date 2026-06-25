@@ -1,8 +1,5 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
-import {
-  paintAtermLinkUnderline,
-  type AtermHoveredLinkSpan
-} from './aterm-link-underline-overlay'
+import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
 import type { AtermSearchMatch } from './aterm-search'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -46,7 +43,8 @@ export function createAtermSearchOverlayCanvas(
   overlay.style.top = '0'
   overlay.style.pointerEvents = 'none'
   overlay.style.display = 'block'
-  overlay.style.imageRendering = 'pixelated'
+  // No imageRendering:'pixelated' — match the grid canvas: 1:1 at a reconciled dpr,
+  // and default smoothing beats nearest-neighbor under a fractional-dpr mismatch.
   const parent = gridCanvas.parentElement
   parent?.appendChild(overlay)
 

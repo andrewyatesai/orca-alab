@@ -2131,7 +2131,12 @@ export function connectPanePty(
     // Why: if fitAddon resolved to 0×0, the container likely has no layout
     // dimensions (display:none, unmounted, or zero-size parent). Surface a
     // diagnostic so the user sees something instead of a blank pane.
-    if (cols === 0 || rows === 0) {
+    // Aterm panes attach their controller asynchronously (wasm/font/GPU load) and
+    // the facade reports 0×0 until then — a transient, not a broken pane (once
+    // attached, computeGrid's 80×24 fallback means an aterm pane is never genuinely
+    // 0×0). Gate on the controller being attached so the false pre-attach banner
+    // (which never self-cleared) isn't shown; the reflow self-sizes on attach.
+    if ((cols === 0 || rows === 0) && pane.atermController) {
       deps.onPtyErrorRef?.current?.(
         pane.id,
         `Terminal has zero dimensions (${cols}×${rows}). The pane container may not be visible.`

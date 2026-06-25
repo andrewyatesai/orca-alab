@@ -185,4 +185,8 @@ export type AtermPaneControllerOptions = {
   /** Latest terminalCursorBlink (xterm's cursorBlink); when true the focused cursor
    *  blinks on a ~530ms timer, else it's steady-on. Defaults to true. */
   getCursorBlink?: () => boolean
+  /** Base cell font size in CSS px (the user's terminalFontSize). Read live so a
+   *  size change re-rasterizes the engine (set_px) via the grid reflow without a
+   *  pane rebuild. Defaults to ATERM_RENDERER_FONT_PX when unset. */
+  getFontPx?: () => number
 }

@@ -1,6 +1,7 @@
 import type { ManagedPaneInternal } from '../pane-manager-types'
 import { useAppStore } from '@/store'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
+import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 
 /** Build the aterm canvas controller over the pane's xterm container and bind it
  *  into the pane's facade terminal. Creation is async (wasm + font load); a pane
@@ -33,7 +34,13 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
     {
       getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true,
       getCopyOnSelect: () => useAppStore.getState().settings?.terminalClipboardOnSelect === true,
-      getCursorBlink: () => pane.terminal.options.cursorBlink !== false
+      getCursorBlink: () => pane.terminal.options.cursorBlink !== false,
+      // Honor the user's terminalFontSize (UI clamps 10–24) instead of a hardcoded
+      // 14px; read live so a size change re-rasterizes via the grid reflow.
+      getFontPx: () => {
+        const size = useAppStore.getState().settings?.terminalFontSize
+        return typeof size === 'number' && size > 0 ? size : ATERM_RENDERER_FONT_PX
+      }
     }
   )
     .then((controller) => {

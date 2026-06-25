@@ -7,10 +7,13 @@
  *  On change we read the new dpr, hand it back to the controller (which propagates
  *  it to the pointer/scroll/mouse hit-testers and re-resizes + redraws).
  *
- *  LIMITATION: the engine's cell metrics (and glyph rasterization) are baked from
- *  the construction-dpr font px and can't be rebuilt without recreating the wasm
- *  terminal, so glyphs are re-scaled rather than re-rasterized at the new dpr — a
- *  future engine change. */
+ *  NOTE: the engine DOES re-rasterize on a font-px change — `term.set_px` re-derives
+ *  cell metrics and drops the glyph atlas — so the only requirement for crisp glyphs
+ *  is that set_px is re-invoked at the LIVE dpr. matchMedia's exact-integer-dppx
+ *  'change' can miss the window's initial backing-scale settle (esp. headless), so
+ *  this tracker is only one of three reconcile triggers; the grid reflow's
+ *  ResizeObserver and its per-frame reconcileIfNeeded (run from the draw loop) are
+ *  the backstops that guarantee the engine reaches the settled dpr. */
 export type AtermDprTrackerDeps = {
   /** Current dpr the pane is using (so we only react to an actual change). */
   getDpr: () => number

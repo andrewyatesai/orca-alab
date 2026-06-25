@@ -66,18 +66,52 @@ async function createTerminalTab(page: Page): Promise<string> {
   const tabsBefore = await countRenderedTabs(page)
   const activeBefore = await getActiveTabId(page)
 
-  await page.getByRole('button', { name: 'New tab' }).click()
-  await page
-    .getByRole('menuitem', { name: /New Terminal/i })
-    .first()
-    .click()
+  const newTabButton = page.getByRole('button', { name: 'New tab' })
+  const newTerminalMenuItem = page.getByRole('menuitem', { name: /New Terminal/i }).first()
 
+  // Why: this spec creates tabs in a tight loop while the previous terminal is
+  // still mounting. Two races made a plain open-then-click flake: (1) the "+"
+  // trigger click can land mid-re-render so the Radix dropdown never opens and
+  // the menuitem never appears; (2) the dropdown can auto-close between a
+  // visibility check and the menuitem click (onCloseAutoFocus re-focuses the
+  // freshly-mounted terminal), so the click then waits out its full timeout.
+  // Drive open -> select inside one poll whose success signal is the new tab
+  // actually rendering: each attempt re-opens the menu if it closed and
+  // re-clicks the menuitem, so a transient close just retries. force:true
+  // bypasses the actionability "stable" check that the animated terminal
+  // surface keeps invalidating in hidden-window Electron; short per-call
+  // timeouts keep a missed open from stalling the whole attempt.
   await expect
-    .poll(() => countRenderedTabs(page), {
-      timeout: 5_000,
-      message: 'New Terminal did not render a new tab in the tab bar'
-    })
+    .poll(
+      async () => {
+        // Stop driving the menu the moment the new tab exists so a late re-open
+        // can't create a second tab; the count is the real success signal.
+        const current = await countRenderedTabs(page)
+        if (current > tabsBefore) {
+          return current
+        }
+        // One action per attempt: open the menu if it's closed, otherwise
+        // select "New Terminal". Never doing both in the same tick avoids both
+        // the "click before the dropdown opened" race and re-selecting after a
+        // pending create, which would spawn a duplicate tab.
+        const target = (await newTerminalMenuItem.isVisible()) ? newTerminalMenuItem : newTabButton
+        await target.click({ force: true, timeout: 1_000 }).catch(() => {})
+        return countRenderedTabs(page)
+      },
+      {
+        timeout: 15_000,
+        message: 'Clicking "+" → New Terminal did not render a new tab in the tab bar'
+      }
+    )
     .toBe(tabsBefore + 1)
+
+  // Why: success can land while the menu is still open (a re-open attempt fired
+  // just before the create rendered). Close it so it can't intercept the next
+  // createTerminalTab loop or the tab clicks that follow.
+  if (await newTerminalMenuItem.isVisible()) {
+    await page.keyboard.press('Escape')
+    await expect(newTerminalMenuItem).toBeHidden({ timeout: 5_000 })
+  }
 
   let tabId: string | null = null
   await expect

@@ -229,7 +229,11 @@ export const test = base.extend<OrcaTestFixtures, OrcaWorkerFixtures>({
       mkdirSync(recordVideoDir, { recursive: true })
     }
     const app = await electron.launch({
-      args: getOrcaElectronLaunchArgs(mainPath, headful),
+      // Why: pass the per-test launchEnv (merged over process.env) so an opt-in
+      // spec can request ORCA_E2E_FORCE_DPR via the fixture — keeping the forced
+      // device-scale-factor switch scoped to that test instead of leaking to other
+      // specs in the same Playwright worker.
+      args: getOrcaElectronLaunchArgs(mainPath, headful, { ...process.env, ...launchEnv }),
       ...(slowMo > 0 ? { slowMo } : {}),
       ...(recordVideoDir ? { recordVideo: { dir: recordVideoDir } } : {}),
       // Why: keep NODE_ENV=development so window.__store is exposed and

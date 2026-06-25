@@ -286,12 +286,10 @@ export const test = base.extend<OrcaTestFixtures, OrcaWorkerFixtures>({
     // default. addInitScript covers reloads (orca-restart); the evaluate covers
     // the already-loaded document. The aterm-specific specs set
     // window.__atermRendererEnabled = true, which takes precedence (ON wins).
-    await page.addInitScript(() => {
-      ;(window as unknown as { __atermRendererDisabled?: boolean }).__atermRendererDisabled = true
-    })
-    await page.evaluate(() => {
-      ;(window as unknown as { __atermRendererDisabled?: boolean }).__atermRendererDisabled = true
-    })
+    // The suite now runs on the aterm renderer (xterm.js is being removed). aterm is
+    // default-on, so no flag is needed; specs that assert via the xterm DOM are
+    // migrated to the aterm canvas/controller/a11y-region.
+    void page
 
     // Wait for the store to be available
     await page.waitForFunction(() => Boolean(window.__store), null, { timeout: 30_000 })

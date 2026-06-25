@@ -28,6 +28,7 @@ import {
   waitForActivePanePtyId
 } from './helpers/terminal'
 import { waitForSessionReady, waitForActiveWorktree, ensureTerminalVisible } from './helpers/store'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 
 // Why: contextBridge freezes window.api so the renderer cannot spy on
 // pty.write directly. Intercept in the main process instead — pty:write is an
@@ -88,7 +89,23 @@ async function getPtyWrites(app: ElectronApplication): Promise<string[]> {
 // guarantees each chord reaches the shortcut policy through the real DOM path.
 async function focusActiveTerminal(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const textarea = document.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
+    // Resolve the ACTIVE pane's textarea, not the first in DOM order: after a
+    // split+expand the inactive pane's subtree is display:none, so focusing the
+    // first textarea would land outside the keyboard scope and drop the chord.
+    const state = window.__store?.getState()
+    const worktreeId = state?.activeWorktreeId
+    const tabId =
+      state?.activeTabType === 'terminal'
+        ? state.activeTabId
+        : worktreeId
+          ? (state?.activeTabIdByWorktree?.[worktreeId] ?? null)
+          : null
+    const manager = tabId ? window.__paneManagers?.get(tabId) : null
+    const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
+    pane?.terminal.focus()
+    const textarea = pane?.container.querySelector(
+      '.xterm-helper-textarea'
+    ) as HTMLTextAreaElement | null
     textarea?.focus()
   })
 }
@@ -274,32 +291,6 @@ async function enableKittyKeyboardReporting(page: Page, flags: number): Promise<
       pane.terminal.write(`\x1b[=${flags}u`, resolve)
     })
   }, flags)
-}
-
-async function getKittyKeyboardFlags(page: Page): Promise<number | null> {
-  return page.evaluate(() => {
-    const state = window.__store?.getState()
-    const worktreeId = state?.activeWorktreeId
-    const tabId =
-      state?.activeTabType === 'terminal'
-        ? state.activeTabId
-        : worktreeId
-          ? (state?.activeTabIdByWorktree?.[worktreeId] ?? null)
-          : null
-    const manager = tabId ? window.__paneManagers?.get(tabId) : null
-    const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
-    const terminal = pane?.terminal as
-      | {
-          core?: { coreService?: { kittyKeyboard?: { flags?: number } } }
-          _core?: { coreService?: { kittyKeyboard?: { flags?: number } } }
-        }
-      | undefined
-    return (
-      terminal?.core?.coreService?.kittyKeyboard?.flags ??
-      terminal?._core?.coreService?.kittyKeyboard?.flags ??
-      null
-    )
-  })
 }
 
 async function pressShiftedRussianLayoutKey(page: Page): Promise<{
@@ -501,6 +492,10 @@ test.describe('Terminal Shortcuts', () => {
   }) => {
     await installMainProcessPtyWriteSpy(electronApp)
     await waitForActivePanePtyId(orcaPage)
+    // The aterm controller (which owns the textarea keyboard encoder) attaches
+    // asynchronously after the PTY binds; the synthetic Ctrl+C keydown below only
+    // encodes to ETX once that listener is live, so wait for it first.
+    await waitForActiveAtermController(orcaPage)
     await enableKittyKeyboardReporting(orcaPage, 31)
     await clearPtyWriteLog(electronApp)
     await focusActiveTerminal(orcaPage)
@@ -509,8 +504,11 @@ test.describe('Terminal Shortcuts', () => {
     expect((await getPtyWrites(electronApp)).join('')).toBe('')
     await clearPtyWriteLog(electronApp)
 
+    // The aterm textarea keydown encoder consumes Ctrl+C (encoding it to ETX) and
+    // preventDefaults the keydown — the standard "we handled this key" contract.
+    // The 'c' keyup (no Ctrl) carries no byte, so it is never preventDefaulted.
     expect(await dispatchCtrlCToActiveTerminalTextarea(orcaPage, { keyupCtrlKey: false })).toEqual({
-      keydownDefaultPrevented: false,
+      keydownDefaultPrevented: true,
       keyupDefaultPrevented: false
     })
 
@@ -520,16 +518,20 @@ test.describe('Terminal Shortcuts', () => {
         message: 'Ctrl+C did not reach the PTY as ETX'
       })
       .toBe(true)
+    // The aterm keyboard encoder has no Kitty CSI-u path at all — plain Ctrl+C
+    // always emits ETX — so it structurally cannot leak the CSI-u interrupt the
+    // old xterm encoder could under stale Kitty mode. These guards still assert
+    // that no CSI-u Ctrl+C sequence reached the PTY.
     const writes = (await getPtyWrites(electronApp)).join('')
     expect(writes).not.toContain('\x1b[99;5u')
     expect(writes).not.toContain('\x1b[99')
 
-    await expect
-      .poll(async () => await getKittyKeyboardFlags(orcaPage), {
-        timeout: 5_000,
-        message: 'Ctrl+C did not clear stale Kitty keyboard flags'
-      })
-      .toBe(0)
+    // Why no Kitty-flag-clear assertion: Kitty keyboard flags live in xterm's
+    // coreService, which (for aterm panes) is a headless shadow buffer that does
+    // not drive keyboard encoding. Clearing it was an xterm-only recovery
+    // (RESET_KITTY_KEYBOARD_PROTOCOL via attachCustomKeyEventHandler, which never
+    // runs because terminal.open() is skipped under aterm). The aterm encoder
+    // ignores Kitty mode entirely, so there is no stale CSI-u state to clear.
 
     await clearPtyWriteLog(electronApp)
     await focusActiveTerminal(orcaPage)

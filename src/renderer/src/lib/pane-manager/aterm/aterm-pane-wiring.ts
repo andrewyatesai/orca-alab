@@ -342,6 +342,13 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // Buffer/grid reads + scroll/selection commands (live engine state); extracted
     // to keep this file focused.
     ...buildAtermEngineReads(term, scheduleDraw, () => disposed),
+    // CSS cell size = live device cell px / current dpr. `metrics` is updated in
+    // place by the grid reflow on a DPI change, so this tracks the real cell size
+    // (xterm's `_renderService.dimensions.css.cell`) without a pane rebuild.
+    cellSizeCss: () => ({
+      width: term.cell_width / metrics.dpr,
+      height: term.cell_height / metrics.dpr
+    }),
     linkAt: (row: number, col: number) => {
       const hit = term.link_at(row, col)
       return hit ? { url: hit.url, kind: hit.kind } : null
@@ -359,6 +366,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     gridSize: () => getGrid(),
     isAltScreen: () => term.is_alt_screen,
     bracketedPasteMode: () => term.bracketed_paste_mode,
+    // Toggle the engine's fail-closed OSC 52 write gate so it queues OSC 52 set
+    // events for the facade to drain; the host still enforces the user setting.
+    setClipboardWriteAuthorized: (allowed: boolean) =>
+      allowed ? term.authorize_clipboard_write() : term.revoke_clipboard_write(),
     element,
     textarea,
     // Re-theme this live engine in place (host theme change), avoiding a pane

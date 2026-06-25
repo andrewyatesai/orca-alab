@@ -56,13 +56,14 @@ type CursorDebug = {
   terminalPrototypeKeys: string[]
 }
 
-type TerminalWithInternalCore = {
-  _core?: {
-    coreService?: {
-      isCursorHidden: boolean
-      isCursorInitialized: boolean
-    }
-  }
+// The honest aterm engine surface (replaces xterm's renderer-internal _core):
+// cursor_style === 7 → hidden; isReady() = attached engine with live cell metrics
+// (the aterm equivalent of xterm's renderer-only isCursorInitialized).
+type PaneWithAtermController = {
+  atermController?: {
+    cursorHidden: () => boolean
+    isReady: () => boolean
+  } | null
 }
 
 type ScreenSnapshot = {
@@ -455,7 +456,8 @@ async function readCaptureTarget(page: Page, tabId: string, ptyId: string): Prom
       }
       const rect = screen.getBoundingClientRect()
       const terminal = pane.terminal
-      const terminalCore = (terminal as unknown as TerminalWithInternalCore)._core
+      // Real cursor state from the aterm engine, not xterm's renderer-internal _core.
+      const atermController = (pane as unknown as PaneWithAtermController).atermController
       const cellWidth = rect.width / terminal.cols
       const cellHeight = rect.height / terminal.rows
       const cursorElement = pane.container.querySelector<HTMLElement>('.xterm-cursor')
@@ -584,8 +586,8 @@ async function readCaptureTarget(page: Page, tabId: string, ptyId: string): Prom
                 height: cursorRect.height
               }
             : null,
-          coreCursorHidden: terminalCore?.coreService?.isCursorHidden ?? null,
-          coreCursorInitialized: terminalCore?.coreService?.isCursorInitialized ?? null,
+          coreCursorHidden: atermController?.cursorHidden() ?? null,
+          coreCursorInitialized: atermController?.isReady() ?? null,
           terminalKeys: Object.keys(terminal).slice(0, 20),
           terminalPrototypeKeys: Object.getOwnPropertyNames(Object.getPrototypeOf(terminal)).slice(
             0,

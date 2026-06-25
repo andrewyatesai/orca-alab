@@ -117,30 +117,55 @@ async function installDelayedTerminalFocusSteals(
   }, delaysMs)
 }
 
-async function readVisibleXtermContainerBox(
-  page: Page
-): Promise<{ x: number; y: number; width: number; height: number }> {
-  return page
-    .locator('.xterm:visible')
-    .first()
-    .evaluate((xterm) => {
-      const container = xterm.closest('.xterm-container')
-      if (!(container instanceof HTMLElement)) {
-        throw new Error('No visible xterm container found')
+type PaneTitleReservation = {
+  paneTop: number
+  paneHeight: number
+  containerTop: number
+  containerHeight: number
+}
+
+async function readActivePaneTitleReservation(page: Page): Promise<PaneTitleReservation> {
+  // Measure the ACTIVE pane's container against its OWN .pane box (by leaf id):
+  // the active visible pane permanently reserves the title strip, so the reservation
+  // is a steady-state offset, not a before/after transition.
+  const leafId = await page.evaluate(() => {
+    for (const manager of window.__paneManagers?.values() ?? []) {
+      const activePane = manager.getActivePane?.() ?? manager.getPanes?.()[0] ?? null
+      if (activePane?.leafId) {
+        return activePane.leafId
       }
-      const rect = container.getBoundingClientRect()
-      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }
+    return null
+  })
+  if (!leafId) {
+    throw new Error('No active terminal pane leaf id found')
+  }
+  return page
+    .locator(`.pane[data-leaf-id="${leafId}"]`)
+    .first()
+    .evaluate((paneEl) => {
+      const container = paneEl.querySelector('.xterm-container')
+      if (!container) {
+        throw new Error('active pane has no .xterm-container')
+      }
+      const pane = paneEl.getBoundingClientRect()
+      const box = container.getBoundingClientRect()
+      return {
+        paneTop: pane.y,
+        paneHeight: pane.height,
+        containerTop: box.y,
+        containerHeight: box.height
+      }
     })
 }
 
-function expectTerminalToReserveTitleSpace(
-  actual: { x: number; y: number; width: number; height: number },
-  expected: { x: number; y: number; width: number; height: number }
-): void {
-  expect(Math.abs(actual.x - expected.x)).toBeLessThan(1)
-  expect(Math.abs(actual.width - expected.width)).toBeLessThan(1)
-  expect(actual.y - expected.y).toBeGreaterThan(10)
-  expect(expected.height - actual.height).toBeGreaterThan(10)
+// The active, visible terminal pane permanently reserves the title strip (the
+// discoverability redesign in bfb778570), so its .xterm-container sits below the
+// pane top and is shorter than the pane by ~the title height — whether or not a
+// title is set. Assert that steady-state reservation rather than a transition.
+function expectTerminalReservesTitleSpace(m: PaneTitleReservation): void {
+  expect(m.containerTop - m.paneTop).toBeGreaterThan(10)
+  expect(m.paneHeight - m.containerHeight).toBeGreaterThan(10)
 }
 
 async function expectPaneTitleAttachedToLeaf(
@@ -380,7 +405,6 @@ test.describe('Terminal Panes', () => {
     orcaPage
   }) => {
     const title = `Reserved overlay title ${Date.now()}`
-    const terminalBoxBefore = await readVisibleXtermContainerBox(orcaPage)
 
     await openTerminalContextMenu(orcaPage)
     await orcaPage.getByText('Set Title…', { exact: true }).click()
@@ -399,17 +423,13 @@ test.describe('Terminal Panes', () => {
           .evaluate((titleBar) => getComputedStyle(titleBar).backgroundColor)
       )
       .not.toBe('rgba(0, 0, 0, 0)')
-    const terminalBoxEditing = await readVisibleXtermContainerBox(orcaPage)
-    expectTerminalToReserveTitleSpace(terminalBoxEditing, terminalBoxBefore)
+    expectTerminalReservesTitleSpace(await readActivePaneTitleReservation(orcaPage))
 
     await titleInput.fill(title)
     await titleInput.press('Enter')
     await expect(orcaPage.locator('.pane-title-text', { hasText: title })).toBeVisible()
     await expect(orcaPage.locator('.pane[data-has-title]')).toHaveCount(1)
-    expectTerminalToReserveTitleSpace(
-      await readVisibleXtermContainerBox(orcaPage),
-      terminalBoxBefore
-    )
+    expectTerminalReservesTitleSpace(await readActivePaneTitleReservation(orcaPage))
   })
 
   test('Set Title context menu opens from the title overlay strip', async ({ orcaPage }) => {

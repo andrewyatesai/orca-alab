@@ -86,7 +86,9 @@ async function readActiveTerminalRasterTarget(page: Page): Promise<TerminalRaste
     const manager = tabId ? window.__paneManagers?.get(tabId) : null
     const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
     const screen = pane?.container.querySelector<HTMLElement>('.xterm-screen')
-    const dimensions = pane?.terminal._core?._renderService?.dimensions?.css?.cell
+    // Real CSS cell size from the aterm engine (device cell px / dpr) — the honest
+    // equivalent of xterm's renderer-internal _renderService.dimensions.css.cell.
+    const dimensions = pane?.atermController?.cellSizeCss()
     if (!pane || !screen || !dimensions) {
       throw new Error('Active terminal screen is unavailable')
     }

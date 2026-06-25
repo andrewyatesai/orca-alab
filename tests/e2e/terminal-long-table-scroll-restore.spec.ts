@@ -447,7 +447,10 @@ async function readTerminalRightEdgeOverpaint(page: Page): Promise<{
       }
     }
 
-    const cellWidth = pane.terminal._core?._renderService?.dimensions?.css?.cell?.width ?? 0
+    // Real CSS cell width from the aterm engine (device cell px / dpr), not xterm's
+    // renderer-internal _renderService. Only reached on a DOM renderer (aterm has no
+    // .xterm-rows, so this function already returned above for the aterm canvas).
+    const cellWidth = pane.atermController?.cellSizeCss().width ?? 0
     const maxRight = screenRect.right + Math.max(1, cellWidth * 0.5)
     const offenders = Array.from(rows.querySelectorAll<HTMLElement>('span'))
       .map((span) => {
@@ -551,11 +554,9 @@ async function readTerminalRenderDiagnostics(page: Page): Promise<TerminalRender
       const line = buffer.getLine(buffer.viewportY + row)
       visibleLineTails.push(line?.translateToString(true).slice(-48) ?? '')
     }
-    const terminalCore = (
-      pane.terminal as unknown as {
-        _core?: { coreService?: { isCursorHidden?: boolean } }
-      }
-    )._core
+    // Read the cursor-hidden state from the REAL aterm engine (cursor_style === 7)
+    // via the honest controller surface, not xterm's renderer-internal coreService.
+    const cursorHidden = pane.atermController?.cursorHidden() ?? null
     const allPaneStates = Array.from(window.__paneManagers?.entries?.() ?? []).flatMap(
       ([managerTabId, paneManager]) =>
         (paneManager.getPanes?.() ?? []).map((managedPane) => {
@@ -583,7 +584,7 @@ async function readTerminalRenderDiagnostics(page: Page): Promise<TerminalRender
       hasComplexScriptOutput: pane.hasComplexScriptOutput === true,
       hasWebgl: Boolean(pane.webglAddon),
       canvasCount: pane.container.querySelectorAll('canvas').length,
-      cursorHidden: terminalCore?.coreService?.isCursorHidden ?? null,
+      cursorHidden,
       visibleLineTails,
       allPaneStates
     }

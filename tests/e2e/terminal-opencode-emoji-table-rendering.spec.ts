@@ -113,21 +113,17 @@ async function readActiveTerminalRenderState(page: Page): Promise<TerminalRender
       )
     }).length
 
-    const terminal = pane.terminal as {
-      _core?: {
-        coreService?: { isCursorHidden?: boolean }
-      }
-    }
+    // Real cursor-hidden state from the aterm engine (cursor_style === 7), not
+    // xterm's renderer-internal coreService. Diagnostic-only here; the cursor's
+    // actual visibility is proven from the canvas raster below.
+    const coreCursorHidden = pane.atermController?.cursorHidden() ?? null
     const cursorElement = pane.container.querySelector<HTMLElement>('.xterm-cursor')
     const cursorStyle = cursorElement ? window.getComputedStyle(cursorElement) : null
     const rowContainer = pane.container.querySelector<HTMLElement>('.xterm-rows')
     const xterm = pane.container.querySelector<HTMLElement>('.xterm')
 
     return {
-      coreCursorHidden:
-        typeof terminal._core?.coreService?.isCursorHidden === 'boolean'
-          ? terminal._core.coreService.isCursorHidden
-          : null,
+      coreCursorHidden,
       cursorElementCount: cursorElements.length,
       cursorVisibleElementCount,
       cursorBlink:
@@ -165,15 +161,30 @@ async function forceCursorProbeTheme(page: Page): Promise<void> {
     if (!pane) {
       throw new Error('No active terminal pane')
     }
-    pane.terminal.options.theme = {
-      ...pane.terminal.options.theme,
-      cursor: '#23ff45',
-      cursorAccent: '#001000'
+    const controller = pane.atermController
+    if (!controller) {
+      throw new Error('Active terminal pane has no aterm controller')
     }
+    // aterm paints the cursor from the engine theme, not xterm options — route the
+    // probe colour through controller.updateTheme. Preserve the resolved bg so the
+    // dark table backdrop (and the raster probe's composited-colour match) is intact;
+    // an empty palette leaves the already-seeded ANSI colours of the table untouched.
+    const bg = (window as unknown as { __resolveAtermThemeBg?: () => [number, number, number] })
+      .__resolveAtermThemeBg?.() ?? [17, 19, 24]
+    controller.updateTheme({
+      fg: 0xd0d0d0,
+      bg: (bg[0] << 16) | (bg[1] << 8) | bg[2],
+      cursor: 0x23ff45,
+      selection: 0x264f78,
+      selectionForeground: null,
+      palette: []
+    })
+    // The aterm cursor blink + focus affordance is driven by the helper textarea's
+    // focus, not xterm focus; cursorBlink is read live off pane.terminal.options.
     pane.terminal.options.cursorStyle = 'block'
     pane.terminal.options.cursorBlink = true
-    pane.terminal.focus()
-    pane.terminal.refresh(0, pane.terminal.rows - 1)
+    const textarea = pane.container.querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+    textarea?.focus()
   })
 }
 
@@ -193,17 +204,23 @@ async function readActiveTerminalRasterTarget(page: Page): Promise<TerminalRaste
       throw new Error('No active terminal pane')
     }
     const screen = pane.container.querySelector<HTMLElement>('.xterm-screen')
-    const dimensions = pane.terminal._core?._renderService?.dimensions?.css?.cell
-    if (!screen || !dimensions) {
-      throw new Error('Active terminal has no measurable xterm screen')
+    if (!screen) {
+      throw new Error('Active terminal has no xterm-screen clip surface')
     }
+    // aterm owns the pixels on its canvas (no xterm _renderService.dimensions): the
+    // .xterm-screen div fills the canvas 1:1, so its rect is the clip and the cell
+    // size is the rect divided by the engine grid (atermController.gridSize()).
     const rect = screen.getBoundingClientRect()
+    const grid = pane.atermController?.gridSize() ?? {
+      cols: pane.terminal.cols,
+      rows: pane.terminal.rows
+    }
     return {
       clip: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-      cellWidth: dimensions.width,
-      cellHeight: dimensions.height,
-      rows: pane.terminal.rows,
-      cols: pane.terminal.cols
+      cellWidth: rect.width / grid.cols,
+      cellHeight: rect.height / grid.rows,
+      rows: grid.rows,
+      cols: grid.cols
     }
   })
 }
@@ -287,12 +304,10 @@ test.describe('OpenCode emoji table terminal rendering', () => {
 
       expect(renderState.hasComplexScriptOutput).toBe(false)
       expect(renderState.renderer).toBe(renderState.hasWebglCanvas ? 'webgl' : 'dom')
-      expect(renderState.coreCursorHidden).toBe(false)
-      if (!renderState.hasWebglCanvas) {
-        expect(renderState.cursorVisibleElementCount).toBeGreaterThan(0)
-        expect(renderState.cursorBlink).toBe(true)
-        expect(renderState.cursorAnimationName).not.toBe('none')
-      }
+      // aterm paints the cursor onto its canvas — there's no .xterm-cursor DOM and no
+      // xterm _core coreService to read hidden/blink off (it keeps an UNOPENED xterm
+      // shim). The cursor's visibility AND its blink are proven directly from the
+      // canvas raster below: some sampled frames paint the cursor cell, others don't.
       expect(blinkSamples.some((sample) => sample.paintedCursorCellCount > 0)).toBe(true)
       expect(blinkSamples.some((sample) => sample.paintedCursorCellCount === 0)).toBe(true)
     } finally {
@@ -331,13 +346,24 @@ test.describe('OpenCode emoji table terminal rendering', () => {
         contentType: 'image/png'
       })
 
+      // aterm has no .xterm-cursor DOM / xterm _core to read cursor state from; force
+      // the probe cursor colour onto the canvas and prove the cursor is painted (i.e.
+      // not hidden) by detecting its raster cells — the aterm-native "cursor visible".
+      await forceCursorProbeTheme(orcaPage)
+      await orcaPage.waitForTimeout(50)
+      const cursorTarget = await readActiveTerminalRasterTarget(orcaPage)
+      const cursorCells = analyzeRasterCursorCells(
+        Buffer.from(await orcaPage.screenshot()),
+        cursorTarget,
+        orcaPage.viewportSize() ?? undefined
+      )
+
       const renderState = await readActiveTerminalRenderState(orcaPage)
       testInfo.annotations.push({
         type: 'real-opencode-demo-rendering',
-        description: JSON.stringify(renderState)
+        description: JSON.stringify({ renderState, paintedCursorCellCount: cursorCells.length })
       })
-      expect(renderState.coreCursorHidden).toBe(false)
-      expect(renderState.cursorVisibleElementCount).toBeGreaterThan(0)
+      expect(cursorCells.length).toBeGreaterThan(0)
     } finally {
       await sendToTerminal(orcaPage, ptyId, '\x03').catch(() => undefined)
     }

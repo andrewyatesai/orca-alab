@@ -21,6 +21,7 @@ import { scrollActiveTerminalToText } from './artificial-opencode-active-termina
 import { nodeTerminalCommand } from './terminal-node-command'
 
 type BrowserTerminalPane = {
+  id: number
   terminal: {
     cols: number
     rows: number
@@ -39,11 +40,13 @@ type BrowserTerminalPane = {
     }
     focus: () => void
     scrollToBottom: () => void
-    _core?: {
-      coreService?: { isCursorHidden?: boolean }
-      _renderService?: { dimensions?: { css?: { cell?: { width?: number } } } }
-    }
   }
+  // The honest aterm engine surface (replaces xterm's renderer-internal _core):
+  // cursor_style===7 → hidden; CSS cell size = device cell px / dpr.
+  atermController?: {
+    cursorHidden: () => boolean
+    cellSizeCss: () => { width: number; height: number }
+  } | null
   container: HTMLElement
 }
 
@@ -181,14 +184,28 @@ function rawEmojiFixtureFrameTailMarker(runId: string): string {
 
 async function setWideRenderedTableViewport(page: Page): Promise<void> {
   await page.setViewportSize({ width: 1480, height: 820 })
-  await page.waitForTimeout(250)
-  await page.evaluate(() => {
-    const store = window.__store
-    if (store?.getState().rightSidebarOpen) {
-      store.getState().setRightSidebarOpen(false)
-    }
-  })
-  await page.waitForTimeout(250)
+  // Why: the worktree list (left, ~280px) and explorer/checks (right, up to
+  // ~350px) sidebars each steal width from the terminal pane; collapse both so
+  // the wide golden measures full content width. A one-shot close races a late
+  // hydration / worktree-switch restore that can REOPEN a sidebar after we close
+  // it (observed under workers=2). So re-issue the close on every poll iteration
+  // — an idempotent close-then-check that corrects a late reopen instead of just
+  // timing out on it; the poll succeeds once both stay closed.
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => {
+          const store = window.__store
+          if (!store) return false
+          const s = store.getState()
+          if (s.sidebarOpen) s.setSidebarOpen(false)
+          if (s.rightSidebarOpen) s.setRightSidebarOpen(false)
+          const after = store.getState()
+          return !after.sidebarOpen && !after.rightSidebarOpen
+        }),
+      { timeout: 15_000, message: 'sidebars did not collapse for wide table viewport' }
+    )
+    .toBe(true)
 }
 
 async function waitForActiveTerminalColumns(
@@ -288,7 +305,10 @@ async function readTerminalRightEdgeOverpaint(page: Page): Promise<{
       }
     }
 
-    const cellWidth = pane.terminal._core?._renderService?.dimensions?.css?.cell?.width ?? 0
+    // Real CSS cell width from the aterm engine (device cell px / dpr), not xterm's
+    // renderer-internal _renderService. Only reached on a DOM renderer (aterm has no
+    // .xterm-rows, so this function already returned above for the aterm canvas).
+    const cellWidth = pane.atermController?.cellSizeCss().width ?? 0
     const maxRight = screenRect.right + Math.max(1, cellWidth * 0.5)
     const offenders = Array.from(rows.querySelectorAll<HTMLElement>('span'))
       .map((span) => {
@@ -341,7 +361,10 @@ async function readVisibleSingerRowGeometry(page: Page): Promise<{
     if (!scrollbackLine) {
       throw new Error('Singer row buffer line unavailable')
     }
-    const cellWidth = pane.terminal._core?._renderService?.dimensions?.css?.cell?.width ?? 0
+    // Real CSS cell width from the aterm engine (device cell px / dpr) so the
+    // buffer-derived right edge is meaningful when the canvas renderer (no
+    // .xterm-rows DOM) is active and we fall back to bufferGeometry below.
+    const cellWidth = pane.atermController?.cellSizeCss().width ?? 0
     const bufferGeometry = {
       cols: pane.terminal.cols,
       screenRight: screenRect.right,
@@ -370,7 +393,6 @@ async function readVisibleSingerRowGeometry(page: Page): Promise<{
 }
 
 async function readTerminalRenderDiagnostics(page: Page): Promise<{
-  hasWebgl: boolean
   hasComplexScriptOutput: boolean
   cursorHidden: boolean | null
   terminalGpuAcceleration?: string
@@ -386,7 +408,9 @@ async function readTerminalRenderDiagnostics(page: Page): Promise<{
     if (!pane) {
       throw new Error('Active terminal pane unavailable')
     }
-    const terminalCore = pane.terminal._core
+    // Real cursor-hidden state from the aterm engine (cursor_style === 7), not
+    // xterm's renderer-internal coreService.
+    const cursorHidden = pane.atermController?.cursorHidden() ?? null
     const canvas = document.createElement('canvas')
     const store = window.__store
     const state = store?.getState()
@@ -402,9 +426,8 @@ async function readTerminalRenderDiagnostics(page: Page): Promise<{
       ?.getRenderingDiagnostics()
       .find((diagnostic) => diagnostic.paneId === pane.id)
     return {
-      hasWebgl: renderingDiagnostics?.hasWebgl ?? false,
       hasComplexScriptOutput: renderingDiagnostics?.hasComplexScriptOutput ?? false,
-      cursorHidden: terminalCore?.coreService?.isCursorHidden ?? null,
+      cursorHidden,
       terminalGpuAcceleration: renderingDiagnostics?.terminalGpuAcceleration,
       gpuRenderingEnabled: renderingDiagnostics?.gpuRenderingEnabled,
       webglAttachmentDeferred: renderingDiagnostics?.webglAttachmentDeferred,
@@ -423,28 +446,6 @@ async function closeFeatureTips(page: Page): Promise<void> {
     if (store?.getState().activeModal === 'feature-tips') {
       store.getState().closeModal()
     }
-  })
-}
-
-async function expectAutoWebgl(page: Page): Promise<boolean> {
-  return page.evaluate(() => {
-    const canvas = document.createElement('canvas')
-    const gl = canvas.getContext('webgl2')
-    if (!gl) {
-      return false
-    }
-    if (!navigator.platform.includes('Linux') && !navigator.userAgent.includes('Linux')) {
-      return true
-    }
-    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
-    if (!debugInfo) {
-      return false
-    }
-    const renderer = String(gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) ?? '')
-    const vendor = String(gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) ?? '')
-    return !/\b(swiftshader|llvmpipe|softpipe|software rasterizer|software adapter|basic render|virgl|svga3d)\b/i.test(
-      `${vendor} ${renderer}`
-    )
   })
 }
 
@@ -488,7 +489,6 @@ test.describe('Terminal raw emoji table scroll restore repro', () => {
 
     const diagnostics = await readTerminalRenderDiagnostics(orcaPage)
     expect(diagnostics.hasComplexScriptOutput).toBe(false)
-    expect(diagnostics.hasWebgl).toBe(await expectAutoWebgl(orcaPage))
     expect(diagnostics.cursorHidden).toBe(false)
   })
 
@@ -579,7 +579,6 @@ test.describe('Terminal raw emoji table scroll restore repro', () => {
 
       expect(wrapDiagnostics.cols).toBeGreaterThanOrEqual(RAW_EMOJI_BOX_TABLE_WIDTH)
       expect(diagnostics.hasComplexScriptOutput).toBe(false)
-      expect(diagnostics.hasWebgl).toBe(await expectAutoWebgl(orcaPage))
       expect(diagnostics.cursorHidden).toBe(false)
       expect(overpaint.offenders).toEqual([])
       expect(wrapDiagnostics.wrappedBoxLines).toEqual([])

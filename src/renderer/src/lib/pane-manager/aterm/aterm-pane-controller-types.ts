@@ -88,6 +88,14 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** True when bracketed-paste mode (DECSET 2004) is active — the paste sink wraps
    *  pasted text in ESC[200~..ESC[201~ itself instead of routing through xterm.paste. */
   bracketedPasteMode: () => boolean
+  /** Authorize/revoke OSC 52 clipboard *write* on the engine. The engine is
+   *  fail-closed by default and won't queue OSC 52 set events (take_osc_events)
+   *  until authorized; the host still gates the actual clipboard write on the
+   *  user's terminalAllowOsc52Clipboard setting (defense in depth). */
+  setClipboardWriteAuthorized: (allowed: boolean) => void
+  /** True when the app has enabled any mouse tracking mode (DECSET 1000/1002/1003
+   *  etc.) — the facade maps this to xterm's mouseTrackingMode ('vt200' vs 'none'). */
+  isMouseTracking: () => boolean
   /** True when DECSET 1004 (focus reporting) is active. */
   isFocusEventMode: () => boolean
   /** True when DEC mode 2031 (color-scheme update notifications) is active. */
@@ -113,6 +121,21 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** Whether a visible display cell is a wide (double-width) char; undefined when
    *  out of range. */
   cellIsWide: (row: number, col: number) => boolean | undefined
+  /** Active DECSCUSR cursor-style discriminant (1-6 = visible styles, 7 = Hidden,
+   *  8 = HollowBlock) — the engine's real cursor_style. Replaces reads of xterm's
+   *  renderer-internal coreService for cursor introspection in tests. */
+  cursorStyle: () => number
+  /** True iff the cursor is hidden (cursor_style === 7). The honest aterm
+   *  equivalent of xterm's `_core.coreService.isCursorHidden`. */
+  cursorHidden: () => boolean
+  /** Real CSS cell size in px = device cell px (term.cell_width/height) / current
+   *  devicePixelRatio. Replaces xterm's `_renderService.dimensions.css.cell`. */
+  cellSizeCss: () => { width: number; height: number }
+  /** True once the live engine is attached + has produced its grid metrics — the
+   *  aterm-native stand-in for xterm's renderer-only `isCursorInitialized`. The
+   *  controller's existence already implies attachment; this confirms real cell
+   *  metrics are present (cell_width/height > 0). */
+  isReady: () => boolean
   /** Drain the edge-triggered BEL flag: true if a BEL fired since the last call. */
   drainBell: () => boolean
   /** Drain queued OSC app-events as a JSON string `[[code,payload],...]`, or

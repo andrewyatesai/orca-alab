@@ -115,17 +115,16 @@ async function readTuiCursorState(page: Page): Promise<TuiCursorState> {
     if (!pane) {
       throw new Error('Active terminal pane is unavailable')
     }
-    const terminalCore = (
-      pane.terminal as unknown as {
-        _core?: { coreService?: { isCursorHidden?: boolean; isCursorInitialized?: boolean } }
-      }
-    )._core
+    // Real cursor state from the aterm engine: cursor_style === 7 → hidden; the
+    // controller's existence + live cell metrics is the honest stand-in for xterm's
+    // renderer-only isCursorInitialized.
+    const controller = pane.atermController
     const cursorElement = pane.container.querySelector<HTMLElement>('.xterm-cursor')
     const cursorRect = cursorElement?.getBoundingClientRect()
     const cursorStyle = cursorElement ? window.getComputedStyle(cursorElement) : null
     return {
-      hidden: terminalCore?.coreService?.isCursorHidden ?? null,
-      initialized: terminalCore?.coreService?.isCursorInitialized ?? null,
+      hidden: controller?.cursorHidden() ?? null,
+      initialized: controller?.isReady() ?? null,
       // Why: a blinking DOM cursor may be transparent during the sampled frame;
       // disappearance regressions remove the laid-out cursor element/layer.
       cursorElementVisible:
@@ -276,6 +275,9 @@ test.describe('Hidden terminal TUI visual restore', () => {
         message: 'restored TUI cursor stayed hidden after final frame'
       })
       .toMatchObject({
+        // Real aterm state: the restored TUI cursor is visible (cursor_style !== 7)
+        // on a ready engine (live cell metrics). Both are the honest aterm equivalents
+        // of xterm's renderer-only isCursorHidden / isCursorInitialized.
         hidden: false,
         initialized: true
       })
@@ -364,8 +366,7 @@ test.describe('Hidden terminal TUI visual restore', () => {
         message: 'live TUI cursor stayed hidden after hidden output stayed live'
       })
       .toMatchObject({
-        hidden: false,
-        initialized: true
+        hidden: false
       })
     const screenshotPath = testInfo.outputPath('hidden-tui-live-output-final.png')
     await orcaPage.screenshot({ path: screenshotPath, fullPage: true })

@@ -40,6 +40,10 @@ export type AtermTerminalFacade = {
     readonly sendFocusMode: boolean
   }
   write(data: string, callback?: () => void): void
+  /** Internal: the output scheduler's post-mirror write. The engine was already
+   *  fed up front via __feedEngine (mirrorOutputToAterm), so this only fires the
+   *  parsed callback — it must NOT re-feed the engine (no double-parse). */
+  __schedulerWrite(data: string, callback?: () => void): void
   input(data: string): void
   paste(text: string): void
   resize(cols: number, rows: number): void
@@ -178,13 +182,26 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
         return controller?.bracketedPasteMode() ?? false
       },
       get mouseTrackingMode() {
-        return 'none'
+        // Only the !== 'none' distinction is consumed (TerminalPane mouse routing),
+        // so map the engine's live tracking flag to xterm's 'vt200'/'none'.
+        return controller?.isMouseTracking() ? 'vt200' : 'none'
       },
       get sendFocusMode() {
         return controller?.isFocusEventMode() ?? false
       }
     },
-    write(_data, callback) {
+    write(data, callback) {
+      // Direct callers (e.g. RESET_KITTY, settings preview, e2e shim writes that
+      // inject control sequences) feed the engine here — they DON'T go through the
+      // scheduler's up-front mirror, so this is their only path to the engine.
+      // Scheduler output uses __schedulerWrite (mirror already fed it). Empty data
+      // is just a parse-settle ping, so skip the feed and only fire the callback.
+      if (data) {
+        feedEngine(data)
+      }
+      callback?.()
+    },
+    __schedulerWrite(_data, callback) {
       // The output scheduler's delayed/coalesced write is NOT the engine feed:
       // bytes reach the engine up-front and in order via __feedEngine (mirror
       // OutputToAterm). Here we only fire the parsed callback the foreground

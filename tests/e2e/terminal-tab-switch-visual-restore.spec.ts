@@ -370,7 +370,7 @@ async function writeStaticTabContent(
   glyphRow: string
 ): Promise<void> {
   await page.evaluate(
-    async ({ id, marker, glyphRow }) => {
+    ({ id, marker, glyphRow }) => {
       const manager = window.__paneManagers?.get(id)
       const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
       if (!pane) {
@@ -380,10 +380,9 @@ async function writeStaticTabContent(
         { length: 14 },
         (_, row) => `${marker} row ${row} | ${glyphRow} |\r\n`
       ).join('')
-      await new Promise<void>((resolve) =>
-        pane.terminal.write(`\x1b[2J\x1b[3J\x1b[H\x1b[?25l${rows}`, resolve)
-      )
-      pane.terminal.refresh(0, pane.terminal.rows - 1)
+      // Write into the aterm engine the geometry read (serialize) samples; a raw
+      // pane.terminal.write only fills the unopened xterm shim, never the canvas.
+      pane.atermController?.process(`\x1b[2J\x1b[3J\x1b[H\x1b[?25l${rows}`)
     },
     { id: tabId, marker, glyphRow }
   )
@@ -443,24 +442,28 @@ async function readTabTerminalGeometry(
         throw new Error(`No terminal pane for tab ${tabId}`)
       }
       const overlayRect = overlay?.getBoundingClientRect()
-      const screen = pane.container.querySelector<HTMLElement>('.xterm-screen')
+      // aterm paints to its own canvas; the unopened xterm shim never mounts a
+      // `.xterm-screen`, so measure the rendered surface from the aterm canvas.
+      const screen =
+        pane.container.querySelector<HTMLElement>('[data-testid="aterm-canvas"]') ??
+        pane.container.querySelector<HTMLElement>('.xterm-screen')
       if (!screen) {
-        throw new Error(`No xterm screen for tab ${tabId}`)
+        throw new Error(`No aterm canvas for tab ${tabId}`)
       }
       const screenRect = screen.getBoundingClientRect()
-      const cellWidth = pane.terminal._core?._renderService?.dimensions?.css?.cell?.width ?? 0
-      const renderedContentWidth = pane.terminal.cols * cellWidth
+      // aterm's headless xterm never populates `_renderService`/grid/buffer; read
+      // the authoritative grid + device-pixel cell metrics from the controller.
+      // pixelSize().cellWidth is device px, so divide by DPR to match the CSS-px
+      // `screenRect` the geometry ratios compare against.
+      const grid = pane.atermController?.gridSize() ?? { cols: 0, rows: 0 }
+      const deviceCellWidth = pane.atermController?.pixelSize().cellWidth ?? 0
+      const cellWidth = deviceCellWidth / (window.devicePixelRatio || 1)
+      const renderedContentWidth = grid.cols * cellWidth
       const rowRight = screenRect.left + renderedContentWidth
       const contentWidthRatio = screenRect.width > 0 ? renderedContentWidth / screenRect.width : 0
-      const buffer = pane.terminal.buffer.active
-      let markerPresent = false
-      for (let row = 0; row < pane.terminal.rows; row += 1) {
-        const line = buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? ''
-        if (line.includes(marker)) {
-          markerPresent = true
-          break
-        }
-      }
+      // Marker presence comes from the serialized aterm viewport (scrollbackRows
+      // 0 = visible rows only), since the xterm buffer shim stays empty.
+      const markerPresent = (pane.atermController?.serialize(0) ?? '').includes(marker)
       const diagnostics = manager?.getRenderingDiagnostics?.() ?? []
       const hasWebgl = diagnostics.some((entry) => entry.hasWebgl)
       return {
@@ -468,8 +471,8 @@ async function readTabTerminalGeometry(
         overlayWidth: overlayRect?.width ?? 0,
         overlayHeight: overlayRect?.height ?? 0,
         overlayDisplay: overlay ? window.getComputedStyle(overlay).display : 'missing',
-        cols: pane.terminal.cols,
-        rows: pane.terminal.rows,
+        cols: grid.cols,
+        rows: grid.rows,
         cellWidth,
         screenWidth: screenRect.width,
         screenRight: screenRect.right,
@@ -634,7 +637,8 @@ test.describe('Terminal tab switch visual restore', () => {
             '\x1b[?2026l'
           ].join('\r\n')
         }).join('')
-        return new Promise<void>((resolve) => pane.terminal.write(frames, resolve))
+        // Feed the aterm engine (serialize reads it), not the unopened xterm shim.
+        pane.atermController?.process(frames)
       },
       { tabId: firstTabId, finalMarker }
     )
@@ -662,7 +666,8 @@ test.describe('Terminal tab switch visual restore', () => {
             `╰────────────────────────────────────────────────────────────────────╯`,
             '\x1b[?2026l'
           ].join('\r\n')
-          return new Promise<void>((resolve) => pane.terminal.write(redraw, resolve))
+          // Feed the aterm engine (serialize reads it), not the unopened xterm shim.
+          pane.atermController?.process(redraw)
         },
         { tabId: firstTabId, finalMarker, cycle }
       )

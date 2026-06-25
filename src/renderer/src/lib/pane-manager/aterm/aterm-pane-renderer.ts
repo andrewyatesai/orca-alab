@@ -304,14 +304,21 @@ export async function createAtermPaneController(
     gridSize: () => wired.controller.gridSize(),
     isAltScreen: () => wired.controller.isAltScreen(),
     bracketedPasteMode: () => wired.controller.bracketedPasteMode(),
+    setClipboardWriteAuthorized: (allowed) =>
+      wired.controller.setClipboardWriteAuthorized(allowed),
     // Stable DOM nodes: the wrapper/textarea persist across a GPU→CPU swap (only
     // the canvas inside the screen is replaced), so the facade can hold them.
     element: inputDom.wrapper,
     textarea: inputDom.textarea,
     isFocusEventMode: () => wired.controller.isFocusEventMode(),
+    isMouseTracking: () => wired.controller.isMouseTracking(),
     isColorSchemeUpdatesMode: () => wired.controller.isColorSchemeUpdatesMode(),
     cursorX: () => wired.controller.cursorX(),
     cursorY: () => wired.controller.cursorY(),
+    cursorStyle: () => wired.controller.cursorStyle(),
+    cursorHidden: () => wired.controller.cursorHidden(),
+    cellSizeCss: () => wired.controller.cellSizeCss(),
+    isReady: () => wired.controller.isReady(),
     baseY: () => wired.controller.baseY(),
     displayOriginAbsolute: () => wired.controller.displayOriginAbsolute(),
     rowIsWrapped: (row) => wired.controller.rowIsWrapped(row),

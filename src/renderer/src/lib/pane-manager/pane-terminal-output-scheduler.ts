@@ -631,7 +631,12 @@ function writeQueuedChunk(entry: QueueEntry): 'foreground' | 'background' | null
         }
       )
     } else {
-      entry.terminal.write(queuedWrite.data)
+      // Background drain: the mirror already fed the engine up front, so use the
+      // callback-only scheduler path to avoid re-parsing these bytes.
+      ;(entry.terminal.__schedulerWrite ?? entry.terminal.write).call(
+        entry.terminal,
+        queuedWrite.data
+      )
     }
   } catch {
     // Why: pane.terminal.dispose() can race with a queued late-arriving PTY ping;
@@ -914,7 +919,9 @@ export function flushTerminalOutput(
           }
         )
       } else {
-        terminal.write(queuedWrite.data)
+        // Flush drain: the mirror already fed the engine up front, so use the
+        // callback-only scheduler path to avoid re-parsing these bytes.
+        ;(terminal.__schedulerWrite ?? terminal.write).call(terminal, queuedWrite.data)
       }
     } catch {
       // Why: pane.terminal.dispose() can race with a queued late-arriving PTY ping;

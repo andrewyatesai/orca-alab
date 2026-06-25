@@ -7,9 +7,13 @@ type EngineReads = Pick<
   AtermTerminal,
   | 'cursor_x'
   | 'cursor_y'
+  | 'cursor_style'
+  | 'cell_width'
+  | 'cell_height'
   | 'base_y'
   | 'display_origin_absolute'
   | 'is_focus_event_mode'
+  | 'is_mouse_tracking'
   | 'is_color_scheme_updates_mode'
   | 'row_is_wrapped'
   | 'row_len'
@@ -35,9 +39,13 @@ export type AtermEngineReadMembers = Pick<
   AtermPaneController,
   | 'cursorX'
   | 'cursorY'
+  | 'cursorStyle'
+  | 'cursorHidden'
+  | 'isReady'
   | 'baseY'
   | 'displayOriginAbsolute'
   | 'isFocusEventMode'
+  | 'isMouseTracking'
   | 'isColorSchemeUpdatesMode'
   | 'rowIsWrapped'
   | 'rowLen'
@@ -72,9 +80,18 @@ export function buildAtermEngineReads(
   return {
     cursorX: () => term.cursor_x,
     cursorY: () => term.cursor_y,
+    cursorStyle: () => term.cursor_style,
+    // DECSCUSR discriminant 7 = Hidden; the engine's real stand-in for xterm's
+    // renderer-internal coreService.isCursorHidden.
+    cursorHidden: () => term.cursor_style === 7,
+    // Real readiness: the controller's existence already implies the engine is
+    // attached; cell metrics being present (>0) confirms it has produced its grid,
+    // standing in for xterm's renderer-only isCursorInitialized.
+    isReady: () => term.cell_width > 0 && term.cell_height > 0,
     baseY: () => term.base_y,
     displayOriginAbsolute: () => term.display_origin_absolute,
     isFocusEventMode: () => term.is_focus_event_mode,
+    isMouseTracking: () => term.is_mouse_tracking,
     isColorSchemeUpdatesMode: () => term.is_color_scheme_updates_mode,
     rowIsWrapped: (row) => term.row_is_wrapped(row),
     rowLen: (row) => term.row_len(row),

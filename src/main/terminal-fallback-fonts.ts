@@ -13,9 +13,26 @@ import { app } from 'electron'
 // This is always the LOCAL host's fonts for LOCAL rendering — even an SSH session
 // rasterizes on the local machine, so reading local fonts is correct.
 
+// Non-Latin / complex scripts the region-aware CJK face does NOT cover (Arabic,
+// Hebrew, Indic/Devanagari, Thai) plus a broad-coverage catch-all face. Each
+// becomes one entry in the renderer's fallback chain, appended after the CJK
+// face via add_fallback_font so e.g. Arabic still renders real glyphs.
+export type FallbackScript = 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'
+
+/** One additional fallback face actually found on the host, in chain order. */
+export type FallbackChainEntry = {
+  bytes: Uint8Array
+  script: FallbackScript
+}
+
 export type TerminalFallbackFonts = {
-  cjk?: Uint8Array
+  // CJK stays first (set_fallback_font); `region` surfaces which Han form was
+  // picked so the renderer can reason about it. Absent when no CJK face exists.
+  cjk?: { bytes: Uint8Array; region: CjkRegion }
   emoji?: Uint8Array
+  // Ordered non-Latin fallbacks appended after CJK (add_fallback_font). Only
+  // faces that really resolved on this host appear; missing ones are skipped.
+  chain: FallbackChainEntry[]
 }
 
 // First-existing wins per category. macOS .ttc collections and Apple Color Emoji
@@ -42,6 +59,99 @@ const EMOJI_CANDIDATES: Record<NodeJS.Platform, readonly string[]> = {
     '/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf'
   ]
 } as unknown as Record<NodeJS.Platform, readonly string[]>
+
+// Non-Latin fallback faces, in chain order. First-existing wins per script;
+// stable OS paths mirroring the CJK/emoji candidate style (PingFang-era macOS
+// system fonts, Noto on Linux, the Windows font dir). Missing files fall through
+// (the script just has no fallback face on that host — no regression, no fake).
+// On Linux we also ask fontconfig (:lang) for each script before these paths.
+const NON_LATIN_CANDIDATES: Record<
+  FallbackScript,
+  Partial<Record<NodeJS.Platform, readonly string[]>>
+> = {
+  arabic: {
+    darwin: [
+      '/System/Library/Fonts/Supplemental/GeezaPro.ttc',
+      '/System/Library/Fonts/Supplemental/Geeza Pro.ttf',
+      '/Library/Fonts/Arial Unicode.ttf'
+    ],
+    win32: ['C:/Windows/Fonts/segoeui.ttf', 'C:/Windows/Fonts/tahoma.ttf'],
+    linux: [
+      '/usr/share/fonts/truetype/noto/NotoSansArabic-Regular.ttf',
+      '/usr/share/fonts/noto/NotoSansArabic-Regular.ttf',
+      '/usr/share/fonts/google-noto/NotoSansArabic-Regular.ttf'
+    ]
+  },
+  hebrew: {
+    darwin: [
+      '/System/Library/Fonts/Supplemental/Arial Hebrew.ttc',
+      '/System/Library/Fonts/Supplemental/ArialHB.ttc',
+      '/Library/Fonts/Arial Unicode.ttf'
+    ],
+    win32: ['C:/Windows/Fonts/segoeui.ttf', 'C:/Windows/Fonts/david.ttf'],
+    linux: [
+      '/usr/share/fonts/truetype/noto/NotoSansHebrew-Regular.ttf',
+      '/usr/share/fonts/noto/NotoSansHebrew-Regular.ttf',
+      '/usr/share/fonts/google-noto/NotoSansHebrew-Regular.ttf'
+    ]
+  },
+  devanagari: {
+    darwin: [
+      '/System/Library/Fonts/Supplemental/DevanagariMT.ttc',
+      '/System/Library/Fonts/Kohinoor.ttc',
+      '/Library/Fonts/Arial Unicode.ttf'
+    ],
+    win32: ['C:/Windows/Fonts/Nirmala.ttf', 'C:/Windows/Fonts/mangal.ttf'],
+    linux: [
+      '/usr/share/fonts/truetype/noto/NotoSansDevanagari-Regular.ttf',
+      '/usr/share/fonts/noto/NotoSansDevanagari-Regular.ttf',
+      '/usr/share/fonts/google-noto/NotoSansDevanagari-Regular.ttf'
+    ]
+  },
+  thai: {
+    darwin: [
+      '/System/Library/Fonts/Supplemental/Ayuthaya.ttf',
+      '/System/Library/Fonts/Thonburi.ttc',
+      '/Library/Fonts/Arial Unicode.ttf'
+    ],
+    win32: ['C:/Windows/Fonts/leelawui.ttf', 'C:/Windows/Fonts/tahoma.ttf'],
+    linux: [
+      '/usr/share/fonts/truetype/noto/NotoSansThai-Regular.ttf',
+      '/usr/share/fonts/noto/NotoSansThai-Regular.ttf',
+      '/usr/share/fonts/google-noto/NotoSansThai-Regular.ttf'
+    ]
+  },
+  // Broad-coverage catch-all (Arial Unicode MS / Noto Sans) as the final link so
+  // scripts none of the above cover still resolve to a real glyph when present.
+  unicode: {
+    darwin: ['/Library/Fonts/Arial Unicode.ttf', '/System/Library/Fonts/Helvetica.ttc'],
+    win32: ['C:/Windows/Fonts/ARIALUNI.TTF', 'C:/Windows/Fonts/segoeui.ttf'],
+    linux: [
+      '/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf',
+      '/usr/share/fonts/noto/NotoSans-Regular.ttf',
+      '/usr/share/fonts/google-noto/NotoSans-Regular.ttf'
+    ]
+  }
+}
+
+// fontconfig `:lang=` codes per script (Linux Noto resolves the right face). The
+// catch-all has no single lang; a Latin charset probe asks for a broad face.
+const NON_LATIN_FC: Record<FallbackScript, string> = {
+  arabic: ':lang=ar',
+  hebrew: ':lang=he',
+  devanagari: ':lang=hi',
+  thai: ':lang=th',
+  unicode: ':lang=en'
+}
+
+// Chain order: complex scripts first, broad catch-all last (lowest priority).
+const FALLBACK_SCRIPT_ORDER: readonly FallbackScript[] = [
+  'arabic',
+  'hebrew',
+  'devanagari',
+  'thai',
+  'unicode'
+]
 
 // Han unification: Chinese/Japanese/Korean share Unicode code points but want
 // different glyph SHAPES. A single zh-default fallback face shows Chinese forms to
@@ -151,20 +261,49 @@ async function linuxFcCandidates(query: string): Promise<string[]> {
 }
 
 // Read the first candidate that exists and parses as readable bytes; a missing or
-// unreadable file just moves to the next candidate. Returns undefined when none
-// of the platform's candidates are present (the renderer keeps JetBrains Mono).
-async function readFirstExisting(candidates: readonly string[]): Promise<Uint8Array | undefined> {
+// unreadable file just moves to the next candidate. Returns the resolved path
+// alongside the bytes so callers can de-dup faces by path; undefined when none of
+// the platform's candidates are present (the renderer keeps JetBrains Mono).
+async function readFirstExistingWithPath(
+  candidates: readonly string[]
+): Promise<{ path: string; bytes: Uint8Array } | undefined> {
   for (const path of candidates) {
     try {
       const buf = await readFile(path)
       if (buf.length > 0) {
-        return new Uint8Array(buf)
+        return { path, bytes: new Uint8Array(buf) }
       }
     } catch {
       // Missing/unreadable candidate — try the next one.
     }
   }
   return undefined
+}
+
+async function readFirstExisting(candidates: readonly string[]): Promise<Uint8Array | undefined> {
+  return (await readFirstExistingWithPath(candidates))?.bytes
+}
+
+function nonLatinCandidatesFor(script: FallbackScript): readonly string[] {
+  return NON_LATIN_CANDIDATES[script][process.platform] ?? []
+}
+
+// Discover the non-Latin fallback chain: for each script (in priority order) read
+// the first candidate that actually exists, skipping scripts with no host face,
+// and de-dup by resolved path so the same file is never shipped twice (e.g. when
+// several scripts resolve to one broad-coverage face like Arial Unicode).
+async function discoverChain(usedPaths: Set<string>): Promise<FallbackChainEntry[]> {
+  const chain: FallbackChainEntry[] = []
+  for (const script of FALLBACK_SCRIPT_ORDER) {
+    const fc = await linuxFcCandidates(NON_LATIN_FC[script])
+    const found = await readFirstExistingWithPath([...fc, ...nonLatinCandidatesFor(script)])
+    if (!found || usedPaths.has(found.path)) {
+      continue
+    }
+    usedPaths.add(found.path)
+    chain.push({ bytes: found.bytes, script })
+  }
+  return chain
 }
 
 export async function getTerminalFallbackFonts(): Promise<TerminalFallbackFonts> {
@@ -181,10 +320,21 @@ export async function getTerminalFallbackFonts(): Promise<TerminalFallbackFonts>
     linuxFcCandidates(':charset=1F600')
   ])
   const regionCjk = CJK_REGION_CANDIDATES[region][process.platform] ?? []
-  const [cjk, emoji] = await Promise.all([
-    readFirstExisting([...cjkFc, ...regionCjk, ...candidatesFor(CJK_CANDIDATES)]),
+  const [cjkFound, emoji] = await Promise.all([
+    readFirstExistingWithPath([...cjkFc, ...regionCjk, ...candidatesFor(CJK_CANDIDATES)]),
     readFirstExisting([...emojiFc, ...candidatesFor(EMOJI_CANDIDATES)])
   ])
-  cached = { cjk, emoji }
+  // De-dup the chain against the CJK face so a face that doubles as both (e.g. a
+  // pan-Unicode Noto) is never shipped twice.
+  const usedPaths = new Set<string>()
+  if (cjkFound) {
+    usedPaths.add(cjkFound.path)
+  }
+  const chain = await discoverChain(usedPaths)
+  cached = {
+    cjk: cjkFound ? { bytes: cjkFound.bytes, region } : undefined,
+    emoji,
+    chain
+  }
   return cached
 }

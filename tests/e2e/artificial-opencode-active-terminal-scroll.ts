@@ -148,22 +148,47 @@ export async function scrollActiveTerminalToText(page: Page, text: string): Prom
       return candidate
     })()
     const buffer = pane.terminal.buffer.active
-    let targetLine: number | null = null
-    for (let lineIndex = buffer.length - 1; lineIndex >= 0; lineIndex -= 1) {
-      const line = buffer.getLine(lineIndex)
-      if (line?.translateToString(true).includes(searchText)) {
-        targetLine = lineIndex
-        break
+    const rows = pane.terminal.rows
+    // Why aterm: the engine retains off-screen scrollback but only exposes the
+    // currently-visible rows by absolute index (getLine returns undefined for
+    // off-screen lines, unlike xterm's full random-access buffer). So WALK the
+    // scrollback with the real engine scroll — start at the top, then step down a
+    // near-page at a time, scanning the visible rows at each stop — instead of
+    // iterating absolute indices we can't read. All reads are live engine state.
+    const absoluteRowText = (absY: number): string =>
+      buffer.getLine(absY)?.translateToString(true) ?? ''
+    const findVisible = (): number | null => {
+      const top = buffer.viewportY
+      for (let absY = top + rows - 1; absY >= top; absY -= 1) {
+        if (absoluteRowText(absY).includes(searchText)) {
+          return absY
+        }
       }
+      return null
+    }
+    pane.terminal.scrollToTop()
+    let targetLine = findVisible()
+    // Step down a near-full page (overlap one row so a match split across the page
+    // boundary isn't skipped) until found or the viewport reaches the live bottom.
+    const step = Math.max(1, rows - 1)
+    let guard = 0
+    const maxSteps = buffer.length + rows // hard bound on scrollback height
+    while (targetLine === null && buffer.viewportY < buffer.baseY && guard < maxSteps) {
+      pane.terminal.scrollLines(step)
+      targetLine = findVisible()
+      guard += 1
+    }
+    if (targetLine === null && buffer.viewportY >= buffer.baseY) {
+      // Make sure the very bottom page (the live viewport) was scanned too.
+      targetLine = findVisible()
     }
     if (targetLine === null) {
       throw new Error(`Text not found in terminal buffer: ${searchText}`)
     }
-    // Why: after workspace restore, xterm's viewport can be several wrapped
-    // rows away from the buffer line even when relative scroll events are
-    // coalesced. Scroll to an absolute line and center the target for the
-    // subsequent DOM-based visual assertion.
-    const centeredLine = Math.max(0, targetLine - Math.floor(pane.terminal.rows / 2))
+    // Why: center the target for the subsequent DOM-based visual assertion. The
+    // engine places an ABSOLUTE line at/near the top visible row, so subtract half
+    // a screen to center it (clamped to the oldest retained line).
+    const centeredLine = Math.max(0, targetLine - Math.floor(rows / 2))
     pane.terminal.scrollToLine(centeredLine)
     const viewport = pane.container.querySelector<HTMLElement>('.xterm-viewport')
     viewport?.dispatchEvent(new Event('scroll', { bubbles: true }))

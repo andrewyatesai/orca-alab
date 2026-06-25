@@ -1602,9 +1602,17 @@ const api = {
   },
 
   fonts: {
-    // Local OS fallback fonts (CJK + colour emoji) for the aterm terminal renderer.
-    getTerminalFallbackFonts: (): Promise<{ cjk?: Uint8Array; emoji?: Uint8Array }> =>
-      ipcRenderer.invoke('fonts:getTerminalFallbackFonts')
+    // Local OS fallback fonts for the aterm terminal renderer: region-aware CJK
+    // face (first) + emoji + an ordered non-Latin chain (Arabic/Hebrew/Indic/Thai
+    // + broad catch-all) appended via add_fallback_font.
+    getTerminalFallbackFonts: (): Promise<{
+      cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
+      emoji?: Uint8Array
+      chain: Array<{
+        bytes: Uint8Array
+        script: 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'
+      }>
+    }> => ipcRenderer.invoke('fonts:getTerminalFallbackFonts')
   },
 
   settings: {

@@ -43,7 +43,11 @@ async function placeInactiveCursorAtPrompt(page: Page): Promise<void> {
 
     manager.setActivePane(activePane.id, { focus: true })
     inactivePane.terminal.write('\r\n$ ')
-    inactivePane.terminal.blur()
+    // aterm keeps the xterm Terminal UNOPENED, so terminal.blur() is a no-op; blur
+    // the real focus surface so the inactive pane actually loses focus.
+    inactivePane.container
+      .querySelector<HTMLTextAreaElement>('.xterm-helper-textarea')
+      ?.blur()
     inactivePane.terminal.refresh(0, inactivePane.terminal.rows - 1)
   })
 }
@@ -80,18 +84,26 @@ async function renderInactiveCursor(
     if (forcedInactiveStyle) {
       inactivePane.terminal.options.cursorInactiveStyle = forcedInactiveStyle
     }
-    inactivePane.terminal.blur()
+    // aterm keeps the xterm Terminal UNOPENED, so terminal.blur() is a no-op; blur
+    // the real focus surface so the inactive pane actually loses focus.
+    const inactiveTextarea = inactivePane.container.querySelector<HTMLTextAreaElement>(
+      '.xterm-helper-textarea'
+    )
+    inactiveTextarea?.blur()
     inactivePane.terminal.refresh(0, inactivePane.terminal.rows - 1)
     await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)))
 
-    const terminalCore = inactivePane.terminal as unknown as {
-      _core?: { _coreBrowserService?: { isFocused?: boolean } }
-    }
+    // aterm's xterm-internal _coreBrowserService.isFocused is undefined; read focus
+    // from the pane's helper textarea (the real keyboard surface) instead.
+    const active = document.activeElement
+    const terminalFocused = Boolean(
+      inactiveTextarea && (active === inactiveTextarea || inactiveTextarea.contains(active))
+    )
     const cursor = inactivePane.container.querySelector<HTMLElement>('.xterm-cursor')
     return {
       cursorStyle: inactivePane.terminal.options.cursorStyle,
       cursorInactiveStyle: inactivePane.terminal.options.cursorInactiveStyle,
-      terminalFocused: terminalCore._core?._coreBrowserService?.isFocused ?? true,
+      terminalFocused,
       cursorClassName:
         cursor?.className ??
         `(canvas renderer: ${inactivePane.terminal.options.cursorInactiveStyle})`

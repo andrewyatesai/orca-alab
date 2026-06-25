@@ -12,6 +12,9 @@ export type ForegroundTerminalOutputTarget = {
   }
   refresh?(start: number, end: number): void
   write(data: string, callback?: () => void): void
+  // Why: the engine is fed up front via the output mirror, so the foreground
+  // settle write must use the callback-only path to avoid re-parsing the bytes.
+  __schedulerWrite?(data: string, callback?: () => void): void
 }
 
 type ForegroundTerminalWriteOptions = {
@@ -132,7 +135,10 @@ export function writeForegroundTerminalChunk(
     ? captureViewportSnapshot(terminal)
     : null
   try {
-    terminal.write(data, () => {
+    // The mirror already fed the engine for scheduler/replay output, so use the
+    // callback-only path when available (aterm facade) to avoid a double-parse.
+    const writeChunk = terminal.__schedulerWrite ?? terminal.write
+    writeChunk.call(terminal, data, () => {
       if (beforeWriteViewport) {
         settleForegroundRender(terminal, beforeWriteViewport, options)
       }

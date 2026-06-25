@@ -295,4 +295,24 @@ if (e2eConfig.exposeStore && typeof window !== 'undefined') {
       index,
       rgb: [(rgb >> 16) & 0xff, (rgb >> 8) & 0xff, rgb & 0xff]
     }))
+  // E2E only: the resolved theme selectionForeground (the value seeded via
+  // set_selection_fg), as an RGB triplet, or null when the theme sets none (the
+  // engine then WCAG-floors per cell). The selection-foreground spec compares the
+  // painted selected-glyph pixels against THIS — an independent resolution — so it
+  // proves theme.selectionForeground reached pixels, not a value echoed back.
+  ;(
+    window as unknown as {
+      __resolveAtermThemeSelectionFg?: () => [number, number, number] | null
+    }
+  ).__resolveAtermThemeSelectionFg = () => {
+    const { selectionForeground } = resolveAtermThemeColors()
+    if (selectionForeground === null) {
+      return null
+    }
+    return [
+      (selectionForeground >> 16) & 0xff,
+      (selectionForeground >> 8) & 0xff,
+      selectionForeground & 0xff
+    ]
+  }
 }

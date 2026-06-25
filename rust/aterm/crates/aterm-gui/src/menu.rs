@@ -28,6 +28,10 @@
 //! [`MenuAction`] enum and a no-op [`install`] still exist so the workspace builds
 //! everywhere and `Wake::MenuAction { action }` is a valid variant on every target.
 
+// macOS-only menu bar: on Linux `install` is a no-op stub, so the action
+// enum/dispatch helpers here are intentionally unused there.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 /// One menu command, identified independently of AppKit. The discriminant is the
 /// integer stored in the originating `NSMenuItem.tag` and round-tripped back via
 /// [`MenuAction::from_tag`]; `user_event` matches on the value to call the

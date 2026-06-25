@@ -135,6 +135,25 @@ impl DeferredLine {
         }
     }
 
+    /// Wrap an already-materialized [`Line`] as a deferred line.
+    ///
+    /// Used by scrollback reflow (#7906) to re-stage rewrapped history lines
+    /// into the lazy buffer. The cell snapshot stays empty — the cached `Line`
+    /// is the source of truth, so `to_line`/`into_line` return it directly with
+    /// no re-materialization.
+    pub(crate) fn from_line(line: &Line) -> Self {
+        let cached = OnceCell::new();
+        let _ = cached.set(line.clone());
+        Self {
+            cells: Vec::new(),
+            len: 0,
+            extras: None,
+            wrapped: line.is_wrapped(),
+            layout_version: CELL_LAYOUT_VERSION,
+            cached,
+        }
+    }
+
     /// Get or compute the materialized [`Line`].
     ///
     /// First call performs the O(cols) conversion; subsequent calls return
@@ -303,6 +322,17 @@ impl LazyBuffer {
     #[inline]
     pub(crate) fn push(&mut self, deferred: DeferredLine) {
         self.lines.push_back(deferred);
+    }
+
+    /// Prepend lines (oldest first) to the FRONT of the buffer.
+    ///
+    /// Used by scrollback reflow (#7906): rewrapped history is older than any
+    /// overflow the visible-grid reflow already pushed to the back, so it must
+    /// sit ahead of it to preserve oldest-to-newest order.
+    pub(crate) fn prepend(&mut self, lines: Vec<DeferredLine>) {
+        for deferred in lines.into_iter().rev() {
+            self.lines.push_front(deferred);
+        }
     }
 
     /// Number of pending deferred lines.

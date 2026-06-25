@@ -68,13 +68,17 @@ pub(crate) fn mem_used_frac() -> Option<f64> {
     }
 }
 
-/// Cumulative whole-machine network (rx, tx) byte counters across non-loopback
-/// links, or `None`. Counters are 32-bit on macOS `if_data`; callers wrapping-sub.
+/// PER-INTERFACE cumulative `(name, rx, tx)` byte counters for non-loopback links,
+/// or `None` if unavailable. The raw 32-bit `if_data` counters are returned untouched
+/// and keyed by interface name so the caller can diff EACH interface independently —
+/// summing across interfaces and then diffing the sum produces a one-tick spike
+/// whenever an interface appears/disappears (VPN up/down, Wi-Fi switch) or a single
+/// 32-bit counter wraps; per-interface diffing avoids both.
 #[must_use]
-pub(crate) fn net_bytes() -> Option<(u64, u64)> {
+pub(crate) fn net_ifaces() -> Option<Vec<(String, u32, u32)>> {
     #[cfg(target_os = "macos")]
     {
-        net_bytes_macos()
+        net_ifaces_macos()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -171,16 +175,17 @@ fn vm_stats64() -> Option<libc::vm_statistics64> {
 }
 
 #[cfg(target_os = "macos")]
-fn net_bytes_macos() -> Option<(u64, u64)> {
+fn net_ifaces_macos() -> Option<Vec<(String, u32, u32)>> {
     let mut ifap: *mut libc::ifaddrs = std::ptr::null_mut();
     // SAFETY: getifaddrs allocates a linked list into `ifap`; freed below.
     if unsafe { libc::getifaddrs(&mut ifap) } != 0 || ifap.is_null() {
         return None;
     }
-    let (mut rx, mut tx) = (0u64, 0u64);
+    let mut out: Vec<(String, u32, u32)> = Vec::new();
     let mut cur = ifap;
     // SAFETY: walk the NUL-terminated `ifa_next` list; each node is valid until
-    // freeifaddrs. AF_LINK nodes carry an `if_data` in `ifa_data`.
+    // freeifaddrs. AF_LINK nodes carry an `if_data` in `ifa_data`, and `ifa_name`
+    // is a valid NUL-terminated C string for the link's lifetime in this list.
     unsafe {
         while !cur.is_null() {
             let ifa = &*cur;
@@ -188,14 +193,17 @@ fn net_bytes_macos() -> Option<(u64, u64)> {
                 && i32::from((*ifa.ifa_addr).sa_family) == libc::AF_LINK
                 && (ifa.ifa_flags & libc::IFF_LOOPBACK as u32) == 0
                 && !ifa.ifa_data.is_null()
+                && !ifa.ifa_name.is_null()
             {
                 let d = &*(ifa.ifa_data as *const libc::if_data);
-                rx += u64::from(d.ifi_ibytes);
-                tx += u64::from(d.ifi_obytes);
+                let name = std::ffi::CStr::from_ptr(ifa.ifa_name)
+                    .to_string_lossy()
+                    .into_owned();
+                out.push((name, d.ifi_ibytes, d.ifi_obytes));
             }
             cur = ifa.ifa_next;
         }
         libc::freeifaddrs(ifap);
     }
-    Some((rx, tx))
+    Some(out)
 }

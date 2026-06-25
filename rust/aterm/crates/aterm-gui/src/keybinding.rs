@@ -339,6 +339,79 @@ impl Keybindings {
         Keybindings { map }
     }
 
+    /// The platform's BUILT-IN default keybindings. macOS ships an EMPTY table — the
+    /// hardcoded Cmd-* chords in `on_key` ARE the convention there, so the no-config
+    /// path stays byte-identical. Every other platform (Linux/X11) seeds the standard
+    /// terminal chords, because there is no Cmd key and the hardcoded chords gate on
+    /// the physical Super (Windows) key, which desktop environments routinely grab —
+    /// leaving a fresh user with no working keystroke to copy, paste, or open a tab.
+    /// User `[keybindings]` entries are overlaid on top (see [`Self::resolved`]), so
+    /// any of these can be rebound.
+    #[must_use]
+    pub fn platform_defaults() -> Keybindings {
+        // (chord, action) pairs parsed through the SAME machinery as user config, so
+        // a default can never diverge from what a user could write. macOS = none.
+        #[cfg(target_os = "macos")]
+        let pairs: &[(&str, &str)] = &[];
+        #[cfg(not(target_os = "macos"))]
+        let pairs: &[(&str, &str)] = &[
+            ("ctrl+shift+c", "copy"),
+            ("ctrl+shift+v", "paste"),
+            ("ctrl+shift+t", "new_tab"),
+            ("ctrl+shift+w", "close_tab"),
+            ("ctrl+shift+n", "new_window"),
+            ("ctrl+shift+f", "find"),
+            ("ctrl+shift+d", "split_vertical"),
+            ("ctrl+shift+e", "split_horizontal"),
+            ("ctrl+shift+return", "toggle_pane_zoom"),
+            ("ctrl+shift+right", "next_tab"),
+            ("ctrl+shift+left", "prev_tab"),
+            ("ctrl+pagedown", "next_tab"),
+            ("ctrl+pageup", "prev_tab"),
+            // Zoom: Ctrl+= and Ctrl+Shift+= (the latter is "Ctrl++" on most layouts).
+            ("ctrl+=", "font_increase"),
+            ("ctrl+shift+=", "font_increase"),
+            ("ctrl+-", "font_decrease"),
+            ("ctrl+0", "font_reset"),
+            // Jump to tab N (the GNOME-Terminal convention; overridable).
+            ("alt+1", "switch_tab_1"),
+            ("alt+2", "switch_tab_2"),
+            ("alt+3", "switch_tab_3"),
+            ("alt+4", "switch_tab_4"),
+            ("alt+5", "switch_tab_5"),
+            ("alt+6", "switch_tab_6"),
+            ("alt+7", "switch_tab_7"),
+            ("alt+8", "switch_tab_8"),
+            ("alt+9", "switch_tab_9"),
+        ];
+        let mut map = HashMap::new();
+        for (chord_str, action_str) in pairs {
+            // These are compile-time constants; a parse failure is a build-time bug,
+            // so assert in debug yet fall open (skip) in release rather than panic.
+            match (Chord::parse(chord_str), Action::parse(action_str)) {
+                (Ok(c), Some(a)) => {
+                    map.insert(c, a);
+                }
+                _ => debug_assert!(false, "built-in default keybinding {chord_str:?} is malformed"),
+            }
+        }
+        Keybindings { map }
+    }
+
+    /// The EFFECTIVE keybindings the running app uses: the platform built-in
+    /// defaults ([`Self::platform_defaults`]) with the user's `[keybindings]` table
+    /// overlaid on top (a user entry for the same chord WINS). This is what
+    /// `App::new` installs — distinct from [`Self::from_config`], which returns ONLY
+    /// the parsed config (no defaults) and backs the config-parsing tests.
+    #[must_use]
+    pub fn resolved(table: Option<&std::collections::BTreeMap<String, String>>) -> Keybindings {
+        let mut kb = Keybindings::platform_defaults();
+        for (chord, action) in Keybindings::from_config(table).map {
+            kb.map.insert(chord, action);
+        }
+        kb
+    }
+
     /// Whether NO bindings are configured (the default). `on_key` can skip even
     /// the chord-build when this is true, keeping the no-config path allocation-
     /// and probe-free.
@@ -539,5 +612,35 @@ mod tests {
         assert_eq!(kb.lookup(&ch("x"), ModifiersState::SUPER), None); // skipped
         // Only the one valid binding survived.
         assert_eq!(kb.map.len(), 1);
+    }
+
+    /// Linux daily-driver default: with no user config, [`Keybindings::resolved`]
+    /// must seed the standard terminal chords so a fresh user can copy/paste/open a
+    /// tab WITHOUT the Super key (which desktop environments grab). macOS keeps an
+    /// empty default (its hardcoded Cmd-* path is the convention there). A user
+    /// `[keybindings]` entry overlays on top and wins.
+    #[test]
+    fn platform_defaults_seed_terminal_chords() {
+        let kb = Keybindings::resolved(None);
+        #[cfg(target_os = "macos")]
+        assert!(kb.is_empty(), "macOS keeps an empty default keybinding table");
+        #[cfg(not(target_os = "macos"))]
+        {
+            let cs = ModifiersState::CONTROL | ModifiersState::SHIFT;
+            assert_eq!(kb.lookup(&ch("c"), cs), Some(Action::Copy), "Ctrl+Shift+C copies");
+            assert_eq!(kb.lookup(&ch("v"), cs), Some(Action::Paste), "Ctrl+Shift+V pastes");
+            assert_eq!(kb.lookup(&ch("t"), cs), Some(Action::NewTab), "Ctrl+Shift+T new tab");
+            // Plain Ctrl+C is NOT bound (stays SIGINT to the PTY).
+            assert_eq!(kb.lookup(&ch("c"), ModifiersState::CONTROL), None);
+            // A user override of a seeded chord wins.
+            let mut table = std::collections::BTreeMap::new();
+            table.insert("ctrl+shift+c".to_string(), "find".to_string());
+            let kb2 = Keybindings::resolved(Some(&table));
+            assert_eq!(
+                kb2.lookup(&ch("c"), cs),
+                Some(Action::Find),
+                "user [keybindings] overlay must win over the platform default"
+            );
+        }
     }
 }

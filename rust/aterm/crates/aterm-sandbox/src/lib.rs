@@ -62,6 +62,21 @@ impl Limits {
         }
     }
 
+    /// The PERMISSIVE limits for the daily-driver modes (Master / User): every
+    /// limit `None`, so the spawned shell INHERITS the launching login shell's
+    /// `rlimit`s unchanged — a terminal must not constrain the programs you run more
+    /// than the shell that started it would. In particular it imposes NO `RLIMIT_AS`:
+    /// that caps VIRTUAL address space, which CUDA/ML runtimes, the JVM, Go, and the
+    /// sanitizers all RESERVE far in excess of resident use, so any finite cap breaks
+    /// legitimate programs while bounding nothing real. Confinement in these modes is
+    /// the capability gate (what the shell may DO), not a blanket memory cap. The
+    /// hardened [`Self::shell_default`] caps (opted into via Safety / Containment)
+    /// are unchanged.
+    #[must_use]
+    pub fn inherit() -> Self {
+        Limits::default()
+    }
+
     /// Apply these limits to the CURRENT process. Call in the child, after
     /// `fork`, before `exec`. Requires a `Trusted`+ [`Cap<Sandbox>`].
     ///
@@ -206,7 +221,10 @@ mod tests {
     use super::*;
     use aterm_cap::Authority;
 
-    fn current(resource: libc::c_int) -> u64 {
+    // `RlimitResource` (not a bare `c_int`): on Linux the libc RLIMIT_* constants
+    // and `getrlimit`'s first arg are `__rlimit_resource_t` (u32), so a `c_int`
+    // parameter mismatches and the test build does not compile there.
+    fn current(resource: RlimitResource) -> u64 {
         let mut lim = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,
@@ -218,7 +236,10 @@ mod tests {
     }
 
     /// The current HARD ceiling (`rlim_max`) of `resource`.
-    fn current_hard(resource: libc::c_int) -> u64 {
+    // `RlimitResource` (not a bare `c_int`): the libc RLIMIT_* constants and
+    // `getrlimit`'s arg are `__rlimit_resource_t` (u32) on Linux, so a `c_int`
+    // parameter mismatches and the test build does not compile there.
+    fn current_hard(resource: RlimitResource) -> u64 {
         let mut lim = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,

@@ -57,6 +57,8 @@ pub fn binary_signature() -> &'static str {
 
 /// One-line build summary for the About panel's version field, e.g.
 /// `0.1.0 (build 1234) · a1b2c3d4e5f6 · built 2026-06-18T16:00:00Z · sig 1a2b3c4d5e6f7a8b`.
+/// Used only by the macOS About panel; unused on other platforms.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[must_use]
 pub fn about_line() -> String {
     format!(

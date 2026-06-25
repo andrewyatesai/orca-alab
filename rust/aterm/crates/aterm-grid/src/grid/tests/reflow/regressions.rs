@@ -555,3 +555,98 @@ fn adjust_row_count_height_decrease_no_scrollback_no_panic() {
     assert_eq!(grid.rows(), 3);
     grid.assert_invariants();
 }
+
+/// Join soft-wrapped continuation history rows back into logical lines.
+#[cfg(test)]
+fn logical_scrollback(grid: &Grid) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for i in 0..grid.scrollback_lines() {
+        let line = grid.get_history_line(i).expect("history line present");
+        let text = line.to_string().trim_end_matches(' ').to_string();
+        if line.is_wrapped() && !out.is_empty() {
+            out.last_mut().unwrap().push_str(&text);
+        } else {
+            out.push(text);
+        }
+    }
+    out
+}
+
+/// #7906: a COLUMN change must rewrap and preserve ALL ring-buffer scrollback,
+/// not drop it. Shrinking grows the physical scrollback row count; the logical
+/// lines survive in both directions.
+#[test]
+fn column_reflow_preserves_ring_scrollback_both_directions() {
+    let mut grid = Grid::with_scrollback(4, 40, 1000);
+    // 30 distinct near-full-width lines; most scroll into ring scrollback.
+    for i in 0..30u16 {
+        grid.set_cursor(3, 0);
+        let mut text = format!("L{i}-");
+        while text.len() < 38 {
+            text.push('x');
+        }
+        for c in text.chars() {
+            grid.write_char(c);
+        }
+        grid.line_feed();
+        grid.carriage_return();
+    }
+
+    let before = logical_scrollback(&grid);
+    let count_before = grid.scrollback_lines();
+    assert!(before.iter().any(|l| l.starts_with("L3-")), "L3 in scrollback");
+
+    // Shrink width: wide lines rewrap into more rows -> scrollback grows.
+    grid.resize(4, 20);
+    grid.assert_invariants();
+    assert!(
+        grid.scrollback_lines() > count_before,
+        "shrinking width must grow physical scrollback rows"
+    );
+    let narrow = logical_scrollback(&grid);
+    for line in &before {
+        assert!(narrow.contains(line), "logical line dropped on shrink: {line:?}");
+    }
+
+    // Widen back: lines unwrap; content still complete.
+    grid.resize(4, 40);
+    grid.assert_invariants();
+    let wide = logical_scrollback(&grid);
+    for line in &before {
+        assert!(wide.contains(line), "logical line dropped on widen: {line:?}");
+    }
+}
+
+/// #7906: a known early line survives a width round-trip and the scrollback row
+/// count returns to its original value (rewrap is reversible).
+#[test]
+fn column_reflow_round_trip_restores_scrollback_count() {
+    let mut grid = Grid::with_scrollback(3, 30, 1000);
+    for i in 0..25u16 {
+        grid.set_cursor(2, 0);
+        let mut text = format!("ROW{i}-");
+        while text.len() < 28 {
+            text.push('z');
+        }
+        for c in text.chars() {
+            grid.write_char(c);
+        }
+        grid.line_feed();
+        grid.carriage_return();
+    }
+
+    let sb0 = grid.scrollback_lines();
+    let present = |g: &Grid| logical_scrollback(g).iter().any(|l| l.starts_with("ROW5-"));
+    assert!(present(&grid), "ROW5 present initially");
+
+    grid.resize(3, 18);
+    assert!(present(&grid), "ROW5 survives shrink");
+    grid.resize(3, 30);
+    assert!(present(&grid), "ROW5 survives round-trip");
+    assert_eq!(
+        grid.scrollback_lines(),
+        sb0,
+        "round-trip restores original scrollback row count"
+    );
+    grid.assert_invariants();
+}

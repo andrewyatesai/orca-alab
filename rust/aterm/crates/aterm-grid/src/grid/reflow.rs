@@ -130,6 +130,19 @@ impl Grid {
 
         // Snap to live view: row_index applies display_offset (#2184).
         self.storage.display_offset = 0;
+
+        // On a width change with reflow, lift the entire off-screen scrollback
+        // out and rewrap it to the new width BEFORE any visible-grid mutation,
+        // so history survives the resize (#7906). Reads ring_extras, so it must
+        // precede the ring_extras.clear() below. Restored after adjust_row_count.
+        let reflowed_scrollback = if new_cols != old_cols && reflow {
+            let old = self.take_scrollback_lines();
+            let lines = super::scrollback_reflow::reflow_scrollback_lines(&old, new_cols);
+            Some(lines)
+        } else {
+            None
+        };
+
         // Ring extras and lazy buffer invalidated by ring buffer rebuild (#4149, #4215).
         self.storage.ring_extras.clear();
         // Drain lazy buffer: deferred lines reference pre-reflow cell data.
@@ -169,6 +182,12 @@ impl Grid {
         // a fresh CellExtras, but no-reflow and row-only resize paths do not.
         self.storage.extras.invalidate_rings();
         self.storage.resize_viewport_state(new_rows, new_cols);
+        // Restore the rewrapped history as the front (oldest) of the scrollback,
+        // after the visible grid is finalized so adjust_row_count cannot trim it
+        // and the new dimensions are in place (#7906).
+        if let Some(lines) = reflowed_scrollback {
+            self.restore_reflowed_scrollback(lines, new_cols);
+        }
         self.storage.display_offset = self
             .storage
             .display_offset

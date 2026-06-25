@@ -21,7 +21,7 @@ pub(crate) struct Cli {
 /// drive aterm without source-diving. Kept as a single `concat!` so a no-arg /
 /// Finder launch never touches it. Each ATERM_* knob enumerated below also has a
 /// first-class flag (precedence: flag > env > config > default).
-const HELP_TEXT: &str = concat!(
+const HELP_HEAD: &str = concat!(
     "aterm-gui — a fast, hardened terminal\n\n",
     "USAGE:\n",
     "    aterm-gui [OPTIONS]\n",
@@ -42,7 +42,8 @@ const HELP_TEXT: &str = concat!(
     "                                   headless it makes the `image` capture render at\n",
     "                                   that DPI (e.g. --scale 2 ≈ a 2× Retina window).\n",
     "                                       [env: ATERM_FORCE_SCALE]\n",
-    "        --gpu                      Use GPU (Metal) rendering.   [env: ATERM_GPU]\n",
+    "        --gpu                      Use GPU rendering (wgpu: Metal on macOS,\n",
+    "                                   Vulkan on Linux).            [env: ATERM_GPU]\n",
     "        --cpu                      Force the CPU renderer (overrides --gpu/config).\n",
     "        --containment <mode>       Containment mode: master|user|safety|containment.\n",
     "                                       [env: ATERM_CONTAINMENT_MODE]\n",
@@ -82,6 +83,14 @@ const HELP_TEXT: &str = concat!(
     "        --list-themes              List the built-in colour themes and exit.\n",
     "    -h, --help                     Print this help and exit.\n",
     "    -V, --version                  Print the version and exit.\n\n",
+);
+
+/// The keyboard-shortcut help, PER PLATFORM: macOS shows the hardcoded Cmd-* chords;
+/// every other platform shows the Ctrl+Shift defaults seeded by
+/// [`crate::keybinding::Keybindings::platform_defaults`] (there is no Cmd key, and
+/// the Super key is grabbed by the desktop environment).
+#[cfg(target_os = "macos")]
+const KEYS_HELP: &str = concat!(
     "KEYS (in the window):\n",
     "    Cmd-C / Cmd-V     Copy selection / paste (control-stripped, bracketed).\n",
     "    Cmd-= / Cmd--     Zoom the font in / out.   Cmd-0  Reset zoom.\n",
@@ -92,11 +101,29 @@ const HELP_TEXT: &str = concat!(
     "    Cmd-W             Close the active tab; closing the last tab quits.\n",
     "    Cmd-Shift-] / [   Next / previous tab (wraps).   Cmd-1..9  Nth tab.\n",
     "                      Tab state shows in the title as [active/total].\n\n",
+);
+
+/// See [`KEYS_HELP`] (macOS) — the Linux / non-macOS shortcut set.
+#[cfg(not(target_os = "macos"))]
+const KEYS_HELP: &str = concat!(
+    "KEYS (in the window):\n",
+    "    Ctrl+Shift+C / +V    Copy selection / paste (control-stripped, bracketed).\n",
+    "    Ctrl+= / Ctrl+-      Zoom the font in / out.   Ctrl+0  Reset zoom.\n",
+    "    Ctrl+click           Open a hyperlink / detected URL (http/https/mailto).\n",
+    "    Ctrl+Shift+F         Find (screen + scrollback): type, Enter/Shift-Enter, Esc.\n",
+    "    Ctrl+Shift+N         Open a new window (separate process).\n",
+    "    Ctrl+Shift+T         Open a new tab (new shell, same window).\n",
+    "    Ctrl+Shift+W         Close the active tab; closing the last tab quits.\n",
+    "    Ctrl+Shift+Right/Left  Next / previous tab.   Alt+1..9  Nth tab.\n",
+    "                         Open tabs show in the strip at the top of the window.\n\n",
+);
+
+const HELP_TAIL: &str = concat!(
     "ENVIRONMENT (each has a flag above; precedence is flag > env > config > default):\n",
     "    ATERM_FONT_PX=N            Glyph size in physical pixels.\n",
     "    ATERM_FONT=<name>          Primary font family.\n",
     "    ATERM_FORCE_SCALE=<f>      Force the render scale factor (font + padding).\n",
-    "    ATERM_GPU=1                GPU (Metal) rendering.\n",
+    "    ATERM_GPU=1                GPU rendering (wgpu: Metal on macOS, Vulkan on Linux).\n",
     "    ATERM_CONTAINMENT_MODE=<m> master|user|safety|containment (fail-closed).\n",
     "    ATERM_CONTROL_SOCK=<path>  Control socket path (0/off disables it).\n",
     "    ATERM_NO_CONTROL_SOCK=1    Disable the control socket.\n",
@@ -161,7 +188,7 @@ pub(crate) fn parse_cli() -> Cli {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
-                print!("{HELP_TEXT}");
+                print!("{HELP_HEAD}{KEYS_HELP}{HELP_TAIL}");
                 std::process::exit(0);
             }
             "-V" | "--version" => {
@@ -318,7 +345,7 @@ pub(crate) fn parse_cli() -> Cli {
 
 #[cfg(test)]
 mod tests {
-    use super::HELP_TEXT;
+    use super::HELP_HEAD;
 
     /// Every user-facing diagnostic verb. The advertise-vs-dispatch gate below
     /// requires EACH entry to be both documented in `--help` AND have a real match
@@ -340,7 +367,7 @@ mod tests {
         // Every user-facing diagnostic flag must be discoverable in --help.
         for flag in DIAGNOSTIC_VERBS {
             assert!(
-                HELP_TEXT.contains(flag),
+                HELP_HEAD.contains(flag),
                 "{flag} must be advertised in the help text"
             );
         }

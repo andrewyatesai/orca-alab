@@ -31,8 +31,13 @@ impl App {
         };
         let strip_rows = self.tab_strip_rows as usize;
         // Trailing HUD rows are chrome too — captured here so the .txt below can drop
-        // them (the front borrow can't read `self.*`).
-        let hud_rows = self.hud_rows as usize;
+        // them (the front borrow can't read `self.*`). Use the window's EFFECTIVE HUD
+        // count (`min(hud_rows, hud_cap)`) so the trim matches what `splice_hud_bar`
+        // actually appended on a window too short for the full stack.
+        let hud_rows = self
+            .hud_rows
+            .min(self.windows.get(&front).map_or(u16::MAX, |ws| ws.hud_cap))
+            as usize;
         let (rows, cols) = match self.windows.get(&front) {
             Some(ws) => (ws.rows as usize, ws.cols as usize),
             None => return,

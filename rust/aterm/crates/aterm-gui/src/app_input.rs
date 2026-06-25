@@ -936,16 +936,17 @@ impl App {
         }
     }
 
-    /// App ▸ Preferences… (⌘,): open the native Preferences window (macOS) showing the
-    /// EFFECTIVE config (font size, family, theme, cursor style, scrollback, copy-on-
-    /// select — built by the pure [`crate::prefs::preferences_rows`] from the live
-    /// `self.config`) plus the Open-aterm.toml / Reload-config actions. The retained
-    /// window + button-target are kept alive in `self._prefs` (AppKit holds the target
-    /// only weakly, and a controller-less window must be owned by us); re-opening
+    /// App ▸ Preferences… (⌘,): open the native Preferences window (macOS) with EDITABLE
+    /// controls for the core config (font size, family, theme, cursor style, scrollback,
+    /// copy-on-select — seeded by the pure [`crate::prefs::editable_fields`] from the
+    /// live `self.config`) plus the Save / Open-aterm.toml / Reload-config actions. Save
+    /// writes the edited values back non-destructively and triggers the live reload. The
+    /// retained window + control-target are kept alive in `self._prefs` (AppKit holds the
+    /// target only weakly, and a controller-less window must be owned by us); re-opening
     /// replaces the handle, dropping (closing) any prior window.
     ///
     /// Without a `proxy` (only under `headless_for_test`, where no event loop exists)
-    /// this is a no-op — the buttons' Reload relay needs the proxy and no window is ever
+    /// this is a no-op — the Save/Reload relays need the proxy and no window is ever
     /// shown in a test. Off macOS [`crate::prefs::open_preferences`] falls back to
     /// opening the config file (itself a no-op there), so this stays warning-clean and
     /// compiles on every target.
@@ -953,9 +954,9 @@ impl App {
         let Some(proxy) = self.proxy.as_ref() else {
             return;
         };
-        let rows = prefs::preferences_rows(&self.config);
+        let fields = prefs::editable_fields(&self.config);
         // Replace any prior window (dropping the old handle closes it). `None` (off the
         // main thread / non-macOS fallback path) just leaves `_prefs` cleared.
-        self._prefs = prefs::open_preferences(proxy, &rows);
+        self._prefs = prefs::open_preferences(proxy, &fields);
     }
 }

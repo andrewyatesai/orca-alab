@@ -42,6 +42,10 @@ mod app_window;
 mod build_info;
 mod cast;
 mod cli;
+/// Native X11 clipboard backend (copy/paste without an external helper). Linux-only;
+/// macOS uses `pbcopy`/`pbpaste` and other targets degrade gracefully.
+#[cfg(target_os = "linux")]
+mod clipboard_x11;
 mod config_watcher;
 mod control;
 mod control_auth;
@@ -407,6 +411,7 @@ enum Wake {
     /// target ignores any item whose tag doesn't decode), so this is never a
     /// no-op variant. On non-macOS targets this variant exists but is never
     /// constructed (no platform menu), keeping `Wake` platform-independent.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     MenuAction {
         action: menu::MenuAction,
     },
@@ -441,6 +446,8 @@ enum Wake {
     /// segmented control knows its own `window` (the toolbar item carries the
     /// `WindowId` it was installed for); a `tab <N>` verb targets the FRONT window,
     /// resolved on the main thread (see [`Wake::TabCmd`]). Fire-and-forget.
+    /// macOS-only: constructed by the native toolbar tab strip, absent on Linux.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     SelectTab {
         window: WindowId,
         index: usize,
@@ -453,7 +460,9 @@ enum Wake {
     /// `escalate_pending_close` (the AppKit action call site has no `ActiveEventLoop`,
     /// so it flags `pending_close` and the handler tears the window down). The button
     /// knows its own `window` + tab `index` (baked into the per-tab close target).
-    /// Fire-and-forget.
+    /// Fire-and-forget. macOS-only: built by the native toolbar's per-tab close
+    /// button, absent on Linux.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     CloseTab {
         window: WindowId,
         index: usize,
@@ -999,6 +1008,11 @@ struct WindowState {
     layouts: Vec<pane::PaneTree>,
     rows: u16,
     cols: u16,
+    /// Max HUD rows this window is TALL ENOUGH to show (the rest of the desired
+    /// `App::hud_rows` are dropped from the bottom of the stack rather than rendered
+    /// off-glass). `u16::MAX` = unconstrained (no resize yet / headless); set by
+    /// `on_resize`. Effective HUD rows = `min(App::hud_rows, hud_cap)`.
+    hud_cap: u16,
     mods: ModifiersState,
     /// Last cell (row, col) the cursor moved over, in the FOCUSED PANE's LOCAL grid
     /// coordinates (window cell minus the focused pane's offset), updated on
@@ -1191,6 +1205,7 @@ impl WindowState {
             layouts,
             rows,
             cols,
+            hud_cap: u16::MAX, // unconstrained until the first on_resize fits the chrome
             mods: ModifiersState::empty(),
             last_mouse_cell: (0, 0),
             last_mouse_window_cell: (0, 0),
@@ -2060,18 +2075,13 @@ impl App {
         let Some(wid) = self.frontmost_window else {
             return;
         };
-        // UTF-8-pinned (see `control::clipboard_command`): otherwise a Finder/.app
-        // launch's non-UTF-8 process locale makes pbpaste transcode multibyte
-        // clipboard text to the C codeset — mojibake, and a literal `?` for chars
-        // it can't map — before we ever decode it. With the pin, pbpaste emits
-        // clean UTF-8 and the `from_utf8_lossy` below round-trips it intact.
-        let Ok(out) = control::clipboard_command("pbpaste").output() else {
+        // Read the system clipboard via the platform backend: macOS `pbpaste`
+        // (UTF-8-pinned, so a Finder/.app launch's non-UTF-8 locale can't transcode
+        // multibyte text to mojibake before we decode it), Linux/X11 the native
+        // x11rb CLIPBOARD read. Empty / unavailable clipboard -> nothing to paste.
+        let Some(text) = control::pbpaste() else {
             return;
         };
-        if !out.status.success() || out.stdout.is_empty() {
-            return;
-        }
-        let text = String::from_utf8_lossy(&out.stdout).into_owned();
         // Route through the seam so paste-formatting + the snap-to-bottom side
         // effect converge with the controller `paste` verb.
         self.input(wid, InputEvent::Paste(text), Source::Human);
@@ -3022,9 +3032,22 @@ fn main() {
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, ptr::null_mut());
     }
 
-    let event_loop = EventLoop::<Wake>::with_user_event()
-        .build()
-        .expect("event loop");
+    // Opening the display can fail on a headless / misconfigured session (no
+    // $DISPLAY or $WAYLAND_DISPLAY, a dead X server). That is a user environment
+    // problem, not an aterm bug, so report it as a clean one-line error and exit
+    // non-zero — NOT the crash-signal report (which is for genuine internal faults).
+    let event_loop = match EventLoop::<Wake>::with_user_event().build() {
+        Ok(el) => el,
+        Err(e) => {
+            eprintln!(
+                "aterm-gui: cannot open a display ({e}).\n\
+                 Is a graphical session running, with $DISPLAY (X11) or \
+                 $WAYLAND_DISPLAY (Wayland) set correctly?\n\
+                 For a windowless run use --headless."
+            );
+            std::process::exit(1);
+        }
+    };
     let proxy: EventLoopProxy<Wake> = event_loop.create_proxy();
 
     // Live config hot-reload: a lightweight thread `stat`s the config file every
@@ -3262,7 +3285,10 @@ fn main() {
         option_as_meta: config.option_as_meta_or_default(),
         copy_on_select: config.copy_on_select_or_default(),
         window_theme: config.window_theme_or_default(),
-        keybindings: keybinding::Keybindings::from_config(config.keybindings.as_ref()),
+        // Platform built-in defaults (Linux Ctrl+Shift+* / zoom / tab nav) with the
+        // user's [keybindings] overlaid on top. macOS defaults are empty, so its
+        // hardcoded Cmd-* path is unchanged.
+        keybindings: keybinding::Keybindings::resolved(config.keybindings.as_ref()),
         windows: {
             let mut m = BTreeMap::new();
             m.insert(WindowId(0), ws0);

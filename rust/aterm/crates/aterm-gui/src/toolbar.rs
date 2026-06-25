@@ -72,6 +72,10 @@
 //! [`install_window_toolbar`] / [`set_window_tabs`] and a unit [`ToolbarHandle`]
 //! keep the workspace building everywhere, exactly like `menu.rs`.
 
+// macOS-only window chrome: on Linux the install/handle/chrome helpers are no-op
+// stubs and intentionally unused there.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 #[cfg(target_os = "macos")]
 pub use macos::{ToolbarHandle, install_window_toolbar, read_tab_chrome, set_window_tabs};
 

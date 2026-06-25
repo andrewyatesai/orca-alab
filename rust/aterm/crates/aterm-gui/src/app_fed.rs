@@ -63,7 +63,16 @@ pub(crate) fn record(name: &str, value: f64, now: Instant) {
     let r = m.entry(name.to_string()).or_insert_with(|| Ring {
         samples: VecDeque::with_capacity(RING_CAP),
     });
-    r.samples.push_back((now, value));
+    // Keep the ring MONOTONIC in time. Two control connections can race between
+    // stamping `now` and acquiring this lock, so a later-arriving sample may carry an
+    // EARLIER `now`. Clamp it forward to the last sample's time: the value is still
+    // recorded, but the reader's newest/oldest + dt math (which assumes oldest→newest
+    // order) can never see a backwards step and silently read rate 0.
+    let t = match r.samples.back() {
+        Some(&(prev, _)) => now.max(prev),
+        None => now,
+    };
+    r.samples.push_back((t, value));
     while r.samples.len() > RING_CAP {
         r.samples.pop_front();
     }
@@ -131,12 +140,32 @@ pub(crate) fn snapshot(now: Instant, spark_width: usize) -> Vec<StreamView> {
     out
 }
 
+/// Serializes the tests that touch the process-global [`STORE`] (here and in
+/// `control_app_fed`), which cargo would otherwise run in parallel and let one test's
+/// streams pollute another's cap/contents. Each such test takes this lock and clears
+/// the store first.
+#[cfg(test)]
+pub(crate) static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+/// Clear the global store (test isolation). Held under [`TEST_LOCK`] by the caller.
+#[cfg(test)]
+pub(crate) fn test_clear() {
+    store()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clear();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn records_and_derives_rate_and_caps_streams() {
+        let _g = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        test_clear();
         let t0 = Instant::now();
         // a monotone counter at +100/s over 2s
         for i in 0..=4 {
@@ -165,5 +194,31 @@ mod tests {
             "stream count bounded, got {}",
             m.len()
         );
+    }
+
+    #[test]
+    fn out_of_order_timestamps_do_not_break_the_rate() {
+        let _g = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        test_clear();
+        let t0 = Instant::now();
+        // A racing writer delivers an EARLIER-stamped sample AFTER a later one.
+        record("ooo.metric", 0.0, t0 + Duration::from_millis(1000));
+        record("ooo.metric", 100.0, t0 + Duration::from_millis(2000));
+        record("ooo.metric", 50.0, t0 + Duration::from_millis(1500)); // out of order!
+        let now = t0 + Duration::from_millis(2000);
+        let v = snapshot(now, 8)
+            .into_iter()
+            .find(|v| v.name == "ooo.metric")
+            .expect("stream present");
+        // The monotonic clamp keeps the series usable: a finite, non-negative rate
+        // rather than a silent 0 from a backwards dt.
+        assert!(
+            v.rate.is_finite() && v.rate >= 0.0,
+            "rate stays sane under out-of-order writes, got {}",
+            v.rate
+        );
+        assert_eq!(v.last, 50.0, "the latest-arriving value is still recorded");
     }
 }

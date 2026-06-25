@@ -74,8 +74,12 @@ mod control_selection;
 // gesture helpers (`app_mouse.rs`'s double/triple-click), which both reach
 // through the stable `crate::control::NAME` path, so those paths keep resolving.
 pub(crate) use control_selection::{
-    clipboard_command, pbcopy, select_line, select_word, word_cols,
+    pbcopy, pbpaste, primary_set, select_line, select_word, word_cols,
 };
+// `primary_get` (PRIMARY-selection paste) is wired ONLY to Linux middle-click in
+// `app_mouse`, so its re-export is Linux-only — on macOS it would be an unused import.
+#[cfg(target_os = "linux")]
+pub(crate) use control_selection::primary_get;
 
 /// Media-capture verbs (`image`/`image read`/`window`/`chrome`). Child module of
 /// `control`; dispatched as `control_media::cmd_*` from [`handle`]. The file

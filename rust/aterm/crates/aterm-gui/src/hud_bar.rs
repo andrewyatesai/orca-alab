@@ -13,7 +13,7 @@
 //! sparkline uses the procedurally-synthesized block glyphs `▁▂▃▄▅▆▇█`
 //! (cell-exact, font-independent).
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use aterm_core::terminal::{RenderCell, UnderlineStyle};
@@ -581,6 +581,25 @@ pub(crate) trait Panel {
 /// Cap for a per-panel sample ring (CPU/net history).
 const PANEL_RING: usize = 48;
 
+/// A poll-driven panel's last sample is rendered as `n/a` once it is older than this
+/// (the OS probe failed/stopped). Keeps the readout HONEST rather than freezing the
+/// last value forever as if it were current. ~16 missed 300ms HUD ticks.
+const PANEL_STALE: Duration = Duration::from_secs(5);
+
+/// Is a poll-driven sample stamped at `at` still fresh as of `now`?
+fn fresh(at: Option<Instant>, now: Instant) -> bool {
+    at.is_some_and(|t| now.saturating_duration_since(t) <= PANEL_STALE)
+}
+
+/// Per-interface byte-counter delta, robust to the raw 32-bit `if_data` counters: a
+/// normal increase (or a single 32-bit wrap) yields the true delta; an implausibly
+/// large backwards jump (a counter RESET, e.g. interface re-init) is treated as 0 so
+/// it never shows as a multi-gigabyte one-tick spike.
+fn iface_delta(new: u32, prev: u32) -> u64 {
+    let d = new.wrapping_sub(prev);
+    if d > u32::MAX / 2 { 0 } else { u64::from(d) }
+}
+
 fn push_ring(ring: &mut VecDeque<f64>, v: f64) {
     ring.push_back(v);
     while ring.len() > PANEL_RING {
@@ -667,6 +686,9 @@ pub(crate) struct SysLoadPanel {
     total_mem: Option<u64>,
     load: VecDeque<f64>,
     mem: VecDeque<f64>,
+    /// When each series was last successfully sampled, for stale → `n/a` decay.
+    load_at: Option<Instant>,
+    mem_at: Option<Instant>,
 }
 
 impl SysLoadPanel {
@@ -677,6 +699,8 @@ impl SysLoadPanel {
             total_mem: crate::sysmetrics::mem_total(),
             load: VecDeque::with_capacity(PANEL_RING),
             mem: VecDeque::with_capacity(PANEL_RING),
+            load_at: None,
+            mem_at: None,
         }
     }
 }
@@ -691,20 +715,23 @@ impl Panel for SysLoadPanel {
     fn set_enabled(&mut self, on: bool) {
         self.enabled = on;
     }
-    fn poll(&mut self, _now: Instant) {
+    fn poll(&mut self, now: Instant) {
         if let Some(l) = crate::sysmetrics::load_avg_1m() {
             push_ring(&mut self.load, l);
+            self.load_at = Some(now);
         }
         if let Some(f) = crate::sysmetrics::mem_used_frac() {
             push_ring(&mut self.mem, f);
+            self.mem_at = Some(now);
         }
     }
     fn paint(&self, row: &mut [RenderCell], theme: Theme) {
+        let now = Instant::now();
         let mut w = RowWriter::new(row, theme);
         let label = w.colors().label;
         // CPU load (1-min), normalized to a per-core fraction for the health color.
         w.put("cpu ", label, false);
-        if let Some(&l) = self.load.back() {
+        if let (Some(&l), true) = (self.load.back(), fresh(self.load_at, now)) {
             let frac = l / self.ncpu;
             let col = grade_hi(frac as f32, 0.7, 1.0, w.colors());
             w.put_num(format_args!("{l:>4.2}"), col, true);
@@ -721,7 +748,7 @@ impl Panel for SysLoadPanel {
         w.sep();
         // Memory in use.
         w.put("mem ", label, false);
-        if let Some(&f) = self.mem.back() {
+        if let (Some(&f), true) = (self.mem.back(), fresh(self.mem_at, now)) {
             let col = grade_hi(f as f32, 0.75, 0.90, w.colors());
             if let Some(total) = self.total_mem {
                 let used = f * total as f64;
@@ -749,7 +776,12 @@ impl Panel for SysLoadPanel {
 /// app reports its own traffic via the app-fed channel instead.
 pub(crate) struct NetworkPanel {
     enabled: bool,
-    prev: Option<(u64, u64, Instant)>,
+    /// Per-interface raw counters from the previous poll, keyed by interface name, so
+    /// each interface is diffed independently (no spike on interface add/remove/wrap).
+    prev: HashMap<String, (u32, u32)>,
+    prev_at: Option<Instant>,
+    /// When a rate was last successfully derived, for stale → `n/a` decay.
+    at: Option<Instant>,
     rx: VecDeque<f64>,
     tx: VecDeque<f64>,
 }
@@ -758,7 +790,9 @@ impl NetworkPanel {
     pub(crate) fn new(enabled: bool) -> Self {
         Self {
             enabled,
-            prev: None,
+            prev: HashMap::new(),
+            prev_at: None,
+            at: None,
             rx: VecDeque::with_capacity(PANEL_RING),
             tx: VecDeque::with_capacity(PANEL_RING),
         }
@@ -776,27 +810,40 @@ impl Panel for NetworkPanel {
         self.enabled = on;
     }
     fn poll(&mut self, now: Instant) {
-        let Some((rx, tx)) = crate::sysmetrics::net_bytes() else {
+        let Some(ifaces) = crate::sysmetrics::net_ifaces() else {
             return;
         };
-        if let Some((prx, ptx, pt)) = self.prev {
+        let cur: HashMap<String, (u32, u32)> =
+            ifaces.into_iter().map(|(n, i, o)| (n, (i, o))).collect();
+        if let Some(pt) = self.prev_at {
             let dt = now
                 .checked_duration_since(pt)
                 .map_or(0.0, |d| d.as_secs_f64());
             if dt > 0.0 {
-                // Clamp negative (per-interface u32 counter wrap) to 0.
-                push_ring(&mut self.rx, rx.saturating_sub(prx) as f64 / dt);
-                push_ring(&mut self.tx, tx.saturating_sub(ptx) as f64 / dt);
+                // Diff EACH interface independently; an interface with no prior baseline
+                // (just appeared) contributes 0 this tick rather than its whole counter.
+                let (mut drx, mut dtx) = (0u64, 0u64);
+                for (name, &(ci, co)) in &cur {
+                    if let Some(&(pi, po)) = self.prev.get(name) {
+                        drx += iface_delta(ci, pi);
+                        dtx += iface_delta(co, po);
+                    }
+                }
+                push_ring(&mut self.rx, drx as f64 / dt);
+                push_ring(&mut self.tx, dtx as f64 / dt);
+                self.at = Some(now);
             }
         }
-        self.prev = Some((rx, tx, now));
+        self.prev = cur;
+        self.prev_at = Some(now);
     }
     fn paint(&self, row: &mut [RenderCell], theme: Theme) {
+        let now = Instant::now();
         let mut w = RowWriter::new(row, theme);
         let label = w.colors().label;
         let good = w.colors().good;
         w.put("net ", label, false);
-        if self.rx.is_empty() {
+        if self.rx.is_empty() || !fresh(self.at, now) {
             w.put("n/a", label, false);
             return;
         }
@@ -1006,6 +1053,33 @@ mod tests {
         assert!(
             spark_cells.iter().all(|c| c.fg == good),
             "healthy fast frames must color the sparkline 'good', not by bar height"
+        );
+    }
+
+    #[test]
+    fn iface_delta_handles_increase_wrap_and_reset() {
+        // Normal increase.
+        assert_eq!(iface_delta(1000, 400), 600);
+        assert_eq!(iface_delta(400, 400), 0);
+        // A genuine 32-bit counter wrap across the boundary → the true small delta.
+        assert_eq!(iface_delta(100, u32::MAX - 99), 200);
+        // A counter RESET (large backwards jump) → 0, not a multi-GB phantom spike.
+        assert_eq!(iface_delta(0, 1000), 0);
+        assert_eq!(iface_delta(5, 3_000_000), 0);
+    }
+
+    #[test]
+    fn poll_samples_decay_to_stale_after_the_ttl() {
+        let now = Instant::now();
+        assert!(!fresh(None, now), "never-sampled is not fresh");
+        assert!(fresh(Some(now), now), "just-sampled is fresh");
+        assert!(
+            fresh(Some(now), now + PANEL_STALE - Duration::from_millis(1)),
+            "within the TTL is fresh"
+        );
+        assert!(
+            !fresh(Some(now), now + PANEL_STALE + Duration::from_secs(1)),
+            "past the TTL is stale → n/a"
         );
     }
 

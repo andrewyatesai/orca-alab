@@ -394,6 +394,25 @@ pub(crate) fn spawn_session(
         None
     };
 
+    // Pick the child rlimit posture by containment mode: the daily-driver modes
+    // (User — the default — and Master) INHERIT the launching login shell's limits,
+    // so normal programs (CUDA/ML on this box, the JVM, big LTO builds, anything
+    // that reserves a large virtual address space) are not constrained more than the
+    // shell that started aterm. The opt-in confinement modes (Safety / Containment)
+    // keep the hardened caps. Confinement in the default mode is the capability gate
+    // (and, in Containment, the OS sandbox), not a blanket RLIMIT_AS that breaks
+    // legitimate programs — see `aterm_sandbox::Limits::inherit`.
+    let limits = {
+        use aterm_containment::ContainmentMode as Cm;
+        match aterm_containment::mode_or_containment() {
+            // Daily-driver modes inherit the login shell's limits.
+            Cm::Master | Cm::User => aterm_sandbox::Limits::inherit(),
+            // Safety / Containment (and any future stricter mode) keep the hardened
+            // caps — fail-safe to confined for an unrecognized mode.
+            _ => aterm_sandbox::Limits::shell_default(),
+        }
+    };
+
     // Capture the child pid (`spawn_shell_with_pid`) so `Session::drop` can HANG
     // UP the session (SIGHUP) before closing the master — the non-blocking
     // teardown that keeps the UI thread off the tty lock (see `Session::drop`).
@@ -407,6 +426,7 @@ pub(crate) fn spawn_session(
         factory.exec_command.as_deref(),
         factory.cwd.as_deref(),
         factory.sandbox_wrap.as_deref(),
+        limits,
     )?;
 
     // The ONE byte sink for this master (whole-frame atomicity across the GUI

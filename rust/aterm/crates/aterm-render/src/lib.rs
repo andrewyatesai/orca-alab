@@ -659,11 +659,16 @@ pub(crate) struct RenderCache {
 /// stay LAST so a machine missing the nicer faces still finds a mono font — the
 /// no-font fallback (a `None` from `from_system*`) is unchanged.
 const FONT_CANDIDATES: &[&str] = &[
+    // macOS
     "/System/Library/Fonts/Menlo.ttc",
     "/System/Library/Fonts/SFNSMono.ttf",
     "/System/Library/Fonts/Monaco.ttf",
     "/System/Library/Fonts/Supplemental/Andale Mono.ttf",
     "/System/Library/Fonts/Supplemental/Courier New.ttf",
+    // Linux (Debian/Ubuntu): a real system monospace before the embedded DejaVu.
+    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansMono-Regular.ttf",
 ];
 
 /// The bundled last-resort monospace face (FONT-EMBED): DejaVu Sans Mono, under the
@@ -675,11 +680,22 @@ pub(crate) fn embedded_font() -> &'static [u8] {
     include_bytes!("../assets/DejaVuSansMono.ttf")
 }
 
-/// Broad-coverage fallback faces (CJK + symbols), most-preferred first.
-/// Override with $ATERM_FALLBACK_FONT.
+/// Broad-coverage fallback faces (CJK + symbols), most-preferred first. Both macOS
+/// and Linux paths are listed; the first one that EXISTS is loaded, so a host only
+/// ever pays for its own platform. Override with $ATERM_FALLBACK_FONT. The Linux
+/// entries lead with `DroidSansFallbackFull` (TrueType `glyf` — guaranteed
+/// fontdue-rasterizable, broad CJK) before `NotoSansCJK` (CFF) so the broad face is
+/// always one that actually renders; `fallback_has` is a cmap-only probe, so a face
+/// whose glyphs fontdue cannot draw would otherwise show blank. Any code point these
+/// miss still reaches a real glyph via the recursive runtime fallback scan.
 const FALLBACK_CANDIDATES: &[&str] = &[
+    // macOS
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     "/System/Library/Fonts/Apple Symbols.ttf",
+    // Linux (Debian/Ubuntu default install)
+    "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ];
 
 /// Monochrome SYMBOL fallback faces, most-preferred first. Override with
@@ -690,14 +706,25 @@ const FALLBACK_CANDIDATES: &[&str] = &[
 /// never shadows their coverage; it exists purely to give default-text symbols a
 /// real monochrome glyph instead of `.notdef`, keeping them off the colour face.
 const SYMBOL_FALLBACK_CANDIDATES: &[&str] = &[
+    // macOS
     "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
     "/System/Library/Fonts/STIXTwoMath.otf",
     "/System/Library/Fonts/Apple Symbols.ttf",
+    // Linux: Noto Sans Symbols 2 carries the monochrome media/technical glyphs
+    // (⏸⏹⏺ U+23F8..23FA and friends); DejaVu Sans is the broad-symbol backstop.
+    "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 ];
 
-/// Colour-emoji faces (sbix bitmaps), most-preferred first. Override with
-/// `$ATERM_EMOJI_FONT`. A `.ttc` collection: face index 0.
-const COLOR_EMOJI_CANDIDATES: &[&str] = &["/System/Library/Fonts/Apple Color Emoji.ttc"];
+/// Colour-emoji faces (bitmap strikes), most-preferred first. Override with
+/// `$ATERM_EMOJI_FONT`. Apple Color Emoji is `sbix`; Noto Color Emoji is `CBDT/CBLC`
+/// — both are PNG bitmap strikes read uniformly through ttf-parser's
+/// `glyph_raster_image` ([`Renderer::color_font_has`]), so the Linux entry renders
+/// colour emoji exactly as the macOS one does. The first path that EXISTS wins.
+const COLOR_EMOJI_CANDIDATES: &[&str] = &[
+    "/System/Library/Fonts/Apple Color Emoji.ttc",
+    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+];
 
 /// Env escape hatch for the [`procedural`] glyph source: box-drawing / block /
 /// braille cells are synthesized from the cell geometry by default (cell-exact,
@@ -921,39 +948,28 @@ fn path_is_last_resort(path: &str) -> bool {
 /// charset index), and does not understand fontconfig's family aliasing. It is
 /// sufficient for the bundled macOS faces and any font dropped into those dirs.
 fn runtime_fallback_scan_candidates(ch: char, out: &mut Vec<String>) {
-    for dir in font_search_dirs() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
+    // [`font_files`] yields every font file under the search dirs (recursively, in a
+    // deterministic order, already filtered to [`FONT_EXTS`]) — so the nested Linux
+    // font tree is covered, not just the flat macOS one.
+    for path in font_files() {
+        let Some(p) = path.to_str().map(str::to_string) else {
             continue;
         };
-        // Sort entries so the scan is deterministic regardless of readdir order.
-        let mut paths: Vec<std::path::PathBuf> = entries.flatten().map(|e| e.path()).collect();
-        paths.sort();
-        for path in paths {
-            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
-                continue;
-            };
-            if !FONT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
-                continue;
-            }
-            let Some(p) = path.to_str().map(str::to_string) else {
-                continue;
-            };
-            // Skip the universal LastResort tofu font (it "covers" everything).
-            if path_is_last_resort(&p) || out.contains(&p) {
-                continue;
-            }
-            let Ok(bytes) = std::fs::read(&path) else {
-                continue;
-            };
-            // ttf-parser's cmap query is cheaper than a full fontdue parse for a
-            // coverage probe; only confirmed-covering fonts are handed back (and
-            // the caller re-parses with fontdue, applying `face_can_render`).
-            let Ok(face) = ttf_parser::Face::parse(&bytes, 0) else {
-                continue;
-            };
-            if face.glyph_index(ch).is_some_and(|g| g.0 != 0) {
-                out.push(p);
-            }
+        // Skip the universal LastResort tofu font (it "covers" everything).
+        if path_is_last_resort(&p) || out.contains(&p) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        // ttf-parser's cmap query is cheaper than a full fontdue parse for a
+        // coverage probe; only confirmed-covering fonts are handed back (and
+        // the caller re-parses with fontdue, applying `face_can_render`).
+        let Ok(face) = ttf_parser::Face::parse(&bytes, 0) else {
+            continue;
+        };
+        if face.glyph_index(ch).is_some_and(|g| g.0 != 0) {
+            out.push(p);
         }
     }
 }
@@ -1196,13 +1212,26 @@ pub fn select_face(
     }
 }
 
-/// The macOS font directories scanned by [`resolve_font_family`], in lookup
-/// order (user fonts shadow system ones, matching CoreText precedence).
+/// The font directories scanned by [`resolve_font_family`] / [`list_fonts`] / the
+/// runtime fallback, in lookup order (per-user fonts shadow system ones). BOTH the
+/// macOS and the Linux locations are listed unconditionally: a directory that does
+/// not exist on the host is simply skipped by `read_dir`, so one list serves every
+/// platform with no `cfg`. Relative entries are joined with `$HOME` (per-user
+/// fonts). On Linux the system trees are NESTED (`…/truetype/<vendor>/x.ttf`), so
+/// the scan descends — see [`font_files`].
 const FONT_DIRS: &[&str] = &[
-    "Library/Fonts", // joined with $HOME (user-installed fonts)
+    // --- per-user (joined with $HOME), most-preferred first ---
+    "Library/Fonts",      // macOS user fonts
+    ".fonts",             // Linux user fonts (legacy ~/.fonts)
+    ".local/share/fonts", // Linux user fonts (XDG ~/.local/share/fonts)
+    // --- macOS system ---
     "/Library/Fonts",
     "/System/Library/Fonts",
     "/System/Library/Fonts/Supplemental",
+    // --- Linux system ---
+    "/usr/share/fonts",
+    "/usr/local/share/fonts",
+    "/run/host/usr/share/fonts", // flatpak host fonts
 ];
 
 /// Font file extensions [`resolve_font_family`] will load (TrueType / OpenType /
@@ -1237,32 +1266,22 @@ pub fn resolve_font_family(family: &str) -> Option<String> {
     if want.is_empty() {
         return None;
     }
-    let dirs = font_search_dirs();
-    // Two passes: an EXACT stem match wins over a prefix match across all dirs,
-    // so `"Menlo"` prefers `Menlo.ttc` to `Menlo Bold.ttf`.
+    // Two passes: an EXACT stem match wins over a prefix match across all dirs (in
+    // [`FONT_DIRS`] order, so per-user fonts shadow system ones), so `"Menlo"`
+    // prefers `Menlo.ttc` to `Menlo Bold.ttf`. [`font_files`] walks the nested
+    // Linux tree recursively, so a family installed at `…/truetype/<vendor>/` is
+    // found, not just one sitting at a top-level dir.
     let mut prefix_hit: Option<String> = None;
-    for dir in &dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else {
+    for path in font_files() {
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
-                continue;
-            };
-            if !FONT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            let norm = normalize_family(stem);
-            if norm == want {
-                return path.to_str().map(str::to_string);
-            }
-            if prefix_hit.is_none() && norm.starts_with(&want) {
-                prefix_hit = path.to_str().map(str::to_string);
-            }
+        let norm = normalize_family(stem);
+        if norm == want {
+            return path.to_str().map(str::to_string);
+        }
+        if prefix_hit.is_none() && norm.starts_with(&want) {
+            prefix_hit = path.to_str().map(str::to_string);
         }
     }
     prefix_hit
@@ -1285,6 +1304,50 @@ pub fn font_search_dirs() -> Vec<std::path::PathBuf> {
             }
         })
         .collect()
+}
+
+/// Maximum directory recursion depth for the font-dir scan. macOS keeps its faces
+/// one level deep, but Linux NESTS them (`/usr/share/fonts/truetype/<vendor>/x.ttf`),
+/// so the scan must descend. A small bound covers every real layout while keeping a
+/// pathological deep tree (or a symlink loop) from stalling startup.
+const FONT_SCAN_MAX_DEPTH: usize = 8;
+
+/// Recursively collect font FILES (extension in [`FONT_EXTS`]) under every directory
+/// in [`font_search_dirs`], descending up to [`FONT_SCAN_MAX_DEPTH`] levels. The
+/// order is deterministic: directories are visited in [`FONT_DIRS`] order (so
+/// per-user fonts precede system fonts), and entries within each directory are
+/// sorted. Unreadable directories are skipped, never an error.
+///
+/// This is the ONE place the on-disk font layout is walked. [`resolve_font_family`],
+/// [`list_fonts`], and the runtime fallback ([`runtime_fallback_scan_candidates`])
+/// all consume it, so Linux's nested tree and macOS's flat one are handled
+/// uniformly — depth-0 files (the macOS layout) are still found first.
+fn font_files() -> Vec<std::path::PathBuf> {
+    fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        let mut paths: Vec<std::path::PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        paths.sort();
+        for p in paths {
+            if p.is_dir() {
+                if depth < FONT_SCAN_MAX_DEPTH {
+                    walk(&p, depth + 1, out);
+                }
+            } else if p
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|ext| FONT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
+            {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for dir in font_search_dirs() {
+        walk(&dir, 0, &mut out);
+    }
+    out
 }
 
 /// Normalize a family name / file stem for comparison: lowercase, with ASCII
@@ -1335,21 +1398,9 @@ impl FaceInfo {
 #[must_use]
 pub fn list_fonts() -> Vec<String> {
     let mut families: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for dir in font_search_dirs() {
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
-                continue;
-            };
-            if !FONT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
-                continue;
-            }
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                families.insert(stem.to_string());
-            }
+    for path in font_files() {
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            families.insert(stem.to_string());
         }
     }
     families.into_iter().collect()
@@ -4153,6 +4204,12 @@ fn decode_png_rgba8(bytes: &[u8]) -> Option<(Vec<u8>, usize, usize)> {
     decoder.set_limits(png::Limits {
         bytes: PNG_DECODE_BYTE_LIMIT,
     });
+    // EXPAND palette (Indexed) → RGB(A) and apply tRNS transparency; STRIP_16 folds
+    // any 16-bit channel to 8-bit. Noto Color Emoji's CBDT strikes are INDEXED PNGs
+    // (palette + tRNS) — without EXPAND `to_rgba8` can't read them and every emoji
+    // renders blank. RGB/RGBA PNGs (Apple sbix) are unaffected (EXPAND is a no-op
+    // for them, save honouring a tRNS chunk).
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info().ok()?;
     // IHDR is parsed by `read_info`; reject oversized dims before the alloc.
     let (w, h) = (reader.info().width, reader.info().height);
@@ -4176,8 +4233,10 @@ fn decode_png_rgba8(bytes: &[u8]) -> Option<(Vec<u8>, usize, usize)> {
     Some((rgba, src_w, src_h))
 }
 
-/// Convert a decoded 8-bit PNG buffer to packed RGBA8. Handles the colour types
-/// Apple Color Emoji's sbix PNGs use (RGBA, RGB); anything else returns `None`.
+/// Convert a decoded 8-bit PNG buffer to packed RGBA8. After [`decode_png_rgba8`]'s
+/// EXPAND transform, palette images arrive as RGB/RGBA, so the cases here are RGBA
+/// (Apple sbix, expanded Noto Color Emoji), RGB, and grayscale (±alpha) for any
+/// monochrome strike; anything else returns `None`.
 fn to_rgba8(buf: &[u8], color_type: png::ColorType, w: usize, h: usize) -> Option<Vec<u8>> {
     let n = w.checked_mul(h)?;
     match color_type {
@@ -4189,6 +4248,26 @@ fn to_rgba8(buf: &[u8], color_type: png::ColorType, w: usize, h: usize) -> Optio
             let mut out = Vec::with_capacity(n * 4);
             for px in buf[..n * 3].chunks_exact(3) {
                 out.extend_from_slice(&[px[0], px[1], px[2], 255]);
+            }
+            Some(out)
+        }
+        png::ColorType::GrayscaleAlpha => {
+            if buf.len() < n * 2 {
+                return None;
+            }
+            let mut out = Vec::with_capacity(n * 4);
+            for px in buf[..n * 2].chunks_exact(2) {
+                out.extend_from_slice(&[px[0], px[0], px[0], px[1]]);
+            }
+            Some(out)
+        }
+        png::ColorType::Grayscale => {
+            if buf.len() < n {
+                return None;
+            }
+            let mut out = Vec::with_capacity(n * 4);
+            for &g in &buf[..n] {
+                out.extend_from_slice(&[g, g, g, 255]);
             }
             Some(out)
         }
@@ -4304,6 +4383,50 @@ mod tests {
     // Tests build terminals and call `Terminal::cell_frame` to feed the renderer
     // (the engine-side snapshot path that replaced the old `Renderer::extract`).
     use aterm_core::terminal::Terminal;
+
+    /// Regression (colour emoji on Linux): Noto Color Emoji's CBDT strikes are
+    /// INDEXED (palette + tRNS) PNGs. The decoder MUST `EXPAND` them to RGBA, or
+    /// every emoji rendered blank (the bug this guards). Portable: synthesizes a
+    /// tiny palette PNG, no system font needed.
+    #[test]
+    fn decode_png_expands_indexed_palette_to_rgba() {
+        let mut png_bytes = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut png_bytes, 2, 1);
+            enc.set_color(png::ColorType::Indexed);
+            enc.set_depth(png::BitDepth::Eight);
+            // idx0 = red, idx1 = green; idx0 opaque, idx1 fully transparent.
+            enc.set_palette(vec![255, 0, 0, 0, 255, 0]);
+            enc.set_trns(vec![255, 0]);
+            let mut w = enc.write_header().unwrap();
+            w.write_image_data(&[0u8, 1u8]).unwrap();
+        }
+        let (rgba, w, h) = decode_png_rgba8(&png_bytes).expect("indexed PNG must decode to RGBA");
+        assert_eq!((w, h), (2, 1));
+        assert_eq!(&rgba[0..4], &[255, 0, 0, 255], "palette idx0 → opaque red");
+        assert_eq!(rgba[7], 0, "palette idx1 (tRNS) → transparent");
+    }
+
+    /// Regression: the real Noto Color Emoji face must rasterize a non-blank colour
+    /// glyph when installed (the end-to-end Linux emoji path). Skipped when the
+    /// font is absent, so it never fails a host without it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn noto_color_emoji_rasterizes_nonblank_when_present() {
+        let path = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf";
+        if !std::path::Path::new(path).is_file() {
+            return;
+        }
+        let Some(mut r) = Renderer::from_system(16.0, Theme::default()) else {
+            return;
+        };
+        match r.rasterize_color_emoji('😀') {
+            Some(GlyphImage::Rgba { bytes, .. }) => {
+                assert!(bytes.iter().any(|&b| b != 0), "colour emoji glyph must not be blank");
+            }
+            other => panic!("expected an RGBA colour glyph, got {other:?}"),
+        }
+    }
 
     fn renderer() -> Option<Renderer> {
         Renderer::from_system(16.0, Theme::default())

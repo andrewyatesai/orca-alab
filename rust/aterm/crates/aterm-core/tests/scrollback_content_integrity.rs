@@ -14,6 +14,148 @@
 
 use aterm_core::terminal::Terminal;
 
+/// Reconstruct the logical (pre-wrap) scrollback lines by joining soft-wrapped
+/// continuation rows. A history row is a continuation of the previous logical
+/// line when its `wrapped` flag is set, mirroring how a terminal stores reflow.
+fn logical_history_lines(term: &Terminal) -> Vec<String> {
+    let grid = term.grid();
+    let h = grid.scrollback_lines();
+    let mut out: Vec<String> = Vec::new();
+    for i in 0..h {
+        let line = grid.get_history_line(i).expect("history line present");
+        let wrapped = line.is_wrapped();
+        let text = line.to_string();
+        let text = text.trim_end_matches(' ').to_string();
+        if wrapped && !out.is_empty() {
+            out.last_mut().unwrap().push_str(text.trim_end_matches(' '));
+        } else {
+            out.push(text);
+        }
+    }
+    out
+}
+
+#[test]
+fn resize_preserves_scrollback_logical_lines_both_directions() {
+    // 190 distinct near-full-width lines so they occupy scrollback and each is
+    // self-identifying. At 38x184 this is the exact shape of the reported bug:
+    // a resize collapsed scrollback and dropped early lines (#7906).
+    let mut term = Terminal::new(38, 184);
+    let mut input = Vec::new();
+    for i in 0..190u32 {
+        let mut line = format!("ROW{i} ");
+        while line.len() < 180 {
+            line.push_str("wxyz");
+        }
+        line.truncate(180);
+        input.extend_from_slice(line.as_bytes());
+        input.extend_from_slice(b"\r\n");
+    }
+    term.process(&input);
+
+    let before = logical_history_lines(&term);
+    assert!(
+        before.iter().any(|l| l.starts_with("ROW30 ")),
+        "ROW30 must be in scrollback before resize"
+    );
+    let before_count = before.len();
+
+    // Shrink: wide logical lines rewrap into MORE physical scrollback rows, so
+    // scrollback_lines() must GROW, but no logical line may be lost.
+    term.resize(38, 140);
+    let after_narrow = logical_history_lines(&term);
+    assert!(
+        term.grid().scrollback_lines() > before_count,
+        "shrinking width must grow the physical scrollback row count"
+    );
+    for line in &before {
+        assert!(
+            after_narrow.contains(line),
+            "logical line lost on shrink: {line:?}"
+        );
+    }
+
+    // Widen past the original: lines unwrap; all logical content still present.
+    term.resize(38, 200);
+    let after_wide = logical_history_lines(&term);
+    for line in &before {
+        assert!(
+            after_wide.contains(line),
+            "logical line lost on widen: {line:?}"
+        );
+    }
+}
+
+#[test]
+fn resize_round_trip_restores_known_early_line() {
+    // The exact 184 -> 140 -> 184 round-trip from the bug report: a known early
+    // line ("ROW30") must survive both legs, and the round-trip must restore the
+    // scrollback row count to its original value (rewrap is reversible).
+    let mut term = Terminal::new(38, 184);
+    let mut input = Vec::new();
+    for i in 0..190u32 {
+        let mut line = format!("ROW{i} ");
+        while line.len() < 180 {
+            line.push_str("wxyz");
+        }
+        line.truncate(180);
+        input.extend_from_slice(line.as_bytes());
+        input.extend_from_slice(b"\r\n");
+    }
+    term.process(&input);
+
+    let sb0 = term.grid().scrollback_lines();
+    let present = |t: &Terminal| logical_history_lines(t).iter().any(|l| l.starts_with("ROW30 "));
+    assert!(present(&term), "ROW30 present initially");
+
+    term.resize(38, 140);
+    assert!(present(&term), "ROW30 survives 184 -> 140");
+
+    term.resize(38, 184);
+    assert!(present(&term), "ROW30 survives 140 -> 184 round-trip");
+    assert_eq!(
+        term.grid().scrollback_lines(),
+        sb0,
+        "round-trip must restore the original scrollback row count"
+    );
+}
+
+#[test]
+fn resize_preserves_scrollback_with_tiered_storage() {
+    // Same invariant with an explicit tiered scrollback (the builder path used
+    // by hosts that want unlimited history), exercising the lazy-buffer restore
+    // path rather than the ring-only path.
+    use aterm_core::scrollback::Scrollback;
+    let sb = Scrollback::new(1000, 10_000, 100_000_000);
+    let mut term = Terminal::with_scrollback(30, 120, 1000, sb);
+    let mut input = Vec::new();
+    for i in 0..400u32 {
+        let mut line = format!("L{i} ");
+        while line.len() < 110 {
+            line.push_str("abcd");
+        }
+        line.truncate(110);
+        input.extend_from_slice(line.as_bytes());
+        input.extend_from_slice(b"\r\n");
+    }
+    term.process(&input);
+
+    let before = logical_history_lines(&term);
+    assert!(before.iter().any(|l| l.starts_with("L5 ")));
+
+    term.resize(30, 70);
+    let narrow = logical_history_lines(&term);
+    for line in &before {
+        assert!(narrow.contains(line), "tiered logical line lost on shrink: {line:?}");
+    }
+
+    term.resize(30, 120);
+    let wide = logical_history_lines(&term);
+    for line in &before {
+        assert!(wide.contains(line), "tiered logical line lost on widen: {line:?}");
+    }
+}
+
 #[test]
 fn scrollback_preserves_line_content_in_order() {
     // Distinctly-numbered lines so each is self-identifying. The default

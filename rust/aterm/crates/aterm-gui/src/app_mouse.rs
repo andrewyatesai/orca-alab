@@ -32,6 +32,21 @@ pub(crate) fn winit_mouse_button(b: WinitMouseButton) -> Option<aterm_types::mou
     }
 }
 
+/// Whether the "open link" modifier is held: Cmd (Super) on macOS — its native
+/// convention — and Ctrl on every other platform, because Linux/X11 desktops grab
+/// the Super (Windows) key, so a Super-click would never reach aterm. Mirrors the
+/// keybinding accelerator choice (Ctrl/Ctrl+Shift on Linux).
+fn link_modifier_held(mods: winit::keyboard::ModifiersState) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        mods.super_key()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        mods.control_key()
+    }
+}
+
 impl App {
     /// The FOCUSED pane's top-left `(row_off, col_off)` cell offset in window
     /// `wid`'s grid. `(0, 0)` when the focused pane fills the window (no splits) — so
@@ -249,8 +264,11 @@ impl App {
     /// touches the OS cursor on a state CHANGE (not every mouse move). Updated on
     /// both pointer motion and Cmd press/release so the affordance tracks the key.
     pub(crate) fn update_hover_cursor(&mut self, wid: WindowId) {
-        let super_held = self.windows.get(&wid).is_some_and(|ws| ws.mods.super_key());
-        let over_link = super_held && self.link_under_pointer(wid).is_some();
+        let mod_held = self
+            .windows
+            .get(&wid)
+            .is_some_and(|ws| link_modifier_held(ws.mods));
+        let over_link = mod_held && self.link_under_pointer(wid).is_some();
         let Some(ws) = self.windows.get_mut(&wid) else {
             return;
         };
@@ -688,6 +706,16 @@ impl App {
         if fired {
             self.copy_selection();
         }
+        // X11 convention: a completed selection ALWAYS owns the PRIMARY selection
+        // (independent of copy-on-select), so middle-click-paste works in other apps
+        // without clobbering the explicit-copy CLIPBOARD. No-op off X11.
+        if completed
+            && let Some(ws) = self.windows.get(&wid)
+            && let Some(text) = term_lock(&ws.term).selection_to_string()
+            && !text.is_empty()
+        {
+            crate::control::primary_set(&text);
+        }
         fired
     }
 
@@ -718,6 +746,11 @@ impl App {
         let _ = std::process::Command::new("/usr/bin/open")
             .arg(&url)
             .spawn();
+        // Linux: hand the (allowlisted) URL to the desktop's default handler. A
+        // missing `xdg-open` (xdg-utils absent) just fails the spawn silently — the
+        // affordance degrades to a no-op rather than erroring.
+        #[cfg(target_os = "linux")]
+        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
         true
     }
 
@@ -740,6 +773,24 @@ impl App {
         let Some(mods_state) = self.windows.get(&wid).map(|ws| ws.mods) else {
             return;
         };
+        // MIDDLE-CLICK PASTE (X11 PRIMARY): when no app is tracking the mouse, a
+        // middle press pastes the PRIMARY selection (the X convention) through the
+        // same seam as Ctrl+Shift+V; when tracking is ON it falls through to the
+        // mouse-report encoding below so TUIs still receive the button. X11 only.
+        #[cfg(target_os = "linux")]
+        if pressed && button == WinitMouseButton::Middle {
+            let tracking = self
+                .windows
+                .get(&wid)
+                .map(|ws| ws.term.clone())
+                .is_some_and(|t| term_lock(&t).mouse_tracking_enabled());
+            if !tracking {
+                if let Some(text) = crate::control::primary_get() {
+                    self.input(wid, InputEvent::Paste(text), Source::Human);
+                }
+                return;
+            }
+        }
         // TAB STRIP: a left press in the strip region (top `tab_strip_rows` rows)
         // switches / closes / opens a tab and stops there — it never reaches the
         // terminal selection / pane-focus path. A no-op when the strip is disabled
@@ -783,9 +834,10 @@ impl App {
             };
             let tracking = term_lock(&term).mouse_tracking_enabled();
             if pressed && !tracking {
-                // Cmd-click an OSC 8 hyperlink opens it (safe schemes only) instead
-                // of starting a selection. GUI-only — never reaches the seam.
-                if mods_state.super_key() && self.open_link_under_pointer(wid) {
+                // Cmd-click (macOS) / Ctrl-click (Linux) an OSC 8 hyperlink opens it
+                // (safe schemes only) instead of starting a selection. GUI-only —
+                // never reaches the seam.
+                if link_modifier_held(mods_state) && self.open_link_under_pointer(wid) {
                     return;
                 }
                 // Shift-click extends an existing selection (GUI affordance keyed on

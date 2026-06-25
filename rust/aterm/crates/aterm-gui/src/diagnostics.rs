@@ -105,12 +105,23 @@ fn capability_list() -> Vec<(&'static str, bool)> {
     ]
 }
 
+/// The GPU renderer's backend name for the diagnostics label, per platform: wgpu
+/// negotiates Metal on macOS and Vulkan elsewhere (Vulkan on Linux/NVIDIA). The live
+/// `metrics` verb still reports the actually-negotiated backend at runtime.
+#[cfg(target_os = "macos")]
+const GPU_BACKEND_LABEL: &str = "gpu (metal)";
+/// See the macOS variant above — non-macOS uses Vulkan via wgpu.
+#[cfg(not(target_os = "macos"))]
+const GPU_BACKEND_LABEL: &str = "gpu (vulkan)";
+
 /// Collect diagnostics from the live build + environment.
 pub(crate) fn collect() -> DiagInfo {
     // Renderer default: GPU only when ATERM_GPU is set and --cpu/ATERM_CPU is not
     // (mirrors the precedence funnel `main` uses).
     let gpu = std::env::var_os("ATERM_GPU").is_some() && std::env::var_os("ATERM_CPU").is_none();
-    let renderer_default = if gpu { "gpu (metal)" } else { "cpu" };
+    // wgpu negotiates Metal on macOS, Vulkan elsewhere (Vulkan on this Linux/NVIDIA
+    // box); the live `metrics` verb reports the actually-negotiated backend.
+    let renderer_default = if gpu { GPU_BACKEND_LABEL } else { "cpu" };
 
     let (config_path, config_exists) = match crate::app_config::config_path() {
         Some(p) => {
@@ -320,7 +331,7 @@ pub(crate) fn show_config() -> String {
     let _ = writeln!(
         s,
         "renderer:       {}",
-        if gpu { "gpu (metal)" } else { "cpu" }
+        if gpu { GPU_BACKEND_LABEL } else { "cpu" }
     );
     let _ = writeln!(s, "columns:        {columns}");
     let _ = writeln!(s, "lines:          {lines}");

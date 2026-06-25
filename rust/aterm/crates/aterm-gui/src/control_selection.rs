@@ -7,7 +7,6 @@
 //! verbatim from `control.rs` (behavior-preserving). The shared JSON/encode
 //! helpers stay in `control.rs` and are reached via `super::`.
 
-use std::io::Write;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use aterm_core::selection::{SelectionSide, SelectionType, SmartSelection};
@@ -431,6 +430,9 @@ pub(crate) fn cmd_copy(term: &Arc<Mutex<Terminal>>) -> String {
 /// it, and `pbcopy` stores aterm's UTF-8 bytes as if they were Mac-Roman. Forcing
 /// `LC_ALL`/`LC_CTYPE` to UTF-8 on the subprocess makes the transcode a faithful
 /// pass-through in both directions.
+// Used by the macOS `pbcopy`/`pbpaste` shell-out and the locale-pin test; on
+// non-macOS production builds the clipboard goes through x11rb, so this is unused.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) fn clipboard_command(program: &str) -> std::process::Command {
     let mut cmd = std::process::Command::new(program);
     cmd.env("LC_ALL", aterm_pty::UTF8_LOCALE)
@@ -438,24 +440,98 @@ pub(crate) fn clipboard_command(program: &str) -> std::process::Command {
     cmd
 }
 
-/// Pipe `text` to `/usr/bin/pbcopy`, placing it on the macOS system clipboard.
-/// Shared by the `copy` verb and the GUI's Cmd-C. Returns success. UTF-8-pinned
-/// via [`clipboard_command`].
+/// Place `text` on the system CLIPBOARD. macOS pipes it to `/usr/bin/pbcopy`;
+/// Linux/X11 takes ownership of the CLIPBOARD selection via the native x11rb
+/// backend ([`crate::clipboard_x11`]) — so no external helper (`xclip`/`wl-copy`)
+/// is required. Shared by the `copy` verb, the GUI copy shortcut, copy-on-select,
+/// and OSC 52. Returns whether the text was placed. (Named `pbcopy` for historical
+/// continuity across the stable `crate::control::pbcopy` path.)
 pub(crate) fn pbcopy(text: &str) -> bool {
-    use std::process::Stdio;
-    let Ok(mut child) = clipboard_command("/usr/bin/pbcopy")
-        .stdin(Stdio::piped())
-        .spawn()
-    else {
-        return false;
-    };
-    let wrote = child
-        .stdin
-        .take()
-        .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
-    // Reap the child regardless of write success (no zombies on failure).
-    let status = child.wait();
-    wrote && status.is_ok_and(|s| s.success())
+    #[cfg(target_os = "macos")]
+    {
+        use std::io::Write;
+        use std::process::Stdio;
+        let Ok(mut child) = clipboard_command("/usr/bin/pbcopy")
+            .stdin(Stdio::piped())
+            .spawn()
+        else {
+            return false;
+        };
+        let wrote = child
+            .stdin
+            .take()
+            .is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
+        // Reap the child regardless of write success (no zombies on failure).
+        let status = child.wait();
+        wrote && status.is_ok_and(|s| s.success())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        crate::clipboard_x11::X11Clipboard::get_handle()
+            .is_some_and(|c| c.set(crate::clipboard_x11::Sel::Clipboard, text))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = text;
+        false
+    }
+}
+
+/// Read the system CLIPBOARD as UTF-8 text, or `None` when empty / unavailable.
+/// macOS shells out to `pbpaste`; Linux/X11 reads the CLIPBOARD selection via the
+/// native x11rb backend. The platform twin of [`pbcopy`], used by the GUI paste
+/// shortcut and the menu Paste.
+pub(crate) fn pbpaste() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = clipboard_command("pbpaste").output().ok()?;
+        if !out.status.success() || out.stdout.is_empty() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        crate::clipboard_x11::X11Clipboard::get_handle()
+            .and_then(|c| c.get(crate::clipboard_x11::Sel::Clipboard))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Set the X11 PRIMARY selection (the select-to-copy / middle-click-paste buffer)
+/// to `text`. X11-only — PRIMARY has no macOS/Wayland-headless analogue, so this is
+/// a no-op (returns `false`) elsewhere. Distinct from the CLIPBOARD ([`pbcopy`]) so
+/// a drag-select never clobbers an explicit Ctrl+Shift+C copy.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn primary_set(text: &str) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        crate::clipboard_x11::X11Clipboard::get_handle()
+            .is_some_and(|c| c.set(crate::clipboard_x11::Sel::Primary, text))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = text;
+        false
+    }
+}
+
+/// Read the X11 PRIMARY selection as UTF-8 text (the middle-click-paste source), or
+/// `None` when empty / off X11.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) fn primary_get() -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::clipboard_x11::X11Clipboard::get_handle()
+            .and_then(|c| c.get(crate::clipboard_x11::Sel::Primary))
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
 }
 
 #[cfg(test)]

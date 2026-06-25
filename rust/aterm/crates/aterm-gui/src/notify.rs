@@ -36,6 +36,11 @@
 //! `{}` (unfocused) — byte-identical to the old two-atomic behavior. This matches
 //! the iTerm2 / Terminal.app default and keeps background-tab activity visible.
 
+// macOS-only delivery: on Linux this module is a channel-draining stub
+// (`spawn_delivery`), so the real-notification helpers/fields are intentionally
+// unused there.
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;

@@ -48,6 +48,11 @@ mod tests {
 
     #[test]
     fn parses_and_rejects() {
+        // Shares the global app-fed store with `app_fed::tests`; serialize + clear.
+        let _g = crate::app_fed::TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        crate::app_fed::test_clear();
         assert!(cmd_metric("tokens.in 1234").starts_with("OK tokens.in 1234"));
         assert!(cmd_metric("").starts_with("ERR usage"));
         assert!(cmd_metric("only-name").starts_with("ERR usage"));

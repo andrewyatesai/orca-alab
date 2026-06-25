@@ -151,10 +151,18 @@ pub(crate) struct Config {
     pub(crate) allow_kitty_file_transfer: Option<bool>,
 }
 
-/// Default rows reserved for the in-grid tab strip. `0`: OFF by default — tabs live
-/// in the native window toolbar (toolbar.rs), not an in-terminal frame. (Opt back in
-/// with config `tab_strip_rows = 1`.)
+/// Default rows reserved for the in-grid tab strip, PER PLATFORM. On macOS this is
+/// `0` — tabs live in the native window toolbar (toolbar.rs), so an in-terminal
+/// frame would be redundant. On every other platform (Linux/X11) the native toolbar
+/// is a no-op ([`crate::platform::AppRtLinux`]), so the in-grid strip is the ONLY
+/// tab UI: it defaults to `1` row, otherwise a second/third tab is completely
+/// invisible and un-switchable by mouse. Override either way with config
+/// `tab_strip_rows = N` or `ATERM_TAB_STRIP_ROWS`.
+#[cfg(target_os = "macos")]
 pub(crate) const DEFAULT_TAB_STRIP_ROWS: u16 = 0;
+/// See the macOS variant above — non-macOS defaults the in-grid strip ON.
+#[cfg(not(target_os = "macos"))]
+pub(crate) const DEFAULT_TAB_STRIP_ROWS: u16 = 1;
 /// Upper clamp on `tab_strip_rows` so a mis-set config can't starve the terminal.
 pub(crate) const MAX_TAB_STRIP_ROWS: u16 = 4;
 
@@ -659,6 +667,13 @@ pub(crate) fn resolve_font_px_with(env: Option<&str>, config: Option<f32>) -> f3
         .unwrap_or(FONT_PX)
 }
 
+/// Max HUD rows a `win_rows`-tall window can show below a `strip`-row tab strip,
+/// always leaving at least one terminal row. The bottom of the HUD stack is dropped
+/// past this so the composed frame never exceeds the window (no off-glass clip).
+pub(crate) fn hud_cap_for(win_rows: u16, strip: u16) -> u16 {
+    win_rows.saturating_sub(strip).saturating_sub(1)
+}
+
 impl App {
     pub(crate) fn on_resize(&mut self, wid: WindowId, size: PhysicalSize<u32>) {
         let (cw, ch) = self.cell_size();
@@ -674,12 +689,21 @@ impl App {
         // than the strip still leaves one terminal row. With `tab_strip_rows == 0`
         // this is the original full-window grid (byte-identical).
         let win_rows = (usable_h / ch.max(1)).max(1) as u16;
-        // Reserve the tab strip (top) AND the performance HUD (bottom) so the
-        // terminal grid — hence the PTY/shell — never draws under either chrome band.
-        // Both are 0 by default ⇒ byte-identical full-window grid.
+        // Reserve the tab strip (top) AND the HUD stack (bottom) so the terminal grid —
+        // hence the PTY/shell — never draws under either chrome band. Both are 0 by
+        // default ⇒ byte-identical full-window grid. FIT THE CHROME TO THE WINDOW: keep
+        // >=1 terminal row and the tab strip, then show as many HUD rows as remain
+        // (`hud_cap`); on a window too short for the whole stack the bottom panels are
+        // dropped rather than rendering a frame TALLER than the window (which clips
+        // off-glass). `hud_cap` is stored so the splice + swapchain agree.
+        let hud_cap = hud_cap_for(win_rows, self.tab_strip_rows);
+        let eff_hud = self.hud_rows.min(hud_cap);
+        if let Some(ws) = self.windows.get_mut(&wid) {
+            ws.hud_cap = hud_cap;
+        }
         let rows = win_rows
             .saturating_sub(self.tab_strip_rows)
-            .saturating_sub(self.hud_rows)
+            .saturating_sub(eff_hud)
             .max(1);
         // Phase 0.5: route through the seam so the window-resize and the control
         // `resize` verb share the one clamp + apply path. `echo_to_window: false`
@@ -1244,6 +1268,43 @@ mod window_theme_tests {
         // Direct parser: unknown -> None (caller defaults).
         assert_eq!(WindowTheme::parse("nope"), None);
         assert_eq!(WindowTheme::parse("auto"), Some(WindowTheme::Auto));
+    }
+}
+
+#[cfg(test)]
+mod hud_fit_tests {
+    use super::hud_cap_for;
+
+    #[test]
+    fn chrome_fits_the_window_and_never_clips() {
+        // Plenty of room: all desired HUD rows fit.
+        assert_eq!(hud_cap_for(100, 1), 98);
+        // Exactly enough for a 4-panel stack + 1-row strip + 1 terminal row.
+        assert_eq!(hud_cap_for(6, 1), 4);
+        // One row too short for 4 panels → cap drops to 3 (bottom panel hidden).
+        assert_eq!(hud_cap_for(5, 1), 3);
+        // Window only fits terminal + strip → no HUD rows.
+        assert_eq!(hud_cap_for(2, 1), 0);
+        assert_eq!(hud_cap_for(1, 0), 0);
+
+        // Invariant across sizes: terminal stays >=1 row AND the composed frame
+        // (terminal + strip + effective HUD) never exceeds the window.
+        for win in 1u16..=40 {
+            for strip in 0u16..=2 {
+                for desired_hud in 0u16..=4 {
+                    let eff = desired_hud.min(hud_cap_for(win, strip));
+                    let term = win.saturating_sub(strip).saturating_sub(eff).max(1);
+                    assert!(term >= 1, "win={win} strip={strip}: terminal underflowed");
+                    if win > strip {
+                        assert!(
+                            term + strip + eff <= win,
+                            "win={win} strip={strip} hud={desired_hud}: frame {} > window",
+                            term + strip + eff
+                        );
+                    }
+                }
+            }
+        }
     }
 }
 

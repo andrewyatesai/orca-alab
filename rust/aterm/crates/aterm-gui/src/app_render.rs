@@ -930,15 +930,22 @@ impl App {
         if self.hud_rows == 0 {
             return;
         }
-        let cols = match self.windows.get(&wid) {
-            Some(ws) => ws.cols as usize,
+        // `cap` = HUD rows this window can show (`min(hud_rows, hud_cap)`); a window too
+        // short for the full stack drops the bottom panels rather than producing a frame
+        // taller than the window. `u16::MAX` cap (no resize yet / headless) ⇒ all shown.
+        let (cols, cap) = match self.windows.get(&wid) {
+            Some(ws) => (ws.cols as usize, self.hud_rows.min(ws.hud_cap) as usize),
             None => return,
         };
+        if cap == 0 {
+            return;
+        }
         let theme = self.theme;
-        // Build one row per enabled panel. `self.panels` and `self.windows` are
-        // disjoint fields, so the read-then-get_mut below is borrow-clean.
-        let mut rows: Vec<Vec<RenderCell>> = Vec::with_capacity(self.hud_rows as usize);
-        for p in self.panels.iter().filter(|p| p.enabled()) {
+        // Build one row per enabled panel (top of the stack first), capped to `cap`.
+        // `self.panels` and `self.windows` are disjoint fields, so the read-then-get_mut
+        // below is borrow-clean.
+        let mut rows: Vec<Vec<RenderCell>> = Vec::with_capacity(cap);
+        for p in self.panels.iter().filter(|p| p.enabled()).take(cap) {
             let mut row = vec![hud_bar::blank_cell(theme); cols];
             p.paint(&mut row, theme);
             rows.push(row);
@@ -993,8 +1000,13 @@ impl App {
         // plus the `2·pad` interior border) so the blit target matches the frame the
         // renderer encodes. `frame_size` reads the renderer's live `pad`; with
         // `pad == 0` && `tab_strip_rows == 0` this is the original `rows * ch`.
-        // Include the bottom HUD band too so the swapchain matches the spliced frame.
-        let strip = (self.tab_strip_rows + self.hud_rows) as usize;
+        // Include the bottom HUD band too so the swapchain matches the spliced frame —
+        // using the window's EFFECTIVE HUD rows (`min(hud_rows, hud_cap)`) so a window
+        // too short for the full stack sizes the swapchain to what actually renders.
+        let eff_hud = self
+            .hud_rows
+            .min(self.windows.get(&wid).map_or(u16::MAX, |ws| ws.hud_cap));
+        let strip = (self.tab_strip_rows + eff_hud) as usize;
         let App {
             backend, windows, ..
         } = self;

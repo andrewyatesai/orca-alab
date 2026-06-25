@@ -18,8 +18,58 @@ use std::sync::Arc;
 use aterm_scrollback::Line;
 
 use super::Grid;
+use super::ScrolledRowExtras;
 use crate::Row;
+use crate::StyleTable;
 use crate::{CellCoord, CellExtras};
+
+/// Fill a STANDALONE [`Row`] from a scrollback [`Line`] and return the row's
+/// preserved extras (complex chars, combining marks, RGB colors, hyperlinks).
+///
+/// Unlike [`Grid::fill_row_from_line`], which writes into the grid's
+/// `CellExtras` keyed by a visible row index, this targets a detached row and
+/// collects its extras into a [`ScrolledRowExtras`] — the form ring-buffer
+/// scrollback rows store. Used by scrollback reflow (#7906) to rebuild ring
+/// scrollback rows at a new width.
+pub(crate) fn fill_row_into(
+    row: &mut Row,
+    line: &Line,
+    cols: u16,
+    _styles: &StyleTable,
+) -> ScrolledRowExtras {
+    let mut extras = ScrolledRowExtras::default();
+    let Some(text) = line.as_str() else {
+        row.clear();
+        row.set_wrapped(line.is_wrapped());
+        return extras;
+    };
+    row.clear();
+    let deferred = fill_row_cells(row, text, line, cols);
+    row.set_wrapped(line.is_wrapped());
+    for d in deferred {
+        match d {
+            DeferredExtra::CombiningMarks(col, marks) => {
+                extras
+                    .combining
+                    .push((col, aterm_alloc::SmallVec::from_slice(&marks)));
+            }
+            DeferredExtra::ComplexChar(col, s) => extras.complex_chars.push((col, s)),
+            DeferredExtra::RgbFg(col, rgb) => extras.rgb_fg.push((col, rgb)),
+            DeferredExtra::RgbBg(col, rgb) => extras.rgb_bg.push((col, rgb)),
+        }
+    }
+    if let Some(spans) = line.hyperlinks() {
+        for span in spans {
+            extras.hyperlinks.push(aterm_scrollback::HyperlinkSpan::with_id(
+                span.start_col,
+                span.end_col.min(cols),
+                span.url.clone(),
+                span.id.clone(),
+            ));
+        }
+    }
+    extras
+}
 
 impl Grid {
     /// Fill a row with content from a scrollback Line.

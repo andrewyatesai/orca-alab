@@ -78,6 +78,12 @@ softbuffer = "0.4"
 # engine's config + policy crates), so this adds bindings, not weight.
 serde = { workspace = true }
 toml = { workspace = true }
+# NON-DESTRUCTIVE config writes from the Preferences window's Save button
+# (prefs::apply_prefs_edits): edit only the touched keys in `aterm.toml` while
+# preserving every other key, comment, and the file's formatting. `toml_edit` 0.22 is
+# ALREADY in this binary's tree (the `toml` 0.8 dep re-exports it), so this adds the
+# format-preserving DOM API surface, not a new dep to the lockfile.
+toml_edit = "0.22"
 # PNG encode for the control-socket `window` verb (the macOS full-window capture):
 # it draws the front NSWindow's on-screen pixels into a tightly-packed RGBA8 buffer
 # and encodes them here. Same crate (and version) aterm-render already uses for the
@@ -119,6 +125,15 @@ aterm-grid = { workspace = true, features = ["spec-anchors"] }
 # Resolve external ISOLATION `.tla` machine names (obligation 4) against the
 # committed specs in this crate; test-only, out of the production closure.
 aterm-spec-models = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Native X11 clipboard (clipboard_x11.rs) over the pure-Rust x11rb RustConnection,
+# so copy / paste / OSC-52 yank work on Linux WITHOUT an external helper binary
+# (xclip / xsel / wl-copy — none of which are guaranteed installed) and WITHOUT a
+# heavy new dependency. x11rb is ALREADY in this binary's tree (winit's X11 backend
+# pulls it), so this adds bindings, not weight. `default-features = false` selects
+# only the pure-Rust connection (no libxcb FFI).
+x11rb = { version = "0.13", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # NSBeep for the audible bell + NSWindow.setColorSpace to drop the per-frame

@@ -20,14 +20,21 @@ fn renders_a_real_shell_session_to_pixels() {
     };
 
     // --- spawn /bin/sh -c "printf 'ATERM_RENDER_OK\n'" in a PTY ---
-    let mut ws = libc::winsize {
+    let ws = libc::winsize {
         ws_row: 24,
         ws_col: 80,
         ws_xpixel: 0,
         ws_ypixel: 0,
     };
     let mut master: libc::c_int = -1;
-    let pid = unsafe { libc::forkpty(&mut master, ptr::null_mut(), ptr::null_mut(), &mut ws) };
+    let pid = unsafe {
+        libc::forkpty(
+            &mut master,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            ptr::addr_of!(ws).cast_mut(),
+        )
+    };
     assert!(pid >= 0, "forkpty failed");
     if pid == 0 {
         let sh = std::ffi::CString::new("/bin/sh").unwrap();

@@ -63,6 +63,17 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  pane — updates default fg/bg/cursor/selection + ANSI palette + reply defaults
    *  and redraws, preserving scrollback. */
   updateTheme: (colors: AtermThemeColors) => void
+  /** Mark the pane focused/unfocused so a selection dims while the pane is
+   *  unfocused (xterm's selectionInactiveBackground behavior). Wired to the same
+   *  focus/blur transitions that drive the hollow cursor. */
+  setSelectionInactive: (inactive: boolean) => void
+  /** Set the inactive (unfocused) selection background (0x00RRGGBB), or null to
+   *  let the engine derive it from the active selection bg blended toward the bg. */
+  setSelectionInactiveBg: (bg: number | null) => void
+  /** Schedule a canvas redraw (coalesced into one frame). Lets the output
+   *  scheduler repaint the engine's mirrored state after a callback-only
+   *  __schedulerWrite, which feeds no bytes and so schedules no draw of its own. */
+  scheduleDraw: () => void
   /** e2e/test hook: the last mouse REPORT forwarded to the PTY (e.g. an SGR
    *  "\x1b[<0;C;RM" press), or null if none. Proves a tracked mouse event was
    *  encoded + sent without relying on shell echo under a hidden window. */

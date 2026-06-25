@@ -53,6 +53,8 @@ export async function loadAtermGpuDrawer(
   seedAtermPalette(gpuTerm, themeColors)
   // Seed the theme's selectionForeground (null → keep the WCAG floor default).
   gpuTerm.set_selection_fg(themeColors.selectionForeground ?? undefined)
+  // Seed the theme's inactive (unfocused) selection bg (null → engine-derived default).
+  gpuTerm.set_selection_inactive_bg(themeColors.selectionInactive ?? undefined)
   // ASYNC: acquire the GPU + create the WebGL2 surface on this canvas. Throws a
   // JS string if WebGL is unavailable; the caller catches → CPU fallback.
   await gpuTerm.init(canvas)

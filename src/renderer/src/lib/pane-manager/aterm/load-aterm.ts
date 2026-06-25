@@ -1,6 +1,6 @@
 import init, { AtermTerminal } from './aterm_wasm.js'
 import wasmUrl from './aterm_wasm_bg.wasm?url'
-import fontUrl from '@renderer/assets/fonts/jetbrains-mono.ttf?url'
+import { loadAtermFontBytes } from './load-aterm-font'
 
 export type LoadedAterm = {
   AtermTerminal: typeof AtermTerminal
@@ -16,8 +16,9 @@ export type LoadedAterm = {
 let loadPromise: Promise<LoadedAterm> | null = null
 
 async function loadAtermOnce(): Promise<LoadedAterm> {
-  const [initOutput, fontResponse] = await Promise.all([init(wasmUrl), fetch(fontUrl)])
-  const fontBytes = new Uint8Array(await fontResponse.arrayBuffer())
+  // Share the font fetch with the GPU loader so a GPU→CPU context-loss swap never
+  // re-fetches the face (that duplicate fetch was observed to hang in the swap).
+  const [initOutput, fontBytes] = await Promise.all([init(wasmUrl), loadAtermFontBytes()])
   return { AtermTerminal, fontBytes, memory: initOutput.memory }
 }
 

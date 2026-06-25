@@ -52,6 +52,8 @@ export async function loadAtermCpuDrawer(
   seedAtermPalette(term, themeColors)
   // Seed the theme's selectionForeground (null → keep the WCAG floor default).
   term.set_selection_fg(themeColors.selectionForeground ?? undefined)
+  // Seed the theme's inactive (unfocused) selection bg (null → engine-derived default).
+  term.set_selection_inactive_bg(themeColors.selectionInactive ?? undefined)
   const cellWidth = term.cell_width
   const cellHeight = term.cell_height
   // Seed default colours + cell pixel size so aterm answers OSC 10/11 + CSI 14t/16t.

@@ -88,6 +88,129 @@ export async function readAtermPixel(
   )
 }
 
+// The pane that drives the test is the one bound to `ptyId` (where output is
+// written + echoed back). With more than one terminal tab a canvas-by-ptyId scope
+// is unambiguous, unlike a DOM-first-match or getActivePane() (the managers can
+// disagree on which pane is "active" across tabs).
+const PANE_CANVAS_BY_PTY = `(ptyId) => {
+  const managers = window.__paneManagers
+  for (const mgr of managers?.values() ?? []) {
+    for (const pane of mgr.getPanes?.() ?? []) {
+      if (pane?.container?.dataset?.ptyId === ptyId) {
+        return pane.container.querySelector('[data-testid="aterm-canvas"]')
+      }
+    }
+  }
+  return null
+}`
+
+/** The aterm canvas of the pane bound to `ptyId` — full RGBA buffer, or null. */
+export async function readAtermRgbaByPtyId(
+  page: Page,
+  ptyId: string
+): Promise<RgbaBuffer | null> {
+  return page.evaluate(
+    ({ ptyId, findSrc }) => {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const find = new Function(`return (${findSrc})`)() as (id: string) => HTMLCanvasElement | null
+      const c = find(ptyId)
+      if (!c || !c.width || !c.height) {
+        return null
+      }
+      const w = c.width
+      const h = c.height
+      const gl = c.getContext('webgl2')
+      if (gl) {
+        const px = new Uint8Array(w * h * 4)
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px)
+        return { w, h, data: Array.from(px) }
+      }
+      const ctx = c.getContext('2d')
+      if (!ctx) {
+        return null
+      }
+      return { w, h, data: Array.from(ctx.getImageData(0, 0, w, h).data) }
+    },
+    { ptyId, findSrc: PANE_CANVAS_BY_PTY }
+  )
+}
+
+/** A small device-pixel REGION of the canvas of the pane bound to `ptyId`, as a
+ *  flat RGBA array, or null. Reading a small rect (vs the whole multi-megapixel
+ *  buffer) keeps the CDP payload tiny — a full-canvas readback can be ~17 MB and
+ *  fail to serialize. Top-left origin on both paths (GPU reads flip Y). */
+export async function readAtermRegionByPtyId(
+  page: Page,
+  ptyId: string,
+  rect: { x: number; y: number; w: number; h: number }
+): Promise<number[] | null> {
+  return page.evaluate(
+    ({ ptyId, rect, findSrc }) => {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const find = new Function(`return (${findSrc})`)() as (id: string) => HTMLCanvasElement | null
+      const c = find(ptyId)
+      if (!c || !c.width || !c.height) {
+        return null
+      }
+      const x = Math.max(0, Math.min(rect.x, c.width - rect.w))
+      const w = Math.max(1, Math.min(rect.w, c.width))
+      const h = Math.max(1, Math.min(rect.h, c.height))
+      const yTop = Math.max(0, Math.min(rect.y, c.height - h))
+      const gl = c.getContext('webgl2')
+      if (gl) {
+        const px = new Uint8Array(w * h * 4)
+        // WebGL origin is bottom-left; flip the row band to top-left coords.
+        gl.readPixels(x, c.height - yTop - h, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px)
+        return Array.from(px)
+      }
+      const ctx = c.getContext('2d')
+      if (!ctx) {
+        return null
+      }
+      return Array.from(ctx.getImageData(x, yTop, w, h).data)
+    },
+    { ptyId, rect, findSrc: PANE_CANVAS_BY_PTY }
+  )
+}
+
+/** WebGL2/2d ownership of the canvas of the pane bound to `ptyId`. */
+export async function atermCanvasContextInfoByPtyId(
+  page: Page,
+  ptyId: string
+): Promise<{ gl: boolean; twoD: boolean } | null> {
+  return page.evaluate(
+    ({ ptyId, findSrc }) => {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const find = new Function(`return (${findSrc})`)() as (id: string) => HTMLCanvasElement | null
+      const c = find(ptyId)
+      if (!c) {
+        return null
+      }
+      return { gl: Boolean(c.getContext('webgl2')), twoD: Boolean(c.getContext('2d')) }
+    },
+    { ptyId, findSrc: PANE_CANVAS_BY_PTY }
+  )
+}
+
+/** Force a real WebGL2 context loss on the canvas of the pane bound to `ptyId`
+ *  (the same 'webglcontextlost' event the GPU drawer listens for). Returns true if
+ *  the WEBGL_lose_context extension was available to force it. */
+export async function forceAtermContextLossByPtyId(page: Page, ptyId: string): Promise<boolean> {
+  return page.evaluate(
+    ({ ptyId, findSrc }) => {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+      const find = new Function(`return (${findSrc})`)() as (id: string) => HTMLCanvasElement | null
+      const ext = find(ptyId)?.getContext('webgl2')?.getExtension('WEBGL_lose_context')
+      if (ext) {
+        ext.loseContext()
+        return true
+      }
+      return false
+    },
+    { ptyId, findSrc: PANE_CANVAS_BY_PTY }
+  )
+}
+
 /** True when the aterm canvas is ready to read from (has a 2d OR webgl2 context
  *  AND non-zero dimensions). */
 export async function atermCanvasReady(page: Page): Promise<boolean> {

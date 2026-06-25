@@ -3,10 +3,13 @@
 // is a steady solid block that never blinks and gives no focus cue. This drives
 // the engine's blink phase on a ~530ms timer (xterm's interval) while focused, and
 // forces a HOLLOW cursor while the pane is unfocused — the standard terminal cue.
+// The same focus/blur transition also dims the selection (xterm's
+// selectionInactiveBackground) so an unfocused pane's selection reads as inactive.
 
 export type AtermCursorTarget = {
   set_cursor_blink_phase: (on: boolean) => void
   set_cursor_hollow: (hollow: boolean) => void
+  set_selection_inactive: (inactive: boolean) => void
 }
 
 export type AtermCursorBlinkDeps = {
@@ -50,6 +53,8 @@ export function attachAtermCursorBlink(deps: AtermCursorBlinkDeps): AtermCursorB
       return
     }
     term.set_cursor_hollow(false)
+    // Focus → the selection paints with the ACTIVE background.
+    term.set_selection_inactive(false)
     setPhase(true)
     if (getCursorBlink?.() ?? true) {
       timer = setInterval(() => {
@@ -69,6 +74,8 @@ export function attachAtermCursorBlink(deps: AtermCursorBlinkDeps): AtermCursorB
       return
     }
     term.set_cursor_hollow(true)
+    // Blur → the selection dims to the INACTIVE background.
+    term.set_selection_inactive(true)
     setPhase(true)
   }
 

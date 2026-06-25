@@ -1,6 +1,6 @@
 import init, { AtermGpuTerminal } from './aterm_gpu_web.js'
 import wasmUrl from './aterm_gpu_web_bg.wasm?url'
-import fontUrl from '@renderer/assets/fonts/jetbrains-mono.ttf?url'
+import { loadAtermFontBytes } from './load-aterm-font'
 
 export type LoadedAtermGpu = {
   AtermGpuTerminal: typeof AtermGpuTerminal
@@ -14,8 +14,9 @@ export type LoadedAtermGpu = {
 let loadPromise: Promise<LoadedAtermGpu> | null = null
 
 async function loadAtermGpuOnce(): Promise<LoadedAtermGpu> {
-  const [, fontResponse] = await Promise.all([init(wasmUrl), fetch(fontUrl)])
-  const fontBytes = new Uint8Array(await fontResponse.arrayBuffer())
+  // Share the font fetch with the CPU loader (load-aterm-font) so the face is
+  // fetched once and a GPU→CPU swap reuses these bytes instead of re-fetching.
+  const [, fontBytes] = await Promise.all([init(wasmUrl), loadAtermFontBytes()])
   return { AtermGpuTerminal, fontBytes }
 }
 

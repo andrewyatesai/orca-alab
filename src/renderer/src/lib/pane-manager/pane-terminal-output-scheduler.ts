@@ -637,6 +637,9 @@ function writeQueuedChunk(entry: QueueEntry): 'foreground' | 'background' | null
         entry.terminal,
         queuedWrite.data
       )
+      // __schedulerWrite paints nothing (callback-only), so flush the engine's
+      // mirrored state to the canvas. Coalesced into one frame — no draw storm.
+      entry.terminal.__scheduleAtermDraw?.()
     }
   } catch {
     // Why: pane.terminal.dispose() can race with a queued late-arriving PTY ping;
@@ -922,6 +925,9 @@ export function flushTerminalOutput(
         // Flush drain: the mirror already fed the engine up front, so use the
         // callback-only scheduler path to avoid re-parsing these bytes.
         ;(terminal.__schedulerWrite ?? terminal.write).call(terminal, queuedWrite.data)
+        // __schedulerWrite paints nothing (callback-only), so flush the engine's
+        // mirrored state to the canvas. Coalesced into one frame — no draw storm.
+        terminal.__scheduleAtermDraw?.()
       }
     } catch {
       // Why: pane.terminal.dispose() can race with a queued late-arriving PTY ping;

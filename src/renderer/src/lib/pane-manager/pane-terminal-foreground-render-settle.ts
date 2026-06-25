@@ -15,6 +15,9 @@ export type ForegroundTerminalOutputTarget = {
   // Why: the engine is fed up front via the output mirror, so the foreground
   // settle write must use the callback-only path to avoid re-parsing the bytes.
   __schedulerWrite?(data: string, callback?: () => void): void
+  // Why: __schedulerWrite paints nothing (callback-only), so the aterm facade
+  // exposes this to flush the engine's mirrored state to the canvas after a write.
+  __scheduleAtermDraw?(): void
 }
 
 type ForegroundTerminalWriteOptions = {
@@ -144,6 +147,9 @@ export function writeForegroundTerminalChunk(
       }
       options.onParsed?.()
     })
+    // __schedulerWrite is callback-only (no engine feed, no draw), so paint the
+    // engine's already-mirrored state to the canvas. Coalesced — no draw storm.
+    terminal.__scheduleAtermDraw?.()
   } catch {
     if (beforeWriteViewport) {
       settleForegroundRender(terminal, beforeWriteViewport, options)

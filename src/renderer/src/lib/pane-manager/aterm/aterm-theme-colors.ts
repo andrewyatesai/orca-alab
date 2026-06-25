@@ -19,6 +19,10 @@ export type AtermThemeColors = {
   /** Explicit foreground for SELECTED text (theme `selectionForeground`), 0x00RRGGBB,
    *  or null to keep the engine's WCAG contrast-floor default. */
   selectionForeground: number | null
+  /** Inactive (unfocused-pane) selection background (theme `selectionInactiveBackground`),
+   *  0x00RRGGBB, or null to let the engine derive its default (active selection bg
+   *  blended toward the theme bg). */
+  selectionInactive: number | null
   /** ANSI/indexed palette overrides (index 0–15) parsed from the theme; indices
    *  absent here keep the engine's built-in default. 0x00RRGGBB. */
   palette: { index: number; rgb: number }[]
@@ -33,6 +37,7 @@ const DEFAULT_COLORS: AtermThemeColors = {
   cursor: 0x50fa7b,
   selection: 0x264f78,
   selectionForeground: null,
+  selectionInactive: null,
   palette: []
 }
 
@@ -110,6 +115,7 @@ export function applyAtermLiveTheme(
   term: {
     set_theme: (fg: number, bg: number, cursor: number, selection: number) => void
     set_selection_fg: (fg: number | undefined) => void
+    set_selection_inactive_bg: (bg: number | undefined) => void
     set_palette_color: (index: number, r: number, g: number, b: number) => void
     set_default_foreground: (r: number, g: number, b: number) => void
     set_default_background: (r: number, g: number, b: number) => void
@@ -123,6 +129,9 @@ export function applyAtermLiveTheme(
   // null → undefined: keep the engine's WCAG contrast-floor default when the theme
   // sets no explicit selectionForeground.
   term.set_selection_fg(colors.selectionForeground ?? undefined)
+  // null → undefined: keep the engine's derived inactive-selection default when the
+  // theme sets no explicit selectionInactiveBackground.
+  term.set_selection_inactive_bg(colors.selectionInactive ?? undefined)
   seedAtermPalette(term, colors)
   seedAtermReplyDefaults(term, colors, cellWidth, cellHeight)
 }
@@ -254,6 +263,9 @@ export function atermThemeColorsFromITheme(theme: ITheme): AtermThemeColors {
     // Explicit selected-text fg if the theme sets one; null keeps the engine's
     // WCAG contrast-floor default (cssColorToU32 returns null when absent/unparseable).
     selectionForeground: cssColorToU32(theme.selectionForeground),
+    // Inactive (unfocused) selection bg if the theme sets one; null lets the engine
+    // derive it (active selection bg blended toward the theme bg).
+    selectionInactive: cssColorToU32(theme.selectionInactiveBackground),
     // The 16 ANSI palette colours so SGR-indexed cell colours match the theme.
     palette: resolveAtermPalette(theme)
   }

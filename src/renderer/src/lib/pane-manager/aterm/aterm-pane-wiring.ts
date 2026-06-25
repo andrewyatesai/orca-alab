@@ -383,6 +383,18 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       Object.assign(themeColors, colors)
       scheduleDraw()
     },
+    // Dim/undim the selection with pane focus (xterm selectionInactiveBackground).
+    // The engine only repaints the inactive style while marked unfocused.
+    setSelectionInactive: (inactive: boolean) => {
+      term.set_selection_inactive(inactive)
+      scheduleDraw()
+    },
+    // null → undefined: keep the engine's derived inactive-selection default.
+    setSelectionInactiveBg: (bg: number | null) => {
+      term.set_selection_inactive_bg(bg ?? undefined)
+      scheduleDraw()
+    },
+    scheduleDraw,
     ...replySurface,
     dispose: teardown
   }

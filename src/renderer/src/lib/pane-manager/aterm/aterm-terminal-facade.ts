@@ -44,6 +44,12 @@ export type AtermTerminalFacade = {
    *  fed up front via __feedEngine (mirrorOutputToAterm), so this only fires the
    *  parsed callback — it must NOT re-feed the engine (no double-parse). */
   __schedulerWrite(data: string, callback?: () => void): void
+  /** Internal: schedule a canvas redraw of the engine's already-mirrored state.
+   *  The scheduler calls this after a callback-only __schedulerWrite flush, which
+   *  feeds no bytes and so schedules no draw — without it the engine can hold newer
+   *  state than the last painted frame (stale canvas). Coalesced, so safe to call
+   *  per flush (no double-draw storm). */
+  __scheduleAtermDraw(): void
   input(data: string): void
   paste(text: string): void
   resize(cols: number, rows: number): void
@@ -207,6 +213,15 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       // OutputToAterm). Here we only fire the parsed callback the foreground
       // settle/await machinery depends on, so we never double-process bytes.
       callback?.()
+    },
+    __scheduleAtermDraw() {
+      // The mirror fed the engine up front; a callback-only __schedulerWrite paints
+      // nothing, so the scheduler asks for a draw here to flush the engine's latest
+      // state to the canvas. No-op until the controller attaches (the attach replay
+      // schedules its own draw via the pump).
+      if (!disposed) {
+        controller?.scheduleDraw()
+      }
     },
     input(data) {
       // User input → the same PTY pipeline xterm's onData fed. The pty-connection

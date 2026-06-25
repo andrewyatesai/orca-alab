@@ -225,6 +225,9 @@ export async function createAtermPaneController(
         // aterm's parser and was observed to corrupt the recovered state. So a pane
         // with NO output during/after the swap stays blank until the next PTY write
         // repaints it (self-healing); the gap's live output above is preserved.
+        // Paint the fresh engine now so the recovered pane shows its current state
+        // even if no buffered/live bytes followed the swap.
+        wired.controller.scheduleDraw()
         swapping = false
       })
       .catch((err) => {
@@ -296,6 +299,9 @@ export async function createAtermPaneController(
     setFileLinkOpener: (fn) => wired.controller.setFileLinkOpener(fn),
     setUrlLinkContext: (context) => wired.controller.setUrlLinkContext(context),
     updateTheme: (colors) => wired.controller.updateTheme(colors),
+    setSelectionInactive: (inactive) => wired.controller.setSelectionInactive(inactive),
+    setSelectionInactiveBg: (bg) => wired.controller.setSelectionInactiveBg(bg),
+    scheduleDraw: () => wired.controller.scheduleDraw(),
     lastMouseReport: () => wired.controller.lastMouseReport(),
     serialize: (scrollbackRows) => wired.controller.serialize(scrollbackRows),
     serializeScrollback: (maxRows) => wired.controller.serializeScrollback(maxRows),

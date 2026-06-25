@@ -38,7 +38,10 @@ impl ColorPalette {
     #[rustfmt::skip]
     const ANSI_COLORS: [Rgb; 8] = [
         Rgb { r:   0, g:   0, b:   0 }, // 0: Black
-        Rgb { r: 205, g:   0, b:   0 }, // 1: Red
+        Rgb { r: 224, g: 108, b: 117 }, // 1: Red (lifted from xterm #CD0000: pure
+                                        //    dark red is only ~3.2:1 on the dark bg
+                                        //    so git-status red read muddy; #E06C75
+                                        //    reaches ~4.5:1, still clearly red)
         Rgb { r:   0, g: 205, b:   0 }, // 2: Green
         Rgb { r: 205, g: 205, b:   0 }, // 3: Yellow
         Rgb { r:  59, g: 142, b: 234 }, // 4: Blue (lifted from xterm #0000EE: pure
@@ -46,21 +49,28 @@ impl ColorPalette {
                                         //    two LLM judges flagged it as the
                                         //    lowest-contrast token; #3B8EEA reads
                                         //    cleanly while staying recognizably blue)
-        Rgb { r: 205, g:   0, b: 205 }, // 5: Magenta
+        Rgb { r: 198, g: 120, b: 221 }, // 5: Magenta (lifted from #CD00CD ~3.96:1 to
+                                        //    #C678DD ~5:1, matching the blue lift)
         Rgb { r:   0, g: 205, b: 205 }, // 6: Cyan
         Rgb { r: 229, g: 229, b: 229 }, // 7: White
     ];
 
     /// Bright ANSI colors (indices 8-15).
     #[rustfmt::skip]
+    // Bright row tempered away from raw S=1/V=1 neon primaries (two LLM judges
+    // flagged the old #FF0000/#00FF00/#FFFF00/#FF00FF/#00FFFF as "loud/harsh" — the
+    // single worst tokens in the UI) toward a modern dark palette that keeps each
+    // hue's identity. Aligns with the already-Dracula-family cursor (#50FA7B).
     const BRIGHT_COLORS: [Rgb; 8] = [
-        Rgb { r: 127, g: 127, b: 127 }, // 8:  Bright Black (Gray)
-        Rgb { r: 255, g:   0, b:   0 }, // 9:  Bright Red
-        Rgb { r:   0, g: 255, b:   0 }, // 10: Bright Green
-        Rgb { r: 255, g: 255, b:   0 }, // 11: Bright Yellow
-        Rgb { r:  92, g:  92, b: 255 }, // 12: Bright Blue
-        Rgb { r: 255, g:   0, b: 255 }, // 13: Bright Magenta
-        Rgb { r:   0, g: 255, b: 255 }, // 14: Bright Cyan
+        Rgb { r: 138, g: 143, b: 153 }, // 8:  Bright Black (Gray) — #8A8F99, lifted
+                                        //     from #7F7F7F so muted text/comments
+                                        //     don't recede (~6:1, still clearly dim)
+        Rgb { r: 255, g: 110, b: 103 }, // 9:  Bright Red     (#FF6E67)
+        Rgb { r:  80, g: 250, b: 123 }, // 10: Bright Green   (#50FA7B)
+        Rgb { r: 241, g: 250, b: 140 }, // 11: Bright Yellow  (#F1FA8C)
+        Rgb { r:  92, g:  92, b: 255 }, // 12: Bright Blue    (already non-neon)
+        Rgb { r: 255, g: 121, b: 198 }, // 13: Bright Magenta (#FF79C6)
+        Rgb { r: 139, g: 233, b: 253 }, // 14: Bright Cyan    (#8BE9FD)
         Rgb { r: 255, g: 255, b: 255 }, // 15: Bright White
     ];
 
@@ -312,8 +322,8 @@ mod tests {
 
     #[test]
     fn default_color_bright_range() {
-        // Index 8 = bright black (gray)
-        assert_eq!(ColorPalette::default_color(8), Rgb::new(127, 127, 127));
+        // Index 8 = bright black (gray), lifted to #8A8F99 for readable muted text
+        assert_eq!(ColorPalette::default_color(8), Rgb::new(138, 143, 153));
         // Index 15 = bright white
         assert_eq!(ColorPalette::default_color(15), Rgb::new(255, 255, 255));
     }

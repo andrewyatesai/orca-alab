@@ -30,6 +30,9 @@ impl App {
             return;
         };
         let strip_rows = self.tab_strip_rows as usize;
+        // Trailing HUD rows are chrome too — captured here so the .txt below can drop
+        // them (the front borrow can't read `self.*`).
+        let hud_rows = self.hud_rows as usize;
         let (rows, cols) = match self.windows.get(&front) {
             Some(ws) => (ws.rows as usize, ws.cols as usize),
             None => return,
@@ -48,6 +51,13 @@ impl App {
         // grid, so splice it here too — the snapshot pixels then match the glass. A
         // no-op when the strip is disabled. Done BEFORE the disjoint-field borrow.
         self.splice_tab_strip(front);
+        // Sample the interval-driven panels here too: headless has no window tick,
+        // so this is what makes CPU/net/app-fed live in `image`/`snapshot` output.
+        let hud_now = Instant::now();
+        for p in &mut self.panels {
+            p.poll(hud_now);
+        }
+        self.splice_hud_bar(front);
         // Disjoint borrows: `self.backend` (renderer), the introspection GPU
         // scratch, and the front window's input_scratch are separate fields.
         let App {
@@ -78,7 +88,8 @@ impl App {
         let mut text = String::with_capacity(rows * (cols + 1));
         // Skip the tab-strip CHROME rows so the .txt is terminal text only (a no-op
         // skip when the strip is disabled — byte-identical to the pre-strip snapshot).
-        for cells in ws.input_scratch.cells.iter().skip(strip_rows) {
+        let txt_end = ws.input_scratch.cells.len().saturating_sub(hud_rows);
+        for cells in ws.input_scratch.cells[strip_rows..txt_end].iter() {
             accessibility::push_visible_row(&mut text, cells, cols);
         }
         let _ = snapshot_path::write_private(std::path::Path::new(&path), &frame.to_png());
@@ -119,6 +130,13 @@ impl App {
         // WYSIWYG: splice the tab strip above the terminal grid so the `image` verb
         // matches the glass (a no-op when the strip is disabled). Before the borrow.
         self.splice_tab_strip(front);
+        // Sample the interval-driven panels here too: headless has no window tick,
+        // so this is what makes CPU/net/app-fed live in `image`/`snapshot` output.
+        let hud_now = Instant::now();
+        for p in &mut self.panels {
+            p.poll(hud_now);
+        }
+        self.splice_hud_bar(front);
         // Disjoint borrows: `self.backend` (renderer), the introspection GPU
         // scratch, and the front window's input_scratch are separate fields.
         let App {
@@ -130,7 +148,17 @@ impl App {
         let Some(ws) = windows.get_mut(&front) else {
             return (0, 0);
         };
+        // Time the rasterization so the `metrics` verb reports a real
+        // `last_frame_render_ms` in HEADLESS mode too. On-screen frames are timed in
+        // `redraw_window`; without this, headless (no OS surface → no
+        // RedrawRequested → no `record_present`) leaves every counter frozen at 0,
+        // so a perf audit driven over the control socket could measure nothing.
+        // Present latency is recorded as 0 — honest: the `image` verb rasterizes to
+        // a buffer, it does not present on glass.
+        let render_t0 = Instant::now();
         let mut frame = backend.render_input(introspect_gpu, &ws.input_scratch);
+        let render_ns = render_t0.elapsed().as_nanos() as u64;
+        crate::metrics::record_present(0, render_ns);
         // I-2: match the on-screen visual-bell invert (see `snapshot`) so the
         // `image` verb is WYSIWYG even during a bell flash.
         apply_bell_invert(&mut frame, ws.bell_flash.is_active(Instant::now()));
@@ -144,7 +172,14 @@ impl App {
         // the directory between threads; we DO close the intermediate-dir
         // symlink-swap window by never re-resolving a multi-segment path string.)
         let _ = snapshot_path::write_private_at(&target.dir, &target.file_name, &frame.to_png());
-        (frame.width as u32, frame.height as u32)
+        let (w, h) = (frame.width as u32, frame.height as u32);
+        // Feed the frame-coupled panels (Perf) AFTER the disjoint-field borrows above
+        // end (the destructure held `windows`/`backend`; `self.panels` is separate).
+        let hud_now = Instant::now();
+        for p in &mut self.panels {
+            p.on_present(render_ns, 0, hud_now);
+        }
+        (w, h)
     }
 
     /// Read the frontmost window's NATIVE macOS chrome — the window's `NSToolbar`

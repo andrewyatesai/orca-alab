@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+
+[package]
+name = "aterm-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "aterm L2 — agent interface: turn-completion (idle ∧ prompt-ready) and the self-reflection feedback governor, composed over the L0/L0.5 observation predicates"
+
+[lints]
+workspace = true
+
+# The AI-friendly drive CLI (the "sugar" interface over the core `await`/`send`
+# primitives). The library is the reusable Turn/SelfGovernor API.
+[[bin]]
+name = "aterm-drive"
+path = "src/bin/aterm-drive.rs"
+
+[dependencies]
+# Predicate constructors (idle/seq/block/row-match). Agent knowledge lives HERE;
+# the engine core knows nothing of "a turn" or "a Claude prompt".
+aterm-observe = { workspace = true }
+
+[dev-dependencies]
+web-time = { workspace = true }

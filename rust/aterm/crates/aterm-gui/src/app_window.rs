@@ -226,10 +226,12 @@ impl App {
         // actually feeds it the host value at startup. Live OS toggles are handled by
         // `WindowEvent::ThemeChanged`. `None` (indeterminate OS) maps to the engine's
         // own `Dark` default, so this is a no-op there.
-        self.apply_os_color_scheme(
-            wid,
-            crate::app_colorscheme::theme_to_appearance(window.theme()),
-        );
+        let os_appearance = crate::app_colorscheme::theme_to_appearance(window.theme());
+        self.apply_os_color_scheme(wid, os_appearance);
+        // Also switch aterm's OWN rendered theme to the matching side of a
+        // `dark:…,light:…` split `theme` config (a no-op for a single theme, or when
+        // the OS appearance equals the engine default already in effect).
+        self.sync_app_theme_to_appearance(os_appearance);
         // HiDPI / Retina auto-scale. aterm rasterizes glyphs at `font_px` PHYSICAL
         // pixels and works in physical units throughout, so on a 2× Retina display
         // the built-in 13 px default renders at ~6.5 LOGICAL points — crisp but tiny.

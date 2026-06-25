@@ -87,6 +87,8 @@ mod control_media;
 // `super::image_payload`, which now resolves to this sibling module's serializer.
 pub(crate) use control_media::image_payload;
 
+#[path = "control_app_fed.rs"]
+mod control_app_fed;
 /// Session-graph + capability-authority verbs (`sessions`/`family`/`ready`/
 /// `cast`/`edges`/`grant`/`revoke`/`whoami`). Child module of `control`;
 /// dispatched as `control_session::cmd_*` from [`handle`]. The file lives flat at
@@ -177,7 +179,7 @@ fn required_op(verb: &str) -> Option<Op> {
         "text" | "screen" | "cursor" | "cell" | "search" | "dims" | "lines" | "line" | "modes"
         | "title" | "cwd" | "blocks" | "blocktext" | "wait" | "colors" | "selection" | "copy"
         | "scroll" | "select" | "image" | "window" | "chrome" | "cast" | "subscribe" | "edges"
-        | "grants" | "family" | "ready" | "metrics" => Some(Op::ReadScreen),
+        | "grants" | "family" | "ready" | "await" | "metrics" => Some(Op::ReadScreen),
         // write-side: bytes/geometry the driven PROGRAM observes. `feed-bin` is the
         // length-prefixed binary twin of `feed`; the local path intercepts it via
         // `is_feed_bin_line` before this table is consulted, but the cross-process
@@ -185,7 +187,7 @@ fn required_op(verb: &str) -> Option<Op> {
         // the front window's tabs, mutating `App` on the event loop), so it is classed
         // with the other write verbs rather than the read-side observers.
         "send" | "key" | "ctrl" | "feed" | "feed-bin" | "mouse" | "paste" | "resize" | "focus"
-        | "tab" => Some(Op::WriteInput),
+        | "tab" | "metric" => Some(Op::WriteInput),
         // out-of-band signal, its own class
         "signal" => Some(Op::Signal),
         // grant/revoke/whoami => Owner-only (gate catch-all); unknown => default-deny
@@ -594,7 +596,18 @@ fn serve(
             // follows tab switches.
             let (term, master, sid, ctx) = resolve_active(active);
             let resp = handle(
-                &verb, &term, master, sid, &ctx, store, scope, proxy, queue, cell_size, sock_dir,
+                &verb,
+                &term,
+                master,
+                sid,
+                &ctx,
+                store,
+                scope,
+                proxy,
+                queue,
+                cell_size,
+                sock_dir,
+                subscribers,
             );
             if writer.write_all(resp.as_bytes()).is_err() {
                 return;
@@ -629,7 +642,18 @@ fn serve(
         }
         let (term, master, sid, ctx) = resolve_active(active);
         let resp = handle(
-            &line, &term, master, sid, &ctx, store, scope, proxy, queue, cell_size, sock_dir,
+            &line,
+            &term,
+            master,
+            sid,
+            &ctx,
+            store,
+            scope,
+            proxy,
+            queue,
+            cell_size,
+            sock_dir,
+            subscribers,
         );
         // A dead client (broken pipe) must not crash the app — just drop it.
         if writer.write_all(resp.as_bytes()).is_err() {
@@ -807,6 +831,19 @@ fn run_feed_bin<W: Write>(
             "no authorizing edge for feed-bin",
         );
         let _ = writer.write_all(b"ERR denied\n");
+        let _ = writer.flush();
+        return true;
+    }
+
+    // D3 self-feed floor: `feed-bin` reaches the PTY HERE — it is intercepted in
+    // `serve` BEFORE `handle()`, so it bypasses the verb-dispatch floor. Apply the
+    // SAME per-session injection bucket on the SELF path so a raw client cannot
+    // drive a feedback storm via `feed-bin` (the cross path is gated by the edge
+    // above, and targets a different session anyway).
+    if matches!(&selector, None | Some(Selector::SelfTok))
+        && !crate::inject_floor::allow(self_session, payload.len().max(1))
+    {
+        let _ = writer.write_all(b"ERR rate (self-feed floor)\n");
         let _ = writer.flush();
         return true;
     }
@@ -1247,6 +1284,7 @@ fn handle(
     queue: &ImageQueue,
     cell_size: (u32, u32),
     sock_dir: &std::path::Path,
+    subscribers: &Subscribers,
 ) -> String {
     // Tolerate CRLF clients; the protocol itself is bare-LF terminated.
     let line = line.strip_suffix('\r').unwrap_or(line);
@@ -1385,6 +1423,22 @@ fn handle(
         }
     }
 
+    // D3: the un-bypassable SELF-FEED FLOOR. Every self-targeted input-injection
+    // verb passes a per-session token bucket FIRST, so a raw client cannot drive
+    // an output->observe->write feedback storm by looping `feed @.` (the L2
+    // `SelfGovernor` only binds drivers that link `aterm-agent`; this floor binds
+    // everyone). Generous cap; legitimate driving never trips it. The floor scopes
+    // to SELF: a cross-session write targets a DIFFERENT session (so it cannot
+    // self-loop) and is separately authority-gated by that session's edge token.
+    // `feed-bin` is NOT listed here — it is intercepted before this dispatch and
+    // passes the SAME floor in `run_feed_bin`.
+    if !is_cross && matches!(verb, "send" | "key" | "ctrl" | "feed" | "mouse" | "paste") {
+        let nbytes = rest.len().max(1);
+        if !crate::inject_floor::allow(self_session, nbytes) {
+            return "ERR rate (self-feed floor)\n".to_string();
+        }
+    }
+
     match verb {
         "text" => control_query::cmd_text(term),
         // The LOSSLESS styled-screen read (keystone): full per-cell colour +
@@ -1406,9 +1460,15 @@ fn handle(
         // the `scope` guard mirrors the `sessions` verb's Owner gate.
         "family" => control_session::cmd_family(ctx, store, scope, rest),
         // `ready [timeout_ms]`: block until the target is Alive AND idle (at an
-        // OSC-133 prompt, or no in-flight command), so an agent can chain sessions
-        // without polling. Read-side (observes lifecycle/blocks), like `wait`.
-        "ready" => control_session::cmd_ready(term, store, session, rest),
+        // OSC-133 prompt, or the kernel idle-settle window), so an agent can chain
+        // sessions without busy-polling. Read-side (observes lifecycle/blocks).
+        "ready" => control_session::cmd_ready(term, store, session, rest, subscribers),
+        // `await <idle|seq|match|block>`: block until the Observation Kernel (L0)
+        // latches the predicate. The event-driven, no-silent-loss successor to the
+        // OSC-133-only `ready`/`wait`; works for alt-screen agent TUIs (Claude).
+        // Registers a subscriber so it wakes on output (content predicates) AND at
+        // the idle deadline — no fixed-interval poll.
+        "await" => control_session::cmd_await(term, store, session, rest, subscribers),
         "send" => control_input::cmd_send(&ctx.sink, rest),
         // Phase 0.5: the SELF (active-tab) path funnels `key`/`ctrl`/`mouse`/`paste`/
         // `focus`/`resize`/`scroll` through the source-blind `App::input` seam on the
@@ -1509,6 +1569,9 @@ fn handle(
         // grid supplies rows/cols). Lets a driving AI MEASURE responsiveness directly
         // rather than scraping the $ATERM_TRACE_LATENCY stderr log. Read-side.
         "metrics" => control_query::cmd_metrics(term, rest),
+        // `metric <name> <value>` -> push an app-fed sample (AI token spend, build
+        // progress, …) shown by the app-fed HUD panel. Write-class.
+        "metric" => control_app_fed::cmd_metric(rest),
         "lines" => control_query::cmd_lines(term),
         "line" => control_query::cmd_line(term, rest),
         "modes" => control_query::cmd_modes(term),
@@ -3000,6 +3063,7 @@ mod tests {
         // binary twin of `feed`, classified here for the cross-process forward).
         for v in [
             "send", "key", "ctrl", "feed", "feed-bin", "mouse", "paste", "resize", "focus",
+            "metric",
         ] {
             assert_eq!(required_op(v), Some(Op::WriteInput), "{v} write");
         }
@@ -4765,7 +4829,7 @@ mod tests {
         // A fresh prompt (OSC 133 A) -> PromptOnly -> ready immediately.
         term.lock().unwrap().process(b"\x1b]133;A\x07$ ");
         assert_eq!(
-            cmd_ready(term, &store, 0, "2000"),
+            cmd_ready(term, &store, 0, "2000", &subscribe::new_registry()),
             "OK ready prompt\n",
             "fresh prompt is ready"
         );
@@ -4775,7 +4839,7 @@ mod tests {
             .unwrap()
             .process(b"\x1b]133;B\x07sleep\n\x1b]133;C\x07");
         assert_eq!(
-            cmd_ready(term, &store, 0, "0"),
+            cmd_ready(term, &store, 0, "0", &subscribe::new_registry()),
             "OK timeout\n",
             "executing is not ready"
         );
@@ -4783,7 +4847,7 @@ mod tests {
         // The command completes -> Complete -> ready again (prompt-end).
         term.lock().unwrap().process(b"\x1b]133;D;0\x07");
         assert_eq!(
-            cmd_ready(term, &store, 0, "2000"),
+            cmd_ready(term, &store, 0, "2000", &subscribe::new_registry()),
             "OK ready prompt\n",
             "completed is ready"
         );
@@ -4794,7 +4858,7 @@ mod tests {
             .unwrap()
             .set_state(0, session_store::SessionState::Exited);
         assert_eq!(
-            cmd_ready(term, &store, 0, "2000"),
+            cmd_ready(term, &store, 0, "2000", &subscribe::new_registry()),
             "ERR exited\n",
             "exited fails closed"
         );
@@ -4810,7 +4874,7 @@ mod tests {
         store.write().unwrap().register(h.clone());
         // No OSC-133 at all: the settle heuristic fires (content_seq holds steady).
         assert_eq!(
-            cmd_ready(&h.term, &store, 0, "2000"),
+            cmd_ready(&h.term, &store, 0, "2000", &subscribe::new_registry()),
             "OK ready idle\n",
             "idle plain shell"
         );

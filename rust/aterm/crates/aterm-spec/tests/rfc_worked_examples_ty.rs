@@ -176,6 +176,36 @@ fn mark_row_origin_model() -> Model {
     }
 }
 
+/// Bug 7 — char→glyph CMAP FIDELITY (the `·`→`∑`, `é`→`È` regression). A cell
+/// stores a Unicode scalar; the renderer must rasterize the font's UNICODE-cmap
+/// glyph for it, NEVER a glyph from a legacy `(1,0)` Mac Roman subtable. fontdue
+/// prefers Mac Roman on Apple `.ttc` faces (Menlo/Monaco), where byte 0xB7 is `∑`
+/// and 0xE9 is `È`, so the whole Latin-1 block was mis-mapped. `gid` is the glyph
+/// the renderer will rasterize, initialized to the faithful Unicode glyph
+/// (`Unicode` = 1). A `Resolve` models selecting the cmap subtable: at `Buggy = 0`
+/// it keeps the Unicode glyph; at `Buggy = 1` it substitutes the DIFFERENT Mac
+/// Roman glyph (`MacRoman` = 2) — exactly the shipped defect. `ty` proves
+/// `Faithful` (Buggy=0) and catches the substitution (Buggy=1). No multiplication.
+fn glyph_fidelity_model() -> Model {
+    ty_model! {
+        GlyphFidelity {
+            const Unicode = 1;
+            const MacRoman = 2;
+            const Buggy = 0;
+            // The glyph id the renderer will rasterize for the cell's scalar,
+            // initialized to the faithful Unicode-cmap glyph.
+            var gid = 1;
+            // Resolve the scalar through a cmap subtable. Correct: keep the Unicode
+            // glyph. Buggy: substitute the Mac Roman glyph (the `·` -> `∑` defect).
+            action Resolve {
+                gid = if Buggy == 1 { MacRoman } else { Unicode };
+            }
+            // Every rasterized glyph is the font's Unicode glyph for the scalar.
+            invariant Faithful: gid == Unicode;
+        }
+    }
+}
+
 #[test]
 fn rfc_atlas_pack_proves_and_catches_overflow() {
     let ty = ty("RFC AtlasPack (Bug 3) spec");
@@ -192,4 +222,10 @@ fn rfc_reload_frame_proves_and_catches_font_shrink() {
 fn rfc_mark_row_origin_proves_and_catches_y_divergence() {
     let ty = ty("RFC MarkRowOrigin (Bug 6) spec");
     assert_proves_and_catches(&ty, &mark_row_origin_model());
+}
+
+#[test]
+fn rfc_glyph_fidelity_proves_and_catches_mac_roman_substitution() {
+    let ty = ty("RFC GlyphFidelity (Bug 7) spec");
+    assert_proves_and_catches(&ty, &glyph_fidelity_model());
 }

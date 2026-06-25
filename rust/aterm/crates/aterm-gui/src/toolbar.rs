@@ -75,36 +75,280 @@
 #[cfg(target_os = "macos")]
 pub use macos::{ToolbarHandle, install_window_toolbar, read_tab_chrome, set_window_tabs};
 
-/// Non-macOS no-op handle: there is no platform toolbar off macOS. Held by `App` in
-/// the same field on every target so the struct shape is platform-independent
-/// (mirrors `menu::MenuHandle`).
 #[cfg(not(target_os = "macos"))]
-pub type ToolbarHandle = ();
+pub use non_macos::{ToolbarHandle, install_window_toolbar, read_tab_chrome, set_window_tabs};
 
-/// Non-macOS stub: no platform toolbar exists off macOS, so installing one is a
-/// no-op that installs nothing (`None`). Returns `Option<ToolbarHandle>` so the
-/// `attach_os_window` call site is identical on every target.
+/// Format the toolbar tab-switcher introspection line for `titles` (one label per
+/// tab) with the 0-based `active` index selected, or `None` when there is no strip
+/// to report (≤1 tab — a single-tab window shows no switcher, mirroring the macOS
+/// strip's hide-when-≤1 rule). The line matches the macOS [`read_tab_chrome`]
+/// format EXACTLY — `toolbar-tabs count=<n> selected=<i> labels=[...]` — so a
+/// driving AI reads one stable shape on every platform. `active` is clamped into
+/// range so an out-of-bounds index never produces a bogus `selected`.
+///
+/// PURE: no I/O, no AppKit/winit — just string formatting from the tab model, so it
+/// is unit-tested directly (see the `non_macos_tests` module). The macOS strip
+/// computes the per-tab "title  ⌘N" label inside its `NSView` build; here the labels
+/// are the raw session titles the caller passes (a full GTK4 header bar would render
+/// the same ⌘-hint decoration, deferred — see [`install_window_toolbar`]).
+///
+/// `allow(dead_code)`: this feeds [`read_tab_chrome`], whose only consumer is the
+/// `chrome` verb's introspection path (`App::read_native_chrome`). That verb's
+/// non-macOS arm — which lives in `app_introspect.rs`, OUTSIDE this toolbar/platform
+/// seam — does not yet surface this line, so on Linux the formatter is reachable but
+/// currently uncalled. Wiring it in is the documented next step (it is the macOS
+/// `read_native_chrome` arm's `read_toolbar_chrome` call, mirrored for Linux). The
+/// unit tests below DO exercise it, so the logic is verified regardless.
 #[cfg(not(target_os = "macos"))]
-pub fn install_window_toolbar(
-    _window: &winit::window::Window,
-    _proxy: &winit::event_loop::EventLoopProxy<crate::Wake>,
-    _wid: crate::WindowId,
-) -> Option<ToolbarHandle> {
-    None
+#[allow(dead_code)]
+#[must_use]
+pub fn format_tab_chrome(titles: &[String], active: usize) -> Option<String> {
+    let count = titles.len();
+    if count <= 1 {
+        // ≤1 tab: no switcher chrome, exactly like the hidden macOS strip.
+        return None;
+    }
+    let selected = active.min(count - 1) as isize;
+    Some(format!(
+        "toolbar-tabs count={count} selected={selected} labels={titles:?}"
+    ))
 }
 
-/// Non-macOS stub: there is no native tab segmented control off macOS, so syncing
-/// it is a no-op. Same signature as the macOS version so `App::refresh_window_tabs`
-/// is platform-independent.
+/// Compute the window TITLE a tab-aware header bar would show for `titles` with the
+/// 0-based `active` index selected: the active tab's own title, with a ` — [i/n]`
+/// position suffix when there is more than one tab (so the tab state is legible in
+/// the window chrome even before a real tab strip exists). `None` when there is
+/// nothing to title (no tabs) or only the bare single tab carries no extra suffix —
+/// returns `Some(title)` with no counter so a one-tab window reads cleanly.
+///
+/// PURE: pure string assembly from the tab model, unit-tested below. The Linux
+/// toolbar uses this in [`install_window_toolbar`] to seed the winit window title
+/// from the initial tab set; live per-tab title updates continue to flow through the
+/// cross-platform `App::apply_title` path (which owns `window.set_title` every
+/// frame), so this helper never fights that owner — it only provides the seam's view
+/// of what the active tab's title is.
 #[cfg(not(target_os = "macos"))]
-pub fn set_window_tabs(_handle: &ToolbarHandle, _titles: &[String], _active: usize) {}
+#[must_use]
+pub fn format_window_title(titles: &[String], active: usize) -> Option<String> {
+    let n = titles.len();
+    if n == 0 {
+        return None;
+    }
+    let i = active.min(n - 1);
+    let base = titles[i].trim();
+    let base = if base.is_empty() { "aterm" } else { base };
+    if n == 1 {
+        Some(base.to_string())
+    } else {
+        Some(format!("{base} — [{}/{n}]", i + 1))
+    }
+}
 
-/// Non-macOS stub: no native tab switcher off macOS, so there is nothing to
-/// introspect. Same signature as the macOS version so the `chrome` verb's
-/// `read_native_chrome` is platform-independent.
+/// The non-macOS toolbar seam: a REAL in-memory tab-chrome model (no GTK system
+/// libraries required — see the deferred-work note on [`install_window_toolbar`]).
+///
+/// Off macOS aterm has no native `NSToolbar`; a full Linux equivalent is a GTK4
+/// `GtkHeaderBar` (or a Wayland client-side-decoration tab strip), which needs the
+/// gtk4/glib system development libraries that are NOT present on every host. Rather
+/// than a dead `()` no-op, this module keeps the seam HONEST: it maintains the same
+/// tab-chrome state the macOS strip does (titles + active index), reflects the
+/// initial active tab into the winit window title, and serves the `chrome` verb's
+/// introspection line from that live model. So [`set_window_tabs`] and
+/// [`read_tab_chrome`] are real call sites with observable effect, not silent
+/// dead-ends — the seam is ready for a real header bar to slot in behind it.
 #[cfg(not(target_os = "macos"))]
-pub fn read_tab_chrome(_handle: &ToolbarHandle) -> Option<String> {
-    None
+mod non_macos {
+    use std::cell::RefCell;
+
+    use winit::event_loop::EventLoopProxy;
+    use winit::window::Window;
+
+    use super::{format_tab_chrome, format_window_title};
+    use crate::{Wake, WindowId};
+
+    /// The live tab-chrome model for one window: the per-tab titles (in tab order)
+    /// and the 0-based active index. The single source of truth the (future) header
+    /// bar would render and that [`read_tab_chrome`] introspects — the Linux analogue
+    /// of the macOS handle's retained `Vec<TabView>` + active flag.
+    #[derive(Default)]
+    pub(super) struct TabChrome {
+        /// One label per tab, in tab order — the raw session titles the caller syncs.
+        titles: Vec<String>,
+        /// The 0-based index of the active tab (clamped into range on read/format).
+        active: usize,
+    }
+
+    /// What [`install_window_toolbar`] returns off macOS: a REAL handle wrapping the
+    /// interior-mutable [`TabChrome`] model (so [`set_window_tabs`] can update it
+    /// through the shared `&self` the seam hands out, exactly like the macOS handle's
+    /// `RefCell<Vec<TabView>>`) plus the window's [`WindowId`] and the `Wake` proxy
+    /// the future header bar's affordances would relay through. `App` keeps it in its
+    /// `_toolbars` map for the window's life, identical to the macOS path.
+    pub struct ToolbarHandle {
+        /// The live tab-chrome model — updated by [`set_window_tabs`], read by
+        /// [`read_tab_chrome`]. `RefCell` because the seam exposes only `&self`.
+        chrome: RefCell<TabChrome>,
+        /// The window this chrome belongs to, kept so a future header bar addresses
+        /// the RIGHT window's tab affordances (the macOS handle holds it for the same
+        /// reason). Not yet read on Linux — there is no native control to drive — so
+        /// allow it to be dead until the GTK4 header bar lands.
+        #[allow(dead_code)]
+        window: WindowId,
+        /// The `Wake` channel a future header bar's tab clicks / "+" button would
+        /// relay through (select / close / new-tab), mirroring the macOS handle's
+        /// retained targets. Held now so the seam already owns everything a real
+        /// control needs; unused until that control exists.
+        #[allow(dead_code)]
+        proxy: EventLoopProxy<Wake>,
+    }
+
+    /// Install the non-macOS window "toolbar": there is no native control to attach,
+    /// so this builds the in-memory [`ToolbarHandle`] model and seeds the winit
+    /// window title from the (initially single-tab) state via the pure
+    /// [`format_window_title`]. The strip starts empty; the caller's first
+    /// `App::sync_window` calls [`set_window_tabs`] to populate it.
+    ///
+    /// DEFERRED — a full native Linux toolbar: this is where a real
+    /// `gtk4::HeaderBar` (or a Wayland client-side-decoration tab strip) would be
+    /// constructed and attached — packing one tab widget per title, a trailing "+"
+    /// New Tab button relaying `Wake::MenuAction { NewTab }`, and per-tab close/select
+    /// gestures relaying `Wake::CloseTab` / `Wake::SelectTab` (exactly the macOS
+    /// `toolbar.rs` dispatch). That requires the **gtk4 + glib system development
+    /// libraries** (`libgtk-4-dev` / `gtk4` pkg-config) and a `gtk4`/`glib` crate
+    /// dependency, NONE of which are available on the macOS build host — so it is
+    /// intentionally NOT built here. The seam (this handle + model) is the buildable
+    /// scaffolding that header bar slots behind without touching `App`.
+    pub fn install_window_toolbar(
+        window: &Window,
+        proxy: &EventLoopProxy<Wake>,
+        wid: WindowId,
+    ) -> Option<ToolbarHandle> {
+        // Seed the title from the initial (empty) model. A fresh window has no synced
+        // tabs yet, so `format_window_title` yields `None` and we fall back to the
+        // bare app name — a sensible title before the first `set_window_tabs`. Live
+        // per-tab updates are then owned by `App::apply_title`.
+        let title = format_window_title(&[], 0).unwrap_or_else(|| "aterm".to_string());
+        window.set_title(&title);
+        Some(ToolbarHandle {
+            chrome: RefCell::new(TabChrome::default()),
+            window: wid,
+            proxy: proxy.clone(),
+        })
+    }
+
+    /// Re-sync the non-macOS tab-chrome model to the current app tab state: store
+    /// `titles` + the 0-based `active` index in the handle's [`TabChrome`]. This is
+    /// the real Linux analogue of the macOS strip rebuild — it keeps the seam's model
+    /// in lock-step with `App`'s tabs, so [`read_tab_chrome`] always reports the live
+    /// set. A future header bar would, in addition, re-pack its tab widgets here.
+    ///
+    /// NB: this does NOT call `window.set_title` — the handle holds no `&Window` (the
+    /// seam passes only `&self`), and the cross-platform `App::apply_title` path
+    /// already owns the live title every frame, so re-titling here would double-write
+    /// it. The model update IS the observable effect.
+    pub fn set_window_tabs(handle: &ToolbarHandle, titles: &[String], active: usize) {
+        let mut chrome = handle.chrome.borrow_mut();
+        chrome.titles.clear();
+        chrome.titles.extend_from_slice(titles);
+        chrome.active = active;
+    }
+
+    /// Read the non-macOS tab-switcher introspection line from the live model via the
+    /// pure [`format_tab_chrome`]: `toolbar-tabs count=<n> selected=<i> labels=[...]`
+    /// at 2+ tabs, `None` at ≤1 (mirroring the macOS hide-when-≤1 strip). Off the
+    /// macOS path the `chrome` verb's non-macOS arm does not yet surface this line
+    /// (that wiring lives in `app_introspect.rs`, OUTSIDE this seam — the documented
+    /// next step is to mirror the macOS `read_native_chrome` arm's
+    /// `apprt.read_toolbar_chrome` call for Linux), but the model is real and the
+    /// reader is exercised by the unit tests below.
+    ///
+    /// `allow(dead_code)`: reachable through [`super::ToolbarHandle`] /
+    /// `AppRt::read_toolbar_chrome` but, as noted, not yet called on Linux — same
+    /// uncalled-on-Linux status the original `()`-handle stub had, now backed by a
+    /// real model instead of an unconditional `None`.
+    #[allow(dead_code)]
+    #[must_use]
+    pub fn read_tab_chrome(handle: &ToolbarHandle) -> Option<String> {
+        let chrome = handle.chrome.borrow();
+        format_tab_chrome(&chrome.titles, chrome.active)
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod non_macos_tests {
+    use super::{format_tab_chrome, format_window_title};
+
+    /// ≤1 tab reports NO switcher chrome (the hide-when-≤1 rule), matching the macOS
+    /// strip that hides at a single tab.
+    #[test]
+    fn chrome_hidden_at_one_or_zero_tabs() {
+        assert_eq!(format_tab_chrome(&[], 0), None);
+        assert_eq!(format_tab_chrome(&["zsh".to_string()], 0), None);
+    }
+
+    /// 2+ tabs report the count / selected / labels line in the EXACT macOS shape, so
+    /// the introspection output is platform-stable.
+    #[test]
+    fn chrome_line_matches_macos_shape() {
+        let titles = vec!["zsh".to_string(), "vim".to_string(), "htop".to_string()];
+        assert_eq!(
+            format_tab_chrome(&titles, 1).as_deref(),
+            Some(r#"toolbar-tabs count=3 selected=1 labels=["zsh", "vim", "htop"]"#)
+        );
+    }
+
+    /// An out-of-range active index is clamped to the last tab rather than producing a
+    /// bogus `selected` (defensive — a stale index never escapes the formatter).
+    #[test]
+    fn chrome_clamps_out_of_range_active() {
+        let titles = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(
+            format_tab_chrome(&titles, 9).as_deref(),
+            Some(r#"toolbar-tabs count=2 selected=1 labels=["a", "b"]"#)
+        );
+    }
+
+    /// A single tab titles the window with JUST the active title (no `[i/n]`
+    /// counter), so a one-tab window reads cleanly.
+    #[test]
+    fn title_single_tab_has_no_counter() {
+        assert_eq!(
+            format_window_title(&["vim".to_string()], 0).as_deref(),
+            Some("vim")
+        );
+    }
+
+    /// 2+ tabs append the ` — [i/n]` position suffix from the ACTIVE index (1-based
+    /// in the display), so the tab state is legible in the window chrome.
+    #[test]
+    fn title_multi_tab_has_position_counter() {
+        let titles = vec!["zsh".to_string(), "vim".to_string(), "htop".to_string()];
+        assert_eq!(
+            format_window_title(&titles, 2).as_deref(),
+            Some("htop — [3/3]")
+        );
+    }
+
+    /// An empty active title falls back to "aterm" (never a blank titlebar), and the
+    /// out-of-range index is clamped like the chrome line.
+    #[test]
+    fn title_blank_falls_back_and_clamps() {
+        assert_eq!(
+            format_window_title(&["   ".to_string()], 0).as_deref(),
+            Some("aterm")
+        );
+        let titles = vec!["a".to_string(), "b".to_string()];
+        assert_eq!(
+            format_window_title(&titles, 99).as_deref(),
+            Some("b — [2/2]")
+        );
+    }
+
+    /// No tabs at all yields no title (the install seed then defaults to "aterm").
+    #[test]
+    fn title_no_tabs_is_none() {
+        assert_eq!(format_window_title(&[], 0), None);
+    }
 }
 
 #[cfg(target_os = "macos")]

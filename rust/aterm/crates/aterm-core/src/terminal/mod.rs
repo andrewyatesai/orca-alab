@@ -52,6 +52,9 @@ mod kitty_placeholder;
 pub mod mouse;
 #[cfg(not(test))]
 mod mouse;
+/// The Observation Kernel (L0): event-driven `await`/quiescence primitive over
+/// `content_seq`. Ephemeral, surface-non-mutating, checkpoint-excluded.
+mod observe;
 mod policy_bridge;
 mod processing;
 mod render_cells;
@@ -100,15 +103,19 @@ use transient_state::{TransientState, Vt52CursorState};
 pub(crate) use aterm_types::charset::CharacterSetState;
 pub use aterm_types::{ColorPalette, Rgb};
 pub use aterm_types::{KittyKeyboardFlags, KittyKeyboardState};
+pub use blocks_api::BlockText;
 pub use builder::TerminalBuilder;
+pub use callbacks::{
+    CALLBACK_REGISTRY, CallbackCategory, CallbackInfo, SshConductorCallbackEvent,
+    TmuxCallbackEvent, callback_by_name, callback_count, callback_info,
+};
 pub use checkpoint::{GridCursorRepr, HostBindings, StyleRepr, TerminalCheckpoint};
 // The injected-clock seam, re-exported so an out-of-crate replay/lash harness
 // can feed a FIXED ClockReading and get bit-deterministic state regardless of
 // real wall-clock pacing (the determinism a faithful replay relies on).
-pub use blocks_api::BlockText;
-pub use callbacks::{
-    CALLBACK_REGISTRY, CallbackCategory, CallbackInfo, SshConductorCallbackEvent,
-    TmuxCallbackEvent, callback_by_name, callback_count, callback_info,
+pub use observe::{
+    RowMatch, RowRange, Satisfaction, SurfaceSource, WatchId, WatcherSet, WatcherSpec,
+    first_matching_row,
 };
 pub use processing::ClockReading;
 pub use shell::{

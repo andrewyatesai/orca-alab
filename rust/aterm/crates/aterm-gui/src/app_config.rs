@@ -15,7 +15,7 @@ use crate::input::{InputEvent, Source};
 use crate::platform::AppRt;
 use crate::{
     App, Backend, FONT_PX, FONT_PX_MAX, FONT_PX_MIN, PresentTarget, WindowId, build_backend,
-    keybinding, pad_for_scale, term_lock,
+    hud_bar, keybinding, pad_for_scale, term_lock,
 };
 
 /// User config file (`$XDG_CONFIG_HOME/aterm/aterm.toml`, else
@@ -24,7 +24,7 @@ use crate::{
 /// built-in default, so existing `ATERM_*` usage and `-e`/`-d` flags still win.
 /// v1 exposes the settings that were previously env-only; it will grow to mirror
 /// the engine's `TerminalConfig` (colours, cursor, scrollback) as themes land.
-#[derive(Default, serde::Deserialize)]
+#[derive(Default, Clone, serde::Deserialize)]
 #[serde(default)]
 pub(crate) struct Config {
     /// Glyph size in physical px (like `$ATERM_FONT_PX`).
@@ -54,6 +54,12 @@ pub(crate) struct Config {
     /// full ANSI 0–15 palette. The individual `foreground`/`background`/`cursor_color`/
     /// `selection_color`/`palette` keys still layer ON TOP (last-wins). An unknown
     /// name warns and falls back to the built-in default. See [`aterm_types::scheme`].
+    ///
+    /// AUTO LIGHT/DARK SPLIT: `theme = "dark:<name>,light:<name>"` follows the live
+    /// OS appearance — aterm switches schemes when the desktop toggles light↔dark
+    /// (the same `winit` signal that drives [`crate::app_colorscheme`]). A plain
+    /// `theme = "<name>"` is used for BOTH appearances. A split that omits one side
+    /// uses the built-in Default for that side. See [`Self::resolve_theme_name`].
     pub(crate) theme: Option<String>,
     /// Initial window width in columns (default 80, clamped 20..=500).
     pub(crate) columns: Option<u16>,
@@ -89,6 +95,17 @@ pub(crate) struct Config {
     /// selection is left highlighted either way, so Cmd-C still works. See
     /// [`Config::copy_on_select_or_default`].
     pub(crate) copy_on_select: Option<bool>,
+    /// Show the bottom PERFORMANCE HUD (streaming fps/latency/sparkline). Default
+    /// OFF. Also toggleable live via View ▸ Show Performance HUD. See
+    /// [`Config::show_perf_hud_or_default`].
+    pub(crate) show_perf_hud: Option<bool>,
+    /// Show the system-load HUD panel (CPU load + memory). Default OFF.
+    pub(crate) show_sysload_hud: Option<bool>,
+    /// Show the network HUD panel (whole-machine rx/tx rate). Default OFF.
+    pub(crate) show_network_hud: Option<bool>,
+    /// Show the app-fed HUD panel (process-reported metrics, e.g. AI token spend).
+    /// Default OFF.
+    pub(crate) show_appfed_hud: Option<bool>,
     /// User keyboard shortcuts: a `[keybindings]` table mapping chord strings
     /// (`"cmd+shift+t"`) to action names (`"new_tab"`). Parsed into a
     /// `HashMap<Chord, Action>` checked first in `on_key`; a miss falls through to
@@ -154,30 +171,69 @@ pub(crate) fn resolve_tab_strip_rows(config: &Config) -> u16 {
 }
 
 impl Config {
-    /// Resolve the BASE color scheme this config selects: the named built-in `theme`
-    /// (case-insensitive), a user theme FILE of that name
-    /// (`~/.config/aterm/themes/<name>.conf` — see [`aterm_types::scheme::load`]), or
-    /// the built-in [`aterm_types::ColorScheme::default`] when no theme — or an
-    /// unresolvable / malformed one — is set. The per-key color overrides
-    /// (`foreground`/…/`palette`) are layered ON TOP of this base by the callers
-    /// ([`Self::theme`] and [`Self::terminal_config`]), so they always win.
-    fn base_scheme(&self) -> aterm_types::ColorScheme {
+    /// Resolve the scheme NAME this config selects for `appearance`, honouring the
+    /// optional OS-appearance SPLIT `theme = "dark:<name>,light:<name>"`.
+    ///
+    /// A plain value with no `dark:`/`light:` prefix is the single theme for BOTH
+    /// appearances (unchanged behavior). In the split form the segment matching
+    /// `appearance` wins; an omitted side resolves to `None` (the built-in Default).
+    /// Keys and the surrounding whitespace are case/space-insensitive; the theme
+    /// NAME keeps its original case (so `light:GitHub Light` resolves correctly).
+    pub(crate) fn resolve_theme_name(&self, appearance: aterm_types::Appearance) -> Option<String> {
+        let raw = self.theme.as_deref()?;
+        // A "split" is any comma-segment whose key (before ':') is dark|light.
+        let is_split = raw.split(',').any(|seg| {
+            seg.split_once(':').is_some_and(|(k, _)| {
+                matches!(k.trim().to_ascii_lowercase().as_str(), "dark" | "light")
+            })
+        });
+        if !is_split {
+            return Some(raw.trim().to_string());
+        }
+        let want = match appearance {
+            aterm_types::Appearance::Light => "light",
+            aterm_types::Appearance::Dark => "dark",
+        };
+        for seg in raw.split(',') {
+            if let Some((key, name)) = seg.split_once(':')
+                && key.trim().eq_ignore_ascii_case(want)
+                && !name.trim().is_empty()
+            {
+                return Some(name.trim().to_string());
+            }
+        }
+        None // split form that omits this appearance's side → built-in Default
+    }
+
+    /// Resolve the BASE color scheme this config selects for `appearance` (see
+    /// [`Self::resolve_theme_name`]): the named built-in (case-insensitive), a user
+    /// theme FILE of that name, or the built-in [`aterm_types::ColorScheme::default`]
+    /// when no theme — or an unresolvable / malformed one — is set. The per-key color
+    /// overrides (`foreground`/…/`palette`) are layered ON TOP of this base by the
+    /// callers, so they always win.
+    fn base_scheme_for(&self, appearance: aterm_types::Appearance) -> aterm_types::ColorScheme {
         // Resolves SILENTLY (unresolvable/malformed name → Default): both `theme()`
         // and `terminal_config()` call this, so warning here would double-print. The
         // single "unknown theme" diagnostic is emitted in `terminal_config`.
-        match self.theme.as_deref() {
+        match self.resolve_theme_name(appearance) {
             None => aterm_types::ColorScheme::default(),
-            Some(name) => aterm_types::scheme::load(name).unwrap_or_default(),
+            Some(name) => aterm_types::scheme::load(&name).unwrap_or_default(),
         }
     }
 
     /// The RENDERER theme (window clear colour, cursor, selection highlight). Starts
-    /// from the selected scheme's chrome ([`Self::base_scheme`]); the per-key color
+    /// from the selected scheme's chrome ([`Self::base_scheme_for`]); the per-key color
     /// keys then override individual slots (unchanged precedence) so the window CLEAR
     /// colour matches a configured `background` and `selection_color` themes the
     /// highlight.
     pub(crate) fn theme(&self) -> Theme {
-        let tp = self.base_scheme().to_theme_parts();
+        self.theme_for(aterm_types::Appearance::Dark)
+    }
+
+    /// [`Self::theme`] resolved for a specific OS `appearance` — drives the live
+    /// light↔dark scheme switch (see [`Self::resolve_theme_name`]).
+    pub(crate) fn theme_for(&self, appearance: aterm_types::Appearance) -> Theme {
+        let tp = self.base_scheme_for(appearance).to_theme_parts();
         let mut t = Theme {
             fg: tp.fg,
             bg: tp.bg,
@@ -215,6 +271,26 @@ impl Config {
     /// true` opts into the X11-style copy-on-select convenience.
     pub(crate) fn copy_on_select_or_default(&self) -> bool {
         self.copy_on_select.unwrap_or(false)
+    }
+
+    /// Whether to show the bottom performance HUD (default OFF).
+    pub(crate) fn show_perf_hud_or_default(&self) -> bool {
+        self.show_perf_hud.unwrap_or(false)
+    }
+
+    /// Whether to show the system-load HUD panel (default OFF).
+    pub(crate) fn show_sysload_hud_or_default(&self) -> bool {
+        self.show_sysload_hud.unwrap_or(false)
+    }
+
+    /// Whether to show the network HUD panel (default OFF).
+    pub(crate) fn show_network_hud_or_default(&self) -> bool {
+        self.show_network_hud.unwrap_or(false)
+    }
+
+    /// Whether to show the app-fed HUD panel (default OFF).
+    pub(crate) fn show_appfed_hud_or_default(&self) -> bool {
+        self.show_appfed_hud.unwrap_or(false)
     }
 
     /// Resolve the window-chrome appearance ([`WindowTheme`]) from config. The
@@ -283,7 +359,19 @@ pub(crate) fn parse_hex_color(s: &str) -> Option<Rgb> {
 impl Config {
     /// Build the engine `TerminalConfig` deltas this config implies, or `None`
     /// when nothing engine-side is set (so the GUI skips `apply_config`).
+    /// [`Self::terminal_config_for`] at the default (Dark) appearance. Test-only: the
+    /// runtime always resolves for the live OS appearance via the `_for` variant.
+    #[cfg(test)]
     pub(crate) fn terminal_config(&self) -> Option<aterm_core::config::TerminalConfig> {
+        self.terminal_config_for(aterm_types::Appearance::Dark)
+    }
+
+    /// [`Self::terminal_config`] resolved for a specific OS `appearance` — picks the
+    /// matching side of a `dark:…,light:…` split theme (see [`Self::resolve_theme_name`]).
+    pub(crate) fn terminal_config_for(
+        &self,
+        appearance: aterm_types::Appearance,
+    ) -> Option<aterm_core::config::TerminalConfig> {
         let mut tc = aterm_core::config::TerminalConfig::default();
         let mut any = false;
         if let Some(n) = self.scrollback_lines {
@@ -318,13 +406,13 @@ impl Config {
         // palette; the per-key color blocks below then override individual slots
         // (last-wins). No theme = this block is skipped, so the per-key path stays
         // byte-identical to before.
-        if let Some(name) = self.theme.as_deref() {
+        if let Some(name) = self.resolve_theme_name(appearance) {
             // Single point that warns on a theme that does not resolve to a built-in
-            // OR a parseable user theme file (base_scheme resolves silently, so this
+            // OR a parseable user theme file (base_scheme_for resolves silently, so this
             // never double-prints from theme() + here). A NotFound names the built-in
             // set + the user theme dir; a Parse error surfaces the offending line.
             if !name.eq_ignore_ascii_case("default") {
-                match aterm_types::scheme::load(name) {
+                match aterm_types::scheme::load(&name) {
                     Ok(_) => {}
                     Err(aterm_types::scheme::ThemeError::NotFound(_)) => {
                         let where_ = aterm_types::scheme::user_theme_dir()
@@ -342,11 +430,14 @@ impl Config {
                     }
                 }
             }
-            let s = self.base_scheme();
+            let s = self.base_scheme_for(appearance);
             tc.default_foreground = s.foreground;
             tc.default_background = s.background;
             if let Some(cur) = s.cursor {
                 tc.cursor_color = Some(cur);
+            }
+            if let Some(sel) = s.selection {
+                tc.selection_background = Some(sel);
             }
             tc.custom_palette = Some(s.to_color_palette());
             any = true;
@@ -369,6 +460,20 @@ impl Config {
                         any = true;
                     }
                     None => eprintln!("aterm-gui: config {key}: expected #RRGGBB, got {s:?}"),
+                }
+            }
+        }
+        // Selection highlight → engine `selection_background` (OSC-21 queryable). The
+        // renderer Theme already carries it for drawing; mirror it into the engine so a
+        // configured selection colour is also reported on query, not left as `None`.
+        if let Some(s) = &self.selection_color {
+            match parse_hex_color(s) {
+                Some(rgb) => {
+                    tc.selection_background = Some(rgb);
+                    any = true;
+                }
+                None => {
+                    eprintln!("aterm-gui: config selection_color: expected #RRGGBB, got {s:?}")
                 }
             }
         }
@@ -454,8 +559,18 @@ impl Config {
     /// cell paint exactly the colour the window clears to. `theme()` already folds in
     /// any `foreground`/`background` config, so an explicit theme is honoured too.
     pub(crate) fn applied_terminal_config(&self) -> aterm_core::config::TerminalConfig {
-        let mut tc = self.terminal_config().unwrap_or_default();
-        let theme = self.theme();
+        self.applied_terminal_config_for(aterm_types::Appearance::Dark)
+    }
+
+    /// [`Self::applied_terminal_config`] resolved for a specific OS `appearance` — the
+    /// engine config the GUI applies live when the desktop toggles light↔dark under a
+    /// `dark:…,light:…` split theme (see [`Self::resolve_theme_name`]).
+    pub(crate) fn applied_terminal_config_for(
+        &self,
+        appearance: aterm_types::Appearance,
+    ) -> aterm_core::config::TerminalConfig {
+        let mut tc = self.terminal_config_for(appearance).unwrap_or_default();
+        let theme = self.theme_for(appearance);
         let rgb = |c: u32| {
             Rgb::new(
                 ((c >> 16) & 0xff) as u8,
@@ -559,7 +674,13 @@ impl App {
         // than the strip still leaves one terminal row. With `tab_strip_rows == 0`
         // this is the original full-window grid (byte-identical).
         let win_rows = (usable_h / ch.max(1)).max(1) as u16;
-        let rows = win_rows.saturating_sub(self.tab_strip_rows).max(1);
+        // Reserve the tab strip (top) AND the performance HUD (bottom) so the
+        // terminal grid — hence the PTY/shell — never draws under either chrome band.
+        // Both are 0 by default ⇒ byte-identical full-window grid.
+        let rows = win_rows
+            .saturating_sub(self.tab_strip_rows)
+            .saturating_sub(self.hud_rows)
+            .max(1);
         // Phase 0.5: route through the seam so the window-resize and the control
         // `resize` verb share the one clamp + apply path. `echo_to_window: false`
         // is the KEY (RES-1 regression fix): the window ALREADY has this size (the
@@ -579,6 +700,54 @@ impl App {
             },
             Source::Human,
         );
+    }
+
+    /// `hud_rows` = the count of ENABLED HUD panels (each reserves one bottom row).
+    /// Kept in sync after any panel toggle / config reload.
+    pub(crate) fn recompute_hud_rows(&mut self) {
+        self.hud_rows = self.panels.iter().filter(|p| p.enabled()).count() as u16;
+    }
+
+    /// Whether the panel with `id` is currently enabled (for menu state + toggles).
+    #[must_use]
+    pub(crate) fn panel_enabled(&self, id: hud_bar::PanelId) -> bool {
+        self.panels.iter().any(|p| p.id() == id && p.enabled())
+    }
+
+    /// Toggle a HUD panel on/off, re-gridding every window so the terminal grid
+    /// releases / reclaims the panel's bottom row (the bottom analog of changing
+    /// `tab_strip_rows`). Shared by the View-menu items and config reload. No-op when
+    /// already in the requested state.
+    pub(crate) fn set_panel(&mut self, id: hud_bar::PanelId, on: bool) {
+        let changed = self.panels.iter_mut().any(|p| {
+            if p.id() == id && p.enabled() != on {
+                p.set_enabled(on);
+                true
+            } else {
+                false
+            }
+        });
+        if !changed {
+            return;
+        }
+        self.recompute_hud_rows();
+        // Re-grid each window from its own OS size (the HUD now takes/frees rows),
+        // forcing a fresh present so the band appears/disappears immediately.
+        let sized: Vec<(WindowId, PhysicalSize<u32>)> = self
+            .windows
+            .iter_mut()
+            .filter_map(|(wid, ws)| {
+                ws.last_present = None;
+                ws.next_hud_tick = None; // re-armed by about_to_wait if now on
+                ws.os_window.as_ref().map(|w| (*wid, w.inner_size()))
+            })
+            .collect();
+        for (wid, size) in sized {
+            self.on_resize(wid, size);
+            if let Some(w) = self.windows.get(&wid).and_then(|ws| ws.os_window.as_ref()) {
+                w.request_redraw();
+            }
+        }
     }
 
     /// Live font zoom (Cmd-+/Cmd--/Cmd-0): rebuild the [`Backend`] at `px`, then
@@ -787,7 +956,12 @@ impl App {
         // so a revert lands on the themed background, never spec-black. Apply to EVERY
         // live tab — window-level config, like a resize — and refresh the factory so
         // future Cmd-T tabs inherit the new config.
-        let applied_tc = config.applied_terminal_config();
+        // Retain the parsed config so a later OS light↔dark switch can re-resolve a
+        // `dark:…,light:…` split theme without re-reading disk (see
+        // `App::sync_app_theme_to_appearance`). Resolve the engine/renderer theme for
+        // the CURRENT OS appearance so a reload preserves the active light/dark side.
+        self.config = config.clone();
+        let applied_tc = config.applied_terminal_config_for(self.os_appearance);
         for s in self.pool.iter() {
             term_lock(&s.term).apply_config(&applied_tc);
         }
@@ -830,11 +1004,33 @@ impl App {
             }
         }
 
+        // HUD panels are bottom chrome: toggling any re-grids the window between the
+        // terminal and the HUD stack, exactly like the tab strip above.
+        for (id, want) in [
+            (hud_bar::PanelId::Perf, config.show_perf_hud_or_default()),
+            (
+                hud_bar::PanelId::SysLoad,
+                config.show_sysload_hud_or_default(),
+            ),
+            (
+                hud_bar::PanelId::Network,
+                config.show_network_hud_or_default(),
+            ),
+            (
+                hud_bar::PanelId::AppFed,
+                config.show_appfed_hud_or_default(),
+            ),
+        ] {
+            if want != self.panel_enabled(id) {
+                self.set_panel(id, want);
+            }
+        }
+
         // GUI-level: renderer theme (window clear colour, cursor, selection),
         // font size, and font family. Rebuild the backend ONLY when something it
         // bakes in actually changed (theme, resolved font px, or family) — a
         // metadata-only save (e.g. a comment edit) then costs nothing visible.
-        let new_theme = config.theme();
+        let new_theme = config.theme_for(self.os_appearance);
         // Re-derive the AUTO default font with the SAME HiDPI logic
         // `attach_os_window` / `on_scale_factor_changed` use, so editing an
         // unrelated key (e.g. a colour) on a Retina display does NOT shrink the
@@ -1048,5 +1244,126 @@ mod window_theme_tests {
         // Direct parser: unknown -> None (caller defaults).
         assert_eq!(WindowTheme::parse("nope"), None);
         assert_eq!(WindowTheme::parse("auto"), Some(WindowTheme::Auto));
+    }
+}
+
+#[cfg(test)]
+mod split_theme_tests {
+    use super::Config;
+    use aterm_types::Appearance;
+
+    fn cfg(toml: &str) -> Config {
+        toml::from_str(toml).expect("valid toml")
+    }
+
+    /// A plain `theme = "<name>"` (no `dark:`/`light:` prefix) resolves to the SAME
+    /// name for both appearances — unchanged behavior, even for a multi-word name.
+    #[test]
+    fn plain_theme_used_for_both_appearances() {
+        let c = cfg(r#"theme = "Tokyo Night""#);
+        assert_eq!(
+            c.resolve_theme_name(Appearance::Dark).as_deref(),
+            Some("Tokyo Night")
+        );
+        assert_eq!(
+            c.resolve_theme_name(Appearance::Light).as_deref(),
+            Some("Tokyo Night")
+        );
+        // …and the resolved renderer Theme is identical across appearances.
+        assert_eq!(
+            c.theme_for(Appearance::Dark).bg,
+            c.theme_for(Appearance::Light).bg
+        );
+    }
+
+    /// The split form picks the segment matching the OS appearance; the two sides
+    /// resolve to DIFFERENT schemes (different rendered background).
+    #[test]
+    fn split_picks_matching_side() {
+        let c = cfg(r#"theme = "dark:Dracula,light:GitHub Light""#);
+        assert_eq!(
+            c.resolve_theme_name(Appearance::Dark).as_deref(),
+            Some("Dracula")
+        );
+        assert_eq!(
+            c.resolve_theme_name(Appearance::Light).as_deref(),
+            Some("GitHub Light")
+        );
+        // End-to-end: each side equals naming that scheme directly, and they differ.
+        assert_eq!(
+            c.theme_for(Appearance::Dark).bg,
+            cfg(r#"theme = "Dracula""#).theme_for(Appearance::Dark).bg
+        );
+        assert_eq!(
+            c.theme_for(Appearance::Light).bg,
+            cfg(r#"theme = "GitHub Light""#)
+                .theme_for(Appearance::Light)
+                .bg
+        );
+        assert_ne!(
+            c.theme_for(Appearance::Dark).bg,
+            c.theme_for(Appearance::Light).bg,
+            "the two sides must render different backgrounds"
+        );
+        // GitHub Light's background is pure white (#ffffff) on the light side.
+        assert_eq!(c.theme_for(Appearance::Light).bg, 0x00FF_FFFF);
+    }
+
+    /// Keys are case/whitespace-insensitive; the theme NAME keeps its original case
+    /// and surrounding spaces are trimmed.
+    #[test]
+    fn split_keys_case_and_whitespace_insensitive() {
+        let c = cfg(r#"theme = " DARK : Solarized Dark , Light : Solarized Light ""#);
+        assert_eq!(
+            c.resolve_theme_name(Appearance::Dark).as_deref(),
+            Some("Solarized Dark")
+        );
+        assert_eq!(
+            c.resolve_theme_name(Appearance::Light).as_deref(),
+            Some("Solarized Light")
+        );
+    }
+
+    /// A split that OMITS one side resolves that appearance to `None` (built-in
+    /// Default), while the present side still resolves.
+    #[test]
+    fn split_omitted_side_is_default() {
+        let c = cfg(r#"theme = "light:GitHub Light""#);
+        assert_eq!(c.resolve_theme_name(Appearance::Dark), None);
+        assert_eq!(
+            c.resolve_theme_name(Appearance::Light).as_deref(),
+            Some("GitHub Light")
+        );
+        // The dark side renders the built-in Default background.
+        assert_eq!(
+            c.theme_for(Appearance::Dark).bg,
+            aterm_types::ColorScheme::default().to_theme_parts().bg
+        );
+    }
+
+    /// No `theme` key → `None` for both appearances (built-in Default everywhere).
+    #[test]
+    fn absent_theme_is_none() {
+        let c = cfg("font_px = 14.0");
+        assert_eq!(c.resolve_theme_name(Appearance::Dark), None);
+        assert_eq!(c.resolve_theme_name(Appearance::Light), None);
+    }
+
+    /// The engine config (palette + default bg) also tracks the split, so the live
+    /// switch re-colours cells, not just the chrome.
+    #[test]
+    fn applied_terminal_config_tracks_split() {
+        let c = cfg(r#"theme = "dark:Dracula,light:GitHub Light""#);
+        let dark = c.applied_terminal_config_for(Appearance::Dark);
+        let light = c.applied_terminal_config_for(Appearance::Light);
+        assert_ne!(
+            dark.default_background, light.default_background,
+            "the engine default background must differ between the two sides"
+        );
+        // Light side's engine default bg is GitHub Light's white.
+        assert_eq!(
+            light.default_background,
+            aterm_types::Rgb::new(0xff, 0xff, 0xff)
+        );
     }
 }

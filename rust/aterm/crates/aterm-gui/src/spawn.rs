@@ -791,6 +791,20 @@ fn spawn_pty_reader(w: PtyReaderWiring) {
         // PTY read buffer: a fixed 64 KiB. (Was the ATERM_PTY_READ_BUF tuning
         // knob — dropped; 64 KiB is right for every real workload.)
         let mut buf = vec![0u8; 65536];
+        // READINESS (async-spawn path): this thread is now LIVE and about to enter
+        // its read loop, so flip the registry handle `Spawning -> Alive`. Posted
+        // BEFORE the first (blocking) `read` so a shell that emits NO output — or is
+        // slow to — still confirms its reader promptly; a fast shell's `Spawning`
+        // window is therefore vanishingly short with ZERO artificial delay. The main
+        // thread serializes spawn -> `register_session` (which registers `Spawning`)
+        // BEFORE it returns to the loop to drain this `Wake`, so the transition can
+        // never land before the handle exists. Fire-and-forget: under headless (no
+        // event loop) `send_event` simply errors and is ignored — the session stays
+        // safely `Spawning` and is still fully addressable.
+        let _ = proxy.send_event(Wake::Ready {
+            session: id,
+            window,
+        });
         loop {
             let r = aterm_pty::read(master, &mut buf);
             if r <= 0 {
@@ -859,6 +873,16 @@ impl crate::App {
     /// `term`/`sink`/`ctx` `Arc`s are SHARED with the owning `Session`, so a
     /// cross-session read is zero-copy. Called at the spawn seams (`open_tab` and
     /// the startup `session0`); deregistration is at the close seam (`close_tab_at`).
+    ///
+    /// The handle is registered `Spawning`: its engine + PTY master + sink already
+    /// exist (so input and cross-session reads are immediately safe — bytes written
+    /// to the PTY before the shell drains them just buffer in the kernel), but its
+    /// own reader thread has not yet confirmed its first live iteration. That reader
+    /// flips it to `Alive` by posting `Wake::Ready` (see [`spawn_pty_reader`]),
+    /// handled on the main thread via [`session_store::SessionStore::mark_alive`].
+    /// A fast shell makes the `Spawning` window vanishingly short — there is NO
+    /// artificial delay; a slow shell stays `Spawning` (and fully addressable) until
+    /// its reader is confirmed, so a sluggish shell init never blocks the GUI.
     pub(crate) fn register_session(
         store: &session_store::Store,
         session: &Session,
@@ -869,7 +893,7 @@ impl crate::App {
             nonce: session.ctx.nonce,
             local_id: session.id,
             parent,
-            state: session_store::SessionState::Alive,
+            state: session_store::SessionState::Spawning,
             title: term_lock(&session.term).title().to_string(),
             term: session.term.clone(),
             master: session.master,

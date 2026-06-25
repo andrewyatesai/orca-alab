@@ -157,6 +157,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aterm-agent"
+version = "0.3.0"
+dependencies = [
+ "aterm-observe",
+ "web-time",
+]
+
+[[package]]
 name = "aterm-alloc"
 version = "0.3.0"
 
@@ -388,6 +396,7 @@ dependencies = [
  "aterm-grid",
  "aterm-hash",
  "aterm-log",
+ "aterm-observe",
  "aterm-policy",
  "aterm-pty",
  "aterm-render",
@@ -428,6 +437,23 @@ dependencies = [
 [[package]]
 name = "aterm-nest"
 version = "0.3.0"
+
+[[package]]
+name = "aterm-net"
+version = "0.3.0"
+dependencies = [
+ "aterm-hash",
+ "aterm-session",
+]
+
+[[package]]
+name = "aterm-observe"
+version = "0.3.0"
+dependencies = [
+ "aterm-core",
+ "regex",
+ "web-time",
+]
 
 [[package]]
 name = "aterm-parser"

@@ -962,6 +962,360 @@ pub fn subscribe_model() -> Model {
     }
 }
 
+/// OBSERVATION KERNEL — NO-SILENT-LOSS LATCH (RFC "The Reactive Surface", L0).
+/// The abstract twin of `aterm-core`'s [`WatcherSet`](../../aterm_core/terminal/observe)
+/// no-silent-loss invariant, bound to the real engine by
+/// `aterm-core/tests/conformance_observe.rs`.
+///
+/// A surface predicate can be **transiently** true — a row matched then
+/// overwritten, a block completed then superseded — across two coalesced
+/// consumer wakes. The kernel must latch the predicate AT THE SEAM where it
+/// became true (`post_process`), not on the later, coalescing wake that sees
+/// only the LATEST state. Scalar projection `<<truth, latched, lost>>`: `Rise`
+/// makes the predicate true (the CORRECT kernel latches immediately; the buggy
+/// one defers to a wake), `Fall` clears the transient (recording a silent loss
+/// if it was never latched), `Wake` is the coalescing consumer that can latch
+/// only while `truth` still holds.
+///
+/// `Buggy = 0` (committed): `Rise` latches at the seam, so `Fall` never loses and
+/// `NoSilentLoss` holds. `Buggy = 1`: `Rise` defers, so a `Rise`→`Fall` with no
+/// intervening `Wake` silently drops the event → `lost = 1`. Thus `ty` PROVES the
+/// latch (Buggy=0) and CATCHES the coalescing-loss bug (Buggy=1 → counterexample).
+pub fn watcher_latch_model() -> Model {
+    Model {
+        name: "WatcherLatch",
+        consts: vec![("Buggy", 0)],
+        vars: vec![
+            StateVar {
+                name: "truth",
+                init: 0,
+            },
+            StateVar {
+                name: "latched",
+                init: 0,
+            },
+            StateVar {
+                name: "lost",
+                init: 0,
+            },
+        ],
+        fn_vars: vec![],
+        actions: vec![
+            Action {
+                name: "Rise", // predicate becomes true at a processed batch
+                guard: Some(eq(var("truth"), int(0))),
+                updates: vec![
+                    Update {
+                        var: "truth",
+                        expr: int(1),
+                    },
+                    Update {
+                        var: "latched",
+                        // CORRECT (Buggy=0): latch AT THE SEAM. Buggy=1: defer.
+                        expr: if_(eq(cst("Buggy"), int(0)), int(1), var("latched")),
+                    },
+                ], // lost UNCHANGED
+            },
+            Action {
+                name: "Fall", // the transient clears
+                guard: Some(eq(var("truth"), int(1))),
+                updates: vec![
+                    Update {
+                        var: "truth",
+                        expr: int(0),
+                    },
+                    Update {
+                        var: "lost",
+                        // never latched + buggy deferral => a true was silently lost
+                        expr: if_(
+                            and_(eq(cst("Buggy"), int(1)), eq(var("latched"), int(0))),
+                            int(1),
+                            var("lost"),
+                        ),
+                    },
+                ], // latched UNCHANGED
+            },
+            Action {
+                name: "Wake", // coalescing consumer: latches only while truth holds
+                guard: Some(eq(var("truth"), int(1))),
+                updates: vec![Update {
+                    var: "latched",
+                    expr: int(1),
+                }], // truth, lost UNCHANGED
+            },
+        ],
+        invariants: vec![Invariant {
+            name: "NoSilentLoss",
+            expr: eq(var("lost"), int(0)), // lost = 0
+        }],
+    }
+}
+
+/// OBSERVATION KERNEL — EARLIEST-ARMED IDLE DEADLINE (RFC L0). The abstract twin
+/// of [`WatcherSet::next_deadline`](../../aterm_core/terminal/observe): the host
+/// arms ONE `ControlFlow::WaitUntil`, and it must equal the MINIMUM of all
+/// pending `IdleFor` deadlines so an earlier deadline is never missed (the
+/// `BellFlash::deadline` discipline). Scalar projection `<<armed, minp>>` over
+/// two deadline values (near = 1, far = 2; `4` is the unset sentinel): `ArmNear`
+/// / `ArmFar` register a deadline; `armed` must track `minp = min` of everything
+/// registered.
+///
+/// `Buggy = 0` (committed): `armed' = min(armed, v)`, so `armed = minp` always.
+/// `Buggy = 1`: keep-first (`armed` set only while unset), so arming the FAR
+/// deadline then the NEAR one leaves `armed = 2` while `minp = 1` — an earlier
+/// wake is missed. `ty` PROVES `armed = minp` (Buggy=0) and CATCHES the
+/// keep-first bug (Buggy=1 → counterexample). Two-action disjunctive `Next` with
+/// nested `if` updates (the `cursor_model` family, plus a min computation).
+pub fn idle_deadline_model() -> Model {
+    // min(a, b) == IF a > b THEN b ELSE a ; keep-first(a, v) == IF a = Unset THEN v ELSE a.
+    let arm = |v: i64| -> Expr {
+        if_(
+            eq(cst("Buggy"), int(0)),
+            if_(gt(var("armed"), int(v)), int(v), var("armed")), // min(armed, v)
+            if_(eq(var("armed"), int(4)), int(v), var("armed")), // keep-first
+        )
+    };
+    Model {
+        name: "IdleDeadline",
+        consts: vec![("Buggy", 0)],
+        vars: vec![
+            StateVar {
+                name: "armed",
+                init: 4,
+            }, // 4 == unset sentinel (no pending deadline)
+            StateVar {
+                name: "minp",
+                init: 4,
+            },
+        ],
+        fn_vars: vec![],
+        actions: vec![
+            Action {
+                name: "ArmNear", // register the nearer deadline (value 1)
+                guard: Some(gt(var("minp"), int(1))),
+                updates: vec![
+                    Update {
+                        var: "minp",
+                        expr: if_(gt(var("minp"), int(1)), int(1), var("minp")),
+                    },
+                    Update {
+                        var: "armed",
+                        expr: arm(1),
+                    },
+                ],
+            },
+            Action {
+                name: "ArmFar", // register the farther deadline (value 2)
+                guard: Some(gt(var("minp"), int(2))),
+                updates: vec![
+                    Update {
+                        var: "minp",
+                        expr: if_(gt(var("minp"), int(2)), int(2), var("minp")),
+                    },
+                    Update {
+                        var: "armed",
+                        expr: arm(2),
+                    },
+                ],
+            },
+        ],
+        invariants: vec![Invariant {
+            name: "EarliestArmed",
+            expr: eq(var("armed"), var("minp")), // armed == min of pending deadlines
+        }],
+    }
+}
+
+/// SELF-REFLECTION FEEDBACK GOVERNOR — FAIL-CLOSED (RFC "The Reactive Surface",
+/// R4 / L2). The abstract twin of `aterm-agent`'s
+/// [`SelfGovernor`](../../aterm_agent/struct.SelfGovernor.html): once the
+/// circuit-breaker trips on sustained self-induced churn, NO self-write may
+/// proceed — the storm backstop that `await-idle` alone cannot provide (a
+/// self-write that produces output keeps `content_seq` advancing, so quiescence
+/// never settles). Scalar projection `<<tripped, wrote_while_tripped>>`: `Trip`
+/// latches the breaker; `Write` proceeds only while NOT tripped (the correct
+/// gate) and records a violation if it ever fires while tripped.
+///
+/// `Buggy = 0` (committed): `Write` is guarded on `tripped = 0`, so a write never
+/// happens after a trip and `FailClosed` holds. `Buggy = 1`: the guard drops, so
+/// a `Trip`→`Write` lets a self-write through the tripped breaker →
+/// `wrote_while_tripped = 1`. Thus `ty` PROVES the backstop (Buggy=0) and CATCHES
+/// the breaker-bypass bug (Buggy=1 → counterexample). This is the `edge_gate`
+/// FailClosed shape (`decision <= granted`).
+pub fn self_governor_model() -> Model {
+    Model {
+        name: "SelfGovernor",
+        consts: vec![("Buggy", 0)],
+        vars: vec![
+            StateVar {
+                name: "tripped",
+                init: 0,
+            },
+            StateVar {
+                name: "wrote_while_tripped",
+                init: 0,
+            },
+        ],
+        fn_vars: vec![],
+        actions: vec![
+            Action {
+                name: "Trip", // sustained self-churn trips the breaker (latching)
+                guard: Some(eq(var("tripped"), int(0))),
+                updates: vec![Update {
+                    var: "tripped",
+                    expr: int(1),
+                }], // wrote_while_tripped UNCHANGED
+            },
+            Action {
+                name: "Write", // a self-write attempt
+                // CORRECT (Buggy=0): only when NOT tripped. Buggy=1: drop the gate.
+                guard: Some(or_(eq(cst("Buggy"), int(1)), eq(var("tripped"), int(0)))),
+                updates: vec![Update {
+                    var: "wrote_while_tripped",
+                    // a write that fired while tripped is a fail-OPEN violation
+                    expr: if_(
+                        eq(var("tripped"), int(1)),
+                        int(1),
+                        var("wrote_while_tripped"),
+                    ),
+                }], // tripped UNCHANGED
+            },
+        ],
+        invariants: vec![Invariant {
+            name: "FailClosed",
+            expr: eq(var("wrote_while_tripped"), int(0)), // no write survived a trip
+        }],
+    }
+}
+
+/// SELF-FEED FLOOR — NO-OVERDRAFT (RFC D3). The abstract twin of `aterm-gui`'s
+/// [`inject_floor`](../../aterm_gui/inject_floor) token bucket: the un-bypassable
+/// control-layer backstop that bounds self-targeted input injection so a raw
+/// client cannot drive a feedback storm. Scalar projection `<<tokens, over>>`
+/// over a bucket of capacity `Cap`: `Refill` adds a token (capped); `Write`
+/// admits an injection only with a spare token (the correct gate) and records an
+/// overdraft if it ever admits at zero.
+///
+/// `Buggy = 0` (committed): `Write` is guarded on `tokens > 0`, so it never
+/// overdraws and `NoOverdraft` holds (and `tokens <= Cap` from the capped
+/// refill). `Buggy = 1`: the guard drops, so a `Write` at `tokens = 0` injects
+/// past the floor → `over = 1`. `ty` PROVES the bound (Buggy=0) and CATCHES the
+/// overdraft bug (Buggy=1 → counterexample). The bounded-ring / token-bucket
+/// shape (`ring_model` family).
+pub fn inject_floor_model() -> Model {
+    Model {
+        name: "InjectFloor",
+        consts: vec![("Cap", 2), ("Buggy", 0)],
+        vars: vec![
+            StateVar {
+                name: "tokens",
+                init: 2,
+            }, // starts full (= Cap)
+            StateVar {
+                name: "over",
+                init: 0,
+            },
+        ],
+        fn_vars: vec![],
+        actions: vec![
+            Action {
+                name: "Refill", // continuous refill, capped at Cap
+                guard: Some(le(var("tokens"), sub(cst("Cap"), int(1)))),
+                updates: vec![Update {
+                    var: "tokens",
+                    expr: add(var("tokens"), int(1)),
+                }], // over UNCHANGED
+            },
+            Action {
+                name: "Write", // a self-targeted injection attempt
+                // CORRECT (Buggy=0): only with a spare token. Buggy=1: drop the gate.
+                guard: Some(or_(eq(cst("Buggy"), int(1)), gt(var("tokens"), int(0)))),
+                updates: vec![
+                    Update {
+                        var: "tokens",
+                        expr: if_(
+                            gt(var("tokens"), int(0)),
+                            sub(var("tokens"), int(1)),
+                            var("tokens"),
+                        ),
+                    },
+                    Update {
+                        var: "over",
+                        // admitted at zero tokens => overdraft (floor bypassed)
+                        expr: if_(eq(var("tokens"), int(0)), int(1), var("over")),
+                    },
+                ],
+            },
+        ],
+        invariants: vec![
+            Invariant {
+                name: "NoOverdraft",
+                expr: eq(var("over"), int(0)), // never admitted past an empty bucket
+            },
+            Invariant {
+                name: "BoundedTokens",
+                expr: le(var("tokens"), cst("Cap")), // the bucket never exceeds Cap
+            },
+        ],
+    }
+}
+
+/// NETWORK CAPABILITY — CHANNEL-BOUND, NO REPLAY (RFC D4 / L3). The abstract twin
+/// of `aterm-net`'s [`channel_bind`](../../aterm_net/fn.channel_bind.html): an
+/// edge token captured on one connection must NOT authorize on another. The local
+/// fabric's same-uid `SO_PEERCRED` check has no network analog, so the token is
+/// bound to the connection's exporter (`presented = H(token, exporter)`); a
+/// replay on a different channel presents a value computed over the WRONG
+/// exporter. Scalar projection `<<captured, accepted_replay>>`: `Capture` records
+/// the channel-A presented value an adversary observed; `ReplayOnB` presents it on
+/// channel B.
+///
+/// `Buggy = 0` (committed): the verifier checks the binding against the CURRENT
+/// channel, so the cross-channel replay is rejected and `accepted_replay` stays 0.
+/// `Buggy = 1`: the verifier ignores the channel (accepts a bare token), so the
+/// replay succeeds → `accepted_replay = 1`. `ty` PROVES no-replay (Buggy=0) and
+/// CATCHES the channel-unbound bug (Buggy=1 → counterexample).
+pub fn channel_bind_model() -> Model {
+    Model {
+        name: "ChannelBind",
+        consts: vec![("Buggy", 0)],
+        vars: vec![
+            StateVar {
+                name: "captured",
+                init: 0,
+            },
+            StateVar {
+                name: "accepted_replay",
+                init: 0,
+            },
+        ],
+        fn_vars: vec![],
+        actions: vec![
+            Action {
+                name: "Capture", // adversary records channel-A's presented value
+                guard: Some(eq(var("captured"), int(0))),
+                updates: vec![Update {
+                    var: "captured",
+                    expr: int(1),
+                }], // accepted_replay UNCHANGED
+            },
+            Action {
+                name: "ReplayOnB", // present the captured A-value on channel B
+                guard: Some(eq(var("captured"), int(1))),
+                updates: vec![Update {
+                    var: "accepted_replay",
+                    // channel-bound verifier (Buggy=0) rejects; unbound (Buggy=1) accepts
+                    expr: if_(eq(cst("Buggy"), int(1)), int(1), var("accepted_replay")),
+                }], // captured UNCHANGED
+            },
+        ],
+        invariants: vec![Invariant {
+            name: "NoReplay",
+            expr: eq(var("accepted_replay"), int(0)), // a cross-channel replay never authorizes
+        }],
+    }
+}
+
 /// COLOUR-PRESENTATION GATE — a code point that defaults to TEXT presentation is
 /// never resolved to the colour-emoji face. The abstract twin of aterm-render's
 /// `select_face` (the real-code binding is aterm-render's

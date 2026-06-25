@@ -77,7 +77,16 @@ pub(crate) trait AppRt {
 
     /// Read the native toolbar's tab-switcher chrome as one introspection line
     /// (segment count / selected / labels), or `None` when there is nothing to
-    /// report. `None` off macOS.
+    /// report (≤1 tab). On Linux this reflects the real in-memory tab-chrome model
+    /// `set_toolbar_tabs` maintains (see `toolbar.rs`), in the SAME line shape macOS
+    /// emits.
+    ///
+    /// `cfg_attr(.., allow(dead_code))`: the only caller is the `chrome` verb's
+    /// `App::read_native_chrome`, whose non-macOS arm (in `app_introspect.rs`, outside
+    /// this seam) does not yet invoke it — so the method is uncalled on Linux. The
+    /// Linux impl is nonetheless real and unit-tested at the `toolbar.rs` helper level;
+    /// surfacing this line from the non-macOS `chrome` arm is the documented next step.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn read_toolbar_chrome(&self, handle: &toolbar::ToolbarHandle) -> Option<String>;
 }
 
@@ -228,28 +237,69 @@ impl AppRt for AppRtMacOS {
     }
 }
 
-/// Non-macOS application-runtime: every native OS-integration operation is a
-/// graceful no-op. Chrome colour/appearance do nothing, the menu/toolbar install
-/// nothing (`None`), the tab-strip sync + chrome read are no-ops, and notification
-/// delivery forwards to `notify::spawn_delivery`'s channel-draining stub. So the
-/// Linux binary builds + runs (terminal renders + input works) with native chrome,
-/// menus, toolbars, and notifications gracefully absent. Zero-sized.
+/// Map aterm's config [`WindowTheme`] onto the winit window-theme override
+/// [`winit::window::Theme`] applied via [`Window::set_theme`]:
+/// * `Auto`  → `None` — reset to the system default so the chrome tracks the OS
+///   light/dark preference (on Wayland winit reads it over D-Bus; on X11 winit
+///   defaults the `_GTK_THEME_VARIANT` hint to dark).
+/// * `Light` → `Some(Theme::Light)` — force the light client-side-decoration variant.
+/// * `Dark`  → `Some(Theme::Dark)` — force the dark variant.
+///
+/// PURE: a total `match` with no I/O, so it is unit-tested directly (see the `tests`
+/// module). The non-macOS [`AppRt::window_set_appearance`] is just this mapping fed
+/// to `set_theme`.
+#[cfg(not(target_os = "macos"))]
+#[must_use]
+fn window_theme_to_winit(theme: WindowTheme) -> Option<winit::window::Theme> {
+    match theme {
+        WindowTheme::Auto => None,
+        WindowTheme::Light => Some(winit::window::Theme::Light),
+        WindowTheme::Dark => Some(winit::window::Theme::Dark),
+    }
+}
+
+/// Non-macOS application-runtime. Unlike the original dead no-op, every method now
+/// does the most useful thing the **pure-winit** surface allows (NO new system
+/// libraries — see [`AppRt::window_set_background_color`] and `toolbar.rs` for the
+/// deferred GTK4 work): the appearance method drives `winit::Window::set_theme` so
+/// the client-side-decoration light/dark variant honours config `window_theme`; the
+/// toolbar seam maintains a REAL in-memory tab-chrome model (`toolbar.rs`) and seeds
+/// the window title from it; the menu install delegates to the menu stub; and
+/// notification delivery forwards to `notify::spawn_delivery`'s channel-draining
+/// stub. The terminal renders + input works; only the genuinely OS-native chrome a
+/// header bar would add (which needs gtk4 system libs) is deferred. Zero-sized.
 #[cfg(not(target_os = "macos"))]
 pub(crate) struct AppRtLinux;
 
 #[cfg(not(target_os = "macos"))]
 impl AppRt for AppRtLinux {
+    /// INTENTIONAL no-op: winit exposes NO per-window background-COLOUR setter (only
+    /// `set_transparent` / `set_blur`, which toggle the surface's transparency, not a
+    /// fill colour). The terminal-body background colour is already painted by the
+    /// renderer's own surface clear (softbuffer/wgpu), so there is nothing window-
+    /// level to set here without a native toolkit. A full GTK4 header bar would paint
+    /// its own background to match `bg` — deferred with the rest of the header bar
+    /// (see `toolbar.rs`). Documented rather than silently empty.
     fn window_set_background_color(&self, _window: &Window, _bg: u32) {}
 
-    fn window_set_appearance(&self, _window: &Window, _theme: WindowTheme) {}
+    /// Apply the window-chrome appearance by overriding winit's window theme: map
+    /// config [`WindowTheme`] → [`winit::window::Theme`] via [`window_theme_to_winit`]
+    /// and hand it to [`Window::set_theme`]. On Wayland this themes the client-side
+    /// decorations (titlebar/border); on X11 it sets the `_GTK_THEME_VARIANT` hint.
+    /// `Auto` resets to the OS preference. This is the real, buildable Linux analogue
+    /// of the macOS `NSAppearance` override.
+    fn window_set_appearance(&self, window: &Window, theme: WindowTheme) {
+        window.set_theme(window_theme_to_winit(theme));
+    }
 
     fn send_notification_init(&self, suppress: Arc<Mutex<HashSet<u64>>>) -> Sender<NotifyMsg> {
         crate::notify::spawn_delivery(suppress)
     }
 
-    // The branches below delegate to the `menu::`/`toolbar::` stubs (themselves
-    // no-ops off macOS) rather than returning `None`/`()` inline, so those stubs
-    // stay live call sites — one platform surface, no dead code on Linux.
+    // The branches below delegate to the `menu::`/`toolbar::` modules — the menu is
+    // still a `None` stub (a native Linux menu bar needs a GTK4 `gtk::PopoverMenuBar`
+    // / app-menu D-Bus export, deferred), while the toolbar now backs a REAL
+    // in-memory tab-chrome model. One platform surface, no dead code on Linux.
     fn install_menu(&self, proxy: &EventLoopProxy<Wake>) -> Option<menu::MenuHandle> {
         menu::install(proxy)
     }
@@ -293,5 +343,26 @@ pub(crate) fn platform_apprt() -> PlatformAppRt {
     #[cfg(not(target_os = "macos"))]
     {
         AppRtLinux
+    }
+}
+
+#[cfg(all(test, not(target_os = "macos")))]
+mod tests {
+    use winit::window::Theme;
+
+    use super::window_theme_to_winit;
+    use crate::app_config::WindowTheme;
+
+    /// `Auto` resets the override (`None`) so the chrome follows the OS preference;
+    /// `Light`/`Dark` force the matching winit theme variant. The full mapping is a
+    /// total `match`, so this pins every arm.
+    #[test]
+    fn theme_maps_to_winit_override() {
+        assert_eq!(window_theme_to_winit(WindowTheme::Auto), None);
+        assert_eq!(
+            window_theme_to_winit(WindowTheme::Light),
+            Some(Theme::Light)
+        );
+        assert_eq!(window_theme_to_winit(WindowTheme::Dark), Some(Theme::Dark));
     }
 }

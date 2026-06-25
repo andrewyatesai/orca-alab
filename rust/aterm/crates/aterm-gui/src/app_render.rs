@@ -18,7 +18,7 @@ use winit::dpi::PhysicalSize;
 
 use crate::{
     App, BLINK_INTERVAL, Backend, PresentTarget, RepaintKey, SelectionFingerprint, WindowId,
-    metrics, pane, tab_bar, term_lock,
+    hud_bar, metrics, pane, tab_bar, term_lock,
 };
 
 /// The redraw early-out decision (D-1), as a PURE function so it is unit
@@ -172,6 +172,28 @@ pub(crate) fn prepend_strip_rows(dst: &mut RenderInput, strip_rows: Vec<Vec<Rend
     dst.rows += strip;
     // The strip changes the presented pixels; bump the snapshot seq so the renderer's
     // content cache sees the new frame.
+    dst.snapshot_seq = dst.snapshot_seq.wrapping_add(1);
+}
+
+/// Append `hud_rows` painted HUD rows at the BOTTOM of the composed frame `dst`,
+/// keeping every per-row vector aligned. The bottom analog of [`prepend_strip_rows`]:
+/// it does NOT move the cursor (the HUD sits BELOW the terminal grid + cursor), it
+/// just grows the grid downward. Because the renderer maps row `r` to pixel band
+/// `pad + r*cell_h`, the appended rows land in the bottom band automatically. Pure /
+/// unit-testable; an empty `hud_rows` is a no-op (byte-identical).
+pub(crate) fn append_hud_rows(dst: &mut RenderInput, hud_rows: Vec<Vec<RenderCell>>) {
+    let n = hud_rows.len();
+    if n == 0 {
+        return;
+    }
+    for row in hud_rows {
+        dst.cells.push(row);
+        dst.clusters.push(Vec::new());
+        dst.combining.push(Vec::new());
+        dst.images.push(Vec::new());
+        dst.line_sizes.push(aterm_core::grid::LineSize::SingleWidth);
+    }
+    dst.rows += n;
     dst.snapshot_seq = dst.snapshot_seq.wrapping_add(1);
 }
 
@@ -372,7 +394,11 @@ impl App {
     /// window-create / resize / grid-resize path routes through this so the strip
     /// AND the interior padding are always accounted for in lockstep.
     pub(crate) fn window_frame_px(&self, rows: u16, cols: u16) -> PhysicalSize<u32> {
-        self.frame_px(rows.saturating_add(self.tab_strip_rows), cols)
+        self.frame_px(
+            rows.saturating_add(self.tab_strip_rows)
+                .saturating_add(self.hud_rows),
+            cols,
+        )
     }
 
     /// Push the current blink phase into the rasterizer.
@@ -494,7 +520,10 @@ impl App {
                 tab_strip,
             };
             let title = term.title().to_string();
-            if !should_repaint(last_present, key) {
+            // The HUD streams its own values (fps/latency/sparkline) independent of
+            // terminal damage, so when it is on we never take the content early-out —
+            // the HUD_INTERVAL timer drives a bounded ~3fps refresh.
+            if self.hud_rows == 0 && !should_repaint(last_present, key) {
                 // Nothing visible changed since the last present. Drop the lock,
                 // refresh only the window chrome (a title-only change needs no
                 // pixel repaint), and skip the frame entirely.
@@ -517,6 +546,8 @@ impl App {
         // disabled, so `input_scratch` is then the terminal grid exactly as before
         // (byte-identical). Both the single-pane and composed paths funnel here.
         self.splice_tab_strip_with(id, tab_strip, strip_titles);
+        // SPLICE the performance HUD into the bottom row (a no-op when off).
+        self.splice_hud_bar(id);
         // Reflect the program-set title (OSC 0/2) in the window chrome, falling
         // back to "aterm" when nothing has set one. Only calls set_title on an
         // actual change (a cheap String compare on the already-unlocked path).
@@ -532,10 +563,14 @@ impl App {
         // Publish this frame's timing to the process-global metrics counters, read
         // back over the control socket's `metrics` verb so a driving AI can measure
         // responsiveness directly. Off the correctness path; only on a real present.
-        metrics::record_present(
-            present_latency_ns,
-            frame_started.elapsed().as_nanos() as u64,
-        );
+        let render_ns = frame_started.elapsed().as_nanos() as u64;
+        metrics::record_present(present_latency_ns, render_ns);
+        // Feed the HUD's rolling sample ring (fps window + sparkline) from the SAME
+        // real presents the metrics counters see.
+        let hud_now = std::time::Instant::now();
+        for p in &mut self.panels {
+            p.on_present(render_ns, present_latency_ns, hud_now);
+        }
         // Frame-pacing: stamp this present so the soft cap in the `Wake::Output`
         // handler coalesces sub-`MIN_FRAME_INTERVAL` bursts against it. Reached only
         // on a REAL present (the D-1 early-out returns before this when the screen is
@@ -729,7 +764,8 @@ impl App {
             selection: focus_selection,
             tab_strip,
         };
-        if !should_repaint(last_present, key) {
+        // HUD on → never early-out (it streams independently; see redraw_window).
+        if self.hud_rows == 0 && !should_repaint(last_present, key) {
             return None;
         }
         // Commit to presenting. Re-borrow `ws` mutably now (the immutable borrow
@@ -877,6 +913,34 @@ impl App {
         prepend_strip_rows(&mut ws.input_scratch, strip_rows);
     }
 
+    /// Splice the HUD panel STACK into the bottom rows of the composed frame (the
+    /// bottom analog of [`Self::splice_tab_strip_with`]): one themed `RenderCell` row
+    /// per ENABLED panel, top→bottom in registry order. A no-op when no panel is on
+    /// (`hud_rows == 0`). Called from both the on-screen present and the headless
+    /// `image`/`snapshot` paths, so the HUD is WYSIWYG and introspectable. Rows are
+    /// rebuilt each present (they stream), but they are a handful of rows — trivial.
+    pub(crate) fn splice_hud_bar(&mut self, wid: WindowId) {
+        if self.hud_rows == 0 {
+            return;
+        }
+        let cols = match self.windows.get(&wid) {
+            Some(ws) => ws.cols as usize,
+            None => return,
+        };
+        let theme = self.theme;
+        // Build one row per enabled panel. `self.panels` and `self.windows` are
+        // disjoint fields, so the read-then-get_mut below is borrow-clean.
+        let mut rows: Vec<Vec<RenderCell>> = Vec::with_capacity(self.hud_rows as usize);
+        for p in self.panels.iter().filter(|p| p.enabled()) {
+            let mut row = vec![hud_bar::blank_cell(theme); cols];
+            p.paint(&mut row, theme);
+            rows.push(row);
+        }
+        if let Some(ws) = self.windows.get_mut(&wid) {
+            append_hud_rows(&mut ws.input_scratch, rows);
+        }
+    }
+
     /// Apply a `(rows, cols)` grid resize to the engine + PTY + GPU swapchain
     /// (the geometry the main thread owns). The CPU softbuffer resizes itself in
     /// `redraw` from the Frame dims. No-op when the geometry is unchanged. Shared
@@ -922,7 +986,8 @@ impl App {
         // plus the `2·pad` interior border) so the blit target matches the frame the
         // renderer encodes. `frame_size` reads the renderer's live `pad`; with
         // `pad == 0` && `tab_strip_rows == 0` this is the original `rows * ch`.
-        let strip = self.tab_strip_rows as usize;
+        // Include the bottom HUD band too so the swapchain matches the spliced frame.
+        let strip = (self.tab_strip_rows + self.hud_rows) as usize;
         let App {
             backend, windows, ..
         } = self;

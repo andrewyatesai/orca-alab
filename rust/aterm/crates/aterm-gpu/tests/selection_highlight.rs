@@ -132,6 +132,96 @@ fn selection_highlight_gpu_matches_cpu() {
 }
 
 #[test]
+fn inactive_selection_bg_gpu_matches_cpu() {
+    // When the pane is UNFOCUSED, selected cells must paint with the (derived or
+    // explicit) INACTIVE selection bg instead of the active `Theme::selection`, on
+    // BOTH the CPU and GPU paths, byte-equal within the parity tolerance. Mirrors
+    // `selection_highlight_gpu_matches_cpu`, but toggling the focus flag.
+    let theme = Theme::default();
+    let px = 18.0;
+
+    let mut gpu = match aterm_gpu::GpuRenderer::new(px, theme) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("SKIP: no GPU/font available: {e}");
+            return;
+        }
+    };
+    let Some(mut cpu) = Renderer::from_system(px, theme) else {
+        eprintln!("SKIP: no system monospace font");
+        return;
+    };
+
+    let (rows, cols) = (4usize, 10usize);
+    let mut term = Terminal::new(rows as u16, cols as u16);
+    term.process(b"hello\r\nworld");
+    let sel = term.text_selection_mut();
+    sel.start_selection(0, 1, SelectionSide::Left, SelectionType::Simple);
+    sel.update_selection(0, 3, SelectionSide::Right);
+    sel.complete_selection();
+
+    let mut win = aterm_gpu::WindowGpu::new();
+    let (cw, ch) = cpu.cell_size();
+    let input = term.cell_frame(rows, cols);
+
+    // The derived inactive bg the renderer will paint (single source of truth).
+    let inactive_bg = aterm_render::derive_inactive_selection_bg(theme.selection, theme.bg);
+    // It must DIFFER from the active selection — otherwise this test proves nothing.
+    assert!(
+        !near(inactive_bg, theme.selection, 8),
+        "derived inactive bg must visibly differ from the active selection"
+    );
+
+    // (A) UNFOCUSED: both paths paint the inactive bg in selected cells, and match.
+    cpu.set_selection_inactive(true);
+    gpu.set_selection_inactive(true);
+    let cpu_inactive = cpu.render_input(&input);
+    let gpu_inactive = gpu.render_input(&mut win, &input);
+    let delta_inactive = max_channel_delta(&cpu_inactive, &gpu_inactive);
+    assert!(
+        delta_inactive <= 8,
+        "inactive selection: GPU/CPU diverge, max per-channel delta {delta_inactive} > 8"
+    );
+    for (name, f) in [("cpu", &cpu_inactive), ("gpu", &gpu_inactive)] {
+        let sel_px = cell_pixels(f, cw, ch, 0, 2); // selected 'l'
+        let n_inactive = sel_px.iter().filter(|&&p| near(p, inactive_bg, 8)).count();
+        let n_active = sel_px.iter().filter(|&&p| near(p, theme.selection, 8)).count();
+        assert!(
+            n_inactive > sel_px.len() / 2,
+            "{name}: unfocused selected cell should use the INACTIVE bg ({n_inactive}/{})",
+            sel_px.len()
+        );
+        assert_eq!(
+            n_active, 0,
+            "{name}: unfocused selected cell must NOT show the active selection colour"
+        );
+    }
+
+    // (B) FOCUSED again: both paths revert to the ACTIVE selection bg, and match.
+    cpu.set_selection_inactive(false);
+    gpu.set_selection_inactive(false);
+    let cpu_active = cpu.render_input(&input);
+    let gpu_active = gpu.render_input(&mut win, &input);
+    let delta_active = max_channel_delta(&cpu_active, &gpu_active);
+    assert!(
+        delta_active <= 8,
+        "active selection: GPU/CPU diverge, max per-channel delta {delta_active} > 8"
+    );
+    for (name, f) in [("cpu", &cpu_active), ("gpu", &gpu_active)] {
+        let sel_px = cell_pixels(f, cw, ch, 0, 2);
+        let n_active = sel_px
+            .iter()
+            .filter(|&&p| near(p, theme.selection, 8))
+            .count();
+        assert!(
+            n_active > sel_px.len() / 2,
+            "{name}: focused selected cell should use the ACTIVE selection bg ({n_active}/{})",
+            sel_px.len()
+        );
+    }
+}
+
+#[test]
 fn selection_fg_override_gpu_matches_cpu() {
     // With an explicit selectionForeground override, the GPU and CPU must paint
     // selected glyphs in that colour identically (parity), instead of the WCAG

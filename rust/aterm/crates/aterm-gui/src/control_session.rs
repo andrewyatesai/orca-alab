@@ -170,82 +170,284 @@ pub(crate) fn cmd_family(ctx: &SessionCtx, store: &Store, scope: Scope, rest: &s
 /// exited (it will never become ready). Lets an agent CHAIN sessions — spawn one,
 /// `ready` on it, then drive it — without busy-polling a screen read.
 ///
-/// IDLE is defined by shell integration when present and lifecycle otherwise:
-///   * `prompt`  — the newest OSC-133 block is at a fresh prompt (`PromptOnly`)
-///     or a finished command (`Complete`): the shell is waiting for
-///     input. This is the precise "prompt-end" signal.
-///   * `no-command` — shell integration is present but NO block is in flight
-///     (`Executing`/`EnteringCommand`): nothing is running.
-///   * `idle`    — no shell integration at all, but `content_seq` has been STABLE
-///     across a short settle window (the output stopped changing), so
-///     the best-effort idle heuristic fires for plain shells too.
+/// Exactly two ready reasons are emitted:
+///   * `prompt` — the newest OSC-133 block is at a fresh prompt (`PromptOnly`)
+///     or a finished command (`Complete`): the shell is waiting for input. The
+///     precise "prompt-end" signal, used when shell integration is present.
+///   * `idle`   — the kernel's `IdleFor` watcher latched: `content_seq` held
+///     stable across the settle window (output stopped changing). This is the
+///     fallback for a session with no in-flight completed block — covering plain
+///     shells (no shell integration) and the between-commands case alike.
 ///
-/// Polls server-side, releasing the Terminal lock between checks so the PTY reader
-/// keeps advancing; checks the registry lifecycle each pass so an exit is reported
-/// promptly rather than waited out.
+/// Fully event-driven (NO poll): arms an `IdleFor` watcher, registers a
+/// subscriber, and parks on its wake — driven by output / exit notifications and
+/// the idle deadline. The registry lifecycle is re-checked on each wake, and a
+/// session exit `notify`s us (`Wake::Exit`), so an exit is reported promptly.
 pub(crate) fn cmd_ready(
     term: &Arc<Mutex<Terminal>>,
     store: &Store,
     session: u64,
     rest: &str,
+    subscribers: &crate::subscribe::Subscribers,
 ) -> String {
+    use std::time::{Duration, Instant};
+
+    use aterm_core::terminal::{BlockState, WatcherSpec};
+
     use crate::session_store::SessionState;
-    use aterm_core::terminal::BlockState;
+    use crate::subscribe::SubscriberSet;
+
     let timeout_ms = rest.trim().parse::<u64>().unwrap_or(30_000).min(600_000);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    let now0 = Instant::now();
+    let deadline = now0 + Duration::from_millis(timeout_ms);
+    // The no-shell-integration settle window. This now drives the model-checked
+    // kernel `IdleFor` (deterministic, no-silent-loss) INSTEAD of the old racy
+    // "3 stable 20ms samples" — the engine resets the deadline on every content
+    // advance (`observe_at`), so it latches only after SETTLE of TRUE quiet.
+    const SETTLE: Duration = Duration::from_millis(60);
 
     // The lifecycle state of THIS resolved session, by its local id. `None` (not in
-    // the registry — e.g. a headless unit term) is treated as Alive: the block /
-    // settle heuristics still decide readiness.
-    let lifecycle = |store: &Store| -> Option<SessionState> {
+    // the registry — e.g. a headless unit term) is treated as Alive — UNLESS the
+    // session was registered at arm and is now gone (deregistered on teardown),
+    // which is a dead session the `Wake::Exit` notify woke us for (see `gone`).
+    let was_registered = store
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .by_local(session)
+        .is_some();
+    let gone = |store: &Store| -> bool {
         let g = store.read().unwrap_or_else(|p| p.into_inner());
-        g.by_local(session).map(|h| h.state)
+        match g.by_local(session).map(|h| h.state) {
+            Some(SessionState::Exited) => true,
+            None => was_registered,
+            _ => false,
+        }
     };
 
-    // Settle tracking for the no-shell-integration case: ready only once content_seq
-    // has held the SAME value across `SETTLE` consecutive idle polls.
-    const SETTLE: u32 = 3;
-    let mut last_seq: Option<u64> = None;
-    let mut stable: u32 = 0;
+    // Arm one idle watcher up front; the engine auto-resets its deadline on output.
+    let idle_id = term_lock(term).watch(WatcherSpec::IdleFor { dur: SETTLE }, now0);
+    let disarm = |term: &Arc<Mutex<Terminal>>| {
+        if let Some(id) = idle_id {
+            term_lock(term).watch_disarm(id);
+        }
+    };
+    // Subscribe so output wakes us (block-state changes ride content_seq, so the
+    // notify covers the shell-integration path too) — event-driven, no poll.
+    let sub = SubscriberSet::register(subscribers, &[session]);
 
     loop {
-        if matches!(lifecycle(store), Some(SessionState::Exited)) {
+        if gone(store) {
+            disarm(term);
             return "ERR exited\n".to_string();
         }
-        {
-            let t = term_lock(term);
-            // Newest block decides the shell-integration verdict (`all_blocks` yields
-            // oldest-first, so the LAST item is the newest — the in-flight/current one).
-            let newest_state = t.all_blocks().last().map(|b| b.state);
-            match newest_state {
-                Some(BlockState::PromptOnly | BlockState::Complete) => {
-                    return "OK ready prompt\n".to_string();
-                }
-                Some(BlockState::Executing | BlockState::EnteringCommand) => {
-                    // A command is in flight: not ready. Reset the settle counter so a
-                    // later quiet period is measured fresh.
-                    stable = 0;
-                    last_seq = None;
-                }
-                _ => {
-                    // No shell integration: settle on a stable content_seq.
-                    let seq = t.content_seq();
-                    if last_seq == Some(seq) {
-                        stable += 1;
-                    } else {
-                        stable = 0;
-                        last_seq = Some(seq);
-                    }
-                    if stable >= SETTLE {
-                        return "OK ready idle\n".to_string();
-                    }
-                }
-            }
+        let now = Instant::now();
+        let (prompt, settled, next_dl) = {
+            let mut t = term_lock(term);
+            // Shell-integration fast path: newest block prompt/complete => ready
+            // prompt (read directly so an ALREADY-ready session returns at once).
+            let prompt = matches!(
+                t.all_blocks().last().map(|b| b.state),
+                Some(BlockState::PromptOnly | BlockState::Complete)
+            );
+            t.watch_expire(now); // host-injected idle fire
+            let settled = idle_id.and_then(|id| t.watch_poll(id)).is_some();
+            (prompt, settled, t.watch_next_deadline())
+        };
+        if prompt {
+            disarm(term);
+            return "OK ready prompt\n".to_string();
         }
-        if std::time::Instant::now() >= deadline {
+        if settled {
+            disarm(term);
+            return "OK ready idle\n".to_string();
+        }
+        if now >= deadline {
+            disarm(term);
             return "OK timeout\n".to_string();
         }
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        // Park until a REAL event wakes us — fully event-driven, no re-poll: an
+        // output burst or session exit (both `notify` us), the kernel idle
+        // deadline (`next_dl`, always armed here so block-state transitions are
+        // re-checked within the settle window), or the overall deadline.
+        let mut wake = deadline;
+        if let Some(dl) = next_dl {
+            wake = wake.min(dl);
+        }
+        let dur = wake
+            .saturating_duration_since(now)
+            .max(Duration::from_millis(1));
+        let _ = sub.wait(dur);
+    }
+}
+
+/// `await <idle <ms> | seq [<n>] | match <re> [rows <a> <b>] | block> [timeout <ms>]`
+/// — block until the Observation Kernel (L0) latches the predicate, then return
+/// `OK <kind> <seq>`; `OK timeout` if the overall deadline elapses; `ERR exited`
+/// if the session dies.
+///
+/// This is the L1 exposure of the core primitive. The CORRECTNESS — no-silent-
+/// loss for content/match/block, and a deterministic idle deadline — lives in the
+/// kernel (`observe_at` at the `post_process` seam, model-checked by
+/// `watcher_latch_model` / `idle_deadline_model`). This verb only *waits*, and it
+/// is **fully event-driven, with no polling**: it registers a subscriber and
+/// parks on its wake, so it sleeps until a REAL event arrives —
+///   * an output burst   (`Wake::Output` → `Subscribers::notify`) for content/
+///     match/block predicates,
+///   * the next idle deadline (the exact `IdleFor` fire instant, via
+///     `watch_next_deadline`) for `await idle`,
+///   * session exit       (`Wake::Exit` → notify) → `ERR exited`,
+///   * the overall timeout (the ultimate liveness backstop) → `OK timeout`.
+///
+/// CPU is ~0% while parked; every wake corresponds to an event the caller cares
+/// about.
+pub(crate) fn cmd_await(
+    term: &Arc<Mutex<Terminal>>,
+    store: &Store,
+    session: u64,
+    rest: &str,
+    subscribers: &crate::subscribe::Subscribers,
+) -> String {
+    use std::time::{Duration, Instant};
+
+    use aterm_core::terminal::{RowRange, WatcherSpec};
+
+    use crate::session_store::SessionState;
+    use crate::subscribe::SubscriberSet;
+
+    const USAGE: &str =
+        "ERR usage: await <idle <ms>|seq [<n>]|match <re> [rows <a> <b>]|block> [timeout <ms>]\n";
+
+    // Split off an optional `timeout <ms>` anywhere in the args; the rest is the
+    // predicate + its arguments.
+    let toks: Vec<&str> = rest.split_whitespace().collect();
+    let mut timeout_ms = 30_000u64;
+    let mut args: Vec<&str> = Vec::new();
+    let mut i = 0;
+    while i < toks.len() {
+        if toks[i] == "timeout" && i + 1 < toks.len() {
+            timeout_ms = toks[i + 1].parse().unwrap_or(30_000);
+            i += 2;
+        } else {
+            args.push(toks[i]);
+            i += 1;
+        }
+    }
+    let timeout_ms = timeout_ms.min(600_000);
+    let Some(&kind) = args.first() else {
+        return USAGE.to_string();
+    };
+
+    let now0 = Instant::now();
+    // Arm the predicate (under the term lock, released immediately).
+    let armed = {
+        let mut t = term_lock(term);
+        match kind {
+            "idle" => {
+                let Some(ms) = args.get(1).and_then(|s| s.parse::<u64>().ok()) else {
+                    return USAGE.to_string();
+                };
+                t.watch(
+                    WatcherSpec::IdleFor {
+                        dur: Duration::from_millis(ms),
+                    },
+                    now0,
+                )
+            }
+            "seq" => {
+                // Default `after` = the current content_seq (wait for the NEXT change).
+                let after = args
+                    .get(1)
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or_else(|| t.content_seq());
+                t.watch(WatcherSpec::SeqAdvanced { after }, now0)
+            }
+            "block" => t.watch(WatcherSpec::BlockComplete, now0),
+            "match" => {
+                let Some(pat) = args.get(1) else {
+                    return USAGE.to_string();
+                };
+                let range = match (args.get(2), args.get(3), args.get(4)) {
+                    (Some(&"rows"), Some(a), Some(b)) => {
+                        match (a.parse::<usize>(), b.parse::<usize>()) {
+                            (Ok(start), Ok(end)) => RowRange::Span { start, end },
+                            _ => return USAGE.to_string(),
+                        }
+                    }
+                    _ => RowRange::All,
+                };
+                // Compile the regex in `aterm-observe` (regex out of the engine core).
+                match aterm_observe::row_matcher(pat) {
+                    Ok(m) => t.watch_rows(m, range, now0),
+                    Err(_) => return "ERR badregex\n".to_string(),
+                }
+            }
+            _ => return USAGE.to_string(),
+        }
+    };
+    let Some(id) = armed else {
+        return "ERR watcher budget full\n".to_string();
+    };
+
+    let overall = now0 + Duration::from_millis(timeout_ms);
+
+    // Register a subscriber on THIS session: the producer's `Wake::Output` and
+    // `Wake::Exit` hooks (`Subscribers::notify`) wake us the instant output lands
+    // or the session dies — so content predicates (`seq`/`match`/`block`) and
+    // exit detection are event-driven with NO fixed-interval poll. `await idle`
+    // parks straight to the kernel's `next_deadline`. The single-slot notify is
+    // lossless (a wake that arrives between two `wait`s stays pending), and the
+    // overall timeout is the ultimate backstop — so no re-query is needed.
+    let sub = SubscriberSet::register(subscribers, &[session]);
+
+    // Whether the session was in the registry at arm. A session that WAS
+    // registered but is later GONE (deregistered during teardown) is dead — and
+    // the `Wake::Exit` notify can race the deregistration, so the woken thread may
+    // see `None`. Treating "was registered, now None" as exited closes that race;
+    // a headless unit term (never registered) stays Alive on `None` as before.
+    let was_registered = store
+        .read()
+        .unwrap_or_else(|p| p.into_inner())
+        .by_local(session)
+        .is_some();
+    let exited = |store: &Store| -> bool {
+        let g = store.read().unwrap_or_else(|p| p.into_inner());
+        match g.by_local(session).map(|h| h.state) {
+            Some(SessionState::Exited) => true,
+            None => was_registered,
+            _ => false,
+        }
+    };
+
+    loop {
+        if exited(store) {
+            term_lock(term).watch_disarm(id);
+            return "ERR exited\n".to_string();
+        }
+        let now = Instant::now();
+        let (sat, next_dl) = {
+            let mut t = term_lock(term);
+            t.watch_expire(now); // fire any elapsed idle deadline (host-injected `now`)
+            (t.watch_poll(id), t.watch_next_deadline())
+        };
+        if let Some(s) = sat {
+            term_lock(term).watch_disarm(id);
+            return format!("OK {kind} {}\n", s.seq);
+        }
+        if now >= overall {
+            term_lock(term).watch_disarm(id);
+            return "OK timeout\n".to_string();
+        }
+        // Park until a REAL event wakes us — fully event-driven, no re-poll:
+        // an output burst or session exit (both `notify` us), the next idle
+        // deadline (`next_dl`), or the overall timeout (the backstop).
+        let mut wake = overall;
+        if let Some(dl) = next_dl {
+            wake = wake.min(dl);
+        }
+        let dur = wake
+            .saturating_duration_since(now)
+            .max(Duration::from_millis(1));
+        let _ = sub.wait(dur);
     }
 }
 

@@ -19,11 +19,12 @@
 
 // The 7 introspection models are iterated via `harness::instances()`, not named here.
 use aterm_spec::derive::{
-    Model, active_handle_model, coalesce_model, cursor_model, evict_full_model, kernel_model,
-    pane_tree_model, presentation_gate_model, proxy_forward_model, read_image_seq_model,
-    recording_model, ring_model, session_pool_model, snapshot_model, spawn_locale_model,
+    Model, active_handle_model, channel_bind_model, coalesce_model, cursor_model, evict_full_model,
+    idle_deadline_model, inject_floor_model, kernel_model, pane_tree_model,
+    presentation_gate_model, proxy_forward_model, read_image_seq_model, recording_model,
+    ring_model, self_governor_model, session_pool_model, snapshot_model, spawn_locale_model,
     subscribe_model, tab_nav_model, tab_strip_model, tier_residency_model, transact_model,
-    window_routing_model,
+    watcher_latch_model, window_routing_model,
 };
 use aterm_spec::verify::ty;
 use std::path::PathBuf;
@@ -133,6 +134,55 @@ fn assert_proves_and_catches(ty: &PathBuf, m: &Model) {
 fn derived_subscribe_proves_and_catches_silent_loss() {
     let ty = ty("derived subscribe spec");
     assert_proves_and_catches(&ty, &subscribe_model());
+}
+
+/// Observation Kernel (RFC "The Reactive Surface", L0): the no-silent-loss latch
+/// — a transiently-true surface predicate must be caught at the `post_process`
+/// seam, never lost to a coalescing consumer wake. PROVES at Buggy=0, CATCHES the
+/// deferred-to-wake coalescing bug at Buggy=1. Bound to the real engine by
+/// `aterm-core/tests/conformance_observe.rs`.
+#[test]
+fn derived_watcher_latch_proves_and_catches_silent_loss() {
+    let ty = ty("derived watcher-latch spec");
+    assert_proves_and_catches(&ty, &watcher_latch_model());
+}
+
+/// Observation Kernel (RFC L0): the single armed idle deadline must equal the
+/// minimum of all pending `IdleFor` deadlines, so an earlier wake is never
+/// missed. PROVES `armed = min` at Buggy=0, CATCHES the keep-first bug at
+/// Buggy=1. Bound to the real engine by `WatcherSet::next_deadline`.
+#[test]
+fn derived_idle_deadline_proves_and_catches_missed_earliest() {
+    let ty = ty("derived idle-deadline spec");
+    assert_proves_and_catches(&ty, &idle_deadline_model());
+}
+
+/// Self-reflection feedback governor (RFC R4 / L2): once the breaker trips, no
+/// self-write survives — the storm backstop. PROVES FailClosed at Buggy=0,
+/// CATCHES the breaker-bypass at Buggy=1. Bound to `aterm-agent::SelfGovernor`
+/// (whose `allow_self_write` returns false once `tripped`).
+#[test]
+fn derived_self_governor_proves_and_catches_breaker_bypass() {
+    let ty = ty("derived self-governor spec");
+    assert_proves_and_catches(&ty, &self_governor_model());
+}
+
+/// Self-feed floor (RFC D3): the un-bypassable control-layer backstop never
+/// admits a self-injection past an empty token bucket. PROVES NoOverdraft at
+/// Buggy=0, CATCHES the overdraft at Buggy=1. Bound to `aterm-gui::inject_floor`.
+#[test]
+fn derived_inject_floor_proves_and_catches_overdraft() {
+    let ty = ty("derived inject-floor spec");
+    assert_proves_and_catches(&ty, &inject_floor_model());
+}
+
+/// Network capability (RFC D4 / L3): an edge token captured on one connection must
+/// not authorize on another. PROVES NoReplay at Buggy=0, CATCHES the
+/// channel-unbound bug at Buggy=1. Bound to `aterm-net::channel_bind`/`verify_presented`.
+#[test]
+fn derived_channel_bind_proves_and_catches_replay() {
+    let ty = ty("derived channel-bind spec");
+    assert_proves_and_catches(&ty, &channel_bind_model());
 }
 
 #[test]

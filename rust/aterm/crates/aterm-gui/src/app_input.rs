@@ -17,7 +17,9 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 use crate::input::{self, InputEvent, InputOutcome, ScrollIntent, Source};
-use crate::{App, FONT_ZOOM_STEP, Wake, WindowId, keybinding, keymap, menu, pane, term_lock};
+use crate::{
+    App, FONT_ZOOM_STEP, Wake, WindowId, keybinding, keymap, menu, pane, prefs, term_lock,
+};
 
 /// Map the seam's [`input::Egress`] to the reply-bearing [`InputOutcome`]: a failed
 /// PTY write becomes `WriteFailed` (→ `ERR write failed`) so a reply-bearing verb is
@@ -843,10 +845,13 @@ impl App {
         match action {
             // App menu --------------------------------------------------------
             // About shows the standard macOS About panel (name + version from
-            // Info.plist + the bundled Credits.html). Preferences / Help remain
-            // no-op stubs (the item exists and dispatches; the pane is a follow-up).
+            // Info.plist + the bundled Credits.html). Preferences opens the native
+            // Preferences window (a read-only view of the effective config + Open-file
+            // / Reload actions; macOS), falling back to opening the (real, hot-reloading)
+            // TOML config on other targets; Help opens the project documentation.
             MenuAction::About => menu::show_about_panel(),
-            MenuAction::Preferences | MenuAction::Help => {}
+            MenuAction::Preferences => self.open_preferences(),
+            MenuAction::Help => menu::open_help_url(),
             MenuAction::Hide => self.hide_app(),
             MenuAction::Quit => el.exit(),
             // File ------------------------------------------------------------
@@ -885,9 +890,38 @@ impl App {
             MenuAction::Paste => self.paste_clipboard(),
             MenuAction::SelectAll => self.select_all(),
             MenuAction::Find => self.search_enter(),
+            // Find Next/Previous step the active search; a no-op when no search is
+            // open (search_step early-returns), exactly like Cmd-G in on_key.
+            MenuAction::FindNext => self.search_step(true),
+            MenuAction::FindPrev => self.search_step(false),
             // View ------------------------------------------------------------
             MenuAction::ToggleFullScreen => self.toggle_fullscreen(),
+            // Font size — identical to on_key_font_zoom (⌘= / ⌘- / ⌘0).
+            MenuAction::FontIncrease => self.set_font_px(self.font_px + FONT_ZOOM_STEP),
+            MenuAction::FontDecrease => self.set_font_px(self.font_px - FONT_ZOOM_STEP),
+            MenuAction::FontActualSize => self.set_font_px(self.default_font_px),
+            MenuAction::SplitVertical => self.split_focused_pane(pane::SplitDir::Vertical),
+            MenuAction::SplitHorizontal => self.split_focused_pane(pane::SplitDir::Horizontal),
+            // Toggle the bottom performance HUD (re-grids the window to make room).
+            MenuAction::ShowPerfHud => {
+                let id = crate::hud_bar::PanelId::Perf;
+                self.set_panel(id, !self.panel_enabled(id));
+            }
+            MenuAction::ShowSysLoadHud => {
+                let id = crate::hud_bar::PanelId::SysLoad;
+                self.set_panel(id, !self.panel_enabled(id));
+            }
+            MenuAction::ShowNetworkHud => {
+                let id = crate::hud_bar::PanelId::Network;
+                self.set_panel(id, !self.panel_enabled(id));
+            }
+            MenuAction::ShowAppFedHud => {
+                let id = crate::hud_bar::PanelId::AppFed;
+                self.set_panel(id, !self.panel_enabled(id));
+            }
             // Window ----------------------------------------------------------
+            MenuAction::NextTab => self.cycle_tab(true),
+            MenuAction::PrevTab => self.cycle_tab(false),
             MenuAction::Minimize => {
                 if let Some(w) = self.front().and_then(|ws| ws.os_window.as_ref()) {
                     w.set_minimized(true);
@@ -900,5 +934,28 @@ impl App {
                 }
             }
         }
+    }
+
+    /// App ▸ Preferences… (⌘,): open the native Preferences window (macOS) showing the
+    /// EFFECTIVE config (font size, family, theme, cursor style, scrollback, copy-on-
+    /// select — built by the pure [`crate::prefs::preferences_rows`] from the live
+    /// `self.config`) plus the Open-aterm.toml / Reload-config actions. The retained
+    /// window + button-target are kept alive in `self._prefs` (AppKit holds the target
+    /// only weakly, and a controller-less window must be owned by us); re-opening
+    /// replaces the handle, dropping (closing) any prior window.
+    ///
+    /// Without a `proxy` (only under `headless_for_test`, where no event loop exists)
+    /// this is a no-op — the buttons' Reload relay needs the proxy and no window is ever
+    /// shown in a test. Off macOS [`crate::prefs::open_preferences`] falls back to
+    /// opening the config file (itself a no-op there), so this stays warning-clean and
+    /// compiles on every target.
+    pub(crate) fn open_preferences(&mut self) {
+        let Some(proxy) = self.proxy.as_ref() else {
+            return;
+        };
+        let rows = prefs::preferences_rows(&self.config);
+        // Replace any prior window (dropping the old handle closes it). `None` (off the
+        // main thread / non-macOS fallback path) just leaves `_prefs` cleared.
+        self._prefs = prefs::open_preferences(proxy, &rows);
     }
 }

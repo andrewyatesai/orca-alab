@@ -26,7 +26,9 @@ use aterm_cap::{Cap, Tier};
 pub enum Sandbox {}
 
 /// POSIX resource limits to apply. `None` leaves the corresponding limit
-/// unchanged. Both the soft and hard limit are set to the given value.
+/// unchanged. Each value is installed as the **soft** limit; the inherited
+/// **hard** ceiling is PRESERVED (never lowered) so the spawned `$SHELL` can
+/// still raise its own soft limit from its rc — see [`set_limit`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Limits {
     /// CPU seconds (`RLIMIT_CPU`).
@@ -156,14 +158,39 @@ type RlimitResource = libc::__rlimit_resource_t;
 #[cfg(not(all(target_os = "linux", target_env = "gnu")))]
 type RlimitResource = libc::c_int;
 
-/// Set both soft and hard `resource` to `value` (no-op when `value` is `None`).
+/// Set the SOFT `resource` limit to `value` while PRESERVING the inherited hard
+/// ceiling (no-op when `value` is `None`).
+///
+/// We deliberately do NOT lower the hard limit. The spawned `$SHELL` (User mode
+/// runs it transparently) must stay able to RAISE its own soft limit from its rc
+/// — e.g. a `.zshrc` line `ulimit -n 65536` — exactly as under any other
+/// terminal. Clamping the hard limit to the requested value broke that: a soft
+/// request above the (also-lowered) hard limit aborts shell startup with
+/// `ulimit: value exceeds hard limit`. Treating the value as a soft default the
+/// child can raise up to the inherited hard ceiling is the correct semantics for
+/// the non-actuated User sandbox. The soft value is clamped to the hard ceiling
+/// so `setrlimit` can never `EINVAL` on `rlim_cur > rlim_max`.
 fn set_limit(resource: RlimitResource, value: Option<u64>) -> io::Result<()> {
     let Some(v) = value else {
         return Ok(());
     };
+    // Read the inherited limits so the hard ceiling is preserved. This is a bare
+    // `getrlimit` syscall (no allocation), so it stays async-signal-safe in the
+    // post-fork child where `apply` runs. If the read fails, fall back to the old
+    // behavior (set both) rather than leaving the limit unconfined.
+    let mut cur = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: valid resource id + a valid out-param for the call's duration.
+    let hard = if unsafe { libc::getrlimit(resource, &mut cur) } == 0 {
+        cur.rlim_max
+    } else {
+        v as libc::rlim_t
+    };
     let lim = libc::rlimit {
-        rlim_cur: v as libc::rlim_t,
-        rlim_max: v as libc::rlim_t,
+        rlim_cur: core::cmp::min(v as libc::rlim_t, hard),
+        rlim_max: hard,
     };
     // SAFETY: `resource` is a valid RLIMIT_* constant and `&lim` is a valid,
     // fully-initialized `rlimit` for the duration of the call.
@@ -188,6 +215,18 @@ mod tests {
         let rc = unsafe { libc::getrlimit(resource, &mut lim) };
         assert_eq!(rc, 0, "getrlimit failed");
         lim.rlim_cur
+    }
+
+    /// The current HARD ceiling (`rlim_max`) of `resource`.
+    fn current_hard(resource: libc::c_int) -> u64 {
+        let mut lim = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: valid resource id + out-param.
+        let rc = unsafe { libc::getrlimit(resource, &mut lim) };
+        assert_eq!(rc, 0, "getrlimit failed");
+        lim.rlim_max
     }
 
     #[test]
@@ -278,5 +317,50 @@ mod tests {
         .apply(&cap)
         .unwrap();
         assert_eq!(current(libc::RLIMIT_NOFILE), target);
+    }
+
+    #[test]
+    fn apply_preserves_the_hard_ceiling_so_a_shell_can_raise_its_soft_limit() {
+        // REGRESSION GUARD — `/Users/.../.zshrc:ulimit:N: value exceeds hard limit`.
+        // The User-mode sandbox runs the user's $SHELL transparently, so it must
+        // install its limit as a SOFT default and LEAVE THE HARD CEILING ALONE.
+        // The old code set both soft AND hard to the requested value, clamping the
+        // hard NOFILE to 8192; a `.zshrc` doing `ulimit -n 65536` then aborted shell
+        // startup. This guard fails if anyone reintroduces a hard-limit clamp: it
+        // proves (1) the hard ceiling is unchanged by apply, and (2) the soft limit
+        // is still raisable above the applied value, up to that preserved ceiling —
+        // exactly the `.zshrc` case. The earlier tests only checked the soft limit,
+        // which is why the regression slipped through.
+        let auth = unsafe { Authority::root_authority() };
+        let cap: Cap<Sandbox> = auth.grant(Tier::Trusted);
+
+        let hard_before = current_hard(libc::RLIMIT_NOFILE);
+        let applied = 256u64;
+        assert!(
+            hard_before > applied,
+            "test precondition: inherited hard NOFILE ({hard_before}) must exceed the applied soft default"
+        );
+
+        Limits {
+            open_files: Some(applied),
+            ..Default::default()
+        }
+        .apply(&cap)
+        .unwrap();
+
+        assert_eq!(
+            current_hard(libc::RLIMIT_NOFILE),
+            hard_before,
+            "apply must NOT lower the hard NOFILE ceiling (the `ulimit: value exceeds hard limit` regression)"
+        );
+
+        // Emulate the shell rc raising its soft limit above the applied default —
+        // this must SUCCEED now that the ceiling is preserved.
+        let raise = core::cmp::min(applied * 4, hard_before);
+        set_limit(libc::RLIMIT_NOFILE, Some(raise)).expect("raising the soft limit must succeed");
+        assert!(
+            current(libc::RLIMIT_NOFILE) >= applied,
+            "soft limit must be raisable above the applied sandbox default"
+        );
     }
 }

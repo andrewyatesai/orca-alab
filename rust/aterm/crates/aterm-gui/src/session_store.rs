@@ -35,14 +35,16 @@ use crate::SessionCtx;
 
 /// A session's lifecycle as the registry observes it. A session stays READABLE
 /// after its command exits (`Exited`) until the pane is torn down and it is
-/// deregistered. `Spawning` is the brief pre-`Alive` window; in the current
-/// single-step `spawn_session` path a handle is registered already `Alive`.
+/// deregistered. `Spawning` is the brief pre-`Alive` window: the spawn path
+/// registers a handle `Spawning` the instant its PTY + engine exist, and the
+/// session's own PTY reader thread flips it to `Alive` (via `Wake::Ready`) on its
+/// FIRST live iteration. A fast shell makes that window vanishingly short; a slow
+/// shell stays `Spawning` (and addressable) until its reader confirms live.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SessionState {
-    /// Reader thread not yet producing (reserved for the future async-spawn path).
-    // Part of the documented lifecycle; the current single-step spawn registers
-    // already-`Alive`, so this variant is constructed only by tests today.
-    #[allow(dead_code)]
+    /// Registered, engine + PTY live, but the reader thread has not yet confirmed
+    /// its first iteration — the brief pre-`Alive` window. Input is safe in this
+    /// state (the PTY master + sink already exist; bytes buffer in the kernel).
     Spawning,
     /// Live: a reader thread is feeding the engine.
     Alive,
@@ -145,6 +147,24 @@ impl SessionStore {
         }
     }
 
+    /// Confirm a session's reader thread is live: transition `Spawning → Alive`.
+    /// MONOTONIC + fail-safe — only a still-`Spawning` handle flips. A handle that
+    /// already raced to `Exited` (an instant-exit shell whose `Wake::Exit` landed
+    /// first) is NOT resurrected, and an already-`Alive` handle (a duplicate/late
+    /// readiness signal) is left untouched. Returns `true` IFF this call performed
+    /// the transition; an unknown id or any non-`Spawning` state returns `false`.
+    /// Idempotent: a second `Wake::Ready` for the same session is a cheap no-op.
+    pub fn mark_alive(&mut self, local_id: u64) -> bool {
+        if let Some(sid) = self.by_local.get(&local_id)
+            && let Some(h) = self.by_id.get_mut(sid)
+            && h.state == SessionState::Spawning
+        {
+            h.state = SessionState::Alive;
+            return true;
+        }
+        false
+    }
+
     /// Update the live title for a session (best-effort, on relabel). Takes `&str`
     /// (the caller no longer allocates a `String` per redraw) and only mutates on an
     /// ACTUAL change, so a no-op relabel reuses the existing buffer. No-op if unknown.
@@ -205,6 +225,20 @@ mod tests {
     use aterm_session::sink::SinkWriter;
 
     fn handle(local_id: u64, parent: Option<SessionId>) -> SessionHandle {
+        handle_in_state(local_id, parent, SessionState::Alive)
+    }
+
+    fn handle_in_state(
+        local_id: u64,
+        parent: Option<SessionId>,
+        state: SessionState,
+    ) -> SessionHandle {
+        let mut h = handle_alive(local_id, parent);
+        h.state = state;
+        h
+    }
+
+    fn handle_alive(local_id: u64, parent: Option<SessionId>) -> SessionHandle {
         let sid = SessionId::generate();
         let nonce = LaunchNonce::generate();
         let ctx = Arc::new(SessionCtx {
@@ -277,6 +311,57 @@ mod tests {
             Some(&root_sid),
             "child links to root"
         );
+    }
+
+    #[test]
+    fn spawning_session_is_registered_addressable_and_becomes_alive() {
+        // The async-spawn path: a session is registered `Spawning` (engine + PTY
+        // live, reader not yet confirmed) and stays fully addressable by BOTH keys
+        // throughout. Its reader's first iteration flips it `Alive` via `mark_alive`.
+        let mut store = SessionStore::default();
+        let h = handle_in_state(5, None, SessionState::Spawning);
+        let sid = h.sid.clone();
+        store.register(h);
+
+        // Addressable + observably `Spawning` the whole pre-Alive window.
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.by_local(5).unwrap().state, SessionState::Spawning);
+        assert_eq!(store.by_sid(&sid).unwrap().state, SessionState::Spawning);
+        assert_eq!(store.by_local(5).unwrap().sid, sid, "both keys agree");
+
+        // Reader confirms live: Spawning -> Alive, reported as the transitioning call.
+        assert!(
+            store.mark_alive(5),
+            "first readiness performs the transition"
+        );
+        assert_eq!(store.by_local(5).unwrap().state, SessionState::Alive);
+        assert_eq!(
+            store.by_sid(&sid).unwrap().state,
+            SessionState::Alive,
+            "the transition is visible via BOTH key spaces (one handle)"
+        );
+        // Still fully addressable after the transition.
+        assert_eq!(store.by_local(5).unwrap().sid, sid);
+    }
+
+    #[test]
+    fn mark_alive_is_monotonic_idempotent_and_fail_safe() {
+        let mut store = SessionStore::default();
+        store.register(handle_in_state(8, None, SessionState::Spawning));
+
+        // A SECOND readiness signal (duplicate/late `Wake::Ready`) is a no-op.
+        assert!(store.mark_alive(8));
+        assert!(!store.mark_alive(8), "already Alive: no second transition");
+        assert_eq!(store.by_local(8).unwrap().state, SessionState::Alive);
+
+        // An instant-exit shell whose `Wake::Exit` landed first: a stray late
+        // readiness must NOT resurrect an Exited handle.
+        store.register(handle_in_state(9, None, SessionState::Exited));
+        assert!(!store.mark_alive(9), "Exited never flips back to Alive");
+        assert_eq!(store.by_local(9).unwrap().state, SessionState::Exited);
+
+        // Unknown id is a fail-closed no-op, never a panic.
+        assert!(!store.mark_alive(404));
     }
 
     #[test]

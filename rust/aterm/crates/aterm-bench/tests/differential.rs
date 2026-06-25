@@ -2181,7 +2181,7 @@ fn aterm_bug_rgb_lost_on_region_scroll() {
 /// the cleared alt screen with bright-black; aterm now matches.
 #[test]
 fn aterm_bug_no_bce_on_1049_enter() {
-    let bright_black: [u8; 3] = [127, 127, 127]; // palette index 8 default
+    let bright_black: [u8; 3] = [138, 143, 153]; // palette index 8 default (#8A8F99)
     let input = b"\x1b[100m\x1b[?1049h";
 
     // FIXED: a cleared alt-screen cell now carries the SGR bg, not the default.

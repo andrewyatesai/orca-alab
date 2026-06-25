@@ -39,9 +39,10 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
     // App menu
-    /// About aterm (no-op stub for now).
+    /// About aterm — the standard macOS About panel (`show_about_panel`).
     About,
-    /// Preferences… (no-op stub for now).
+    /// Preferences… — open `~/.config/aterm/aterm.toml` in the default editor,
+    /// creating a documented starter file if absent (`open_config_file`).
     Preferences,
     /// Hide aterm (the app — `NSApplication::hide`).
     Hide,
@@ -72,16 +73,42 @@ pub enum MenuAction {
     SelectAll,
     /// Find… — enter Cmd-F find mode (`App::search_enter`).
     Find,
+    /// Find Next — step to the next search match (`App::search_step(true)`).
+    FindNext,
+    /// Find Previous — step to the previous match (`App::search_step(false)`).
+    FindPrev,
     // View menu
     /// Toggle the window's full-screen state (winit `set_fullscreen`).
     ToggleFullScreen,
+    /// Increase font size (`set_font_px(font_px + step)`).
+    FontIncrease,
+    /// Decrease font size (`set_font_px(font_px - step)`).
+    FontDecrease,
+    /// Actual Size — reset to the default font size (`set_font_px(default)`).
+    FontActualSize,
+    /// Split the focused pane left/right (`split_focused_pane(Vertical)`).
+    SplitVertical,
+    /// Split the focused pane top/bottom (`split_focused_pane(Horizontal)`).
+    SplitHorizontal,
+    /// Toggle the performance HUD panel.
+    ShowPerfHud,
+    /// Toggle the system-load HUD panel.
+    ShowSysLoadHud,
+    /// Toggle the network HUD panel.
+    ShowNetworkHud,
+    /// Toggle the app-fed (AI tokens / custom) HUD panel.
+    ShowAppFedHud,
     // Window menu
     /// Minimise the window.
     Minimize,
     /// Zoom (toggle maximised) the window.
     Zoom,
+    /// Show the next tab (`App::cycle_tab(true)`).
+    NextTab,
+    /// Show the previous tab (`App::cycle_tab(false)`).
+    PrevTab,
     // Help menu
-    /// Help (no-op stub for now).
+    /// Help — open the project documentation in the browser (`open_help_url`).
     Help,
 }
 
@@ -110,6 +137,19 @@ impl MenuAction {
             MenuAction::MoveTabToNewWindow => 16,
             MenuAction::ViewSessionInNewWindow => 17,
             MenuAction::MoveTabToNextWindow => 18,
+            MenuAction::FindNext => 19,
+            MenuAction::FindPrev => 20,
+            MenuAction::FontIncrease => 21,
+            MenuAction::FontDecrease => 22,
+            MenuAction::FontActualSize => 23,
+            MenuAction::SplitVertical => 24,
+            MenuAction::SplitHorizontal => 25,
+            MenuAction::NextTab => 26,
+            MenuAction::PrevTab => 27,
+            MenuAction::ShowPerfHud => 28,
+            MenuAction::ShowSysLoadHud => 29,
+            MenuAction::ShowNetworkHud => 30,
+            MenuAction::ShowAppFedHud => 31,
         }
     }
 
@@ -137,13 +177,26 @@ impl MenuAction {
             16 => MenuAction::MoveTabToNewWindow,
             17 => MenuAction::ViewSessionInNewWindow,
             18 => MenuAction::MoveTabToNextWindow,
+            19 => MenuAction::FindNext,
+            20 => MenuAction::FindPrev,
+            21 => MenuAction::FontIncrease,
+            22 => MenuAction::FontDecrease,
+            23 => MenuAction::FontActualSize,
+            24 => MenuAction::SplitVertical,
+            25 => MenuAction::SplitHorizontal,
+            26 => MenuAction::NextTab,
+            27 => MenuAction::PrevTab,
+            28 => MenuAction::ShowPerfHud,
+            29 => MenuAction::ShowSysLoadHud,
+            30 => MenuAction::ShowNetworkHud,
+            31 => MenuAction::ShowAppFedHud,
             _ => return None,
         })
     }
 }
 
 #[cfg(target_os = "macos")]
-pub use macos::{MenuHandle, install, show_about_panel};
+pub use macos::{MenuHandle, install, open_config_file, open_help_url, show_about_panel};
 
 /// Non-macOS no-op handle: there is no platform menu off macOS. Held by `App` in
 /// the same field on every target so the struct shape is platform-independent.
@@ -161,6 +214,14 @@ pub fn install(_proxy: &winit::event_loop::EventLoopProxy<crate::Wake>) -> Optio
 /// Non-macOS stub: no platform About panel exists off macOS.
 #[cfg(not(target_os = "macos"))]
 pub fn show_about_panel() {}
+
+/// Non-macOS stub: opening the config file in a GUI editor is macOS-only here.
+#[cfg(not(target_os = "macos"))]
+pub fn open_config_file() {}
+
+/// Non-macOS stub.
+#[cfg(not(target_os = "macos"))]
+pub fn open_help_url() {}
 
 #[cfg(target_os = "macos")]
 mod macos {
@@ -395,6 +456,24 @@ mod macos {
         );
         add_separator(mtm, &edit);
         add_item(mtm, &edit, target, "Find…", MenuAction::Find, "f", true);
+        add_item(
+            mtm,
+            &edit,
+            target,
+            "Find Next",
+            MenuAction::FindNext,
+            "g",
+            true,
+        );
+        add_item_mods(
+            mtm,
+            &edit,
+            target,
+            "Find Previous",
+            MenuAction::FindPrev,
+            "g",
+            command_shift_mask(),
+        );
         edit
     }
 
@@ -402,6 +481,55 @@ mod macos {
     /// from [`install`].
     fn build_view_menu(mtm: MainThreadMarker, target: &MenuTarget) -> Retained<NSMenu> {
         let view = NSMenu::new(mtm);
+        // Font size: ⌘= / ⌘- / ⌘0 (the chords App::on_key_font_zoom already handles).
+        add_item(
+            mtm,
+            &view,
+            target,
+            "Increase Font Size",
+            MenuAction::FontIncrease,
+            "+",
+            true,
+        );
+        add_item(
+            mtm,
+            &view,
+            target,
+            "Decrease Font Size",
+            MenuAction::FontDecrease,
+            "-",
+            true,
+        );
+        add_item(
+            mtm,
+            &view,
+            target,
+            "Actual Size",
+            MenuAction::FontActualSize,
+            "0",
+            true,
+        );
+        add_separator(mtm, &view);
+        // Splits: ⌘D (left/right) and ⇧⌘D (top/bottom), matching on_key.
+        add_item(
+            mtm,
+            &view,
+            target,
+            "Split Right",
+            MenuAction::SplitVertical,
+            "d",
+            true,
+        );
+        add_item_mods(
+            mtm,
+            &view,
+            target,
+            "Split Down",
+            MenuAction::SplitHorizontal,
+            "d",
+            command_shift_mask(),
+        );
+        add_separator(mtm, &view);
         // Cmd-Ctrl-F is the macOS-standard Enter Full Screen equivalent.
         add_item_mods(
             mtm,
@@ -411,6 +539,44 @@ mod macos {
             MenuAction::ToggleFullScreen,
             "f",
             command_control_mask(),
+        );
+        add_separator(mtm, &view);
+        // Streaming bottom HUD panels — one toggle each (no key-equivalent).
+        add_item(
+            mtm,
+            &view,
+            target,
+            "HUD: Performance",
+            MenuAction::ShowPerfHud,
+            "",
+            false,
+        );
+        add_item(
+            mtm,
+            &view,
+            target,
+            "HUD: System Load",
+            MenuAction::ShowSysLoadHud,
+            "",
+            false,
+        );
+        add_item(
+            mtm,
+            &view,
+            target,
+            "HUD: Network",
+            MenuAction::ShowNetworkHud,
+            "",
+            false,
+        );
+        add_item(
+            mtm,
+            &view,
+            target,
+            "HUD: Activity (AI tokens)",
+            MenuAction::ShowAppFedHud,
+            "",
+            false,
         );
         view
     }
@@ -429,6 +595,26 @@ mod macos {
             true,
         );
         add_item(mtm, &window, target, "Zoom", MenuAction::Zoom, "", false);
+        add_separator(mtm, &window);
+        // Tab navigation: ⇧⌘] / ⇧⌘[ (the chords on_key already handles).
+        add_item_mods(
+            mtm,
+            &window,
+            target,
+            "Show Next Tab",
+            MenuAction::NextTab,
+            "]",
+            command_shift_mask(),
+        );
+        add_item_mods(
+            mtm,
+            &window,
+            target,
+            "Show Previous Tab",
+            MenuAction::PrevTab,
+            "[",
+            command_shift_mask(),
+        );
         window
     }
 
@@ -577,6 +763,84 @@ mod macos {
             let _: () = msg_send![&app, orderFrontStandardAboutPanelWithOptions: &*options];
         }
     }
+
+    /// A documented starter config written to `~/.config/aterm/aterm.toml` the first
+    /// time the user opens Preferences… on a machine with no config yet. Every key
+    /// is commented out (defaults apply), so writing it changes nothing — it just
+    /// makes the (real, hot-reloading) settings surface DISCOVERABLE.
+    const DEFAULT_CONFIG_TEMPLATE: &str = "\
+# aterm configuration — ~/.config/aterm/aterm.toml
+# Every setting is optional; uncomment to override. Edits hot-reload on save.
+# Environment variables (ATERM_*) take precedence over this file.
+
+# --- appearance ---------------------------------------------------------------
+# font_family = \"Menlo\"        # any installed monospace family (default: Menlo)
+# font_px = 13                   # logical font size (auto-scaled on Retina)
+# theme = \"Default\"            # a built-in scheme (Dracula, Nord, One Dark, …)
+# cursor_style = \"block\"       # block | bar | underline
+# cursor_blink = true
+# scrollback_lines = 10000
+# selection_color = \"#33415E\"  # highlight behind selected text
+
+# --- behavior -----------------------------------------------------------------
+# gpu = false                    # GPU/Metal rendering (env ATERM_GPU=1 overrides)
+# copy_on_select = false
+# show_perf_hud = false          # bottom HUD: render performance (fps/frame-ms/latency)
+# show_sysload_hud = false        # bottom HUD: system CPU load + memory
+# show_network_hud = false        # bottom HUD: whole-machine network rx/tx rate
+# show_appfed_hud = false         # bottom HUD: app-fed metrics — `aterm-ctl metric <name> <value>`
+                                  # (e.g. AI token spend). Toggle any via the View menu.
+
+# Glyph weight is tunable via the ATERM_STEM_GAMMA environment variable
+# (<1 = thicker, >1 = thinner, 1 = off) until a config key lands.
+
+# --- security opt-ins (all default OFF) ---------------------------------------
+# allow_osc52_query = false
+# allow_window_ops = false
+# allow_notifications = false
+# allow_palette_reconfigure = false
+";
+
+    /// App menu ▸ Preferences… (⌘,): open the user config file in the default editor,
+    /// creating a documented starter file if it does not exist yet. Best-effort.
+    pub fn open_config_file() {
+        let Some(path) = crate::app_config::config_path() else {
+            return;
+        };
+        if !path.exists() {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::create_dir_all(dir);
+            }
+            let _ = std::fs::write(&path, DEFAULT_CONFIG_TEMPLATE);
+        }
+        open_in_workspace(&path.to_string_lossy(), true);
+    }
+
+    /// Help ▸ aterm Help: open the project documentation in the default browser.
+    pub fn open_help_url() {
+        open_in_workspace("https://github.com/andrewyatesai/aterm", false);
+    }
+
+    /// Open `s` via `NSWorkspace openURL:` — a file path (`is_file`) becomes a
+    /// `file://` URL, otherwise it is parsed as an absolute URL. Best-effort; main
+    /// thread only.
+    fn open_in_workspace(s: &str, is_file: bool) {
+        if MainThreadMarker::new().is_none() {
+            return;
+        }
+        let ns = NSString::from_str(s);
+        // SAFETY: `NSURL`/`NSWorkspace` are standard AppKit; the string is valid and
+        // retained for the call. `openURL:` returns BOOL, which we ignore.
+        unsafe {
+            let url: Retained<AnyObject> = if is_file {
+                msg_send_id![class!(NSURL), fileURLWithPath: &*ns]
+            } else {
+                msg_send_id![class!(NSURL), URLWithString: &*ns]
+            };
+            let ws: Retained<AnyObject> = msg_send_id![class!(NSWorkspace), sharedWorkspace];
+            let _: bool = msg_send![&ws, openURL: &*url];
+        }
+    }
 }
 
 #[cfg(test)]
@@ -603,9 +867,22 @@ mod tests {
             MenuAction::Paste,
             MenuAction::SelectAll,
             MenuAction::Find,
+            MenuAction::FindNext,
+            MenuAction::FindPrev,
             MenuAction::ToggleFullScreen,
+            MenuAction::FontIncrease,
+            MenuAction::FontDecrease,
+            MenuAction::FontActualSize,
+            MenuAction::SplitVertical,
+            MenuAction::SplitHorizontal,
             MenuAction::Minimize,
             MenuAction::Zoom,
+            MenuAction::NextTab,
+            MenuAction::PrevTab,
+            MenuAction::ShowPerfHud,
+            MenuAction::ShowSysLoadHud,
+            MenuAction::ShowNetworkHud,
+            MenuAction::ShowAppFedHud,
             MenuAction::Help,
         ];
         let mut seen = std::collections::HashSet::new();

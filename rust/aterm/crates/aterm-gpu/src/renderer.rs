@@ -1448,6 +1448,20 @@ impl GpuRenderer {
         self.cpu.set_selection_fg(fg);
     }
 
+    /// Mark the pane unfocused (`true`) / focused (`false`) for selection theming.
+    /// Routed through the wrapped CPU face — `encode_frame` reads the band colour
+    /// off `self.cpu.effective_selection_bg()`, so the GPU and CPU agree. The host
+    /// must invalidate the present (appearance-only, not content) for it to redraw.
+    pub fn set_selection_inactive(&mut self, inactive: bool) {
+        self.cpu.set_selection_inactive(inactive);
+    }
+
+    /// Inactive (unfocused) selection bg (0x00RRGGBB), or `None` to derive it from
+    /// the theme. Routed through the wrapped CPU face (single source of truth).
+    pub fn set_selection_inactive_bg(&mut self, bg: Option<u32>) {
+        self.cpu.set_selection_inactive_bg(bg);
+    }
+
     /// Re-rasterize at a new pixel size (host DPI / devicePixelRatio change): update
     /// the wrapped CPU face's metrics + glyph caches and drop the GPU atlas so the
     /// next frame re-uploads glyphs at the new size. The host then resizes the grid.
@@ -1462,6 +1476,17 @@ impl GpuRenderer {
     /// discovery, so the host pushes OS font bytes in.
     pub fn set_fallback_font_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
         self.cpu.set_fallback_bytes(bytes)?;
+        self.invalidate_atlas();
+        Ok(())
+    }
+
+    /// APPEND a broad-coverage fallback face to the chain (mirrors
+    /// [`set_fallback_font_bytes`], but adds rather than resets). Lets the host push
+    /// several OS fallbacks so a script the first face misses (Arabic/Devanagari/
+    /// Thai/Hebrew vs a CJK face) still reaches a covering face. Atlas invalidated so
+    /// the next frame re-rasterizes with the added coverage.
+    pub fn add_fallback_font_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.cpu.add_fallback_bytes(bytes)?;
         self.invalidate_atlas();
         Ok(())
     }
@@ -2590,8 +2615,13 @@ impl GpuRenderer {
         let cur_override = self.cpu.cursor_style_override();
 
         // Expected pixel dims for this frame, to cross-check the cached frame.
+        // The cached frame is encoded at the PADDED size (the grid plus the
+        // interior `pad` border on every edge), so the gate must compare against
+        // `+ 2*pad` — otherwise any non-zero padding makes the dims never match
+        // and the gate never hits, silently defeating the cache on this path.
         let (cw, ch) = self.cpu.cell_size();
-        let (w, h) = (input.cols * cw, input.rows * ch);
+        let pad2 = 2 * self.cpu.pad();
+        let (w, h) = (input.cols * cw + pad2, input.rows * ch + pad2);
 
         // GATE-HIT: a prior frame exists, it is pixel-identical to this input,
         // AND its cached pixels are the right size (defensive — `is_unchanged_
@@ -2877,9 +2907,12 @@ impl GpuRenderer {
         let cursor_glyph_inst = &mut self.inst.cursor_glyph;
         let cursor_color_inst = &mut self.inst.cursor_color;
         let theme_bg = rgb4_u32(self.theme.bg);
-        // Captured once so the per-cell selection-fg floor below doesn't borrow self
-        // inside the loop (where self.cpu is borrowed for glyph-key resolution).
-        let theme_selection = self.theme.selection;
+        // The selection band colour for THIS frame — active when focused, the dimmer
+        // inactive bg when unfocused. Read off the CPU face (the single source of
+        // truth) so the GPU band matches the CPU pixel-for-pixel. Captured once so
+        // the per-cell selection-fg floor below doesn't borrow self inside the loop
+        // (where self.cpu is borrowed for glyph-key resolution).
+        let theme_selection = self.cpu.effective_selection_bg();
         // Explicit selectionForeground override (read off the CPU face — the single
         // source of truth — so GPU/CPU selected-glyph colour stays identical).
         let selection_fg = self.cpu.selection_fg();
@@ -2915,7 +2948,8 @@ impl GpuRenderer {
                 // A lead cell is wide iff the NEXT cell is its continuation.
                 let is_wide_lead = cells.get(c + 1).is_some_and(|n| n.wide);
                 let color = if selection.contains_cell(sel_row, c as u16, is_wide_lead, cell.wide) {
-                    rgb4_u32(self.theme.selection)
+                    // The active/inactive selection band colour captured above.
+                    rgb4_u32(theme_selection)
                 } else {
                     rgb4(cell.bg)
                 };

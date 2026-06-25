@@ -19,6 +19,7 @@
 //! the engine still holds its `Dark` default) is a real change iff the OS is Light,
 //! which is exactly when an app should be told.
 
+use crate::platform::AppRt;
 use crate::{App, WindowId, term_lock};
 
 /// Map a winit window [`Theme`](winit::window::Theme) onto the engine's
@@ -80,6 +81,65 @@ impl App {
                 // appearance is advisory; we never fail the GUI over it.
                 let _ = sink.write_frame(&resp);
             }
+        }
+    }
+
+    /// Switch aterm's OWN rendered theme to the side of a `dark:…,light:…` split
+    /// `theme` config that matches the live OS `appearance`. The rendered-theme
+    /// companion to [`Self::apply_os_color_scheme`] (which only feeds the engine's
+    /// REPORTED scheme for DEC 2031).
+    ///
+    /// A NO-OP when the appearance is unchanged, and (for a plain, non-split `theme`)
+    /// the re-resolved scheme is identical, so a single theme never re-themes on an OS
+    /// toggle and the renderer is rebuilt ONLY when the chrome actually changes. Re-
+    /// resolves from the retained live [`Config`](crate::Config) — no disk read — and
+    /// re-applies the engine palette + rebuilds the backend exactly as a live
+    /// `reload_config` does, so the switch is seamless.
+    pub(crate) fn sync_app_theme_to_appearance(&mut self, appearance: aterm_types::Appearance) {
+        if self.os_appearance == appearance {
+            return; // unchanged — nothing to re-resolve
+        }
+        self.os_appearance = appearance;
+
+        // Engine config (default fg/bg + ANSI palette) for the new appearance, applied
+        // to every live session and pinned into the factory so future tabs inherit it.
+        let applied_tc = self.config.applied_terminal_config_for(appearance);
+        for s in self.pool.iter() {
+            term_lock(&s.term).apply_config(&applied_tc);
+        }
+        self.session_factory.terminal_config = Some(applied_tc);
+
+        // Renderer chrome. `Theme` is a 4×u32 POD without `PartialEq`; compare fields
+        // (the renderer bakes these in, so any change needs a backend rebuild).
+        let new_theme = self.config.theme_for(appearance);
+        let theme_changed = (
+            new_theme.fg,
+            new_theme.bg,
+            new_theme.cursor,
+            new_theme.selection,
+        ) != (
+            self.theme.fg,
+            self.theme.bg,
+            self.theme.cursor,
+            self.theme.selection,
+        );
+        if theme_changed {
+            self.theme = new_theme;
+            // The tab strip is painted with the theme colours, so invalidate every
+            // window's strip cache; keep the seamless titlebar bg in step (no-op off
+            // macOS). Mirrors `reload_config`'s theme-change path.
+            let bg = self.theme.bg;
+            let apprt = &self.apprt;
+            for ws in self.windows.values_mut() {
+                ws.last_strip_fp = None;
+                if let Some(w) = ws.os_window.as_ref() {
+                    apprt.window_set_background_color(w, bg);
+                }
+            }
+            self.rebuild_backend();
+        } else if let Some(w) = self.front().and_then(|ws| ws.os_window.as_ref()) {
+            // Chrome unchanged, but the engine palette may have re-coloured cells.
+            w.request_redraw();
         }
     }
 }

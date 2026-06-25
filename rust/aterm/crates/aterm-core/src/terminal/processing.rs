@@ -124,6 +124,10 @@ impl Terminal {
 
             let grid_start = web_time::Instant::now(); // CLOCK-EXEMPT: profiling diagnostic (gated), not grid state (web_time = std on native, JS clock on wasm)
             self.post_process();
+            // Observation Kernel (L0): evaluate + latch armed watchers at the one
+            // seam where this batch's mutation has landed. `process_now` is the
+            // injected clock (never read here), so this is replay-deterministic.
+            self.observe_at(self.transient.process_now);
             let grid_end = web_time::Instant::now(); // CLOCK-EXEMPT: profiling diagnostic (gated), not grid state (web_time = std on native, JS clock on wasm)
 
             self.record_pipeline_timestamps(
@@ -146,6 +150,9 @@ impl Terminal {
                 self.transient.pending_parser_reset = false;
             }
             self.post_process();
+            // Observation Kernel (L0): see the gated branch above — same seam,
+            // same injected clock, replay-deterministic.
+            self.observe_at(self.transient.process_now);
 
             // Lightweight: just bump sequence counter and record byte count.
             let ts = &mut self.transient.pipeline_timestamps;
@@ -349,6 +356,9 @@ fn _terminal_field_exhaustiveness_check(t: &mut Terminal) {
         // Cached search index + rebuild counter: session-only, not VT state.
         search_index: _,
         search_index_rebuilds: _,
+        // Observation Kernel: ephemeral observation-only state, not VT state and
+        // not forwarded to the handler (it is read after post_process).
+        watchers: _,
     } = t;
 }
 

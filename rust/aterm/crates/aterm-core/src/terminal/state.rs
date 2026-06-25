@@ -81,6 +81,11 @@ pub struct Terminal {
     /// Grouped transient state cleared on reset (response buffer, hyperlink,
     /// underline color, last graphic char, VT52, sync, SGR stack).
     pub(super) transient: TransientState,
+    /// The Observation Kernel (L0): armed `await`/quiescence watchers over
+    /// `content_seq`. EPHEMERAL, observation-only state — it never mutates the
+    /// surface and is NEVER part of a `TerminalCheckpoint`, so it cannot perturb
+    /// replay determinism (a fresh, empty set is reconstructed on hydration).
+    pub(super) watchers: super::observe::WatcherSet,
     /// Current working directory (OSC 7).
     ///
     /// Set by shells when the directory changes.

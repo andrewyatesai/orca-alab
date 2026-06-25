@@ -58,6 +58,7 @@ impl Terminal {
             clipboard: ClipboardState::new(),
             iterm2: Iterm2State::new(),
             transient: TransientState::new(),
+            watchers: super::observe::WatcherSet::default(),
             current_working_directory: None,
             color: ColorState::new(),
             font: FontDescriptor::default(),

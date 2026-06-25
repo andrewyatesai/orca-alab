@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The aterm Authors
+
+[package]
+name = "aterm-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "aterm L3 — network transport for the control protocol: a transport abstraction generalizing the local proxy dial, plus a channel-bound capability so a captured edge token cannot replay across connections. Predicates run on the AUTHORITATIVE surface, so no astream fold is needed to drive a remote aterm."
+
+[lints]
+workspace = true
+
+[dependencies]
+# The capability the network hop carries (the same EdgeToken the local one-hop
+# proxy mints), and the session/op identity it binds to.
+aterm-session = { workspace = true }
+# Keyed digest for the channel binding (a non-crypto stand-in for the property;
+# production swaps in HMAC-SHA256/HKDF — see the module docs).
+aterm-hash = { workspace = true }

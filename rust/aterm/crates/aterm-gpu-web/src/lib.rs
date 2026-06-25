@@ -90,6 +90,12 @@ pub struct AtermGpuTerminal {
     // reinit-retention copy isn't a per-pane ~180MB (emoji) / ~100MB (CJK) duplicate.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     fallback_font: Option<std::sync::Arc<Vec<u8>>>,
+    // ADDITIONAL fallback faces appended via `add_fallback_font` (most-preferred
+    // first), kept so `init` can re-apply the whole chain to the fresh GPU CPU
+    // face. Interned Arcs (shared across panes) so this retention isn't a per-pane
+    // duplicate. Empty until the host appends a second fallback face.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    fallback_chain_extra: Vec<std::sync::Arc<Vec<u8>>>,
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     emoji_font: Option<std::sync::Arc<Vec<u8>>>,
 }
@@ -149,6 +155,7 @@ impl AtermGpuTerminal {
             fb_height: 0,
             smart: SmartSelection::with_builtin_rules(),
             fallback_font: None,
+            fallback_chain_extra: Vec::new(),
             emoji_font: None,
         })
     }
@@ -169,6 +176,24 @@ impl AtermGpuTerminal {
             gpu.renderer.set_fallback_font_bytes(bytes)?;
         }
         self.fallback_font = Some(aterm_render::intern_font_bytes(bytes.to_vec()));
+        // set_* RESETS the chain, so any previously appended extras are gone.
+        self.fallback_chain_extra.clear();
+        Ok(())
+    }
+
+    /// APPEND another fallback face to the chain (does NOT reset it like
+    /// [`set_fallback_font`]). Applies to the CPU face and the live GPU face if
+    /// `init` already ran; the bytes are also remembered so `init` re-applies the
+    /// whole chain to the fresh GPU face. Lets the host push a CJK fallback then
+    /// Arabic/Devanagari/Thai/Hebrew faces so a glyph the earlier faces miss still
+    /// reaches a covering face. No-throw: a bad blob leaves the chain untouched.
+    pub fn add_fallback_font(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.cpu.add_fallback_bytes(bytes)?;
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.add_fallback_font_bytes(bytes)?;
+        }
+        self.fallback_chain_extra
+            .push(aterm_render::intern_font_bytes(bytes.to_vec()));
         Ok(())
     }
 
@@ -205,7 +230,11 @@ impl AtermGpuTerminal {
     /// Force a hollow (unfocused) cursor when `true`, or restore the terminal's
     /// DECSCUSR style when `false`. Applies to both GPU and CPU faces.
     pub fn set_cursor_hollow(&mut self, hollow: bool) {
-        let style = if hollow { Some(CursorStyle::HollowBlock) } else { None };
+        let style = if hollow {
+            Some(CursorStyle::HollowBlock)
+        } else {
+            None
+        };
         self.cpu.set_cursor_style_override(style);
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.renderer.set_cursor_style_override(style);
@@ -339,6 +368,29 @@ impl AtermGpuTerminal {
         }
     }
 
+    /// Mark the pane unfocused (`true`) / focused (`false`): when unfocused, the
+    /// selection band paints with the dimmer inactive bg (xterm
+    /// `selectionInactiveBackground`). Set on both the CPU fallback face and the
+    /// live GPU renderer; forces a full present (appearance-only, not content).
+    pub fn set_selection_inactive(&mut self, inactive: bool) {
+        self.cpu.set_selection_inactive(inactive);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_selection_inactive(inactive);
+            gpu.win.invalidate_present();
+        }
+    }
+
+    /// Set the inactive (unfocused) selection bg (0x00RRGGBB), or `undefined` to
+    /// derive it from the active selection bg blended toward the theme bg. Set on
+    /// both the CPU fallback face and the live GPU renderer; forces a full present.
+    pub fn set_selection_inactive_bg(&mut self, bg: Option<u32>) {
+        self.cpu.set_selection_inactive_bg(bg);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.renderer.set_selection_inactive_bg(bg);
+            gpu.win.invalidate_present();
+        }
+    }
+
     /// Re-rasterize at a new cell font px (host DPI / devicePixelRatio change) on
     /// both the CPU fallback face and the live GPU renderer (which also drops its
     /// atlas). The host re-reads cell_width/cell_height + resizes the grid after.
@@ -458,7 +510,11 @@ impl AtermGpuTerminal {
             out.push_str("\x1b[0m");
         }
         let c = self.term.cursor();
-        out.push_str(&format!("\x1b[{};{}H", c.row as usize + 1, c.col as usize + 1));
+        out.push_str(&format!(
+            "\x1b[{};{}H",
+            c.row as usize + 1,
+            c.col as usize + 1
+        ));
         out
     }
 
@@ -1046,6 +1102,11 @@ impl AtermGpuTerminal {
         // built from `font_bytes` alone, so it lacks them otherwise.
         if let Some(bytes) = self.fallback_font.as_deref() {
             cpu.set_fallback_bytes(bytes)?;
+        }
+        // Re-append the rest of the chain IN ORDER after the reset base above, so
+        // the multi-script coverage the host built before init survives the rebuild.
+        for bytes in &self.fallback_chain_extra {
+            cpu.add_fallback_bytes(bytes)?;
         }
         if let Some(bytes) = self.emoji_font.as_deref() {
             // The transient Vec clone is re-interned to the shared Arc inside

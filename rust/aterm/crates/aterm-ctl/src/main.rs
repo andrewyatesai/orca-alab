@@ -183,6 +183,12 @@ VERBS:
                                max_frame_render_ms, or backend=cpu under heavy output
                                = lagging. `metrics reset` zeroes the window first so a
                                specific workload can be timed (reset, drive, metrics).
+    metric <name> <value>      push a numeric sample into the app-fed metric stream
+                               <name> (e.g. `metric tokens.in 12000`), shown live by
+                               the app-fed HUD panel (View ▸ HUD: Activity). Lets a
+                               tool report its own counts — AI token spend, build
+                               progress — that the OS can't attribute. Reply: OK
+                               <name> <value>.
     resize <r> <c>             resize the engine + PTY (each dimension 1..=4096;
                                out-of-range requests get ERR out of range).
     select <r1> <c1> <r2> <c2> select from cell (r1,c1) to (r2,c2), both

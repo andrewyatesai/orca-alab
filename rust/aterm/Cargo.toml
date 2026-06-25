@@ -38,6 +38,13 @@ web-time = "1"
 
 # --- internal aterm crates (added by tools/port_crate.sh as each is ported) ---
 aterm-render-api = { path = "crates/aterm-render-api" }
+# L0.5 semantic surface predicates (regex row-match) over the Observation Kernel.
+aterm-observe = { path = "crates/aterm-observe" }
+# L2 agent interface: turn-completion + self-reflection governor over L0/L0.5/L1.
+aterm-agent = { path = "crates/aterm-agent" }
+# L3 network transport: relay the control protocol over a network boundary with a
+# channel-bound capability (drive a remote aterm; predicates run on its surface).
+aterm-net = { path = "crates/aterm-net" }
 aterm-pty = { path = "crates/aterm-pty" }
 aterm-session = { path = "crates/aterm-session" }
 aterm-cap = { path = "crates/aterm-cap" }

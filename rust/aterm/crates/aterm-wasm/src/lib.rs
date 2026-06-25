@@ -108,6 +108,16 @@ impl AtermTerminal {
         self.renderer.set_fallback_bytes(bytes)
     }
 
+    /// APPEND another fallback face to the chain (does NOT reset it like
+    /// [`set_fallback_font`]). The chain is tried in order, so the host can push a
+    /// CJK fallback first then Arabic/Devanagari/Thai/Hebrew faces after it — a
+    /// glyph the earlier faces miss still reaches a covering face instead of tofu.
+    /// No-throw: a bad blob leaves the existing chain untouched.
+    pub fn add_fallback_font(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.force_full_repaint = true;
+        self.renderer.add_fallback_bytes(bytes)
+    }
+
     /// Inject a colour-emoji (sbix) face from font bytes, driving the existing
     /// ColorEmoji colour path. Same rationale as [`set_fallback_font`]: the host
     /// supplies the OS emoji font. No-throw (the `String` Err surfaces as a
@@ -135,8 +145,11 @@ impl AtermTerminal {
     /// Force a hollow (unfocused) cursor when `true`, or restore the terminal's
     /// DECSCUSR style when `false` — the standard focused/unfocused affordance.
     pub fn set_cursor_hollow(&mut self, hollow: bool) {
-        self.renderer
-            .set_cursor_style_override(if hollow { Some(CursorStyle::HollowBlock) } else { None });
+        self.renderer.set_cursor_style_override(if hollow {
+            Some(CursorStyle::HollowBlock)
+        } else {
+            None
+        });
     }
 
     /// Drain the engine's pending query replies (DA1/DA2/DSR/CPR/DECRQM/OSC color/
@@ -262,6 +275,24 @@ impl AtermTerminal {
     pub fn set_selection_fg(&mut self, fg: Option<u32>) {
         self.force_full_repaint = true;
         self.renderer.set_selection_fg(fg);
+    }
+
+    /// Mark the pane unfocused (`true`) / focused (`false`): when unfocused, the
+    /// selection band paints with the dimmer inactive bg (xterm
+    /// `selectionInactiveBackground`) instead of the active selection colour.
+    /// Appearance-only, so force one full repaint next frame.
+    pub fn set_selection_inactive(&mut self, inactive: bool) {
+        self.force_full_repaint = true;
+        self.renderer.set_selection_inactive(inactive);
+    }
+
+    /// Set the inactive (unfocused) selection background (0x00RRGGBB), or
+    /// `undefined` to derive it from the active selection bg blended toward the
+    /// theme bg. Only takes visible effect while the pane is marked unfocused.
+    /// Appearance-only, so force one full repaint next frame.
+    pub fn set_selection_inactive_bg(&mut self, bg: Option<u32>) {
+        self.force_full_repaint = true;
+        self.renderer.set_selection_inactive_bg(bg);
     }
 
     /// Re-rasterize at a new cell font px (host DPI / devicePixelRatio change) so the
@@ -627,7 +658,11 @@ impl AtermTerminal {
             out.push_str("\x1b[0m");
         }
         let c = self.term.cursor();
-        out.push_str(&format!("\x1b[{};{}H", c.row as usize + 1, c.col as usize + 1));
+        out.push_str(&format!(
+            "\x1b[{};{}H",
+            c.row as usize + 1,
+            c.col as usize + 1
+        ));
         out
     }
 
@@ -1077,7 +1112,11 @@ mod tests {
             &want,
             "an idle pane must repaint to the new theme bg after set_theme"
         );
-        assert_ne!(before.as_slice(), &want, "test is meaningful: bg actually changed");
+        assert_ne!(
+            before.as_slice(),
+            &want,
+            "test is meaningful: bg actually changed"
+        );
     }
 
     #[test]
@@ -1158,8 +1197,15 @@ mod tests {
         assert!(t.search("", false, false).is_empty());
         // Regex search: a pattern matches the token; an invalid pattern is Err →
         // empty (so a half-typed regex highlights nothing rather than throwing).
-        assert_eq!(t.search("UNIQUE_[A-Z_]+TOKEN", true, true).len(), 3, "regex matches");
-        assert!(t.search("UNIQUE_[", true, true).is_empty(), "invalid regex → empty");
+        assert_eq!(
+            t.search("UNIQUE_[A-Z_]+TOKEN", true, true).len(),
+            3,
+            "regex matches"
+        );
+        assert!(
+            t.search("UNIQUE_[", true, true).is_empty(),
+            "invalid regex → empty"
+        );
     }
 
     #[test]

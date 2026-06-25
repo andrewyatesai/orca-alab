@@ -71,26 +71,27 @@ impl Color {
     pub const fn compute_ansi_256(index: u8) -> Self {
         // Standard ANSI colors (xterm defaults)
         const ANSI_16: [(u8, u8, u8); 16] = [
-            (0, 0, 0),      // 0: Black
-            (205, 0, 0),    // 1: Red
-            (0, 205, 0),    // 2: Green
-            (205, 205, 0),  // 3: Yellow
-            (59, 142, 234), // 4: Blue (lifted from xterm #0000EE to match the
-            //    authoritative aterm-types ColorPalette: pure blue
-            //    is near-invisible on a dark bg. This table is a
-            //    style-intern CACHE KEY (never a pixel), but it MUST
-            //    agree with ColorPalette::default_color — see the
-            //    grid_ansi_table_matches_color_palette test below.
-            (205, 0, 205),   // 5: Magenta
+            // This table MUST agree with the authoritative aterm-types
+            // ColorPalette::default_color (enforced by the
+            // grid_ansi_table_matches_color_palette test below). It is a
+            // style-intern CACHE KEY, never a pixel — the palette renders. The
+            // red/magenta/bright row were tempered away from raw neon primaries
+            // for contrast/harmony on a dark bg (two LLM judges); keep in sync.
+            (0, 0, 0),       // 0: Black
+            (224, 108, 117), // 1: Red       (#E06C75, lifted from #CD0000)
+            (0, 205, 0),     // 2: Green
+            (205, 205, 0),   // 3: Yellow
+            (59, 142, 234),  // 4: Blue      (#3B8EEA, lifted from #0000EE)
+            (198, 120, 221), // 5: Magenta   (#C678DD, lifted from #CD00CD)
             (0, 205, 205),   // 6: Cyan
             (229, 229, 229), // 7: White
-            (127, 127, 127), // 8: Bright Black (Gray)
-            (255, 0, 0),     // 9: Bright Red
-            (0, 255, 0),     // 10: Bright Green
-            (255, 255, 0),   // 11: Bright Yellow
+            (138, 143, 153), // 8: Bright Black/Gray (#8A8F99, lifted from #7F7F7F)
+            (255, 110, 103), // 9: Bright Red     (#FF6E67)
+            (80, 250, 123),  // 10: Bright Green  (#50FA7B)
+            (241, 250, 140), // 11: Bright Yellow (#F1FA8C)
             (92, 92, 255),   // 12: Bright Blue
-            (255, 0, 255),   // 13: Bright Magenta
-            (0, 255, 255),   // 14: Bright Cyan
+            (255, 121, 198), // 13: Bright Magenta (#FF79C6)
+            (139, 233, 253), // 14: Bright Cyan   (#8BE9FD)
             (255, 255, 255), // 15: Bright White
         ];
 

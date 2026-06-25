@@ -1,4 +1,4 @@
-import type { IDisposable, ILink, ILinkProvider } from '@xterm/xterm'
+import type { IDisposable, ILink, ILinkProvider } from '../../lib/pane-manager/aterm/terminal-types'
 import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import {
   extractTerminalFileLinkCandidates,

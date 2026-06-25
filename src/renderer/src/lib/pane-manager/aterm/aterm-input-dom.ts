@@ -31,6 +31,14 @@ export function buildAtermInputDom(canvas: HTMLCanvasElement): AtermInputDom {
 
   const helpers = document.createElement('div')
   helpers.className = 'xterm-helpers'
+  // Was provided by xterm.css (now removed); the IME candidate window anchors to
+  // this box, so position it explicitly above the canvas at the wrapper origin.
+  Object.assign(helpers.style, {
+    position: 'absolute',
+    top: '0',
+    left: '0',
+    zIndex: '5'
+  } satisfies Partial<CSSStyleDeclaration>)
 
   const textarea = document.createElement('textarea')
   textarea.className = 'xterm-helper-textarea'
@@ -55,7 +63,8 @@ export function buildAtermInputDom(canvas: HTMLCanvasElement): AtermInputDom {
     overflow: 'hidden',
     resize: 'none',
     padding: '0',
-    border: '0'
+    border: '0',
+    margin: '0'
   } satisfies Partial<CSSStyleDeclaration>)
 
   // Off-screen ARIA live region: the canvas is invisible to screen readers (and

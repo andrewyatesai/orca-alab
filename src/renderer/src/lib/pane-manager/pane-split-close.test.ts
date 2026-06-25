@@ -5,7 +5,6 @@ import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 const captureScrollState = vi.hoisted(() => vi.fn())
 const wrapInSplit = vi.hoisted(() => vi.fn())
 const openTerminal = vi.hoisted(() => vi.fn())
-const disposeWebgl = vi.hoisted(() => vi.fn())
 const clearPendingSplitScrollRestore = vi.hoisted(() => vi.fn())
 const scheduleSplitScrollRestore = vi.hoisted(() => vi.fn())
 const updateMultiPaneState = vi.hoisted(() => vi.fn())
@@ -24,10 +23,6 @@ vi.mock('./pane-tree-ops', () => ({
 vi.mock('./pane-lifecycle', () => ({
   disposePane: vi.fn(),
   openTerminal
-}))
-
-vi.mock('./pane-webgl-renderer', () => ({
-  disposeWebgl
 }))
 
 vi.mock('./pane-split-scroll', () => ({
@@ -79,7 +74,7 @@ function createScrollState(viewportY: number): ScrollState {
   }
 }
 
-function createPane(id: number, webglAddon: unknown): ManagedPaneInternal {
+function createPane(id: number): ManagedPaneInternal {
   const container = new MockElement(['pane'])
   container.dataset.paneId = String(id)
   container.dataset.leafId = TEST_LEAF_ID
@@ -94,12 +89,6 @@ function createPane(id: number, webglAddon: unknown): ManagedPaneInternal {
     xtermContainer: {} as never,
     linkTooltip: {} as never,
     terminalGpuAcceleration: 'auto',
-    gpuRenderingEnabled: true,
-    webglAttachmentDeferred: false,
-    webglDisabledAfterContextLoss: false,
-    hasComplexScriptOutput: false,
-    webglAddon: webglAddon as never,
-    ligaturesAddon: null,
     fitResizeObserver: null,
     pendingObservedFitRafId: null,
     fitAddon: {} as never,
@@ -116,9 +105,9 @@ describe('splitManagedPane', () => {
   })
 
   it('prepares every pane under a moved mounted subtree for split reparenting', () => {
-    const fallbackPane = createPane(1, { dispose: vi.fn() })
-    const siblingPane = createPane(2, { dispose: vi.fn() })
-    const newPane = createPane(3, null)
+    const fallbackPane = createPane(1)
+    const siblingPane = createPane(2)
+    const newPane = createPane(3)
     const panes = new Map<number, ManagedPaneInternal>([
       [fallbackPane.id, fallbackPane],
       [siblingPane.id, siblingPane]
@@ -162,8 +151,6 @@ describe('splitManagedPane', () => {
     expect(clearPendingSplitScrollRestore).toHaveBeenCalledWith(siblingPane)
     expect(fallbackPane.pendingSplitScrollState).toBe(fallbackScrollState)
     expect(siblingPane.pendingSplitScrollState).toBe(siblingScrollState)
-    expect(disposeWebgl).toHaveBeenCalledWith(fallbackPane)
-    expect(disposeWebgl).toHaveBeenCalledWith(siblingPane)
     expect(wrapInSplit).toHaveBeenCalledWith(
       sourceContainer,
       newPane.container,
@@ -177,7 +164,6 @@ describe('splitManagedPane', () => {
       expect.any(Function),
       fallbackPane.id,
       fallbackScrollState,
-      expect.any(Function),
       expect.any(Function)
     )
     expect(scheduleSplitScrollRestore).toHaveBeenNthCalledWith(
@@ -185,7 +171,6 @@ describe('splitManagedPane', () => {
       expect.any(Function),
       siblingPane.id,
       siblingScrollState,
-      expect.any(Function),
       expect.any(Function)
     )
   })

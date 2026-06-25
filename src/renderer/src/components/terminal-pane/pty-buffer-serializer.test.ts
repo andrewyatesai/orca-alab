@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { IDisposable } from '@xterm/xterm'
+import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
 
 describe('pty buffer serializer registry', () => {
   const originalWindow = (globalThis as { window?: typeof window }).window

@@ -1,4 +1,4 @@
-import type { ILink } from '@xterm/xterm'
+import type { ILink } from '../../lib/pane-manager/aterm/terminal-types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearRuntimeCompatibilityCacheForTests,

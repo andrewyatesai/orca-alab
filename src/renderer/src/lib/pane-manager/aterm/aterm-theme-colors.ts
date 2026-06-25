@@ -1,4 +1,4 @@
-import type { ITheme } from '@xterm/xterm'
+import type { ITheme } from './terminal-types'
 import { useAppStore } from '@/store'
 import {
   getBuiltinTheme,

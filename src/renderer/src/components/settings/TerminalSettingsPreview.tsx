@@ -1,46 +1,54 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { LigaturesAddon } from '@xterm/addon-ligatures'
 import { Moon, Sun } from 'lucide-react'
-import '@xterm/xterm/css/xterm.css'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { buildDefaultTerminalOptions } from '@/lib/pane-manager/pane-terminal-options'
-import { buildFontFamily } from '@/components/terminal-pane/layout-serialization'
 import { composeActiveTerminalTheme } from '@/components/terminal-pane/terminal-appearance'
+import { atermThemeColorsFromITheme } from '@/lib/pane-manager/aterm/aterm-theme-colors'
 import { clampNumber, resolveEffectiveTerminalAppearance } from '@/lib/terminal-theme'
-import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
-import { resolveTerminalLigaturesEnabled } from '../../../../shared/terminal-ligatures'
 import { PREVIEW_BUFFER } from './terminal-preview-content'
+import {
+  createTerminalPreviewAtermEngine,
+  type TerminalPreviewAtermEngine
+} from './terminal-preview-aterm-engine'
 import { SettingsSwitch } from './SettingsFormControls'
 import type { GlobalSettings } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
 
 // Why: pin cols/rows so PREVIEW_BUFFER never wraps. Sized so the longest
 // line (the def total signature, 32 chars) plus a few cols of margin fits
-// the xterm canvas in the xl right-column at the default 14px font with
+// the aterm canvas in the xl right-column at the default 14px font with
 // the divider + stub pane carved off the right side. Larger fonts will
-// extend past the xterm box's right edge — the box clips, which is
-// preferable to wrapping mid-content.
+// extend past the box's right edge — the box clips, which is preferable to
+// wrapping mid-content.
 const PREVIEW_COLS = 36
 const PREVIEW_ROWS = 15
 
 // Why: the old TerminalThemePreview rendered two side-by-side panes so the
 // user could see the divider + inactive opacity in context. Keep that
-// affordance with a real xterm on the left and a small color-only stub on
-// the right. 40px is wide enough to read the inactive opacity dim against
-// the active xterm, narrow enough not to crowd content.
+// affordance with a real aterm canvas on the left and a small color-only stub
+// on the right. 40px is wide enough to read the inactive opacity dim against
+// the active terminal, narrow enough not to crowd content.
 const STUB_PANE_PX = 40
 
 type PreviewMode = 'dark' | 'light'
+
+// DECSCUSR sequence for the user's cursor style/blink so the engine renders the
+// chosen shape on the trailing prompt. aterm tracks cursor_style from this.
+function cursorStyleSequence(style: GlobalSettings['terminalCursorStyle'], blink: boolean): string {
+  const base = style === 'bar' ? 5 : style === 'underline' ? 3 : 1
+  // DECSCUSR: odd = blinking, even = steady (1/2 block, 3/4 underline, 5/6 bar).
+  const code = blink ? base : base + 1
+  return `\x1b[${code} q`
+}
 
 type TerminalSettingsPreviewProps = {
   title: string
   description?: string
   settings: GlobalSettings
   systemPrefersDark: boolean
-  /** Optional override for `settings.terminalFontFamily`. Set by the font
-   *  picker while the user hovers a dropdown option so they can preview a
-   *  font without committing the selection. */
+  /** Set by the font picker while the user hovers a dropdown option. Currently
+   *  inert in the preview: aterm renders with its own baked renderer font (+ OS
+   *  fallbacks), so a font-family hover can't be previewed. Kept on the API for
+   *  the picker wiring and so font SIZE hover still works via `settings`. */
   previewFontFamily?: string | null
   /** Force the preview into this mode regardless of app settings. Used by
    *  the Dark/Light theme sections so each pins its own theme. When set,
@@ -68,17 +76,15 @@ export function TerminalSettingsPreview({
   description,
   settings,
   systemPrefersDark,
-  previewFontFamily,
+  // previewFontFamily is intentionally not consumed — see the prop's doc comment
+  // (aterm uses a fixed renderer font, so a font-family hover can't be previewed).
   modeOverride,
   showThemeToggle
 }: TerminalSettingsPreviewProps): React.JSX.Element {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const terminalRef = useRef<Terminal | null>(null)
-  const ligaturesAddonRef = useRef<LigaturesAddon | null>(null)
-  const skipInitialOptionMutationRef = useRef(false)
-  const skipInitialThemeRewriteRef = useRef(false)
-
-  const effectiveFontFamily = previewFontFamily || settings.terminalFontFamily
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const engineRef = useRef<TerminalPreviewAtermEngine | null>(null)
+  const skipInitialFontRef = useRef(false)
+  const skipInitialThemeRef = useRef(false)
 
   // Why: lazy-init from the active app theme so the toggle starts in the
   // user's current mode. After init the toggle is independent — flipping
@@ -137,142 +143,80 @@ export function TerminalSettingsPreview({
   const paneBackground = composedTheme?.background ?? '#000'
 
   useEffect(() => {
-    const container = containerRef.current
-    if (!container) {
+    const canvas = canvasRef.current
+    if (!canvas) {
       return
     }
-    const weights = resolveTerminalFontWeights(settings.terminalFontWeight)
-    skipInitialOptionMutationRef.current = true
-    skipInitialThemeRewriteRef.current = true
-    // Why: DOM renderer only — multiple previews can mount at once and
-    // WebGL contexts are scarce.
-    // Why disableStdin: read-only preview. tabIndex/aria-hidden on the
-    // wrapper don't reach xterm's internal textarea; disableStdin does.
-    const terminal = new Terminal({
-      ...buildDefaultTerminalOptions(),
-      disableStdin: true,
-      // Why mirror cursorInactiveStyle: xterm renders the cursor as a hollow
-      // outline when the terminal is not focused. The preview is read-only and
-      // never gets focused, so without mirroring the user wouldn't see their
-      // selected cursor shape on the trailing prompt.
-      cursorInactiveStyle: settings.terminalCursorStyle,
-      cursorStyle: settings.terminalCursorStyle,
-      cursorBlink: settings.terminalCursorBlink,
-      fontSize: settings.terminalFontSize,
-      fontFamily: buildFontFamily(effectiveFontFamily),
-      fontWeight: weights.fontWeight,
-      fontWeightBold: weights.fontWeightBold,
-      lineHeight: settings.terminalLineHeight,
-      theme: composedTheme ?? undefined,
-      allowTransparency:
-        settings.terminalBackgroundOpacity !== undefined && settings.terminalBackgroundOpacity < 1,
-      cols: PREVIEW_COLS,
-      rows: PREVIEW_ROWS
+    skipInitialFontRef.current = true
+    skipInitialThemeRef.current = true
+    let cancelled = false
+    // Seed the buffer with the user's cursor style (DECSCUSR) so the trailing
+    // prompt shows the chosen shape; aterm reads cursor_style from the stream.
+    const buffer =
+      cursorStyleSequence(settings.terminalCursorStyle, settings.terminalCursorBlink) +
+      PREVIEW_BUFFER
+    const themeColors = composedTheme
+      ? atermThemeColorsFromITheme(composedTheme)
+      : atermThemeColorsFromITheme({})
+    void createTerminalPreviewAtermEngine(
+      {
+        canvas,
+        cols: PREVIEW_COLS,
+        rows: PREVIEW_ROWS,
+        fontPx: settings.terminalFontSize,
+        themeColors,
+        buffer
+      },
+      () => cancelled
+    ).then((engine) => {
+      if (!engine) {
+        return
+      }
+      if (cancelled) {
+        engine.dispose()
+        return
+      }
+      engineRef.current = engine
     })
-    terminalRef.current = terminal
-
-    try {
-      terminal.open(container)
-      terminal.write(PREVIEW_BUFFER)
-    } catch (err) {
-      terminalRef.current = null
-      terminal.dispose()
-      throw err
-    }
 
     return () => {
-      ligaturesAddonRef.current?.dispose()
-      ligaturesAddonRef.current = null
-      terminal.dispose()
-      terminalRef.current = null
+      cancelled = true
+      engineRef.current?.dispose()
+      engineRef.current = null
     }
-    // Why empty deps: mount effect intentionally runs once. Subsequent
-    // setting changes (including cursor style) flow through the dedicated
-    // option-mutation effects below.
+    // Why empty deps: mount effect intentionally runs once. Subsequent setting
+    // changes flow through the dedicated font/theme effects below.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Why: font/cursor options are mutated directly so the preview repaints in
-  // xterm's normal cycle. No fit/refit needed since cols/rows are pinned.
+  // Font size / cursor changes re-rasterize + re-feed the engine in place.
   useEffect(() => {
-    const terminal = terminalRef.current
-    if (!terminal) {
+    const engine = engineRef.current
+    if (!engine) {
       return
     }
-    if (skipInitialOptionMutationRef.current) {
-      skipInitialOptionMutationRef.current = false
+    if (skipInitialFontRef.current) {
+      skipInitialFontRef.current = false
       return
     }
-    const weights = resolveTerminalFontWeights(settings.terminalFontWeight)
-    terminal.options.fontSize = settings.terminalFontSize
-    terminal.options.fontFamily = buildFontFamily(effectiveFontFamily)
-    terminal.options.fontWeight = weights.fontWeight
-    terminal.options.fontWeightBold = weights.fontWeightBold
-    terminal.options.lineHeight = settings.terminalLineHeight
-    terminal.options.cursorStyle = settings.terminalCursorStyle
-    // Why: see constructor — mirror so the unfocused cursor reflects the
-    // user's chosen shape (xterm defaults inactive to 'outline').
-    terminal.options.cursorInactiveStyle = settings.terminalCursorStyle
-    terminal.options.cursorBlink = settings.terminalCursorBlink
-  }, [
-    settings.terminalFontSize,
-    effectiveFontFamily,
-    settings.terminalFontWeight,
-    settings.terminalLineHeight,
-    settings.terminalCursorStyle,
-    settings.terminalCursorBlink
-  ])
+    const buffer =
+      cursorStyleSequence(settings.terminalCursorStyle, settings.terminalCursorBlink) +
+      PREVIEW_BUFFER
+    engine.applyFontAndBuffer(settings.terminalFontSize, buffer)
+  }, [settings.terminalFontSize, settings.terminalCursorStyle, settings.terminalCursorBlink])
 
+  // Theme changes re-theme the live engine in place and repaint.
   useEffect(() => {
-    const terminal = terminalRef.current
-    if (!terminal || !composedTheme) {
+    const engine = engineRef.current
+    if (!engine || !composedTheme) {
       return
     }
-    terminal.options.theme = composedTheme
-    // Why: matches the live pane policy in applyTerminalAppearance — without
-    // this, an opacity < 1 background renders opaque inside xterm even though
-    // the theme color carries an alpha channel.
-    terminal.options.allowTransparency =
-      settings.terminalBackgroundOpacity !== undefined && settings.terminalBackgroundOpacity < 1
-    if (skipInitialThemeRewriteRef.current) {
-      skipInitialThemeRewriteRef.current = false
+    if (skipInitialThemeRef.current) {
+      skipInitialThemeRef.current = false
       return
     }
-    // Why reset() not clear(): clear() keeps the row the cursor sits on, and
-    // our buffer ends mid-line on the prompt — so a follow-up clear+write
-    // would leave the trailing prompt fragment and append the new buffer
-    // beneath it, producing the duplicated content seen during font swaps.
-    // reset() restores cursor home + wipes the buffer so the rewrite starts
-    // from a clean slate.
-    terminal.reset()
-    terminal.write(PREVIEW_BUFFER)
-  }, [composedTheme, settings.terminalBackgroundOpacity])
-
-  useEffect(() => {
-    const terminal = terminalRef.current
-    if (!terminal) {
-      return
-    }
-    const enabled = resolveTerminalLigaturesEnabled(settings.terminalLigatures, effectiveFontFamily)
-    const current = ligaturesAddonRef.current
-    if (enabled && !current) {
-      const addon = new LigaturesAddon()
-      try {
-        terminal.loadAddon(addon)
-        ligaturesAddonRef.current = addon
-        // Why: the preview writes its sample before this effect runs; repaint
-        // so already-rendered operators switch to ligature glyphs immediately.
-        terminal.refresh(0, terminal.rows - 1)
-      } catch (err) {
-        addon.dispose()
-        console.warn('[settings preview] ligatures addon failed to attach', err)
-        ligaturesAddonRef.current = null
-      }
-    } else if (!enabled && current) {
-      current.dispose()
-      ligaturesAddonRef.current = null
-    }
-  }, [settings.terminalLigatures, effectiveFontFamily])
+    engine.applyTheme(atermThemeColorsFromITheme(composedTheme))
+  }, [composedTheme])
 
   const showToggle = showThemeToggle && modeOverride === undefined
 
@@ -341,17 +285,18 @@ export function TerminalSettingsPreview({
         </div>
       </CardHeader>
       <CardContent className="px-4 pb-4">
-        {/* Why: flex layout with xterm on the left and a stub pane on the
-            right keeps inactive-pane opacity visible. The divider stays
+        {/* Why: flex layout with the aterm canvas on the left and a stub pane on
+            the right keeps inactive-pane opacity visible. The divider stays
             preview-only and opt-in so the default preview remains clean. */}
         <div className="flex h-[300px] flex-col overflow-hidden rounded-md border border-border/50">
           <div className="flex min-h-0 flex-1 overflow-hidden" aria-hidden="true">
             <div
-              ref={containerRef}
               className="min-w-0 flex-1 overflow-hidden p-2"
               style={{ backgroundColor: paneBackground }}
               tabIndex={-1}
-            />
+            >
+              <canvas ref={canvasRef} />
+            </div>
             {previewPaneDividerVisible ? (
               <div
                 className="shrink-0"

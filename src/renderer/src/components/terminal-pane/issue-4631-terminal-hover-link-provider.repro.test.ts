@@ -1,7 +1,11 @@
 import { performance } from 'node:perf_hooks'
-import { Terminal } from '@xterm/headless'
-import type { IDisposable } from '@xterm/xterm'
 import { describe, expect, it, vi } from 'vitest'
+import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
+import {
+  createAtermFacadeBuffer,
+  type AtermBufferSource,
+  type AtermFacadeBuffer
+} from '@/lib/pane-manager/aterm/aterm-facade-buffer'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import { extractTerminalFileLinks } from '@/lib/terminal-links'
 import { createFilePathLinkProvider, getTerminalFileOpenHint } from './terminal-link-handlers'
@@ -31,8 +35,41 @@ vi.mock('@/lib/connection-context', () => ({
   getConnectionId: () => null
 }))
 
-async function writeTerminal(terminal: Terminal, data: string): Promise<void> {
-  await new Promise<void>((resolve) => terminal.write(data, resolve))
+const COLS = 80
+
+/** An in-memory AtermBufferSource over a REAL stored grid of wrapped rows. This
+ *  is the same row/cell read contract the wasm controller implements in
+ *  production (gridSize/isAltScreen/baseY/displayOriginAbsolute/cursor/rowIsWrapped/
+ *  rowLen/rowText/cellText/cellIsWide), so the facade builds genuine IBufferLines
+ *  and the link code under test runs unchanged. baseY/displayOrigin are 0 so the
+ *  whole grid is on-screen and absolute index == display row. */
+function createWrappedGridSource(rows: string[], wrappedFlags: boolean[]): AtermBufferSource {
+  const rowAt = (row: number): string | undefined =>
+    row >= 0 && row < rows.length ? rows[row] : undefined
+  return {
+    gridSize: () => ({ cols: COLS, rows: rows.length }),
+    isAltScreen: () => false,
+    baseY: () => 0,
+    displayOriginAbsolute: () => 0,
+    cursorX: () => 0,
+    cursorY: () => 0,
+    rowIsWrapped: (row) => (row >= 0 && row < rows.length ? wrappedFlags[row] : undefined),
+    rowLen: (row) => rowAt(row)?.length,
+    rowText: (row) => rowAt(row),
+    cellText: (row, col) => rowAt(row)?.[col] ?? '',
+    cellIsWide: (row) => (row >= 0 && row < rows.length ? false : undefined)
+  }
+}
+
+function buildWrappedFacadeBuffer(rowCount: number): AtermFacadeBuffer {
+  // One short logical line (79 'a's) then `rowCount` full rows of 80 'b's that
+  // soft-wrap into a single logical line — the original issue-4631 payload.
+  const rows = ['a'.repeat(COLS - 1), ...Array.from({ length: rowCount }, () => 'b'.repeat(COLS))]
+  // Row 0 (a's) and row 1 (first b row) start logical lines; rows 2..N are
+  // wrapped continuations the wrap-walk must traverse.
+  const wrappedFlags = rows.map((_row, index) => index >= 2)
+  const source = createWrappedGridSource(rows, wrappedFlags)
+  return createAtermFacadeBuffer(() => source).buffer
 }
 
 function configuredRowCount(): number {
@@ -63,24 +100,18 @@ describe('issue 4631 terminal hover link-provider repro', () => {
     })
 
     const rowCount = configuredRowCount()
-    const terminal = new Terminal({
-      allowProposedApi: true,
-      cols: 80,
-      rows: 24,
-      scrollback: rowCount + 100
-    })
-    const payload = `${'a'.repeat(79)}\r\n${'b'.repeat(80 * rowCount)}`
-    const writeStart = performance.now()
-    await writeTerminal(terminal, payload)
-    logStage('terminal.write', {
+    const buildBufferStart = performance.now()
+    const buffer = buildWrappedFacadeBuffer(rowCount)
+    logStage('buildFacadeBuffer', {
       rowCount,
-      elapsedMs: Math.round(performance.now() - writeStart),
-      bufferBaseY: terminal.buffer.active.baseY
+      elapsedMs: Math.round(performance.now() - buildBufferStart),
+      bufferBaseY: buffer.active.baseY,
+      bufferLength: buffer.active.length
     })
 
     const targetBufferLine = 2
     const buildStart = performance.now()
-    const logicalLine = buildWrappedLogicalLine(terminal.buffer.active, targetBufferLine)
+    const logicalLine = buildWrappedLogicalLine(buffer.active, targetBufferLine)
     const buildElapsedMs = performance.now() - buildStart
     logStage('buildWrappedLogicalLine', {
       rowCount,
@@ -98,6 +129,9 @@ describe('issue 4631 terminal hover link-provider repro', () => {
       directLinkCount: directLinks.length
     })
 
+    // A minimal pane whose terminal exposes the real facade buffer active + the
+    // real grid geometry; the provider reads pane.terminal.buffer.active and cols/rows.
+    const terminal = { buffer, cols: COLS, rows: rowCount + 1 }
     const pane = { id: 1, terminal }
     const managerRef = {
       current: { getPanes: () => [pane] } as unknown as PaneManager
@@ -123,10 +157,10 @@ describe('issue 4631 terminal hover link-provider repro', () => {
     const elapsedMs = performance.now() - start
 
     logStage('createFilePathLinkProvider.provideLinks', {
-      cols: terminal.cols,
+      cols: COLS,
       rowCount,
       elapsedMs: Math.round(elapsedMs),
-      bufferBaseY: terminal.buffer.active.baseY,
+      bufferBaseY: buffer.active.baseY,
       targetBufferLine
     })
 

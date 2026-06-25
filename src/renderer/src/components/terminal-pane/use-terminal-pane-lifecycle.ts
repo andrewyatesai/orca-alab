@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- Why: terminal pane lifecycle wiring is intentionally co-located so PTY attach, theme sync, and runtime graph publication remain consistent for live terminals. */
 import { useEffect, useRef } from 'react'
-import type { IDisposable } from '@xterm/xterm'
+import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
 import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
 import { PaneManager } from '@/lib/pane-manager/pane-manager'
@@ -610,8 +610,9 @@ export function useTerminalPaneLifecycle({
     // the engine queue OSC 52 set events (take_osc_events) so they reach the
     // handler at all. Returns true once the (async) controller exists.
     const installAtermClipboardAuth = (paneId: number): boolean => {
-      const controller = managerRef.current?.getPanes().find((p) => p.id === paneId)
-        ?.atermController
+      const controller = managerRef.current
+        ?.getPanes()
+        .find((p) => p.id === paneId)?.atermController
       if (!controller) {
         return false
       }
@@ -1272,13 +1273,8 @@ export function useTerminalPaneLifecycle({
         // SelectionService._removeMouseDownListeners).
         managerRef.current?.getActivePane()?.terminal.clearSelection()
       },
-      // Why: TerminalPane instances stay mounted for hidden visited worktrees
-      // so PTYs survive navigation. Creating WebGL for those offscreen panes
-      // still consumes Chromium's context budget and can blank visible panes.
-      initialRenderingSuspended: !isVisibleRef.current,
-      // Why: remote-runtime panes honor the user GPU setting too — snapshots
-      // that arrive after WebGL attaches are handled by the post-replay
-      // rebuildPaneWebgl in pty-connection's replay callback.
+      // aterm-gpu-auto-policy reads this setting when wiring each pane to choose
+      // the GPU vs CPU drawer.
       terminalGpuAcceleration: settingsRef.current?.terminalGpuAcceleration ?? 'auto',
       debugLabel: `tab:${tabId}/wt:${worktreeId}`
     })
@@ -1607,10 +1603,6 @@ export function useTerminalPaneLifecycle({
     // immediately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings, systemPrefersDark, effectiveMacOptionAsAlt])
-
-  useEffect(() => {
-    managerRef.current?.setTerminalGpuAcceleration(settings?.terminalGpuAcceleration ?? 'auto')
-  }, [settings?.terminalGpuAcceleration, managerRef])
 
   useEffect(() => {
     const manager = managerRef.current

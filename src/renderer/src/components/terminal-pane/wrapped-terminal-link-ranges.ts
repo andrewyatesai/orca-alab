@@ -1,4 +1,4 @@
-import type { IBufferLine, IBufferRange } from '@xterm/xterm'
+import type { IBufferLine, IBufferRange } from '../../lib/pane-manager/aterm/terminal-types'
 
 type TerminalBufferLineWithColumns = IBufferLine & {
   translateToString(

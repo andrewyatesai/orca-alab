@@ -339,6 +339,8 @@ function createPane(paneId: number) {
       hasSelection: vi.fn(() => false),
       parser: {
         registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
+        registerDcsHandler: vi.fn(() => ({ dispose: vi.fn() })),
+        registerEscHandler: vi.fn(() => ({ dispose: vi.fn() })),
         registerOscHandler: vi.fn(() => ({ dispose: vi.fn() }))
       }
     },
@@ -6593,7 +6595,6 @@ describe('connectPanePty', () => {
 
     expect(pane.terminal.write).toHaveBeenCalledWith('remote prompt\r\n$ ', expect.any(Function))
     expect(refresh).toHaveBeenCalledWith(0, 39, true)
-    expect(manager.rebuildPaneWebgl).toHaveBeenCalledWith(1)
     disposable.dispose()
   })
 
@@ -6641,7 +6642,6 @@ describe('connectPanePty', () => {
 
     expect(pane.terminal.write).not.toHaveBeenCalledWith('first replay', expect.any(Function))
     expect(pane.terminal.write).toHaveBeenCalledWith('second replay', expect.any(Function))
-    expect(manager.rebuildPaneWebgl).toHaveBeenCalledTimes(1)
     disposable.dispose()
   })
 

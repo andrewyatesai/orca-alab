@@ -1,10 +1,9 @@
-import type { IDisposable, IParser, ITheme } from '@xterm/xterm'
+import type { IDisposable, IParser, ITheme } from '../../lib/pane-manager/aterm/terminal-types'
 import { atermThemeColorsFromITheme } from '@/lib/pane-manager/aterm/aterm-theme-colors'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { GlobalSettings } from '../../../../shared/types'
 import { mode2031SequenceFor } from '../../../../shared/terminal-color-scheme-protocol'
 import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
-import { resolveTerminalLigaturesEnabled } from '../../../../shared/terminal-ligatures'
 import {
   getBuiltinTheme,
   resolvePaneStyleOptions,
@@ -217,10 +216,6 @@ export function applyTerminalAppearance(
   const paneBackground = theme?.background ?? '#000000'
 
   const terminalFontWeights = resolveTerminalFontWeights(settings.terminalFontWeight)
-  const ligaturesEnabled = resolveTerminalLigaturesEnabled(
-    settings.terminalLigatures,
-    settings.terminalFontFamily
-  )
 
   for (const pane of manager.getPanes()) {
     if (theme) {
@@ -258,12 +253,8 @@ export function applyTerminalAppearance(
     // `effectiveMacOptionAsAlt` carries.
     pane.terminal.options.macOptionIsMeta = effectiveMacOptionAsAlt === 'true'
     pane.terminal.options.lineHeight = settings.terminalLineHeight
-    // Why call unconditionally: the per-pane helper is a no-op when the
-    // current addon state already matches, so passing the resolved value on
-    // every appearance apply keeps newly-created panes in sync without a
-    // separate hook and lets live toggles (settings change, font swap)
-    // land immediately.
-    manager.setPaneLigaturesEnabled(pane.id, ligaturesEnabled)
+    // aterm shapes ligatures natively from the font, so there's no renderer-side
+    // ligature toggle to apply here.
     try {
       const state = captureScrollState(pane.terminal)
       safeFit(pane)

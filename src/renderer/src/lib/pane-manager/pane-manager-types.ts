@@ -1,10 +1,7 @@
-import type { IDisposable, IMarker } from '@xterm/xterm'
-import type { ITerminalOptions } from '@xterm/xterm'
-import type { LigaturesAddon } from '@xterm/addon-ligatures'
-import type { WebglAddon } from '@xterm/addon-webgl'
+import type { IDisposable, IMarker } from './aterm/terminal-types'
+import type { ITerminalOptions } from './aterm/terminal-types'
 import type { GlobalSettings } from '../../../../shared/types'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
-import type { TerminalWebglAutoDecision } from './terminal-webgl-auto-policy'
 import type { AtermPaneController } from './aterm/aterm-pane-renderer'
 import type { AtermTerminalFacade } from './aterm/aterm-terminal-facade'
 import type {
@@ -42,7 +39,6 @@ export type PaneManagerOptions = {
   terminalOptions?: (paneId: number) => Partial<ITerminalOptions>
   terminalTuiScrollSensitivity?: () => number | undefined
   onLinkClick?: (event: MouseEvent | undefined, url: string) => void
-  initialRenderingSuspended?: boolean
   terminalGpuAcceleration?: GlobalSettings['terminalGpuAcceleration']
   // Why: diagnostic label for log correlation. safeFit and other internal
   // helpers log warnings that are hard to correlate without knowing which
@@ -95,17 +91,6 @@ export type ManagedPane = {
   routePtyResize?: (cols: number, rows: number) => void
 }
 
-export type PaneRenderingDiagnostics = {
-  paneId: number
-  terminalGpuAcceleration: GlobalSettings['terminalGpuAcceleration']
-  gpuRenderingEnabled: boolean
-  webglAttachmentDeferred: boolean
-  webglDisabledAfterContextLoss: boolean
-  hasComplexScriptOutput: boolean
-  terminalWebglAutoDecision: TerminalWebglAutoDecision
-  hasWebgl: boolean
-}
-
 // ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
@@ -122,23 +107,11 @@ export type ManagedPaneInternal = {
   xtermContainer: HTMLElement
   linkTooltip: HTMLElement
   terminalTuiScrollSensitivity?: () => number | undefined
+  // Read by aterm-gpu-auto-policy at wiring time to pick the GPU vs CPU drawer.
   terminalGpuAcceleration: GlobalSettings['terminalGpuAcceleration']
-  gpuRenderingEnabled: boolean
-  webglAttachmentDeferred: boolean
-  webglDisabledAfterContextLoss: boolean
-  // Why: expose complex-output diagnostics without changing renderer choice;
-  // auto renderer fallback is reserved for platform or WebGL failures.
-  hasComplexScriptOutput: boolean
-  webglAddon: WebglAddon | null
-  // Why nullable: ligatures are opt-in per font and toggleable at runtime,
-  // so the addon instance only exists while the feature is active. A null
-  // value means "currently disabled".
-  ligaturesAddon: LigaturesAddon | null
   fitResizeObserver: ResizeObserver | null
   // Stored so disposePane() can cancel the first post-open fit if a pane closes before paint.
   pendingInitialFitRafId?: number | null
-  // Stored so disposePane() can cancel the post-WebGL-teardown refresh frame.
-  pendingWebglRefreshRafId?: number | null
   pendingObservedFitRafId: number | null
   serializeAddon: AtermSerializeAddonFacade
   // Stored so disposePane() can remove pane-local DOM listeners explicitly.

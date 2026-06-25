@@ -1,39 +1,34 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
 import type { GlobalSettings } from '../../../../shared/types'
 
 type Cleanup = () => void
 
-type MockTerminalInstance = {
-  options: Record<string, unknown>
-  open: Mock
-  write: Mock
-  reset: Mock
-  refresh: Mock
+type MockPreviewEngine = {
+  applyTheme: Mock
+  applyFontAndBuffer: Mock
   dispose: Mock
-  loadAddon: Mock
-  rows: number
 }
 
-type MockLigaturesAddonInstance = {
-  dispose: Mock
-}
+// The preview drives the REAL aterm engine through this seam module. The wasm
+// engine can't load in the node vitest env, so we mock OUR seam to assert the
+// COMPONENT's lifecycle wiring (create once, dispose on unmount, re-theme /
+// re-feed on setting changes). The engine's real aterm rendering is exercised in
+// the running app, not faked here.
+const mockEngine = vi.hoisted(() => ({
+  instances: [] as MockPreviewEngine[],
+  createArgs: [] as Record<string, unknown>[],
+  // createTerminalPreviewAtermEngine is async; resolve synchronously-ish so the
+  // mount effect's .then() runs within the test's microtask flush.
+  resolveValue: true as boolean,
+  createImpl: null as null | (() => MockPreviewEngine | null)
+}))
 
 const mockReactRuntime = vi.hoisted(() => ({
   cleanups: [] as Cleanup[],
-  container: { nodeName: 'PREVIEW' },
-  refCallIndex: 0
-}))
-
-const mockXterm = vi.hoisted(() => ({
-  instances: [] as MockTerminalInstance[],
-  nextLoadAddonError: null as Error | null,
-  nextOpenError: null as Error | null
-}))
-
-const mockLigaturesAddon = vi.hoisted(() => ({
-  enabled: false,
-  instances: [] as MockLigaturesAddonInstance[]
+  canvas: { nodeName: 'CANVAS' },
+  refCallIndex: 0,
+  effects: [] as (() => void | Cleanup)[]
 }))
 
 vi.mock('react', async () => {
@@ -49,8 +44,9 @@ vi.mock('react', async () => {
     useMemo: (factory: () => unknown) => factory(),
     useRef: (initialValue: unknown) => {
       const ref = { current: initialValue }
+      // First useRef in the component is canvasRef; seed it with a stub canvas.
       if (mockReactRuntime.refCallIndex === 0) {
-        ref.current = mockReactRuntime.container
+        ref.current = mockReactRuntime.canvas
       }
       mockReactRuntime.refCallIndex += 1
       return ref
@@ -62,48 +58,19 @@ vi.mock('react', async () => {
   }
 })
 
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class Terminal {
-    options: Record<string, unknown>
-    open: Mock
-    write: Mock
-    reset: Mock
-    refresh: Mock
-    dispose: Mock
-    loadAddon: Mock
-    rows: number
-
-    constructor(options: Record<string, unknown>) {
-      this.options = { ...options }
-      this.open = vi.fn(() => {
-        if (mockXterm.nextOpenError) {
-          throw mockXterm.nextOpenError
-        }
-      })
-      this.write = vi.fn()
-      this.reset = vi.fn()
-      this.refresh = vi.fn()
-      this.dispose = vi.fn()
-      this.rows = Number(options.rows)
-      this.loadAddon = vi.fn(() => {
-        if (mockXterm.nextLoadAddonError) {
-          throw mockXterm.nextLoadAddonError
-        }
-      })
-      mockXterm.instances.push(this)
+vi.mock('./terminal-preview-aterm-engine', () => ({
+  createTerminalPreviewAtermEngine: vi.fn(async (args: Record<string, unknown>) => {
+    mockEngine.createArgs.push(args)
+    const engine = mockEngine.createImpl
+      ? mockEngine.createImpl()
+      : mockEngine.resolveValue
+        ? { applyTheme: vi.fn(), applyFontAndBuffer: vi.fn(), dispose: vi.fn() }
+        : null
+    if (engine) {
+      mockEngine.instances.push(engine)
     }
-  }
-}))
-
-vi.mock('@xterm/addon-ligatures', () => ({
-  LigaturesAddon: class LigaturesAddon {
-    dispose: Mock
-
-    constructor() {
-      this.dispose = vi.fn()
-      mockLigaturesAddon.instances.push(this)
-    }
-  }
+    return engine
+  })
 }))
 
 vi.mock('@/components/ui/card', () => ({
@@ -114,16 +81,20 @@ vi.mock('@/components/ui/card', () => ({
   CardTitle: 'CardTitle'
 }))
 
-vi.mock('@/lib/pane-manager/pane-terminal-options', () => ({
-  buildDefaultTerminalOptions: () => ({ scrollback: 0 })
-}))
-
-vi.mock('@/components/terminal-pane/layout-serialization', () => ({
-  buildFontFamily: (font: string) => `built:${font}`
-}))
-
 vi.mock('@/components/terminal-pane/terminal-appearance', () => ({
   composeActiveTerminalTheme: () => ({ background: '#111111', foreground: '#eeeeee' })
+}))
+
+vi.mock('@/lib/pane-manager/aterm/aterm-theme-colors', () => ({
+  atermThemeColorsFromITheme: (theme: Record<string, unknown>) => ({
+    fg: 0xeeeeee,
+    bg: 0x111111,
+    cursor: 0xffffff,
+    selection: 0x264f78,
+    selectionForeground: null,
+    palette: [],
+    _from: theme
+  })
 }))
 
 vi.mock('@/lib/terminal-theme', () => ({
@@ -134,15 +105,8 @@ vi.mock('@/lib/terminal-theme', () => ({
   })
 }))
 
-vi.mock('../../../../shared/terminal-fonts', () => ({
-  resolveTerminalFontWeights: () => ({ fontWeight: 500, fontWeightBold: 700 })
-}))
-
-vi.mock('../../../../shared/terminal-ligatures', () => ({
-  resolveTerminalLigaturesEnabled: () => mockLigaturesAddon.enabled
-}))
-
 import { TerminalSettingsPreview } from './TerminalSettingsPreview'
+import { createTerminalPreviewAtermEngine } from './terminal-preview-aterm-engine'
 
 function makeSettings(overrides: Partial<GlobalSettings> = {}): GlobalSettings {
   return {
@@ -184,90 +148,71 @@ function runCleanups(): void {
   mockReactRuntime.cleanups.length = 0
 }
 
-describe('TerminalSettingsPreview terminal lifecycle', () => {
+// Let the mount effect's async createTerminalPreviewAtermEngine().then() resolve.
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+describe('TerminalSettingsPreview engine lifecycle', () => {
   beforeEach(() => {
     mockReactRuntime.cleanups.length = 0
     mockReactRuntime.refCallIndex = 0
-    mockXterm.instances.length = 0
-    mockXterm.nextLoadAddonError = null
-    mockXterm.nextOpenError = null
-    mockLigaturesAddon.enabled = false
-    mockLigaturesAddon.instances.length = 0
+    mockEngine.instances.length = 0
+    mockEngine.createArgs.length = 0
+    mockEngine.resolveValue = true
+    mockEngine.createImpl = null
+    vi.mocked(createTerminalPreviewAtermEngine).mockClear()
   })
 
-  it('initializes once, writes once on mount, and disposes on unmount', () => {
+  afterEach(() => {
+    runCleanups()
+  })
+
+  it('creates the aterm preview engine once on mount with the fixed grid + cursor-seeded buffer', async () => {
     renderPreview()
 
-    expect(mockXterm.instances).toHaveLength(1)
-    const terminal = mockXterm.instances[0]
-    expect(terminal.open).toHaveBeenCalledOnce()
-    expect(terminal.open).toHaveBeenCalledWith(mockReactRuntime.container)
-    expect(terminal.write).toHaveBeenCalledOnce()
-    expect(terminal.reset).not.toHaveBeenCalled()
-    expect(terminal.options).toMatchObject({
-      allowTransparency: false,
+    expect(createTerminalPreviewAtermEngine).toHaveBeenCalledOnce()
+    const args = mockEngine.createArgs[0]
+    expect(args).toMatchObject({
+      canvas: mockReactRuntime.canvas,
       cols: 36,
-      cursorBlink: true,
-      cursorInactiveStyle: 'block',
-      cursorStyle: 'block',
-      disableStdin: true,
-      fontFamily: 'built:SF Mono',
-      fontSize: 14,
-      fontWeight: 500,
-      fontWeightBold: 700,
-      lineHeight: 1,
       rows: 15,
-      scrollback: 0,
-      theme: { background: '#111111', foreground: '#eeeeee' }
+      fontPx: 14
     })
+    // The buffer carries the user's cursor style as a DECSCUSR sequence so the
+    // trailing prompt renders the chosen shape. Block + blink → CSI 1 SP q.
+    expect(String(args.buffer)).toContain('\x1b[1 q')
 
-    runCleanups()
-    expect(terminal.dispose).toHaveBeenCalledOnce()
+    await flushMicrotasks()
+    expect(mockEngine.instances).toHaveLength(1)
   })
 
-  it('disposes the ligatures addon before disposing the terminal', () => {
-    mockLigaturesAddon.enabled = true
-
+  it('disposes the engine on unmount', async () => {
     renderPreview()
+    await flushMicrotasks()
 
-    const terminal = mockXterm.instances[0]
-    const addon = mockLigaturesAddon.instances[0]
-    expect(terminal.loadAddon).toHaveBeenCalledOnce()
-    expect(terminal.loadAddon).toHaveBeenCalledWith(addon)
-    expect(terminal.refresh).toHaveBeenCalledWith(0, 14)
-
+    const engine = mockEngine.instances[0]
     runCleanups()
-    expect(addon.dispose).toHaveBeenCalledOnce()
-    expect(terminal.dispose).toHaveBeenCalledOnce()
+    expect(engine.dispose).toHaveBeenCalledOnce()
   })
 
-  it('disposes the ligatures addon if loading it fails', () => {
-    mockLigaturesAddon.enabled = true
-    mockXterm.nextLoadAddonError = new Error('load addon failed')
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  it('disposes an engine that resolves after the component already unmounted', async () => {
+    // The mount effect's cleanup sets cancelled=true synchronously; the late
+    // engine must be disposed by the .then() guard, not leaked.
+    renderPreview()
+    // Unmount before the async create resolves.
+    runCleanups()
+    await flushMicrotasks()
 
-    try {
-      renderPreview()
-
-      const addon = mockLigaturesAddon.instances[0]
-      expect(addon.dispose).toHaveBeenCalledOnce()
-      expect(mockXterm.instances[0].dispose).not.toHaveBeenCalled()
-
-      runCleanups()
-      expect(mockXterm.instances[0].dispose).toHaveBeenCalledOnce()
-    } finally {
-      warnSpy.mockRestore()
-    }
+    expect(mockEngine.instances).toHaveLength(1)
+    expect(mockEngine.instances[0].dispose).toHaveBeenCalledOnce()
   })
 
-  it('disposes a partially created terminal if open fails', () => {
-    const openError = new Error('open failed')
-    mockXterm.nextOpenError = openError
-
-    expect(() => renderPreview()).toThrow(openError)
-
-    expect(mockXterm.instances).toHaveLength(1)
-    expect(mockXterm.instances[0].dispose).toHaveBeenCalledOnce()
-    expect(mockReactRuntime.cleanups).toHaveLength(0)
+  it('tolerates a null engine result (load cancelled) without throwing', async () => {
+    mockEngine.resolveValue = false
+    expect(() => renderPreview()).not.toThrow()
+    await flushMicrotasks()
+    expect(mockEngine.instances).toHaveLength(0)
   })
 })

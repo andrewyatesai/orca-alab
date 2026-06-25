@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { IMarker } from '@xterm/xterm'
+import type { IMarker } from './aterm/terminal-types'
 import {
   captureScrollState,
   getTerminalOutputEpoch,

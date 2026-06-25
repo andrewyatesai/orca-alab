@@ -16,15 +16,12 @@ import {
 } from './pane-tree-ops'
 import { applyDividerStyles, applyPaneOpacity } from './pane-divider'
 import { disposePane, openTerminal } from './pane-lifecycle'
-import { disposeWebgl } from './pane-webgl-renderer'
 import { clearPendingSplitScrollRestore, scheduleSplitScrollRestore } from './pane-split-scroll'
-import { reattachWebglIfNeeded } from './pane-webgl-reattach'
 import { toPublicPane } from './pane-public-view'
 
 type MovedPaneSplitState = {
   pane: ManagedPaneInternal
   scrollState: ReturnType<typeof captureScrollState>
-  hadWebgl: boolean
 }
 
 type SplitManagedPaneArgs = {
@@ -72,8 +69,7 @@ export function splitManagedPane(args: SplitManagedPaneArgs): ManagedPane | null
       (id) => args.panes.get(id),
       movedPaneState.pane.id,
       movedPaneState.scrollState,
-      args.isDestroyed,
-      movedPaneState.hadWebgl ? reattachWebglIfNeeded : undefined
+      args.isDestroyed
     )
   }
 
@@ -97,12 +93,7 @@ function prepareMovedPanesForSplit(
     // Why: lock prevents safeFit/fitAllPanes from restoring scroll during the
     // async settle window; scheduleSplitScrollRestore owns the restore.
     pane.pendingSplitScrollState = scrollState
-
-    // Why: DOM reparenting can silently invalidate a WebGL context without
-    // firing contextlost, so dispose before the move and reattach after settle.
-    const hadWebgl = !!pane.webglAddon
-    disposeWebgl(pane)
-    return { pane, scrollState, hadWebgl }
+    return { pane, scrollState }
   })
 }
 

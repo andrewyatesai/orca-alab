@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, type ReactElement, type ReactNode } from 'react'
 import { ChevronUp, ChevronDown, X, CaseSensitive, Regex } from 'lucide-react'
-import type { SearchAddon } from '@xterm/addon-search'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { SearchState } from '@/components/terminal-pane/keyboard-handlers'
@@ -8,8 +7,7 @@ import { translate } from '@/i18n/i18n'
 import { getFindRequestQuery } from '@/lib/find-query-bounds'
 
 /** The aterm in-page renderer's search surface (subset of AtermPaneController).
- *  When the active pane is aterm-rendered, find/next/prev/clear route here
- *  instead of through the (absent) xterm SearchAddon. */
+ *  find/next/prev/clear route through the canvas controller. */
 export type AtermSearchSurface = {
   findMatches: (query: string, caseSensitive: boolean, isRegex: boolean) => number
   findNextMatch: () => void
@@ -22,9 +20,7 @@ export type AtermSearchSurface = {
 type TerminalSearchProps = {
   isOpen: boolean
   onClose: () => void
-  searchAddon: SearchAddon | null
-  /** Present when the active pane uses the aterm renderer; routes search to the
-   *  canvas controller (the xterm SearchAddon is null for these panes). */
+  /** The active pane's aterm search surface (the canvas controller). */
   atermSearch?: AtermSearchSurface | null
   searchStateRef: React.RefObject<SearchState>
 }
@@ -65,46 +61,20 @@ function SearchButton({
 export default function TerminalSearch({
   isOpen,
   onClose,
-  searchAddon,
   atermSearch,
   searchStateRef
 }: TerminalSearchProps): React.JSX.Element | null {
   const [query, setQuery] = useState('')
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [regexEnabled, setRegexEnabled] = useState(false)
-  // Both renderers support regex search: the xterm SearchAddon natively, and the
-  // aterm engine via search_results_opts(is_regex) (invalid pattern → 0 matches).
+  // The aterm engine compiles the pattern via search_results_opts(is_regex)
+  // (invalid pattern → 0 matches).
   const regex = regexEnabled
   // Match-count label ("3 / 12"), driven by the aterm controller's exact counts.
   const [matchLabel, setMatchLabel] = useState('')
   const requestQuery = getFindRequestQuery(query)
 
-  // Why: the default xterm SearchAddon highlights blend into common
-  // terminal backgrounds (see orca#612). Providing explicit decoration
-  // colors gives all matches a visible yellow background and the
-  // current match a brighter orange, matching the contrast VS Code and
-  // iTerm2 use for terminal search. xterm requires #RRGGBB format for
-  // the background colors.
-  const searchOptions = useCallback(
-    (incremental: boolean = false) => ({
-      caseSensitive,
-      regex,
-      incremental,
-      decorations: {
-        matchBackground: '#5c4a00',
-        matchBorder: '#5c4a00',
-        matchOverviewRuler: '#ffcc00',
-        activeMatchBackground: '#c4580e',
-        activeMatchBorder: '#ffcf6b',
-        activeMatchColorOverviewRuler: '#ff9900'
-      }
-    }),
-    [caseSensitive, regex]
-  )
-
-  // Reflect the aterm controller's exact match count ("active / total") in the
-  // label. The xterm SearchAddon surfaces counts via a different (async) callback
-  // not wired here, so the label is aterm-only for now.
+  // Reflect the aterm controller's exact match count ("active / total").
   const syncAtermMatchLabel = useCallback(() => {
     if (!atermSearch) {
       return
@@ -117,23 +87,15 @@ export default function TerminalSearch({
     if (atermSearch) {
       atermSearch.findNextMatch()
       syncAtermMatchLabel()
-      return
     }
-    if (searchAddon && requestQuery) {
-      searchAddon.findNext(requestQuery, searchOptions())
-    }
-  }, [atermSearch, searchAddon, requestQuery, searchOptions, syncAtermMatchLabel])
+  }, [atermSearch, syncAtermMatchLabel])
 
   const findPrevious = useCallback(() => {
     if (atermSearch) {
       atermSearch.findPreviousMatch()
       syncAtermMatchLabel()
-      return
     }
-    if (searchAddon && requestQuery) {
-      searchAddon.findPrevious(requestQuery, searchOptions())
-    }
-  }, [atermSearch, searchAddon, requestQuery, searchOptions, syncAtermMatchLabel])
+  }, [atermSearch, syncAtermMatchLabel])
 
   const handleInputRef = useCallback((input: HTMLInputElement | null): void => {
     input?.focus()
@@ -144,38 +106,18 @@ export default function TerminalSearch({
     // can read the current search state without lifting it to parent state.
     searchStateRef.current = { query: requestQuery ?? '', caseSensitive, regex }
 
-    if (!isOpen) {
-      searchAddon?.clearDecorations()
+    if (!isOpen || !requestQuery) {
       atermSearch?.clearSearch()
       setMatchLabel('')
       return
     }
-    if (!requestQuery) {
-      searchAddon?.clearDecorations()
-      atermSearch?.clearSearch()
-      setMatchLabel('')
-      return
-    }
-    // aterm panes: run the canvas search (highlight + scroll-to-match) honoring
-    // both case sensitivity and the regex toggle (the engine compiles the pattern).
+    // Run the canvas search (highlight + scroll-to-match) honoring both case
+    // sensitivity and the regex toggle (the engine compiles the pattern).
     if (atermSearch) {
       const total = atermSearch.findMatches(requestQuery, caseSensitive, regex)
       setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
-      return
     }
-    if (searchAddon) {
-      searchAddon.findNext(requestQuery, searchOptions(true))
-    }
-  }, [
-    requestQuery,
-    searchAddon,
-    atermSearch,
-    isOpen,
-    caseSensitive,
-    regex,
-    searchStateRef,
-    searchOptions
-  ])
+  }, [requestQuery, atermSearch, isOpen, caseSensitive, regex, searchStateRef])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -237,9 +179,7 @@ export default function TerminalSearch({
         tip={translate('auto.components.TerminalSearch.42e466b9f1', 'Regex')}
         onClick={() => setRegexEnabled((v) => !v)}
         className={`flex size-6 shrink-0 items-center justify-center rounded ${
-          regex
-            ? 'bg-accent text-accent-foreground'
-            : 'text-muted-foreground hover:text-foreground'
+          regex ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'
         }`}
       >
         <Regex size={14} />

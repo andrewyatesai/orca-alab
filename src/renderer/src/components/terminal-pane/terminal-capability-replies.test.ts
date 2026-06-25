@@ -1,17 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Terminal } from '@xterm/headless'
 import {
   CONPTY_DA1_RESPONSE,
   DA1_RESPONSE_WITH_SIXEL,
   DEFAULT_DA1_RESPONSE,
   createTerminalOscColorQueryResponder,
-  createTerminalPixelSizeQueryResponder,
-  installTerminalCapabilityReplyHandlers
+  createTerminalPixelSizeQueryResponder
 } from './terminal-capability-replies'
-
-function writeTerminal(term: Terminal, data: string): Promise<void> {
-  return new Promise((resolve) => term.write(data, resolve))
-}
 
 function createElement(width: number, height: number): HTMLElement {
   return {
@@ -22,142 +16,23 @@ function createElement(width: number, height: number): HTMLElement {
 }
 
 describe('installTerminalCapabilityReplyHandlers', () => {
-  it('answers primary DA1 with the default xterm-compatible response', async () => {
-    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
-    const sendInput = vi.fn<(data: string) => boolean>(() => true)
-    const disposable = installTerminalCapabilityReplyHandlers({
-      terminal: term as never,
-      parser: term.parser,
-      sendInput,
-      isReplaying: () => false
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[c')
-
-      expect(sendInput).toHaveBeenCalledTimes(1)
-      expect(sendInput).toHaveBeenCalledWith(DEFAULT_DA1_RESPONSE)
-    } finally {
-      disposable.dispose()
-      term.dispose()
-    }
-  })
-
-  it('resolves a da1Response getter live (aterm panes advertise Sixel)', async () => {
-    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
-    const sendInput = vi.fn<(data: string) => boolean>(() => true)
-    let atermActive = false
-    const disposable = installTerminalCapabilityReplyHandlers({
-      terminal: term as never,
-      parser: term.parser,
-      sendInput,
-      isReplaying: () => false,
-      // Getter form: the renderer-authoritative DA1 depends on live pane state.
-      da1Response: () => (atermActive ? DA1_RESPONSE_WITH_SIXEL : DEFAULT_DA1_RESPONSE)
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[c')
-      expect(sendInput).toHaveBeenLastCalledWith(DEFAULT_DA1_RESPONSE)
-      // The Sixel DA1 carries param 4 (the bit apps gate Sixel support on).
-      expect(DA1_RESPONSE_WITH_SIXEL).toContain(';4c')
-
-      atermActive = true
-      await writeTerminal(term, '\x1b[c')
-      expect(sendInput).toHaveBeenLastCalledWith(DA1_RESPONSE_WITH_SIXEL)
-    } finally {
-      disposable.dispose()
-      term.dispose()
-    }
-  })
-
-  it('keeps the ConPTY basic conformance response override', async () => {
-    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
-    const sendInput = vi.fn<(data: string) => boolean>(() => true)
-    const disposable = installTerminalCapabilityReplyHandlers({
-      terminal: term as never,
-      parser: term.parser,
-      sendInput,
-      isReplaying: () => false,
-      da1Response: CONPTY_DA1_RESPONSE
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[c')
-
-      expect(sendInput).toHaveBeenCalledWith(CONPTY_DA1_RESPONSE)
-    } finally {
-      disposable.dispose()
-      term.dispose()
-    }
-  })
-
-  it('suppresses xterm XTVERSION + ANSI-DECRQM auto-replies for aterm-owned panes', async () => {
-    // aterm drains its OWN XTVERSION/DECRQM; the kept xterm shim must NOT also
-    // auto-reply (it would leak a second "xterm.js(...)" / "$y" into the shell).
-    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
-    const onData = vi.fn<(data: string) => void>()
-    term.onData(onData)
-    let atermOwned = true
-    const disposable = installTerminalCapabilityReplyHandlers({
-      terminal: term as never,
-      parser: term.parser,
-      sendInput: vi.fn(),
-      isReplaying: () => false,
-      isAtermReplyOwned: () => atermOwned
-    })
-
-    try {
-      // aterm-owned: xterm's own XTVERSION (CSI > q) + ANSI DECRQM (CSI 4 $ p)
-      // replies are consumed, so onData never fires.
-      await writeTerminal(term, '\x1b[>q')
-      await writeTerminal(term, '\x1b[4$p')
-      expect(onData, 'xterm must not auto-reply while aterm owns replies').not.toHaveBeenCalled()
-
-      // Non-aterm (xterm fallback): xterm answers XTVERSION itself again.
-      atermOwned = false
-      await writeTerminal(term, '\x1b[>q')
-      expect(onData, 'xterm answers XTVERSION on the non-aterm path').toHaveBeenCalled()
-    } finally {
-      disposable.dispose()
-      term.dispose()
-    }
-  })
-
-  it('suppresses xterm DECRQSS (DCS $q) + kitty ?u auto-replies for aterm-owned panes', async () => {
-    // aterm drains its OWN DECRQSS + kitty-keyboard-query replies; the kept xterm
-    // shim must NOT also auto-reply (it would leak a second "DCS 1$r...ST" / "[?Nu"
-    // into the shell). These live on the DCS surface (DECRQSS) and the ?u CSI — the
-    // exact double-answer class the CSI XTVERSION suppressor doesn't reach.
-    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
-    // Kitty query only fires when the extension is enabled (mirrors production).
-    term.options.vtExtensions = { kittyKeyboard: true }
-    const onData = vi.fn<(data: string) => void>()
-    term.onData(onData)
-    let atermOwned = true
-    const disposable = installTerminalCapabilityReplyHandlers({
-      terminal: term as never,
-      parser: term.parser,
-      sendInput: vi.fn(),
-      isReplaying: () => false,
-      isAtermReplyOwned: () => atermOwned
-    })
-
-    try {
-      // aterm-owned: xterm's DECRQSS (DCS $ q "q" ST → DECSCUSR) + kitty query (CSI ? u)
-      // are consumed, so onData never fires.
-      await writeTerminal(term, '\x1bP$q q\x1b\\')
-      await writeTerminal(term, '\x1b[?u')
-      expect(onData, 'xterm must not auto-reply DECRQSS/kitty while aterm owns replies').not.toHaveBeenCalled()
-
-      // Non-aterm (xterm fallback): xterm answers the kitty query itself again.
-      atermOwned = false
-      await writeTerminal(term, '\x1b[?u')
-      expect(onData, 'xterm answers the kitty query on the non-aterm path').toHaveBeenCalled()
-    } finally {
-      disposable.dispose()
-      term.dispose()
-    }
+  // The CSI/DCS reply handlers (DA1 default/getter/ConPTY, XTVERSION/DECRQM/
+  // DECRQSS/kitty suppression, replayed-query consumption, non-primary DA
+  // passthrough) are inert under aterm: the facade parser no-ops
+  // registerCsiHandler/registerDcsHandler (see aterm-facade-parser.ts), so these
+  // sequences never reach the renderer handlers. The aterm wasm engine answers
+  // DA1/DA2/DSR/CPR/DECRQM/CSI-14t/16t/OSC-10/11 natively via take_response; that
+  // real path is covered end-to-end against the engine + PTY by
+  // tests/e2e/aterm-query-replies.spec.ts.
+  //
+  // The DA1 response constants are still authored renderer-side, so guard their
+  // literal bytes directly (pure string check, no xterm parser).
+  it('exposes the expected DA1 response constants', () => {
+    expect(DEFAULT_DA1_RESPONSE).toBe('\x1b[?1;2c')
+    expect(CONPTY_DA1_RESPONSE).toBe('\x1b[?61;4c')
+    // The Sixel DA1 carries param 4 (the bit apps gate Sixel support on).
+    expect(DA1_RESPONSE_WITH_SIXEL).toBe('\x1b[?1;2;4c')
+    expect(DA1_RESPONSE_WITH_SIXEL).toContain(';4c')
   })
 
   it('answers window and cell pixel-size reports from renderer geometry', () => {
@@ -272,7 +147,11 @@ describe('installTerminalCapabilityReplyHandlers', () => {
 
     it('does not reply when not aterm-rendered (no theme source)', () => {
       const sendInput = vi.fn<(data: string) => boolean>(() => true)
-      const observe = createTerminalOscColorQueryResponder(sendInput, () => null, () => false)
+      const observe = createTerminalOscColorQueryResponder(
+        sendInput,
+        () => null,
+        () => false
+      )
 
       observe('\x1b]11;?\x07')
 
@@ -320,56 +199,5 @@ describe('installTerminalCapabilityReplyHandlers', () => {
 
       expect(sendInput).toHaveBeenCalledTimes(1)
     })
-  })
-
-  it('consumes replayed capability queries without sending input to the shell', async () => {
-    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
-    const sendInput = vi.fn<(data: string) => boolean>(() => true)
-    const disposable = installTerminalCapabilityReplyHandlers({
-      terminal: { ...term, element: createElement(800, 480) } as never,
-      parser: term.parser,
-      sendInput,
-      isReplaying: () => true
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[0c')
-
-      expect(sendInput).not.toHaveBeenCalled()
-    } finally {
-      disposable.dispose()
-      term.dispose()
-    }
-  })
-
-  it('leaves non-primary DA queries to other handlers', async () => {
-    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true })
-    const sendInput = vi.fn<(data: string) => boolean>(() => true)
-    const returnValues: boolean[] = []
-    const disposable = installTerminalCapabilityReplyHandlers({
-      terminal: term as never,
-      parser: {
-        registerCsiHandler: (id, cb) =>
-          term.parser.registerCsiHandler(id, (params) => {
-            const value = cb(params) as boolean
-            returnValues.push(value)
-            return value
-          }),
-        registerDcsHandler: (id, cb) =>
-          term.parser.registerDcsHandler(id, (data, params) => cb(data, params) as boolean)
-      },
-      sendInput,
-      isReplaying: () => false
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[1c')
-
-      expect(sendInput).not.toHaveBeenCalled()
-      expect(returnValues).toEqual([false])
-    } finally {
-      disposable.dispose()
-      term.dispose()
-    }
   })
 })

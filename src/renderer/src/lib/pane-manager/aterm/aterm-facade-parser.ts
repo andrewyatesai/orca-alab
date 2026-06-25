@@ -1,4 +1,4 @@
-import type { IDisposable, IParser } from '@xterm/xterm'
+import type { IDisposable, IParser } from './terminal-types'
 
 /** xterm OSC handlers receive the raw payload string and return whether they
  *  consumed the sequence. */

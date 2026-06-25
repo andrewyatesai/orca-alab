@@ -8,7 +8,6 @@ import type {
 } from './pane-manager-types'
 import { createDivider, disposeDivider } from './pane-divider'
 import { getFitOverrideForPty } from './mobile-fit-overrides'
-import { disposeWebgl, attachWebgl } from './pane-webgl-renderer'
 import { captureScrollState, restoreScrollStateAfterLayout } from './pane-scroll'
 
 export { captureScrollState, restoreScrollState } from './pane-scroll'
@@ -229,13 +228,6 @@ export function insertPaneNextTo(
   applyPaneFlexStyle(source.container)
   applyPaneFlexStyle(targetContainer)
 
-  // Why: same pattern as splitPane — dispose WebGL before the DOM reparent
-  // to free GPU context slots, then reattach after layout settles.
-  const sourceHadWebgl = !!source.webglAddon
-  const targetHadWebgl = !!target.webglAddon
-  disposeWebgl(source)
-  disposeWebgl(target)
-
   // Replace target with the split in the DOM
   parent.replaceChild(split, targetContainer)
 
@@ -256,12 +248,6 @@ export function insertPaneNextTo(
   requestReparentFrame(() => {
     if (callbacks.isDestroyed?.()) {
       return
-    }
-    if (sourceHadWebgl && source.gpuRenderingEnabled && !source.webglDisabledAfterContextLoss) {
-      attachWebgl(source)
-    }
-    if (targetHadWebgl && target.gpuRenderingEnabled && !target.webglDisabledAfterContextLoss) {
-      attachWebgl(target)
     }
     callbacks.safeFit(source)
     callbacks.safeFit(target)

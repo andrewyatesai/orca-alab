@@ -1,4 +1,4 @@
-import type { Terminal } from '@xterm/xterm'
+import type { Terminal } from '../../lib/pane-manager/aterm/terminal-types'
 
 type BracketedPasteTerminal = {
   modes: {

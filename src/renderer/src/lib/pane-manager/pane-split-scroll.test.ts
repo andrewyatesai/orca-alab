@@ -59,12 +59,6 @@ function createPane(bufferType: 'normal' | 'alternate'): {
     xtermContainer: {} as never,
     linkTooltip: {} as never,
     terminalGpuAcceleration: 'auto',
-    gpuRenderingEnabled: true,
-    webglAttachmentDeferred: false,
-    webglDisabledAfterContextLoss: false,
-    hasComplexScriptOutput: false,
-    webglAddon: null,
-    ligaturesAddon: null,
     fitResizeObserver: null,
     pendingObservedFitRafId: null,
     fitAddon: {} as never,
@@ -103,14 +97,12 @@ describe('scheduleSplitScrollRestore', () => {
 
   it('restores and refreshes normal-screen panes after split reparenting settles', () => {
     const { pane } = createPane('normal')
-    const reattachWebgl = vi.fn()
 
     scheduleSplitScrollRestore(
       () => pane,
       pane.id,
       scrollState,
-      () => false,
-      reattachWebgl
+      () => false
     )
 
     expect(restoreScrollState).toHaveBeenCalledTimes(1)
@@ -119,21 +111,21 @@ describe('scheduleSplitScrollRestore', () => {
     vi.advanceTimersByTime(200)
 
     expect(pane.pendingSplitScrollState).toBeNull()
-    expect(reattachWebgl).toHaveBeenCalledWith(pane)
     expect(restoreScrollState).toHaveBeenCalledTimes(2)
     expect(pane.terminal.refresh).toHaveBeenCalledTimes(2)
   })
 
-  it('defers WebGL reattach and skips scroll restore for alternate-screen panes', () => {
-    const { pane, bufferChangeDisposables, triggerBufferChange } = createPane('alternate')
-    const reattachWebgl = vi.fn()
+  it('skips scroll restore for alternate-screen panes and registers no buffer listener', () => {
+    // An alt-screen scrollState has no scrollback to restore, and there's no
+    // xterm WebGL to reattach on the return to normal, so the settle just clears
+    // the pending state and registers no onBufferChange listener.
+    const { pane, bufferChangeDisposables } = createPane('alternate')
 
     scheduleSplitScrollRestore(
       () => pane,
       pane.id,
       alternateScrollState,
-      () => false,
-      reattachWebgl
+      () => false
     )
 
     expect(restoreScrollState).not.toHaveBeenCalled()
@@ -143,35 +135,20 @@ describe('scheduleSplitScrollRestore', () => {
     vi.advanceTimersByTime(200)
 
     expect(pane.pendingSplitScrollState).toBeNull()
-    expect(pane.pendingSplitScrollBufferDisposable).toBe(bufferChangeDisposables[0])
-    expect(reattachWebgl).not.toHaveBeenCalled()
-    expect(restoreScrollState).not.toHaveBeenCalled()
-    expect(pane.terminal.refresh).not.toHaveBeenCalled()
-
-    triggerBufferChange('alternate')
-
-    expect(reattachWebgl).not.toHaveBeenCalled()
-    expect(bufferChangeDisposables[0].dispose).not.toHaveBeenCalled()
-
-    triggerBufferChange('normal')
-
-    expect(bufferChangeDisposables[0].dispose).toHaveBeenCalledTimes(1)
     expect(pane.pendingSplitScrollBufferDisposable).toBeNull()
-    expect(reattachWebgl).toHaveBeenCalledWith(pane)
+    expect(bufferChangeDisposables).toHaveLength(0)
     expect(restoreScrollState).not.toHaveBeenCalled()
     expect(pane.terminal.refresh).not.toHaveBeenCalled()
   })
 
   it('defers normal-screen scroll restore until an active TUI exits alternate screen', () => {
     const { pane, triggerBufferChange } = createPane('alternate')
-    const reattachWebgl = vi.fn()
 
     scheduleSplitScrollRestore(
       () => pane,
       pane.id,
       scrollState,
-      () => false,
-      reattachWebgl
+      () => false
     )
 
     vi.advanceTimersByTime(200)
@@ -183,21 +160,18 @@ describe('scheduleSplitScrollRestore', () => {
     triggerBufferChange('normal')
 
     expect(pane.pendingSplitScrollState).toBeNull()
-    expect(reattachWebgl).toHaveBeenCalledWith(pane)
     expect(restoreScrollState).toHaveBeenCalledWith(pane.terminal, scrollState)
     expect(pane.terminal.refresh).toHaveBeenCalledWith(0, 23)
   })
 
   it('replaces stale deferred buffer listeners when split restore is rescheduled', () => {
     const { pane, bufferChangeDisposables, triggerBufferChange } = createPane('alternate')
-    const reattachWebgl = vi.fn()
 
     scheduleSplitScrollRestore(
       () => pane,
       pane.id,
       scrollState,
-      () => false,
-      reattachWebgl
+      () => false
     )
     vi.advanceTimersByTime(200)
 
@@ -208,8 +182,7 @@ describe('scheduleSplitScrollRestore', () => {
       () => pane,
       pane.id,
       scrollState,
-      () => false,
-      reattachWebgl
+      () => false
     )
     vi.advanceTimersByTime(200)
 
@@ -221,7 +194,6 @@ describe('scheduleSplitScrollRestore', () => {
 
     expect(bufferChangeDisposables[1].dispose).toHaveBeenCalledTimes(1)
     expect(pane.pendingSplitScrollBufferDisposable).toBeNull()
-    expect(reattachWebgl).toHaveBeenCalledTimes(1)
   })
 
   it('cancels pending split restore handles and releases captured state', () => {

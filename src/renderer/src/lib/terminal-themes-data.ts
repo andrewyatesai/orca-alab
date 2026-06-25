@@ -1,4 +1,4 @@
-import type { ITheme } from '@xterm/xterm'
+import type { ITheme } from './pane-manager/aterm/terminal-types'
 
 import { TERMINAL_THEME_CATALOG } from './terminal-themes'
 

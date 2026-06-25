@@ -22,7 +22,6 @@ import { resolveTerminalPasteRuntime } from './terminal-paste-runtime'
 import { getTerminalPasteSshRemotePlatform } from './terminal-paste-ssh-platform'
 import { isTerminalPanePasteTargetCurrent } from './terminal-paste-target-state'
 import { writeTerminalPastePtyInput } from './terminal-pty-paste-writer'
-import { scheduleImagePasteWebglAtlasRecovery } from './terminal-webgl-paste-recovery'
 import {
   REQUEST_ACTIVE_TERMINAL_PANE_SPLIT_EVENT,
   type RequestActiveTerminalPaneSplitDetail
@@ -243,9 +242,6 @@ export function useTerminalPaneContextMenu({
     }
     if (text) {
       recordTerminalUserInputForLeaf(tabId, pane.leafId)
-    }
-    if (options?.recoverImagePasteWebglAtlas) {
-      scheduleImagePasteWebglAtlasRecovery()
     }
     return true
   }

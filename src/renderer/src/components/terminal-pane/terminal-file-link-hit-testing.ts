@@ -1,4 +1,4 @@
-import type { IBufferLine, IBufferRange } from '@xterm/xterm'
+import type { IBufferLine, IBufferRange } from '../../lib/pane-manager/aterm/terminal-types'
 import { extractTerminalFileLinkCandidates, resolveTerminalFileLink } from '@/lib/terminal-links'
 import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-client'
 import { getTerminalFileContext, openDetectedFilePath } from './terminal-file-open-routing'

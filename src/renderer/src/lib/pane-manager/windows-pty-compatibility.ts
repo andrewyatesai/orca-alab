@@ -1,4 +1,4 @@
-import type { ITerminalOptions } from '@xterm/xterm'
+import type { ITerminalOptions } from './aterm/terminal-types'
 import { isWslUncPath } from '../../../../shared/wsl-paths'
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../../../shared/execution-host'
 

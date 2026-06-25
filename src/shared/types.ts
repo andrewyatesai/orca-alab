@@ -2394,17 +2394,16 @@ export type GlobalSettings = {
   terminalScrollSensitivity: number
   terminalFastScrollSensitivity: number
   terminalTuiScrollSensitivity: number
-  /** Terminal renderer policy.
-   *  - 'auto': try xterm WebGL and fall back to DOM when unsupported or risky.
-   *  - 'on': always try xterm WebGL.
-   *  - 'off': keep terminal rendering on xterm's DOM renderer. */
+  /** Terminal renderer policy (read by aterm-gpu-auto-policy at pane wiring).
+   *  - 'auto': use the aterm GPU (WebGL2) drawer and fall back to CPU when
+   *    unsupported or risky.
+   *  - 'on': always use the aterm GPU drawer.
+   *  - 'off': keep terminal rendering on the aterm CPU drawer. */
   terminalGpuAcceleration: 'auto' | 'on' | 'off'
-  /** Whether to enable programming-ligatures rendering via
-   *  `@xterm/addon-ligatures`.
+  /** Programming-ligatures policy. aterm shapes ligatures natively from the
+   *  configured font; this setting is retained for compatibility/migration.
    *  - `'auto'` (default): enabled only when the configured font is known to
-   *    ship ligatures (Fira Code, JetBrains Mono, Cascadia Code, etc.). This
-   *    keeps the out-of-the-box experience right for users who install a
-   *    ligature font without touching settings.
+   *    ship ligatures (Fira Code, JetBrains Mono, Cascadia Code, etc.).
    *  - `'on'` / `'off'`: explicit override. Never changes when the user
    *    switches fonts, so "off" always stays off. */
   terminalLigatures: 'auto' | 'on' | 'off'

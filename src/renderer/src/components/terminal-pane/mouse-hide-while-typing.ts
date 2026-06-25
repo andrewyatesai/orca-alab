@@ -1,4 +1,4 @@
-import type { IDisposable } from '@xterm/xterm'
+import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
 
 /** Installs mouse-hide-while-typing behavior on a single terminal pane.
  *  Returns an IDisposable that cleans up listeners and restores cursor style. */

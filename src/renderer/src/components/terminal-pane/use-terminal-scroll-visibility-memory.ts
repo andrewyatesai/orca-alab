@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
-import type { IDisposable } from '@xterm/xterm'
+import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
 import type { AtermTerminalFacade } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import { flushTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
 

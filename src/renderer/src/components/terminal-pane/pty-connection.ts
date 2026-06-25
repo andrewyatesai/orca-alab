@@ -1,11 +1,7 @@
 /* oxlint-disable max-lines */
 import type { PaneManager, ManagedPane } from '@/lib/pane-manager/pane-manager'
-import type { IDisposable } from '@xterm/xterm'
-import {
-  detectAgentStatusFromTitle,
-  isGeminiTerminalTitle,
-  isClaudeAgent
-} from '@/lib/agent-status'
+import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
+import { detectAgentStatusFromTitle, isClaudeAgent } from '@/lib/agent-status'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
@@ -1311,10 +1307,8 @@ export function connectPanePty(
     // suppression here, split-pane Codex restarts would still close the pane
     // because this handler runs before the tab-level close logic sees the exit.
     if (deps.consumeSuppressedPtyExit(ptyId)) {
-      manager.setPaneGpuRendering(pane.id, true)
       return
     }
-    manager.setPaneGpuRendering(pane.id, true)
     const panes = manager.getPanes()
     if (panes.length <= 1) {
       deps.onPtyExitRef.current(ptyId)
@@ -1342,7 +1336,6 @@ export function connectPanePty(
   let allowInitialIdleCacheSeed = false
 
   const onTitleChange = (title: string, rawTitle: string): void => {
-    manager.setPaneGpuRendering(pane.id, !isGeminiTerminalTitle(rawTitle))
     deps.setRuntimePaneTitle(deps.tabId, pane.id, title)
     if (syncAgentTaskCompleteTrackingEnabled()) {
       agentCompletionCoordinator.observeTitle(rawTitle)
@@ -2609,10 +2602,6 @@ export function connectPanePty(
           pendingReplayData = null
           return
         }
-        // Why: remote-runtime snapshots can arrive after WebGL attached to an
-        // empty buffer; rebuilding after replay parses seeds the glyph atlas
-        // from the now-populated xterm state.
-        manager.rebuildPaneWebgl(pane.id)
       }
     }
     const replayDataCallback = (data: string): void => {

@@ -5,7 +5,6 @@ import type { DragReorderCallbacks } from './pane-drag-reorder'
 import { attachPaneDrag } from './pane-drag-pointer'
 import { detachPaneFitResizeObserver } from './pane-fit-resize-observer'
 import { clearPendingSplitScrollRestore } from './pane-split-scroll'
-import { cancelPendingWebglRefresh } from './pane-webgl-renderer'
 import { shouldFocusTerminalFromPanePointerDown } from './pane-pointer-focus'
 import { openAtermPane } from './aterm/aterm-pane-open'
 import { createAtermTerminalFacade } from './aterm/aterm-terminal-facade'
@@ -91,23 +90,15 @@ export function createPaneDOM(
     xtermContainer,
     linkTooltip,
     terminalTuiScrollSensitivity: options.terminalTuiScrollSensitivity,
+    // The aterm controller owns GPU acceleration via its own draw strategy
+    // (aterm-gpu-auto-policy reads this setting at wiring time).
     terminalGpuAcceleration: options.terminalGpuAcceleration ?? 'auto',
-    // The aterm controller owns GPU acceleration via its own draw strategy; the
-    // xterm-WebGL/ligatures paths stay disabled (they targeted the deleted DOM
-    // renderer), so these xterm-only fields are inert for aterm panes.
-    gpuRenderingEnabled: false,
-    webglAttachmentDeferred: false,
-    webglDisabledAfterContextLoss: false,
-    hasComplexScriptOutput: false,
     fitAddon,
     fitResizeObserver: null,
     pendingInitialFitRafId: null,
-    pendingWebglRefreshRafId: null,
     pendingObservedFitRafId: null,
     searchAddon,
     serializeAddon,
-    webglAddon: null,
-    ligaturesAddon: null,
     panePointerDownHandler,
     paneMouseEnterHandler,
     paneDragCleanup,
@@ -149,9 +140,6 @@ export function disposePane(
     cancelAnimationFrame(pane.pendingInitialFitRafId)
     pane.pendingInitialFitRafId = null
   }
-  // Cancel a leaked WebGL-refresh frame (xterm-WebGL field, inert for aterm but
-  // still cleaned up if ever set).
-  cancelPendingWebglRefresh(pane)
   detachPaneFitResizeObserver(pane)
   if (pane.panePointerDownHandler) {
     pane.container.removeEventListener('pointerdown', pane.panePointerDownHandler)

@@ -1,174 +1,61 @@
 import { describe, expect, it } from 'vitest'
-import { Terminal } from '@xterm/headless'
 import {
   POST_REPLAY_LIVE_SNAPSHOT_RESET,
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
-  RESET_KITTY_KEYBOARD_PROTOCOL
+  RESET_KITTY_KEYBOARD_PROTOCOL,
+  RESET_TERMINAL_CURSOR_STYLE
 } from './layout-serialization'
 
-const OLD_REATTACH_RESET_WITHOUT_CURSOR_STYLE = '\x1b[?25h\x1b[?1004l'
-
-type DecPrivateCursorState = {
-  cursorStyle?: string
-  cursorBlink?: boolean
-}
-
-type KittyKeyboardState = {
-  flags: number
-  mainFlags: number
-  altFlags: number
-  mainStack: number[]
-  altStack: number[]
-}
-
-type XtermWithCoreService = Terminal & {
-  _core?: {
-    coreService?: {
-      decPrivateModes?: DecPrivateCursorState
-      kittyKeyboard?: KittyKeyboardState
-    }
-    _coreService?: {
-      decPrivateModes?: DecPrivateCursorState
-      kittyKeyboard?: KittyKeyboardState
-    }
-  }
-}
-
-function readDecPrivateCursorState(term: Terminal): DecPrivateCursorState {
-  const core = (term as XtermWithCoreService)._core
-  const cursorState = core?.coreService?.decPrivateModes ?? core?._coreService?.decPrivateModes
-  return cursorState ? { ...cursorState } : {}
-}
-
-function readKittyKeyboardState(term: Terminal): KittyKeyboardState | null {
-  const core = (term as XtermWithCoreService)._core
-  const keyboardState = core?.coreService?.kittyKeyboard ?? core?._coreService?.kittyKeyboard
-  return keyboardState
-    ? {
-        flags: keyboardState.flags,
-        mainFlags: keyboardState.mainFlags,
-        altFlags: keyboardState.altFlags,
-        mainStack: [...keyboardState.mainStack],
-        altStack: [...keyboardState.altStack]
-      }
-    : null
-}
-
-function writeTerminal(term: Terminal, data: string): Promise<void> {
-  return new Promise((resolve) => term.write(data, resolve))
-}
-
-describe('terminal replay state reset', () => {
-  it('includes Kitty keyboard protocol reset in replay reset bundles', () => {
+// The original suite wrote these reset bundles to a headless xterm and read its
+// private `_core.coreService` (decPrivateModes / kittyKeyboard) to prove the
+// EFFECT on a live VT engine. Under aterm there is no in-process engine in
+// vitest, and inspecting another emulator's internals was an xterm-coupled
+// characterization with no public aterm equivalent. The reset-sequence effect on
+// the live engine is now an aterm concern, covered by the cursor/restore e2e
+// specs (tests/e2e/terminal-cursor-inactive-style.spec.ts,
+// tests/e2e/terminal-tab-switch-visual-restore.spec.ts).
+//
+// What still belongs renderer-side is the literal byte content of these reset
+// constants — a bad reset string is the regression these guards exist for — so
+// assert it directly here (pure string checks, no VT engine).
+describe('terminal replay state reset constants', () => {
+  it('encodes the DECSCUSR cursor-style + Kitty keyboard reset primitives', () => {
+    // DECSCUSR `0 q`: reset cursor style/blink to the user's configured default.
+    expect(RESET_TERMINAL_CURSOR_STYLE).toBe('\x1b[0 q')
+    // Kitty keyboard pop-to-empty (`<99u`) then flags-clear (`=0u`).
     expect(RESET_KITTY_KEYBOARD_PROTOCOL).toBe('\x1b[<99u\x1b[=0u')
+  })
+
+  it('clears mouse / focus / bracketed-paste modes in the cold-restore bundle', () => {
+    // Cold restore lands a fresh shell, so every interactive mode bit is reset:
+    // cursor style + Kitty + DECTCEM `?25h` + mouse 1000/1002/1003/1006 + focus
+    // 1004 + bracketed-paste 2004.
+    expect(POST_REPLAY_MODE_RESET).toBe(
+      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?2004l`
+    )
     expect(POST_REPLAY_MODE_RESET).toContain(RESET_KITTY_KEYBOARD_PROTOCOL)
+  })
+
+  it('resets only cursor + Kitty + focus on reattach (preserves live TUI modes)', () => {
+    // Daemon reattach keeps mouse/bracketed-paste for a still-running TUI; only
+    // the four safe bits are reset (cursor style, Kitty keyboard, DECTCEM, 1004).
+    expect(POST_REPLAY_REATTACH_RESET).toBe(
+      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h\x1b[?1004l`
+    )
     expect(POST_REPLAY_REATTACH_RESET).toContain(RESET_KITTY_KEYBOARD_PROTOCOL)
+    // Reattach must NOT clear mouse / bracketed-paste the live TUI may rely on.
+    expect(POST_REPLAY_REATTACH_RESET).not.toContain('\x1b[?1000l')
+    expect(POST_REPLAY_REATTACH_RESET).not.toContain('\x1b[?2004l')
+  })
+
+  it('preserves Kitty keyboard flags on the live-output snapshot reset', () => {
+    // Hidden-output recovery replays the SAME live session, so the still-running
+    // foreground TUI's Kitty keyboard flags must survive — only cursor style,
+    // DECTCEM and focus reporting are reset.
+    expect(POST_REPLAY_LIVE_SNAPSHOT_RESET).toBe(
+      `${RESET_TERMINAL_CURSOR_STYLE}\x1b[?25h\x1b[?1004l`
+    )
     expect(POST_REPLAY_LIVE_SNAPSHOT_RESET).not.toContain(RESET_KITTY_KEYBOARD_PROTOCOL)
-  })
-
-  it('clears stale DECSCUSR cursor overrides after live reattach replay', async () => {
-    const term = new Terminal({
-      cols: 80,
-      rows: 24,
-      allowProposedApi: true,
-      cursorStyle: 'bar',
-      cursorBlink: true
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[2 q')
-      expect(readDecPrivateCursorState(term)).toMatchObject({
-        cursorStyle: 'block',
-        cursorBlink: false
-      })
-
-      await writeTerminal(term, OLD_REATTACH_RESET_WITHOUT_CURSOR_STYLE)
-      expect(readDecPrivateCursorState(term)).toMatchObject({
-        cursorStyle: 'block',
-        cursorBlink: false
-      })
-
-      await writeTerminal(term, POST_REPLAY_REATTACH_RESET)
-      const cursorState = readDecPrivateCursorState(term)
-      expect(cursorState.cursorStyle).toBeUndefined()
-      expect(cursorState.cursorBlink).toBeUndefined()
-    } finally {
-      term.dispose()
-    }
-  })
-
-  it('clears stale DECSCUSR cursor overrides after cold-restore replay', async () => {
-    const term = new Terminal({
-      cols: 80,
-      rows: 24,
-      allowProposedApi: true,
-      cursorStyle: 'bar',
-      cursorBlink: true
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[6 q')
-      expect(readDecPrivateCursorState(term)).toMatchObject({
-        cursorStyle: 'bar',
-        cursorBlink: false
-      })
-
-      await writeTerminal(term, POST_REPLAY_MODE_RESET)
-      const cursorState = readDecPrivateCursorState(term)
-      expect(cursorState.cursorStyle).toBeUndefined()
-      expect(cursorState.cursorBlink).toBeUndefined()
-    } finally {
-      term.dispose()
-    }
-  })
-
-  it('clears active-buffer Kitty keyboard state after live reattach replay', async () => {
-    const term = new Terminal({
-      cols: 80,
-      rows: 24,
-      allowProposedApi: true,
-      vtExtensions: { kittyKeyboard: true }
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[=31u\x1b[>15u')
-      expect(readKittyKeyboardState(term)).toMatchObject({
-        flags: 15,
-        mainStack: [31]
-      })
-
-      await writeTerminal(term, POST_REPLAY_REATTACH_RESET)
-      // Why: after renderer reattach, the next Ctrl+C must not inherit a stale
-      // Kitty CSI-u encoder state from the replayed TUI snapshot.
-      expect(readKittyKeyboardState(term)).toMatchObject({
-        flags: 0,
-        mainFlags: 0,
-        mainStack: []
-      })
-    } finally {
-      term.dispose()
-    }
-  })
-
-  it('preserves active-buffer Kitty keyboard state after hidden-output snapshot replay', async () => {
-    const term = new Terminal({
-      cols: 80,
-      rows: 24,
-      allowProposedApi: true,
-      vtExtensions: { kittyKeyboard: true }
-    })
-
-    try {
-      await writeTerminal(term, '\x1b[=31u\x1b[>15u')
-      await writeTerminal(term, POST_REPLAY_LIVE_SNAPSHOT_RESET)
-
-      expect(readKittyKeyboardState(term)).toMatchObject({
-        flags: 15,
-        mainStack: [31]
-      })
-    } finally {
-      term.dispose()
-    }
   })
 })

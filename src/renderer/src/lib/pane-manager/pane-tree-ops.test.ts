@@ -92,10 +92,6 @@ function createPane({
     xtermContainer: {} as never,
     linkTooltip: {} as never,
     terminalGpuAcceleration: 'auto',
-    gpuRenderingEnabled: true,
-    webglAttachmentDeferred: false,
-    webglDisabledAfterContextLoss: false,
-    hasComplexScriptOutput: false,
     fitAddon: {
       fit,
       proposeDimensions
@@ -104,8 +100,6 @@ function createPane({
     pendingObservedFitRafId: null,
     searchAddon: {} as never,
     serializeAddon: {} as never,
-    webglAddon: null,
-    ligaturesAddon: null,
     pendingSplitScrollState: null,
     debugLabel: null
   }

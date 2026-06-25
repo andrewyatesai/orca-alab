@@ -1,4 +1,4 @@
-import type { IDisposable, IParser, Terminal } from '@xterm/xterm'
+import type { IDisposable, IParser, Terminal } from '../../lib/pane-manager/aterm/terminal-types'
 
 export const DEFAULT_DA1_RESPONSE = '\x1b[?1;2c'
 export const CONPTY_DA1_RESPONSE = '\x1b[?61;4c'
@@ -156,8 +156,7 @@ export function createTerminalOscColorQueryResponder(
     // so a query split across chunks still matches once — without re-matching a
     // fully-consumed query on the next call (that would double-reply).
     const tail = input.slice(-(OSC_COLOR_QUERY_FG.length - 1))
-    pending =
-      OSC_COLOR_QUERY_FG.startsWith(tail) || OSC_COLOR_QUERY_BG.startsWith(tail) ? tail : ''
+    pending = OSC_COLOR_QUERY_FG.startsWith(tail) || OSC_COLOR_QUERY_BG.startsWith(tail) ? tail : ''
     if (isReplaying()) {
       // Why: replayed scrollback may contain old OSC color queries; answering
       // those into the fresh shell would leak stray "]11;rgb:..." input.
@@ -191,8 +190,7 @@ export function installTerminalCapabilityReplyHandlers(
       // Consume the query either way so the xterm shim never auto-replies; only
       // ANSWER here when aterm isn't the owner (else aterm drains its own DA1).
       if (!deps.isReplaying() && !deps.isAtermReplyOwned?.()) {
-        const da1 =
-          typeof deps.da1Response === 'function' ? deps.da1Response() : deps.da1Response
+        const da1 = typeof deps.da1Response === 'function' ? deps.da1Response() : deps.da1Response
         deps.sendInput(da1 ?? DEFAULT_DA1_RESPONSE)
       }
       return true
@@ -204,42 +202,49 @@ export function installTerminalCapabilityReplyHandlers(
     // consuming is safe. (DA1 is handled above; OSC colour + CSI 14t/16t pixel-size
     // are drained by aterm and skipped renderer-side in pty-connection.)
     deps.parser.registerCsiHandler({ final: 'n' }, () => deps.isAtermReplyOwned?.() ?? false),
-    deps.parser.registerCsiHandler({ prefix: '?', final: 'n' }, () =>
-      deps.isAtermReplyOwned?.() ?? false
+    deps.parser.registerCsiHandler(
+      { prefix: '?', final: 'n' },
+      () => deps.isAtermReplyOwned?.() ?? false
     ),
     // DECRQM — BOTH the private (CSI ? Ps $ p) and ANSI (CSI Ps $ p) variants; xterm
     // and aterm each answer both, so suppress both on aterm panes.
-    deps.parser.registerCsiHandler({ prefix: '?', intermediates: '$', final: 'p' }, () =>
-      deps.isAtermReplyOwned?.() ?? false
+    deps.parser.registerCsiHandler(
+      { prefix: '?', intermediates: '$', final: 'p' },
+      () => deps.isAtermReplyOwned?.() ?? false
     ),
-    deps.parser.registerCsiHandler({ intermediates: '$', final: 'p' }, () =>
-      deps.isAtermReplyOwned?.() ?? false
+    deps.parser.registerCsiHandler(
+      { intermediates: '$', final: 'p' },
+      () => deps.isAtermReplyOwned?.() ?? false
     ),
     // DA2 (CSI > c) and XTVERSION (CSI > q) — the xterm shim auto-answers both, and
     // so does aterm; without suppression XTVERSION leaks a second "xterm.js(...)"
     // reply into the shell. (DECSCUSR is CSI Ps SP q — different intermediate — so
     // this `>`-prefixed q handler doesn't touch it.)
-    deps.parser.registerCsiHandler({ prefix: '>', final: 'c' }, () =>
-      deps.isAtermReplyOwned?.() ?? false
+    deps.parser.registerCsiHandler(
+      { prefix: '>', final: 'c' },
+      () => deps.isAtermReplyOwned?.() ?? false
     ),
-    deps.parser.registerCsiHandler({ prefix: '>', final: 'q' }, () =>
-      deps.isAtermReplyOwned?.() ?? false
+    deps.parser.registerCsiHandler(
+      { prefix: '>', final: 'q' },
+      () => deps.isAtermReplyOwned?.() ?? false
     ),
     // Kitty keyboard QUERY (CSI ? u): aterm answers it (current progressive-
     // enhancement flags) and xterm answers it too when vtExtensions.kittyKeyboard
     // is on (it is, for all panes), so suppress xterm's on aterm panes. Only the
     // `?`-prefixed QUERY — the push/pop/set forms (CSI > u / < u / = u) still reach
     // xterm so its input encoder tracks the same flags.
-    deps.parser.registerCsiHandler({ prefix: '?', final: 'u' }, () =>
-      deps.isAtermReplyOwned?.() ?? false
+    deps.parser.registerCsiHandler(
+      { prefix: '?', final: 'u' },
+      () => deps.isAtermReplyOwned?.() ?? false
     ),
     // DECRQSS (DCS $ q ... ST): aterm drains its OWN status-string reply for
     // DECSCUSR/SGR/DECSTBM/DECSCL/DECSCA queries, and xterm answers the identical
     // set via its DCS handler — a second "DCS 1$r...ST" would leak into the shell
     // (e.g. vim probing DECSCUSR at startup). Consume it on aterm panes; the DCS
     // callback returning true stops xterm's built-in requestStatusString.
-    deps.parser.registerDcsHandler({ intermediates: '$', final: 'q' }, () =>
-      deps.isAtermReplyOwned?.() ?? false
+    deps.parser.registerDcsHandler(
+      { intermediates: '$', final: 'q' },
+      () => deps.isAtermReplyOwned?.() ?? false
     )
   ]
 

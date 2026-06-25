@@ -1,4 +1,4 @@
-import type { ITerminalOptions } from '@xterm/xterm'
+import type { ITerminalOptions } from './aterm/terminal-types'
 
 type TerminalCursorStyle = NonNullable<ITerminalOptions['cursorStyle']>
 type TerminalCursorInactiveStyle = NonNullable<ITerminalOptions['cursorInactiveStyle']>

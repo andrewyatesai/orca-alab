@@ -3,23 +3,14 @@ import { waitForActivePanePtyId } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 
 // HONEST keystroke-latency benchmark for the aterm renderer, run inside the REAL
-// Electron renderer. The adversarial review's headline objection: "the terminal
-// was rewritten for performance but nobody measured keystroke→render latency, and
-// there's no comparison to the xterm.js it replaced." This closes that with real
-// numbers and an honest verdict — it is a MEASUREMENT (loose sanity asserts only),
-// not a flaky perf gate.
+// Electron renderer. It is a MEASUREMENT (loose sanity asserts only), not a flaky
+// perf gate.
 //
 // What's measured (all on a single-cell update — one echoed keystroke):
 //  - RENDER-HALF latency (median + p95): aterm CPU process→render→putImageData and
 //    aterm GPU process→render→gl.finish(). This is the render contribution to
-//    per-keystroke latency; the PTY round-trip is shared by every renderer and
-//    excluded so the engines are compared apples-to-apples.
-//  - HEAD-TO-HEAD per-frame cost at 80x24 and 120x40 for aterm-GPU, aterm-CPU, and
-//    a REAL off-screen xterm + WebGL addon (the renderer Orca replaced). The xterm
-//    column is "write→painted (incl. rAF)" because xterm only presents on its own
-//    rAF and exposes no synchronous render; that debounce is part of its real
-//    keystroke latency, so including it is honest, not a handicap. The two numbers
-//    measure different things and the table labels them as such.
+//    per-keystroke latency; the PTY round-trip is shared and excluded.
+//  - Per-frame cost at 80x24 and 120x40 for aterm-GPU and aterm-CPU.
 //  - The GL renderer string (ANGLE/Metal vs software) so the numbers are
 //    interpretable.
 
@@ -36,8 +27,6 @@ type FrameTimeRow = {
   rows: number
   atermCpuMsPerFrame: number
   atermGpuMsPerFrame: number | null
-  xtermWebglMsPerFrame: number | null
-  xtermReason?: string
 }
 type BenchResult = {
   glRenderer: string | null
@@ -56,11 +45,11 @@ type BenchProbe = {
 }
 
 test.describe('aterm keystroke-latency benchmark @aterm-latency', () => {
-  test('measures aterm CPU/GPU render-half latency and a head-to-head vs xterm+WebGL', async ({
+  test('measures aterm CPU/GPU render-half and per-frame latency', async ({
     orcaPage
   }, testInfo) => {
     // Builds several throwaway engines (CPU + GPU render-half, plus per-size aterm
-    // CPU/GPU and a real off-screen xterm+WebGL) — give it room beyond the default.
+    // CPU/GPU) — give it room beyond the default.
     test.setTimeout(240_000)
     orcaPage.on('console', (msg) => {
       const t = msg.text()
@@ -136,40 +125,30 @@ test.describe('aterm keystroke-latency benchmark @aterm-latency', () => {
       r.renderHalf.gpu
         ? `[aterm-latency] aterm GPU: ${fmtStats(r.renderHalf.gpu)}`
         : `[aterm-latency] aterm GPU: FAILED — ${r.renderHalf.gpuReason ?? 'unknown'}`,
-      '[aterm-latency] -- HEAD-TO-HEAD ms/frame, single-cell update --',
-      '[aterm-latency] size      | aterm-GPU (render+finish) | aterm-CPU (render+blit) | xterm-webgl (write→painted, incl. rAF)'
+      '[aterm-latency] -- ms/frame, single-cell update --',
+      '[aterm-latency] size      | aterm-GPU (render+finish) | aterm-CPU (render+blit)'
     ]
     for (const row of r.frameTable) {
       const size = `${row.cols}x${row.rows}`.padEnd(9)
-      const gpu = (row.atermGpuMsPerFrame == null
-        ? 'FAILED'
-        : `${row.atermGpuMsPerFrame.toFixed(3)} ms`
+      const gpu = (
+        row.atermGpuMsPerFrame == null ? 'FAILED' : `${row.atermGpuMsPerFrame.toFixed(3)} ms`
       ).padEnd(24)
-      const cpu = `${row.atermCpuMsPerFrame.toFixed(3)} ms`.padEnd(23)
-      const xterm =
-        row.xtermWebglMsPerFrame == null
-          ? `FAILED — ${row.xtermReason ?? 'unknown'}`
-          : `${row.xtermWebglMsPerFrame.toFixed(3)} ms`
-      lines.push(`[aterm-latency] ${size} | ${gpu} | ${cpu} | ${xterm}`)
+      const cpu = `${row.atermCpuMsPerFrame.toFixed(3)} ms`
+      lines.push(`[aterm-latency] ${size} | ${gpu} | ${cpu}`)
     }
-    // Honest verdict. Two different things are timed: the aterm columns are raw
-    // synchronous render WORK (process→render→present, no frame wait); the xterm
-    // column is write→painted INCLUDING xterm's rAF debounce (it exposes no
-    // synchronous present), so its ~one-frame floor is mostly waiting, not draw
-    // cost. Read accordingly — the takeaways the numbers actually support:
+    // The aterm columns are raw synchronous render WORK (process→render→present, no
+    // frame wait). Takeaways the numbers support:
     //  1. aterm GPU (the DEFAULT) renders in sub-millisecond time and stays flat as
-    //     the grid grows, well under one 120Hz frame (8.333ms) and far under xterm's
-    //     per-keystroke paint latency.
-    //  2. aterm CPU (the software-GL FALLBACK) is competitive with xterm at a
-    //     typical 80x24, but its rasterization cost grows with grid area and can
-    //     exceed xterm's frame-bounded latency at large grids — which is exactly why
-    //     GPU is the default and CPU is only the fallback. Reported honestly, not hidden.
+    //     the grid grows, well under one 120Hz frame (8.333ms).
+    //  2. aterm CPU (the software-GL FALLBACK) is competitive at a typical 80x24, but
+    //     its rasterization cost grows with grid area — which is why GPU is the
+    //     default and CPU is only the fallback.
     const cpuMed = r.renderHalf.cpu.medianMs
     const gpuMed = r.renderHalf.gpu?.medianMs ?? null
     lines.push(
       `[aterm-latency] VERDICT: aterm render-half median — CPU ${cpuMed.toFixed(3)}ms${
         gpuMed != null ? `, GPU ${gpuMed.toFixed(3)}ms` : ''
-      } (one 120Hz frame = 8.333ms). aterm columns are raw render work; the xterm column includes its rAF debounce (its real per-keystroke paint latency), so they measure different things — GPU dominates everywhere; CPU is competitive at 80x24 but loses to xterm's frame-bounded paint at large grids, which is why GPU is default.`
+      } (one 120Hz frame = 8.333ms).`
     )
     // eslint-disable-next-line no-console
     console.log(`\n${lines.join('\n')}\n`)
@@ -187,11 +166,14 @@ test.describe('aterm keystroke-latency benchmark @aterm-latency', () => {
       expect(r.renderHalf.gpu.medianMs, 'GPU render-half median under 250ms').toBeLessThan(250)
     }
     for (const row of r.frameTable) {
-      expect(row.atermCpuMsPerFrame, `aterm CPU ${row.cols}x${row.rows} positive`).toBeGreaterThan(0)
+      expect(row.atermCpuMsPerFrame, `aterm CPU ${row.cols}x${row.rows} positive`).toBeGreaterThan(
+        0
+      )
       if (row.atermGpuMsPerFrame != null) {
-        expect(row.atermGpuMsPerFrame, `aterm GPU ${row.cols}x${row.rows} positive`).toBeGreaterThan(
-          0
-        )
+        expect(
+          row.atermGpuMsPerFrame,
+          `aterm GPU ${row.cols}x${row.rows} positive`
+        ).toBeGreaterThan(0)
       }
     }
   })

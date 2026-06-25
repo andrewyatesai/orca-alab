@@ -1,4 +1,4 @@
-import type { IDisposable } from '@xterm/xterm'
+import type { IDisposable } from './terminal-types'
 
 /** A typed event emitter that returns xterm-style disposables, used for the
  *  facade's onData / onResize / onBell / onSelectionChange channels. */

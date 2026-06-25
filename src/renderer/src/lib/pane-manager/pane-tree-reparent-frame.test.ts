@@ -1,13 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ManagedPaneInternal } from './pane-manager-types'
 
-const webglRendererMock = vi.hoisted(() => ({
-  attachWebgl: vi.fn(),
-  disposeWebgl: vi.fn()
-}))
-
-vi.mock('./pane-webgl-renderer', () => webglRendererMock)
-
 vi.mock('./pane-divider', () => ({
   createDivider: vi.fn(() => createMockElement('pane-divider'))
 }))
@@ -66,12 +59,6 @@ function createPane(id: number, container = createMockElement('pane')): ManagedP
     searchAddon: {} as never,
     serializeAddon: {} as never,
     terminalGpuAcceleration: 'on',
-    gpuRenderingEnabled: true,
-    webglAttachmentDeferred: false,
-    webglDisabledAfterContextLoss: false,
-    hasComplexScriptOutput: false,
-    webglAddon: {} as never,
-    ligaturesAddon: null,
     fitResizeObserver: null,
     pendingObservedFitRafId: null,
     pendingSplitScrollState: null,
@@ -91,7 +78,7 @@ describe('insertPaneNextTo reparent frame', () => {
     vi.clearAllMocks()
   })
 
-  it('uses the caller-owned frame scheduler for WebGL reattach and refit', async () => {
+  it('uses the caller-owned frame scheduler for refit', async () => {
     setupDocument()
     const { insertPaneNextTo } = await import('./pane-tree-ops')
     const parent = createMockElement('pane-split')
@@ -116,15 +103,11 @@ describe('insertPaneNextTo reparent frame', () => {
 
     frames[0]?.(16)
 
-    expect(webglRendererMock.disposeWebgl).toHaveBeenCalledWith(source)
-    expect(webglRendererMock.disposeWebgl).toHaveBeenCalledWith(target)
-    expect(webglRendererMock.attachWebgl).toHaveBeenCalledWith(source)
-    expect(webglRendererMock.attachWebgl).toHaveBeenCalledWith(target)
     expect(safeFit).toHaveBeenCalledWith(source)
     expect(safeFit).toHaveBeenCalledWith(target)
   })
 
-  it('skips the deferred WebGL reattach and refit after manager destruction', async () => {
+  it('skips the deferred refit after manager destruction', async () => {
     setupDocument()
     const { insertPaneNextTo } = await import('./pane-tree-ops')
     const parent = createMockElement('pane-split')
@@ -149,7 +132,6 @@ describe('insertPaneNextTo reparent frame', () => {
     destroyed = true
     frames[0]?.(16)
 
-    expect(webglRendererMock.attachWebgl).not.toHaveBeenCalled()
     expect(safeFit).not.toHaveBeenCalled()
   })
 })

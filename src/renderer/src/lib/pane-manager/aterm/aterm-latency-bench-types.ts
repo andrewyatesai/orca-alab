@@ -25,10 +25,6 @@ export type FrameTimeRow = {
   atermCpuMsPerFrame: number
   /** aterm GPU per-frame ms (render + gl.finish), null if GPU failed. */
   atermGpuMsPerFrame: number | null
-  /** xterm + WebGL addon per-frame ms (write one cell + forced render), null if
-   *  xterm could not be timed in this environment. */
-  xtermWebglMsPerFrame: number | null
-  xtermReason?: string
 }
 
 export type AtermLatencyBenchResult = {
@@ -37,6 +33,6 @@ export type AtermLatencyBenchResult = {
   gpuAdapterInfo: string | null
   /** One-cell-update render-half latency at a typical 80x24 grid. */
   renderHalf: AtermLatencyRenderHalf
-  /** Head-to-head per-frame render cost at each grid for all three renderers. */
+  /** Per-frame aterm CPU/GPU render cost at each grid. */
   frameTable: FrameTimeRow[]
 }

@@ -14,7 +14,6 @@ import {
   measureCpuRenderHalf,
   measureGpuRenderHalf
 } from './aterm-latency-aterm-bench'
-import { benchXtermWebglFrame } from './aterm-latency-xterm-bench'
 
 export type {
   AtermLatencyBenchResult,
@@ -23,21 +22,16 @@ export type {
   LatencyStats
 } from './aterm-latency-bench-types'
 
-/** e2e-only KEYSTROKE-LATENCY benchmark for the aterm renderer. The adversarial
- *  review's objection is that the terminal was rewritten for performance but the
- *  keystroke→render latency was never measured, and never compared to the xterm.js
- *  it replaced. This orchestrator runs the RENDER HALF of that latency honestly:
+/** e2e-only KEYSTROKE-LATENCY benchmark for the aterm renderer. Runs the RENDER
+ *  HALF of that latency honestly:
  *
  *   - aterm CPU: process(one cell) → render() → putImageData blit, exactly what the
  *     live CPU pane's draw scheduler runs per output chunk.
  *   - aterm GPU: process(one cell) → render() → gl.finish(), the full WebGL2 present
  *     forced to GPU completion (render() alone only queues commands).
- *   - xterm + WebGL addon: write(one cell) → next onRender, the same single-cell
- *     update on the renderer Orca replaced (includes xterm's rAF debounce).
  *
  *  N iterations → median + p95 (latency is about the tail). The render-half is the
- *  render contribution to one keystroke; the shared PTY round-trip is excluded so
- *  the engines are compared apples-to-apples. */
+ *  render contribution to one keystroke; the shared PTY round-trip is excluded. */
 export async function benchAtermLatency(opts: {
   sizes: [number, number][]
   iterations: number
@@ -97,21 +91,11 @@ export async function benchAtermLatency(opts: {
       atermGpuMsPerFrame = null
     }
 
-    let xtermWebglMsPerFrame: number | null = null
-    let xtermReason: string | undefined
-    try {
-      xtermWebglMsPerFrame = await benchXtermWebglFrame({ cols, rows, frames })
-    } catch (err) {
-      xtermReason = String(err)
-    }
-
     frameTable.push({
       cols,
       rows,
       atermCpuMsPerFrame,
-      atermGpuMsPerFrame,
-      xtermWebglMsPerFrame,
-      xtermReason
+      atermGpuMsPerFrame
     })
   }
 

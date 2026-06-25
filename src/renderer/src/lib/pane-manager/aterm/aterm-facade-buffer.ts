@@ -1,4 +1,4 @@
-import type { IBufferLine, IBufferCell, IMarker } from '@xterm/xterm'
+import type { IBufferLine, IBufferCell, IMarker } from './terminal-types'
 import type { AtermPaneController } from './aterm-pane-controller-types'
 
 /** The subset of the controller the buffer facade reads. Narrowed so the buffer

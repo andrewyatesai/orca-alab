@@ -1,4 +1,4 @@
-import type { IDisposable, IMarker, ITerminalOptions } from '@xterm/xterm'
+import type { IDisposable, IMarker, ITerminalOptions } from './terminal-types'
 import type { AtermPaneController } from './aterm-pane-controller-types'
 import { createAtermFacadeBuffer, type AtermFacadeBuffer } from './aterm-facade-buffer'
 import { createAtermFacadeParser, type AtermFacadeParser } from './aterm-facade-parser'

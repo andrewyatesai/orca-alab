@@ -3,7 +3,7 @@
 // serialize functions keyed by ptyId, and handles IPC requests from the
 // main process to serialize a specific terminal's buffer.
 
-import type { IDisposable } from '@xterm/xterm'
+import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
 
 export type SerializeOpts = {
   scrollbackRows?: number

@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- Why: terminal link routing has intertwined local,
 SSH, and runtime cases; keeping them in one suite prevents fixture drift. */
-import type { IDisposable, ILink } from '@xterm/xterm'
+import type { IDisposable, ILink } from '../../lib/pane-manager/aterm/terminal-types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import {

@@ -51,10 +51,6 @@ function createPane(
     } as never,
     linkTooltip: {} as never,
     terminalGpuAcceleration: 'auto',
-    gpuRenderingEnabled: true,
-    webglAttachmentDeferred: false,
-    webglDisabledAfterContextLoss: false,
-    hasComplexScriptOutput: false,
     fitAddon: {
       fit: vi.fn(),
       proposeDimensions: vi.fn(proposeDimensions)
@@ -63,8 +59,6 @@ function createPane(
     pendingObservedFitRafId: null,
     searchAddon: {} as never,
     serializeAddon: {} as never,
-    webglAddon: null,
-    ligaturesAddon: null,
     debugLabel: null,
     pendingSplitScrollState: {
       bufferType: 'normal',

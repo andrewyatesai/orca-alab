@@ -1,4 +1,4 @@
-import type { IDisposable } from '@xterm/xterm'
+import type { IDisposable } from './aterm/terminal-types'
 import type { ManagedPaneInternal, ScrollState } from './pane-manager-types'
 import type { AtermFacadeBuffer } from './aterm/aterm-facade-buffer'
 import { releaseScrollStateMarker, restoreScrollState } from './pane-scroll'
@@ -67,16 +67,9 @@ function runAfterNormalBuffer(
   pane.pendingSplitScrollBufferDisposable = disposable
 }
 
-function restoreCapturedScrollState(
-  pane: ManagedPaneInternal,
-  scrollState: ScrollState,
-  reattachWebgl?: (pane: ManagedPaneInternal) => void
-): void {
+function restoreCapturedScrollState(pane: ManagedPaneInternal, scrollState: ScrollState): void {
   clearPendingSplitScrollBufferDisposable(pane)
   pane.pendingSplitScrollState = null
-  if (reattachWebgl) {
-    reattachWebgl(pane)
-  }
   restoreScrollState(pane.terminal, scrollState)
   refreshAfterReparent(pane)
 }
@@ -85,19 +78,11 @@ function restoreCapturedScrollState(
 // scroll position (browser clears scrollTop on DOM move). This schedules a
 // two-phase restore: an early double-rAF (~32ms) to minimise the visible
 // flash, plus a 200ms authoritative restore that also clears the scroll lock.
-//
-// The optional reattachWebgl callback re-creates the WebGL addon after the
-// DOM has settled. splitPane() disposes WebGL before wrapInSplit() to free
-// the GPU context slot (Chromium silently kills the oldest context when
-// approaching its limit without firing contextlost). Reattaching at 200ms
-// — after all layout and reflow have completed — creates a fresh context on
-// a stable DOM tree.
 export function scheduleSplitScrollRestore(
   getPaneById: (id: number) => ManagedPaneInternal | undefined,
   paneId: number,
   scrollState: ScrollState,
-  isDestroyed: () => boolean,
-  reattachWebgl?: (pane: ManagedPaneInternal) => void
+  isDestroyed: () => boolean
 ): void {
   const scheduledPane = getPaneById(paneId)
   if (scheduledPane) {
@@ -154,30 +139,21 @@ export function scheduleSplitScrollRestore(
     // Why: the alt-screen buffer belongs to a full-screen TUI (Claude Code,
     // vim, less) that owns its cursor position. Re-running scroll restore
     // and a full refresh here clobbers an in-progress draw — refresh(0,
-    // rows-1) repaints rows from xterm's buffer, racing the TUI's next
-    // write and leaving its cursor one row off (#1298 regression).
-    // WebGL reattach also refreshes, so defer it until the TUI exits the
-    // alternate buffer. Alt-screen has no scrollback, so scroll restore has
-    // nothing legitimate to do.
+    // rows-1) repaints rows, racing the TUI's next write and leaving its
+    // cursor one row off (#1298 regression). Alt-screen has no scrollback,
+    // so scroll restore has nothing legitimate to do.
     if (scrollState.bufferType === 'alternate') {
       clearPendingSplitScrollBufferDisposable(live)
       live.pendingSplitScrollState = null
-      if (live.terminal.buffer.active.type === 'alternate' && reattachWebgl) {
-        runAfterNormalBuffer(live, getPaneById, paneId, isDestroyed, reattachWebgl)
-        return
-      }
-      if (reattachWebgl) {
-        reattachWebgl(live)
-      }
       return
     }
     if (live.terminal.buffer.active.type === 'alternate') {
       runAfterNormalBuffer(live, getPaneById, paneId, isDestroyed, (normalPane) => {
-        restoreCapturedScrollState(normalPane, scrollState, reattachWebgl)
+        restoreCapturedScrollState(normalPane, scrollState)
       })
       return
     }
-    restoreCapturedScrollState(live, scrollState, reattachWebgl)
+    restoreCapturedScrollState(live, scrollState)
   }, 200)
   if (scheduledPane) {
     scheduledPane.pendingSplitScrollTimerId = settleTimerId

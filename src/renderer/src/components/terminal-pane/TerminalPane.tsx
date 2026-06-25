@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties } from 'react'
-import type { IDisposable } from '@xterm/xterm'
+import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
 import { useAppStore } from '../../store'
 import { isUnifiedTabPinned } from '@/store/pinned-tab-close-guard'
 import { useLinkRoutingPreferenceDialog } from '@/components/link-routing-preference-dialog'
@@ -109,7 +109,6 @@ import {
 } from '@/components/terminal-quick-commands/TerminalQuickCommandDialog'
 import { keybindingMatchesAction } from '../../../../shared/keybindings'
 import { pasteTerminalClipboard } from './terminal-clipboard-paste'
-import { scheduleImagePasteWebglAtlasRecovery } from './terminal-webgl-paste-recovery'
 import { restoreTerminalFitToDesktop, restoreTerminalFitsToDesktop } from './terminal-fit-restore'
 
 // Why: registry lives in a leaf module so the store slice can import it
@@ -1547,9 +1546,6 @@ export default function TerminalPane({
       if (text) {
         recordTerminalUserInputForLeaf(tabId, pane.leafId)
       }
-      if (options?.recoverImagePasteWebglAtlas) {
-        scheduleImagePasteWebglAtlasRecovery()
-      }
     }
 
     const pasteFromClipboard = (
@@ -2466,9 +2462,8 @@ export default function TerminalPane({
           <TerminalSearch
             isOpen={searchOpen}
             onClose={() => setSearchOpen(false)}
-            // The xterm SearchAddon path is gone (every pane is aterm-rendered);
-            // find/next/prev/clear + count route through the controller's search.
-            searchAddon={null}
+            // Every pane is aterm-rendered; find/next/prev/clear + count route
+            // through the controller's search surface.
             atermSearch={activePane.atermController ?? null}
             searchStateRef={searchStateRef}
           />,

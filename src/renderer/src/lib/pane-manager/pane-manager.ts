@@ -4,7 +4,6 @@ import type {
   PaneStyleOptions,
   ManagedPane,
   ManagedPaneInternal,
-  PaneRenderingDiagnostics,
   DropZone
 } from './pane-manager-types'
 import type { SplitPaneAroundLeafIdsOptions } from './pane-subtree-split'
@@ -18,9 +17,7 @@ import {
 import { cancelActivePaneDrag, createDragReorderState, handlePaneDrop } from './pane-drag-reorder'
 import { beginPaneDragFromPointerDown } from './pane-drag-pointer'
 import { createPaneDOM, openTerminal, disposePane } from './pane-lifecycle'
-import { setLigaturesEnabled } from './pane-ligatures'
 import { shouldFollowMouseFocus } from './focus-follows-mouse'
-import { getTerminalWebglAutoDecision } from './terminal-webgl-auto-policy'
 import {
   equalizePaneSplitSizes,
   safeFit,
@@ -28,15 +25,6 @@ import {
   refitPanesUnder
 } from './pane-tree-ops'
 import { toPublicPane } from './pane-public-view'
-import { applyTerminalGpuAcceleration } from './pane-terminal-gpu-acceleration'
-import { rebuildAttachedWebgl } from './pane-webgl-reattach'
-import {
-  markPaneComplexScriptOutput,
-  resetPaneWebglTextureAtlases,
-  resumePaneRendering,
-  setPaneGpuRenderingState,
-  suspendPaneRendering
-} from './pane-rendering-control'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import { registerLivePaneManager, unregisterLivePaneManager } from './pane-manager-registry'
 import { PaneIdentityRegistry } from './pane-identity-registry'
@@ -54,7 +42,6 @@ export class PaneManager {
   private options: PaneManagerOptions
   private styleOptions: PaneStyleOptions = {}
   private destroyed = false
-  private renderingSuspended: boolean
   private identities = new PaneIdentityRegistry()
   private pendingPaneReparentFrameIds = new Set<number>()
 
@@ -64,9 +51,8 @@ export class PaneManager {
   constructor(root: HTMLElement, options: PaneManagerOptions) {
     this.root = root
     this.options = options
-    this.renderingSuspended = options.initialRenderingSuspended === true
-    // Why: atlas recovery must reach every live manager — see
-    // resetAllTerminalWebglAtlases for the shared-atlas rationale.
+    // Registered so bulk restore (refitAndRefreshAllTerminalPanes) reaches every
+    // live manager.
     registerLivePaneManager(this)
   }
 
@@ -201,19 +187,6 @@ export class PaneManager {
     return pane ? toPublicPane(pane) : null
   }
 
-  getRenderingDiagnostics(): PaneRenderingDiagnostics[] {
-    return Array.from(this.panes.values()).map((pane) => ({
-      paneId: pane.id,
-      terminalGpuAcceleration: pane.terminalGpuAcceleration,
-      gpuRenderingEnabled: pane.gpuRenderingEnabled,
-      webglAttachmentDeferred: pane.webglAttachmentDeferred,
-      webglDisabledAfterContextLoss: pane.webglDisabledAfterContextLoss,
-      hasComplexScriptOutput: pane.hasComplexScriptOutput,
-      terminalWebglAutoDecision: getTerminalWebglAutoDecision(),
-      hasWebgl: Boolean(pane.webglAddon)
-    }))
-  }
-
   getLeafId(numericPaneId: number): TerminalLeafId | null {
     return this.identities.getLeafId(numericPaneId)
   }
@@ -259,48 +232,6 @@ export class PaneManager {
     applyRootBackground(this.root, this.styleOptions)
   }
 
-  setPaneLigaturesEnabled(paneId: number, enabled: boolean): void {
-    const pane = this.panes.get(paneId)
-    if (!pane) {
-      return
-    }
-    setLigaturesEnabled(pane, enabled)
-  }
-
-  setPaneGpuRendering(paneId: number, enabled: boolean): void {
-    setPaneGpuRenderingState(this.panes, paneId, enabled)
-  }
-
-  setTerminalGpuAcceleration(mode: PaneManagerOptions['terminalGpuAcceleration']): void {
-    applyTerminalGpuAcceleration(this.panes.values(), this.options, mode)
-  }
-
-  markPaneHasComplexScriptOutput(paneId: number): void {
-    markPaneComplexScriptOutput(this.panes, paneId)
-  }
-
-  rebuildPaneWebgl(paneId: number): void {
-    const pane = this.panes.get(paneId)
-    if (!pane) {
-      return
-    }
-    rebuildAttachedWebgl(pane)
-  }
-
-  resetWebglTextureAtlases(): void {
-    resetPaneWebglTextureAtlases(this.panes.values())
-  }
-
-  suspendRendering(): void {
-    this.renderingSuspended = true
-    suspendPaneRendering(this.panes.values())
-  }
-
-  resumeRendering(): void {
-    this.renderingSuspended = false
-    resumePaneRendering(this.panes.values())
-  }
-
   movePane(sourcePaneId: number, targetPaneId: number, zone: DropZone): void {
     handlePaneDrop(sourcePaneId, targetPaneId, zone, this.dragState, this.getDragCallbacks())
   }
@@ -343,7 +274,6 @@ export class PaneManager {
         this.handlePaneMouseEnter(paneId, event)
       }
     )
-    pane.webglAttachmentDeferred = this.renderingSuspended
     this.panes.set(id, pane)
     this.identities.register(id, leafId)
     return pane

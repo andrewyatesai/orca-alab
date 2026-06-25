@@ -23,7 +23,7 @@ const linkKey = (r: TerminalOscLinkRange): string => `${r.row}:${r.startCol}:${r
 /**
  * Server-side terminal-state emulator (snapshots, cwd, mode flags, OSC-8 links)
  * for snapshot/replay across reconnect and SSH. Backed by the aterm engine via
- * the native addon — the replacement for the former `@xterm/headless` engine.
+ * the native addon — the replacement for the former headless xterm engine.
  * aterm owns the VT parser, grid, tiered scrollback, SGR/colour model, and
  * OSC-8 hyperlinks; cwd (OSC-7), window title (OSC 0/2) and mouse modes are
  * scanned here from the raw byte stream (engine-independent) so Orca's
@@ -60,7 +60,11 @@ export class HeadlessEmulator {
     }
     this.cols = opts.cols
     this.rows = opts.rows
-    this.term = new binding.HeadlessTerminal(opts.cols, opts.rows, opts.scrollback ?? DEFAULT_SCROLLBACK)
+    this.term = new binding.HeadlessTerminal(
+      opts.cols,
+      opts.rows,
+      opts.scrollback ?? DEFAULT_SCROLLBACK
+    )
   }
 
   write(data: string): Promise<void> {
@@ -145,7 +149,7 @@ export class HeadlessEmulator {
 
   clearScrollback(): void {
     this.restoredOscLinks = []
-    // Match the former @xterm/headless clear(): keep the cursor's current line
+    // Match the former headless xterm clear(): keep the cursor's current line
     // as the new first row, discarding everything above/below it and all
     // scrollback. Orca's "clear" action and cold-restore 'clear' records relied
     // on this semantic, not a bare history drop.

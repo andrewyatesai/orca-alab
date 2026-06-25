@@ -24,7 +24,7 @@ export type RustHeadlessTerminalHandle = {
   /** Window title (OSC 0/2), or null when unset. */
   title(): string | null
   /** Replayable ANSI: `scrollbackRows` caps the prepended history (omit = all,
-   *  0 = viewport-only), matching `@xterm/addon-serialize`'s scrollback option. */
+   *  0 = viewport-only). */
   serializeAnsi(scrollbackRows?: number): string
   /** Scrollback history only; `maxRows` caps to the most-recent N lines. */
   serializeScrollbackAnsi(maxRows?: number): string

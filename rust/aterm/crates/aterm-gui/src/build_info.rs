@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Build provenance — version, git commit, build timestamp, and a content signature
 //! of the running binary. Surfaced in two places: the macOS About panel

@@ -1,4 +1,4 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
 
 //! TLA+ invariant assertions for the parser state machine.

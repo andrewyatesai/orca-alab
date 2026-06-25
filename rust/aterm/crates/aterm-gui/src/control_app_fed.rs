@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The `metric` control verb: a process in the aterm window streams a named numeric
 //! sample into the app-fed store ([`crate::app_fed`]), shown by the app-fed HUD

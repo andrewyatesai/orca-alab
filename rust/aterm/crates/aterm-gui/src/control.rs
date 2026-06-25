@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Live introspection CONTROL SOCKET (aterm introspection control protocol v1).
 //!
@@ -182,8 +182,10 @@ fn required_op(verb: &str) -> Option<Op> {
         // a read verb (`ReadScreen`), per-target, via the same cross-session gate.
         "text" | "screen" | "cursor" | "cell" | "search" | "dims" | "lines" | "line" | "modes"
         | "title" | "cwd" | "blocks" | "blocktext" | "wait" | "colors" | "selection" | "copy"
-        | "scroll" | "select" | "image" | "window" | "chrome" | "cast" | "subscribe" | "edges"
-        | "grants" | "family" | "ready" | "await" | "metrics" => Some(Op::ReadScreen),
+        | "scroll" | "select" | "image" | "window" | "chrome" | "controls" | "cast"
+        | "subscribe" | "edges" | "grants" | "family" | "ready" | "await" | "metrics" => {
+            Some(Op::ReadScreen)
+        }
         // write-side: bytes/geometry the driven PROGRAM observes. `feed-bin` is the
         // length-prefixed binary twin of `feed`; the local path intercepts it via
         // `is_feed_bin_line` before this table is consulted, but the cross-process
@@ -191,7 +193,7 @@ fn required_op(verb: &str) -> Option<Op> {
         // the front window's tabs, mutating `App` on the event loop), so it is classed
         // with the other write verbs rather than the read-side observers.
         "send" | "key" | "ctrl" | "feed" | "feed-bin" | "mouse" | "paste" | "resize" | "focus"
-        | "tab" | "metric" => Some(Op::WriteInput),
+        | "tab" | "metric" | "open" | "hover" => Some(Op::WriteInput),
         // out-of-band signal, its own class
         "signal" => Some(Op::Signal),
         // grant/revoke/whoami => Owner-only (gate catch-all); unknown => default-deny
@@ -1557,12 +1559,30 @@ fn handle(
         // window's chrome — meaningless. Keep it fail-closed for `@<sel>` like `image`.
         "chrome" if is_cross => "ERR cross-session chrome unsupported\n".to_string(),
         "chrome" => control_media::cmd_chrome(proxy),
+        // `controls <target>` dumps an AUXILIARY GUI window's controls (the Preferences
+        // settings, or the Performance control panel's HUD toggles) as text — the
+        // analogue of `chrome` for the settings/perf GUIs. Built on the MAIN thread from
+        // the pure config/panel model (`App::read_aux_controls`), so it works HEADLESS.
+        // These are app-level windows (one per process), so a cross-session `@<sel>`
+        // would report the SAME window — meaningless; fail-closed like `chrome`/`window`.
+        "controls" if is_cross => "ERR cross-session controls unsupported\n".to_string(),
+        "controls" => control_media::cmd_controls(proxy, rest),
+        // `open <prefs|perf>` brings an aux GUI window UP (reusing the menu's open path)
+        // so a driver can then `window`/`controls` it. It mutates app-level UI on the
+        // MAIN thread (write-class, like `tab`); an app-level window is one-per-process,
+        // so a cross-session `@<sel>` is meaningless — fail-closed like `tab`/`window`.
+        "open" if is_cross => "ERR cross-session open unsupported\n".to_string(),
+        "open" => control_media::cmd_open(proxy, rest),
         // `tab` DRIVES the FRONT window's native tabs (open/switch/cycle). Like
         // `chrome`/`image` it rides the event loop to mutate `App` on the MAIN thread
         // and is a window-level (not per-session) op, so a cross-session `@<sel>` is
         // meaningless — keep it fail-closed for `@<sel>`.
         "tab" if is_cross => "ERR cross-session tab unsupported\n".to_string(),
         "tab" => control_input::cmd_tab(proxy, rest),
+        // Toggle the drop-target highlight on the FRONT window (testing/automation
+        // of the drag-and-drop affordance; a real drag drives the same flag). Always
+        // targets the frontmost window, so a `@<sel>` is meaningless here.
+        "hover" => control_input::cmd_hover(proxy, rest),
         // Cross-session `resize` does NOT go through the seam: `seam_egress` emits no
         // bytes for `Resize`, and `App::input`'s Resize arm resizes the WINDOW (every
         // tab + the GPU swapchain). A background target has no window to echo to, so we
@@ -3068,15 +3088,22 @@ mod tests {
             "select",
             "image",
             "cast",
+            // The window/aux-window introspection observers — they only OBSERVE
+            // (capture pixels / read the config + panel model), so ReadScreen.
+            "window",
+            "chrome",
+            "controls",
         ];
         for v in read_verbs {
             assert_eq!(required_op(v), Some(Op::ReadScreen), "{v} read");
         }
         // Write-side: bytes/geometry the driven program observes (`feed-bin` is the
-        // binary twin of `feed`, classified here for the cross-process forward).
+        // binary twin of `feed`, classified here for the cross-process forward). `open`
+        // MUTATES app-level UI (it pops an aux NSWindow), so it is write-classed — the
+        // security-critical fact that a read-only edge cannot `open` a window.
         for v in [
             "send", "key", "ctrl", "feed", "feed-bin", "mouse", "paste", "resize", "focus",
-            "metric",
+            "metric", "open",
         ] {
             assert_eq!(required_op(v), Some(Op::WriteInput), "{v} write");
         }

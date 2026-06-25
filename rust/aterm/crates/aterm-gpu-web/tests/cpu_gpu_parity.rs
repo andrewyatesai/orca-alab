@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Web CPU↔GPU parity: the two web renderers must agree on pixels.
 //

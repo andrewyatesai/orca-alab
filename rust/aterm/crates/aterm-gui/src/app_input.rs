@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Keyboard + IME + action dispatch: the `App::input` convergence seam, `on_key`
 //! (keybinding lookup + hardcoded chords + search-mode), IME preedit/commit,
@@ -18,7 +18,8 @@ use winit::keyboard::{Key, ModifiersState, NamedKey};
 
 use crate::input::{self, InputEvent, InputOutcome, ScrollIntent, Source};
 use crate::{
-    App, FONT_ZOOM_STEP, Wake, WindowId, keybinding, keymap, menu, pane, prefs, term_lock,
+    App, FONT_ZOOM_STEP, Wake, WindowId, keybinding, keymap, menu, pane, perf_panel, prefs,
+    term_lock,
 };
 
 /// Map the seam's [`input::Egress`] to the reply-bearing [`InputOutcome`]: a failed
@@ -39,15 +40,20 @@ pub(crate) fn egress_to_outcome(e: input::Egress) -> InputOutcome {
 /// equivalent (aterm-gui ships on macOS — this keeps the crate compiling for the
 /// host test build). It returns an OWNED key so the borrow on `ev` ends before
 /// `on_key`'s later `&ev.logical_key` matches.
-#[cfg(target_os = "macos")]
+// macOS AND Linux: `KeyEventExtModifierSupplement` (hence `key_without_modifiers`)
+// is implemented for the X11 and Wayland backends too, so a keybinding written with
+// the UNSHIFTED base key (e.g. `ctrl+shift+=` for zoom-in) matches even though Shift
+// composed a different glyph (`+`). Using the shifted `logical_key` here is what made
+// the documented Ctrl+Shift+= zoom chord silently never fire on Linux.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn base_logical_key(ev: &KeyEvent) -> Key {
     use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
     ev.key_without_modifiers()
 }
 
-/// Non-macOS fallback for [`base_logical_key`]: `key_without_modifiers` is a
-/// platform extension, so off macOS the plain logical key is used.
-#[cfg(not(target_os = "macos"))]
+/// Fallback for platforms WITHOUT the modifier-supplement extension (not macOS, not
+/// Linux X11/Wayland): the plain logical key is the closest equivalent.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub(crate) fn base_logical_key(ev: &KeyEvent) -> Key {
     ev.logical_key.clone()
 }
@@ -919,6 +925,8 @@ impl App {
                 let id = crate::hud_bar::PanelId::AppFed;
                 self.set_panel(id, !self.panel_enabled(id));
             }
+            // Open the dedicated Performance control panel (all HUD toggles in one place).
+            MenuAction::ShowPerformancePanel => self.open_performance_panel(),
             // Window ----------------------------------------------------------
             MenuAction::NextTab => self.cycle_tab(true),
             MenuAction::PrevTab => self.cycle_tab(false),
@@ -958,5 +966,80 @@ impl App {
         // Replace any prior window (dropping the old handle closes it). `None` (off the
         // main thread / non-macOS fallback path) just leaves `_prefs` cleared.
         self._prefs = prefs::open_preferences(proxy, &fields);
+    }
+
+    /// View ▸ Performance Panel…: open the native Performance control panel (macOS) — one
+    /// checkbox per HUD panel (performance, system load, network, app-fed), seeded from
+    /// each panel's CURRENT enabled state. Toggling a checkbox applies the panel LIVE
+    /// (`Wake::SetHudPanel` → `set_panel`, re-gridding the window) and persists the
+    /// `show_*_hud` key. The retained window + target are kept alive in `self._perf_panel`;
+    /// re-opening replaces the handle (closing any prior window).
+    ///
+    /// Without a `proxy` (only under `headless_for_test`) this is a no-op. Off macOS
+    /// [`crate::perf_panel::open_performance_panel`] is a no-op, so this stays warning-clean
+    /// and compiles on every target.
+    pub(crate) fn open_performance_panel(&mut self) {
+        // Seed each checkbox from the live panel state (immutable borrow ends here).
+        let toggles: Vec<(crate::hud_bar::PanelId, bool)> = crate::hud_bar::PanelId::ALL
+            .iter()
+            .map(|&id| (id, self.panel_enabled(id)))
+            .collect();
+        let Some(proxy) = self.proxy.as_ref() else {
+            return;
+        };
+        self._perf_panel = perf_panel::open_performance_panel(proxy, &toggles);
+    }
+
+    /// Persist a HUD panel's enabled state to `aterm.toml` (the `show_*_hud` key), so a
+    /// live toggle from the Performance control panel survives a restart. The live apply
+    /// already happened via [`Self::set_panel`]; this only writes the file. Best-effort:
+    /// an unwritable/malformed config is logged inside `save_prefs_edits`, never a panic.
+    pub(crate) fn persist_hud_panel(&self, id: crate::hud_bar::PanelId, on: bool) {
+        let _ = prefs::save_prefs_edits(&[(id.config_key(), Some(on.to_string()))]);
+    }
+
+    /// Open an auxiliary GUI window for introspection (the `open prefs` / `open perf`
+    /// control verbs), reusing the SAME open path the menu items use. Returns `Ok(())`
+    /// once the window's retained handle is present, or `Err(msg)` when it could not be
+    /// built (off the main thread / headless / off macOS — where the aux-window handle
+    /// stays `None`). The front terminal window is always open, so opening it is an error.
+    ///
+    /// HEADLESS: refused — a `--headless` run is windowless by contract (the SAME reason
+    /// `Wake::CreateWindow` is ignored in headless), so `open` must NOT pop a real GUI
+    /// window on screen. `controls <target>` still works headless (it reads the pure
+    /// config/panel model, no window needed).
+    pub(crate) fn open_aux_window(
+        &mut self,
+        target: crate::app_introspect::AuxTarget,
+    ) -> Result<(), String> {
+        use crate::app_introspect::AuxTarget;
+        if self.headless {
+            return Err(
+                "headless: GUI windows are disabled (run windowed to open aux windows; \
+                 `controls <target>` reads settings/perf state headless)"
+                    .to_string(),
+            );
+        }
+        match target {
+            AuxTarget::Prefs => {
+                self.open_preferences();
+                if self._prefs.is_some() {
+                    Ok(())
+                } else {
+                    Err("could not open the Preferences window (macOS GUI only)".to_string())
+                }
+            }
+            AuxTarget::Perf => {
+                self.open_performance_panel();
+                if self._perf_panel.is_some() {
+                    Ok(())
+                } else {
+                    Err("could not open the Performance panel (macOS GUI only)".to_string())
+                }
+            }
+            AuxTarget::Front => {
+                Err("the front terminal window is already open (use window/chrome)".to_string())
+            }
+        }
     }
 }

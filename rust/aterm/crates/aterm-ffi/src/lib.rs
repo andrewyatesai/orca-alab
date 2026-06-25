@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! C ABI embedding surface for the aterm engine (ATERM_DESIGN WS-D).
 //!

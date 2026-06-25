@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The application-runtime (`apprt`) seam: the ONE place that names every native
 //! OS-integration operation aterm performs (window chrome colour/appearance, the

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! Tier-1 trace conformance: bind the REAL `Terminal` alt-screen (DEC mode 1049)
 //! round-trip to the external `AltScreen.tla` design spec (TRUST_NATIVE_TLA Phase 2,

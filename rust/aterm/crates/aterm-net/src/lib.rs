@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! **aterm-net** — layer L3 of the RFC "The Reactive Surface": carrying the
 //! control protocol (read + drive + `await`) over a NETWORK boundary so one

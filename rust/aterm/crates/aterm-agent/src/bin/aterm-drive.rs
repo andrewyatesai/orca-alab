@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! `aterm-drive` — the AI-friendly "sugar" CLI over the core `await`/`send`/`key`/
 //! `text` primitives. It teaches itself through `--help` and emits actionable

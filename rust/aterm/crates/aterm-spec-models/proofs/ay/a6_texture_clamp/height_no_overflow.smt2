@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A6 side-condition — atlas.height + HEADROOM does NOT wrap u32 (SAFE). By `ay`.
 ; Expected: unsat  (no wrap under the faithful precondition).

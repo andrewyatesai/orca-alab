@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; a9 — every LIGHT builtin background classifies LIGHT under bg_is_light.
 ; Expected: unsat (no light builtin lands in the dark branch).

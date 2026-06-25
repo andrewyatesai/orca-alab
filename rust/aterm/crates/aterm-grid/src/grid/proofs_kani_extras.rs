@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Kani proofs for HAS_EXTRAS/COMPLEX flag independence, rendering guard
 //! completeness, ScrolledRowExtras is_empty correctness, HAS_EXTRAS bit

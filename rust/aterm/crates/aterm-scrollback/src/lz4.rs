@@ -1,4 +1,4 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
 
 //! Thin wrapper over [`aterm_lz4`] for scrollback compression (#7943).

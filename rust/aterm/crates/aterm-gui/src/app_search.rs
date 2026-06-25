@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Cmd-F find overlay: the in-progress find state (`SearchState`), the scan-depth
 //! bound (`MAX_SEARCH_HISTORY`), the pure matcher (`find_line_matches`), and the

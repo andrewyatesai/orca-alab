@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! In-tab SPLIT-PANE tree (iTerm2-style panes within one tab).
 //!

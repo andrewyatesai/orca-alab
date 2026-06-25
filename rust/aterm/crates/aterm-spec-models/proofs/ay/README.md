@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-<!-- Copyright 2026 The aterm Authors -->
+<!-- Copyright 2026 Andrew Yates -->
 
 # A5 — coverage-blend proof bundle (discharged by `ay`)
 

@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; a9 — KEY NO-REGRESSION THEOREM. On the ENTIRE dark-classified region
 ;   (luma <= 150000, all r,g,b in 0..255) strip_colors resolves EXACTLY the

@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; a9 CONTROL — prove-AND-catch: the partition margin is REAL. Nord (the brightest
 ;   dark builtin) sits at luma1000=51574, so any threshold <= 51574 would

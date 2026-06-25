@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! OSC 133 / OSC 633 shell-integration capability-nonce authority
 //! (#7937 F01-2, #7960).

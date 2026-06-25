@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! `aterm-nest` — build an N-deep stack of nested aterms and run a command in the
 //! DEEPEST one, proving the recursive-stacking feature from the command line.

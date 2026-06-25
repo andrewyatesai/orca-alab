@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Cursor-shape gate for the GPU renderer: for every DECSCUSR shape (block /
 // underline / bar), the frontend HollowBlock override, the off blink phase,

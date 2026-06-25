@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! `aterm` — a transparent, introspecting terminal (U1).
 //!
@@ -132,7 +132,9 @@ const HELP: &str = concat!(
     "\n",
     "EXAMPLES:\n",
     "    aterm                              Start an interactive shell (mode: user).\n",
-    "    aterm --sandbox                    Sandboxed shell: no network, no secrets.\n",
+    "    aterm --sandbox                    Containment mode (macOS: deny network +\n",
+    "                                       secret-dir read; Linux today: rlimit +\n",
+    "                                       capability gate only — prints a notice).\n",
     "    aterm --containment master         Full-trust developer mode.\n",
     "    ATERM_CONTAINMENT_MODE=safety aterm  Allowlisted-operations mode via env.\n",
 );
@@ -630,6 +632,26 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    // HONESTY (mirrors aterm-gui's startup line): in a CONFINEMENT mode whose OS
+    // sandbox is not actuated on this platform — today every non-macOS target, which
+    // has no Landlock/seccomp lane yet — say so on stderr. Otherwise a user invoking
+    // `aterm --sandbox` to cage a (possibly hostile) agent shell would be silently
+    // unprotected and uninformed: only the rlimit + capability gate apply, NOT the
+    // network/filesystem confinement the mode name implies.
+    if !aterm_containment::os_sandbox_actuated()
+        && matches!(
+            mode,
+            aterm_containment::ContainmentMode::Containment
+                | aterm_containment::ContainmentMode::Safety
+        )
+    {
+        eprintln!(
+            "aterm: containment mode {mode}: OS sandbox NOT actuated on this platform \
+             (rlimits + capability gate only; NO network/filesystem confinement). \
+             See aterm-containment::actuator."
+        );
+    }
 
     // The SINGLE `unsafe` root-authority mint in this binary (CAP-1): trusted
     // launcher, before any PTY bytes flow. Grants the spawn + sandbox capabilities

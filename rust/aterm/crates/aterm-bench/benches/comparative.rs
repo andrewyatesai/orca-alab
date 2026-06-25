@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Comparative engine throughput: aterm vs real competitor engines, in-process,
 // on identical corpora. This is the honest, reproducible way to answer "is

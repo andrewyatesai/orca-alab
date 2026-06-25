@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! Conformance (Tier-1): the REAL `Terminal::cell_frame` + `damage_epoch` /
 //! `take_damage` path obeys the DERIVED snapshot-seq protocol (REARCH A-3).

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Hierarchical-session routing fabric — the per-edge authority + write seam.
 //! (design `docs/design/HIERARCHICAL_SESSIONS.md` §§2, 4, 6.3, 7).

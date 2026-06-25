@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 //
 // Row operation tests: selective_clear, line_size, copy_from,
 // clear_range boundaries, update_len, resize edge cases,

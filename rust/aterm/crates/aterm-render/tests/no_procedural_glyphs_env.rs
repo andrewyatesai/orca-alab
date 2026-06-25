@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The `ATERM_NO_PROCEDURAL_GLYPHS=1` escape hatch: with the var set, box
 //! drawing dispatches to the FONT (primary face), not the procedural source.

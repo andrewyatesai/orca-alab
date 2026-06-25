@@ -1,4 +1,4 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
 
 //! Scrollback, RLE, triggers, grapheme, and command tier property tests.

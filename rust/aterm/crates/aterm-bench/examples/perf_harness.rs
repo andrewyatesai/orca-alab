@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Wall-clock THROUGHPUT harness for the `xtask gate perf` baseline (PERF-WALLCLOCK
 // -BASELINE lane). Feeds a deterministic, sizeable, representative VT workload

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! `--diagnose`: a headless diagnostics ("doctor") report — version/build,
 //! platform, renderer, advertised terminal capabilities, config location, and the

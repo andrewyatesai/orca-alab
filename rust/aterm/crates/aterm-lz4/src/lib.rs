@@ -1,4 +1,4 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0 AND MIT
 //
 // This crate is a vendored, block-mode-only subset of upstream `lz4_flex`

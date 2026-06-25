@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Asserting gate: runs the adversarial determinism corpora (machine-generated
 //! by a hazard sweep that targeted real bulk-vs-single write-path divergences)

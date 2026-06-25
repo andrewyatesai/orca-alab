@@ -1,8 +1,8 @@
 #!/bin/bash
 # aterm_shell_integration.bash - Shell integration for aTerm
 #
-# Copyright 2026 The aterm Authors
-# Author: The aterm Authors
+# Copyright 2026 Andrew Yates
+# Author: Andrew Yates
 # Licensed under the Apache License, Version 2.0
 #
 # Source this file in your ~/.bashrc or ~/.bash_profile:

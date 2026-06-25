@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! **aterm-observe** — layer L0.5 of the RFC "The Reactive Surface": the
 //! *semantic* surface predicates, built on the core

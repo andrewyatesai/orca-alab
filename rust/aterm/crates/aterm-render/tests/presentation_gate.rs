@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Tier-1 conformance for the colour-presentation gate: the SHIPPING
 //! [`aterm_render::select_face`] policy never resolves a default-TEXT code point

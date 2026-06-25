@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! The OVERCLAIM CORPUS — no-false-negative confirmation over the known set
 //! (TRUST_VACUITY_GATE §3.2/§3.3).

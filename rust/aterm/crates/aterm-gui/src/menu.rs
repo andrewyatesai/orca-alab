@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The native macOS application MENU BAR (the Apple `NSMenu` main menu).
 //!
@@ -102,6 +102,8 @@ pub enum MenuAction {
     ShowNetworkHud,
     /// Toggle the app-fed (AI tokens / custom) HUD panel.
     ShowAppFedHud,
+    /// Open the Performance control panel (all HUD toggles in one window).
+    ShowPerformancePanel,
     // Window menu
     /// Minimise the window.
     Minimize,
@@ -154,6 +156,7 @@ impl MenuAction {
             MenuAction::ShowSysLoadHud => 29,
             MenuAction::ShowNetworkHud => 30,
             MenuAction::ShowAppFedHud => 31,
+            MenuAction::ShowPerformancePanel => 32,
         }
     }
 
@@ -194,6 +197,7 @@ impl MenuAction {
             29 => MenuAction::ShowSysLoadHud,
             30 => MenuAction::ShowNetworkHud,
             31 => MenuAction::ShowAppFedHud,
+            32 => MenuAction::ShowPerformancePanel,
             _ => return None,
         })
     }
@@ -582,6 +586,17 @@ mod macos {
             "",
             false,
         );
+        add_separator(mtm, &view);
+        // The dedicated Performance control panel — every HUD toggle in one window.
+        add_item(
+            mtm,
+            &view,
+            target,
+            "Performance Panel…",
+            MenuAction::ShowPerformancePanel,
+            "",
+            false,
+        );
         view
     }
 
@@ -789,11 +804,13 @@ mod macos {
 # --- behavior -----------------------------------------------------------------
 # gpu = false                    # GPU/Metal rendering (env ATERM_GPU=1 overrides)
 # copy_on_select = false
-# show_perf_hud = false          # bottom HUD: render performance (fps/frame-ms/latency)
-# show_sysload_hud = false        # bottom HUD: system CPU load + memory
-# show_network_hud = false        # bottom HUD: whole-machine network rx/tx rate
+# show_perf_hud = false          # bottom HUD: render performance (fps/frame-ms/latency) — DEFAULT ON
+# show_sysload_hud = false        # bottom HUD: system CPU load + memory — DEFAULT ON
+# show_network_hud = false        # bottom HUD: whole-machine network rx/tx rate (default off)
 # show_appfed_hud = false         # bottom HUD: app-fed metrics — `aterm-ctl metric <name> <value>`
-                                  # (e.g. AI token spend). Toggle any via the View menu.
+                                  # (e.g. AI token spend; default off). Toggle via these keys,
+                                  # or View ▸ Performance Panel… on macOS. (sysload/network
+                                  # meters read /proc on Linux — real numbers, not n/a.)
 
 # Glyph weight is tunable via the ATERM_STEM_GAMMA environment variable
 # (<1 = thicker, >1 = thinner, 1 = off) until a config key lands.
@@ -903,6 +920,7 @@ mod tests {
             MenuAction::ShowSysLoadHud,
             MenuAction::ShowNetworkHud,
             MenuAction::ShowAppFedHud,
+            MenuAction::ShowPerformancePanel,
             MenuAction::Help,
         ];
         let mut seen = std::collections::HashSet::new();

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Correctness gate for the GPU renderer: render the SAME terminal on the CPU
 // (`aterm_render::Renderer`, already verified) and on the GPU
@@ -630,6 +630,14 @@ fn vs16_emoji_gpu_matches_cpu() {
 /// not just the base codepoint. Proves the GPU resolves cluster keys via the
 /// shared `resolve_cell_key` and atlases them identically to the CPU. Gated on a
 /// colour-emoji font (if the CPU family cell is blank, the host has none).
+///
+/// SCOPE (do not over-read a green result): this asserts CPU↔GPU PARITY (the two
+/// backends draw the SAME pixels) plus non-blank coverage — NOT that the glyph is
+/// the CORRECT multi-colour emoji. On Linux a ZWJ family/couple resolves correctly
+/// in the renderer but the LIVE print path does not yet group multi-emoji ZWJ
+/// sequences into one cell, so end-to-end it falls back to mono; that is a known,
+/// documented engine gap (see aterm-render's `zwj_cluster_resolves_to_colour_in_renderer`),
+/// not something this parity test certifies.
 #[test]
 fn cluster_emoji_gpu_matches_cpu() {
     let theme = Theme::default();

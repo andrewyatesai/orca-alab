@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A2 — base64 encoder's alphabet index is ALWAYS in-bounds (no panic). By `ay`.
 ; Expected: unsat  (the negation is unsatisfiable => the bound holds for ALL n,k).

@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Tier-1 conformance for the temporal event-log spine (design B.9): the
 //! `append_at` recording seam and its **spill-not-forget** obligation.

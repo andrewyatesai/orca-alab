@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Derived-spec models for the routing fabric's two bounded state machines, per
 //! `AGENTS.md`: the per-edge FAIL-CLOSED gate (`decide_edge`) and the SinkWriter

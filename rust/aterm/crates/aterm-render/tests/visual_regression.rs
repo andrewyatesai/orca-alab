@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Visual regression: render a controlled grid to real pixels and assert
 // SEMANTIC properties of each cell (a colour is present, a glyph was drawn),

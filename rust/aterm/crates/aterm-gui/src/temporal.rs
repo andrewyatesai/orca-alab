@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Per-session **temporal recorder** — the GUI-side capture half of the
 //! hydratable temporal buffer (design `HIERARCHICAL_SESSIONS.md` Addendum B, B.9).

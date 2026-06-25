@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The bottom PERFORMANCE HUD plus the reusable, themed building blocks that make
 //! aterm's HUDs a small framework (`hud` widgets): a streaming sample ring, an
@@ -561,6 +561,40 @@ pub(crate) enum PanelId {
     SysLoad,
     Network,
     AppFed,
+}
+
+impl PanelId {
+    /// Every panel id, in registry/stack order (top → bottom). The single source for a
+    /// generic surface (the Performance control panel, config-reload sync, introspection)
+    /// to iterate panels without hardcoding the set.
+    pub(crate) const ALL: [PanelId; 4] = [
+        PanelId::Perf,
+        PanelId::SysLoad,
+        PanelId::Network,
+        PanelId::AppFed,
+    ];
+
+    /// The `aterm.toml` / `Config` key that enables this panel — the single source shared
+    /// by config load/reload, the Performance control panel's persist, and introspection.
+    pub(crate) fn config_key(self) -> &'static str {
+        match self {
+            PanelId::Perf => "show_perf_hud",
+            PanelId::SysLoad => "show_sysload_hud",
+            PanelId::Network => "show_network_hud",
+            PanelId::AppFed => "show_appfed_hud",
+        }
+    }
+
+    /// A human label for this panel — the single source shared by the Performance control
+    /// panel checkboxes, the View-menu items, and the `controls perf` introspection dump.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            PanelId::Perf => "Performance (fps / frame time)",
+            PanelId::SysLoad => "System load (CPU / memory)",
+            PanelId::Network => "Network (rx / tx)",
+            PanelId::AppFed => "App-fed activity (metric streams)",
+        }
+    }
 }
 
 /// One stackable HUD row. `paint` is pure (no I/O); state is fed either at PRESENT

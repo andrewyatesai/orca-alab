@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2026 The aterm Authors
+# Copyright 2026 Andrew Yates
 """Generate the a9_strip_appearance SMT obligation bundle, literal-faithful.
 
 Every constant is derived from the same builtin table as scheme.rs, so the
@@ -57,7 +57,7 @@ def inum_lo(d): return int((d * SCALE).to_integral_value(rounding=ROUND_FLOOR))
 def inum_hi(d): return int((d * SCALE).to_integral_value(rounding=ROUND_CEILING))
 
 HEADER = ("; SPDX-License-Identifier: Apache-2.0\n"
-          "; Copyright 2026 The aterm Authors\n;\n")
+          "; Copyright 2026 Andrew Yates\n;\n")
 
 def write(name, body):
     with open(os.path.join(OUT, name), "w") as f:

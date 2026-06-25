@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Session identity (design §4.1): a stable, pid-free [`SessionId`] and a
 //! per-launch [`LaunchNonce`] an edge binds to so it fails closed if the target

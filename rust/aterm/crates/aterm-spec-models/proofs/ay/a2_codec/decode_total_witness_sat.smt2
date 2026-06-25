@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A2 NON-VACUITY / TOTALITY control — decode_byte's Err path is genuinely reachable
 ;   and Ok values are real (decode is a TOTAL function: Ok or Err, never a panic).

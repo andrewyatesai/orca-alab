@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // ON-GLASS BLIT coverage — the present-path fullscreen-triangle blit (`vs_blit` +
 // `fs_blit`) that copies the offscreen frame into the swapchain.

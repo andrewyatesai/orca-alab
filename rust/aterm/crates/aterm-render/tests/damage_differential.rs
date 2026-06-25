@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // The linchpin correctness gate for the damage-tracking fast path in
 // `Renderer::render_input`. The optimization reuses the previous frame's pixel

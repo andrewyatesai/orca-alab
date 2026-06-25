@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A2 — LOAD-BEARING LEMMA: every byte the base64 encoder emits is ASCII (< 128),
 ;      which is exactly what makes the encoder's unsafe from_utf8_unchecked sound.

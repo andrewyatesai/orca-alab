@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Inline-image (iTerm2 OSC 1337 File=) precedence parity: an image-covered cell
 // SKIPS its glyph on BOTH the CPU and GPU paths. This is the no-regression gate

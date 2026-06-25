@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Session spawning + recursion provisioning: the free-fn island that builds a
 //! tab's engine + PTY (`spawn_session` via `SessionFactory`), prepares shell

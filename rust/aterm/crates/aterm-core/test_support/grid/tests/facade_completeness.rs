@@ -1,5 +1,5 @@
-// Copyright 2026 The aterm Authors
-// Author: The aterm Authors
+// Copyright 2026 Andrew Yates
+// Author: Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
 
 //! Compile-time checks that `aterm_core::grid` still re-exports the extracted

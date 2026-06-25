@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // `aterm-gpu-web` — the GPU rendering substrate for the Electron renderer.
 //
@@ -1157,8 +1157,9 @@ impl AtermGpuTerminal {
         let input = self.term.cell_frame(self.rows, self.cols);
         let gpu = self.gpu.as_mut().ok_or("render() before init()")?;
         // `invert == false`: straight present (the visual-bell flash is host-driven).
+        // `None` overlay: the web/canvas path has no native drag-drop overlay (GUI-only).
         gpu.renderer
-            .present_input(&mut gpu.win, &mut gpu.surface, &input, false);
+            .present_input(&mut gpu.win, &mut gpu.surface, &input, false, None);
         Ok(())
     }
 

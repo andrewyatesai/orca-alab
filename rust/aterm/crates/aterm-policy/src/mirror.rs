@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Mirror-field wiring for the six `TerminalModes::allow_*` booleans
 //! (§4.5 + §6.1 of `designs/2026-04-19-osc-policy-engine.md`).

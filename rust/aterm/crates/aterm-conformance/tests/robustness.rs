@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Robustness / fuzz lane (the audit's #1 cheap assurance win, on stock Rust).
 // A terminal MUST NOT panic, hang, or go out-of-bounds on adversarial output —

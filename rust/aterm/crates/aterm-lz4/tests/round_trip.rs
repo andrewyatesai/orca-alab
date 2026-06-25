@@ -1,4 +1,4 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
 //
 // Integration tests for the vendored lz4_flex block-mode subset. These

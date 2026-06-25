@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! **aterm-agent** — layer L2 of the RFC "The Reactive Surface": the *agent
 //! interface*. Two responsibilities, both of which MUST live outside the engine

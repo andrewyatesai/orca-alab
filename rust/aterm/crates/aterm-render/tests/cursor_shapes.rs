@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Cursor-shape regression for the CPU renderer: DECSCUSR bytes (CSI Ps SP q)
 // fed through a real Terminal drive the rendered cursor SHAPE end-to-end

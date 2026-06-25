@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Image-plane pack microbench: isolates `GpuRenderer::pack_image_plane` (the
 // per-frame inline-image texture build) from GPU upload, so the `dw == tw`

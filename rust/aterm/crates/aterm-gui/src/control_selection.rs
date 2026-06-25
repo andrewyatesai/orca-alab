@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Selection / copy / block-aware verbs: `select` (plain ranges plus the
 //! `word`/`line`/`block`/`extend` gestures), `selection`, `copy`, and the

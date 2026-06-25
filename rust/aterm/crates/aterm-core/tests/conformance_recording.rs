@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Tier-1 conformance for hydration-faithfulness (design B.8.4): bind the
 //! abstract `recording_model` (B.8.3 Tier-0 ty proof) to the SHIPPING engine.

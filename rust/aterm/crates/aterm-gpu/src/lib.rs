@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // aterm GPU renderer (wgpu → Metal on macOS).
 //
@@ -15,7 +15,7 @@
 use aterm_render::Frame;
 
 mod renderer;
-pub use renderer::{GpuRenderer, GpuSurface, WindowGpu};
+pub use renderer::{DropOverlay, GpuRenderer, GpuSurface, WindowGpu};
 // TRUST_NATIVE_TLA Phase 2: the GPU-free slice-precondition decision (the real
 // `GpuEncode.tla` `NeverSliceEmpty` gate `InstanceBuf::upload` uses), re-exported so
 // the Tier-1 conformance test can drive the genuine decision headlessly.

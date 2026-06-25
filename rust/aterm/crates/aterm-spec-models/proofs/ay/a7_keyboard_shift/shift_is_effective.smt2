@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A7 — LOAD-BEARING LEMMA: holding Shift CHANGES every shiftable key. For every
 ;      key `c` that has a distinct shifted glyph, the shift map does not return

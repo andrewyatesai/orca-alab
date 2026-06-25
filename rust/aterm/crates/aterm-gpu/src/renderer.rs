@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // GPU terminal renderer: glyph atlas + instanced cell quads, drawn offscreen and
 // read back into an `aterm_render::Frame`. The output is built to MATCH the CPU
@@ -222,26 +222,97 @@ fn vs_blit(@builtin(vertex_index) vi: u32) -> VsOut {
 
 @group(0) @binding(0) var src_tex: texture_2d<f32>;
 @group(0) @binding(1) var src_samp: sampler;
-struct Invert { flag: u32, pad0: u32, pad1: u32, pad2: u32 };
-@group(0) @binding(2) var<uniform> inv: Invert;
+// std140 layout — must match the Rust `BlitUniform` byte-for-byte (48 bytes).
+struct Blit {
+    flag: u32,        // bell-flash invert
+    overlay: u32,     // drop-target highlight enabled
+    border_px: f32,   // inset border thickness, device px
+    pad0: f32,
+    accent: vec4<f32>,// overlay accent rgb (a unused), normalized 0..1
+    dims: vec2<f32>,  // framebuffer width,height in px
+    wash_a: f32,      // interior wash alpha 0..1
+    border_a: f32,    // border alpha 0..1
+};
+@group(0) @binding(2) var<uniform> b: Blit;
 
 @fragment
 fn fs_blit(in: VsOut) -> @location(0) vec4<f32> {
     let c = textureSample(src_tex, src_samp, in.uv);
-    if (inv.flag != 0u) {
-        return vec4<f32>(1.0 - c.rgb, 1.0);
+    var rgb = c.rgb;
+    if (b.flag != 0u) {
+        rgb = vec3<f32>(1.0) - rgb;
     }
-    return vec4<f32>(c.rgb, 1.0);
+    // Drag-and-drop drop-target highlight: faint accent wash + inset accent
+    // border. Gated on `overlay` so a normal present is byte-identical. `in.uv`
+    // is 0..1 over the visible framebuffer, so `uv * dims` is the device pixel.
+    if (b.overlay != 0u) {
+        let p = in.uv * b.dims;
+        let edge = min(min(p.x, b.dims.x - p.x), min(p.y, b.dims.y - p.y));
+        var a = b.wash_a;
+        if (edge < b.border_px) { a = b.border_a; }
+        rgb = mix(rgb, b.accent.rgb, a);
+    }
+    return vec4<f32>(rgb, 1.0);
 }
 "#;
 
-/// Blit invert flag, padded to 16 bytes (std140 uniform alignment).
+/// Blit uniform: the bell-flash invert flag plus the drag-and-drop drop-target
+/// highlight parameters. `#[repr(C)]` with a std140-compatible 48-byte layout
+/// matching the WGSL `Blit` struct exactly (vec4 at offset 16, vec2 at 32).
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct BlitUniform {
+#[derive(Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct BlitUniform {
     /// Non-zero inverts RGB (visual-bell flash); zero blits straight through.
     flag: u32,
-    _pad: [u32; 3],
+    /// Non-zero paints the drop-target highlight (wash + inset border).
+    overlay: u32,
+    /// Inset border thickness in device pixels.
+    border_px: f32,
+    _pad0: f32,
+    /// Overlay accent, normalized 0..1 (rgb; a unused but kept for alignment).
+    accent: [f32; 4],
+    /// Framebuffer size in pixels, for the in-shader edge-distance calc.
+    dims: [f32; 2],
+    /// Interior wash alpha and border alpha, 0..1.
+    wash_a: f32,
+    border_a: f32,
+}
+
+impl BlitUniform {
+    /// A plain blit (optionally bell-inverted) with no drop overlay.
+    fn bell(invert: bool) -> Self {
+        Self {
+            flag: invert as u32,
+            overlay: 0,
+            border_px: 0.0,
+            _pad0: 0.0,
+            accent: [0.0; 4],
+            dims: [0.0, 0.0],
+            wash_a: 0.0,
+            border_a: 0.0,
+        }
+    }
+}
+
+/// Parameters for the drag-and-drop drop-target highlight, passed by the frontend
+/// to [`Renderer::present_input`]. The alphas (the frontend's single source of
+/// truth) are 0..=255; the border thickness is derived from the framebuffer size
+/// inside the renderer (see `drop_border_px_gpu`, kept in sync with the GUI's
+/// `app_render::drop_border_px`) so it matches the CPU/headless path.
+#[derive(Clone, Copy)]
+pub struct DropOverlay {
+    /// Accent color, packed `0x00RRGGBB`.
+    pub accent: u32,
+    /// Interior wash alpha, 0..=255.
+    pub wash_a: u8,
+    /// Inset border alpha, 0..=255.
+    pub border_a: u8,
+}
+
+/// Inset border thickness in device px for a `w`×`h` framebuffer. MUST stay in
+/// sync with `app_render::drop_border_px` so GPU and CPU/headless agree.
+fn drop_border_px_gpu(w: u32, h: u32) -> u32 {
+    (w.min(h) / 200).clamp(2, 6)
 }
 
 /// An on-screen presentation target: a configured wgpu swapchain surface that the
@@ -566,10 +637,10 @@ pub struct WindowGpu {
     // function of the frame size, so it only needs (re)writing on the first frame
     // and on a resize — NOT every frame. `None` forces the first write.
     pub(crate) uniform_dims: Option<(u32, u32)>,
-    // Last invert flag written into the blit uniform. The blit uniform is a pure
-    // function of `invert`, so it is rewritten only when the flag changes. `None`
-    // forces the first write.
-    pub(crate) blit_invert: Option<bool>,
+    // Last blit uniform written (bell invert + drop-target highlight). The
+    // uniform is re-uploaded only when it changes (invert flip, hover on/off,
+    // resize); `None` forces the first write.
+    pub(crate) blit_uniform: Option<BlitUniform>,
     // Decoded-image LRU for the inline-image (iTerm2 OSC 1337) pixel pass. Keyed
     // by `(arc_ptr, fp_w, fp_h)` like the CPU `ImageCache`, so each distinct
     // placement is decoded+scaled at most once. PER-WINDOW so window B's images
@@ -2230,6 +2301,7 @@ impl GpuRenderer {
         surf: &mut GpuSurface,
         input: &RenderInput,
         invert: bool,
+        overlay: Option<DropOverlay>,
     ) {
         // 1. Offscreen render (submits). SCISSORED DIRTY-ROW REPAINT: when the
         //    persistent offscreen still holds the prior presented frame and only
@@ -2240,7 +2312,7 @@ impl GpuRenderer {
         //    `win.offscreen` (built once, reused across presents at the same
         //    dimensions; rebuilt only on a resize), so this present allocates no
         //    per-frame texture / view / blit bind group.
-        self.encode_present_frame(win, input);
+        let (fw, fh) = self.encode_present_frame(win, input);
 
         // 2. Acquire the next swapchain texture. On Outdated/Lost the surface
         //    config no longer matches; reconfigure and skip this frame (the next
@@ -2263,21 +2335,31 @@ impl GpuRenderer {
         self.ensure_blit_pipeline(format);
         let pipeline = &self.blit_pipelines[&format];
 
-        // 4. Write the invert flag ONLY when it changes (the blit uniform is a
-        //    pure function of `invert`; the steady-state present otherwise
-        //    re-uploaded an unchanged 4-byte buffer each frame). The offscreen
-        //    texture is already bound as the blit source by the resident
-        //    `blit_bind` (built in `encode_frame` when the target was created).
-        if win.blit_invert != Some(invert) {
-            self.ctx.queue.write_buffer(
-                &self.blit_uniform_buf,
-                0,
-                bytemuck::bytes_of(&BlitUniform {
+        // 4. Build the blit uniform (bell invert + drop-target highlight) and
+        //    upload it ONLY when it changes — a steady present (stable invert, no
+        //    hover, stable size) re-uploads nothing. The offscreen texture is
+        //    already bound as the blit source by the resident `blit_bind`.
+        let want = match overlay {
+            Some(o) => {
+                let chan = |s: u32| ((o.accent >> s) & 0xff) as f32 / 255.0;
+                BlitUniform {
                     flag: invert as u32,
-                    _pad: [0; 3],
-                }),
-            );
-            win.blit_invert = Some(invert);
+                    overlay: 1,
+                    border_px: drop_border_px_gpu(fw, fh) as f32,
+                    _pad0: 0.0,
+                    accent: [chan(16), chan(8), chan(0), 1.0],
+                    dims: [fw as f32, fh as f32],
+                    wash_a: f32::from(o.wash_a) / 255.0,
+                    border_a: f32::from(o.border_a) / 255.0,
+                }
+            }
+            None => BlitUniform::bell(invert),
+        };
+        if win.blit_uniform != Some(want) {
+            self.ctx
+                .queue
+                .write_buffer(&self.blit_uniform_buf, 0, bytemuck::bytes_of(&want));
+            win.blit_uniform = Some(want);
         }
         let bind = &win
             .offscreen
@@ -2457,10 +2539,10 @@ impl GpuRenderer {
     /// `1.0 - rgb` flash.
     ///
     /// Production-inert: only test/bench code reaches it, it builds its own target
-    /// + bind group, and it leaves `win.offscreen` / `win.blit_invert` /
-    /// `present_prev` untouched (it restores `blit_invert` to whatever the real
+    /// + bind group, and it leaves `win.offscreen` / `win.blit_uniform` /
+    /// `present_prev` untouched (it restores `blit_uniform` to whatever the real
     /// present path last set, so the next `present_input` still skips the uniform
-    /// write iff the flag is unchanged). The `Rgba8Unorm` target format matches one
+    /// write iff unchanged). The `Rgba8Unorm` target format matches one
     /// of the two formats `pick_surface_format` chooses for a real swapchain, so
     /// the blit pipeline it exercises is exactly a real present pipeline.
     #[doc(hidden)]
@@ -2479,17 +2561,14 @@ impl GpuRenderer {
         let dst_view = dst.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Write the invert flag through the REAL blit uniform buffer the present
-        // path uses, and reflect it in `blit_invert` so the bookkeeping stays
-        // consistent (the next `present_input` skips the write iff unchanged).
-        self.ctx.queue.write_buffer(
-            &self.blit_uniform_buf,
-            0,
-            bytemuck::bytes_of(&BlitUniform {
-                flag: invert as u32,
-                _pad: [0; 3],
-            }),
-        );
-        win.blit_invert = Some(invert);
+        // path uses, and reflect it in `blit_uniform` so the bookkeeping stays
+        // consistent (the next `present_input` skips the write iff unchanged). The
+        // test exercises the plain blit (no drop overlay).
+        let want = BlitUniform::bell(invert);
+        self.ctx
+            .queue
+            .write_buffer(&self.blit_uniform_buf, 0, bytemuck::bytes_of(&want));
+        win.blit_uniform = Some(want);
 
         // The REAL blit bind group: source view + the REAL `blit_sampler` (NEAREST)
         // + the REAL `blit_uniform_buf`, under the REAL `blit_bgl`.

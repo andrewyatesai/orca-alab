@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! User-rebindable keyboard shortcuts (config `[keybindings]`).
 //!
@@ -373,16 +373,12 @@ impl Keybindings {
             ("ctrl+shift+=", "font_increase"),
             ("ctrl+-", "font_decrease"),
             ("ctrl+0", "font_reset"),
-            // Jump to tab N (the GNOME-Terminal convention; overridable).
-            ("alt+1", "switch_tab_1"),
-            ("alt+2", "switch_tab_2"),
-            ("alt+3", "switch_tab_3"),
-            ("alt+4", "switch_tab_4"),
-            ("alt+5", "switch_tab_5"),
-            ("alt+6", "switch_tab_6"),
-            ("alt+7", "switch_tab_7"),
-            ("alt+8", "switch_tab_8"),
-            ("alt+9", "switch_tab_9"),
+            // NOTE: jump-to-tab-N is intentionally NOT seeded. The GNOME-Terminal
+            // Alt+1..9 convention would shadow readline/emacs/vim META-DIGIT numeric
+            // arguments (Alt+digit), a real regression for TUI users — and it fires
+            // BEFORE the PTY encoder, so the digit never reaches the app. Tab nav is
+            // covered by next/prev (Ctrl+Shift+Left/Right, Ctrl+PageUp/Down); users
+            // who want N-jump can bind switch_tab_N themselves in [keybindings].
         ];
         let mut map = HashMap::new();
         for (chord_str, action_str) in pairs {

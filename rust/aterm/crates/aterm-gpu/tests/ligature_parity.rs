@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // CPU==GPU parity with an ACTIVELY-LIGATING font. The other parity tests use the
 // host system font (which may not ligate the demo text), so this one points BOTH

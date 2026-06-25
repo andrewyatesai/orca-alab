@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Spawn-seam containment actuator — the bridge from the policy DATA MODEL
 //! (mode → [`Capabilities`](crate::Capabilities)) to a real, logged decision at

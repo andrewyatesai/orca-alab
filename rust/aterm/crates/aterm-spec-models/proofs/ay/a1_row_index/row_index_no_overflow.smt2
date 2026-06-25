@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A1 side-condition — ring_head + base does NOT wrap (SAFE). By `ay` (20-bit model).
 ; Expected: unsat  (no wrap under the faithful precondition).

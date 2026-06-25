@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The native macOS window chrome attached to each aterm window: a SINGLE compact
 //! Ghostty-style row hosting the traffic lights, a full-width VIEW-BASED TAB STRIP,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Process-global render/latency counters, surfaced over the control socket as the
 //! `metrics` verb so an AI driving aterm can MEASURE the terminal's responsiveness —

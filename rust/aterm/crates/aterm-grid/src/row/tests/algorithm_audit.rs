@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 //
 // Algorithm audit tests: insert/delete chars wide character invariants,
 // len tracking edge cases, selective_clear_range len recalculation,

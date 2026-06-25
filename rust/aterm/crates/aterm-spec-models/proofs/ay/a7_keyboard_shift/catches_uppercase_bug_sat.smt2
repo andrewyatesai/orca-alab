@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A7 PROVE-AND-CATCH control — catches the ORIGINAL "Shift doesn't work" bug: the
 ;   pre-a2742d7 legacy shift `c.to_ascii_uppercase()` DISAGREES with the shift

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Profiling harness: drive `Terminal::process` on SGR-dense input in a tight loop
 // so a sampling profiler (e.g. samply) can attribute time within the engine's hot

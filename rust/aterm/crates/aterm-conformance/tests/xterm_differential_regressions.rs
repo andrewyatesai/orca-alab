@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Regression tests for engine bugs found by the differential oracle
 // (aterm-bench tests/differential.rs: aterm vs alacritty_terminal on

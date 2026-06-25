@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! EXECUTABLE-TWIN check for the derived `WindowRouting` model (the GUI in-process
 //! multi-window lifecycle). `ty` proves the invariants over the TLA+ spec GENERATED

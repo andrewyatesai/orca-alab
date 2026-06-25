@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The per-edge, op-scoped, fail-closed authority table (design §7.1, A.6).
 //!

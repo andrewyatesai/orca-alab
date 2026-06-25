@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Tier-1 conformance for the Observation Kernel (L0) — exercise the REAL engine
 //! against the BEHAVIOR the abstract `watcher_latch_model` /

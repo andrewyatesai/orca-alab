@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; a9 — on EVERY builtin the default foreground stays legible OVER the selection
 ;   surface: WCAG contrast(fg, selection) >= 3.0:1 (aterm paints selection as a

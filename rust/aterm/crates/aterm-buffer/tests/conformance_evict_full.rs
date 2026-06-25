@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! Conformance: the real `EventLog`'s live ring satisfies the DERIVED faithful
 //! ring's `EvictOldestContiguous`.

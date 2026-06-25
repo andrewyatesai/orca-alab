@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // read_image (ATERM_DESIGN §8): an intelligence reads the ACTUAL rendered pixels
 // of the terminal, as a PNG, headless. feed → render → encode → it's a valid,

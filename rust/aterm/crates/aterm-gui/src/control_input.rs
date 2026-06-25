@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Input-injection verbs + their parsers — the control protocol's "drive the
 //! shell" surface: key/ctrl/send/feed/signal/mouse/paste/focus/resize/scroll/tab.
@@ -752,6 +752,34 @@ pub(crate) fn cmd_tab(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
     match rx.recv() {
         Ok((active, count)) => format!("OK {active} {count}\n"),
         Err(_) => "ERR tab command failed\n".to_string(),
+    }
+}
+
+/// `hover <on|off>` — toggle the drag-and-drop drop-target highlight on the
+/// frontmost window. Testing/automation of the drop affordance (a real drag drives
+/// the same flag); also lets `aterm-ctl image` capture the highlight headlessly.
+/// Resolved on the main thread ([`Wake::SetDragHover`]) since it targets the front
+/// window. Replies `OK`, `ERR no window`, or a usage error.
+pub(crate) fn cmd_hover(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
+    let hovering = match rest.trim() {
+        "on" | "1" | "true" => true,
+        "off" | "0" | "false" => false,
+        _ => return "ERR usage: hover <on|off>\n".to_string(),
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    if proxy
+        .send_event(Wake::SetDragHover {
+            hovering,
+            reply: tx,
+        })
+        .is_err()
+    {
+        return "ERR event loop gone\n".to_string();
+    }
+    match rx.recv() {
+        Ok(true) => "OK\n".to_string(),
+        Ok(false) => "ERR no window\n".to_string(),
+        Err(_) => "ERR hover command failed\n".to_string(),
     }
 }
 

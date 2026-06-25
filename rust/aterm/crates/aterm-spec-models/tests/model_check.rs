@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Model-checking as a test (ROADMAP WS-I): drives the `ty` TLA+ explicit-state
 // checker over every spec in `specs/` and asserts the invariants hold. This

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // build.rs — stamp build provenance into the binary as compile-time env vars,
 // surfaced at runtime by `src/build_info.rs` (the About panel + `aterm-ctl version`).

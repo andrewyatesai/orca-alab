@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Renderer-agnostic surface for aterm (ATERM_DESIGN WS-F: "an injected
 //! `Rasterizer`").

@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; a9 — the active card raises in the correct direction per appearance: on dark
 ;   themes it is brighter than the body, on light themes darker. Since the card

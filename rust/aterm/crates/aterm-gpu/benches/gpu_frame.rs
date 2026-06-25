@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // GPU frame-cost benchmark: ms/frame for a full GPU render+readback of a busy
 // grid, at a typical terminal size (24x80) and a large one (50x200). This is the

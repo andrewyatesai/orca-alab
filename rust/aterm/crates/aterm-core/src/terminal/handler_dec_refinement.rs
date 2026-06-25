@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 // Included from `handler_dec.rs` to keep the DEC dispatcher under the 500-line
 // limit while preserving private helper visibility.

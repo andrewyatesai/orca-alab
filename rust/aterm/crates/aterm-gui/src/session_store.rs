@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Process-wide SESSION REGISTRY (design P1.1) — the additive index that makes
 //! every live session resolvable by its stable [`SessionId`] (and by the

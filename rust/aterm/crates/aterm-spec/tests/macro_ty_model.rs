@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! Extra coverage for the `ty_model!` light-annotation surface, beyond the
 //! single-action ring in `macro_ring.rs`. Each macro-built model is checked

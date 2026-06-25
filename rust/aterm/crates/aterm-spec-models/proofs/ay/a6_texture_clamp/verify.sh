@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2026 The aterm Authors
+# Copyright 2026 Andrew Yates
 # SPDX-License-Identifier: Apache-2.0
 #
 # Re-checkable certificate for initiative A6: the GPU atlas texture HEIGHT is clamped

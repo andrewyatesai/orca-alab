@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // HOLISTIC render-pipeline CPU benchmark: ONE defensible number for how much
 // less CPU aterm's render path spends over a REPRESENTATIVE interactive terminal

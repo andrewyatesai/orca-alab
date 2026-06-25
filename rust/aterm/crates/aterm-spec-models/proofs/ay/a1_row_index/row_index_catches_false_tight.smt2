@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A1 PROVE-AND-CATCH control — catches the FALSE tighter bound idx <= len-2.
 ; Expected: sat  (idx = len-1 is reachable, refuting idx <= len-2). This makes

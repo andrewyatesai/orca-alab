@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright 2026 The aterm Authors
+# Copyright 2026 Andrew Yates
 
 [workspace]
 members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.0"
+version = "0.4.1"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/andrewyatesai/aterm"
-authors = ["The aterm Authors"]
+authors = ["Andrew Yates"]
 description = "aterm — a fast, hardened terminal engine"
 
 [workspace.dependencies]
@@ -141,3 +141,16 @@ opt-level = "z"
 inherits = "release"
 strip = false
 debug = 1
+
+# --- Vendored, patched winit -------------------------------------------------
+# winit 0.30 ships file drag-and-drop ONLY on macOS (NSDraggingDestination) and
+# X11 (XDND); its Wayland backend has NO data-device support, so a native-Wayland
+# session never delivers `WindowEvent::DroppedFile`/`HoveredFile`/`HoveredFileCancelled`
+# and aterm's drop-to-paste (the iTerm-style file drop) silently does nothing there.
+# We vendor winit 0.30.13 verbatim under `vendor/winit` and add the missing Wayland
+# DnD (sctk `data_device_manager`, `text/uri-list`), so the SAME three events fire on
+# Wayland as on X11/macOS. `[patch.crates-io]` redirects every `winit = "0.30"` in the
+# workspace to the local copy without touching any crate's own dependency line; the
+# vendored manifest keeps version 0.30.13, so the `^0.30` requirement still resolves.
+[patch.crates-io]
+winit = { path = "vendor/winit" }

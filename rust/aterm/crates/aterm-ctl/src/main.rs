@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! `aterm-ctl` — a tiny, dependency-free client for the aterm introspection
 //! control socket (protocol v1).
@@ -58,15 +58,28 @@
 //! * `image [path]`    — render the screen to a PNG; print `OK <w> <h> <path>`.
 //!   WYSIWYG: includes cursor blink phase / unfocused-hollow override (headless
 //!   sessions are always deterministic); use `cursor` for phase-independent state.
-//! * `window [path]`   — capture the ENTIRE front macOS window — the native OS
-//!   chrome (titlebar, traffic lights, unified toolbar, full-width tab strip)
-//!   AND the terminal content — to a PNG; print `OK <w> <h> <path>` (same shape
-//!   as `image`, but a TALLER image since it includes the chrome). Unlike
-//!   `image` (terminal content framebuffer only), this photographs the real
-//!   composited on-screen pixels via CoreGraphics, so an AI can SEE the whole
-//!   window. macOS only; needs Screen Recording permission (a clear `ERR`
-//!   explains how to grant it if missing). Headless / off-macOS get a clear
-//!   `ERR`.
+//! * `window [<target>] [path]` — capture an ENTIRE macOS window to a PNG; print
+//!   `OK <w> <h> <path>`. `<target>` selects which window: omitted/`front` = the
+//!   front terminal window (native OS chrome — titlebar, traffic lights, unified
+//!   toolbar, full-width tab strip — AND the terminal content); `prefs`/`settings`
+//!   = the Preferences window; `perf`/`performance` = the Performance control
+//!   panel. Unlike `image` (terminal content framebuffer only), this photographs
+//!   the real composited on-screen pixels via CoreGraphics, so an AI can SEE the
+//!   whole window or any GUI screen. A first token that is a known target keyword
+//!   always selects that window — to write to a file literally named
+//!   `prefs`/`perf`/`front`, give a target first (e.g. `window front prefs`). macOS
+//!   only; needs Screen Recording permission (a clear `ERR` explains how to grant it
+//!   if missing); a not-open aux window or headless / off-macOS gets a clear `ERR`.
+//! * `controls <target>` — dump an auxiliary GUI window's controls as text:
+//!   `prefs`/`settings` lists each setting (`field key=… label=… value=…
+//!   effective=…`), `perf`/`performance` lists the HUD toggles (`toggle key=…
+//!   label=… enabled=…`). The analogue of `chrome` for the settings/perf GUIs —
+//!   works HEADLESS (built from the live config/panel model, no screenshot or
+//!   Screen Recording grant needed). `"OK <n>\n"` + `<n>` lines.
+//! * `open <target>`   — bring an auxiliary GUI window UP: `prefs`/`settings` opens
+//!   the Preferences window, `perf`/`performance` the Performance control panel.
+//!   The piece that lets a driver introspect a CLOSED screen: `open prefs` then
+//!   `window prefs` / `controls prefs`. macOS GUI only (headless/off-macOS `ERR`).
 //! * `resize <r> <c>`  — resize the engine + PTY (each dimension 1..=4096;
 //!   out-of-range requests get `ERR out of range`).
 //! * `select <r1> <c1> <r2> <c2>` — select from cell `(r1,c1)` to `(r2,c2)`,
@@ -87,8 +100,9 @@
 //!   `<N>` (0-based) selects tab N, `next`/`prev` cycle. Prints
 //!   `OK <active_index> <tab_count>`. Drives the native macOS tab switcher.
 //!
-//! For `text`, `search`, `modes`, and `selection` the response is `"OK <n>\n"`
-//! followed by `<n>` data lines, and those data lines are what gets printed.
+//! For `text`, `search`, `modes`, `selection`, `chrome`, and `controls` the
+//! response is `"OK <n>\n"` followed by `<n>` data lines, and those data lines are
+//! what gets printed.
 //! For every other verb the single `OK …` status line itself is printed. An
 //! `ERR …` response is written to stderr and yields exit code 1; so does any
 //! connection failure.
@@ -157,17 +171,34 @@ VERBS:
                                unfocused-hollow override (headless sessions are
                                always deterministic); use cursor for
                                phase-independent state.
-    window [path]              capture the ENTIRE front macOS window to a PNG: the
-                               native OS chrome (titlebar, traffic lights, unified
-                               toolbar, full-width tab strip) AND the terminal
-                               content. Print OK <w> <h> <path> (same shape as
-                               image, but a TALLER image since it includes the
-                               chrome). Unlike image (terminal framebuffer only),
-                               it photographs the real composited on-screen pixels
-                               via CoreGraphics so an AI can SEE the whole window.
-                               macOS only; needs Screen Recording permission (a
-                               clear ERR explains how to grant it if missing).
-                               Headless / off-macOS get a clear ERR.
+    window [<target>] [path]   capture an ENTIRE macOS window to a PNG. <target>:
+                               omitted/front = the front terminal window (native OS
+                               chrome — titlebar, traffic lights, unified toolbar,
+                               full-width tab strip — AND the terminal content);
+                               prefs/settings = the Preferences window; perf =
+                               the Performance control panel. Print OK <w> <h>
+                               <path>. Unlike image (terminal framebuffer only), it
+                               photographs the real composited on-screen pixels via
+                               CoreGraphics so an AI can SEE the whole window or any
+                               GUI screen. A known target keyword as the first token
+                               always selects that window; to write a file literally
+                               named prefs/perf/front give a target first (window
+                               front prefs). macOS only; needs Screen Recording
+                               permission (a clear ERR explains how to grant it);
+                               a not-open aux window / headless / off-macOS get a
+                               clear ERR.
+    controls <target>          dump an auxiliary GUI window's controls as text:
+                               prefs/settings lists each setting (field key=...
+                               label=... value=... effective=...); perf lists the
+                               HUD toggles (toggle key=... label=... enabled=...).
+                               The analogue of chrome for the settings/perf GUIs —
+                               works HEADLESS (built from the live config/panel
+                               model, no screenshot needed). OK <n> + n lines.
+    open <target>              bring an auxiliary GUI window UP: prefs/settings
+                               opens the Preferences window, perf the Performance
+                               control panel. Lets a driver introspect a CLOSED
+                               screen: open prefs, then window/controls prefs.
+                               macOS GUI only (headless/off-macOS ERR).
     chrome                     dump the frontmost window's NATIVE macOS UI: the
                                NSToolbar items (each id=<id> label=\"...\", e.g. the
                                \"+\" New Tab button) and the app menu bar (one
@@ -208,8 +239,8 @@ VERBS:
                                selection.
     selection                  print the selected text, one line per selected row.
     copy                       copy the selection to the system clipboard
-                               (pbcopy); print OK <byte-count> (OK 0 when nothing
-                               is selected).
+                               (macOS pbcopy / Linux X11 CLIPBOARD); print
+                               OK <byte-count> (OK 0 when nothing is selected).
     tab <new|N|next|prev>      drive the FRONT window's tabs: new opens a tab, N
                                (0-based) selects tab N, next/prev cycle. Prints
                                OK <active_index> <tab_count>. Drives the native
@@ -474,6 +505,14 @@ fn exchange(path: &str, request: &str, verb: &str) -> io::Result<ExitCode> {
         || verb == "blocks"
         || verb == "blocktext"
         || verb == "chrome"
+        // Session-fabric introspection verbs also reply `OK <count>\n<lines>`; without
+        // these the CLI dropped all per-session/edge/grant detail (printed only the
+        // count line). `family` is intentionally absent — it replies single-line
+        // `OK <state>` with no count tail, which the `else` arm already prints.
+        || verb == "sessions"
+        || verb == "edges"
+        || verb == "grants"
+        || verb == "controls"
         || image_read
     {
         let count: usize = tail.trim().parse().map_err(|_| {

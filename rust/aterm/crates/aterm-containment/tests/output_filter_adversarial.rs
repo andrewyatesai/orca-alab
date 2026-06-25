@@ -1,7 +1,7 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
 //
-// Author: The aterm Authors
+// Author: Andrew Yates
 //
 //! Integration tests for `OutputSanitizer` — the Containment-mode output
 //! filter (#7901). Feeds adversarial byte streams through the sanitizer

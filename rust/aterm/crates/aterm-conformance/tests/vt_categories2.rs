@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // VT conformance, batch 3 — insert mode, origin mode, DEC line-drawing charset,
 // reverse index scroll, and full reset. feed bytes → read screen → assert.

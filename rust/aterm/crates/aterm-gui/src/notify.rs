@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Native desktop notification DELIVERY for OSC 9 / OSC 99 / OSC 777.
 //!

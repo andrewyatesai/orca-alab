@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A2 — hex decode_nibble's subtractions never underflow and yield a value < 16. By `ay`.
 ; Expected: unsat  (the negation is unsatisfiable => for EVERY byte matched by an arm,

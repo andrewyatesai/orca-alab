@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Engine throughput (ROADMAP WS-K, ATERM_DESIGN §7). Measures bytes/s of the
 // full VT engine (`Terminal::process`) over three workloads. The "3.6 GiB/s"

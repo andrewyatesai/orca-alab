@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The SACRED introspection render path: the AI-reads-the-real-screen feature.
 //! `snapshot` (SIGUSR1 PNG+txt) and `render_image` (the control `image` verb)
@@ -11,10 +11,50 @@
 
 use std::time::Instant;
 
-use crate::app_render::apply_bell_invert;
+use crate::app_render::{apply_bell_invert, apply_drop_overlay};
 #[cfg(target_os = "macos")]
 use crate::platform::AppRt;
 use crate::{App, accessibility, control_auth, snapshot_path, term_lock};
+
+/// Which window an introspection verb targets. The existing `image`/`window`/`chrome`
+/// verbs only ever see the FRONTMOST terminal window (`App::front()`); the auxiliary
+/// targets are the directly-owned aux `NSWindow`s (the Preferences window, the
+/// Performance control panel) that the `front()`-based path is structurally blind to.
+/// Carried by [`crate::Wake::CaptureAuxWindow`] / [`crate::Wake::ReadAuxControls`] so the
+/// generalized `window <name>` / `controls <name>` verbs can reach any GUI screen.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum AuxTarget {
+    /// The frontmost terminal window (the existing `window`/`chrome` behavior).
+    Front,
+    /// The native Preferences / settings window (`App::_prefs`).
+    Prefs,
+    /// The native Performance control panel (`App::_perf_panel`).
+    Perf,
+}
+
+impl AuxTarget {
+    /// Parse a verb's target keyword (case-insensitive). Empty / `front` / `window` /
+    /// `terminal` → [`AuxTarget::Front`]; `prefs` / `preferences` / `settings` →
+    /// [`AuxTarget::Prefs`]; `perf` / `performance` → [`AuxTarget::Perf`]. An unrecognized
+    /// keyword yields `None` so the verb can reject it with a clear error.
+    pub(crate) fn parse(s: &str) -> Option<AuxTarget> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "" | "front" | "window" | "terminal" => Some(AuxTarget::Front),
+            "prefs" | "preferences" | "settings" => Some(AuxTarget::Prefs),
+            "perf" | "performance" => Some(AuxTarget::Perf),
+            _ => None,
+        }
+    }
+
+    /// The short keyword for this target (for error messages + default capture filenames).
+    pub(crate) fn keyword(self) -> &'static str {
+        match self {
+            AuxTarget::Front => "front",
+            AuxTarget::Prefs => "prefs",
+            AuxTarget::Perf => "perf",
+        }
+    }
+}
 
 impl App {
     /// Introspect the live screen: render the CURRENT terminal to a PNG (the
@@ -63,6 +103,8 @@ impl App {
             p.poll(hud_now);
         }
         self.splice_hud_bar(front);
+        // Accent for the drop-target highlight, read before the disjoint borrow.
+        let accent = self.theme.cursor;
         // Disjoint borrows: `self.backend` (renderer), the introspection GPU
         // scratch, and the front window's input_scratch are separate fields.
         let App {
@@ -85,6 +127,11 @@ impl App {
         // SAME invert here so a snapshot taken DURING a flash matches the glass
         // instead of showing the un-inverted frame.
         apply_bell_invert(&mut frame, ws.bell_flash.is_active(Instant::now()));
+        // WYSIWYG drop-target highlight: a snapshot taken while a file is dragged
+        // over the window shows the same inset accent border + wash as the glass.
+        if ws.drag_hover {
+            apply_drop_overlay(&mut frame.pixels, frame.width, frame.height, accent);
+        }
         // text: the visible grid, row by row, from the same snapshot. Shares the
         // exact row serialization with the accessibility snapshot (push_visible_row)
         // so "what an AI sees" and "what a screen reader reads" never diverge. The
@@ -142,6 +189,8 @@ impl App {
             p.poll(hud_now);
         }
         self.splice_hud_bar(front);
+        // Accent for the drop-target highlight, read before the disjoint borrow.
+        let accent = self.theme.cursor;
         // Disjoint borrows: `self.backend` (renderer), the introspection GPU
         // scratch, and the front window's input_scratch are separate fields.
         let App {
@@ -167,6 +216,10 @@ impl App {
         // I-2: match the on-screen visual-bell invert (see `snapshot`) so the
         // `image` verb is WYSIWYG even during a bell flash.
         apply_bell_invert(&mut frame, ws.bell_flash.is_active(Instant::now()));
+        // WYSIWYG drop-target highlight (matches the on-glass present + snapshot).
+        if ws.drag_hover {
+            apply_drop_overlay(&mut frame.pixels, frame.width, frame.height, accent);
+        }
         // `confine_image_path` (control thread) produced `target` as a canonical
         // `images/` dir + a SINGLE filename, forbidding nested target dirs. We
         // write by opening THAT directory `O_DIRECTORY|O_NOFOLLOW` and
@@ -407,6 +460,109 @@ impl App {
         _target: &control_auth::ConfinedImage,
     ) -> Result<(u32, u32), String> {
         Err("window capture is only available on macOS".to_string())
+    }
+}
+
+impl App {
+    /// Capture an AUXILIARY GUI window — the Preferences window or the Performance
+    /// control panel — to the confined `target` PNG, returning its `(width, height)`.
+    /// Serves the `window prefs` / `window perf` introspection verbs (main thread, per
+    /// [`crate::Wake::CaptureAuxWindow`]).
+    ///
+    /// [`AuxTarget::Front`] delegates to the unchanged [`Self::capture_window`] (the
+    /// frontmost terminal window). For the aux windows we read the directly-owned
+    /// `NSWindow`'s `windowNumber()` straight off its retained handle (no winit
+    /// `NSView -> window()` hop) and reuse the EXACT same `capture_window_pixels` +
+    /// `encode_rgba8_png` + confined `write_private_at` path `capture_window` uses — so
+    /// the sacred capture path, the path confinement, and the Screen-Recording-permission
+    /// error are all identical. Returns `Err` (never panics) when the target window is not
+    /// open or capture fails.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn capture_aux_window(
+        &self,
+        target: AuxTarget,
+        confined: &control_auth::ConfinedImage,
+    ) -> Result<(u32, u32), String> {
+        // Front is the existing on-glass capture — reuse it verbatim.
+        if target == AuxTarget::Front {
+            return self.capture_window(confined);
+        }
+        // Resolve the aux window's CGWindowID off its retained handle (None = not open).
+        let window_number = match target {
+            AuxTarget::Prefs => self._prefs.as_ref().and_then(|h| h.window_number()),
+            AuxTarget::Perf => self._perf_panel.as_ref().and_then(|h| h.window_number()),
+            AuxTarget::Front => unreachable!("handled above"),
+        };
+        let Some(n) = window_number else {
+            // `window_number()` is None both when the window was never built AND when it
+            // was closed/minimized (an ordered-out NSWindow reports windowNumber() <= 0),
+            // so the handle may be present-but-hidden — point the caller at `open` either
+            // way (it shows/re-shows the window).
+            let kw = target.keyword();
+            return Err(format!(
+                "{kw} window is not on screen (closed or never opened); \
+                 send `open {kw}` to show it, then retry"
+            ));
+        };
+        // Same confined-write path as `capture_window`: photograph by CGWindowID, encode
+        // RGBA8 → PNG, write via the `images/` dir fd (O_NOFOLLOW).
+        let (rgba, w, h) = capture_window_pixels(n as u32)?;
+        let png = encode_rgba8_png(&rgba, w, h)
+            .map_err(|e| format!("window capture failed (PNG encode error: {e})"))?;
+        snapshot_path::write_private_at(&confined.dir, &confined.file_name, &png)
+            .map_err(|e| format!("window capture failed (write error: {e})"))?;
+        Ok((w, h))
+    }
+
+    /// Off macOS there is no CoreGraphics window server to photograph, so the aux-window
+    /// capture reports that plainly (kept on every target so the
+    /// [`crate::Wake::CaptureAuxWindow`] handler is platform-independent).
+    #[cfg(not(target_os = "macos"))]
+    pub(crate) fn capture_aux_window(
+        &self,
+        _target: AuxTarget,
+        _confined: &control_auth::ConfinedImage,
+    ) -> Result<(u32, u32), String> {
+        Err("auxiliary window capture is only available on macOS".to_string())
+    }
+
+    /// Read an AUXILIARY window's CONTROLS as human-readable text lines — the `controls
+    /// prefs` / `controls perf` introspection verbs (the analogue of `chrome` for aux
+    /// windows). Serves [`crate::Wake::ReadAuxControls`] on the main thread.
+    ///
+    /// Built from the SAME PURE models the windows render from — `prefs::editable_fields`
+    /// over the live `self.config`, `perf_panel::perf_panel_lines` over the live panel
+    /// state — rather than walking `NSView` subviews. So it is deterministic, AppKit-free
+    /// (works HEADLESS, where the window may never be built), and byte-identical to what
+    /// the window shows. `Front` has no settings list — point the caller at `chrome`.
+    pub(crate) fn read_aux_controls(&self, target: AuxTarget) -> Vec<String> {
+        match target {
+            AuxTarget::Prefs => {
+                let fields = crate::prefs::editable_fields(&self.config);
+                let mut out = Vec::with_capacity(fields.len() + 1);
+                out.push(format!("prefs fields={}", fields.len()));
+                for f in &fields {
+                    // `value` is the user's CONFIGURED raw value (blank = unset);
+                    // `effective` is what is actually in use (the placeholder hint).
+                    let value = f.seed.as_deref().unwrap_or("");
+                    out.push(format!(
+                        "field key={} label={:?} value={:?} effective={:?}",
+                        f.key, f.label, value, f.placeholder
+                    ));
+                }
+                out
+            }
+            AuxTarget::Perf => {
+                let toggles: Vec<(crate::hud_bar::PanelId, bool)> = crate::hud_bar::PanelId::ALL
+                    .iter()
+                    .map(|&id| (id, self.panel_enabled(id)))
+                    .collect();
+                crate::perf_panel::perf_panel_lines(&toggles)
+            }
+            AuxTarget::Front => {
+                vec!["front window has no settings controls (use the chrome verb)".to_string()]
+            }
+        }
     }
 }
 

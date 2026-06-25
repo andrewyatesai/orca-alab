@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // VT420/VT520 rectangular area operations — DECFRA, DECERA, DECSERA, DECCRA,
 // DECCARA, DECSACE — plus degenerate/adversarial parameter handling.

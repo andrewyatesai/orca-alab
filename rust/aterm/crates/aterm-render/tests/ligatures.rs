@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Programming-ligature gate for the CPU renderer: with a ligature font
 // (JetBrains Mono, bundled with Orca), rendering "a => b != c" must produce

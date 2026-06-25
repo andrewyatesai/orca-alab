@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Selection-highlight regression for the CPU renderer: cells inside the active
 // text selection are filled with `Theme::selection` INSTEAD of their own

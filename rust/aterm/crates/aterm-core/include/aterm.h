@@ -1,7 +1,7 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
 //
-// Author: The aterm Authors
+// Author: Andrew Yates
 //
 // Public C ABI for the aterm engine (ATERM_DESIGN WS-D).
 //

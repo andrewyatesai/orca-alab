@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! The `ty_model!` light-annotation surface (docs/RFC-ty-embed-derived-tla.md):
 //! a model written as near-plain Rust must produce the EXACT same derived spec as

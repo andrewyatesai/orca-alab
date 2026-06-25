@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // VT/ANSI conformance — the gold standard for "is this a correct terminal."
 // Each case: feed input bytes → read the screen via the engine API → assert.

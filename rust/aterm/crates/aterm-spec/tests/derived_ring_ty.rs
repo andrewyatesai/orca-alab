@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! Tier-0 for DERIVED specs: the TLA+ generated from a Rust `Model` (one source)
 //! is exhaustively model-checked by the real `ty` binary.

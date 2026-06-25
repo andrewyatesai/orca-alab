@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A7 non-vacuity witness — the shiftable domain is NON-EMPTY and the shift map
 ;   genuinely moves a key. Discharged by `ay`.

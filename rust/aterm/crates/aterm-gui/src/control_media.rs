@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Media-capture verbs: `image` (terminal-content framebuffer PNG), `image read`
 //! (structured inline-image payloads, headless/cross-session-safe), `window`
@@ -182,41 +182,58 @@ pub(crate) fn cmd_image(
     }
 }
 
-/// `window [path]` -> capture the FRONT window's ENTIRE on-screen pixels — the
-/// native macOS chrome (titlebar, traffic lights, the unified toolbar, the
-/// full-width tab strip) AND the terminal content — to a PNG, replying
-/// `OK <w> <h> <path>` (the SAME wire shape as `image`). This closes the
-/// introspection gap `image` leaves: `image` rasterizes only the terminal content
-/// framebuffer with NO OS chrome, so an AI driving aterm could never SEE the whole
-/// window; `window` photographs the real composited pixels, so its height is
-/// GREATER than `image`'s (it includes the titlebar + tab strip).
+/// `window [<target>] [path]` -> capture a window's ENTIRE on-screen pixels to a PNG,
+/// replying `OK <w> <h> <path>` (the SAME wire shape as `image`). `<target>` is an
+/// optional leading keyword selecting WHICH window:
+///   * (omitted) / `front` — the frontmost TERMINAL window: native macOS chrome
+///     (titlebar, traffic lights, unified toolbar, full-width tab strip) AND the
+///     terminal content. This is the original behavior and closes the gap `image`
+///     leaves (`image` rasterizes only the content framebuffer, no OS chrome).
+///   * `prefs` / `settings` — the Preferences / settings window.
+///   * `perf` / `performance` — the Performance control panel.
 ///
-/// PATH CONFINEMENT (mirrors [`cmd_image`]): the caller-supplied `path` is validated
-/// by `confine_image_path` to a single filename inside the socket dir's `images/`
-/// subdir, so the socket can never overwrite an arbitrary file. The default name
-/// (`aterm-window.png`) parallels `image`'s `aterm-control.png`.
+/// The aux targets (`prefs`/`perf`) are directly-owned `NSWindow`s that the front-window
+/// path is structurally blind to; they are captured by their own window number. A first
+/// token that is NOT a known keyword is treated as the PATH (so the original
+/// `window [path]` wire shape still works); a literal filename `prefs`/`perf`/`front`
+/// must therefore be given a target first (e.g. `window front prefs`).
 ///
-/// MAIN-THREAD HOP (mirrors [`cmd_chrome`]): reaching the front window's `NSWindow` +
-/// reading its window number + calling `CGWindowListCreateImage` may ONLY happen
-/// on the main thread (AppKit / window-server state), but this runs on a background
-/// control thread. So we post [`Wake::CaptureWindow`] with the confined target + a
-/// one-shot reply channel and BLOCK; the main thread captures (`App::capture_window`)
-/// and replies `Ok((w, h))` or an `Err(msg)` we surface verbatim as `ERR <msg>`.
+/// PATH CONFINEMENT (mirrors [`cmd_image`]): the `path` is validated by
+/// `confine_image_path` to a single filename inside the socket dir's `images/` subdir,
+/// so the socket can never overwrite an arbitrary file. The default name varies by
+/// target (`aterm-window.png` / `aterm-prefs.png` / `aterm-perf.png`).
 ///
-/// PERMISSION: `CGWindowListCreateImage` needs macOS Screen Recording permission; if
-/// it is not granted the main thread replies with the clear, actionable grant
-/// instructions (it does NOT crash). Off macOS the main thread replies that capture
-/// is macOS-only; headless (no OS window) replies that there is no window to capture.
+/// MAIN-THREAD HOP (mirrors [`cmd_chrome`]): reaching a window's `NSWindow` + reading its
+/// window number + calling `CGWindowListCreateImage` may ONLY happen on the main thread,
+/// but this runs on a background control thread. So we post [`Wake::CaptureWindow`]
+/// (front) or [`Wake::CaptureAuxWindow`] (prefs/perf) with the confined target + a
+/// one-shot reply channel and BLOCK; the main thread captures and replies `Ok((w, h))`
+/// or an `Err(msg)` surfaced verbatim as `ERR <msg>` (missing Screen Recording grant /
+/// window not open / off-macOS).
 pub(crate) fn cmd_window(
     proxy: &EventLoopProxy<Wake>,
     rest: &str,
     sock_dir: &std::path::Path,
 ) -> String {
-    let requested = {
-        let p = rest.trim();
-        if p.is_empty() { "aterm-window.png" } else { p }
+    use crate::app_introspect::AuxTarget;
+    // Optional leading target keyword: `window [front|prefs|perf] [path]`. A first token
+    // that is not a known keyword is the PATH (default front), preserving `window [path]`.
+    let mut it = rest.split_whitespace();
+    let first = it.next().unwrap_or("");
+    let (aux, path_arg) = match AuxTarget::parse(first) {
+        Some(t) if !first.is_empty() => (t, it.next().unwrap_or("")),
+        _ => (AuxTarget::Front, rest.trim()),
     };
-    let Some(target) = control_auth::confine_image_path(sock_dir, requested) else {
+    let default_name = match aux {
+        AuxTarget::Front => "aterm-window.png",
+        AuxTarget::Prefs => "aterm-prefs.png",
+        AuxTarget::Perf => "aterm-perf.png",
+    };
+    let requested = {
+        let p = path_arg.trim();
+        if p.is_empty() { default_name } else { p }
+    };
+    let Some(confined) = control_auth::confine_image_path(sock_dir, requested) else {
         log_denial(
             AUDIT_SUBSYSTEM,
             &format!("window write '{requested}'"),
@@ -226,23 +243,104 @@ pub(crate) fn cmd_window(
         return "ERR path\n".to_string();
     };
     // For the reply only — the writer re-opens via the dir fd, not this string.
-    let path = target.display_path().to_string_lossy().into_owned();
+    let path = confined.display_path().to_string_lossy().into_owned();
     let (tx, rx) = std::sync::mpsc::channel();
-    if proxy
-        .send_event(Wake::CaptureWindow {
-            path: target,
+    // Front uses the unchanged `CaptureWindow` (sacred path); aux windows use the new
+    // `CaptureAuxWindow` (resolved by their own window number on the main thread).
+    let wake = match aux {
+        AuxTarget::Front => Wake::CaptureWindow {
+            path: confined,
             reply: tx,
-        })
-        .is_err()
-    {
+        },
+        _ => Wake::CaptureAuxWindow {
+            target: aux,
+            path: confined,
+            reply: tx,
+        },
+    };
+    if proxy.send_event(wake).is_err() {
         return "ERR event loop gone\n".to_string();
     }
     match rx.recv() {
         Ok(Ok((w, h))) => format!("OK {w} {h} {path}\n"),
         // The main thread's clear, actionable message (missing permission / headless /
-        // off-macOS / capture failure) is surfaced verbatim as a single `ERR` line.
+        // window not open / off-macOS / capture failure) is surfaced as a single `ERR`.
         Ok(Err(msg)) => format!("ERR {msg}\n"),
         Err(_) => "ERR window capture failed\n".to_string(),
+    }
+}
+
+/// `controls <target>` -> dump an AUXILIARY GUI window's CONTROLS as text: the
+/// Preferences window's settings (`field key=… label=… value=… effective=…`) or the
+/// Performance control panel's toggles (`toggle key=… label=… enabled=…`). The analogue
+/// of `chrome` for the settings/perf GUIs — so an AI can SEE what those screens show and
+/// their current values WITHOUT a screenshot. `<target>` is `prefs`/`settings` or
+/// `perf`/`performance` (an unknown target is rejected with a clear `ERR`).
+///
+/// Unlike the pixel `window` capture, this works HEADLESS and needs no Screen Recording
+/// grant: the main thread builds the lines from the PURE config/panel model
+/// (`App::read_aux_controls`), not by walking AppKit views, so the window need not even
+/// be open. Framed `OK <n>\n` + `<n>` rows, the SAME multi-line shape as `chrome`/`text`.
+pub(crate) fn cmd_controls(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
+    use crate::app_introspect::AuxTarget;
+    let trimmed = rest.trim();
+    // Only the aux windows have a controls surface; `front` (and a bare/empty arg, which
+    // `parse` maps to Front) is rejected with the same `prefs | perf` contract the verb
+    // advertises — fail closed rather than return a confusing redirect row.
+    let target = match AuxTarget::parse(trimmed) {
+        Some(t @ (AuxTarget::Prefs | AuxTarget::Perf)) => t,
+        _ => return format!("ERR unsupported target {trimmed:?} (use: prefs | perf)\n"),
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    if proxy
+        .send_event(Wake::ReadAuxControls { target, reply: tx })
+        .is_err()
+    {
+        return "ERR event loop gone\n".to_string();
+    }
+    let lines = match rx.recv() {
+        Ok(lines) => lines,
+        Err(_) => return "ERR controls read failed\n".to_string(),
+    };
+    // Same `OK <n>\n` + n-rows framing `chrome`/`text` use, so the aterm-ctl client
+    // prints the rows verbatim (it lists `controls` among the multi-line verbs).
+    let mut out = format!("OK {}\n", lines.len());
+    for line in lines {
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
+/// `open <target>` -> bring an AUXILIARY GUI window UP: `prefs`/`settings` opens the
+/// Preferences window, `perf`/`performance` opens the Performance control panel. The
+/// piece that lets a driver introspect a CLOSED screen — open it, then `window <target>`
+/// (pixels) / `controls <target>` (text). Reuses the SAME open path the menu items use.
+///
+/// MAIN-THREAD HOP: building an `NSWindow` may ONLY happen on the main thread, but this
+/// runs on a background control thread — so we post [`Wake::OpenAuxWindow`] + a one-shot
+/// reply and BLOCK; the main thread opens the window and replies `Ok(())` (now open) or
+/// `Err(msg)` (headless / off-macOS / unknown). Single-line `OK opened <target>` / `ERR`.
+pub(crate) fn cmd_open(proxy: &EventLoopProxy<Wake>, rest: &str) -> String {
+    use crate::app_introspect::AuxTarget;
+    let trimmed = rest.trim();
+    // Only the aux windows can be opened; `front` is always open (and a bare/empty arg
+    // maps to Front) — reject with the verb's advertised `prefs | perf` contract.
+    let target = match AuxTarget::parse(trimmed) {
+        Some(t @ (AuxTarget::Prefs | AuxTarget::Perf)) => t,
+        _ => return format!("ERR unsupported target {trimmed:?} (use: prefs | perf)\n"),
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    if proxy
+        .send_event(Wake::OpenAuxWindow { target, reply: tx })
+        .is_err()
+    {
+        return "ERR event loop gone\n".to_string();
+    }
+    match rx.recv() {
+        Ok(Ok(())) => format!("OK opened {}\n", target.keyword()),
+        Ok(Err(msg)) => format!("ERR {msg}\n"),
+        Err(_) => "ERR open failed\n".to_string(),
     }
 }
 

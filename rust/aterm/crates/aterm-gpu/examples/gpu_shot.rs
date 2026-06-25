@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // GPU rendering proof of life: feed the colourful `diag` demo (plain/inverse/
 // blue-bg/box-drawing/CJK/red-grn-blu) through a Terminal, render it on the GPU

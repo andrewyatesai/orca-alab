@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // The pixel layer of the replay / lash-mirror seed (astream determinism thesis,
 // ATERM_DESIGN §8 read_image). The aterm-core seed proves the SCREEN STATE

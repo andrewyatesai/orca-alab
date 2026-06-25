@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; a9 CONTROL — non-vacuity: a real light builtin classifies light (the light
 ;   region + its set encoding are non-empty, so partition_light is not vacuous).

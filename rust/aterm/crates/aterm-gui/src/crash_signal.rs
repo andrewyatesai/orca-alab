@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Async-signal-safe capture of native fatal signals (M6 "CRASH-CORE").
 //!

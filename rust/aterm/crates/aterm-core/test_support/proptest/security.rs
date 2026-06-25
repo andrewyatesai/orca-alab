@@ -1,4 +1,4 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
 
 //! Security property tests: shell escape, ANSI sanitizer, text bounded, injection detector.

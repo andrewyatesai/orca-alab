@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Phase-1 GPU proof of life: acquire a GPU, clear an offscreen texture, read it
 // back, write a PNG. Confirms wgpu/Metal works headless on this machine.

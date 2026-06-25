@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // CPU==GPU rendering parity FUZZ. The GPU renderer's sole correctness oracle is
 // the (independently verified) CPU renderer; the example tests in

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Tab + session-view management: the windows/pool/focus_order-mutating cluster
 //! moved as ONE unit so the invariant-maintaining set stays cohesive. Open/

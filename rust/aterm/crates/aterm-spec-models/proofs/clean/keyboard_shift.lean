@@ -1,5 +1,5 @@
 -- SPDX-License-Identifier: Apache-2.0
--- Copyright 2026 The aterm Authors
+-- Copyright 2026 Andrew Yates
 --
 -- ============================================================================
 -- ALGEBRAIC CORE of the legacy keyboard "Shift doesn't work" bug (aterm a2742d7).

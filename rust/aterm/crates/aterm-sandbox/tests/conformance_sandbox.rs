@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! Tier-1 trace conformance: bind the REAL sandbox apply step to the external
 //! `Sandbox.tla` design spec (TRUST_NATIVE_TLA Phase 2, CONFINEMENT family).

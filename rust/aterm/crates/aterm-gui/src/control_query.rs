@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Read-only screen introspection serializers — the SACRED AI-reads-the-screen
 //! path. These verbs read the live [`Terminal`] grid/renderer and serialize it

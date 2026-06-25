@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Inline images (iTerm2 OSC 1337 File=): an `imgcat`-style sequence places a
 // PNG over the grid and the CPU renderer composites its ACTUAL pixels — image

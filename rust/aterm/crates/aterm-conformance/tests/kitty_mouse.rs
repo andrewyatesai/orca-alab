@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Kitty keyboard protocol + mouse tracking encodings — conformance-level
 // locks tying DECSET/CSI bytes fed through the VT engine to the exact

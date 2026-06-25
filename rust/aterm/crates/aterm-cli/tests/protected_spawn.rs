@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! P0 regression test: the daily-driver CLI must run a real shell through the
 //! PROTECTED spawn seam (`aterm_pty::spawn_shell`, NOT raw `forkpty`/`execvp`) and

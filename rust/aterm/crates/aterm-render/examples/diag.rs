@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Controlled rendering diagnostic — isolate specific cases to verify by eye.
 //   cargo run -p aterm-render --example diag -- /tmp/aterm_diag.png

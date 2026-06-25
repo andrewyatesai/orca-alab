@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! OSC protocol types: notifications, remote host, taskbar progress, text sizing,
 //! Terminal reporting, semantic blocks and buttons.

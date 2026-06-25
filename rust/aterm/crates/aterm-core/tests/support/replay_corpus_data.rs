@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 //
 // Adversarial determinism corpora (machine-generated from a hazard sweep).
 // Each targets a real bulk-vs-single / projection hazard in the engine.

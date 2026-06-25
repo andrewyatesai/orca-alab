@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Phase 0.5 — the engine-neutral [`InputEvent`] vocabulary and the [`Source`]
 //! audit tag for the [`App::input`](crate::App::input) convergence seam
@@ -490,6 +490,65 @@ pub fn seam_egress(term: &Mutex<Terminal>, sink: &SinkWriter, ev: &InputEvent) -
         // (viewport / geometry) side-effects directly.
         InputEvent::ScrollView(_) | InputEvent::Resize { .. } => Egress::Reported(Delivery::Full),
     }
+}
+
+/// Backslash-escape a dragged-and-dropped file path so it survives as ONE shell
+/// argument when inserted at the prompt — byte-for-byte what iTerm2 does on a
+/// file drop. The set is iTerm2's `+[NSString shellEscapableCharacters]`
+/// (`NSStringITerm.m`) plus the CR/LF its dropped-file escaper adds
+/// (`-stringWithEscapedShellCharactersIncludingNewlines:YES`): each listed byte
+/// is prefixed with a backslash so spaces, quotes, globs, command substitution,
+/// history-expansion, redirections, pipes, etc. cannot break the path into
+/// multiple words or run as code. Backslash itself is in the set, so a literal
+/// `\` becomes `\\`; a single forward pass can't double-escape because it reads
+/// only INPUT chars, never the backslashes it just emitted.
+///
+/// Everything outside the set — `/`, `.`, `-`, `_`, `,`, `%`, `:`, letters,
+/// digits, and all multibyte UTF-8 — is shell-inert and passes through verbatim,
+/// so a plain path is returned unchanged. The result carries NO trailing space
+/// and NO newline; the drop site appends the single separating space (so an
+/// N-file drop concatenates to `p1 p2 p3 `, iTerm's space-join + one trailing
+/// space) and routes the text through the normal paste seam, which never
+/// executes it. Defined winit/fs-free so it is unit-tested on every target.
+pub(crate) fn shell_escape_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len() + 8);
+    for c in path.chars() {
+        if matches!(
+            c,
+            '\\' | ' '
+                | '('
+                | ')'
+                | '"'
+                | '&'
+                | '\''
+                | '!'
+                | '$'
+                | '<'
+                | '>'
+                | ';'
+                | '|'
+                | '*'
+                | '?'
+                | '['
+                | ']'
+                | '#'
+                | '`'
+                | '\t'
+                | '{'
+                | '}'
+                | '^'
+                | '+'
+                | '='
+                | '@'
+                | '~'
+                | '\r'
+                | '\n'
+        ) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -1002,5 +1061,115 @@ mod tests {
             report_coords(&t, 3, 2, PixelOffset { x: 99, y: 99 }),
             (3 * 10 + 9, 2 * 20 + 19)
         );
+    }
+
+    /// A drop of a plain path (only shell-inert bytes) is returned BYTE-FOR-BYTE
+    /// unchanged — no spurious escaping, exactly what iTerm2 inserts for a tame
+    /// path. Dots, slashes, dashes, underscores, colons, commas, percent, digits
+    /// and non-ASCII letters all pass through.
+    #[test]
+    fn shell_escape_path_leaves_plain_paths_unchanged() {
+        assert_eq!(
+            shell_escape_path("/home/user/Downloads/report-2026_v2.final.pdf"),
+            "/home/user/Downloads/report-2026_v2.final.pdf"
+        );
+        assert_eq!(shell_escape_path("/tmp/a:b,c%20d"), "/tmp/a:b,c%20d");
+        assert_eq!(shell_escape_path("/Users/me/Café/Ünïcødé.txt"), "/Users/me/Café/Ünïcødé.txt");
+        assert_eq!(shell_escape_path(""), "");
+    }
+
+    /// The everyday case: spaces and parentheses (e.g. `My File (1).png`) are
+    /// backslash-escaped so the path stays a single argument, matching iTerm2.
+    #[test]
+    fn shell_escape_path_escapes_spaces_and_parens() {
+        assert_eq!(
+            shell_escape_path("/Users/me/My File (1).png"),
+            "/Users/me/My\\ File\\ \\(1\\).png"
+        );
+    }
+
+    /// A literal backslash in a name becomes exactly TWO backslashes — escaped
+    /// once, never doubled-again, because the pass reads input chars only.
+    #[test]
+    fn shell_escape_path_escapes_backslash_once() {
+        assert_eq!(shell_escape_path("a\\b"), "a\\\\b"); // `a\b` -> `a\\b`
+        assert_eq!(shell_escape_path("\\"), "\\\\"); // `\` -> `\\`
+    }
+
+    /// EVERY character in iTerm2's drop escape set (shellEscapableCharacters plus
+    /// CR/LF) is backslash-prefixed, and nothing else is. This pins the exact set
+    /// so a future edit that drops or adds a metacharacter fails loudly.
+    #[test]
+    fn shell_escape_path_matches_iterm_set_exactly() {
+        let set = "\\ ()\"&'!$<>;|*?[]#`\t{}^+=@~\r\n";
+        let escaped = shell_escape_path(set);
+        // Output is exactly each set char prefixed by a backslash, in order.
+        let expected: String = set.chars().flat_map(|c| ['\\', c]).collect();
+        assert_eq!(escaped, expected);
+        // A string of only inert chars gains no backslashes at all.
+        let inert = "/.-_,:%0123456789abzABZ";
+        assert_eq!(shell_escape_path(inert), inert);
+    }
+
+    /// ADVERSARIAL: a filename crafted to break out of the argument and run code
+    /// is fully neutralised — every shell-significant byte in the OUTPUT is
+    /// preceded by its escaping backslash, so when inserted at the prompt it is an
+    /// inert single argument, never a command substitution / pipe / redirection.
+    #[test]
+    fn shell_escape_path_neutralises_injection() {
+        let attack = "/tmp/$(touch pwned);rm -rf ~ `id` | tee >out & evil!.txt";
+        let escaped = shell_escape_path(attack);
+        let bytes: Vec<char> = escaped.chars().collect();
+        for (i, &c) in bytes.iter().enumerate() {
+            if matches!(
+                c,
+                '(' | ')' | '$' | ';' | '|' | '&' | '`' | '>' | '<' | '!' | ' ' | '~'
+            ) {
+                assert!(
+                    i > 0 && bytes[i - 1] == '\\',
+                    "unescaped {c:?} at {i} in {escaped:?}"
+                );
+            }
+        }
+    }
+
+    /// END-TO-END through the paste seam: the drop site appends one space and
+    /// routes the escaped path through `format_paste`. With bracketed paste OFF
+    /// the bytes are the escaped path + trailing space verbatim (ESC/C1 are still
+    /// stripped); with DEC 2004 ON they are wrapped in the `ESC[200~ … ESC[201~`
+    /// guards — exactly like Cmd-V, and exactly what iTerm sends a 2004-mode app.
+    #[test]
+    fn dropped_path_pastes_escaped_with_trailing_space() {
+        let drop_text = |p: &str| {
+            let mut t = shell_escape_path(p);
+            t.push(' ');
+            t
+        };
+        // Bracketed paste OFF: literal escaped path + trailing space.
+        let term = term_with(&[]);
+        assert_eq!(
+            egress_bytes(&term, &InputEvent::Paste(drop_text("/p/My File"))),
+            b"/p/My\\ File ".to_vec()
+        );
+        // Bracketed paste ON (DEC 2004): same body inside the bracket guards.
+        let term = term_with(&[b"\x1b[?2004h"]);
+        assert_eq!(
+            egress_bytes(&term, &InputEvent::Paste(drop_text("/p/My File"))),
+            b"\x1b[200~/p/My\\ File \x1b[201~".to_vec()
+        );
+    }
+
+    /// winit delivers one `DroppedFile` per file with no batch boundary; pasting
+    /// each as `escaped-path + space` reproduces iTerm2's space-joined output with
+    /// a single trailing space and NO leading space — for any file count.
+    #[test]
+    fn multi_file_drop_concatenates_like_iterm() {
+        let drop_text = |p: &str| {
+            let mut t = shell_escape_path(p);
+            t.push(' ');
+            t
+        };
+        let combined = drop_text("/a/one.txt") + &drop_text("/b/two three.txt");
+        assert_eq!(combined, "/a/one.txt /b/two\\ three.txt ");
     }
 }

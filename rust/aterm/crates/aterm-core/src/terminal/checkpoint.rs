@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! `TerminalCheckpoint` — a scoped, round-trippable projection of a live
 //! [`Terminal`] (GREEN-ORDER step 4 / design `HIERARCHICAL_SESSIONS.md` B.3.2).

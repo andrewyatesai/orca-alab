@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A2 PROVE-AND-CATCH control — catches a deliberately-FALSE tighter alphabet bound,
 ;   and serves as the non-vacuity witness that the masked index 63 is reachable.

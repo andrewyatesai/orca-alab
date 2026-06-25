@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Frame composition / redraw: the per-window present path (`redraw_window`), the
 //! split-pane composition (`redraw_compose`), the in-grid tab-strip splice, blink
@@ -45,6 +45,105 @@ pub(crate) fn apply_bell_invert(frame: &mut Frame, active: bool) {
     }
     for px in &mut frame.pixels {
         *px ^= 0x00ff_ffff;
+    }
+}
+
+/// Device-pixel thickness of the drop-target accent border, scaled to the window
+/// and clamped so it stays a thin frame on small windows and never dominates a
+/// large one.
+fn drop_border_px(w: usize, h: usize) -> usize {
+    (w.min(h) / 200).clamp(2, 6)
+}
+
+/// Alpha (out of 255) of the faint full-grid accent wash and the inset border.
+const DROP_WASH_ALPHA: u32 = 28; // ~11% — readable content underneath
+const DROP_BORDER_ALPHA: u32 = 235; // ~92% — a crisp but not harsh frame
+
+/// Blend `fg` over `bg` (both packed `0x00RRGGBB`) at alpha `a` (0..=255), per
+/// channel, leaving the top byte clear. `a == 0` returns `bg`; `a == 255` returns
+/// `fg`. The canonical coverage blend (mirrors the renderer's private `blend`).
+fn blend_rgb(bg: u32, fg: u32, a: u32) -> u32 {
+    let inv = 255 - a;
+    let r = (((bg >> 16) & 0xff) * inv + ((fg >> 16) & 0xff) * a) / 255;
+    let g = (((bg >> 8) & 0xff) * inv + ((fg >> 8) & 0xff) * a) / 255;
+    let b = ((bg & 0xff) * inv + (fg & 0xff) * a) / 255;
+    (r << 16) | (g << 8) | b
+}
+
+/// Composite the drag-and-drop drop-target highlight over a packed `0x00RRGGBB`
+/// framebuffer: a faint `accent` wash across the whole grid plus a near-opaque
+/// `accent` border inset at the window edge (the chosen "inset accent border +
+/// faint wash" treatment). `pixels` is row-major `w * h` (any trailing pixels are
+/// ignored). Pure + allocation-free, and shared by the live CPU present and the
+/// headless `image`/`snapshot` so on-glass and introspection match. The GPU
+/// backend reproduces the same look in its blit shader.
+pub(crate) fn apply_drop_overlay(pixels: &mut [u32], w: usize, h: usize, accent: u32) {
+    if w == 0 || h == 0 {
+        return;
+    }
+    let border = drop_border_px(w, h);
+    let accent = accent & 0x00ff_ffff;
+    for y in 0..h {
+        let edge_row = y < border || y >= h - border;
+        let Some(row) = pixels.get_mut(y * w..y * w + w) else {
+            break;
+        };
+        for (x, px) in row.iter_mut().enumerate() {
+            let on_border = edge_row || x < border || x >= w - border;
+            let a = if on_border { DROP_BORDER_ALPHA } else { DROP_WASH_ALPHA };
+            *px = blend_rgb(*px & 0x00ff_ffff, accent, a);
+        }
+    }
+}
+
+#[allow(
+    clippy::items_after_test_module,
+    reason = "these unit tests sit next to the drop-overlay helpers they cover; the rest of the file is the App render inherent-impl, not stray items"
+)]
+#[cfg(test)]
+mod drop_overlay_tests {
+    use super::{apply_drop_overlay, blend_rgb, drop_border_px, DROP_WASH_ALPHA};
+
+    fn channel_dist(a: u32, b: u32) -> u32 {
+        let d = |s: u32| (((a >> s) & 0xff) as i32 - ((b >> s) & 0xff) as i32).unsigned_abs();
+        d(16) + d(8) + d(0)
+    }
+
+    /// The border pixels land much closer to the accent than the interior wash,
+    /// and the interior is exactly the faint accent blend over the background.
+    #[test]
+    fn border_is_accent_heavy_interior_is_faint() {
+        let (w, h) = (400usize, 300usize);
+        let accent = 0x0050_FA7B;
+        let mut px = vec![0x0000_0000u32; w * h]; // black background
+        apply_drop_overlay(&mut px, w, h, accent);
+
+        let corner = px[0]; // on the border
+        let interior = px[(h / 2) * w + w / 2]; // far from any edge
+        assert_ne!(corner, 0, "border pixel must be tinted");
+        assert_ne!(interior, 0, "interior pixel must be washed");
+        assert!(
+            channel_dist(corner, accent) < channel_dist(interior, accent),
+            "border should be nearer the accent than the interior"
+        );
+        assert_eq!(interior, blend_rgb(0, accent, DROP_WASH_ALPHA));
+        assert!(drop_border_px(w, h) >= 2);
+    }
+
+    /// Degenerate dimensions and a no-window case are no-ops, never panics.
+    #[test]
+    fn zero_dims_is_noop() {
+        let mut px = vec![0x0011_2233u32; 4];
+        apply_drop_overlay(&mut px, 0, 0, 0x00ff_ffff);
+        assert_eq!(px, vec![0x0011_2233u32; 4]);
+    }
+
+    /// The packed format is preserved: the unused top byte stays clear.
+    #[test]
+    fn top_byte_stays_clear() {
+        let mut px = vec![0x00ab_cdefu32; 10 * 10];
+        apply_drop_overlay(&mut px, 10, 10, 0x00ff_ffff);
+        assert!(px.iter().all(|p| p & 0xff00_0000 == 0));
     }
 }
 
@@ -458,6 +557,9 @@ impl App {
         // the visual state the grid damage tracker doesn't see.
         let cursor_override = (!ws0.focused).then_some(CursorStyle::HollowBlock);
         let blink_phase = ws0.blink_phase;
+        // Drag-and-drop hover: while a file is dragged over the window we paint a
+        // drop-target highlight at present time (like the bell invert above).
+        let drag_hover = ws0.drag_hover;
         let last_present = ws0.last_present;
 
         // Renderer-global cursor state belongs to whichever window we are about to
@@ -494,7 +596,8 @@ impl App {
         // Strip disabled: byte-identical to the pre-strip path (empty, fp 0, no-op).
         let (strip_titles, tab_strip) = self.redraw_tab_strip_state(id);
         let title = if multi_pane {
-            match self.redraw_compose(id, rows, cols, invert, cursor_override, tab_strip) {
+            match self.redraw_compose(id, rows, cols, invert, drag_hover, cursor_override, tab_strip)
+            {
                 Some(title) => title,
                 None => {
                     // Nothing visible changed across any pane: refresh chrome, skip.
@@ -515,6 +618,7 @@ impl App {
                 damage_epoch: term.damage_epoch(),
                 blink_phase,
                 invert,
+                drag_hover,
                 cursor_override,
                 selection: SelectionFingerprint::of(term.text_selection()),
                 tab_strip,
@@ -563,7 +667,11 @@ impl App {
         // Present the just-filled `input_scratch` into this window's surface. A
         // borrow/target mismatch (transient during a backend rebuild) aborts the
         // frame WITHOUT recording metrics — the same as the inline early returns.
-        if !self.present_input_scratch(id, invert) {
+        // While a file is dragged over the window, paint the drop-target highlight
+        // in the theme accent (`theme.cursor`); `None` keeps the present path
+        // byte-identical to before this feature.
+        let overlay = drag_hover.then_some(self.theme.cursor);
+        if !self.present_input_scratch(id, invert, overlay) {
             return;
         }
         let present_latency_ns = self.present_latency_ns();
@@ -619,7 +727,7 @@ impl App {
     /// backend. Returns `false` (frame aborted, NO metrics recorded) on a present
     /// target / backend-kind mismatch — transient during a backend rebuild — exactly
     /// as the inline early returns did; `true` once the present has been issued.
-    fn present_input_scratch(&mut self, id: WindowId, invert: bool) -> bool {
+    fn present_input_scratch(&mut self, id: WindowId, invert: bool, overlay: Option<u32>) -> bool {
         // Disjoint borrows: the renderer (`self.backend`) and the target window's
         // present target + input snapshot are SEPARATE fields of `self`, so
         // destructuring lets both be borrowed mutably at once with no aliasing.
@@ -644,7 +752,15 @@ impl App {
                 }),
             ) = (backend.gpu_mut(), ws.present.as_mut())
             {
-                gpu.present_input(window_gpu, gpu_surface, input, invert);
+                // Map the accent → the GPU overlay params (the alphas are this
+                // module's single source of truth; the GPU derives the border
+                // thickness from the framebuffer size to match the CPU path).
+                let gpu_overlay = overlay.map(|accent| aterm_gpu::DropOverlay {
+                    accent,
+                    wash_a: DROP_WASH_ALPHA as u8,
+                    border_a: DROP_BORDER_ALPHA as u8,
+                });
+                gpu.present_input(window_gpu, gpu_surface, input, invert, gpu_overlay);
             } else {
                 return false;
             }
@@ -682,6 +798,13 @@ impl App {
                 }
                 for px in buf.iter_mut().skip(n) {
                     *px = 0;
+                }
+                // Drag-and-drop highlight: composite the inset accent border + faint
+                // wash over the just-filled framebuffer (after the bell invert, so
+                // it reads as chrome on top). A no-op allocation-free pass; skipped
+                // entirely when nothing is hovered.
+                if let Some(accent) = overlay {
+                    apply_drop_overlay(&mut buf[..n], w as usize, h as usize, accent);
                 }
                 let _ = buf.present();
             }
@@ -721,12 +844,17 @@ impl App {
     /// panes, locks each in turn, refills `pane_scratch`, and blits its cells into
     /// `input_scratch` at the pane's offset; the FOCUSED pane's cursor is the only
     /// solid cursor (others draw none), and 1-cell dividers fill the gaps.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "a window's full compose inputs (id/dims/invert/drag-hover/cursor-override/tab-strip); bundling them into a struct only relocates the argument list"
+    )]
     pub(crate) fn redraw_compose(
         &mut self,
         wid: WindowId,
         rows: usize,
         cols: usize,
         invert: bool,
+        drag_hover: bool,
         cursor_override: Option<CursorStyle>,
         tab_strip: u64,
     ) -> Option<String> {
@@ -767,6 +895,7 @@ impl App {
             damage_epoch,
             blink_phase,
             invert,
+            drag_hover,
             cursor_override,
             selection: focus_selection,
             tab_strip,

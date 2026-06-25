@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! OS color-scheme source: feed the REAL desktop light/dark appearance into every
 //! session's engine via [`Terminal::set_color_scheme`].

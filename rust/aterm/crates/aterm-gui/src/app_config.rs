@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Config subsystem: the `aterm.toml` model (`Config`) plus the loaders and
 //! precedence resolvers (font px, force scale, grid size, tab-strip rows), AND
@@ -96,10 +96,12 @@ pub(crate) struct Config {
     /// [`Config::copy_on_select_or_default`].
     pub(crate) copy_on_select: Option<bool>,
     /// Show the bottom PERFORMANCE HUD (streaming fps/latency/sparkline). Default
-    /// OFF. Also toggleable live via View ▸ Show Performance HUD. See
+    /// ON — the performance GUI ships enabled. Toggleable live via the Performance
+    /// control panel or View ▸ Show Performance HUD. See
     /// [`Config::show_perf_hud_or_default`].
     pub(crate) show_perf_hud: Option<bool>,
-    /// Show the system-load HUD panel (CPU load + memory). Default OFF.
+    /// Show the system-load HUD panel (CPU load + memory). Default ON (ships with the
+    /// perf HUD).
     pub(crate) show_sysload_hud: Option<bool>,
     /// Show the network HUD panel (whole-machine rx/tx rate). Default OFF.
     pub(crate) show_network_hud: Option<bool>,
@@ -281,14 +283,17 @@ impl Config {
         self.copy_on_select.unwrap_or(false)
     }
 
-    /// Whether to show the bottom performance HUD (default OFF).
+    /// Whether to show the bottom performance HUD. Default ON — the performance GUI
+    /// ships enabled (toggle it from the Performance control panel, the View menu, or
+    /// `show_perf_hud = false` in aterm.toml).
     pub(crate) fn show_perf_hud_or_default(&self) -> bool {
-        self.show_perf_hud.unwrap_or(false)
+        self.show_perf_hud.unwrap_or(true)
     }
 
-    /// Whether to show the system-load HUD panel (default OFF).
+    /// Whether to show the system-load HUD panel (CPU + memory). Default ON — ships with
+    /// the perf HUD; override with `show_sysload_hud = false`.
     pub(crate) fn show_sysload_hud_or_default(&self) -> bool {
-        self.show_sysload_hud.unwrap_or(false)
+        self.show_sysload_hud.unwrap_or(true)
     }
 
     /// Whether to show the network HUD panel (default OFF).

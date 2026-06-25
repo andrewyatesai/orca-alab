@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 //! The ONE place a property-combinator instance is declared. Both the Tier-0 `ty`
 //! suite (`derived_ring_ty.rs`) and the Tier-1 interpreter-BMC suite

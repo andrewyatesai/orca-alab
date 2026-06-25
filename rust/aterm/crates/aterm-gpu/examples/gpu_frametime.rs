@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Honest GPU frame-time: separates the on-screen render cost (render_no_readback
 // — encode + GPU execute, what a window pays) from the offscreen verification

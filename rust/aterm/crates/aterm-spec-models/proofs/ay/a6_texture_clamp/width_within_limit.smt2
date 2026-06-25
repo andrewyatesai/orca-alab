@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A6 documented-assumption record — atlas WIDTH (1024) <= device limit (SAFE under
 ; the stated precondition). By `ay`.

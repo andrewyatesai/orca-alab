@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Dependency-free OS metric probes for the HUD framework (CPU load, memory,
 //! network byte counters), behind safe `Option`-returning wrappers. ALL raw `libc`
@@ -23,7 +23,13 @@ pub(crate) fn load_avg_1m() -> Option<f64> {
         let n = unsafe { libc::getloadavg(la.as_mut_ptr(), 3) };
         if n >= 1 { Some(la[0]) } else { None }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        // /proc/loadavg: "0.52 0.48 0.44 1/234 5678" — field 0 is the 1-min average.
+        let s = std::fs::read_to_string("/proc/loadavg").ok()?;
+        s.split_whitespace().next()?.parse().ok()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         None
     }
@@ -32,15 +38,33 @@ pub(crate) fn load_avg_1m() -> Option<f64> {
 /// Logical CPU count (for normalizing the load average), default 1.
 #[must_use]
 pub(crate) fn ncpu() -> u32 {
-    sysctl_u64("hw.logicalcpu")
-        .or_else(|| sysctl_u64("hw.ncpu"))
-        .unwrap_or(1) as u32
+    #[cfg(target_os = "macos")]
+    {
+        sysctl_u64("hw.logicalcpu")
+            .or_else(|| sysctl_u64("hw.ncpu"))
+            .unwrap_or(1) as u32
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::thread::available_parallelism().map_or(1, |n| n.get() as u32)
+    }
 }
 
 /// Total physical RAM in bytes, or `None`.
 #[must_use]
 pub(crate) fn mem_total() -> Option<u64> {
-    sysctl_u64("hw.memsize")
+    #[cfg(target_os = "macos")]
+    {
+        sysctl_u64("hw.memsize")
+    }
+    #[cfg(target_os = "linux")]
+    {
+        proc_meminfo_kib("MemTotal").map(|kib| kib * 1024)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
 }
 
 /// Fraction (0..1) of RAM in active use (active + wired + compressed), a proxy for
@@ -62,7 +86,19 @@ pub(crate) fn mem_used_frac() -> Option<f64> {
             None
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        // /proc/meminfo: used = 1 - MemAvailable/MemTotal (MemAvailable is the
+        // kernel's own estimate of allocatable RAM, the right "pressure" proxy).
+        let total = proc_meminfo_kib("MemTotal")? as f64;
+        let avail = proc_meminfo_kib("MemAvailable")? as f64;
+        if total > 0.0 {
+            Some((1.0 - avail / total).clamp(0.0, 1.0))
+        } else {
+            None
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         None
     }
@@ -80,10 +116,60 @@ pub(crate) fn net_ifaces() -> Option<Vec<(String, u32, u32)>> {
     {
         net_ifaces_macos()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "linux")]
+    {
+        net_bytes_linux()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
         None
     }
+}
+
+// --- Linux implementations (/proc, dependency-free) -------------------------
+
+/// Read one `/proc/meminfo` field (e.g. `MemTotal`) as its KiB value. The file is
+/// `Label:   <kib> kB` per line; returns the numeric KiB (the unit is always KiB
+/// despite the `kB` label). `None` if the field is absent/unparsable.
+#[cfg(target_os = "linux")]
+fn proc_meminfo_kib(field: &str) -> Option<u64> {
+    let s = std::fs::read_to_string("/proc/meminfo").ok()?;
+    for line in s.lines() {
+        if let Some(rest) = line.strip_prefix(field)
+            && rest.starts_with(':')
+        {
+            return rest[1..].split_whitespace().next()?.parse().ok();
+        }
+    }
+    None
+}
+
+/// PER-INTERFACE cumulative `(name, rx, tx)` byte counters for non-loopback links
+/// from `/proc/net/dev` (matching the `net_ifaces` contract the caller diffs each
+/// interface against). Each data line is `iface: rx_bytes rx_packets ... tx_bytes
+/// ...` — field 0 after the colon is rx_bytes, field 8 is tx_bytes; `lo` is excluded.
+/// Linux's 64-bit counters are truncated to `u32` to match the `if_data` width the
+/// caller already wrap-subtracts (a per-tick delta never approaches 4 GiB).
+#[cfg(target_os = "linux")]
+fn net_bytes_linux() -> Option<Vec<(String, u32, u32)>> {
+    let s = std::fs::read_to_string("/proc/net/dev").ok()?;
+    let mut out: Vec<(String, u32, u32)> = Vec::new();
+    for line in s.lines() {
+        let Some((iface, rest)) = line.split_once(':') else {
+            continue; // the two header lines have no colon
+        };
+        let iface = iface.trim();
+        if iface == "lo" {
+            continue;
+        }
+        let cols: Vec<&str> = rest.split_whitespace().collect();
+        if cols.len() >= 9 {
+            let rx: u64 = cols[0].parse().unwrap_or(0);
+            let tx: u64 = cols[8].parse().unwrap_or(0);
+            out.push((iface.to_string(), rx as u32, tx as u32));
+        }
+    }
+    Some(out)
 }
 
 // --- macOS implementations --------------------------------------------------

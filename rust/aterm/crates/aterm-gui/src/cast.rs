@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Per-session **asciicast v2** recording of the child's program output
 //! (design Addendum A.5.1 / B.7).

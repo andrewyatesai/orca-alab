@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The native macOS PREFERENCES window (App ▸ Preferences…, ⌘,).
 //!
@@ -44,6 +44,16 @@ pub(crate) const EDIT_THEME: &str = "theme";
 pub(crate) const EDIT_CURSOR_STYLE: &str = "cursor_style";
 pub(crate) const EDIT_SCROLLBACK: &str = "scrollback_lines";
 pub(crate) const EDIT_COPY_ON_SELECT: &str = "copy_on_select";
+
+/// Default scrollback line cap when `scrollback_lines` is unset (mirrors the engine
+/// `TerminalConfig.scrollback_limit` default). Shown as the [`EditField::placeholder`]
+/// for the scrollback row so an unset control reads as the real resolved value, not a
+/// confusing blank.
+const DEFAULT_SCROLLBACK_LINES: usize = 100_000;
+
+/// The default cursor style when `cursor_style` is unset (the engine default is a block
+/// cursor). The placeholder hint for the cursor-style row.
+const DEFAULT_CURSOR_STYLE: &str = "block";
 
 /// How a Preferences key should be TYPED in the written TOML, so a Save round-trips
 /// through `Config`'s serde types (font_px float, scrollback_lines int, copy_on_select
@@ -169,16 +179,23 @@ fn typed_item(key: &str, raw: &str) -> Result<toml_edit::Item, PrefsEditError> {
 
 /// One editable field for the Preferences window: a human `label`, the `Config`/TOML
 /// `key` it edits, its [`EditKind`] (so the window builds the right control and the
-/// writer types the value), and the field's CURRENT raw value from the config.
+/// writer types the value), the field's CURRENT raw value from the config (`seed`), and
+/// the EFFECTIVE-value `placeholder` shown greyed when the control is blank.
 ///
 /// `seed` is the user's CONFIGURED value (NOT the effective default): `None` for an
 /// unset key so the control starts BLANK — clearing it back to blank then removes the
 /// key on Save. For the bool field `seed` is `Some("true")`/`Some("false")` reflecting
 /// the resolved state so the checkbox starts in the right position.
 ///
+/// `placeholder` is the EFFECTIVE value (the configured value, or the built-in default
+/// rendered explicitly) shown as the field's greyed placeholder text. This is the fix
+/// for the "every row is blank" confusion: an UNSET key seeds a blank control (so an
+/// untouched Save doesn't materialise the default), but the placeholder still tells the
+/// user what value is actually in effect (e.g. `block (default)`) instead of nothing.
+///
 /// Off macOS the native window is never built (`open_preferences` falls back to opening
-/// the file), so the `label`/`kind` fields the window would consume are unused there —
-/// allow the dead-code only on non-macOS, keeping macOS strict.
+/// the file), so the `label`/`kind`/`placeholder` fields the window would consume are
+/// unused there — allow the dead-code only on non-macOS, keeping macOS strict.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) struct EditField {
     /// The on-screen row label.
@@ -189,120 +206,151 @@ pub(crate) struct EditField {
     pub(crate) kind: EditKind,
     /// The configured raw value to seed the control with (`None` = unset = blank).
     pub(crate) seed: Option<String>,
+    /// The EFFECTIVE value shown as greyed placeholder text when the control is blank
+    /// (the configured value, or the built-in default rendered explicitly).
+    pub(crate) placeholder: String,
 }
 
-/// Build the editable field specs (label/key/kind/seed) the Preferences window renders
-/// as controls, in the documented row order (font size, font family, theme, cursor
-/// style, scrollback limit, copy-on-select). PURE + TESTABLE: the seeding logic (which
-/// keys start blank vs. populated, and the bool's resolved state) is unit-tested
-/// without AppKit; the window just maps each spec to a control.
+/// A configured string field, trimmed, with whitespace-only treated as unset (`None`).
+/// Shared by `editable_fields` so the seed + placeholder agree on what counts as "set".
+fn configured_str(field: Option<&str>) -> Option<String> {
+    field
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Build the editable field specs (label/key/kind/seed/placeholder) the Preferences
+/// window renders as controls, in the documented row order (font size, font family,
+/// theme, cursor style, scrollback limit, copy-on-select). PURE + TESTABLE: the seeding
+/// logic (which keys start blank vs. populated, the bool's resolved state, and the
+/// effective-value placeholder) is unit-tested without AppKit; the window just maps each
+/// spec to a control.
 ///
-/// This seeds the editor with the CONFIGURED raw value only — an unset key seeds `None`
+/// The control is SEEDED with the CONFIGURED raw value only — an unset key seeds `None`
 /// so the control is blank and a Save of an untouched blank field removes nothing
-/// (rather than materialising the effective default).
+/// (rather than materialising the effective default). The `placeholder` carries the
+/// EFFECTIVE value (configured, or the built-in default rendered explicitly) so a blank
+/// control still tells the user what is in effect — fixing the all-rows-blank confusion.
 pub(crate) fn editable_fields(cfg: &Config) -> Vec<EditField> {
+    let font_family = configured_str(cfg.font_family.as_deref());
+    let theme = configured_str(cfg.theme.as_deref());
+    let cursor_style = configured_str(cfg.cursor_style.as_deref());
     vec![
         EditField {
             label: "Font size",
             key: EDIT_FONT_PX,
             kind: EditKind::Float,
             seed: cfg.font_px.map(|px| format!("{px}")),
+            placeholder: match cfg.font_px {
+                Some(px) => format!("{px} px"),
+                None => "auto (default)".to_string(),
+            },
         },
         EditField {
             label: "Font family",
             key: EDIT_FONT_FAMILY,
             kind: EditKind::Text,
-            seed: cfg
-                .font_family
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
+            placeholder: font_family.clone().unwrap_or_else(|| "default".to_string()),
+            seed: font_family,
         },
         EditField {
             label: "Theme",
             key: EDIT_THEME,
             kind: EditKind::Text,
-            seed: cfg
-                .theme
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
+            placeholder: theme.clone().unwrap_or_else(|| "Default".to_string()),
+            seed: theme,
         },
         EditField {
             label: "Cursor style",
             key: EDIT_CURSOR_STYLE,
             kind: EditKind::Text,
-            seed: cfg
-                .cursor_style
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
+            placeholder: cursor_style
+                .clone()
+                .unwrap_or_else(|| format!("{DEFAULT_CURSOR_STYLE} (default)")),
+            seed: cursor_style,
         },
         EditField {
             label: "Scrollback limit",
             key: EDIT_SCROLLBACK,
             kind: EditKind::Integer,
             seed: cfg.scrollback_lines.map(|n| n.to_string()),
+            placeholder: match cfg.scrollback_lines {
+                Some(0) => "unlimited".to_string(),
+                Some(n) => n.to_string(),
+                None => format!("{DEFAULT_SCROLLBACK_LINES} (default)"),
+            },
         },
         EditField {
             label: "Copy on select",
             key: EDIT_COPY_ON_SELECT,
             kind: EditKind::Bool,
             // The checkbox always reflects the RESOLVED state (default off), so it
-            // starts in the right position; Save writes the explicit bool.
+            // starts in the right position; Save writes the explicit bool. The checkbox
+            // shows its state directly, so the placeholder is unused (empty).
             seed: Some(cfg.copy_on_select_or_default().to_string()),
+            placeholder: String::new(),
         },
     ]
 }
 
-/// Persist a batch of Preferences edits to `aterm.toml` NON-DESTRUCTIVELY, then return
-/// whether the file changed so the caller can post a reload only when it did.
+/// The result of [`save_prefs_edits`], so the window can show visible feedback (a status
+/// line) rather than silently succeeding/failing. `Saved` means the file actually changed
+/// and a reload should follow; `Unchanged` is a true all-no-op Save; `Error` carries a
+/// short human message (also logged) for an unreadable/unwritable/malformed file.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) enum SaveOutcome {
+    /// The file's content changed and was written; the caller should post a reload.
+    Saved,
+    /// Nothing actually changed (every edit was a no-op); skip the write + reload.
+    Unchanged,
+    /// The save failed; the file is left untouched. Carries a short message for the UI.
+    Error(String),
+}
+
+/// Persist a batch of Preferences edits to `aterm.toml` NON-DESTRUCTIVELY, returning a
+/// [`SaveOutcome`] so the caller can both decide whether to reload AND show the user
+/// what happened.
 ///
 /// Best-effort + never panics: a missing file is treated as empty (the keys are
 /// created); a read or write error, or an `apply_prefs_edits` failure (malformed
-/// existing file / bad value) is LOGGED and the file is left untouched. Returns `true`
-/// only when a new file content was actually written (so an all-no-op Save is a true
-/// no-op and skips the reload).
+/// existing file / bad value) is logged AND returned as [`SaveOutcome::Error`] with the
+/// file left untouched. [`SaveOutcome::Saved`] is returned only when new content was
+/// actually written.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub(crate) fn save_prefs_edits(edits: &[(&str, Option<String>)]) -> bool {
+pub(crate) fn save_prefs_edits(edits: &[(&str, Option<String>)]) -> SaveOutcome {
     let Some(path) = crate::app_config::config_path() else {
-        eprintln!("aterm-gui: prefs save: no config path (HOME/XDG unset); skipping");
-        return false;
+        let msg = "no config path (HOME/XDG unset)".to_string();
+        eprintln!("aterm-gui: prefs save: {msg}; skipping");
+        return SaveOutcome::Error(msg);
     };
     // A missing file is fine — start from empty and create it on write.
     let existing = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(e) => {
-            eprintln!(
-                "aterm-gui: prefs save: {} unreadable ({e}); leaving config unchanged",
-                path.display()
-            );
-            return false;
+            let msg = format!("{} unreadable ({e})", path.display());
+            eprintln!("aterm-gui: prefs save: {msg}; leaving config unchanged");
+            return SaveOutcome::Error(msg);
         }
     };
     let updated = match apply_prefs_edits(&existing, edits) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("aterm-gui: prefs save: {e}; leaving config unchanged");
-            return false;
+            return SaveOutcome::Error(e.to_string());
         }
     };
     if updated == existing {
-        return false; // nothing actually changed — skip the write + reload
+        return SaveOutcome::Unchanged; // nothing changed — skip the write + reload
     }
     // Best-effort create-parent + write; an unwritable file is logged, never a panic.
     if let Some(parent) = path.parent()
         && let Err(e) = std::fs::create_dir_all(parent)
     {
-        eprintln!(
-            "aterm-gui: prefs save: cannot create {} ({e}); leaving config unchanged",
-            parent.display()
-        );
-        return false;
+        let msg = format!("cannot create {} ({e})", parent.display());
+        eprintln!("aterm-gui: prefs save: {msg}; leaving config unchanged");
+        return SaveOutcome::Error(msg);
     }
     // ATOMIC replace: write a sibling temp then rename over the target, so a crash
     // mid-write can never leave a truncated/partial aterm.toml holding the user's
@@ -310,14 +358,12 @@ pub(crate) fn save_prefs_edits(edits: &[(&str, Option<String>)]) -> bool {
     // same dir, so the rename stays on one filesystem (atomic).
     let tmp = path.with_extension("toml.tmp");
     match std::fs::write(&tmp, &updated).and_then(|()| std::fs::rename(&tmp, &path)) {
-        Ok(()) => true,
+        Ok(()) => SaveOutcome::Saved,
         Err(e) => {
             let _ = std::fs::remove_file(&tmp); // best-effort: don't leave a stray temp
-            eprintln!(
-                "aterm-gui: prefs save: {} unwritable ({e}); config unchanged",
-                path.display()
-            );
-            false
+            let msg = format!("{} unwritable ({e})", path.display());
+            eprintln!("aterm-gui: prefs save: {msg}; config unchanged");
+            SaveOutcome::Error(msg)
         }
     }
 }
@@ -354,8 +400,8 @@ mod macos {
     use objc2::runtime::{AnyObject, NSObjectProtocol, Sel};
     use objc2::{ClassType, DeclaredClass, declare_class, msg_send_id, mutability, sel};
     use objc2_app_kit::{
-        NSBackingStoreType, NSButton, NSControlStateValueOn, NSFont, NSTextField, NSView, NSWindow,
-        NSWindowStyleMask,
+        NSBackingStoreType, NSButton, NSColor, NSControlStateValueOn, NSFont, NSTextField, NSView,
+        NSWindow, NSWindowStyleMask,
     };
     use objc2_foundation::{CGFloat, CGPoint, CGRect, CGSize, MainThreadMarker, NSString};
     use winit::event_loop::EventLoopProxy;
@@ -369,7 +415,7 @@ mod macos {
     /// (no Auto Layout / NSStackView), exactly like `toolbar.rs`, so it needs no extra
     /// objc2-app-kit feature and no raising initializer.
     const WIN_W: CGFloat = 440.0;
-    const WIN_H: CGFloat = 340.0;
+    const WIN_H: CGFloat = 372.0;
     /// Inset of the content from the window edges.
     const MARGIN: CGFloat = 20.0;
     /// Height (points) of one label/control row.
@@ -418,6 +464,10 @@ mod macos {
         /// The editable controls, in row order, read by `saveConfig:`. Empty until the
         /// window is built (the controls target this object, so it exists first).
         controls: RefCell<Vec<Saved>>,
+        /// The status line at the bottom of the window, updated by `saveConfig:` to show
+        /// the [`super::SaveOutcome`] (Saved / No changes / error). `None` until the
+        /// window is built (the label is created after the target it reports through).
+        status: RefCell<Option<Retained<NSTextField>>>,
     }
 
     /// What [`open_preferences`] returns: the retained backing objects. AppKit holds a
@@ -437,6 +487,21 @@ mod macos {
     // (the event loop). It holds main-thread-only AppKit objects; `App` stores it in a
     // field and never sends it across threads. We add no unsafe Send/Sync — the
     // auto-derived non-Send is the safe default.
+
+    impl PrefsHandle {
+        /// The on-screen CoreGraphics window number (`CGWindowID`) of the live
+        /// Preferences window, for the `window prefs` introspection capture — or `None`
+        /// when the window is off-screen / not yet committed (`windowNumber() <= 0`).
+        /// Reads the retained `NSWindow` DIRECTLY (no winit `NSView -> window()` hop,
+        /// unlike a terminal window). Main-thread only (introspection runs via a Wake
+        /// hop, so the caller is already on the main thread).
+        pub(crate) fn window_number(&self) -> Option<isize> {
+            // SAFETY: `windowNumber()` is a side-effect-free getter on the live retained
+            // NSWindow, called on the main thread.
+            let n = unsafe { self._window.windowNumber() };
+            (n > 0).then_some(n)
+        }
+    }
 
     declare_class!(
         /// The target object for the Preferences window's buttons. Owns the
@@ -502,8 +567,29 @@ mod macos {
                 }
                 drop(controls);
                 // Persist non-destructively; reload only if the file actually changed.
-                if super::save_prefs_edits(&edits) {
+                let outcome = super::save_prefs_edits(&edits);
+                if matches!(outcome, super::SaveOutcome::Saved) {
                     let _ = ivars.proxy.send_event(Wake::ConfigReload);
+                }
+                // Show the result in the status line so Save is never silent.
+                let (msg, is_err) = match &outcome {
+                    super::SaveOutcome::Saved => ("Saved — reloading…".to_string(), false),
+                    super::SaveOutcome::Unchanged => ("No changes to save".to_string(), false),
+                    super::SaveOutcome::Error(e) => (format!("Save failed: {e}"), true),
+                };
+                if let Some(status) = ivars.status.borrow().as_ref() {
+                    // SAFETY: `setStringValue:` / `setTextColor:` are plain main-thread
+                    // setters on the live status label (built on this thread); `saveConfig:`
+                    // only runs on the main thread.
+                    unsafe {
+                        status.setStringValue(&NSString::from_str(&msg));
+                        let color = if is_err {
+                            NSColor::systemRedColor()
+                        } else {
+                            NSColor::secondaryLabelColor()
+                        };
+                        status.setTextColor(Some(&color));
+                    }
                 }
             }
 
@@ -534,6 +620,7 @@ mod macos {
             let this = mtm.alloc().set_ivars(PrefsIvars {
                 proxy,
                 controls: RefCell::new(Vec::new()),
+                status: RefCell::new(None),
             });
             // SAFETY: plain `[super init]` on a freshly allocated instance.
             unsafe { msg_send_id![super(this), init] }
@@ -617,7 +704,8 @@ mod macos {
                 _ => {
                     let label_field = make_label(mtm, field.label, false);
                     place(&label_field, MARGIN, y, LABEL_W, ROW_H);
-                    let edit = make_text_field(mtm, field.seed.as_deref().unwrap_or(""));
+                    let edit =
+                        make_text_field(mtm, field.seed.as_deref().unwrap_or(""), &field.placeholder);
                     place(&edit, ctl_x, y, ctl_w, ROW_H);
                     subviews.push(to_view_label(label_field));
                     subviews.push(to_view_label(edit.clone()));
@@ -656,6 +744,16 @@ mod macos {
         subviews.push(to_view_button(save));
         subviews.push(to_view_button(open));
         subviews.push(to_view_button(reload));
+
+        // The status line, just above the buttons: blank until a Save reports through it
+        // (so the user gets visible Saved / No-changes / error feedback instead of a
+        // silent Save). Built non-bold + dim; `saveConfig:` rewrites its text + colour.
+        let status = make_label(mtm, "", false);
+        // SAFETY: `setTextColor:` is a plain main-thread setter on the fresh label.
+        unsafe { status.setTextColor(Some(&NSColor::secondaryLabelColor())) };
+        place(&status, MARGIN, MARGIN + BUTTON_H + ROW_GAP, content_w, ROW_H);
+        *target.ivars().status.borrow_mut() = Some(status.clone());
+        subviews.push(to_view_label(status));
 
         // Attach every subview to the window's content view, then show + center.
         // SAFETY: `contentView` is non-null for a titled window; `addSubview:` /
@@ -720,12 +818,18 @@ mod macos {
     }
 
     /// Build an EDITABLE, bezeled text field seeded with `value` (the configured raw
-    /// value, or `""` for an unset key). Uses the documented non-raising
-    /// `textFieldWithString:` factory, then flips it editable + bezeled. Its value is
-    /// read back in `saveConfig:`.
-    fn make_text_field(mtm: MainThreadMarker, value: &str) -> Retained<NSTextField> {
+    /// value, or `""` for an unset key) and showing `placeholder` (the effective value)
+    /// greyed when blank. Uses the documented non-raising `textFieldWithString:` factory,
+    /// then flips it editable + bezeled and sets the placeholder. Its value is read back
+    /// in `saveConfig:`.
+    fn make_text_field(
+        mtm: MainThreadMarker,
+        value: &str,
+        placeholder: &str,
+    ) -> Retained<NSTextField> {
         // SAFETY: `textFieldWithString:` is the documented non-raising factory; plain
-        // setters follow on the fresh field; all on the main thread.
+        // setters (incl. `setPlaceholderString:`) follow on the fresh field; all on the
+        // main thread.
         unsafe {
             let field = NSTextField::textFieldWithString(&NSString::from_str(value), mtm);
             field.setEditable(true);
@@ -733,6 +837,9 @@ mod macos {
             field.setBezeled(true);
             field.setDrawsBackground(true);
             field.setFont(Some(&NSFont::systemFontOfSize(13.0)));
+            if !placeholder.is_empty() {
+                field.setPlaceholderString(Some(&NSString::from_str(placeholder)));
+            }
             field
         }
     }
@@ -1031,5 +1138,53 @@ gpu = true
         };
         assert_eq!(seed(EDIT_THEME), None);
         assert_eq!(seed(EDIT_FONT_FAMILY), None);
+    }
+
+    fn placeholder(fields: &[super::EditField], k: &str) -> String {
+        fields
+            .iter()
+            .find(|f| f.key == k)
+            .map(|f| f.placeholder.clone())
+            .unwrap_or_default()
+    }
+
+    /// On a fully-unset config every text field's placeholder shows the EFFECTIVE
+    /// DEFAULT (never blank) — the fix for the "every row looks empty" confusion. The
+    /// control still SEEDS blank (so an untouched Save removes nothing), but the user
+    /// sees what's in effect.
+    #[test]
+    fn editable_fields_placeholder_shows_effective_default() {
+        let fields = editable_fields(&Config::default());
+        assert_eq!(placeholder(&fields, EDIT_FONT_PX), "auto (default)");
+        assert_eq!(placeholder(&fields, EDIT_FONT_FAMILY), "default");
+        assert_eq!(placeholder(&fields, EDIT_THEME), "Default");
+        assert_eq!(placeholder(&fields, EDIT_CURSOR_STYLE), "block (default)");
+        assert_eq!(placeholder(&fields, EDIT_SCROLLBACK), "100000 (default)");
+        // None of the text-row placeholders are blank.
+        for k in [
+            EDIT_FONT_PX,
+            EDIT_FONT_FAMILY,
+            EDIT_THEME,
+            EDIT_CURSOR_STYLE,
+            EDIT_SCROLLBACK,
+        ] {
+            assert!(!placeholder(&fields, k).is_empty(), "{k} placeholder blank");
+        }
+    }
+
+    /// A CONFIGURED value is surfaced verbatim in the placeholder too (so the effective
+    /// value shows whether or not the control is pre-filled), and `0` scrollback reads as
+    /// "unlimited".
+    #[test]
+    fn editable_fields_placeholder_reflects_configured_value() {
+        let c: Config = toml::from_str(
+            "theme = \"Nord\"\ncursor_style = \"bar\"\nscrollback_lines = 0\nfont_px = 15.0\n",
+        )
+        .unwrap();
+        let fields = editable_fields(&c);
+        assert_eq!(placeholder(&fields, EDIT_THEME), "Nord");
+        assert_eq!(placeholder(&fields, EDIT_CURSOR_STYLE), "bar");
+        assert_eq!(placeholder(&fields, EDIT_SCROLLBACK), "unlimited");
+        assert_eq!(placeholder(&fields, EDIT_FONT_PX), "15 px");
     }
 }

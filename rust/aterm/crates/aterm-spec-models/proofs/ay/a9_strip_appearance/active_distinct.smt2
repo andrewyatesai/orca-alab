@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; a9 — the active-tab card is a DISTINCT surface from the body for EVERY
 ;   builtin (else the focused tab vanishes into the strip). active card =

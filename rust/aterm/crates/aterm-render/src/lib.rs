@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! aterm CPU rasterizer — turns the terminal grid into an RGBA framebuffer.
 //!
@@ -762,6 +762,34 @@ fn color_emoji_candidate_paths() -> Vec<String> {
     if let Ok(p) = std::env::var("ATERM_EMOJI_FONT") {
         paths.push(p);
     }
+    // Prefer a user-installed colour emoji font (no root needed). A COLR(v1) build
+    // renders ALL emoji — including ZWJ family/couple sequences — in colour, where a
+    // stock CBDT Noto renders those (Unicode-deprecated) sequences as monochrome
+    // silhouettes. Scan the per-user font dirs for any *emoji* face so dropping one
+    // into ~/.local/share/fonts is enough; sorted for a deterministic choice.
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        for dir in [".local/share/fonts", ".fonts"] {
+            let Ok(rd) = std::fs::read_dir(home.join(dir)) else {
+                continue;
+            };
+            let mut hits: Vec<String> = rd
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    p.extension()
+                        .and_then(|e| e.to_str())
+                        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc"))
+                        && p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.to_ascii_lowercase().contains("emoji"))
+                })
+                .filter_map(|p| p.to_str().map(String::from))
+                .collect();
+            hits.sort();
+            paths.extend(hits);
+        }
+    }
     paths.extend(COLOR_EMOJI_CANDIDATES.iter().map(|s| (*s).to_string()));
     paths
 }
@@ -947,29 +975,99 @@ fn path_is_last_resort(path: &str) -> bool {
 /// [`FONT_DIRS`] it knows, parses each candidate to test coverage (slower than a
 /// charset index), and does not understand fontconfig's family aliasing. It is
 /// sufficient for the bundled macOS faces and any font dropped into those dirs.
-fn runtime_fallback_scan_candidates(ch: char, out: &mut Vec<String>) {
-    // [`font_files`] yields every font file under the search dirs (recursively, in a
-    // deterministic order, already filtered to [`FONT_EXTS`]) — so the nested Linux
-    // font tree is covered, not just the flat macOS one.
-    for path in font_files() {
-        let Some(p) = path.to_str().map(str::to_string) else {
-            continue;
-        };
-        // Skip the universal LastResort tofu font (it "covers" everything).
-        if path_is_last_resort(&p) || out.contains(&p) {
-            continue;
+/// One system font's cmap coverage: its path plus the sorted, coalesced inclusive
+/// codepoint ranges its `cmap` maps. Built ONCE (see [`font_coverage_index`]) so the
+/// per-codepoint runtime fallback is a cheap range probe instead of a re-read+parse
+/// of every font on the render thread.
+struct FontCoverage {
+    path: String,
+    ranges: Vec<(u32, u32)>,
+}
+
+impl FontCoverage {
+    /// Whether the font's cmap covers `cp` — binary search over the sorted ranges.
+    fn covers(&self, cp: u32) -> bool {
+        self.ranges
+            .binary_search_by(|&(lo, hi)| {
+                if cp < lo {
+                    std::cmp::Ordering::Greater
+                } else if cp > hi {
+                    std::cmp::Ordering::Less
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .is_ok()
+    }
+}
+
+/// Extract a font's covered codepoints from its `cmap` as sorted, coalesced inclusive
+/// ranges (compact: a CJK face's ~tens-of-thousands of codepoints collapse to a few
+/// hundred ranges). `None` when the face has no usable Unicode cmap.
+fn font_cmap_ranges(bytes: &[u8]) -> Option<Vec<(u32, u32)>> {
+    let face = ttf_parser::Face::parse(bytes, 0).ok()?;
+    let cmap = face.tables().cmap?;
+    let mut cps: Vec<u32> = Vec::new();
+    for sub in cmap.subtables {
+        if sub.is_unicode() {
+            sub.codepoints(|cp| cps.push(cp));
         }
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
-        // ttf-parser's cmap query is cheaper than a full fontdue parse for a
-        // coverage probe; only confirmed-covering fonts are handed back (and
-        // the caller re-parses with fontdue, applying `face_can_render`).
-        let Ok(face) = ttf_parser::Face::parse(&bytes, 0) else {
-            continue;
-        };
-        if face.glyph_index(ch).is_some_and(|g| g.0 != 0) {
-            out.push(p);
+    }
+    if cps.is_empty() {
+        return None;
+    }
+    cps.sort_unstable();
+    cps.dedup();
+    let mut ranges: Vec<(u32, u32)> = Vec::with_capacity(64);
+    for cp in cps {
+        match ranges.last_mut() {
+            Some(last) if cp == last.1 + 1 => last.1 = cp,
+            _ => ranges.push((cp, cp)),
+        }
+    }
+    Some(ranges)
+}
+
+/// The process-wide font cmap-coverage index, built LAZILY on first use: every system
+/// font under [`font_search_dirs`] read + parsed ONCE, its coverage stored as ranges.
+/// This replaces the old per-codepoint re-read+parse of all ~260 fonts (a ~1s
+/// render-thread freeze on each new uncovered codepoint) — the build is paid once,
+/// then [`runtime_fallback_scan_candidates`] is an in-memory range probe. The
+/// LastResort tofu font is excluded (it "covers" everything). Only the small range
+/// tables are retained; the font bytes are dropped after extraction.
+fn font_coverage_index() -> &'static [FontCoverage] {
+    static INDEX: std::sync::OnceLock<Vec<FontCoverage>> = std::sync::OnceLock::new();
+    INDEX.get_or_init(|| {
+        let mut idx: Vec<FontCoverage> = Vec::new();
+        for path in font_files() {
+            let Some(p) = path.to_str().map(str::to_string) else {
+                continue;
+            };
+            if path_is_last_resort(&p) {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            if let Some(ranges) = font_cmap_ranges(&bytes) {
+                idx.push(FontCoverage { path: p, ranges });
+            }
+        }
+        idx
+    })
+}
+
+/// Cross-platform (and macOS-CoreText-miss) discovery: the fonts whose `cmap` covers
+/// `ch`, appended to `out` (deduped against entries already present, e.g. the
+/// CoreText pick). Backed by the one-time [`font_coverage_index`], so this is an
+/// in-memory range probe per font — NO disk read or parse per call. The caller
+/// re-parses the chosen path with fontdue and applies `face_can_render`, so a font
+/// whose cmap maps `ch` to a glyph fontdue cannot draw is still rejected downstream.
+fn runtime_fallback_scan_candidates(ch: char, out: &mut Vec<String>) {
+    let cp = ch as u32;
+    for fc in font_coverage_index() {
+        if fc.covers(cp) && !out.contains(&fc.path) {
+            out.push(fc.path.clone());
         }
     }
 }
@@ -1308,8 +1406,9 @@ pub fn font_search_dirs() -> Vec<std::path::PathBuf> {
 
 /// Maximum directory recursion depth for the font-dir scan. macOS keeps its faces
 /// one level deep, but Linux NESTS them (`/usr/share/fonts/truetype/<vendor>/x.ttf`),
-/// so the scan must descend. A small bound covers every real layout while keeping a
-/// pathological deep tree (or a symlink loop) from stalling startup.
+/// so the scan must descend. A small bound covers every real layout. Symlinked
+/// directories are NEVER descended (see [`font_files`]), so the depth bound is a
+/// belt-and-braces cap on a pathologically deep REAL tree, not the loop guard.
 const FONT_SCAN_MAX_DEPTH: usize = 8;
 
 /// Recursively collect font FILES (extension in [`FONT_EXTS`]) under every directory
@@ -1323,22 +1422,36 @@ const FONT_SCAN_MAX_DEPTH: usize = 8;
 /// all consume it, so Linux's nested tree and macOS's flat one are handled
 /// uniformly — depth-0 files (the macOS layout) are still found first.
 fn font_files() -> Vec<std::path::PathBuf> {
+    fn is_font(p: &std::path::Path) -> bool {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| FONT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
+    }
     fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else {
             return;
         };
-        let mut paths: Vec<std::path::PathBuf> = entries.flatten().map(|e| e.path()).collect();
-        paths.sort();
-        for p in paths {
-            if p.is_dir() {
+        let mut entries: Vec<std::fs::DirEntry> = entries.flatten().collect();
+        entries.sort_by_key(std::fs::DirEntry::path);
+        for entry in entries {
+            let p = entry.path();
+            // `file_type()` reports the entry WITHOUT following a final symlink. We
+            // descend ONLY real directories — a symlinked directory is never followed,
+            // so a self/loop symlink (e.g. in ~/.fonts) cannot blow the walk up
+            // (real dirs form an acyclic tree). A symlink that points at a font FILE is
+            // still honoured (font trees legitimately symlink faces).
+            let Ok(ft) = entry.file_type() else { continue };
+            if ft.is_dir() {
                 if depth < FONT_SCAN_MAX_DEPTH {
                     walk(&p, depth + 1, out);
                 }
-            } else if p
-                .extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|ext| FONT_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)))
-            {
+            } else if ft.is_symlink() {
+                // Resolve the link target's kind once; follow file targets, skip dir
+                // targets (loop-safe). `is_file()` traverses the link.
+                if p.is_file() && is_font(&p) {
+                    out.push(p);
+                }
+            } else if is_font(&p) {
                 out.push(p);
             }
         }
@@ -1731,11 +1844,13 @@ impl Renderer {
         let Ok(face) = ttf_parser::Face::parse(bytes, 0) else {
             return false;
         };
-        // A glyph is colour-renderable only if it has an sbix raster image, not
-        // just a (possibly .notdef) glyph id.
-        face.glyph_index(ch)
-            .and_then(|gid| face.glyph_raster_image(gid, u16::MAX))
-            .is_some()
+        // A glyph is colour-renderable if the face can DRAW it in colour: a CBDT/
+        // sbix raster strike OR a COLR (vector) paint. The COLR branch is what lets
+        // a COLR-only font (Twemoji, modern COLRv1 Noto) render emoji in colour at
+        // all — without it `select_face` declines every glyph and falls to mono.
+        face.glyph_index(ch).is_some_and(|gid| {
+            face.glyph_raster_image(gid, u16::MAX).is_some() || face.is_color_glyph(gid)
+        })
     }
 
     pub fn cell_size(&self) -> (usize, usize) {
@@ -2101,16 +2216,24 @@ impl Renderer {
         if gid == 0 {
             return None; // .notdef — not a real emoji glyph
         }
-        // Must actually carry a colour bitmap, else there's nothing to draw in
-        // colour and the base-codepoint fallback is the honest result. Probe at
-        // the LARGEST strike (`u16::MAX`): Apple Color Emoji's sbix has a ppem
-        // dead-zone (~33–52) where COMPOSITE glyphs (ZWJ families/sequences) carry
-        // no strike — requesting the cell ppem there returns None and we'd wrongly
-        // decline the cluster and fall back to the base codepoint (e.g. the family
-        // 👨‍👩‍👧‍👦 collapsing to 👨). The largest strike always has it; the
-        // rasterizer downscales regardless. Mirrors `color_font_has`.
+        // The colour face must actually be able to DRAW this glyph, else there's
+        // nothing to render in colour and the base-codepoint fallback is the honest
+        // result. Accept EITHER a bitmap strike OR a COLR (vector) paint:
+        //  - Raster (CBDT/sbix): probe the LARGEST strike (`u16::MAX`). Apple Color
+        //    Emoji's sbix has a ppem dead-zone (~33–52) where COMPOSITE glyphs (ZWJ
+        //    families/sequences) carry no strike — a cell-ppem request would return
+        //    None and we'd wrongly decline the cluster, collapsing 👨‍👩‍👧‍👦 to 👨.
+        //    The largest strike always has it; the rasterizer downscales regardless.
+        //  - COLR: a COLR-only font (Twemoji, modern COLRv1 Noto) has NO raster
+        //    strike at all, so without this branch every ZWJ cluster emoji on such a
+        //    font fell back to .notdef mono. `rasterize_color_emoji_gid` already
+        //    paints COLR via `rasterize_colr`; this lets the cluster reach it.
+        // Mirrors `color_font_has`.
         let tt = ttf_parser::Face::parse(bytes, 0).ok()?;
-        tt.glyph_raster_image(ttf_parser::GlyphId(gid), u16::MAX)?;
+        let g = ttf_parser::GlyphId(gid);
+        if tt.glyph_raster_image(g, u16::MAX).is_none() && !tt.is_color_glyph(g) {
+            return None;
+        }
         Some(gid)
     }
 
@@ -4380,6 +4503,74 @@ impl Rasterizer for Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// END-TO-END regression for ZWJ-sequence emoji (family / couple): drive the
+    /// REAL print path (`Terminal::process` → `cell_frame` → `render_input`) and
+    /// assert the engine (1) GROUPS the multi-emoji ZWJ sequence into ONE cell so
+    /// `cluster_row` emits the full string, and (2) resolves+rasterizes it through
+    /// the COLOUR face (a non-empty `Rgba` glyph) rather than collapsing to a
+    /// `.notdef` mono box.
+    ///
+    /// Part (2) guards the COLR coverage fix: the cluster gate
+    /// (`shape_cluster_uncached`) now accepts a COLR (vector) glyph, not just a
+    /// CBDT/sbix raster, so cluster emoji render on COLR-only fonts (Twemoji, modern
+    /// COLRv1 Noto) instead of tofu. Whether the glyph is COLOURFUL or monochrome is
+    /// a FONT property — the stock Noto CBDT renders these Unicode-deprecated
+    /// sequences as monochrome silhouettes — so when the active colour font DOES
+    /// carry colour for the cluster (saturated texels) we additionally assert that
+    /// colour survives to the framebuffer cell (point a COLR font at it via
+    /// `ATERM_EMOJI_FONT` to exercise that branch).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn zwj_cluster_renders_through_colour_face() {
+        use aterm_core::terminal::Terminal;
+        let Some(mut r) = Renderer::from_system(40.0, Theme::default()) else {
+            return;
+        };
+        let (cw, ch) = r.cell_size();
+        for (name, seq) in [
+            ("family", "👨\u{200d}👩\u{200d}👧"),
+            ("couple", "👩\u{200d}\u{2764}\u{fe0f}\u{200d}👨"),
+        ] {
+            let mut term = Terminal::new(4, 20);
+            term.process(seq.as_bytes());
+            let input = term.cell_frame(4, 20);
+            // (1) the engine grouped the sequence into ONE cell at lead col 0.
+            let grouped = input.clusters[0]
+                .iter()
+                .find(|(c, _)| *c == 0)
+                .map(|(_, s)| s.as_ref());
+            assert_eq!(grouped, Some(seq), "{name}: engine must group the ZWJ sequence");
+            // (2) it resolves through the COLOUR face — a non-empty Rgba glyph — not a
+            //     mono `.notdef` box. (Pre-fix, a COLR-only colour font produced Mono.)
+            let lead = &input.cells[0][0];
+            let key = r.resolve_cell_key(Some(seq), lead);
+            let GlyphImage::Rgba { bytes, .. } = r.glyph_image(key) else {
+                // The active colour font has no glyph for this cluster at all; the
+                // grouping check above is the font-independent guarantee.
+                continue;
+            };
+            assert!(bytes.iter().any(|&b| b != 0), "{name}: cluster glyph must not be blank");
+            // If the colour font carries COLOUR for the cluster, it must reach the cell.
+            let sat = |b: &[u8]| {
+                let (rr, gg, bb) = (b[0] as i32, b[1] as i32, b[2] as i32);
+                b[3] > 0 && ((rr - gg).abs() > 24 || (gg - bb).abs() > 24 || (rr - bb).abs() > 24)
+            };
+            if bytes.chunks(4).filter(|px| sat(px)).count() > 16 {
+                let frame = r.render_input(&input);
+                let cell_sat = (0..ch.min(frame.height))
+                    .flat_map(|y| (0..(2 * cw).min(frame.width)).map(move |x| (x, y)))
+                    .filter(|&(x, y)| {
+                        let p = frame.pixels[y * frame.width + x];
+                        let (rr, gg, bb) =
+                            ((p >> 16 & 0xff) as i32, (p >> 8 & 0xff) as i32, (p & 0xff) as i32);
+                        (rr - gg).abs() > 24 || (gg - bb).abs() > 24 || (rr - bb).abs() > 24
+                    })
+                    .count();
+                assert!(cell_sat > 8, "{name}: colour cluster must paint colour into the cell, got {cell_sat}");
+            }
+        }
+    }
     // Tests build terminals and call `Terminal::cell_frame` to feed the renderer
     // (the engine-side snapshot path that replaced the old `Renderer::extract`).
     use aterm_core::terminal::Terminal;

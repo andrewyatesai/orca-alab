@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! TLS 1.3 transport (rustls + the `ring` provider) for the L3 network drive.
 //!

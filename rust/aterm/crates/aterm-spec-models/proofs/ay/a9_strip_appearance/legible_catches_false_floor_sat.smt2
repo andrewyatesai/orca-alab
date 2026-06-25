@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; a9 CONTROL — prove-AND-catch: the legibility bound is TIGHT, not vacuous. The
 ;   checker rejects an over-strong floor (contrast>=4.0) on the tightest builtin

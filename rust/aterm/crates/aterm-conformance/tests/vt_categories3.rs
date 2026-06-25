@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // VT conformance, batch 4 — behavioral depth: the alt-screen mode trio
 // (47/1047/1049), DECCOLM gating + DECNCSM, DECSCNM reverse video, left/right

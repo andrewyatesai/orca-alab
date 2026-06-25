@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The APP-FED metric store: a process-global, bounded set of named numeric streams
 //! that any process in an aterm window can push to over the control socket
@@ -118,7 +118,11 @@ pub(crate) fn snapshot(now: Instant, spark_width: usize) -> Vec<StreamView> {
             .0
             .checked_duration_since(oldest.0)
             .map_or(0.0, |d| d.as_secs_f64());
-        let rate = if dt > 0.0 {
+        // Floor the denominator: a bursty producer emitting several samples within
+        // milliseconds otherwise yields an absurd multi-MB/s rate for a kilobyte delta
+        // (sub-ms dt). Require at least MIN_RATE_DT of span before dividing.
+        const MIN_RATE_DT: f64 = 0.5;
+        let rate = if dt >= MIN_RATE_DT {
             ((newest.1 - oldest.1) / dt).max(0.0)
         } else {
             0.0

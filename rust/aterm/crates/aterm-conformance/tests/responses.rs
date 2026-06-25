@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Response correctness — feed a query, drain Terminal::take_response(), assert
 // the EXACT reply bytes. Expectations are xterm/VT510-correct; where the reply

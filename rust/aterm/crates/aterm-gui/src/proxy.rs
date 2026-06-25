@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Cross-process `@grandchild` PROXY forward (Item 5b) — the layer that turns the
 //! per-process control socket into a UNIFIED address space spanning the recursion

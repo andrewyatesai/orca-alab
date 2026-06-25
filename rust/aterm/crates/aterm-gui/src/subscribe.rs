@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! Real-time SUBSCRIBER REGISTRY + PUSH face (design P1.3) — the additive layer
 //! that turns the poll-only control socket into a server-PUSH face, so one agent

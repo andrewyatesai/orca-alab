@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! The engine-owned render SNAPSHOT (`read_image` boundary, REARCH A-3).
 //!

@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Regression tests for keyboard encoding internals (write_u32), plus the
 //! KEYBOARD-SHIFT REFINEMENT obligation (the always-on twin of the Trust

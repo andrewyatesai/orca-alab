@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 
 //! `aterm-gui` — a native windowed aterm terminal.
 //!
@@ -63,6 +63,7 @@ mod metrics;
 mod net_listen;
 mod notify;
 mod pane;
+mod perf_panel;
 mod platform;
 mod prefs;
 mod proxy;
@@ -299,6 +300,10 @@ struct RepaintKey {
     blink_phase: bool,
     /// Visual-bell invert active for this frame (toggles the whole frame).
     invert: bool,
+    /// Drag-and-drop hover highlight active (a file is dragged over the window).
+    /// Like `invert`, the grid damage epoch never sees it, so it must live in the
+    /// key or the appear/disappear frame is swallowed by the repaint early-out.
+    drag_hover: bool,
     /// Unfocused cursor-style override (hollow block), if any.
     cursor_override: Option<CursorStyle>,
     /// The active text selection fingerprint.
@@ -386,6 +391,18 @@ enum Wake {
     /// [`App::reload_config`]). A malformed mid-edit file is rejected with a
     /// warning, leaving the previous config intact.
     ConfigReload,
+    /// A checkbox in the native Performance control panel (`perf_panel.rs`) was
+    /// toggled. The main thread — the SOLE owner of the HUD panel registry + window
+    /// geometry — toggles the panel LIVE via [`App::set_panel`] (re-gridding the window
+    /// so the band appears/disappears immediately) and persists the choice to
+    /// `aterm.toml` via [`App::persist_hud_panel`] so it survives a restart. On
+    /// non-macOS targets the variant exists but is never constructed (no panel),
+    /// keeping `Wake` platform-independent.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    SetHudPanel {
+        id: hud_bar::PanelId,
+        on: bool,
+    },
     /// Phase 0.5 (A.2.3): a control verb built one or more engine-neutral
     /// [`InputEvent`]s and needs the main thread — the SOLE owner of term
     /// geometry + gesture state + the encoders — to apply them via
@@ -480,6 +497,14 @@ enum Wake {
         action: TabAction,
         reply: std::sync::mpsc::Sender<(usize, usize)>,
     },
+    /// The `hover` control verb toggles the drag-and-drop drop-target highlight on
+    /// the frontmost window (testing/automation of the drop affordance — a real
+    /// drag drives the same `drag_hover` flag). Resolved on the main thread because
+    /// it targets `self.frontmost_window`; replies whether a window was present.
+    SetDragHover {
+        hovering: bool,
+        reply: std::sync::mpsc::Sender<bool>,
+    },
     /// The `window` introspection verb wants the frontmost window's ENTIRE
     /// on-screen pixels — the native OS chrome (titlebar, traffic lights, the
     /// unified toolbar, the full-width tab strip) AS WELL AS the terminal content
@@ -496,6 +521,46 @@ enum Wake {
     CaptureWindow {
         path: control_auth::ConfinedImage,
         reply: std::sync::mpsc::Sender<Result<(u32, u32), String>>,
+    },
+    /// Capture an AUXILIARY (non-terminal) window — the Preferences window or the
+    /// Performance control panel — to a CONFINED PNG, the `window prefs` / `window perf`
+    /// introspection verbs. Generalizes [`Wake::CaptureWindow`] (which only sees the
+    /// frontmost TERMINAL window via `front()`) to the directly-owned aux `NSWindow`s
+    /// (`App::_prefs` / `App::_perf_panel`), which `front()` is structurally blind to.
+    /// The control thread posts this + a one-shot reply and BLOCKS; the main thread
+    /// resolves the aux window's `windowNumber()` and reuses the SAME
+    /// `capture_window_pixels` path, replying `Ok((w, h))` or `Err(msg)` (window not
+    /// open / capture failure / off-macOS). The variant exists on every target so `Wake`
+    /// stays platform-independent.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    CaptureAuxWindow {
+        target: app_introspect::AuxTarget,
+        path: control_auth::ConfinedImage,
+        reply: std::sync::mpsc::Sender<Result<(u32, u32), String>>,
+    },
+    /// Read an AUXILIARY window's CONTROLS as text — the `controls prefs` / `controls
+    /// perf` introspection verbs — so an AI can SEE the settings/perf GUIs' labels +
+    /// current values + states (the analogue of `chrome` for aux windows). The main
+    /// thread builds the text from the PURE model (`prefs::editable_fields` /
+    /// `perf_panel::perf_panel_lines` over the live config + panel state — no AppKit
+    /// needed), so this works HEADLESS too. Mirrors the `Wake::ReadChrome` round-trip.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    ReadAuxControls {
+        target: app_introspect::AuxTarget,
+        reply: std::sync::mpsc::Sender<Vec<String>>,
+    },
+    /// OPEN an auxiliary GUI window — the `open prefs` / `open perf` introspection
+    /// verbs — so a driver can bring the settings / Performance panel UP programmatically
+    /// (the missing piece that lets `controls`/`window` then introspect a CLOSED screen).
+    /// Reuses the SAME `App::open_preferences` / `App::open_performance_panel` the menu
+    /// items call; the main thread (the sole AppKit owner) builds the window and replies
+    /// `Ok(())` once its retained handle is present, or `Err(msg)` (off the main thread /
+    /// headless / off-macOS). The variant exists on every target so `Wake` stays
+    /// platform-independent.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    OpenAuxWindow {
+        target: app_introspect::AuxTarget,
+        reply: std::sync::mpsc::Sender<Result<(), String>>,
     },
 }
 
@@ -1079,6 +1144,12 @@ struct WindowState {
     /// `WindowEvent::Focused`). Unfocused: the cursor draws as a hollow block
     /// and blink scheduling stops (the loop stays in `Wait` — 0% idle).
     focused: bool,
+    /// True while a file/image is being dragged OVER this window — between
+    /// `WindowEvent::HoveredFile` and `HoveredFileCancelled`/`DroppedFile`. Drives
+    /// the drop-target highlight (inset accent border + faint wash) painted at
+    /// present time, exactly like `bell_flash`'s invert. Transient + purely
+    /// visual, so it never touches the engine grid and joins `RepaintKey`.
+    drag_hover: bool,
     /// Current cursor blink phase: `true` = the cursor is shown. Only consulted
     /// by the renderers for the `Blinking*` DECSCUSR styles.
     blink_phase: bool,
@@ -1223,6 +1294,7 @@ impl WindowState {
             gesture: None,
             held_mouse_button: None,
             focused: true,
+            drag_hover: false,
             blink_phase: true,
             next_blink: None,
             next_hud_tick: None,
@@ -1429,6 +1501,13 @@ struct App {
     /// the old handle closes the old window). `None` until first opened, off macOS, or
     /// headless. The type is `()` off macOS (`prefs::PrefsHandle`).
     _prefs: Option<prefs::PrefsHandle>,
+    /// Retained backing objects for the native Performance control panel (macOS): the
+    /// `NSWindow` + the checkbox action target. Set when View ▸ Performance Panel… opens
+    /// the window; replaced on re-open (dropping the old handle closes the old window).
+    /// `None` until first opened, off macOS, or headless. The type is `()` off macOS
+    /// (`perf_panel::PerfPanelHandle`). Consulted by introspection (`window perf` /
+    /// `controls perf`) to find the panel's `NSWindow`.
+    _perf_panel: Option<perf_panel::PerfPanelHandle>,
     /// Retained native window-toolbar backing objects (macOS), keyed BY WINDOW and
     /// kept alive for each window's life — AppKit holds a toolbar's delegate and an
     /// item's target only WEAKLY, so dropping a handle silently kills that window's
@@ -1761,6 +1840,7 @@ impl App {
             search_history_lines: MAX_SEARCH_HISTORY,
             _menu: None,
             _prefs: None,
+            _perf_panel: None,
             _toolbars: BTreeMap::new(),
             tab_strip_rows: 0,
             panels: vec![
@@ -1984,6 +2064,20 @@ impl App {
         }
     }
 
+    /// Toggle the drag-and-drop hover highlight for `wid` and repaint. Driven by
+    /// the `HoveredFile`/`HoveredFileCancelled`/`DroppedFile` window events. The
+    /// no-change guard makes a redundant winit event (e.g. a `HoveredFile` per
+    /// file in a multi-file drag) free — only a real on↔off edge repaints.
+    fn set_drag_hover(&mut self, wid: WindowId, hovering: bool) {
+        match self.windows.get_mut(&wid) {
+            Some(ws) if ws.drag_hover != hovering => ws.drag_hover = hovering,
+            _ => return,
+        }
+        if let Some(w) = self.windows.get(&wid).and_then(|ws| ws.os_window.as_ref()) {
+            w.request_redraw();
+        }
+    }
+
     /// BEL reached a tab's engine: audible beep (rate-limited), visual flash
     /// (repaint now; `about_to_wait` arms the un-flash wake), and ask the OS to
     /// mark the window urgent (Dock bounce / taskbar highlight) when the bell
@@ -2085,6 +2179,29 @@ impl App {
         };
         // Route through the seam so paste-formatting + the snap-to-bottom side
         // effect converge with the controller `paste` verb.
+        self.input(wid, InputEvent::Paste(text), Source::Human);
+    }
+
+    /// Insert a dragged-and-dropped file/image path at the active session's
+    /// prompt, iTerm2-style. The absolute path is shell-escaped
+    /// ([`input::shell_escape_path`]) and given one trailing space, then routed
+    /// through the SAME paste seam as Cmd-V — so it honours bracketed paste
+    /// (DEC 2004) when the app asked for it, strips ESC/C1 a hostile filename
+    /// could carry, snaps to the bottom, and (crucially) ends in a space, NOT a
+    /// newline, so nothing is executed. winit emits one event per file with no
+    /// position, so the drop targets the window it landed on (`wid`) and the
+    /// per-file trailing space reproduces iTerm's space-joined `p1 p2 p3 ` for a
+    /// multi-file drop. The shell echoes the inserted text back, which drives the
+    /// repaint (the Cmd-V path relies on the same echo).
+    fn drop_file(&mut self, wid: WindowId, path: &std::path::Path) {
+        // `to_string_lossy` keeps a non-UTF-8 path usable (lossy replacement)
+        // rather than dropping the whole event; an empty path inserts nothing.
+        let raw = path.to_string_lossy();
+        if raw.is_empty() {
+            return;
+        }
+        let mut text = input::shell_escape_path(&raw);
+        text.push(' ');
         self.input(wid, InputEvent::Paste(text), Source::Human);
     }
 }
@@ -2468,6 +2585,16 @@ impl ApplicationHandler<Wake> for App {
                 self.escalate_pending_close(el);
                 let _ = reply.send(state);
             }
+            Wake::SetDragHover { hovering, reply } => {
+                let ok = match self.frontmost_window {
+                    Some(wid) => {
+                        self.set_drag_hover(wid, hovering);
+                        true
+                    }
+                    None => false,
+                };
+                let _ = reply.send(ok);
+            }
             // The `window` verb wants the frontmost window's ENTIRE on-screen pixels
             // (OS chrome + content) as a PNG. Only the main thread may touch AppKit
             // and read the window number, so we capture HERE and reply with the PNG
@@ -2477,10 +2604,41 @@ impl ApplicationHandler<Wake> for App {
                 let result = self.capture_window(&path);
                 let _ = reply.send(result);
             }
+            // The `window prefs` / `window perf` verbs: capture an AUXILIARY GUI window
+            // (Preferences / Performance panel) — which `front()` can't see — by its own
+            // window number, reusing the same confined capture path. Main thread only.
+            Wake::CaptureAuxWindow {
+                target,
+                path,
+                reply,
+            } => {
+                let result = self.capture_aux_window(target, &path);
+                let _ = reply.send(result);
+            }
+            // The `controls prefs` / `controls perf` verbs: dump an aux window's controls
+            // (labels + values + states) as text, from the pure model (works headless).
+            Wake::ReadAuxControls { target, reply } => {
+                let lines = self.read_aux_controls(target);
+                let _ = reply.send(lines);
+            }
+            // The `open prefs` / `open perf` verbs: bring an aux GUI window UP (reusing the
+            // same open path the menu uses), so a driver can then `window`/`controls` it.
+            Wake::OpenAuxWindow { target, reply } => {
+                let result = self.open_aux_window(target);
+                let _ = reply.send(result);
+            }
             // The user edited the config file (the watcher saw its mtime change):
             // re-read + validate + apply to every live session. A malformed
             // mid-edit file is rejected (the previous config stays intact).
             Wake::ConfigReload => self.reload_config(),
+            // A Performance-control-panel checkbox toggled: apply it LIVE (re-grids the
+            // window so the HUD band appears/disappears immediately) and persist the
+            // `show_*_hud` key so it survives a restart. Main thread only — the sole
+            // owner of the panel registry + geometry.
+            Wake::SetHudPanel { id, on } => {
+                self.set_panel(id, on);
+                self.persist_hud_panel(id, on);
+            }
             // Phase 0.5 (A.2.3): apply a controller-built batch on the main thread
             // (the sole owner of term geometry + gesture state + the encoders), IN
             // ORDER, so a press/move/release gesture lands atomically in this one
@@ -2598,6 +2756,25 @@ impl ApplicationHandler<Wake> for App {
                 self.escalate_pending_close(el);
             }
             WindowEvent::MouseWheel { delta, .. } => self.on_mouse_wheel(wid, delta),
+            // A file/image dragged from Finder / a file manager / a browser and
+            // dropped onto the window. winit delivers ONE `DroppedFile` per file
+            // (no position, no batch boundary), so — exactly like iTerm2 — each
+            // dropped path is inserted shell-escaped at the active session's
+            // prompt; the per-file trailing space makes an N-file drop concatenate
+            // to `p1 p2 p3 ` (space-joined, one trailing space, no leading space,
+            // no newline, nothing executed). An image file inserts its path too,
+            // matching iTerm (inline display is for pasted image DATA, not drops).
+            // The drop also clears the hover highlight (the gesture is over).
+            WindowEvent::DroppedFile(path) => {
+                self.set_drag_hover(wid, false);
+                self.drop_file(wid, &path);
+            }
+            // A drag entered/left the window WITHOUT (yet) dropping. winit emits a
+            // `HoveredFile` per file on entry and a single `HoveredFileCancelled`
+            // when the drag leaves. We only need the on/off edge to light up the
+            // drop-target highlight (the path arrives on the actual drop).
+            WindowEvent::HoveredFile(_path) => self.set_drag_hover(wid, true),
+            WindowEvent::HoveredFileCancelled => self.set_drag_hover(wid, false),
             WindowEvent::Resized(size) => {
                 self.on_resize(wid, size);
                 if let Some(w) = self.windows.get(&wid).and_then(|ws| ws.os_window.as_ref()) {
@@ -3314,6 +3491,8 @@ fn main() {
         _menu: None,
         // Opened lazily on App ▸ Preferences… (⌘,) in `dispatch_menu_action`.
         _prefs: None,
+        // Opened lazily on View ▸ Performance Panel… in `dispatch_menu_action`.
+        _perf_panel: None,
         // Native window toolbars, keyed per window; installed in `attach_os_window`.
         _toolbars: BTreeMap::new(),
         // GLOBAL tab-strip config (per-frame `tab_segments` live in WindowState).
@@ -5095,6 +5274,8 @@ mod early_out_tests {
             damage_epoch: term.damage_epoch(),
             blink_phase,
             invert,
+            // These unit frames never exercise the drag-hover highlight.
+            drag_hover: false,
             cursor_override,
             selection: SelectionFingerprint::of(term.text_selection()),
             // No tab strip in these unit frames (the disabled-strip sentinel), so the

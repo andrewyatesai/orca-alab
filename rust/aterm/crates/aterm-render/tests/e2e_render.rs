@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // END-TO-END proof, headless: spawn a REAL shell in a PTY → its output drives
 // the VT engine → the engine grid is rasterized to pixels. This exercises the

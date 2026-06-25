@@ -57,6 +57,16 @@ cpSync(join(srcDir, 'crates'), join(destDir, 'crates'), {
   recursive: true,
   filter: (s) => !SKIP_DIRS.has(basename(s))
 })
+// vendor/ (recursive): the workspace root Cargo.toml `[patch.crates-io]` points
+// winit at `vendor/winit`, so the dir must exist for cargo to RESOLVE the
+// workspace. It's only a patch entry (the GUI's windowing dep) and is not in the
+// wasm dep tree, so winit is never compiled for the wasm engine build.
+if (existsSync(join(srcDir, 'vendor'))) {
+  cpSync(join(srcDir, 'vendor'), join(destDir, 'vendor'), {
+    recursive: true,
+    filter: (s) => !SKIP_DIRS.has(basename(s))
+  })
+}
 for (const f of TOP_FILES) {
   if (existsSync(join(srcDir, f))) {
     cpSync(join(srcDir, f), join(destDir, f))

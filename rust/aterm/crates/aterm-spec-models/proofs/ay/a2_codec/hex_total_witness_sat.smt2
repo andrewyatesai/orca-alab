@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A2 NON-VACUITY / PROVE-AND-CATCH control for hex decode_nibble. By `ay`.
 ; Expected: sat  (a witness exists: a byte OUTSIDE all three hex ranges hits the `_`

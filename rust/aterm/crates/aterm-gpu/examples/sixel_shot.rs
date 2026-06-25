@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 //
 // Visual proof-of-life for SIXEL rendering: feed a small sixel image (top band
 // red, bottom band green) through a Terminal, render it on the GPU, and write a

@@ -1,5 +1,5 @@
 ; SPDX-License-Identifier: Apache-2.0
-; Copyright 2026 The aterm Authors
+; Copyright 2026 Andrew Yates
 ;
 ; A1 NON-VACUITY control — interior index values are genuinely reachable (SAT).
 ; Expected: sat  (the encoder is not degenerate; real strict-interior indices occur).

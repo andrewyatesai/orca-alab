@@ -1,4 +1,4 @@
-// Copyright 2026 The aterm Authors, Inc.
+// Copyright 2026 Andrew Yates, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
 //! Platform directory resolution (zero external dependencies).

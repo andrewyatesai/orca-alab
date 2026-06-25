@@ -1,6 +1,6 @@
-// Copyright 2026 The aterm Authors
+// Copyright 2026 Andrew Yates
 // SPDX-License-Identifier: Apache-2.0
-// Author: The aterm Authors
+// Author: Andrew Yates
 
 //! Bounded decompression codec tests (#3598) and error-safety tests for
 //! corrupt compressed data in warm/cold tiers (#4638, #5893, #5921).

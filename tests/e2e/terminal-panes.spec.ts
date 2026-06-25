@@ -27,6 +27,7 @@ import {
   waitForTerminalOutput,
   waitForPaneCount,
   getTerminalContent,
+  getTerminalLogicalText,
   sendToTerminal
 } from './helpers/terminal'
 import {
@@ -501,8 +502,10 @@ test.describe('Terminal Panes', () => {
         message: 'Title-strip drop did not activate the titled pane'
       })
       .toBe(titledLeafId)
+    // Why: the narrow split pane soft-wraps the echoed path, so the SerializeAddon's
+    // replayable ANSI splits it mid-token. Read de-wrapped logical lines instead.
     await expect
-      .poll(async () => (await getTerminalContent(orcaPage)).includes(droppedPath), {
+      .poll(async () => (await getTerminalLogicalText(orcaPage)).includes(droppedPath), {
         timeout: 5_000,
         message: 'Title-strip drop did not paste into the titled pane terminal'
       })

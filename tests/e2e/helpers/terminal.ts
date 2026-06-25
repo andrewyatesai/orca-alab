@@ -115,6 +115,56 @@ export async function getTerminalContent(page: Page, charLimit = 4000): Promise<
   )
 }
 
+// Why: the SerializeAddon emits *replayable ANSI*, so a line the shell soft-wraps
+// across a narrow split pane is split by cursor-position escapes mid-token. An
+// echoed path like /tmp/foo.txt then can't be found with a plain substring match.
+// Read the live buffer instead, joining wrapped continuation rows into the logical
+// line the user actually sees, with no escape sequences in between.
+export async function getTerminalLogicalText(page: Page): Promise<string> {
+  const tabId = await resolveActiveTabId(page)
+  if (!tabId) {
+    return ''
+  }
+  return page.evaluate((tabId) => {
+    const manager = window.__paneManagers?.get(tabId)
+    if (!manager) {
+      return ''
+    }
+    const activePane = manager.getActivePane?.() ?? manager.getPanes?.()[0] ?? null
+    const buffer = (
+      activePane as unknown as {
+        terminal?: {
+          buffer?: {
+            active?: {
+              length: number
+              getLine(
+                absY: number
+              ): { isWrapped: boolean; translateToString(trim?: boolean): string } | undefined
+            }
+          }
+        }
+      } | null
+    )?.terminal?.buffer?.active
+    if (!buffer) {
+      return ''
+    }
+    const lines: string[] = []
+    for (let absY = 0; absY < buffer.length; absY++) {
+      const line = buffer.getLine(absY)
+      if (!line) {
+        continue
+      }
+      const text = line.translateToString(true)
+      if (line.isWrapped && lines.length > 0) {
+        lines[lines.length - 1] += text
+      } else {
+        lines.push(text)
+      }
+    }
+    return lines.join('\n')
+  }, tabId)
+}
+
 export async function waitForActivePanePtyId(page: Page, timeoutMs = 15_000): Promise<string> {
   await expect
     .poll(

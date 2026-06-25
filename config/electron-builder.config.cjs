@@ -10,6 +10,18 @@ const {
 
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
+// Why: release/CI builds ship both Intel + Apple-silicon slices — Intel Macs
+// need a native x64 app (see the npmRebuild note below). A local dev build only
+// needs the host arch; emitting a foreign-arch app would force the developer
+// through Rosetta to launch it. Default to host-arch-only off the release path;
+// ORCA_MAC_BUILD_ARCHES (comma-separated) overrides for ad-hoc dual-arch builds.
+const macTargetArches = process.env.ORCA_MAC_BUILD_ARCHES
+  ? process.env.ORCA_MAC_BUILD_ARCHES.split(',')
+      .map((arch) => arch.trim())
+      .filter(Boolean)
+  : isMacRelease
+    ? ['x64', 'arm64']
+    : [process.arch === 'x64' ? 'x64' : 'arm64']
 const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
   to: 'onboarding/feature-wall'
@@ -242,11 +254,11 @@ module.exports = {
     target: [
       {
         target: 'dmg',
-        arch: ['x64', 'arm64']
+        arch: macTargetArches
       },
       {
         target: 'zip',
-        arch: ['x64', 'arm64']
+        arch: macTargetArches
       }
     ]
   },

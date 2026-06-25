@@ -119,6 +119,55 @@ describe('electron-builder config', () => {
     }
   })
 
+  it('builds only the host arch for local mac builds so no Rosetta-demanding app is emitted', () => {
+    const expectedHostArch = process.arch === 'x64' ? 'x64' : 'arm64'
+    for (const target of electronBuilderConfig.mac.target) {
+      expect(target.arch).toEqual([expectedHostArch])
+    }
+  })
+
+  it('ships both Intel and Apple-silicon slices on the mac release path', () => {
+    const configPath = require.resolve('../electron-builder.config.cjs')
+    const original = process.env.ORCA_MAC_RELEASE
+    try {
+      delete require.cache[configPath]
+      process.env.ORCA_MAC_RELEASE = '1'
+      const releaseConfig = require('../electron-builder.config.cjs')
+      for (const target of releaseConfig.mac.target) {
+        expect(target.arch).toEqual(['x64', 'arm64'])
+      }
+    } finally {
+      if (original === undefined) {
+        delete process.env.ORCA_MAC_RELEASE
+      } else {
+        process.env.ORCA_MAC_RELEASE = original
+      }
+      delete require.cache[configPath]
+      require('../electron-builder.config.cjs')
+    }
+  })
+
+  it('lets ORCA_MAC_BUILD_ARCHES override the mac target arches', () => {
+    const configPath = require.resolve('../electron-builder.config.cjs')
+    const original = process.env.ORCA_MAC_BUILD_ARCHES
+    try {
+      delete require.cache[configPath]
+      process.env.ORCA_MAC_BUILD_ARCHES = 'x64, arm64'
+      const overridden = require('../electron-builder.config.cjs')
+      for (const target of overridden.mac.target) {
+        expect(target.arch).toEqual(['x64', 'arm64'])
+      }
+    } finally {
+      if (original === undefined) {
+        delete process.env.ORCA_MAC_BUILD_ARCHES
+      } else {
+        process.env.ORCA_MAC_BUILD_ARCHES = original
+      }
+      delete require.cache[configPath]
+      require('../electron-builder.config.cjs')
+    }
+  })
+
   it('uses Orca native rebuild hook instead of electron-builder default rebuild', () => {
     expect(electronBuilderConfig.beforeBuild).toBe(electronBuilderNativeRebuild)
     expect(electronBuilderConfig.npmRebuild).toBe(true)

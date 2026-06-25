@@ -1,7 +1,54 @@
 import { resolve } from 'path'
+import { execSync } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+
+// Build provenance for the About section, baked in at build time (a packaged app
+// has no git repo / rust/aterm tree to read at runtime). Best-effort: any piece
+// that can't be resolved (no git, missing file) degrades to 'unknown' rather than
+// failing the build. See `ORCA_BUILD_INFO` in src/types/build-constants.d.ts.
+function git(args: string): string {
+  try {
+    return execSync(`git ${args}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  } catch {
+    return ''
+  }
+}
+function computeOrcaBuildInfoLiteral(): string {
+  let orcaVersion = 'unknown'
+  try {
+    orcaVersion = JSON.parse(readFileSync(resolve('package.json'), 'utf8')).version ?? 'unknown'
+  } catch {
+    /* keep unknown */
+  }
+  const atermRevPath = resolve('rust/aterm/VENDORED_REV.txt')
+  const atermRev = existsSync(atermRevPath)
+    ? readFileSync(atermRevPath, 'utf8').trim().slice(0, 12) || 'unknown'
+    : 'unknown'
+  // The last upstream re-sync: most recent commit whose subject starts with
+  // "Merge upstream" (the convention these merges use); pull the version + hash out.
+  const mergeLine = git('log -1 --grep="Merge upstream" --format="%h %s"')
+  let upstreamAligned = 'unknown'
+  if (mergeLine) {
+    const sep = mergeLine.indexOf(' ')
+    const hash = sep === -1 ? mergeLine : mergeLine.slice(0, sep)
+    const subject = sep === -1 ? '' : mergeLine.slice(sep + 1)
+    const version = subject.match(/v?\d+\.\d+\.\d+[\w.-]*/)?.[0] ?? ''
+    upstreamAligned = version ? `${version} (${hash})` : hash
+  }
+  const info = {
+    orcaVersion,
+    orcaCommit: git('rev-parse --short HEAD') || 'unknown',
+    orcaCommitDate: git('show -s --format=%cI HEAD') || 'unknown',
+    atermRev,
+    upstreamFork: 'stablyai/orca',
+    upstreamAligned
+  }
+  return JSON.stringify(info)
+}
+const ORCA_BUILD_INFO_LITERAL = computeOrcaBuildInfoLiteral()
 
 // Why: the telemetry transport is gated by two compile-time constants that
 // only the official CI release workflow sets. Contributor / `pnpm dev` /
@@ -200,6 +247,10 @@ export default defineConfig({
     }
   },
   renderer: {
+    // Bake build provenance into the renderer too (the About panel reads it).
+    define: {
+      ORCA_BUILD_INFO: ORCA_BUILD_INFO_LITERAL
+    },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),

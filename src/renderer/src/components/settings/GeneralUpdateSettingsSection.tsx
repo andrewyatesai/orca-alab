@@ -242,6 +242,51 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
                 ))}
         </p>
       </SearchableSetting>
+
+      <div className="space-y-2 border-t border-border pt-4">
+        <SettingsSubsectionHeader
+          title={translate('settings.about.build.title', 'Build')}
+          description={translate(
+            'settings.about.build.description',
+            'The engine and provenance baked into this build.'
+          )}
+        />
+        <dl className="grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-1.5 text-xs">
+          <dt className="text-muted-foreground">
+            {translate('settings.about.build.orca', 'Orca')}
+          </dt>
+          <dd className="font-mono">
+            {ORCA_BUILD_INFO.orcaVersion} · {ORCA_BUILD_INFO.orcaCommit}
+          </dd>
+          <dt className="text-muted-foreground">
+            {translate('settings.about.build.builtFrom', 'Built from')}
+          </dt>
+          <dd className="font-mono">{ORCA_BUILD_INFO.orcaCommitDate}</dd>
+          <dt className="text-muted-foreground">
+            {translate('settings.about.build.atermEngine', 'aterm engine')}
+          </dt>
+          <dd className="font-mono">
+            {ORCA_BUILD_INFO.atermRev === 'unknown' ? (
+              ORCA_BUILD_INFO.atermRev
+            ) : (
+              <a
+                className="underline underline-offset-2 hover:text-foreground"
+                href={`https://github.com/andrewyatesai/aterm/commit/${ORCA_BUILD_INFO.atermRev}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {ORCA_BUILD_INFO.atermRev}
+              </a>
+            )}
+          </dd>
+          <dt className="text-muted-foreground">
+            {translate('settings.about.build.upstream', 'Upstream fork')}
+          </dt>
+          <dd className="font-mono">
+            {ORCA_BUILD_INFO.upstreamFork} · {ORCA_BUILD_INFO.upstreamAligned}
+          </dd>
+        </dl>
+      </div>
     </section>
   )
 }

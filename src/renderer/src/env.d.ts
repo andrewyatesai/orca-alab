@@ -19,6 +19,17 @@ declare global {
         getWorker(workerId: string, label: string): Worker
       }
     | undefined
+  // Build provenance baked in at build time by electron.vite.config.ts's renderer
+  // `define` (git + package.json + the vendored aterm rev). The About panel reads
+  // it; a packaged app has no repo/rust tree to read at runtime.
+  var ORCA_BUILD_INFO: {
+    orcaVersion: string
+    orcaCommit: string
+    orcaCommitDate: string
+    atermRev: string
+    upstreamFork: string
+    upstreamAligned: string
+  }
   // oxlint-disable-next-line typescript-eslint/consistent-type-definitions -- declaration merging requires interface
   interface Window {
     __paneManagers?: Map<string, PaneManager>

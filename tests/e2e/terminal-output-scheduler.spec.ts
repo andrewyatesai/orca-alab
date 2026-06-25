@@ -201,6 +201,33 @@ async function mainSnapshotContains(page: Page, ptyId: string, text: string): Pr
   )
 }
 
+// Why: a freshly spawned shell's line editor (zsh ZLE) is not yet input-ready
+// the instant the pane binds a ptyId. Writing immediately drops the first typed
+// bytes (e.g. "node" arrives as "de"), so the real command silently fails with
+// "command not found" and never produces output. Round-trip a sentinel — Ctrl-C
+// + Ctrl-U first clears any partial line (matching discoverActivePtyId) — and
+// wait for its echoed OUTPUT before sending the command under test.
+async function waitForShellInputReady(page: Page, ptyId: string): Promise<void> {
+  const sentinel = `__SHELL_READY_${Date.now()}_${Math.random().toString(36).slice(2)}__`
+  await expect
+    .poll(
+      async () => {
+        await page.evaluate(
+          ({ targetPtyId, token }) => {
+            window.api.pty.write(targetPtyId, `\x03\x15echo ${token}\r`)
+          },
+          { targetPtyId: ptyId, token: sentinel }
+        )
+        return mainSnapshotContains(page, ptyId, `\n${sentinel}`)
+      },
+      {
+        timeout: 20_000,
+        message: 'Shell never became input-ready (sentinel echo not observed)'
+      }
+    )
+    .toBe(true)
+}
+
 test.describe('Terminal output scheduler', () => {
   test('background tab output bursts use the shared drain while the active tab renders', async ({
     orcaPage
@@ -338,6 +365,11 @@ test.describe('Terminal output scheduler', () => {
       throw new Error('Expected a fresh terminal tab')
     }
     const ptyId = await waitForTabPtyId(orcaPage, activeTabId)
+    // Why: the freshly spawned shell must be input-ready before the flood, or its
+    // leading bytes are dropped and the node command silently fails — the 700KB
+    // throughput payload then never runs. Reset the scheduler counters AFTER the
+    // sentinel round-trip so they reflect only the flood under test.
+    await waitForShellInputReady(orcaPage, ptyId)
     await resetSchedulerDebug(orcaPage)
 
     const runId = Date.now()

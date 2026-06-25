@@ -228,7 +228,16 @@ impl TerminalHandler<'_> {
         let Some((cmd, row, col)) = self.parse_shell_osc(params) else {
             return;
         };
-        self.dispatch_shell_mark(cmd, row, col, params);
+        // Queue a compact REAL mark for poll-based hosts, but only for a
+        // recognized A/B/C/D char (dispatch returns true) so out-of-band chars
+        // don't surface as bogus events. row/col come from the live cursor.
+        if self.dispatch_shell_mark(cmd, row, col, params) {
+            let payload = match cmd {
+                'D' => format!("D;exit={}", Self::parse_exit_code(params)),
+                _ => format!("{cmd};row={row};col={col}"),
+            };
+            self.queue_osc_event(133, payload);
+        }
     }
 
     /// Handle OSC 633 - VS Code shell integration protocol.

@@ -12,6 +12,7 @@ mod boundary;
 mod deferred_line_equivalence;
 mod extras_performance;
 mod hyperlink_perf;
+mod link_translation_accessors;
 mod reflow;
 mod scroll_damage;
 mod scroll_region;

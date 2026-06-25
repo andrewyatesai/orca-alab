@@ -176,6 +176,29 @@ impl Terminal {
         self.transient.response_buffer.capacity()
     }
 
+    /// Drain the edge-triggered BEL flag: returns `true` if a (rate-limited)
+    /// BEL fired since the last drain, then clears it. Lets a poll-based host
+    /// react to a bell without wiring the synchronous `bell_callback`.
+    pub fn drain_bell(&mut self) -> bool {
+        let pending = self.transient.bell_pending;
+        self.transient.bell_pending = false;
+        pending
+    }
+
+    /// Pop the oldest queued OSC app-event `(code, payload)`, or `None` when the
+    /// queue is empty. Mirrors `take_response`'s drain contract for the
+    /// structured OSC 52/7/133 payloads the host polls each frame.
+    #[must_use]
+    pub fn take_osc_event(&mut self) -> Option<(u32, String)> {
+        self.transient.osc_events.pop_front()
+    }
+
+    /// Whether any OSC app-event is queued (cheap pre-check before draining).
+    #[must_use]
+    pub fn has_osc_events(&self) -> bool {
+        !self.transient.osc_events.is_empty()
+    }
+
     /// Check if there is pending response data.
     #[must_use]
     pub fn has_pending_response(&self) -> bool {
@@ -304,5 +327,92 @@ mod tests {
         assert_eq!(term.format_paste("x\r\ny\nz"), b"x\ry\rz");
         term.process(b"\x1b[?2004h");
         assert_eq!(term.format_paste("x\r\ny\nz"), b"\x1b[200~x\ry\rz\x1b[201~");
+    }
+
+    /// BEL sets the edge-triggered flag; drain reads it once then clears it.
+    #[test]
+    fn drain_bell_reflects_real_bel_byte() {
+        let mut term = Terminal::new(24, 80);
+        assert!(!term.drain_bell(), "no bell before any BEL byte");
+        term.process(b"\x07");
+        assert!(term.drain_bell(), "BEL byte sets the flag");
+        assert!(!term.drain_bell(), "flag is cleared after draining");
+    }
+
+    /// OSC 7 queues the REAL parsed cwd path as an app-event AND updates the
+    /// terminal's working directory (proving it reads real state, not a stub).
+    #[test]
+    fn osc_7_queues_real_cwd_path() {
+        let mut term = Terminal::new(24, 80);
+        term.process(b"\x1b]7;file://host/home/user/project\x07");
+        assert_eq!(
+            term.current_working_directory(),
+            Some("/home/user/project")
+        );
+        assert_eq!(
+            term.take_osc_event(),
+            Some((7, "/home/user/project".to_string()))
+        );
+        assert_eq!(term.take_osc_event(), None, "queue drained");
+    }
+
+    /// OSC 133 marks queue compact REAL payloads (A carries the cursor
+    /// row/col; D carries the parsed exit code).
+    #[test]
+    fn osc_133_marks_queue_real_payloads() {
+        let mut term = Terminal::new(24, 80);
+        // A → B → C → D is the accepted state machine.
+        term.process(b"\x1b]133;A\x07");
+        term.process(b"\x1b]133;B\x07");
+        term.process(b"\x1b]133;C\x07");
+        term.process(b"\x1b]133;D;42\x07");
+
+        let codes: Vec<(u32, String)> = std::iter::from_fn(|| term.take_osc_event()).collect();
+        assert_eq!(codes.len(), 4, "one event per accepted mark");
+        assert_eq!(codes[0].0, 133);
+        assert!(codes[0].1.starts_with("A;row="), "A carries row/col");
+        assert_eq!(codes[3].1, "D;exit=42", "D carries the real exit code");
+    }
+
+    /// OSC 52 set queues the REAL decoded clipboard string (base64 "aGk=" → "hi").
+    #[test]
+    fn osc_52_set_queues_decoded_clipboard() {
+        let mut term = Terminal::new(24, 80);
+        // Clipboard write must be host-authorized (default posture is deny).
+        term.authorize_clipboard_access(crate::terminal::ClipboardAccess::Write);
+        term.process(b"\x1b]52;c;aGk=\x07");
+        assert_eq!(term.take_osc_event(), Some((52, "hi".to_string())));
+    }
+
+    /// DEC mode 2031 (color-scheme update notifications) flips the real getter.
+    #[test]
+    fn mode_2031_toggles_color_scheme_getter() {
+        let mut term = Terminal::new(24, 80);
+        assert!(!term.report_color_scheme_enabled(), "defaults off");
+        term.process(b"\x1b[?2031h");
+        assert!(term.report_color_scheme_enabled(), "2031 set enables it");
+        term.process(b"\x1b[?2031l");
+        assert!(!term.report_color_scheme_enabled(), "2031 reset disables it");
+    }
+
+    /// CUP positions the cursor; the grid exposes the REAL display-relative col/row.
+    #[test]
+    fn cursor_position_reads_real_grid_state() {
+        let mut term = Terminal::new(24, 80);
+        // CSI 5;10 H → row 5, col 10 (1-based) == (4, 9) 0-based.
+        term.process(b"\x1b[5;10H");
+        assert_eq!(term.grid().cursor().row, 4);
+        assert_eq!(term.grid().cursor().col, 9);
+    }
+
+    /// cell_grapheme returns the REAL written character (base + combining mark).
+    #[test]
+    fn cell_grapheme_reads_real_cell() {
+        let mut term = Terminal::new(24, 80);
+        // 'e' + combining acute accent (U+0301).
+        term.process("e\u{0301}".as_bytes());
+        assert_eq!(term.cell_grapheme(0, 0).as_deref(), Some("e\u{0301}"));
+        // Out-of-range yields None.
+        assert_eq!(term.cell_grapheme(999, 0), None);
     }
 }

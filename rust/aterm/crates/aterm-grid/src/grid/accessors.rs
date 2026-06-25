@@ -131,6 +131,22 @@ impl Grid {
         self.storage.cursor().col
     }
 
+    /// Soft-wrap flag for a visible row: `true` if this row is a wrap
+    /// continuation of the previous row. `None` for an out-of-range row.
+    #[must_use]
+    #[inline]
+    pub fn row_is_wrapped(&self, visible_row: u16) -> Option<bool> {
+        self.row(visible_row).map(super::Row::is_wrapped)
+    }
+
+    /// Logical length of a visible row (last non-empty cell + 1, 0 if blank).
+    /// `None` for an out-of-range row.
+    #[must_use]
+    #[inline]
+    pub fn row_len(&self, visible_row: u16) -> Option<u16> {
+        self.row(visible_row).map(super::Row::len)
+    }
+
     /// Check if the cursor has a deferred wrap pending.
     #[must_use]
     #[inline]

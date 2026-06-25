@@ -56,6 +56,28 @@ impl Grid {
             .saturating_sub(u64::from(self.storage.visible_rows))
             .saturating_sub(self.scrollback_lines() as u64)
     }
+
+    /// Absolute row index of the live/last line (xterm `buffer.active.baseY`).
+    ///
+    /// Equals `oldest_absolute_row() + scrollback_lines()` — the absolute row of
+    /// the top visible line when NOT scrolled into history. Returned as `usize`
+    /// so the wasm bridge maps it to a plain JS number (not BigInt).
+    #[must_use]
+    #[inline]
+    pub fn base_y(&self) -> usize {
+        self.oldest_absolute_row() as usize + self.scrollback_lines()
+    }
+
+    /// Absolute row index of the TOP visible line for the current viewport.
+    ///
+    /// `base_y()` minus the scroll-back `display_offset`; equals `base_y()` when
+    /// not scrolled. Used as the search/link origin so a hit's absolute row can
+    /// be mapped back to a display row.
+    #[must_use]
+    #[inline]
+    pub fn display_origin_absolute(&self) -> usize {
+        self.base_y().saturating_sub(self.display_offset())
+    }
 }
 
 #[cfg(test)]

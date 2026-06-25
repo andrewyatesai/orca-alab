@@ -142,6 +142,15 @@ pub(super) struct TransientState {
     /// finalized on the `m=0` chunk. `None` between transmissions. Bounded by
     /// `MAX_KITTY_IMAGE_BYTES` in the handler.
     pub(super) kitty_pending: Option<crate::terminal::kitty_graphics::KittyCommand>,
+    /// Edge-triggered BEL flag set by `handle_bell()` (after its rate-limit),
+    /// drained read+clear by `Terminal::drain_bell()`. Lets a polling host (the
+    /// wasm renderer) detect a bell without wiring the synchronous `bell_callback`.
+    pub(super) bell_pending: bool,
+    /// App-event queue: REAL OSC payloads (code, payload) the host polls via
+    /// `Terminal::take_osc_event` — OSC 52 decoded clipboard, OSC 7 cwd path,
+    /// OSC 133 shell mark. Distinct from `response_buffer` (PTY replies); drained
+    /// like `take_response()`. Capped in `queue_osc_event`. Cleared on reset.
+    pub(super) osc_events: VecDeque<(u32, String)>,
 }
 
 impl TransientState {
@@ -170,6 +179,8 @@ impl TransientState {
             kitty_images: HashMap::new(),
             kitty_frames: HashMap::new(),
             kitty_pending: None,
+            bell_pending: false,
+            osc_events: VecDeque::new(),
         }
     }
 
@@ -196,5 +207,7 @@ impl TransientState {
         self.pending_parser_reset = false;
         self.xtsave_modes.clear();
         self.last_osc_bel_terminated = false;
+        self.bell_pending = false;
+        self.osc_events.clear();
     }
 }

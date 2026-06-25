@@ -147,6 +147,81 @@ impl AtermTerminal {
         self.term.take_response()
     }
 
+    /// Drain pending OSC app-events as a JSON array of `[code, payload]` pairs
+    /// (`[[7,"/home"],[52,"copied"]]`); `None` when the queue is empty. These
+    /// carry REAL decoded payloads (OSC 52 clipboard / OSC 7 cwd / OSC 133 mark)
+    /// the host routes to UI handlers — distinct from `take_response` (PTY replies).
+    pub fn take_osc_events(&mut self) -> Option<String> {
+        if !self.term.has_osc_events() {
+            return None;
+        }
+        let mut pairs = Vec::new();
+        while let Some((code, payload)) = self.term.take_osc_event() {
+            pairs.push(format!("[{code},{}]", json_string(&payload)));
+        }
+        Some(format!("[{}]", pairs.join(",")))
+    }
+
+    /// Display-relative cursor column (0-based).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn cursor_x(&self) -> u16 {
+        self.term.grid().cursor().col
+    }
+
+    /// Display-relative cursor row (0-based, top of viewport).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn cursor_y(&self) -> u16 {
+        self.term.grid().cursor().row
+    }
+
+    /// Absolute row index of the live/last line (xterm `buffer.active.baseY`):
+    /// `oldest_absolute_row() + scrollback_lines()`. `usize` → plain JS number.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn base_y(&self) -> usize {
+        self.term.grid().base_y()
+    }
+
+    /// Absolute row index of the TOP visible line for the current viewport
+    /// (`base_y - display_offset`); the search/link origin.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn display_origin_absolute(&self) -> usize {
+        self.term.grid().display_origin_absolute()
+    }
+
+    /// Soft-wrap flag for a visible `row`: `true` if it continues the previous
+    /// row (autowrap), `undefined`/`None` when out of range.
+    pub fn row_is_wrapped(&self, row: u16) -> Option<bool> {
+        self.term.grid().row_is_wrapped(row)
+    }
+
+    /// Logical length of a visible `row` (last non-empty cell + 1, 0 if blank);
+    /// `None` when out of range.
+    pub fn row_len(&self, row: u16) -> Option<u16> {
+        self.term.grid().row_len(row)
+    }
+
+    /// Grapheme text at visible cell `row`/`col` — base char plus complex
+    /// cluster and combining marks. Empty string for a blank cell, a
+    /// wide-continuation spacer, or out-of-range coords.
+    pub fn cell_text(&self, row: u16, col: u16) -> String {
+        self.term
+            .cell_grapheme(row as usize, col as usize)
+            .unwrap_or_default()
+    }
+
+    /// Whether the cell at `row`/`col` is a wide (double-width) character;
+    /// `None` when out of range.
+    pub fn cell_is_wide(&self, row: u16, col: u16) -> Option<bool> {
+        self.term.grid().cell(row, col).map(|c| c.is_wide())
+    }
+
+    /// Drain the edge-triggered BEL flag: `true` if a BEL fired since the last
+    /// call, then clears it (so a poll-based host can flash/ring without the
+    /// synchronous bell callback).
+    pub fn drain_bell(&mut self) -> bool {
+        self.term.drain_bell()
+    }
+
     /// Seed the engine's DEFAULT foreground/background so its OSC 10/11 colour-query
     /// replies report the host theme (the engine otherwise reports its built-in
     /// defaults). RGB components, 0–255.
@@ -334,6 +409,13 @@ impl AtermTerminal {
         self.term.focus_reporting_enabled()
     }
 
+    /// True when DEC mode 2031 (color-scheme update notifications) is set: the
+    /// app wants `CSI ? 997 ; n` on OS light/dark theme changes.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn is_color_scheme_updates_mode(&self) -> bool {
+        self.term.report_color_scheme_enabled()
+    }
+
     /// Active DECSCUSR cursor style as the discriminant of `aterm_core`'s
     /// `CursorStyle` (1=BlinkingBlock, 2=SteadyBlock, 3=BlinkingUnderline,
     /// 4=SteadyUnderline, 5=BlinkingBar, 6=SteadyBar, 7=Hidden, 8=HollowBlock).
@@ -379,8 +461,18 @@ impl AtermTerminal {
         self.term.encode_mouse_wheel(up, col, row, mods)
     }
 
+    /// Convert a display-relative row (0 = top of viewport) to the
+    /// TERMINAL-relative row the selection model stores: `display_row -
+    /// display_offset`, negative for scrollback. The renderer and
+    /// `selection_to_string` both read terminal-relative rows, so converting
+    /// here keeps the highlight and copied text correct while scrolled (#sel-fix).
+    fn display_row_to_terminal(&self, display_row: i32) -> i32 {
+        display_row - self.term.grid().display_offset() as i32
+    }
+
     /// Begin a character selection at display `row`/`col` (clears any prior one).
     pub fn selection_start(&mut self, row: i32, col: u16) {
+        let row = self.display_row_to_terminal(row);
         self.term.text_selection_mut().start_selection(
             row,
             col,
@@ -395,6 +487,8 @@ impl AtermTerminal {
     /// whitespace it falls back to the clicked cell. The selection stays active so
     /// the highlight paints.
     pub fn selection_word(&mut self, row: i32, col: u16) -> Option<String> {
+        // smart_word_at is display-offset-aware (takes the DISPLAY row); the
+        // selection anchor must be terminal-relative.
         let (start, last) = match self
             .term
             .smart_word_at(row as usize, col as usize, &self.smart)
@@ -402,8 +496,9 @@ impl AtermTerminal {
             Some((s, e)) => (s as u16, e.saturating_sub(1).max(s) as u16),
             None => (col, col),
         };
+        let term_row = self.display_row_to_terminal(row);
         let sel = self.term.text_selection_mut();
-        sel.start_selection(row, col, SelectionSide::Left, SelectionType::Semantic);
+        sel.start_selection(term_row, col, SelectionSide::Left, SelectionType::Semantic);
         sel.expand_semantic(start, last);
         sel.complete_selection();
         self.term.selection_to_string()
@@ -414,6 +509,7 @@ impl AtermTerminal {
     /// width. `col` is accepted for a uniform host API but unused (whole row).
     pub fn selection_line(&mut self, row: i32, col: u16) -> Option<String> {
         let _ = col;
+        let row = self.display_row_to_terminal(row);
         let max_col = (self.cols as u16).saturating_sub(1);
         let sel = self.term.text_selection_mut();
         sel.start_selection(row, 0, SelectionSide::Left, SelectionType::Lines);
@@ -424,6 +520,7 @@ impl AtermTerminal {
 
     /// Move the selection endpoint to `row`/`col` (during a drag).
     pub fn selection_extend(&mut self, row: i32, col: u16) {
+        let row = self.display_row_to_terminal(row);
         self.term
             .text_selection_mut()
             .update_selection(row, col, SelectionSide::Right);
@@ -442,6 +539,13 @@ impl AtermTerminal {
     /// The selected text, if any (`None` when the selection is empty).
     pub fn selection_text(&self) -> Option<String> {
         self.term.selection_to_string()
+    }
+
+    /// Current selection bounds in DISPLAY viewport cell coords (0 = top visible
+    /// row), side-adjusted to match `selection_text` and the painted highlight.
+    /// `None` when there is no selection OR it lies fully outside the viewport.
+    pub fn selection_range(&self) -> Option<SelectionRange> {
+        selection_range_for(&self.term, self.rows, self.cols)
     }
 
     /// Detect a link under display `row`/`col`. Prefers an OSC-8 hyperlink, then
@@ -701,6 +805,104 @@ impl LinkHit {
     pub fn kind(&self) -> u8 {
         self.kind
     }
+}
+
+/// Selection bounds in DISPLAY viewport cell coords (0 = top visible row),
+/// inclusive of `start`, with `end` already side-adjusted to match
+/// `selection_text` and the painted highlight.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub struct SelectionRange {
+    start_x: u16,
+    start_y: u16,
+    end_x: u16,
+    end_y: u16,
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl SelectionRange {
+    /// Start column (display-relative).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn start_x(&self) -> u16 {
+        self.start_x
+    }
+
+    /// Start row (display-relative, 0 = top visible row).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn start_y(&self) -> u16 {
+        self.start_y
+    }
+
+    /// End column (display-relative, side-adjusted/inclusive).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn end_x(&self) -> u16 {
+        self.end_x
+    }
+
+    /// End row (display-relative).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(getter))]
+    pub fn end_y(&self) -> u16 {
+        self.end_y
+    }
+}
+
+/// Project the engine's selection (terminal-relative rows) into DISPLAY viewport
+/// coords, clamping partially-scrolled selections to `[0, rows)`. Uses the SAME
+/// `project_range` + side-adjustment the renderer and `selection_text` use, so
+/// the three always agree. `None` when there is no selection or it is fully
+/// outside the viewport.
+fn selection_range_for(term: &Terminal, rows: usize, cols: usize) -> Option<SelectionRange> {
+    let last_col = (cols as u16).saturating_sub(1);
+    let proj = term.text_selection().project_range(last_col)?;
+    let offset = term.grid().display_offset() as i32;
+    let rows_i = rows as i32;
+
+    // terminal_row -> display_row = terminal_row + display_offset.
+    let start_disp = proj.start_row + offset;
+    let end_disp = proj.end_row + offset;
+
+    // Fully outside the viewport (both ends above the top or below the bottom).
+    if end_disp < 0 || start_disp >= rows_i {
+        return None;
+    }
+
+    // Clamp to the viewport: a row scrolled off the top enters at col 0 of the
+    // top row; one past the bottom exits at the last col of the bottom row.
+    let (start_y, start_x) = if start_disp < 0 {
+        (0u16, 0u16)
+    } else {
+        (start_disp as u16, proj.start_col)
+    };
+    let (end_y, end_x) = if end_disp >= rows_i {
+        ((rows_i - 1) as u16, last_col)
+    } else {
+        (end_disp as u16, proj.end_col)
+    };
+
+    Some(SelectionRange {
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+    })
+}
+
+/// JSON-escape `s` and wrap it in double quotes for the `take_osc_events` array.
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Slice `text` to the half-open display-column range `[start_col, end_col)`.
@@ -1071,5 +1273,65 @@ mod tests {
             "url should contain the host, got {:?}",
             hit.url()
         );
+    }
+
+    // --- Font-independent tests (operate on the engine + helpers directly) ---
+
+    #[test]
+    fn selection_range_reports_display_coords_while_scrolled() {
+        // 5 rows, 20 cols; push lines so some scroll into history.
+        let mut term = Terminal::new(5, 20);
+        for i in 0..20 {
+            term.process(format!("line{i}\r\n").as_bytes());
+        }
+        term.scroll_display(4);
+        let offset = term.grid().display_offset() as i32;
+        assert_eq!(offset, 4);
+
+        // Select display rows 0..=1 — the host passes TERMINAL-relative rows
+        // (display_row - offset), exactly as the fixed wasm entry points do.
+        {
+            let sel = term.text_selection_mut();
+            sel.start_selection(0 - offset, 0, SelectionSide::Left, SelectionType::Lines);
+            sel.update_selection(1 - offset, 19, SelectionSide::Right);
+            sel.complete_selection();
+        }
+
+        // selection_range maps back to DISPLAY coords 0..=1.
+        let r = selection_range_for(&term, 5, 20).expect("selection in viewport");
+        assert_eq!((r.start_y(), r.end_y()), (0, 1), "display rows 0..=1");
+
+        // And it agrees with selection_text (the scrollback lines, not live rows).
+        let copied = term.selection_to_string().expect("text");
+        let want0 = term.display_row_text(0).unwrap();
+        let want1 = term.display_row_text(1).unwrap();
+        assert_eq!(copied, format!("{want0}\n{want1}"));
+    }
+
+    #[test]
+    fn selection_range_is_none_when_fully_in_scrollback() {
+        let mut term = Terminal::new(5, 20);
+        for i in 0..20 {
+            term.process(format!("line{i}\r\n").as_bytes());
+        }
+        // Select a region in scrollback (terminal rows -8..=-7), then view the
+        // live bottom (offset 0) so the selection is entirely above the viewport.
+        {
+            let sel = term.text_selection_mut();
+            sel.start_selection(-8, 0, SelectionSide::Left, SelectionType::Lines);
+            sel.update_selection(-7, 19, SelectionSide::Right);
+            sel.complete_selection();
+        }
+        assert_eq!(term.grid().display_offset(), 0);
+        assert!(
+            selection_range_for(&term, 5, 20).is_none(),
+            "selection fully off-screen yields None"
+        );
+    }
+
+    #[test]
+    fn json_string_escapes_payloads() {
+        assert_eq!(json_string("a\"b\\c"), r#""a\"b\\c""#);
+        assert_eq!(json_string("x\ny"), r#""x\ny""#);
     }
 }

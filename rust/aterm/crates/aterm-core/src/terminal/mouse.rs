@@ -173,4 +173,10 @@ impl Terminal {
     pub fn focus_reporting_enabled(&self) -> bool {
         self.modes.focus_reporting
     }
+
+    /// Check if DEC mode 2031 (color-scheme update notifications) is enabled.
+    #[must_use]
+    pub fn report_color_scheme_enabled(&self) -> bool {
+        self.modes.report_color_scheme
+    }
 }

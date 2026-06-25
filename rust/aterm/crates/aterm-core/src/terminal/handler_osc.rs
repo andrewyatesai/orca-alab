@@ -191,6 +191,8 @@ impl TerminalHandler<'_> {
 
         // Parse the file:// URI
         if let Some(path) = Self::parse_file_uri(uri) {
+            // Queue the REAL parsed cwd path for poll-based hosts.
+            self.queue_osc_event(7, path.clone());
             *self.current_working_directory = Some(path.clone());
             self.shell_directory_changed(Some(&path));
         }
@@ -522,6 +524,10 @@ impl TerminalHandler<'_> {
             Ok(s) => s,
             Err(_) => return, // Invalid UTF-8, ignore
         };
+
+        // Queue the REAL decoded clipboard string for poll-based hosts (the
+        // callback still receives `content` by value below).
+        self.queue_osc_event(52, content.clone());
 
         super::clipboard_auth::invoke_set(&mut self.clipboard.callback, token, selections, content);
     }

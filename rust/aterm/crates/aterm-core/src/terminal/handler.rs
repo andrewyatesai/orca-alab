@@ -283,6 +283,10 @@ impl TerminalHandler<'_> {
         }
         *self.last_bell_time = Some(now);
 
+        // Edge-triggered flag for poll-based hosts (drained by Terminal::drain_bell),
+        // set alongside — not instead of — the existing synchronous callback.
+        self.transient.bell_pending = true;
+
         if let Some(callback) = self.bell_callback {
             callback();
         }
@@ -399,6 +403,19 @@ impl TerminalHandler<'_> {
             .len()
             .saturating_add(additional_len)
             <= MAX_RESPONSE_BUFFER_SIZE
+    }
+
+    /// Queue an OSC app-event `(code, payload)` for poll-based host consumption.
+    ///
+    /// Distinct from `send_response` (PTY replies): these carry decoded payloads
+    /// (OSC 52 clipboard, OSC 7 cwd, OSC 133 mark) the host drains via
+    /// `Terminal::take_osc_event`. Capped so a malicious peer spamming OSC
+    /// sequences cannot grow the queue without bound.
+    pub(super) fn queue_osc_event(&mut self, code: u32, payload: String) {
+        const MAX_OSC_EVENTS: usize = 1024;
+        if self.transient.osc_events.len() < MAX_OSC_EVENTS {
+            self.transient.osc_events.push_back((code, payload));
+        }
     }
 
     /// Filter DCS data for safe echoing in responses.

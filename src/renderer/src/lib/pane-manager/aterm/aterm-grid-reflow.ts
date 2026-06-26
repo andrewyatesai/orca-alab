@@ -8,13 +8,16 @@ import { attachAtermDprTracker } from './aterm-dpr-tracker'
 export type AtermMetrics = { dpr: number; cellWidth: number; cellHeight: number }
 
 type GridReflowConfig = {
-  term: Pick<AtermTerminal, 'set_px' | 'cell_width' | 'cell_height'>
+  term: Pick<AtermTerminal, 'set_px' | 'set_line_height' | 'cell_width' | 'cell_height'>
   container: HTMLElement
   /** Shared metrics object the input handlers captured; mutated in place here. */
   metrics: AtermMetrics
   /** Base cell font size in CSS px (the user's terminalFontSize). Read live so a
    *  size change re-rasterizes without a pane rebuild; defaults are handled upstream. */
   getFontPx: () => number
+  /** Cell line-height multiplier (the user's terminalLineHeight, ~1–3). Read live so
+   *  a change re-derives the cell-box height (not the glyph px) without a rebuild. */
+  getLineHeight: () => number
   /** Read the current grid (cols/rows). */
   getGrid: () => { cols: number; rows: number }
   /** Commit a new grid: resize the strategy + report it to the PTY. */
@@ -41,22 +44,27 @@ export type AtermGridReflow = {
  *  tracker, both re-rasterizing the engine and recomputing cols/rows. Extracted
  *  from the wiring to keep it focused. Returns a disposer for both observers. */
 export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow {
-  const { term, container, metrics, getFontPx, getGrid, setGrid, isDisposed } = config
+  const { term, container, metrics, getFontPx, getLineHeight, getGrid, setGrid, isDisposed } =
+    config
   const { syncDependents, scheduleDraw } = config
 
-  // The engine px the glyph atlas was last rasterized at (= round(fontPx * dpr)).
-  // Tracked so the draw-loop guard can detect a dpr- OR font-size-driven mismatch
-  // with a cheap compare (no layout read).
+  // The engine px the glyph atlas was last rasterized at (= round(fontPx * dpr)) and
+  // the line-height the cell box was last derived at. Tracked so the draw-loop guard
+  // can detect a dpr-, font-size-, or line-height-driven mismatch with a cheap
+  // compare (no layout read).
   let appliedPx = Math.round(getFontPx() * metrics.dpr)
+  let appliedLineHeight = getLineHeight()
 
-  // Re-rasterize at the live density + font size so cell metrics rebuild; otherwise
-  // the grid (and glyph atlas) stays sized for the construction dpr — wrong columns
-  // and a blurry upscale — when the window settles to a different dpr than it was
-  // born at, or the user changes the font size.
+  // Re-rasterize at the live density + font size + line-height so cell metrics
+  // rebuild; otherwise the grid (and glyph atlas) stays sized for the construction
+  // values — wrong columns / a blurry upscale / a stale row height — when the window
+  // settles to a different dpr, or the user changes the font size or line-height.
   const reapplyMetrics = (nextDpr: number): void => {
     metrics.dpr = nextDpr
     appliedPx = Math.round(getFontPx() * nextDpr)
     term.set_px(appliedPx)
+    appliedLineHeight = getLineHeight()
+    term.set_line_height(appliedLineHeight)
     metrics.cellWidth = term.cell_width
     metrics.cellHeight = term.cell_height
     syncDependents()
@@ -68,7 +76,8 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
     }
     const liveDpr = window.devicePixelRatio || 1
     const desiredPx = Math.round(getFontPx() * liveDpr)
-    const metricsChanged = liveDpr !== metrics.dpr || desiredPx !== appliedPx
+    const metricsChanged =
+      liveDpr !== metrics.dpr || desiredPx !== appliedPx || getLineHeight() !== appliedLineHeight
     if (metricsChanged) {
       reapplyMetrics(liveDpr)
     }
@@ -90,7 +99,11 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
       return false
     }
     const liveDpr = window.devicePixelRatio || 1
-    if (liveDpr === metrics.dpr && Math.round(getFontPx() * liveDpr) === appliedPx) {
+    if (
+      liveDpr === metrics.dpr &&
+      Math.round(getFontPx() * liveDpr) === appliedPx &&
+      getLineHeight() === appliedLineHeight
+    ) {
       return false
     }
     reflowGrid()

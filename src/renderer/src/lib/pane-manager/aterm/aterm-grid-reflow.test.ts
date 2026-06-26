@@ -14,22 +14,27 @@ import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
 /** Fake engine: cell metrics scale with the rasterization px, like the real one. */
 function makeTerm(): {
   set_px: (px: number) => void
+  set_line_height: (scale: number) => void
   readonly cell_width: number
   readonly cell_height: number
   setPxCalls: number[]
 } {
   let px = 14
+  let lineHeight = 1
   const setPxCalls: number[] = []
   return {
     set_px: (next: number) => {
       px = next
       setPxCalls.push(next)
     },
+    set_line_height: (scale: number) => {
+      lineHeight = scale
+    },
     get cell_width() {
       return px * 0.6
     },
     get cell_height() {
-      return px * 1.2
+      return px * 1.2 * lineHeight
     },
     setPxCalls
   }
@@ -76,6 +81,7 @@ function attach(
     container: container(800, 600),
     metrics,
     getFontPx,
+    getLineHeight: () => 1,
     getGrid: () => grid,
     setGrid: (cols, rows) => {
       grid = { cols, rows }

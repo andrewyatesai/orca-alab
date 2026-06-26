@@ -15,6 +15,7 @@ import { buildAtermEngineReads } from './aterm-engine-reads'
 import { createAtermTitleChannel } from './aterm-title-channel'
 import { createAtermProcessPump } from './aterm-process-pump'
 import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
+import { createAtermPanePresenter } from './aterm-pane-present'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -78,6 +79,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // Base CSS cell font size from the user's terminalFontSize (else engine default),
   // read live so a settings change re-rasterizes via the reflow without a rebuild.
   const getFontPx = (): number => controllerOptions?.getFontPx?.() ?? ATERM_RENDERER_FONT_PX
+  // Cell line-height multiplier (the user's terminalLineHeight); 1 = engine default.
+  const getLineHeight = (): number => controllerOptions?.getLineHeight?.() ?? 1
   const initialDpr = window.devicePixelRatio || 1
   // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
   // the async load (GPU init can take seconds) gives the window time to settle to a
@@ -85,6 +88,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // cell metrics frozen at the load-time dpr → wrong column count. Re-rasterize to the
   // live dpr now (set_px is a no-op when unchanged) so metrics + dpr agree from frame 1.
   term.set_px(Math.round(getFontPx() * initialDpr))
+  // Apply the user's line-height before reading cell metrics so the grid is sized to
+  // the real (scaled) cell height from frame 1; set_px re-applies it on later changes.
+  term.set_line_height(getLineHeight())
   // Mutable metrics shared with the input-handler deps: a later host DPI change
   // re-rasterizes the engine (term.set_px) and updates these in place via the grid
   // reflow, so the grid + overlays resize instead of freezing at construction dpr.
@@ -101,11 +107,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   let searchMatches: AtermSearchMatch[] = []
   let searchActiveIndex = -1
 
+  // draw (rAF) + presentNow (interactive fast path) are assigned from the presenter
+  // below, once the strategy + grid reflow exist. The drawScheduler + process pump
+  // capture them by closure and only invoke them at runtime (after wiring completes).
   let draw: () => void = () => undefined
-  // True once a paint happened in the current animation frame, so the interactive
-  // immediate-present fast path (presentNow) coalesces to one paint per frame.
-  let presentedThisFrame = false
-  // Interactive immediate-present; assigned below once the strategy + reflow exist.
   let presentNow: () => void = () => undefined
   const drawScheduler = createAtermDrawScheduler(() => draw())
   const scheduleDraw = (): void => {
@@ -202,68 +207,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     isDisposed: () => disposed
   })
 
-  // draw = present the engine grid, then (GPU) paint search on the overlay. The
-  // CPU strategy's drawFrame already overlays search on its own 2d canvas. The
-  // a11y mirror is scheduled (debounced) here so it tracks rendered content.
-  // The actual paint: present the engine grid + overlays. Shared by the rAF draw
-  // and the interactive immediate-present fast path so both render identically.
-  const doPresent = (): void => {
-    strategy.drawFrame()
-    searchOverlay?.paint(searchMatches, searchActiveIndex)
-    a11yMirror.schedule()
-  }
-
-  draw = (): void => {
-    // A real animation frame ran: re-allow an immediate present this frame.
-    presentedThisFrame = false
-    // Self-heal a devicePixelRatio (or font-size) captured before the window
-    // settled onto its real backing store: a pane created pre-Retina-attach would
-    // be rasterized at dpr=1 and upscale to a dpr=2 panel (blur). Every pane draws
-    // at least once post-settle; the guard is a cheap compare and reconciles
-    // (re-rasterize + resize) only on a real change. `gridReflow` is defined below
-    // and only referenced once draw() runs (after wiring completes).
-    //
-    // CRITICAL (GPU path): a reconcile calls surface.configure to resize the WebGL2
-    // swapchain. Presenting into it in the SAME rAF turn makes get_current_texture()
-    // return Outdated, so the frame is dropped to a black canvas — and since the
-    // reconcile's own scheduleDraw() is swallowed while a frame is in flight, nothing
-    // re-arms and an idle shell never repaints. So when we reconcile, consume THIS
-    // frame and arm a clean one; the present lands next rAF on the stable swapchain.
-    if (gridReflow.reconcileIfNeeded()) {
-      drawScheduler.consume()
-      scheduleDraw()
-      return
-    }
-    doPresent()
-  }
-
-  // Interactive fast path: a keystroke echo feeds the engine synchronously, but the
-  // rAF present lands a full display refresh later (the echo arrives AFTER this
-  // frame's rAF already ran), so the glyph is composited one frame late (~8ms@120Hz,
-  // ~17ms@60Hz). Present NOW so it catches the current compositor frame. Coalesced to
-  // one paint per frame; deferred to rAF when a dpr reconcile is pending (a same-turn
-  // swapchain.configure + present blanks the GPU canvas — see draw() above).
-  presentNow = (): void => {
-    if (disposed) {
-      return
-    }
-    if (presentedThisFrame) {
-      scheduleDraw() // already painted this frame; newer state coalesces onto rAF
-      return
-    }
-    if (gridReflow.reconcileIfNeeded()) {
-      drawScheduler.consume()
-      scheduleDraw()
-      return
-    }
-    drawScheduler.consume() // painting now — cancel the armed rAF/backstop
-    doPresent()
-    presentedThisFrame = true
-    // Re-open the gate at the next frame so subsequent keystrokes present eagerly too.
-    requestAnimationFrame(() => {
-      presentedThisFrame = false
-    })
-  }
+  // draw + presentNow are wired from the presenter just after the grid reflow exists
+  // (it's one of the presenter's deps). See below.
 
   const searchApi = buildAtermSearchApi({
     searchController,
@@ -285,6 +230,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     container,
     metrics,
     getFontPx,
+    getLineHeight,
     getGrid,
     setGrid: (nextCols, nextRows) => {
       cols = nextCols
@@ -297,6 +243,22 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     syncDependents: syncDpr,
     scheduleDraw
   })
+
+  // Wire the paint path now that the strategy + grid reflow exist: the rAF draw and
+  // the interactive presentNow fast path share one presenter.
+  const presenter = createAtermPanePresenter({
+    strategy,
+    searchOverlay,
+    a11yMirror,
+    gridReflow,
+    drawScheduler,
+    scheduleDraw,
+    isDisposed: () => disposed,
+    getSearchMatches: () => searchMatches,
+    getSearchActiveIndex: () => searchActiveIndex
+  })
+  draw = presenter.draw
+  presentNow = presenter.presentNow
 
   const textareaInput = attachAtermTextareaInput({
     textarea,

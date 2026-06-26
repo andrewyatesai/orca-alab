@@ -40,6 +40,12 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
       getFontPx: () => {
         const size = useAppStore.getState().settings?.terminalFontSize
         return typeof size === 'number' && size > 0 ? size : ATERM_RENDERER_FONT_PX
+      },
+      // Honor the user's terminalLineHeight (UI clamps 1–3); read live so a change
+      // re-derives the cell-box height via the grid reflow without a pane rebuild.
+      getLineHeight: () => {
+        const lh = useAppStore.getState().settings?.terminalLineHeight
+        return typeof lh === 'number' && lh > 0 ? lh : 1
       }
     }
   )

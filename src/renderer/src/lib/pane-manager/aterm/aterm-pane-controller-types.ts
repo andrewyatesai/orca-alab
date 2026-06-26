@@ -189,4 +189,8 @@ export type AtermPaneControllerOptions = {
    *  size change re-rasterizes the engine (set_px) via the grid reflow without a
    *  pane rebuild. Defaults to ATERM_RENDERER_FONT_PX when unset. */
   getFontPx?: () => number
+  /** Cell line-height multiplier (the user's terminalLineHeight, ~1–3). Read live so
+   *  a change re-derives the cell-box height (set_line_height) via the grid reflow
+   *  without a pane rebuild. Defaults to 1 (engine default) when unset. */
+  getLineHeight?: () => number
 }

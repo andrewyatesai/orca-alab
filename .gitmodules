@@ -1,0 +1,3 @@
+[submodule "rust/aterm"]
+	path = rust/aterm
+	url = https://github.com/andrewyatesai/aterm.git

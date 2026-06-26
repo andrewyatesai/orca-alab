@@ -102,6 +102,11 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   let searchActiveIndex = -1
 
   let draw: () => void = () => undefined
+  // True once a paint happened in the current animation frame, so the interactive
+  // immediate-present fast path (presentNow) coalesces to one paint per frame.
+  let presentedThisFrame = false
+  // Interactive immediate-present; assigned below once the strategy + reflow exist.
+  let presentNow: () => void = () => undefined
   const drawScheduler = createAtermDrawScheduler(() => draw())
   const scheduleDraw = (): void => {
     if (!disposed) {
@@ -120,7 +125,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     markSearchRefresh: () => {
       searchRefreshPending = true
     },
-    scheduleDraw
+    // Present a keystroke echo immediately (coalesced to once per frame) instead of
+    // waiting a full rAF — see presentNow. Bulk output still coalesces onto rAF.
+    scheduleDraw: () => presentNow()
   })
 
   const { selectionInput, scrollInput, eventReportingInput, linkInput, syncDpr } =
@@ -198,7 +205,17 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // draw = present the engine grid, then (GPU) paint search on the overlay. The
   // CPU strategy's drawFrame already overlays search on its own 2d canvas. The
   // a11y mirror is scheduled (debounced) here so it tracks rendered content.
+  // The actual paint: present the engine grid + overlays. Shared by the rAF draw
+  // and the interactive immediate-present fast path so both render identically.
+  const doPresent = (): void => {
+    strategy.drawFrame()
+    searchOverlay?.paint(searchMatches, searchActiveIndex)
+    a11yMirror.schedule()
+  }
+
   draw = (): void => {
+    // A real animation frame ran: re-allow an immediate present this frame.
+    presentedThisFrame = false
     // Self-heal a devicePixelRatio (or font-size) captured before the window
     // settled onto its real backing store: a pane created pre-Retina-attach would
     // be rasterized at dpr=1 and upscale to a dpr=2 panel (blur). Every pane draws
@@ -217,9 +234,35 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       scheduleDraw()
       return
     }
-    strategy.drawFrame()
-    searchOverlay?.paint(searchMatches, searchActiveIndex)
-    a11yMirror.schedule()
+    doPresent()
+  }
+
+  // Interactive fast path: a keystroke echo feeds the engine synchronously, but the
+  // rAF present lands a full display refresh later (the echo arrives AFTER this
+  // frame's rAF already ran), so the glyph is composited one frame late (~8ms@120Hz,
+  // ~17ms@60Hz). Present NOW so it catches the current compositor frame. Coalesced to
+  // one paint per frame; deferred to rAF when a dpr reconcile is pending (a same-turn
+  // swapchain.configure + present blanks the GPU canvas — see draw() above).
+  presentNow = (): void => {
+    if (disposed) {
+      return
+    }
+    if (presentedThisFrame) {
+      scheduleDraw() // already painted this frame; newer state coalesces onto rAF
+      return
+    }
+    if (gridReflow.reconcileIfNeeded()) {
+      drawScheduler.consume()
+      scheduleDraw()
+      return
+    }
+    drawScheduler.consume() // painting now — cancel the armed rAF/backstop
+    doPresent()
+    presentedThisFrame = true
+    // Re-open the gate at the next frame so subsequent keystrokes present eagerly too.
+    requestAnimationFrame(() => {
+      presentedThisFrame = false
+    })
   }
 
   const searchApi = buildAtermSearchApi({

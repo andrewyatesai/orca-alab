@@ -47,7 +47,7 @@ function readVisibleLines(term: Pick<AtermTerminal, 'row_text'>, rows: number): 
   for (let r = 0; r < rows; r++) {
     lines.push((term.row_text(r) ?? '').replace(/\s+$/, ''))
   }
-  while (lines.length > 0 && lines[lines.length - 1] === '') {
+  while (lines.length > 0 && lines.at(-1) === '') {
     lines.pop()
   }
   return lines

@@ -274,9 +274,18 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getCursorBlink: controllerOptions?.getCursorBlink
   })
 
-  // Focus the helper textarea on canvas click.
-  const onPointerDown = (): void => textarea.focus()
-  canvas.addEventListener('pointerdown', onPointerDown)
+  // Focus the helper textarea on canvas click. The canvas is NOT focusable, so the
+  // browser's mousedown DEFAULT moves focus to <body>, blurring the textarea we
+  // focus here — which left the terminal unable to receive keys (cursor drawn
+  // hollow) on a real click, even though a synthetic pointerdown focused fine.
+  // preventDefault the default focus change, then explicitly focus the textarea so
+  // keystrokes + the focused-cursor state land. The selection handler reads the
+  // same event's coords independently, so drag-select is unaffected.
+  const onCanvasMouseDown = (event: MouseEvent): void => {
+    event.preventDefault()
+    textarea.focus()
+  }
+  canvas.addEventListener('mousedown', onCanvasMouseDown)
 
   resizeSink(cols, rows)
   scheduleDraw()
@@ -300,7 +309,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     gridReflow.dispose()
     textareaInput.dispose()
     cursorBlink.dispose()
-    canvas.removeEventListener('pointerdown', onPointerDown)
+    canvas.removeEventListener('mousedown', onCanvasMouseDown)
     selectionInput.dispose()
     scrollInput.dispose()
     eventReportingInput.dispose()

@@ -43,7 +43,7 @@
     "build:native": "node config/scripts/build-native-for-platform.mjs",
     "build:terminal-addon": "node config/scripts/build-terminal-addon.mjs",
     "build:aterm-wasm": "node config/scripts/build-aterm-wasm.mjs",
-    "vendor:aterm": "node config/scripts/vendor-aterm.mjs",
+    "bump:aterm": "node config/scripts/bump-aterm.mjs",
     "smoke:computer": "node config/scripts/computer-use-smoke.mjs",
     "verify:computer-native": "node config/scripts/verify-computer-native.mjs",
     "verify:cli-bin": "node config/scripts/verify-cli-bin.mjs",

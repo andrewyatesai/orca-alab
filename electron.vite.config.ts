@@ -1,6 +1,6 @@
 import { resolve } from 'path'
 import { execSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
@@ -23,10 +23,9 @@ function computeOrcaBuildInfoLiteral(): string {
   } catch {
     /* keep unknown */
   }
-  const atermRevPath = resolve('rust/aterm/VENDORED_REV.txt')
-  const atermRev = existsSync(atermRevPath)
-    ? readFileSync(atermRevPath, 'utf8').trim().slice(0, 12) || 'unknown'
-    : 'unknown'
+  // aterm is a pinned git submodule; its checked-out commit IS the engine version.
+  const atermRevFull = git('-C rust/aterm rev-parse HEAD')
+  const atermRev = atermRevFull ? atermRevFull.slice(0, 12) : 'unknown'
   // The last upstream re-sync: most recent commit whose subject starts with
   // "Merge upstream" (the convention these merges use); pull the version + hash out.
   const mergeLine = git('log -1 --grep="Merge upstream" --format="%h %s"')

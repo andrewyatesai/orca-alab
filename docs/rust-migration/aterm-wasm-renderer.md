@@ -120,7 +120,7 @@ is only the software-GL fallback.
 aterm sources are vendored into `rust/aterm` and built to wasm by the orc scripts:
 
 ```
-pnpm vendor:aterm            # copy ~/aterm/crates → rust/aterm/crates
+pnpm bump:aterm              # bump the aterm submodule to latest + rebuild
 pnpm run build:aterm-wasm    # build aterm-wasm (CPU) + aterm-gpu-web (GPU), wasm-opt -Oz
 pnpm run build:terminal-addon --force
 ```

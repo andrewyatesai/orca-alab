@@ -37,7 +37,9 @@ function cargoEnv() {
   // build gets a rustc new enough for aterm's edition-2024 crates.
   const cargoBin = join(homedir(), '.cargo', 'bin')
   const sep = process.platform === 'win32' ? ';' : ':'
-  const path = existsSync(cargoBin) ? `${cargoBin}${sep}${process.env.PATH ?? ''}` : process.env.PATH
+  const path = existsSync(cargoBin)
+    ? `${cargoBin}${sep}${process.env.PATH ?? ''}`
+    : process.env.PATH
   return { ...process.env, PATH: path }
 }
 
@@ -48,9 +50,11 @@ function newestMtime() {
     resolve(addonDir, 'Cargo.toml'),
     resolve(projectDir, 'rust/crates/orca-terminal/src'),
     resolve(projectDir, 'rust/crates/orca-terminal/Cargo.toml'),
-    // Re-vendoring aterm rewrites this marker; cheap proxy for the whole engine
-    // tree so a fresh engine triggers a rebuild without walking 900+ files.
-    resolve(projectDir, 'rust/aterm/VENDORED_REV.txt')
+    // aterm is a pinned git submodule; its Cargo.lock changes on an engine bump
+    // and `git checkout` refreshes the file's mtime — a cheap proxy for the whole
+    // engine tree so a fresh pin triggers a rebuild without walking 900+ files.
+    // (The bump script also rebuilds with --force, so this is just a fast path.)
+    resolve(projectDir, 'rust/aterm/Cargo.lock')
   ]
   let newest = 0
   const walk = (p) => {

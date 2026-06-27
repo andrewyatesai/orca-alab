@@ -1787,11 +1787,15 @@ export type PreloadApi = {
     getTerminalFallbackFonts: () => Promise<{
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
-      chain: Array<{
+      chain: {
         bytes: Uint8Array
         script: 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'
-      }>
+      }[]
     }>
+    /** Resolve a font FAMILY NAME to its primary (regular) face bytes so the aterm
+     *  renderer can honor terminalFontFamily via set_primary_font. Null when the
+     *  host can't resolve it (renderer keeps the bundled JetBrains Mono). */
+    resolvePrimaryFont: (family: string) => Promise<Uint8Array | null>
   }
   settings: {
     get: () => Promise<GlobalSettings>

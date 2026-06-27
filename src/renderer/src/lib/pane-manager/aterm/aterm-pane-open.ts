@@ -46,7 +46,10 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
       getLineHeight: () => {
         const lh = useAppStore.getState().settings?.terminalLineHeight
         return typeof lh === 'number' && lh > 0 ? lh : 1
-      }
+      },
+      // Honor the user's terminalFontFamily: its primary face is resolved on the host
+      // + injected (set_primary_font) at pane open; "JetBrains Mono"/unset = bundled.
+      getFontFamily: () => useAppStore.getState().settings?.terminalFontFamily
     }
   )
     .then((controller) => {

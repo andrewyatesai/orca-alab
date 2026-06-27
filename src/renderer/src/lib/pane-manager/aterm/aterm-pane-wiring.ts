@@ -16,6 +16,7 @@ import { createAtermTitleChannel } from './aterm-title-channel'
 import { createAtermProcessPump } from './aterm-process-pump'
 import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
 import { createAtermPanePresenter } from './aterm-pane-present'
+import { applyTerminalPrimaryFont } from './inject-terminal-primary-font'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -81,6 +82,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const getFontPx = (): number => controllerOptions?.getFontPx?.() ?? ATERM_RENDERER_FONT_PX
   // Cell line-height multiplier (the user's terminalLineHeight); 1 = engine default.
   const getLineHeight = (): number => controllerOptions?.getLineHeight?.() ?? 1
+  // Primary font family (the user's terminalFontFamily); undefined / JetBrains Mono
+  // keeps the bundled face, else its bytes are resolved + injected below.
+  const getFontFamily = (): string | undefined => controllerOptions?.getFontFamily?.()
   const initialDpr = window.devicePixelRatio || 1
   // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
   // the async load (GPU init can take seconds) gives the window time to settle to a
@@ -259,6 +263,16 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   })
   draw = presenter.draw
   presentNow = presenter.presentNow
+
+  // Honor the user's terminalFontFamily: the engine starts on the bundled JetBrains
+  // Mono, then swaps in the host-resolved custom face + reflows once its bytes load
+  // (async; a bundled/unresolvable family is a no-op). New panes pick up a changed
+  // family; a live change applies on the next opened terminal.
+  void applyTerminalPrimaryFont(term, getFontFamily()).then((applied) => {
+    if (applied && !disposed) {
+      gridReflow.forceReflow()
+    }
+  })
 
   const textareaInput = attachAtermTextareaInput({
     textarea,

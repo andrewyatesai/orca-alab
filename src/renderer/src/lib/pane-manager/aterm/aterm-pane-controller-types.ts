@@ -193,4 +193,8 @@ export type AtermPaneControllerOptions = {
    *  a change re-derives the cell-box height (set_line_height) via the grid reflow
    *  without a pane rebuild. Defaults to 1 (engine default) when unset. */
   getLineHeight?: () => number
+  /** Primary font family (the user's terminalFontFamily). Read at pane open to inject
+   *  the resolved face via set_primary_font; undefined / "JetBrains Mono" keeps the
+   *  bundled face. */
+  getFontFamily?: () => string | undefined
 }

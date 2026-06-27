@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import type { Store } from '../persistence'
 import type { GlobalSettings, PersistedState } from '../../shared/types'
-import { listSystemFontFamilies } from '../system-fonts'
+import { listSystemFontFamilies, resolvePrimaryFontBytes } from '../system-fonts'
 import { getTerminalFallbackFonts } from '../terminal-fallback-fonts'
 import { previewGhosttyImport } from '../ghostty/index'
 import { previewWarpThemeImport } from '../warp-themes'
@@ -170,6 +170,13 @@ export function registerSettingsHandlers(
   // always local, even over SSH).
   ipcMain.handle('fonts:getTerminalFallbackFonts', () => {
     return getTerminalFallbackFonts()
+  })
+
+  // Resolve the user's terminalFontFamily to the bytes of its primary face so the
+  // aterm renderer can inject it (set_primary_font). Always the LOCAL host's fonts
+  // (rendering is local even over SSH); null when unresolvable → bundled default.
+  ipcMain.handle('fonts:resolvePrimaryFont', (_event, family: string) => {
+    return resolvePrimaryFontBytes(family)
   })
 
   ipcMain.handle('settings:previewGhosttyImport', () => {

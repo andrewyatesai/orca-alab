@@ -1608,11 +1608,16 @@ const api = {
     getTerminalFallbackFonts: (): Promise<{
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
-      chain: Array<{
+      chain: {
         bytes: Uint8Array
         script: 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'
-      }>
-    }> => ipcRenderer.invoke('fonts:getTerminalFallbackFonts')
+      }[]
+    }> => ipcRenderer.invoke('fonts:getTerminalFallbackFonts'),
+    // Resolve a font FAMILY NAME to its primary (regular) face bytes so the aterm
+    // renderer can honor terminalFontFamily (set_primary_font); null when the host
+    // can't resolve it → the renderer keeps the bundled JetBrains Mono.
+    resolvePrimaryFont: (family: string): Promise<Uint8Array | null> =>
+      ipcRenderer.invoke('fonts:resolvePrimaryFont', family)
   },
 
   settings: {

@@ -38,6 +38,11 @@ export type AtermGridReflow = {
    *  reconciled, so the caller can avoid presenting in the same turn it
    *  reconfigured the GPU swapchain. */
   reconcileIfNeeded: () => boolean
+  /** Re-sync after an EXTERNAL engine metrics change (e.g. a primary-font swap via
+   *  set_primary_font): re-read cell metrics, recompute the grid, and force a resize
+   *  + redraw even when cols/rows are unchanged (the cell size changed, so the GPU
+   *  swapchain must be reconfigured). */
+  forceReflow: () => void
 }
 
 /** Own the grid's DPI/size reflow: a ResizeObserver on the container plus a DPR
@@ -110,6 +115,21 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
     return true
   }
 
+  const forceReflow = (): void => {
+    if (isDisposed()) {
+      return
+    }
+    // An external set_primary_font changed the cell metrics; re-read them, recompute
+    // the grid, and commit unconditionally so the framebuffer / GPU swapchain resizes
+    // to the new cell size even if cols/rows happen to be unchanged.
+    metrics.cellWidth = term.cell_width
+    metrics.cellHeight = term.cell_height
+    syncDependents()
+    const next = computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+    setGrid(next.cols, next.rows)
+    scheduleDraw()
+  }
+
   const resizeObserver = new ResizeObserver(reflowGrid)
   resizeObserver.observe(container)
 
@@ -129,6 +149,7 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
       resizeObserver.disconnect()
       dprTracker.dispose()
     },
-    reconcileIfNeeded
+    reconcileIfNeeded,
+    forceReflow
   }
 }

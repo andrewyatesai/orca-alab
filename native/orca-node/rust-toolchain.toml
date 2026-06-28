@@ -1,0 +1,6 @@
+# Pin the napi addon build to stable. orca-terminal (and the rest of the rust/
+# workspace it path-depends on) sets rust-version = 1.96; a machine whose global
+# rustup default is an older nightly (e.g. 1.93) otherwise fails the addon build
+# with "rustc X is not supported". Matches rust/aterm's stable pin.
+[toolchain]
+channel = "stable"

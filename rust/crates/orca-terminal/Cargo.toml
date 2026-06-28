@@ -12,11 +12,11 @@ description = "Headless terminal emulation for Orca (replaces @xterm/headless): 
 # VT pipeline: parser, grid, scrollback, SGR/colour model, OSC-7 cwd, mouse
 # modes. `orca-terminal` is the anti-corruption layer that re-exposes aterm's
 # `Terminal` under Orca's stable `HeadlessTerminal` surface so `orca-ffi` /
-# `orca-session` and the native shells are unchanged. The aterm SOURCE is
-# vendored in-tree under `rust/aterm` (rev in rust/aterm/VENDORED_REV.txt) so
+# `orca-session` and the native shells are unchanged. The aterm engine is a
+# pinned git SUBMODULE at `rust/aterm` (pin = rust/aterm's checked-out commit) so
 # clean-machine and packaged builds are self-contained — no `~/aterm` checkout
-# required. Refresh with `pnpm vendor:aterm`. aterm's crates.io closure stays
-# vendored under `rust/vendor` (offline).
+# required. Bump the pin + regenerate wasm/napi with `pnpm bump:aterm`. aterm's
+# crates.io closure stays vendored under `rust/vendor` (offline).
 # features = ["sixel"] compiles aterm-sixel (pure-Rust, zero-dep) into the engine
 # so apps can send Sixel DCS: DA1 advertises code 4 and the decoder places the
 # raster into the inline-image path the renderer blits. Default disk-tier stays on.

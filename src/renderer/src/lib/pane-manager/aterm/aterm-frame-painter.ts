@@ -1,8 +1,5 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
-import {
-  paintAtermLinkUnderline,
-  type AtermHoveredLinkSpan
-} from './aterm-link-underline-overlay'
+import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
 import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
 import type { AtermDrawScheduler } from './aterm-draw-scheduler'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -75,7 +72,22 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
     const dpr = getDpr()
     canvas.style.width = `${width / dpr}px`
     canvas.style.height = `${height / dpr}px`
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(term.rgba()), width, height), 0, 0)
+    // rgba() already returns a fresh JS-heap copy (its glue .slice()s out of wasm
+    // then frees), so reinterpret that exact buffer as a clamped VIEW rather than
+    // copying it a second time — saves one width*height*4 memcpy + alloc per frame
+    // (~16MB/frame on a Retina pane). Safe: putImageData is synchronous and nothing
+    // re-enters wasm between rgba() and the blit, and the buffer is JS-heap (not a
+    // view into wasm memory that could detach).
+    const rgba = term.rgba()
+    ctx.putImageData(
+      new ImageData(
+        new Uint8ClampedArray(rgba.buffer as ArrayBuffer, rgba.byteOffset, rgba.byteLength),
+        width,
+        height
+      ),
+      0,
+      0
+    )
     // Overlay search highlights last so they sit above the rendered glyphs.
     paintAtermSearchHighlights(ctx, deps.getSearchMatches(), deps.getSearchActiveIndex(), {
       term,

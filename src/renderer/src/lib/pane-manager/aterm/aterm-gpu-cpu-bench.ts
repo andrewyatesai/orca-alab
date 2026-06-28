@@ -186,7 +186,16 @@ async function benchCpu(opts: {
       canvas.width = w
       canvas.height = h
     }
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(term.rgba()), w, h), 0, 0)
+    const rgba = term.rgba()
+    ctx.putImageData(
+      new ImageData(
+        new Uint8ClampedArray(rgba.buffer as ArrayBuffer, rgba.byteOffset, rgba.byteLength),
+        w,
+        h
+      ),
+      0,
+      0
+    )
   }
 
   const { totalMs, firstFrameMs } = timeFrames(term, frames, cols, rows, mutation, present)

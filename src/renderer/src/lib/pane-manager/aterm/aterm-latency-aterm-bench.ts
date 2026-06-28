@@ -49,7 +49,16 @@ export async function measureCpuRenderHalf(
       canvas.width = w
       canvas.height = h
     }
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(term.rgba()), w, h), 0, 0)
+    const rgba = term.rgba()
+    ctx.putImageData(
+      new ImageData(
+        new Uint8ClampedArray(rgba.buffer as ArrayBuffer, rgba.byteOffset, rgba.byteLength),
+        w,
+        h
+      ),
+      0,
+      0
+    )
   }
 
   for (let i = 0; i < warmup; i++) {
@@ -140,7 +149,16 @@ export async function benchAtermCpuFrame(opts: SizeOpts & { frames: number }): P
       canvas.width = w
       canvas.height = h
     }
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(term.rgba()), w, h), 0, 0)
+    const rgba = term.rgba()
+    ctx.putImageData(
+      new ImageData(
+        new Uint8ClampedArray(rgba.buffer as ArrayBuffer, rgba.byteOffset, rgba.byteLength),
+        w,
+        h
+      ),
+      0,
+      0
+    )
   }
   const ms = timeEngineFrames(term, frames, present)
   term.free()

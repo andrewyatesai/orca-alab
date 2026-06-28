@@ -1,5 +1,13 @@
 # Trust Performance Migration Plan
 
+> **Status (2026-06-28):** Phase 0 (locale lazy-load) shipped. `orca-git` is the first
+> fully-landed subsumption: verified pure-Rust core + `ay` proofs → napi exposure →
+> dual-run parity (43/43) → **live cutover** of `getStatus` behind the TS fallback. The
+> recipe below is now proven end-to-end; everything in §6 follows it. See
+> [§7 Aterm responsiveness roadmap](#7-aterm-responsiveness-roadmap) and
+> [§8 Trust subsumption order](#8-trust-subsumption-order-what-to-pull-in-next) for the
+> forward plan.
+
 > Goal: migrate orca's biggest **user-experience performance bottlenecks** into
 > **Trust-verified Rust** (aterm's "Trusted Rust" toolchain — `trustc` + `ay` SMT/CHC
 > + `trust-mc` BMC, the `proofs/ay/` discipline). This is a *performance* plan, not the
@@ -266,3 +274,64 @@ and the aterm engine itself (wasm renderer + `orca_node` napi).
 - wasm seam: `config/scripts/build-aterm-wasm.mjs`, `…/aterm/load-aterm.ts`, `rust/aterm/crates/aterm-wasm/src/lib.rs`
 - napi seam: `config/scripts/build-terminal-addon.mjs`, `native/orca-node/src/lib.rs`, `src/main/daemon/rust-terminal-addon.ts`, `rust/crates/orca-terminal/src/headless.rs`
 - Bump/sync: `config/scripts/bump-aterm.mjs`; new crate registration: `rust/Cargo.toml:14`
+
+---
+
+## 7. Aterm responsiveness roadmap
+
+Making the terminal itself faster/crisper/more responsive. aterm v0.5.x already shipped a
+proven typing-latency fix + hot-path alloc trims; the orca-side wins remaining, by leverage:
+
+1. **Run the engine off the renderer main thread.** aterm wasm + the GPU drawer currently
+   run on the renderer **main thread** (`load-aterm.ts` — no Worker), so terminal compute
+   competes with React/layout/paint. Move the engine + an `OffscreenCanvas` into a dedicated
+   Worker; the main thread only forwards input + transfers byte chunks. The single biggest
+   structural responsiveness win (isolates terminal jank from UI jank, and vice-versa).
+2. **Eliminate the double UTF-8 transcode on the output path.** node-pty decodes bytes→string
+   in main, IPC structure-clones the string, the renderer re-encodes to bytes for
+   `term.process()` (`aterm-process-pump.ts`). Deliver raw PTY **bytes** via a napi
+   transferable `ArrayBuffer` straight into the engine — kills two transcodes + the clone +
+   steady renderer GC. (Unlocked by moving OSC scanning into the engine, §8.2.)
+3. **GPU-default widening + context-loss hardening + single-copy CPU.** The CPU fallback
+   double-copies the framebuffer (`aterm-frame-painter.ts` — `new Uint8ClampedArray(term.rgba())`,
+   ~32 MB/frame on Retina). Remove the redundant copy; widen GPU eligibility + harden
+   `webglcontextlost` recovery so fewer panes (esp. SSH/RDP/VM/headless) land on CPU.
+4. **Predictive (local) echo for high-latency sessions.** Over SSH, echo typed glyphs locally
+   before the PTY round-trip (mosh-style), reconciled when the real bytes arrive — hides RTT
+   on the keystroke→glyph path that no main-side fix can.
+5. **Engine-side micro-wins (upstream into aterm, ride its proof gate):** glyph-atlas warming,
+   ligature/shaping caches, damage-region redraw if not already, scrollback mmap tiering
+   (already has the `budget_chc` OOM-impossibility proof to extend).
+
+## 8. Trust subsumption order (what to pull in next)
+
+The recipe is proven (orca-git: pure core + `ay` proofs + napi + dual-run parity + cutover
+behind fallback). Trust is strongest where the hot core is **pure integer/byte logic**
+(parsers, codecs, indexing, budgets, crypto). Ordered by (UX leverage × Trust fit):
+
+1. **✅ git status/diff parser** — DONE (this is §2 #1; live as of 2026-06-28).
+2. **Terminal output byte pipeline** (§2 #2) — fold OSC-9999/title/bell scanning into the aterm
+   engine (drain structured events instead of 1-3 renderer-thread string scans/chunk); move
+   the main-process 8 ms batcher to a Rust byte **ring with a budget invariant**; then the
+   byte transport (#2 above). *Option A — inside the aterm submodule, rides its Trust gate for
+   free.* Highest remaining leverage (hottest UX path) **and** strongest proof fit.
+3. **`orca-text` fuzzy ranking + file-tree projection** (§2 #3) — per-keystroke over the full
+   file list on the UI thread → wasm; index once on panel open, rank per keystroke. Proof:
+   score-in-range + returned-index-in-bounds. (Collation: needs an ICU-equiv or a documented
+   ordering change.)
+4. **Full diff/patch engine** — `orca-git` already owns `compute_line_stats`; extend to a
+   verified Myers diff + hunk apply (the editor's per-section diff stats + `git apply` paths).
+   Proof: index bounds + no-overflow on the LCS/edit-script arithmetic.
+5. **`orca-proto` + `orca-crypto`** (§2 #5) — the RPC envelope codec + `crypto_box`/base64 for
+   the web/mobile client → wasm. Proof: codec totality, no-overflow, constant-time. Benefits
+   the SSH/phone-driving path where all I/O flows through JS crypto today.
+6. **Persistence validation** — the narrow, hot, pure parts of the store hydrate (pane-identity
+   normalization, JSON validation invariants) → napi. *Not* the 40-migration pipeline (churny,
+   low-ROI, high-risk — keep in TS).
+7. **Path confinement / gitignore matching** — `orca-core` path logic; aterm already ships a
+   `PathConfine` TLA spec to mirror. Proof: no path escapes the worktree root.
+
+Pair every subsumption with the §4 non-Rust wins (locale lazy-load shipped; still pending:
+code-split the eager index, `Promise.all` the boot IPCs, move the rg-`--json` parse + the
+Electron fs-watcher to workers). Those dominate startup and are *not* Rust work — don't spend
+verified-Rust effort on parse-cost a dynamic `import()` fixes.

@@ -12,6 +12,10 @@ crate-type = ["cdylib"]
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
 orca-terminal = { path = "../../rust/crates/orca-terminal" }
+# orca-git: the verified status/numstat/line-count parsers exposed to JS via this
+# same .node. orca-core supplies the C-quoted-path decoder.
+orca-git = { path = "../../rust/crates/orca-git" }
+orca-core = { path = "../../rust/crates/orca-core" }
 
 [build-dependencies]
 napi-build = "2"

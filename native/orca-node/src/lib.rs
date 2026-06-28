@@ -163,3 +163,100 @@ impl JsHeadlessTerminal {
 pub fn engine() -> String {
     "aterm".to_string()
 }
+
+// --- orca-git: the verified status/numstat/line-count parsers, exposed to JS
+// via this same .node so the daemon can prove parity with the TS parsers before
+// any cut-over. JSON strings are the marshalling format (the status_result.rs
+// builders match the TS shapes verbatim, omitting None fields). ---
+
+/// Streaming `git status --porcelain=v2 --branch` parser — the chunked path the
+/// daemon feeds raw stdout bytes. Mirrors `StatusPorcelainParser` in
+/// `src/main/git/status-porcelain-parser.ts`.
+#[napi(js_name = "GitStatusParser")]
+pub struct JsGitStatusParser {
+    // Option because into_result consumes the parser; result() take()s it.
+    inner: Option<orca_git::status_stream::StatusPorcelainParser>,
+}
+
+#[napi]
+impl JsGitStatusParser {
+    #[napi(constructor)]
+    pub fn new() -> Self {
+        Self {
+            inner: Some(orca_git::status_stream::StatusPorcelainParser::new()),
+        }
+    }
+
+    /// Feed one raw chunk. Returns true once the changed-entry count exceeds
+    /// `limit` (0 disables the cap), signaling the caller to stop git.
+    #[napi]
+    pub fn update(&mut self, chunk: Buffer, limit: u32) -> bool {
+        match self.inner.as_mut() {
+            Some(parser) => parser.update(&chunk, limit as usize),
+            // Already consumed by result(); nothing more to scan.
+            None => false,
+        }
+    }
+
+    /// Flush a final record with no trailing newline (e.g. when git exits).
+    #[napi]
+    pub fn finish(&mut self) {
+        if let Some(parser) = self.inner.as_mut() {
+            parser.finish();
+        }
+    }
+
+    /// Consume the parser and return the status-result JSON. After the first call
+    /// the parser is gone; a second call returns a valid empty result, never a panic.
+    #[napi]
+    pub fn result(&mut self, limit: u32) -> String {
+        let result = match self.inner.take() {
+            Some(parser) => parser.into_result(limit as usize),
+            None => orca_git::status_stream::StatusPorcelainParser::new().into_result(limit as usize),
+        };
+        orca_git::status_result::status_parse_result_to_json(&result).to_string()
+    }
+}
+
+/// One-shot status scan (the relay entry point): the cap is applied DURING the
+/// scan, so `entries` is bounded by `limit` instead of materialize-then-truncate.
+#[napi]
+pub fn parse_status_porcelain(stdout: Buffer, limit: u32) -> String {
+    let result = orca_git::status_stream::parse_status_porcelain(&stdout, limit as usize);
+    orca_git::status_result::status_parse_result_to_json(&result).to_string()
+}
+
+/// `git diff --numstat` (text or `-z`) parsed to `{path: {added?, removed?}}`.
+#[napi]
+pub fn parse_numstat(stdout: Buffer) -> String {
+    let entries = orca_git::numstat::parse_numstat(&stdout);
+    orca_git::status_result::numstat_to_json(&entries).to_string()
+}
+
+/// Count additions for an untracked file's contents: null for binary, 0 for empty,
+/// else the trailing-newline-aware line count.
+#[napi]
+pub fn count_additions_in_buffer(bytes: Buffer) -> Option<u32> {
+    orca_git::line_count::count_additions_in_buffer(&bytes)
+}
+
+/// Approximate added/removed line counts; returns the line-stats JSON, or null
+/// for the large-input guard.
+#[napi]
+pub fn compute_line_stats(original: String, modified: String, status: String) -> Option<String> {
+    orca_git::line_count::compute_line_stats(&original, &modified, &status)
+        .map(|stats| orca_git::status_result::line_stats_to_json(Some(stats)).to_string())
+}
+
+/// Decode a git C-quoted (octal-escaped) path. Raw (unquoted) input passes through.
+/// js_name keeps the capital-Q the TS `decodeGitCQuotedPath` uses (napi would
+/// otherwise lowercase "cquoted").
+#[napi(js_name = "decodeGitCQuotedPath")]
+pub fn decode_git_cquoted_path(value: String) -> String {
+    orca_core::git_cquoted_path::decode_git_cquoted_path(&value)
+}
+
+#[napi]
+pub fn git_engine() -> &'static str {
+    "orca-git"
+}

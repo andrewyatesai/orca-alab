@@ -98,8 +98,33 @@ describe('terminal clipboard paste', () => {
       pasteText
     })
 
-    expect(saveClipboardImageAsTempFile).toHaveBeenCalledWith({ connectionId: 'ssh-1' })
+    expect(saveClipboardImageAsTempFile).toHaveBeenCalledWith({
+      connectionId: 'ssh-1',
+      runtimeEnvironmentId: undefined
+    })
     expect(pasteText).toHaveBeenCalledWith('/var/tmp/orca-paste-1760000000000-id.png', {
+      forceBracketedPaste: true
+    })
+  })
+
+  it('forwards remote runtime context and bracket-pastes the runtime image path', async () => {
+    const pasteText = vi.fn()
+    const saveClipboardImageAsTempFile = vi
+      .fn()
+      .mockResolvedValue('/tmp/orca-paste-1760000000000-runtime.png')
+
+    await pasteTerminalClipboard({
+      readClipboardText: vi.fn().mockResolvedValue(''),
+      saveClipboardImageAsTempFile,
+      runtimeEnvironmentId: 'remote-host-1',
+      pasteText
+    })
+
+    expect(saveClipboardImageAsTempFile).toHaveBeenCalledWith({
+      connectionId: undefined,
+      runtimeEnvironmentId: 'remote-host-1'
+    })
+    expect(pasteText).toHaveBeenCalledWith('/tmp/orca-paste-1760000000000-runtime.png', {
       forceBracketedPaste: true
     })
   })
@@ -132,7 +157,10 @@ describe('terminal clipboard paste', () => {
       pasteText
     })
 
-    expect(saveClipboardImageAsTempFile).toHaveBeenCalledWith({ connectionId: undefined })
+    expect(saveClipboardImageAsTempFile).toHaveBeenCalledWith({
+      connectionId: undefined,
+      runtimeEnvironmentId: undefined
+    })
     expect(pasteText).toHaveBeenCalledWith('/tmp/orca-paste-1760000000000-id.png', {
       forceBracketedPaste: true
     })

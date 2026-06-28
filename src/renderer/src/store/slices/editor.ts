@@ -39,6 +39,7 @@ import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import { clampMarkdownTocPanelWidth } from '../../../../shared/markdown-toc-panel-width'
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import type { RemoteOpKind } from '@/components/right-sidebar/source-control-primary-action'
+import { invalidateAutomaticPushTargetUpstreamStatusCache } from '@/components/right-sidebar/push-target-upstream-refresh-cache'
 import {
   isNonFastForwardRemoteError,
   resolveRemoteOperationErrorMessage
@@ -295,6 +296,7 @@ type EditorOpenTargetOptions = {
 
 type GitRuntimeOperationOptions = {
   runtimeTargetSettings?: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null
+  applyUpstreamStatus?: boolean
 }
 
 export type PendingEditorReveal = {
@@ -596,7 +598,7 @@ export type EditorSlice = {
     connectionId?: string,
     pushTarget?: GitPushTarget,
     options?: GitRuntimeOperationOptions
-  ) => Promise<void>
+  ) => Promise<GitUpstreamStatus | null>
   pushBranch: (
     worktreeId: string,
     worktreePath: string,
@@ -975,6 +977,12 @@ function matchesEditorMode(
   modes: readonly OpenFile['mode'][] | undefined
 ): boolean {
   return !modes || modes.includes(file.mode)
+}
+
+function getReusableOpenFileModes(mode: OpenFile['mode']): readonly OpenFile['mode'][] {
+  // Why: the same path can be open as both a diff and an editable file; matching
+  // by path alone collapses those distinct visible tabs onto one OpenFile.
+  return [mode]
 }
 
 function resolveEditorFileIdForOwner(
@@ -1506,11 +1514,20 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
             (options?.suppressActiveRuntimeFallback
               ? null
               : (s.settings?.activeRuntimeEnvironmentId?.trim() ?? undefined)))
+      const reusableOpenFileModes = getReusableOpenFileModes(file.mode)
       const existing = s.openFiles.find(
         (f) =>
-          f.filePath === file.filePath && isSameEditorOwner(f, worktreeId, runtimeEnvironmentId)
+          f.filePath === file.filePath &&
+          matchesEditorMode(f, reusableOpenFileModes) &&
+          isSameEditorOwner(f, worktreeId, runtimeEnvironmentId)
       )
-      const id = resolveEditorFileIdForOwner(s, file.filePath, worktreeId, runtimeEnvironmentId)
+      const id = resolveEditorFileIdForOwner(
+        s,
+        file.filePath,
+        worktreeId,
+        runtimeEnvironmentId,
+        reusableOpenFileModes
+      )
       editorItemFileId = id
       const isPreview = options?.preview ?? false
       const recordReplacedPreview = options?.recordReplacedPreview ?? false
@@ -3529,8 +3546,8 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       }
     }),
   fetchUpstreamStatus: async (worktreeId, worktreePath, connectionId, pushTarget, options) => {
+    const runtimeSettings = options?.runtimeTargetSettings ?? get().settings
     try {
-      const runtimeSettings = options?.runtimeTargetSettings ?? get().settings
       const status = await getRuntimeGitUpstreamStatus(
         {
           settings: runtimeSettings,
@@ -3540,7 +3557,10 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
         },
         pushTarget
       )
-      get().setUpstreamStatus(worktreeId, status)
+      if (options?.applyUpstreamStatus !== false) {
+        get().setUpstreamStatus(worktreeId, status)
+      }
+      return status
     } catch (error) {
       // Why: on error we leave the prior status in place rather than writing a
       // synthetic {hasUpstream:false} — that would flash 'Publish Branch' on a
@@ -3548,7 +3568,19 @@ export const createEditorSlice: StateCreator<AppState, [], [], EditorSlice> = (s
       // re-publish, clobbering the upstream relationship. If the branch is
       // genuinely newly unpublished, the polling effect will eventually correct
       // the status on success.
+      if (pushTarget) {
+        // Why: an old automatic poll cache entry must not suppress the next
+        // retry after a post-push/fetch refresh fails transiently.
+        invalidateAutomaticPushTargetUpstreamStatusCache({
+          settings: runtimeSettings,
+          worktreeId,
+          worktreePath,
+          connectionId,
+          pushTarget
+        })
+      }
       console.error('fetchUpstreamStatus failed', error)
+      return null
     }
   },
   pushBranch: async (

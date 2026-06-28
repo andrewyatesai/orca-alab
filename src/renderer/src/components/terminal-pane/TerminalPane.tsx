@@ -19,9 +19,14 @@ import TerminalSearch from '@/components/TerminalSearch'
 import type { PtyTransport } from './pty-transport'
 import { fitPanes, isWindowsUserAgent } from './pane-helpers'
 import { getConnectionId } from '@/lib/connection-context'
+import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { handleInternalTerminalFileDrop } from './terminal-drop-handler'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
-import { EMPTY_LAYOUT, serializeTerminalLayout } from './layout-serialization'
+import {
+  collectLeafIdsInOrder,
+  EMPTY_LAYOUT,
+  serializeTerminalLayout
+} from './layout-serialization'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import {
   applyExpandedLayoutTo,
@@ -58,6 +63,7 @@ import { useTerminalPaneContextMenu } from './use-terminal-pane-context-menu'
 import type { PreparedAgentSessionFork } from './terminal-agent-session-fork'
 import { useNotificationDispatch } from './use-notification-dispatch'
 import { connectPanePty } from './pty-connection'
+import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { shouldPreserveTerminalScrollbackBuffers } from '../../../../shared/workspace-session-terminal-buffers'
 import {
   getAllOverrides,
@@ -110,6 +116,7 @@ import {
 import { keybindingMatchesAction } from '../../../../shared/keybindings'
 import { pasteTerminalClipboard } from './terminal-clipboard-paste'
 import { restoreTerminalFitToDesktop, restoreTerminalFitsToDesktop } from './terminal-fit-restore'
+import { useVisibleTerminalTabClaim } from './use-visible-terminal-tab-claim'
 
 // Why: registry lives in a leaf module so the store slice can import it
 // without re-entering the `slice → TerminalPane → store → slice` cycle
@@ -138,6 +145,13 @@ import {
 import { getCachedTerminalTabForWorktree } from './terminal-tab-lookup'
 import { getCachedTerminalGroupIdForWorktree } from './terminal-unified-tab-lookup'
 import { useRepoById } from '@/store/selectors'
+import {
+  isXtermHelperTextarea,
+  releaseTerminalFocusForOutsidePointerDown,
+  releaseTerminalFocusForWindowBlur,
+  resyncTerminalFocusForWindowFocus,
+  setRegularTerminalInputFocusAttribute
+} from './regular-terminal-focus-ownership'
 
 type TerminalPaneProps = {
   tabId: string
@@ -190,10 +204,6 @@ function TerminalQuickCommandEditorDialog({
 function formatClipboardImagePasteError(error: unknown): string {
   const detail = error instanceof Error ? error.message : String(error)
   return `Image paste failed: ${detail}`
-}
-
-function isXtermHelperTextarea(target: EventTarget | null): target is HTMLElement {
-  return target instanceof HTMLElement && target.classList.contains('xterm-helper-textarea')
 }
 
 function arePaneTitleOverlayRectsEqual(
@@ -259,6 +269,8 @@ export default function TerminalPane({
   isActiveRef.current = isActive
   const isVisibleRef = useRef(isVisible)
   isVisibleRef.current = isVisible
+
+  useVisibleTerminalTabClaim({ isVisible, tabId })
 
   const [expandedPaneId, setExpandedPaneId] = useState<number | null>(null)
   // Why: tracked in React state (not derived from managerRef.getPanes().length)
@@ -459,6 +471,12 @@ export default function TerminalPane({
     () => (terminalTab ? sanitizeTerminalLayoutPaneTitles(savedLayout, terminalTab) : savedLayout),
     [savedLayout, terminalTab]
   )
+  const expectedLayoutLeafIds = useMemo(
+    () => collectLeafIdsInOrder(restoredLayout.root),
+    [restoredLayout.root]
+  )
+  const expectedLayoutLeafIdsAttr =
+    expectedLayoutLeafIds.length > 0 ? expectedLayoutLeafIds.join(' ') : undefined
   const initialLayoutRef = useRef(restoredLayout)
   const updateTabTitle = useAppStore((store) => store.updateTabTitle)
   const setRuntimePaneTitle = useAppStore((store) => store.setRuntimePaneTitle)
@@ -716,6 +734,11 @@ export default function TerminalPane({
     if (Object.keys(mergedPtyIds).length > 0) {
       layout.ptyIdsByLeafId = mergedPtyIds
     }
+    layout.activeLeafId = resolveTerminalLayoutActiveLeafId({
+      root: layout.root,
+      activeLeafId: layout.activeLeafId,
+      ptyIdsByLeafId: mergedPtyIds
+    })
     // Preserve pane titles — uses the live React state (via ref) rather than
     // the stale Zustand value because React state reflects in-flight title
     // edits that haven't been persisted yet.
@@ -846,6 +869,34 @@ export default function TerminalPane({
       delete nextBindings[leafId]
       setTabLayout(tabId, {
         ...layoutWithoutPtyBindings,
+        ...(Object.keys(nextBindings).length > 0 ? { ptyIdsByLeafId: nextBindings } : {})
+      })
+    },
+    [setTabLayout, tabId]
+  )
+
+  const clearExitedPanePtyLayoutBinding = useCallback(
+    (paneId: number, exitedPtyId: string): void => {
+      const existingLayout = useAppStore.getState().terminalLayoutsByTabId[tabId] ?? EMPTY_LAYOUT
+      const { ptyIdsByLeafId: _existingPtyIdsByLeafId, ...layoutWithoutPtyBindings } =
+        existingLayout
+      const existingBindings = existingLayout.ptyIdsByLeafId ?? {}
+      const leafId = managerRef.current?.getLeafId(paneId)
+      if (!leafId || existingBindings[leafId] !== exitedPtyId) {
+        return
+      }
+
+      const nextBindings = { ...existingBindings }
+      delete nextBindings[leafId]
+      // Why: a focused pane that lost its PTY can swallow input while a live
+      // sibling still exists, so unexpected exits repair focus to a bound leaf.
+      setTabLayout(tabId, {
+        ...layoutWithoutPtyBindings,
+        activeLeafId: resolveTerminalLayoutActiveLeafId({
+          root: existingLayout.root,
+          activeLeafId: existingLayout.activeLeafId,
+          ptyIdsByLeafId: nextBindings
+        }),
         ...(Object.keys(nextBindings).length > 0 ? { ptyIdsByLeafId: nextBindings } : {})
       })
     },
@@ -1024,6 +1075,7 @@ export default function TerminalPane({
     dispatchNotification,
     setCacheTimerStartedAt,
     syncPanePtyLayoutBinding,
+    clearExitedPanePtyLayoutBinding,
     setTabPaneExpanded,
     setTabCanExpandPane,
     setExpandedPane,
@@ -1241,7 +1293,8 @@ export default function TerminalPane({
         onShowSessionRestoredBanner: showRestoredSessionBanner,
         dispatchNotification,
         setCacheTimerStartedAt,
-        syncPanePtyLayoutBinding
+        syncPanePtyLayoutBinding,
+        clearExitedPanePtyLayoutBinding
       })
       panePtyBindingsRef.current.set(paneId, newPaneBinding)
       manager.setActivePane(paneId, { focus: true })
@@ -1263,6 +1316,7 @@ export default function TerminalPane({
       setCacheTimerStartedAt,
       setRuntimePaneTitle,
       suppressPtyExit,
+      clearExitedPanePtyLayoutBinding,
       syncPanePtyLayoutBinding,
       tabId,
       updateTabPtyId,
@@ -1291,7 +1345,7 @@ export default function TerminalPane({
     }
   }, [consumePendingCodexPaneRestart, handleRestartCodexPane, pendingCodexPaneRestartIds])
 
-  useTerminalFontZoom({ isActive, managerRef, paneFontSizesRef, settingsRef })
+  useTerminalFontZoom({ isActive, containerRef, managerRef, paneFontSizesRef, settingsRef })
 
   useTerminalKeyboardShortcuts({
     tabId,
@@ -1409,7 +1463,10 @@ export default function TerminalPane({
     if (!container) {
       return
     }
+    let ownsRegularTerminalFocus = false
     const syncFocused = (focused: boolean): void => {
+      ownsRegularTerminalFocus = focused
+      setRegularTerminalInputFocusAttribute(focused)
       window.api.ui.setTerminalInputFocused?.(focused)
     }
     const onFocusIn = (event: FocusEvent): void => {
@@ -1426,6 +1483,32 @@ export default function TerminalPane({
       }
       syncFocused(false)
     }
+    const onPointerDown = (event: PointerEvent): void => {
+      releaseTerminalFocusForOutsidePointerDown({
+        container,
+        activeElement: document.activeElement,
+        pointerTarget: event.target,
+        syncFocused
+      })
+    }
+    const onWindowBlur = (): void => {
+      // Why: webview/browser handoff leaves the helper textarea as DOM focus,
+      // so clear only the main-process mirror and let guest focus proceed.
+      releaseTerminalFocusForWindowBlur({
+        container,
+        activeElement: document.activeElement,
+        syncFocused
+      })
+    }
+    const onWindowFocus = (): void => {
+      // Why: app reactivation can preserve DOM focus on xterm after blur
+      // cleared the process-wide shortcut mirror.
+      resyncTerminalFocusForWindowFocus({
+        container,
+        activeElement: document.activeElement,
+        syncFocused
+      })
+    }
 
     if (
       isXtermHelperTextarea(document.activeElement) &&
@@ -1435,13 +1518,18 @@ export default function TerminalPane({
     }
     container.addEventListener('focusin', onFocusIn)
     container.addEventListener('focusout', onFocusOut)
+    document.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('blur', onWindowBlur)
+    window.addEventListener('focus', onWindowFocus)
     return () => {
       container.removeEventListener('focusin', onFocusIn)
       container.removeEventListener('focusout', onFocusOut)
-      if (
-        isXtermHelperTextarea(document.activeElement) &&
-        container.contains(document.activeElement)
-      ) {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('blur', onWindowBlur)
+      window.removeEventListener('focus', onWindowFocus)
+      // Why: the helper textarea may be removed before cleanup observes
+      // document.activeElement, so clear by this pane's mirrored ownership.
+      if (ownsRegularTerminalFocus) {
         syncFocused(false)
       }
     }
@@ -1553,11 +1641,16 @@ export default function TerminalPane({
       source: Extract<TerminalPasteSource, 'keyboard' | 'paste-event'>
     ): void => {
       const connectionId = getConnectionId(worktreeId) ?? null
+      const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(
+        useAppStore.getState(),
+        worktreeId
+      )
       const activeElementAtDispatch = document.activeElement
       void pasteTerminalClipboard({
         readClipboardText: window.api.ui.readClipboardText,
         saveClipboardImageAsTempFile: window.api.ui.saveClipboardImageAsTempFile,
         connectionId,
+        runtimeEnvironmentId,
         forceBracketedMultilineTextPaste,
         pasteText: (text, options) =>
           executePanePasteText(pane, source, activeElementAtDispatch, text, options),
@@ -1678,10 +1771,15 @@ export default function TerminalPane({
         return
       }
       const connectionId = getConnectionId(worktreeId) ?? null
+      const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(
+        useAppStore.getState(),
+        worktreeId
+      )
       void pasteTerminalClipboard({
         readClipboardText: window.api.ui.readClipboardText,
         saveClipboardImageAsTempFile: window.api.ui.saveClipboardImageAsTempFile,
         connectionId,
+        runtimeEnvironmentId,
         forceBracketedMultilineTextPaste,
         pasteText: (text, options) =>
           executePanePasteText(pane, 'app-menu', activeElementAtDispatch, text, options),
@@ -1756,27 +1854,24 @@ export default function TerminalPane({
     return subscribeTerminalPaneAttention(tabId, applyTerminalPaneAttention)
   }, [tabId, paneCount, applyTerminalPaneAttention])
 
-  // Sync the pane title reservation before paint. The title UI stays outside
-  // xterm's DOM, but xterm must still fit below it so the first terminal row is
-  // never hidden under the title strip.
+  // Sync the pane title reservation before paint. Text/banner chrome stays
+  // outside xterm's DOM, but xterm must still fit below it so the first
+  // terminal row is never hidden under meaningful status UI.
   useLayoutEffect(() => {
     const manager = managerRef.current
     if (!manager) {
       return
     }
-    // Show the title bar space when the pane has a title, is being
-    // inline-edited, or has transient startup chrome. Unread activity does
-    // not reserve this space; its overlay should not reflow terminal content.
+    // Show title space only for text/status chrome. Chromeless pane controls
+    // float over xterm so untitled panes keep their first row.
     const needsFit = syncSessionRestoredBannerTitleSpace({
       panes: manager.getPanes(),
       paneTitles,
       renamingPaneId,
-      sessionRestoredBannerPaneIds,
-      reservePaneHeaderSpace: isActive && (isVisible || shouldMeasureHiddenStartup)
+      sessionRestoredBannerPaneIds
     })
     if (needsFit && (isVisible || shouldMeasureHiddenStartup)) {
-      // Why: inactive terminal tabs can drop active-only header reservation.
-      // Fitting that hidden geometry changes PTY rows and wakes TUIs with
+      // Why: fitting hidden geometry changes PTY rows and wakes TUIs with
       // SIGWINCH; the visible resume path owns any real layout correction.
       fitPanes(manager)
     }
@@ -1786,7 +1881,6 @@ export default function TerminalPane({
     paneTitles,
     renamingPaneId,
     sessionRestoredBannerPaneIds,
-    isActive,
     isVisible,
     shouldMeasureHiddenStartup
   ])
@@ -2166,14 +2260,17 @@ export default function TerminalPane({
   }, [])
 
   const restorePaneTerminalFit = useCallback(
-    async (pane: ManagedPane): Promise<void> => {
+    async (pane: ManagedPane, ptyId: string): Promise<void> => {
       // Why: local and remote runtime PTYs use different transports, but the
       // desktop reclaim button should have one visible recovery behavior.
-      const id = paneTransportsRef.current.get(pane.id)?.getPtyId()
-      if (!id) {
+      // Why: the banner was rendered for this PTY; stale portals must disappear
+      // before they can reclaim a different terminal that reused this pane slot.
+      const currentPtyId = paneTransportsRef.current.get(pane.id)?.getPtyId() ?? null
+      if (currentPtyId !== ptyId) {
+        setOverrideTick((n) => n + 1)
         return
       }
-      const restored = await restoreTerminalFitToDesktop(id, settingsRef.current ?? undefined)
+      const restored = await restoreTerminalFitToDesktop(ptyId, settingsRef.current ?? undefined)
       if (restored) {
         scheduleRestoredTerminalRefit()
         // Why: after the overlay unmounts, focus would otherwise stay on the
@@ -2404,6 +2501,7 @@ export default function TerminalPane({
         className="absolute inset-0 min-h-0 min-w-0"
         data-native-file-drop-target="terminal"
         data-terminal-tab-id={tabId}
+        data-terminal-layout-leaf-ids={expectedLayoutLeafIdsAttr}
         data-pane-title-surface={titleUsesLightSurface ? 'light' : 'dark'}
         style={terminalContainerStyle}
         onContextMenuCapture={contextMenu.onContextMenuCapture}
@@ -2493,6 +2591,7 @@ export default function TerminalPane({
         onClosePane={contextMenu.onClosePane}
         onClearScreen={contextMenu.onClearScreen}
         onForkAgentSession={() => void contextMenu.onForkAgentSession()}
+        onCopyAgentSessionContext={() => void contextMenu.onCopyAgentSessionContext()}
         repoQuickCommands={repoQuickCommands}
         globalQuickCommands={globalQuickCommands}
         quickCommandRepoLabel={quickCommandRepoLabel}
@@ -2581,7 +2680,7 @@ export default function TerminalPane({
             driver={driver}
             hasFitOverride={hasFitOverride}
             rootClassName="mobile-driver-banner"
-            onAction={() => restorePaneTerminalFit(pane)}
+            onAction={() => restorePaneTerminalFit(pane, ptyId)}
             onAllAction={() => restoreAllTerminalFits(pane)}
           />,
           pane.container,

@@ -8,6 +8,10 @@ import {
   type ForegroundTerminalOutputTarget
 } from './pane-terminal-foreground-render-settle'
 import { mirrorOutputToAterm } from './aterm/aterm-output-mirror'
+import {
+  captureTerminalWriteScrollIntent,
+  enforceTerminalWriteScrollIntent
+} from './terminal-scroll-intent'
 
 type TerminalOutputTarget = ForegroundTerminalOutputTarget
 
@@ -601,6 +605,36 @@ function hasDrainableBacklog(): boolean {
   return false
 }
 
+function writeBackgroundTerminalChunk(terminal: TerminalOutputTarget, data: string): void {
+  // Capture scroll intent so a background drain can't yank a pinned viewport to
+  // the bottom, then re-pin it after the write parses.
+  const scrollIntent = captureTerminalWriteScrollIntent(terminal)
+  // Background drain: the mirror already fed the engine up front, so use the
+  // callback-only scheduler path to avoid re-parsing these bytes.
+  ;(terminal.__schedulerWrite ?? terminal.write).call(terminal, data, () => {
+    enforceTerminalWriteScrollIntent(terminal, scrollIntent)
+  })
+  // __schedulerWrite paints nothing (callback-only), so flush the engine's
+  // mirrored state to the canvas. Coalesced into one frame — no draw storm.
+  terminal.__scheduleAtermDraw?.()
+}
+
+function writeForegroundTerminalChunkWithIntent(
+  terminal: TerminalOutputTarget,
+  data: string,
+  options: {
+    forceViewportRefresh: boolean
+    followupViewportRefresh: boolean
+  }
+): void {
+  const scrollIntent = captureTerminalWriteScrollIntent(terminal)
+  writeForegroundTerminalChunk(terminal, data, {
+    forceViewportRefresh: options.forceViewportRefresh,
+    followupViewportRefresh: options.followupViewportRefresh,
+    onParsed: () => enforceTerminalWriteScrollIntent(terminal, scrollIntent)
+  })
+}
+
 function takeNextDrainableEntry(): QueueEntry | null {
   for (const entry of queuedByTerminal.values()) {
     if (!isEntryDrainable(entry)) {
@@ -620,7 +654,7 @@ function writeQueuedChunk(entry: QueueEntry): 'foreground' | 'background' | null
   try {
     entry.beforeWrite?.(queuedWrite.data)
     if (queuedWrite.foreground) {
-      writeForegroundTerminalChunk(
+      writeForegroundTerminalChunkWithIntent(
         entry.terminal,
         queuedWrite.stripTransientCursorShows
           ? removeTransientCursorShowSequences(queuedWrite.data)
@@ -631,15 +665,7 @@ function writeQueuedChunk(entry: QueueEntry): 'foreground' | 'background' | null
         }
       )
     } else {
-      // Background drain: the mirror already fed the engine up front, so use the
-      // callback-only scheduler path to avoid re-parsing these bytes.
-      ;(entry.terminal.__schedulerWrite ?? entry.terminal.write).call(
-        entry.terminal,
-        queuedWrite.data
-      )
-      // __schedulerWrite paints nothing (callback-only), so flush the engine's
-      // mirrored state to the canvas. Coalesced into one frame — no draw storm.
-      entry.terminal.__scheduleAtermDraw?.()
+      writeBackgroundTerminalChunk(entry.terminal, queuedWrite.data)
     }
   } catch {
     // Why: pane.terminal.dispose() can race with a queued late-arriving PTY ping;
@@ -838,12 +864,12 @@ export function writeTerminalOutput(
       debugState.foregroundWriteCount++
     }
     options.beforeWrite?.(data)
-    writeForegroundTerminalChunk(
+    writeForegroundTerminalChunkWithIntent(
       terminal,
       options.stripTransientCursorShows ? removeTransientCursorShowSequences(data) : data,
       {
-        forceViewportRefresh: options.forceForegroundRefresh,
-        followupViewportRefresh: options.followupForegroundRefresh
+        forceViewportRefresh: options.forceForegroundRefresh === true,
+        followupViewportRefresh: options.followupForegroundRefresh === true
       }
     )
     return
@@ -911,7 +937,7 @@ export function flushTerminalOutput(
     try {
       entry.beforeWrite?.(queuedWrite.data)
       if (queuedWrite.foreground) {
-        writeForegroundTerminalChunk(
+        writeForegroundTerminalChunkWithIntent(
           terminal,
           queuedWrite.stripTransientCursorShows
             ? removeTransientCursorShowSequences(queuedWrite.data)
@@ -922,12 +948,7 @@ export function flushTerminalOutput(
           }
         )
       } else {
-        // Flush drain: the mirror already fed the engine up front, so use the
-        // callback-only scheduler path to avoid re-parsing these bytes.
-        ;(terminal.__schedulerWrite ?? terminal.write).call(terminal, queuedWrite.data)
-        // __schedulerWrite paints nothing (callback-only), so flush the engine's
-        // mirrored state to the canvas. Coalesced into one frame — no draw storm.
-        terminal.__scheduleAtermDraw?.()
+        writeBackgroundTerminalChunk(terminal, queuedWrite.data)
       }
     } catch {
       // Why: pane.terminal.dispose() can race with a queued late-arriving PTY ping;

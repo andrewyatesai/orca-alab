@@ -144,6 +144,38 @@ describe('pane terminal output scheduler', () => {
     expect(terminal._core.refresh).toHaveBeenLastCalledWith(0, 23, true)
   })
 
+  it('schedules a follow-up repaint for a Claude-style in-place CR redraw without scroll', async () => {
+    // Why: issue #5656/#5653 — Claude Code's plain-ASCII prompt redraw (CR + CHA +
+    // reprint + erase-line, no DEC 2026, no scroll, no cursor hide/show restore)
+    // paints one frame late on Windows ConPTY. A single sync refresh races that
+    // late paint, so the connection layer requests followupForegroundRefresh.
+    // Prove the scheduler turns that into a second next-frame repaint.
+    const scheduledFrames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      scheduledFrames.push(callback)
+      return scheduledFrames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+
+    const { writeTerminalOutput } = await loadScheduler()
+    const terminal = createForegroundTerminal()
+
+    writeTerminalOutput(terminal, '\r\x1b[3Gzzzx\x1b[K', {
+      foreground: true,
+      latencySensitive: true,
+      forceForegroundRefresh: true,
+      followupForegroundRefresh: true
+    })
+
+    expect(terminal._core.refresh).toHaveBeenCalledTimes(1)
+    expect(scheduledFrames).toHaveLength(1)
+
+    scheduledFrames[0]?.(16)
+
+    expect(terminal._core.refresh).toHaveBeenCalledTimes(2)
+    expect(terminal._core.refresh).toHaveBeenLastCalledWith(0, 23, true)
+  })
+
   it('skips forced viewport refresh for ordinary foreground output', async () => {
     const { writeTerminalOutput } = await loadScheduler()
     const terminal = createForegroundTerminal()
@@ -166,7 +198,7 @@ describe('pane terminal output scheduler', () => {
     vi.advanceTimersByTime(50)
 
     expect(terminal.write).toHaveBeenCalledTimes(1)
-    expect(terminal.write).toHaveBeenCalledWith('ab')
+    expect(terminal.write).toHaveBeenCalledWith('ab', expect.any(Function))
   })
 
   it('defers throughput foreground output to the shared high-priority drain', async () => {
@@ -604,7 +636,7 @@ describe('pane terminal output scheduler', () => {
 
     expect(beforeWrite).toHaveBeenCalledTimes(1)
     expect(beforeWrite).toHaveBeenCalledWith('ab')
-    expect(terminal.write).toHaveBeenCalledWith('ab')
+    expect(terminal.write).toHaveBeenCalledWith('ab', expect.any(Function))
   })
 
   it('runs deferred write preparation before explicit background flushes', async () => {
@@ -620,7 +652,7 @@ describe('pane terminal output scheduler', () => {
 
     expect(beforeWrite).toHaveBeenCalledTimes(1)
     expect(beforeWrite).toHaveBeenCalledWith('hidden')
-    expect(terminal.write).toHaveBeenCalledWith('hidden')
+    expect(terminal.write).toHaveBeenCalledWith('hidden', expect.any(Function))
   })
 
   it('supports bounded explicit flushes for visibility resume', async () => {
@@ -650,12 +682,12 @@ describe('pane terminal output scheduler', () => {
     })
 
     vi.advanceTimersByTime(50)
-    expect(terminals[0].write).toHaveBeenCalledWith('pane-0')
-    expect(terminals[1].write).toHaveBeenCalledWith('pane-1')
+    expect(terminals[0].write).toHaveBeenCalledWith('pane-0', expect.any(Function))
+    expect(terminals[1].write).toHaveBeenCalledWith('pane-1', expect.any(Function))
     expect(terminals[2].write).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(16)
-    expect(terminals[2].write).toHaveBeenCalledWith('pane-2')
+    expect(terminals[2].write).toHaveBeenCalledWith('pane-2', expect.any(Function))
   })
 
   it('rotates terminals with remaining backlog behind untouched queued terminals', async () => {
@@ -670,14 +702,14 @@ describe('pane terminal output scheduler', () => {
 
     vi.advanceTimersByTime(50)
     expect(terminals[0].write).toHaveBeenCalledTimes(1)
-    expect(terminals[1].write).toHaveBeenCalledWith('pane-1')
+    expect(terminals[1].write).toHaveBeenCalledWith('pane-1', expect.any(Function))
     expect(terminals[2].write).not.toHaveBeenCalled()
 
     // Why: a terminal with leftover bytes is deleted/re-set after each drain
     // chunk, moving it to the back of the Map so a big burst cannot starve
     // other queued panes.
     vi.advanceTimersByTime(16)
-    expect(terminals[2].write).toHaveBeenCalledWith('pane-2')
+    expect(terminals[2].write).toHaveBeenCalledWith('pane-2', expect.any(Function))
     expect(terminals[0].write).toHaveBeenCalledTimes(2)
   })
 

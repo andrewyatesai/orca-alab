@@ -7,6 +7,7 @@ import { stripLeadingAgentTitleDecoration } from '@/lib/agent-title-decoration'
 import { useTabAgent } from '@/lib/use-tab-agent'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import type { TerminalTab } from '../../../../shared/types'
 import type { TabDragItemData } from '../tab-group/useTabDragSplit'
 import { FilledBellIcon } from '../sidebar/WorktreeCardHelpers'
@@ -16,14 +17,13 @@ import {
   getDropIndicatorClasses,
   getTabRootStateClasses,
   getTabStripBorderClasses,
-  showsTabSelectionChrome,
   type DropIndicator
 } from './drop-indicator'
 import { preventMiddleButtonDefault } from './middle-button-default-guard'
 import { SortableTabContextMenu } from './SortableTabContextMenu'
 import { translate } from '@/i18n/i18n'
 import { TAB_CONTAINER_WIDTH_CLASSES, TAB_LABEL_WIDTH_CLASSES } from './tab-width-rules'
-import { useTabStripPointerActivation } from './tab-strip-pointer-activation'
+import { useShortcutKeyDetails } from '@/hooks/useShortcutLabel'
 
 type SortableTabProps = {
   tab: TerminalTab
@@ -199,14 +199,7 @@ export default function SortableTab({
   // so dnd-kit's a11y attributes (aria-roledescription, etc.) remain on the element — only
   // the pointer listeners are gated so a drag can't start while typing.
   const dragListeners = isEditing ? undefined : listeners
-  const handleActivate = useCallback(() => {
-    onActivate(tab.id)
-  }, [onActivate, tab.id])
-  const { isPressed, onPointerDown: onTabPointerDown } = useTabStripPointerActivation({
-    onActivate: handleActivate,
-    disabled: isEditing
-  })
-  const showsSelectionChrome = showsTabSelectionChrome(isActive, isPressed)
+  const closeShortcut = useShortcutKeyDetails('tab.close')
   const tabTitle = tab.customTitle ?? tab.title
   const tabRoot = (
     <div
@@ -221,7 +214,6 @@ export default function SortableTab({
       // pass even if the tab-bar render path had silently broken (the same
       // tautology that let PR #1186's render crash ship past E2E in #1193).
       data-active={isActive ? 'true' : 'false'}
-      data-pressed={isPressed ? 'true' : 'false'}
       {...attributes}
       {...dragListeners}
       // Why: on unread activity, tint the whole tab with a subtle amber
@@ -231,7 +223,7 @@ export default function SortableTab({
       // tab still reads as "selected + has activity". The wash is
       // rendered as an absolutely-positioned child below so the ::after
       // pseudo-element stays free for the drop indicator.
-      className={`group relative flex items-center h-full px-1.5 text-xs cursor-pointer select-none outline-none focus:outline-none focus-visible:outline-none ${getTabStripBorderClasses(hasTabsToRight, { includeTopBorder: includeTopTabBorder })} ${getDropIndicatorClasses(dropIndicator ?? null)} ${getTabRootStateClasses(isActive, isPressed)}`}
+      className={`group relative flex items-center h-full px-1.5 text-xs cursor-pointer select-none outline-none focus:outline-none focus-visible:outline-none ${getTabStripBorderClasses(hasTabsToRight, { includeTopBorder: includeTopTabBorder })} ${getDropIndicatorClasses(dropIndicator ?? null)} ${getTabRootStateClasses(isActive)}`}
       onDoubleClick={(e) => {
         if (isEditing) {
           return
@@ -240,10 +232,11 @@ export default function SortableTab({
         handleRenameOpen()
       }}
       onPointerDown={(e) => {
-        onTabPointerDown(
-          e,
-          dragListeners?.onPointerDown as ((event: React.PointerEvent<Element>) => void) | undefined
-        )
+        if (isEditing || e.button !== 0) {
+          return
+        }
+        onActivate(tab.id)
+        dragListeners?.onPointerDown?.(e)
       }}
       onMouseDown={(e) => {
         // Why: prevent default browser middle-click behavior (auto-scroll)
@@ -269,7 +262,7 @@ export default function SortableTab({
         }
       }}
     >
-      {showsSelectionChrome && <span className={ACTIVE_TAB_INDICATOR_CLASSES} aria-hidden />}
+      {isActive && <span className={ACTIVE_TAB_INDICATOR_CLASSES} aria-hidden />}
       {showActivityAffordance && (
         // Why: amber wash for unread tabs. Rendered as a real DOM child so
         // both drop indicators (::before left / ::after right in
@@ -291,7 +284,7 @@ export default function SortableTab({
         // Why: coding-agent tabs should read as Claude/Codex/etc. while the
         // harness is running; plain shells keep the generic terminal tile.
         <span
-          className={`mr-1 inline-flex shrink-0 ${showsSelectionChrome ? '' : 'opacity-70'}`}
+          className={`mr-1 inline-flex shrink-0 ${isActive ? '' : 'opacity-70'}`}
           data-agent-icon={tabAgent}
           aria-hidden
         >
@@ -307,7 +300,7 @@ export default function SortableTab({
         // on inactive tabs to match the existing text treatment without
         // desaturating the brand colors beyond recognition.
         <span
-          className={`mr-1 inline-flex shrink-0 ${showsSelectionChrome ? '' : 'opacity-70'}`}
+          className={`mr-1 inline-flex shrink-0 ${isActive ? '' : 'opacity-70'}`}
           data-shell-icon={shellForIcon ?? 'generic'}
           aria-hidden
         >
@@ -387,7 +380,7 @@ export default function SortableTab({
       {isExpanded && !isEditing && (
         <button
           className={`mr-1 flex items-center justify-center w-4 h-4 rounded-sm shrink-0 ${
-            showsSelectionChrome
+            isActive
               ? 'text-muted-foreground hover:text-foreground hover:bg-muted'
               : 'text-transparent group-hover:text-muted-foreground hover:!text-foreground hover:!bg-muted'
           }`}
@@ -403,42 +396,51 @@ export default function SortableTab({
         </button>
       )}
       {!isEditing && !isPinned && (
-        <button
-          className={`relative z-10 flex items-center justify-center w-4 h-4 rounded-sm shrink-0 ${
-            showsSelectionChrome
-              ? 'text-muted-foreground hover:text-foreground hover:bg-muted'
-              : 'text-transparent group-hover:text-muted-foreground hover:!text-foreground hover:!bg-muted'
-          }`}
-          // Why: per-tab close affordance needs a stable accessible name so
-          // E2E specs can drive the same path a user takes (hover → click X)
-          // instead of bypassing the render layer by calling closeTab() on
-          // the store — a store-only assertion would pass even if this
-          // button had been accidentally unmounted.
-          aria-label={translate(
-            'auto.components.tab.bar.SortableTab.6df69d9388',
-            'Close tab {{value0}}',
-            { value0: tabTitle }
-          )}
-          type="button"
-          data-tab-close-button="true"
-          onPointerDown={(e) => {
-            if (e.button === 0) {
-              e.stopPropagation()
-            }
-          }}
-          onMouseDown={(e) => {
-            if (e.button === 0) {
-              e.stopPropagation()
-            }
-          }}
-          onClick={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            onClose(tab.id)
-          }}
-        >
-          <X className="w-3 h-3" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={`relative z-10 flex items-center justify-center w-4 h-4 rounded-sm shrink-0 ${
+                isActive
+                  ? 'text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:text-foreground focus-visible:bg-muted'
+                  : 'text-transparent group-hover:text-muted-foreground hover:!text-foreground hover:!bg-muted focus-visible:!text-foreground focus-visible:!bg-muted'
+              }`}
+              // Why: per-tab close affordance needs a stable accessible name so
+              // E2E specs can drive the same path a user takes (hover, then X)
+              // instead of bypassing the render layer by calling closeTab() on
+              // the store. A store-only assertion would miss an unmounted button.
+              aria-label={translate(
+                'auto.components.tab.bar.SortableTab.6df69d9388',
+                'Close tab {{value0}}',
+                { value0: tabTitle }
+              )}
+              type="button"
+              data-tab-close-button="true"
+              onPointerDown={(e) => {
+                if (e.button === 0) {
+                  e.stopPropagation()
+                }
+              }}
+              onMouseDown={(e) => {
+                if (e.button === 0) {
+                  e.stopPropagation()
+                }
+              }}
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onClose(tab.id)
+              }}
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" sideOffset={6} className="flex items-center gap-2">
+            <span>{translate('auto.components.tab.bar.SortableTab.95db5f2f7d', 'Close tab')}</span>
+            {closeShortcut.keys.length > 0 && (
+              <ShortcutKeyCombo keys={closeShortcut.keys} doubleTap={closeShortcut.doubleTap} />
+            )}
+          </TooltipContent>
+        </Tooltip>
       )}
     </div>
   )

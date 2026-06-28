@@ -98,7 +98,7 @@ function makeTarget(args: { hasXtermClass?: boolean; editorClosest?: boolean }):
 }
 
 describe('resolveZoomTarget', () => {
-  it('routes to terminal zoom when terminal tab is active', () => {
+  it('routes to terminal zoom when terminal input is focused', () => {
     expect(
       resolveZoomTarget({
         activeView: 'terminal',
@@ -106,6 +106,16 @@ describe('resolveZoomTarget', () => {
         activeElement: makeTarget({ hasXtermClass: true })
       })
     ).toBe('terminal')
+  })
+
+  it('routes to ui zoom for an active terminal tab after terminal focus is released', () => {
+    expect(
+      resolveZoomTarget({
+        activeView: 'terminal',
+        activeTabType: 'terminal',
+        activeElement: makeTarget({})
+      })
+    ).toBe('ui')
   })
 
   it('routes to editor zoom for editor tabs', () => {
@@ -138,23 +148,21 @@ describe('resolveZoomTarget', () => {
     ).toBe('ui')
   })
 
-  it('routes to browser zoom for active browser tabs before stale DOM focus', () => {
+  it('routes to ui zoom for active browser tabs before stale DOM focus', () => {
     expect(
       resolveZoomTarget({
         activeView: 'terminal',
         activeTabType: 'browser',
-        activeBrowserPageId: 'page-1',
         activeElement: makeTarget({ editorClosest: true, hasXtermClass: true })
       })
-    ).toBe('browser')
+    ).toBe('ui')
   })
 
-  it('does not route to browser zoom without an active browser page', () => {
+  it('routes to ui zoom for browser tabs without an active browser page', () => {
     expect(
       resolveZoomTarget({
         activeView: 'terminal',
         activeTabType: 'browser',
-        activeBrowserPageId: null,
         activeElement: makeTarget({})
       })
     ).toBe('ui')
@@ -167,11 +175,10 @@ describe('useIpcEvents zoom routing', () => {
     vi.unstubAllGlobals()
   })
 
-  it('dispatches browser page zoom without applying or persisting UI zoom', async () => {
+  it('applies app zoom for an active browser tab', async () => {
     const terminalZoomListenerRef: {
       current: ((direction: 'in' | 'out' | 'reset') => void) | null
     } = { current: null }
-    const dispatchEvent = vi.fn()
     const setUI = vi.fn()
 
     vi.doMock('react', async () => {
@@ -235,7 +242,8 @@ describe('useIpcEvents zoom routing', () => {
       computeEditorFontSize: vi.fn(() => 13)
     }))
     vi.doMock('@/components/settings/SettingsConstants', () => ({
-      zoomLevelToPercent: vi.fn(() => 100),
+      zoomLevelToPercent: vi.fn(() => 120),
+      ZOOM_STEP: 0.5,
       ZOOM_MIN: -3,
       ZOOM_MAX: 3
     }))
@@ -255,7 +263,7 @@ describe('useIpcEvents zoom routing', () => {
     })
 
     vi.stubGlobal('window', {
-      dispatchEvent,
+      dispatchEvent: vi.fn(),
       setTimeout: vi.fn(() => 1),
       clearTimeout: vi.fn(),
       api: {
@@ -313,19 +321,350 @@ describe('useIpcEvents zoom routing', () => {
     if (!listener) {
       throw new Error('Expected terminal zoom listener to be registered')
     }
-    listener('reset')
+    listener('in')
 
-    expect(dispatchEvent).toHaveBeenCalledTimes(1)
-    const event = dispatchEvent.mock.calls[0]?.[0] as CustomEvent<{
-      browserPageId: string
-      direction: string
-    }>
-    expect(event.type).toBe('orca:browser-page-zoom')
-    expect(event.detail).toEqual({ browserPageId: 'page-1', direction: 'reset' })
-    expect(applyUIZoom).not.toHaveBeenCalled()
-    expect(setUI).not.toHaveBeenCalledWith(
-      expect.objectContaining({ uiZoomLevel: expect.anything() })
-    )
+    expect(applyUIZoom).toHaveBeenCalledWith(0.5)
+    expect(setUI).toHaveBeenCalledWith({ uiZoomLevel: 0.5 })
+  })
+
+  it('applies app zoom for an active terminal tab after terminal focus is released', async () => {
+    const terminalZoomListenerRef: {
+      current: ((direction: 'in' | 'out' | 'reset') => void) | null
+    } = { current: null }
+    const setUI = vi.fn()
+
+    vi.doMock('react', async () => {
+      const actual = await vi.importActual<typeof ReactModule>('react')
+      return {
+        ...actual,
+        useEffect: (effect: () => void | (() => void)) => {
+          effect()
+        }
+      }
+    })
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => ({
+          activeView: 'terminal',
+          activeTabType: 'terminal',
+          activeWorktreeId: 'wt-1',
+          activeBrowserTabId: null,
+          activeBrowserTabIdByWorktree: {},
+          browserTabsByWorktree: {},
+          browserPagesByWorkspace: {},
+          editorFontZoomLevel: 0,
+          setEditorFontZoomLevel: vi.fn(),
+          settings: { terminalFontSize: 13 },
+          setUpdateStatus: vi.fn(),
+          fetchRepos: vi.fn(),
+          fetchWorktrees: vi.fn(),
+          setActiveView: vi.fn(),
+          activeModal: null,
+          closeModal: vi.fn(),
+          openModal: vi.fn(),
+          setActiveRepo: vi.fn(),
+          setActiveWorktree: vi.fn(),
+          revealWorktreeInSidebar: vi.fn(),
+          setIsFullScreen: vi.fn(),
+          setRateLimitsFromPush: vi.fn()
+        })
+      }
+    }))
+    vi.doMock('@/lib/ui-zoom', () => ({ applyUIZoom: vi.fn() }))
+    vi.doMock('@/lib/worktree-activation', () => ({
+      activateAndRevealWorktree: vi.fn(),
+      ensureWorktreeHasInitialTerminal: vi.fn()
+    }))
+    vi.doMock('@/components/sidebar/visible-worktrees', () => ({
+      getVisibleWorktreeIds: () => []
+    }))
+    vi.doMock('@/lib/editor-font-zoom', () => ({
+      nextEditorFontZoomLevel: vi.fn(() => 0),
+      computeEditorFontSize: vi.fn(() => 13)
+    }))
+    vi.doMock('@/components/settings/SettingsConstants', () => ({
+      zoomLevelToPercent: vi.fn(() => 120),
+      ZOOM_STEP: 0.5,
+      ZOOM_MIN: -3,
+      ZOOM_MAX: 3
+    }))
+    vi.doMock('@/lib/zoom-events', () => ({ dispatchZoomLevelChanged: vi.fn() }))
+
+    const makeEvents = (target: Record<string, unknown> = {}): Record<string, unknown> =>
+      new Proxy(target, {
+        get: (namespace, prop) => {
+          if (prop in namespace) {
+            return Reflect.get(namespace, prop)
+          }
+          return () => () => {}
+        }
+      })
+    vi.stubGlobal('document', {
+      activeElement: makeTarget({})
+    })
+
+    vi.stubGlobal('window', {
+      dispatchEvent: vi.fn(),
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn(),
+      api: {
+        repos: makeEvents(),
+        worktrees: makeEvents(),
+        keybindings: makeEvents(),
+        settings: makeEvents(),
+        updater: {
+          getStatus: () => Promise.resolve({ state: 'idle' }),
+          onStatus: () => () => {},
+          onClearDismissal: () => () => {}
+        },
+        browser: makeEvents(),
+        rateLimits: {
+          get: () => Promise.resolve({ limits: {}, lastUpdatedAt: Date.now() }),
+          onUpdate: () => () => {}
+        },
+        ssh: {
+          listTargets: () => Promise.resolve([]),
+          listPortForwards: () => Promise.resolve([]),
+          listDetectedPorts: () => Promise.resolve([]),
+          getState: () => Promise.resolve(null),
+          onStateChanged: () => () => {},
+          onCredentialRequest: () => () => {},
+          onCredentialResolved: () => () => {},
+          onPortForwardsChanged: () => () => {},
+          onDetectedPortsChanged: () => () => {}
+        },
+        runtime: {
+          getTerminalFitOverrides: () => Promise.resolve([]),
+          getTerminalDrivers: () => Promise.resolve([]),
+          getBrowserDrivers: () => Promise.resolve([]),
+          onTerminalFitOverrideChanged: () => () => {},
+          onTerminalDriverChanged: () => () => {},
+          onBrowserDriverChanged: () => () => {}
+        },
+        agentStatus: { onSet: () => () => {} },
+        ui: makeEvents({
+          onTerminalZoom: (listener: (direction: 'in' | 'out' | 'reset') => void) => {
+            terminalZoomListenerRef.current = listener
+            return () => {}
+          },
+          getZoomLevel: vi.fn(() => 0),
+          set: setUI
+        })
+      }
+    })
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    const { applyUIZoom } = await import('@/lib/ui-zoom')
+    const { dispatchZoomLevelChanged } = await import('@/lib/zoom-events')
+
+    useIpcEvents()
+    const listener = terminalZoomListenerRef.current
+    if (!listener) {
+      throw new Error('Expected terminal zoom listener to be registered')
+    }
+    listener('in')
+
+    expect(applyUIZoom).toHaveBeenCalledWith(0.5)
+    expect(setUI).toHaveBeenCalledWith({ uiZoomLevel: 0.5 })
+    expect(dispatchZoomLevelChanged).toHaveBeenCalledWith('ui', 120)
+  })
+})
+
+describe('useIpcEvents rate-limit hydration', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.unstubAllGlobals()
+  })
+
+  it('does not miss startup usage updates that land between get and subscription', async () => {
+    const setRateLimitsFromPush = vi.fn()
+    const staleState = {
+      claude: null,
+      codex: null,
+      gemini: null,
+      opencodeGo: null,
+      kimi: null,
+      claudeTarget: { runtime: 'host', wslDistro: null },
+      codexTarget: { runtime: 'host', wslDistro: null },
+      inactiveClaudeAccounts: [],
+      inactiveCodexAccounts: []
+    }
+    const freshState = {
+      ...staleState,
+      claude: {
+        provider: 'claude',
+        session: {
+          usedPercent: 12,
+          windowMinutes: 300,
+          resetsAt: null,
+          resetDescription: null
+        },
+        weekly: null,
+        updatedAt: 1,
+        error: null,
+        status: 'ok'
+      },
+      codex: {
+        provider: 'codex',
+        session: {
+          usedPercent: 24,
+          windowMinutes: 300,
+          resetsAt: null,
+          resetDescription: null
+        },
+        weekly: null,
+        updatedAt: 1,
+        error: null,
+        status: 'ok'
+      }
+    }
+
+    vi.doMock('react', async () => {
+      const actual = await vi.importActual<typeof ReactModule>('react')
+      return {
+        ...actual,
+        useEffect: (effect: () => void | (() => void)) => {
+          effect()
+        }
+      }
+    })
+    vi.doMock('../store', () => ({
+      useAppStore: {
+        subscribe: vi.fn(() => () => {}),
+        getState: () => ({
+          setUpdateStatus: vi.fn(),
+          fetchRepos: vi.fn(),
+          fetchWorktrees: vi.fn(),
+          setActiveView: vi.fn(),
+          activeModal: null,
+          closeModal: vi.fn(),
+          openModal: vi.fn(),
+          activeWorktreeId: 'wt-1',
+          activeView: 'terminal',
+          setActiveRepo: vi.fn(),
+          setActiveWorktree: vi.fn(),
+          revealWorktreeInSidebar: vi.fn(),
+          setIsFullScreen: vi.fn(),
+          updateBrowserTabPageState: vi.fn(),
+          activeTabType: 'terminal',
+          editorFontZoomLevel: 0,
+          setEditorFontZoomLevel: vi.fn(),
+          settings: { terminalFontSize: 13 },
+          setRateLimitsFromPush,
+          updateWorktreeBaseStatus: vi.fn(),
+          updateWorktreeRemoteBranchConflict: vi.fn(),
+          setSshConnectionState: vi.fn(),
+          setSshTargetLabels: vi.fn(),
+          setPortForwards: vi.fn(),
+          clearPortForwards: vi.fn(),
+          setDetectedPorts: vi.fn(),
+          enqueueSshCredentialRequest: vi.fn(),
+          removeSshCredentialRequest: vi.fn(),
+          clearTabPtyId: vi.fn(),
+          updateTabTitle: vi.fn(),
+          runtimePaneTitlesByTabId: {},
+          terminalLayoutsByTabId: {},
+          agentStatusByPaneKey: {},
+          recentlyClosedAgentStatusTabIds: {},
+          repos: [],
+          worktreesByRepo: {},
+          tabsByWorktree: {},
+          unifiedTabsByWorktree: {},
+          workspaceSessionReady: false
+        })
+      }
+    }))
+    vi.doMock('@/lib/ui-zoom', () => ({ applyUIZoom: vi.fn() }))
+    vi.doMock('@/lib/worktree-activation', () => ({
+      activateAndRevealWorktree: vi.fn(),
+      ensureWorktreeHasInitialTerminal: vi.fn()
+    }))
+    vi.doMock('@/components/sidebar/visible-worktrees', () => ({
+      getVisibleWorktreeIds: () => []
+    }))
+    vi.doMock('@/lib/editor-font-zoom', () => ({
+      nextEditorFontZoomLevel: vi.fn(() => 0),
+      computeEditorFontSize: vi.fn(() => 13)
+    }))
+    vi.doMock('@/components/settings/SettingsConstants', () => ({
+      zoomLevelToPercent: vi.fn(() => 100),
+      ZOOM_MIN: -3,
+      ZOOM_MAX: 3
+    }))
+    vi.doMock('@/lib/zoom-events', () => ({ dispatchZoomLevelChanged: vi.fn() }))
+
+    const makeEvents = (target: Record<string, unknown> = {}): Record<string, unknown> =>
+      new Proxy(target, {
+        get: (namespace, prop) => {
+          if (prop in namespace) {
+            return Reflect.get(namespace, prop)
+          }
+          return () => () => {}
+        }
+      })
+
+    let rateLimitUpdateListener: ((state: unknown) => void) | null = null
+    const getRateLimits = vi.fn(() => {
+      if (rateLimitUpdateListener) {
+        rateLimitUpdateListener(freshState)
+      }
+      return Promise.resolve(staleState)
+    })
+
+    vi.stubGlobal('window', {
+      dispatchEvent: vi.fn(),
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn(),
+      api: {
+        repos: makeEvents(),
+        worktrees: makeEvents(),
+        keybindings: makeEvents(),
+        settings: makeEvents(),
+        updater: {
+          getStatus: () => Promise.resolve({ state: 'idle' }),
+          onStatus: () => () => {},
+          onClearDismissal: () => () => {}
+        },
+        browser: makeEvents(),
+        rateLimits: {
+          get: getRateLimits,
+          onUpdate: (listener: (state: unknown) => void) => {
+            rateLimitUpdateListener = listener
+            return () => {}
+          }
+        },
+        ssh: {
+          listTargets: () => Promise.resolve([]),
+          listPortForwards: () => Promise.resolve([]),
+          listDetectedPorts: () => Promise.resolve([]),
+          getState: () => Promise.resolve(null),
+          onStateChanged: () => () => {},
+          onCredentialRequest: () => () => {},
+          onCredentialResolved: () => () => {},
+          onPortForwardsChanged: () => () => {},
+          onDetectedPortsChanged: () => () => {}
+        },
+        runtime: {
+          getTerminalFitOverrides: () => Promise.resolve([]),
+          getTerminalDrivers: () => Promise.resolve([]),
+          getBrowserDrivers: () => Promise.resolve([]),
+          onTerminalFitOverrideChanged: () => () => {},
+          onTerminalDriverChanged: () => () => {},
+          onBrowserDriverChanged: () => () => {}
+        },
+        agentStatus: { onSet: () => () => {} },
+        ui: makeEvents({
+          getZoomLevel: vi.fn(() => 0)
+        })
+      }
+    })
+
+    const { useIpcEvents } = await import('./useIpcEvents')
+    useIpcEvents()
+    await Promise.resolve()
+
+    expect(setRateLimitsFromPush).toHaveBeenLastCalledWith(freshState)
   })
 })
 
@@ -1286,6 +1625,8 @@ describe('useIpcEvents updater integration', () => {
     const createTab = vi.fn(() => ({ id: 'tab-new' }))
     const setActiveView = vi.fn()
     const setActiveWorktree = vi.fn()
+    const markWorktreeVisited = vi.fn()
+    const recordWorktreeVisit = vi.fn()
     const setActiveTabType = vi.fn()
     const setActiveTab = vi.fn()
     const revealWorktreeInSidebar = vi.fn()
@@ -1300,13 +1641,17 @@ describe('useIpcEvents updater integration', () => {
     const dispatchEvent = vi.fn()
     const createFloatingWorkspaceTerminalTab = vi.fn()
     const createWebRuntimeSessionTerminal = vi.fn().mockResolvedValue(false)
+    const focusRuntimeTerminalSurface = vi.fn(() => false)
+    const focusTerminalTabSurface = vi.fn()
     let floatingPanelFocused = false
     const storeState = {
       setUpdateStatus: vi.fn(),
       createTab,
       setActiveView,
       setActiveWorktree,
-      markWorktreeVisited: vi.fn(),
+      markWorktreeVisited,
+      recordWorktreeVisit,
+      isNavigatingHistory: false,
       setActiveTabType,
       setActiveTab,
       revealWorktreeInSidebar,
@@ -1386,6 +1731,18 @@ describe('useIpcEvents updater integration', () => {
           }) => void)
         | null
     } = { current: null }
+    const focusTerminalListenerRef: {
+      current:
+        | ((data: {
+            tabId: string
+            worktreeId: string
+            leafId?: string | null
+            ackPaneKeyOnSuccess?: string
+            flashFocusedPane?: boolean
+            scrollToBottomIfOutputSinceLastView?: boolean
+          }) => void)
+        | null
+    } = { current: null }
     const newTerminalTabListenerRef: { current: (() => void) | null } = { current: null }
 
     vi.resetModules()
@@ -1443,7 +1800,13 @@ describe('useIpcEvents updater integration', () => {
       isWebRuntimeSessionActive: vi.fn(() => false)
     }))
     vi.doMock('@/lib/focus-terminal-tab-surface', () => ({
-      focusTerminalTabSurface: vi.fn()
+      focusTerminalTabSurface
+    }))
+    vi.doMock('@/runtime/sync-runtime-graph', () => ({
+      focusRuntimeTerminalSurface
+    }))
+    vi.doMock('@/lib/activate-tab-and-focus-pane', () => ({
+      activateTabAndFocusPane: vi.fn()
     }))
 
     vi.stubGlobal('window', {
@@ -1514,7 +1877,19 @@ describe('useIpcEvents updater integration', () => {
           replyTerminalCreate,
           onSplitTerminal: () => () => {},
           onRenameTerminal: () => () => {},
-          onFocusTerminal: () => () => {},
+          onFocusTerminal: (
+            listener: (data: {
+              tabId: string
+              worktreeId: string
+              leafId?: string | null
+              ackPaneKeyOnSuccess?: string
+              flashFocusedPane?: boolean
+              scrollToBottomIfOutputSinceLastView?: boolean
+            }) => void
+          ) => {
+            focusTerminalListenerRef.current = listener
+            return () => {}
+          },
           onFocusEditorTab: () => () => {},
           onCloseSessionTab: () => () => {},
           onMoveSessionTab: () => () => {},
@@ -1632,10 +2007,14 @@ describe('useIpcEvents updater integration', () => {
 
     expect(setActiveView).toHaveBeenCalledWith('terminal')
     expect(setActiveWorktree).toHaveBeenCalledWith('wt-2')
+    expect(markWorktreeVisited).toHaveBeenCalledWith('wt-2')
+    expect(recordWorktreeVisit).toHaveBeenCalledWith('wt-2')
     expect(createTab).toHaveBeenCalledWith('wt-2')
     expect(setActiveTabType).toHaveBeenCalledWith('terminal')
     expect(setActiveTab).toHaveBeenCalledWith('tab-new')
     expect(revealWorktreeInSidebar).toHaveBeenCalledWith('wt-2')
+    expect(focusRuntimeTerminalSurface).toHaveBeenCalledWith('tab-new', undefined)
+    expect(focusTerminalTabSurface).toHaveBeenCalledWith('tab-new', undefined)
     expect(setTabCustomTitle).toHaveBeenCalledWith('tab-new', 'Runner', {
       recordInteraction: false
     })
@@ -1648,11 +2027,53 @@ describe('useIpcEvents updater integration', () => {
     createTab.mockClear()
     setActiveView.mockClear()
     setActiveWorktree.mockClear()
+    markWorktreeVisited.mockClear()
+    recordWorktreeVisit.mockClear()
     setActiveTabType.mockClear()
     setActiveTab.mockClear()
     revealWorktreeInSidebar.mockClear()
     setTabCustomTitle.mockClear()
     queueTabStartupCommand.mockClear()
+    replyTerminalCreate.mockClear()
+    focusRuntimeTerminalSurface.mockClear()
+    focusTerminalTabSurface.mockClear()
+    requestTerminalCreateListenerRef.current({
+      requestId: 'req-focused',
+      worktreeId: 'wt-3',
+      title: 'Shell'
+    })
+
+    expect(setActiveView).toHaveBeenCalledWith('terminal')
+    expect(setActiveWorktree).toHaveBeenCalledWith('wt-3')
+    expect(markWorktreeVisited).toHaveBeenCalledWith('wt-3')
+    expect(recordWorktreeVisit).toHaveBeenCalledWith('wt-3')
+    expect(createTab).toHaveBeenCalledWith('wt-3', undefined, undefined, undefined)
+    expect(setActiveTabType).toHaveBeenCalledWith('terminal')
+    expect(setActiveTab).toHaveBeenCalledWith('tab-new')
+    expect(revealWorktreeInSidebar).toHaveBeenCalledWith('wt-3')
+    expect(focusRuntimeTerminalSurface).toHaveBeenCalledWith('tab-new', undefined)
+    expect(focusTerminalTabSurface).toHaveBeenCalledWith('tab-new', undefined)
+    expect(setTabCustomTitle).toHaveBeenCalledWith('tab-new', 'Shell', {
+      recordInteraction: false
+    })
+    expect(replyTerminalCreate).toHaveBeenCalledWith({
+      requestId: 'req-focused',
+      tabId: 'tab-new',
+      title: 'Shell'
+    })
+
+    createTab.mockClear()
+    setActiveView.mockClear()
+    setActiveWorktree.mockClear()
+    markWorktreeVisited.mockClear()
+    recordWorktreeVisit.mockClear()
+    setActiveTabType.mockClear()
+    setActiveTab.mockClear()
+    revealWorktreeInSidebar.mockClear()
+    setTabCustomTitle.mockClear()
+    queueTabStartupCommand.mockClear()
+    focusRuntimeTerminalSurface.mockClear()
+    focusTerminalTabSurface.mockClear()
     requestTerminalCreateListenerRef.current({
       requestId: 'req-renderer-backed',
       worktreeId: 'wt-2',
@@ -1673,9 +2094,13 @@ describe('useIpcEvents updater integration', () => {
     })
     expect(setActiveView).not.toHaveBeenCalled()
     expect(setActiveWorktree).not.toHaveBeenCalled()
+    expect(markWorktreeVisited).not.toHaveBeenCalled()
+    expect(recordWorktreeVisit).not.toHaveBeenCalled()
     expect(setActiveTabType).not.toHaveBeenCalled()
     expect(setActiveTab).not.toHaveBeenCalled()
     expect(revealWorktreeInSidebar).not.toHaveBeenCalled()
+    expect(focusRuntimeTerminalSurface).not.toHaveBeenCalled()
+    expect(focusTerminalTabSurface).not.toHaveBeenCalled()
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'orca-background-mount-terminal-worktree',
@@ -1698,6 +2123,53 @@ describe('useIpcEvents updater integration', () => {
       tabId: 'tab-new',
       title: 'Codex'
     })
+
+    if (typeof focusTerminalListenerRef.current !== 'function') {
+      throw new Error('Expected focus-terminal listener to be registered')
+    }
+
+    setActiveView.mockClear()
+    setActiveWorktree.mockClear()
+    markWorktreeVisited.mockClear()
+    recordWorktreeVisit.mockClear()
+    setActiveTab.mockClear()
+    revealWorktreeInSidebar.mockClear()
+    focusRuntimeTerminalSurface.mockClear()
+    focusTerminalTabSurface.mockClear()
+    focusTerminalListenerRef.current({
+      worktreeId: 'wt-4',
+      tabId: 'tab-focus',
+      leafId: 'leaf-focus'
+    })
+
+    expect(setActiveView).toHaveBeenCalledWith('terminal')
+    expect(setActiveWorktree).toHaveBeenCalledWith('wt-4')
+    expect(markWorktreeVisited).toHaveBeenCalledWith('wt-4')
+    expect(recordWorktreeVisit).toHaveBeenCalledWith('wt-4')
+    expect(setActiveTab).toHaveBeenCalledWith('tab-focus')
+    expect(revealWorktreeInSidebar).toHaveBeenCalledWith('wt-4')
+    expect(focusRuntimeTerminalSurface).toHaveBeenCalledWith('tab-focus', 'leaf-focus')
+    expect(focusTerminalTabSurface).toHaveBeenCalledWith('tab-focus', 'leaf-focus')
+
+    storeState.isNavigatingHistory = true
+    setActiveView.mockClear()
+    setActiveWorktree.mockClear()
+    markWorktreeVisited.mockClear()
+    recordWorktreeVisit.mockClear()
+    setActiveTab.mockClear()
+    revealWorktreeInSidebar.mockClear()
+    focusTerminalListenerRef.current({
+      worktreeId: 'wt-history',
+      tabId: 'tab-history'
+    })
+
+    expect(setActiveView).toHaveBeenCalledWith('terminal')
+    expect(setActiveWorktree).toHaveBeenCalledWith('wt-history')
+    expect(markWorktreeVisited).toHaveBeenCalledWith('wt-history')
+    expect(recordWorktreeVisit).not.toHaveBeenCalled()
+    expect(setActiveTab).toHaveBeenCalledWith('tab-history')
+    expect(revealWorktreeInSidebar).toHaveBeenCalledWith('wt-history')
+    storeState.isNavigatingHistory = false
 
     createTab.mockClear()
     registerAgentLaunchConfig.mockClear()
@@ -1780,6 +2252,53 @@ describe('useIpcEvents updater integration', () => {
       requestId: 'req-reveal',
       tabId: 'tab-existing',
       title: 'Terminal 1'
+    })
+
+    const pendingTabId = 'ba416891-cbcb-4778-8d9c-d8907f31a68c'
+    const pendingLeafId = 'e4583c63-2d9a-4877-b66f-05c0150f05f9'
+    storeState.tabsByWorktree = {
+      'wt-2': [{ id: pendingTabId, ptyId: null, title: 'Terminal 3' }]
+    }
+    storeState.ptyIdsByTabId = { [pendingTabId]: [] }
+    storeState.terminalLayoutsByTabId = {
+      [pendingTabId]: {
+        root: { type: 'leaf', leafId: pendingLeafId },
+        activeLeafId: pendingLeafId,
+        expandedLeafId: null,
+        ptyIdsByLeafId: {}
+      }
+    }
+    createTab.mockClear()
+    updateTabPtyId.mockClear()
+    setTabLayout.mockClear()
+    setActiveTab.mockClear()
+    replyTerminalCreate.mockClear()
+    createTerminalListenerRef.current({
+      requestId: 'req-adopt-pending',
+      worktreeId: 'wt-2',
+      ptyId: 'serve-cf39bedb-a33a-417c-9ab6-f304dc27a6c0',
+      tabId: pendingTabId,
+      leafId: pendingLeafId
+    })
+
+    expect(createTab).not.toHaveBeenCalled()
+    expect(updateTabPtyId).toHaveBeenCalledWith(
+      pendingTabId,
+      'serve-cf39bedb-a33a-417c-9ab6-f304dc27a6c0'
+    )
+    expect(setTabLayout).toHaveBeenCalledWith(pendingTabId, {
+      root: { type: 'leaf', leafId: pendingLeafId },
+      activeLeafId: pendingLeafId,
+      expandedLeafId: null,
+      ptyIdsByLeafId: {
+        [pendingLeafId]: 'serve-cf39bedb-a33a-417c-9ab6-f304dc27a6c0'
+      }
+    })
+    expect(setActiveTab).toHaveBeenCalledWith(pendingTabId)
+    expect(replyTerminalCreate).toHaveBeenCalledWith({
+      requestId: 'req-adopt-pending',
+      tabId: pendingTabId,
+      title: 'Terminal 3'
     })
 
     storeState.tabsByWorktree = {

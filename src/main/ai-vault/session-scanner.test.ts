@@ -113,7 +113,7 @@ describe('scanAiVaultSessions', () => {
             type: 'message',
             role: 'user',
             content: [
-              { type: 'text', text: '# AGENTS.md instructions for /repo/app <INSTRUCTIONS>' }
+              { type: 'text', text: '# AGENTS.md instructions\n\n<INSTRUCTIONS>repo policy' }
             ]
           }
         }),
@@ -165,6 +165,15 @@ describe('scanAiVaultSessions', () => {
         })
       ].join('\n')
     )
+    await writeFile(
+      join(root, 'session_index.jsonl'),
+      jsonLines([
+        {
+          id: '019f0000-1111-7222-8333-444444444444',
+          thread_name: 'Indexed Codex resume picker title'
+        }
+      ])
+    )
 
     const result = await scanAiVaultSessions({
       ...roots,
@@ -174,7 +183,7 @@ describe('scanAiVaultSessions', () => {
     expect(result.issues).toEqual([])
     expect(result.sessions).toHaveLength(2)
     expect(result.sessions.map((session) => session.title).sort()).toEqual([
-      'Fix the resume picker filters',
+      'Indexed Codex resume picker title',
       'Vault polish pass'
     ])
 

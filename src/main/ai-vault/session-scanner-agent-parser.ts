@@ -9,11 +9,8 @@ import {
 import { parseKimiSessionFile } from './session-scanner-kimi-parser'
 import { splitOpenCodeSqliteCandidate } from './session-scanner-opencode-sqlite-paths'
 import { parseOpenCodeSqliteSession } from './session-scanner-opencode-sqlite'
-import {
-  parseClaudeSessionFile,
-  parseCodexSessionFile,
-  parseGeminiSessionFile
-} from './session-scanner-primary-parsers'
+import { parseClaudeSessionFile, parseGeminiSessionFile } from './session-scanner-primary-parsers'
+import { parseCodexSessionFile } from './session-scanner-codex-parser'
 import {
   parseCopilotSessionFile,
   parseCursorSessionFile,

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef } from 'react'
-import type { IDisposable } from '../../lib/pane-manager/aterm/terminal-types'
 import type { AtermTerminalFacade } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import { flushTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
 
@@ -10,6 +9,10 @@ import {
   captureScrollState,
   getTerminalOutputEpoch
 } from '@/lib/pane-manager/pane-scroll'
+import {
+  getTerminalScrollIntentKind,
+  markTerminalFollowOutput
+} from '@/lib/pane-manager/terminal-scroll-intent'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { ScrollState } from '@/lib/pane-manager/pane-manager-types'
 
@@ -41,7 +44,6 @@ export function useTerminalScrollVisibilityMemory({
   paneCount
 }: UseTerminalScrollVisibilityMemoryArgs): TerminalScrollVisibilityMemory {
   const visibleScrollSnapshotsRef = useRef<Map<number, VisibleScrollSnapshot>>(new Map())
-  const scrollDisposablesRef = useRef<Map<number, IDisposable>>(new Map())
   const suppressScrollTrackingRef = useRef(false)
   const pendingFollowOutputPaneIdsRef = useRef<Set<number>>(new Set())
   const followOutputFrameIdsRef = useRef<number[]>([])
@@ -121,10 +123,13 @@ export function useTerminalScrollVisibilityMemory({
       const currentEpoch = getTerminalOutputEpoch(pane.terminal)
       const hasNewOutput = previous ? currentEpoch > previous.outputEpoch : currentEpoch > 0
       if (hasNewOutput) {
-        cancelDeferredScrollRestore(pane.terminal)
-        pane.terminal.scrollToBottom()
+        if (getTerminalScrollIntentKind(pane.terminal) === 'followOutput') {
+          cancelDeferredScrollRestore(pane.terminal)
+          markTerminalFollowOutput(pane.terminal)
+          pane.terminal.scrollToBottom()
+          didScroll = true
+        }
         rememberVisibleScrollSnapshot(pane.id, pane.terminal)
-        didScroll = true
       }
       pending.delete(pane.id)
     }
@@ -168,48 +173,15 @@ export function useTerminalScrollVisibilityMemory({
     if (!manager) {
       return
     }
-    const disposables = scrollDisposablesRef.current
     const panes = manager.getPanes()
     const livePaneIds = new Set(panes.map((pane) => pane.id))
-    for (const [paneId, disposable] of disposables) {
+    for (const paneId of visibleScrollSnapshotsRef.current.keys()) {
       if (!livePaneIds.has(paneId)) {
-        disposable.dispose()
-        disposables.delete(paneId)
         visibleScrollSnapshotsRef.current.delete(paneId)
         pendingFollowOutputPaneIdsRef.current.delete(paneId)
       }
     }
-    for (const pane of panes) {
-      if (disposables.has(pane.id)) {
-        continue
-      }
-      // aterm has no onScroll event (the wiring follows the bottom itself); this
-      // optional probe stays for any future facade addition and is skipped today.
-      const onScroll = (
-        pane.terminal as unknown as {
-          onScroll?: (listener: (position: number) => void) => IDisposable
-        }
-      ).onScroll
-      if (typeof onScroll !== 'function') {
-        continue
-      }
-      disposables.set(
-        pane.id,
-        onScroll.call(pane.terminal, () => {
-          if (!isVisibleRef.current || suppressScrollTrackingRef.current) {
-            return
-          }
-          rememberVisibleScrollSnapshot(pane.id, pane.terminal)
-        })
-      )
-    }
-    return () => {
-      for (const disposable of disposables.values()) {
-        disposable.dispose()
-      }
-      disposables.clear()
-    }
-  }, [isVisibleRef, managerRef, paneCount, rememberVisibleScrollSnapshot])
+  }, [managerRef, paneCount])
 
   return {
     captureViewportPositions,

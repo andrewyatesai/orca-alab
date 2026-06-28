@@ -62,6 +62,7 @@ import {
   suppressDevEducationForStore
 } from './startup/dev-education-suppression'
 import { maybeRedirectAppImageCliLaunch } from './startup/appimage-cli-redirect'
+import { maybeRedirectPackagedCliEntryLaunch } from './startup/packaged-cli-entry-redirect'
 import { startFirstWindowStartupServices } from './startup/first-window-startup-services'
 import { getDevInstanceIdentity } from './startup/dev-instance-identity'
 import { hydrateShellPath, mergePathSegments } from './startup/hydrate-shell-path'
@@ -183,6 +184,18 @@ let firstWindowStartupServicesReady: Promise<void> = Promise.resolve()
 let localPtyStartupReady: Promise<void> = Promise.resolve()
 const AGENT_STATE_CRASH_BREADCRUMB_MIN_INTERVAL_MS = 30_000
 const isServeMode = process.argv.includes('--serve')
+// Why: on Windows a CLI-shaped launch (Orca.exe <unpacked CLI entry>) that lost
+// ELECTRON_RUN_AS_NODE would otherwise boot the GUI, lose the single-instance
+// lock to a running window, and exit silently. Redirect it to node mode here,
+// before the lock gate below can bounce it.
+const packagedCliEntryRedirect = maybeRedirectPackagedCliEntryLaunch({
+  isPackaged: app.isPackaged,
+  resourcesPath: process.resourcesPath,
+  execPath: process.execPath
+})
+if (packagedCliEntryRedirect.redirected) {
+  app.exit(packagedCliEntryRedirect.status)
+}
 const appImageCliRedirect = maybeRedirectAppImageCliLaunch({
   isPackaged: app.isPackaged,
   resourcesPath: process.resourcesPath,
@@ -920,7 +933,7 @@ function recordProcessGoneCrash(
     )
     return
   }
-  const key = getProcessGoneDedupeKey(processType, reason, exitCode)
+  const key = getProcessGoneDedupeKey(source, processType, reason, exitCode)
   if (!processGoneDedupe.shouldRecord(key)) {
     return
   }
@@ -1400,6 +1413,8 @@ app.whenReady().then(async () => {
           const terminalSnapshotLimit = 2_000
           let terminalHandle: string
           let terminalSessionId: string | null = null
+          let terminalPaneKey: string | null = null
+          let terminalPtyId: string | null = null
           let workspaceId: string
           let workspaceDisplayName: string | null = null
 
@@ -1413,6 +1428,8 @@ app.whenReady().then(async () => {
             })
             terminalHandle = created.startupTerminal?.handle ?? ''
             terminalSessionId = created.startupTerminal?.tabId ?? null
+            terminalPaneKey = created.startupTerminal?.paneKey ?? null
+            terminalPtyId = created.startupTerminal?.ptyId ?? null
             workspaceId = created.worktree.id
             workspaceDisplayName = created.worktree.displayName ?? null
             if (!terminalHandle) {
@@ -1435,6 +1452,8 @@ app.whenReady().then(async () => {
             )
             terminalHandle = terminal.handle
             terminalSessionId = terminal.tabId ?? null
+            terminalPaneKey = terminal.paneKey ?? null
+            terminalPtyId = terminal.ptyId ?? null
             workspaceId = terminal.worktreeId
             const worktree = await runtimeService.showManagedWorktree(`id:${workspaceId}`)
             workspaceDisplayName = worktree.displayName ?? null
@@ -1469,6 +1488,8 @@ app.whenReady().then(async () => {
             workspaceId,
             workspaceDisplayName,
             terminalSessionId,
+            terminalPaneKey,
+            terminalPtyId,
             completion
           }
         }

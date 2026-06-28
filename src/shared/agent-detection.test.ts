@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { extractAllOscTitles, extractLastOscTitle, MAX_OSC_TITLE_CHARS } from './agent-detection'
+import {
+  detectAgentStatusFromTitle,
+  extractAllOscTitles,
+  extractLastOscTitle,
+  getAgentLabel,
+  MAX_OSC_TITLE_CHARS
+} from './agent-detection'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -50,4 +56,46 @@ describe('OSC title extraction', () => {
     expect(extracted?.endsWith('b'.repeat(MAX_OSC_TITLE_CHARS / 2))).toBe(true)
     expect(extractAllOscTitles(data)).toEqual([extracted])
   })
+})
+
+describe('MiMo title detection', () => {
+  it.each([
+    ['MiMo Code', 'idle'],
+    ['mimo ready', 'idle'],
+    ['mimo working', 'working'],
+    ['\u280b MiMo Code', 'working']
+  ] as const)('classifies %s', (title, expectedStatus) => {
+    expect(getAgentLabel(title)).toBe('MiMo Code')
+    expect(detectAgentStatusFromTitle(title)).toBe(expectedStatus)
+  })
+
+  it.each(['~/mimo/working', 'mimo-code-fixtures ready'])(
+    'does not classify path or hyphen false positive %s',
+    (title) => {
+      expect(getAgentLabel(title)).toBeNull()
+      expect(detectAgentStatusFromTitle(title)).toBeNull()
+    }
+  )
+})
+
+describe('Pi-compatible title detection', () => {
+  it.each([
+    ['\u280b OMP', 'OMP', 'working'],
+    ['OMP ready', 'OMP', 'idle'],
+    ['OMP - action required', 'OMP', 'permission'],
+    ['\u280b Pi', 'Pi', 'working'],
+    ['Pi ready', 'Pi', 'idle'],
+    ['Pi - action required', 'Pi', 'permission']
+  ] as const)('classifies synthesized %s', (title, expectedLabel, expectedStatus) => {
+    expect(getAgentLabel(title)).toBe(expectedLabel)
+    expect(detectAgentStatusFromTitle(title)).toBe(expectedStatus)
+  })
+
+  it.each(['~/omp/working', 'omp-harness ready', '~/pi/working', 'pi-scratch ready'])(
+    'does not classify path or hyphen false positive %s',
+    (title) => {
+      expect(getAgentLabel(title)).toBeNull()
+      expect(detectAgentStatusFromTitle(title)).toBeNull()
+    }
+  )
 })

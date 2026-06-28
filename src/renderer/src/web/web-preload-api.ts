@@ -1274,6 +1274,21 @@ function createFileApi(): NonNullable<Partial<PreloadApi>['fs']> {
     downloadFile: async () => {
       throw new Error('Remote file download is unavailable in paired web clients.')
     },
+    saveDownloadedFile: async () => {
+      throw new Error('Remote file download is unavailable in paired web clients.')
+    },
+    startDownloadedFile: async () => {
+      throw new Error('Remote file download is unavailable in paired web clients.')
+    },
+    appendDownloadedFileChunk: async () => {
+      throw new Error('Remote file download is unavailable in paired web clients.')
+    },
+    finishDownloadedFile: async () => {
+      throw new Error('Remote file download is unavailable in paired web clients.')
+    },
+    cancelDownloadedFile: async () => {
+      throw new Error('Remote file download is unavailable in paired web clients.')
+    },
     listMarkdownDocuments: async ({ rootPath }) => {
       const file = await resolveRuntimeFilePath(rootPath)
       return callRuntimeResult('files.listMarkdownDocuments', {
@@ -2024,7 +2039,10 @@ function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
       ),
     readSelectionClipboardText: () =>
       Promise.reject(new Error('Selection clipboard is unavailable in the web client')),
-    saveClipboardImageAsTempFile: async (args?: { connectionId?: string | null }) => {
+    saveClipboardImageAsTempFile: async (args?: {
+      connectionId?: string | null
+      runtimeEnvironmentId?: string | null
+    }) => {
       if (!requireActiveEnvironmentOrNull()) {
         return null
       }
@@ -2532,7 +2550,7 @@ async function callRuntimeResult<TResult>(
 
 async function saveClipboardImageAsTempFileInRuntime(
   contentBase64: string,
-  args?: { connectionId?: string | null }
+  args?: { connectionId?: string | null; runtimeEnvironmentId?: string | null }
 ): Promise<string> {
   if (contentBase64.length > MAX_CLIPBOARD_IMAGE_BASE64_CHARS) {
     throw new Error(CLIPBOARD_IMAGE_TOO_LARGE_ERROR)

@@ -71,13 +71,6 @@ vi.mock('@dnd-kit/sortable', () => ({
   })
 }))
 
-vi.mock('./tab-strip-pointer-activation', () => ({
-  useTabStripPointerActivation: () => ({
-    isPressed: false,
-    onPointerDown: vi.fn()
-  })
-}))
-
 vi.mock('lucide-react', () => ({
   Columns2: function Columns2(props: Record<string, unknown>) {
     return { type: 'Columns2', props }
@@ -106,7 +99,9 @@ vi.mock('lucide-react', () => ({
 }))
 
 vi.mock('@/hooks/useShortcutLabel', () => ({
-  formatShortcutLabel: () => '⌘⇧\\'
+  formatShortcutLabel: () => '⌘⇧\\',
+  useOptionalShortcutLabel: () => '⌘W',
+  useShortcutKeyDetails: () => ({ keys: ['⌘', 'W'], doubleTap: false })
 }))
 
 vi.mock('@/components/ui/dropdown-menu', () => ({
@@ -119,11 +114,11 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenuItem: function DropdownMenuItem(props: { children?: unknown }) {
     return { type: 'DropdownMenuItem', props }
   },
-  DropdownMenuSeparator: function DropdownMenuSeparator() {
-    return { type: 'DropdownMenuSeparator', props: {} }
-  },
   DropdownMenuShortcut: function DropdownMenuShortcut(props: { children?: unknown }) {
     return { type: 'DropdownMenuShortcut', props }
+  },
+  DropdownMenuSeparator: function DropdownMenuSeparator() {
+    return { type: 'DropdownMenuSeparator', props: {} }
   },
   DropdownMenuLabel: function DropdownMenuLabel(props: { children?: unknown }) {
     return { type: 'DropdownMenuLabel', props }
@@ -176,8 +171,7 @@ vi.mock('./drop-indicator', () => ({
   ACTIVE_TAB_INDICATOR_CLASSES: 'active-tab-indicator',
   getDropIndicatorClasses: () => '',
   getTabStripBorderClasses: () => '',
-  getTabRootStateClasses: () => '',
-  showsTabSelectionChrome: () => true
+  getTabRootStateClasses: () => ''
 }))
 
 vi.mock('./middle-button-default-guard', () => ({

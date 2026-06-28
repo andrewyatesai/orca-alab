@@ -72,7 +72,6 @@ import {
   setDriverForBrowserPage
 } from '@/lib/pane-manager/browser-mobile-driver-state'
 import { destroyPersistentWebview } from '@/components/browser-pane/webview-registry'
-import { dispatchBrowserPageZoomEvent } from '@/components/browser-pane/browser-page-zoom'
 import {
   acquireBrowserAutomationVisibility,
   releaseBrowserAutomationVisibility
@@ -253,21 +252,21 @@ function getVisibleWorktreeIdsForRepo(state: AppState, repoId: string): Set<stri
   return new Set((state.worktreesByRepo[repoId] ?? []).map((worktree) => worktree.id))
 }
 
-function resolveActiveBrowserPageId(state: AppState): string | null {
-  const worktreeId = state.activeWorktreeId
-  if (!worktreeId) {
-    return null
+function activateTerminalInitiatedWorktree(store: AppState, worktreeId: string): void {
+  store.setActiveView('terminal')
+  store.setActiveWorktree(worktreeId)
+  // Why: CLI/runtime terminal focus is user-visible worktree navigation, so it
+  // must feed both Cmd+J recency and the titlebar back/forward stack.
+  store.markWorktreeVisited(worktreeId)
+  if (!store.isNavigatingHistory) {
+    store.recordWorktreeVisit(worktreeId)
   }
-  const activeWorkspaceId =
-    state.activeBrowserTabIdByWorktree[worktreeId] ?? state.activeBrowserTabId ?? null
-  const browserWorkspaces = state.browserTabsByWorktree[worktreeId] ?? []
-  const workspace =
-    browserWorkspaces.find((candidate) => candidate.id === activeWorkspaceId) ?? null
-  if (!workspace) {
-    return null
+}
+
+function focusTerminalInitiatedTab(tabId: string, leafId?: string | null): void {
+  if (!focusRuntimeTerminalSurface(tabId, leafId)) {
+    focusTerminalTabSurface(tabId, leafId)
   }
-  const pages = state.browserPagesByWorkspace[workspace.id] ?? []
-  return workspace.activePageId ?? workspace.pageIds?.[0] ?? pages[0]?.id ?? null
 }
 
 type TerminalSplitDirection = 'horizontal' | 'vertical'
@@ -1358,16 +1357,11 @@ export function useIpcEvents(): void {
             const store = useAppStore.getState()
             const shouldActivate = activate !== false
             if (shouldActivate) {
-              store.setActiveView('terminal')
-              store.setActiveWorktree(worktreeId)
-              // Why: CLI-driven terminal focus is a user-initiated worktree switch
-              // and must stamp focus recency for Cmd+J. Doesn't route through
-              // activateAndRevealWorktree because it has custom terminal-creation
-              // logic; see docs/cmd-j-empty-query-ordering.md.
-              store.markWorktreeVisited(worktreeId)
+              activateTerminalInitiatedWorktree(store, worktreeId)
             }
+            const worktreeTabs = store.tabsByWorktree[worktreeId] ?? []
             const existingTab = ptyId
-              ? (store.tabsByWorktree[worktreeId] ?? []).find(
+              ? worktreeTabs.find(
                   (candidate) =>
                     candidate.ptyId === ptyId ||
                     (store.ptyIdsByTabId[candidate.id] ?? []).includes(ptyId)
@@ -1375,12 +1369,25 @@ export function useIpcEvents(): void {
               : undefined
             const isSplitReveal = Boolean(ptyId && tabId && leafId && splitFromLeafId)
             const splitTargetTab = isSplitReveal
-              ? (store.tabsByWorktree[worktreeId] ?? []).find((candidate) => candidate.id === tabId)
+              ? worktreeTabs.find((candidate) => candidate.id === tabId)
               : undefined
             if (isSplitReveal && !splitTargetTab) {
               throw new Error(`Terminal tab ${tabId} not found`)
             }
-            const reusedTab = existingTab ?? splitTargetTab
+            const hintedPendingTab =
+              ptyId && tabId && !isSplitReveal
+                ? worktreeTabs.find((candidate) => {
+                    if (candidate.id !== tabId) {
+                      return false
+                    }
+                    const candidatePtyIds = store.ptyIdsByTabId[candidate.id] ?? []
+                    return candidate.ptyId == null && candidatePtyIds.length === 0
+                  })
+                : undefined
+            // Why: runtime fallback can reveal a PTY for a renderer-created
+            // pending tab; that id collision is adoption only until another
+            // PTY is already associated with the hinted tab.
+            const reusedTab = existingTab ?? splitTargetTab ?? hintedPendingTab
             const tab =
               reusedTab ??
               (ptyId
@@ -1406,6 +1413,7 @@ export function useIpcEvents(): void {
               store.setActiveTabType('terminal')
               store.setActiveTab(tab.id)
               store.revealWorktreeInSidebar(worktreeId)
+              focusTerminalInitiatedTab(tab.id, leafId)
             }
             // Why: only stamp the runtime-supplied title on freshly created tabs.
             // Existing tabs may have a user customTitle (set via UI rename) that
@@ -1537,11 +1545,7 @@ export function useIpcEvents(): void {
           }
           const shouldActivate = data.activate !== false
           if (shouldActivate) {
-            store.setActiveView('terminal')
-            store.setActiveWorktree(worktreeId)
-            // Why: CLI-driven focused terminal-create requests are user-initiated
-            // worktree switches; unfocused renderer-backed creates must not reorder Cmd+J.
-            store.markWorktreeVisited(worktreeId)
+            activateTerminalInitiatedWorktree(store, worktreeId)
           } else {
             // Why: renderer-backed Codex startup must mount a TerminalPane so the
             // PTY is born in the renderer, but it must not switch the active UI.
@@ -1588,6 +1592,7 @@ export function useIpcEvents(): void {
             store.setActiveTabType('terminal')
             store.setActiveTab(tab.id)
             store.revealWorktreeInSidebar(worktreeId)
+            focusTerminalInitiatedTab(tab.id)
           }
           if (data.title) {
             store.setTabCustomTitle(tab.id, data.title, { recordInteraction: false })
@@ -1650,11 +1655,7 @@ export function useIpcEvents(): void {
           scrollToBottomIfOutputSinceLastView
         }) => {
           const store = useAppStore.getState()
-          store.setActiveWorktree(worktreeId)
-          // Why: CLI-driven focus is a user-initiated switch; stamp focus
-          // recency for Cmd+J. See docs/cmd-j-empty-query-ordering.md.
-          store.markWorktreeVisited(worktreeId)
-          store.setActiveView('terminal')
+          activateTerminalInitiatedWorktree(store, worktreeId)
           store.setActiveTab(tabId)
           store.revealWorktreeInSidebar(worktreeId)
           if (ackPaneKeyOnSuccess || flashFocusedPane || scrollToBottomIfOutputSinceLastView) {
@@ -1667,9 +1668,7 @@ export function useIpcEvents(): void {
             })
             return
           }
-          if (!focusRuntimeTerminalSurface(tabId, leafId)) {
-            focusTerminalTabSurface(tabId, leafId)
-          }
+          focusTerminalInitiatedTab(tabId, leafId)
         }
       )
     )
@@ -2408,16 +2407,25 @@ export function useIpcEvents(): void {
       })
     )
 
-    // Hydrate initial rate limit state then subscribe to push updates
-    window.api.rateLimits.get().then((state) => {
-      useAppStore.getState().setRateLimitsFromPush(state as RateLimitState)
-    })
-
+    let initialRateLimitsSnapshotPending = true
+    let receivedRateLimitsPushBeforeInitialSnapshot = false
     unsubs.push(
       window.api.rateLimits.onUpdate((state) => {
+        if (initialRateLimitsSnapshotPending) {
+          receivedRateLimitsPushBeforeInitialSnapshot = true
+        }
         useAppStore.getState().setRateLimitsFromPush(state as RateLimitState)
       })
     )
+    // Why: the startup get is a fallback; a live push may already include
+    // system-default account snapshots that an older get result lacks.
+    window.api.rateLimits.get().then((state) => {
+      initialRateLimitsSnapshotPending = false
+      if (receivedRateLimitsPushBeforeInitialSnapshot) {
+        return
+      }
+      useAppStore.getState().setRateLimitsFromPush(state as RateLimitState)
+    })
 
     const unsubscribeWorkspaceSpaceProgress = window.api.workspaceSpace?.onProgress?.(
       (progress) => {
@@ -2664,21 +2672,12 @@ export function useIpcEvents(): void {
         const store = useAppStore.getState()
         const { activeView, activeTabType, editorFontZoomLevel, setEditorFontZoomLevel, settings } =
           store
-        const activeBrowserPageId = resolveActiveBrowserPageId(store)
         const target = resolveZoomTarget({
           activeView,
           activeTabType,
-          activeBrowserPageId,
           activeElement: document.activeElement
         })
         if (target === 'terminal') {
-          return
-        }
-        if (target === 'browser') {
-          if (!activeBrowserPageId) {
-            return
-          }
-          dispatchBrowserPageZoomEvent({ browserPageId: activeBrowserPageId, direction })
           return
         }
         if (target === 'editor') {

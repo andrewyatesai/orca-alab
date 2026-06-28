@@ -4,7 +4,8 @@ import {
   flushTerminalOutput,
   requestTerminalBacklogRecovery
 } from '@/lib/pane-manager/pane-terminal-output-scheduler'
-import { restoreScrollStateAfterLayout } from '@/lib/pane-manager/pane-scroll'
+import { resetAllTerminalWebglAtlases } from '@/lib/pane-manager/pane-manager-registry'
+import { enforceTerminalCurrentScrollIntent } from '@/lib/pane-manager/terminal-scroll-intent'
 import { fitAndFocusPanes, fitPanes, focusActivePane } from './pane-helpers'
 
 const VISIBLE_RESUME_FLUSH_CHARS = 256 * 1024
@@ -45,7 +46,7 @@ export function resumeTerminalVisibility({
   // post-resume fit runs. Capture numeric viewport positions first; the
   // restore path avoids content matching so duplicate agent log lines do
   // not jump to the wrong history entry.
-  const viewportPositions = captureViewportPositions(!wasVisible)
+  captureViewportPositions(!wasVisible)
   withSuppressedScrollTracking(() => {
     if (shouldUseLightTabResume) {
       // Why: intra-worktree tab switches only toggle the overlay. Still request
@@ -58,7 +59,12 @@ export function resumeTerminalVisibility({
     } else {
       resumeTerminalVisibilityHeavy(manager, isActive)
     }
-    restoreTerminalViewportPositions(manager, viewportPositions)
+    enforceTerminalViewportIntents(manager)
+    if (!shouldUseLightTabResume) {
+      // Why: after a heavy resume from hidden, force every live manager to
+      // re-present its aterm grid so returning panes repaint a fresh frame.
+      resetAllTerminalWebglAtlases()
+    }
   })
 }
 
@@ -115,14 +121,8 @@ function resumeTerminalVisibilityHeavy(manager: PaneManager, isActive: boolean):
   }
 }
 
-function restoreTerminalViewportPositions(
-  manager: PaneManager,
-  viewportPositions: Map<number, ScrollState>
-): void {
+function enforceTerminalViewportIntents(manager: PaneManager): void {
   for (const pane of manager.getPanes()) {
-    const position = viewportPositions.get(pane.id)
-    if (position) {
-      restoreScrollStateAfterLayout(pane.terminal, position)
-    }
+    enforceTerminalCurrentScrollIntent(pane.terminal)
   }
 }

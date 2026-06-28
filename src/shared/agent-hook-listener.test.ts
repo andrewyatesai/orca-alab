@@ -91,6 +91,7 @@ describe('shared agent-hook-listener', () => {
     expect(resolveHookSource('/hook/pi')).toBe('pi')
     expect(resolveHookSource('/hook/omp')).toBe('omp')
     expect(resolveHookSource('/hook/command-code')).toBe('command-code')
+    expect(resolveHookSource('/hook/mimo-code')).toBe('mimo-code')
     expect(resolveHookSource('/hook/unknown')).toBeNull()
     expect(resolveHookSource('/')).toBeNull()
   })
@@ -542,6 +543,55 @@ describe('shared agent-hook-listener', () => {
     expect(stopped?.payload).toMatchObject({ agentType: 'kimi', state: 'done' })
     // The Claude-shaped session_id is captured for provider-session resume.
     expect(stopped?.providerSession).toMatchObject({ key: 'session_id', id: 'session_abc' })
+  })
+
+  it('normalizes MiMo Code OpenCode-compatible lifecycle events as mimo-code status', () => {
+    const message = normalizeHookPayload(
+      state,
+      'mimo-code',
+      {
+        paneKey: PANE_KEY,
+        payload: {
+          hook_event_name: 'MessagePart',
+          sessionID: 'mimo-session',
+          messageID: 'message-1',
+          role: 'user',
+          text: 'ship the fix'
+        }
+      },
+      'production'
+    )
+    const tool = normalizeHookPayload(
+      state,
+      'mimo-code',
+      {
+        paneKey: PANE_KEY,
+        payload: {
+          hook_event_name: 'SessionBusy',
+          sessionID: 'mimo-session'
+        }
+      },
+      'production'
+    )
+    const idle = normalizeHookPayload(
+      state,
+      'mimo-code',
+      {
+        paneKey: PANE_KEY,
+        payload: { hook_event_name: 'SessionIdle', sessionID: 'mimo-session' }
+      },
+      'production'
+    )
+
+    expect(message?.payload).toMatchObject({
+      agentType: 'mimo-code',
+      state: 'working',
+      prompt: 'ship the fix'
+    })
+    expect(message?.promptInteractionKey).toBe('mimo-code-message-message-1')
+    expect(message?.providerSession).toMatchObject({ key: 'session_id', id: 'mimo-session' })
+    expect(tool?.payload).toMatchObject({ agentType: 'mimo-code', state: 'working' })
+    expect(idle?.payload).toMatchObject({ agentType: 'mimo-code', state: 'done' })
   })
 
   it('maps Kimi AskUserQuestion PreToolUse to waiting, then back to working on answer', () => {
@@ -1251,6 +1301,45 @@ describe('shared agent-hook-listener', () => {
       prompt: 'ship it',
       agentType: 'grok'
     })
+  })
+
+  it('ignores Grok routine permission prompt notifications during tool use', () => {
+    normalizeHookPayload(
+      state,
+      'grok',
+      { paneKey: PANE_KEY, payload: { hookEventName: 'UserPromptSubmit', prompt: 'ship it' } },
+      'production'
+    )
+    normalizeHookPayload(
+      state,
+      'grok',
+      {
+        paneKey: PANE_KEY,
+        payload: {
+          hookEventName: 'PreToolUse',
+          toolName: 'Shell',
+          toolInput: { command: 'echo hi' }
+        }
+      },
+      'production'
+    )
+
+    const event = normalizeHookPayload(
+      state,
+      'grok',
+      {
+        paneKey: PANE_KEY,
+        payload: {
+          hookEventName: 'Notification',
+          notificationType: 'permission_prompt',
+          message: 'Tool permission requested',
+          level: 'info'
+        }
+      },
+      'production'
+    )
+
+    expect(event).toBeNull()
   })
 
   it('reads Grok final assistant text from chat history on Stop', () => {

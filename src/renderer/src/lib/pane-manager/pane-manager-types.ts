@@ -145,6 +145,14 @@ export type ManagedPaneInternal = {
   panePointerDownHandler?: ((event: PointerEvent) => void) | null
   paneMouseEnterHandler?: ((event: MouseEvent) => void) | null
   paneDragCleanup?: (() => void) | null
+  // Stored so disposePane() can remove it and avoid a memory leak. Optional: the
+  // aterm pane lifecycle owns IME composition disposers in use-terminal-pane-lifecycle
+  // rather than via this field (upstream set it from the now-removed xterm pane-dom-creation).
+  compositionHandler?: (() => void) | null
+  // Stored so disposePane() can remove DOM-renderer focus synchronization.
+  focusClassSyncCleanup?: (() => void) | null
+  // Stored so disposePane() can remove user-scroll intent listeners.
+  terminalScrollIntentDisposable?: IDisposable | null
   // Why: splitPane reparents DOM; its delayed restore owns scroll until the
   // browser settles, so intermediate fits must not compete with it.
   pendingSplitScrollState: ScrollState | null

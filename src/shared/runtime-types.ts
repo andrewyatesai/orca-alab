@@ -327,6 +327,12 @@ export type RuntimeFilePreviewResult = {
   mimeType?: string
 }
 
+export type RuntimeFileReadChunkResult = {
+  contentBase64: string
+  bytesRead: number
+  eof: boolean
+}
+
 export type RuntimeTerminalSummary = {
   handle: string
   ptyId: string | null
@@ -441,6 +447,8 @@ export type RuntimeTerminalAgentStatus = {
 export type RuntimeTerminalCreate = {
   handle: string
   tabId?: string
+  paneKey?: string | null
+  ptyId?: string | null
   worktreeId: string
   title: string | null
   surface?: 'background' | 'visible'
@@ -526,6 +534,9 @@ export type RuntimeWorktreePsSummary = {
   parentWorktreeId: string | null
   childWorktreeIds: string[]
   displayName: string
+  workspaceStatus: string
+  sortOrder: number
+  manualOrder?: number
   linkedIssue: number | null
   linkedPR: { number: number; state: string } | null
   linkedLinearIssue: string | null

@@ -115,6 +115,7 @@ import type {
   FloatingTerminalCwdRequest,
   GitHubIssueUpdate,
   GitHubPRRefreshCandidate,
+  GitHubPRRefreshEnqueueResult,
   GitHubPRRefreshEvent,
   GitHubPRRefreshReason,
   GetRateLimitResult,
@@ -390,6 +391,7 @@ import type {
   WorkspaceCleanupLocalProcessArgs,
   WorkspaceCleanupLocalProcessResult,
   WorkspaceCleanupScanArgs,
+  WorkspaceCleanupScanProgress,
   WorkspaceCleanupScanResult
 } from '../shared/workspace-cleanup'
 import type { KeybindingActionId, KeybindingFileSnapshot } from '../shared/keybindings'
@@ -988,7 +990,10 @@ export type PreloadApi = {
     ) => () => void
   }
   workspaceCleanup: {
-    scan: (args?: WorkspaceCleanupScanArgs) => Promise<WorkspaceCleanupScanResult>
+    scan: (
+      args?: WorkspaceCleanupScanArgs,
+      onProgress?: (progress: WorkspaceCleanupScanProgress) => void
+    ) => Promise<WorkspaceCleanupScanResult>
     dismiss: (args: WorkspaceCleanupDismissArgs) => Promise<void>
     clearDismissals: () => Promise<void>
     hasKillableLocalProcesses: (
@@ -1071,6 +1076,7 @@ export type PreloadApi = {
       cwd?: string | null
       seq?: number
       source?: 'headless' | 'renderer'
+      alternateScreen?: boolean
     } | null>
     getRendererDeliveryDebugSnapshot: () => Promise<{
       pendingPtyCount: number
@@ -1156,7 +1162,7 @@ export type PreloadApi = {
       candidate: GitHubPRRefreshCandidate
       reason: GitHubPRRefreshReason
       priority?: number
-    }) => Promise<boolean>
+    }) => Promise<GitHubPRRefreshEnqueueResult | false>
     reportVisiblePRRefreshCandidates: (args: {
       candidates: GitHubPRRefreshCandidate[]
       generation: number
@@ -2027,6 +2033,24 @@ export type PreloadApi = {
       filePath: string
       connectionId: string
     }) => Promise<{ canceled: true } | { canceled: false; destinationPath: string }>
+    saveDownloadedFile: (args: {
+      suggestedName: string
+      content: string
+      encoding: 'utf8' | 'base64'
+    }) => Promise<{ canceled: true } | { canceled: false; destinationPath: string }>
+    startDownloadedFile: (args: {
+      suggestedName: string
+    }) => Promise<
+      { canceled: true } | { canceled: false; transferId: string; destinationPath: string }
+    >
+    appendDownloadedFileChunk: (args: {
+      transferId: string
+      contentBase64: string
+    }) => Promise<{ ok: true }>
+    finishDownloadedFile: (args: {
+      transferId: string
+    }) => Promise<{ canceled: false; destinationPath: string }>
+    cancelDownloadedFile: (args: { transferId: string }) => Promise<{ ok: true }>
     listMarkdownDocuments: (args: {
       rootPath: string
       connectionId?: string
@@ -2128,6 +2152,7 @@ export type PreloadApi = {
       worktreePath: string
       connectionId?: string
       includeIgnored?: boolean
+      bypassEffectiveUpstreamNegativeCache?: boolean
     }) => Promise<GitStatusResult>
     checkIgnored: (args: {
       worktreePath: string
@@ -2495,6 +2520,7 @@ export type PreloadApi = {
     readSelectionClipboardText: (options?: ReadClipboardTextOptions) => Promise<string>
     saveClipboardImageAsTempFile: (args?: {
       connectionId?: string | null
+      runtimeEnvironmentId?: string | null
     }) => Promise<string | null>
     writeClipboardText: (text: string) => Promise<void>
     writeSelectionClipboardText: (text: string) => Promise<void>

@@ -36,12 +36,19 @@ vi.mock('./runner', () => ({
   // keep working unchanged and call ordering (status, then numstat) is preserved.
   gitStreamStdout: async (
     args: string[],
-    options: { onStdout: (chunk: string) => boolean | void }
+    options: {
+      onStdout?: (chunk: string) => boolean | void
+      onStdoutBytes?: (chunk: Buffer) => boolean | void
+    }
   ) => {
     // Forward args so arg-routing mock implementations (e.g. `args.includes`)
-    // still match the status read.
+    // still match the status read. Feed whichever sink the active parser uses:
+    // onStdoutBytes (raw) for the Rust path, else onStdout (decoded string).
     const { stdout } = await gitExecFileAsyncMock(args)
-    const stoppedEarly = options.onStdout(stdout ?? '') === true
+    const text: string = stdout ?? ''
+    const stoppedEarly = options.onStdoutBytes
+      ? options.onStdoutBytes(Buffer.from(text, 'utf8')) === true
+      : options.onStdout?.(text) === true
     return { stoppedEarly }
   },
   gitOptionalLocksDisabledEnv: (env: NodeJS.ProcessEnv = process.env) => ({

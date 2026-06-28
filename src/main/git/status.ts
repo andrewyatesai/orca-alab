@@ -29,13 +29,8 @@ import {
   type GitLineStats
 } from '../../shared/git-uncommitted-line-stats'
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
-import {
-  gitExecFileAsync,
-  gitExecFileAsyncBuffer,
-  gitOptionalLocksDisabledEnv,
-  gitStreamStdout
-} from './runner'
-import { StatusPorcelainParser } from './status-porcelain-parser'
+import { gitExecFileAsync, gitExecFileAsyncBuffer, gitOptionalLocksDisabledEnv } from './runner'
+import { streamGitStatus } from './git-status-stream'
 import { DEFAULT_GIT_STATUS_LIMIT } from '../../shared/git-status-limit'
 import { describeMaxBufferOverflowError, isMaxBufferOverflowError } from './max-buffer-overflow'
 import {
@@ -181,40 +176,33 @@ async function runGetStatus(
 
   // Why: stream + parse incrementally and stop git the moment the entry count
   // crosses `limit`, so a repo with an enormous un-ignored folder never buffers
-  // a status listing big enough to crash the process. See StatusPorcelainParser.
-  const parser = new StatusPorcelainParser()
-  let didHitLimit = false
+  // a status listing big enough to crash the process. streamGitStatus drives the
+  // Trust-verified Rust parser (orca_node.node) when present, else the identical
+  // TypeScript StatusPorcelainParser fallback (proven equal in parity tests).
   const conflictOperation = await conflictPromise
-
-  try {
-    const { stoppedEarly } = await gitStreamStdout(statusArgs, {
+  const streamed = await streamGitStatus(
+    statusArgs,
+    {
       cwd: worktreePath,
       wslDistro: options.wslDistro,
       // Why: status polling is read-like; avoid refreshing the index and racing
       // terminal Git commands on `.git/worktrees/*/index.lock`.
       env: gitOptionalLocksDisabledEnv(),
-      signal: options.signal,
-      onStdout: (chunk) => parser.update(chunk, limit)
-    })
-    if (!stoppedEarly) {
-      parser.finish()
-    }
-    didHitLimit = stoppedEarly
-    statusSucceeded = true
-  } catch {
-    // Not a git repo or git not available
-  }
-
-  // Why: the parser stops one entry past the limit (it checks after pushing), so
-  // trim back to exactly `limit` for a stable "first N shown" contract.
-  const entries = didHitLimit ? parser.entries.slice(0, limit) : parser.entries
-  const { head, branch, upstreamName, upstreamAheadBehind } = parser.branch
+      signal: options.signal
+    },
+    limit
+  )
+  statusSucceeded = streamed.succeeded
+  const didHitLimit = streamed.didHitLimit
+  // entries are already capped to `limit` by streamGitStatus when stopped.
+  const entries = streamed.entries
+  const { head, branch, upstreamName, upstreamAheadBehind } = streamed
 
   // Why: unmerged (`u`) records need async per-file git lookups, so the parser
   // collected their raw lines; resolve them now. Conflicts are rare and never
   // the source of huge output, so this stays off the streamed hot path.
   if (!didHitLimit) {
-    for (const line of parser.unmergedLines) {
+    for (const line of streamed.unmergedLines) {
       const unmergedEntry = await parseUnmergedEntry(worktreePath, line)
       if (unmergedEntry) {
         entries.push(unmergedEntry)
@@ -261,8 +249,8 @@ async function runGetStatus(
     conflictOperation,
     head,
     branch,
-    ...(options.includeIgnored ? { ignoredPaths: parser.ignoredPaths } : {}),
-    ...(didHitLimit ? { didHitLimit: true, statusLength: parser.statusLength } : {}),
+    ...(options.includeIgnored ? { ignoredPaths: streamed.ignoredPaths } : {}),
+    ...(didHitLimit ? { didHitLimit: true, statusLength: streamed.statusLength } : {}),
     ...(statusSucceeded
       ? {
           upstreamStatus:

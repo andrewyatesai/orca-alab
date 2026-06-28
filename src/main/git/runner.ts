@@ -832,7 +832,7 @@ export async function gitExecFileAsyncBuffer(
  * onStdout hook asked to stop and the child was killed before exiting. */
 export type GitStreamResult = { stoppedEarly: boolean }
 
-type GitStreamOptions = {
+export type GitStreamOptions = {
   cwd: string
   env?: NodeJS.ProcessEnv
   wslDistro?: string
@@ -845,7 +845,14 @@ type GitStreamOptions = {
    * lets a streaming parser bail out (e.g. once an entry limit is reached)
    * without ever buffering the full output.
    */
-  onStdout: (chunk: string) => boolean | void
+  onStdout?: (chunk: string) => boolean | void
+  /**
+   * Raw-bytes alternative to onStdout: receives the undecoded Buffer chunk and
+   * skips the StringDecoder. For the napi status parser, which carries bytes
+   * itself (git runs with core.quotePath=false, so filename bytes may be
+   * invalid UTF-8). Takes precedence over onStdout when set.
+   */
+  onStdoutBytes?: (chunk: Buffer) => boolean | void
 }
 
 /**
@@ -917,16 +924,20 @@ export async function gitStreamStdout(
           finish(new Error('git stdout exceeded maxBuffer.'))
           return
         }
-        const decoded = stdoutDecoder.write(chunk)
-        if (decoded.length === 0) {
-          return
-        }
         // Why: the parser callback is caller-supplied; a throw here would escape
         // the stream event handler and crash the main process (the exact failure
         // mode this streaming path exists to prevent). Convert it to a rejection.
         let shouldStop: boolean | void
         try {
-          shouldStop = options.onStdout(decoded)
+          if (options.onStdoutBytes) {
+            shouldStop = options.onStdoutBytes(chunk)
+          } else {
+            const decoded = stdoutDecoder.write(chunk)
+            if (decoded.length === 0) {
+              return
+            }
+            shouldStop = options.onStdout?.(decoded)
+          }
         } catch (error) {
           killSpawnedCommandTree(child)
           finish(error instanceof Error ? error : new Error(String(error)))

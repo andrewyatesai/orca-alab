@@ -21,8 +21,12 @@ pub mod rebase_source;
 pub mod repo_clone_path;
 pub mod remote;
 pub mod runner;
+pub mod line_count;
+pub mod numstat;
 pub mod status;
 pub mod status_parse;
+pub mod status_result;
+pub mod status_stream;
 pub mod upstream;
 pub mod worktree;
 

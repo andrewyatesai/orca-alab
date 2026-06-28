@@ -16,6 +16,10 @@ orca-text = { path = "../orca-text" }
 # source-control-ai reuses the commit-message model shape from orca-agents.
 orca-agents = { path = "../orca-agents" }
 serde_json = { version = "1", default-features = false, features = ["std"] }
+# memchr: SIMD newline/NUL scanning on the status + buffer hot paths.
+memchr = { version = "2", default-features = false, features = ["std"] }
+# regex: faithful port of the numstat brace-rename matcher (TS used a JS RegExp).
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
 
 [lints.rust]
 unsafe_code = "forbid"

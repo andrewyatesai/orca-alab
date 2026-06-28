@@ -4,9 +4,9 @@
 //! the production `getStatus` binds `exists` to the worktree filesystem.
 
 use crate::status_parse::{
-    parse_branch_ahead_behind, parse_conflict_kind, parse_status_char, GitConflictKind,
-    GitFileStatus,
+    parse_conflict_kind, GitConflictKind, GitFileStatus, GitSubmoduleStatus,
 };
+use crate::status_stream::StatusPorcelainParser;
 use orca_core::git_cquoted_path::decode_git_cquoted_path;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -24,12 +24,10 @@ pub struct GitStatusEntry {
     pub old_path: Option<String>,
     pub conflict_kind: Option<GitConflictKind>,
     pub conflict_status: Option<&'static str>,
-}
-
-impl GitStatusEntry {
-    fn change(path: String, status: GitFileStatus, area: GitStagingArea, old_path: Option<String>) -> Self {
-        Self { path, status, area, old_path, conflict_kind: None, conflict_status: None }
-    }
+    pub submodule: Option<GitSubmoduleStatus>,
+    // Working-tree line counts (attached later by the line-stats pass).
+    pub added: Option<u32>,
+    pub removed: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -89,87 +87,36 @@ fn parse_unmerged_entry(line: &str, exists: &dyn Fn(&str) -> bool) -> Option<Git
         old_path: None,
         conflict_kind: Some(conflict_kind),
         conflict_status: Some("unresolved"),
+        submodule: None,
+        added: None,
+        removed: None,
     })
 }
 
+/// Parse full porcelain-v2 status, reusing the one streaming scanner so there is
+/// exactly one record parser. The buffer is fed whole with the cap disabled
+/// (`limit = 0`); unmerged `u ` records — which need the `exists` fs probe — are
+/// resolved here over the scanner's collected raw lines and appended.
 pub fn parse_porcelain_v2_status(stdout: &str, exists: &dyn Fn(&str) -> bool) -> ParsedStatus {
-    let mut result = ParsedStatus::default();
+    let mut parser = StatusPorcelainParser::new();
+    parser.update(stdout.as_bytes(), 0);
+    parser.finish();
+    let scanned = parser.into_result(0);
 
-    for raw in stdout.split('\n') {
-        let line = raw.strip_suffix('\r').unwrap_or(raw);
-        if line.is_empty() {
-            continue;
-        }
-
-        if let Some(oid) = line.strip_prefix("# branch.oid ") {
-            result.head = Some(oid.trim().to_string());
-        } else if let Some(head) = line.strip_prefix("# branch.head ") {
-            let head = head.trim();
-            result.branch = if !head.is_empty() && head != "(detached)" {
-                Some(format!("refs/heads/{head}"))
-            } else {
-                None
-            };
-        } else if let Some(upstream) = line.strip_prefix("# branch.upstream ") {
-            let upstream = upstream.trim();
-            result.upstream_name = (!upstream.is_empty()).then(|| upstream.to_string());
-        } else if line.starts_with("# branch.ab ") {
-            result.ahead_behind = parse_branch_ahead_behind(line);
-        } else if line.starts_with("1 ") || line.starts_with("2 ") {
-            parse_change_entry(line, &mut result.entries);
-        } else if let Some(path) = line.strip_prefix("? ") {
-            result.entries.push(GitStatusEntry::change(
-                decode_git_cquoted_path(path),
-                GitFileStatus::Untracked,
-                GitStagingArea::Untracked,
-                None,
-            ));
-        } else if let Some(path) = line.strip_prefix("! ") {
-            result.ignored_paths.push(decode_git_cquoted_path(path));
-        } else if line.starts_with("u ") {
-            if let Some(entry) = parse_unmerged_entry(line, exists) {
-                result.entries.push(entry);
-            }
-        }
-    }
-
-    result
-}
-
-fn parse_change_entry(line: &str, entries: &mut Vec<GitStatusEntry>) {
-    let parts: Vec<&str> = line.split(' ').collect();
-    let Some(xy) = parts.get(1) else { return };
-    let mut chars = xy.chars();
-    let index_status = chars.next().unwrap_or('.');
-    let worktree_status = chars.next().unwrap_or('.');
-
-    let (path, old_path) = if line.starts_with("2 ") {
-        // type-2 (rename/copy): new path after 9 space fields, old path after the tab.
-        let tab_parts: Vec<&str> = line.split('\t').collect();
-        let before_tab: Vec<&str> = tab_parts[0].split(' ').collect();
-        let new_path = decode_git_cquoted_path(&before_tab[9.min(before_tab.len())..].join(" "));
-        let old = decode_git_cquoted_path(&tab_parts[1..].join("\t"));
-        (new_path, Some(old))
-    } else {
-        (decode_git_cquoted_path(&parts[8.min(parts.len())..].join(" ")), None)
+    let mut result = ParsedStatus {
+        head: scanned.branch.head,
+        branch: scanned.branch.branch,
+        upstream_name: scanned.branch.upstream_name,
+        ahead_behind: scanned.branch.ahead_behind,
+        entries: scanned.entries,
+        ignored_paths: scanned.ignored_paths,
     };
-
-    if index_status != '.' {
-        entries.push(GitStatusEntry::change(
-            path.clone(),
-            parse_status_char(index_status),
-            GitStagingArea::Staged,
-            old_path.clone(),
-        ));
+    for line in &scanned.unmerged_lines {
+        if let Some(entry) = parse_unmerged_entry(line, exists) {
+            result.entries.push(entry);
+        }
     }
-    if worktree_status != '.' {
-        entries.push(GitStatusEntry::change(
-            path,
-            parse_status_char(worktree_status),
-            GitStagingArea::Unstaged,
-            old_path,
-        ));
-    }
+    result
 }
 
 #[cfg(test)]
@@ -189,6 +136,9 @@ mod tests {
             old_path: old_path.map(str::to_string),
             conflict_kind: None,
             conflict_status: None,
+            submodule: None,
+            added: None,
+            removed: None,
         }
     }
 

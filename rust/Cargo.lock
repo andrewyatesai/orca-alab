@@ -626,9 +626,11 @@ dependencies = [
 name = "orca-git"
 version = "0.0.1"
 dependencies = [
+ "memchr",
  "orca-agents",
  "orca-core",
  "orca-text",
+ "regex",
  "serde_json",
 ]
 

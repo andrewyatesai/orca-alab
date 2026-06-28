@@ -12,6 +12,15 @@ pub enum GitFileStatus {
     Copied,
 }
 
+/// Submodule dirtiness flags from a porcelain-v2 `<sub>` field (the `S<c><m><u>`
+/// form). Mirrors `GitSubmoduleStatus` in `src/shared/git-status-types.ts`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GitSubmoduleStatus {
+    pub commit_changed: bool,
+    pub tracked_changes: bool,
+    pub untracked_changes: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GitConflictKind {
     BothModified,
@@ -49,6 +58,22 @@ pub fn parse_conflict_kind(xy: &str) -> Option<GitConflictKind> {
         "UD" => Some(GitConflictKind::DeletedByThem),
         _ => None,
     }
+}
+
+/// Parse a porcelain-v2 `<sub>` field: `None` unless it starts with `S`, then
+/// the three dirtiness flags by fixed position. The field is ASCII, so byte
+/// indexing is exact.
+pub fn parse_submodule_status(field: Option<&str>) -> Option<GitSubmoduleStatus> {
+    let field = field?;
+    if !field.starts_with('S') {
+        return None;
+    }
+    let b = field.as_bytes();
+    Some(GitSubmoduleStatus {
+        commit_changed: b.get(1) == Some(&b'C'),
+        tracked_changes: b.get(2) == Some(&b'M'),
+        untracked_changes: b.get(3) == Some(&b'U'),
+    })
 }
 
 /// Parse a `# branch.ab +<ahead> -<behind>` header line.
@@ -89,6 +114,29 @@ mod tests {
         assert_eq!(parse_conflict_kind("UD"), Some(GitConflictKind::DeletedByThem));
         assert_eq!(parse_conflict_kind("M."), None);
         assert_eq!(parse_conflict_kind(""), None);
+    }
+
+    #[test]
+    fn submodule_status_parsing() {
+        assert_eq!(parse_submodule_status(None), None);
+        assert_eq!(parse_submodule_status(Some("N...")), None);
+        assert_eq!(parse_submodule_status(Some("....")), None);
+        assert_eq!(
+            parse_submodule_status(Some("S..U")),
+            Some(GitSubmoduleStatus {
+                commit_changed: false,
+                tracked_changes: false,
+                untracked_changes: true
+            })
+        );
+        assert_eq!(
+            parse_submodule_status(Some("SCMU")),
+            Some(GitSubmoduleStatus {
+                commit_changed: true,
+                tracked_changes: true,
+                untracked_changes: true
+            })
+        );
     }
 
     #[test]

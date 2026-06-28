@@ -31,7 +31,7 @@ export async function loadAtermCpuDrawer(
   // never both — the CPU path owns 2d).
   const ctx = canvas.getContext('2d')
 
-  const { AtermTerminal: AtermTerminalCtor, fontBytes } = await loadAterm()
+  const { AtermTerminal: AtermTerminalCtor, fontBytes, memory } = await loadAterm()
   // Build at a 1x1 grid to read cell metrics, then the controller sizes the real
   // grid (mirrors the original controller construction order).
   const term: AtermTerminal = new AtermTerminalCtor(
@@ -68,6 +68,7 @@ export async function loadAtermCpuDrawer(
         ctx,
         canvas,
         term,
+        memory,
         cellWidth,
         cellHeight,
         drawScheduler: binding.drawScheduler,

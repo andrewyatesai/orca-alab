@@ -52,11 +52,21 @@ function which(bin) {
 
 function resolveWasmBindgen() {
   const cached = join(WB_DIR, 'bin/wasm-bindgen')
-  if (existsSync(cached)) return cached
+  if (existsSync(cached)) {
+    return cached
+  }
   // Bootstrap the exact pinned CLI once (cached, gitignored) so the build is
   // reproducible regardless of the system wasm-bindgen version.
   console.log(`[aterm-wasm] bootstrapping wasm-bindgen-cli ${WB_VERSION} → ${WB_DIR}`)
-  run('cargo', ['install', 'wasm-bindgen-cli', '--version', WB_VERSION, '--root', WB_DIR, '--locked'])
+  run('cargo', [
+    'install',
+    'wasm-bindgen-cli',
+    '--version',
+    WB_VERSION,
+    '--root',
+    WB_DIR,
+    '--locked'
+  ])
   return cached
 }
 
@@ -80,7 +90,10 @@ function buildCrate(key, wasmBindgen) {
       '--config',
       'profile.release.opt-level="z"'
     ],
-    { env: { ...process.env, CARGO_NET_OFFLINE: 'false' } }
+    // Pin to stable (aterm's rust-toolchain.toml channel): invoked from ROOT, the
+    // machine's global rustup default applies, and an older nightly default may
+    // lack the wasm32-unknown-unknown target (or violate aterm's rust-version).
+    { env: { ...process.env, CARGO_NET_OFFLINE: 'false', RUSTUP_TOOLCHAIN: 'stable' } }
   )
 
   const wasm = join(WASM_TARGET_DIR, `${stem}.wasm`)

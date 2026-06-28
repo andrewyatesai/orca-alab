@@ -10,6 +10,8 @@ export type AtermFramePainterDeps = {
   ctx: CanvasRenderingContext2D | null
   canvas: HTMLCanvasElement
   term: AtermTerminal
+  /** The shared wasm linear memory — for the zero-copy framebuffer view. */
+  memory: WebAssembly.Memory
   cellWidth: number
   cellHeight: number
   drawScheduler: AtermDrawScheduler
@@ -72,22 +74,13 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
     const dpr = getDpr()
     canvas.style.width = `${width / dpr}px`
     canvas.style.height = `${height / dpr}px`
-    // rgba() already returns a fresh JS-heap copy (its glue .slice()s out of wasm
-    // then frees), so reinterpret that exact buffer as a clamped VIEW rather than
-    // copying it a second time — saves one width*height*4 memcpy + alloc per frame
-    // (~16MB/frame on a Retina pane). Safe: putImageData is synchronous and nothing
-    // re-enters wasm between rgba() and the blit, and the buffer is JS-heap (not a
-    // view into wasm memory that could detach).
-    const rgba = term.rgba()
-    ctx.putImageData(
-      new ImageData(
-        new Uint8ClampedArray(rgba.buffer as ArrayBuffer, rgba.byteOffset, rgba.byteLength),
-        width,
-        height
-      ),
-      0,
-      0
-    )
+    // Zero-copy blit: view the engine's framebuffer directly in wasm linear memory
+    // (no copy out of wasm at all — rgba_ptr returns the byte offset). Read the ptr
+    // right after render() and use it synchronously before any other engine call:
+    // render/process may reallocate the buffer, and wasm memory growth detaches
+    // memory.buffer, so the view is rebuilt from the CURRENT buffer every frame.
+    const fbView = new Uint8ClampedArray(deps.memory.buffer, term.rgba_ptr(), width * height * 4)
+    ctx.putImageData(new ImageData(fbView, width, height), 0, 0)
     // Overlay search highlights last so they sit above the rendered glyphs.
     paintAtermSearchHighlights(ctx, deps.getSearchMatches(), deps.getSearchActiveIndex(), {
       term,

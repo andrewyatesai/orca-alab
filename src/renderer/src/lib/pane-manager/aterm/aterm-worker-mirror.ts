@@ -2,12 +2,13 @@ import { loadAterm } from './load-aterm'
 import { injectTerminalFallbackFonts } from './inject-terminal-fallback-fonts'
 import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
+import { decideAtermGpu } from './aterm-gpu-auto-policy'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer-config'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermTerminal } from './aterm_wasm.js'
-import type { AtermWorkerRequest, AtermWorkerState } from './aterm-render-worker-protocol'
+import type { AtermWorkerMessage, AtermWorkerRequest } from './aterm-render-worker-protocol'
 
 // OPT-IN, default-OFF render mirror (plan §9, stage 2a). The renderer main thread
 // keeps a REAL aterm engine so the facade's SYNCHRONOUS queries (serialize/
@@ -82,13 +83,31 @@ export async function loadAtermWorkerMirror(
     }
   }
 
+  // The MAIN engine stays CPU (aterm-wasm) for the facade's sync queries; the WORKER
+  // engine takes the GPU path when the GPU policy allows it, so GPU render+present
+  // runs off the renderer main thread too. CPU is the guaranteed fallback.
+  const useGpuWorker = decideAtermGpu().useGpu
+  // Only fall back once even if the worker reports several errors.
+  let fellBackToCpuWorker = false
+
   // Keep the latest worker snapshot for a later stage to feed back into the facade;
   // stage 2a only needs the render itself to happen off-main. Exposed under the e2e
   // flag so the spec can prove the off-main render without main-thread canvas
   // readback (the canvas is transferred, so getContext/toDataURL no longer work).
-  worker.addEventListener('message', (event: MessageEvent<AtermWorkerState>) => {
+  worker.addEventListener('message', (event: MessageEvent<AtermWorkerMessage>) => {
+    const data = event.data
+    if (data.type === 'error') {
+      // The worker couldn't acquire WebGL for the GPU engine; tell it to rebuild as a
+      // CPU engine on the canvas it still holds (it can't be re-transferred) so the
+      // pane renders off-main instead of going blank.
+      if (data.phase === 'init' && !fellBackToCpuWorker) {
+        fellBackToCpuWorker = true
+        post({ type: 'fallback' })
+      }
+      return
+    }
     if (e2eConfig.exposeStore) {
-      window.__atermWorkerRenderState = event.data
+      window.__atermWorkerRenderState = data
     }
   })
 
@@ -104,6 +123,7 @@ export async function loadAtermWorkerMirror(
   post(
     {
       type: 'init',
+      engine: useGpuWorker ? 'gpu' : 'cpu',
       canvas: offscreen,
       fontBytes: fontBytesCopy,
       fallbackFonts,

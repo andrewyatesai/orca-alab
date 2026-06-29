@@ -335,3 +335,56 @@ Pair every subsumption with the §4 non-Rust wins (locale lazy-load shipped; sti
 code-split the eager index, `Promise.all` the boot IPCs, move the rg-`--json` parse + the
 Electron fs-watcher to workers). Those dominate startup and are *not* Rust work — don't spend
 verified-Rust effort on parse-cost a dynamic `import()` fixes.
+
+---
+
+## 9. Aterm-efficiency sprint — outcome + the #5 Worker design
+
+**Landed + measured (2026-06-28):** zero-copy CPU framebuffer (Tier 1 + Tier 2 `rgba_ptr`,
+~4–16 ms/frame), `process_str` (no per-chunk transcode alloc/copy), aterm → v0.5.8 (blit-1×1
+fast path ~22%, FxHash glyph caches, +2.7% SGR, resize throttle), and the dead per-chunk
+`drain_bell` gated out. **Investigated → deliberately unchanged:** the per-chunk OSC/title
+scanners are load-bearing for agent-status (OSC-9999, no engine support; runs engine-less in
+hidden sessions) and the title→agent-state machine (needs every title in order; engine exposes
+only last-per-chunk) — removing them breaks agent detection; the GPU auto-policy is correctly
+conservative (rejecting software/unknown renderers avoids render-corruption — widening
+re-introduces it; the real GPU gains live in the engine, banked via v0.5.8).
+
+**Reassess #5 before building it:** the audit measured per-frame cost *with* the framebuffer
+copies present. Those copies (the dominant main-thread per-frame cost) are now gone, so the
+Worker move's marginal responsiveness benefit is smaller than first estimated. **Measure the
+residual main-thread per-frame cost (CDP Performance trace under a `cat` flood) first** — if it's
+already small, #5's XL cost may not pay for itself.
+
+### #5 — engine off the main thread (Worker + OffscreenCanvas), sequenced
+
+The blocker is the facade's *synchronous* surface. Split it:
+- **Cacheable state** (mutates only on process/scroll/resize): cols/rows, `display_offset`,
+  cursor x/y, `baseY`, title, `isAltScreen`, bracketed-paste/mouse/focus modes, `cellSizeCss`.
+  The worker pushes a snapshot after each process; the main facade reads the cache synchronously.
+- **Query reads** (parameterized/large): `serialize`/`serializeScrollback`, `rowText`/`cellText`/
+  `rowLen`/`rowIsWrapped`, `selectionText`, `findMatches`/`searchActiveMatchRect`, `linkAt`. These
+  are **interactive** (snapshot-save, copy, search, hover hit-test) — *not* per-frame — so they
+  tolerate an async worker RPC.
+
+Staged rollout (each stage independently shippable + verifiable):
+1. **Async-ify the interactive query call sites** (add `Promise` variants alongside the sync ones;
+   migrate the ~consumers one at a time, sync stays until all migrated). Non-breaking; the real
+   "80%". Gate each migration with the existing tests.
+2. **Worker render module** (`aterm-render-worker.ts`): holds the engine, takes the
+   `transferControlToOffscreen` canvas, `process_str` via postMessage, renders to the
+   OffscreenCanvas (CPU first; GPU/webgl2-in-worker second). Wire as an **opt-in strategy** beside
+   the current one (default off) so production is unaffected.
+3. **Cacheable-snapshot protocol** worker→main (postMessage, or a `SharedArrayBuffer` ring for
+   zero-latency sync reads + `Atomics` for the query RPC if async proves too laggy on hover).
+4. **Flip the default** only after e2e (Electron/CDP) shows input→glyph latency unchanged AND
+   UI-jank-during-flood improved vs the now-copy-free main-thread path.
+
+Alternative considered + deferred: a single **shared-memory wasm build** (wasm threads + COOP/COEP
+cross-origin isolation) would let main read engine state synchronously from the same linear memory
+while the worker renders — elegant, but it's a large engine build change (threaded wasm) + an
+Electron isolation requirement, so it's a bigger lift than the snapshot+async-RPC path above.
+
+### #7 — predictive/local echo (deferred)
+Niche (SSH/high-RTT only), mosh-class complexity (reconciliation, password/TUI suppression, cursor
+prediction), high visual-glitch risk. Lowest priority; only worth it once #5 is done.

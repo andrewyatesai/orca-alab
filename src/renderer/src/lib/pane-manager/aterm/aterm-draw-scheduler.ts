@@ -10,6 +10,8 @@ export type AtermDrawScheduler = {
   consume: () => void
   /** True once a draw is scheduled and not yet consumed. */
   isScheduled: () => boolean
+  /** True while draw scheduling is paused for a hidden pane. */
+  isSuspended: () => boolean
   /** Pause/resume draw scheduling for a hidden pane. While suspended, schedule()
    *  records that a draw is wanted but fires no rAF/timer; resume runs one draw
    *  if anything was scheduled while paused so the pane repaints its latest state. */
@@ -60,6 +62,7 @@ export function createAtermDrawScheduler(runDraw: () => void): AtermDrawSchedule
       clearTimer()
     },
     isScheduled: () => scheduled,
+    isSuspended: () => suspended,
     setSuspended: (next: boolean) => {
       if (next === suspended) {
         return

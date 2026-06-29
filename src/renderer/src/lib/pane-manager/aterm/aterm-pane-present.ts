@@ -20,7 +20,7 @@ type AtermPanePresenterDeps = {
   searchOverlay: { paint: (matches: AtermSearchMatch[], activeIndex: number) => void } | null
   a11yMirror: { schedule: () => void }
   gridReflow: Pick<AtermGridReflow, 'reconcileIfNeeded'>
-  drawScheduler: Pick<AtermDrawScheduler, 'consume'>
+  drawScheduler: Pick<AtermDrawScheduler, 'consume' | 'schedule' | 'isSuspended'>
   scheduleDraw: () => void
   isDisposed: () => boolean
   getSearchMatches: () => AtermSearchMatch[]
@@ -80,6 +80,12 @@ export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPan
     if (isDisposed()) {
       return
     }
+    // Hidden/occluded pane: don't burn an eager paint. Record the want so the
+    // scheduler repaints the latest state on resume (honors draw suspension).
+    if (drawScheduler.isSuspended()) {
+      scheduleDraw()
+      return
+    }
     if (presentedThisFrame) {
       scheduleDraw() // already painted this frame; newer state coalesces onto rAF
       return
@@ -90,7 +96,10 @@ export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPan
       scheduleDraw()
       return
     }
-    drawScheduler.consume() // painting now — cancel the armed rAF/backstop
+    // Mark a frame scheduled so the painter's scheduled-guard passes, then present
+    // NOW; the painter consumes (cancelling the armed rAF/backstop), so the eager
+    // paint never doubles up with the coalesced one.
+    drawScheduler.schedule()
     doPresent()
     presentedThisFrame = true
     // Re-open the gate at the next frame so subsequent keystrokes present eagerly too.

@@ -52,7 +52,12 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
     if (!controller) {
       return
     }
-    if (controller.drainBell()) {
+    // Skip the per-chunk bell drain entirely when nothing listens: the live bell
+    // UX is served by the TS bell detector (pty-transport), not this facade
+    // channel, so draining here is a wasted wasm crossing on every output chunk.
+    // onBell() clears any flag accrued while unlistened so a late subscriber never
+    // replays a stale phantom bell.
+    if (bellEmitter.hasListeners() && controller.drainBell()) {
       bellEmitter.emit()
     }
     const osc = controller.takeOscEvents()
@@ -267,6 +272,11 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       return { dispose: () => void titleListeners.delete(handler) }
     },
     onBell(handler) {
+      // First subscriber: clear any BEL accrued while the drain was skipped
+      // (unlistened), so the next per-chunk drain can't replay a stale phantom bell.
+      if (controller && !bellEmitter.hasListeners()) {
+        controller.drainBell()
+      }
       return bellEmitter.on(handler)
     },
     onSelectionChange(handler) {

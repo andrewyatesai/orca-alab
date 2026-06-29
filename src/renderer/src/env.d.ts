@@ -6,6 +6,7 @@ import type { AtermGpuCpuCompareResult } from '@/lib/pane-manager/aterm/aterm-gp
 import type { AtermGpuCpuBenchResult } from '@/lib/pane-manager/aterm/aterm-gpu-cpu-bench'
 import type { AtermLatencyBenchResult } from '@/lib/pane-manager/aterm/aterm-latency-bench'
 import type { AtermMemoryBenchResult } from '@/lib/pane-manager/aterm/aterm-memory-bench'
+import type { AtermWorkerState } from '@/lib/pane-manager/aterm/aterm-render-worker-protocol'
 import type { languages } from 'monaco-editor'
 
 declare module 'monaco-editor/esm/vs/basic-languages/python/python.js' {
@@ -73,6 +74,14 @@ declare global {
     // e2e/dev override that FORCES the aterm CPU draw path on (skips the GPU path
     // even on capable hardware). Takes precedence over the user setting + auto.
     __atermGpuDisabled?: boolean
+    // OPT-IN, default-OFF: route the aterm CPU rasterize+blit onto a render worker
+    // (OffscreenCanvas) so rendering happens off the renderer main thread. Production
+    // is unaffected while unset; see aterm-worker-mirror.
+    __atermWorkerRender?: boolean
+    // e2e only: the latest render-worker STATE snapshot (size/cursor/offset), so the
+    // worker-render spec can prove the off-main render happened without main-thread
+    // canvas readback (the canvas is transferred to the worker).
+    __atermWorkerRenderState?: AtermWorkerState
     // e2e only: the WebGL adapter/backend string the GPU drawer acquired.
     __atermGpuAdapterInfo?: string
     // e2e only: why the GPU draw path fell back to CPU (init/surface/adapter

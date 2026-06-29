@@ -50,6 +50,30 @@ function which(bin) {
   }
 }
 
+// Absolute path to a rustup-managed STABLE tool (Homebrew's cargo/rustc on PATH
+// shadow rustup and lack the wasm32 target).
+function rustupStableBin(bin) {
+  return execFileSync('rustup', ['which', bin, '--toolchain', 'stable'], {
+    encoding: 'utf8'
+  }).trim()
+}
+
+// Build cargo with the rustup-managed STABLE toolchain explicitly. Two shadows to beat:
+// (1) a Homebrew cargo on PATH ignores RUSTUP_TOOLCHAIN, and (2) even rustup's stable
+// cargo spawns a BARE `rustc` resolved from PATH (Homebrew's 1.95, no wasm32) unless
+// RUSTC is pinned. So we invoke stable's cargo by absolute path WITH RUSTC pinned to
+// stable's rustc. Falls back to plain cargo (+ RUSTUP_TOOLCHAIN) when rustup is absent.
+function runWasmCargo(args, opts = {}) {
+  const baseEnv = opts.env ?? process.env
+  if (which('rustup')) {
+    const cargo = rustupStableBin('cargo')
+    const rustc = rustupStableBin('rustc')
+    run(cargo, args, { ...opts, env: { ...baseEnv, RUSTC: rustc } })
+  } else {
+    run('cargo', args, opts)
+  }
+}
+
 function resolveWasmBindgen() {
   const cached = join(WB_DIR, 'bin/wasm-bindgen')
   if (existsSync(cached)) {
@@ -78,8 +102,7 @@ function buildCrate(key, wasmBindgen) {
   // the WHOLE wasm build (engine code is compiled INTO the wasm, so size-opt must
   // cover it, not just the leaf crate) — these are browser download assets. The
   // engine's native profile (opt-3) is unaffected; this only governs this build.
-  run(
-    'cargo',
+  runWasmCargo(
     [
       'build',
       '--release',
@@ -90,9 +113,10 @@ function buildCrate(key, wasmBindgen) {
       '--config',
       'profile.release.opt-level="z"'
     ],
-    // Pin to stable (aterm's rust-toolchain.toml channel): invoked from ROOT, the
-    // machine's global rustup default applies, and an older nightly default may
-    // lack the wasm32-unknown-unknown target (or violate aterm's rust-version).
+    // Pin to stable (aterm's rust-toolchain.toml channel): the machine's global rustup
+    // default may be an older nightly that lacks the wasm32-unknown-unknown target (or
+    // violates aterm's rust-version). RUSTUP_TOOLCHAIN is a belt-and-suspenders for the
+    // no-rustup fallback path.
     { env: { ...process.env, CARGO_NET_OFFLINE: 'false', RUSTUP_TOOLCHAIN: 'stable' } }
   )
 

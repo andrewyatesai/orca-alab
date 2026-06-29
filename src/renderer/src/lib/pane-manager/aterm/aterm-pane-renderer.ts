@@ -315,6 +315,8 @@ export async function createAtermPaneController(
     lastMouseReport: () => wired.controller.lastMouseReport(),
     serialize: (scrollbackRows) => wired.controller.serialize(scrollbackRows),
     serializeScrollback: (maxRows) => wired.controller.serializeScrollback(maxRows),
+    serializeAsync: (scrollbackRows) => wired.controller.serializeAsync(scrollbackRows),
+    serializeScrollbackAsync: (maxRows) => wired.controller.serializeScrollbackAsync(maxRows),
     title: () => wired.controller.title(),
     onTitleChange: (handler) => wired.controller.onTitleChange(handler),
     gridSize: () => wired.controller.gridSize(),

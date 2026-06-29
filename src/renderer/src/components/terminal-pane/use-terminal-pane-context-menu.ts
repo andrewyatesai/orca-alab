@@ -388,7 +388,7 @@ export function useTerminalPaneContextMenu({
     if (!pane) {
       return
     }
-    const fork = prepareAgentSessionForkFromPane({ pane, tabId, worktreeId, groupId })
+    const fork = await prepareAgentSessionForkFromPane({ pane, tabId, worktreeId, groupId })
     if (fork) {
       onAgentSessionForkReady(fork)
     }

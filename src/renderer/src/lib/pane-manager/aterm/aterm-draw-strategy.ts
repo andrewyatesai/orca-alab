@@ -50,6 +50,12 @@ export type AtermDrawStrategy = {
    *  snapshot, so metrics can arrive a frame late. Unset for in-process strategies
    *  (their set_px is synchronous, so metrics are read directly). */
   onMetricsChange?: (handler: () => void) => void
+  /** Worker path only: fresh serialize via a worker round-trip (the engine + its
+   *  off-screen history live in the worker, so the sync term.serialize() can't reach
+   *  them). The controller routes its async serialize here; unset for in-process
+   *  strategies (whose engine is local, so serialize is synchronous). */
+  serializeAsync?: (scrollbackRows?: number) => Promise<string>
+  serializeScrollbackAsync?: (maxRows?: number) => Promise<string>
   /** Tear down the draw surface + engine (free the wasm handle, drop contexts). */
   dispose: () => void
 }

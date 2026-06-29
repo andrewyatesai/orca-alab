@@ -90,6 +90,9 @@ export async function loadAtermWorkerEngine(
       case 'bell':
         backed?.pushBell()
         return
+      case 'queryResult':
+        backed?.resolveQuery(data.id, data.value)
+        return
       case 'error':
         // GPU acquire failed in the worker → rebuild as CPU on the same canvas (it
         // can't be re-transferred) so the pane renders off-main instead of blank.
@@ -97,7 +100,7 @@ export async function loadAtermWorkerEngine(
           fellBackToCpuWorker = true
           post({ type: 'fallback' })
         }
-      // 'mouseBytes' / 'queryResult' (async round-trips) are wired in Stages C/D.
+      // 'mouseBytes' (mouse-encode round-trip) is wired in Stage D.
     }
   })
 
@@ -141,6 +144,8 @@ export async function loadAtermWorkerEngine(
     resize: (rows, cols) => backed!.term.resize(rows, cols),
     onReply: (handler) => backed!.onReply(handler),
     onMetricsChange: (handler) => backed!.onMetricsChange(handler),
+    serializeAsync: (scrollbackRows) => backed!.serializeAsync(scrollbackRows),
+    serializeScrollbackAsync: (maxRows) => backed!.serializeScrollbackAsync(maxRows),
     dispose: () => {
       post({ type: 'dispose' })
       worker.terminate()

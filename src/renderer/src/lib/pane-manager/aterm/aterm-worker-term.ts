@@ -11,7 +11,11 @@
 // selection-drag + theme + search + cursor paths need is live.
 
 import type { AtermTerminal } from './aterm_wasm.js'
-import type { AtermWorkerRequest, AtermWorkerState } from './aterm-render-worker-protocol'
+import type {
+  AtermWorkerQuery,
+  AtermWorkerRequest,
+  AtermWorkerState
+} from './aterm-render-worker-protocol'
 
 /** The initial snapshot the loader awaits (carries the first cell metrics) before it
  *  builds the controller, so construction-time reads (cell_width/height) are real. */
@@ -36,6 +40,13 @@ export type WorkerBackedTerm = {
    *  cell size (custom font size / dpr settle / live font change apply set_px AFTER the
    *  first snapshot, so the engine's metrics arrive a frame late). */
   onMetricsChange: (handler: () => void) => void
+  /** Loader resolves a pending async query (serialize/content) by its id. */
+  resolveQuery: (id: number, value: string | number | boolean | null) => void
+  /** Fresh full-history serialize (replayable ANSI) via a worker round-trip — for the
+   *  awaitable save/snapshot/fork paths. (The sync term.serialize() can't reach
+   *  off-screen history; the synchronous shutdown path is served separately.) */
+  serializeAsync: (scrollbackRows?: number) => Promise<string>
+  serializeScrollbackAsync: (maxRows?: number) => Promise<string>
 }
 
 type GridRow = { text: string; wrapped: boolean; len: number; widths: string; cells?: string[] }
@@ -76,6 +87,21 @@ export function createWorkerBackedTerm(deps: {
   let bellPending = false
   const replyListeners = new Set<(data: string) => void>()
   const metricsListeners = new Set<() => void>()
+
+  // Async query round-trip (serialize / cold content reads): id-correlated promises the
+  // loader resolves from 'queryResult' messages. Shared infra (Stage D mouse-encode reuses it).
+  let nextQueryId = 1
+  const pendingQueries = new Map<number, (value: string | number | boolean | null) => void>()
+  const sendQuery = (
+    kind: AtermWorkerQuery['kind'],
+    arg?: number,
+    arg2?: number
+  ): Promise<string | number | boolean | null> =>
+    new Promise((resolve) => {
+      const id = nextQueryId++
+      pendingQueries.set(id, resolve)
+      post({ type: 'query', id, kind, arg, arg2 })
+    })
 
   const applyState = (next: AtermWorkerState): void => {
     const metricsChanged =
@@ -292,6 +318,21 @@ export function createWorkerBackedTerm(deps: {
       bellPending = true
     },
     onReply: (handler) => void replyListeners.add(handler),
-    onMetricsChange: (handler) => void metricsListeners.add(handler)
+    onMetricsChange: (handler) => void metricsListeners.add(handler),
+    resolveQuery: (id, value) => {
+      const resolve = pendingQueries.get(id)
+      if (resolve) {
+        pendingQueries.delete(id)
+        resolve(value)
+      }
+    },
+    serializeAsync: async (scrollbackRows) => {
+      const v = await sendQuery('serialize', scrollbackRows)
+      return typeof v === 'string' ? v : ''
+    },
+    serializeScrollbackAsync: async (maxRows) => {
+      const v = await sendQuery('serializeScrollback', maxRows)
+      return typeof v === 'string' ? v : ''
+    }
   }
 }

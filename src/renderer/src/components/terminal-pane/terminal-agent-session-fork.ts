@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
-import { serializePaneBuffer } from './pane-buffer-snapshot'
+import { serializePaneBufferAsync } from './pane-buffer-snapshot'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import {
   buildAgentSessionForkPrompt,
@@ -127,11 +127,11 @@ async function preflightForkAgentTrust(args: {
   }
 }
 
-export function prepareAgentSessionForkFromPane({
+export async function prepareAgentSessionForkFromPane({
   pane,
   tabId,
   worktreeId
-}: ForkAgentSessionFromPaneArgs): PreparedAgentSessionFork | null {
+}: ForkAgentSessionFromPaneArgs): Promise<PreparedAgentSessionFork | null> {
   const paneKey = makePaneKey(tabId, pane.leafId)
   const state = useAppStore.getState()
   const sourceAgent = resolveTuiAgent(state.agentStatusByPaneKey[paneKey]?.agentType)
@@ -143,7 +143,7 @@ export function prepareAgentSessionForkFromPane({
   // SSH and local panes on the same path. Prefers the aterm engine's native
   // serialize; only legacy xterm panes fall back to the SerializeAddon.
   const prompt = buildAgentSessionForkPrompt({
-    capturedText: serializePaneBuffer(pane, 800),
+    capturedText: await serializePaneBufferAsync(pane, 800),
     sourceLabel: paneKey,
     agentLabel: agent
   })
@@ -305,7 +305,7 @@ export async function startAgentSessionFork(fork: PreparedAgentSessionFork): Pro
 }
 
 export async function forkAgentSessionFromPane(args: ForkAgentSessionFromPaneArgs): Promise<void> {
-  const fork = prepareAgentSessionForkFromPane(args)
+  const fork = await prepareAgentSessionForkFromPane(args)
   if (fork) {
     await startAgentSessionFork(fork)
   }

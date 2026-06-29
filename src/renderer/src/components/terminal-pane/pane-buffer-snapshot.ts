@@ -16,6 +16,20 @@ export function serializePaneBuffer(pane: SnapshotablePane, scrollbackRows?: num
   return pane.serializeAddon.serialize({ scrollback: scrollbackRows })
 }
 
+/** Awaitable serialize — identical result to `serializePaneBuffer` for the in-process
+ *  engine, but on the single-engine WORKER path it round-trips to the worker so the
+ *  snapshot reflects the latest output + off-screen history (the sync path there can
+ *  only return a cached/empty blob). Prefer this in async contexts (snapshot/fork). */
+export async function serializePaneBufferAsync(
+  pane: SnapshotablePane,
+  scrollbackRows?: number
+): Promise<string> {
+  if (pane.atermController) {
+    return pane.atermController.serializeAsync(scrollbackRows)
+  }
+  return pane.serializeAddon.serialize({ scrollback: scrollbackRows })
+}
+
 /** Scrollback HISTORY only (the main buffer's off-screen lines) — the only
  *  recoverable history when cold-restoring an alt-screen session. aterm-native;
  *  for legacy xterm panes there is no separate history channel, so it returns ''. */

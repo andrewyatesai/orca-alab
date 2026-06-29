@@ -13,6 +13,7 @@ import { createAtermSearchOverlayCanvas } from './aterm-search-overlay-canvas'
 import { createAtermA11yMirror } from './aterm-a11y-mirror'
 import { buildAtermEngineReads } from './aterm-engine-reads'
 import { wireWorkerStrategyHooks } from './aterm-worker-strategy-hookup'
+import { buildAtermSerializeMembers } from './aterm-serialize-members'
 import { createAtermTitleChannel } from './aterm-title-channel'
 import { createAtermProcessPump } from './aterm-process-pump'
 import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
@@ -370,10 +371,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     setFileLinkOpener: (fn: AtermFileLinkOpener) => void (shared.fileLinkOpener = fn),
     setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),
     lastMouseReport: () => eventReportingInput.lastMouseReport(),
-    // aterm-native serialize (replaces xterm's SerializeAddon). The wasm methods are
-    // snake_case; undefined scrollback → all history.
-    serialize: (scrollbackRows?: number) => term.serialize(scrollbackRows),
-    serializeScrollback: (maxRows?: number) => term.serialize_scrollback(maxRows),
+    // aterm-native serialize (replaces xterm's SerializeAddon): sync (engine / worker
+    // cached blob) + awaitable (worker round-trip for fresh history). undefined → all.
+    ...buildAtermSerializeMembers(term, strategy),
     title: titleChannel.title,
     onTitleChange: titleChannel.onTitleChange,
     gridSize: () => getGrid(),

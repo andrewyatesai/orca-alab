@@ -22,7 +22,7 @@ import { safeFit } from '@/lib/pane-manager/pane-tree-ops'
 import { getFitOverrideForPty, bindPanePtyId } from '@/lib/pane-manager/mobile-fit-overrides'
 import { isPtyLocked } from '@/lib/pane-manager/mobile-driver-state'
 import { isPaneReplaying, replayIntoTerminal, replayIntoTerminalAsync } from './replay-guard'
-import { serializePaneBuffer } from './pane-buffer-snapshot'
+import { serializePaneBufferAsync } from './pane-buffer-snapshot'
 import {
   nativeWindowsRewriteNeedsFollowupRenderRefresh,
   terminalOutputContainsEastAsianRendererRisk,
@@ -2221,10 +2221,12 @@ export function connectPanePty(
             const alt = pane.atermController
               ? pane.atermController.isAltScreen()
               : pane.terminal.buffer.active.type === 'alternate'
+            // Awaitable serialize so the single-engine worker path reflects the latest
+            // output + off-screen history (its sync serialize can't reach them).
             const data =
               opts?.altScreenForcesZeroRows && alt
-                ? serializePaneBuffer(pane, 0)
-                : serializePaneBuffer(pane, opts?.scrollbackRows)
+                ? await serializePaneBufferAsync(pane, 0)
+                : await serializePaneBufferAsync(pane, opts?.scrollbackRows)
             const grid = pane.atermController
               ? pane.atermController.gridSize()
               : { cols: pane.terminal.cols, rows: pane.terminal.rows }

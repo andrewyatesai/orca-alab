@@ -93,9 +93,16 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  `serialize({scrollback})`: `scrollbackRows` undefined → all history, `n` → the
    *  last n rows, `0` → viewport only. */
   serialize: (scrollbackRows?: number) => string
+  /** FRESH serialize, awaitable. Identical to `serialize` for the in-process engine
+   *  (resolves synchronously), but on the single-engine WORKER path it round-trips to
+   *  the worker so the result reflects off-screen history + the latest output (the sync
+   *  `serialize` there can only return a cached/empty blob). Save/snapshot/fork use this. */
+  serializeAsync: (scrollbackRows?: number) => Promise<string>
   /** Scrollback HISTORY only (the main buffer's off-screen lines) — the only
    *  recoverable history when cold-restoring an alt-screen (vim/htop) session. */
   serializeScrollback: (maxRows?: number) => string
+  /** Awaitable scrollback-history serialize (worker round-trip on the worker path). */
+  serializeScrollbackAsync: (maxRows?: number) => Promise<string>
   /** Window title (OSC 0/2), or null when unset. */
   title: () => string | null
   /** Subscribe to OSC 0/2 title changes (re-homed off xterm's onTitleChange).

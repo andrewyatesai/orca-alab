@@ -34,21 +34,16 @@ const GPU_INIT_TIMEOUT_MS = 4000
 export async function loadAtermStrategy(
   config: AtermDrawerBuildConfig
 ): Promise<AtermPendingStrategy> {
-  // Single-engine worker: the ONLY engine lives in a worker that owns the
+  // DEFAULT single-engine worker: the ONLY engine lives in a worker that owns the
   // OffscreenCanvas (parse + render off the main thread), so heavy terminal output never
   // competes with the renderer main thread; the controller binds to a snapshot-backed
   // `term`. The worker handles GPU→CPU internally; if it can't even post a first frame
   // (or fonts fail before the canvas transfer) we fall back to the in-process CPU/GPU
-  // path on the still-intact canvas (see loadAtermWorkerEngine's reorder + timeout).
-  //
-  // FLIP-READY but still OPT-IN (`=== true`): making this the default (`!== false`)
-  // transfers the grid canvas to the worker for EVERY pane, which breaks the ~31 e2e
-  // specs that read the canvas / GPU internals directly (getContext throws on a
-  // transferred canvas). The flip must (a) repoint those specs to
-  // `window.__atermWorkerRender = false` (they validate the in-process fallback) and
-  // (b) run the full terminal suite to validate the worker path — which needs an e2e
-  // env where the shell-readiness probe works. Until then this stays opt-in.
-  if (typeof window !== 'undefined' && window.__atermWorkerRender === true) {
+  // path on the still-intact canvas (loadAtermWorkerEngine fetches fonts before the
+  // transfer + races a first-frame timeout). Set `window.__atermWorkerRender = false`
+  // to opt out (the e2e suite does this so its in-process canvas/GPU assertions still
+  // hold; the dedicated worker specs opt back in with `= true`).
+  if (typeof window === 'undefined' || window.__atermWorkerRender !== false) {
     try {
       return await loadAtermWorkerEngine(config)
     } catch (err) {

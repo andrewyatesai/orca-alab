@@ -284,6 +284,20 @@ export const test = base.extend<OrcaTestFixtures, OrcaWorkerFixtures>({
     const page = await electronApp.firstWindow({ timeout: 120_000 })
     await page.waitForLoadState('domcontentloaded')
 
+    // E2E default: the single-engine off-main render worker ships default-ON in
+    // production (window.__atermWorkerRender !== false), but most specs assert via the
+    // in-process canvas / GPU internals — which a transferred OffscreenCanvas can't
+    // expose. Default the SUITE to the in-process path (the worker's still-present
+    // fallback) so those specs are unaffected; the dedicated worker specs opt back in
+    // with __atermWorkerRender = true. addInitScript covers reloads; evaluate the
+    // already-loaded document.
+    await page.addInitScript(() => {
+      ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = false
+    })
+    await page.evaluate(() => {
+      ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = false
+    })
+
     // Why: the aterm in-page renderer ships default-on, but the existing e2e
     // suite asserts terminal content via the xterm DOM (.xterm-rows/.xterm-screen),
     // which aterm panes don't produce. Force the xterm renderer for the suite by

@@ -225,14 +225,30 @@ export function enforceTerminalWriteScrollIntent(
 
 export function enforceTerminalCurrentScrollIntent(terminal: TerminalScrollIntentTarget): void {
   const existing = readStoredIntent(terminal)
-  const snapshot = existing
-    ? {
-        kind: existing.kind,
-        bufferType: existing.bufferType,
-        viewportY: existing.viewportY
-      }
-    : captureTerminalWriteScrollIntent(terminal)
-  enforceTerminalWriteScrollIntent(terminal, snapshot)
+  if (!existing) {
+    // Nothing durable pinned yet — capture + enforce from the live snapshot (the
+    // per-write equality guard is fine when there is no stored target to restore).
+    enforceTerminalWriteScrollIntent(terminal, captureTerminalWriteScrollIntent(terminal))
+    return
+  }
+  const current = readBufferSnapshot(terminal)
+  // Don't restore a normal-buffer pin into an alternate screen (TUI) or vice versa.
+  if (current && current.bufferType !== existing.bufferType) {
+    return
+  }
+  // Resume / visibility restore: BYPASS the per-write equality guard. On the worker
+  // path `current` is the last async STATE snapshot, which lags the just-resized /
+  // scrolled engine — so current.viewportY can spuriously equal the target and the
+  // guarded enforce would SKIP the corrective scroll, leaving a pinned viewport snapped
+  // to the live bottom. Post the restore UNCONDITIONALLY; the engine clamps the
+  // absolute line against its live origin + retained scrollback, so it reconciles
+  // against real state regardless of snapshot lag. (Left the per-write enforce guarded:
+  // it runs per output chunk and must not post a scroll + redraw every time.)
+  if (existing.kind === 'followOutput') {
+    safeScrollCall(() => terminal.scrollToBottom?.())
+    return
+  }
+  safeScrollCall(() => terminal.scrollToLine?.(existing.viewportY))
 }
 
 export function attachTerminalScrollIntentTracking(

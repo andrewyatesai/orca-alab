@@ -314,4 +314,30 @@ describe('terminal scroll intent', () => {
 
     expect(terminal.scrollToLine).toHaveBeenCalledWith(40)
   })
+
+  it('restores a pinned viewport even when a LAGGED snapshot already reads the target (H4)', () => {
+    // The worker path serves buffer reads from the last async STATE snapshot, which can
+    // lag the real engine: after a resume the engine has snapped to the live bottom but
+    // the snapshot still reports the pinned viewportY. The per-write equality guard
+    // would then SKIP the corrective scroll, leaving the viewport at the bottom. The
+    // resume entry point must post the restore UNCONDITIONALLY so the engine reconciles.
+    const terminal = createTerminal({ viewportY: 40, baseY: 100 })
+    markTerminalPinnedViewport(terminal)
+
+    // Snapshot still reads 40 (== the stored target) while the real engine is elsewhere.
+    enforceTerminalCurrentScrollIntent(terminal)
+
+    expect(terminal.scrollToLine).toHaveBeenCalledWith(40)
+  })
+
+  it('restores followOutput on resume even when the lagged snapshot reads mid-scrollback', () => {
+    const terminal = createTerminal({ viewportY: 100, baseY: 100 })
+    markTerminalFollowOutput(terminal)
+
+    // Lagged snapshot reports a mid-scrollback viewport; resume must still snap to bottom.
+    terminal.buffer.active.viewportY = 30
+    enforceTerminalCurrentScrollIntent(terminal)
+
+    expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1)
+  })
 })

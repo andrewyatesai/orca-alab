@@ -5,8 +5,8 @@ import type { AtermSearchMatch } from './aterm-search'
 // path uses (TerminalSearch.tsx decorations) so aterm search looks identical; the
 // styleguide reserves its tokens for chrome, not hosted-tool find highlights.
 // Translucent so the glyph underneath stays legible through the rect.
-const SEARCH_MATCH_FILL = 'rgba(92, 74, 0, 0.55)' // #5c4a00 @ ~55%
-const SEARCH_ACTIVE_FILL = 'rgba(196, 88, 14, 0.6)' // #c4580e @ ~60%
+export const SEARCH_MATCH_FILL = 'rgba(92, 74, 0, 0.55)' // #5c4a00 @ ~55%
+export const SEARCH_ACTIVE_FILL = 'rgba(196, 88, 14, 0.6)' // #c4580e @ ~60%
 
 export type AtermSearchOverlayGeometry = {
   term: AtermTerminal

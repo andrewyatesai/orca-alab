@@ -2,6 +2,7 @@ import { loadAterm } from './load-aterm'
 import { decideAtermGpu } from './aterm-gpu-auto-policy'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import { createWorkerBackedTerm, type WorkerBackedTerm } from './aterm-worker-term'
+import { createAtermWorkerOverlay, type AtermWorkerOverlay } from './aterm-worker-overlay'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer-config'
@@ -61,6 +62,9 @@ export async function loadAtermWorkerEngine(
   let fellBackToCpuWorker = false
 
   let backed: WorkerBackedTerm | null = null
+  // Main-thread stacked overlay for search highlights + link underline (the worker owns
+  // the pane canvas, so these 2d marks paint on a sibling canvas from the snapshot).
+  let overlay: AtermWorkerOverlay | null = null
   let firstResolved = false
   let resolveFirst: (state: AtermWorkerState) => void = () => undefined
   const firstState = new Promise<AtermWorkerState>((resolve) => {
@@ -76,6 +80,7 @@ export async function loadAtermWorkerEngine(
           resolveFirst(data)
         } else {
           backed?.applyState(data)
+          overlay?.paint(data)
         }
         if (e2eConfig.exposeStore) {
           window.__atermWorkerRenderState = data
@@ -133,12 +138,17 @@ export async function loadAtermWorkerEngine(
   // (cell_width/height) are real before wireAtermPane runs.
   const initial = await firstState
   backed = createWorkerBackedTerm({ post, initial })
+  // The worker owns the pane canvas, so search highlights + the link underline paint on
+  // a main-thread stacked overlay driven by the snapshot (works for CPU + GPU worker).
+  overlay = createAtermWorkerOverlay(canvas, () => themeColors.fg)
+  overlay.paint(initial)
 
   const bindPainter = (_binding: AtermPainterBinding): AtermDrawStrategy => ({
     term: backed!.term,
     getCanvas: () => canvas,
-    // Search/link OVERLAY painting is wired in the overlay stage; the worker presents
-    // the engine grid (incl. selection, which the engine draws) here.
+    // The worker presents the engine grid (incl. selection, engine-drawn); search +
+    // link overlays paint on the main-thread stacked overlay above (snapshot-driven),
+    // so the controller's in-process search-overlay path stays off.
     needsSearchOverlay: false,
     drawFrame: () => post({ type: 'draw' }),
     resize: (rows, cols) => backed!.term.resize(rows, cols),
@@ -147,6 +157,8 @@ export async function loadAtermWorkerEngine(
     serializeAsync: (scrollbackRows) => backed!.serializeAsync(scrollbackRows),
     serializeScrollbackAsync: (maxRows) => backed!.serializeScrollbackAsync(maxRows),
     dispose: () => {
+      overlay?.dispose()
+      overlay = null
       post({ type: 'dispose' })
       worker.terminate()
     }

@@ -49,6 +49,7 @@ export type WorkerEngine = Pick<
   | 'scroll_to_bottom'
   | 'scroll_to_top'
   | 'scroll_search_line_into_view'
+  | 'search_display_origin'
   | 'serialize'
   | 'serialize_scrollback'
   | 'drain_bell'

@@ -214,8 +214,11 @@ export function createWorkerBackedTerm(deps: {
       return r ? { start_x: r.startX, start_y: r.startY, end_x: r.endX, end_y: r.endY } : undefined
     },
     link_at: (row: number, col: number) => {
-      // Only the last-hovered link is known on main; the real hover/click paths use
-      // the worker (setHover command + resolveLinkAt query, Stage D).
+      // The worker owns link detection: post this cell so the worker runs link_at →
+      // the next snapshot carries hoverLink/hoverCursor (drives the loader's underline
+      // overlay + cursor). Return the LATEST snapshot hover link for this cell (one
+      // frame lag), which serves aterm-link-input's hover affordance + click open.
+      post({ type: 'setHover', row, col })
       const h = state.hoverLink
       return h && h.row === row && col >= h.startCol && col <= h.endCol
         ? { url: h.url, kind: h.kind, start_col: h.startCol, end_col: h.endCol }

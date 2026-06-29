@@ -29,6 +29,9 @@ export type WorkerSearch = {
   activeIndex: () => number
   /** Device-pixel rect of the active match if it's on screen, else null. */
   activeRect: () => AtermWorkerState['searchActiveRect']
+  /** Device-pixel rects of ALL on-screen matches (for the main-thread overlay), each
+   *  flagged active so the overlay can paint the active one stronger. */
+  visibleRects: () => AtermWorkerState['searchMatchRects']
 }
 
 export function createWorkerSearch(handle: EngineHandle, getRows: () => number): WorkerSearch {
@@ -88,21 +91,32 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
     },
     count: () => matches.length,
     activeIndex: () => (active >= 0 ? active + 1 : 0),
-    activeRect: () => {
-      if (active < 0 || active >= matches.length) {
-        return null
+    activeRect: () => (active >= 0 ? rectFor(matches[active]) : null),
+    visibleRects: () => {
+      const rects: NonNullable<AtermWorkerState['searchMatchRects']> = []
+      for (let i = 0; i < matches.length; i++) {
+        const rect = rectFor(matches[i])
+        if (rect) {
+          rects.push({ ...rect, active: i === active })
+        }
       }
-      const m = matches[active]
-      const displayRow = m.line - e.display_origin_absolute
-      if (displayRow < 0 || displayRow >= getRows()) {
-        return null
-      }
-      return {
-        x: m.startCol * e.cell_width,
-        y: displayRow * e.cell_height,
-        width: m.length * e.cell_width,
-        height: e.cell_height
-      }
+      return rects
+    }
+  }
+
+  // Absolute match line → on-screen device-pixel rect, or null when scrolled off
+  // (the SAME mapping paintAtermSearchHighlights uses: search_display_origin +
+  // display_offset).
+  function rectFor(m: WorkerMatch): { x: number; y: number; width: number; height: number } | null {
+    const displayRow = m.line - e.search_display_origin + e.display_offset
+    if (displayRow < 0 || displayRow >= getRows()) {
+      return null
+    }
+    return {
+      x: m.startCol * e.cell_width,
+      y: displayRow * e.cell_height,
+      width: m.length * e.cell_width,
+      height: e.cell_height
     }
   }
 }

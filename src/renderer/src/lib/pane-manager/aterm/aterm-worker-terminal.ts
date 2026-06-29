@@ -180,6 +180,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
         searchCount: search.count(),
         searchActiveIndex: search.activeIndex(),
         searchActiveRect: search.activeRect(),
+        searchMatchRects: search.visibleRects(),
         dirtyRows: buildDirtyRows()
       }
     },

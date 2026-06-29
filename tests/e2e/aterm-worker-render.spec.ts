@@ -121,5 +121,31 @@ test.describe('aterm off-main render mirror', () => {
     )
     // eslint-disable-next-line no-console
     console.log(`[aterm-worker] PASS — worker render state: ${JSON.stringify(finalState)}`)
+
+    // The worker owns the grid canvas, so search highlights + the link underline paint
+    // on a main-thread stacked overlay (Stage D.2). Assert it mounted (sized to the
+    // worker framebuffer) + that the snapshot carries the overlay-driving fields.
+    const overlay = await orcaPage.evaluate(() => {
+      const o = document.querySelector(
+        '[data-testid="aterm-worker-overlay"]'
+      ) as HTMLCanvasElement | null
+      const s = (
+        window as unknown as {
+          __atermWorkerRenderState?: { searchMatchRects?: unknown[]; hoverCursor?: string }
+        }
+      ).__atermWorkerRenderState
+      return {
+        mounted: !!o,
+        sized: !!o && o.width > 0 && o.height > 0,
+        hasSearchField: Array.isArray(s?.searchMatchRects),
+        hasHoverField: typeof s?.hoverCursor === 'string'
+      }
+    })
+    // eslint-disable-next-line no-console
+    console.log(`[aterm-worker] overlay: ${JSON.stringify(overlay)}`)
+    expect(overlay.mounted, 'the worker search/link overlay canvas should mount').toBe(true)
+    expect(overlay.sized, 'the overlay should size to the worker framebuffer').toBe(true)
+    expect(overlay.hasSearchField, 'snapshot should carry searchMatchRects').toBe(true)
+    expect(overlay.hasHoverField, 'snapshot should carry hoverCursor').toBe(true)
   })
 })

@@ -253,6 +253,9 @@ export type AtermWorkerState = {
   searchCount: number
   searchActiveIndex: number
   searchActiveRect: { x: number; y: number; width: number; height: number } | null
+  /** Device-pixel rects of all ON-SCREEN matches for the main-thread overlay (the
+   *  worker owns the match set); `active` flags the one painted in the stronger tone. */
+  searchMatchRects: { x: number; y: number; width: number; height: number; active: boolean }[]
   /** Changed visible rows since the last state (empty when content is unchanged or
    *  when this pane serves content reads via the query channel instead). */
   dirtyRows: AtermWorkerGridRow[]

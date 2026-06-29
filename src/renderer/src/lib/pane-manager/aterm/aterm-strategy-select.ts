@@ -43,13 +43,22 @@ export async function loadAtermStrategy(
   // transfer + races a first-frame timeout). Set `window.__atermWorkerRender = false`
   // to opt out (the e2e suite does this so its in-process canvas/GPU assertions still
   // hold; the dedicated worker specs opt back in with `= true`).
+  // The in-process fallback may need a FRESH canvas: if the worker attempt got as far
+  // as transferControlToOffscreen the original is poisoned (getContext throws), so a
+  // CPU/GPU load on it would reject and leave the pane permanently blank.
+  let cfg = config
   if (typeof window === 'undefined' || window.__atermWorkerRender !== false) {
     try {
       return await loadAtermWorkerEngine(config)
     } catch (err) {
-      // Worker couldn't init (e.g. a wedged first frame, or fonts failed before the
-      // canvas transfer); fall through to the in-process CPU/GPU path on the canvas.
+      // Worker couldn't init (a wedged first frame, fonts failed before the transfer,
+      // or the first-frame timeout). Rebuild a fresh, un-transferred canvas so the
+      // in-process path has a usable surface; without it the fallback dies on the dead
+      // canvas and the pane stays blank — strictly worse than slow.
       console.warn('[aterm] off-main worker init failed; falling back to in-process', err)
+      if (config.rebuildCanvas) {
+        cfg = { ...config, canvas: config.rebuildCanvas() }
+      }
     }
   }
 
@@ -57,7 +66,7 @@ export async function loadAtermStrategy(
     try {
       // Race init against a timeout so a hung adapter acquire can't wedge the pane;
       // if the GPU drawer resolves AFTER we've timed out, free its orphaned engine.
-      const gpuPromise = loadAtermGpuDrawer(config)
+      const gpuPromise = loadAtermGpuDrawer(cfg)
       let timedOut = false
       void gpuPromise
         .then((late) => {
@@ -104,7 +113,7 @@ export async function loadAtermStrategy(
     }
   }
 
-  const cpu = await loadAtermCpuDrawer(config)
+  const cpu = await loadAtermCpuDrawer(cfg)
   return {
     kind: 'cpu',
     term: cpu.term,

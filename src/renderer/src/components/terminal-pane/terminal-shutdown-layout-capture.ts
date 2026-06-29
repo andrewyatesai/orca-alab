@@ -7,7 +7,7 @@ import { serializePaneBuffer } from './pane-buffer-snapshot'
 import { mergeCapturedLeafState } from './merge-captured-leaf-state'
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT } from '../../../../shared/terminal-scrollback-limits'
-import { measureUtf8ByteLength } from '../../../../shared/utf8-byte-limits'
+import { clampUtf8TextTail, measureUtf8ByteLength } from '../../../../shared/utf8-byte-limits'
 
 const MAX_BUFFER_BYTES = TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT
 
@@ -87,7 +87,12 @@ export function captureTerminalShutdownLayout({
               hi = mid - 1
             }
           }
-          serialized = best
+          // Why: the worker-backed sync serialize() ignores the row arg (it returns a
+          // cached blob), so every attempt is the same oversized string and the search
+          // finds nothing → best stays ''. Truncating the actual blob's UTF-8 tail keeps
+          // the recent scrollback instead of dropping the WHOLE pane on restore. Also
+          // covers a single line longer than the limit on the in-process path.
+          serialized = best || clampUtf8TextTail(serialized, MAX_BUFFER_BYTES).text
         }
         if (serialized.length > 0) {
           buffers[leafId] = serialized

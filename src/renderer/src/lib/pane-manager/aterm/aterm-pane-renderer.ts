@@ -97,7 +97,19 @@ export async function createAtermPaneController(
   // Choose the strategy: GPU when opted-in + a webgl2 context is creatable, else
   // CPU (the default + fallback). GPU init failure already falls back inside
   // loadAtermStrategy, so this never leaves a pane without a renderer.
-  const pending = await loadAtermStrategy({ canvas, themeColors, fontPx })
+  const pending = await loadAtermStrategy({
+    canvas,
+    themeColors,
+    fontPx,
+    // If the worker attempt poisons the transferred canvas, rebuild a fresh one in
+    // place so the in-process fallback has a usable surface (else the pane is dead).
+    rebuildCanvas: () => {
+      const fresh = buildAtermGridCanvas(themeColors)
+      canvas.parentElement?.replaceChild(fresh, canvas)
+      canvas = fresh
+      return fresh
+    }
+  })
   if (e2eConfig.exposeStore) {
     // e2e-only GPU-vs-CPU frame-time benchmark. Self-contained (builds fresh CPU
     // + GPU engines on throwaway canvases), so it's exposed whenever the aterm

@@ -38,22 +38,41 @@ let storedCanvas: OffscreenCanvas | null = null
 let fellBackToCpu = false
 let suspended = false
 let drawScheduled = false
-// Debounced serialized-buffer cache: pushed ~1s after output settles so the main
-// thread has a recent buffer to read SYNCHRONOUSLY at shutdown layout-capture.
+// Serialized-buffer cache: pushed so the main thread has a recent buffer to read
+// SYNCHRONOUSLY at shutdown layout-capture. Throttle-with-max-wait, NOT a pure
+// debounce: a continuously-busy pane would reset a debounce forever and never cache
+// (then the shutdown read gets an empty/stale blob and the pane's scrollback is lost).
 let cacheTimer: ReturnType<typeof setTimeout> | null = null
+let cacheMaxWaitTimer: ReturnType<typeof setTimeout> | null = null
 const SERIALIZE_CACHE_DEBOUNCE_MS = 1000
+const SERIALIZE_CACHE_MAX_WAIT_MS = 5000
+
+const flushSerializeCache = (): void => {
+  if (cacheTimer !== null) {
+    clearTimeout(cacheTimer)
+    cacheTimer = null
+  }
+  if (cacheMaxWaitTimer !== null) {
+    clearTimeout(cacheMaxWaitTimer)
+    cacheMaxWaitTimer = null
+  }
+  if (term) {
+    const { full, scrollback } = term.serializedCache()
+    ctx.postMessage({ type: 'serializedCache', full, scrollback })
+  }
+}
 
 const scheduleSerializeCache = (): void => {
+  // Debounce: refresh ~1s after output settles (the common idle case).
   if (cacheTimer !== null) {
     clearTimeout(cacheTimer)
   }
-  cacheTimer = setTimeout(() => {
-    cacheTimer = null
-    if (term) {
-      const { full, scrollback } = term.serializedCache()
-      ctx.postMessage({ type: 'serializedCache', full, scrollback })
-    }
-  }, SERIALIZE_CACHE_DEBOUNCE_MS)
+  cacheTimer = setTimeout(flushSerializeCache, SERIALIZE_CACHE_DEBOUNCE_MS)
+  // Max-wait floor: guarantee a refresh at least every MAX_WAIT even while output
+  // streams continuously (the debounce above would otherwise never fire).
+  if (cacheMaxWaitTimer === null) {
+    cacheMaxWaitTimer = setTimeout(flushSerializeCache, SERIALIZE_CACHE_MAX_WAIT_MS)
+  }
 }
 
 const drawNow = (): void => {

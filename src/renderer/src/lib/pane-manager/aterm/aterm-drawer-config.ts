@@ -11,6 +11,12 @@ export type AtermDrawerBuildConfig = {
   themeColors: AtermThemeColors
   /** Cell font-size in DEVICE pixels (ATERM_RENDERER_FONT_PX * dpr). */
   fontPx: number
+  /** Build a FRESH grid canvas and swap it into the DOM in place of the current one,
+   *  returning it. The worker path transferControlToOffscreen()'s the canvas before
+   *  its first-frame race; if that fails the canvas is poisoned (getContext throws),
+   *  so the in-process fallback must rebuild rather than die on the dead element.
+   *  Omitted by callers that never take the worker path (the GPU/CPU drawers). */
+  rebuildCanvas?: () => HTMLCanvasElement
 }
 
 /** The per-frame state a drawer's `drawFrame` reads, supplied AFTER the

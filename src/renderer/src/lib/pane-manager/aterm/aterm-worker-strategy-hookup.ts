@@ -13,9 +13,13 @@ export function wireWorkerStrategyHooks(deps: {
   metrics: { cellWidth: number; cellHeight: number }
   inputSink: (data: string) => void
   forceReflow: () => void
+  /** Re-read + re-emit the window title (OSC 0/2). On the worker path the title arrives
+   *  in a STATE message after the posted process(), so the pump's per-chunk
+   *  emitTitleIfChanged would lag a command; fire it on the side-channel push instead. */
+  emitTitleIfChanged: () => void
   isDisposed: () => boolean
 }): void {
-  const { strategy, term, metrics, inputSink, forceReflow, isDisposed } = deps
+  const { strategy, term, metrics, inputSink, forceReflow, emitTitleIfChanged, isDisposed } = deps
   // Replies are PUSHED (not pull-drained): a CPR/DA query that produces no further
   // output would otherwise deadlock waiting for the next drain.
   strategy.onReply?.((data) => {
@@ -30,5 +34,12 @@ export function wireWorkerStrategyHooks(deps: {
     metrics.cellWidth = term.cell_width
     metrics.cellHeight = term.cell_height
     forceReflow()
+  })
+  // A title set on the final pre-idle chunk arrives in a later STATE message; re-emit
+  // it the moment that push lands so the tab/window title isn't a command behind.
+  strategy.onSideChannel?.(() => {
+    if (!isDisposed()) {
+      emitTitleIfChanged()
+    }
   })
 }

@@ -303,6 +303,11 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       element = dom.element
       textarea = dom.textarea
       bindTitleSourceIfReady()
+      // Worker path: the engine replies in a later task than the posted process(), so
+      // drain the moment the worker pushes OSC/bell rather than waiting for the next
+      // chunk (the prompt's final-chunk events would otherwise lag or be lost on idle
+      // close). In-process leaves this unset → the synchronous post-process drain stands.
+      controller.onEngineSideChannel?.(() => drainEngineSideChannels())
       // Replay buffered pre-attach output IN ORDER, then drain side channels.
       const buffered = preAttachBuffer.splice(0, preAttachBuffer.length)
       for (const chunk of buffered) {

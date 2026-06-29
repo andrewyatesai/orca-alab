@@ -69,6 +69,10 @@ export async function loadAtermWorkerEngine(
   // Main-thread stacked overlay for search highlights + link underline (the worker owns
   // the pane canvas, so these 2d marks paint on a sibling canvas from the snapshot).
   let overlay: AtermWorkerOverlay | null = null
+  // Hidden-pane gating: mirror the worker's suspended flag so the main thread also stops
+  // repainting the overlay each STATE while suspended (the worker keeps posting STATE so
+  // sync snapshot reads + a11y stay fresh; only the visible paint is gated).
+  let workerSuspended = false
   let firstResolved = false
   let resolveFirst: (state: AtermWorkerState) => void = () => undefined
   const firstState = new Promise<AtermWorkerState>((resolve) => {
@@ -83,8 +87,12 @@ export async function loadAtermWorkerEngine(
           firstResolved = true
           resolveFirst(data)
         } else {
+          // Keep state fresh for sync reads + a11y even while hidden, but skip the
+          // visible overlay repaint when suspended (resume re-paints the latest state).
           backed?.applyState(data)
-          overlay?.paint(data)
+          if (!workerSuspended) {
+            overlay?.paint(data)
+          }
         }
         if (e2eConfig.exposeStore) {
           window.__atermWorkerRenderState = data
@@ -178,8 +186,16 @@ export async function loadAtermWorkerEngine(
     needsSearchOverlay: false,
     drawFrame: () => post({ type: 'draw' }),
     resize: (rows, cols) => backed!.term.resize(rows, cols),
+    // Hidden-pane gating across the seam: the worker renders on its own rAF, so pause
+    // its draw loop (+ the main-thread overlay repaint) when the pane is hidden. The
+    // worker schedules one draw on resume so the pane shows its latest state.
+    setDrawSuspended: (next) => {
+      workerSuspended = next
+      post({ type: 'setDrawSuspended', suspended: next })
+    },
     onReply: (handler) => backed!.onReply(handler),
     onMetricsChange: (handler) => backed!.onMetricsChange(handler),
+    onSideChannel: (handler) => backed!.onSideChannel(handler),
     serializeAsync: (scrollbackRows) => backed!.serializeAsync(scrollbackRows),
     serializeScrollbackAsync: (maxRows) => backed!.serializeScrollbackAsync(maxRows),
     dispose: () => {

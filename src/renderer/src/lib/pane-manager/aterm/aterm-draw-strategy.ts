@@ -50,12 +50,23 @@ export type AtermDrawStrategy = {
    *  snapshot, so metrics can arrive a frame late. Unset for in-process strategies
    *  (their set_px is synchronous, so metrics are read directly). */
   onMetricsChange?: (handler: () => void) => void
+  /** Worker path only: subscribe to a fresh side-channel push (OSC app-event, bell, or
+   *  title change). The worker replies in a later task than the posted process(), so the
+   *  final pre-idle chunk's OSC/title would otherwise drain a command late; this fires
+   *  the moment the worker message arrives. Unset for in-process strategies (their
+   *  side-channel drain is synchronous after process()). */
+  onSideChannel?: (handler: () => void) => void
   /** Worker path only: fresh serialize via a worker round-trip (the engine + its
    *  off-screen history live in the worker, so the sync term.serialize() can't reach
    *  them). The controller routes its async serialize here; unset for in-process
    *  strategies (whose engine is local, so serialize is synchronous). */
   serializeAsync?: (scrollbackRows?: number) => Promise<string>
   serializeScrollbackAsync?: (maxRows?: number) => Promise<string>
+  /** Worker path only: pause/resume the WORKER's autonomous render loop for a hidden
+   *  pane. The worker renders on its own rAF (the main-thread drawScheduler can't gate
+   *  it), so hidden-pane draw gating must be posted across the seam. Unset for the
+   *  in-process strategies (the main-thread drawScheduler gates them directly). */
+  setDrawSuspended?: (suspended: boolean) => void
   /** Tear down the draw surface + engine (free the wasm handle, drop contexts). */
   dispose: () => void
 }

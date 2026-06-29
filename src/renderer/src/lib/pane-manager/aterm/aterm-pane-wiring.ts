@@ -19,6 +19,7 @@ import { createAtermProcessPump } from './aterm-process-pump'
 import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
 import { createAtermPanePresenter } from './aterm-pane-present'
 import { applyTerminalPrimaryFont } from './inject-terminal-primary-font'
+import { attachAtermCanvasFocus } from './aterm-canvas-focus'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -258,6 +259,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     metrics,
     inputSink,
     forceReflow: () => gridReflow.forceReflow(),
+    emitTitleIfChanged: titleChannel.emitIfChanged,
     isDisposed: () => disposed
   })
 
@@ -306,18 +308,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getCursorBlink: controllerOptions?.getCursorBlink
   })
 
-  // Focus the helper textarea on canvas click. The canvas is NOT focusable, so the
-  // browser's mousedown DEFAULT moves focus to <body>, blurring the textarea we
-  // focus here — which left the terminal unable to receive keys (cursor drawn
-  // hollow) on a real click, even though a synthetic pointerdown focused fine.
-  // preventDefault the default focus change, then explicitly focus the textarea so
-  // keystrokes + the focused-cursor state land. The selection handler reads the
-  // same event's coords independently, so drag-select is unaffected.
-  const onCanvasMouseDown = (event: MouseEvent): void => {
-    event.preventDefault()
-    textarea.focus()
-  }
-  canvas.addEventListener('mousedown', onCanvasMouseDown)
+  // Focus the helper textarea on canvas click (the canvas isn't focusable).
+  const canvasFocus = attachAtermCanvasFocus(canvas, textarea)
 
   resizeSink(cols, rows)
   scheduleDraw()
@@ -341,7 +333,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     gridReflow.dispose()
     textareaInput.dispose()
     cursorBlink.dispose()
-    canvas.removeEventListener('mousedown', onCanvasMouseDown)
+    canvasFocus.dispose()
     selectionInput.dispose()
     scrollInput.dispose()
     eventReportingInput.dispose()
@@ -394,7 +386,17 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // rebuilt onto CPU after a context loss, so it reflects the live draw path.
     rendererKind: () => pending.kind,
     adapterInfo: () => pending.adapterInfo,
-    setDrawSuspended: (suspended: boolean) => drawScheduler.setSuspended(suspended),
+    // Worker path: let the facade re-drain OSC/bell the instant the worker pushes them
+    // (not a chunk late). In-process leaves strategy.onSideChannel unset → no-op (its
+    // post-process() drain is already synchronous + current).
+    onEngineSideChannel: (handler: () => void) => strategy.onSideChannel?.(handler),
+    // Gate BOTH the main-thread scheduler (in-process draws + overlay) and, on the
+    // worker path, the worker's autonomous render loop — it draws on its own rAF, so
+    // suspension must be posted across the seam (no-op for in-process strategies).
+    setDrawSuspended: (suspended: boolean) => {
+      strategy.setDrawSuspended?.(suspended)
+      drawScheduler.setSuspended(suspended)
+    },
     ...replySurface,
     dispose: teardown
   }

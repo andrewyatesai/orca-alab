@@ -70,6 +70,10 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** Set the inactive (unfocused) selection background (0x00RRGGBB), or null to
    *  let the engine derive it from the active selection bg blended toward the bg. */
   setSelectionInactiveBg: (bg: number | null) => void
+  /** Worker path only: subscribe to a fresh side-channel push (OSC app-event, bell)
+   *  so the facade drains it immediately instead of a chunk late. Unset/no-op for the
+   *  in-process strategies, whose post-process() drain is already synchronous. */
+  onEngineSideChannel?: (handler: () => void) => void
   /** Schedule a canvas redraw (coalesced into one frame). Lets the output
    *  scheduler repaint the engine's mirrored state after a callback-only
    *  __schedulerWrite, which feeds no bytes and so schedules no draw of its own. */

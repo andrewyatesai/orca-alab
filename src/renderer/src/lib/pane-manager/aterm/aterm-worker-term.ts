@@ -40,6 +40,12 @@ export type WorkerBackedTerm = {
    *  cell size (custom font size / dpr settle / live font change apply set_px AFTER the
    *  first snapshot, so the engine's metrics arrive a frame late). */
   onMetricsChange: (handler: () => void) => void
+  /** Fired the moment the worker pushes a NEW side channel (OSC app-event, bell) or a
+   *  title change — so the facade drains + re-emits the title RIGHT THEN instead of on
+   *  the next process() chunk. Without this the prompt's final-chunk OSC 7/133/52 +
+   *  title lag a command behind (or are lost if the pane closes idle), because
+   *  process() only posts and the worker replies in a later task. */
+  onSideChannel: (handler: () => void) => void
   /** Loader resolves a pending async query (serialize/content) by its id. */
   resolveQuery: (id: number, value: string | number | boolean | null) => void
   /** Loader feeds the worker's debounced serialized-buffer cache here; the SYNC
@@ -91,6 +97,10 @@ export function createWorkerBackedTerm(deps: {
   let bellPending = false
   const replyListeners = new Set<(data: string) => void>()
   const metricsListeners = new Set<() => void>()
+  // Fired when the worker pushes new OSC/bell or a title change, so the facade drains +
+  // re-emits the title immediately (not a chunk late). See onSideChannel.
+  const sideChannelListeners = new Set<() => void>()
+  const notifySideChannel = (): void => sideChannelListeners.forEach((fn) => fn())
   // Latest debounced serialized-buffer cache from the worker (for the sync shutdown read).
   let cachedSerialize = ''
   let cachedScrollback = ''
@@ -113,9 +123,15 @@ export function createWorkerBackedTerm(deps: {
   const applyState = (next: AtermWorkerState): void => {
     const metricsChanged =
       next.cellWidth !== state.cellWidth || next.cellHeight !== state.cellHeight
+    // A title set on the final pre-idle chunk would otherwise wait for the next
+    // process() to be re-emitted — fire the side-channel notify so it lands now.
+    const titleChanged = next.title !== state.title
     state = next
     if (metricsChanged) {
       metricsListeners.forEach((fn) => fn())
+    }
+    if (titleChanged) {
+      notifySideChannel()
     }
     for (const row of next.dirtyRows) {
       grid.set(row.y, {
@@ -340,12 +356,15 @@ export function createWorkerBackedTerm(deps: {
       } catch {
         /* malformed OSC payload — drop */
       }
+      notifySideChannel()
     },
     pushBell: () => {
       bellPending = true
+      notifySideChannel()
     },
     onReply: (handler) => void replyListeners.add(handler),
     onMetricsChange: (handler) => void metricsListeners.add(handler),
+    onSideChannel: (handler) => void sideChannelListeners.add(handler),
     resolveQuery: (id, value) => {
       const resolve = pendingQueries.get(id)
       if (resolve) {

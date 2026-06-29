@@ -40,6 +40,16 @@ export type AtermDrawStrategy = {
   drawFrame: () => void
   /** Resize the grid (the controller has already recomputed cols/rows). */
   resize: (rows: number, cols: number) => void
+  /** Worker path only: subscribe to the engine's query replies (DA/DSR/CPR/colour)
+   *  so the wiring can forward them to the PTY. The engine lives in the worker, so its
+   *  replies arrive as pushed events rather than a synchronous take_response() drain;
+   *  unset for the in-process CPU/GPU strategies (their replies pull-drain as before). */
+  onReply?: (handler: (data: string) => void) => void
+  /** Worker path only: subscribe to engine re-rasterization (new cell size) so the
+   *  wiring re-reflows the grid — the worker applies set_px/line-height AFTER the first
+   *  snapshot, so metrics can arrive a frame late. Unset for in-process strategies
+   *  (their set_px is synchronous, so metrics are read directly). */
+  onMetricsChange?: (handler: () => void) => void
   /** Tear down the draw surface + engine (free the wasm handle, drop contexts). */
   dispose: () => void
 }

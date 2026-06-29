@@ -1,6 +1,6 @@
 import { loadAtermCpuDrawer } from './aterm-cpu-drawer'
 import { loadAtermGpuDrawer } from './aterm-gpu-drawer'
-import { loadAtermWorkerMirror } from './aterm-worker-mirror'
+import { loadAtermWorkerEngine } from './aterm-worker-loader'
 import { isAtermGpuEnabled } from './aterm-gpu-auto-policy'
 import { probeAtermGpu } from './aterm-gpu-probe'
 import { e2eConfig } from '@/lib/e2e-config'
@@ -34,11 +34,12 @@ const GPU_INIT_TIMEOUT_MS = 4000
 export async function loadAtermStrategy(
   config: AtermDrawerBuildConfig
 ): Promise<AtermPendingStrategy> {
-  // OPT-IN, default-OFF render mirror: render off the main thread via a worker that
-  // owns the OffscreenCanvas. Off by default → production keeps the proven CPU/GPU
-  // paths; only an explicit window flag selects it.
+  // OPT-IN, default-OFF single-engine worker: the ONLY engine lives in a worker that
+  // owns the OffscreenCanvas (parse + render off the main thread); the controller binds
+  // to a snapshot-backed `term`. Off by default → production keeps the proven in-process
+  // CPU/GPU paths; only an explicit window flag selects it until validated + flipped.
   if (typeof window !== 'undefined' && window.__atermWorkerRender === true) {
-    return loadAtermWorkerMirror(config)
+    return loadAtermWorkerEngine(config)
   }
 
   if (isAtermGpuEnabled()) {

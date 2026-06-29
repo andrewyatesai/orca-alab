@@ -12,6 +12,7 @@ import { buildAtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import { createAtermSearchOverlayCanvas } from './aterm-search-overlay-canvas'
 import { createAtermA11yMirror } from './aterm-a11y-mirror'
 import { buildAtermEngineReads } from './aterm-engine-reads'
+import { wireWorkerStrategyHooks } from './aterm-worker-strategy-hookup'
 import { createAtermTitleChannel } from './aterm-title-channel'
 import { createAtermProcessPump } from './aterm-process-pump'
 import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
@@ -246,6 +247,17 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // Refresh the pointer/scroll/link handlers' cached metrics after a DPR change.
     syncDependents: syncDpr,
     scheduleDraw
+  })
+
+  // Worker path: forward engine query replies to the PTY + re-reflow on worker
+  // re-rasterization. No-op for the in-process CPU/GPU strategies.
+  wireWorkerStrategyHooks({
+    strategy,
+    term,
+    metrics,
+    inputSink,
+    forceReflow: () => gridReflow.forceReflow(),
+    isDisposed: () => disposed
   })
 
   // Wire the paint path now that the strategy + grid reflow exist: the rAF draw and

@@ -1,0 +1,256 @@
+// Builds the single aterm engine the render worker owns (CPU or GPU) and normalizes
+// the few CPU/GPU differences (process encoding, render/present, framebuffer size,
+// search arity) behind one EngineHandle. The worker terminal (aterm-worker-terminal)
+// drives reads/commands through this handle so it's engine-agnostic.
+
+import init, { AtermTerminal } from './aterm_wasm.js'
+import wasmUrl from './aterm_wasm_bg.wasm?url'
+import gpuInit, { AtermGpuTerminal } from './aterm_gpu_web.js'
+import gpuWasmUrl from './aterm_gpu_web_bg.wasm?url'
+import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
+import type { AtermThemeColors } from './aterm-theme-colors'
+
+/** The read + command surface BOTH engines expose identically; the worker terminal
+ *  uses only this. `search` (arity differs) + render/process (encoding differs) are
+ *  normalized on EngineHandle, not here. */
+export type WorkerEngine = Pick<
+  AtermTerminal,
+  | 'cursor_x'
+  | 'cursor_y'
+  | 'cursor_style'
+  | 'cell_width'
+  | 'cell_height'
+  | 'base_y'
+  | 'display_offset'
+  | 'display_origin_absolute'
+  | 'is_alt_screen'
+  | 'bracketed_paste_mode'
+  | 'is_mouse_tracking'
+  | 'mouse_wants_motion'
+  | 'mouse_wants_any_motion'
+  | 'is_focus_event_mode'
+  | 'is_color_scheme_updates_mode'
+  | 'is_app_cursor_mode'
+  | 'row_text'
+  | 'row_len'
+  | 'row_is_wrapped'
+  | 'cell_text'
+  | 'cell_is_wide'
+  | 'selection_text'
+  | 'selection_range'
+  | 'selection_start'
+  | 'selection_extend'
+  | 'selection_finish'
+  | 'selection_clear'
+  | 'selection_word'
+  | 'selection_line'
+  | 'link_at'
+  | 'scroll_lines'
+  | 'scroll_to_bottom'
+  | 'scroll_to_top'
+  | 'scroll_search_line_into_view'
+  | 'serialize'
+  | 'serialize_scrollback'
+  | 'drain_bell'
+  | 'take_osc_events'
+  | 'take_response'
+  | 'title'
+  | 'resize'
+  | 'set_px'
+  | 'set_line_height'
+  | 'set_theme'
+  | 'set_default_foreground'
+  | 'set_default_background'
+  | 'set_palette_color'
+  | 'set_selection_fg'
+  | 'set_selection_inactive'
+  | 'set_selection_inactive_bg'
+  | 'set_cursor_blink_phase'
+  | 'set_cursor_hollow'
+  | 'set_fallback_font'
+  | 'add_fallback_font'
+  | 'set_primary_font'
+  | 'set_cell_pixel_size'
+  | 'authorize_clipboard_write'
+  | 'revoke_clipboard_write'
+  | 'encode_mouse_press'
+  | 'encode_mouse_release'
+  | 'encode_mouse_motion'
+  | 'encode_mouse_wheel'
+  | 'free'
+>
+
+/** The per-pane engine + the normalized hot-path ops the worker terminal drives. */
+export type EngineHandle = {
+  kind: 'cpu' | 'gpu'
+  engine: WorkerEngine
+  /** Feed bytes (CPU: process_str; GPU: process(encode)). */
+  process: (data: string) => void
+  /** Render the current grid to the OffscreenCanvas (CPU: rasterize→2d blit; GPU:
+   *  WebGL2 present, no readback). */
+  render: () => void
+  /** Device-pixel framebuffer size after the last render. */
+  framebuffer: () => { width: number; height: number }
+  /** Run the engine search (GPU ignores isRegex — its search is case-only). */
+  search: (query: string, caseSensitive: boolean, isRegex: boolean) => Uint32Array
+  dispose: () => void
+}
+
+/** Construction params the worker keeps so a GPU→CPU fallback can rebuild on the
+ *  same canvas (canvas + font bytes were transferred and can't be re-sent). */
+export type StoredInit = {
+  fontBytes: Uint8Array
+  fallbackFonts: Uint8Array[]
+  rows: number
+  cols: number
+  fontPx: number
+  lineHeight: number
+  themeColors: AtermThemeColors
+}
+
+/** Font + theme seeding both engines share; byte-for-byte the main-thread drawers'
+ *  setup so the worker engine matches what the main path would have produced. */
+type SeedTarget = Pick<
+  WorkerEngine,
+  | 'cell_width'
+  | 'cell_height'
+  | 'set_fallback_font'
+  | 'add_fallback_font'
+  | 'set_palette_color'
+  | 'set_selection_fg'
+  | 'set_selection_inactive_bg'
+  | 'set_default_foreground'
+  | 'set_default_background'
+  | 'set_cell_pixel_size'
+  | 'set_line_height'
+>
+
+function seedEngine(t: SeedTarget, p: StoredInit): void {
+  // CJK first RESETS the chain to it; the rest append (parity with the main path).
+  if (p.fallbackFonts.length > 0) {
+    t.set_fallback_font(p.fallbackFonts[0])
+    for (let i = 1; i < p.fallbackFonts.length; i++) {
+      t.add_fallback_font(p.fallbackFonts[i])
+    }
+  }
+  // Apply the user's line-height before metrics are read so the grid is sized to the
+  // real cell box from frame 1.
+  t.set_line_height(p.lineHeight)
+  seedAtermPalette(t, p.themeColors)
+  t.set_selection_fg(p.themeColors.selectionForeground ?? undefined)
+  t.set_selection_inactive_bg(p.themeColors.selectionInactive ?? undefined)
+  seedAtermReplyDefaults(t, p.themeColors, t.cell_width, t.cell_height)
+}
+
+/** CPU engine: rasterize → zero-copy 2d blit (identical to the main-thread painter). */
+export async function buildCpuEngine(
+  p: StoredInit,
+  canvas: OffscreenCanvas
+): Promise<EngineHandle> {
+  const out = await init(wasmUrl)
+  const memory = out.memory
+  const t = new AtermTerminal(
+    p.rows,
+    p.cols,
+    p.fontBytes,
+    p.fontPx,
+    p.themeColors.fg,
+    p.themeColors.bg,
+    p.themeColors.cursor,
+    p.themeColors.selection
+  )
+  seedEngine(t, p)
+  const canvasCtx = canvas.getContext('2d')
+  if (!canvasCtx) {
+    t.free()
+    throw new Error('OffscreenCanvas 2d context unavailable')
+  }
+  let width = 0
+  let height = 0
+  const render = (): void => {
+    t.render()
+    width = t.width
+    height = t.height
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
+    const view = new Uint8ClampedArray(memory.buffer, t.rgba_ptr(), width * height * 4)
+    canvasCtx.putImageData(new ImageData(view, width, height), 0, 0)
+  }
+  return {
+    kind: 'cpu',
+    engine: t,
+    process: (data) => t.process_str(data),
+    render,
+    framebuffer: () => ({ width, height }),
+    search: (q, cs, regex) => t.search(q, cs, regex),
+    dispose: () => {
+      try {
+        t.free()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}
+
+// GPU process has no string entry; one encoder avoids a per-chunk alloc.
+const textEncoder = new TextEncoder()
+
+/** GPU engine: WebGL2 present straight to the swapchain — NO rgba blit. `init_offscreen`
+ *  is async and MUST finish before any render; it throws if WebGL is unavailable in the
+ *  worker → caller posts an init error so the main side falls back to a CPU worker. */
+export async function buildGpuEngine(
+  p: StoredInit,
+  canvas: OffscreenCanvas
+): Promise<EngineHandle> {
+  await gpuInit(gpuWasmUrl)
+  const rows = p.rows
+  const cols = p.cols
+  const t = new AtermGpuTerminal(
+    p.rows,
+    p.cols,
+    p.fontBytes,
+    p.fontPx,
+    p.themeColors.fg,
+    p.themeColors.bg,
+    p.themeColors.cursor,
+    p.themeColors.selection
+  )
+  // Seed BEFORE init_offscreen so the engine re-applies fonts/theme to the GPU face it
+  // builds there (matches aterm-gpu-drawer's seed-then-init ordering).
+  seedEngine(t as unknown as SeedTarget, p)
+  try {
+    await t.init_offscreen(canvas)
+  } catch (err) {
+    try {
+      t.free()
+    } catch {
+      /* ignore */
+    }
+    throw err
+  }
+  const engine = t as unknown as WorkerEngine
+  return {
+    kind: 'gpu',
+    engine,
+    process: (data) => t.process(textEncoder.encode(data)),
+    render: () => t.render(),
+    // The presented swapchain canvas carries the framebuffer size; fall back to grid-
+    // derived device px before the first present sizes it.
+    framebuffer: () => ({
+      width: canvas.width || Math.round(cols * engine.cell_width),
+      height: canvas.height || Math.round(rows * engine.cell_height)
+    }),
+    // GPU search is case-only (no regex arg); isRegex is ignored on this path.
+    search: (q, cs) => t.search(q, cs),
+    dispose: () => {
+      try {
+        t.free()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+}

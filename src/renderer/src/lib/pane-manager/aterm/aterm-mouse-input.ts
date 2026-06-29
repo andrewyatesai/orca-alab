@@ -140,9 +140,13 @@ export function attachAtermMouseInput(deps: AtermMouseDeps): AtermMouseInput {
     const bytes = term.encode_mouse_motion(col, row, button, modsByte(event))
     if (bytes && bytes.length > 0) {
       send(bytes)
-      event.preventDefault()
-      event.stopPropagation()
     }
+    // We already decided (via the tracking-mode flags above) that this motion is a
+    // forwarded report, so consume it regardless of whether bytes came back
+    // synchronously — the single-engine worker encodes off-thread + sends the report
+    // through the reply channel, returning nothing here.
+    event.preventDefault()
+    event.stopPropagation()
   }
 
   const onWheel = (event: WheelEvent): void => {
@@ -156,9 +160,12 @@ export function attachAtermMouseInput(deps: AtermMouseDeps): AtermMouseInput {
     const bytes = term.encode_mouse_wheel(col, row, up, modsByte(event))
     if (bytes && bytes.length > 0) {
       send(bytes)
-      event.preventDefault()
-      event.stopPropagation()
     }
+    // Mouse tracking is on (gated above), so the wheel is a report to the app — consume
+    // it so it doesn't also scroll scrollback. The worker encodes off-thread + sends
+    // the report via the reply channel, returning nothing here.
+    event.preventDefault()
+    event.stopPropagation()
   }
 
   // Capture phase so the forwarder runs before selection/scroll/link.

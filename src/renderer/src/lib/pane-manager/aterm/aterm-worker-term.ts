@@ -295,10 +295,25 @@ export function createWorkerBackedTerm(deps: {
     },
     serialize: (_scrollbackRows?: number | null) => '',
     serialize_scrollback: (_maxRows?: number | null) => '',
-    encode_mouse_press: () => undefined,
-    encode_mouse_release: () => undefined,
-    encode_mouse_motion: () => undefined,
-    encode_mouse_wheel: () => undefined,
+    // Mouse reports: post to the worker to encode (it owns the protocol); the bytes
+    // arrive via the reply channel → PTY. Returns undefined — the input handler gates
+    // preventDefault on the snapshot mouse-tracking flags, not on this return value.
+    encode_mouse_press: (col: number, row: number, button: number, mods: number) => {
+      post({ type: 'mouseEncode', kind: 'press', col, row, button, mods })
+      return undefined
+    },
+    encode_mouse_release: (col: number, row: number, button: number, mods: number) => {
+      post({ type: 'mouseEncode', kind: 'release', col, row, button, mods })
+      return undefined
+    },
+    encode_mouse_motion: (col: number, row: number, button: number, mods: number) => {
+      post({ type: 'mouseEncode', kind: 'motion', col, row, button, mods })
+      return undefined
+    },
+    encode_mouse_wheel: (col: number, row: number, up: boolean, mods: number) => {
+      post({ type: 'mouseEncode', kind: 'wheel', col, row, button: 0, mods, up })
+      return undefined
+    },
 
     free: () => post({ type: 'dispose' })
   }

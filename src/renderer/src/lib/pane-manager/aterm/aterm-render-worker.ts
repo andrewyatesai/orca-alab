@@ -263,10 +263,14 @@ ctx.onmessage = (event): void => {
       scheduleDraw()
       return
     case 'mouseEncode': {
+      // The encoded mouse report is PTY input — forward it through the reply channel
+      // (→ main onReply → inputSink), same as engine query replies.
       const data = term
         ? term.mouseEncode(msg.kind, msg.col, msg.row, msg.button, msg.mods, msg.up ?? false)
         : ''
-      ctx.postMessage({ type: 'mouseBytes', id: msg.id, data })
+      if (data) {
+        ctx.postMessage({ type: 'reply', data })
+      }
       return
     }
     case 'query': {

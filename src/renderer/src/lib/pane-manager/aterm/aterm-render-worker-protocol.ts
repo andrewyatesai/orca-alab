@@ -104,12 +104,13 @@ export type AtermWorkerSearchClear = { type: 'searchClear' }
 /** Swap the primary font face (terminalFontFamily) + reflow once its bytes load. */
 export type AtermWorkerSetPrimaryFont = { type: 'setPrimaryFont'; bytes: Uint8Array }
 export type AtermWorkerForceReflow = { type: 'forceReflow' }
-/** Encode a mouse report in the worker (the engine owns the protocol); the bytes
- *  come back as a 'mouseBytes' event correlated by id, then main writes them to the
- *  PTY. The synchronous preventDefault/gate decision uses the snapshot flags. */
+/** Encode a mouse report in the worker (the engine owns the protocol). The encoded
+ *  bytes are PTY input, so the worker forwards them through the SAME 'reply' channel as
+ *  engine query replies → main writes them to the PTY (onReply → inputSink). The
+ *  synchronous preventDefault/gate decision uses the snapshot flags, so no response
+ *  correlation is needed. */
 export type AtermWorkerMouseEncode = {
   type: 'mouseEncode'
-  id: number
   kind: 'press' | 'release' | 'motion' | 'wheel'
   col: number
   row: number
@@ -265,8 +266,6 @@ export type AtermWorkerReply = { type: 'reply'; data: string }
 export type AtermWorkerOsc = { type: 'osc'; events: string }
 /** A BEL fired this chunk. */
 export type AtermWorkerBell = { type: 'bell' }
-/** Encoded mouse-report bytes (response to a 'mouseEncode'), correlated by id. */
-export type AtermWorkerMouseBytes = { type: 'mouseBytes'; id: number; data: string }
 /** Result of a 'query' (serialize / content / selectionText), correlated by id. */
 export type AtermWorkerQueryResult = {
   type: 'queryResult'
@@ -284,7 +283,6 @@ export type AtermWorkerMessage =
   | AtermWorkerReply
   | AtermWorkerOsc
   | AtermWorkerBell
-  | AtermWorkerMouseBytes
   | AtermWorkerQueryResult
   | AtermWorkerError
 

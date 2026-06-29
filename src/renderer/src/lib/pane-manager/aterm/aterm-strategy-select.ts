@@ -34,12 +34,28 @@ const GPU_INIT_TIMEOUT_MS = 4000
 export async function loadAtermStrategy(
   config: AtermDrawerBuildConfig
 ): Promise<AtermPendingStrategy> {
-  // OPT-IN, default-OFF single-engine worker: the ONLY engine lives in a worker that
-  // owns the OffscreenCanvas (parse + render off the main thread); the controller binds
-  // to a snapshot-backed `term`. Off by default → production keeps the proven in-process
-  // CPU/GPU paths; only an explicit window flag selects it until validated + flipped.
+  // Single-engine worker: the ONLY engine lives in a worker that owns the
+  // OffscreenCanvas (parse + render off the main thread), so heavy terminal output never
+  // competes with the renderer main thread; the controller binds to a snapshot-backed
+  // `term`. The worker handles GPU→CPU internally; if it can't even post a first frame
+  // (or fonts fail before the canvas transfer) we fall back to the in-process CPU/GPU
+  // path on the still-intact canvas (see loadAtermWorkerEngine's reorder + timeout).
+  //
+  // FLIP-READY but still OPT-IN (`=== true`): making this the default (`!== false`)
+  // transfers the grid canvas to the worker for EVERY pane, which breaks the ~31 e2e
+  // specs that read the canvas / GPU internals directly (getContext throws on a
+  // transferred canvas). The flip must (a) repoint those specs to
+  // `window.__atermWorkerRender = false` (they validate the in-process fallback) and
+  // (b) run the full terminal suite to validate the worker path — which needs an e2e
+  // env where the shell-readiness probe works. Until then this stays opt-in.
   if (typeof window !== 'undefined' && window.__atermWorkerRender === true) {
-    return loadAtermWorkerEngine(config)
+    try {
+      return await loadAtermWorkerEngine(config)
+    } catch (err) {
+      // Worker couldn't init (e.g. a wedged first frame, or fonts failed before the
+      // canvas transfer); fall through to the in-process CPU/GPU path on the canvas.
+      console.warn('[aterm] off-main worker init failed; falling back to in-process', err)
+    }
   }
 
   if (isAtermGpuEnabled()) {

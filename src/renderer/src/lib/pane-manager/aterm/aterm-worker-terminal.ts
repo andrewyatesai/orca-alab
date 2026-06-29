@@ -14,6 +14,10 @@ import type {
   AtermWorkerThemeSet
 } from './aterm-render-worker-protocol'
 
+// Scrollback cap for the debounced shutdown-cache serialize — ample for session
+// restore while bounding the per-push cost + the synchronous shutdown read.
+const SHUTDOWN_CACHE_ROWS = 2000
+
 /** Drained edge-triggered side channels to forward to main right after a chunk. */
 export type WorkerSideChannels = {
   /** Engine query replies (DA/DSR/CPR/colour) → PTY, or '' when none. */
@@ -82,6 +86,8 @@ export function createWorkerTerminal(handle: EngineHandle): {
     arg: number | undefined,
     arg2: number | undefined
   ) => string | number | boolean | null
+  /** Capped serialize for the debounced shutdown cache (full + scrollback-only). */
+  serializedCache: () => { full: string; scrollback: string }
   dispose: () => void
 } {
   const e = handle.engine
@@ -300,6 +306,13 @@ export function createWorkerTerminal(handle: EngineHandle): {
           return null
       }
     },
+    // Cap the cached serialize so the debounced push + the sync shutdown read stay
+    // bounded (ample scrollback for session restore; the awaitable save paths use the
+    // uncapped query round-trip).
+    serializedCache: () => ({
+      full: e.serialize(SHUTDOWN_CACHE_ROWS),
+      scrollback: e.serialize_scrollback(SHUTDOWN_CACHE_ROWS)
+    }),
     dispose: () => handle.dispose()
   }
 }

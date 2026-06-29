@@ -269,6 +269,17 @@ export type AtermWorkerReply = { type: 'reply'; data: string }
 export type AtermWorkerOsc = { type: 'osc'; events: string }
 /** A BEL fired this chunk. */
 export type AtermWorkerBell = { type: 'bell' }
+/** Debounced serialized-buffer snapshot the worker pushes while idle, so the main
+ *  thread can read a recent buffer SYNCHRONOUSLY at shutdown layout-capture (which
+ *  can't await). Slightly stale (the debounce window); the awaitable save paths use
+ *  the fresh query round-trip instead. */
+export type AtermWorkerSerializedCache = {
+  type: 'serializedCache'
+  /** Full-buffer serialize (capped scrollback) — replayable ANSI. */
+  full: string
+  /** Scrollback-history-only serialize. */
+  scrollback: string
+}
 /** Result of a 'query' (serialize / content / selectionText), correlated by id. */
 export type AtermWorkerQueryResult = {
   type: 'queryResult'
@@ -286,6 +297,7 @@ export type AtermWorkerMessage =
   | AtermWorkerReply
   | AtermWorkerOsc
   | AtermWorkerBell
+  | AtermWorkerSerializedCache
   | AtermWorkerQueryResult
   | AtermWorkerError
 

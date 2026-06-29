@@ -42,6 +42,10 @@ export type WorkerBackedTerm = {
   onMetricsChange: (handler: () => void) => void
   /** Loader resolves a pending async query (serialize/content) by its id. */
   resolveQuery: (id: number, value: string | number | boolean | null) => void
+  /** Loader feeds the worker's debounced serialized-buffer cache here; the SYNC
+   *  serialize()/serialize_scrollback() return it (for the non-awaitable shutdown
+   *  layout-capture). Slightly stale; the awaitable paths use serializeAsync. */
+  applySerializedCache: (full: string, scrollback: string) => void
   /** Fresh full-history serialize (replayable ANSI) via a worker round-trip — for the
    *  awaitable save/snapshot/fork paths. (The sync term.serialize() can't reach
    *  off-screen history; the synchronous shutdown path is served separately.) */
@@ -87,6 +91,9 @@ export function createWorkerBackedTerm(deps: {
   let bellPending = false
   const replyListeners = new Set<(data: string) => void>()
   const metricsListeners = new Set<() => void>()
+  // Latest debounced serialized-buffer cache from the worker (for the sync shutdown read).
+  let cachedSerialize = ''
+  let cachedScrollback = ''
 
   // Async query round-trip (serialize / cold content reads): id-correlated promises the
   // loader resolves from 'queryResult' messages. Shared infra (Stage D mouse-encode reuses it).
@@ -296,8 +303,10 @@ export function createWorkerBackedTerm(deps: {
       post({ type: 'selectionLine', row, col })
       return undefined
     },
-    serialize: (_scrollbackRows?: number | null) => '',
-    serialize_scrollback: (_maxRows?: number | null) => '',
+    // Sync serialize → the debounced cache (shutdown layout-capture can't await). The
+    // awaitable save paths use serializeAsync (fresh worker round-trip) instead.
+    serialize: (_scrollbackRows?: number | null) => cachedSerialize,
+    serialize_scrollback: (_maxRows?: number | null) => cachedScrollback,
     // Mouse reports: post to the worker to encode (it owns the protocol); the bytes
     // arrive via the reply channel → PTY. Returns undefined — the input handler gates
     // preventDefault on the snapshot mouse-tracking flags, not on this return value.
@@ -343,6 +352,10 @@ export function createWorkerBackedTerm(deps: {
         pendingQueries.delete(id)
         resolve(value)
       }
+    },
+    applySerializedCache: (full, scrollback) => {
+      cachedSerialize = full
+      cachedScrollback = scrollback
     },
     serializeAsync: async (scrollbackRows) => {
       const v = await sendQuery('serialize', scrollbackRows)

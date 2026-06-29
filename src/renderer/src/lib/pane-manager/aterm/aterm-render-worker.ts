@@ -38,6 +38,23 @@ let storedCanvas: OffscreenCanvas | null = null
 let fellBackToCpu = false
 let suspended = false
 let drawScheduled = false
+// Debounced serialized-buffer cache: pushed ~1s after output settles so the main
+// thread has a recent buffer to read SYNCHRONOUSLY at shutdown layout-capture.
+let cacheTimer: ReturnType<typeof setTimeout> | null = null
+const SERIALIZE_CACHE_DEBOUNCE_MS = 1000
+
+const scheduleSerializeCache = (): void => {
+  if (cacheTimer !== null) {
+    clearTimeout(cacheTimer)
+  }
+  cacheTimer = setTimeout(() => {
+    cacheTimer = null
+    if (term) {
+      const { full, scrollback } = term.serializedCache()
+      ctx.postMessage({ type: 'serializedCache', full, scrollback })
+    }
+  }, SERIALIZE_CACHE_DEBOUNCE_MS)
+}
 
 const drawNow = (): void => {
   if (!term) {
@@ -148,6 +165,7 @@ ctx.onmessage = (event): void => {
         ctx.postMessage({ type: 'bell' })
       }
       scheduleDraw()
+      scheduleSerializeCache()
       return
     }
     case 'draw':
@@ -279,6 +297,10 @@ ctx.onmessage = (event): void => {
       return
     }
     case 'dispose':
+      if (cacheTimer !== null) {
+        clearTimeout(cacheTimer)
+        cacheTimer = null
+      }
       term?.dispose()
       term = null
       storedInit = null

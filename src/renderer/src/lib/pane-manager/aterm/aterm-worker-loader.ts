@@ -38,6 +38,10 @@ async function fetchWorkerFallbackFonts(): Promise<Uint8Array[]> {
   }
 }
 
+// Cap the wait for the worker's first frame so a wedged worker can't hang pane
+// creation; the worker normally posts state within a frame or two of init.
+const WORKER_INIT_TIMEOUT_MS = 4000
+
 export async function loadAtermWorkerEngine(
   config: AtermDrawerBuildConfig
 ): Promise<AtermPendingStrategy> {
@@ -98,6 +102,9 @@ export async function loadAtermWorkerEngine(
       case 'queryResult':
         backed?.resolveQuery(data.id, data.value)
         return
+      case 'serializedCache':
+        backed?.applySerializedCache(data.full, data.scrollback)
+        return
       case 'error':
         // GPU acquire failed in the worker → rebuild as CPU on the same canvas (it
         // can't be re-transferred) so the pane renders off-main instead of blank.
@@ -109,13 +116,15 @@ export async function loadAtermWorkerEngine(
     }
   })
 
+  // Fetch the fonts BEFORE transferring the canvas: a font/asset failure here throws
+  // with the canvas still intact, so loadAtermStrategy can fall back to the in-process
+  // path. After transferControlToOffscreen the canvas is unusable by anything else, so
+  // nothing fallible may run between the transfer and the worker taking over.
+  const { fontBytes } = await loadAterm()
+  const fontBytesCopy = fontBytes.slice() // copy the SHARED font so its buffer isn't detached
+  const fallbackFonts = await fetchWorkerFallbackFonts()
   // Hand the canvas to the worker; from here ONLY the worker may draw to it.
   const offscreen = canvas.transferControlToOffscreen()
-  // Copy the SHARED primary font before transferring its buffer so other panes' cached
-  // fontBytes isn't detached.
-  const { fontBytes } = await loadAterm()
-  const fontBytesCopy = fontBytes.slice()
-  const fallbackFonts = await fetchWorkerFallbackFonts()
   post(
     {
       type: 'init',
@@ -135,8 +144,25 @@ export async function loadAtermWorkerEngine(
   )
 
   // Wait for the worker's first frame so the controller's construction-time reads
-  // (cell_width/height) are real before wireAtermPane runs.
-  const initial = await firstState
+  // (cell_width/height) are real before wireAtermPane runs. Race a timeout so a wedged
+  // worker (no state, no error) can't hang pane creation forever; on timeout terminate
+  // it and throw (the caller surfaces a broken pane rather than an infinite await).
+  let initial: AtermWorkerState
+  try {
+    initial = await Promise.race([
+      firstState,
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(new Error(`aterm worker first frame timed out (${WORKER_INIT_TIMEOUT_MS}ms)`)),
+          WORKER_INIT_TIMEOUT_MS
+        )
+      )
+    ])
+  } catch (err) {
+    worker.terminate()
+    throw err
+  }
   backed = createWorkerBackedTerm({ post, initial })
   // The worker owns the pane canvas, so search highlights + the link underline paint on
   // a main-thread stacked overlay driven by the snapshot (works for CPU + GPU worker).

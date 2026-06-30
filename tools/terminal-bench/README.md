@@ -78,6 +78,17 @@ pnpm gauntlet:perf            # MB/s medians + grid-parity
   grid-parity fingerprint check.
 - **safety** — discharges the orca-git SMT obligations when `~/.cargo/bin/ay` is
   present; `SKIP` (never fail) when the Trust toolchain is absent.
+- **autoformalize** (Goal A) — reuses the Trust repo's `~/trust/tools/ts2rust`
+  two-witness gate (W1 `trustc -Z trust-verify-full` ∀-safety + W2 Node-TS
+  differential). It auto-discovers the already-ported `.ts`/`.rs` pairs under
+  `~/trust/tools/ts2rust/orca`, derives each `fn`+`argspec` from the candidate
+  signature, and reports `TRUSTED / NOT-TRUSTED / declined` per function. A
+  known-bug port (`*_bug`/`*_naive`) coming back TRUSTED is a soundness `FAIL`; a
+  faithful port coming back NOT-TRUSTED is `REVIEW` (port bug vs. a Trust verifier
+  precision gap). `SKIP` when the harness or `trustc` is absent. Live: **13/14 orc
+  functions TRUSTED** (`clampNumber`, `getUtf8ByteLengthForCodePoint`,
+  `isProcessOutputWhitespace`, `formatRepoRefs`, …); `trimDanglingHighSurrogate`
+  is REVIEW — W2-clean but W1-incomplete (the UTF-16 surrogate frontier).
 
 Exit code is the contract an agent branches on: **0** = all green/skipped, **1** =
 a real FAIL, **2** = a REVIEW to triage. The full report is written to

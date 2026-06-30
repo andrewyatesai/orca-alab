@@ -72,11 +72,14 @@ The Trust repo owns the *engine*; orc owns *adoption*. Four concrete orc tasks:
    and is promoted to source-of-truth only after a clean parity window. This is the
    safe "verified backend IS the product," one crate at a time — never a big-bang cutover.
 
-4. **Make the gauntlet call the real witnesses.** Add an `autoformalize` axis to
-   `tools/terminal-bench/gauntlet.mjs` that shells to `~/trust/tools/ts2rust/
-   autoformalize.mjs` over the per-crate in-fragment function list, so the orc agent
-   gate runs W1+W2 and reports `TRUSTED / REFUTED{cex} / DECLINED` per function — not a
-   reinvented check.
+4. **Make the gauntlet call the real witnesses.** ✅ **DONE** — `pnpm
+   gauntlet:autoformalize` (`tools/terminal-bench/gauntlet.mjs`) auto-discovers the
+   `~/trust/tools/ts2rust/orca` `.ts`/`.rs` pairs, derives each `fn`+`argspec` from the
+   candidate signature, and runs W1+W2 per function, reporting `TRUSTED / NOT-TRUSTED /
+   declined` (SKIP when `trustc` is absent). First live run: **13/14 orc functions
+   TRUSTED**; `trimDanglingHighSurrogate` REVIEW (W2-clean, W1-incomplete — the UTF-16
+   surrogate frontier, a repair signal not a port bug). This reproduces the existing
+   capability inside the orc gate — no reinvented check.
 
 ## What gates the effectful crates (the Trust §7 roadmap — track, don't duplicate)
 

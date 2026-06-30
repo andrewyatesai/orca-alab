@@ -92,6 +92,7 @@
     "gauntlet": "node tools/terminal-bench/gauntlet.mjs all",
     "gauntlet:conformance": "node tools/terminal-bench/gauntlet.mjs conformance",
     "gauntlet:perf": "node tools/terminal-bench/gauntlet.mjs perf",
+    "gauntlet:autoformalize": "node tools/terminal-bench/gauntlet.mjs autoformalize",
     "gauntlet:bootstrap": "node tools/terminal-bench/gauntlet.mjs bootstrap"
   },
   "dependencies": {

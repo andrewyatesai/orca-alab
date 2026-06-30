@@ -9,8 +9,10 @@
 //                   xterm per the VT/ECMA-48 spec" is a WIN to be triaged, not a bug.
 //   • perf        — MB/s throughput vs xterm, best-of-N medians in one thermal state.
 //   • safety      — Trust-proved obligations (skipped, not failed, when the toolchain is absent).
+//   • autoformalize — Goal A: reuse the Trust ts2rust two-witness gate (~/trust/tools/ts2rust)
+//                   to prove the orc corpus's Rust ports refine their TS (skipped if trustc absent).
 //
-// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|all>
+// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|all>
 // Exit 0 = all gates green/skipped · 1 = a real FAIL · 2 = REVIEW (divergence to triage).
 // A machine-readable report is written to tools/terminal-bench/.gauntlet-report.json.
 

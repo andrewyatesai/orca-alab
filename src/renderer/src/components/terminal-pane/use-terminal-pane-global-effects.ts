@@ -69,7 +69,6 @@ export function useTerminalPaneGlobalEffects({
   const hiddenReasonRef = useRef<TerminalHiddenReason | null>(null)
   const {
     captureViewportPositions,
-    withSuppressedScrollTracking,
     applyPendingFollowOutputRequests,
     scheduleFollowOutputIfNeeded
   } = useTerminalScrollVisibilityMemory({
@@ -100,8 +99,7 @@ export function useTerminalPaneGlobalEffects({
         isActive,
         wasVisible,
         shouldUseLightTabResume,
-        captureViewportPositions,
-        withSuppressedScrollTracking
+        captureViewportPositions
       })
       renderingSuspendedByVisibilityRef.current = false
       wasVisibleRef.current = true

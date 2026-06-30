@@ -5,8 +5,18 @@ import {
   requestTerminalBacklogRecovery
 } from '@/lib/pane-manager/pane-terminal-output-scheduler'
 import { resetAllTerminalWebglAtlases } from '@/lib/pane-manager/pane-manager-registry'
-import { enforceTerminalCurrentScrollIntent } from '@/lib/pane-manager/terminal-scroll-intent'
+import {
+  beginSuppressScrollIntentWrites,
+  endSuppressScrollIntentWrites,
+  enforceTerminalCurrentScrollIntent
+} from '@/lib/pane-manager/terminal-scroll-intent'
 import { fitAndFocusPanes, fitPanes, focusActivePane } from './pane-helpers'
+
+// Re-anchor schedule after a resume: two rAFs + an 80ms backstop, matching
+// restoreScrollStateAfterLayout / syncTerminalScrollIntentSoon, so the durable pin is
+// re-applied once the cold-restore replay flood has settled. The write-freeze is held
+// until the backstop fires.
+const RESUME_REANCHOR_BACKSTOP_MS = 80
 
 const VISIBLE_RESUME_FLUSH_CHARS = 256 * 1024
 
@@ -18,7 +28,6 @@ type ResumeTerminalVisibilityArgs = {
   wasVisible: boolean
   shouldUseLightTabResume: boolean
   captureViewportPositions: (useRememberedSnapshots: boolean) => Map<number, ScrollState>
-  withSuppressedScrollTracking: (callback: () => void) => void
 }
 
 type HideTerminalVisibilityArgs = {
@@ -39,15 +48,30 @@ export function resumeTerminalVisibility({
   isActive,
   wasVisible,
   shouldUseLightTabResume,
-  captureViewportPositions,
-  withSuppressedScrollTracking
+  captureViewportPositions
 }: ResumeTerminalVisibilityArgs): void {
   // Why: WebGL resume can disturb xterm's viewport bookkeeping before the
   // post-resume fit runs. Capture numeric viewport positions first; the
   // restore path avoids content matching so duplicate agent log lines do
   // not jump to the wrong history entry.
   captureViewportPositions(!wasVisible)
-  withSuppressedScrollTracking(() => {
+  // FREEZE intent writes across the WHOLE resume window — the synchronous flush/fit/
+  // enforce AND the async cold-restore replay flood that follows. The replay clears
+  // and regrows the buffer; without the freeze a transient empty/regrowing buffer (and
+  // the syncTerminalScrollIntentSoon timers landing mid-replay) overwrite the durable
+  // ABSOLUTE pin with a position relative to the rebuilt bottom, so the restore lands
+  // on the wrong content (the worktree-switch scroll-jump). enforce* still SCROLLS
+  // while frozen, so the pin is re-anchored, not lost. Released on a bounded backstop
+  // (and via finally) so a throw can never strand the freeze on.
+  beginSuppressScrollIntentWrites()
+  let released = false
+  const release = (): void => {
+    if (!released) {
+      released = true
+      endSuppressScrollIntentWrites()
+    }
+  }
+  try {
     if (shouldUseLightTabResume) {
       // Why: intra-worktree tab switches only toggle the overlay. Still request
       // hidden-output recovery: agent TUIs can suppress hidden bytes until the
@@ -65,7 +89,29 @@ export function resumeTerminalVisibility({
       // re-present its aterm grid so returning panes repaint a fresh frame.
       resetAllTerminalWebglAtlases()
     }
-  })
+  } finally {
+    // Re-anchor the durable absolute pin AFTER the replay flood settles (two rAFs +
+    // an 80ms backstop), THEN release the write-freeze. Scheduled from `finally` so a
+    // throw in the resume body still releases the freeze on the backstop. rAF is
+    // guarded (absent in headless/test environments) and falls back to a timer; the
+    // 80ms setTimeout backstop ALWAYS fires, so the freeze is guaranteed released.
+    const raf = (cb: () => void): void => {
+      if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(cb)
+      } else {
+        setTimeout(cb, 0)
+      }
+    }
+    const reanchor = (): void => enforceTerminalViewportIntents(manager)
+    raf(() => {
+      reanchor()
+      raf(reanchor)
+    })
+    setTimeout(() => {
+      reanchor()
+      release()
+    }, RESUME_REANCHOR_BACKSTOP_MS)
+  }
 }
 
 export function hideTerminalVisibility({

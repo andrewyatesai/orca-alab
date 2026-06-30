@@ -81,6 +81,7 @@ import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { isPaneReplaying, type ReplayingPanesRef } from './replay-guard'
 import { fitAndFocusPanes, fitPanes } from './pane-helpers'
 import {
+  attachTerminalScrollIntentTracking,
   markTerminalPinnedViewport,
   syncTerminalScrollIntentSoon
 } from '@/lib/pane-manager/terminal-scroll-intent'
@@ -470,6 +471,7 @@ export function useTerminalPaneLifecycle({
   const osc52DisposablesRef = useRef(new Map<number, IDisposable>())
   const osc7DisposablesRef = useRef(new Map<number, IDisposable>())
   const mouseHideDisposablesRef = useRef(new Map<number, IDisposable>())
+  const scrollIntentTrackingDisposablesRef = useRef(new Map<number, IDisposable>())
   const imeCompositionDisposablesRef = useRef(new Map<number, IDisposable>())
   const imePunctuationForwarderDisposablesRef = useRef(new Map<number, IDisposable>())
 
@@ -1039,6 +1041,16 @@ export function useTerminalPaneLifecycle({
           const mouseHideDisposable = installMouseHideWhileTyping(pane.terminal, pane.container)
           mouseHideDisposablesRef.current.set(pane.id, mouseHideDisposable)
         }
+        // Track wheel/scrollbar scroll as scroll INTENT (pane-keyed by leafId) so
+        // wheel-scrolling up pins the viewport AND the pin survives a facade remount
+        // across a worktree switch — the durable intent the resume re-anchors to. Its
+        // handlers honor the resume write-freeze, so they can't re-introduce drift.
+        // Was never wired in production (only keyboard PageUp/Home marked a pin).
+        scrollIntentTrackingDisposablesRef.current.get(pane.id)?.dispose()
+        scrollIntentTrackingDisposablesRef.current.set(
+          pane.id,
+          attachTerminalScrollIntentTracking(pane.terminal, pane.container, pane.leafId)
+        )
         pane.terminal.options.linkHandler = {
           allowNonHttpProtocols: true,
           activate: (event, text) => {
@@ -1174,6 +1186,12 @@ export function useTerminalPaneLifecycle({
         if (mouseHideDisposable) {
           mouseHideDisposable.dispose()
           mouseHideDisposablesRef.current.delete(paneId)
+        }
+        const scrollIntentTrackingDisposable =
+          scrollIntentTrackingDisposablesRef.current.get(paneId)
+        if (scrollIntentTrackingDisposable) {
+          scrollIntentTrackingDisposable.dispose()
+          scrollIntentTrackingDisposablesRef.current.delete(paneId)
         }
         // Why: cancel the bounded aterm file-link-opener poll for this pane so it
         // can't keep firing setTimeout ticks against a now-disposed pane.

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   attachTerminalScrollIntentTracking,
+  beginSuppressScrollIntentWrites,
   captureTerminalWriteScrollIntent,
+  endSuppressScrollIntentWrites,
   enforceTerminalCurrentScrollIntent,
   enforceTerminalWriteScrollIntent,
   getTerminalScrollIntentKind,
@@ -339,5 +341,52 @@ describe('terminal scroll intent', () => {
     enforceTerminalCurrentScrollIntent(terminal)
 
     expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1)
+  })
+
+  it('carries the stored ABSOLUTE line for a pin, not the live snapshot, when capturing', () => {
+    // captureTerminalWriteScrollIntent must report the durable absolute line so the
+    // per-write enforce can't walk the pin off its content during a replay where the
+    // live viewport has drifted relative to a regrown bottom.
+    const terminal = createTerminal({ viewportY: 121, baseY: 127 })
+    markTerminalPinnedViewport(terminal)
+
+    // Buffer regrew; the LIVE viewport drifted to baseY-6 of the new bottom.
+    terminal.buffer.active.baseY = 231
+    terminal.buffer.active.viewportY = 225
+
+    expect(captureTerminalWriteScrollIntent(terminal)?.viewportY).toBe(121)
+  })
+
+  it('FREEZES the absolute pin across a clear+regrow resume window (worktree-switch jump)', () => {
+    // The worktree-switch scroll jump: the cold-restore replay clears + regrows the
+    // buffer; transient empty/regrowing snapshots + the syncSoon timers would overwrite
+    // the durable absolute pin (121) with a position relative to the rebuilt bottom
+    // (225 = baseY-6). With writes frozen during the resume window, the pin is held and
+    // the resume re-anchors to the ORIGINAL line, not the drifted one.
+    const terminal = createTerminal({ viewportY: 121, baseY: 127 })
+    markTerminalPinnedViewport(terminal)
+    expect(getTerminalScrollIntentKind(terminal)).toBe('pinnedViewport')
+
+    beginSuppressScrollIntentWrites()
+    // 1) the buffer is cleared (empty) — would infer followOutput(0,0) if not frozen.
+    terminal.buffer.active.viewportY = 0
+    terminal.buffer.active.baseY = 0
+    syncTerminalScrollIntentFromViewport(terminal)
+    markTerminalFollowOutput(terminal)
+    // 2) it regrows PAST the original baseY — would re-pin at baseY-6 if not frozen.
+    terminal.buffer.active.baseY = 231
+    terminal.buffer.active.viewportY = 225
+    syncTerminalScrollIntentFromViewport(terminal)
+    const cap = captureTerminalWriteScrollIntent(terminal)
+    enforceTerminalWriteScrollIntent(terminal, cap)
+    // The durable absolute pin is preserved throughout the frozen window.
+    expect(getTerminalScrollIntentKind(terminal)).toBe('pinnedViewport')
+    expect(captureTerminalWriteScrollIntent(terminal)?.viewportY).toBe(121)
+    endSuppressScrollIntentWrites()
+
+    // After the window the resume re-anchors to the ORIGINAL absolute line (121),
+    // not the drifted relative position (225) the live snapshot still reads.
+    enforceTerminalCurrentScrollIntent(terminal)
+    expect(terminal.scrollToLine).toHaveBeenLastCalledWith(121)
   })
 })

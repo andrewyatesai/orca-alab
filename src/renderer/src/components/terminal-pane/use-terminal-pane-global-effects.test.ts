@@ -74,7 +74,9 @@ vi.mock('@/lib/pane-manager/pane-scroll', () => ({
 }))
 
 vi.mock('@/lib/pane-manager/terminal-scroll-intent', () => ({
-  enforceTerminalCurrentScrollIntent: mocks.enforceTerminalCurrentScrollIntent
+  enforceTerminalCurrentScrollIntent: mocks.enforceTerminalCurrentScrollIntent,
+  beginSuppressScrollIntentWrites: vi.fn(),
+  endSuppressScrollIntentWrites: vi.fn()
 }))
 
 vi.mock('@/lib/pane-manager/pane-manager-registry', () => ({

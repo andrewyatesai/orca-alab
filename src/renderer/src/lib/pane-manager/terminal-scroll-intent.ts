@@ -43,6 +43,39 @@ const terminalScrollIntentByKey = new Map<TerminalScrollIntentKey, TerminalScrol
 
 const BOTTOM_TOLERANCE_ROWS = 1
 
+// While > 0, intent WRITES are frozen: writeIntent returns the durable stored intent
+// unchanged instead of recording the live (transient) buffer position. Held across a
+// worktree-switch resume + its cold-restore replay flood, where the buffer is cleared
+// and regrown — without this freeze a transient empty/regrowing buffer overwrites the
+// durable ABSOLUTE pin (vY=121) with a position RELATIVE to the rebuilt bottom (vY=225
+// = baseY-6), so the restore lands on the wrong content. enforce* may still SCROLL
+// (re-anchor) while frozen; only the intent STORE is gated. Depth-counted so nested /
+// concurrent resume windows compose, and always released on a bounded timer (see
+// terminal-visibility-resume) so it can never get stuck on.
+let scrollIntentWriteFreezeDepth = 0
+
+/** Freeze intent writes (see `scrollIntentWriteFreezeDepth`). MUST be paired with
+ *  `endSuppressScrollIntentWrites` — callers spanning async ticks release it on a
+ *  bounded timer so a thrown resume body cannot strand the freeze on. */
+export function beginSuppressScrollIntentWrites(): void {
+  scrollIntentWriteFreezeDepth += 1
+}
+
+/** Release one freeze level (floored at 0 so a double-release is harmless). */
+export function endSuppressScrollIntentWrites(): void {
+  scrollIntentWriteFreezeDepth = Math.max(0, scrollIntentWriteFreezeDepth - 1)
+}
+
+/** Run `fn` with intent writes frozen, releasing on return/throw (synchronous use). */
+export function runWithSuppressedScrollIntentWrites<T>(fn: () => T): T {
+  beginSuppressScrollIntentWrites()
+  try {
+    return fn()
+  } finally {
+    endSuppressScrollIntentWrites()
+  }
+}
+
 function readBufferSnapshot(
   terminal: TerminalScrollIntentTarget
 ): { bufferType: BufferType; viewportY: number; baseY: number } | null {
@@ -67,6 +100,11 @@ function writeIntent(
   terminal: TerminalScrollIntentTarget,
   kind: TerminalScrollIntentKind
 ): TerminalScrollIntent | null {
+  // Frozen during a resume/replay window: keep the durable absolute pin; do not let a
+  // transient (cleared/regrowing) buffer re-store a relative position over it.
+  if (scrollIntentWriteFreezeDepth > 0) {
+    return readStoredIntent(terminal) ?? null
+  }
   const snapshot = readBufferSnapshot(terminal)
   if (!snapshot) {
     return null
@@ -192,10 +230,16 @@ export function captureTerminalWriteScrollIntent(
   const kind =
     existing?.kind ??
     (isAtBottom(snapshot.viewportY, snapshot.baseY) ? 'followOutput' : 'pinnedViewport')
+  // For a durable pin carry the STORED absolute line, not the live snapshot: during a
+  // cold-restore replay the buffer is mid-rebuild, so snapshot.viewportY is a position
+  // relative to the (shorter/regrowing) bottom. Enforcing that drifting value would
+  // walk the pin off its content; the stored viewportY is the absolute line the engine
+  // clamps against. Fresh pins (no existing intent) still use the live position.
+  const viewportY = kind === 'pinnedViewport' && existing ? existing.viewportY : snapshot.viewportY
   return {
     kind,
     bufferType: snapshot.bufferType,
-    viewportY: snapshot.viewportY
+    viewportY
   }
 }
 

@@ -30,7 +30,6 @@ type UseTerminalScrollVisibilityMemoryArgs = {
 
 type TerminalScrollVisibilityMemory = {
   captureViewportPositions: (useRememberedSnapshots: boolean) => Map<number, ScrollState>
-  withSuppressedScrollTracking: (callback: () => void) => void
   applyPendingFollowOutputRequests: () => boolean
   scheduleFollowOutputIfNeeded: (paneId: number) => void
 }
@@ -44,7 +43,6 @@ export function useTerminalScrollVisibilityMemory({
   paneCount
 }: UseTerminalScrollVisibilityMemoryArgs): TerminalScrollVisibilityMemory {
   const visibleScrollSnapshotsRef = useRef<Map<number, VisibleScrollSnapshot>>(new Map())
-  const suppressScrollTrackingRef = useRef(false)
   const pendingFollowOutputPaneIdsRef = useRef<Set<number>>(new Set())
   const followOutputFrameIdsRef = useRef<number[]>([])
 
@@ -88,15 +86,6 @@ export function useTerminalScrollVisibilityMemory({
     },
     [managerRef]
   )
-
-  const withSuppressedScrollTracking = useCallback((callback: () => void): void => {
-    suppressScrollTrackingRef.current = true
-    try {
-      callback()
-    } finally {
-      suppressScrollTrackingRef.current = false
-    }
-  }, [])
 
   const applyPendingFollowOutputRequests = useCallback((): boolean => {
     const pending = pendingFollowOutputPaneIdsRef.current
@@ -185,7 +174,6 @@ export function useTerminalScrollVisibilityMemory({
 
   return {
     captureViewportPositions,
-    withSuppressedScrollTracking,
     applyPendingFollowOutputRequests,
     scheduleFollowOutputIfNeeded
   }

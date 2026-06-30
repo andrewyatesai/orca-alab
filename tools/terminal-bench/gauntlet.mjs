@@ -15,7 +15,7 @@
 // A machine-readable report is written to tools/terminal-bench/.gauntlet-report.json.
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
@@ -197,8 +197,161 @@ function safety() {
   }
 }
 
+// --- autoformalize: the Trust ts2rust two-witness gate over the orc corpus -------
+// Goal A. Reuses the EXISTING autoformalizer in the Trust repo (~/trust/tools/ts2rust):
+// it discovers the already-ported .ts/.rs pairs, derives each fn + argspec straight
+// from the candidate's signature, and runs W1 (trustc ∀-safety) + W2 (Node-TS diff).
+// SKIPs (never fakes) when the Trust harness or the trustc toolchain isn't present.
+const TS2RUST = join(process.env.HOME || '', 'trust', 'tools', 'ts2rust')
+const PRIM = new Set(['u32', 'i32', 'u64', 'i64', 'bool'])
+const SLICE = {
+  '&[u32]': 'u32[]',
+  '&[i32]': 'i32[]',
+  '&[u64]': 'u64[]',
+  '&[i64]': 'i64[]',
+  '&[&str]': 'str[]'
+}
+
+function locateTrustc() {
+  const candidates = [
+    process.env.TRUSTC,
+    join(process.env.HOME || '', 'trust', 'build', 'host', 'stage2', 'bin', 'trustc')
+  ]
+  for (const c of candidates) {
+    if (c && existsSync(c)) {
+      return c
+    }
+  }
+  try {
+    return sh('bash', ['-lc', 'command -v trustc']).trim() || null
+  } catch {
+    return null
+  }
+}
+
+function rustTypeToArgspec(ty, src) {
+  const t = ty.replace(/\s+/gu, '')
+  if (PRIM.has(t)) {
+    return t
+  }
+  if (t === '&str') {
+    return 'str'
+  }
+  if (SLICE[t]) {
+    return SLICE[t]
+  }
+  if (/^[A-Z]\w*$/u.test(t)) {
+    const m = src.match(new RegExp(`struct\\s+${t}\\s*\\{([^}]*)\\}`, 'u'))
+    const fields = m ? [...m[1].matchAll(/(?:pub\s+)?(\w+)\s*:/gu)].map((x) => x[1]) : []
+    return fields.length ? `${t}{${fields.join(',')}}` : null
+  }
+  return null
+}
+
+function discoverCorpus(orcaDir) {
+  const out = []
+  let files
+  try {
+    files = readdirSync(orcaDir).filter((f) => f.endsWith('.rs'))
+  } catch {
+    return out
+  }
+  for (const rs of files) {
+    const name = rs.slice(0, -3)
+    if (!existsSync(join(orcaDir, `${name}.ts`))) {
+      continue // the driver needs a same-named .ts reference kernel
+    }
+    const src = readFileSync(join(orcaDir, rs), 'utf8')
+    const sig = src.match(/pub\s+fn\s+(\w+)\s*\(([^)]*)\)/u)
+    if (!sig) {
+      continue
+    }
+    const params = sig[2].trim()
+    const specs = []
+    let ok = true
+    for (const p of params ? params.split(',') : []) {
+      const a = rustTypeToArgspec(p.split(':').slice(1).join(':'), src)
+      if (!a) {
+        ok = false
+        break
+      }
+      specs.push(a)
+    }
+    if (!ok) {
+      out.push({ name, fn: sig[1], declined: true })
+    } else {
+      // Convention: a deliberately-buggy port is named *_bug / *_naive (suffix), expected to be refuted.
+      // (Don't match substrings — e.g. `..._toobig` is a real predicate name, a faithful port.)
+      out.push({
+        name,
+        fn: sig[1],
+        argspec: specs.join(','),
+        expect: /_(bug|naive)$/u.test(name) ? 'NOT-TRUSTED' : 'TRUSTED'
+      })
+    }
+  }
+  return out
+}
+
+function autoformalize() {
+  const driver = join(TS2RUST, 'autoformalize.mjs')
+  if (!existsSync(driver)) {
+    return skip(
+      'Trust ts2rust harness not found (~/trust/tools/ts2rust) — Goal A engine lives in the Trust repo'
+    )
+  }
+  const corpus = discoverCorpus(join(TS2RUST, 'orca'))
+  const runnable = corpus.filter((c) => !c.declined)
+  if (!runnable.length) {
+    return skip('no autoformalizable .ts/.rs pairs discovered under ~/trust/tools/ts2rust/orca')
+  }
+  const trustc = locateTrustc()
+  if (!trustc) {
+    return {
+      status: 'SKIP',
+      metrics: { corpus: runnable.length, declined: corpus.length - runnable.length },
+      detail: `trustc not built — ${runnable.length} orc functions ready to autoformalize; build ~/trust (stage2) or set TRUSTC=<path>, then re-run`
+    }
+  }
+  const rows = []
+  for (const c of runnable) {
+    let verdict
+    let note = ''
+    try {
+      sh('node', [driver, `orca/${c.name}.ts`, c.fn, c.argspec, `orca/${c.name}.rs`], {
+        cwd: TS2RUST,
+        env: { ...process.env, TRUSTC: trustc },
+        timeout: 180000
+      })
+      verdict = 'TRUSTED'
+    } catch (e) {
+      const out = `${e.stdout || ''}${e.stderr || ''}`
+      verdict = /VERDICT:\s*TRUSTED/u.test(out) ? 'TRUSTED' : 'NOT-TRUSTED'
+      note = (
+        out.split('\n').find((l) => /counterexample|divergence|ts=|rust=|REFUTED/iu.test(l)) || ''
+      )
+        .trim()
+        .slice(0, 80)
+    }
+    rows.push({ fn: c.fn, argspec: c.argspec, expect: c.expect, verdict, note })
+  }
+  // A known-bug port coming back TRUSTED = soundness regression (FAIL). A faithful
+  // port coming back NOT-TRUSTED = triage (port bug vs. a Trust verifier precision gap).
+  const soundnessBreak = rows.some((r) => r.expect === 'NOT-TRUSTED' && r.verdict === 'TRUSTED')
+  const faithfulMiss = rows.some((r) => r.expect === 'TRUSTED' && r.verdict === 'NOT-TRUSTED')
+  return {
+    status: soundnessBreak ? 'FAIL' : faithfulMiss ? 'REVIEW' : 'PASS',
+    metrics: {
+      trusted: rows.filter((r) => r.verdict === 'TRUSTED').length,
+      total: rows.length,
+      declined: corpus.length - runnable.length
+    },
+    rows
+  }
+}
+
 // --- driver ----------------------------------------------------------------------
-const GATES = { bootstrap, conformance, perf, safety }
+const GATES = { bootstrap, conformance, perf, safety, autoformalize }
 const mark = (s) =>
   ({
     PASS: `${C.g}✓ PASS${C.x}`,
@@ -209,7 +362,8 @@ const mark = (s) =>
 
 async function main() {
   const cmd = process.argv[2] || 'all'
-  const names = cmd === 'all' ? ['bootstrap', 'conformance', 'perf', 'safety'] : [cmd]
+  const names =
+    cmd === 'all' ? ['bootstrap', 'conformance', 'perf', 'safety', 'autoformalize'] : [cmd]
   if (!names.every((n) => GATES[n])) {
     console.error(`unknown gate "${cmd}". use: ${Object.keys(GATES).join(' | ')} | all`)
     process.exit(64)
@@ -232,6 +386,13 @@ async function main() {
     for (const d of r.diverge ?? []) {
       const rows = d.rows.map((v) => `row ${v.row} [${v.aterm}]≠[${v.xterm}]`).join(' · ')
       console.log(`      ${C.y}diverge:${C.x} ${d.name} — ${rows}`)
+    }
+    for (const row of r.rows ?? []) {
+      const hit = row.verdict === row.expect
+      const col = row.verdict === 'TRUSTED' ? C.g : hit ? C.y : C.r
+      console.log(
+        `      ${col}${row.verdict}${C.x} ${row.fn}(${row.argspec}) ${C.d}expect ${row.expect}${row.note ? ` · ${row.note}` : ''}${C.x}`
+      )
     }
   }
   writeFileSync(

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 
 const { lstatMock, readFileMock } = vi.hoisted(() => ({
   lstatMock: vi.fn(),
@@ -70,40 +70,44 @@ describe('parseNumstat', () => {
 })
 
 describe('collectUntrackedAdditions', () => {
+  // The byte-counting algorithm now lives in Rust (orca-git count_additions_in_buffer,
+  // proven by orca-git-napi-parity.test.ts); these tests cover the TS ORCHESTRATION —
+  // IO, cache, symlink/oversize skips — with the counter injected as a mock.
+  let countAdditions: Mock<(buffer: Buffer) => number | null>
   beforeEach(() => {
     lstatMock.mockReset()
     readFileMock.mockReset()
+    countAdditions = vi.fn<(buffer: Buffer) => number | null>()
   })
 
-  it('counts file lines as additions, with or without a trailing newline', async () => {
-    lstatMock.mockImplementation((target: string) =>
-      Promise.resolve(mockFileStat(String(target).endsWith('trailing.ts') ? 6 : 5))
-    )
-    readFileMock.mockImplementation((target: string) =>
-      Promise.resolve(
-        String(target).endsWith('trailing.ts') ? Buffer.from('a\nb\nc\n') : Buffer.from('a\nb\nc')
-      )
-    )
-    const stats = await collectUntrackedAdditions('/repo', ['trailing.ts', 'no-trailing.ts'])
-    expect(stats.get('trailing.ts')).toEqual({ added: 3 })
-    expect(stats.get('no-trailing.ts')).toEqual({ added: 3 })
+  it('returns the injected counter result as the added count, per read file', async () => {
+    lstatMock.mockResolvedValue(mockFileStat(5))
+    readFileMock.mockResolvedValue(Buffer.from('a\nb\nc'))
+    countAdditions.mockReturnValue(3)
+    const stats = await collectUntrackedAdditions('/repo', ['lines.ts'], countAdditions)
+    expect(stats.get('lines.ts')).toEqual({ added: 3 })
+    expect(countAdditions).toHaveBeenCalledTimes(1)
   })
 
-  it('reports an empty file as zero additions', async () => {
+  it('reports zero additions when the counter returns 0 (empty file)', async () => {
     lstatMock.mockResolvedValue(mockFileStat(0))
     readFileMock.mockResolvedValue(Buffer.from(''))
-    expect((await collectUntrackedAdditions('/repo', ['empty.ts'])).get('empty.ts')).toEqual({
-      added: 0
-    })
+    countAdditions.mockReturnValue(0)
+    expect(
+      (await collectUntrackedAdditions('/repo', ['empty.ts'], countAdditions)).get('empty.ts')
+    ).toEqual({ added: 0 })
   })
 
-  it('omits counts for binary files', async () => {
+  it('omits counts when the counter returns null (binary)', async () => {
     lstatMock.mockResolvedValue(mockFileStat(3))
     readFileMock.mockResolvedValue(Buffer.from([0x00, 0x01, 0x02]))
-    expect((await collectUntrackedAdditions('/repo', ['bin.dat'])).get('bin.dat')).toEqual({})
+    countAdditions.mockReturnValue(null)
+    expect(
+      (await collectUntrackedAdditions('/repo', ['bin.dat'], countAdditions)).get('bin.dat')
+    ).toEqual({})
   })
 
-  it('counts untracked symbolic links without following the target', async () => {
+  it('counts untracked symbolic links as one addition without reading or counting', async () => {
     lstatMock.mockResolvedValue({
       size: 4,
       mtimeMs: 2,
@@ -111,29 +115,36 @@ describe('collectUntrackedAdditions', () => {
       isFile: () => false,
       isSymbolicLink: () => true
     })
-
-    expect((await collectUntrackedAdditions('/repo', ['link.txt'])).get('link.txt')).toEqual({
-      added: 1
-    })
+    expect(
+      (await collectUntrackedAdditions('/repo', ['link.txt'], countAdditions)).get('link.txt')
+    ).toEqual({ added: 1 })
     expect(readFileMock).not.toHaveBeenCalled()
+    expect(countAdditions).not.toHaveBeenCalled()
   })
 
   it('skips oversized untracked files instead of reading them during status polling', async () => {
     lstatMock.mockResolvedValue(mockFileStat(MAX_UNTRACKED_LINE_COUNT_BYTES + 1, 3))
-
-    expect((await collectUntrackedAdditions('/repo', ['large.log'])).get('large.log')).toEqual({})
+    expect(
+      (await collectUntrackedAdditions('/repo', ['large.log'], countAdditions)).get('large.log')
+    ).toEqual({})
     expect(readFileMock).not.toHaveBeenCalled()
   })
 
   it('reuses cached counts while size and mtime are unchanged', async () => {
     lstatMock.mockResolvedValue(mockFileStat(5, 4))
     readFileMock.mockResolvedValue(Buffer.from('a\nb\nc'))
-
-    await collectUntrackedAdditions('/repo', ['cached.ts'])
-    const stats = await collectUntrackedAdditions('/repo', ['cached.ts'])
-
+    countAdditions.mockReturnValue(3)
+    await collectUntrackedAdditions('/repo', ['cached.ts'], countAdditions)
+    const stats = await collectUntrackedAdditions('/repo', ['cached.ts'], countAdditions)
     expect(stats.get('cached.ts')).toEqual({ added: 3 })
     expect(readFileMock).toHaveBeenCalledTimes(1)
+    expect(countAdditions).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips untracked counting entirely when no counter is provided (e.g. the relay)', async () => {
+    const stats = await collectUntrackedAdditions('/repo', ['x.ts'])
+    expect(stats.size).toBe(0)
+    expect(lstatMock).not.toHaveBeenCalled()
   })
 })
 

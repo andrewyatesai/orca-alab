@@ -31,6 +31,7 @@ import {
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { gitExecFileAsync, gitExecFileAsyncBuffer, gitOptionalLocksDisabledEnv } from './runner'
 import { streamGitStatus } from './git-status-stream'
+import { untrackedAdditionsCounter } from './untracked-additions-counter'
 import { DEFAULT_GIT_STATUS_LIMIT } from '../../shared/git-status-limit'
 import { describeMaxBufferOverflowError, isMaxBufferOverflowError } from './max-buffer-overflow'
 import {
@@ -308,10 +309,13 @@ async function attachLineStats(
     .filter((entry) => entry.area === 'untracked')
     .map((entry) => entry.path)
   const emptyStats = new Map<string, GitLineStats>()
+  // Untracked-additions counting runs through the Rust orca-git core (countAdditionsInBuffer)
+  // — the per-file byte loop is no longer in TS. If the native addon isn't loadable (e.g. an
+  // unbuilt dev tree), collectUntrackedAdditions omits the count rather than reimplement it.
   const [stagedStats, unstagedStats, untrackedStats] = await Promise.all([
     hasStaged ? runNumstat(worktreePath, true, options) : Promise.resolve(emptyStats),
     hasUnstaged ? runNumstat(worktreePath, false, options) : Promise.resolve(emptyStats),
-    collectUntrackedAdditions(worktreePath, untrackedPaths)
+    collectUntrackedAdditions(worktreePath, untrackedPaths, untrackedAdditionsCounter())
   ])
   for (const entry of entries) {
     applyLineStats(

@@ -215,6 +215,9 @@ async function attachLineStats(
   const [stagedStats, unstagedStats, untrackedStats] = await Promise.all([
     hasStaged ? runNumstat(git, worktreePath, true) : Promise.resolve(emptyStats),
     hasUnstaged ? runNumstat(git, worktreePath, false) : Promise.resolve(emptyStats),
+    // No native addon is shipped to the relay host, so the untracked-additions counter is
+    // omitted here (count skipped) rather than reimplemented in JS — staged/unstaged
+    // numstat still flow. Restored once orca-node ships per-arch to the relay.
     collectUntrackedAdditions(worktreePath, untrackedPaths)
   ])
   for (const entry of entries) {

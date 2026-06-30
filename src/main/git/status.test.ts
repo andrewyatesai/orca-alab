@@ -69,6 +69,30 @@ vi.mock('fs', () => ({
   existsSync: existsSyncMock
 }))
 
+// Test double for the Rust orca-git untracked-additions counter (the per-file byte loop
+// now lives in Rust; its correctness is proven by orca-git-napi-parity.test.ts). This
+// stands in for the native addon so getStatus's untracked-additions path runs
+// deterministically: null = binary, 0 = empty, else the trailing-newline-aware count.
+vi.mock('./untracked-additions-counter', () => ({
+  untrackedAdditionsCounter:
+    () =>
+    (bytes: Buffer): number | null => {
+      if (bytes.includes(0)) {
+        return null
+      }
+      if (bytes.length === 0) {
+        return 0
+      }
+      let newlines = 0
+      for (const byte of bytes) {
+        if (byte === 0x0a) {
+          newlines += 1
+        }
+      }
+      return bytes.at(-1) === 0x0a ? newlines : newlines + 1
+    }
+}))
+
 import {
   abortMerge,
   abortRebase,

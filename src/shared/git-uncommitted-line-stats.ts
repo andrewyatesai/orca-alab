@@ -1,9 +1,14 @@
 import { lstat, readFile } from 'fs/promises'
 import * as path from 'path'
-import { isBinaryBuffer } from './binary-buffer'
 import { decodeGitCQuotedPath } from './git-cquoted-path'
 
 export type GitLineStats = { added?: number; removed?: number }
+
+/** Counts additions for an untracked file's raw bytes: `null` = binary (no count),
+ *  `0` = empty, else the trailing-newline-aware line count. The implementation is the
+ *  Rust `orca-git` core (`count_additions_in_buffer`) via napi; injected from the main
+ *  process so this shared module stays platform-agnostic. */
+export type UntrackedAdditionsCounter = (buffer: Buffer) => number | null
 
 // Limits how many untracked files we read at once when counting their lines,
 // so a worktree with thousands of new files cannot exhaust file descriptors.
@@ -12,7 +17,6 @@ const UNTRACKED_READ_CONCURRENCY = 8
 // assets, and reading them every poll can stall the source-control sidebar.
 export const MAX_UNTRACKED_LINE_COUNT_BYTES = 2 * 1024 * 1024
 const UNTRACKED_STATS_CACHE_MAX_ENTRIES = 2048
-const NEWLINE_BYTE = 0x0a
 
 type CachedUntrackedStats = {
   size: number
@@ -97,7 +101,10 @@ function parseNulDelimitedNumstat(stdout: string): Map<string, GitLineStats> {
   return stats
 }
 
-async function countFileAdditions(absolutePath: string): Promise<GitLineStats> {
+async function countFileAdditions(
+  absolutePath: string,
+  count: UntrackedAdditionsCounter
+): Promise<GitLineStats> {
   try {
     const fileStat = await lstat(absolutePath)
     const cached = untrackedStatsCache.get(absolutePath)
@@ -116,24 +123,11 @@ async function countFileAdditions(absolutePath: string): Promise<GitLineStats> {
       return rememberUntrackedStats(absolutePath, fileStat, {})
     }
     const buffer = await readFile(absolutePath)
-    if (isBinaryBuffer(buffer)) {
-      return rememberUntrackedStats(absolutePath, fileStat, {})
-    }
-    if (buffer.length === 0) {
-      return rememberUntrackedStats(absolutePath, fileStat, { added: 0 })
-    }
-    let newlineCount = 0
-    for (let i = 0; i < buffer.length; i += 1) {
-      if (buffer[i] === NEWLINE_BYTE) {
-        newlineCount += 1
-      }
-    }
-    // A trailing newline marks the final line as complete; without one the last
-    // partial line still counts as an added line (matching git's numstat).
-    const endsWithNewline = buffer.at(-1) === NEWLINE_BYTE
-    return rememberUntrackedStats(absolutePath, fileStat, {
-      added: endsWithNewline ? newlineCount : newlineCount + 1
-    })
+    // Rust `orca-git` core (count_additions_in_buffer) via napi: null = binary (no count),
+    // 0 = empty, else the trailing-newline-aware line count. Parity-tested vs the former
+    // TS byte-loop in orca-git-napi-parity.test.ts; the loop is deleted (single source).
+    const added = count(buffer)
+    return rememberUntrackedStats(absolutePath, fileStat, added === null ? {} : { added })
   } catch {
     return {}
   }
@@ -163,14 +157,24 @@ function rememberUntrackedStats(
 // We count their contents directly to show an additions magnitude.
 export async function collectUntrackedAdditions(
   worktreePath: string,
-  untrackedPaths: readonly string[]
+  untrackedPaths: readonly string[],
+  count?: UntrackedAdditionsCounter
 ): Promise<Map<string, GitLineStats>> {
   const result = new Map<string, GitLineStats>()
+  // No counter (e.g. the relay, which has no per-arch native addon) → skip untracked
+  // line counting rather than reimplement the byte loop in JS. The count is the only
+  // thing affected; staged/unstaged numstat still flow.
+  if (!count) {
+    return result
+  }
   for (let i = 0; i < untrackedPaths.length; i += UNTRACKED_READ_CONCURRENCY) {
     const chunk = untrackedPaths.slice(i, i + UNTRACKED_READ_CONCURRENCY)
     await Promise.all(
       chunk.map(async (relativePath) => {
-        result.set(relativePath, await countFileAdditions(path.join(worktreePath, relativePath)))
+        result.set(
+          relativePath,
+          await countFileAdditions(path.join(worktreePath, relativePath), count)
+        )
       })
     )
   }

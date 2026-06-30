@@ -1,6 +1,7 @@
 import type { AtermTerminal } from './aterm_wasm.js'
 import { shouldForwardMouse } from './aterm-mouse-input'
 import type { AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
+import type { AtermWorkerAsyncFacade } from './aterm-worker-query-channel'
 
 /** Opens a detected link target; the controller threads orca's URL opener here
  *  (forceSystemBrowser mirrors xterm's Shift+modifier "open in system browser"
@@ -74,6 +75,14 @@ function isLinkActivation(event: MouseEvent): boolean {
  *  detection via link_at, and we only paint a pointer cursor + open URLs. */
 export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
   const { canvas, term, redraw, isDisposed, openUrl, getFileLinkOpener } = deps
+  // Worker-backed term: link_at returns the lagging snapshot and the loader drives the
+  // canvas cursor from the worker's hoverCursor each STATE. Detect the async capability
+  // to resolve fresh hits on click + clear the worker hover, and stop fighting the
+  // loader's cursor. In-process exposes neither → the synchronous path below is
+  // byte-identical.
+  const workerTerm = term as AtermTerminal & Partial<AtermWorkerAsyncFacade>
+  const asyncLinkAt = workerTerm.linkAtAsync
+  const clearWorkerHover = workerTerm.clearHover
   let moveScheduled = false
   let lastCol = -1
   let lastRow = -1
@@ -89,7 +98,14 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
   // Drop the link affordance (pointer cursor + underline). Requests a redraw only
   // when an underline was actually showing, so a non-link move stays cheap.
   const clearCursor = (): void => {
-    canvas.style.cursor = ''
+    // Worker path: clear the worker's hover (→ '' next STATE; the loader applies the
+    // cursor) instead of writing the canvas cursor here, which that STATE would
+    // overwrite. In-process: clear the cursor directly (byte-identical).
+    if (clearWorkerHover) {
+      clearWorkerHover()
+    } else {
+      canvas.style.cursor = ''
+    }
     if (hovered) {
       hovered = null
       redraw()
@@ -119,9 +135,15 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     }
     lastCol = col
     lastRow = row
-    // NOTE: the wasm signature is link_at(row, col) — match the .d.ts order.
+    // NOTE: the wasm signature is link_at(row, col) — match the .d.ts order. The call
+    // still posts the hover position the worker needs to compute its underline + cursor.
     const hit = term.link_at(row, col)
-    canvas.style.cursor = hit ? 'pointer' : ''
+    // In-process answers link_at synchronously → set the cursor here. Worker-backed:
+    // link_at lags a frame and the loader drives the cursor from hoverCursor, so don't
+    // overwrite it with a stale value.
+    if (!asyncLinkAt) {
+      canvas.style.cursor = hit ? 'pointer' : ''
+    }
     // Track the hovered span so the draw paths underline it; redraw only when the
     // span actually changes (entering/leaving a link, or moving to a different
     // link span) — moving within the same link span is a no-op.
@@ -146,20 +168,8 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     hoverRafId = requestAnimationFrame(evaluateHover)
   }
 
-  const onClick = (event: MouseEvent): void => {
-    if (isDisposed() || event.button !== 0 || !isLinkActivation(event)) {
-      return
-    }
-    // Mouse tracking on (no Shift) → the click is a report to the app, not a
-    // link activation; defer just like the alternate-screen case.
-    if (term.is_alt_screen || shouldForwardMouse(term, event)) {
-      return
-    }
-    const { col, row } = pointToCell(event, deps)
-    const hit = term.link_at(row, col)
-    if (!hit) {
-      return
-    }
+  // Open a resolved link hit (URL/OSC8 via openUrl, file-path via the late-bound opener).
+  const openHit = (hit: { url: string; kind: number }, event: MouseEvent): void => {
     if (hit.kind === LINK_KIND_OSC8 || hit.kind === LINK_KIND_URL) {
       event.preventDefault()
       openUrl(hit.url, { forceSystemBrowser: event.shiftKey })
@@ -175,6 +185,33 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
       event.preventDefault()
       openFileLink(hit.url, event.shiftKey)
     }
+  }
+
+  const onClick = (event: MouseEvent): void => {
+    if (isDisposed() || event.button !== 0 || !isLinkActivation(event)) {
+      return
+    }
+    // Mouse tracking on (no Shift) → the click is a report to the app, not a
+    // link activation; defer just like the alternate-screen case.
+    if (term.is_alt_screen || shouldForwardMouse(term, event)) {
+      return
+    }
+    const { col, row } = pointToCell(event, deps)
+    // Worker-backed term: the sync link_at snapshot lags, so resolve the real hit via the
+    // async query channel; in-process answers synchronously.
+    if (asyncLinkAt) {
+      void asyncLinkAt(row, col).then((hit) => {
+        if (!isDisposed() && hit) {
+          openHit(hit, event)
+        }
+      })
+      return
+    }
+    const hit = term.link_at(row, col)
+    if (!hit) {
+      return
+    }
+    openHit(hit, event)
   }
 
   canvas.addEventListener('mousemove', onMouseMove)

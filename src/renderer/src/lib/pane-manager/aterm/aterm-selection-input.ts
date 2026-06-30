@@ -1,5 +1,6 @@
 import type { AtermTerminal } from './aterm_wasm.js'
 import { shouldForwardMouse } from './aterm-mouse-input'
+import type { AtermWorkerAsyncFacade } from './aterm-worker-query-channel'
 
 export type AtermSelectionDeps = {
   canvas: HTMLCanvasElement
@@ -29,10 +30,7 @@ export type AtermSelectionInput = {
 // the canvas rect (not offsetX/Y) so synthetic e2e events and real events agree;
 // aterm's selection rows are display rows (already include the scrollback offset
 // via display_offset), so the visible row index maps 1:1.
-function pointToCell(
-  event: MouseEvent,
-  deps: AtermSelectionDeps
-): { col: number; row: number } {
+function pointToCell(event: MouseEvent, deps: AtermSelectionDeps): { col: number; row: number } {
   const rect = deps.canvas.getBoundingClientRect()
   const deviceX = (event.clientX - rect.left) * deps.dpr
   const deviceY = (event.clientY - rect.top) * deps.dpr
@@ -49,6 +47,13 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
   let dragging = false
   const copyOnSelect = (): boolean => getCopyOnSelect?.() ?? false
 
+  // Worker-backed term: selection_text()/selection_word()/selection_line() lag the
+  // posted selection (the snapshot updates a frame later), so copy-on-select reads the
+  // fresh text via the async query. In-process exposes no such method → sync read
+  // (byte-identical). Cmd/Ctrl+C keeps the sync copySelection() (it fires after settle).
+  const asyncSelectionText = (term as AtermTerminal & Partial<AtermWorkerAsyncFacade>)
+    .selectionTextAsync
+
   const copySelection = (): boolean => {
     const text = term.selection_text()
     if (text === undefined || text.length === 0) {
@@ -56,6 +61,21 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
     }
     onCopy(text)
     return true
+  }
+
+  // Copy after a posted selection change: await the worker's fresh text when available,
+  // else read it synchronously. Guards disposal + empty so it never clobbers the
+  // clipboard with a cleared/stale selection.
+  const copyAfterSelectionChange = (): void => {
+    if (asyncSelectionText) {
+      void asyncSelectionText().then((text) => {
+        if (!isDisposed() && text.length > 0) {
+          onCopy(text)
+        }
+      })
+      return
+    }
+    copySelection()
   }
 
   const onMouseDown = (event: MouseEvent): void => {
@@ -80,7 +100,15 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
       redraw()
       // Auto-copy only when copy-on-select is enabled (default off) — otherwise the
       // selection just highlights and Cmd/Ctrl+C copies it.
-      if (selected !== undefined && selected.length > 0 && copyOnSelect()) {
+      if (!copyOnSelect()) {
+        return
+      }
+      // Worker-backed selection_word/line can't return the text synchronously (they post;
+      // the snapshot lags), so copy the fresh text via the async query. In-process returns
+      // it directly — keep that exact path.
+      if (asyncSelectionText) {
+        copyAfterSelectionChange()
+      } else if (selected !== undefined && selected.length > 0) {
         onCopy(selected)
       }
       return
@@ -115,7 +143,7 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
     // this guard every drag clobbered the user's clipboard. Cmd/Ctrl+C still copies
     // unconditionally via copySelection() below.
     if (copyOnSelect()) {
-      copySelection()
+      copyAfterSelectionChange()
     }
   }
 

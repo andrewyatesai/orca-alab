@@ -101,6 +101,11 @@ export async function createAtermPaneController(
     canvas,
     themeColors,
     fontPx,
+    // Thread the user's terminalLineHeight so the worker engine builds its first cell box
+    // at the real line-height -- else the initial off-main snapshot reports a line-height-1
+    // cell, the first computeGrid over-counts rows, and a spurious first-open SIGWINCH
+    // fires. In-process drawers ignore it (the wiring's set_line_height applies it there).
+    lineHeight: controllerOptions?.getLineHeight?.() ?? 1,
     // If the worker attempt poisons the transferred canvas, rebuild a fresh one in
     // place so the in-process fallback has a usable surface (else the pane is dead).
     rebuildCanvas: () => {

@@ -28,8 +28,17 @@ export type AtermTextareaInputDeps = {
  *    and the IME commit (compositionend) — one route for all text, never doubled.
  *  Returns a disposer that removes every listener.
  *
- *  DECCKM (application cursor keys) is read per-press from the engine so arrows +
- *  Home/End emit SS3 vs CSI to match the live mode. */
+ *  Arrows + Home/End encode SS3 vs CSI per DECCKM (application cursor keys), read
+ *  per-press from `term.is_app_cursor_mode`. In-process that getter is the LIVE engine
+ *  flag (exact). On the single-engine worker path it is the latest STATE snapshot, which
+ *  can lag the engine by up to one frame, so a cursor key pressed in the ~1-frame window
+ *  right after a TUI toggles DECCKM may emit the other family for that ONE keystroke. We
+ *  deliberately keep this synchronous snapshot read instead of round-tripping the key to
+ *  the worker: input bytes go straight to the PTY today, so a round-trip would (a) queue
+ *  the keystroke behind pending output in the worker (laggy Ctrl-C during heavy output)
+ *  and (b) reorder it against printable chars/IME still sent synchronously here. The same
+ *  snapshot-lag caveat applies to the mouse click-gate (is_mouse_tracking) and the paste
+ *  wrap (bracketed_paste_mode); the snapshot is the safest available default. */
 export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispose: () => void } {
   const { textarea, term, inputSink, pasteSink, copySelection, getMacOptionIsMeta } = deps
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
@@ -68,8 +77,10 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       event.preventDefault()
       return
     }
-    // Read DECCKM + macOptionIsMeta each press so arrows/Home/End follow the live
-    // cursor-key mode and macOS Option meta-prefixes only when the setting is on.
+    // Read DECCKM + macOptionIsMeta each press so arrows/Home/End follow the cursor-key
+    // mode and macOS Option meta-prefixes only when the setting is on. In-process
+    // is_app_cursor_mode is the live engine flag; on the worker path it is the latest
+    // snapshot (<=1-frame lag -- see the file header for why we don't round-trip keys).
     const bytes = encodeKeyEventToBytes(event, {
       appCursor: term.is_app_cursor_mode,
       isMac,
@@ -97,8 +108,7 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     // even while a local IME composition is open; it must still reach the PTY, so
     // let paste/replacement inputs through regardless of the composing flag.
     const isPasteInsert =
-      inputEvent.inputType === 'insertFromPaste' ||
-      inputEvent.inputType === 'insertReplacementText'
+      inputEvent.inputType === 'insertFromPaste' || inputEvent.inputType === 'insertReplacementText'
     // Otherwise compositionend handles the committed IME string; ignore inputs
     // fired while composing (local flag OR event.isComposing) so a composed run
     // isn't sent twice char-by-char.

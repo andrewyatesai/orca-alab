@@ -23,6 +23,11 @@ type GridReflowConfig = {
   /** Commit a new grid: resize the strategy + report it to the PTY. */
   setGrid: (cols: number, rows: number) => void
   isDisposed: () => boolean
+  /** Worker path only: the single-engine worker applies set_px/line-height a frame AFTER
+   *  the STATE snapshot, so when the cell raster changes, defer the grid commit to the
+   *  worker's metrics-change push (onMetricsChange->forceReflow) instead of computing from
+   *  the stale snapshot. Unset/false in-process, whose set_px is synchronous. */
+  asyncMetrics?: boolean
   /** Push the new metrics into the input-handler deps + event reporting. */
   syncDependents: () => void
   scheduleDraw: () => void
@@ -51,7 +56,7 @@ export type AtermGridReflow = {
 export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow {
   const { term, container, metrics, getFontPx, getLineHeight, getGrid, setGrid, isDisposed } =
     config
-  const { syncDependents, scheduleDraw } = config
+  const { syncDependents, scheduleDraw, asyncMetrics } = config
 
   // The engine px the glyph atlas was last rasterized at (= round(fontPx * dpr)) and
   // the line-height the cell box was last derived at. Tracked so the draw-loop guard
@@ -81,10 +86,20 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
     }
     const liveDpr = window.devicePixelRatio || 1
     const desiredPx = Math.round(getFontPx() * liveDpr)
-    const metricsChanged =
-      liveDpr !== metrics.dpr || desiredPx !== appliedPx || getLineHeight() !== appliedLineHeight
+    // A px / line-height change re-rasterizes the cell; a pure dpr change does not.
+    const cellRasterChanged = desiredPx !== appliedPx || getLineHeight() !== appliedLineHeight
+    const metricsChanged = liveDpr !== metrics.dpr || cellRasterChanged
     if (metricsChanged) {
       reapplyMetrics(liveDpr)
+      // Worker path: the set_px/line-height we just posted re-rasterize the cell a frame
+      // later (the snapshot's cell_width/height are STILL stale here). When the cell
+      // raster changed, defer the grid commit to the worker's metrics-change push
+      // (onMetricsChange->forceReflow) so we commit ONE correct grid instead of a wrong
+      // one now + a corrected one next frame. A pure dpr change doesn't re-rasterize, so
+      // the worker won't push new metrics -- fall through and recompute the grid here.
+      if (asyncMetrics && cellRasterChanged) {
+        return
+      }
     }
     const next = computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
     const current = getGrid()

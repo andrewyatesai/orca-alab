@@ -44,6 +44,23 @@ function decodeReply(bytes: Uint8Array | undefined): string {
   return out
 }
 
+/** Latin-1 map ALL report bytes (0..255) for mouse reports. Legacy X10/1000/1002/1003
+ *  encode coords as 32+value, which exceeds 0x7F past column/row 95 — decodeReply's
+ *  ASCII-only filter would silently drop those bytes and truncate the report. Each byte
+ *  maps 1:1 to a char code (no UTF-8 widening), matching the in-process aterm-mouse-input
+ *  send() which posts String.fromCharCode(...bytes); the reply channel forwards it
+ *  verbatim to the PTY input sink. */
+function decodeMouseReport(bytes: Uint8Array | undefined): string {
+  if (!bytes || bytes.length === 0) {
+    return ''
+  }
+  let out = ''
+  for (let i = 0; i < bytes.length; i++) {
+    out += String.fromCharCode(bytes[i])
+  }
+  return out
+}
+
 export function createWorkerTerminal(handle: EngineHandle): {
   processBytes: (data: string) => WorkerSideChannels
   render: () => void
@@ -271,7 +288,9 @@ export function createWorkerTerminal(handle: EngineHandle): {
       } else {
         bytes = e.encode_mouse_wheel(col, row, up, mods)
       }
-      return decodeReply(bytes)
+      // Mouse reports are PTY input, not an ASCII engine reply — keep every byte
+      // (legacy modes emit bytes ≥ 0x80) so the report isn't truncated.
+      return decodeMouseReport(bytes)
     },
     query: (kind, arg, arg2) => {
       switch (kind) {

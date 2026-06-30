@@ -11,11 +11,8 @@
 // selection-drag + theme + search + cursor paths need is live.
 
 import type { AtermTerminal } from './aterm_wasm.js'
-import type {
-  AtermWorkerQuery,
-  AtermWorkerRequest,
-  AtermWorkerState
-} from './aterm-render-worker-protocol'
+import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
+import type { AtermWorkerRequest, AtermWorkerState } from './aterm-render-worker-protocol'
 
 /** The initial snapshot the loader awaits (carries the first cell metrics) before it
  *  builds the controller, so construction-time reads (cell_width/height) are real. */
@@ -57,6 +54,10 @@ export type WorkerBackedTerm = {
    *  off-screen history; the synchronous shutdown path is served separately.) */
   serializeAsync: (scrollbackRows?: number) => Promise<string>
   serializeScrollbackAsync: (maxRows?: number) => Promise<string>
+  /** Settle every in-flight async query to null + clear timers; the loader calls this
+   *  BEFORE worker.terminate() so serialize/selectionText awaiters (pty-connection
+   *  save/hydrate, terminal-agent-session-fork) can't hang on a reply that never comes. */
+  dispose: () => void
 }
 
 type GridRow = { text: string; wrapped: boolean; len: number; widths: string; cells?: string[] }
@@ -105,20 +106,10 @@ export function createWorkerBackedTerm(deps: {
   let cachedSerialize = ''
   let cachedScrollback = ''
 
-  // Async query round-trip (serialize / cold content reads): id-correlated promises the
-  // loader resolves from 'queryResult' messages. Shared infra (Stage D mouse-encode reuses it).
-  let nextQueryId = 1
-  const pendingQueries = new Map<number, (value: string | number | boolean | null) => void>()
-  const sendQuery = (
-    kind: AtermWorkerQuery['kind'],
-    arg?: number,
-    arg2?: number
-  ): Promise<string | number | boolean | null> =>
-    new Promise((resolve) => {
-      const id = nextQueryId++
-      pendingQueries.set(id, resolve)
-      post({ type: 'query', id, kind, arg, arg2 })
-    })
+  // Async query round-trip (serialize / selection / link / cold content reads):
+  // id-correlated promises the channel resolves from 'queryResult' messages, with a
+  // per-query timeout + dispose-flush so a dropped reply can't hang an awaiter.
+  const queryChannel = createAtermWorkerQueryChannel(post)
 
   const applyState = (next: AtermWorkerState): void => {
     const metricsChanged =
@@ -343,6 +334,13 @@ export function createWorkerBackedTerm(deps: {
       return undefined
     },
 
+    // Worker-only async/clear capabilities (AtermWorkerAsyncFacade): the sync facade
+    // reads lag a frame after a posted mutation, so the shared selection/link input
+    // handlers use these on the worker path and fall back to the sync engine in-process.
+    selectionTextAsync: queryChannel.selectionTextAsync,
+    linkAtAsync: queryChannel.linkAtAsync,
+    clearHover: () => post({ type: 'setHover', clear: true }),
+
     free: () => post({ type: 'dispose' })
   }
 
@@ -365,24 +363,13 @@ export function createWorkerBackedTerm(deps: {
     onReply: (handler) => void replyListeners.add(handler),
     onMetricsChange: (handler) => void metricsListeners.add(handler),
     onSideChannel: (handler) => void sideChannelListeners.add(handler),
-    resolveQuery: (id, value) => {
-      const resolve = pendingQueries.get(id)
-      if (resolve) {
-        pendingQueries.delete(id)
-        resolve(value)
-      }
-    },
+    resolveQuery: queryChannel.resolve,
     applySerializedCache: (full, scrollback) => {
       cachedSerialize = full
       cachedScrollback = scrollback
     },
-    serializeAsync: async (scrollbackRows) => {
-      const v = await sendQuery('serialize', scrollbackRows)
-      return typeof v === 'string' ? v : ''
-    },
-    serializeScrollbackAsync: async (maxRows) => {
-      const v = await sendQuery('serializeScrollback', maxRows)
-      return typeof v === 'string' ? v : ''
-    }
+    serializeAsync: queryChannel.serializeAsync,
+    serializeScrollbackAsync: queryChannel.serializeScrollbackAsync,
+    dispose: queryChannel.dispose
   }
 }

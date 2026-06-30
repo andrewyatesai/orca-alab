@@ -239,6 +239,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getFontPx,
     getLineHeight,
     getGrid,
+    // Worker path (onMetricsChange present): cell metrics land a frame after set_px, so
+    // defer the grid commit to the worker's metrics push instead of the stale snapshot.
+    // In-process set_px is synchronous (no hook) -> commit immediately (unchanged).
+    asyncMetrics: strategy.onMetricsChange !== undefined,
     setGrid: (nextCols, nextRows) => {
       cols = nextCols
       rows = nextRows

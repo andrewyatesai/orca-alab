@@ -1,0 +1,265 @@
+/**
+ * @vitest-environment happy-dom
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
+import { createWorkerTerminal } from './aterm-worker-terminal'
+import { attachAtermSelectionInput } from './aterm-selection-input'
+import { attachAtermLinkInput } from './aterm-link-input'
+import type { EngineHandle } from './aterm-worker-engine-build'
+import type { AtermTerminal } from './aterm_wasm.js'
+
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+
+// ── Finding 1: dispose-leak — the query channel must never leave an awaiter hanging ──
+describe('aterm worker query channel (dispose-leak)', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('resolves a pending serialize by id', async () => {
+    let sentId = -1
+    const ch = createAtermWorkerQueryChannel((cmd) => {
+      if (cmd.type === 'query') {
+        sentId = cmd.id
+      }
+    })
+    const p = ch.serializeAsync()
+    ch.resolve(sentId, 'BLOB')
+    await expect(p).resolves.toBe('BLOB')
+  })
+
+  it('settles EVERY in-flight query to "" on dispose (worker terminated at quit)', async () => {
+    const ch = createAtermWorkerQueryChannel(() => undefined)
+    const a = ch.serializeAsync()
+    const b = ch.serializeScrollbackAsync()
+    const c = ch.selectionTextAsync()
+    ch.dispose()
+    // Without the dispose-flush these awaiters hang forever (a quit-time Promise.all stalls).
+    await expect(Promise.all([a, b, c])).resolves.toEqual(['', '', ''])
+  })
+
+  it('times out a dropped queryResult to "" instead of hanging', async () => {
+    vi.useFakeTimers()
+    const ch = createAtermWorkerQueryChannel(() => undefined)
+    const p = ch.serializeAsync()
+    vi.advanceTimersByTime(5000)
+    await expect(p).resolves.toBe('')
+  })
+})
+
+// ── Finding 3: legacy mouse — bytes ≥ 0x80 must survive (no ASCII strip) ──
+describe('aterm worker mouseEncode (legacy 1000/1002/1003 high bytes)', () => {
+  it('preserves every report byte 0..255 (Latin-1), not just ASCII', () => {
+    // Legacy X10 press at column/row 100: ESC [ M <btn+32> <col+33> <row+33>; 32+100+1=133=0x85.
+    const bytes = Uint8Array.from([0x1b, 0x5b, 0x4d, 0x20, 0x85, 0x85])
+    const handle = {
+      kind: 'cpu',
+      engine: {
+        encode_mouse_press: () => bytes,
+        encode_mouse_release: () => bytes,
+        encode_mouse_motion: () => bytes,
+        encode_mouse_wheel: () => bytes
+      }
+    } as unknown as EngineHandle
+    const term = createWorkerTerminal(handle)
+    const out = term.mouseEncode('press', 100, 100, 0, 0, false)
+    // decodeReply would drop the two 0x85 bytes → length 4; the fix keeps all 6.
+    expect(out.length).toBe(6)
+    expect([...out].map((ch) => ch.charCodeAt(0))).toEqual([...bytes])
+  })
+})
+
+// ── Shared DOM harness for the input handlers ──
+function makeCanvas(): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  document.body.appendChild(canvas)
+  return canvas
+}
+
+// ── Finding 2: copy-on-select over the worker seam ──
+describe('aterm selection copy-on-select (worker async text)', () => {
+  it('drag mouseup copies the ASYNC selection text (sync snapshot is stale)', async () => {
+    const onCopy = vi.fn()
+    const term = {
+      is_mouse_tracking: false,
+      selection_text: () => '', // lagging worker snapshot right after selection_finish
+      selection_clear: vi.fn(),
+      selection_start: vi.fn(),
+      selection_extend: vi.fn(),
+      selection_finish: vi.fn(),
+      selectionTextAsync: () => Promise.resolve('dragged text')
+    } as unknown as AtermTerminal
+    const canvas = makeCanvas()
+    attachAtermSelectionInput({
+      canvas,
+      term,
+      dpr: 1,
+      cellWidth: 10,
+      cellHeight: 10,
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      onCopy,
+      getCopyOnSelect: () => true
+    })
+    canvas.dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, detail: 1, clientX: 5, clientY: 5 })
+    )
+    window.dispatchEvent(new MouseEvent('mouseup'))
+    await flush()
+    // Before the fix copySelection() read the stale '' → nothing copied.
+    expect(onCopy).toHaveBeenCalledWith('dragged text')
+  })
+
+  it('double-click word copies the ASYNC text even though selection_word returns undefined', async () => {
+    const onCopy = vi.fn()
+    const term = {
+      is_mouse_tracking: false,
+      selection_text: () => '',
+      selection_clear: vi.fn(),
+      selection_start: vi.fn(),
+      selection_extend: vi.fn(),
+      selection_finish: vi.fn(),
+      selection_word: () => undefined, // worker facade posts + returns undefined
+      selection_line: () => undefined,
+      selectionTextAsync: () => Promise.resolve('word')
+    } as unknown as AtermTerminal
+    const canvas = makeCanvas()
+    attachAtermSelectionInput({
+      canvas,
+      term,
+      dpr: 1,
+      cellWidth: 10,
+      cellHeight: 10,
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      onCopy,
+      getCopyOnSelect: () => true
+    })
+    canvas.dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, detail: 2, clientX: 5, clientY: 5 })
+    )
+    await flush()
+    expect(onCopy).toHaveBeenCalledWith('word')
+  })
+
+  it('in-process path is unchanged: copies the SYNC return / selection_text', () => {
+    const onCopy = vi.fn()
+    const term = {
+      is_mouse_tracking: false,
+      selection_text: () => 'sync drag',
+      selection_clear: vi.fn(),
+      selection_start: vi.fn(),
+      selection_extend: vi.fn(),
+      selection_finish: vi.fn(),
+      selection_word: () => 'sync word',
+      selection_line: () => 'sync line'
+      // no selectionTextAsync → in-process engine
+    } as unknown as AtermTerminal
+    const canvas = makeCanvas()
+    attachAtermSelectionInput({
+      canvas,
+      term,
+      dpr: 1,
+      cellWidth: 10,
+      cellHeight: 10,
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      onCopy,
+      getCopyOnSelect: () => true
+    })
+    canvas.dispatchEvent(
+      new MouseEvent('mousedown', { button: 0, detail: 2, clientX: 5, clientY: 5 })
+    )
+    expect(onCopy).toHaveBeenCalledWith('sync word') // synchronous, no await needed
+  })
+})
+
+// ── Finding 4: link hover cursor + click activation over the worker seam ──
+describe('aterm link input (worker hover/click)', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('Cmd/Ctrl+click resolves the link via the ASYNC query and opens it', async () => {
+    const openUrl = vi.fn()
+    const term = {
+      is_alt_screen: false,
+      is_mouse_tracking: false,
+      link_at: () => undefined, // lagging snapshot has no hit yet
+      linkAtAsync: () =>
+        Promise.resolve({ url: 'https://example.test', kind: 1, start_col: 0, end_col: 3 }),
+      clearHover: vi.fn()
+    } as unknown as AtermTerminal
+    const canvas = makeCanvas()
+    attachAtermLinkInput({
+      canvas,
+      term,
+      dpr: 1,
+      cellWidth: 10,
+      cellHeight: 10,
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      openUrl,
+      getFileLinkOpener: () => null
+    })
+    canvas.dispatchEvent(
+      new MouseEvent('click', { button: 0, metaKey: true, ctrlKey: true, clientX: 5, clientY: 5 })
+    )
+    await flush()
+    expect(openUrl).toHaveBeenCalledWith('https://example.test', { forceSystemBrowser: false })
+  })
+
+  it('worker path does NOT write the canvas cursor on hover (loader owns it)', () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+      cb()
+      return 1
+    })
+    const term = {
+      is_alt_screen: false,
+      is_mouse_tracking: false,
+      // Even when the (stale) sync snapshot reports a hit, the worker path must not set
+      // 'pointer' here — the loader drives the cursor from state.hoverCursor.
+      link_at: () => ({ url: 'u', kind: 1, start_col: 0, end_col: 3 }),
+      linkAtAsync: () => Promise.resolve(null),
+      clearHover: vi.fn()
+    } as unknown as AtermTerminal
+    const canvas = makeCanvas()
+    attachAtermLinkInput({
+      canvas,
+      term,
+      dpr: 1,
+      cellWidth: 10,
+      cellHeight: 10,
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      openUrl: vi.fn(),
+      getFileLinkOpener: () => null
+    })
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 5, clientY: 5 }))
+    expect(canvas.style.cursor).toBe('') // not 'pointer'
+  })
+
+  it('in-process path is unchanged: hover writes the pointer cursor synchronously', () => {
+    vi.stubGlobal('requestAnimationFrame', (cb: () => void) => {
+      cb()
+      return 1
+    })
+    const term = {
+      is_alt_screen: false,
+      is_mouse_tracking: false,
+      link_at: () => ({ url: 'u', kind: 1, start_col: 0, end_col: 3 })
+      // no linkAtAsync / clearHover → in-process engine
+    } as unknown as AtermTerminal
+    const canvas = makeCanvas()
+    attachAtermLinkInput({
+      canvas,
+      term,
+      dpr: 1,
+      cellWidth: 10,
+      cellHeight: 10,
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      openUrl: vi.fn(),
+      getFileLinkOpener: () => null
+    })
+    canvas.dispatchEvent(new MouseEvent('mousemove', { clientX: 5, clientY: 5 }))
+    expect(canvas.style.cursor).toBe('pointer')
+  })
+})

@@ -18,7 +18,11 @@ export function createAtermWorkerOverlay(
   paneCanvas: HTMLCanvasElement,
   /** Theme fg (0x00RRGGBB) — the hover-underline colour; read live so a re-theme
    *  recolours it without rebuilding the pane. */
-  getFgColor: () => number
+  getFgColor: () => number,
+  /** The APPLIED (reconciled) dpr the worker rendered this framebuffer at — NOT live
+   *  window.devicePixelRatio, which can diverge during a DPI settle / fractional dpr and
+   *  drift the highlights/underline off their cells. Mirrors aterm-search-overlay-canvas. */
+  getDpr: () => number
 ): AtermWorkerOverlay {
   const overlay = document.createElement('canvas')
   overlay.dataset.testid = 'aterm-worker-overlay' // e2e locator
@@ -47,7 +51,8 @@ export function createAtermWorkerOverlay(
         overlay.width = width
         overlay.height = height
       }
-      const dpr = window.devicePixelRatio || 1
+      // The dpr the worker rendered at (see getDpr), NOT live devicePixelRatio.
+      const dpr = getDpr() || 1
       overlay.style.width = `${width / dpr}px`
       overlay.style.height = `${height / dpr}px`
       // Always clear (a prior frame's highlight/underline may now be gone).

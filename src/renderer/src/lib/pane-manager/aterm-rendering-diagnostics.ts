@@ -52,6 +52,8 @@ export function applyAtermGpuMode(panes: Iterable<ManagedPaneInternal>, mode: Gp
   const desiredGpu = mode === 'on' ? true : mode === 'off' ? false : null
   for (const pane of panes) {
     pane.terminalGpuAcceleration = mode
-    rebuildAtermPaneForGpuMode(pane, desiredGpu)
+    // Fire-and-forget: each pane rebuilds independently after its worker serialize
+    // round-trip; the function guards against teardown during its own await.
+    void rebuildAtermPaneForGpuMode(pane, desiredGpu)
   }
 }

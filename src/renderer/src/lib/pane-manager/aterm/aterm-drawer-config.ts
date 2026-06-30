@@ -11,6 +11,10 @@ export type AtermDrawerBuildConfig = {
   themeColors: AtermThemeColors
   /** Cell font-size in DEVICE pixels (ATERM_RENDERER_FONT_PX * dpr). */
   fontPx: number
+  /** Cell line-height multiplier (the user's terminalLineHeight; 1 = engine default).
+   *  Only the single-engine worker init reads it, so the FIRST off-main snapshot's cell
+   *  box is right; the in-process drawers re-derive it via the wiring's set_line_height. */
+  lineHeight?: number
   /** Build a FRESH grid canvas and swap it into the DOM in place of the current one,
    *  returning it. The worker path transferControlToOffscreen()'s the canvas before
    *  its first-frame race; if that fails the canvas is poisoned (getContext throws),

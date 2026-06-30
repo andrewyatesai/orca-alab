@@ -45,7 +45,7 @@ const WORKER_INIT_TIMEOUT_MS = 4000
 export async function loadAtermWorkerEngine(
   config: AtermDrawerBuildConfig
 ): Promise<AtermPendingStrategy> {
-  const { canvas, themeColors, fontPx } = config
+  const { canvas, themeColors, fontPx, lineHeight } = config
 
   // Vite (renderer worker:{format:'es'}) bundles the worker from this URL.
   const worker = new Worker(new URL('./aterm-render-worker.ts', import.meta.url), {
@@ -73,6 +73,11 @@ export async function loadAtermWorkerEngine(
   // repainting the overlay each STATE while suspended (the worker keeps posting STATE so
   // sync snapshot reads + a11y stay fresh; only the visible paint is gated).
   let workerSuspended = false
+  // The applied (reconciled) dpr the worker rendered at — set from the wiring's getDpr in
+  // bindPainter so the overlay's CSS box tracks the pane canvas through a DPI settle /
+  // fractional dpr (live devicePixelRatio can diverge from the rendered dpr). Defaults to
+  // live dpr until bindPainter runs (the overlay only paints after the first frame anyway).
+  let overlayGetDpr: () => number = () => window.devicePixelRatio || 1
   let firstResolved = false
   let resolveFirst: (state: AtermWorkerState) => void = () => undefined
   const firstState = new Promise<AtermWorkerState>((resolve) => {
@@ -90,6 +95,11 @@ export async function loadAtermWorkerEngine(
           // Keep state fresh for sync reads + a11y even while hidden, but skip the
           // visible overlay repaint when suspended (resume re-paints the latest state).
           backed?.applyState(data)
+          // Drive the pane canvas hover cursor from the worker's computed hoverCursor
+          // ('pointer' over a link, else ''): the worker owns link detection, so this is
+          // the single source of truth — the sync link_at snapshot lags a frame and never
+          // updates the cursor on a stationary hover.
+          canvas.style.cursor = data.hoverCursor
           if (!workerSuspended) {
             overlay?.paint(data)
           }
@@ -140,12 +150,14 @@ export async function loadAtermWorkerEngine(
       canvas: offscreen,
       fontBytes: fontBytesCopy,
       fallbackFonts,
-      // The wiring sizes the real grid + applies the user's fontPx/line-height via the
-      // term's posted set_px/set_line_height/resize; start at MIN + line-height 1.
+      // The wiring re-applies the user's fontPx/line-height via the term's posted
+      // set_px/set_line_height/resize; start at the MIN grid. The user's line-height is
+      // threaded here so the FIRST snapshot's cell box is already correct (no over-counted
+      // initial rows / spurious first-open SIGWINCH when terminalLineHeight != 1).
       rows: MIN_GRID_ROWS,
       cols: MIN_GRID_COLS,
       fontPx,
-      lineHeight: 1,
+      lineHeight: lineHeight ?? 1,
       themeColors
     },
     [offscreen, fontBytesCopy.buffer, ...fallbackFonts.map((f) => f.buffer)]
@@ -174,37 +186,50 @@ export async function loadAtermWorkerEngine(
   backed = createWorkerBackedTerm({ post, initial })
   // The worker owns the pane canvas, so search highlights + the link underline paint on
   // a main-thread stacked overlay driven by the snapshot (works for CPU + GPU worker).
-  overlay = createAtermWorkerOverlay(canvas, () => themeColors.fg)
+  overlay = createAtermWorkerOverlay(
+    canvas,
+    () => themeColors.fg,
+    () => overlayGetDpr()
+  )
   overlay.paint(initial)
 
-  const bindPainter = (_binding: AtermPainterBinding): AtermDrawStrategy => ({
-    term: backed!.term,
-    getCanvas: () => canvas,
-    // The worker presents the engine grid (incl. selection, engine-drawn); search +
-    // link overlays paint on the main-thread stacked overlay above (snapshot-driven),
-    // so the controller's in-process search-overlay path stays off.
-    needsSearchOverlay: false,
-    drawFrame: () => post({ type: 'draw' }),
-    resize: (rows, cols) => backed!.term.resize(rows, cols),
-    // Hidden-pane gating across the seam: the worker renders on its own rAF, so pause
-    // its draw loop (+ the main-thread overlay repaint) when the pane is hidden. The
-    // worker schedules one draw on resume so the pane shows its latest state.
-    setDrawSuspended: (next) => {
-      workerSuspended = next
-      post({ type: 'setDrawSuspended', suspended: next })
-    },
-    onReply: (handler) => backed!.onReply(handler),
-    onMetricsChange: (handler) => backed!.onMetricsChange(handler),
-    onSideChannel: (handler) => backed!.onSideChannel(handler),
-    serializeAsync: (scrollbackRows) => backed!.serializeAsync(scrollbackRows),
-    serializeScrollbackAsync: (maxRows) => backed!.serializeScrollbackAsync(maxRows),
-    dispose: () => {
-      overlay?.dispose()
-      overlay = null
-      post({ type: 'dispose' })
-      worker.terminate()
+  const bindPainter = (binding: AtermPainterBinding): AtermDrawStrategy => {
+    // Feed the overlay the wiring's reconciled dpr so its CSS box tracks the pane canvas
+    // through a DPI settle (live devicePixelRatio can diverge from the rendered dpr).
+    overlayGetDpr = binding.getDpr
+    return {
+      term: backed!.term,
+      getCanvas: () => canvas,
+      // The worker presents the engine grid (incl. selection, engine-drawn); search +
+      // link overlays paint on the main-thread stacked overlay above (snapshot-driven),
+      // so the controller's in-process search-overlay path stays off.
+      needsSearchOverlay: false,
+      drawFrame: () => post({ type: 'draw' }),
+      resize: (rows, cols) => backed!.term.resize(rows, cols),
+      // Hidden-pane gating across the seam: the worker renders on its own rAF, so pause
+      // its draw loop (+ the main-thread overlay repaint) when the pane is hidden. The
+      // worker schedules one draw on resume so the pane shows its latest state.
+      setDrawSuspended: (next) => {
+        workerSuspended = next
+        post({ type: 'setDrawSuspended', suspended: next })
+      },
+      onReply: (handler) => backed!.onReply(handler),
+      onMetricsChange: (handler) => backed!.onMetricsChange(handler),
+      onSideChannel: (handler) => backed!.onSideChannel(handler),
+      serializeAsync: (scrollbackRows) => backed!.serializeAsync(scrollbackRows),
+      serializeScrollbackAsync: (maxRows) => backed!.serializeScrollbackAsync(maxRows),
+      dispose: () => {
+        overlay?.dispose()
+        overlay = null
+        // Settle in-flight async queries (serialize/selectionText) to a safe null BEFORE
+        // terminating the worker, so save/hydrate/fork awaiters in a quit-time Promise.all
+        // can't hang on a queryResult the terminated worker will never send.
+        backed?.dispose()
+        post({ type: 'dispose' })
+        worker.terminate()
+      }
     }
-  })
+  }
 
   return {
     kind: initial.engine,

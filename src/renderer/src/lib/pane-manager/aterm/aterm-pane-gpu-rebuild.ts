@@ -10,10 +10,10 @@ import { openAtermPane } from './aterm-pane-open'
  *  through the facade: openAtermPane attaches asynchronously and the facade
  *  buffers pre-attach feed, replaying it in order once the new controller binds.
  *  No-op for a pane whose live renderer kind already matches the desired path. */
-export function rebuildAtermPaneForGpuMode(
+export async function rebuildAtermPaneForGpuMode(
   pane: ManagedPaneInternal,
   desiredGpu: boolean | null
-): void {
+): Promise<void> {
   const controller = pane.atermController
   if (pane.disposed || !controller) {
     return
@@ -23,9 +23,17 @@ export function rebuildAtermPaneForGpuMode(
   if (desiredGpu === null || (controller.rendererKind() === 'gpu') === desiredGpu) {
     return
   }
-  // Snapshot the full buffer (history + viewport) as replayable ANSI before
-  // tearing down the engine, then re-seed the rebuilt engine with it.
-  const snapshot = controller.serialize()
+  // Snapshot the full buffer (history + viewport) as replayable ANSI before tearing
+  // down the engine. MUST be the awaitable serialize: on the single-engine worker path
+  // the sync serialize() returns only the debounced/stale (usually empty) cache, so the
+  // rebuilt engine would re-seed from nothing and wipe the pane -- serializeAsync
+  // round-trips to the worker for the fresh full history (cost-free in-process).
+  const snapshot = await controller.serializeAsync()
+  // The await yielded; bail if the pane was torn down or already rebuilt meanwhile so we
+  // don't dispose/replace a controller that is no longer the live one.
+  if (pane.disposed || pane.atermController !== controller) {
+    return
+  }
   controller.dispose()
   pane.atermController = null
   if (snapshot) {

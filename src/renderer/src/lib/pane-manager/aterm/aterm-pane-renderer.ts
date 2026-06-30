@@ -324,6 +324,7 @@ export async function createAtermPaneController(
     updateTheme: (colors) => wired.controller.updateTheme(colors),
     setSelectionInactive: (inactive) => wired.controller.setSelectionInactive(inactive),
     setSelectionInactiveBg: (bg) => wired.controller.setSelectionInactiveBg(bg),
+    reapplyEngineSettings: () => wired.controller.reapplyEngineSettings(),
     scheduleDraw: () => wired.controller.scheduleDraw(),
     onEngineSideChannel: (handler) => wired.controller.onEngineSideChannel?.(handler),
     // Read the CURRENT wiring's kind/adapter so a GPU→CPU swap is reflected (the

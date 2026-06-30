@@ -77,6 +77,10 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  so the facade drains it immediately instead of a chunk late. Unset/no-op for the
    *  in-process strategies, whose post-process() drain is already synchronous. */
   onEngineSideChannel?: (handler: () => void) => void
+  /** Re-apply ligatures / scrollback / default cursor style from the live settings to
+   *  this open pane (cheap engine setters; mirrors how theme/size live-apply). Called by
+   *  applyTerminalAppearance on a settings change so a toggle takes effect immediately. */
+  reapplyEngineSettings: () => void
   /** Schedule a canvas redraw (coalesced into one frame). Lets the output
    *  scheduler repaint the engine's mirrored state after a callback-only
    *  __schedulerWrite, which feeds no bytes and so schedules no draw of its own. */

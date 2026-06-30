@@ -321,7 +321,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     term,
     readers,
     inputSink,
-    isDisposed: () => disposed
+    isDisposed: () => disposed,
+    scheduleDraw
   })
 
   resizeSink(cols, rows)
@@ -372,8 +373,6 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     title: titleChannel.title,
     onTitleChange: titleChannel.onTitleChange,
     gridSize: () => getGrid(),
-    isAltScreen: () => term.is_alt_screen,
-    bracketedPasteMode: () => term.bracketed_paste_mode,
     // Toggle the engine's fail-closed OSC 52 write gate so it queues OSC 52 set
     // events for the facade to drain; the host still enforces the user setting.
     setClipboardWriteAuthorized: (allowed: boolean) =>
@@ -384,6 +383,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // pane rebuild). `metrics` is passed by reference so re-theme reads the
     // current cell size after a DPI change, not the construction one.
     ...buildAtermThemeMutators({ term, themeColors, metrics, scheduleDraw }),
+    // Live-apply ligatures / scrollback / default cursor style to this OPEN pane on a
+    // settings change (re-reads the live readers), matching how theme/size apply live.
+    reapplyEngineSettings: engineSettings.reapply,
     scheduleDraw,
     // Renderer introspection for the pane manager's diagnostics; this wiring is
     // rebuilt onto CPU after a context loss, so it reflects the live draw path.

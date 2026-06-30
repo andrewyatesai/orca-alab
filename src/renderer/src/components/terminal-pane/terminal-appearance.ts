@@ -253,8 +253,10 @@ export function applyTerminalAppearance(
     // `effectiveMacOptionAsAlt` carries.
     pane.terminal.options.macOptionIsMeta = effectiveMacOptionAsAlt === 'true'
     pane.terminal.options.lineHeight = settings.terminalLineHeight
-    // aterm shapes ligatures natively from the font, so there's no renderer-side
-    // ligature toggle to apply here.
+    // Live-apply the aterm engine settings that aren't read per-frame (ligatures,
+    // scrollback depth, default cursor style) so toggling them updates this OPEN pane,
+    // not just the next one (re-reads the live settings; no-op on a non-aterm pane).
+    pane.atermController?.reapplyEngineSettings()
     try {
       const state = captureScrollState(pane.terminal)
       safeFit(pane)

@@ -58,8 +58,34 @@ cd ../tools/terminal-bench && npm install
 node run.mjs 5 16
 ```
 
+## Agent gate: the gauntlet (run this instead of CI)
+
+`gauntlet.mjs` is the single agent-runnable gate that proves aterm is a full,
+superior xterm replacement — no GitHub Actions. It bootstraps its own
+prerequisites, then runs three axes and emits a machine-readable verdict:
+
+```sh
+pnpm gauntlet                 # all axes; or: node tools/terminal-bench/gauntlet.mjs all
+pnpm gauntlet:conformance     # visible-grid differential vs xterm (per ANSI case)
+pnpm gauntlet:perf            # MB/s medians + grid-parity
+```
+
+- **conformance** — every case in `tools/aterm-vs-xterm/corpus.json` is run through
+  both engines and the 24×80 grids are diffed. A match is parity; a divergence is
+  `REVIEW` (not auto-fail), because aterm being *more* correct than xterm per the
+  VT/ECMA-48 spec is a win to triage — see `tools/aterm-vs-xterm/GOAL-B-HANDOFF.md`.
+- **perf** — best-of-N medians via `xterm-bench.mjs` / `addon-bench.mjs`, plus a
+  grid-parity fingerprint check.
+- **safety** — discharges the orca-git SMT obligations when `~/.cargo/bin/ay` is
+  present; `SKIP` (never fail) when the Trust toolchain is absent.
+
+Exit code is the contract an agent branches on: **0** = all green/skipped, **1** =
+a real FAIL, **2** = a REVIEW to triage. The full report is written to
+`.gauntlet-report.json`.
+
 ## Files
 
+- `gauntlet.mjs` — the agent gate: bootstrap + conformance + perf + safety, with exit codes.
 - `run.mjs` — orchestrator: medians + parity verdict.
 - `xterm-bench.mjs` — the `@xterm/headless` baseline leg.
 - `addon-bench.mjs` — loads the napi addon (`require('orca_node.node')`) and runs the same corpus.

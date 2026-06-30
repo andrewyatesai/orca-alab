@@ -26,6 +26,12 @@ export function createAtermWorkerOverlay(
 ): AtermWorkerOverlay {
   const overlay = document.createElement('canvas')
   overlay.dataset.testid = 'aterm-worker-overlay' // e2e locator
+  // Whether the last paint drew anything: lets an idle pane (no search, no hovered link)
+  // skip the full-canvas clearRect entirely — only the content→empty transition needs the
+  // one final clear. The CSS box size last written, to skip redundant style writes.
+  let hadContent = false
+  let lastCssWidth = -1
+  let lastCssHeight = -1
   // Stack exactly over the pane canvas; transparent + click-through so it never
   // intercepts selection/scroll/link events (those stay on the pane canvas).
   overlay.style.position = 'absolute'
@@ -48,14 +54,31 @@ export function createAtermWorkerOverlay(
         return
       }
       if (overlay.width !== width || overlay.height !== height) {
+        // Resizing the backing store clears it, so the prior content is already gone.
         overlay.width = width
         overlay.height = height
+        hadContent = false
       }
       // The dpr the worker rendered at (see getDpr), NOT live devicePixelRatio.
       const dpr = getDpr() || 1
-      overlay.style.width = `${width / dpr}px`
-      overlay.style.height = `${height / dpr}px`
-      // Always clear (a prior frame's highlight/underline may now be gone).
+      // Only touch the CSSOM box when it actually changed (avoids two `${n}px` string
+      // allocations + style writes per frame in the steady state).
+      const cssWidth = width / dpr
+      const cssHeight = height / dpr
+      if (cssWidth !== lastCssWidth || cssHeight !== lastCssHeight) {
+        overlay.style.width = `${cssWidth}px`
+        overlay.style.height = `${cssHeight}px`
+        lastCssWidth = cssWidth
+        lastCssHeight = cssHeight
+      }
+      // The overwhelmingly common steady state has no active search + no hovered link.
+      // When there's nothing to draw now AND nothing was drawn last frame, skip the
+      // full-canvas clearRect (millions of px on the MAIN thread, ~60/sec/streaming pane).
+      const hasContent = state.searchMatchRects.length > 0 || state.hoverLink !== null
+      if (!hasContent && !hadContent) {
+        return
+      }
+      // Clear (a prior frame's highlight/underline may now be gone) then repaint.
       ctx.clearRect(0, 0, width, height)
       for (const r of state.searchMatchRects) {
         ctx.fillStyle = r.active ? SEARCH_ACTIVE_FILL : SEARCH_MATCH_FILL
@@ -68,6 +91,7 @@ export function createAtermWorkerOverlay(
         getFgColor(),
         { cellWidth: state.cellWidth, cellHeight: state.cellHeight, dpr }
       )
+      hadContent = hasContent
     },
     dispose: () => overlay.remove()
   }

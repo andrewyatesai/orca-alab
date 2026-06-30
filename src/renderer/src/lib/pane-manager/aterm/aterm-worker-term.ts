@@ -16,6 +16,7 @@
 
 import type { AtermTerminal } from './aterm_wasm.js'
 import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
+import { buildAtermRowCells } from './aterm-worker-grid-cells'
 import type { AtermWorkerRequest, AtermWorkerState } from './aterm-render-worker-protocol'
 
 /** The initial snapshot the loader awaits (carries the first cell metrics) before it
@@ -66,27 +67,9 @@ export type WorkerBackedTerm = {
 
 type GridRow = { text: string; wrapped: boolean; len: number; widths: string; cells?: string[] }
 
-/** Reconstruct per-column graphemes from a row's text + width digits so cell_text is
- *  served from the snapshot. Wide lead cells ('2') own the grapheme; the trailing
- *  spacer column is empty. Best-effort grapheme segmentation (matches the facade's
- *  prior 1:1 char→column assumption when Segmenter is unavailable). */
-function buildCells(row: GridRow, cols: number): string[] {
-  const segmenter = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter() : null
-  const graphemes = segmenter
-    ? Array.from(segmenter.segment(row.text), (s) => s.segment)
-    : Array.from(row.text)
-  const cells: string[] = Array.from({ length: cols }, () => '')
-  let col = 0
-  for (const g of graphemes) {
-    if (col >= cols) {
-      break
-    }
-    cells[col] = g
-    // Advance by the cell's width (2 = wide lead + spacer); default 1.
-    col += row.widths[col] === '2' ? 2 : 1
-  }
-  return cells
-}
+// One decoder for the bytes-process path (TextDecoder is stateless across decode() calls
+// for whole-buffer input, so reuse it instead of allocating one per feed).
+const PROCESS_TEXT_DECODER = new TextDecoder()
 
 export function createWorkerBackedTerm(deps: {
   post: (cmd: AtermWorkerRequest, transfer?: Transferable[]) => void
@@ -161,7 +144,7 @@ export function createWorkerBackedTerm(deps: {
       return []
     }
     if (!row.cells) {
-      row.cells = buildCells(row, state.cols)
+      row.cells = buildAtermRowCells(row.text, row.widths, state.cols)
     }
     return row.cells
   }
@@ -274,7 +257,7 @@ export function createWorkerBackedTerm(deps: {
     // ── mutations (post commands) ──
     process_str: (s: string) => post({ type: 'process', data: s }),
     process: (bytes: Uint8Array) =>
-      post({ type: 'process', data: new TextDecoder().decode(bytes) }),
+      post({ type: 'process', data: PROCESS_TEXT_DECODER.decode(bytes) }),
     render: () => post({ type: 'draw' }),
     resize: (rows: number, cols: number) => post({ type: 'resize', rows, cols }),
     set_px: (px: number) => post({ type: 'setPx', px }),
@@ -408,6 +391,18 @@ export function createWorkerBackedTerm(deps: {
     },
     serializeAsync: queryChannel.serializeAsync,
     serializeScrollbackAsync: queryChannel.serializeScrollbackAsync,
-    dispose: queryChannel.dispose
+    dispose: () => {
+      queryChannel.dispose()
+      // Release the JS-side state now rather than waiting for the controller graph to be
+      // GC'd: the rolling grid mirror, the listener Sets, and the (capped but multi-MB)
+      // serialize cache strings.
+      replyListeners.clear()
+      metricsListeners.clear()
+      sideChannelListeners.clear()
+      searchChangeListeners.clear()
+      grid.clear()
+      cachedSerialize = ''
+      cachedScrollback = ''
+    }
   }
 }

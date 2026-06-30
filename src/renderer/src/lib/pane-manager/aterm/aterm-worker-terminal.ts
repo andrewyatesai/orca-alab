@@ -8,11 +8,8 @@
 
 import type { EngineHandle } from './aterm-worker-engine-build'
 import { createWorkerSearch } from './aterm-worker-search'
-import type {
-  AtermWorkerGridRow,
-  AtermWorkerState,
-  AtermWorkerThemeSet
-} from './aterm-render-worker-protocol'
+import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
+import type { AtermWorkerState, AtermWorkerThemeSet } from './aterm-render-worker-protocol'
 
 // Scrollback cap for the debounced shutdown-cache serialize — ample for session
 // restore while bounding the per-push cost + the synchronous shutdown read.
@@ -124,38 +121,13 @@ export function createWorkerTerminal(handle: EngineHandle): {
   let hoverLink: AtermWorkerState['hoverLink'] = null
   let hoverCursor = ''
 
-  // Per-visible-row signature so buildState emits only changed rows.
-  let lastRowSig: string[] = []
+  // Per-visible-row change detection (emit only changed rows); state + logic extracted.
+  const dirtyRowTracker = createAtermDirtyRowTracker(e)
 
   const followBottomAfter = (wasAtBottom: boolean): void => {
     if (wasAtBottom && e.display_offset !== 0) {
       e.scroll_to_bottom()
     }
-  }
-
-  const buildDirtyRows = (): AtermWorkerGridRow[] => {
-    const dirty: AtermWorkerGridRow[] = []
-    if (lastRowSig.length !== rows) {
-      lastRowSig = Array.from({ length: rows }, () => ' nope')
-    }
-    for (let y = 0; y < rows; y++) {
-      const text = e.row_text(y) ?? ''
-      const wrapped = e.row_is_wrapped(y) === true
-      const len = e.row_len(y) ?? cols
-      const sig = `${text} ${wrapped ? 1 : 0} ${len}`
-      if (sig === lastRowSig[y]) {
-        continue
-      }
-      lastRowSig[y] = sig
-      // Per-column width digit ('2' wide lead, '1' normal); only computed for rows
-      // that actually changed.
-      let widths = ''
-      for (let x = 0; x < cols; x++) {
-        widths += e.cell_is_wide(y, x) === true ? '2' : '1'
-      }
-      dirty.push({ y, text, wrapped, len, widths })
-    }
-    return dirty
   }
 
   return {
@@ -209,7 +181,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
         searchActiveIndex: search.activeIndex(),
         searchActiveRect: search.activeRect(),
         searchMatchRects: search.visibleRects(),
-        dirtyRows: buildDirtyRows()
+        dirtyRows: dirtyRowTracker.build(rows, cols)
       }
     },
     resize: (r, c) => {

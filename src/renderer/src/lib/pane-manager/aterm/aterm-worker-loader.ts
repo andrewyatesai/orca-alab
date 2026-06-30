@@ -94,6 +94,10 @@ export async function loadAtermWorkerEngine(
     resolveFirst = resolve
   })
 
+  // The hover cursor last written to the pane canvas — skip the CSSOM write on the
+  // common steady-state frames where it's unchanged (most frames during streaming).
+  let lastHoverCursor = ''
+
   worker.addEventListener('message', (event: MessageEvent<AtermWorkerMessage>) => {
     const data = event.data
     switch (data.type) {
@@ -108,8 +112,11 @@ export async function loadAtermWorkerEngine(
           // Drive the pane canvas hover cursor from the worker's computed hoverCursor
           // ('pointer' over a link, else ''): the worker owns link detection, so this is
           // the single source of truth — the sync link_at snapshot lags a frame and never
-          // updates the cursor on a stationary hover.
-          canvas.style.cursor = data.hoverCursor
+          // updates the cursor on a stationary hover. Only write when it changed.
+          if (data.hoverCursor !== lastHoverCursor) {
+            canvas.style.cursor = data.hoverCursor
+            lastHoverCursor = data.hoverCursor
+          }
           if (!workerSuspended) {
             overlay?.paint(data)
           }

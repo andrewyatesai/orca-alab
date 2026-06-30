@@ -59,6 +59,7 @@ export type WorkerEngine = Pick<
   | 'resize'
   | 'set_px'
   | 'set_line_height'
+  | 'set_ligatures'
   | 'set_theme'
   | 'set_default_foreground'
   | 'set_default_background'
@@ -70,6 +71,7 @@ export type WorkerEngine = Pick<
   | 'set_cursor_hollow'
   | 'set_fallback_font'
   | 'add_fallback_font'
+  | 'set_emoji_font'
   | 'set_primary_font'
   | 'set_cell_pixel_size'
   | 'authorize_clipboard_write'
@@ -102,6 +104,8 @@ export type EngineHandle = {
 export type StoredInit = {
   fontBytes: Uint8Array
   fallbackFonts: Uint8Array[]
+  /** OS colour-emoji face (set_emoji_font); absent when the host has none. */
+  emojiFont?: Uint8Array
   rows: number
   cols: number
   fontPx: number
@@ -117,6 +121,7 @@ type SeedTarget = Pick<
   | 'cell_height'
   | 'set_fallback_font'
   | 'add_fallback_font'
+  | 'set_emoji_font'
   | 'set_palette_color'
   | 'set_selection_fg'
   | 'set_selection_inactive_bg'
@@ -133,6 +138,11 @@ function seedEngine(t: SeedTarget, p: StoredInit): void {
     for (let i = 1; i < p.fallbackFonts.length; i++) {
       t.add_fallback_font(p.fallbackFonts[i])
     }
+  }
+  // Colour-emoji face AFTER the monochrome fallback chain (parity with the in-process
+  // inject-terminal-fallback-fonts ordering) so emoji render in colour, not tofu.
+  if (p.emojiFont) {
+    t.set_emoji_font(p.emojiFont)
   }
   // Apply the user's line-height before metrics are read so the grid is sized to the
   // real cell box from frame 1.

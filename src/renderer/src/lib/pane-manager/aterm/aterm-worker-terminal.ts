@@ -68,6 +68,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
   resize: (rows: number, cols: number) => void
   setPx: (px: number) => void
   setLineHeight: (scale: number) => void
+  setLigatures: (on: boolean) => void
   themeSet: (m: AtermWorkerThemeSet) => void
   setCursorBlinkPhase: (on: boolean) => void
   setCursorHollow: (hollow: boolean) => void
@@ -215,6 +216,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
     },
     setPx: (px) => e.set_px(px),
     setLineHeight: (scale) => e.set_line_height(scale),
+    setLigatures: (on) => e.set_ligatures(on),
     themeSet: (m) => {
       switch (m.op) {
         case 'theme':

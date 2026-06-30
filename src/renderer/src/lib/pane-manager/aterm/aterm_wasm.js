@@ -1,0 +1,1363 @@
+/* @ts-self-types="./aterm_wasm.d.ts" */
+
+/**
+ * A terminal + CPU renderer pair. Feed PTY bytes with [`AtermTerminal::process`],
+ * then [`AtermTerminal::render`] to refresh the RGBA framebuffer, then read it
+ * back via [`AtermTerminal::rgba`] (+ `width`/`height`) to draw onto a canvas.
+ */
+export class AtermTerminal {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        AtermTerminalFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_atermterminal_free(ptr, 0);
+    }
+    /**
+     * APPEND another fallback face to the chain (does NOT reset it like
+     * [`set_fallback_font`]). The chain is tried in order, so the host can push a
+     * CJK fallback first then Arabic/Devanagari/Thai/Hebrew faces after it — a
+     * glyph the earlier faces miss still reaches a covering face instead of tofu.
+     * No-throw: a bad blob leaves the existing chain untouched.
+     * @param {Uint8Array} bytes
+     */
+    add_fallback_font(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_add_fallback_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Authorize OSC 52 clipboard *write* (set) so the engine queues OSC 52
+     * app-events for the host to drain via `take_osc_events`. Without this the
+     * engine is fail-closed (CF-004) and silently drops PTY-origin OSC 52 set
+     * sequences, so they never reach the host. The host still gates the actual
+     * clipboard write on its own user setting (defense in depth).
+     */
+    authorize_clipboard_write() {
+        wasm.atermterminal_authorize_clipboard_write(this.__wbg_ptr);
+    }
+    /**
+     * Absolute row index of the live/last line (xterm `buffer.active.baseY`):
+     * `oldest_absolute_row() + scrollback_lines()`. `usize` → plain JS number.
+     * @returns {number}
+     */
+    get base_y() {
+        const ret = wasm.atermterminal_base_y(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Whether bracketed-paste mode (DECSET 2004) is active. The input seam reads
+     * this to wrap pasted text in `ESC[200~ … ESC[201~` itself (replacing the old
+     * reliance on xterm's `terminal.paste()`, which consulted xterm's own mode).
+     * @returns {boolean}
+     */
+    get bracketed_paste_mode() {
+        const ret = wasm.atermterminal_bracketed_paste_mode(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Cell height in device pixels — the host computes rows = floor(canvasH / cellHeight).
+     * @returns {number}
+     */
+    get cell_height() {
+        const ret = wasm.atermterminal_cell_height(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Whether the cell at `row`/`col` is a wide (double-width) character;
+     * `None` when out of range.
+     * @param {number} row
+     * @param {number} col
+     * @returns {boolean | undefined}
+     */
+    cell_is_wide(row, col) {
+        const ret = wasm.atermterminal_cell_is_wide(this.__wbg_ptr, row, col);
+        return ret === 0xFFFFFF ? undefined : ret !== 0;
+    }
+    /**
+     * Grapheme text at visible cell `row`/`col` — base char plus complex
+     * cluster and combining marks. Empty string for a blank cell, a
+     * wide-continuation spacer, or out-of-range coords.
+     * @param {number} row
+     * @param {number} col
+     * @returns {string}
+     */
+    cell_text(row, col) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.atermterminal_cell_text(this.__wbg_ptr, row, col);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Cell width in device pixels — the host computes cols = floor(canvasW / cellWidth).
+     * @returns {number}
+     */
+    get cell_width() {
+        const ret = wasm.atermterminal_cell_width(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Active DECSCUSR cursor style as the discriminant of `aterm_core`'s
+     * `CursorStyle` (1=BlinkingBlock, 2=SteadyBlock, 3=BlinkingUnderline,
+     * 4=SteadyUnderline, 5=BlinkingBar, 6=SteadyBar, 7=Hidden, 8=HollowBlock).
+     * The CPU renderer ALREADY paints this shape from the grid (cell_frame copies
+     * it into the render input, draw_cursor honors it), so this getter exists for
+     * host introspection/tests — no JS overlay is needed to draw the shape.
+     * @returns {number}
+     */
+    get cursor_style() {
+        const ret = wasm.atermterminal_cursor_style(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Display-relative cursor column (0-based).
+     * @returns {number}
+     */
+    get cursor_x() {
+        const ret = wasm.atermterminal_cursor_x(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Display-relative cursor row (0-based, top of viewport).
+     * @returns {number}
+     */
+    get cursor_y() {
+        const ret = wasm.atermterminal_cursor_y(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Lines the viewport is scrolled up from the live bottom (0 = at bottom).
+     * @returns {number}
+     */
+    get display_offset() {
+        const ret = wasm.atermterminal_display_offset(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Absolute row index of the TOP visible line for the current viewport
+     * (`base_y - display_offset`); the search/link origin.
+     * @returns {number}
+     */
+    get display_origin_absolute() {
+        const ret = wasm.atermterminal_display_origin_absolute(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Drain the edge-triggered BEL flag: `true` if a BEL fired since the last
+     * call, then clears it (so a poll-based host can flash/ring without the
+     * synchronous bell callback).
+     * @returns {boolean}
+     */
+    drain_bell() {
+        const ret = wasm.atermterminal_drain_bell(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Encode mouse MOTION at `col`/`row`; `button` is the held button (3 = none).
+     * `None` unless the mode reports motion (1002 while a button is down, 1003
+     * always) — see [`AtermTerminal::mouse_wants_motion`].
+     * @param {number} col
+     * @param {number} row
+     * @param {number} button
+     * @param {number} mods
+     * @returns {Uint8Array | undefined}
+     */
+    encode_mouse_motion(col, row, button, mods) {
+        const ret = wasm.atermterminal_encode_mouse_motion(this.__wbg_ptr, col, row, button, mods);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Encode a mouse-button PRESS at 0-based on-screen cell `col`/`row` for the
+     * app's active mouse mode+encoding (returns `None`/`undefined` when tracking
+     * is off). `button` is the raw X10 button code (0=left,1=middle,2=right) and
+     * `mods` is the OR of Shift(4)/Alt(8)/Ctrl(16) masks — the engine combines
+     * them. Bytes are sent verbatim to the PTY.
+     * @param {number} col
+     * @param {number} row
+     * @param {number} button
+     * @param {number} mods
+     * @returns {Uint8Array | undefined}
+     */
+    encode_mouse_press(col, row, button, mods) {
+        const ret = wasm.atermterminal_encode_mouse_press(this.__wbg_ptr, col, row, button, mods);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Encode a mouse-button RELEASE (see [`AtermTerminal::encode_mouse_press`]);
+     * `None` in X10 press-only mode.
+     * @param {number} col
+     * @param {number} row
+     * @param {number} button
+     * @param {number} mods
+     * @returns {Uint8Array | undefined}
+     */
+    encode_mouse_release(col, row, button, mods) {
+        const ret = wasm.atermterminal_encode_mouse_release(this.__wbg_ptr, col, row, button, mods);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Encode a mouse WHEEL tick at `col`/`row` (`up` = wheel-up); the host sends
+     * these instead of scrolling scrollback while tracking is on. `None` in X10.
+     * @param {number} col
+     * @param {number} row
+     * @param {boolean} up
+     * @param {number} mods
+     * @returns {Uint8Array | undefined}
+     */
+    encode_mouse_wheel(col, row, up, mods) {
+        const ret = wasm.atermterminal_encode_mouse_wheel(this.__wbg_ptr, col, row, up, mods);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Last-rendered framebuffer height in pixels.
+     * @returns {number}
+     */
+    get height() {
+        const ret = wasm.atermterminal_height(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * True when the alternate screen is active (TUIs own their own scrolling),
+     * so the host should let wheel events pass through to the app.
+     * @returns {boolean}
+     */
+    get is_alt_screen() {
+        const ret = wasm.atermterminal_is_alt_screen(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * True when DECCKM (application cursor keys) is set: the host must encode
+     * arrows/Home/End as SS3 (ESC O A) instead of CSI (ESC [ A) so full-screen
+     * apps (vi, less, readline) receive the sequences they expect.
+     * @returns {boolean}
+     */
+    get is_app_cursor_mode() {
+        const ret = wasm.atermterminal_is_app_cursor_mode(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * True when DEC mode 2031 (color-scheme update notifications) is set: the
+     * app wants `CSI ? 997 ; n` on OS light/dark theme changes.
+     * @returns {boolean}
+     */
+    get is_color_scheme_updates_mode() {
+        const ret = wasm.atermterminal_is_color_scheme_updates_mode(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * True when DECSET 1004 (focus reporting) is active: the host sends CSI I on
+     * focus-in and CSI O on focus-out so apps (vim, tmux) track terminal focus.
+     * @returns {boolean}
+     */
+    get is_focus_event_mode() {
+        const ret = wasm.atermterminal_is_focus_event_mode(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * True when a TUI has enabled mouse tracking (any of DECSET 9/1000/1002/1003).
+     * The host then ENCODES canvas mouse events to the PTY instead of running
+     * selection/scroll/link for them (unless Shift is held = user override).
+     * @returns {boolean}
+     */
+    get is_mouse_tracking() {
+        const ret = wasm.atermterminal_is_mouse_tracking(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Detect a link under display `row`/`col`. Prefers an OSC-8 hyperlink, then
+     * falls back to smart-selection rules (url/file_path). Returns `None` for
+     * plain words. `kind`: 0=osc8, 1=url, 2=file_path, 3=other.
+     * @param {number} row
+     * @param {number} col
+     * @returns {LinkHit | undefined}
+     */
+    link_at(row, col) {
+        const ret = wasm.atermterminal_link_at(this.__wbg_ptr, row, col);
+        return ret === 0 ? undefined : LinkHit.__wrap(ret);
+    }
+    /**
+     * True for AnyEvent (1003): report motion even with NO button pressed.
+     * 1002 only reports motion while a button is held; the host uses this to
+     * decide whether a button-less `mousemove` should be forwarded.
+     * @returns {boolean}
+     */
+    get mouse_wants_any_motion() {
+        const ret = wasm.atermterminal_mouse_wants_any_motion(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * True when the active mouse mode reports MOTION (ButtonEvent 1002 = drag
+     * while a button is down, AnyEvent 1003 = all motion), so the host only
+     * forwards `mousemove` when an app actually wants it (no spam in 1000).
+     * @returns {boolean}
+     */
+    get mouse_wants_motion() {
+        const ret = wasm.atermterminal_mouse_wants_motion(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Build a `rows`x`cols` terminal rendered with `font_bytes` (a TTF/OTF) at
+     * `px` cell font-size. `font_bytes` is injected by the host (fetched in JS),
+     * keeping the engine free of filesystem font discovery. `fg`/`bg`/`cursor`/
+     * `selection` are 0x00RRGGBB and seed the renderer's DEFAULT theme colors;
+     * per-cell SGR colors still flow through the grid independently.
+     * @param {number} rows
+     * @param {number} cols
+     * @param {Uint8Array} font_bytes
+     * @param {number} px
+     * @param {number} fg
+     * @param {number} bg
+     * @param {number} cursor
+     * @param {number} selection
+     */
+    constructor(rows, cols, font_bytes, px, fg, bg, cursor, selection) {
+        const ptr0 = passArray8ToWasm0(font_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_new(rows, cols, ptr0, len0, px, fg, bg, cursor, selection);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0] >>> 0;
+        AtermTerminalFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Feed raw PTY output bytes into the engine.
+     * @param {Uint8Array} bytes
+     */
+    process(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_process(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Feed PTY output as a JS string. wasm-bindgen encodes it (UTF-8, via
+     * `encodeInto`) straight into wasm memory, so the host avoids a separate
+     * JS-side `TextEncoder.encode` allocation + copy on the hot output path.
+     * Byte-identical to `process(new TextEncoder().encode(s))`.
+     * @param {string} s
+     */
+    process_str(s) {
+        const ptr0 = passStringToWasm0(s, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_process_str(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Rasterize the current grid into the internal RGBA8 framebuffer via the
+     * damage-tracked path: only rows that changed since the last frame are
+     * re-rendered (the rest reuse the persistent cache), so streaming output and
+     * single-keystroke edits don't re-rasterize the whole grid every frame.
+     */
+    render() {
+        wasm.atermterminal_render(this.__wbg_ptr);
+    }
+    /**
+     * Resize the grid (after the host recomputes cols/rows for the canvas).
+     * @param {number} rows
+     * @param {number} cols
+     */
+    resize(rows, cols) {
+        wasm.atermterminal_resize(this.__wbg_ptr, rows, cols);
+    }
+    /**
+     * Revoke OSC 52 clipboard *write* authorization (the user toggled the
+     * clipboard setting off). Returns the engine to its fail-closed default.
+     */
+    revoke_clipboard_write() {
+        wasm.atermterminal_revoke_clipboard_write(this.__wbg_ptr);
+    }
+    /**
+     * Copy of the last-rendered RGBA8 framebuffer (`width*height*4` bytes),
+     * ready for `ctx.putImageData(new ImageData(rgba, width, height), 0, 0)`.
+     * @returns {Uint8Array}
+     */
+    rgba() {
+        const ret = wasm.atermterminal_rgba(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * Byte offset of the last-rendered RGBA8 framebuffer within wasm linear
+     * memory, for a ZERO-COPY `putImageData` from JS (no copy out of wasm, unlike
+     * [`rgba`]). The host builds `new Uint8ClampedArray(memory.buffer, ptr,
+     * width*height*4)` and must read it synchronously right after `render()` and
+     * before any other engine call — the next `render`/`process` may reallocate
+     * `self.rgba`, and any wasm memory growth detaches the JS view.
+     * @returns {number}
+     */
+    rgba_ptr() {
+        const ret = wasm.atermterminal_rgba_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Soft-wrap flag for a visible `row`: `true` if it continues the previous
+     * row (autowrap), `undefined`/`None` when out of range.
+     * @param {number} row
+     * @returns {boolean | undefined}
+     */
+    row_is_wrapped(row) {
+        const ret = wasm.atermterminal_row_is_wrapped(this.__wbg_ptr, row);
+        return ret === 0xFFFFFF ? undefined : ret !== 0;
+    }
+    /**
+     * Logical length of a visible `row` (last non-empty cell + 1, 0 if blank);
+     * `None` when out of range.
+     * @param {number} row
+     * @returns {number | undefined}
+     */
+    row_len(row) {
+        const ret = wasm.atermterminal_row_len(this.__wbg_ptr, row);
+        return ret === 0xFFFFFF ? undefined : ret;
+    }
+    /**
+     * Scroll-correct text of a display `row` (display_offset-aware), for a TS
+     * fallback that re-runs link matching in JS.
+     * @param {number} row
+     * @returns {string | undefined}
+     */
+    row_text(row) {
+        const ret = wasm.atermterminal_row_text(this.__wbg_ptr, row);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Scroll the viewport through scrollback: positive `delta` reveals older
+     * lines, negative reveals newer. `render` already honors the display offset,
+     * so the host only needs to redraw afterwards.
+     * @param {number} delta
+     */
+    scroll_lines(delta) {
+        wasm.atermterminal_scroll_lines(this.__wbg_ptr, delta);
+    }
+    /**
+     * Scroll the viewport so the match at absolute `line` is visible, placing it
+     * at (or near) the top row. Clamps the target display_offset to the retained
+     * scrollback so a live-region match snaps to the bottom. Host redraws after.
+     * @param {number} line
+     */
+    scroll_search_line_into_view(line) {
+        wasm.atermterminal_scroll_search_line_into_view(this.__wbg_ptr, line);
+    }
+    /**
+     * Snap the viewport to the live bottom (latest output).
+     */
+    scroll_to_bottom() {
+        wasm.atermterminal_scroll_to_bottom(this.__wbg_ptr);
+    }
+    /**
+     * Snap the viewport to the oldest retained scrollback line.
+     */
+    scroll_to_top() {
+        wasm.atermterminal_scroll_to_top(this.__wbg_ptr);
+    }
+    /**
+     * Search the full retained buffer (scrollback + visible) for `query`,
+     * returning matches as a flat `[abs_line, start_col, len]` triplet array so
+     * the JS host can highlight + scroll without re-scanning text. Lines are
+     * ABSOLUTE rows (the index's native coordinate); the host maps them to
+     * display rows via [`AtermTerminal::search_display_origin`] /
+     * [`AtermTerminal::scroll_search_line_into_view`], which stay correct as the
+     * viewport scrolls. Empty `query` (or a regex error) yields an empty array.
+     * @param {string} query
+     * @param {boolean} case_sensitive
+     * @param {boolean} is_regex
+     * @returns {Uint32Array}
+     */
+    search(query, case_sensitive, is_regex) {
+        const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_search(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex);
+        var v2 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v2;
+    }
+    /**
+     * Absolute row of display row 0 at the live bottom (`display_offset == 0`):
+     * `oldest_absolute_row + scrollback_lines`. A match at absolute `line` is at
+     * display row `line - origin + display_offset`, so the host computes the
+     * on-screen cell of any [`AtermTerminal::search`] match without a round-trip.
+     * @returns {number}
+     */
+    get search_display_origin() {
+        const ret = wasm.atermterminal_search_display_origin(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Drop the current selection so the highlight clears on the next render.
+     */
+    selection_clear() {
+        wasm.atermterminal_selection_clear(this.__wbg_ptr);
+    }
+    /**
+     * Move the selection endpoint to `row`/`col` (during a drag).
+     * @param {number} row
+     * @param {number} col
+     */
+    selection_extend(row, col) {
+        wasm.atermterminal_selection_extend(this.__wbg_ptr, row, col);
+    }
+    /**
+     * Finalize the selection (mouse released).
+     */
+    selection_finish() {
+        wasm.atermterminal_selection_finish(this.__wbg_ptr);
+    }
+    /**
+     * Select the whole line at display `row` (triple-click) and return its text.
+     * Mirrors aterm-gui's select_line: a Lines selection expanded to the full row
+     * width. `col` is accepted for a uniform host API but unused (whole row).
+     * @param {number} row
+     * @param {number} col
+     * @returns {string | undefined}
+     */
+    selection_line(row, col) {
+        const ret = wasm.atermterminal_selection_line(this.__wbg_ptr, row, col);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Current selection bounds in DISPLAY viewport cell coords (0 = top visible
+     * row), side-adjusted to match `selection_text` and the painted highlight.
+     * `None` when there is no selection OR it lies fully outside the viewport.
+     * @returns {SelectionRange | undefined}
+     */
+    selection_range() {
+        const ret = wasm.atermterminal_selection_range(this.__wbg_ptr);
+        return ret === 0 ? undefined : SelectionRange.__wrap(ret);
+    }
+    /**
+     * Begin a character selection at display `row`/`col` (clears any prior one).
+     * @param {number} row
+     * @param {number} col
+     */
+    selection_start(row, col) {
+        wasm.atermterminal_selection_start(this.__wbg_ptr, row, col);
+    }
+    /**
+     * The selected text, if any (`None` when the selection is empty).
+     * @returns {string | undefined}
+     */
+    selection_text() {
+        const ret = wasm.atermterminal_selection_text(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Select the whole word/URL at display `row`/`col` (double-click) and return
+     * its text. Mirrors aterm-gui's select_word: a Semantic selection EXPANDED to
+     * the word's inclusive cell span (smart_word_at's end col is exclusive); on
+     * whitespace it falls back to the clicked cell. The selection stays active so
+     * the highlight paints.
+     * @param {number} row
+     * @param {number} col
+     * @returns {string | undefined}
+     */
+    selection_word(row, col) {
+        const ret = wasm.atermterminal_selection_word(this.__wbg_ptr, row, col);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Serialize the terminal to a REPLAYABLE ANSI string — the aterm-native
+     * replacement for `@xterm/addon-serialize`'s `serialize({scrollback})`, so the
+     * renderer no longer needs a shadow xterm.js buffer to snapshot/restore/fork a
+     * pane. Layout: SGR reset, then the capped recent history (text + CRLF), then
+     * `CSI H`, then each visible row placed with absolute CUP + erase-line (so a
+     * full-width row can't autowrap on replay) emitted via the engine's
+     * `row_ansi_text` (minimal change-based SGR, wide-char aware), then the cursor
+     * restored. `scrollback_rows` = `None` prepends ALL history, `Some(n)` the last
+     * `n`, `Some(0)` viewport-only. Ported from the daemon's proven `serialize_ansi`
+     * (orca-terminal headless) so the output stays byte-compatible with the existing
+     * string-based replay pipeline.
+     * @param {number | null} [scrollback_rows]
+     * @returns {string}
+     */
+    serialize(scrollback_rows) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.atermterminal_serialize(this.__wbg_ptr, isLikeNone(scrollback_rows) ? 0x100000001 : (scrollback_rows) >>> 0);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Scrollback HISTORY ONLY (the off-screen lines above the viewport) as flowing
+     * text + CRLF, no cursor/grid framing. Reads the MAIN buffer's scrollback (aterm
+     * keeps it in the inactive grid while the alt screen is active) so an in-alt
+     * (vim/htop/less) snapshot still recovers the pre-TUI history — the only
+     * recoverable history on cold-restore of an alt-screen session. `max_rows` caps
+     * to the last `n` lines (`None` = all). Mirrors the daemon's serialize_scrollback_ansi.
+     * @param {number | null} [max_rows]
+     * @returns {string}
+     */
+    serialize_scrollback(max_rows) {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.atermterminal_serialize_scrollback(this.__wbg_ptr, isLikeNone(max_rows) ? 0x100000001 : (max_rows) >>> 0);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Inject a REAL bold weight of the primary family so SGR-bold cells render as a
+     * true heavier weight instead of synthetic embolden. The host supplies the
+     * bold-variant bytes (the canvas can't read the filesystem). No-throw: a bad
+     * blob surfaces a catchable JS exception and leaves the existing weight intact.
+     * @param {Uint8Array} bytes
+     */
+    set_bold_font(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_set_bold_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Tell the engine the real device-pixel cell size so its CSI 14t/16t
+     * window/cell-pixel reports are accurate (the engine has no canvas otherwise).
+     * @param {number} width
+     * @param {number} height
+     */
+    set_cell_pixel_size(width, height) {
+        wasm.atermterminal_set_cell_pixel_size(this.__wbg_ptr, width, height);
+    }
+    /**
+     * Set the cursor blink phase: `true` draws the cursor this frame, `false`
+     * hides it. The host drives a ~530ms blink timer; independent of DECSCUSR.
+     * @param {boolean} on
+     */
+    set_cursor_blink_phase(on) {
+        wasm.atermterminal_set_cursor_blink_phase(this.__wbg_ptr, on);
+    }
+    /**
+     * Force a hollow (unfocused) cursor when `true`, or restore the terminal's
+     * DECSCUSR style when `false` — the standard focused/unfocused affordance.
+     * @param {boolean} hollow
+     */
+    set_cursor_hollow(hollow) {
+        wasm.atermterminal_set_cursor_hollow(this.__wbg_ptr, hollow);
+    }
+    /**
+     * @param {number} r
+     * @param {number} g
+     * @param {number} b
+     */
+    set_default_background(r, g, b) {
+        wasm.atermterminal_set_default_background(this.__wbg_ptr, r, g, b);
+    }
+    /**
+     * Seed the engine's DEFAULT foreground/background so its OSC 10/11 colour-query
+     * replies report the host theme (the engine otherwise reports its built-in
+     * defaults). RGB components, 0–255.
+     * @param {number} r
+     * @param {number} g
+     * @param {number} b
+     */
+    set_default_foreground(r, g, b) {
+        wasm.atermterminal_set_default_foreground(this.__wbg_ptr, r, g, b);
+    }
+    /**
+     * Inject a colour-emoji (sbix) face from font bytes, driving the existing
+     * ColorEmoji colour path. Same rationale as [`set_fallback_font`]: the host
+     * supplies the OS emoji font. No-throw (the `String` Err surfaces as a
+     * catchable JS exception); a bad blob leaves the slot untouched.
+     * @param {Uint8Array} bytes
+     */
+    set_emoji_font(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_set_emoji_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Inject a broad-coverage (CJK + symbols) fallback face from font bytes, so
+     * glyphs the primary face lacks render real shapes instead of `.notdef` tofu.
+     * The canvas renderer can't read the host filesystem, so the host pushes the
+     * OS font bytes in. No-throw: a bad blob leaves the existing face untouched.
+     * @param {Uint8Array} bytes
+     */
+    set_fallback_font(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_set_fallback_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * OpenType FONT FEATURES for the primary face, as a space-separated spec
+     * (`"+ss01 zero -calt"` — bare/`+tag` enables, `-tag` disables, `tag=N` sets a
+     * value). Mirrors the native `font_features` config knob. An empty/blank spec
+     * clears all features. Preserves the current ligature mode; forces a repaint.
+     * @param {string} spec
+     */
+    set_font_features(spec) {
+        const ptr0 = passStringToWasm0(spec, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_font_features(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Programming LIGATURES on/off (`=>`, `!=`, `===` …). Mirrors the native
+     * `ligatures` config knob so the in-page renderer honours the host's typography
+     * setting instead of being pinned to the constructor default. Preserves any
+     * configured `font_features`. Forces a full repaint so the change shows at once.
+     * @param {boolean} on
+     */
+    set_ligatures(on) {
+        wasm.atermterminal_set_ligatures(this.__wbg_ptr, on);
+    }
+    /**
+     * Scale the cell BOX height (the host's `terminalLineHeight`) WITHOUT changing
+     * the glyph px, so rows space out while text keeps its size. The host re-reads
+     * cell_height + recomputes the grid after.
+     * @param {number} scale
+     */
+    set_line_height(scale) {
+        wasm.atermterminal_set_line_height(this.__wbg_ptr, scale);
+    }
+    /**
+     * Set an ANSI/indexed palette colour (index 0–255; 0–15 are the 16 ANSI
+     * colours) to RGB components, so the renderer resolves SGR-indexed cell colours
+     * through the host's theme palette instead of the engine's built-in VGA
+     * defaults. Per-cell truecolor SGR still flows independently.
+     * @param {number} index
+     * @param {number} r
+     * @param {number} g
+     * @param {number} b
+     */
+    set_palette_color(index, r, g, b) {
+        wasm.atermterminal_set_palette_color(this.__wbg_ptr, index, r, g, b);
+    }
+    /**
+     * Swap the PRIMARY face (the host's `terminalFontFamily`) from font bytes and
+     * re-rasterize. The host re-reads cell_width/cell_height + recomputes the grid
+     * after (the new face may have different metrics). No-throw on a bad blob.
+     * @param {Uint8Array} bytes
+     */
+    set_primary_font(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_set_primary_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Re-rasterize at a new cell font px (host DPI / devicePixelRatio change) so the
+     * pane rebuilds its cell metrics instead of staying frozen at the construction
+     * dpr. The host re-reads cell_width/cell_height + recomputes the grid after.
+     * @param {number} px
+     */
+    set_px(px) {
+        wasm.atermterminal_set_px(this.__wbg_ptr, px);
+    }
+    /**
+     * Set the explicit selected-text foreground (theme `selectionForeground`),
+     * 0x00RRGGBB, or `undefined` to restore the WCAG contrast-floor default.
+     * Appearance-only, so force one full repaint next frame.
+     * @param {number | null} [fg]
+     */
+    set_selection_fg(fg) {
+        wasm.atermterminal_set_selection_fg(this.__wbg_ptr, isLikeNone(fg) ? 0x100000001 : (fg) >>> 0);
+    }
+    /**
+     * Mark the pane unfocused (`true`) / focused (`false`): when unfocused, the
+     * selection band paints with the dimmer inactive bg (xterm
+     * `selectionInactiveBackground`) instead of the active selection colour.
+     * Appearance-only, so force one full repaint next frame.
+     * @param {boolean} inactive
+     */
+    set_selection_inactive(inactive) {
+        wasm.atermterminal_set_selection_inactive(this.__wbg_ptr, inactive);
+    }
+    /**
+     * Set the inactive (unfocused) selection background (0x00RRGGBB), or
+     * `undefined` to derive it from the active selection bg blended toward the
+     * theme bg. Only takes visible effect while the pane is marked unfocused.
+     * Appearance-only, so force one full repaint next frame.
+     * @param {number | null} [bg]
+     */
+    set_selection_inactive_bg(bg) {
+        wasm.atermterminal_set_selection_inactive_bg(this.__wbg_ptr, isLikeNone(bg) ? 0x100000001 : (bg) >>> 0);
+    }
+    /**
+     * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB), so a host
+     * theme change re-themes the pane without rebuilding it. Per-cell SGR colours
+     * flow independently; pair with set_palette_color for the ANSI palette.
+     * @param {number} fg
+     * @param {number} bg
+     * @param {number} cursor
+     * @param {number} selection
+     */
+    set_theme(fg, bg, cursor, selection) {
+        wasm.atermterminal_set_theme(this.__wbg_ptr, fg, bg, cursor, selection);
+    }
+    /**
+     * Drain pending OSC app-events as a JSON array of `[code, payload]` pairs
+     * (`[[7,"/home"],[52,"copied"]]`); `None` when the queue is empty. These
+     * carry REAL decoded payloads (OSC 52 clipboard / OSC 7 cwd / OSC 133 mark)
+     * the host routes to UI handlers — distinct from `take_response` (PTY replies).
+     * @returns {string | undefined}
+     */
+    take_osc_events() {
+        const ret = wasm.atermterminal_take_osc_events(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Drain the engine's pending query replies (DA1/DA2/DSR/CPR/DECRQM/OSC color/
+     * window-size, …) — the host forwards these to the PTY so the RENDERER (not the
+     * daemon, which stays silent) is the authoritative responder. Call after each
+     * `process`; returns `None` when nothing is pending.
+     * @returns {Uint8Array | undefined}
+     */
+    take_response() {
+        const ret = wasm.atermterminal_take_response(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * The window title (OSC 0/2), or `None` when unset — replaces the separate
+     * title channel that fed off the shadow xterm so snapshots keep window titles.
+     * @returns {string | undefined}
+     */
+    title() {
+        const ret = wasm.atermterminal_title(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * Last-rendered framebuffer width in pixels.
+     * @returns {number}
+     */
+    get width() {
+        const ret = wasm.atermterminal_width(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) AtermTerminal.prototype[Symbol.dispose] = AtermTerminal.prototype.free;
+
+/**
+ * A detected link under a cell: its text/URL, the half-open display-column span
+ * it covers, and a `kind` discriminant (0=osc8, 1=url, 2=file_path, 3=other).
+ */
+export class LinkHit {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(LinkHit.prototype);
+        obj.__wbg_ptr = ptr;
+        LinkHitFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        LinkHitFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_linkhit_free(ptr, 0);
+    }
+    /**
+     * Exclusive end display column of the link span.
+     * @returns {number}
+     */
+    get end_col() {
+        const ret = wasm.linkhit_end_col(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Link kind: 0=osc8, 1=url, 2=file_path, 3=other.
+     * @returns {number}
+     */
+    get kind() {
+        const ret = wasm.linkhit_kind(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Inclusive start display column of the link span.
+     * @returns {number}
+     */
+    get start_col() {
+        const ret = wasm.linkhit_start_col(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * The link's URL/target text.
+     * @returns {string}
+     */
+    get url() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.linkhit_url(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+}
+if (Symbol.dispose) LinkHit.prototype[Symbol.dispose] = LinkHit.prototype.free;
+
+/**
+ * Selection bounds in DISPLAY viewport cell coords (0 = top visible row),
+ * inclusive of `start`, with `end` already side-adjusted to match
+ * `selection_text` and the painted highlight.
+ */
+export class SelectionRange {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(SelectionRange.prototype);
+        obj.__wbg_ptr = ptr;
+        SelectionRangeFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        SelectionRangeFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_selectionrange_free(ptr, 0);
+    }
+    /**
+     * End column (display-relative, side-adjusted/inclusive).
+     * @returns {number}
+     */
+    get end_x() {
+        const ret = wasm.selectionrange_end_x(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * End row (display-relative).
+     * @returns {number}
+     */
+    get end_y() {
+        const ret = wasm.selectionrange_end_y(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Start column (display-relative).
+     * @returns {number}
+     */
+    get start_x() {
+        const ret = wasm.selectionrange_start_x(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * Start row (display-relative, 0 = top visible row).
+     * @returns {number}
+     */
+    get start_y() {
+        const ret = wasm.selectionrange_start_y(this.__wbg_ptr);
+        return ret;
+    }
+}
+if (Symbol.dispose) SelectionRange.prototype[Symbol.dispose] = SelectionRange.prototype.free;
+
+function __wbg_get_imports() {
+    const import0 = {
+        __proto__: null,
+        __wbg___wbindgen_is_undefined_9e4d92534c42d778: function(arg0) {
+            const ret = arg0 === undefined;
+            return ret;
+        },
+        __wbg___wbindgen_throw_be289d5034ed271b: function(arg0, arg1) {
+            throw new Error(getStringFromWasm0(arg0, arg1));
+        },
+        __wbg_call_389efe28435a9388: function() { return handleError(function (arg0, arg1) {
+            const ret = arg0.call(arg1);
+            return ret;
+        }, arguments); },
+        __wbg_error_7534b8e9a36f1ab4: function(arg0, arg1) {
+            let deferred0_0;
+            let deferred0_1;
+            try {
+                deferred0_0 = arg0;
+                deferred0_1 = arg1;
+                console.error(getStringFromWasm0(arg0, arg1));
+            } finally {
+                wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
+            }
+        },
+        __wbg_new_8a6f238a6ece86ea: function() {
+            const ret = new Error();
+            return ret;
+        },
+        __wbg_new_no_args_1c7c842f08d00ebb: function(arg0, arg1) {
+            const ret = new Function(getStringFromWasm0(arg0, arg1));
+            return ret;
+        },
+        __wbg_now_2c95c9de01293173: function(arg0) {
+            const ret = arg0.now();
+            return ret;
+        },
+        __wbg_now_a3af9a2f4bbaa4d1: function() {
+            const ret = Date.now();
+            return ret;
+        },
+        __wbg_performance_7a3ffd0b17f663ad: function(arg0) {
+            const ret = arg0.performance;
+            return ret;
+        },
+        __wbg_stack_0ed75d68575b0f3c: function(arg0, arg1) {
+            const ret = arg1.stack;
+            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len1 = WASM_VECTOR_LEN;
+            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg_static_accessor_GLOBAL_12837167ad935116: function() {
+            const ret = typeof global === 'undefined' ? null : global;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_GLOBAL_THIS_e628e89ab3b1c95f: function() {
+            const ret = typeof globalThis === 'undefined' ? null : globalThis;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_SELF_a621d3dfbb60d0ce: function() {
+            const ret = typeof self === 'undefined' ? null : self;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_static_accessor_WINDOW_f8727f0cf888e0bd: function() {
+            const ret = typeof window === 'undefined' ? null : window;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+            // Cast intrinsic for `Ref(String) -> Externref`.
+            const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
+        },
+        __wbindgen_init_externref_table: function() {
+            const table = wasm.__wbindgen_externrefs;
+            const offset = table.grow(4);
+            table.set(0, undefined);
+            table.set(offset + 0, undefined);
+            table.set(offset + 1, null);
+            table.set(offset + 2, true);
+            table.set(offset + 3, false);
+        },
+    };
+    return {
+        __proto__: null,
+        "./aterm_wasm_bg.js": import0,
+    };
+}
+
+const AtermTerminalFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_atermterminal_free(ptr >>> 0, 1));
+const LinkHitFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_linkhit_free(ptr >>> 0, 1));
+const SelectionRangeFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_selectionrange_free(ptr >>> 0, 1));
+
+function addToExternrefTable0(obj) {
+    const idx = wasm.__externref_table_alloc();
+    wasm.__wbindgen_externrefs.set(idx, obj);
+    return idx;
+}
+
+function getArrayU32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
+let cachedDataViewMemory0 = null;
+function getDataViewMemory0() {
+    if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
+        cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
+    }
+    return cachedDataViewMemory0;
+}
+
+function getStringFromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return decodeText(ptr, len);
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
+}
+
+let cachedUint8ArrayMemory0 = null;
+function getUint8ArrayMemory0() {
+    if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
+        cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
+    }
+    return cachedUint8ArrayMemory0;
+}
+
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
+}
+
+function isLikeNone(x) {
+    return x === undefined || x === null;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function passStringToWasm0(arg, malloc, realloc) {
+    if (realloc === undefined) {
+        const buf = cachedTextEncoder.encode(arg);
+        const ptr = malloc(buf.length, 1) >>> 0;
+        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+        WASM_VECTOR_LEN = buf.length;
+        return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+        const code = arg.charCodeAt(offset);
+        if (code > 0x7F) break;
+        mem[ptr + offset] = code;
+    }
+    if (offset !== len) {
+        if (offset !== 0) {
+            arg = arg.slice(offset);
+        }
+        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
+
+        offset += ret.written;
+        ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    WASM_VECTOR_LEN = offset;
+    return ptr;
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
+}
+
+let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+cachedTextDecoder.decode();
+const MAX_SAFARI_DECODE_BYTES = 2146435072;
+let numBytesDecoded = 0;
+function decodeText(ptr, len) {
+    numBytesDecoded += len;
+    if (numBytesDecoded >= MAX_SAFARI_DECODE_BYTES) {
+        cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+        cachedTextDecoder.decode();
+        numBytesDecoded = len;
+    }
+    return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+const cachedTextEncoder = new TextEncoder();
+
+if (!('encodeInto' in cachedTextEncoder)) {
+    cachedTextEncoder.encodeInto = function (arg, view) {
+        const buf = cachedTextEncoder.encode(arg);
+        view.set(buf);
+        return {
+            read: arg.length,
+            written: buf.length
+        };
+    };
+}
+
+let WASM_VECTOR_LEN = 0;
+
+let wasmModule, wasm;
+function __wbg_finalize_init(instance, module) {
+    wasm = instance.exports;
+    wasmModule = module;
+    cachedDataViewMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
+    cachedUint8ArrayMemory0 = null;
+    wasm.__wbindgen_start();
+    return wasm;
+}
+
+async function __wbg_load(module, imports) {
+    if (typeof Response === 'function' && module instanceof Response) {
+        if (typeof WebAssembly.instantiateStreaming === 'function') {
+            try {
+                return await WebAssembly.instantiateStreaming(module, imports);
+            } catch (e) {
+                const validResponse = module.ok && expectedResponseType(module.type);
+
+                if (validResponse && module.headers.get('Content-Type') !== 'application/wasm') {
+                    console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", e);
+
+                } else { throw e; }
+            }
+        }
+
+        const bytes = await module.arrayBuffer();
+        return await WebAssembly.instantiate(bytes, imports);
+    } else {
+        const instance = await WebAssembly.instantiate(module, imports);
+
+        if (instance instanceof WebAssembly.Instance) {
+            return { instance, module };
+        } else {
+            return instance;
+        }
+    }
+
+    function expectedResponseType(type) {
+        switch (type) {
+            case 'basic': case 'cors': case 'default': return true;
+        }
+        return false;
+    }
+}
+
+function initSync(module) {
+    if (wasm !== undefined) return wasm;
+
+
+    if (module !== undefined) {
+        if (Object.getPrototypeOf(module) === Object.prototype) {
+            ({module} = module)
+        } else {
+            console.warn('using deprecated parameters for `initSync()`; pass a single object instead')
+        }
+    }
+
+    const imports = __wbg_get_imports();
+    if (!(module instanceof WebAssembly.Module)) {
+        module = new WebAssembly.Module(module);
+    }
+    const instance = new WebAssembly.Instance(module, imports);
+    return __wbg_finalize_init(instance, module);
+}
+
+async function __wbg_init(module_or_path) {
+    if (wasm !== undefined) return wasm;
+
+
+    if (module_or_path !== undefined) {
+        if (Object.getPrototypeOf(module_or_path) === Object.prototype) {
+            ({module_or_path} = module_or_path)
+        } else {
+            console.warn('using deprecated parameters for the initialization function; pass a single object instead')
+        }
+    }
+
+    if (module_or_path === undefined) {
+        module_or_path = new URL('aterm_wasm_bg.wasm', import.meta.url);
+    }
+    const imports = __wbg_get_imports();
+
+    if (typeof module_or_path === 'string' || (typeof Request === 'function' && module_or_path instanceof Request) || (typeof URL === 'function' && module_or_path instanceof URL)) {
+        module_or_path = fetch(module_or_path);
+    }
+
+    const { instance, module } = await __wbg_load(await module_or_path, imports);
+
+    return __wbg_finalize_init(instance, module);
+}
+
+export { initSync, __wbg_init as default };

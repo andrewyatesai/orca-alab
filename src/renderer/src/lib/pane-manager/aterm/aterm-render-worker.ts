@@ -107,6 +107,7 @@ function buildStoredInit(msg: AtermWorkerInit): StoredInit {
   return {
     fontBytes: msg.fontBytes,
     fallbackFonts: msg.fallbackFonts,
+    emojiFont: msg.emojiFont,
     rows: msg.rows,
     cols: msg.cols,
     fontPx: msg.fontPx,
@@ -200,6 +201,10 @@ ctx.onmessage = (event): void => {
       return
     case 'setLineHeight':
       term?.setLineHeight(msg.lineHeight)
+      scheduleDraw()
+      return
+    case 'setLigatures':
+      term?.setLigatures(msg.on)
       scheduleDraw()
       return
     case 'scrollLines':

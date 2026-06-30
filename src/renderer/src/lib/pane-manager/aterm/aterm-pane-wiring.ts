@@ -30,7 +30,7 @@ import type {
   AtermPaneResizeSink,
   AtermPaneControllerOptions
 } from './aterm-pane-controller-types'
-import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
+import { createAtermControllerOptionReaders } from './aterm-controller-option-readers'
 
 /** Everything the wiring needs to turn a loaded strategy into a live pane. */
 export type AtermPaneWiringConfig = {
@@ -80,14 +80,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const { pending, canvas, container, element, textarea, liveRegion, themeColors, shared } = config
   const { inputSink, resizeSink, pasteSink, controllerOptions } = config
   const term = pending.term
-  // Base CSS cell font size from the user's terminalFontSize (else engine default),
-  // read live so a settings change re-rasterizes via the reflow without a rebuild.
-  const getFontPx = (): number => controllerOptions?.getFontPx?.() ?? ATERM_RENDERER_FONT_PX
-  // Cell line-height multiplier (the user's terminalLineHeight); 1 = engine default.
-  const getLineHeight = (): number => controllerOptions?.getLineHeight?.() ?? 1
-  // Primary font family (the user's terminalFontFamily); undefined / JetBrains Mono
-  // keeps the bundled face, else its bytes are resolved + injected below.
-  const getFontFamily = (): string | undefined => controllerOptions?.getFontFamily?.()
+  // Live settings readers (font size / line-height / family / ligatures), each read on
+  // demand so a settings change re-rasterizes via the reflow without a pane rebuild.
+  const { getFontPx, getLineHeight, getFontFamily, getLigatures } =
+    createAtermControllerOptionReaders(controllerOptions)
   const initialDpr = window.devicePixelRatio || 1
   // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
   // the async load (GPU init can take seconds) gives the window time to settle to a
@@ -98,6 +94,11 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // Apply the user's line-height before reading cell metrics so the grid is sized to
   // the real (scaled) cell height from frame 1; set_px re-applies it on later changes.
   term.set_line_height(getLineHeight())
+  // Apply the resolved ligature mode (engine default is ON). Ligatures don't change
+  // cell metrics, and like the font family this is fixed for the pane's life (a
+  // settings change applies on the next opened terminal). Works on both paths: the
+  // worker-backed term posts a setLigatures command.
+  term.set_ligatures(getLigatures())
   // Mutable metrics shared with the input-handler deps: a later host DPI change
   // re-rasterizes the engine (term.set_px) and updates these in place via the grid
   // reflow, so the grid + overlays resize instead of freezing at construction dpr.

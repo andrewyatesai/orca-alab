@@ -15,6 +15,16 @@ src/**/*.d.ts
 !src/renderer/src/mermaid.d.ts
 !src/types/build-constants.d.ts
 
+# aterm wasm-bindgen glue: track the JS + .d.ts bindings WITH the committed _bg.wasm
+# binaries so a pull updates both ABI halves atomically (else a fresh clone is missing
+# the imports the renderer hard-imports, and a wasm bump can silently drift from glue).
+!src/renderer/src/lib/pane-manager/aterm/aterm_wasm.js
+!src/renderer/src/lib/pane-manager/aterm/aterm_wasm.d.ts
+!src/renderer/src/lib/pane-manager/aterm/aterm_wasm_bg.wasm.d.ts
+!src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web.js
+!src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web.d.ts
+!src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web_bg.wasm.d.ts
+
 # Dependencies
 node_modules/
 

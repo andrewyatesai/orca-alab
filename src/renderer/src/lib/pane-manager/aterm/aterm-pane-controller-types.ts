@@ -208,4 +208,8 @@ export type AtermPaneControllerOptions = {
    *  the resolved face via set_primary_font; undefined / "JetBrains Mono" keeps the
    *  bundled face. */
   getFontFamily?: () => string | undefined
+  /** Whether ligatures are enabled (resolved from terminalLigatures + the font family).
+   *  Read at pane open to drive set_ligatures; the engine defaults to ON, so an unset
+   *  callback keeps ligatures on. Like the font family, a change applies on new panes. */
+  getLigatures?: () => boolean
 }

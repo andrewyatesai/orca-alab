@@ -88,5 +88,5 @@
       }
     }
   ],
-  "ignorePatterns": ["**/node_modules", "**/dist", "**/out"]
+  "ignorePatterns": ["**/node_modules", "**/dist", "**/out", "**/aterm_wasm*", "**/aterm_gpu_web*"]
 }

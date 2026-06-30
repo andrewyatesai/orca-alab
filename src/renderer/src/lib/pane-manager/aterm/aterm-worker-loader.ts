@@ -19,23 +19,33 @@ import type {
 // mutations). Replaces aterm-worker-mirror.ts, which ran a SECOND engine on the main
 // thread purely for the sync query API — the duplicate this design removes.
 
-/** Fetch the OS fallback faces as raw bytes for the WORKER engine (it has no
- *  window.api). CJK first — the worker's set_fallback_font RESETS the chain to it —
- *  then the script chain. Tolerant: any failure → [] (JetBrains Mono covers Latin). */
-async function fetchWorkerFallbackFonts(): Promise<Uint8Array[]> {
-  try {
-    const { cjk, chain } = await window.api.fonts.getTerminalFallbackFonts()
-    const faces: Uint8Array[] = []
-    if (cjk) {
-      faces.push(new Uint8Array(cjk.bytes))
+/** OS fallback faces for the WORKER engine: the monochrome fallback chain (CJK first
+ *  — set_fallback_font RESETS the chain to it — then the script chain) plus the colour
+ *  emoji face (set_emoji_font), kept SEPARATE because the chain renders monochrome. */
+type WorkerFallbackFonts = { faces: Uint8Array[]; emoji: Uint8Array | null }
+
+// The OS faces are immutable + large (the emoji face is tens of MB), and the IPC
+// copies them whole each call — cache the renderer-side promise so worker panes share
+// ONE fetch instead of re-copying per pane (mirrors the in-process loadFallbackFonts).
+let workerFallbackFontsPromise: Promise<WorkerFallbackFonts> | null = null
+
+async function loadWorkerFallbackFonts(): Promise<WorkerFallbackFonts> {
+  workerFallbackFontsPromise ??= (async () => {
+    try {
+      const { cjk, emoji, chain } = await window.api.fonts.getTerminalFallbackFonts()
+      const faces: Uint8Array[] = []
+      if (cjk) {
+        faces.push(new Uint8Array(cjk.bytes))
+      }
+      for (const face of chain ?? []) {
+        faces.push(new Uint8Array(face.bytes))
+      }
+      return { faces, emoji: emoji ? new Uint8Array(emoji) : null }
+    } catch {
+      return { faces: [], emoji: null }
     }
-    for (const face of chain ?? []) {
-      faces.push(new Uint8Array(face.bytes))
-    }
-    return faces
-  } catch {
-    return []
-  }
+  })()
+  return workerFallbackFontsPromise
 }
 
 // Cap the wait for the worker's first frame so a wedged worker can't hang pane
@@ -140,7 +150,11 @@ export async function loadAtermWorkerEngine(
   // nothing fallible may run between the transfer and the worker taking over.
   const { fontBytes } = await loadAterm()
   const fontBytesCopy = fontBytes.slice() // copy the SHARED font so its buffer isn't detached
-  const fallbackFonts = await fetchWorkerFallbackFonts()
+  // Slice the CACHED faces so transferring their buffers to the worker doesn't detach
+  // the shared cache (each pane gets its own copy to hand off).
+  const cachedFonts = await loadWorkerFallbackFonts()
+  const fallbackFonts = cachedFonts.faces.map((f) => f.slice())
+  const emojiFont = cachedFonts.emoji ? cachedFonts.emoji.slice() : undefined
   // Hand the canvas to the worker; from here ONLY the worker may draw to it.
   const offscreen = canvas.transferControlToOffscreen()
   post(
@@ -150,6 +164,7 @@ export async function loadAtermWorkerEngine(
       canvas: offscreen,
       fontBytes: fontBytesCopy,
       fallbackFonts,
+      emojiFont,
       // The wiring re-applies the user's fontPx/line-height via the term's posted
       // set_px/set_line_height/resize; start at the MIN grid. The user's line-height is
       // threaded here so the FIRST snapshot's cell box is already correct (no over-counted
@@ -160,7 +175,12 @@ export async function loadAtermWorkerEngine(
       lineHeight: lineHeight ?? 1,
       themeColors
     },
-    [offscreen, fontBytesCopy.buffer, ...fallbackFonts.map((f) => f.buffer)]
+    [
+      offscreen,
+      fontBytesCopy.buffer,
+      ...fallbackFonts.map((f) => f.buffer),
+      ...(emojiFont ? [emojiFont.buffer] : [])
+    ]
   )
 
   // Wait for the worker's first frame so the controller's construction-time reads

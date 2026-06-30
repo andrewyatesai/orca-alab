@@ -266,6 +266,7 @@ export function createWorkerBackedTerm(deps: {
     resize: (rows: number, cols: number) => post({ type: 'resize', rows, cols }),
     set_px: (px: number) => post({ type: 'setPx', px }),
     set_line_height: (scale: number) => post({ type: 'setLineHeight', lineHeight: scale }),
+    set_ligatures: (on: boolean) => post({ type: 'setLigatures', on }),
     scroll_lines: (delta: number) => post({ type: 'scrollLines', delta }),
     scroll_to_bottom: () => post({ type: 'scrollToBottom' }),
     scroll_to_top: () => post({ type: 'scrollToTop' }),

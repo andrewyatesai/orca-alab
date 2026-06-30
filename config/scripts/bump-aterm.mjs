@@ -47,7 +47,10 @@ run('node', ['config/scripts/build-terminal-addon.mjs', '--force'])
 
 console.log('[bump-aterm] done.')
 console.log(
-  '[bump-aterm] stage the pin + regenerated wasm:\n' +
-    '  git add rust/aterm src/renderer/src/lib/pane-manager/aterm/aterm_wasm_bg.wasm ' +
-    'src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web_bg.wasm'
+  // Stage the pin AND the full glue (binary + JS + .d.ts) so both ABI halves move
+  // together; the JS/.d.ts are git-tracked via .gitignore negations but skipped by the
+  // formatter (.prettierignore) so they stay byte-exact with wasm-bindgen output.
+  '[bump-aterm] stage the pin + regenerated wasm + glue:\n' +
+    '  git add rust/aterm src/renderer/src/lib/pane-manager/aterm/aterm_wasm* ' +
+    'src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web*'
 )

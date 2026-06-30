@@ -1,0 +1,9 @@
+# Generated aterm wasm-bindgen glue: committed for ABI atomicity (see the negations in
+# .gitignore) but kept BYTE-EXACT with wasm-bindgen's output, so the formatter must not
+# rewrite it (a rebuild would otherwise diff against a reformatted committed copy).
+src/renderer/src/lib/pane-manager/aterm/aterm_wasm.js
+src/renderer/src/lib/pane-manager/aterm/aterm_wasm.d.ts
+src/renderer/src/lib/pane-manager/aterm/aterm_wasm_bg.wasm.d.ts
+src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web.js
+src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web.d.ts
+src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web_bg.wasm.d.ts

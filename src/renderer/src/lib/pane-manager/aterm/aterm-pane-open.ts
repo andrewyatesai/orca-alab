@@ -1,5 +1,6 @@
 import type { ManagedPaneInternal } from '../pane-manager-types'
 import { useAppStore } from '@/store'
+import { resolveTerminalLigaturesEnabled } from '../../../../../shared/terminal-ligatures'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 
@@ -49,7 +50,16 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
       },
       // Honor the user's terminalFontFamily: its primary face is resolved on the host
       // + injected (set_primary_font) at pane open; "JetBrains Mono"/unset = bundled.
-      getFontFamily: () => useAppStore.getState().settings?.terminalFontFamily
+      getFontFamily: () => useAppStore.getState().settings?.terminalFontFamily,
+      // Resolve terminalLigatures (auto/on/off) against the font family so set_ligatures
+      // matches the user's choice; 'auto' enables only on a known-ligature face.
+      getLigatures: () => {
+        const settings = useAppStore.getState().settings
+        return resolveTerminalLigaturesEnabled(
+          settings?.terminalLigatures ?? 'auto',
+          settings?.terminalFontFamily
+        )
+      }
     }
   )
     .then((controller) => {

@@ -24,8 +24,12 @@ export type AtermWorkerInit = {
   canvas: OffscreenCanvas
   /** JetBrains-Mono bytes (the main thread already fetched them; transferable). */
   fontBytes: Uint8Array
-  /** Optional CJK/emoji fallback faces (same bytes the main path injects). */
+  /** Optional CJK + non-Latin fallback faces (same bytes the main path injects via
+   *  set_fallback_font/add_fallback_font — the MONOCHROME glyph path). */
   fallbackFonts: Uint8Array[]
+  /** Optional OS colour-emoji face (set_emoji_font — the sbix/COLR colour path). Kept
+   *  separate from fallbackFonts because the fallback chain renders monochrome. */
+  emojiFont?: Uint8Array
   rows: number
   cols: number
   /** Device-pixel cell font size (already dpr-scaled by the caller). */
@@ -47,6 +51,8 @@ export type AtermWorkerResize = { type: 'resize'; rows: number; cols: number }
 export type AtermWorkerSetPx = { type: 'setPx'; px: number }
 /** Re-derive the cell box height at a new line-height multiplier. */
 export type AtermWorkerSetLineHeight = { type: 'setLineHeight'; lineHeight: number }
+/** Enable/disable ligature shaping (terminalLigatures); forces a full repaint. */
+export type AtermWorkerSetLigatures = { type: 'setLigatures'; on: boolean }
 export type AtermWorkerScrollLines = { type: 'scrollLines'; delta: number }
 export type AtermWorkerScrollToBottom = { type: 'scrollToBottom' }
 export type AtermWorkerScrollToTop = { type: 'scrollToTop' }
@@ -153,6 +159,7 @@ export type AtermWorkerRequest =
   | AtermWorkerResize
   | AtermWorkerSetPx
   | AtermWorkerSetLineHeight
+  | AtermWorkerSetLigatures
   | AtermWorkerScrollLines
   | AtermWorkerScrollToBottom
   | AtermWorkerScrollToTop

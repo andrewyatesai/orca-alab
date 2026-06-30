@@ -3,7 +3,11 @@ import path from 'path'
 import type { Page, TestInfo } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
-import { waitForActivePaneHookDescriptor, waitForActiveTerminalManager } from './helpers/terminal'
+import {
+  getTerminalContent,
+  waitForActivePaneHookDescriptor,
+  waitForActiveTerminalManager
+} from './helpers/terminal'
 import { waitForTerminalPtyDataInjector } from './helpers/terminal-pty-injection'
 
 // Repro commands:
@@ -36,13 +40,6 @@ type SchedulerDebugWindow = Window & {
   }
   __terminalPtyDataInjection?: {
     inject: (paneKey: string, data: string) => boolean
-  }
-}
-
-type RefreshProbeWindow = SchedulerDebugWindow & {
-  __terminalRefreshProbe?: {
-    count: () => number
-    dispose: () => void
   }
 }
 
@@ -154,58 +151,6 @@ async function measureRendererDuringFrames(
   )
 }
 
-async function installActivePaneRefreshProbe(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    ;(window as RefreshProbeWindow).__terminalRefreshProbe?.dispose()
-    const state = window.__store?.getState()
-    const worktreeId = state?.activeWorktreeId
-    const tabId =
-      state?.activeTabType === 'terminal'
-        ? state.activeTabId
-        : worktreeId
-          ? (state?.activeTabIdByWorktree?.[worktreeId] ?? null)
-          : null
-    const manager = tabId ? window.__paneManagers?.get(tabId) : null
-    const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
-    if (!pane) {
-      throw new Error('Active terminal pane is unavailable')
-    }
-    const terminal = pane.terminal as unknown as {
-      _core?: { refresh?: (start: number, end: number, sync?: boolean) => void }
-    }
-    const originalCoreRefresh = terminal._core?.refresh?.bind(terminal._core)
-    if (!terminal._core || !originalCoreRefresh) {
-      throw new Error('Active terminal core refresh hook is unavailable')
-    }
-    let refreshCount = 0
-    terminal._core.refresh = (start, end, sync) => {
-      if (sync === true) {
-        refreshCount += 1
-      }
-      originalCoreRefresh(start, end, sync)
-    }
-    ;(window as RefreshProbeWindow).__terminalRefreshProbe = {
-      count: () => refreshCount,
-      dispose: () => {
-        if (terminal._core) {
-          terminal._core.refresh = originalCoreRefresh
-        }
-        delete (window as RefreshProbeWindow).__terminalRefreshProbe
-      }
-    }
-  })
-}
-
-async function readRefreshProbeCount(page: Page): Promise<number> {
-  return page.evaluate(() => (window as RefreshProbeWindow).__terminalRefreshProbe?.count() ?? 0)
-}
-
-async function disposeActivePaneRefreshProbe(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    ;(window as RefreshProbeWindow).__terminalRefreshProbe?.dispose()
-  })
-}
-
 function loadCapturedOpenCodeSmallRedrawFrames(): string[] {
   if (!existsSync(OPENCODE_CAPTURE_PATH)) {
     return []
@@ -249,7 +194,7 @@ function annotateMeasurement(
 }
 
 test.describe('Terminal foreground redraw freeze repro', () => {
-  test('Codex-style line rewrites request a visible row refresh', async ({ orcaPage }) => {
+  test('Codex-style line rewrites render the latest visible row', async ({ orcaPage }) => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
     await ensureTerminalVisible(orcaPage)
@@ -257,25 +202,24 @@ test.describe('Terminal foreground redraw freeze repro', () => {
 
     const { paneKey } = await waitForActivePaneHookDescriptor(orcaPage)
     await waitForTerminalPtyDataInjector(orcaPage, paneKey)
-    await installActivePaneRefreshProbe(orcaPage)
-    try {
-      const refreshBaseline = await readRefreshProbeCount(orcaPage)
-      await resetSchedulerDebug(orcaPage)
-      const measurement = await measureRendererDuringRewriteBurst(orcaPage, paneKey)
-      const scheduler = await readSchedulerDebug(orcaPage)
+    await resetSchedulerDebug(orcaPage)
+    const measurement = await measureRendererDuringRewriteBurst(orcaPage, paneKey)
+    const scheduler = await readSchedulerDebug(orcaPage)
 
-      expect(measurement.injectedFrames).toBe(REWRITE_REDRAW_FRAME_COUNT)
-      expect(measurement.maxTimerDriftMs).toBeLessThan(MAX_RENDERER_TIMER_DRIFT_MS)
-      expect(scheduler.deferredForegroundEnqueueCount).toBeGreaterThan(0)
-      await expect
-        .poll(async () => (await readRefreshProbeCount(orcaPage)) - refreshBaseline, {
-          timeout: 5_000,
-          message: 'Codex-style terminal rewrites did not request an xterm refresh'
-        })
-        .toBeGreaterThan(0)
-    } finally {
-      await disposeActivePaneRefreshProbe(orcaPage)
-    }
+    expect(measurement.injectedFrames).toBe(REWRITE_REDRAW_FRAME_COUNT)
+    expect(measurement.maxTimerDriftMs).toBeLessThan(MAX_RENDERER_TIMER_DRIFT_MS)
+    expect(scheduler.deferredForegroundEnqueueCount).toBeGreaterThan(0)
+    // aterm auto-renders via its draw scheduler (there is no xterm `_core.refresh` hook
+    // to count). Prove the rewrites actually reached the rendered grid: the LAST
+    // `\r\x1b[2K…` rewrite must be visible — i.e. the burst landed a visible-row refresh
+    // rather than being dropped or frozen behind the deferred-foreground drain.
+    const lastRewrite = `Working ${String(REWRITE_REDRAW_FRAME_COUNT - 1).padStart(4, '0')}`
+    await expect
+      .poll(async () => getTerminalContent(orcaPage, 4000), {
+        timeout: 5_000,
+        message: 'Codex-style terminal rewrites did not render the latest line'
+      })
+      .toContain(lastRewrite)
   })
 
   test('active OpenTUI-style redraw bursts do not monopolize the renderer', async ({

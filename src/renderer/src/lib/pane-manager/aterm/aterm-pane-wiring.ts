@@ -20,6 +20,7 @@ import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
 import { createAtermPanePresenter } from './aterm-pane-present'
 import { applyTerminalPrimaryFont } from './inject-terminal-primary-font'
 import { attachAtermCanvasFocus } from './aterm-canvas-focus'
+import { applyAtermEngineSettings } from './aterm-engine-settings-apply'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -80,10 +81,12 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const { pending, canvas, container, element, textarea, liveRegion, themeColors, shared } = config
   const { inputSink, resizeSink, pasteSink, controllerOptions } = config
   const term = pending.term
-  // Live settings readers (font size / line-height / family / ligatures), each read on
-  // demand so a settings change re-rasterizes via the reflow without a pane rebuild.
-  const { getFontPx, getLineHeight, getFontFamily, getLigatures } =
-    createAtermControllerOptionReaders(controllerOptions)
+  // Live settings readers (font size / line-height / family / ligatures / scrollback /
+  // cursor), each read on demand so a change applies without a pane rebuild. Font px /
+  // line-height / family are read inline here; the engine-settings applier consumes the
+  // rest off `readers`.
+  const readers = createAtermControllerOptionReaders(controllerOptions)
+  const { getFontPx, getLineHeight, getFontFamily } = readers
   const initialDpr = window.devicePixelRatio || 1
   // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
   // the async load (GPU init can take seconds) gives the window time to settle to a
@@ -94,11 +97,6 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // Apply the user's line-height before reading cell metrics so the grid is sized to
   // the real (scaled) cell height from frame 1; set_px re-applies it on later changes.
   term.set_line_height(getLineHeight())
-  // Apply the resolved ligature mode (engine default is ON). Ligatures don't change
-  // cell metrics, and like the font family this is fixed for the pane's life (a
-  // settings change applies on the next opened terminal). Works on both paths: the
-  // worker-backed term posts a setLigatures command.
-  term.set_ligatures(getLigatures())
   // Mutable metrics shared with the input-handler deps: a later host DPI change
   // re-rasterizes the engine (term.set_px) and updates these in place via the grid
   // reflow, so the grid + overlays resize instead of freezing at construction dpr.
@@ -316,6 +314,16 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // Focus the helper textarea on canvas click (the canvas isn't focusable).
   const canvasFocus = attachAtermCanvasFocus(canvas, textarea)
 
+  // Apply the user's fixed terminal settings (ligatures, scrollback depth, default cursor
+  // shape) to the freshly built engine + keep the OS color scheme synced (DEC 2031 /
+  // DSR 996). Defaults match the engine's own, so unset options are no-ops.
+  const engineSettings = applyAtermEngineSettings({
+    term,
+    readers,
+    inputSink,
+    isDisposed: () => disposed
+  })
+
   resizeSink(cols, rows)
   scheduleDraw()
 
@@ -339,6 +347,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     textareaInput.dispose()
     cursorBlink.dispose()
     canvasFocus.dispose()
+    engineSettings.dispose()
     selectionInput.dispose()
     scrollInput.dispose()
     eventReportingInput.dispose()
@@ -350,20 +359,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const controller: AtermPaneController = {
     process,
     displayOffset: () => term.display_offset,
-    // Buffer/grid reads + scroll/selection commands (live engine state); extracted
-    // to keep this file focused.
-    ...buildAtermEngineReads(term, scheduleDraw, () => disposed),
-    // CSS cell size = live device cell px / current dpr. `metrics` is updated in
-    // place by the grid reflow on a DPI change, so this tracks the real cell size
-    // (xterm's `_renderService.dimensions.css.cell`) without a pane rebuild.
-    cellSizeCss: () => ({
-      width: term.cell_width / metrics.dpr,
-      height: term.cell_height / metrics.dpr
-    }),
-    linkAt: (row: number, col: number) => {
-      const hit = term.link_at(row, col)
-      return hit ? { url: hit.url, kind: hit.kind } : null
-    },
+    // Buffer/grid reads (incl. cellSizeCss + linkAt) + scroll/selection commands (live
+    // engine state); extracted to keep this file focused.
+    ...buildAtermEngineReads(term, metrics, scheduleDraw, () => disposed),
     ...searchApi,
     setFileLinkOpener: (fn: AtermFileLinkOpener) => void (shared.fileLinkOpener = fn),
     setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),

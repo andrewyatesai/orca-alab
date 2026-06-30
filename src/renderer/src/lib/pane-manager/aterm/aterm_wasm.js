@@ -680,6 +680,17 @@ export class AtermTerminal {
         wasm.atermterminal_set_cell_pixel_size(this.__wbg_ptr, width, height);
     }
     /**
+     * Push the host OS color scheme into the engine. `dark = true` selects a dark
+     * appearance, `false` light. When the scheme CHANGES and the app enabled DEC mode
+     * 2031, the engine queues an unsolicited `CSI ? 997 ; Ps n` (1=dark, 2=light);
+     * drain it via `take_response` and forward to the PTY so subscribed apps live-
+     * update their theme. A no-op when the scheme is unchanged.
+     * @param {boolean} dark
+     */
+    set_color_scheme(dark) {
+        wasm.atermterminal_set_color_scheme(this.__wbg_ptr, dark);
+    }
+    /**
      * Set the cursor blink phase: `true` draws the cursor this frame, `false`
      * hides it. The host drives a ~530ms blink timer; independent of DECSCUSR.
      * @param {boolean} on
@@ -702,6 +713,17 @@ export class AtermTerminal {
      */
     set_default_background(r, g, b) {
         wasm.atermterminal_set_default_background(this.__wbg_ptr, r, g, b);
+    }
+    /**
+     * Set the host-preferred DEFAULT cursor style (shape used before any DECSCUSR and
+     * restored after RIS/DECSTR). `n` follows the DECSCUSR convention: 1=blinking
+     * block, 2=steady block, 3=blinking underline, 4=steady underline, 5=blinking bar,
+     * 6=steady bar; out-of-range (0, 7+) is ignored. Unlike a render override this does
+     * NOT clobber an app's live DECSCUSR (e.g. vim insert-mode bar).
+     * @param {number} n
+     */
+    set_default_cursor_style(n) {
+        wasm.atermterminal_set_default_cursor_style(this.__wbg_ptr, n);
     }
     /**
      * Seed the engine's DEFAULT foreground/background so its OSC 10/11 colour-query
@@ -810,6 +832,17 @@ export class AtermTerminal {
      */
     set_px(px) {
         wasm.atermterminal_set_px(this.__wbg_ptr, px);
+    }
+    /**
+     * Set the engine's scrollback line limit (history lines retained behind the live
+     * viewport). `lines == 0` means unlimited (bounded only by the memory budget).
+     * Shrinking truncates the oldest lines immediately; growing keeps history and lets
+     * it grow. Applies to both the main and alternate screens and re-clamps the scroll
+     * position. Without this the engine keeps its 100k-line default on every pane.
+     * @param {number} lines
+     */
+    set_scrollback_limit(lines) {
+        wasm.atermterminal_set_scrollback_limit(this.__wbg_ptr, lines);
     }
     /**
      * Set the explicit selected-text foreground (theme `selectionForeground`),

@@ -242,6 +242,14 @@ export class AtermTerminal {
      */
     set_cell_pixel_size(width: number, height: number): void;
     /**
+     * Push the host OS color scheme into the engine. `dark = true` selects a dark
+     * appearance, `false` light. When the scheme CHANGES and the app enabled DEC mode
+     * 2031, the engine queues an unsolicited `CSI ? 997 ; Ps n` (1=dark, 2=light);
+     * drain it via `take_response` and forward to the PTY so subscribed apps live-
+     * update their theme. A no-op when the scheme is unchanged.
+     */
+    set_color_scheme(dark: boolean): void;
+    /**
      * Set the cursor blink phase: `true` draws the cursor this frame, `false`
      * hides it. The host drives a ~530ms blink timer; independent of DECSCUSR.
      */
@@ -252,6 +260,14 @@ export class AtermTerminal {
      */
     set_cursor_hollow(hollow: boolean): void;
     set_default_background(r: number, g: number, b: number): void;
+    /**
+     * Set the host-preferred DEFAULT cursor style (shape used before any DECSCUSR and
+     * restored after RIS/DECSTR). `n` follows the DECSCUSR convention: 1=blinking
+     * block, 2=steady block, 3=blinking underline, 4=steady underline, 5=blinking bar,
+     * 6=steady bar; out-of-range (0, 7+) is ignored. Unlike a render override this does
+     * NOT clobber an app's live DECSCUSR (e.g. vim insert-mode bar).
+     */
+    set_default_cursor_style(n: number): void;
     /**
      * Seed the engine's DEFAULT foreground/background so its OSC 10/11 colour-query
      * replies report the host theme (the engine otherwise reports its built-in
@@ -311,6 +327,14 @@ export class AtermTerminal {
      * dpr. The host re-reads cell_width/cell_height + recomputes the grid after.
      */
     set_px(px: number): void;
+    /**
+     * Set the engine's scrollback line limit (history lines retained behind the live
+     * viewport). `lines == 0` means unlimited (bounded only by the memory budget).
+     * Shrinking truncates the oldest lines immediately; growing keeps history and lets
+     * it grow. Applies to both the main and alternate screens and re-clamps the scroll
+     * position. Without this the engine keeps its 100k-line default on every pane.
+     */
+    set_scrollback_limit(lines: number): void;
     /**
      * Set the explicit selected-text foreground (theme `selectionForeground`),
      * 0x00RRGGBB, or `undefined` to restore the WCAG contrast-floor default.
@@ -573,9 +597,11 @@ export interface InitOutput {
     readonly atermterminal_serialize_scrollback: (a: number, b: number) => [number, number];
     readonly atermterminal_set_bold_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_cell_pixel_size: (a: number, b: number, c: number) => void;
+    readonly atermterminal_set_color_scheme: (a: number, b: number) => void;
     readonly atermterminal_set_cursor_blink_phase: (a: number, b: number) => void;
     readonly atermterminal_set_cursor_hollow: (a: number, b: number) => void;
     readonly atermterminal_set_default_background: (a: number, b: number, c: number, d: number) => void;
+    readonly atermterminal_set_default_cursor_style: (a: number, b: number) => void;
     readonly atermterminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
     readonly atermterminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
@@ -585,6 +611,7 @@ export interface InitOutput {
     readonly atermterminal_set_palette_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_primary_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_px: (a: number, b: number) => void;
+    readonly atermterminal_set_scrollback_limit: (a: number, b: number) => void;
     readonly atermterminal_set_selection_fg: (a: number, b: number) => void;
     readonly atermterminal_set_selection_inactive: (a: number, b: number) => void;
     readonly atermterminal_set_selection_inactive_bg: (a: number, b: number) => void;

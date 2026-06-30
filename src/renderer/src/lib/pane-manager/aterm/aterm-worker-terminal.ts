@@ -69,6 +69,10 @@ export function createWorkerTerminal(handle: EngineHandle): {
   setPx: (px: number) => void
   setLineHeight: (scale: number) => void
   setLigatures: (on: boolean) => void
+  setScrollbackLimit: (lines: number) => void
+  setDefaultCursorStyle: (param: number) => void
+  /** Push the OS color scheme; returns any queued CSI ?997 reply bytes (ASCII), '' if none. */
+  setColorScheme: (dark: boolean) => string
   themeSet: (m: AtermWorkerThemeSet) => void
   setCursorBlinkPhase: (on: boolean) => void
   setCursorHollow: (hollow: boolean) => void
@@ -217,6 +221,13 @@ export function createWorkerTerminal(handle: EngineHandle): {
     setPx: (px) => e.set_px(px),
     setLineHeight: (scale) => e.set_line_height(scale),
     setLigatures: (on) => e.set_ligatures(on),
+    setScrollbackLimit: (lines) => e.set_scrollback_limit(lines),
+    setDefaultCursorStyle: (param) => e.set_default_cursor_style(param),
+    setColorScheme: (dark) => {
+      e.set_color_scheme(dark)
+      // The CSI ?997 push (if any) is ASCII; latin1-decode like other engine replies.
+      return decodeReply(e.take_response())
+    },
     themeSet: (m) => {
       switch (m.op) {
         case 'theme':

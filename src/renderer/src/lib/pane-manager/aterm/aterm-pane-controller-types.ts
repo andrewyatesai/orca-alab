@@ -212,4 +212,12 @@ export type AtermPaneControllerOptions = {
    *  Read at pane open to drive set_ligatures; the engine defaults to ON, so an unset
    *  callback keeps ligatures on. Like the font family, a change applies on new panes. */
   getLigatures?: () => boolean
+  /** Scrollback history line limit (resolved from terminalScrollbackBytes). Read at
+   *  pane open to drive set_scrollback_limit; unset keeps the engine's 100k default. */
+  getScrollbackLines?: () => number
+  /** DEFAULT cursor style as a DECSCUSR param (1=blinking block … 6=steady bar),
+   *  resolved from terminalCursorStyle + terminalCursorBlink. Read at pane open to drive
+   *  set_default_cursor_style; unset keeps the engine default (1). Does not clobber an
+   *  app's live DECSCUSR. */
+  getCursorStyleParam?: () => number
 }

@@ -1,5 +1,6 @@
 import type { AtermTerminal } from './aterm_wasm'
 import type { AtermPaneController } from './aterm-pane-controller-types'
+import type { AtermMetrics } from './aterm-grid-reflow'
 
 /** The slice of the wasm engine this module reads. Both the CPU `AtermTerminal`
  *  and the GPU engine expose the same surface, so the union is structural. */
@@ -20,6 +21,7 @@ type EngineReads = Pick<
   | 'row_text'
   | 'cell_text'
   | 'cell_is_wide'
+  | 'link_at'
   | 'drain_bell'
   | 'take_osc_events'
   | 'selection_text'
@@ -52,6 +54,8 @@ export type AtermEngineReadMembers = Pick<
   | 'rowText'
   | 'cellText'
   | 'cellIsWide'
+  | 'cellSizeCss'
+  | 'linkAt'
   | 'drainBell'
   | 'takeOscEvents'
   | 'selectionText'
@@ -65,6 +69,7 @@ export type AtermEngineReadMembers = Pick<
 
 export function buildAtermEngineReads(
   term: EngineReads,
+  metrics: AtermMetrics,
   scheduleDraw: () => void,
   isDisposed: () => boolean
 ): AtermEngineReadMembers {
@@ -98,6 +103,17 @@ export function buildAtermEngineReads(
     rowText: (row) => term.row_text(row),
     cellText: (row, col) => term.cell_text(row, col),
     cellIsWide: (row, col) => term.cell_is_wide(row, col),
+    // CSS cell size = live device cell px / current dpr (xterm's css.cell). `metrics`
+    // is updated in place by the grid reflow on a DPI change, so this tracks the real
+    // cell size without a pane rebuild.
+    cellSizeCss: () => ({
+      width: term.cell_width / metrics.dpr,
+      height: term.cell_height / metrics.dpr
+    }),
+    linkAt: (row, col) => {
+      const hit = term.link_at(row, col)
+      return hit ? { url: hit.url, kind: hit.kind } : null
+    },
     drainBell: () => term.drain_bell(),
     takeOscEvents: () => term.take_osc_events(),
     selectionText: () => term.selection_text() ?? '',

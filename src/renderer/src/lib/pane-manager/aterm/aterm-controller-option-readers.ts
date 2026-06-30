@@ -16,6 +16,10 @@ export type AtermControllerOptionReaders = {
   getFontFamily: () => string | undefined
   /** Ligatures enabled (resolved terminalLigatures); default true (engine default ON). */
   getLigatures: () => boolean
+  /** Scrollback history line limit; default 100_000 (the engine default → a no-op set). */
+  getScrollbackLines: () => number
+  /** DEFAULT cursor style as a DECSCUSR param (1–6); default 1 (engine default → no-op). */
+  getCursorStyleParam: () => number
 }
 
 export function createAtermControllerOptionReaders(
@@ -25,6 +29,10 @@ export function createAtermControllerOptionReaders(
     getFontPx: () => options?.getFontPx?.() ?? ATERM_RENDERER_FONT_PX,
     getLineHeight: () => options?.getLineHeight?.() ?? 1,
     getFontFamily: () => options?.getFontFamily?.(),
-    getLigatures: () => options?.getLigatures?.() ?? true
+    getLigatures: () => options?.getLigatures?.() ?? true,
+    // Default to the engine's own defaults so an unset callback makes the apply a no-op
+    // (100_000-line scrollback; DECSCUSR 1 = blinking block).
+    getScrollbackLines: () => options?.getScrollbackLines?.() ?? 100_000,
+    getCursorStyleParam: () => options?.getCursorStyleParam?.() ?? 1
   }
 }

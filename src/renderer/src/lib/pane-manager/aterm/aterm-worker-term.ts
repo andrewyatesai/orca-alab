@@ -267,6 +267,11 @@ export function createWorkerBackedTerm(deps: {
     set_px: (px: number) => post({ type: 'setPx', px }),
     set_line_height: (scale: number) => post({ type: 'setLineHeight', lineHeight: scale }),
     set_ligatures: (on: boolean) => post({ type: 'setLigatures', on }),
+    set_scrollback_limit: (lines: number) => post({ type: 'setScrollbackLimit', lines }),
+    set_default_cursor_style: (param: number) => post({ type: 'setDefaultCursorStyle', param }),
+    // The CSI ?997 push (if any) returns via the worker reply channel → inputSink, so
+    // the sync facade method returns void (the worker drains take_response itself).
+    set_color_scheme: (dark: boolean) => post({ type: 'setColorScheme', dark }),
     scroll_lines: (delta: number) => post({ type: 'scrollLines', delta }),
     scroll_to_bottom: () => post({ type: 'scrollToBottom' }),
     scroll_to_top: () => post({ type: 'scrollToTop' }),

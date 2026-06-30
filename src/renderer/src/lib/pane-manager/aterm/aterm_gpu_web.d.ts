@@ -183,9 +183,11 @@ export class AtermGpuTerminal {
     /**
      * Search the full retained buffer for `query`, returning matches as a flat
      * `[abs_line, start_col, len]` triplet array. Empty query / regex error →
-     * empty array. See aterm-wasm for the coordinate contract.
+     * empty array. `is_regex` compiles `query` as a regex (parity with aterm-wasm;
+     * the core already accepts it — the web GPU path previously hardcoded false).
+     * See aterm-wasm for the coordinate contract.
      */
-    search(query: string, case_sensitive: boolean): Uint32Array;
+    search(query: string, case_sensitive: boolean, is_regex: boolean): Uint32Array;
     /**
      * Drop the current selection so the highlight clears on the next render.
      */
@@ -251,6 +253,13 @@ export class AtermGpuTerminal {
      */
     set_cell_pixel_size(width: number, height: number): void;
     /**
+     * Push the host OS color scheme into the engine. `dark = true` selects a dark
+     * appearance, `false` light. When the scheme CHANGES and the app enabled DEC mode
+     * 2031, the engine queues an unsolicited `CSI ? 997 ; Ps n`; drain it via
+     * `take_response` and forward to the PTY. A no-op when unchanged. Mirrors aterm-wasm.
+     */
+    set_color_scheme(dark: boolean): void;
+    /**
      * Set the cursor blink phase (see aterm-wasm). Applies to the live GPU renderer
      * AND the CPU face so the GPU present + offscreen readback paths agree.
      */
@@ -261,6 +270,13 @@ export class AtermGpuTerminal {
      */
     set_cursor_hollow(hollow: boolean): void;
     set_default_background(r: number, g: number, b: number): void;
+    /**
+     * Set the host-preferred DEFAULT cursor style (shape used before any DECSCUSR and
+     * restored after RIS/DECSTR). `n` per DECSCUSR: 1=blinking block, 2=steady block,
+     * 3=blinking underline, 4=steady underline, 5=blinking bar, 6=steady bar;
+     * out-of-range ignored. Does NOT clobber an app's live DECSCUSR. Mirrors aterm-wasm.
+     */
+    set_default_cursor_style(n: number): void;
     /**
      * Seed the engine's DEFAULT foreground/background so OSC 10/11 colour-query
      * replies report the host theme. RGB components, 0–255.
@@ -322,6 +338,14 @@ export class AtermGpuTerminal {
      * atlas). The host re-reads cell_width/cell_height + resizes the grid after.
      */
     set_px(px: number): void;
+    /**
+     * Set the engine's scrollback line limit (history lines retained behind the live
+     * viewport). `lines == 0` means unlimited (bounded only by the memory budget).
+     * Shrinking truncates the oldest lines immediately; growing keeps history and lets
+     * it grow. Applies to both the main and alternate screens and re-clamps the scroll
+     * position. Without this the engine keeps its 100k-line default on every pane.
+     */
+    set_scrollback_limit(lines: number): void;
     /**
      * Explicit selected-text foreground (theme `selectionForeground`), 0x00RRGGBB,
      * or `undefined` for the WCAG contrast-floor default. Set on both the CPU
@@ -569,7 +593,7 @@ export interface InitOutput {
     readonly atermgputerminal_scroll_search_line_into_view: (a: number, b: number) => void;
     readonly atermgputerminal_scroll_to_bottom: (a: number) => void;
     readonly atermgputerminal_scroll_to_top: (a: number) => void;
-    readonly atermgputerminal_search: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly atermgputerminal_search: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermgputerminal_search_display_origin: (a: number) => number;
     readonly atermgputerminal_selection_clear: (a: number) => void;
     readonly atermgputerminal_selection_extend: (a: number, b: number, c: number) => void;
@@ -583,9 +607,11 @@ export interface InitOutput {
     readonly atermgputerminal_serialize_scrollback: (a: number, b: number) => [number, number];
     readonly atermgputerminal_set_bold_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_cell_pixel_size: (a: number, b: number, c: number) => void;
+    readonly atermgputerminal_set_color_scheme: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_blink_phase: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_hollow: (a: number, b: number) => void;
     readonly atermgputerminal_set_default_background: (a: number, b: number, c: number, d: number) => void;
+    readonly atermgputerminal_set_default_cursor_style: (a: number, b: number) => void;
     readonly atermgputerminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
     readonly atermgputerminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
@@ -595,6 +621,7 @@ export interface InitOutput {
     readonly atermgputerminal_set_palette_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_primary_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_px: (a: number, b: number) => void;
+    readonly atermgputerminal_set_scrollback_limit: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_fg: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_inactive: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_inactive_bg: (a: number, b: number) => void;

@@ -539,15 +539,18 @@ export class AtermGpuTerminal {
     /**
      * Search the full retained buffer for `query`, returning matches as a flat
      * `[abs_line, start_col, len]` triplet array. Empty query / regex error →
-     * empty array. See aterm-wasm for the coordinate contract.
+     * empty array. `is_regex` compiles `query` as a regex (parity with aterm-wasm;
+     * the core already accepts it — the web GPU path previously hardcoded false).
+     * See aterm-wasm for the coordinate contract.
      * @param {string} query
      * @param {boolean} case_sensitive
+     * @param {boolean} is_regex
      * @returns {Uint32Array}
      */
-    search(query, case_sensitive) {
+    search(query, case_sensitive, is_regex) {
         const ptr0 = passStringToWasm0(query, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.atermgputerminal_search(this.__wbg_ptr, ptr0, len0, case_sensitive);
+        const ret = wasm.atermgputerminal_search(this.__wbg_ptr, ptr0, len0, case_sensitive, is_regex);
         var v2 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v2;
@@ -711,6 +714,16 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_set_cell_pixel_size(this.__wbg_ptr, width, height);
     }
     /**
+     * Push the host OS color scheme into the engine. `dark = true` selects a dark
+     * appearance, `false` light. When the scheme CHANGES and the app enabled DEC mode
+     * 2031, the engine queues an unsolicited `CSI ? 997 ; Ps n`; drain it via
+     * `take_response` and forward to the PTY. A no-op when unchanged. Mirrors aterm-wasm.
+     * @param {boolean} dark
+     */
+    set_color_scheme(dark) {
+        wasm.atermgputerminal_set_color_scheme(this.__wbg_ptr, dark);
+    }
+    /**
      * Set the cursor blink phase (see aterm-wasm). Applies to the live GPU renderer
      * AND the CPU face so the GPU present + offscreen readback paths agree.
      * @param {boolean} on
@@ -733,6 +746,16 @@ export class AtermGpuTerminal {
      */
     set_default_background(r, g, b) {
         wasm.atermgputerminal_set_default_background(this.__wbg_ptr, r, g, b);
+    }
+    /**
+     * Set the host-preferred DEFAULT cursor style (shape used before any DECSCUSR and
+     * restored after RIS/DECSTR). `n` per DECSCUSR: 1=blinking block, 2=steady block,
+     * 3=blinking underline, 4=steady underline, 5=blinking bar, 6=steady bar;
+     * out-of-range ignored. Does NOT clobber an app's live DECSCUSR. Mirrors aterm-wasm.
+     * @param {number} n
+     */
+    set_default_cursor_style(n) {
+        wasm.atermgputerminal_set_default_cursor_style(this.__wbg_ptr, n);
     }
     /**
      * Seed the engine's DEFAULT foreground/background so OSC 10/11 colour-query
@@ -843,6 +866,17 @@ export class AtermGpuTerminal {
      */
     set_px(px) {
         wasm.atermgputerminal_set_px(this.__wbg_ptr, px);
+    }
+    /**
+     * Set the engine's scrollback line limit (history lines retained behind the live
+     * viewport). `lines == 0` means unlimited (bounded only by the memory budget).
+     * Shrinking truncates the oldest lines immediately; growing keeps history and lets
+     * it grow. Applies to both the main and alternate screens and re-clamps the scroll
+     * position. Without this the engine keeps its 100k-line default on every pane.
+     * @param {number} lines
+     */
+    set_scrollback_limit(lines) {
+        wasm.atermgputerminal_set_scrollback_limit(this.__wbg_ptr, lines);
     }
     /**
      * Explicit selected-text foreground (theme `selectionForeground`), 0x00RRGGBB,

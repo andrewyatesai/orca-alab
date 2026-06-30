@@ -53,6 +53,14 @@ export type AtermWorkerSetPx = { type: 'setPx'; px: number }
 export type AtermWorkerSetLineHeight = { type: 'setLineHeight'; lineHeight: number }
 /** Enable/disable ligature shaping (terminalLigatures); forces a full repaint. */
 export type AtermWorkerSetLigatures = { type: 'setLigatures'; on: boolean }
+/** Set the scrollback history line limit (terminalScrollbackBytes); 0 = unlimited. */
+export type AtermWorkerSetScrollbackLimit = { type: 'setScrollbackLimit'; lines: number }
+/** Set the DEFAULT cursor style as a DECSCUSR param 1–6 (terminalCursorStyle); does not
+ *  clobber an app's live DECSCUSR. */
+export type AtermWorkerSetDefaultCursorStyle = { type: 'setDefaultCursorStyle'; param: number }
+/** Push the OS color scheme (light/dark). The engine queues a CSI ?997 update when the
+ *  scheme changes and the app enabled DEC 2031; the worker drains it to the reply channel. */
+export type AtermWorkerSetColorScheme = { type: 'setColorScheme'; dark: boolean }
 export type AtermWorkerScrollLines = { type: 'scrollLines'; delta: number }
 export type AtermWorkerScrollToBottom = { type: 'scrollToBottom' }
 export type AtermWorkerScrollToTop = { type: 'scrollToTop' }
@@ -160,6 +168,9 @@ export type AtermWorkerRequest =
   | AtermWorkerSetPx
   | AtermWorkerSetLineHeight
   | AtermWorkerSetLigatures
+  | AtermWorkerSetScrollbackLimit
+  | AtermWorkerSetDefaultCursorStyle
+  | AtermWorkerSetColorScheme
   | AtermWorkerScrollLines
   | AtermWorkerScrollToBottom
   | AtermWorkerScrollToTop

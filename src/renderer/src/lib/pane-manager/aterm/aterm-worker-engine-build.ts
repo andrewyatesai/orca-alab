@@ -60,6 +60,9 @@ export type WorkerEngine = Pick<
   | 'set_px'
   | 'set_line_height'
   | 'set_ligatures'
+  | 'set_scrollback_limit'
+  | 'set_default_cursor_style'
+  | 'set_color_scheme'
   | 'set_theme'
   | 'set_default_foreground'
   | 'set_default_background'
@@ -94,7 +97,7 @@ export type EngineHandle = {
   render: () => void
   /** Device-pixel framebuffer size after the last render. */
   framebuffer: () => { width: number; height: number }
-  /** Run the engine search (GPU ignores isRegex — its search is case-only). */
+  /** Run the engine search; both CPU and GPU honor isRegex (3-arg parity). */
   search: (query: string, caseSensitive: boolean, isRegex: boolean) => Uint32Array
   dispose: () => void
 }
@@ -254,8 +257,9 @@ export async function buildGpuEngine(
       width: canvas.width || Math.round(cols * engine.cell_width),
       height: canvas.height || Math.round(rows * engine.cell_height)
     }),
-    // GPU search is case-only (no regex arg); isRegex is ignored on this path.
-    search: (q, cs) => t.search(q, cs),
+    // GPU search now forwards isRegex (parity with the CPU binding after the aterm
+    // 3-arg widening), so regex search works on the default GPU worker path.
+    search: (q, cs, regex) => t.search(q, cs, regex),
     dispose: () => {
       try {
         t.free()

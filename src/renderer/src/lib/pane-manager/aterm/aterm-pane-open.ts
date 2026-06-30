@@ -59,6 +59,25 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
           settings?.terminalLigatures ?? 'auto',
           settings?.terminalFontFamily
         )
+      },
+      // Convert terminalScrollbackBytes → a line count (mirrors the legacy facade option
+      // in use-terminal-pane-lifecycle) so the engine retains the user's history depth
+      // instead of its 100k default.
+      getScrollbackLines: () => {
+        const bytes = useAppStore.getState().settings?.terminalScrollbackBytes ?? 10_000_000
+        return Math.min(50_000, Math.max(1000, Math.round(bytes / 200)))
+      },
+      // Map terminalCursorStyle + terminalCursorBlink → a DECSCUSR param: block=1/2,
+      // underline=3/4, bar=5/6 (blinking/steady) — the engine's default cursor shape.
+      getCursorStyleParam: () => {
+        const settings = useAppStore.getState().settings
+        const base =
+          settings?.terminalCursorStyle === 'bar'
+            ? 5
+            : settings?.terminalCursorStyle === 'underline'
+              ? 3
+              : 1
+        return settings?.terminalCursorBlink === false ? base + 1 : base
       }
     }
   )

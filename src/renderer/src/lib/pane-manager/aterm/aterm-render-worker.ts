@@ -15,6 +15,7 @@ import {
   type StoredInit
 } from './aterm-worker-engine-build'
 import { createWorkerTerminal } from './aterm-worker-terminal'
+import { createWorkerSerializeCache } from './aterm-worker-serialize-cache'
 import type {
   AtermWorkerInit,
   AtermWorkerMessage,
@@ -38,42 +39,12 @@ let storedCanvas: OffscreenCanvas | null = null
 let fellBackToCpu = false
 let suspended = false
 let drawScheduled = false
-// Serialized-buffer cache: pushed so the main thread has a recent buffer to read
-// SYNCHRONOUSLY at shutdown layout-capture. Throttle-with-max-wait, NOT a pure
-// debounce: a continuously-busy pane would reset a debounce forever and never cache
-// (then the shutdown read gets an empty/stale blob and the pane's scrollback is lost).
-let cacheTimer: ReturnType<typeof setTimeout> | null = null
-let cacheMaxWaitTimer: ReturnType<typeof setTimeout> | null = null
-const SERIALIZE_CACHE_DEBOUNCE_MS = 1000
-const SERIALIZE_CACHE_MAX_WAIT_MS = 5000
-
-const flushSerializeCache = (): void => {
-  if (cacheTimer !== null) {
-    clearTimeout(cacheTimer)
-    cacheTimer = null
-  }
-  if (cacheMaxWaitTimer !== null) {
-    clearTimeout(cacheMaxWaitTimer)
-    cacheMaxWaitTimer = null
-  }
-  if (term) {
-    const { full, scrollback } = term.serializedCache()
-    ctx.postMessage({ type: 'serializedCache', full, scrollback })
-  }
-}
-
-const scheduleSerializeCache = (): void => {
-  // Debounce: refresh ~1s after output settles (the common idle case).
-  if (cacheTimer !== null) {
-    clearTimeout(cacheTimer)
-  }
-  cacheTimer = setTimeout(flushSerializeCache, SERIALIZE_CACHE_DEBOUNCE_MS)
-  // Max-wait floor: guarantee a refresh at least every MAX_WAIT even while output
-  // streams continuously (the debounce above would otherwise never fire).
-  if (cacheMaxWaitTimer === null) {
-    cacheMaxWaitTimer = setTimeout(flushSerializeCache, SERIALIZE_CACHE_MAX_WAIT_MS)
-  }
-}
+// Serialized-buffer cache (throttle-with-max-wait) so the main thread can read recent
+// scrollback synchronously at shutdown; the throttle logic lives in its own module.
+const serializeCache = createWorkerSerializeCache({
+  getTerm: () => term,
+  post: (message) => ctx.postMessage(message)
+})
 
 const drawNow = (): void => {
   if (!term) {
@@ -185,7 +156,7 @@ ctx.onmessage = (event): void => {
         ctx.postMessage({ type: 'bell' })
       }
       scheduleDraw()
-      scheduleSerializeCache()
+      serializeCache.schedule()
       return
     }
     case 'draw':
@@ -207,6 +178,22 @@ ctx.onmessage = (event): void => {
       term?.setLigatures(msg.on)
       scheduleDraw()
       return
+    case 'setScrollbackLimit':
+      term?.setScrollbackLimit(msg.lines)
+      return
+    case 'setDefaultCursorStyle':
+      term?.setDefaultCursorStyle(msg.param)
+      scheduleDraw()
+      return
+    case 'setColorScheme': {
+      // set_color_scheme may queue a CSI ?997 push (when the scheme changed AND the app
+      // enabled DEC 2031); forward it through the reply channel → main → PTY.
+      const reply = term ? term.setColorScheme(msg.dark) : ''
+      if (reply) {
+        ctx.postMessage({ type: 'reply', data: reply })
+      }
+      return
+    }
     case 'scrollLines':
       term?.scrollLines(msg.delta)
       scheduleDraw()
@@ -321,10 +308,7 @@ ctx.onmessage = (event): void => {
       return
     }
     case 'dispose':
-      if (cacheTimer !== null) {
-        clearTimeout(cacheTimer)
-        cacheTimer = null
-      }
+      serializeCache.dispose()
       term?.dispose()
       term = null
       storedInit = null

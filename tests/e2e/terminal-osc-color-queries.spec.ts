@@ -76,16 +76,21 @@ test('answers OSC foreground and background color queries from the active termin
   const injected = await injectPtyOutput(orcaPage, paneKey, '\x1b]10;?\x1b\\\x1b]11;?\x1b\\')
 
   expect(injected).toBe(true)
+  // aterm drains the engine's queued replies once per processed chunk, so both OSC
+  // answers for a single injected chunk arrive as ONE PTY write (the OSC 10 reply
+  // immediately followed by the OSC 11 reply). A PTY is a byte stream, so assert the
+  // concatenated bytes — in order — rather than a per-write count (the xterm-era shape).
   await expect
     .poll(
       async () =>
         (await readTerminalPtyWriteEntries(electronApp))
           .filter((entry) => entry.id === ptyId)
-          .map((entry) => entry.data),
+          .map((entry) => entry.data)
+          .join(''),
       {
         timeout: 5_000,
         message: 'OSC color query replies were not written to the active PTY'
       }
     )
-    .toEqual(['\x1b]10;rgb:2e2e/3434/3434\x1b\\', '\x1b]11;rgb:ffff/ffff/ffff\x1b\\'])
+    .toBe('\x1b]10;rgb:2e2e/3434/3434\x1b\\\x1b]11;rgb:ffff/ffff/ffff\x1b\\')
 })

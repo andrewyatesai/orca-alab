@@ -1,24 +1,8 @@
 import { test, expect } from './helpers/orca-app'
 import { waitForActivePanePtyId } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
-import { readAtermRgba } from './helpers/aterm-canvas-pixels'
+import { countAtermChangedPixelsSince, snapshotAtermCanvas } from './helpers/aterm-canvas-pixels'
 import { writeFileSync } from 'node:fs'
-
-/** Count RGB-differing pixels between two equal-length flat RGBA buffers; a
- *  length mismatch (canvas resized) counts as fully changed. Used to assert the
- *  renderer repainted — works on the GPU swapchain and the CPU 2d canvas alike. */
-function countChangedPixels(before: number[], after: number[]): number {
-  if (after.length !== before.length) {
-    return after.length
-  }
-  let changed = 0
-  for (let i = 0; i < after.length; i += 4) {
-    if (after[i] !== before[i] || after[i + 1] !== before[i + 1] || after[i + 2] !== before[i + 2]) {
-      changed++
-    }
-  }
-  return changed
-}
 
 // Proves the aterm renderer is a CREDIBLE DEFAULT: the xterm-mirroring shim DOM
 // (.xterm / .xterm-screen / .xterm-helper-textarea) that ~29 app consumers key
@@ -29,30 +13,6 @@ function countChangedPixels(before: number[], after: number[]): number {
 // a 0x0 rect. Keyboard goes to document.activeElement regardless of geometry,
 // and link detection is asserted deterministically via the controller probe
 // (controller.linkAt) rather than fragile mouse coordinates.
-
-type AtermControllerProbe = {
-  process: (data: string) => void
-  selectionText: () => string
-  linkAt: (row: number, col: number) => { url: string; kind: number } | null
-}
-
-function findActiveController(): AtermControllerProbe {
-  const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
-  if (!managers) {
-    throw new Error('no pane managers')
-  }
-  for (const manager of managers.values()) {
-    const m = manager as {
-      getActivePane?: () => { atermController?: AtermControllerProbe | null } | null
-      getPanes?: () => { atermController?: AtermControllerProbe | null }[]
-    }
-    const pane = m.getActivePane?.() ?? m.getPanes?.()[0] ?? null
-    if (pane?.atermController) {
-      return pane.atermController
-    }
-  }
-  throw new Error('no aterm controller on any pane')
-}
 
 test.describe('aterm renderer as the default', () => {
   test('helper-textarea shim, keyboard→PTY→canvas, and link detection', async ({ orcaPage }) => {
@@ -109,14 +69,21 @@ test.describe('aterm renderer as the default', () => {
     // output must CHANGE the canvas (terminal output isn't monotonic in pixel
     // count — it scrolls/redraws — so assert a pixel DIFF, not a count increase).
     // Snapshot the canvas (GPU swapchain or CPU 2d) BEFORE typing.
-    const beforeType = await readAtermRgba(orcaPage)
-    expect(beforeType, 'should snapshot the canvas before typing').not.toBeNull()
+    // Snapshot IN-PAGE (the diff runs page-side; only a count crosses IPC). A
+    // full-buffer readback is multi-second on a Retina canvas, so polling it would blow
+    // the timeout even though the render itself is fine.
+    expect(
+      await snapshotAtermCanvas(orcaPage, 'type'),
+      'should snapshot the canvas before typing'
+    ).toBe(true)
     await orcaPage.evaluate(() => {
       const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
       const ta = c
         ?.closest('.xterm')
         ?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
-      if (!ta) throw new Error('no aterm helper textarea')
+      if (!ta) {
+        throw new Error('no aterm helper textarea')
+      }
       // Printable text: set value + dispatch an InputEvent (the path setRangeText
       // paste and typing both produce). data carries the inserted character.
       const type = (text: string): void => {
@@ -136,13 +103,10 @@ test.describe('aterm renderer as the default', () => {
     })
 
     await expect
-      .poll(
-        async () => {
-          const after = await readAtermRgba(orcaPage)
-          return after ? countChangedPixels(beforeType!.data, after.data) : 0
-        },
-        { timeout: 20_000, message: 'typing through the shim must change the rendered canvas' }
-      )
+      .poll(async () => countAtermChangedPixelsSince(orcaPage, 'type'), {
+        timeout: 20_000,
+        message: 'typing through the shim must change the rendered canvas'
+      })
       .toBeGreaterThan(2000)
 
     // 3) Link detection: feed a line with a URL through the same output path the
@@ -151,10 +115,13 @@ test.describe('aterm renderer as the default', () => {
     //    process(), so detection isn't asserting against an unrendered buffer.
     // Baseline the canvas (GPU/CPU), feed the URL, then read it back to confirm
     // the URL glyphs actually painted (a pixel diff), independent of context kind.
-    const beforeLink = await readAtermRgba(orcaPage)
+    await snapshotAtermCanvas(orcaPage, 'link')
     const link = await orcaPage.evaluate(async () => {
-      const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
-      if (!managers) return null
+      const managers = (window as unknown as { __paneManagers?: Map<string, unknown> })
+        .__paneManagers
+      if (!managers) {
+        return null
+      }
       let controller: {
         process: (d: string) => void
         linkAt: (r: number, c: number) => { url: string; kind: number } | null
@@ -170,7 +137,9 @@ test.describe('aterm renderer as the default', () => {
           break
         }
       }
-      if (!controller) return null
+      if (!controller) {
+        return null
+      }
       const raf = (): Promise<void> =>
         new Promise((resolve) => requestAnimationFrame(() => resolve()))
       // Land the URL on a fresh line at a known column, then let it paint.
@@ -189,9 +158,7 @@ test.describe('aterm renderer as the default', () => {
       }
       return { url: '', kind: -1 }
     })
-    const afterLink = await readAtermRgba(orcaPage)
-    const renderedPixelDiff =
-      beforeLink && afterLink ? countChangedPixels(beforeLink.data, afterLink.data) : 0
+    const renderedPixelDiff = await countAtermChangedPixelsSince(orcaPage, 'link')
     expect(link, 'controller should detect the URL link').not.toBeNull()
     expect(link?.url).toContain('aterm.example.com')
     expect([0, 1]).toContain(link?.kind) // 0 = OSC-8, 1 = detected URL

@@ -47,6 +47,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
   searchMatchCount: () => number
   /** 1-based active match index, or 0 when there are no matches. */
   searchActiveMatchIndex: () => number
+  /** Subscribe to async search-state updates (worker path pushes count/active-index a
+   *  frame after find/next/prev); returns a disposer. No-op disposer in-process. */
+  onSearchStateChange: (handler: () => void) => () => void
   /** Device-pixel rect of the active match's highlight on the canvas (the exact
    *  cell band the overlay paints), or null when there is no on-screen active
    *  match. Mirrors paintAtermSearchHighlights' mapping; used to verify the

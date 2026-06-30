@@ -11,6 +11,10 @@ export type AtermSearchApi = {
   clearSearch: () => void
   searchMatchCount: () => number
   searchActiveMatchIndex: () => number
+  /** Subscribe to search-state changes that land asynchronously (the worker pushes
+   *  count/active-index a frame after a posted find/next/prev). Returns a disposer;
+   *  a no-op disposer in-process, where the count updates synchronously. */
+  onSearchStateChange: (handler: () => void) => () => void
   searchActiveMatchRect: () => {
     x: number
     y: number
@@ -39,18 +43,26 @@ export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
   // the seam (the main-thread controller stays empty). It instead pushes count/active-
   // index/rect each snapshot, exposed as searchStateSnapshot. Absent in-process, where
   // the controller holds the real matches — so this is null there and we fall back.
+  const facade = term as typeof term & Partial<AtermWorkerAsyncFacade>
   const workerSearch = (): ReturnType<
     NonNullable<AtermWorkerAsyncFacade['searchStateSnapshot']>
-  > | null =>
-    (term as typeof term & Partial<AtermWorkerAsyncFacade>).searchStateSnapshot?.() ?? null
+  > | null => facade.searchStateSnapshot?.() ?? null
   return {
     findMatches: (query, caseSensitive, isRegex) =>
       isDisposed() ? 0 : searchController.find(query, caseSensitive, isRegex),
-    findNextMatch: () => searchController.next(),
-    findPreviousMatch: () => searchController.prev(),
-    clearSearch: () => searchController.clear(),
+    // Nav/clear run in the worker on that path (the main-thread controller is empty there);
+    // in-process they fall back to the controller, which holds the real matches.
+    findNextMatch: () => (facade.searchNext ? facade.searchNext() : searchController.next()),
+    findPreviousMatch: () => (facade.searchPrev ? facade.searchPrev() : searchController.prev()),
+    // Clear BOTH: the local controller (in-process state + overlay) and, on the worker path,
+    // the worker (so it stops emitting highlight rects).
+    clearSearch: () => {
+      searchController.clear()
+      facade.searchClear?.()
+    },
     searchMatchCount: () => workerSearch()?.count ?? searchController.count(),
     searchActiveMatchIndex: () => workerSearch()?.activeIndex ?? searchController.activeIndex(),
+    onSearchStateChange: (handler) => facade.onSearchStateChange?.(handler) ?? (() => undefined),
     searchActiveMatchRect: () => {
       const workerState = workerSearch()
       if (workerState) {

@@ -15,6 +15,10 @@ export type AtermSearchSurface = {
   clearSearch: () => void
   searchMatchCount: () => number
   searchActiveMatchIndex: () => number
+  /** Subscribe to async search-state updates; returns a disposer. On the default off-main
+   *  worker path the count/active-index land a frame after find/next/prev, so the label
+   *  must re-read when they arrive (no-op disposer in-process). */
+  onSearchStateChange: (handler: () => void) => () => void
 }
 
 type TerminalSearchProps = {
@@ -112,12 +116,23 @@ export default function TerminalSearch({
       return
     }
     // Run the canvas search (highlight + scroll-to-match) honoring both case
-    // sensitivity and the regex toggle (the engine compiles the pattern).
+    // sensitivity and the regex toggle (the engine compiles the pattern). Read the count
+    // from the snapshot-backed getters (findMatches' return is 0 on the worker path, where
+    // matches land async) — the onSearchStateChange subscription below re-syncs when they do.
     if (atermSearch) {
-      const total = atermSearch.findMatches(requestQuery, caseSensitive, regex)
-      setMatchLabel(total === 0 ? '0' : `${atermSearch.searchActiveMatchIndex()} / ${total}`)
+      atermSearch.findMatches(requestQuery, caseSensitive, regex)
+      syncAtermMatchLabel()
     }
-  }, [requestQuery, atermSearch, isOpen, caseSensitive, regex, searchStateRef])
+  }, [requestQuery, atermSearch, isOpen, caseSensitive, regex, searchStateRef, syncAtermMatchLabel])
+
+  // Worker path: search count/active-index arrive a frame after find/next/prev, so re-sync
+  // the label when the worker pushes them. No-op disposer in-process (count is synchronous).
+  useEffect(() => {
+    if (!atermSearch || !isOpen) {
+      return
+    }
+    return atermSearch.onSearchStateChange(syncAtermMatchLabel)
+  }, [atermSearch, isOpen, syncAtermMatchLabel])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

@@ -117,7 +117,6 @@ export type AtermWorkerSearchPrev = { type: 'searchPrev' }
 export type AtermWorkerSearchClear = { type: 'searchClear' }
 /** Swap the primary font face (terminalFontFamily) + reflow once its bytes load. */
 export type AtermWorkerSetPrimaryFont = { type: 'setPrimaryFont'; bytes: Uint8Array }
-export type AtermWorkerForceReflow = { type: 'forceReflow' }
 /** Encode a mouse report in the worker (the engine owns the protocol). The encoded
  *  bytes are PTY input, so the worker forwards them through the SAME 'reply' channel as
  *  engine query replies → main writes them to the PTY (onReply → inputSink). The
@@ -194,7 +193,6 @@ export type AtermWorkerRequest =
   | AtermWorkerSearchPrev
   | AtermWorkerSearchClear
   | AtermWorkerSetPrimaryFont
-  | AtermWorkerForceReflow
   | AtermWorkerMouseEncode
   | AtermWorkerQuery
   | AtermWorkerFallback
@@ -318,7 +316,3 @@ export type AtermWorkerMessage =
   | AtermWorkerSerializedCache
   | AtermWorkerQueryResult
   | AtermWorkerError
-
-/** First state after init carries the initial cell metrics so the host can build the
- *  grid; reuses AtermWorkerState. */
-export type AtermWorkerResponse = AtermWorkerState

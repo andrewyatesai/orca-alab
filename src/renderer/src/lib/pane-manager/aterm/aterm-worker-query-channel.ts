@@ -32,6 +32,14 @@ export type AtermWorkerAsyncFacade = {
     activeIndex: number
     activeRect: { x: number; y: number; width: number; height: number } | null
   }
+  /** Advance / step back / clear the worker's active match (the worker owns the match set;
+   *  the main-thread searchController is empty on this path, so next/prev/clear must post). */
+  searchNext: () => void
+  searchPrev: () => void
+  searchClear: () => void
+  /** Subscribe to worker search-state changes (count/active-index land async after a posted
+   *  find/next/prev); returns a disposer. Lets the search UI re-read the count when it lands. */
+  onSearchStateChange: (handler: () => void) => () => void
 }
 
 export type AtermWorkerQueryChannel = {

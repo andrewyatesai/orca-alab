@@ -317,6 +317,7 @@ export async function createAtermPaneController(
     clearSearch: () => wired.controller.clearSearch(),
     searchMatchCount: () => wired.controller.searchMatchCount(),
     searchActiveMatchIndex: () => wired.controller.searchActiveMatchIndex(),
+    onSearchStateChange: (handler) => wired.controller.onSearchStateChange(handler),
     searchActiveMatchRect: () => wired.controller.searchActiveMatchRect(),
     setFileLinkOpener: (fn) => wired.controller.setFileLinkOpener(fn),
     setUrlLinkContext: (context) => wired.controller.setUrlLinkContext(context),

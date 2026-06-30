@@ -287,10 +287,6 @@ ctx.onmessage = (event): void => {
       term?.setPrimaryFont(msg.bytes)
       scheduleDraw()
       return
-    case 'forceReflow':
-      // Metrics are re-read into the next state; just repaint.
-      scheduleDraw()
-      return
     case 'mouseEncode': {
       // The encoded mouse report is PTY input — forward it through the reply channel
       // (→ main onReply → inputSink), same as engine query replies.

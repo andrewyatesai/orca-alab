@@ -4,11 +4,15 @@
 // post commands. So wireAtermPane / the controller / the facade / buffer shim / a11y
 // bind to it UNCHANGED — there is NO second engine on the main thread.
 //
-// A few methods can't be faithfully synchronous over a remote engine and are wired in
-// later stages: serialize/serialize_scrollback (async query — Stage C), encode_mouse_*
-// (async round-trip — Stage D), selection_word/line returning text (Stage D copy-on-
-// select). They return safe placeholders here; everything the per-frame + scroll +
-// selection-drag + theme + search + cursor paths need is live.
+// A few methods can't return a faithful value SYNCHRONOUSLY over the remote engine, so
+// their sync return is a safe placeholder while the real result comes back out-of-band:
+// serialize/serialize_scrollback return the debounced cache (the fresh value is awaitable
+// via serializeAsync — a worker round-trip), encode_mouse_* return undefined (the encoded
+// bytes arrive via the reply channel → PTY), selection_word/line return undefined (the
+// text lands in the next snapshot + via selectionTextAsync), and search() returns an empty
+// array (counts/highlights come from the snapshot + searchStateSnapshot). All of these ARE
+// wired — only the synchronous return is a placeholder; every per-frame + scroll + drag +
+// theme + search + cursor path is live.
 
 import type { AtermTerminal } from './aterm_wasm.js'
 import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
@@ -102,6 +106,10 @@ export function createWorkerBackedTerm(deps: {
   // re-emits the title immediately (not a chunk late). See onSideChannel.
   const sideChannelListeners = new Set<() => void>()
   const notifySideChannel = (): void => sideChannelListeners.forEach((fn) => fn())
+  // Fired when the worker's snapshot search count/active-index changes — the worker owns
+  // the match set, so results land a frame after a posted find/next/prev; the search UI
+  // subscribes (onSearchStateChange) and re-reads the snapshot-backed count then.
+  const searchChangeListeners = new Set<() => void>()
   // Latest debounced serialized-buffer cache from the worker (for the sync shutdown read).
   let cachedSerialize = ''
   let cachedScrollback = ''
@@ -117,12 +125,17 @@ export function createWorkerBackedTerm(deps: {
     // A title set on the final pre-idle chunk would otherwise wait for the next
     // process() to be re-emitted — fire the side-channel notify so it lands now.
     const titleChanged = next.title !== state.title
+    const searchChanged =
+      next.searchCount !== state.searchCount || next.searchActiveIndex !== state.searchActiveIndex
     state = next
     if (metricsChanged) {
       metricsListeners.forEach((fn) => fn())
     }
     if (titleChanged) {
       notifySideChannel()
+    }
+    if (searchChanged) {
+      searchChangeListeners.forEach((fn) => fn())
     }
     for (const row of next.dirtyRows) {
       grid.set(row.y, {
@@ -307,7 +320,8 @@ export function createWorkerBackedTerm(deps: {
       return new Uint32Array(0)
     },
 
-    // ── placeholders wired in later stages (see file header) ──
+    // ── methods whose SYNC return is a placeholder; the real result is out-of-band
+    //    (async query / reply channel / next snapshot — see file header) ──
     selection_word: (row: number, col: number) => {
       post({ type: 'selectionWord', row, col })
       return undefined
@@ -354,6 +368,16 @@ export function createWorkerBackedTerm(deps: {
       activeIndex: state.searchActiveIndex,
       activeRect: state.searchActiveRect
     }),
+    // Search nav/clear run in the worker (it owns the match set), so post the commands —
+    // the main-thread searchController has no matches on this path. next/prev advance the
+    // worker's active match (+ scroll it into view); clear stops its highlights.
+    searchNext: () => post({ type: 'searchNext' }),
+    searchPrev: () => post({ type: 'searchPrev' }),
+    searchClear: () => post({ type: 'searchClear' }),
+    onSearchStateChange: (handler: () => void) => {
+      searchChangeListeners.add(handler)
+      return () => searchChangeListeners.delete(handler)
+    },
 
     free: () => post({ type: 'dispose' })
   }

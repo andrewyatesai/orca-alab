@@ -24,6 +24,14 @@ export type AtermWorkerAsyncFacade = {
   /** Clear the worker's hover so its next STATE reports no hoverLink/hoverCursor (the
    *  loader drives the canvas cursor from that state on the worker path). */
   clearHover: () => void
+  /** Latest search match count / 1-based active index / active-match device rect from the
+   *  worker snapshot. The worker owns the engine, so term.search() can't return matches
+   *  synchronously; the count UI reads this instead of the (empty) main-thread controller. */
+  searchStateSnapshot: () => {
+    count: number
+    activeIndex: number
+    activeRect: { x: number; y: number; width: number; height: number } | null
+  }
 }
 
 export type AtermWorkerQueryChannel = {

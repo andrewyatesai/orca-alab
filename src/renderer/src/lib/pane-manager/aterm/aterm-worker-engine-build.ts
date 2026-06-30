@@ -136,16 +136,32 @@ type SeedTarget = Pick<
 
 function seedEngine(t: SeedTarget, p: StoredInit): void {
   // CJK first RESETS the chain to it; the rest append (parity with the main path).
+  // Each injection is fault-tolerant (matches inject-terminal-fallback-fonts): an
+  // unparseable/unsupported OS face throws a catchable JS error, so swallow it rather
+  // than let one bad face abort the whole worker engine build (the engine still renders
+  // Latin + whatever faces did parse).
   if (p.fallbackFonts.length > 0) {
-    t.set_fallback_font(p.fallbackFonts[0])
+    try {
+      t.set_fallback_font(p.fallbackFonts[0])
+    } catch {
+      /* unparseable CJK face — keep going */
+    }
     for (let i = 1; i < p.fallbackFonts.length; i++) {
-      t.add_fallback_font(p.fallbackFonts[i])
+      try {
+        t.add_fallback_font(p.fallbackFonts[i])
+      } catch {
+        /* unparseable chain face — skip it */
+      }
     }
   }
   // Colour-emoji face AFTER the monochrome fallback chain (parity with the in-process
   // inject-terminal-fallback-fonts ordering) so emoji render in colour, not tofu.
   if (p.emojiFont) {
-    t.set_emoji_font(p.emojiFont)
+    try {
+      t.set_emoji_font(p.emojiFont)
+    } catch {
+      /* unparseable emoji face — keep going */
+    }
   }
   // Apply the user's line-height before metrics are read so the grid is sized to the
   // real cell box from frame 1.

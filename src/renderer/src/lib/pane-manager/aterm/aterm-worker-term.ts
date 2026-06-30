@@ -346,6 +346,14 @@ export function createWorkerBackedTerm(deps: {
     selectionTextAsync: queryChannel.selectionTextAsync,
     linkAtAsync: queryChannel.linkAtAsync,
     clearHover: () => post({ type: 'setHover', clear: true }),
+    // The worker runs search + pushes count/active-index/rect in each snapshot; expose
+    // them so the controller's search-count UI reflects real matches (term.search() can't
+    // return them synchronously over the seam).
+    searchStateSnapshot: () => ({
+      count: state.searchCount,
+      activeIndex: state.searchActiveIndex,
+      activeRect: state.searchActiveRect
+    }),
 
     free: () => post({ type: 'dispose' })
   }

@@ -258,8 +258,10 @@ export type AtermWorkerState = {
   title: string | null
   /** Current selection range in display cells, or null. */
   selectionRange: { startX: number; startY: number; endX: number; endY: number } | null
-  /** Selection text (pushed when the selection changes; '' when none). */
-  selectionText: string
+  /** Selection text. Pushed ONLY when the selection range changes (a large selection is
+   *  expensive to re-materialize + clone every frame); `undefined` on an unchanged frame,
+   *  where the main side keeps the prior value. */
+  selectionText?: string
   /** Link span under the last setHover position, or null — the worker paints its
    *  underline; main reads it only for the (rare) sync controller.linkAt consumer. */
   hoverLink: AtermWorkerLinkSpan | null

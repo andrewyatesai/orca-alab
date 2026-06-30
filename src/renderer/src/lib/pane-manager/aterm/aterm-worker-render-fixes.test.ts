@@ -68,6 +68,77 @@ describe('aterm worker mouseEncode (legacy 1000/1002/1003 high bytes)', () => {
   })
 })
 
+describe('aterm worker buildState selectionText gating (per-frame clone avoidance)', () => {
+  type Range = { start_x: number; start_y: number; end_x: number; end_y: number } | undefined
+  function makeBuildStateHandle(range: Range, text: string) {
+    let selRange = range
+    let selText = text
+    const selectionText = vi.fn(() => selText)
+    const engine = {
+      cell_width: 8,
+      cell_height: 16,
+      display_offset: 0,
+      display_origin_absolute: 0,
+      cursor_x: 0,
+      cursor_y: 0,
+      cursor_style: 1,
+      base_y: 0,
+      is_alt_screen: false,
+      bracketed_paste_mode: false,
+      is_mouse_tracking: false,
+      mouse_wants_motion: false,
+      mouse_wants_any_motion: false,
+      is_focus_event_mode: false,
+      is_color_scheme_updates_mode: false,
+      is_app_cursor_mode: false,
+      search_display_origin: 0,
+      title: () => null,
+      selection_range: () => selRange,
+      selection_text: selectionText,
+      resize: () => undefined
+    }
+    const handle = {
+      kind: 'cpu',
+      engine,
+      framebuffer: () => ({ width: 80, height: 48 }),
+      render: () => undefined,
+      search: () => new Uint32Array(0)
+    } as unknown as EngineHandle
+    return {
+      handle,
+      selectionText,
+      setSelection: (r: Range, t: string) => {
+        selRange = r
+        selText = t
+      }
+    }
+  }
+
+  it('omits selectionText (and skips re-materializing it) when the range is unchanged', () => {
+    const { handle, selectionText } = makeBuildStateHandle(
+      { start_x: 1, start_y: 0, end_x: 5, end_y: 0 },
+      'hello'
+    )
+    const term = createWorkerTerminal(handle)
+    expect(term.buildState().selectionText).toBe('hello')
+    expect(selectionText).toHaveBeenCalledTimes(1)
+    // Same range next frame → omitted + NOT re-materialized over the wasm boundary.
+    expect(term.buildState().selectionText).toBeUndefined()
+    expect(selectionText).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-emits selectionText when the selection range changes', () => {
+    const { handle, setSelection } = makeBuildStateHandle(undefined, '')
+    const term = createWorkerTerminal(handle)
+    expect(term.buildState().selectionText).toBe('') // first frame: empty selection
+    setSelection({ start_x: 0, start_y: 0, end_x: 3, end_y: 0 }, 'abc')
+    expect(term.buildState().selectionText).toBe('abc')
+    // Clearing the selection re-emits one final '' so the main side resets.
+    setSelection(undefined, '')
+    expect(term.buildState().selectionText).toBe('')
+  })
+})
+
 // ── Shared DOM harness for the input handlers ──
 function makeCanvas(): HTMLCanvasElement {
   const canvas = document.createElement('canvas')

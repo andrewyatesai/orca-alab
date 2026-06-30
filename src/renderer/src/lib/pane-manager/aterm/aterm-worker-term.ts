@@ -110,6 +110,11 @@ export function createWorkerBackedTerm(deps: {
     const titleChanged = next.title !== state.title
     const searchChanged =
       next.searchCount !== state.searchCount || next.searchActiveIndex !== state.searchActiveIndex
+    // The worker omits selectionText on frames where the selection is unchanged — carry
+    // the prior value forward so the sync selection_text() read stays correct.
+    if (next.selectionText === undefined) {
+      next.selectionText = state.selectionText
+    }
     state = next
     if (metricsChanged) {
       metricsListeners.forEach((fn) => fn())
@@ -218,7 +223,7 @@ export function createWorkerBackedTerm(deps: {
     },
 
     // ── selection / link / title reads (snapshot) ──
-    selection_text: () => state.selectionText,
+    selection_text: () => state.selectionText ?? '',
     selection_range: () => {
       const r = state.selectionRange
       return r ? { start_x: r.startX, start_y: r.startY, end_x: r.endX, end_y: r.endY } : undefined

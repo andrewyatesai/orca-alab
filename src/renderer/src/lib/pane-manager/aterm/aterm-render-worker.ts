@@ -46,6 +46,12 @@ const serializeCache = createWorkerSerializeCache({
   post: (message) => ctx.postMessage(message)
 })
 
+// Whether the next coalesced frame must post a STATE snapshot. Cursor blink/hollow
+// toggles repaint the cursor cell but change NO snapshot field (there is no blink-phase
+// field), so they render without posting — avoiding a byte-identical buildState + clone +
+// main-thread applyState ~2x/sec per focused pane. Any real change sets this true.
+let needStatePost = false
+
 const drawNow = (): void => {
   if (!term) {
     return
@@ -54,10 +60,18 @@ const drawNow = (): void => {
   if (!suspended) {
     term.render()
   }
-  ctx.postMessage(term.buildState())
+  if (needStatePost) {
+    needStatePost = false
+    ctx.postMessage(term.buildState())
+  }
 }
 
-const scheduleDraw = (): void => {
+const scheduleDraw = (postState = true): void => {
+  // Mark the post need BEFORE the already-scheduled guard, so a real change coalesced
+  // onto a pending render-only (blink) frame still posts a STATE.
+  if (postState) {
+    needStatePost = true
+  }
   if (drawScheduled || !term) {
     return
   }
@@ -94,6 +108,8 @@ function startTerminal(handle: EngineHandle): void {
   if (storedInit) {
     term.resize(storedInit.rows, storedInit.cols)
   }
+  // The first frame MUST post: the loader awaits this initial STATE for the cell metrics.
+  needStatePost = true
   drawNow()
 }
 
@@ -256,12 +272,14 @@ ctx.onmessage = (event): void => {
       }
       return
     case 'setCursorBlinkPhase':
+      // Render-only: repaint the cursor cell, but post NO state (no snapshot field tracks
+      // blink phase, so the STATE would be byte-identical).
       term?.setCursorBlinkPhase(msg.on)
-      scheduleDraw()
+      scheduleDraw(false)
       return
     case 'setCursorHollow':
       term?.setCursorHollow(msg.hollow)
-      scheduleDraw()
+      scheduleDraw(false)
       return
     case 'setHover':
       term?.setHover('clear' in msg ? null : { row: msg.row, col: msg.col })

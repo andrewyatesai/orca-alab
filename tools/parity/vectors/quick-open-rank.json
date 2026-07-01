@@ -1,0 +1,73 @@
+{
+  "module": "quick-open-rank",
+  "source": "src/renderer/src/components/quick-open-search.ts",
+  "rustCrate": "orca-text::quick_open_rank",
+  "cases": [
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "filename substring bonus (-100) + one word-boundary bonus (-5): src/app.ts scores -105",
+      "input": { "query": "app", "paths": ["src/app.ts"] },
+      "expected": [{ "path": "src/app.ts", "score": -105 }]
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "ranks the filename match above a scattered subsequence, ascending score",
+      "input": { "query": "app", "paths": ["src/a/p/p/other.ts", "src/app.ts"] },
+      "expected": [
+        { "path": "src/app.ts", "score": -105 },
+        { "path": "src/a/p/p/other.ts", "score": -13 }
+      ]
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "empty (whitespace-only) query returns the first `limit` paths in input order, score 0",
+      "input": { "query": "   ", "paths": ["a.ts", "b.ts", "c.ts"], "limit": 2 },
+      "expected": [
+        { "path": "a.ts", "score": 0 },
+        { "path": "b.ts", "score": 0 }
+      ]
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "non-subsequence candidates are dropped (empty result)",
+      "input": { "query": "zzz", "paths": ["a.ts", "README.md"] },
+      "expected": []
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "equal scores tie-break by original input order",
+      "input": { "query": "x", "paths": ["x1/x.ts", "x2/x.ts"] },
+      "expected": [
+        { "path": "x1/x.ts", "score": -100 },
+        { "path": "x2/x.ts", "score": -100 }
+      ]
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "boundary match after a separator earns -5: src/m.ts (-105) beats mid-token arm.ts (-100)",
+      "input": { "query": "m", "paths": ["arm.ts", "src/m.ts"] },
+      "expected": [
+        { "path": "src/m.ts", "score": -105 },
+        { "path": "arm.ts", "score": -100 }
+      ]
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "backslashes normalize to / in both the query and the path; original path is returned",
+      "input": { "query": "src\\app", "paths": ["src\\app.ts"] },
+      "expected": [{ "path": "src\\app.ts", "score": -5 }]
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "limit 0 returns empty",
+      "input": { "query": "a", "paths": ["a.ts"], "limit": 0 },
+      "expected": []
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "uppercase query is lowercased before matching (case-insensitive)",
+      "input": { "query": "APP", "paths": ["src/app.ts"] },
+      "expected": [{ "path": "src/app.ts", "score": -105 }]
+    }
+  ]
+}

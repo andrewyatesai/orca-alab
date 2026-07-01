@@ -51,6 +51,7 @@ import { dispatch as projectGroups } from './project-groups'
 import { dispatch as protocolCompat } from './protocol-compat'
 import { dispatch as pullRequestGeneration } from './pull-request-generation'
 import { dispatch as quickOpenFilter } from './quick-open-filter'
+import { dispatch as quickOpenRank } from './quick-open-rank'
 import { dispatch as repoBadgeColor } from './repo-badge-color'
 import { dispatch as repoClonePath } from './repo-clone-path'
 import { dispatch as repoIcon } from './repo-icon'
@@ -122,20 +123,21 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'hosted-review-queue': hostedReviewQueue,
   'hosted-review-refs': hostedReviewRefs,
   'linear-links': linearLinks,
-  'mcp': mcp,
+  mcp: mcp,
   'mcp-env': mcpEnv,
   'nacl-box': naclBox,
   'native-file-drop': nativeFileDrop,
   'nested-repo-telemetry': nestedRepoTelemetry,
   'network-proxy': networkProxy,
   'open-in-applications': openInApplications,
-  'pairing': pairing,
+  pairing: pairing,
   'pi-agent-kind': piAgentKind,
   'pi-overlay-ui-settings': piOverlayUiSettings,
   'project-groups': projectGroups,
   'protocol-compat': protocolCompat,
   'pull-request-generation': pullRequestGeneration,
   'quick-open-filter': quickOpenFilter,
+  'quick-open-rank': quickOpenRank,
   'repo-badge-color': repoBadgeColor,
   'repo-clone-path': repoClonePath,
   'repo-icon': repoIcon,
@@ -161,8 +163,8 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'workspace-name': workspaceName,
   'workspace-session-terminal-buffers': workspaceSessionTerminalBuffers,
   'workspace-statuses': workspaceStatuses,
-  'worktree': worktree,
+  worktree: worktree,
   'worktree-id': worktreeId,
   'worktree-ownership': worktreeOwnership,
-  'wsl-paths': wslPaths,
+  'wsl-paths': wslPaths
 }

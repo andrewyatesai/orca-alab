@@ -6,5 +6,6 @@ pub mod agent_tab_title;
 pub mod git_remote_error;
 pub mod mcp_env;
 pub mod pi_agent_kind;
+pub mod quick_open_rank;
 pub mod skill_metadata;
 pub mod workspace_name;

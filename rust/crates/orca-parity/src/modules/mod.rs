@@ -53,6 +53,7 @@ pub mod project_groups;
 pub mod protocol_compat;
 pub mod pull_request_generation;
 pub mod quick_open_filter;
+pub mod quick_open_rank;
 pub mod repo_badge_color;
 pub mod repo_clone_path;
 pub mod repo_icon;
@@ -138,6 +139,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "protocol-compat" => Some(protocol_compat::dispatch(function, input)),
         "pull-request-generation" => Some(pull_request_generation::dispatch(function, input)),
         "quick-open-filter" => Some(quick_open_filter::dispatch(function, input)),
+        "quick-open-rank" => Some(quick_open_rank::dispatch(function, input)),
         "repo-badge-color" => Some(repo_badge_color::dispatch(function, input)),
         "repo-clone-path" => Some(repo_clone_path::dispatch(function, input)),
         "repo-icon" => Some(repo_icon::dispatch(function, input)),

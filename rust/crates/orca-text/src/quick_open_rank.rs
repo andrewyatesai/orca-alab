@@ -49,8 +49,11 @@ pub fn rank_quick_open_files(query: &str, paths: &[&str], limit: usize) -> Vec<Q
         return Vec::new();
     }
     // Quick Open presents slash-normalized paths even on Windows; users still
-    // naturally type backslashes in path queries.
-    let normalized_query = query.trim().replace('\\', "/").to_lowercase();
+    // naturally type backslashes in path queries. Trim with the JS
+    // `String.prototype.trim` whitespace set (not Rust's) so a pasted BOM is
+    // stripped and a bare NEL is not — matching the raw `deferredQuery` the
+    // renderer feeds in.
+    let normalized_query = query.trim_matches(is_js_trim_whitespace).replace('\\', "/").to_lowercase();
     if normalized_query.is_empty() {
         return paths
             .iter()
@@ -70,6 +73,14 @@ pub fn rank_quick_open_files(query: &str, paths: &[&str], limit: usize) -> Vec<Q
         insert_top(&mut ranked, Ranked { path: (*path).to_string(), score, input_index }, limit);
     }
     ranked.into_iter().map(|r| QuickOpenResult { path: r.path, score: r.score }).collect()
+}
+
+/// The ECMAScript `String.prototype.trim` whitespace set = Unicode White_Space
+/// MINUS U+0085 (NEL — not ES whitespace) PLUS U+FEFF (BOM/ZWNBSP — ES-only).
+/// Rust's `str::trim` uses Unicode White_Space, which differs on exactly those
+/// two code points, so a faithful port cannot reuse it.
+fn is_js_trim_whitespace(c: char) -> bool {
+    (c.is_whitespace() && c != '\u{0085}') || c == '\u{FEFF}'
 }
 
 /// Normalized, UTF-16-encoded forms of one candidate. Mirrors
@@ -267,5 +278,28 @@ mod tests {
         // é is one UTF-16 unit; the query still finds the subsequence.
         let out = rank_quick_open_files("caf", &["src/café.ts"], 50);
         assert_eq!(out[0].path, "src/café.ts");
+    }
+
+    #[test]
+    fn strips_a_leading_bom_like_js_trim() {
+        // U+FEFF is ES trim whitespace (a pasted BOM) but NOT Unicode White_Space;
+        // it must be trimmed so the query still matches, matching JS.
+        let out = rank_quick_open_files("\u{FEFF}src", &["src/app.ts"], 50);
+        assert_eq!(out[0].path, "src/app.ts");
+    }
+
+    #[test]
+    fn bom_only_query_takes_the_empty_query_fast_path() {
+        let out = rank_quick_open_files("\u{FEFF}", &["a.ts", "b.ts"], 5);
+        assert_eq!(paths_of(&out), ["a.ts", "b.ts"]);
+        assert!(out.iter().all(|r| r.score == 0));
+    }
+
+    #[test]
+    fn does_not_strip_nel_which_js_trim_keeps() {
+        // U+0085 (NEL) IS Unicode White_Space but NOT ES trim whitespace, so JS
+        // leaves it in the query — no path contains it, so nothing matches.
+        let out = rank_quick_open_files("\u{0085}src", &["src/app.ts"], 50);
+        assert!(out.is_empty());
     }
 }

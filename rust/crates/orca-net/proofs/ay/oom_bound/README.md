@@ -40,7 +40,7 @@ retained buffer is `<= max_line_bytes`; by induction, after any `feed`.
 | File | Verdict | Obligation |
 |---|---|---|
 | `oom_buffer_le_max.smt2` | **unsat** | guard passed (`next <= max`) and no wrap ⇒ post-push `buffer + segment <= max` |
-| `oom_no_wrap.smt2` | **unsat** | `buffer <= max <= 2^63` and `segment <= isize::MAX` ⇒ `buffer + segment` does not wrap usize |
+| `oom_no_wrap.smt2` | **unsat** | `buffer, segment <= isize::MAX` (the Rust `String`/`&str` allocation limit) ⇒ `buffer + segment` does not wrap usize, for ANY `max_line_bytes` |
 | `oom_nonvacuity_sat.smt2` | **sat** | `buffer = 0, segment = max` reaches exactly `max` — the bound is tight, not loose |
 | `oom_catches_unguarded_sat.smt2` | **sat** | without the guard, `buffer > max` is reachable — the guard is load-bearing |
 
@@ -63,3 +63,7 @@ Windows x64/arm64), so the width is faithful — this is NOT a narrowed model.
   faithful drop-in) is verified by the dual-run test
   `src/main/daemon/ndjson-napi-parity.test.ts`, not by this proof. This bundle
   proves only the byte-budget inequality the splitter relies on.
+- `new()` applies only a lower clamp (`max_line_bytes.max(1)`), no upper clamp, so
+  `max_line_bytes` can be any `usize`. `oom_no_wrap` therefore does NOT lean on any
+  cap on `max` — it derives no-wrap from the `isize::MAX` length guarantee that
+  `String`/`&str` already satisfy, so the bound holds for every reachable state.

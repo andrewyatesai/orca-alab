@@ -68,6 +68,18 @@
       "note": "uppercase query is lowercased before matching (case-insensitive)",
       "input": { "query": "APP", "paths": ["src/app.ts"] },
       "expected": [{ "path": "src/app.ts", "score": -105 }]
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "leading BOM (U+FEFF) is trimmed like JS String.trim, so the query still matches",
+      "input": { "query": "﻿src", "paths": ["src/app.ts"] },
+      "expected": [{ "path": "src/app.ts", "score": 0 }]
+    },
+    {
+      "function": "rankQuickOpenFiles",
+      "note": "NEL (U+0085) is NOT ES trim whitespace, so JS keeps it in the query and nothing matches",
+      "input": { "query": "src", "paths": ["src/app.ts"] },
+      "expected": []
     }
   ]
 }

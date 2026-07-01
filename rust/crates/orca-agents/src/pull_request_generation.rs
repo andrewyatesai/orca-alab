@@ -52,6 +52,9 @@ pub fn build_pull_request_fields_prompt(context: &PullRequestDraftContext, custo
         "- Keep the base branch as the current base unless the diff clearly targets a different branch.".to_string(),
         "- Title: concise, specific, no trailing period.".to_string(),
         "- Body: useful Markdown summary for reviewers. Include testing notes only when evidence exists.".to_string(),
+        // Live TS preserves PR/MR templates found in the current description; keep both rules verbatim.
+        "- If Current description contains a pull request or merge request template, preserve its headings, required sections, and checklists while filling relevant sections from the branch changes.".to_string(),
+        "- Leave genuinely unknown template items as TODO or unchecked instead of deleting them.".to_string(),
         "- draft: true only when the changes clearly look unfinished, WIP, or unsafe to review.".to_string(),
         "- Do not include labels, reviewers, code fences, prose, or any keys beyond base/title/body/draft.".to_string(),
         String::new(),

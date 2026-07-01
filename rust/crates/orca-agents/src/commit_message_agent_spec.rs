@@ -119,13 +119,14 @@ fn codex_build_args(params: &BuildArgsParams) -> Vec<String> {
 }
 
 fn opencode_build_args(params: &BuildArgsParams) -> Vec<String> {
+    // Why: OpenCode delivers the (large-diff) prompt on stdin, never argv — see
+    // issue #4859. The prompt must not be appended here; prompt_delivery is Stdin.
     let mut args = flag(&["run", "--model"]);
     args.push(params.model.to_string());
     args.extend(flag(&["--agent", "build", "--format", "default"]));
     if let Some(thinking) = params.thinking_level {
         args.extend([String::from("--variant"), thinking.to_string()]);
     }
-    args.push(params.prompt.to_string());
     args
 }
 
@@ -180,6 +181,30 @@ fn copilot_build_args(params: &BuildArgsParams) -> Vec<String> {
     args
 }
 
+fn antigravity_build_args(params: &BuildArgsParams) -> Vec<String> {
+    // Why: the `agy` CLI takes neither a thinking-level nor a positional prompt;
+    // the prompt is delivered on stdin (prompt_delivery is Stdin).
+    let mut args = flag(&["--print", "--sandbox", "--model"]);
+    args.push(params.model.to_string());
+    args
+}
+
+// Why: parseAntigravityModels lives alongside the spec in the live TS file, so it
+// stays in this module. One model id per line, label == id, empties skipped,
+// deduped by id (matching TS trim + uniqueModels).
+fn parse_antigravity_models(stdout: &str) -> Vec<CommitMessageModel> {
+    let mut models: Vec<CommitMessageModel> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for raw_line in stdout.split(['\n', '\r']) {
+        let id = raw_line.trim();
+        if id.is_empty() || !seen.insert(id.to_string()) {
+            continue;
+        }
+        models.push(model(id, id));
+    }
+    models
+}
+
 fn openai_model(id: &str, label: &str) -> CommitMessageModel {
     model_with(id, label, openai_thinking_levels(), "low")
 }
@@ -225,7 +250,7 @@ fn specs() -> &'static [CommitMessageAgentSpec] {
                 id: "opencode",
                 label: "OpenCode",
                 binary: "opencode",
-                prompt_delivery: PromptDelivery::Argv,
+                prompt_delivery: PromptDelivery::Stdin,
                 build_args: opencode_build_args,
                 model_source: ModelSource::Dynamic,
                 model_discovery: Some(ModelDiscovery { binary: "opencode", args: &["models"], parse: parse_line_models }),
@@ -315,6 +340,21 @@ fn specs() -> &'static [CommitMessageAgentSpec] {
                 ],
                 default_model_id: "gpt-5.4",
             },
+            CommitMessageAgentSpec {
+                id: "antigravity",
+                label: "Antigravity",
+                binary: "agy",
+                prompt_delivery: PromptDelivery::Stdin,
+                build_args: antigravity_build_args,
+                model_source: ModelSource::Dynamic,
+                model_discovery: Some(ModelDiscovery { binary: "agy", args: &["models"], parse: parse_antigravity_models }),
+                models: vec![
+                    model("Gemini 3.5 Flash (Medium)", "Gemini 3.5 Flash (Medium)"),
+                    model("Gemini 3.5 Flash (High)", "Gemini 3.5 Flash (High)"),
+                    model("Gemini 3.5 Flash (Low)", "Gemini 3.5 Flash (Low)"),
+                ],
+                default_model_id: "Gemini 3.5 Flash (Medium)",
+            },
         ]
     })
 }
@@ -403,7 +443,7 @@ mod tests {
     fn exposes_the_installed_local_agents_as_commit_message_agents() {
         let mut ids = list_commit_message_agent_ids();
         ids.sort_unstable();
-        assert_eq!(ids, ["amp", "claude", "codex", "copilot", "cursor", "kimi", "opencode", "pi"]);
+        assert_eq!(ids, ["amp", "antigravity", "claude", "codex", "copilot", "cursor", "kimi", "opencode", "pi"]);
     }
 
     #[test]

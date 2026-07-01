@@ -13,6 +13,7 @@ use serde_json::Value;
 pub enum FeatureTipId {
     VoiceDictation,
     OrcaCli,
+    CmdJPalette,
 }
 
 impl FeatureTipId {
@@ -20,6 +21,7 @@ impl FeatureTipId {
         match self {
             FeatureTipId::VoiceDictation => "voice-dictation",
             FeatureTipId::OrcaCli => "orca-cli",
+            FeatureTipId::CmdJPalette => "cmd-j-palette",
         }
     }
 
@@ -27,6 +29,7 @@ impl FeatureTipId {
         match value {
             "voice-dictation" => Some(FeatureTipId::VoiceDictation),
             "orca-cli" => Some(FeatureTipId::OrcaCli),
+            "cmd-j-palette" => Some(FeatureTipId::CmdJPalette),
             _ => None,
         }
     }
@@ -51,6 +54,7 @@ impl FeatureTipPriority {
 pub enum FeatureTipAction {
     EnableVoice,
     SetupCli,
+    LearnCmdJPalette,
 }
 
 impl FeatureTipAction {
@@ -58,6 +62,7 @@ impl FeatureTipAction {
         match self {
             FeatureTipAction::EnableVoice => "enable-voice",
             FeatureTipAction::SetupCli => "setup-cli",
+            FeatureTipAction::LearnCmdJPalette => "learn-cmd-j-palette",
         }
     }
 }
@@ -84,7 +89,7 @@ pub struct CompletedFeatureTipState {
     pub feature_interactions: Option<Value>,
 }
 
-pub const FEATURE_TIPS: [FeatureTip; 2] = [
+pub const FEATURE_TIPS: [FeatureTip; 3] = [
     FeatureTip {
         id: FeatureTipId::OrcaCli,
         priority: FeatureTipPriority::New,
@@ -93,6 +98,18 @@ pub const FEATURE_TIPS: [FeatureTip; 2] = [
         description: "Enable agents to coordinate child worktrees and communicate between worktrees.",
         action: FeatureTipAction::SetupCli,
         cta_label: "Install CLI & Skills",
+        completed_by_feature_interactions: &[],
+    },
+    FeatureTip {
+        id: FeatureTipId::CmdJPalette,
+        priority: FeatureTipPriority::New,
+        eyebrow: "Tip",
+        // "<shortcut>" is a placeholder token the cmd-j dialog splits on to inline
+        // the live, platform-correct keybinding as a <kbd>.
+        title: "Jump to a worktree with <shortcut>",
+        description: "Search worktrees, switch tabs, tweak settings, or spin up a new worktree, all without leaving the keyboard.",
+        action: FeatureTipAction::LearnCmdJPalette,
+        cta_label: "Got it",
         completed_by_feature_interactions: &[],
     },
     FeatureTip {
@@ -184,14 +201,14 @@ mod tests {
 
         assert_eq!(
             tips.iter().map(|tip| tip.id).collect::<Vec<_>>(),
-            vec![FeatureTipId::OrcaCli, FeatureTipId::VoiceDictation]
+            vec![FeatureTipId::OrcaCli, FeatureTipId::CmdJPalette, FeatureTipId::VoiceDictation]
         );
     }
 
     #[test]
     fn skips_tips_the_user_has_already_seen() {
         let tips = get_ordered_unseen_feature_tips(
-            &[FeatureTipId::VoiceDictation, FeatureTipId::OrcaCli],
+            &[FeatureTipId::VoiceDictation, FeatureTipId::OrcaCli, FeatureTipId::CmdJPalette],
             &[],
         );
 
@@ -205,9 +222,10 @@ mod tests {
             voice_dictation_enabled: true,
             feature_interactions: None,
         });
+        // cmd-j-palette has no completion signal, so it survives the completed filter.
         let tips = get_ordered_unseen_feature_tips(&[], &completed);
 
-        assert_eq!(tips.iter().map(|tip| tip.id).collect::<Vec<_>>(), Vec::<FeatureTipId>::new());
+        assert_eq!(tips.iter().map(|tip| tip.id).collect::<Vec<_>>(), vec![FeatureTipId::CmdJPalette]);
     }
 
     #[test]
@@ -217,7 +235,10 @@ mod tests {
             voice_dictation_enabled: false,
             feature_interactions: None,
         });
-        let tips = get_ordered_unseen_feature_tips(&[FeatureTipId::VoiceDictation], &completed);
+        let tips = get_ordered_unseen_feature_tips(
+            &[FeatureTipId::VoiceDictation, FeatureTipId::CmdJPalette],
+            &completed,
+        );
 
         assert_eq!(tips.iter().map(|tip| tip.id).collect::<Vec<_>>(), Vec::<FeatureTipId>::new());
     }
@@ -233,7 +254,10 @@ mod tests {
         });
         let tips = get_ordered_unseen_feature_tips(&[], &completed);
 
-        assert_eq!(tips.iter().map(|tip| tip.id).collect::<Vec<_>>(), vec![FeatureTipId::OrcaCli]);
+        assert_eq!(
+            tips.iter().map(|tip| tip.id).collect::<Vec<_>>(),
+            vec![FeatureTipId::OrcaCli, FeatureTipId::CmdJPalette]
+        );
     }
 
     #[test]

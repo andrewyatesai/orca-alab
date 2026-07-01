@@ -32,9 +32,13 @@
     },
     {
       "function": "planCommitMessageGeneration",
-      "note": "OpenCode: prompt in argv, stdinPayload is explicit null (not omitted)",
+      "note": "OpenCode: prompt on stdin only (issue #4859); args carry no positional prompt",
       "input": {
-        "planInput": { "agentId": "opencode", "model": "opencode/gpt-5.4-mini", "thinkingLevel": "high" },
+        "planInput": {
+          "agentId": "opencode",
+          "model": "opencode/gpt-5.4-mini",
+          "thinkingLevel": "high"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -50,10 +54,9 @@
             "--format",
             "default",
             "--variant",
-            "high",
-            "PROMPT"
+            "high"
           ],
-          "stdinPayload": null,
+          "stdinPayload": "PROMPT",
           "label": "OpenCode"
         }
       }
@@ -116,7 +119,11 @@
       "function": "planCommitMessageGeneration",
       "note": "preset agentCommandOverride becomes the spawn prefix; spec args follow",
       "input": {
-        "planInput": { "agentId": "codex", "model": "gpt-5.4-mini", "agentCommandOverride": "npx codex" },
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.4-mini",
+          "agentCommandOverride": "npx codex"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -142,7 +149,11 @@
       "function": "planCommitMessageGeneration",
       "note": "invalid override (unclosed quote) is rejected before spawning",
       "input": {
-        "planInput": { "agentId": "claude", "model": "haiku", "agentCommandOverride": "claude \"unterminated" },
+        "planInput": {
+          "agentId": "claude",
+          "model": "haiku",
+          "agentCommandOverride": "claude \"unterminated"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -154,7 +165,11 @@
       "function": "planCommitMessageGeneration",
       "note": "custom agent with {prompt} placeholder substitutes into argv, stdinPayload null, binary doubles as label",
       "input": {
-        "planInput": { "agentId": "custom", "model": "ignored", "customAgentCommand": "ollama run llama3 {prompt}" },
+        "planInput": {
+          "agentId": "custom",
+          "model": "ignored",
+          "customAgentCommand": "ollama run llama3 {prompt}"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -171,7 +186,11 @@
       "function": "planCommitMessageGeneration",
       "note": "custom agent without placeholder delivers prompt via stdin",
       "input": {
-        "planInput": { "agentId": "custom", "model": "ignored", "customAgentCommand": "ollama run llama3" },
+        "planInput": {
+          "agentId": "custom",
+          "model": "ignored",
+          "customAgentCommand": "ollama run llama3"
+        },
         "prompt": "PROMPT"
       },
       "expected": {

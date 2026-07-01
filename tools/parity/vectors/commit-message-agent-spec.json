@@ -36,19 +36,31 @@
     {
       "function": "resolveCommitMessageAgentChoice",
       "note": "disabled default agent falls back to claude",
-      "input": { "configuredAgentId": null, "defaultTuiAgent": "codex", "disabledTuiAgents": ["codex"] },
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": ["codex"]
+      },
       "expected": "claude"
     },
     {
       "function": "resolveCommitMessageAgentChoice",
       "note": "disabled fallback claude yields null",
-      "input": { "configuredAgentId": null, "defaultTuiAgent": null, "disabledTuiAgents": ["claude"] },
+      "input": {
+        "configuredAgentId": null,
+        "defaultTuiAgent": null,
+        "disabledTuiAgents": ["claude"]
+      },
       "expected": null
     },
     {
       "function": "resolveCommitMessageAgentChoice",
       "note": "explicit configured choice is returned verbatim even if listed disabled",
-      "input": { "configuredAgentId": "codex", "defaultTuiAgent": null, "disabledTuiAgents": ["codex"] },
+      "input": {
+        "configuredAgentId": "codex",
+        "defaultTuiAgent": null,
+        "disabledTuiAgents": ["codex"]
+      },
       "expected": "codex"
     },
     {
@@ -72,7 +84,11 @@
     {
       "function": "resolveCommitMessageAgentChoice",
       "note": "configured custom sentinel is returned verbatim",
-      "input": { "configuredAgentId": "custom", "defaultTuiAgent": "codex", "disabledTuiAgents": ["custom"] },
+      "input": {
+        "configuredAgentId": "custom",
+        "defaultTuiAgent": "codex",
+        "disabledTuiAgents": ["custom"]
+      },
       "expected": "custom"
     },
     {
@@ -227,7 +243,17 @@
       "function": "listCommitMessageAgentIds",
       "note": "ordered agent ids with a non-interactive mode (custom is excluded)",
       "input": null,
-      "expected": ["claude", "codex", "opencode", "pi", "amp", "cursor", "kimi", "copilot"]
+      "expected": [
+        "claude",
+        "codex",
+        "opencode",
+        "pi",
+        "amp",
+        "cursor",
+        "kimi",
+        "copilot",
+        "antigravity"
+      ]
     },
     {
       "function": "listCommitMessageAgentCapabilities",

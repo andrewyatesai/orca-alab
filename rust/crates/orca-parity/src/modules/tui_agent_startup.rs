@@ -4,6 +4,7 @@
 use orca_agents::tui_agent_startup::{
     build_agent_draft_launch_plan, build_agent_startup_plan, AgentDraftLaunchArgs,
     AgentDraftLaunchPlan, AgentStartupPlan, AgentStartupPlanArgs, AgentStartupShell,
+    SleepingAgentLaunchConfig,
 };
 use serde_json::{json, Map, Value};
 
@@ -70,15 +71,40 @@ fn parse_shell(value: Option<&Value>) -> Option<AgentStartupShell> {
     value.and_then(Value::as_str).and_then(AgentStartupShell::from_label)
 }
 
+/// Match `JSON.stringify` of the TS `SleepingAgentLaunchConfig`; `agentCommand`
+/// is omitted when the base command trims to empty (TS truthiness guard).
+fn launch_config_to_json(config: &SleepingAgentLaunchConfig) -> Value {
+    let mut map = Map::new();
+    if let Some(command) = &config.agent_command {
+        map.insert("agentCommand".to_string(), Value::String(command.clone()));
+    }
+    map.insert("agentArgs".to_string(), Value::String(config.agent_args.clone()));
+    let env: Map<String, Value> = config
+        .agent_env
+        .iter()
+        .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+        .collect();
+    map.insert("agentEnv".to_string(), Value::Object(env));
+    Value::Object(map)
+}
+
 /// Match `JSON.stringify` of the TS `AgentStartupPlan` (the optional
 /// `draftPrompt`/`env` fields are never set by `buildAgentStartupPlan`).
 fn startup_plan_to_json(plan: &AgentStartupPlan) -> Value {
-    json!({
-        "agent": plan.agent,
-        "launchCommand": plan.launch_command,
-        "expectedProcess": plan.expected_process,
-        "followupPrompt": plan.followup_prompt,
-    })
+    let mut map = Map::new();
+    map.insert("agent".to_string(), Value::String(plan.agent.clone()));
+    map.insert("launchCommand".to_string(), Value::String(plan.launch_command.clone()));
+    map.insert("expectedProcess".to_string(), Value::String(plan.expected_process.clone()));
+    map.insert(
+        "followupPrompt".to_string(),
+        plan.followup_prompt.clone().map_or(Value::Null, Value::String),
+    );
+    map.insert("launchConfig".to_string(), launch_config_to_json(&plan.launch_config));
+    // Codex-only key; OMITTED (not null) otherwise, matching the TS conditional spread.
+    if let Some(delivery) = &plan.startup_command_delivery {
+        map.insert("startupCommandDelivery".to_string(), Value::String(delivery.clone()));
+    }
+    Value::Object(map)
 }
 
 /// Match `JSON.stringify` of the TS `AgentDraftLaunchPlan`; `env` is omitted
@@ -92,6 +118,10 @@ fn draft_plan_to_json(plan: &AgentDraftLaunchPlan) -> Value {
         let mut env = Map::new();
         env.insert(name.clone(), Value::String(value.clone()));
         map.insert("env".to_string(), Value::Object(env));
+    }
+    map.insert("launchConfig".to_string(), launch_config_to_json(&plan.launch_config));
+    if let Some(delivery) = &plan.startup_command_delivery {
+        map.insert("startupCommandDelivery".to_string(), Value::String(delivery.clone()));
     }
     Value::Object(map)
 }

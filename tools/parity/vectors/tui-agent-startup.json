@@ -6,78 +6,150 @@
     {
       "function": "buildAgentStartupPlan",
       "note": "POSIX quoting when the target shell is Linux",
-      "input": { "agent": "claude", "prompt": "fix Bob's branch", "cmdOverrides": {}, "platform": "linux" },
+      "input": {
+        "agent": "claude",
+        "prompt": "fix Bob's branch",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
       "expected": {
         "agent": "claude",
         "launchCommand": "claude 'fix Bob'\\''s branch'",
         "expectedProcess": "claude",
-        "followupPrompt": null
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
       "function": "buildAgentStartupPlan",
       "note": "PowerShell quoting by default on Windows",
-      "input": { "agent": "claude", "prompt": "fix Bob's \"quoted\" branch", "cmdOverrides": {}, "platform": "win32" },
+      "input": {
+        "agent": "claude",
+        "prompt": "fix Bob's \"quoted\" branch",
+        "cmdOverrides": {},
+        "platform": "win32"
+      },
       "expected": {
         "agent": "claude",
         "launchCommand": "claude 'fix Bob''s \"quoted\" branch'",
         "expectedProcess": "claude",
-        "followupPrompt": null
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
       "function": "buildAgentStartupPlan",
       "note": "cmd escaping when requested explicitly",
-      "input": { "agent": "claude", "prompt": "fix \"quoted\" & %PATH%", "cmdOverrides": {}, "platform": "win32", "shell": "cmd" },
+      "input": {
+        "agent": "claude",
+        "prompt": "fix \"quoted\" & %PATH%",
+        "cmdOverrides": {},
+        "platform": "win32",
+        "shell": "cmd"
+      },
       "expected": {
         "agent": "claude",
         "launchCommand": "claude \"fix ^\"quoted^\" ^& ^%PATH^%\"",
         "expectedProcess": "claude",
-        "followupPrompt": null
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
       "function": "buildAgentStartupPlan",
       "note": "does not launch Codex with the Orca profile",
-      "input": { "agent": "codex", "prompt": "fix it", "cmdOverrides": {}, "platform": "linux" },
+      "input": {
+        "agent": "codex",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
       "expected": {
         "agent": "codex",
         "launchCommand": "codex 'fix it'",
         "expectedProcess": "codex",
-        "followupPrompt": null
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "codex",
+          "agentArgs": "",
+          "agentEnv": {}
+        },
+        "startupCommandDelivery": "shell-ready"
       }
     },
     {
       "function": "buildAgentStartupPlan",
       "note": "launches Claude without Orca settings injection",
-      "input": { "agent": "claude", "prompt": "fix it", "cmdOverrides": {}, "platform": "linux" },
+      "input": {
+        "agent": "claude",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
       "expected": {
         "agent": "claude",
         "launchCommand": "claude 'fix it'",
         "expectedProcess": "claude",
-        "followupPrompt": null
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
       "function": "buildAgentStartupPlan",
       "note": "launches OpenClaude as a distinct argv agent",
-      "input": { "agent": "openclaude", "prompt": "fix it", "cmdOverrides": {}, "platform": "linux" },
+      "input": {
+        "agent": "openclaude",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
       "expected": {
         "agent": "openclaude",
         "launchCommand": "openclaude 'fix it'",
         "expectedProcess": "openclaude",
-        "followupPrompt": null
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "openclaude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
       "function": "buildAgentStartupPlan",
       "note": "launches Mistral Vibe through the installed vibe executable",
-      "input": { "agent": "mistral-vibe", "prompt": "fix it", "cmdOverrides": {}, "platform": "linux" },
+      "input": {
+        "agent": "mistral-vibe",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
       "expected": {
         "agent": "mistral-vibe",
         "launchCommand": "vibe",
         "expectedProcess": "vibe",
-        "followupPrompt": "fix it"
+        "followupPrompt": "fix it",
+        "launchConfig": {
+          "agentCommand": "vibe",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
@@ -86,14 +158,21 @@
       "input": {
         "agent": "claude",
         "prompt": "fix it",
-        "cmdOverrides": { "claude": "claude --dangerously-skip-permissions" },
+        "cmdOverrides": {
+          "claude": "claude --dangerously-skip-permissions"
+        },
         "platform": "linux"
       },
       "expected": {
         "agent": "claude",
         "launchCommand": "claude --dangerously-skip-permissions 'fix it'",
         "expectedProcess": "claude",
-        "followupPrompt": null
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude --dangerously-skip-permissions",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
@@ -102,14 +181,22 @@
       "input": {
         "agent": "codex",
         "prompt": "fix it",
-        "cmdOverrides": { "codex": "codex --profile work" },
+        "cmdOverrides": {
+          "codex": "codex --profile work"
+        },
         "platform": "linux"
       },
       "expected": {
         "agent": "codex",
         "launchCommand": "codex --profile work 'fix it'",
         "expectedProcess": "codex",
-        "followupPrompt": null
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "codex --profile work",
+          "agentArgs": "",
+          "agentEnv": {}
+        },
+        "startupCommandDelivery": "shell-ready"
       }
     },
     {
@@ -125,7 +212,14 @@
         "agent": "pi",
         "launchCommand": "pi; Remove-Item Env:ORCA_PI_PREFILL -ErrorAction SilentlyContinue",
         "expectedProcess": "pi",
-        "env": { "ORCA_PI_PREFILL": "https://github.com/acme/repo/issues/42" }
+        "env": {
+          "ORCA_PI_PREFILL": "https://github.com/acme/repo/issues/42"
+        },
+        "launchConfig": {
+          "agentCommand": "pi",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
@@ -142,7 +236,14 @@
         "agent": "pi",
         "launchCommand": "pi & set \"ORCA_PI_PREFILL=\"",
         "expectedProcess": "pi",
-        "env": { "ORCA_PI_PREFILL": "https://github.com/acme/repo/issues/42" }
+        "env": {
+          "ORCA_PI_PREFILL": "https://github.com/acme/repo/issues/42"
+        },
+        "launchConfig": {
+          "agentCommand": "pi",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     },
     {
@@ -158,7 +259,14 @@
         "agent": "omp",
         "launchCommand": "omp; unset ORCA_OMP_PREFILL",
         "expectedProcess": "omp",
-        "env": { "ORCA_OMP_PREFILL": "fix the omp regression" }
+        "env": {
+          "ORCA_OMP_PREFILL": "fix the omp regression"
+        },
+        "launchConfig": {
+          "agentCommand": "omp",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
       }
     }
   ]

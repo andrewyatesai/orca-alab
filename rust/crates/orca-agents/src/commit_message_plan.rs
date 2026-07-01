@@ -115,7 +115,9 @@ mod tests {
     }
 
     #[test]
-    fn plans_opencode_run_with_prompt_in_argv_and_model_variant() {
+    fn plans_opencode_run_with_prompt_on_stdin_only_and_model_variant() {
+        // Why: OpenCode reads the prompt from stdin (issue #4859); the large diff
+        // must never land in argv, so args carry no positional prompt.
         let result = plan_commit_message_generation(
             &CommitMessagePlanInput {
                 agent_id: "opencode",
@@ -129,8 +131,8 @@ mod tests {
             result,
             Ok(CommitMessagePlan {
                 binary: "opencode".to_string(),
-                args: strs(&["run", "--model", "opencode/gpt-5.4-mini", "--agent", "build", "--format", "default", "--variant", "high", "PROMPT"]),
-                stdin_payload: None,
+                args: strs(&["run", "--model", "opencode/gpt-5.4-mini", "--agent", "build", "--format", "default", "--variant", "high"]),
+                stdin_payload: Some("PROMPT".to_string()),
                 label: "OpenCode".to_string(),
             })
         );

@@ -141,6 +141,26 @@ pub struct RepoPrCreationDefaults {
     pub open_after_create: Option<Option<bool>>,
 }
 
+/// A repo-scoped action-recipe override (an entry of `actionOverrides`). Every
+/// field is tri-state: absent (`None`), an explicit inherit `null` sentinel
+/// (`Some(None)`), or a concrete value (`Some(Some(_))`) — mirroring the TS
+/// `{ agentId?; commandInputTemplate?: string | null; agentArgs?: string | null }`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RepoSourceControlActionOverride {
+    /// A `TuiAgent` id, the custom-agent id, or an explicit `null`.
+    pub agent_id: Option<Option<String>>,
+    pub command_input_template: Option<Option<String>>,
+    pub agent_args: Option<Option<String>>,
+}
+
+impl RepoSourceControlActionOverride {
+    fn is_empty(&self) -> bool {
+        self.agent_id.is_none()
+            && self.command_input_template.is_none()
+            && self.agent_args.is_none()
+    }
+}
+
 /// Repo-scoped overrides (`RepoSourceControlAiOverrides`). Instructions are
 /// `Option<String>` (`Some` = string replacement, `None` = explicit null).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -148,6 +168,10 @@ pub struct RepoSourceControlAiOverrides {
     pub model_overrides_by_operation:
         Option<BTreeMap<SourceControlAiOperation, SourceControlAiModelChoice>>,
     pub instructions_by_operation: Option<BTreeMap<SourceControlAiOperation, Option<String>>>,
+    /// Per-action recipe overrides, keyed by action id (the three text actions
+    /// plus the launch actions). Includes templates derived from per-operation
+    /// instructions, matching live TS.
+    pub action_overrides: Option<BTreeMap<String, RepoSourceControlActionOverride>>,
     pub pr_creation_defaults: Option<RepoPrCreationDefaults>,
 }
 
@@ -293,21 +317,123 @@ fn normalize_repo_pr_creation_defaults(value: &Value) -> Option<RepoPrCreationDe
     }
 }
 
+/// All Source Control action ids: the three text actions plus the launch
+/// actions, in canonical order (`SOURCE_CONTROL_ACTION_IDS`).
+const SOURCE_CONTROL_ACTION_IDS: [&str; 7] = [
+    "commitMessage",
+    "pullRequest",
+    "branchName",
+    "fixCommitFailure",
+    "fixChecks",
+    "resolveConflicts",
+    "resolveComments",
+];
+
+/// `commandTemplateFromInstruction`: an empty/blank instruction yields the bare
+/// `{basePrompt}`; otherwise the trimmed instruction is appended below it.
+fn command_template_from_instruction(instruction: &str) -> String {
+    let trimmed = instruction.trim();
+    if trimmed.is_empty() {
+        "{basePrompt}".to_string()
+    } else {
+        format!("{{basePrompt}}\n\n{trimmed}")
+    }
+}
+
+/// `normalizeSourceControlActionRecipe` + the repo-override null sentinels:
+/// `agentId` keeps null / a known TuiAgent / the custom-agent id; the two
+/// template/args fields keep a string or an explicit `null` (drop otherwise).
+fn normalize_repo_action_override(item: &Value) -> Option<RepoSourceControlActionOverride> {
+    if !item.is_object() {
+        return None;
+    }
+    let mut normalized = RepoSourceControlActionOverride::default();
+    let agent_id = get(item, "agentId");
+    if agent_id.is_null() {
+        normalized.agent_id = Some(None);
+    } else if let Some(text) = agent_id.as_str() {
+        if orca_agents::tui_agent_config::is_tui_agent(text) || is_custom_agent_id(Some(text)) {
+            normalized.agent_id = Some(Some(text.to_string()));
+        }
+    }
+    let template = get(item, "commandInputTemplate");
+    if let Some(text) = template.as_str() {
+        normalized.command_input_template = Some(Some(text.to_string()));
+    } else if template.is_null() {
+        normalized.command_input_template = Some(None);
+    }
+    let args = get(item, "agentArgs");
+    if let Some(text) = args.as_str() {
+        normalized.agent_args = Some(Some(text.to_string()));
+    } else if args.is_null() {
+        normalized.agent_args = Some(None);
+    }
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn normalize_action_overrides(
+    value: &Value,
+) -> Option<BTreeMap<String, RepoSourceControlActionOverride>> {
+    let obj = value.as_object()?;
+    let mut normalized = BTreeMap::new();
+    for action_id in SOURCE_CONTROL_ACTION_IDS {
+        if let Some(item) = obj.get(action_id) {
+            if let Some(parsed) = normalize_repo_action_override(item) {
+                normalized.insert(action_id.to_string(), parsed);
+            }
+        }
+    }
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
 pub fn normalize_repo_source_control_ai_overrides(
     value: &Value,
 ) -> Option<RepoSourceControlAiOverrides> {
     if !value.is_object() {
         return None;
     }
+    let instructions_by_operation =
+        normalize_operation_record(get(value, "instructionsByOperation"), normalize_repo_instruction);
+    // Why: per-operation instructions migrate into an action recipe's
+    // commandInputTemplate when the recipe doesn't already carry one — but only
+    // when the template is *absent* (an explicit null sentinel must survive).
+    let mut action_overrides =
+        normalize_action_overrides(get(value, "actionOverrides")).unwrap_or_default();
+    for operation in SourceControlAiOperation::ALL {
+        // `typeof instruction === 'string'`: a string migrates; null/absent skip.
+        let Some(Some(instruction)) =
+            instructions_by_operation.as_ref().and_then(|map| map.get(&operation))
+        else {
+            continue;
+        };
+        let key = operation.as_str();
+        let template_absent = action_overrides
+            .get(key)
+            .map_or(true, |entry| entry.command_input_template.is_none());
+        if template_absent {
+            action_overrides.entry(key.to_string()).or_default().command_input_template =
+                Some(Some(command_template_from_instruction(instruction)));
+        }
+    }
     Some(RepoSourceControlAiOverrides {
         model_overrides_by_operation: normalize_operation_record(
             get(value, "modelOverridesByOperation"),
             normalize_source_control_ai_model_choice,
         ),
-        instructions_by_operation: normalize_operation_record(
-            get(value, "instructionsByOperation"),
-            normalize_repo_instruction,
-        ),
+        instructions_by_operation,
+        action_overrides: if action_overrides.is_empty() {
+            None
+        } else {
+            Some(action_overrides)
+        },
         pr_creation_defaults: normalize_repo_pr_creation_defaults(get(value, "prCreationDefaults")),
     })
 }
@@ -2013,11 +2139,30 @@ mod tests {
         instructions.insert(PullRequest, Some(String::new()));
         instructions.insert(BranchName, Some("branch style".to_string()));
 
+        // A null commit instruction skips migration; the "" PR instruction yields
+        // the bare {basePrompt}; the branch instruction is appended below it.
+        let mut action_overrides = BTreeMap::new();
+        action_overrides.insert(
+            "pullRequest".to_string(),
+            RepoSourceControlActionOverride {
+                command_input_template: Some(Some("{basePrompt}".to_string())),
+                ..Default::default()
+            },
+        );
+        action_overrides.insert(
+            "branchName".to_string(),
+            RepoSourceControlActionOverride {
+                command_input_template: Some(Some("{basePrompt}\n\nbranch style".to_string())),
+                ..Default::default()
+            },
+        );
+
         assert_eq!(
             normalized,
             RepoSourceControlAiOverrides {
                 model_overrides_by_operation: Some(model_overrides),
                 instructions_by_operation: Some(instructions),
+                action_overrides: Some(action_overrides),
                 pr_creation_defaults: Some(RepoPrCreationDefaults {
                     draft: Some(Some(true)),
                     use_template: Some(None),

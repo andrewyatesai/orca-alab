@@ -9,7 +9,8 @@
 
 use orca_git::source_control_ai::{
     normalize_repo_source_control_ai_overrides, RepoPrCreationDefaults,
-    RepoSourceControlAiOverrides, SourceControlAiModelChoice, SourceControlAiOperation,
+    RepoSourceControlActionOverride, RepoSourceControlAiOverrides, SourceControlAiModelChoice,
+    SourceControlAiOperation,
 };
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -53,10 +54,41 @@ fn overrides_to_json(overrides: &RepoSourceControlAiOverrides) -> Value {
         }
         map.insert("instructionsByOperation".to_string(), Value::Object(inner));
     }
+    if let Some(by_action) = &overrides.action_overrides {
+        let mut inner = Map::new();
+        for (action_id, override_) in by_action {
+            inner.insert(action_id.clone(), action_override_to_json(override_));
+        }
+        map.insert("actionOverrides".to_string(), Value::Object(inner));
+    }
     if let Some(pr) = &overrides.pr_creation_defaults {
         map.insert("prCreationDefaults".to_string(), pr_defaults_to_json(pr));
     }
     Value::Object(map)
+}
+
+fn action_override_to_json(override_: &RepoSourceControlActionOverride) -> Value {
+    let mut map = Map::new();
+    insert_string_or_null(&mut map, "agentId", override_.agent_id.as_ref());
+    insert_string_or_null(
+        &mut map,
+        "commandInputTemplate",
+        override_.command_input_template.as_ref(),
+    );
+    insert_string_or_null(&mut map, "agentArgs", override_.agent_args.as_ref());
+    Value::Object(map)
+}
+
+fn insert_string_or_null(map: &mut Map<String, Value>, key: &str, field: Option<&Option<String>>) {
+    if let Some(value) = field {
+        map.insert(
+            key.to_string(),
+            match value {
+                Some(text) => Value::String(text.clone()),
+                None => Value::Null,
+            },
+        );
+    }
 }
 
 fn choice_to_json(choice: &SourceControlAiModelChoice) -> Value {

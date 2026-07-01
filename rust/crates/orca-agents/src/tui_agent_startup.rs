@@ -14,6 +14,18 @@
 
 use crate::tui_agent_config::{tui_agent_config, AgentPromptInjectionMode};
 
+/// Durable resume snapshot of the Orca-managed launch inputs, ported from
+/// `SleepingAgentLaunchConfig` in `agent-session-resume.ts`. Every startup and
+/// draft plan carries one so a sleeping agent can be relaunched identically.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SleepingAgentLaunchConfig {
+    /// The resolved base launch command; `None` only when it trims to empty
+    /// (matches the TS `agentCommand?.trim()` truthiness guard).
+    pub agent_command: Option<String>,
+    pub agent_args: String,
+    pub agent_env: Vec<(String, String)>,
+}
+
 /// A built launch plan for starting an agent with (optionally) a first prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentStartupPlan {
@@ -23,6 +35,10 @@ pub struct AgentStartupPlan {
     /// Prompt to type into the session after start (stdin-after-start agents),
     /// or `None` when the prompt is baked into `launch_command`.
     pub followup_prompt: Option<String>,
+    pub launch_config: SleepingAgentLaunchConfig,
+    /// Codex-only: how the CLI ingests its startup command (`shell-ready`); `None`
+    /// for other agents (the TS spreads this key in only when `agent === 'codex'`).
+    pub startup_command_delivery: Option<String>,
 }
 
 /// A built launch plan that seeds a reviewable draft into the agent's input box.
@@ -34,6 +50,9 @@ pub struct AgentDraftLaunchPlan {
     /// Single env var (name, value) to export for the launch, or `None` when
     /// the draft is delivered via a CLI flag instead.
     pub env: Option<(String, String)>,
+    pub launch_config: SleepingAgentLaunchConfig,
+    /// Codex-only startup-command delivery (`shell-ready`); `None` otherwise.
+    pub startup_command_delivery: Option<String>,
 }
 
 /// Target shell whose quoting/clearing syntax the plan is built for.
@@ -144,6 +163,28 @@ fn resolve_base_command(agent: &str, cmd_overrides: &[(&str, &str)], launch_cmd:
     launch_cmd.to_string()
 }
 
+/// Build the durable resume snapshot from the resolved base command. The TS
+/// source also folds in caller-supplied `agentArgs`/`agentEnv`, but this port
+/// does not yet accept those inputs (the base-command CLI-args suffix is
+/// likewise unported), so both default to empty — matching every current input.
+fn build_sleeping_agent_launch_config(base_command: &str) -> SleepingAgentLaunchConfig {
+    SleepingAgentLaunchConfig {
+        agent_command: if base_command.trim().is_empty() {
+            None
+        } else {
+            Some(base_command.to_string())
+        },
+        agent_args: String::new(),
+        agent_env: Vec::new(),
+    }
+}
+
+/// Codex ingests its startup command shell-ready; other agents omit the field —
+/// mirrors the TS `agent === 'codex' ? { startupCommandDelivery: 'shell-ready' } : {}`.
+fn codex_startup_delivery(agent: &str) -> Option<String> {
+    (agent == "codex").then(|| "shell-ready".to_string())
+}
+
 /// Build the launch plan, or `None` when there is no prompt and empty-prompt
 /// launch is not allowed (or the agent id is unknown).
 pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStartupPlan> {
@@ -151,6 +192,7 @@ pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStar
     let trimmed_prompt = args.prompt.trim();
     let config = tui_agent_config(args.agent)?;
     let base_command = resolve_base_command(args.agent, args.cmd_overrides, config.launch_cmd);
+    let launch_config = build_sleeping_agent_launch_config(&base_command);
 
     if trimmed_prompt.is_empty() {
         if !args.allow_empty_prompt_launch {
@@ -161,6 +203,8 @@ pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStar
             launch_command: base_command,
             expected_process: config.expected_process.to_string(),
             followup_prompt: None,
+            launch_config,
+            startup_command_delivery: codex_startup_delivery(args.agent),
         });
     }
 
@@ -178,6 +222,8 @@ pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStar
                 launch_command: base_command,
                 expected_process: config.expected_process.to_string(),
                 followup_prompt: Some(trimmed_prompt.to_string()),
+                launch_config,
+                startup_command_delivery: codex_startup_delivery(args.agent),
             });
         }
     };
@@ -187,6 +233,8 @@ pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStar
         launch_command,
         expected_process: config.expected_process.to_string(),
         followup_prompt: None,
+        launch_config,
+        startup_command_delivery: codex_startup_delivery(args.agent),
     })
 }
 
@@ -200,6 +248,7 @@ pub fn build_agent_draft_launch_plan(args: &AgentDraftLaunchArgs) -> Option<Agen
         return None;
     }
     let base_command = resolve_base_command(args.agent, args.cmd_overrides, config.launch_cmd);
+    let launch_config = build_sleeping_agent_launch_config(&base_command);
 
     if let Some(flag) = config.draft_prompt_flag {
         let quoted = quote_startup_arg(trimmed, shell);
@@ -208,6 +257,8 @@ pub fn build_agent_draft_launch_plan(args: &AgentDraftLaunchArgs) -> Option<Agen
             launch_command: format!("{base_command} {flag} {quoted}"),
             expected_process: config.expected_process.to_string(),
             env: None,
+            launch_config,
+            startup_command_delivery: codex_startup_delivery(args.agent),
         });
     }
 
@@ -218,6 +269,8 @@ pub fn build_agent_draft_launch_plan(args: &AgentDraftLaunchArgs) -> Option<Agen
             launch_command: format!("{base_command}{}{clear_var}", command_separator(shell)),
             expected_process: config.expected_process.to_string(),
             env: Some((env_var.to_string(), trimmed.to_string())),
+            launch_config,
+            startup_command_delivery: codex_startup_delivery(args.agent),
         });
     }
 
@@ -315,6 +368,12 @@ mod tests {
                 launch_command: "openclaude 'fix it'".to_string(),
                 expected_process: "openclaude".to_string(),
                 followup_prompt: None,
+                launch_config: SleepingAgentLaunchConfig {
+                    agent_command: Some("openclaude".to_string()),
+                    agent_args: String::new(),
+                    agent_env: Vec::new(),
+                },
+                startup_command_delivery: None,
             }
         );
     }
@@ -336,6 +395,12 @@ mod tests {
                 launch_command: "vibe".to_string(),
                 expected_process: "vibe".to_string(),
                 followup_prompt: Some("fix it".to_string()),
+                launch_config: SleepingAgentLaunchConfig {
+                    agent_command: Some("vibe".to_string()),
+                    agent_args: String::new(),
+                    agent_env: Vec::new(),
+                },
+                startup_command_delivery: None,
             }
         );
     }

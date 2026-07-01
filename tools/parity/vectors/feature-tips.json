@@ -19,6 +19,16 @@
           "completedByFeatureInteractions": []
         },
         {
+          "id": "cmd-j-palette",
+          "priority": "new",
+          "eyebrow": "Tip",
+          "title": "Jump to a worktree with <shortcut>",
+          "description": "Search worktrees, switch tabs, tweak settings, or spin up a new worktree, all without leaving the keyboard.",
+          "action": "learn-cmd-j-palette",
+          "ctaLabel": "Got it",
+          "completedByFeatureInteractions": []
+        },
+        {
           "id": "voice-dictation",
           "priority": "unseen",
           "eyebrow": "Tip",
@@ -32,25 +42,58 @@
     },
     {
       "function": "getOrderedUnseenFeatureTips",
-      "note": "skips tips the user has already seen",
+      "note": "skips tips the user has already seen, leaving the cmd-j-palette tip",
       "input": { "seenTipIds": ["voice-dictation", "orca-cli"] },
-      "expected": []
+      "expected": [
+        {
+          "id": "cmd-j-palette",
+          "priority": "new",
+          "eyebrow": "Tip",
+          "title": "Jump to a worktree with <shortcut>",
+          "description": "Search worktrees, switch tabs, tweak settings, or spin up a new worktree, all without leaving the keyboard.",
+          "action": "learn-cmd-j-palette",
+          "ctaLabel": "Got it",
+          "completedByFeatureInteractions": []
+        }
+      ]
     },
     {
       "function": "getOrderedUnseenFeatureTips",
-      "note": "skips tips for features the user has already completed",
+      "note": "skips tips for features the user has already completed, leaving the cmd-j-palette tip",
       "input": { "seenTipIds": [], "completedTipIds": ["orca-cli", "voice-dictation"] },
-      "expected": []
+      "expected": [
+        {
+          "id": "cmd-j-palette",
+          "priority": "new",
+          "eyebrow": "Tip",
+          "title": "Jump to a worktree with <shortcut>",
+          "description": "Search worktrees, switch tabs, tweak settings, or spin up a new worktree, all without leaving the keyboard.",
+          "action": "learn-cmd-j-palette",
+          "ctaLabel": "Got it",
+          "completedByFeatureInteractions": []
+        }
+      ]
     },
     {
       "function": "getOrderedUnseenFeatureTips",
-      "note": "skips the CLI tip when the CLI is already installed",
+      "note": "skips the CLI tip when the CLI is already installed, leaving the cmd-j-palette tip",
       "input": { "seenTipIds": ["voice-dictation"], "completedTipIds": ["orca-cli"] },
-      "expected": []
+      "expected": [
+        {
+          "id": "cmd-j-palette",
+          "priority": "new",
+          "eyebrow": "Tip",
+          "title": "Jump to a worktree with <shortcut>",
+          "description": "Search worktrees, switch tabs, tweak settings, or spin up a new worktree, all without leaving the keyboard.",
+          "action": "learn-cmd-j-palette",
+          "ctaLabel": "Got it",
+          "completedByFeatureInteractions": []
+        }
+      ]
     },
     {
       "function": "getOrderedUnseenFeatureTips",
-      "note": "skips tips for completed features, leaving the CLI tip",
+      "note": "skips tips for completed features, leaving the CLI and cmd-j-palette tips",
       "input": { "seenTipIds": [], "completedTipIds": ["voice-dictation"] },
       "expected": [
         {
@@ -61,6 +104,16 @@
           "description": "Enable agents to coordinate child worktrees and communicate between worktrees.",
           "action": "setup-cli",
           "ctaLabel": "Install CLI & Skills",
+          "completedByFeatureInteractions": []
+        },
+        {
+          "id": "cmd-j-palette",
+          "priority": "new",
+          "eyebrow": "Tip",
+          "title": "Jump to a worktree with <shortcut>",
+          "description": "Search worktrees, switch tabs, tweak settings, or spin up a new worktree, all without leaving the keyboard.",
+          "action": "learn-cmd-j-palette",
+          "ctaLabel": "Got it",
           "completedByFeatureInteractions": []
         }
       ]

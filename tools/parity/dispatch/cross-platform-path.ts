@@ -5,6 +5,7 @@
 import {
   getRuntimePathBasename,
   isPathInsideOrEqual,
+  isRuntimePathAbsolute,
   isWindowsAbsolutePathLike,
   normalizeRuntimePathForComparison,
   normalizeRuntimePathSeparators,
@@ -25,6 +26,17 @@ export function dispatch(fn: string, input: unknown): unknown {
     case 'normalizeRuntimePathForComparison': {
       const { value } = input as { value: string }
       return normalizeRuntimePathForComparison(value)
+    }
+    case 'isRuntimePathAbsolute': {
+      // pathFlavor is optional: omitted → the TS default auto-detects from value
+      // (mirrors the Rust `flavor: None` arm).
+      const { value, pathFlavor } = input as {
+        value: string
+        pathFlavor?: 'posix' | 'windows'
+      }
+      return pathFlavor === undefined
+        ? isRuntimePathAbsolute(value)
+        : isRuntimePathAbsolute(value, pathFlavor)
     }
     case 'resolveRuntimePath': {
       const { basePath, targetPath } = input as { basePath: string; targetPath: string }

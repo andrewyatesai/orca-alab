@@ -162,6 +162,7 @@ dependencies = [
  "aterm-error",
  "serde",
  "toml",
+ "web-time",
 ]
 
 [[package]]

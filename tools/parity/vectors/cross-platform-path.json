@@ -114,13 +114,19 @@
     {
       "function": "isPathInsideOrEqual",
       "note": "UNC root with trailing slash and mixed separators is inside",
-      "input": { "rootPath": "\\\\Server\\Share\\Repo\\", "candidatePath": "//server/share/repo/src" },
+      "input": {
+        "rootPath": "\\\\Server\\Share\\Repo\\",
+        "candidatePath": "//server/share/repo/src"
+      },
       "expected": true
     },
     {
       "function": "isPathInsideOrEqual",
       "note": "UNC sibling repo is not inside",
-      "input": { "rootPath": "\\\\Server\\Share\\Repo", "candidatePath": "\\\\server\\share\\repo2" },
+      "input": {
+        "rootPath": "\\\\Server\\Share\\Repo",
+        "candidatePath": "\\\\server\\share\\repo2"
+      },
       "expected": false
     },
     {
@@ -144,7 +150,10 @@
     {
       "function": "relativePathInsideRoot",
       "note": "UNC root with mixed separators",
-      "input": { "rootPath": "\\\\Server\\Share\\Repo\\", "candidatePath": "//server/share/repo/src" },
+      "input": {
+        "rootPath": "\\\\Server\\Share\\Repo\\",
+        "candidatePath": "//server/share/repo/src"
+      },
       "expected": "src"
     },
     {
@@ -152,6 +161,60 @@
       "note": "sibling prefix is not contained, returns null",
       "input": { "rootPath": "/repo/app", "candidatePath": "/repo/application" },
       "expected": null
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "auto-detect posix absolute (no flavor)",
+      "input": { "value": "/usr/local" },
+      "expected": true
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "auto-detect posix relative (no flavor)",
+      "input": { "value": "relative/dir" },
+      "expected": false
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "auto-detect windows drive (backslash flavor)",
+      "input": { "value": "C:\\Users\\me" },
+      "expected": true
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "auto-detect windows UNC (// prefix flavor)",
+      "input": { "value": "//server/share" },
+      "expected": true
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "explicit posix flavor: a windows drive path is NOT posix-absolute",
+      "input": { "value": "C:\\proj", "pathFlavor": "posix" },
+      "expected": false
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "explicit windows flavor: a leading slash is absolute",
+      "input": { "value": "/mnt/c", "pathFlavor": "windows" },
+      "expected": true
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "explicit windows flavor: a UNC backslash root is absolute",
+      "input": { "value": "\\\\wsl$\\Ubuntu", "pathFlavor": "windows" },
+      "expected": true
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "explicit windows flavor: lowercase drive with forward slash",
+      "input": { "value": "d:/data", "pathFlavor": "windows" },
+      "expected": true
+    },
+    {
+      "function": "isRuntimePathAbsolute",
+      "note": "explicit posix flavor: bare relative name",
+      "input": { "value": "notabs", "pathFlavor": "posix" },
+      "expected": false
     }
   ]
 }

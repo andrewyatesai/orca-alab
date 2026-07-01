@@ -2,9 +2,9 @@
 //! `src/shared/cross-platform-path.ts`.
 
 use orca_core::cross_platform_path::{
-    get_runtime_path_basename, is_path_inside_or_equal, is_windows_absolute_path_like,
-    normalize_runtime_path_for_comparison, normalize_runtime_path_separators,
-    relative_path_inside_root, resolve_runtime_path,
+    get_runtime_path_basename, is_path_inside_or_equal, is_runtime_path_absolute,
+    is_windows_absolute_path_like, normalize_runtime_path_for_comparison,
+    normalize_runtime_path_separators, relative_path_inside_root, resolve_runtime_path, PathFlavor,
 };
 use serde_json::{json, Value};
 
@@ -19,6 +19,15 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
         "normalizeRuntimePathForComparison" => Value::String(
             normalize_runtime_path_for_comparison(&string_field(input, "value")),
         ),
+        // pathFlavor is optional: absent → None (the core auto-detects, matching
+        // the TS default parameter).
+        "isRuntimePathAbsolute" => {
+            let flavor = input.get("pathFlavor").and_then(Value::as_str).map(|f| match f {
+                "windows" => PathFlavor::Windows,
+                _ => PathFlavor::Posix,
+            });
+            Value::Bool(is_runtime_path_absolute(&string_field(input, "value"), flavor))
+        }
         "resolveRuntimePath" => Value::String(resolve_runtime_path(
             &string_field(input, "basePath"),
             &string_field(input, "targetPath"),

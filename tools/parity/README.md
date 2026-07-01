@@ -48,16 +48,26 @@ rust/crates/orca-parity/    Rust harness bin: runs vectors through the ports, se
 ## Run it
 
 ```bash
-# 1. Rust half — runs the ports, self-checks goldens, writes rust_outputs.json.
-#    (Runnable with only the Rust toolchain; no Node required for this leg.)
-cd rust
-cargo run -p orca-parity -- ../tools/parity/vectors ../tools/parity/rust_outputs.json
-
-# 2. TS half — diffs the live TypeScript reference against rust_outputs.json.
-#    (Needs Node + the repo's deps installed.)
-cd ..
-vitest run --config config/vitest.config.ts tools/parity/parity.test.ts
+# Both legs, one command (the runnable gate):
+pnpm parity
 ```
+
+`pnpm parity` (config/scripts/run-parity.mjs) runs the Rust leg then the TS leg:
+
+1. **Rust leg** — runs the ports over the vectors, self-checks goldens, writes
+   `rust_outputs.json`. It pins the rustup `stable` toolchain (the orca-crates
+   need rustc 1.96; the machine default cargo is a Homebrew 1.95 shadow). If a
+   prebuilt `rust/target/{debug,release}/orca-parity` exists it runs that
+   directly (works offline); otherwise it `cargo run`s it (needs network — the
+   full-workspace resolve currently pulls the unvendored `web-time` via
+   aterm-core).
+2. **TS leg** — `vitest run --config config/vitest.parity.config.ts` diffs the
+   live TypeScript reference against `rust_outputs.json`.
+
+> Note: the base `config/vitest.config.ts` include globs do NOT cover
+> `tools/parity`, so `pnpm test` does not run this suite and a bare
+> `vitest ... config/vitest.config.ts tools/parity/parity.test.ts` matches
+> nothing (a positional path only filters `include`). Use `pnpm parity`.
 
 Exit codes: the Rust harness fails if any golden mismatches, a dispatch is
 missing, or a vector file is unreadable. The vitest run fails on any unexplained

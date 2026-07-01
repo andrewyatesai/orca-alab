@@ -260,3 +260,54 @@ pub fn decode_git_cquoted_path(value: String) -> String {
 pub fn git_engine() -> &'static str {
     "orca-git"
 }
+
+/// Result of feeding a chunk to [`NdjsonParser`]: the complete lines to JSON-parse
+/// (in order) plus the observed byte sizes of any oversized lines that were dropped.
+#[napi(object)]
+pub struct NdjsonFeedResult {
+    /// Complete lines (newline-stripped, non-empty) in arrival order.
+    pub lines: Vec<String>,
+    /// Byte sizes of dropped oversized lines (one per oversized report).
+    pub oversized: Vec<u32>,
+}
+
+/// Stateful NDJSON byte-budget line splitter (orca_net::NdjsonSplitter) — the OOM
+/// guard for the daemon socket. `feed` returns complete lines for the caller to
+/// JSON.parse; oversized lines are dropped + the stream resyncs at the next newline.
+#[napi(js_name = "NdjsonParser")]
+pub struct JsNdjsonParser {
+    inner: orca_net::NdjsonSplitter,
+}
+
+#[napi]
+impl JsNdjsonParser {
+    #[napi(constructor)]
+    pub fn new(max_line_bytes: Option<u32>) -> Self {
+        let max = max_line_bytes
+            .map(|n| n as usize)
+            .unwrap_or(orca_net::NDJSON_MAX_LINE_BYTES);
+        Self {
+            inner: orca_net::NdjsonSplitter::new(max),
+        }
+    }
+
+    #[napi]
+    pub fn feed(&mut self, chunk: String) -> NdjsonFeedResult {
+        let mut lines = Vec::new();
+        let mut oversized = Vec::new();
+        for event in self.inner.feed_collect(&chunk) {
+            match event {
+                orca_net::NdjsonEvent::Line(line) => lines.push(line),
+                orca_net::NdjsonEvent::Oversized { observed_bytes } => {
+                    oversized.push(u32::try_from(observed_bytes).unwrap_or(u32::MAX));
+                }
+            }
+        }
+        NdjsonFeedResult { lines, oversized }
+    }
+
+    #[napi]
+    pub fn reset(&mut self) {
+        self.inner.reset();
+    }
+}

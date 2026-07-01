@@ -16,6 +16,9 @@ orca-terminal = { path = "../../rust/crates/orca-terminal" }
 # same .node. orca-core supplies the C-quoted-path decoder.
 orca-git = { path = "../../rust/crates/orca-git" }
 orca-core = { path = "../../rust/crates/orca-core" }
+# orca-net: the byte-budget NDJSON line splitter (daemon-socket OOM guard) exposed as
+# the NdjsonParser napi class.
+orca-net = { path = "../../rust/crates/orca-net" }
 
 [build-dependencies]
 napi-build = "2"

@@ -40,15 +40,59 @@
       "expected": null
     },
     {
+      "function": "encodeTerminalStreamFrame",
+      "note": "opcode 11 (SnapshotRequest) is a live renderer→host op; empty payload round-trips its header",
+      "input": { "opcode": 11, "streamId": 12, "seq": 7, "payload": [] },
+      "expected": [116, 1, 11, 0, 12, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0]
+    },
+    {
+      "function": "encodeTerminalStreamFrame",
+      "note": "opcode 11 with the realistic {streamId:12} JSON payload the multiplexer sends",
+      "input": {
+        "opcode": 11,
+        "streamId": 12,
+        "seq": 7,
+        "payload": [123, 34, 115, 116, 114, 101, 97, 109, 73, 100, 34, 58, 49, 50, 125]
+      },
+      "expected": [
+        116, 1, 11, 0, 12, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 123, 34, 115, 116, 114, 101, 97, 109,
+        73, 100, 34, 58, 49, 50, 125
+      ]
+    },
+    {
+      "function": "decodeTerminalStreamFrame",
+      "note": "opcode 11 (SnapshotRequest) decodes to a valid frame, NOT null (the gap the core fix closed)",
+      "input": {
+        "bytes": [
+          116, 1, 11, 0, 12, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 123, 34, 115, 116, 114, 101, 97, 109,
+          73, 100, 34, 58, 49, 50, 125
+        ]
+      },
+      "expected": {
+        "opcode": 11,
+        "streamId": 12,
+        "seq": 7,
+        "payload": [123, 34, 115, 116, 114, 101, 97, 109, 73, 100, 34, 58, 49, 50, 125]
+      }
+    },
+    {
       "function": "encodeTerminalStreamJson",
       "note": "compact JSON.stringify UTF-8 bytes (keys preserved in insertion order)",
       "input": { "value": { "cols": 120, "rows": 40 } },
-      "expected": [123, 34, 99, 111, 108, 115, 34, 58, 49, 50, 48, 44, 34, 114, 111, 119, 115, 34, 58, 52, 48, 125]
+      "expected": [
+        123, 34, 99, 111, 108, 115, 34, 58, 49, 50, 48, 44, 34, 114, 111, 119, 115, 34, 58, 52, 48,
+        125
+      ]
     },
     {
       "function": "decodeTerminalStreamJson",
       "note": "valid JSON payload parses back to the object",
-      "input": { "payload": [123, 34, 99, 111, 108, 115, 34, 58, 49, 50, 48, 44, 34, 114, 111, 119, 115, 34, 58, 52, 48, 125] },
+      "input": {
+        "payload": [
+          123, 34, 99, 111, 108, 115, 34, 58, 49, 50, 48, 44, 34, 114, 111, 119, 115, 34, 58, 52,
+          48, 125
+        ]
+      },
       "expected": { "cols": 120, "rows": 40 }
     },
     {

@@ -25,6 +25,9 @@ pub enum TerminalStreamOpcode {
     Resize = 8,
     Subscribe = 9,
     Unsubscribe = 10,
+    /// Client asks the host to (re)send a full snapshot for a stream. Sent by the
+    /// renderer multiplexer; decoded + branched by the main RPC server.
+    SnapshotRequest = 11,
 }
 
 impl TerminalStreamOpcode {
@@ -40,6 +43,7 @@ impl TerminalStreamOpcode {
             8 => Some(Self::Resize),
             9 => Some(Self::Subscribe),
             10 => Some(Self::Unsubscribe),
+            11 => Some(Self::SnapshotRequest),
             _ => None,
         }
     }
@@ -203,6 +207,29 @@ mod tests {
         assert_eq!(payload.get("terminal"), Some(&json!("terminal-1")));
         assert_eq!(unsubscribe.opcode, TerminalStreamOpcode::Unsubscribe);
         assert_eq!(unsubscribe.stream_id, 12);
+    }
+
+    #[test]
+    fn round_trips_snapshot_request_frame_opcode_11() {
+        // Opcode 11 (SnapshotRequest) is live: the renderer multiplexer SENDS it and the
+        // main RPC server decodes + branches on it. Before this it decoded to None in Rust
+        // (vs a valid frame in TS) — snapshot-on-demand would silently break on cutover.
+        let frame = decode_terminal_stream_frame(&encode_terminal_stream_frame(
+            &TerminalStreamFrame {
+                opcode: TerminalStreamOpcode::SnapshotRequest,
+                stream_id: 12,
+                seq: 7,
+                payload: encode_terminal_stream_json(&json!({ "streamId": 12 })),
+            },
+        ))
+        .unwrap();
+        assert_eq!(frame.opcode, TerminalStreamOpcode::SnapshotRequest);
+        assert_eq!(frame.stream_id, 12);
+        assert_eq!(frame.seq, 7);
+        assert_eq!(
+            decode_terminal_stream_json::<Value>(&frame.payload),
+            Some(json!({ "streamId": 12 }))
+        );
     }
 
     #[test]

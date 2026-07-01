@@ -22,8 +22,21 @@ export type RustGitStatusParserHandle = {
 
 export type RustGitStatusParserCtor = new () => RustGitStatusParserHandle
 
+/** Stateful NDJSON byte-budget line splitter (orca_net::NdjsonSplitter). `feed`
+ *  returns complete lines to JSON.parse + the byte sizes of any dropped oversized
+ *  lines; the buffer is proven never to exceed `maxLineBytes` (the daemon-socket
+ *  OOM guard). */
+export type RustNdjsonParserHandle = {
+  feed(chunk: string): { lines: string[]; oversized: number[] }
+  reset(): void
+}
+
+export type RustNdjsonParserCtor = new (maxLineBytes?: number) => RustNdjsonParserHandle
+
 export type RustGitBinding = {
   GitStatusParser: RustGitStatusParserCtor
+  /** NDJSON byte-budget line splitter (orca-net) — the daemon-socket OOM guard. */
+  NdjsonParser: RustNdjsonParserCtor
   /** One-shot status scan; the cap is applied during the scan. Returns JSON. */
   parseStatusPorcelain(stdout: Buffer, limit: number): string
   /** `git diff --numstat` (text or `-z`) → `{path: {added?, removed?}}` JSON. */

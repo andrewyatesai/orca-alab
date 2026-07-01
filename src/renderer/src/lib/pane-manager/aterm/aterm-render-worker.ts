@@ -16,6 +16,7 @@ import {
 } from './aterm-worker-engine-build'
 import { createWorkerTerminal } from './aterm-worker-terminal'
 import { createWorkerSerializeCache } from './aterm-worker-serialize-cache'
+import { createWorkerFrameScheduler } from './aterm-worker-frame-scheduler'
 import type {
   AtermWorkerInit,
   AtermWorkerMessage,
@@ -37,8 +38,6 @@ let storedInit: StoredInit | null = null
 let storedCanvas: OffscreenCanvas | null = null
 // Don't fall back twice if the worker posts more than one init error.
 let fellBackToCpu = false
-let suspended = false
-let drawScheduled = false
 // Serialized-buffer cache (throttle-with-max-wait) so the main thread can read recent
 // scrollback synchronously at shutdown; the throttle logic lives in its own module.
 const serializeCache = createWorkerSerializeCache({
@@ -46,47 +45,14 @@ const serializeCache = createWorkerSerializeCache({
   post: (message) => ctx.postMessage(message)
 })
 
-// Whether the next coalesced frame must post a STATE snapshot. Cursor blink/hollow
-// toggles repaint the cursor cell but change NO snapshot field (there is no blink-phase
-// field), so they render without posting — avoiding a byte-identical buildState + clone +
-// main-thread applyState ~2x/sec per focused pane. Any real change sets this true.
-let needStatePost = false
-
-const drawNow = (): void => {
-  if (!term) {
-    return
-  }
-  // Suspended (hidden pane): keep state fresh for reads but don't paint a frame.
-  if (!suspended) {
-    term.render()
-  }
-  if (needStatePost) {
-    needStatePost = false
-    ctx.postMessage(term.buildState())
-  }
-}
-
-const scheduleDraw = (postState = true): void => {
-  // Mark the post need BEFORE the already-scheduled guard, so a real change coalesced
-  // onto a pending render-only (blink) frame still posts a STATE.
-  if (postState) {
-    needStatePost = true
-  }
-  if (drawScheduled || !term) {
-    return
-  }
-  drawScheduled = true
-  const run = (): void => {
-    drawScheduled = false
-    drawNow()
-  }
-  // OffscreenCanvas exposes rAF in a worker; fall back to sync if it's missing.
-  if (ctx.requestAnimationFrame) {
-    ctx.requestAnimationFrame(run)
-  } else {
-    run()
-  }
-}
+// Draw coalescing + STATE-post decisions (render-only blink frames, hidden-pane gating,
+// dimension-change posts) live in the frame scheduler.
+const frameScheduler = createWorkerFrameScheduler({
+  getTerm: () => term,
+  post: (state) => ctx.postMessage(state),
+  raf: ctx.requestAnimationFrame ? (cb) => ctx.requestAnimationFrame?.(cb) : undefined
+})
+const scheduleDraw = frameScheduler.schedule
 
 function buildStoredInit(msg: AtermWorkerInit): StoredInit {
   return {
@@ -109,8 +75,7 @@ function startTerminal(handle: EngineHandle): void {
     term.resize(storedInit.rows, storedInit.cols)
   }
   // The first frame MUST post: the loader awaits this initial STATE for the cell metrics.
-  needStatePost = true
-  drawNow()
+  frameScheduler.postNow()
 }
 
 async function handleInit(msg: AtermWorkerInit): Promise<void> {
@@ -266,10 +231,7 @@ ctx.onmessage = (event): void => {
       term?.setClipboardWriteAuthorized(msg.allowed)
       return
     case 'setDrawSuspended':
-      suspended = msg.suspended
-      if (!suspended) {
-        scheduleDraw()
-      }
+      frameScheduler.setSuspended(msg.suspended)
       return
     case 'setCursorBlinkPhase':
       // Render-only: repaint the cursor cell, but post NO state (no snapshot field tracks

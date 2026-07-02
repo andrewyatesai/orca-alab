@@ -29,6 +29,16 @@
         "resourceUsageToggleDescription": "Show the Resource Manager. Click it for CPU, memory, sessions, daemon controls, and workspace disk scans.",
         "portsToggleDescription": "Show live workspace ports. Click it for workspace-scoped ports and external listeners."
       }
+    },
+    "about": {
+      "build": {
+        "title": "Build",
+        "description": "The engine and provenance baked into this build.",
+        "orca": "Orca",
+        "builtFrom": "Built from",
+        "atermEngine": "aterm engine",
+        "upstream": "Upstream fork"
+      }
     }
   },
   "menu": {
@@ -2234,7 +2244,32 @@
             "2ddbd6fe8a": "checked",
             "ee81adfcef": "View",
             "4d0b72481c": "Ignore",
-            "9cc26c019d": "Remove"
+            "9cc26c019d": "Remove",
+            "0e2d235c63": "Inactive workspace scan ready",
+            "4a35c08764": "Review",
+            "47123d0108": "Scanning inactive workspaces. You can close this and come back.",
+            "9a3be9f2df": "Scanning inactive workspaces. New rows appear here as they finish. You can close this and come back.",
+            "3d957ff117": "No workspaces match these filters.",
+            "e94b1f8bb4": "Clear filters",
+            "efb3843e75": "Filter and sort workspaces",
+            "93b7381d50": "Filters",
+            "a615e24679": "Sort",
+            "4cc5b73efe": "Finding inactive workspaces...",
+            "5bf2e88480": "{{value0}}/{{value1}} {{value2}} scanned",
+            "3bfbeab500": "Search workspaces",
+            "ea2f3a55e0": "Age",
+            "64b328f973": "Git",
+            "d019cb7858": "Context",
+            "530a28adfa": "Sort by",
+            "30d24c9147": "Direction"
+          },
+          "workspace": {
+            "cleanup": {
+              "presentation": {
+                "506aab087d": "MR #{{value0}}",
+                "26b36ba7df": "PR #{{value0}}"
+              }
+            }
           }
         }
       },
@@ -6259,7 +6294,9 @@
           "e90afcc44f": "off",
           "16c471ee03": "on",
           "typographyAdvanced": "Typography",
-          "dimUnfocusedPanes": "Dim unfocused panes."
+          "dimUnfocusedPanes": "Dim unfocused panes.",
+          "fontWeightFaceNote": "Uses the closest installed style of the font (e.g. 500 → Medium); bold text uses the font’s Bold style when installed. Applies to new terminals.",
+          "cursorOpacityUnsupported": "Not supported yet: the terminal renderer currently paints opaque colors. Your value is saved and will apply when transparency support lands."
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -6319,10 +6356,10 @@
           "45721f3e67": "Terminal Interaction",
           "9c0b1c1792": "On",
           "c1fc9e9444": "GPU Acceleration",
-          "e0996d141a": "Auto tries WebGL, with DOM fallback for unsupported or risky renderers.",
-          "7eaccc1424": "WebGL is always attempted for terminal panes.",
-          "fe4acf36c6": "WebGL disabled; DOM renderer for max compatibility.",
-          "f07dfb4466": "Controls whether the terminal uses xterm.js WebGL rendering. Auto tries WebGL when the renderer is supported, with a conservative Linux fallback for software or unknown GPU renderers.",
+          "e0996d141a": "Auto tries WebGL2, with CPU canvas fallback for unsupported or risky GPUs.",
+          "7eaccc1424": "WebGL2 GPU rendering is always attempted for terminal panes.",
+          "fe4acf36c6": "GPU rendering disabled; CPU canvas renderer for max compatibility.",
+          "f07dfb4466": "Controls whether terminal panes draw with the WebGL2 GPU renderer. Auto uses the GPU when it is supported, with a conservative Linux fallback to the CPU canvas renderer for software or unknown GPUs.",
           "72bc9334a0": "Terminal renderer behavior for live panes and new panes.",
           "2fba319f21": "Rendering",
           "cc8c5ca224": "Windows default",
@@ -6464,7 +6501,8 @@
           "79f6bfb76e": "Foreground",
           "cf37ff69f6": "Base",
           "8abdab9f7c": "Restart now",
-          "907131d741": "Restarting…"
+          "907131d741": "Restarting…",
+          "backgroundOpacityUnsupported": "Not supported yet: the terminal renderer currently paints opaque colors. Your value is saved and will apply when transparency support lands."
         },
         "UIZoomControl": {
           "c2c64b24d0": "Reset"
@@ -7983,7 +8021,7 @@
             "6cddc858ba": "webgl",
             "4b4e80d850": "acceleration",
             "db82cb13b0": "gpu",
-            "8f9f953de7": "Controls whether the terminal uses xterm.js WebGL rendering. Auto tries WebGL when the renderer is supported, with conservative fallback for software or unknown GPU renderers.",
+            "8f9f953de7": "Controls whether terminal panes draw with the WebGL2 GPU renderer. Auto uses the GPU when it is supported, with conservative fallback to the CPU canvas renderer for software or unknown GPUs.",
             "13a2502dfc": "GPU Acceleration",
             "d5e6c7fab1": "font features",
             "a16224d16a": "calt",

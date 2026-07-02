@@ -48,8 +48,8 @@ of depending on an unbounded renderer backlog.
 
 The existing runtime headless terminal is the main-owned model. Every PTY byte
 already reaches `OrcaRuntimeService.onPtyData` before renderer delivery for
-local, daemon, and SSH PTYs. That path keeps a headless xterm emulator updated
-and can serialize it.
+local, daemon, and SSH PTYs. That path keeps a headless aterm emulator (the
+napi `HeadlessEmulator`) updated and can serialize it.
 
 The renderer scheduler keeps its 2 MB background cap. When the cap is exceeded:
 
@@ -57,8 +57,8 @@ The renderer scheduler keeps its 2 MB background cap. When the cap is exceeded:
 2. The terminal connection marks that pane as needing main-state recovery.
 3. Further hidden bytes for that stale pane are not enqueued in the renderer.
 4. When the pane/document becomes visible, the connection requests a main-owned
-   snapshot, clears xterm, replays the snapshot under the replay guard, and
-   sends the normal post-reattach reset.
+   snapshot, clears the renderer terminal, replays the snapshot under the
+   replay guard, and sends the normal post-reattach reset.
 5. Live foreground chunks that arrive while restore is in flight are retained in
    a small bounded queue. After snapshot replay, sequence numbers decide which
    chunks were already included and which still need to be written.

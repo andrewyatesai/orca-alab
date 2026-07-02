@@ -23,7 +23,7 @@ Subsystems: `ui-store`, `ui-lib-hooks (state/caching/scroll-anchor hooks)`
 
 ### Terminal emulation  →  `orca-terminal`
 
-Replaces @xterm/* and @xterm/headless with vendored alacritty_terminal for VT/ANSI parsing, scrollback, and snapshot serialization. Self-contained and high-leverage (core UX surface). Validated by replaying captured PTY streams against xterm-serialize golden snapshots. Note: alacritty has no addon ecosystem, so search/ligatures/web-links/unicode11/serialize behavior must be reimplemented.
+Replaces @xterm/* and @xterm/headless with vendored alacritty_terminal for VT/ANSI parsing, scrollback, and snapshot serialization. Self-contained and high-leverage (core UX surface). Validated by replaying captured PTY streams against xterm-serialize golden snapshots. Note: alacritty has no addon ecosystem, so search/ligatures/web-links/unicode11/serialize behavior must be reimplemented. _(Stale as planned: shipped with the hand-written `aterm` engine — a git submodule at `rust/aterm` — instead of vendored alacritty_terminal; the validation approach held.)_
 
 Subsystems: `main-daemon (xterm-headless emulation/serialize)`, `ui-terminal (xterm.js core + addons)`
 
@@ -133,7 +133,7 @@ Subsystems: `main-window`, `ui-sidebar`, `ui-terminal (view layer)`, `ui-editor 
 
 ### Phase 4: Phase 3 — Terminal emulation
 
-**Goal:** Swap xterm/xterm-headless for alacritty_terminal.
+**Goal:** Swap xterm/xterm-headless for alacritty_terminal. _(Stale: shipped as the hand-written `aterm` engine, a git submodule at `rust/aterm`.)_
 
 **Rationale:** Self-contained and central to UX. Can be validated in isolation by replaying captured PTY streams against xterm-serialize golden snapshots, with no dependency on the runtime hub.
 

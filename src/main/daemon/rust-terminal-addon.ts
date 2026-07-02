@@ -21,6 +21,8 @@ export type RustHeadlessTerminalHandle = {
   isAlternateScreen(): boolean
   bracketedPaste(): boolean
   applicationCursor(): boolean
+  /** Drop the native engine now (grid + scrollback) instead of on GC finalize. */
+  dispose(): void
   /** Window title (OSC 0/2), or null when unset. */
   title(): string | null
   /** Replayable ANSI: `scrollbackRows` caps the prepended history (omit = all,
@@ -63,16 +65,27 @@ function candidatePaths(): string[] {
 }
 
 let cached: RustTerminalBinding | null | undefined
+let failureDetail: string[] = []
+
+/** Why the last `loadRustTerminalBinding()` returned null, one entry per
+ *  candidate path. Empty until a load has been attempted and failed. */
+export function rustTerminalLoadFailures(): string[] {
+  return failureDetail
+}
 
 /** Load the Rust terminal addon, or return null if it is unavailable or fails
- *  to load. Never throws — callers fall back to the TypeScript emulator. */
+ *  to load. Never throws itself, but there is NO fallback engine — callers
+ *  treat null as a fatal build/packaging fault, using
+ *  `rustTerminalLoadFailures()` for the per-candidate causes. */
 export function loadRustTerminalBinding(): RustTerminalBinding | null {
   if (cached !== undefined) {
     return cached
   }
   const req = createRequire(import.meta.url)
+  const failures: string[] = []
   for (const path of candidatePaths()) {
     if (!existsSync(path)) {
+      failures.push(`${path}: not found`)
       continue
     }
     try {
@@ -81,10 +94,14 @@ export function loadRustTerminalBinding(): RustTerminalBinding | null {
         cached = binding
         return cached
       }
-    } catch {
-      // try the next candidate; a bad/incompatible addon must not break startup
+      failures.push(`${path}: loaded but exports no HeadlessTerminal constructor`)
+    } catch (error) {
+      // Keep the real cause (e.g. an ABI/NODE_MODULE_VERSION mismatch) so the
+      // caller's fatal error names it instead of a generic 'failed to load'.
+      failures.push(`${path}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
+  failureDetail = failures
   cached = null
   return cached
 }

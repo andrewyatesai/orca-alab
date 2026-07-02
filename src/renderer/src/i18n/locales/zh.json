@@ -29,6 +29,16 @@
         "resourceUsageToggleDescription": "显示资源管理器。点击可查看 CPU、内存、会话、守护进程控制和工作区磁盘扫描。",
         "portsToggleDescription": "显示实时工作区端口。单击它可获取工作区范围的端口和外部侦听器。"
       }
+    },
+    "about": {
+      "build": {
+        "title": "构建",
+        "description": "此构建内置的引擎和来源信息。",
+        "orca": "Orca",
+        "builtFrom": "构建自",
+        "atermEngine": "aterm 引擎",
+        "upstream": "上游 fork"
+      }
     }
   },
   "menu": {
@@ -2234,7 +2244,32 @@
             "2ddbd6fe8a": "检查过",
             "ee81adfcef": "查看",
             "4d0b72481c": "忽略",
-            "9cc26c019d": "移除"
+            "9cc26c019d": "移除",
+            "0e2d235c63": "非活动工作区扫描已完成",
+            "4a35c08764": "查看",
+            "47123d0108": "正在扫描非活动工作区。您可以关闭此窗口，稍后再回来。",
+            "9a3be9f2df": "正在扫描非活动工作区。扫描完成的条目会陆续显示在这里。您可以关闭此窗口，稍后再回来。",
+            "3d957ff117": "没有工作区匹配这些筛选器。",
+            "e94b1f8bb4": "清除筛选器",
+            "efb3843e75": "筛选和排序工作区",
+            "93b7381d50": "筛选器",
+            "a615e24679": "排序",
+            "4cc5b73efe": "正在查找非活动工作区...",
+            "5bf2e88480": "已扫描 {{value0}}/{{value1}} 个{{value2}}",
+            "3bfbeab500": "搜索工作区",
+            "ea2f3a55e0": "闲置时间",
+            "64b328f973": "Git",
+            "d019cb7858": "上下文",
+            "530a28adfa": "排序方式",
+            "30d24c9147": "顺序"
+          },
+          "workspace": {
+            "cleanup": {
+              "presentation": {
+                "506aab087d": "MR #{{value0}}",
+                "26b36ba7df": "PR #{{value0}}"
+              }
+            }
           }
         }
       },
@@ -6207,7 +6242,9 @@
           "e90afcc44f": "关",
           "16c471ee03": "开",
           "typographyAdvanced": "排版",
-          "dimUnfocusedPanes": "调暗未聚焦的窗格。"
+          "dimUnfocusedPanes": "调暗未聚焦的窗格。",
+          "fontWeightFaceNote": "使用该字体已安装的最接近样式（例如 500 → Medium）；粗体文本在安装了 Bold 样式时使用该样式。适用于新终端。",
+          "cursorOpacityUnsupported": "尚不支持：终端渲染器目前以不透明颜色绘制。您的值已保存，将在支持透明度后生效。"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "像素",
@@ -6267,10 +6304,10 @@
           "45721f3e67": "终端交互",
           "9c0b1c1792": "开",
           "c1fc9e9444": "GPU加速",
-          "e0996d141a": "Auto 尝试使用 WebGL，并针对不受支持或有风险的渲染器使用 DOM 回退。",
-          "7eaccc1424": "始终尝试将 WebGL 用于终端窗格。",
-          "fe4acf36c6": "WebGL 已禁用； DOM 渲染器可实现最大兼容性。",
-          "f07dfb4466": "控制终端是否使用 xterm.js WebGL 渲染。当渲染器受支持时，Auto 会尝试 WebGL，并为软件或未知 GPU 渲染器提供保守的 Linux 后备方案。",
+          "e0996d141a": "Auto 尝试使用 WebGL2，并针对不受支持或有风险的 GPU 使用 CPU 画布回退。",
+          "7eaccc1424": "始终尝试将 WebGL2 GPU 渲染用于终端窗格。",
+          "fe4acf36c6": "GPU 渲染已禁用；CPU 画布渲染器可实现最大兼容性。",
+          "f07dfb4466": "控制终端窗格是否使用 WebGL2 GPU 渲染器绘制。当 GPU 受支持时，Auto 会使用 GPU，并为软件或未知 GPU 提供回退到 CPU 画布渲染器的保守 Linux 后备方案。",
           "72bc9334a0": "实时窗格和新窗格的终端渲染器行为。",
           "2fba319f21": "渲染",
           "cc8c5ca224": "Windows 默认值",
@@ -6412,7 +6449,8 @@
           "79f6bfb76e": "前景",
           "cf37ff69f6": "根据",
           "8abdab9f7c": "立即重启",
-          "907131d741": "正在重新启动..."
+          "907131d741": "正在重新启动...",
+          "backgroundOpacityUnsupported": "尚不支持：终端渲染器目前以不透明颜色绘制。您的值已保存，将在支持透明度后生效。"
         },
         "UIZoomControl": {
           "c2c64b24d0": "重置"
@@ -7917,7 +7955,7 @@
             "6cddc858ba": "网页GL",
             "4b4e80d850": "加速度",
             "db82cb13b0": "图形处理器",
-            "8f9f953de7": "控制终端是否使用 xterm.js WebGL 渲染。当渲染器受支持时，自动尝试 WebGL，并为软件或未知 GPU 渲染器提供保守的后备方案。",
+            "8f9f953de7": "控制终端窗格是否使用 WebGL2 GPU 渲染器绘制。当 GPU 受支持时，自动使用 GPU，并为软件或未知 GPU 提供回退到 CPU 画布渲染器的保守后备方案。",
             "13a2502dfc": "GPU加速",
             "d5e6c7fab1": "字体特性",
             "a16224d16a": "calt",

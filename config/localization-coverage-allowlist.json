@@ -1,1 +1,9 @@
-[]
+[
+  {
+    "filePath": "src/renderer/src/components/workspace-cleanup/workspace-cleanup-presentation-fixtures.ts",
+    "kind": "object-property:title",
+    "text": "Review alpha cleanup",
+    "dynamic": false,
+    "count": 1
+  }
+]

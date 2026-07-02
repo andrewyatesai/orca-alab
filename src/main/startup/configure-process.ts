@@ -311,7 +311,8 @@ export function enableMainProcessGpuFeatures(): void {
   const features = [
     // Why: mirror VS Code's conservative Electron GPU-channel startup flags
     // instead of opting into Vulkan/SkiaGraphite/unsafe WebGPU globally.
-    // Terminal acceleration is controlled by xterm WebGL in the renderer.
+    // Terminal acceleration is controlled by the aterm WebGL2 drawer in the
+    // renderer, behind the terminalGpuAcceleration setting.
     'EarlyEstablishGpuChannel',
     'EstablishGpuChannelAsync',
     existingFeatures

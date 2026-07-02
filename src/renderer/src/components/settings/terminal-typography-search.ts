@@ -113,7 +113,7 @@ export const getTerminalRenderingSearchEntries = createLocalizedCatalog(() => [
     title: translate('auto.components.settings.terminal.search.13a2502dfc', 'GPU Acceleration'),
     description: translate(
       'auto.components.settings.terminal.search.8f9f953de7',
-      'Controls whether the terminal uses xterm.js WebGL rendering. Auto tries WebGL when the renderer is supported, with conservative fallback for software or unknown GPU renderers.'
+      'Controls whether terminal panes draw with the WebGL2 GPU renderer. Auto uses the GPU when it is supported, with conservative fallback to the CPU canvas renderer for software or unknown GPUs.'
     ),
     keywords: [
       ...translateSearchKeyword('auto.components.settings.terminal.search.f66a7cf715', 'terminal'),

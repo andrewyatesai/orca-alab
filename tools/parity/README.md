@@ -13,7 +13,7 @@ failing.
 
 ## Coverage
 
-71 of the ~88 ported logic modules have adapters — **938 vectors, 936 golden
+82 of the ~99 ported logic modules have adapters — **1066 vectors, 1064 golden
 checks green** via the Rust leg (`cargo run -p orca-parity`). The remaining 17
 are out of differential scope (io-edge functions driven only by injected
 fs/exec/socket closures, `src/main`-sourced modules, or pure helpers TS keeps

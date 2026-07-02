@@ -31,12 +31,13 @@ platform-specific native wrappers**. All third-party dependencies are
   against Alacritty. `orca-terminal` is wired to it as a thin adapter over
   `aterm-core::Terminal` (branch `aterm-integration`): the `HeadlessTerminal`
   surface, `orca-ffi` C ABI, and `orca-session` are unchanged — only the engine
-  underneath the adapter changed from the `vte` subset to aterm. The build is
-  fully offline and self-contained: aterm's source is vendored in-repo at
-  `third_party/aterm` (its own workspace, outside `rust/`; only the
-  `aterm-core` closure compiles) and its crates.io dep-closure is vendored
-  under `rust/vendor`. A later cleanup can swap the in-repo copy for an aterm
-  git-rev pin once that repo is pushed.
+  underneath the adapter changed from the `vte` subset to aterm. aterm's source
+  is a **git submodule at `rust/aterm`** (its own workspace; only the
+  `aterm-core` closure compiles), pinned to a rev but fetched from the network
+  on clone — the build is not fully offline. The `rust/` workspace's crates.io
+  dep-closure is vendored under `rust/vendor`; `native/orca-node` sits outside
+  that workspace and resolves crates.io directly, pinned by its committed
+  `Cargo.lock`.
 
 ## Layering
 
@@ -142,10 +143,12 @@ core.
 
 ## Dependency vendoring & stripping policy
 
-**Status: live.** `rust/vendor/` holds all third-party crates (today: `regex`
-+ `regex-automata`, `regex-syntax`, `aho-corasick`, `memchr`), pinned by
-`rust/Cargo.lock`, with `rust/.cargo/config.toml` redirecting crates.io →
-`vendor/` and `[net] offline = true`. `orca-text` builds offline from them.
+**Status: live for the `rust/` workspace.** `rust/vendor/` holds that
+workspace's third-party crates, pinned by `rust/Cargo.lock`, with
+`rust/.cargo/config.toml` redirecting crates.io → `vendor/` and
+`[net] offline = true`. Outside its scope: the `rust/aterm` submodule is
+fetched from the network on clone, and `native/orca-node` (its own workspace)
+resolves crates.io directly with a committed `Cargo.lock`.
 
 1. `cargo vendor` populates `rust/vendor/`; `.cargo/config.toml` redirects
    crates.io to it so builds are offline and reproducible. _(done)_
@@ -265,8 +268,8 @@ each output against the transcribed golden and runs with **only the Rust
 toolchain** (no Node), so it is verifiable in a headless/offline environment; the
 vitest leg (`parity.test.ts`) closes the TS side on a machine with Node.
 
-**Coverage:** 81 of the ported logic modules have parity adapters —
-**1043 vectors, 1041 golden checks green offline** (`cargo run -p orca-parity`).
+**Coverage:** 82 of the ported logic modules have parity adapters —
+**1066 vectors, 1064 golden checks green offline** (`cargo run -p orca-parity`).
 The other 17 are honestly out of differential scope and logged: io-edge functions
 that only run via injected fs/exec/clock/socket closures (`git::remote`,
 `git::status`, `git::branch_cleanup`, `relay::e2ee_channel`, …), modules sourced

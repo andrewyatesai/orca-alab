@@ -1,3 +1,4 @@
+import { translate } from '@/i18n/i18n'
 import { getWorktreeMapFromState } from '@/store/selectors'
 import { getHostedReviewCacheKey } from '@/store/slices/hosted-review'
 import type { AppState } from '@/store/types'
@@ -109,11 +110,26 @@ function getLinkedReviewFallback(worktree: Worktree | null): {
   if (!worktree) {
     return null
   }
+  // GitLab merge requests and GitHub pull requests keep provider-correct labels.
   if (worktree.linkedGitLabMR != null) {
-    return { label: `MR #${worktree.linkedGitLabMR}`, provider: 'gitlab' }
+    return {
+      label: translate(
+        'auto.components.workspace.cleanup.workspace.cleanup.presentation.506aab087d',
+        'MR #{{value0}}',
+        { value0: worktree.linkedGitLabMR }
+      ),
+      provider: 'gitlab'
+    }
   }
   if (worktree.linkedPR != null) {
-    return { label: `PR #${worktree.linkedPR}`, provider: 'github' }
+    return {
+      label: translate(
+        'auto.components.workspace.cleanup.workspace.cleanup.presentation.26b36ba7df',
+        'PR #{{value0}}',
+        { value0: worktree.linkedPR }
+      ),
+      provider: 'github'
+    }
   }
   return null
 }

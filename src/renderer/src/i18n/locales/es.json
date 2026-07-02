@@ -29,6 +29,16 @@
         "resourceUsageToggleDescription": "Muestra el Administrador de recursos. Haga clic en él para ver la CPU, la memoria, las sesiones, los controles del demonio y los análisis del disco del espacio de trabajo.",
         "portsToggleDescription": "Mostrar puertos del espacio de trabajo en vivo. Haga clic en él para puertos con ámbito de espacio de trabajo y oyentes externos."
       }
+    },
+    "about": {
+      "build": {
+        "title": "Compilación",
+        "description": "El motor y la procedencia incluidos en esta compilación.",
+        "orca": "Orca",
+        "builtFrom": "Compilado desde",
+        "atermEngine": "Motor aterm",
+        "upstream": "Fork de upstream"
+      }
     }
   },
   "menu": {
@@ -2234,7 +2244,32 @@
             "2ddbd6fe8a": "comprobado",
             "ee81adfcef": "Vista",
             "4d0b72481c": "Ignorar",
-            "9cc26c019d": "Eliminar"
+            "9cc26c019d": "Eliminar",
+            "0e2d235c63": "El escaneo de espacios de trabajo inactivos está listo",
+            "4a35c08764": "Revisar",
+            "47123d0108": "Escaneando espacios de trabajo inactivos. Puedes cerrar esto y volver más tarde.",
+            "9a3be9f2df": "Escaneando espacios de trabajo inactivos. Las filas nuevas aparecen aquí a medida que terminan. Puedes cerrar esto y volver más tarde.",
+            "3d957ff117": "Ningún espacio de trabajo coincide con estos filtros.",
+            "e94b1f8bb4": "Limpiar filtros",
+            "efb3843e75": "Filtrar y ordenar espacios de trabajo",
+            "93b7381d50": "Filtros",
+            "a615e24679": "Ordenar",
+            "4cc5b73efe": "Buscando espacios de trabajo inactivos...",
+            "5bf2e88480": "{{value0}}/{{value1}} {{value2}} escaneados",
+            "3bfbeab500": "Buscar espacios de trabajo",
+            "ea2f3a55e0": "Antigüedad",
+            "64b328f973": "Git",
+            "d019cb7858": "Contexto",
+            "530a28adfa": "Ordenar por",
+            "30d24c9147": "Dirección"
+          },
+          "workspace": {
+            "cleanup": {
+              "presentation": {
+                "506aab087d": "MR #{{value0}}",
+                "26b36ba7df": "PR #{{value0}}"
+              }
+            }
           }
         }
       },
@@ -6222,7 +6257,9 @@
           "e90afcc44f": "apagado",
           "16c471ee03": "activado",
           "typographyAdvanced": "Tipografía",
-          "dimUnfocusedPanes": "Atenuar paneles sin foco."
+          "dimUnfocusedPanes": "Atenuar paneles sin foco.",
+          "fontWeightFaceNote": "Usa el estilo instalado más cercano de la fuente (p. ej., 500 → Medium); el texto en negrita usa el estilo Bold de la fuente cuando está instalado. Se aplica a los terminales nuevos.",
+          "cursorOpacityUnsupported": "Aún no compatible: el renderizador del terminal actualmente pinta colores opacos. Tu valor se guarda y se aplicará cuando llegue la compatibilidad con transparencia."
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "píxeles",
@@ -6282,10 +6319,10 @@
           "45721f3e67": "Interacción terminal",
           "9c0b1c1792": "En",
           "c1fc9e9444": "Aceleración de GPU",
-          "e0996d141a": "Auto prueba WebGL, con respaldo DOM para renderizadores riesgosos o no compatibles.",
-          "7eaccc1424": "Siempre se intenta WebGL para paneles de terminales.",
-          "fe4acf36c6": "WebGL deshabilitado; Renderizador DOM para máxima compatibilidad.",
-          "f07dfb4466": "Controla si el terminal utiliza la representación WebGL de xterm.js. Auto prueba WebGL cuando el renderizador es compatible, con una alternativa conservadora de Linux para software o renderizadores de GPU desconocidos.",
+          "e0996d141a": "Auto prueba WebGL2, con respaldo de lienzo por CPU para GPU riesgosas o no compatibles.",
+          "7eaccc1424": "Siempre se intenta la representación GPU WebGL2 para paneles de terminales.",
+          "fe4acf36c6": "Representación por GPU deshabilitada; renderizador de lienzo por CPU para máxima compatibilidad.",
+          "f07dfb4466": "Controla si los paneles de terminal se dibujan con el renderizador GPU WebGL2. Auto usa la GPU cuando es compatible, con una alternativa conservadora de Linux al renderizador de lienzo por CPU para GPU de software o desconocidas.",
           "72bc9334a0": "Comportamiento del renderizador de terminal para paneles activos y paneles nuevos.",
           "2fba319f21": "Representación",
           "cc8c5ca224": "predeterminado de Windows",
@@ -6427,7 +6464,8 @@
           "79f6bfb76e": "Primer plano",
           "cf37ff69f6": "Base",
           "8abdab9f7c": "Reiniciar ahora",
-          "907131d741": "Reiniciando…"
+          "907131d741": "Reiniciando…",
+          "backgroundOpacityUnsupported": "Aún no compatible: el renderizador del terminal actualmente pinta colores opacos. Tu valor se guarda y se aplicará cuando llegue la compatibilidad con transparencia."
         },
         "UIZoomControl": {
           "c2c64b24d0": "Reiniciar"
@@ -7932,7 +7970,7 @@
             "6cddc858ba": "webgl",
             "4b4e80d850": "aceleración",
             "db82cb13b0": "GPU",
-            "8f9f953de7": "Controla si el terminal utiliza la representación WebGL de xterm.js. Auto prueba WebGL cuando el renderizador es compatible, con respaldo conservador para software o renderizadores de GPU desconocidos.",
+            "8f9f953de7": "Controla si los paneles de terminal se dibujan con el renderizador GPU WebGL2. Auto usa la GPU cuando es compatible, con respaldo conservador al renderizador de lienzo por CPU para GPU de software o desconocidas.",
             "13a2502dfc": "Aceleración de GPU",
             "d5e6c7fab1": "características de la fuente",
             "a16224d16a": "calto",

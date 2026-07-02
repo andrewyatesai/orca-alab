@@ -46,7 +46,13 @@ export function resolveTerminalShortcutAction(
   macOptionAsAlt: MacOptionAsAlt = 'false',
   optionKeyLocation: number = 0,
   isWindows: boolean = false,
-  keybindings?: KeybindingOverrides
+  keybindings?: KeybindingOverrides,
+  // Why: the readline-compat sendInput rewrites below exist for LEGACY-mode
+  // apps; once the active pane's app negotiates kitty / modifyOtherKeys it
+  // wants the real encoded chord, so the caller passes the pane's state here
+  // (derive via atermAppKeyProtocolNegotiated(term.keyboard_mode_bits)) to
+  // stand the rewrites down and let the engine encoder speak.
+  kittyKeyboardActive: boolean = false
 ): TerminalShortcutAction | null {
   const platform: NodeJS.Platform = isMac ? 'darwin' : isWindows ? 'win32' : 'linux'
   if (!event.repeat) {
@@ -91,32 +97,24 @@ export function resolveTerminalShortcutAction(
     }
   }
 
-  if (
-    !event.metaKey &&
-    !event.ctrlKey &&
-    !event.altKey &&
-    event.shiftKey &&
-    event.key === 'Enter'
-  ) {
-    // Why: Codex on Windows PowerShell treats CSI-u Shift+Enter as inert,
-    // while the Alt+Enter byte path inserts a composer newline.
-    return { type: 'sendInput', data: isWindows ? '\x1b\r' : '\x1b[13;2u' }
-  }
+  // Shift+Enter needs no rewrite: the aterm engine encoder emits LF in legacy
+  // mode (aterm's imposed insert-newline — keyboard_mode.rs e2e tests) and the
+  // negotiated CSI-u/modifyOtherKeys form otherwise, so it falls through.
 
   if (
+    !kittyKeyboardActive &&
     event.ctrlKey &&
     !event.metaKey &&
     !event.altKey &&
     !event.shiftKey &&
     event.key === 'Enter'
   ) {
-    // Why: xterm.js collapses Ctrl+Enter to a bare CR, so TUIs that expect
-    // modified Enter chords never receive the distinct input and treat it as
-    // plain Enter. Forward the kitty CSI-u sequence directly (modifier code
-    // 5 = Ctrl; cf. 2 = Shift above) so cue/queue behavior reaches the TUI.
-    // Sibling of the Shift+Enter case; a Windows fallback is not added yet
-    // because, unlike #2418's Codex-on-PowerShell inertness, no Windows TUI is
-    // known to drop the CSI-u form for Ctrl+Enter.
+    // Why: legacy encoding collapses Ctrl+Enter to a bare CR, so TUIs that
+    // expect modified Enter chords treat it as plain Enter. Forward the kitty
+    // CSI-u sequence (modifier code 5 = Ctrl) so cue/queue behavior reaches the
+    // TUI; with kitty/modifyOtherKeys negotiated the engine encoder already
+    // emits the app's chosen form, so this stands down. A Windows fallback is
+    // not added because no Windows TUI is known to drop this CSI-u form.
     return { type: 'sendInput', data: '\x1b[13;5u' }
   }
 
@@ -168,22 +166,25 @@ export function resolveTerminalShortcutAction(
   }
 
   if (
+    !kittyKeyboardActive &&
     !event.metaKey &&
     !event.ctrlKey &&
     event.altKey &&
     !event.shiftKey &&
     (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
   ) {
-    // Why: xterm.js would otherwise emit \e[1;3D / \e[1;3C for option/alt+arrow,
-    // which default readline (bash, zsh) does not bind to backward-word /
+    // Why: the legacy encoding for option/alt+arrow is \e[1;3D / \e[1;3C, which
+    // default readline (bash, zsh) does not bind to backward-word /
     // forward-word — so word navigation silently doesn't work without a custom
     // inputrc. Translate to \eb / \ef (readline's default word-nav bindings) so
     // option+←/→ on macOS and alt+←/→ on Linux/Windows behave like they do in
     // iTerm2's "Esc+" option-key mode. Platform-agnostic: both produce altKey.
+    // Kitty-gated: a negotiated app wants the real modified-arrow report.
     return { type: 'sendInput', data: event.key === 'ArrowLeft' ? '\x1bb' : '\x1bf' }
   }
 
   if (
+    !kittyKeyboardActive &&
     !isMac &&
     !event.metaKey &&
     event.ctrlKey &&
@@ -192,11 +193,12 @@ export function resolveTerminalShortcutAction(
     (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
   ) {
     // Why: Windows Terminal, GNOME Terminal, and Konsole all bind Ctrl+←/→ for
-    // word navigation on Linux/Windows — but xterm.js emits \e[1;5D / \e[1;5C,
-    // which default readline (bash, zsh) does not bind to backward-word /
-    // forward-word. Translate to \eb / \ef (same bytes as our Alt+Arrow rule)
-    // so Ctrl+←/→ works for word-nav matching user expectations on those
-    // platforms without requiring a custom inputrc.
+    // word navigation on Linux/Windows — but the legacy encoding is \e[1;5D /
+    // \e[1;5C, which default readline (bash, zsh) does not bind to
+    // backward-word / forward-word. Translate to \eb / \ef (same bytes as our
+    // Alt+Arrow rule) so Ctrl+←/→ works for word-nav matching user expectations
+    // on those platforms without requiring a custom inputrc. Kitty-gated like
+    // the Alt+Arrow rule above.
     //
     // Mac-gated: Ctrl+Arrow on macOS is reserved for Mission Control / Spaces
     // navigation at the OS level and should never reach the app.

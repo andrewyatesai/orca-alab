@@ -14,6 +14,17 @@ export type AtermInputDom = {
   liveRegion: HTMLElement
 }
 
+/** The helper textarea's PARKED position (off-screen, zero footprint).
+ *  aterm-composition-view overrides these four properties to anchor the IME
+ *  candidate window at the cursor cell during composition, then restores them —
+ *  keep the two in sync through this constant. */
+export const ATERM_TEXTAREA_PARKED_STYLE = {
+  left: '-9999em',
+  top: '0',
+  width: '0',
+  height: '0'
+} satisfies Partial<CSSStyleDeclaration>
+
 /** Build `div.xterm > div.xterm-screen > (canvas + div.xterm-helpers >
  *  textarea.xterm-helper-textarea)` around the already-created canvas. */
 export function buildAtermInputDom(canvas: HTMLCanvasElement): AtermInputDom {
@@ -31,8 +42,10 @@ export function buildAtermInputDom(canvas: HTMLCanvasElement): AtermInputDom {
 
   const helpers = document.createElement('div')
   helpers.className = 'xterm-helpers'
-  // Was provided by xterm.css (now removed); the IME candidate window anchors to
-  // this box, so position it explicitly above the canvas at the wrapper origin.
+  // Was provided by xterm.css (now removed). Pinned to the screen origin so the
+  // textarea's left/top offsets are pane-local: aterm-composition-view moves the
+  // textarea to the CURSOR CELL during IME composition (anchoring the candidate
+  // window at the caret) and re-parks it after the commit.
   Object.assign(helpers.style, {
     position: 'absolute',
     top: '0',
@@ -54,10 +67,7 @@ export function buildAtermInputDom(canvas: HTMLCanvasElement): AtermInputDom {
   Object.assign(textarea.style, {
     position: 'absolute',
     opacity: '0',
-    left: '-9999em',
-    top: '0',
-    width: '0',
-    height: '0',
+    ...ATERM_TEXTAREA_PARKED_STYLE,
     zIndex: '-5',
     whiteSpace: 'nowrap',
     overflow: 'hidden',

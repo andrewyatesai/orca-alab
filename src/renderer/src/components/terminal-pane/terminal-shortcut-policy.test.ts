@@ -69,13 +69,7 @@ describe('resolveTerminalShortcutAction', () => {
     ).toEqual({ type: 'focusPane', direction: 'next' })
   })
 
-  it('keeps shift-enter and delete helpers explicit', () => {
-    expect(
-      resolveTerminalShortcutAction(event({ key: 'Enter', code: 'Enter', shiftKey: true }), true)
-    ).toEqual({
-      type: 'sendInput',
-      data: '\x1b[13;2u'
-    })
+  it('keeps delete helpers explicit', () => {
     expect(resolveTerminalShortcutAction(event({ key: 'Backspace', ctrlKey: true }), true)).toEqual(
       { type: 'sendInput', data: '\x17' }
     )
@@ -92,7 +86,12 @@ describe('resolveTerminalShortcutAction', () => {
     })
   })
 
-  it('uses the Codex-compatible Shift+Enter sequence on Windows', () => {
+  it('lets Shift+Enter fall through to the engine encoder (LF legacy, CSI-u kitty)', () => {
+    // The engine imposes a usable Shift+Enter in every keyboard mode
+    // (keyboard_mode.rs e2e tests), so the policy must not rewrite it.
+    expect(
+      resolveTerminalShortcutAction(event({ key: 'Enter', code: 'Enter', shiftKey: true }), true)
+    ).toBeNull()
     expect(
       resolveTerminalShortcutAction(
         event({ key: 'Enter', code: 'Enter', shiftKey: true }),
@@ -101,16 +100,13 @@ describe('resolveTerminalShortcutAction', () => {
         0,
         true
       )
-    ).toEqual({
-      type: 'sendInput',
-      data: '\x1b\r'
-    })
+    ).toBeNull()
   })
 
   it('forwards Ctrl+Enter as the kitty CSI-u chord so TUIs can cue instead of send', () => {
-    // Why: xterm.js collapses Ctrl+Enter to a bare CR; intercept upstream and
-    // emit the kitty sequence (modifier code 5 = Ctrl) so probing TUIs receive
-    // the distinct chord on every platform.
+    // Why: legacy encoding collapses Ctrl+Enter to a bare CR; intercept upstream
+    // and emit the kitty sequence (modifier code 5 = Ctrl) so probing TUIs
+    // receive the distinct chord on every platform.
     expect(
       resolveTerminalShortcutAction(event({ key: 'Enter', code: 'Enter', ctrlKey: true }), true)
     ).toEqual({ type: 'sendInput', data: '\x1b[13;5u' })
@@ -139,6 +135,20 @@ describe('resolveTerminalShortcutAction', () => {
     expect(
       resolveTerminalShortcutAction(
         event({ key: 'Enter', code: 'Enter', ctrlKey: true, metaKey: true }),
+        true
+      )
+    ).toBeNull()
+
+    // With kitty/modifyOtherKeys negotiated the app wants the engine's real
+    // chord, so the rewrite stands down.
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', ctrlKey: true }),
+        true,
+        'false',
+        0,
+        false,
+        undefined,
         true
       )
     ).toBeNull()
@@ -355,6 +365,20 @@ describe('resolveTerminalShortcutAction', () => {
     // Regression guard: plain ArrowLeft must still pass through untouched.
     expect(
       resolveTerminalShortcutAction(event({ key: 'ArrowLeft', code: 'ArrowLeft' }), true)
+    ).toBeNull()
+
+    // Kitty-gated: a negotiated app gets the real alt+arrow report from the
+    // engine encoder, not the readline-compat rewrite.
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'ArrowLeft', code: 'ArrowLeft', altKey: true }),
+        true,
+        'false',
+        0,
+        false,
+        undefined,
+        true
+      )
     ).toBeNull()
   })
 

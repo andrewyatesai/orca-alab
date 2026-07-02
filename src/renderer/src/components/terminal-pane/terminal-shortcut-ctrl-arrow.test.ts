@@ -19,8 +19,8 @@ function event(overrides: Partial<TerminalShortcutEvent>): TerminalShortcutEvent
 
 describe('non-mac Ctrl+Left/Right word-nav', () => {
   // Windows Terminal, GNOME Terminal, and Konsole all bind Ctrl+←/→ to
-  // word-nav. xterm.js emits \e[1;5D / \e[1;5C which default readline doesn't
-  // map, so translate to \eb / \ef (same bytes as our Alt+Arrow rule).
+  // word-nav. The legacy encoding is \e[1;5D / \e[1;5C which default readline
+  // doesn't map, so translate to \eb / \ef (same bytes as our Alt+Arrow rule).
   it('translates Ctrl+←/→ on Windows/Linux to readline \\eb / \\ef', () => {
     expect(
       resolveTerminalShortcutAction(
@@ -73,6 +73,21 @@ describe('non-mac Ctrl+Left/Right word-nav', () => {
       resolveTerminalShortcutAction(
         event({ key: 'ArrowLeft', code: 'ArrowLeft', ctrlKey: true, altKey: true }),
         false
+      )
+    ).toBeNull()
+  })
+
+  it('stands down under a negotiated kitty/modifyOtherKeys protocol', () => {
+    // The app asked for real modified-key reports; the engine encoder speaks.
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'ArrowLeft', code: 'ArrowLeft', ctrlKey: true }),
+        false,
+        'false',
+        0,
+        false,
+        undefined,
+        true
       )
     ).toBeNull()
   })

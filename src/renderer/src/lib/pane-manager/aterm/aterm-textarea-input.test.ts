@@ -3,12 +3,38 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { attachAtermTextareaInput } from './aterm-textarea-input'
+import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
 
-// The textarea-input module only reads is_app_cursor_mode off the terminal; a
-// minimal stand-in keeps these DOM tests off the wasm engine.
-function fakeTerm(): AtermTerminal {
-  return { is_app_cursor_mode: false } as unknown as AtermTerminal
+// The module under test imports the wasm glue for the worker-path free-function
+// encoder; keep these DOM tests off the real (uninitialized) wasm module.
+vi.mock('./aterm_wasm.js', () => ({
+  encode_key_with_mode: vi.fn(() => new Uint8Array([0x1b, 0x4f, 0x41]))
+}))
+
+type FakeTermOverrides = {
+  /** Omit to model the worker-backed term (no engine on this thread). */
+  encodeKey?: ReturnType<typeof vi.fn>
+  isAltScreen?: boolean
+  keyboardModeBits?: number
+}
+
+// Minimal engine stand-in: the keydown path reads encode_key / keyboard_mode_bits /
+// is_alt_screen / scroll_lines, the composition view reads the cursor.
+function fakeTerm(overrides: FakeTermOverrides = {}): {
+  term: AtermTerminal
+  scrollLines: ReturnType<typeof vi.fn>
+} {
+  const scrollLines = vi.fn()
+  const term = {
+    ...(overrides.encodeKey ? { encode_key: overrides.encodeKey } : {}),
+    is_alt_screen: overrides.isAltScreen ?? false,
+    keyboard_mode_bits: overrides.keyboardModeBits ?? 0,
+    scroll_lines: scrollLines,
+    cursor_x: 4,
+    cursor_y: 2
+  } as unknown as AtermTerminal
+  return { term, scrollLines }
 }
 
 type Harness = {
@@ -16,24 +42,58 @@ type Harness = {
   inputSink: ReturnType<typeof vi.fn>
   pasteSink: ReturnType<typeof vi.fn>
   copySelection: ReturnType<typeof vi.fn>
+  redraw: ReturnType<typeof vi.fn>
+  scrollLines: ReturnType<typeof vi.fn>
   dispose: () => void
 }
 
-function mount(getMacOptionIsMeta?: () => boolean): Harness {
+function mount(
+  termOverrides: FakeTermOverrides = {},
+  getMacOptionIsMeta?: () => boolean,
+  getCustomKeyEventHandler?: () => ((event: KeyboardEvent) => boolean) | null
+): Harness {
+  const wrapper = document.createElement('div')
+  const screen = document.createElement('div')
+  const canvas = document.createElement('canvas')
+  // happy-dom does no layout, so give the grid canvas a CSS box (the composition
+  // view derives the viewport from it to clamp the cursor anchor).
+  Object.defineProperty(canvas, 'clientWidth', { value: 400 })
+  Object.defineProperty(canvas, 'clientHeight', { value: 240 })
   const textarea = document.createElement('textarea')
-  document.body.appendChild(textarea)
+  screen.appendChild(canvas)
+  screen.appendChild(textarea)
+  wrapper.appendChild(screen)
+  document.body.appendChild(wrapper)
   const inputSink = vi.fn()
   const pasteSink = vi.fn()
   const copySelection = vi.fn(() => false)
+  const redraw = vi.fn()
+  const { term, scrollLines } = fakeTerm(termOverrides)
   const { dispose } = attachAtermTextareaInput({
     textarea,
-    term: fakeTerm(),
+    term,
+    canvas,
+    metrics: { dpr: 2, cellWidth: 10, cellHeight: 20 },
+    themeColors: { fg: 0xffffff, bg: 0x000000 },
+    getRows: () => 24,
+    redraw,
     inputSink,
     pasteSink,
     copySelection,
-    getMacOptionIsMeta
+    getMacOptionIsMeta,
+    getCustomKeyEventHandler
   })
-  return { textarea, inputSink, pasteSink, copySelection, dispose }
+  return { textarea, inputSink, pasteSink, copySelection, redraw, scrollLines, dispose }
+}
+
+function fireKeydown(
+  textarea: HTMLTextAreaElement,
+  key: string,
+  modifiers: Partial<Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'metaKey' | 'shiftKey'>> = {}
+): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...modifiers })
+  textarea.dispatchEvent(event)
+  return event
 }
 
 function fireInput(textarea: HTMLTextAreaElement, data: string | null, inputType: string): void {
@@ -128,7 +188,7 @@ describe('attachAtermTextareaInput', () => {
   it('sends the committed string exactly once on compositionend (no double-send)', () => {
     const h = mount()
     fireComposition(h.textarea, 'compositionstart')
-    // compositionupdate must not send (no handler); only compositionend commits.
+    // compositionupdate only renders the preedit; only compositionend commits.
     fireComposition(h.textarea, 'compositionupdate', 'にほ')
     fireComposition(h.textarea, 'compositionend', 'にほん')
     expect(h.inputSink).toHaveBeenCalledTimes(1)
@@ -136,12 +196,26 @@ describe('attachAtermTextareaInput', () => {
     h.dispose()
   })
 
-  it('does not double-send a printable: keydown returns null and only input sends', () => {
+  it('anchors the textarea to the cursor cell while composing and re-parks it after', () => {
     const h = mount()
-    // A plain printable keydown returns null from the encoder (not preventDefault'd
-    // / not sent); the character arrives via the subsequent input event only.
-    const keydown = new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true })
-    h.textarea.dispatchEvent(keydown)
+    // cursor (4,2) × cell 10×20 device px at dpr 2 → CSS (20px, 20px).
+    fireComposition(h.textarea, 'compositionstart')
+    expect(h.textarea.style.left).toBe('20px')
+    expect(h.textarea.style.top).toBe('20px')
+    fireComposition(h.textarea, 'compositionend', 'ん')
+    // Restored to the parked position so the candidate window can't linger.
+    expect(h.textarea.style.left).toBe('-9999em')
+    expect(h.textarea.style.width).toBe('0px')
+    h.dispose()
+  })
+
+  it('does not double-send a printable: keydown returns null and only input sends', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x61]))
+    const h = mount({ encodeKey })
+    // A plain printable keydown must not reach the engine encoder (not
+    // preventDefault'd / not sent); the character arrives via input only.
+    const keydown = fireKeydown(h.textarea, 'a')
+    expect(encodeKey).not.toHaveBeenCalled()
     expect(h.inputSink).not.toHaveBeenCalled()
     expect(keydown.defaultPrevented).toBe(false)
     fireInput(h.textarea, 'a', 'insertText')
@@ -150,12 +224,119 @@ describe('attachAtermTextareaInput', () => {
     h.dispose()
   })
 
-  it('sends a non-text key (Enter) via keydown and preventDefaults it', () => {
-    const h = mount()
-    const keydown = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
-    h.textarea.dispatchEvent(keydown)
+  it('sends a non-text key (Enter) via the ENGINE encoder and preventDefaults it', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x0d]))
+    const h = mount({ encodeKey })
+    const keydown = fireKeydown(h.textarea, 'Enter')
+    expect(encodeKey).toHaveBeenCalledWith('Enter', 0, 0, undefined)
     expect(h.inputSink).toHaveBeenCalledWith('\r')
     expect(keydown.defaultPrevented).toBe(true)
     h.dispose()
+  })
+
+  it('passes Shift+arrow to the engine with the SHIFT modifier bit', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x1b, 0x5b, 0x31, 0x3b, 0x32, 0x44]))
+    const h = mount({ encodeKey })
+    fireKeydown(h.textarea, 'ArrowLeft', { shiftKey: true })
+    expect(encodeKey).toHaveBeenCalledWith('ArrowLeft', 1, 0, undefined)
+    expect(h.inputSink).toHaveBeenCalledWith('\x1b[1;2D')
+    h.dispose()
+  })
+
+  it('encodes via the free function + snapshot mode bits on the worker path', () => {
+    // No encode_key on the term = worker-backed (the engine lives off-thread).
+    const h = mount({ keyboardModeBits: 0x4 })
+    fireKeydown(h.textarea, 'ArrowUp')
+    expect(vi.mocked(encode_key_with_mode)).toHaveBeenCalledWith('ArrowUp', 0, 0, undefined, 0x4)
+    expect(h.inputSink).toHaveBeenCalledWith('\x1bOA')
+    h.dispose()
+  })
+
+  it('swallows Ctrl+Shift+C as the explicit copy chord (never ^C) on non-Mac', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x03]))
+    const h = mount({ encodeKey })
+    const keydown = fireKeydown(h.textarea, 'C', { ctrlKey: true, shiftKey: true })
+    expect(h.copySelection).toHaveBeenCalled()
+    expect(encodeKey).not.toHaveBeenCalled()
+    expect(h.inputSink).not.toHaveBeenCalled()
+    expect(keydown.defaultPrevented).toBe(true)
+    h.dispose()
+  })
+
+  it('pages the scrollback for Shift+PageUp/PageDown on the main screen', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x1b]))
+    const h = mount({ encodeKey })
+    const up = fireKeydown(h.textarea, 'PageUp', { shiftKey: true })
+    // 24 rows → 23-line page; positive aterm delta reveals older history.
+    expect(h.scrollLines).toHaveBeenCalledWith(23)
+    expect(h.redraw).toHaveBeenCalled()
+    expect(up.defaultPrevented).toBe(true)
+    fireKeydown(h.textarea, 'PageDown', { shiftKey: true })
+    expect(h.scrollLines).toHaveBeenLastCalledWith(-23)
+    // The chord never reaches the engine encoder / PTY on the main screen.
+    expect(encodeKey).not.toHaveBeenCalled()
+    expect(h.inputSink).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('lets the engine encode Shift+PageUp on the alternate screen (TUIs own paging)', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x1b, 0x5b, 0x35, 0x3b, 0x32, 0x7e]))
+    const h = mount({ encodeKey, isAltScreen: true })
+    fireKeydown(h.textarea, 'PageUp', { shiftKey: true })
+    expect(h.scrollLines).not.toHaveBeenCalled()
+    expect(encodeKey).toHaveBeenCalledWith('PageUp', 1, 0, undefined)
+    expect(h.inputSink).toHaveBeenCalledWith('\x1b[5;2~')
+    h.dispose()
+  })
+
+  it('consults the custom key handler BEFORE encoding: false suppresses the send', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x0d]))
+    const handler = vi.fn(() => false)
+    const h = mount({ encodeKey }, undefined, () => handler)
+    const keydown = fireKeydown(h.textarea, 'Enter')
+    expect(handler).toHaveBeenCalledWith(keydown)
+    // The consumer handled/suppressed it: nothing encoded, nothing sent, and no
+    // preventDefault (native paste/copy events may still need to fire).
+    expect(encodeKey).not.toHaveBeenCalled()
+    expect(h.inputSink).not.toHaveBeenCalled()
+    expect(keydown.defaultPrevented).toBe(false)
+    h.dispose()
+  })
+
+  it('encodes normally when the custom key handler returns true', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x0d]))
+    const handler = vi.fn(() => true)
+    const h = mount({ encodeKey }, undefined, () => handler)
+    const keydown = fireKeydown(h.textarea, 'Enter')
+    expect(handler).toHaveBeenCalledWith(keydown)
+    expect(encodeKey).toHaveBeenCalledWith('Enter', 0, 0, undefined)
+    expect(h.inputSink).toHaveBeenCalledWith('\r')
+    expect(keydown.defaultPrevented).toBe(true)
+    h.dispose()
+  })
+
+  it('runs the copy chord before the custom key handler (aterm owns the copy pipeline)', () => {
+    // The lifecycle handler returns false for clipboard chords (its xterm-era
+    // "bypass to the native copy event" rule); the aterm copy pipeline is the
+    // chord itself, so it must win or Ctrl+Shift+C would copy nothing.
+    const handler = vi.fn(() => false)
+    const h = mount({}, undefined, () => handler)
+    fireKeydown(h.textarea, 'C', { ctrlKey: true, shiftKey: true })
+    expect(h.copySelection).toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('pages scrollback for Shift+PageUp only when the handler lets the key through', () => {
+    const handler = vi.fn(() => false)
+    const h = mount({}, undefined, () => handler)
+    const up = fireKeydown(h.textarea, 'PageUp', { shiftKey: true })
+    expect(handler).toHaveBeenCalledWith(up)
+    expect(h.scrollLines).not.toHaveBeenCalled()
+    h.dispose()
+    const allow = mount({}, undefined, () => () => true)
+    fireKeydown(allow.textarea, 'PageUp', { shiftKey: true })
+    expect(allow.scrollLines).toHaveBeenCalledWith(23)
+    allow.dispose()
   })
 })

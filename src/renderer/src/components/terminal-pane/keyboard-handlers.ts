@@ -6,6 +6,7 @@ import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
 import { resolveTerminalShortcutAction } from './terminal-shortcut-policy'
 import type { MacOptionAsAlt } from './terminal-shortcut-policy'
+import { atermAppKeyProtocolNegotiated } from '@/lib/pane-manager/aterm/aterm-key-encoding'
 import {
   keybindingMatchesAction,
   type KeybindingOverrides,
@@ -252,13 +253,21 @@ export function useTerminalKeyboardShortcuts({
         return
       }
 
+      // Resolved before the action so the policy can stand its readline-compat
+      // rewrites down when the active pane's app negotiated kitty/modifyOtherKeys
+      // (those apps want the real encoded chord, not \x1bb/\x1bf).
+      const activePane = manager.getActivePane() ?? manager.getPanes()[0]
+      const kittyKeyboardActive = activePane?.atermController
+        ? atermAppKeyProtocolNegotiated(activePane.atermController.keyboardModeBits())
+        : false
       const action = resolveTerminalShortcutAction(
         e,
         isMac,
         macOptionAsAltRef.current,
         optionKeyLocation,
         isWindows,
-        keybindings
+        keybindings,
+        kittyKeyboardActive
       )
       if (!action) {
         return
@@ -267,7 +276,7 @@ export function useTerminalKeyboardShortcuts({
       if (action.type === 'sendInput') {
         e.preventDefault()
         e.stopImmediatePropagation()
-        const pane = manager.getActivePane() ?? manager.getPanes()[0]
+        const pane = activePane
         if (!pane) {
           return
         }

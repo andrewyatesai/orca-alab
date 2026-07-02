@@ -1,4 +1,6 @@
-import { encodeKeyEventToBytes } from './aterm-key-encoding'
+import { encodeKeyEventToBytes, type AtermEngineKeyEncoder } from './aterm-key-encoding'
+import { createAtermCompositionView } from './aterm-composition-view'
+import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 /** Inputs for the helper-textarea keyboard/text wiring. The textarea is the
@@ -7,6 +9,16 @@ import type { AtermTerminal } from './aterm_wasm.js'
 export type AtermTextareaInputDeps = {
   textarea: HTMLTextAreaElement
   term: AtermTerminal
+  /** The grid canvas — the IME composition view anchors/paints over it. */
+  canvas: HTMLCanvasElement
+  /** Live cell metrics in device px + dpr (mutated in place on DPI change). */
+  metrics: { dpr: number; cellWidth: number; cellHeight: number }
+  /** Live theme (mutated in place on re-theme) for the IME preedit colors. */
+  themeColors: { fg: number; bg: number }
+  /** Current grid rows — the Shift+PageUp/PageDown scrollback page size. */
+  getRows: () => number
+  /** Repaint after a keyboard-driven scrollback move. */
+  redraw: () => void
   /** Send encoded bytes (typing/IME) to the PTY raw. */
   inputSink: (data: string) => void
   /** Send PASTED text to the PTY; wraps with \e[200~..\e[201~ when the app has
@@ -19,31 +31,64 @@ export type AtermTextareaInputDeps = {
    *  controls whether macOS Option meta-prefixes or composes a glyph. Defaults
    *  to false (the app default) when omitted. */
   getMacOptionIsMeta?: () => boolean
+  /** The consumer hook registered via the facade's attachCustomKeyEventHandler
+   *  (IME suppression, Ctrl+C interrupt + kitty reset, JIS-yen, scroll intent).
+   *  Consulted per keydown BEFORE any engine encoding — xterm's contract — and a
+   *  `false` return means the consumer handled/suppressed the key, so nothing is
+   *  encoded or sent for it. Read live so a late registration applies. */
+  getCustomKeyEventHandler?: () => ((event: KeyboardEvent) => boolean) | null
 }
 
 /** Wire the helper textarea to the PTY following xterm's input model:
- *  - keydown handles ONLY non-text keys (Enter, arrows, Ctrl/Alt chords, …);
- *    plain printable chars return null from the encoder and are NOT sent here.
+ *  - keydown handles ONLY non-text keys (Enter, arrows, Ctrl/Alt chords, …),
+ *    encoded by the ENGINE encoder (legacy + modifyOtherKeys + kitty, driven by
+ *    the terminal's keyboard mode); plain printable chars are NOT sent here.
  *  - the 'input' event handles printable text, paste (setRangeText+InputEvent),
  *    and the IME commit (compositionend) — one route for all text, never doubled.
  *  Returns a disposer that removes every listener.
  *
- *  Arrows + Home/End encode SS3 vs CSI per DECCKM (application cursor keys), read
- *  per-press from `term.is_app_cursor_mode`. In-process that getter is the LIVE engine
- *  flag (exact). On the single-engine worker path it is the latest STATE snapshot, which
- *  can lag the engine by up to one frame, so a cursor key pressed in the ~1-frame window
- *  right after a TUI toggles DECCKM may emit the other family for that ONE keystroke. We
- *  deliberately keep this synchronous snapshot read instead of round-tripping the key to
- *  the worker: input bytes go straight to the PTY today, so a round-trip would (a) queue
- *  the keystroke behind pending output in the worker (laggy Ctrl-C during heavy output)
- *  and (b) reorder it against printable chars/IME still sent synchronously here. The same
- *  snapshot-lag caveat applies to the mouse click-gate (is_mouse_tracking) and the paste
- *  wrap (bracketed_paste_mode); the snapshot is the safest available default. */
+ *  In-process the encoder is `term.encode_key` (LIVE keyboard mode — exact). On
+ *  the single-engine worker path the engine lives off-thread, so keydowns encode
+ *  through the wasm free function `encode_key_with_mode` with the latest STATE
+ *  snapshot's `keyboard_mode_bits`, which can lag the engine by up to one frame:
+ *  a key pressed in the ~1-frame window right after a TUI flips a keyboard mode
+ *  (DECCKM, kitty push/pop) may encode under the previous mode for that ONE
+ *  keystroke. We deliberately keep this synchronous read instead of round-tripping
+ *  the key to the worker: input bytes go straight to the PTY today, so a
+ *  round-trip would (a) queue the keystroke behind pending output in the worker
+ *  (laggy Ctrl-C during heavy output) and (b) reorder it against printable
+ *  chars/IME still sent synchronously here. The same snapshot-lag caveat applies
+ *  to the mouse click-gate (is_mouse_tracking) and the paste wrap
+ *  (bracketed_paste_mode); the snapshot is the safest available default. The
+ *  free function is always callable here: every load path — including the worker
+ *  loader, for fonts — awaits loadAterm() (which inits the wasm module on the
+ *  main thread) before this wiring runs. */
 export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispose: () => void } {
-  const { textarea, term, inputSink, pasteSink, copySelection, getMacOptionIsMeta } = deps
+  const { textarea, term, canvas, metrics, themeColors, getRows, redraw } = deps
+  const { inputSink, pasteSink, copySelection, getMacOptionIsMeta } = deps
+  const { getCustomKeyEventHandler } = deps
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
   const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
   let composing = false
+
+  // Worker-backed terms expose no encode_key (no engine on this thread); they
+  // encode through the free function + snapshot mode bits (see the JSDoc above).
+  const encodeWithEngine: AtermEngineKeyEncoder =
+    typeof term.encode_key === 'function'
+      ? (key, mods, eventType, baseLayoutKey) =>
+          term.encode_key(key, mods, eventType, baseLayoutKey)
+      : (key, mods, eventType, baseLayoutKey) =>
+          encode_key_with_mode(key, mods, eventType, baseLayoutKey, term.keyboard_mode_bits)
+
+  // Anchors the textarea (and paints the preedit) at the cursor cell while an
+  // IME composition is open, so the candidate window opens at the caret.
+  const compositionView = createAtermCompositionView({
+    canvas,
+    textarea,
+    term,
+    metrics,
+    themeColors
+  })
 
   // Copy the canvas selection for the platform's copy chord; returns true when
   // the chord was handled (so the caller swallows it). On Linux/Windows
@@ -67,23 +112,55 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     return event.ctrlKey ? copySelection() : false
   }
 
+  // xterm's default Shift+PageUp/PageDown pages the SCROLLBACK on the main
+  // screen; on the alternate screen the chord falls through to the engine
+  // encoder so full-screen apps receive the modified key instead.
+  const tryScrollbackPage = (event: KeyboardEvent): boolean => {
+    if (event.key !== 'PageUp' && event.key !== 'PageDown') {
+      return false
+    }
+    if (!event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+      return false
+    }
+    if (term.is_alt_screen) {
+      return false
+    }
+    const page = Math.max(1, getRows() - 1)
+    // Positive aterm delta reveals older history (up).
+    term.scroll_lines(event.key === 'PageUp' ? page : -page)
+    redraw()
+    return true
+  }
+
   const onKeyDown = (event: KeyboardEvent): void => {
     // Let the IME own keys while a composition is active (checked here AND in the
     // input handler so a composed string is never also sent char-by-char).
     if (event.isComposing || composing) {
       return
     }
+    // The copy chord runs BEFORE the consumer hook: the hook's clipboard-bypass
+    // rules assume the host copy pipeline owns those chords, and under aterm
+    // that pipeline IS this chord (canvas selections have no DOM selection for
+    // a native copy event to pick up).
     if (tryCopyChord(event)) {
       event.preventDefault()
       return
     }
-    // Read DECCKM + macOptionIsMeta each press so arrows/Home/End follow the cursor-key
-    // mode and macOS Option meta-prefixes only when the setting is on. In-process
-    // is_app_cursor_mode is the live engine flag; on the worker path it is the latest
-    // snapshot (<=1-frame lag -- see the file header for why we don't round-trip keys).
-    const bytes = encodeKeyEventToBytes(event, {
-      appCursor: term.is_app_cursor_mode,
+    // xterm's attachCustomKeyEventHandler contract: consult the consumer before
+    // any encoding; `false` = handled/suppressed upstream (interrupt, IME, JIS-
+    // yen, clipboard bypass) — send nothing and leave the browser default alone
+    // (paste/native events may still need to fire).
+    const customKeyEventHandler = getCustomKeyEventHandler?.()
+    if (customKeyEventHandler && customKeyEventHandler(event) === false) {
+      return
+    }
+    if (tryScrollbackPage(event)) {
+      event.preventDefault()
+      return
+    }
+    const bytes = encodeKeyEventToBytes(event, encodeWithEngine, {
       isMac,
+      // Read per press so a live settings toggle applies without a pane rebuild.
       macOptionIsMeta: getMacOptionIsMeta?.() ?? false
     })
     // Plain printable chars return null here; they flow through onInput instead,
@@ -135,22 +212,31 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
   }
 
   // IME: buffer composing keystrokes, then send the committed string on end.
+  // The composition view anchors the textarea + paints the preedit at the cursor
+  // cell for the duration; it never sends anything.
   const onCompositionStart = (): void => {
     composing = true
+    compositionView.begin()
   }
-  // compositionupdate intentionally has NO handler: sending on update would
-  // double-send the in-progress string before compositionend commits it.
+  // compositionupdate only RENDERS the in-progress string (sending it would
+  // double-send what compositionend commits).
+  const onCompositionUpdate = (event: CompositionEvent): void => {
+    compositionView.update(event.data ?? '')
+  }
   const onCompositionEnd = (event: CompositionEvent): void => {
     composing = false
+    // Committed text sends exactly once, here (a cancel delivers empty data).
     if (event.data) {
       inputSink(event.data)
     }
     textarea.value = ''
+    compositionView.end()
   }
 
   textarea.addEventListener('keydown', onKeyDown)
   textarea.addEventListener('input', onInput)
   textarea.addEventListener('compositionstart', onCompositionStart)
+  textarea.addEventListener('compositionupdate', onCompositionUpdate)
   textarea.addEventListener('compositionend', onCompositionEnd)
 
   return {
@@ -158,7 +244,9 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       textarea.removeEventListener('keydown', onKeyDown)
       textarea.removeEventListener('input', onInput)
       textarea.removeEventListener('compositionstart', onCompositionStart)
+      textarea.removeEventListener('compositionupdate', onCompositionUpdate)
       textarea.removeEventListener('compositionend', onCompositionEnd)
+      compositionView.dispose()
     }
   }
 }

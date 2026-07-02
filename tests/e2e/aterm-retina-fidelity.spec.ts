@@ -40,11 +40,6 @@ test.describe('aterm Retina (devicePixelRatio=2) fidelity', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Turn the aterm renderer on BEFORE the pane that will use it is created.
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     // Sanity: confirm the forced device scale factor actually took effect. Under
     // some headless modes the switch is ignored; if dpr reports 1 we skip with a
     // clear message instead of a false pass (the invariant is meaningless at dpr=1).

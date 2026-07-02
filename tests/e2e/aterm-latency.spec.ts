@@ -66,10 +66,9 @@ test.describe('aterm keystroke-latency benchmark @aterm-latency', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Force the aterm renderer + GPU opt-in BEFORE the pane (the bench builds its
+    // Force the GPU opt-in BEFORE the pane (the bench builds its
     // own engines, but the GPU path must be loadable for the import).
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermGpuEnabled?: boolean }).__atermGpuEnabled = true
     })
 

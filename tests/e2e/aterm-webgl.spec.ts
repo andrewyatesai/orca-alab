@@ -41,9 +41,8 @@ test.describe('aterm WebGL2 GPU renderer', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Force the aterm renderer AND the experimental GPU path on BEFORE the pane.
+    // Force the experimental GPU path on BEFORE the pane.
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermGpuEnabled?: boolean }).__atermGpuEnabled = true
     })
 
@@ -62,8 +61,13 @@ test.describe('aterm WebGL2 GPU renderer', () => {
       return { hasWebgl2: true, renderer: renderer || null, vendor: vendor || null }
     })
     // eslint-disable-next-line no-console
-    console.log(`[aterm-webgl] probe webgl2=${probe.hasWebgl2} renderer=${probe.renderer ?? '<none>'} vendor=${probe.vendor ?? '<none>'}`)
-    expect(probe.hasWebgl2, 'a webgl2 context must be creatable headless to prove the GPU path').toBe(true)
+    console.log(
+      `[aterm-webgl] probe webgl2=${probe.hasWebgl2} renderer=${probe.renderer ?? '<none>'} vendor=${probe.vendor ?? '<none>'}`
+    )
+    expect(
+      probe.hasWebgl2,
+      'a webgl2 context must be creatable headless to prove the GPU path'
+    ).toBe(true)
 
     // New terminal tab → its pane is rendered by the aterm GPU path.
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
@@ -85,7 +89,12 @@ test.describe('aterm WebGL2 GPU renderer', () => {
     const ctxInfo = await orcaPage.evaluate(() => {
       const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
       if (!c) {
-        return { gl: false, twoD: false, renderer: null as string | null, adapter: null as string | null }
+        return {
+          gl: false,
+          twoD: false,
+          renderer: null as string | null,
+          adapter: null as string | null
+        }
       }
       const gl = c.getContext('webgl2')
       let renderer: string | null = null
@@ -112,7 +121,10 @@ test.describe('aterm WebGL2 GPU renderer', () => {
       `the aterm grid canvas must have a webgl2 context (GPU drawer); fell back to CPU because: ${ctxInfo.failureReason ?? 'unknown'}`
     ).toBe(true)
     expect(ctxInfo.twoD, 'a webgl2 canvas cannot also be 2d — confirms GPU ownership').toBe(false)
-    expect(ctxInfo.adapter, 'the wgpu WebGL adapter info should be exposed for the GPU pane').not.toBeNull()
+    expect(
+      ctxInfo.adapter,
+      'the wgpu WebGL adapter info should be exposed for the GPU pane'
+    ).not.toBeNull()
 
     // Run a colored command so the grid has real bg/fg glyph pixels.
     await execInTerminal(
@@ -194,13 +206,18 @@ test.describe('aterm WebGL2 GPU renderer', () => {
         `sampled=${compare!.sampledPixels} gpuNonBg=${compare!.gpuNonBg} cpuNonBg=${compare!.cpuNonBg} ` +
         `${compare!.width}x${compare!.height}`
     )
-    expect(compare!.available, `GPU-vs-CPU compare must run (reason=${compare!.reason ?? ''})`).toBe(true)
+    expect(
+      compare!.available,
+      `GPU-vs-CPU compare must run (reason=${compare!.reason ?? ''})`
+    ).toBe(true)
     expect(compare!.gpuNonBg, 'GPU frame must have rendered glyphs').toBeGreaterThan(200)
     expect(compare!.cpuNonBg, 'CPU frame must have rendered glyphs').toBeGreaterThan(200)
     // Both rasterizers (CPU aterm-render vs the WebGL aterm-gpu backend) draw the
     // SAME grid: identical non-bg pixel COUNT, and EVERY pixel within ±6/channel —
     // the de-risk's strict GPU==CPU parity bound, now proven on the WebGL backend.
-    expect(compare!.gpuNonBg, 'GPU and CPU must produce the same glyph coverage').toBe(compare!.cpuNonBg)
+    expect(compare!.gpuNonBg, 'GPU and CPU must produce the same glyph coverage').toBe(
+      compare!.cpuNonBg
+    )
     expect(
       compare!.maxChannelDiff,
       `GPU and CPU pixels must match within ±6/channel (maxDiff=${compare!.maxChannelDiff}, within6=${(compare!.withinToleranceFraction * 100).toFixed(3)}%)`

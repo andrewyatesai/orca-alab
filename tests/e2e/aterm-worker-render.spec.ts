@@ -33,9 +33,8 @@ test.describe('aterm off-main render mirror', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Force the aterm renderer AND the off-main worker mirror on BEFORE the pane.
+    // Force the off-main worker mirror on BEFORE the pane.
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = true
     })
 

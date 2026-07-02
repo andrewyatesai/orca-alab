@@ -9,10 +9,20 @@
 //
 //   printf 'hi\x1b[2;5HX\x1b[31mY' | node snapshot.mjs
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
+import { resolve, dirname } from 'node:path'
 const require = createRequire(import.meta.url)
-const { Terminal } = require('/Users/ayates/orc/node_modules/@xterm/headless/lib-headless/xterm-headless.js')
+// The @xterm/headless baseline lives in the bench harness (root deps dropped it
+// when aterm became the sole engine) — `gauntlet bootstrap` installs it there.
+const { Terminal } = require(
+  resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    '../terminal-bench/node_modules/@xterm/headless/lib-headless/xterm-headless.js'
+  )
+)
 
-const ROWS = 24, COLS = 80
+const ROWS = 24,
+  COLS = 80
 
 // Read ALL stdin bytes as a single raw Buffer.
 function readStdin() {
@@ -36,4 +46,4 @@ for (let row = 0; row < ROWS; row++) {
   const line = term.buffer.active.getLine(row)?.translateToString(true) ?? ''
   out.push(line)
 }
-process.stdout.write(out.join('\n') + '\n')
+process.stdout.write(`${out.join('\n')}\n`)

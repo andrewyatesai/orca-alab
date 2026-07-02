@@ -4,11 +4,7 @@ import path from 'node:path'
 import type { ElectronApplication, Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
 import { waitForActiveAtermController } from './helpers/aterm-controller'
-import {
-  sendToTerminal,
-  waitForActivePanePtyId,
-  waitForTerminalOutput
-} from './helpers/terminal'
+import { sendToTerminal, waitForActivePanePtyId, waitForTerminalOutput } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import {
   clearTerminalPtyWriteLog,
@@ -43,8 +39,7 @@ const ESC = String.fromCharCode(27)
  *  the SAME object pane.terminal.paste() consults when wrapping a paste. */
 async function readShimBracketedPasteMode(orcaPage: Page): Promise<boolean | null> {
   return orcaPage.evaluate(() => {
-    const managers = (window as unknown as { __paneManagers?: Map<string, unknown> })
-      .__paneManagers
+    const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
     if (!managers) {
       return null
     }
@@ -105,12 +100,6 @@ async function openAtermTerminal(orcaPage: Page): Promise<string> {
   await waitForSessionReady(orcaPage)
   await waitForActiveWorktree(orcaPage)
 
-  // Explicit ON wins over the suite-wide opt-out — exercise the exact path the
-  // default user hits.
-  await orcaPage.evaluate(() => {
-    ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-  })
-
   await orcaPage.getByRole('button', { name: 'New tab' }).click()
   await orcaPage
     .getByRole('menuitem', { name: /New Terminal/i })
@@ -148,8 +137,7 @@ async function dispatchAtermPaste(orcaPage: Page, text: string): Promise<void> {
  *  (terminal.write) — the exact path PTY output uses to update terminal modes. */
 async function writeToShim(orcaPage: Page, sequence: string): Promise<void> {
   const ok = await orcaPage.evaluate((seq) => {
-    const managers = (window as unknown as { __paneManagers?: Map<string, unknown> })
-      .__paneManagers
+    const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
     if (!managers) {
       return false
     }
@@ -245,9 +233,6 @@ test.describe('aterm renderer clipboard capabilities', () => {
 
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
     // Enable the OSC-52 opt-in BEFORE the aterm pane is created so the gate the
     // shared handler reads (settingsRef.current.terminalAllowOsc52Clipboard) is
     // already true when the sequence arrives.

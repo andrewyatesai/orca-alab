@@ -88,7 +88,6 @@ test.describe('aterm non-Latin fallback fonts', () => {
     await waitForActiveWorktree(orcaPage)
 
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       // CPU path for a deterministic headless getImageData read; the fallback faces
       // are the same on the GPU path (parity proven in aterm-webgl.spec.ts).
       ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true

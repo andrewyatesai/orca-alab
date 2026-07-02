@@ -9,10 +9,7 @@ import {
   waitForTerminalOutput
 } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
-import {
-  installTerminalPtyWriteSpy,
-  readTerminalPtyWrites
-} from './helpers/terminal-pty-write-spy'
+import { installTerminalPtyWriteSpy, readTerminalPtyWrites } from './helpers/terminal-pty-write-spy'
 
 // CRITICAL regression guard: the daemon emulator deliberately does NOT reply to
 // terminal queries (see src/main/daemon/session.test.ts "emulator does not reply
@@ -84,11 +81,6 @@ test.describe('aterm renderer query replies', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Explicit ON wins over the suite-wide opt-out (the default users hit).
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })
@@ -101,10 +93,7 @@ test.describe('aterm renderer query replies', () => {
     await installTerminalPtyWriteSpy(electronApp)
 
     const runId = randomUUID().slice(0, 8)
-    const scriptPath = path.join(
-      process.env.TMPDIR ?? '/tmp',
-      `aterm-query-replies-${runId}.js`
-    )
+    const scriptPath = path.join(process.env.TMPDIR ?? '/tmp', `aterm-query-replies-${runId}.js`)
     writeFileSync(scriptPath, queryReplyScript(runId))
 
     try {

@@ -46,7 +46,6 @@ test.describe('aterm showcase', () => {
     // Force the CPU draw path so the headless toDataURL capture is clean; the
     // engine + output are identical to the GPU path (parity proven elsewhere).
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true
     })
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
@@ -68,9 +67,10 @@ test.describe('aterm showcase', () => {
       Array.from({ length: 32 }, (_, i) => `\x1b[48;5;${16 + i * 6}m \x1b[0m`).join(''),
       '\r\n',
       // true-color gradient
-      Array.from({ length: 32 }, (_, i) => `\x1b[48;2;${i * 8};${128};${255 - i * 8}m \x1b[0m`).join(
-        ''
-      ),
+      Array.from(
+        { length: 32 },
+        (_, i) => `\x1b[48;2;${i * 8};${128};${255 - i * 8}m \x1b[0m`
+      ).join(''),
       '\r\n\r\n',
       // box-drawing table
       '\x1b[38;5;245m┌─────────────┬──────────┐\r\n',

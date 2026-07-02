@@ -48,11 +48,6 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Turn the aterm renderer on BEFORE the pane that will use it is created.
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })
@@ -83,9 +78,10 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
       .poll(
         async () => {
           const ready = await atermCanvasReady(orcaPage)
-          const hasResolver = await orcaPage.evaluate(() =>
-            typeof (window as unknown as { __resolveAtermThemeBg?: () => unknown })
-              .__resolveAtermThemeBg === 'function'
+          const hasResolver = await orcaPage.evaluate(
+            () =>
+              typeof (window as unknown as { __resolveAtermThemeBg?: () => unknown })
+                .__resolveAtermThemeBg === 'function'
           )
           return ready && hasResolver ? true : null
         },
@@ -101,27 +97,22 @@ test.describe('aterm in-page renderer (Phase 1)', () => {
     // Bottom-right pixel (top-left coords): an empty cell, free of the row-0/col-0
     // cursor block. readAtermPixel flips Y for the GPU swapchain.
     const pixel = await readAtermPixel(orcaPage, buffer!.w - 1, buffer!.h - 1)
-    const bgProbe = await orcaPage.evaluate(
-      (px) => {
-        const resolve = (
-          window as unknown as { __resolveAtermThemeBg?: () => [number, number, number] }
-        ).__resolveAtermThemeBg
-        const c = document.querySelector(
-          '[data-testid="aterm-canvas"]'
-        ) as HTMLCanvasElement | null
-        if (!resolve || !px) {
-          return null
-        }
-        // Resolve the configured theme bg through the REAL pipeline, independently
-        // of whatever the renderer painted. Cross-check against the self-echoed
-        // data-aterm-bg (NOT the assertion source) only for diagnostics.
-        const expected = resolve()
-        const raw = c?.dataset.atermBg
-        const echoed = raw ? (raw.split(',').map((n) => Number(n)) as number[]) : undefined
-        return { pixel: px as number[], expected, echoed }
-      },
-      pixel
-    )
+    const bgProbe = await orcaPage.evaluate((px) => {
+      const resolve = (
+        window as unknown as { __resolveAtermThemeBg?: () => [number, number, number] }
+      ).__resolveAtermThemeBg
+      const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
+      if (!resolve || !px) {
+        return null
+      }
+      // Resolve the configured theme bg through the REAL pipeline, independently
+      // of whatever the renderer painted. Cross-check against the self-echoed
+      // data-aterm-bg (NOT the assertion source) only for diagnostics.
+      const expected = resolve()
+      const raw = c?.dataset.atermBg
+      const echoed = raw ? (raw.split(',').map((n) => Number(n)) as number[]) : undefined
+      return { pixel: px as number[], expected, echoed }
+    }, pixel)
     expect(bgProbe, 'should read the canvas bg pixel + the resolved theme bg').not.toBeNull()
     const bgPixel = bgProbe!.pixel
     expect(bgPixel.every((v) => v >= 0 && v <= 255)).toBe(true)

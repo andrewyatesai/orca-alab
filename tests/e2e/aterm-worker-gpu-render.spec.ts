@@ -39,11 +39,10 @@ test.describe('aterm off-main GPU render worker', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Force the aterm renderer, the off-main worker mirror, AND the GPU path on BEFORE
-    // the pane so the worker mirror picks the GPU worker engine (it falls back to the
+    // Force the off-main worker mirror AND the GPU path on BEFORE the pane so the
+    // worker mirror picks the GPU worker engine (it falls back to the
     // CPU worker if WebGL can't be acquired inside the worker).
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = true
       ;(window as unknown as { __atermGpuEnabled?: boolean }).__atermGpuEnabled = true
     })

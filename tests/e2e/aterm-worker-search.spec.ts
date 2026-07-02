@@ -49,9 +49,8 @@ test.describe('aterm worker-path in-terminal search', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Force the aterm renderer AND the off-main worker path on BEFORE the pane is created.
+    // Force the off-main worker path on BEFORE the pane is created.
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = true
     })
 

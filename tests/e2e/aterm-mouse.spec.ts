@@ -43,11 +43,6 @@ test.describe('aterm mouse reporting', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Turn the aterm renderer on BEFORE the pane that will use it is created.
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })
@@ -76,9 +71,9 @@ test.describe('aterm mouse reporting', () => {
             // Also feed the sequence directly through the controller so the test
             // is deterministic even if the PTY echo is slow under headless.
             ctrl.process('\x1b[?1000h\x1b[?1006h')
-            const c = document.querySelector(
-              '[data-testid="aterm-canvas"]'
-            ) as (HTMLCanvasElement & { __t?: unknown }) | null
+            const c = document.querySelector('[data-testid="aterm-canvas"]') as
+              | (HTMLCanvasElement & { __t?: unknown })
+              | null
             return c !== null
           }, findActiveController.toString()),
         { timeout: 20_000, message: 'controller reachable + tracking sequences fed' }
@@ -142,18 +137,18 @@ test.describe('aterm mouse reporting', () => {
     const afterSgr = (r: string | null): string => (r && r.startsWith(`${ESC}[`) ? r.slice(2) : '')
     // The no-Shift press was encoded as an SGR press report: ESC [ < 0 ; C ; R M.
     expect(report.pressSent, 'a mouse press report was forwarded to the PTY').not.toBeNull()
-    expect(afterSgr(report.pressSent), 'the report is an SGR left-button press (e[<0;C;RM)').toMatch(
-      /^<0;\d+;\d+M$/
-    )
+    expect(
+      afterSgr(report.pressSent),
+      'the report is an SGR left-button press (e[<0;C;RM)'
+    ).toMatch(/^<0;\d+;\d+M$/)
     // The release forwards the matching SGR release (lowercase 'm' final byte).
     expect(afterSgr(report.releaseSent), 'the release forwards an SGR release (e[<0;C;Rm)').toMatch(
       /^<0;\d+;\d+m$/
     )
     // The Shift-held press must NOT forward (it fell through to selection), so the
     // last report stays the prior release — Shift did not encode a new report.
-    expect(
-      report.shiftSent,
-      'Shift+press does not forward (user override → selection)'
-    ).toBe(report.releaseSent)
+    expect(report.shiftSent, 'Shift+press does not forward (user override → selection)').toBe(
+      report.releaseSent
+    )
   })
 })

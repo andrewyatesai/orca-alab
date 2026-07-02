@@ -13,7 +13,10 @@
 //                   to prove the orc corpus's Rust ports refine their TS (skipped if trustc absent).
 //
 // An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|all>
-// Exit 0 = all gates green/skipped · 1 = a real FAIL · 2 = REVIEW (divergence to triage).
+// Exit 0 = every gate green · 1 = a real FAIL · 2 = REVIEW (divergence to triage).
+// For `all`, a SKIP is NOT a pass: any skipped gate exits 2 so an environment that
+// can't run an axis never reads as green. A single-gate invocation may exit 0 on
+// SKIP (so probing one axis stays scriptable) but says so loudly.
 // A machine-readable report is written to tools/terminal-bench/.gauntlet-report.json.
 
 import { execFileSync } from 'node:child_process'
@@ -22,6 +25,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
+import { loadCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..', '..')
@@ -42,13 +46,25 @@ const skip = (reason) => ({ status: 'SKIP', detail: reason })
 const C = { g: '\x1b[32m', r: '\x1b[31m', y: '\x1b[33m', d: '\x1b[2m', b: '\x1b[1m', x: '\x1b[0m' }
 
 // --- bootstrap: make every prerequisite present, idempotently --------------------
+// rustup-stable pin for direct cargo invocations (perf corpus): the machine default
+// toolchain may be a nightly older than the workspace's rust-version, and a
+// Homebrew cargo shadowing rustup ignores rust-toolchain.toml.
+const rustupStable = (tool) => {
+  try {
+    return sh('rustup', ['which', tool, '--toolchain', 'stable']).trim()
+  } catch {
+    return null
+  }
+}
+
 function bootstrap() {
   mkdirSync(BENCH_DIR, { recursive: true })
   const did = []
   if (!existsSync(ADDON)) {
-    console.log(`${C.d}  building napi addon (cargo build --release in native/orca-node)…${C.x}`)
-    sh('cargo', ['build', '--release'], {
-      cwd: join(repo, 'native', 'orca-node'),
+    // The build script owns the cdylib→orca_node.node rename, submodule init and
+    // toolchain pinning — a raw `cargo build` here would leave ADDON missing.
+    console.log(`${C.d}  building napi addon (config/scripts/build-terminal-addon.mjs)…${C.x}`)
+    sh('node', [join(repo, 'config', 'scripts', 'build-terminal-addon.mjs'), '--if-missing'], {
       stdio: 'inherit'
     })
     did.push('built napi addon')
@@ -64,8 +80,13 @@ function bootstrap() {
   if (!existsSync(PERF_CORPUS)) {
     console.log(`${C.d}  generating 16 MB perf corpus (orca-terminal bench example)…${C.x}`)
     try {
+      // Invoke from the repo ROOT (cargo reads .cargo/config from the cwd, so this
+      // escapes rust/'s offline-vendor replacement and resolves online), with the
+      // rustup-stable pin — same recipe as run-parity.mjs / build-aterm-wasm.mjs.
+      const cargo = rustupStable('cargo')
+      const rustc = rustupStable('rustc')
       sh(
-        'cargo',
+        cargo ?? 'cargo',
         [
           'run',
           '-q',
@@ -74,18 +95,24 @@ function bootstrap() {
           'bench',
           '-p',
           'orca-terminal',
+          '--manifest-path',
+          'rust/Cargo.toml',
           '--',
           'gen',
           PERF_CORPUS,
           '16'
         ],
-        { cwd: join(repo, 'rust'), stdio: 'inherit' }
+        {
+          cwd: repo,
+          stdio: 'inherit',
+          env: { ...process.env, CARGO_NET_OFFLINE: 'false', ...(rustc ? { RUSTC: rustc } : {}) }
+        }
       )
       did.push('generated perf corpus')
     } catch {
       // The prebuilt napi addon still runs; only the from-source rebuild is blocked.
       blocked =
-        'perf corpus BLOCKED — cargo build failed (the web-time gap in rust/vendor: aterm-core needs web-time; run `cargo vendor` with network to repopulate)'
+        'perf corpus BLOCKED — cargo build failed (needs network to resolve web-time, still absent from rust/vendor)'
     }
   }
   return {
@@ -106,13 +133,12 @@ async function conformance() {
   }
   const { HeadlessTerminal } = require(ADDON)
   const { Terminal } = require(XTERM)
-  const cases = JSON.parse(readFileSync(CONF_CORPUS, 'utf8'))
+  const cases = loadCorpus(CONF_CORPUS)
   const ROWS = 24
   const COLS = 80
   let parity = 0
   const diverge = []
-  for (const { name, bytes } of cases) {
-    const buf = Buffer.from(bytes, 'latin1')
+  for (const { name, bytes: buf, comment } of cases) {
     const rt = new HeadlessTerminal(COLS, ROWS, 1000)
     rt.write(buf)
     const a = rt.snapshot().map(rstrip)
@@ -132,7 +158,9 @@ async function conformance() {
           rows.push({ row: r, aterm: (a[r] ?? '').slice(0, 60), xterm: (x[r] ?? '').slice(0, 60) })
         }
       }
-      diverge.push({ name, rows })
+      // A case may pre-document its expected divergence (e.g. invalid UTF-8 where
+      // aterm is the more-correct engine) — surface it for the REVIEW triage.
+      diverge.push(comment ? { name, comment, rows } : { name, rows })
     }
   }
   return {
@@ -388,6 +416,9 @@ async function main() {
     for (const d of r.diverge ?? []) {
       const rows = d.rows.map((v) => `row ${v.row} [${v.aterm}]≠[${v.xterm}]`).join(' · ')
       console.log(`      ${C.y}diverge:${C.x} ${d.name} — ${rows}`)
+      if (d.comment) {
+        console.log(`      ${C.d}expected: ${d.comment}${C.x}`)
+      }
     }
     for (const row of r.rows ?? []) {
       const hit = row.verdict === row.expect
@@ -403,7 +434,24 @@ async function main() {
   )
   console.log(`\n${C.d}report → ${REPORT}${C.x}`)
   const statuses = Object.values(results).map((r) => r.status)
-  process.exit(statuses.includes('FAIL') ? 1 : statuses.includes('REVIEW') ? 2 : 0)
+  if (statuses.includes('FAIL')) {
+    process.exit(1)
+  }
+  if (statuses.includes('REVIEW')) {
+    process.exit(2)
+  }
+  const skips = statuses.filter((s) => s === 'SKIP').length
+  if (skips > 0) {
+    // A skipped gate proved nothing; only the full run must refuse to read green.
+    if (cmd === 'all') {
+      console.log(`${C.y}${C.b}${skips} gate(s) skipped — not a pass; exiting 2 (REVIEW)${C.x}`)
+      process.exit(2)
+    }
+    console.log(
+      `${C.y}${C.b}SKIPPED — this gate did not run and proves nothing (exit 0 only because a single gate was requested)${C.x}`
+    )
+  }
+  process.exit(0)
 }
 
 main().catch((e) => {

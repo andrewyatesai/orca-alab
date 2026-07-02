@@ -50,11 +50,6 @@ test.describe('aterm in-terminal search', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Turn the aterm renderer on BEFORE the pane that will use it is created.
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })
@@ -132,11 +127,8 @@ test.describe('aterm in-terminal search', () => {
         new Promise((resolve) => requestAnimationFrame(() => resolve()))
       const snapshot = (): Uint8ClampedArray =>
         ctx.getImageData(0, 0, c.width, c.height).data.slice()
-      const rgbDiffers = (
-        a: Uint8ClampedArray,
-        b: Uint8ClampedArray,
-        i: number
-      ): boolean => a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]
+      const rgbDiffers = (a: Uint8ClampedArray, b: Uint8ClampedArray, i: number): boolean =>
+        a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2]
 
       // Clear highlights and let a frame paint to get the un-highlighted baseline.
       ctrl.clearSearch()

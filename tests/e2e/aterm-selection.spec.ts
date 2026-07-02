@@ -50,11 +50,6 @@ test.describe('aterm word/line selection', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Turn the aterm renderer on BEFORE the pane that will use it is created.
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })
@@ -117,8 +112,6 @@ test.describe('aterm word/line selection', () => {
     // selection expanded to word boundaries via expand_semantic).
     expect(result!.afterWord, 'double-click selects the whole word').toBe('hello')
     // Triple-click selects the WHOLE line (expand_lines, trailing blanks trimmed).
-    expect(result!.afterLine, 'triple-click selects the whole line').toBe(
-      'hello world from aterm'
-    )
+    expect(result!.afterLine, 'triple-click selects the whole line').toBe('hello world from aterm')
   })
 })

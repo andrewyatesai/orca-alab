@@ -1,14 +1,15 @@
-import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-const HERE = '/Users/ayates/orc/tools/aterm-vs-xterm'
-const ATERM = '/Users/ayates/orc/rust/aterm/target/release/examples/snapshot'
-const corpus = JSON.parse(readFileSync(`${HERE}/corpus.json`))
+import { fileURLToPath } from 'node:url'
+import { dirname, join, resolve } from 'node:path'
+import { loadCorpus } from './corpus-bytes.mjs'
+const HERE = dirname(fileURLToPath(import.meta.url))
+const ATERM = resolve(HERE, '../../rust/aterm/target/release/examples/snapshot')
+const corpus = loadCorpus(join(HERE, 'corpus.json'))
 const run = (cmd, args, buf) =>
   execFileSync(cmd, args, { input: buf, maxBuffer: 1 << 20, timeout: 5000 }).toString()
 let match = 0
 const diverge = []
-for (const { name, bytes } of corpus) {
-  const buf = Buffer.from(bytes, 'latin1')
+for (const { name, bytes: buf } of corpus) {
   let a, x
   try {
     a = run(ATERM, [], buf)

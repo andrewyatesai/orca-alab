@@ -13,8 +13,9 @@ and a correctness baseline, not ground truth aterm must clone (where aterm is mo
 correct than xterm per the VT spec, that is a WIN, not a bug).
 
 ## Assets (all real, on disk)
-- `~/orc` — the Orca Electron terminal app; currently ships `@xterm/headless`
-  (xterm.js). On `main` (kept synced to `origin/main`).
+- `~/orc` — the Orca Electron terminal app; shipped `@xterm/headless` (xterm.js)
+  when this handoff was written — aterm has since replaced it as the sole engine.
+  On `main` (kept synced to `origin/main`).
 - `~/orc/rust/aterm` — the real aterm Rust workspace: `aterm-core` (Terminal, grid,
   VT handlers), `aterm-buffer`, `aterm-search`, `aterm-gpu`, plus `aterm-spec` /
   `aterm-spec-macros` and `kani_proofs.rs` (it is built to be formally verifiable).

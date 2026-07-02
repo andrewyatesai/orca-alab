@@ -42,9 +42,6 @@ test.describe('aterm per-pane memory @aterm-memory', () => {
   }, testInfo) => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })

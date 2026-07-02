@@ -64,7 +64,6 @@ test.describe('aterm selection foreground', () => {
     await waitForActiveWorktree(orcaPage)
 
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       // CPU path for a clean, deterministic headless pixel read; the engine's
       // selection_fg paint is shared with the GPU path (parity proven in Rust).
       ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true

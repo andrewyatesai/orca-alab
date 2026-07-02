@@ -101,11 +101,6 @@ test.describe('aterm inline images', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Turn the aterm renderer on BEFORE the pane that will use it is created.
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })
@@ -154,7 +149,11 @@ test.describe('aterm inline images', () => {
       const [tr, tg, tb] = target
       let matched = 0
       for (let i = 0; i < d.length; i += 4) {
-        if (Math.abs(d[i] - tr) <= tol && Math.abs(d[i + 1] - tg) <= tol && Math.abs(d[i + 2] - tb) <= tol) {
+        if (
+          Math.abs(d[i] - tr) <= tol &&
+          Math.abs(d[i + 1] - tg) <= tol &&
+          Math.abs(d[i + 2] - tb) <= tol
+        ) {
           matched++
         }
       }

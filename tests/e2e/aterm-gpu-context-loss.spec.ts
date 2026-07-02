@@ -54,9 +54,8 @@ test.describe('aterm GPU context-loss recovery', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Force the aterm renderer AND the experimental GPU path on BEFORE the pane.
+    // Force the experimental GPU path on BEFORE the pane.
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermGpuEnabled?: boolean }).__atermGpuEnabled = true
     })
 

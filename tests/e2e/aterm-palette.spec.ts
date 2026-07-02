@@ -39,7 +39,6 @@ test.describe('aterm ANSI palette', () => {
     // Force the CPU draw path for a clean headless getImageData read; the palette
     // lives on the shared grid so CPU + GPU resolve it identically.
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true
     })
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
@@ -60,7 +59,9 @@ test.describe('aterm ANSI palette', () => {
           window as unknown as { __resolveAtermThemePalette?: () => PaletteEntry[] }
         ).__resolveAtermThemePalette?.() ?? []
     )) as PaletteEntry[]
-    expect(palette.length, 'the theme should define ANSI palette colours to seed').toBeGreaterThan(7)
+    expect(palette.length, 'the theme should define ANSI palette colours to seed').toBeGreaterThan(
+      7
+    )
 
     // Paint each palette colour as a solid background segment; 4 cols each keeps all
     // 16 within ~64 columns so they stay on the first wrapped rows (no scroll-off).

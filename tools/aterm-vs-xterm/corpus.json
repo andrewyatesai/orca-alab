@@ -1,102 +1,107 @@
 [
   {
     "name": "plain-text-wrap-col80",
-    "bytes": "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs."
+    "bytes_b64": "VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZy4gVGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZy4gUGFjayBteSBib3ggd2l0aCBmaXZlIGRvemVuIGxpcXVvciBqdWdzLg=="
   },
   {
     "name": "cr-lf-tab-handling",
-    "bytes": "alpha\tbeta\tgamma\r\ndelta\tepsilon\r\nzeta\tone\ttwo\tthree\tfour\tfive\r\noverwrite-this\rNEW"
+    "bytes_b64": "YWxwaGEJYmV0YQlnYW1tYQ0KZGVsdGEJZXBzaWxvbg0KemV0YQlvbmUJdHdvCXRocmVlCWZvdXIJZml2ZQ0Kb3ZlcndyaXRlLXRoaXMNTkVX"
   },
   {
     "name": "cursor-cup-positioning",
-    "bytes": "\u001b[2J\u001b[10;20HmiddleX\u001b[1;1Htop-left\u001b[24;1Hbottom-left\u001b[5;40Hcenter"
+    "bytes_b64": "G1syShtbMTA7MjBIbWlkZGxlWBtbMTsxSHRvcC1sZWZ0G1syNDsxSGJvdHRvbS1sZWZ0G1s1OzQwSGNlbnRlcg=="
   },
   {
     "name": "cursor-cuu-cud-cuf-cub",
-    "bytes": "\u001b[2J\u001b[12;40HCENTER\u001b[3AUP3\u001b[5BDOWN5\u001b[10CRIGHT10\u001b[20DLEFT20"
+    "bytes_b64": "G1syShtbMTI7NDBIQ0VOVEVSG1szQVVQMxtbNUJET1dONRtbMTBDUklHSFQxMBtbMjBETEVGVDIw"
   },
   {
     "name": "sgr-basic-16-colors",
-    "bytes": "\u001b[31mred\u001b[32mgreen\u001b[33myellow\u001b[34mblue\u001b[35mmagenta\u001b[36mcyan\u001b[37mwhite\u001b[1mbold\u001b[4munderline\u001b[7mreverse\u001b[0mreset\u001b[90mbright-black\u001b[97mbright-white\u001b[0m"
+    "bytes_b64": "G1szMW1yZWQbWzMybWdyZWVuG1szM215ZWxsb3cbWzM0bWJsdWUbWzM1bW1hZ2VudGEbWzM2bWN5YW4bWzM3bXdoaXRlG1sxbWJvbGQbWzRtdW5kZXJsaW5lG1s3bXJldmVyc2UbWzBtcmVzZXQbWzkwbWJyaWdodC1ibGFjaxtbOTdtYnJpZ2h0LXdoaXRlG1swbQ=="
   },
   {
     "name": "sgr-256-color",
-    "bytes": "\u001b[38;5;196mfg196\u001b[48;5;21mbg21\u001b[38;5;231;48;5;16mwhite-on-black\u001b[0m\u001b[38;5;244mgrey\u001b[0m"
+    "bytes_b64": "G1szODs1OzE5Nm1mZzE5NhtbNDg7NTsyMW1iZzIxG1szODs1OzIzMTs0ODs1OzE2bXdoaXRlLW9uLWJsYWNrG1swbRtbMzg7NTsyNDRtZ3JleRtbMG0="
   },
   {
     "name": "sgr-rgb-truecolor",
-    "bytes": "\u001b[38;2;255;128;0morange\u001b[48;2;0;64;128mteal-bg\u001b[0m\u001b[38;2;10;200;75mgreenish\u001b[0m"
+    "bytes_b64": "G1szODsyOzI1NTsxMjg7MG1vcmFuZ2UbWzQ4OzI7MDs2NDsxMjhtdGVhbC1iZxtbMG0bWzM4OzI7MTA7MjAwOzc1bWdyZWVuaXNoG1swbQ=="
   },
   {
     "name": "el-erase-in-line-variants",
-    "bytes": "\u001b[2J\u001b[3;1HXXXXXXXXXXXXXXXXXXXX\u001b[3;10H\u001b[0K\u001b[4;1HYYYYYYYYYYYYYYYYYYYY\u001b[4;10H\u001b[1K\u001b[5;1HZZZZZZZZZZZZZZZZZZZZ\u001b[5;10H\u001b[2K"
+    "bytes_b64": "G1syShtbMzsxSFhYWFhYWFhYWFhYWFhYWFhYWFhYG1szOzEwSBtbMEsbWzQ7MUhZWVlZWVlZWVlZWVlZWVlZWVlZWRtbNDsxMEgbWzFLG1s1OzFIWlpaWlpaWlpaWlpaWlpaWlpaWlobWzU7MTBIG1sySw=="
   },
   {
     "name": "ed-erase-in-display-variants",
-    "bytes": "\u001b[2J\u001b[1;1Hfill1\u001b[2;1Hfill2\u001b[3;1Hfill3\u001b[4;1Hfill4\u001b[5;1Hfill5\u001b[3;3H\u001b[0J\u001b[10;1Hbelow\u001b[5;1H\u001b[1Jabove-cleared"
+    "bytes_b64": "G1syShtbMTsxSGZpbGwxG1syOzFIZmlsbDIbWzM7MUhmaWxsMxtbNDsxSGZpbGw0G1s1OzFIZmlsbDUbWzM7M0gbWzBKG1sxMDsxSGJlbG93G1s1OzFIG1sxSmFib3ZlLWNsZWFyZWQ="
   },
   {
     "name": "ich-dch-insert-delete-chars",
-    "bytes": "\u001b[2J\u001b[1;1HABCDEFGHIJ\u001b[1;4H\u001b[3@\u001b[2;1HABCDEFGHIJ\u001b[2;4H\u001b[3P"
+    "bytes_b64": "G1syShtbMTsxSEFCQ0RFRkdISUobWzE7NEgbWzNAG1syOzFIQUJDREVGR0hJShtbMjs0SBtbM1A="
   },
   {
     "name": "il-dl-insert-delete-lines",
-    "bytes": "\u001b[2J\u001b[1;1Hline1\u001b[2;1Hline2\u001b[3;1Hline3\u001b[4;1Hline4\u001b[2;1H\u001b[2L\u001b[6;1Hline6\u001b[7;1Hline7\u001b[6;1H\u001b[1M"
+    "bytes_b64": "G1syShtbMTsxSGxpbmUxG1syOzFIbGluZTIbWzM7MUhsaW5lMxtbNDsxSGxpbmU0G1syOzFIG1syTBtbNjsxSGxpbmU2G1s3OzFIbGluZTcbWzY7MUgbWzFN"
   },
   {
     "name": "scroll-region-decstbm",
-    "bytes": "\u001b[2J\u001b[5;15r\u001b[5;1HtopOfRegion\u001b[15;1Hline\nline\nline\nline\nwrap-around-region\u001b[r"
+    "bytes_b64": "G1syShtbNTsxNXIbWzU7MUh0b3BPZlJlZ2lvbhtbMTU7MUhsaW5lCmxpbmUKbGluZQpsaW5lCndyYXAtYXJvdW5kLXJlZ2lvbhtbcg=="
   },
   {
     "name": "scroll-up-down-su-sd",
-    "bytes": "\u001b[2J\u001b[1;1HA\u001b[2;1HB\u001b[3;1HC\u001b[4;1HD\u001b[5;1HE\u001b[3S\u001b[2T"
+    "bytes_b64": "G1syShtbMTsxSEEbWzI7MUhCG1szOzFIQxtbNDsxSEQbWzU7MUhFG1szUxtbMlQ="
   },
   {
     "name": "save-restore-cursor-decsc-decrc",
-    "bytes": "\u001b[2J\u001b[8;8Hhere7\u001b7\u001b[20;40Helsewhere8\u001b8RESTORED\u001b[s\u001b[2;2Hagain\u001b[uBACK"
+    "bytes_b64": "G1syShtbODs4SGhlcmU3GzcbWzIwOzQwSGVsc2V3aGVyZTgbOFJFU1RPUkVEG1tzG1syOzJIYWdhaW4bW3VCQUNL"
   },
   {
     "name": "save-restore-cursor-with-sgr",
-    "bytes": "\u001b[2J\u001b[31m\u001b7\u001b[0m\u001b[5;5Hplain\u001b8still-red\u001b[0m"
+    "bytes_b64": "G1syShtbMzFtGzcbWzBtG1s1OzVIcGxhaW4bOHN0aWxsLXJlZBtbMG0="
   },
   {
     "name": "autowrap-decawm-off-on",
-    "bytes": "\u001b[2J\u001b[?7l\u001b[1;75HABCDEFGHIJKLMNOP-nowrap\u001b[?7h\u001b[2;75HABCDEFGHIJKLMNOP-wrap"
+    "bytes_b64": "G1syShtbPzdsG1sxOzc1SEFCQ0RFRkdISUpLTE1OT1Atbm93cmFwG1s/N2gbWzI7NzVIQUJDREVGR0hJSktMTU5PUC13cmFw"
   },
   {
     "name": "tab-stops-hts-tbc",
-    "bytes": "\u001b[2J\u001b[1;1H\u001b[3g\u001b[1;5H\u001bH\u001b[1;25H\u001bH\u001b[1;50H\u001bH\u001b[2;1H\tA\tB\tC\u001b[3;1H\u001b[1;10H\u001b[g\u001b[4;1H\tafter-clear"
+    "bytes_b64": "G1syShtbMTsxSBtbM2cbWzE7NUgbSBtbMTsyNUgbSBtbMTs1MEgbSBtbMjsxSAlBCUIJQxtbMzsxSBtbMTsxMEgbW2cbWzQ7MUgJYWZ0ZXItY2xlYXI="
   },
   {
     "name": "origin-mode-decom",
-    "bytes": "\u001b[2J\u001b[10;20r\u001b[?6h\u001b[1;1Horigin-relative\u001b[5;3Hwithin\u001b[?6l\u001b[1;1Habsolute-top"
+    "bytes_b64": "G1syShtbMTA7MjByG1s/NmgbWzE7MUhvcmlnaW4tcmVsYXRpdmUbWzU7M0h3aXRoaW4bWz82bBtbMTsxSGFic29sdXRlLXRvcA=="
   },
   {
     "name": "overlong-params",
-    "bytes": "\u001b[2J\u001b[999999999;888888888Hclamped\u001b[38;5;99999999mcolor\u001b[0m\u001b[1000000Adone"
+    "bytes_b64": "G1syShtbOTk5OTk5OTk5Ozg4ODg4ODg4OEhjbGFtcGVkG1szODs1Ozk5OTk5OTk5bWNvbG9yG1swbRtbMTAwMDAwMEFkb25l"
   },
   {
     "name": "csi-many-params",
-    "bytes": "\u001b[1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25mmany-sgr\u001b[0m"
+    "bytes_b64": "G1sxOzI7Mzs0OzU7Njs3Ozg7OTsxMDsxMTsxMjsxMzsxNDsxNTsxNjsxNzsxODsxOTsyMDsyMTsyMjsyMzsyNDsyNW1tYW55LXNnchtbMG0="
   },
   {
     "name": "malformed-esc-no-final-byte",
-    "bytes": "before\u001bafter-bare-esc\u001b[after-csi-no-final"
+    "bytes_b64": "YmVmb3JlG2FmdGVyLWJhcmUtZXNjG1thZnRlci1jc2ktbm8tZmluYWw="
   },
   {
     "name": "csi-huge-single-param",
-    "bytes": "\u001b[2J\u001b[1;1H\u001b[2147483648Bclamp-down\u001b[99999999999999999999Ctext"
+    "bytes_b64": "G1syShtbMTsxSBtbMjE0NzQ4MzY0OEJjbGFtcC1kb3duG1s5OTk5OTk5OTk5OTk5OTk5OTk5OUN0ZXh0"
   },
   {
     "name": "partial-and-intermediate-sequences",
-    "bytes": "\u001b[?25l\u001b[?25hcursor-toggle\u001b[ q\u001b#8DEC-align\u001b%Gutf8\u001b(0lqkx\u001b(Bback-ascii"
+    "bytes_b64": "G1s/MjVsG1s/MjVoY3Vyc29yLXRvZ2dsZRtbIHEbIzhERUMtYWxpZ24bJUd1dGY4GygwbHFreBsoQmJhY2stYXNjaWk="
   },
   {
     "name": "mixed-utf8-multibyte-and-sgr",
-    "bytes": "\u001b[2J\u001b[1;1H\u001b[33méèê 你好 «quoted» —em— ±×÷ \u001b[0mÁ-combining"
+    "bytes_b64": "G1syShtbMTsxSBtbMzNtw6nDqMOqIOS9oOWlvSDCq3F1b3RlZMK7IOKAlGVt4oCUIMKxw5fDtyAbWzBtw4EtY29tYmluaW5n"
   },
   {
     "name": "complex-fullscreen-altscreen",
-    "bytes": "\u001b[?1049h\u001b[2J\u001b[H\u001b[44;37m\u001b[2K Status Bar \u001b[0m\u001b[3;1H\u001b[32m> prompt\u001b[0m\u001b[5;10Hitem A\u001b[6;10Hitem B\u001b[5;3Hitem C\u001b[?1049l\u001b[0mexit-altscreen"
+    "bytes_b64": "G1s/MTA0OWgbWzJKG1tIG1s0NDszN20bWzJLIFN0YXR1cyBCYXIgG1swbRtbMzsxSBtbMzJtPiBwcm9tcHQbWzBtG1s1OzEwSGl0ZW0gQRtbNjsxMEhpdGVtIEIbWzU7M0hpdGVtIEMbWz8xMDQ5bBtbMG1leGl0LWFsdHNjcmVlbg=="
+  },
+  {
+    "name": "invalid-utf8-raw-bytes",
+    "bytes_b64": "G1syShtbMTsxSGxhdGluMS1lLWFjdXRlOukgbG9uZS1jb250aW51YXRpb246gCB0cnVuY2F0ZWQtM2J5dGU65L0gb3Zlcmxvbmctc2xhc2g6wK8gZW5k",
+    "comment": "Deliberately invalid UTF-8 (raw 0xE9, lone continuation byte, truncated 3-byte seq, overlong encoding). Expected divergence: aterm emits U+FFFD per the Unicode substitution recommendation; xterm.js silently drops the bytes. aterm-more-correct — triage as an accepted REVIEW, not a bug."
   }
 ]

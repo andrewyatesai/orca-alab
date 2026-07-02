@@ -1,7 +1,7 @@
 {
   "name": "orca-terminal-bench",
   "private": true,
-  "description": "Head-to-head: @xterm/headless (shipped) vs orca-terminal (Rust) on an identical ANSI corpus.",
+  "description": "Head-to-head: @xterm/headless (differential baseline) vs orca-terminal (Rust, shipped) on an identical ANSI corpus.",
   "type": "module",
   "dependencies": {
     "@xterm/headless": "6.1.0-beta.220",

@@ -18,11 +18,6 @@ test.describe('aterm zero-dimensions banner does not persist', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Turn the aterm renderer on BEFORE the pane that will use it is created.
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     // New terminal tab → its pane is rendered by aterm.
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage

@@ -2,8 +2,10 @@
 
 Proves the Orca Rust headless terminal engine (`rust/crates/orca-terminal`,
 exposed to Node by the napi addon in `native/orca-node`) is both **faster** than
-and **output-identical** to `@xterm/headless` — the engine Orca currently ships
-and runs server-side in `src/main/daemon/headless-emulator.ts`.
+and **output-identical** to `@xterm/headless`. The Rust engine is what Orca
+ships: `src/main/daemon/headless-emulator.ts` loads the napi addon and throws if
+it is missing — there is no JS fallback. `@xterm/headless` survives only here,
+as this tool's differential baseline/oracle.
 
 ## What it measures
 
@@ -20,7 +22,7 @@ lines of scrollback. We compare:
 
 | engine                       | MB/s | speedup | visible grid |
 | ---------------------------- | ---- | ------- | ------------ |
-| `@xterm/headless` (shipped)  | ~87  | 1.0×    | identical    |
+| `@xterm/headless` (baseline) | ~87  | 1.0×    | identical    |
 | rust `orca-terminal` (napi)  | ~140–180 | ~1.6–2× | identical |
 
 The **ratio** is the stable metric; absolute MB/s swings with machine load.
@@ -36,7 +38,7 @@ what a TUI like Claude Code or vim actually emits.
 
 | engine                       | MB/s | visible grid | mode flags |
 | ---------------------------- | ---- | ------------ | ---------- |
-| `@xterm/headless` (shipped)  | ~18  | identical    | identical  |
+| `@xterm/headless` (baseline) | ~18  | identical    | identical  |
 | rust `orca-terminal` (napi)  | ~144 | identical    | identical  |
 
 The Rust engine is ~8× faster here because the workload is CSI-heavy (cursor
@@ -105,15 +107,16 @@ a real FAIL, **2** = a REVIEW to triage. The full report is written to
 
 ## How it's wired into the app
 
-`src/main/daemon/headless-emulator-factory.ts` selects the Rust-backed emulator
-when `ORCA_RUST_TERMINAL=1` and the addon loads, else the TypeScript
-`HeadlessEmulator`. Node-API is ABI-stable, so the same `.node` loads in both
-Node and Electron without an electron-rebuild.
+`src/main/daemon/headless-emulator-factory.ts` always builds the aterm-backed
+`HeadlessEmulator`; its constructor throws if the native addon is missing (no
+flag, no TypeScript fallback — a missing addon is a build/packaging fault).
+Node-API is ABI-stable, so the same `.node` loads in both Node and Electron
+without an electron-rebuild.
 
 ## Live integration test (real Session + real PTY)
 
 `session-live-harness.ts` boots the **actual** `src/main/daemon/Session` against
-a real `node-pty` shell under the chosen engine; `verify-live.mjs` checks the
+a real `node-pty` shell under the aterm engine; `verify-live.mjs` checks the
 Session snapshot renders identically to xterm parsing the exact bytes the
 emulator consumed. `run-scenario.mjs <name>` / `--adhoc '<json>'` drive it.
 Verified live: `vim`, `less`, `top`, `python3`, `git log`, colored `ls`,
@@ -122,7 +125,7 @@ progress bars, unicode/CJK, 256/truecolor — all byte-identical to xterm.
 ## Production daemon proof
 
 `daemon-boot-proof.ts` forks the **built, bundled** daemon (`out/main/daemon-entry.js`)
-exactly as the Electron app does, with `ORCA_RUST_TERMINAL=1`, then drives it with
+exactly as the Electron app does, then drives it with
 Orca's own production `DaemonClient` to create a real PTY terminal. It confirms the
 daemon logs the Rust-engine selection and the snapshot shows live shell output —
 proving the Rust engine runs inside the shipping app's daemon through the full

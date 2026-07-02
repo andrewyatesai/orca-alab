@@ -19,12 +19,6 @@ test.describe('aterm renderer as the default', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
 
-    // Explicit ON wins over the suite-wide opt-out; this exercises the exact code
-    // path default users now hit (settings default experimentalAtermRenderer=true).
-    await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
-    })
-
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })

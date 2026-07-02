@@ -51,7 +51,6 @@ test.describe('aterm live re-theme', () => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
     await orcaPage.evaluate(() => {
-      ;(window as unknown as { __atermRendererEnabled?: boolean }).__atermRendererEnabled = true
       ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true
     })
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
@@ -76,7 +75,9 @@ test.describe('aterm live re-theme', () => {
         const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement
         ;(c as unknown as { __id?: number }).__id = 0xabcdef
         // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-        const top = new Function(`return (${args.topSrc})()`) as () => [number, number, number] | null
+        const top = new Function(`return (${args.topSrc})()`) as () =>
+          | [number, number, number]
+          | null
         return top()
       },
       { findSrc: findController.toString(), topSrc: topLeftRgb.toString() }
@@ -112,7 +113,9 @@ test.describe('aterm live re-theme', () => {
               ) as HTMLCanvasElement | null
               const sameCanvas = (c as unknown as { __id?: number })?.__id === 0xabcdef
               // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-              const top = new Function(`return (${args.topSrc})()`) as () => [number, number, number] | null
+              const top = new Function(`return (${args.topSrc})()`) as () =>
+                | [number, number, number]
+                | null
               const rgb = top()
               const want = [(args.newBg >> 16) & 0xff, (args.newBg >> 8) & 0xff, args.newBg & 0xff]
               const matched =

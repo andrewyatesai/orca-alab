@@ -1,3 +1,4 @@
 target/
 *.node
-Cargo.lock
+# Cargo.lock is TRACKED: this addon is the one Rust binary we ship, so its
+# crates.io deps must stay pinned. Do not re-ignore it.

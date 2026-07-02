@@ -43,6 +43,39 @@ function cargoEnv() {
   return { ...process.env, PATH: path }
 }
 
+function rustupStableBin(tool) {
+  const r = spawnSync('rustup', ['which', tool, '--toolchain', 'stable'], { encoding: 'utf8' })
+  return r.status === 0 ? r.stdout.trim() : null
+}
+
+function ensureAtermSubmodule() {
+  // A default `git clone` leaves the rust/aterm submodule empty, and cargo's
+  // path-dep error for that is cryptic — init it here so fresh clones just work.
+  if (existsSync(resolve(projectDir, 'rust/aterm/Cargo.toml'))) {
+    return
+  }
+  console.log(
+    '[terminal-addon] rust/aterm submodule is empty — running `git submodule update --init rust/aterm`…'
+  )
+  const init = spawnSync('git', ['submodule', 'update', '--init', 'rust/aterm'], {
+    cwd: projectDir,
+    stdio: 'inherit'
+  })
+  if (
+    init.error ||
+    init.status !== 0 ||
+    !existsSync(resolve(projectDir, 'rust/aterm/Cargo.toml'))
+  ) {
+    console.error(
+      '[terminal-addon] failed to initialize the rust/aterm submodule (git and network access are required).'
+    )
+    console.error(
+      '[terminal-addon] Run `git submodule update --init rust/aterm` manually, then re-run this build.'
+    )
+    process.exit(1)
+  }
+}
+
 function newestMtime() {
   // Cheap freshness probe: the newest mtime among the addon + adapter sources.
   const roots = [
@@ -89,16 +122,31 @@ if (!force) {
   }
 }
 
+ensureAtermSubmodule()
+
+// Pin BOTH cargo and rustc to rustup's stable toolchain (matches run-parity.mjs):
+// a Homebrew cargo on PATH ignores rust-toolchain.toml, and even rustup's cargo
+// spawns a bare `rustc` from PATH unless RUSTC is pinned. Falls back to plain
+// `cargo` (with ~/.cargo/bin prepended) when rustup is absent.
+const stableCargo = rustupStableBin('cargo')
+const stableRustc = rustupStableBin('rustc')
+const env = cargoEnv()
+if (stableRustc) {
+  env.RUSTC = stableRustc
+}
 console.log('[terminal-addon] building aterm napi addon (cargo build --release)…')
-const build = spawnSync('cargo', ['build', '--release'], {
+const build = spawnSync(stableCargo ?? 'cargo', ['build', '--release'], {
   cwd: addonDir,
-  env: cargoEnv(),
+  env,
   stdio: 'inherit',
-  shell: process.platform === 'win32'
+  // shell only for bare-name PATH lookup; an absolute cargo path may contain spaces.
+  shell: process.platform === 'win32' && !stableCargo
 })
 if (build.error) {
   console.error(`[terminal-addon] cargo failed to start: ${build.error.message}`)
-  console.error('[terminal-addon] Is a Rust toolchain (>=1.96) installed? See https://rustup.rs')
+  console.error(
+    '[terminal-addon] Install rustup with a stable toolchain >=1.96 (https://rustup.rs), then re-run.'
+  )
   process.exit(1)
 }
 if (build.status !== 0) {

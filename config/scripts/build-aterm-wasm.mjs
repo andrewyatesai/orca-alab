@@ -14,7 +14,7 @@
 // Usage: node config/scripts/build-aterm-wasm.mjs [--cpu] [--gpu]  (default: both)
 import { execFileSync } from 'node:child_process'
 import { existsSync, copyFileSync, statSync, mkdirSync, rmSync } from 'node:fs'
-import { join, dirname } from 'node:path'
+import { join, dirname, delimiter } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -42,12 +42,15 @@ function run(cmd, args, opts = {}) {
 }
 
 function which(bin) {
-  try {
-    execFileSync('sh', ['-c', `command -v ${bin}`], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
+  // Probe PATH in-process: `sh -c command -v` doesn't exist on Windows.
+  const exts =
+    process.platform === 'win32' ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM').split(';') : ['']
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (dir && exts.some((ext) => existsSync(join(dir, bin + ext)))) {
+      return true
+    }
   }
+  return false
 }
 
 // Absolute path to a rustup-managed STABLE tool (Homebrew's cargo/rustc on PATH
@@ -142,7 +145,13 @@ function buildCrate(key, wasmBindgen) {
 }
 
 if (!which('wasm-opt')) {
-  console.error('[aterm-wasm] wasm-opt not found — install binaryen (brew install binaryen)')
+  const install =
+    process.platform === 'darwin'
+      ? '`brew install binaryen`'
+      : process.platform === 'win32'
+        ? 'a binaryen release from https://github.com/WebAssembly/binaryen/releases (add its bin/ to PATH)'
+        : 'the binaryen package (e.g. `apt install binaryen`) or a release from https://github.com/WebAssembly/binaryen/releases'
+  console.error(`[aterm-wasm] wasm-opt not found — install ${install}`)
   process.exit(1)
 }
 const wasmBindgen = resolveWasmBindgen()

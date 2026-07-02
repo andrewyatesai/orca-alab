@@ -16,10 +16,17 @@ Thanks for contributing to Orca.
 
 ## Local Setup
 
+Prerequisites:
+
+- Node.js 24 and pnpm
+- [rustup](https://rustup.rs) with a stable toolchain ≥ 1.96 (`rustup toolchain install stable`) — the terminal engine is a Rust addon built as part of `pnpm dev`/`pnpm test`. The build pins itself to rustup's `stable`, so a different default toolchain (or a Homebrew Rust) on the machine is fine.
+
 ```bash
 pnpm install
 pnpm dev
 ```
+
+The first run auto-initializes the `rust/aterm` engine submodule and compiles the native addon, so it takes a few minutes; later runs skip both when up to date.
 
 ## Branch Naming
 

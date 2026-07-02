@@ -714,6 +714,20 @@ export class AtermTerminal {
         }
     }
     /**
+     * Set the DEFAULT-background opacity (0..=1; Ghostty's
+     * `background-opacity`). `1.0` (the default) keeps output byte-identical.
+     * Below 1.0, pixels whose bg resolved to the frame's DEFAULT background
+     * come out of [`rgba`](Self::rgba)/[`rgba_ptr`](Self::rgba_ptr) with
+     * `alpha = round(opacity*255)`, so `putImageData` onto a (transparent)
+     * canvas lets the page show through. SGR-colored bg cells, the selection
+     * band and glyph pixels stay opaque so text keeps its contrast.
+     * Appearance-only, so force one full repaint next frame.
+     * @param {number} opacity
+     */
+    set_background_opacity(opacity) {
+        wasm.atermterminal_set_background_opacity(this.__wbg_ptr, opacity);
+    }
+    /**
      * Inject a REAL bold weight of the primary family so SGR-bold cells render as a
      * true heavier weight instead of synthetic embolden. The host supplies the
      * bold-variant bytes (the canvas can't read the filesystem). No-throw: a bad
@@ -763,6 +777,16 @@ export class AtermTerminal {
      */
     set_cursor_hollow(hollow) {
         wasm.atermterminal_set_cursor_hollow(this.__wbg_ptr, hollow);
+    }
+    /**
+     * Set the CURSOR-fill opacity (0..=1; Ghostty's `cursor-opacity`). `1.0`
+     * (the default) keeps the opaque fill + block-cursor glyph cut-out
+     * byte-identical. Below 1.0 the cursor fill blends over the cell so the
+     * glyph shows through. Appearance-only, so force one full repaint.
+     * @param {number} opacity
+     */
+    set_cursor_opacity(opacity) {
+        wasm.atermterminal_set_cursor_opacity(this.__wbg_ptr, opacity);
     }
     /**
      * @param {number} r
@@ -835,6 +859,17 @@ export class AtermTerminal {
         const ptr0 = passStringToWasm0(spec, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         wasm.atermterminal_set_font_features(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Enable/disable the Kitty keyboard protocol capability (default ON). When
+     * disabled the engine acts as if the protocol is unsupported — no `CSI ? u`
+     * reply, push/set/pop consumed-and-ignored, `keyboard_mode` never carries
+     * kitty bits — for hosts whose platform consumes kitty sequences itself
+     * (Windows ConPTY; xterm.js `vtExtensions.kittyKeyboard = false`).
+     * @param {boolean} enabled
+     */
+    set_kitty_keyboard_enabled(enabled) {
+        wasm.atermterminal_set_kitty_keyboard_enabled(this.__wbg_ptr, enabled);
     }
     /**
      * Programming LIGATURES on/off (`=>`, `!=`, `===` …). Mirrors the native

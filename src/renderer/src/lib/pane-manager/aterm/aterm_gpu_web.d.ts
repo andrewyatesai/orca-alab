@@ -138,8 +138,10 @@ export class AtermGpuTerminal {
      * back into the internal RGBA8 framebuffer, so a host harness can pixel-compare
      * GPU vs CPU output without reading the live canvas (a WebGL swapchain is not
      * CPU-readable). Mirrors `the aterm-wasm crate`'s `render()`+`rgba()` contract:
-     * the same `cell_frame` snapshot, the same `Frame` (0x00RRGGBB) expanded to
-     * RGBA8 with an opaque alpha. Errors if WebGL was not initialized.
+     * the same `cell_frame` snapshot, the same `Frame` (0xTTRRGGBB; TT is the
+     * transmittance byte, 0 = opaque) expanded to RGBA8 (alpha 0xff except on
+     * default-bg pixels under `set_background_opacity`). Errors if WebGL was
+     * not initialized.
      */
     render_offscreen(): void;
     /**
@@ -252,6 +254,18 @@ export class AtermGpuTerminal {
      */
     serialize_scrollback(max_rows?: number | null): string;
     /**
+     * Set the DEFAULT-background opacity (0..=1; Ghostty's
+     * `background-opacity`; `1.0` = opaque, the default — byte-identical
+     * output). Only pixels whose bg resolved to the frame's DEFAULT
+     * background go translucent; SGR-colored bg cells, the selection band and
+     * glyph pixels stay opaque. Set on both the CPU fallback face and the
+     * live GPU renderer; forces a full present (appearance-only, not
+     * content). NOTE: the on-glass effect additionally needs a canvas/surface
+     * that composites alpha; the offscreen readback (`render_offscreen` +
+     * `rgba`) carries the alpha either way.
+     */
+    set_background_opacity(opacity: number): void;
+    /**
      * Inject a REAL bold weight of the primary family so SGR-bold cells render as a
      * true heavier weight instead of synthetic embolden. Applies to the CPU face
      * and the live GPU face if `init` already ran; remembered so `init` re-applies
@@ -280,6 +294,14 @@ export class AtermGpuTerminal {
      * DECSCUSR style when `false`. Applies to both GPU and CPU faces.
      */
     set_cursor_hollow(hollow: boolean): void;
+    /**
+     * Set the CURSOR-fill opacity (0..=1; Ghostty's `cursor-opacity`; `1.0` =
+     * opaque fill + block cut-out, the default — byte-identical output).
+     * Below 1.0 the cursor fill blends over the cell so the glyph shows
+     * through. Set on both the CPU fallback face and the live GPU renderer;
+     * forces a full present (appearance-only, not content).
+     */
+    set_cursor_opacity(opacity: number): void;
     set_default_background(r: number, g: number, b: number): void;
     /**
      * Set the host-preferred DEFAULT cursor style (shape used before any DECSCUSR and
@@ -314,6 +336,16 @@ export class AtermGpuTerminal {
      * face; remembered so `init` re-applies it. Preserves the current ligature mode.
      */
     set_font_features(spec: string): void;
+    /**
+     * Enable/disable the Kitty keyboard protocol capability (default ON). When
+     * disabled the engine acts as if the protocol is unsupported — no `CSI ? u`
+     * reply, push/set/pop consumed-and-ignored, `keyboard_mode` never carries
+     * kitty bits — for hosts whose platform consumes kitty sequences itself
+     * (Windows ConPTY; xterm.js `vtExtensions.kittyKeyboard = false`). The
+     * engine (`term`) survives `init`, so no pre-init retention is needed.
+     * Mirrors aterm-wasm.
+     */
+    set_kitty_keyboard_enabled(enabled: boolean): void;
     /**
      * Programming LIGATURES on/off (`=>`, `!=`, `===` …). Mirrors the native
      * `ligatures` config knob. Applies to the CPU face and the live GPU face if `init`
@@ -676,17 +708,20 @@ export interface InitOutput {
     readonly atermgputerminal_selection_word: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_serialize: (a: number, b: number) => [number, number];
     readonly atermgputerminal_serialize_scrollback: (a: number, b: number) => [number, number];
+    readonly atermgputerminal_set_background_opacity: (a: number, b: number) => void;
     readonly atermgputerminal_set_bold_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_cell_pixel_size: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_set_color_scheme: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_blink_phase: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_hollow: (a: number, b: number) => void;
+    readonly atermgputerminal_set_cursor_opacity: (a: number, b: number) => void;
     readonly atermgputerminal_set_default_background: (a: number, b: number, c: number, d: number) => void;
     readonly atermgputerminal_set_default_cursor_style: (a: number, b: number) => void;
     readonly atermgputerminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
     readonly atermgputerminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_font_features: (a: number, b: number, c: number) => void;
+    readonly atermgputerminal_set_kitty_keyboard_enabled: (a: number, b: number) => void;
     readonly atermgputerminal_set_ligatures: (a: number, b: number) => void;
     readonly atermgputerminal_set_line_height: (a: number, b: number) => void;
     readonly atermgputerminal_set_minimum_contrast: (a: number, b: number) => void;

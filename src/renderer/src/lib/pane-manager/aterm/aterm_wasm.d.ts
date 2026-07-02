@@ -247,6 +247,17 @@ export class AtermTerminal {
      */
     serialize_scrollback(max_rows?: number | null): string;
     /**
+     * Set the DEFAULT-background opacity (0..=1; Ghostty's
+     * `background-opacity`). `1.0` (the default) keeps output byte-identical.
+     * Below 1.0, pixels whose bg resolved to the frame's DEFAULT background
+     * come out of [`rgba`](Self::rgba)/[`rgba_ptr`](Self::rgba_ptr) with
+     * `alpha = round(opacity*255)`, so `putImageData` onto a (transparent)
+     * canvas lets the page show through. SGR-colored bg cells, the selection
+     * band and glyph pixels stay opaque so text keeps its contrast.
+     * Appearance-only, so force one full repaint next frame.
+     */
+    set_background_opacity(opacity: number): void;
+    /**
      * Inject a REAL bold weight of the primary family so SGR-bold cells render as a
      * true heavier weight instead of synthetic embolden. The host supplies the
      * bold-variant bytes (the canvas can't read the filesystem). No-throw: a bad
@@ -276,6 +287,13 @@ export class AtermTerminal {
      * DECSCUSR style when `false` — the standard focused/unfocused affordance.
      */
     set_cursor_hollow(hollow: boolean): void;
+    /**
+     * Set the CURSOR-fill opacity (0..=1; Ghostty's `cursor-opacity`). `1.0`
+     * (the default) keeps the opaque fill + block-cursor glyph cut-out
+     * byte-identical. Below 1.0 the cursor fill blends over the cell so the
+     * glyph shows through. Appearance-only, so force one full repaint.
+     */
+    set_cursor_opacity(opacity: number): void;
     set_default_background(r: number, g: number, b: number): void;
     /**
      * Set the host-preferred DEFAULT cursor style (shape used before any DECSCUSR and
@@ -312,6 +330,14 @@ export class AtermTerminal {
      * clears all features. Preserves the current ligature mode; forces a repaint.
      */
     set_font_features(spec: string): void;
+    /**
+     * Enable/disable the Kitty keyboard protocol capability (default ON). When
+     * disabled the engine acts as if the protocol is unsupported — no `CSI ? u`
+     * reply, push/set/pop consumed-and-ignored, `keyboard_mode` never carries
+     * kitty bits — for hosts whose platform consumes kitty sequences itself
+     * (Windows ConPTY; xterm.js `vtExtensions.kittyKeyboard = false`).
+     */
+    set_kitty_keyboard_enabled(enabled: boolean): void;
     /**
      * Programming LIGATURES on/off (`=>`, `!=`, `===` …). Mirrors the native
      * `ligatures` config knob so the in-page renderer honours the host's typography
@@ -670,17 +696,20 @@ export interface InitOutput {
     readonly atermterminal_selection_word: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_serialize: (a: number, b: number) => [number, number];
     readonly atermterminal_serialize_scrollback: (a: number, b: number) => [number, number];
+    readonly atermterminal_set_background_opacity: (a: number, b: number) => void;
     readonly atermterminal_set_bold_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_cell_pixel_size: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_color_scheme: (a: number, b: number) => void;
     readonly atermterminal_set_cursor_blink_phase: (a: number, b: number) => void;
     readonly atermterminal_set_cursor_hollow: (a: number, b: number) => void;
+    readonly atermterminal_set_cursor_opacity: (a: number, b: number) => void;
     readonly atermterminal_set_default_background: (a: number, b: number, c: number, d: number) => void;
     readonly atermterminal_set_default_cursor_style: (a: number, b: number) => void;
     readonly atermterminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
     readonly atermterminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_font_features: (a: number, b: number, c: number) => void;
+    readonly atermterminal_set_kitty_keyboard_enabled: (a: number, b: number) => void;
     readonly atermterminal_set_ligatures: (a: number, b: number) => void;
     readonly atermterminal_set_line_height: (a: number, b: number) => void;
     readonly atermterminal_set_minimum_contrast: (a: number, b: number) => void;

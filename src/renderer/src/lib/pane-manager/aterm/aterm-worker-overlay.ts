@@ -1,4 +1,4 @@
-import { paintAtermLinkUnderline } from './aterm-link-underline-overlay'
+import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
 import { SEARCH_ACTIVE_FILL, SEARCH_MATCH_FILL } from './aterm-search-overlay'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
 
@@ -22,7 +22,10 @@ export function createAtermWorkerOverlay(
   /** The APPLIED (reconciled) dpr the worker rendered this framebuffer at — NOT live
    *  window.devicePixelRatio, which can diverge during a DPI settle / fractional dpr and
    *  drift the highlights/underline off their cells. Mirrors aterm-search-overlay-canvas. */
-  getDpr: () => number
+  getDpr: () => number,
+  /** The main-thread hovered link span (provider links live outside the worker's
+   *  link detection, so their underline can only paint here), or null. */
+  getMainThreadSpan: () => AtermHoveredLinkSpan | null = () => null
 ): AtermWorkerOverlay {
   const overlay = document.createElement('canvas')
   overlay.dataset.testid = 'aterm-worker-overlay' // e2e locator
@@ -74,7 +77,9 @@ export function createAtermWorkerOverlay(
       // The overwhelmingly common steady state has no active search + no hovered link.
       // When there's nothing to draw now AND nothing was drawn last frame, skip the
       // full-canvas clearRect (millions of px on the MAIN thread, ~60/sec/streaming pane).
-      const hasContent = state.searchMatchRects.length > 0 || state.hoverLink !== null
+      const mainSpan = getMainThreadSpan()
+      const hasContent =
+        state.searchMatchRects.length > 0 || state.hoverLink !== null || mainSpan !== null
       if (!hasContent && !hadContent) {
         return
       }
@@ -91,6 +96,12 @@ export function createAtermWorkerOverlay(
         getFgColor(),
         { cellWidth: state.cellWidth, cellHeight: state.cellHeight, dpr }
       )
+      // Provider-link hover (main-thread detection): same underline affordance.
+      paintAtermLinkUnderline(ctx, mainSpan, getFgColor(), {
+        cellWidth: state.cellWidth,
+        cellHeight: state.cellHeight,
+        dpr
+      })
       hadContent = hasContent
     },
     dispose: () => overlay.remove()

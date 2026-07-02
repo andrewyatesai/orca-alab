@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
-import { isPaneReplaying, replayIntoTerminal, type ReplayingPanesRef } from './replay-guard'
+import {
+  isPaneReplaying,
+  replayIntoTerminal,
+  replayIntoTerminalAsync,
+  type ReplayingPanesRef
+} from './replay-guard'
 
 function makeRef(): ReplayingPanesRef {
   return { current: new Map() } as ReplayingPanesRef
@@ -55,6 +60,21 @@ function makeFakePane(paneId: number): { pane: ManagedPane; terminal: FakeTermin
   const pane = { id: paneId, terminal } as unknown as ManagedPane
   return { pane, terminal }
 }
+
+/** Attach a fake ASYNC controller (the worker engine path): settle() resolves only
+ *  when the test releases it, mimicking the worker's later-task parse completion. */
+function attachAsyncController(pane: ManagedPane): { settleEngine: () => void } {
+  let resolveSettle: () => void = () => undefined
+  const settled = new Promise<void>((resolve) => {
+    resolveSettle = resolve
+  })
+  ;(pane as { atermController?: unknown }).atermController = {
+    settle: () => settled
+  }
+  return { settleEngine: resolveSettle }
+}
+
+const drainMicrotasks = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('replay-guard', () => {
   it('reports no replay for untouched pane', () => {
@@ -134,6 +154,55 @@ describe('replay-guard', () => {
     replayIntoTerminal(pane, ref, 'x')
     terminal.flush()
     expect(ref.current.has(1)).toBe(false)
+  })
+
+  it('holds the guard open past the write ack until the async engine settles', async () => {
+    const ref = makeRef()
+    const { pane, terminal } = makeFakePane(1)
+    const { settleEngine } = attachAsyncController(pane)
+
+    // Replayed bytes embedding a DA1 query the engine will auto-reply to.
+    replayIntoTerminal(pane, ref, '\x1b[c')
+    terminal.flush()
+    await drainMicrotasks()
+
+    // The write callback fired, but the worker engine hasn't parsed the replayed
+    // bytes yet — a DA/CPR reply arriving NOW must still be dropped, so the guard
+    // stays engaged until settle() resolves.
+    expect(isPaneReplaying(ref, 1)).toBe(true)
+
+    settleEngine()
+    await drainMicrotasks()
+    expect(isPaneReplaying(ref, 1)).toBe(false)
+    expect(ref.current.has(1)).toBe(false)
+  })
+
+  it('resolves replayIntoTerminalAsync only after the engine settles', async () => {
+    const ref = makeRef()
+    const { pane, terminal } = makeFakePane(1)
+    const { settleEngine } = attachAsyncController(pane)
+
+    let resolved = false
+    const done = replayIntoTerminalAsync(pane, ref, 'scrollback').then(() => {
+      resolved = true
+    })
+    terminal.flush()
+    await drainMicrotasks()
+    expect(resolved).toBe(false)
+    expect(isPaneReplaying(ref, 1)).toBe(true)
+
+    settleEngine()
+    await done
+    expect(isPaneReplaying(ref, 1)).toBe(false)
+  })
+
+  it('releases synchronously when no controller is attached (pre-attach replay)', () => {
+    const ref = makeRef()
+    const { pane, terminal } = makeFakePane(1)
+    replayIntoTerminal(pane, ref, 'x')
+    terminal.flush()
+    // No controller → no settle fence; the sync decrement contract is unchanged.
+    expect(isPaneReplaying(ref, 1)).toBe(false)
   })
 
   it('schedules a follow-up repaint for replayed cursor restores', () => {

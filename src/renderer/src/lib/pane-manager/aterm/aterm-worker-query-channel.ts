@@ -52,6 +52,10 @@ export type AtermWorkerQueryChannel = {
   serializeScrollbackAsync: (maxRows?: number) => Promise<string>
   selectionTextAsync: () => Promise<string>
   linkAtAsync: (row: number, col: number) => Promise<AtermWorkerLinkHit | null>
+  /** Parse fence: resolves once the worker has handled every message posted before
+   *  it — all prior 'process' bytes parsed AND their auto-replies already delivered
+   *  (postMessage ordering). The replay guard holds its drop window open on this. */
+  settleAsync: () => Promise<void>
 }
 
 // A dropped 'queryResult' (terminated/wedged worker) must not leave an awaiter hanging;
@@ -62,6 +66,10 @@ export function createAtermWorkerQueryChannel(
   post: (cmd: AtermWorkerRequest) => void
 ): AtermWorkerQueryChannel {
   let nextQueryId = 1
+  // Queries sent AFTER dispose (worker gone) resolve to null immediately instead of
+  // burning the full timeout — a replay guard settling against a torn-down pane
+  // would otherwise hold its drop window open for QUERY_TIMEOUT_MS.
+  let disposed = false
   type Pending = {
     resolve: (value: string | number | boolean | null) => void
     timer: ReturnType<typeof setTimeout>
@@ -84,6 +92,10 @@ export function createAtermWorkerQueryChannel(
     arg2?: number
   ): Promise<string | number | boolean | null> =>
     new Promise((resolve) => {
+      if (disposed) {
+        resolve(null)
+        return
+      }
       const id = nextQueryId++
       // Per-query timeout: a never-arriving reply settles to null rather than hang.
       const timer = setTimeout(() => settle(id, null), QUERY_TIMEOUT_MS)
@@ -99,6 +111,7 @@ export function createAtermWorkerQueryChannel(
   return {
     resolve: settle,
     dispose: () => {
+      disposed = true
       // Deleting the current key during Map iteration is well-defined (it just won't be
       // revisited), so settle each in-flight query in place.
       for (const id of pending.keys()) {
@@ -108,6 +121,11 @@ export function createAtermWorkerQueryChannel(
     serializeAsync: (scrollbackRows) => asString('serialize', scrollbackRows),
     serializeScrollbackAsync: (maxRows) => asString('serializeScrollback', maxRows),
     selectionTextAsync: () => asString('selectionText'),
+    settleAsync: async () => {
+      // The value is irrelevant — resolution (real reply, timeout, or dispose)
+      // means no more replies from bytes posted before this fence can arrive.
+      await send('flush')
+    },
     linkAtAsync: async (row, col) => {
       const v = await send('linkAt', row, col)
       if (typeof v !== 'string') {

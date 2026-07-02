@@ -153,6 +153,10 @@ export type AtermWorkerQuery = {
     | 'cellText'
     | 'cellWide'
     | 'linkAt'
+    // Parse fence: answered inline by the worker loop, so a resolved reply proves
+    // every message posted before it (process bytes + their side-channel replies)
+    // has been handled. The replay guard keys its drop window on this.
+    | 'flush'
   /** kind-specific numeric arg (scrollbackRows / row / etc.). */
   arg?: number
   /** kind-specific second numeric arg (col for cellText/cellWide/linkAt). */
@@ -316,8 +320,15 @@ export type AtermWorkerQueryResult = {
   value: string | number | boolean | null
 }
 /** A worker failure. `phase: 'init'` (GPU acquire failed) triggers the GPU→CPU
- *  fallback; `phase: 'render'` is logged. */
-export type AtermWorkerError = { type: 'error'; phase: 'init' | 'render'; message: string }
+ *  fallback; `phase: 'render'` is logged; `phase: 'runtime'` (an exception escaped
+ *  the worker's message dispatch, e.g. a wasm RuntimeError) makes the loader tear
+ *  the worker down and rebuild the pane in-process — without it the pane silently
+ *  freezes at its last frame while keystrokes keep flowing. */
+export type AtermWorkerError = {
+  type: 'error'
+  phase: 'init' | 'render' | 'runtime'
+  message: string
+}
 
 /** Everything the worker posts back to the main thread. */
 export type AtermWorkerMessage =

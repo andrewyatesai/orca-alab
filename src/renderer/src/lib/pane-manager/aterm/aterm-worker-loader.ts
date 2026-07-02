@@ -3,6 +3,7 @@ import { decideAtermGpu } from './aterm-gpu-auto-policy'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import { createWorkerBackedTerm, type WorkerBackedTerm } from './aterm-worker-term'
 import { createAtermWorkerOverlay, type AtermWorkerOverlay } from './aterm-worker-overlay'
+import type { AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer-config'
@@ -88,6 +89,9 @@ export async function loadAtermWorkerEngine(
   // fractional dpr (live devicePixelRatio can diverge from the rendered dpr). Defaults to
   // live dpr until bindPainter runs (the overlay only paints after the first frame anyway).
   let overlayGetDpr: () => number = () => window.devicePixelRatio || 1
+  // The main-thread hovered link span (provider links are detected on the main
+  // thread — the worker's own link_at never sees them), set from bindPainter.
+  let overlayGetSpan: () => AtermHoveredLinkSpan | null = () => null
   let firstResolved = false
   let resolveFirst: (state: AtermWorkerState) => void = () => undefined
   const firstState = new Promise<AtermWorkerState>((resolve) => {
@@ -97,6 +101,44 @@ export async function loadAtermWorkerEngine(
   // The hover cursor last written to the pane canvas — skip the CSSOM write on the
   // common steady-state frames where it's unchanged (most frames during streaming).
   let lastHoverCursor = ''
+
+  // Runtime worker crash (a wasm RuntimeError escaping onmessage): without recovery
+  // the pane silently freezes at its last frame while keystrokes keep flowing. Route
+  // into the controller's context-loss rebuild — the same path that already rebuilds
+  // on a FRESH canvas (the transferred one is poisoned) with an in-process CPU engine
+  // and replays mid-swap output. Seeded with the worker's last serialized cache so the
+  // grid repaints instead of waiting blank for the next PTY byte. ONE attempt: the
+  // rebuilt path has no worker left to crash, and repeat signals are ignored.
+  let onRuntimeCrash: ((seedAnsi?: string) => void) | null = null
+  let workerCrashed = false
+  const recoverFromWorkerCrash = (message: string): void => {
+    if (workerCrashed) {
+      return
+    }
+    workerCrashed = true
+    console.error(
+      '[aterm] render worker crashed; rebuilding the pane on the in-process CPU path:',
+      message
+    )
+    // The debounced serialize cache is the pre-crash state (aterm's own replayable
+    // ANSI) — the strongest resync available without the dead engine.
+    const seedAnsi = backed?.term.serialize() || undefined
+    if (onRuntimeCrash) {
+      onRuntimeCrash(seedAnsi)
+      return
+    }
+    // Crash before the painter bound (no rebuild seam yet): stop the dead worker so
+    // the first-frame race/timeout surfaces the failure to loadAtermStrategy, whose
+    // fallback already rebuilds in-process on a fresh canvas.
+    worker.terminate()
+  }
+
+  worker.addEventListener('error', (event) => {
+    // Nobody else listens for escaped worker exceptions — this is the frozen-pane
+    // hole. The worker also posts a structured 'runtime' error before rethrowing;
+    // whichever signal lands first wins (the recovery is one-shot).
+    recoverFromWorkerCrash(event.message || 'uncaught worker error')
+  })
 
   worker.addEventListener('message', (event: MessageEvent<AtermWorkerMessage>) => {
     const data = event.data
@@ -146,6 +188,8 @@ export async function loadAtermWorkerEngine(
         if (data.phase === 'init' && !fellBackToCpuWorker) {
           fellBackToCpuWorker = true
           post({ type: 'fallback' })
+        } else if (data.phase === 'runtime') {
+          recoverFromWorkerCrash(data.message)
         }
       // 'mouseBytes' (mouse-encode round-trip) is wired in Stage D.
     }
@@ -216,7 +260,8 @@ export async function loadAtermWorkerEngine(
   overlay = createAtermWorkerOverlay(
     canvas,
     () => themeColors.fg,
-    () => overlayGetDpr()
+    () => overlayGetDpr(),
+    () => overlayGetSpan()
   )
   overlay.paint(initial)
 
@@ -224,6 +269,16 @@ export async function loadAtermWorkerEngine(
     // Feed the overlay the wiring's reconciled dpr so its CSS box tracks the pane canvas
     // through a DPI settle (live devicePixelRatio can diverge from the rendered dpr).
     overlayGetDpr = binding.getDpr
+    // Provider-link hover spans paint here (the worker underlines only its own
+    // engine-detected links from state.hoverLink).
+    overlayGetSpan = binding.getHoveredLinkSpan
+    // A runtime crash rebuilds through the controller's context-loss seam (fresh
+    // canvas + in-process CPU). Deferred when the crash beat this bind: the
+    // rebuild seam only becomes callable once the wiring returns.
+    onRuntimeCrash = binding.onContextLoss
+    if (workerCrashed) {
+      setTimeout(() => binding.onContextLoss(backed?.term.serialize() || undefined), 0)
+    }
     return {
       term: backed!.term,
       getCanvas: () => canvas,
@@ -243,6 +298,7 @@ export async function loadAtermWorkerEngine(
       onReply: (handler) => backed!.onReply(handler),
       onMetricsChange: (handler) => backed!.onMetricsChange(handler),
       onSideChannel: (handler) => backed!.onSideChannel(handler),
+      settle: () => backed!.settle(),
       serializeAsync: (scrollbackRows) => backed!.serializeAsync(scrollbackRows),
       serializeScrollbackAsync: (maxRows) => backed!.serializeScrollbackAsync(maxRows),
       dispose: () => {

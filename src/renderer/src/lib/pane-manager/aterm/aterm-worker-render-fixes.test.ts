@@ -262,9 +262,7 @@ describe('aterm link input (worker hover/click)', () => {
     attachAtermLinkInput({
       canvas,
       term,
-      dpr: 1,
-      cellWidth: 10,
-      cellHeight: 10,
+      metrics: { dpr: 1, cellWidth: 10, cellHeight: 10 },
       redraw: vi.fn(),
       isDisposed: () => false,
       openUrl,
@@ -295,9 +293,7 @@ describe('aterm link input (worker hover/click)', () => {
     attachAtermLinkInput({
       canvas,
       term,
-      dpr: 1,
-      cellWidth: 10,
-      cellHeight: 10,
+      metrics: { dpr: 1, cellWidth: 10, cellHeight: 10 },
       redraw: vi.fn(),
       isDisposed: () => false,
       openUrl: vi.fn(),
@@ -322,9 +318,7 @@ describe('aterm link input (worker hover/click)', () => {
     attachAtermLinkInput({
       canvas,
       term,
-      dpr: 1,
-      cellWidth: 10,
-      cellHeight: 10,
+      metrics: { dpr: 1, cellWidth: 10, cellHeight: 10 },
       redraw: vi.fn(),
       isDisposed: () => false,
       openUrl: vi.fn(),

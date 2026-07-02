@@ -19,17 +19,52 @@ import { mirrorOutputToAterm } from '@/lib/pane-manager/aterm/aterm-output-mirro
 // writes, and decrements in xterm's write-completion callback. The onData
 // handler in pty-connection.ts drops data while the counter is non-zero.
 //
-// The guard window is bounded by xterm's own parse completion, not a
-// wall-clock timer, so only replies generated while parsing the replayed
-// bytes are suppressed. User keystrokes typed after the replay completes
-// are unaffected. In practice replay finishes within milliseconds — before
-// the user could meaningfully type — so the few-ms window where real input
-// would also be dropped is acceptable relative to correctness.
+// The guard window is bounded by real parse completion — the write callback
+// plus the aterm controller's settle() fence (the worker engine parses in a
+// later task than the write ack) — not a wall-clock timer, so only replies
+// generated while parsing the replayed bytes are suppressed. User keystrokes
+// typed after the replay completes are unaffected. In practice replay finishes
+// within milliseconds — before the user could meaningfully type — so the
+// few-ms window where real input would also be dropped is acceptable relative
+// to correctness.
 
 export type ReplayingPanesRef = React.RefObject<Map<number, number>>
 
 export function isPaneReplaying(ref: ReplayingPanesRef, paneId: number): boolean {
   return (ref.current.get(paneId) ?? 0) > 0
+}
+
+function releaseReplayGuard(map: Map<number, number>, paneId: number): void {
+  const remaining = (map.get(paneId) ?? 1) - 1
+  if (remaining <= 0) {
+    map.delete(paneId)
+  } else {
+    map.set(paneId, remaining)
+  }
+}
+
+/** Why the settle fence: the facade acks writes synchronously, but the default
+ *  worker engine parses the posted bytes in a LATER task — auto-replies (DA/CPR)
+ *  from replayed queries would land after a synchronous decrement and leak into
+ *  the live PTY as stray input. controller.settle() resolves only after the
+ *  engine parsed everything fed before it (replies already delivered and
+ *  dropped); panes without a controller (pre-attach) release synchronously,
+ *  matching the facade's own synchronous pre-attach buffering. */
+function releaseWhenEngineSettles(
+  pane: ManagedPane,
+  map: Map<number, number>,
+  onReleased?: () => void
+): void {
+  const settled = pane.atermController?.settle()
+  if (!settled) {
+    releaseReplayGuard(map, pane.id)
+    onReleased?.()
+    return
+  }
+  void settled.finally(() => {
+    releaseReplayGuard(map, pane.id)
+    onReleased?.()
+  })
 }
 
 /** Writes `data` into the pane's terminal with the replay guard engaged,
@@ -52,20 +87,12 @@ export function replayIntoTerminal(
   // runs synchronously while the replay counter is up, so aterm's drained query
   // replies are dropped by the same onData guard as xterm's. No-op for xterm panes.
   mirrorOutputToAterm(pane.terminal, data)
-  const onParsed = (): void => {
-    const remaining = (map.get(pane.id) ?? 1) - 1
-    if (remaining <= 0) {
-      map.delete(pane.id)
-    } else {
-      map.set(pane.id, remaining)
-    }
-  }
   // Why: hidden/snapshot replay bypasses the live foreground write path, but
   // WebGL/canvas renderers still need a post-parse repaint to drop stale cells.
   writeForegroundTerminalChunk(pane.terminal, data, {
     forceViewportRefresh: true,
     followupViewportRefresh: true,
-    onParsed
+    onParsed: () => releaseWhenEngineSettles(pane, map)
   })
 }
 
@@ -85,15 +112,7 @@ export function replayIntoTerminalAsync(
     writeForegroundTerminalChunk(pane.terminal, data, {
       forceViewportRefresh: true,
       followupViewportRefresh: true,
-      onParsed: () => {
-        const remaining = (map.get(pane.id) ?? 1) - 1
-        if (remaining <= 0) {
-          map.delete(pane.id)
-        } else {
-          map.set(pane.id, remaining)
-        }
-        resolve()
-      }
+      onParsed: () => releaseWhenEngineSettles(pane, map, resolve)
     })
   })
 }

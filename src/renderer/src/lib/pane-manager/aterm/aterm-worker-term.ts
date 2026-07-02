@@ -59,6 +59,11 @@ export type WorkerBackedTerm = {
    *  off-screen history; the synchronous shutdown path is served separately.) */
   serializeAsync: (scrollbackRows?: number) => Promise<string>
   serializeScrollbackAsync: (maxRows?: number) => Promise<string>
+  /** Parse fence for the replay guard: resolves once the worker engine has parsed
+   *  every process() byte posted before this call, so any auto-replies (DA/CPR)
+   *  those bytes generated have ALREADY been pushed to the main thread and hit the
+   *  guard while it was still open. */
+  settle: () => Promise<void>
   /** Settle every in-flight async query to null + clear timers; the loader calls this
    *  BEFORE worker.terminate() so serialize/selectionText awaiters (pty-connection
    *  save/hydrate, terminal-agent-session-fork) can't hang on a reply that never comes. */
@@ -100,12 +105,19 @@ export function createWorkerBackedTerm(deps: {
   // per-query timeout + dispose-flush so a dropped reply can't hang an awaiter.
   const queryChannel = createAtermWorkerQueryChannel(post)
 
+  const rangeKey = (r: AtermWorkerState['selectionRange']): string =>
+    r ? `${r.startX},${r.startY},${r.endX},${r.endY}` : ''
+
   const applyState = (next: AtermWorkerState): void => {
     const metricsChanged =
       next.cellWidth !== state.cellWidth || next.cellHeight !== state.cellHeight
     // A title set on the final pre-idle chunk would otherwise wait for the next
     // process() to be re-emitted — fire the side-channel notify so it lands now.
     const titleChanged = next.title !== state.title
+    // A posted selection mutation completes when its range lands here — notify so
+    // the facade emits onSelectionChange now (PRIMARY / copy-on-select on idle
+    // shells), not on the next PTY chunk.
+    const selectionChanged = rangeKey(next.selectionRange) !== rangeKey(state.selectionRange)
     const searchChanged =
       next.searchCount !== state.searchCount || next.searchActiveIndex !== state.searchActiveIndex
     // The worker omits selectionText on frames where the selection is unchanged — carry
@@ -117,7 +129,7 @@ export function createWorkerBackedTerm(deps: {
     if (metricsChanged) {
       metricsListeners.forEach((fn) => fn())
     }
-    if (titleChanged) {
+    if (titleChanged || selectionChanged) {
       notifySideChannel()
     }
     if (searchChanged) {
@@ -377,6 +389,7 @@ export function createWorkerBackedTerm(deps: {
     },
     serializeAsync: queryChannel.serializeAsync,
     serializeScrollbackAsync: queryChannel.serializeScrollbackAsync,
+    settle: queryChannel.settleAsync,
     dispose: () => {
       queryChannel.dispose()
       // Release the JS-side state now rather than waiting for the controller graph to be

@@ -112,7 +112,19 @@ async function handleFallback(): Promise<void> {
 }
 
 ctx.onmessage = (event): void => {
-  const msg = event.data
+  try {
+    dispatch(event.data)
+  } catch (err) {
+    // A wasm RuntimeError escaping here would only fire the worker 'error' event
+    // (no structured payload across browsers) and leave the pane frozen — post a
+    // runtime error first so the loader rebuilds the pane in-process, then rethrow
+    // to keep the worker's own error-event/console semantics.
+    ctx.postMessage({ type: 'error', phase: 'runtime', message: String(err) })
+    throw err
+  }
+}
+
+function dispatch(msg: AtermWorkerRequest): void {
   switch (msg.type) {
     case 'init':
       void handleInit(msg)
@@ -267,6 +279,10 @@ ctx.onmessage = (event): void => {
       term?.setPrimaryFont(msg.bytes)
       scheduleDraw()
       return
+    case 'setBoldFont':
+      term?.setBoldFont(msg.bytes)
+      scheduleDraw()
+      return
     case 'mouseEncode': {
       // The encoded mouse report is PTY input — forward it through the reply channel
       // (→ main onReply → inputSink), same as engine query replies.
@@ -279,7 +295,11 @@ ctx.onmessage = (event): void => {
       return
     }
     case 'query': {
-      const value = term ? term.query(msg.kind, msg.arg, msg.arg2) : null
+      // 'flush' is a parse fence, not an engine read: reaching it means every
+      // earlier message (process bytes + their posted replies) was handled, so
+      // answer directly — even with no engine yet.
+      const value =
+        msg.kind === 'flush' ? true : term ? term.query(msg.kind, msg.arg, msg.arg2) : null
       ctx.postMessage({ type: 'queryResult', id: msg.id, value })
       return
     }

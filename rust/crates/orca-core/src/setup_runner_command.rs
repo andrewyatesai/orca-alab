@@ -1,10 +1,13 @@
 //! Setup-runner command builder, ported from `src/shared/setup-runner-command.ts`.
 //!
 //! Builds the shell command that runs a worktree's setup-runner script,
-//! cross-platform: POSIX and POSIX-style paths run under `bash`; WSL UNC paths
-//! (`\\wsl.localhost\<distro>\…`) are rewritten to their Linux path and run
-//! under `bash`; other Windows paths run under `cmd.exe /c`. Pure (hand-rolled
-//! WSL/quoting; no regex).
+//! cross-platform: WSL UNC paths (`\\wsl.localhost\<distro>\…`, either slash
+//! style) are rewritten to their Linux path and run under `bash`; POSIX and
+//! POSIX-style paths run under `bash` unless they look Windows-absolute
+//! (`//server/…`); other Windows paths run under `cmd.exe /c`. Pure
+//! (hand-rolled WSL/quoting; no regex).
+
+use crate::cross_platform_path::is_windows_absolute_path_like;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SetupRunnerCommandPlatform {
@@ -14,11 +17,14 @@ pub enum SetupRunnerCommandPlatform {
 
 pub fn build_setup_runner_command(runner_script_path: &str, platform: SetupRunnerCommandPlatform) -> String {
     if platform == SetupRunnerCommandPlatform::Windows {
-        if runner_script_path.starts_with('/') {
-            return format!("bash {}", quote_posix_arg(runner_script_path));
-        }
+        // Why (#6298): WSL UNC must win before the POSIX-style branch so
+        // forward-slash `//wsl.localhost/...` is rewritten, and `//server/...`
+        // UNC-like paths fall through to cmd.exe instead of bash.
         if is_wsl_unc_path(runner_script_path) {
             return format!("bash {}", quote_posix_arg(&wsl_unc_to_linux_path(runner_script_path)));
+        }
+        if runner_script_path.starts_with('/') && !is_windows_absolute_path_like(runner_script_path) {
+            return format!("bash {}", quote_posix_arg(runner_script_path));
         }
         return format!("cmd.exe /c {}", quote_windows_arg(runner_script_path));
     }
@@ -107,6 +113,28 @@ mod tests {
         assert_eq!(
             build_setup_runner_command("/mnt/c/orca/setup-runner.sh", Windows),
             "bash /mnt/c/orca/setup-runner.sh"
+        );
+    }
+
+    #[test]
+    fn rewrites_forward_slash_wsl_unc_before_the_posix_branch() {
+        assert_eq!(
+            build_setup_runner_command("//wsl.localhost/Ubuntu/home/jin/run.sh", Windows),
+            "bash /home/jin/run.sh"
+        );
+        assert_eq!(build_setup_runner_command("//WSL$/Ubuntu/home/x.sh", Windows), "bash /home/x.sh");
+        assert_eq!(build_setup_runner_command("//wsl$/Ubuntu", Windows), "bash /");
+    }
+
+    #[test]
+    fn sends_forward_slash_windows_unc_like_paths_to_cmd() {
+        assert_eq!(
+            build_setup_runner_command("//server/share/x.cmd", Windows),
+            "cmd.exe /c \"//server/share/x.cmd\""
+        );
+        assert_eq!(
+            build_setup_runner_command("//wsl.localhost", Windows),
+            "cmd.exe /c \"//wsl.localhost\""
         );
     }
 }

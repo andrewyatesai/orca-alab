@@ -41,19 +41,19 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "aterm-alloc"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-bits"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-codec"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-containment"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-error",
  "aterm-log",
@@ -62,7 +62,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-core"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-alloc",
  "aterm-bits",
@@ -91,14 +91,14 @@ dependencies = [
 
 [[package]]
 name = "aterm-error"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-error-derive",
 ]
 
 [[package]]
 name = "aterm-error-derive"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-ffi-types"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-log",
  "aterm-types",
@@ -115,14 +115,14 @@ dependencies = [
 
 [[package]]
 name = "aterm-grapheme"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-types",
 ]
 
 [[package]]
 name = "aterm-grid"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-alloc",
  "aterm-error",
@@ -137,19 +137,19 @@ dependencies = [
 
 [[package]]
 name = "aterm-hash"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-log"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-lz4"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-parser"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-alloc",
  "aterm-provenance",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-policy"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-error",
  "serde",
@@ -167,18 +167,18 @@ dependencies = [
 
 [[package]]
 name = "aterm-provenance"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-error",
 ]
 
 [[package]]
 name = "aterm-rle"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-scrollback"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-alloc",
  "aterm-error",
@@ -192,7 +192,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-search"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-error",
  "aterm-grapheme",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-selection"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-ffi-types",
  "aterm-grapheme",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-shell-integration"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "getrandom 0.2.17",
  "rand_core",
@@ -222,15 +222,15 @@ dependencies = [
 
 [[package]]
 name = "aterm-sixel"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-tempfile"
-version = "0.5.13"
+version = "0.5.14"
 
 [[package]]
 name = "aterm-types"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-alloc",
  "aterm-error",
@@ -240,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-vi"
-version = "0.5.13"
+version = "0.5.14"
 dependencies = [
  "aterm-types",
 ]

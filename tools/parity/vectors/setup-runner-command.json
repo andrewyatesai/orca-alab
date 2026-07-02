@@ -33,7 +33,10 @@
     {
       "function": "buildSetupRunnerCommand",
       "note": "plain windows drive path runs under cmd.exe with double-quoting",
-      "input": { "runnerScriptPath": "C:\\Users\\me\\orca\\setup-runner.cmd", "platform": "windows" },
+      "input": {
+        "runnerScriptPath": "C:\\Users\\me\\orca\\setup-runner.cmd",
+        "platform": "windows"
+      },
       "expected": "cmd.exe /c \"C:\\Users\\me\\orca\\setup-runner.cmd\""
     },
     {
@@ -47,6 +50,39 @@
       "note": "posix-style absolute path on windows runs under bash, not cmd.exe",
       "input": { "runnerScriptPath": "/mnt/c/orca/setup-runner.sh", "platform": "windows" },
       "expected": "bash /mnt/c/orca/setup-runner.sh"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "forward-slash WSL UNC is rewritten to its Linux path (WSL check precedes the posix-style branch, #6298)",
+      "input": {
+        "runnerScriptPath": "//wsl.localhost/Ubuntu/home/jin/run.sh",
+        "platform": "windows"
+      },
+      "expected": "bash /home/jin/run.sh"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "forward-slash wsl$ UNC with host casing is rewritten, not bash-quoted verbatim",
+      "input": { "runnerScriptPath": "//WSL$/Ubuntu/home/x.sh", "platform": "windows" },
+      "expected": "bash /home/x.sh"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "forward-slash wsl$ UNC with only a distro falls back to /",
+      "input": { "runnerScriptPath": "//wsl$/Ubuntu", "platform": "windows" },
+      "expected": "bash /"
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "forward-slash non-WSL UNC is Windows-absolute-like and runs under cmd.exe, not bash",
+      "input": { "runnerScriptPath": "//server/share/x.cmd", "platform": "windows" },
+      "expected": "cmd.exe /c \"//server/share/x.cmd\""
+    },
+    {
+      "function": "buildSetupRunnerCommand",
+      "note": "bare //wsl.localhost (no distro slash) is not a WSL UNC path and runs under cmd.exe",
+      "input": { "runnerScriptPath": "//wsl.localhost", "platform": "windows" },
+      "expected": "cmd.exe /c \"//wsl.localhost\""
     },
     {
       "function": "buildSetupRunnerCommand",

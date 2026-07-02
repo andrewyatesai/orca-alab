@@ -94,7 +94,7 @@ describe('matchSearchNavigate', () => {
 describe('runTerminalSearchNavigation', () => {
   const searchState = { query: 'hello', caseSensitive: true, regex: false }
 
-  it('runs the next search through the guarded xterm path', () => {
+  it('runs the next search through the aterm search facade', () => {
     const findNext = vi.fn(() => true)
     const findPrevious = vi.fn(() => false)
     const pane = { searchAddon: { findNext, findPrevious } } as unknown as Parameters<
@@ -106,7 +106,7 @@ describe('runTerminalSearchNavigation', () => {
     expect(findPrevious).not.toHaveBeenCalled()
   })
 
-  it('runs the previous search through the guarded xterm path', () => {
+  it('runs the previous search through the aterm search facade', () => {
     const findNext = vi.fn(() => false)
     const findPrevious = vi.fn(() => true)
     const pane = { searchAddon: { findNext, findPrevious } } as unknown as Parameters<
@@ -116,18 +116,6 @@ describe('runTerminalSearchNavigation', () => {
     expect(runTerminalSearchNavigation(pane, 'previous', searchState)).toBe(true)
     expect(findPrevious).toHaveBeenCalledWith('hello', { caseSensitive: true, regex: false })
     expect(findNext).not.toHaveBeenCalled()
-  })
-
-  it('contains the xterm decoration positive-integer crash from shortcut navigation', () => {
-    const findNext = vi.fn(() => {
-      throw new Error('This API only accepts positive integers')
-    })
-    const pane = { searchAddon: { findNext } } as unknown as Parameters<
-      typeof runTerminalSearchNavigation
-    >[0]
-
-    expect(() => runTerminalSearchNavigation(pane, 'next', searchState)).not.toThrow()
-    expect(runTerminalSearchNavigation(pane, 'next', searchState)).toBe(false)
   })
 })
 

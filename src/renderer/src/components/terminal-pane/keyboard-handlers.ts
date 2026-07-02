@@ -4,7 +4,6 @@
 import { useEffect } from 'react'
 import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
-import { safeFind } from '../terminal-search-safe-find'
 import { resolveTerminalShortcutAction } from './terminal-shortcut-policy'
 import type { MacOptionAsAlt } from './terminal-shortcut-policy'
 import { atermAppKeyProtocolNegotiated } from '@/lib/pane-manager/aterm/aterm-key-encoding'
@@ -120,27 +119,16 @@ export function runTerminalSearchNavigation(
   const { query, caseSensitive, regex } = searchState
   const options = { caseSensitive, regex }
 
-  // Why: Cmd/Ctrl+G hits the same decoration path as the search panel,
-  // so narrow-viewport highlight failures need the same containment.
   // The aterm search facade returns void (the controller tracks match state
-  // itself), so report success once the call completes without throwing.
-  return direction === 'next'
-    ? safeFind(
-        (term, findOptions) => {
-          pane.searchAddon.findNext(term, findOptions)
-          return true
-        },
-        query,
-        options
-      )
-    : safeFind(
-        (term, findOptions) => {
-          pane.searchAddon.findPrevious(term, findOptions)
-          return true
-        },
-        query,
-        options
-      )
+  // itself), so report success once the call completes. Upstream's safeFind
+  // decoration-crash guard (#6852) is xterm-specific and has no aterm
+  // equivalent: the facade never builds DOM decorations.
+  if (direction === 'next') {
+    pane.searchAddon.findNext(query, options)
+  } else {
+    pane.searchAddon.findPrevious(query, options)
+  }
+  return true
 }
 
 export function matchFileSearchShortcut(

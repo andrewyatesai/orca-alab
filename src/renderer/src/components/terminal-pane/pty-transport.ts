@@ -459,6 +459,11 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
   let connected = false
   let destroyed = false
   let ptyId: string | null = null
+  // Why: an aterm pane's initial grid report can land while pty:spawn/attach is
+  // still in flight; dropping it leaves the PTY at spawn-default dims while the
+  // renderer draws a different grid (shell line-editor output then corrupts).
+  // Keep the latest pre-bind resize and deliver it once the PTY binds.
+  let pendingPreConnectResize: { cols: number; rows: number } | null = null
   // Why: eager PTY buffers contain output produced before the pane attached —
   // often from the previous app session. We still replay that data so titles
   // and scrollback restore correctly, but it must not produce fresh bells,
@@ -734,6 +739,14 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
           return undefined
         }
 
+        // A resize requested during the spawn window supersedes the spawn dims
+        // (aterm attaches its controller async and reports the real grid once).
+        if (pendingPreConnectResize) {
+          const { cols, rows } = pendingPreConnectResize
+          pendingPreConnectResize = null
+          window.api.pty.resize(spawnResult.id, cols, rows)
+        }
+
         storedCallbacks.onConnect?.()
         storedCallbacks.onStatus?.('shell')
 
@@ -875,7 +888,13 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
         bufferHandle.dispose()
       }
 
-      if (options.cols && options.rows) {
+      // A resize requested during the attach window carries the newest renderer
+      // grid — prefer it over the dims captured when attach() was called.
+      if (pendingPreConnectResize) {
+        const { cols, rows } = pendingPreConnectResize
+        pendingPreConnectResize = null
+        window.api.pty.resize(id, cols, rows)
+      } else if (options.cols && options.rows) {
         window.api.pty.resize(id, options.cols, options.rows)
       }
 
@@ -886,6 +905,7 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     disconnect() {
       clearAccumulatedState()
       clearPendingInputWrites()
+      pendingPreConnectResize = null
       if (ptyId) {
         const id = ptyId
         window.api.pty.kill(id)
@@ -899,6 +919,7 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     detach() {
       clearAccumulatedState()
       clearPendingInputWrites()
+      pendingPreConnectResize = null
       if (ptyId) {
         // Why: detach() is used for in-session remounts such as moving a tab
         // between split groups. Stop delivering data/title events into the
@@ -937,6 +958,7 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
 
     resize(cols: number, rows: number): boolean {
       if (!connected || !ptyId) {
+        pendingPreConnectResize = { cols, rows }
         return false
       }
       window.api.pty.resize(ptyId, cols, rows)

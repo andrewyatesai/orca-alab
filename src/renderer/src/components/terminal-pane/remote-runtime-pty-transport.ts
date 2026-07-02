@@ -77,6 +77,10 @@ export function createRemoteRuntimePtyTransport(
   let multiplexedStream: RemoteRuntimeMultiplexedTerminal | null = null
   let multiplexedStreamHandle: string | null = null
   let desiredViewport: { cols: number; rows: number } | null = null
+  // Why: a grid report can land while connect/attach is in flight (aterm's
+  // controller attaches async); dropping it would leave the remote PTY at the
+  // connect-call dims while the renderer draws a different grid.
+  let pendingPreConnectViewport: { cols: number; rows: number } | null = null
   let storedCallbacks: Parameters<PtyTransport['connect']>[0]['callbacks'] = {}
   let resubscribing = false
   const clientId = `desktop:${tabId ?? 'tab'}:${leafId ?? 'leaf'}`
@@ -177,10 +181,11 @@ export function createRemoteRuntimePtyTransport(
     handle = hostHandle
     remotePtyId = toRemoteRuntimePtyId(hostHandle, currentRuntimeEnvironmentId)
     connected = true
-    desiredViewport = {
+    desiredViewport = pendingPreConnectViewport ?? {
       cols: options.cols ?? 80,
       rows: options.rows ?? 24
     }
+    pendingPreConnectViewport = null
     onPtySpawn?.(remotePtyId)
 
     await subscribeToHandle()
@@ -482,10 +487,11 @@ export function createRemoteRuntimePtyTransport(
 
         remotePtyId = toRemoteRuntimePtyId(handle, currentRuntimeEnvironmentId)
         connected = true
-        desiredViewport = {
+        desiredViewport = pendingPreConnectViewport ?? {
           cols: options.cols ?? 80,
           rows: options.rows ?? 24
         }
+        pendingPreConnectViewport = null
         onPtySpawn?.(remotePtyId)
 
         await subscribeToHandle()
@@ -517,10 +523,11 @@ export function createRemoteRuntimePtyTransport(
       }
       remotePtyId = options.existingPtyId
       connected = true
-      desiredViewport = {
+      desiredViewport = pendingPreConnectViewport ?? {
         cols: options.cols ?? 80,
         rows: options.rows ?? 24
       }
+      pendingPreConnectViewport = null
       const targetHandle = handle
       const targetPtyId = remotePtyId
       void subscribeToHandle().catch((error) => {
@@ -539,6 +546,7 @@ export function createRemoteRuntimePtyTransport(
       inputBatcher.clear()
       viewportBatcher.flush()
       outputProcessor.clearAccumulatedState()
+      pendingPreConnectViewport = null
       if (!connected && !handle) {
         return
       }
@@ -558,6 +566,7 @@ export function createRemoteRuntimePtyTransport(
       inputBatcher.clear()
       viewportBatcher.flush()
       outputProcessor.clearAccumulatedState()
+      pendingPreConnectViewport = null
       connected = false
       closeMultiplexedStream()
       storedCallbacks = {}
@@ -579,6 +588,7 @@ export function createRemoteRuntimePtyTransport(
 
     resize(cols: number, rows: number): boolean {
       if (!connected || !handle) {
+        pendingPreConnectViewport = { cols, rows }
         return false
       }
       rememberViewport(cols, rows)

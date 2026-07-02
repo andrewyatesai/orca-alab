@@ -82,6 +82,32 @@ describe('createIpcPtyTransport', () => {
     transport.disconnect()
   })
 
+  it('delivers a resize requested while pty:spawn is in flight once the PTY binds', async () => {
+    // Why: an aterm pane's controller attaches async and reports its initial
+    // grid exactly once; landing inside the spawn window must not drop it, or
+    // the shell keeps line-editing at spawn-default cols while the renderer
+    // draws a different grid and echoed commands corrupt the visible buffer.
+    const { createIpcPtyTransport } = await import('./pty-transport')
+    const transport = createIpcPtyTransport({})
+    const spawn = window.api.pty.spawn as unknown as ReturnType<typeof vi.fn>
+    let resolveSpawn: (value: { id: string }) => void = () => {}
+    spawn.mockReturnValue(
+      new Promise<{ id: string }>((resolve) => {
+        resolveSpawn = resolve
+      })
+    )
+
+    const connectPromise = transport.connect({ url: '', callbacks: {} })
+    expect(transport.resize(128, 55)).toBe(false)
+    expect(window.api.pty.resize).not.toHaveBeenCalled()
+
+    resolveSpawn({ id: 'pty-1' })
+    await connectPromise
+
+    expect(window.api.pty.resize).toHaveBeenCalledWith('pty-1', 128, 55)
+    transport.disconnect()
+  })
+
   it('ignores a stale exit for a previous PTY after reconnecting the same transport', async () => {
     const { createIpcPtyTransport } = await import('./pty-transport')
     const spawn = window.api.pty.spawn as unknown as ReturnType<typeof vi.fn>

@@ -58,6 +58,14 @@ export type AtermWorkerSetScrollbackLimit = { type: 'setScrollbackLimit'; lines:
 /** Set the DEFAULT cursor style as a DECSCUSR param 1–6 (terminalCursorStyle); does not
  *  clobber an app's live DECSCUSR. */
 export type AtermWorkerSetDefaultCursorStyle = { type: 'setDefaultCursorStyle'; param: number }
+/** Per-cell WCAG minimum-contrast fg floor (minimumContrastRatio); <= 1 turns it off. */
+export type AtermWorkerSetMinimumContrast = { type: 'setMinimumContrast'; ratio: number }
+/** Double-click word separators (terminalWordSeparator); null restores the engine's
+ *  default word logic. */
+export type AtermWorkerSetWordSeparators = {
+  type: 'setWordSeparators'
+  separators: string | null
+}
 /** Push the OS color scheme (light/dark). The engine queues a CSI ?997 update when the
  *  scheme changes and the app enabled DEC 2031; the worker drains it to the reply channel. */
 export type AtermWorkerSetColorScheme = { type: 'setColorScheme'; dark: boolean }
@@ -177,6 +185,8 @@ export type AtermWorkerRequest =
   | AtermWorkerSetLigatures
   | AtermWorkerSetScrollbackLimit
   | AtermWorkerSetDefaultCursorStyle
+  | AtermWorkerSetMinimumContrast
+  | AtermWorkerSetWordSeparators
   | AtermWorkerSetColorScheme
   | AtermWorkerScrollLines
   | AtermWorkerScrollToBottom

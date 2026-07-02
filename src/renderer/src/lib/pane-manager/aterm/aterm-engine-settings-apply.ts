@@ -1,8 +1,8 @@
 import { attachAtermColorSchemeSync } from './aterm-color-scheme-sync'
 import type { AtermControllerOptionReaders } from './aterm-controller-option-readers'
 
-// Apply the user's terminal settings (ligatures, scrollback depth, default cursor shape)
-// to the engine + wire the live OS color-scheme sync. The readers read the store live, so
+// Apply the user's terminal settings (ligatures, scrollback depth, default cursor shape,
+// minimum contrast, word separators) to the engine + wire the live OS color-scheme sync. The readers read the store live, so
 // `reapply()` re-applies them on a settings change to an OPEN pane (the setters are cheap +
 // don't change cell metrics — parity with how theme/size live-apply). Works on both render
 // paths (the worker-backed term posts each as a command). Kept out of the wiring to keep
@@ -12,13 +12,16 @@ type EngineSettingsTarget = {
   set_ligatures: (on: boolean) => void
   set_scrollback_limit: (lines: number) => void
   set_default_cursor_style: (param: number) => void
+  set_minimum_contrast: (ratio: number) => void
+  set_word_separators: (separators?: string | null) => void
   set_color_scheme: (dark: boolean) => void
   take_response: () => Uint8Array | undefined
 }
 
 export function applyAtermEngineSettings(deps: {
   term: EngineSettingsTarget
-  /** The live settings readers; ligatures/scrollback/cursor are consumed here. */
+  /** The live settings readers; ligatures/scrollback/cursor/contrast/word-separators
+   *  are consumed here. */
   readers: AtermControllerOptionReaders
   inputSink: (data: string) => void
   isDisposed: () => boolean
@@ -36,6 +39,11 @@ export function applyAtermEngineSettings(deps: {
     term.set_ligatures(readers.getLigatures())
     term.set_scrollback_limit(readers.getScrollbackLines())
     term.set_default_cursor_style(readers.getCursorStyleParam())
+    // Per-cell WCAG fg floor (engine-side since set_minimum_contrast landed) — the
+    // seeded default fg is additionally floored host-side (enforceDefaultContrast).
+    term.set_minimum_contrast(readers.getMinimumContrastRatio())
+    // null clears to the engine's default word logic (see the reader's mapping).
+    term.set_word_separators(readers.getWordSeparators())
   }
   apply()
   // Seed + live-sync the OS color scheme (DEC 2031 / DSR 996); returns its disposer.

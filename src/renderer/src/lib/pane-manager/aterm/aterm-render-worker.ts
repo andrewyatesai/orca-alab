@@ -33,7 +33,16 @@ const ctx = self as unknown as {
 
 type WorkerTerminal = ReturnType<typeof createWorkerTerminal>
 
+// Both engine bindings ship these (aterm_wasm/aterm_gpu_web), but the WorkerEngine
+// Pick + worker terminal predate them — cast here, surgically, until the planned
+// worker refactor folds them into aterm-worker-terminal.
+type EngineSettingSetters = {
+  set_minimum_contrast: (ratio: number) => void
+  set_word_separators: (separators?: string | null) => void
+}
+
 let term: WorkerTerminal | null = null
+let engineSetters: EngineSettingSetters | null = null
 let storedInit: StoredInit | null = null
 let storedCanvas: OffscreenCanvas | null = null
 // Don't fall back twice if the worker posts more than one init error.
@@ -71,6 +80,7 @@ function buildStoredInit(msg: AtermWorkerInit): StoredInit {
  *  arrives shortly after via commands from the main-thread blink timer. */
 function startTerminal(handle: EngineHandle): void {
   term = createWorkerTerminal(handle)
+  engineSetters = handle.engine as unknown as EngineSettingSetters
   if (storedInit) {
     term.resize(storedInit.rows, storedInit.cols)
   }
@@ -178,6 +188,15 @@ function dispatch(msg: AtermWorkerRequest): void {
       return
     case 'setScrollbackLimit':
       term?.setScrollbackLimit(msg.lines)
+      return
+    case 'setMinimumContrast':
+      // Appearance-only: repaint so the floored fg shows without waiting for output.
+      engineSetters?.set_minimum_contrast(msg.ratio)
+      scheduleDraw()
+      return
+    case 'setWordSeparators':
+      // Selection-behavior only (next double-click) — no repaint needed.
+      engineSetters?.set_word_separators(msg.separators ?? undefined)
       return
     case 'setDefaultCursorStyle':
       term?.setDefaultCursorStyle(msg.param)
@@ -312,6 +331,7 @@ function dispatch(msg: AtermWorkerRequest): void {
       serializeCache.dispose()
       term?.dispose()
       term = null
+      engineSetters = null
       storedInit = null
       storedCanvas = null
   }

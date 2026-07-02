@@ -212,10 +212,11 @@ function blendToward(fg: number, target: number, t: number): number {
 
 /** Ensure the SEEDED default fg meets ~4.5:1 against the default bg so body text
  *  stays readable on light themes — the floor xterm gets from minimumContrastRatio.
- *  Per-cell SGR colors are NOT adjusted here (the CPU renderer seeds them directly
- *  in the engine); a per-cell contrast floor is engine-side / Phase-next. We only
- *  nudge the default fg toward black or white (whichever the bg contrasts with) and
- *  pick the smallest blend that clears the floor, preserving hue where possible. */
+ *  Per-cell SGR colors are NOT adjusted here: the engine floors them itself via
+ *  set_minimum_contrast (wired in applyAtermEngineSettings); this seeding complements
+ *  that per-cell floor. We only nudge the default fg toward black or white (whichever
+ *  the bg contrasts with) and pick the smallest blend that clears the floor,
+ *  preserving hue where possible. */
 export function enforceDefaultContrast(fg: number, bg: number): number {
   if (contrastRatio(fg, bg) >= MIN_CONTRAST_RATIO) {
     return fg

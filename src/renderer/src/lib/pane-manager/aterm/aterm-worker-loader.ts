@@ -283,6 +283,13 @@ export async function loadAtermWorkerEngine(
     throw err
   }
   backed = createWorkerBackedTerm({ post, initial })
+  // Route the two engine setters applyAtermEngineSettings calls (minimum contrast /
+  // word separators) as worker commands, mirroring set_ligatures/set_scrollback_limit.
+  // Attached here, surgically, until the planned worker-term refactor absorbs them.
+  backed.term.set_minimum_contrast = (ratio: number): void =>
+    post({ type: 'setMinimumContrast', ratio })
+  backed.term.set_word_separators = (separators?: string | null): void =>
+    post({ type: 'setWordSeparators', separators: separators ?? null })
   // The worker owns the pane canvas, so search highlights + the link underline paint on
   // a main-thread stacked overlay driven by the snapshot (works for CPU + GPU worker).
   overlay = createAtermWorkerOverlay(

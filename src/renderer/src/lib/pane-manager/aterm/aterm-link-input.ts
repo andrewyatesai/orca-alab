@@ -9,6 +9,7 @@ import {
   resolveProviderLinkAt,
   type AtermLinkProviderSource
 } from './aterm-provider-link-hit'
+import type { AtermLinkTooltip, AtermLinkTooltipKind } from './aterm-link-tooltip'
 
 export type { AtermLinkProviderSource } from './aterm-provider-link-hit'
 
@@ -39,6 +40,9 @@ export type AtermLinkDeps = {
    *  read line text through the facade buffer (viewport rows — the same row-text
    *  source the a11y mirror reads, so the worker path serves them too). */
   getLinkProviders?: AtermLinkProviderSource
+  /** Hover tooltip sink (main-thread DOM overlay, see aterm-link-tooltip.ts).
+   *  Optional so tests exercising only hit-testing/cursor logic can omit it. */
+  linkTooltip?: Pick<AtermLinkTooltip, 'hoverLink' | 'leave'>
 }
 
 export type AtermLinkInput = {
@@ -53,6 +57,18 @@ export type AtermLinkInput = {
 const LINK_KIND_OSC8 = 0
 const LINK_KIND_URL = 1
 const LINK_KIND_FILE_PATH = 2
+
+// Engine kind → tooltip affordance wording; null for kinds nothing can open
+// (kind 3 "other"), where showing a click hint would lie.
+function tooltipKindForEngineLink(kind: number): AtermLinkTooltipKind | null {
+  if (kind === LINK_KIND_OSC8) {
+    return 'osc8'
+  }
+  if (kind === LINK_KIND_URL) {
+    return 'url'
+  }
+  return kind === LINK_KIND_FILE_PATH ? 'file' : null
+}
 
 // Map a pointer position to a (col, display-row) grid cell. Identical mapping to
 // aterm-selection-input.ts: clientX/Y minus the canvas rect (not offsetX/Y) so
@@ -89,6 +105,7 @@ function isLinkActivation(event: MouseEvent): boolean {
  *  detection via link_at, and we only paint a pointer cursor + open URLs. */
 export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
   const { canvas, term, redraw, isDisposed, openUrl, getFileLinkOpener, getLinkProviders } = deps
+  const { linkTooltip } = deps
   // Worker-backed term: link_at returns the lagging snapshot and the loader drives the
   // canvas cursor from the worker's hoverCursor each STATE. Detect the async capability
   // to resolve fresh hits on click + clear the worker hover, and stop fighting the
@@ -162,6 +179,7 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
       providerHover = { link, row, startCol: span.startCol, endCol: span.endCol }
       canvas.style.cursor = 'pointer'
       link.hover?.(event, link.text)
+      linkTooltip?.hoverLink({ span, text: link.text, kind: 'provider' })
       if (!spansEqual(hovered, span)) {
         hovered = span
         redraw()
@@ -201,6 +219,7 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
     // so don't show a link cursor — the forwarder is reporting motion to it.
     if (term.is_alt_screen || shouldForwardMouse(term, event)) {
       leaveProviderLink(event)
+      linkTooltip?.leave()
       clearCursor()
       return
     }
@@ -226,6 +245,14 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
         canvas.style.cursor = 'pointer'
       }
       nextSpan = { row, startCol: hit.start_col, endCol: hit.end_col }
+      // Tooltip is keyed by link text, so per-cell repeats inside one span are
+      // no-ops in its timeline (no flicker, no re-format).
+      const tooltipKind = tooltipKindForEngineLink(hit.kind)
+      if (tooltipKind) {
+        linkTooltip?.hoverLink({ span: nextSpan, text: hit.url, kind: tooltipKind })
+      } else {
+        linkTooltip?.leave()
+      }
     } else if (
       providerHover &&
       providerRangeContainsCell(providerHover.link.range, col + 1, absoluteLineFor(row))
@@ -235,10 +262,15 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
       const span = providerLinkSpanFor(providerHover.link, row)
       providerHover = { link: providerHover.link, ...span }
       nextSpan = span
+      // Same text key → the timeline keeps the tooltip steady across the
+      // wrapped link's rows instead of hiding/re-delaying.
+      linkTooltip?.hoverLink({ span, text: providerHover.link.text, kind: 'provider' })
     } else {
       if (!asyncLinkAt) {
         canvas.style.cursor = ''
       }
+      // No link here: hide/cancel now; a provider resolution re-hovers async.
+      linkTooltip?.leave()
       queryProviders(event, col, row)
     }
     if (!spansEqual(hovered, nextSpan)) {
@@ -334,6 +366,7 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
       canvas.removeEventListener('click', onClick)
       // Fire the provider's leave (hides its tooltip) and drop in-flight queries.
       leaveProviderLink(null)
+      linkTooltip?.leave()
       clearCursor()
     }
   }

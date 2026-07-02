@@ -139,6 +139,9 @@ export type ManagedPaneInternal = {
   xtermContainer: HTMLElement
   linkTooltip: HTMLElement
   terminalTuiScrollSensitivity?: () => number | undefined
+  /** PaneManagerOptions.formatLinkTooltip, threaded to the aterm hover tooltip
+   *  (read live at hover time by the controller's options). */
+  formatLinkTooltip?: PaneManagerOptions['formatLinkTooltip']
   // Read by aterm-gpu-auto-policy at wiring time to pick the GPU vs CPU drawer.
   terminalGpuAcceleration: GlobalSettings['terminalGpuAcceleration']
   fitResizeObserver: ResizeObserver | null

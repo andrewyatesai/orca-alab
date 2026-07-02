@@ -86,14 +86,35 @@ function mount(
   return { textarea, inputSink, pasteSink, copySelection, redraw, scrollLines, dispose }
 }
 
+type FireKeyModifiers = Partial<
+  Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'metaKey' | 'shiftKey' | 'isComposing'>
+>
+
+function fireKey(
+  textarea: HTMLTextAreaElement,
+  type: 'keydown' | 'keyup',
+  key: string,
+  modifiers: FireKeyModifiers = {}
+): KeyboardEvent {
+  const event = new KeyboardEvent(type, { key, bubbles: true, cancelable: true, ...modifiers })
+  textarea.dispatchEvent(event)
+  return event
+}
+
 function fireKeydown(
   textarea: HTMLTextAreaElement,
   key: string,
-  modifiers: Partial<Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'metaKey' | 'shiftKey'>> = {}
+  modifiers: FireKeyModifiers = {}
 ): KeyboardEvent {
-  const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...modifiers })
-  textarea.dispatchEvent(event)
-  return event
+  return fireKey(textarea, 'keydown', key, modifiers)
+}
+
+function fireKeyup(
+  textarea: HTMLTextAreaElement,
+  key: string,
+  modifiers: FireKeyModifiers = {}
+): KeyboardEvent {
+  return fireKey(textarea, 'keyup', key, modifiers)
 }
 
 function fireInput(textarea: HTMLTextAreaElement, data: string | null, inputType: string): void {
@@ -324,6 +345,90 @@ describe('attachAtermTextareaInput', () => {
     fireKeydown(h.textarea, 'C', { ctrlKey: true, shiftKey: true })
     expect(h.copySelection).toHaveBeenCalled()
     expect(handler).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('sends CSI-u release bytes for a keyup under kitty event-type reporting', () => {
+    // In-process engine with REPORT_EVENT_TYPES negotiated: release of 'a'
+    // encodes as CSI-u with event-type :3 (byte production proven in Rust).
+    const releaseBytes = new Uint8Array([0x1b, 0x5b, 0x39, 0x37, 0x3b, 0x31, 0x3a, 0x33, 0x75])
+    const encodeKey = vi.fn(() => releaseBytes)
+    const h = mount({ encodeKey })
+    const keyup = fireKeyup(h.textarea, 'a')
+    expect(encodeKey).toHaveBeenCalledWith('a', 0, 2, undefined)
+    expect(h.inputSink).toHaveBeenCalledWith('\x1b[97;1:3u')
+    expect(keyup.defaultPrevented).toBe(true)
+    h.dispose()
+  })
+
+  it('sends nothing for a legacy-mode release (engine emits no bytes) and leaves the event alone', () => {
+    // The engine drops releases outside kitty event-type reporting; the keyup
+    // listener must be free in legacy mode: no send, no preventDefault.
+    const encodeKey = vi.fn(() => new Uint8Array(0))
+    const h = mount({ encodeKey })
+    const keyup = fireKeyup(h.textarea, 'a')
+    expect(encodeKey).toHaveBeenCalledWith('a', 0, 2, undefined)
+    expect(h.inputSink).not.toHaveBeenCalled()
+    expect(keyup.defaultPrevented).toBe(false)
+    h.dispose()
+  })
+
+  it('encodes releases via the free function + snapshot mode bits on the worker path', () => {
+    // No encode_key on the term = worker-backed; keyups use the same snapshot
+    // keyboard_mode_bits seam as keydowns. 0x2 = kitty REPORT_EVENT_TYPES.
+    const h = mount({ keyboardModeBits: 0x2 })
+    fireKeyup(h.textarea, 'ArrowUp')
+    expect(vi.mocked(encode_key_with_mode)).toHaveBeenLastCalledWith(
+      'ArrowUp',
+      0,
+      2,
+      undefined,
+      0x2
+    )
+    h.dispose()
+  })
+
+  it('suppresses keyups while an IME composition is open', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x61]))
+    const h = mount({ encodeKey })
+    fireComposition(h.textarea, 'compositionstart')
+    fireKeyup(h.textarea, 'a')
+    // Browsers also flag composition keyups directly; both gates must hold.
+    fireKeyup(h.textarea, 'n', { isComposing: true })
+    expect(encodeKey).not.toHaveBeenCalled()
+    expect(h.inputSink).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('never encodes a Cmd+key release (Mac app shortcuts own press AND release)', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x63]))
+    const h = mount({ encodeKey })
+    const keyup = fireKeyup(h.textarea, 'c', { metaKey: true })
+    expect(encodeKey).not.toHaveBeenCalled()
+    expect(h.inputSink).not.toHaveBeenCalled()
+    expect(keyup.defaultPrevented).toBe(false)
+    h.dispose()
+  })
+
+  it('consults the custom key handler on keyup: false suppresses the release', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x61]))
+    const handler = vi.fn(() => false)
+    const h = mount({ encodeKey }, undefined, () => handler)
+    const keyup = fireKeyup(h.textarea, 'a')
+    expect(handler).toHaveBeenCalledWith(keyup)
+    expect(encodeKey).not.toHaveBeenCalled()
+    expect(h.inputSink).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('encodes a keyup with no matching keydown (focus gained mid-hold)', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x1b, 0x5b, 0x75]))
+    const h = mount({ encodeKey })
+    // No prior keydown fired; the release still reaches the engine, which
+    // decides whether the negotiated mode reports it.
+    fireKeyup(h.textarea, 'Enter')
+    expect(encodeKey).toHaveBeenCalledWith('Enter', 0, 2, undefined)
+    expect(h.inputSink).toHaveBeenCalledWith('\x1b[u')
     h.dispose()
   })
 

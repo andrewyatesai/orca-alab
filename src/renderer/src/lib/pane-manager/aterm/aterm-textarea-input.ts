@@ -45,6 +45,8 @@ export type AtermTextareaInputDeps = {
  *    the terminal's keyboard mode); plain printable chars are NOT sent here.
  *  - the 'input' event handles printable text, paste (setRangeText+InputEvent),
  *    and the IME commit (compositionend) — one route for all text, never doubled.
+ *  - keyup encodes releases (event_type=2) for kitty REPORT_EVENT_TYPES apps;
+ *    the engine drops them in legacy mode so nothing leaks to normal shells.
  *  Returns a disposer that removes every listener.
  *
  *  In-process the encoder is `term.encode_key` (LIVE keyboard mode — exact). On
@@ -174,6 +176,35 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     textarea.value = ''
   }
 
+  // Keyup mirrors keydown's gates (IME, consumer hook, Cmd-null, macOption) but
+  // encodes with event_type=Release so kitty REPORT_EVENT_TYPES apps (neovim,
+  // kitty-protocol games) see releases. The engine emits nothing for releases
+  // in legacy mode, so this is free there. A keyup with no matching keydown
+  // (focus gained mid-hold) is encoded anyway — the engine decides. Copy-chord
+  // and scrollback paging are keydown-only host actions and are not re-run.
+  const onKeyUp = (event: KeyboardEvent): void => {
+    if (event.isComposing || composing) {
+      return
+    }
+    // Same consumer contract as keydown; the hook is keyup-aware (it suppresses
+    // e.g. the keyup paired with a host-handled interrupt press).
+    const customKeyEventHandler = getCustomKeyEventHandler?.()
+    if (customKeyEventHandler && customKeyEventHandler(event) === false) {
+      return
+    }
+    const bytes = encodeKeyEventToBytes(event, encodeWithEngine, {
+      isMac,
+      macOptionIsMeta: getMacOptionIsMeta?.() ?? false
+    })
+    if (bytes === null) {
+      return
+    }
+    // preventDefault only when bytes were actually sent (legacy releases are
+    // null), so app/browser keyup behavior is untouched outside kitty mode.
+    event.preventDefault()
+    inputSink(bytes)
+  }
+
   // Text input path (typing, paste via setRangeText+InputEvent, IME commit): the
   // helper textarea has no keydown sender for printable chars (see onKeyDown), so
   // the actual character bytes arrive here. Mirrors xterm: keydown = non-text
@@ -234,6 +265,7 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
   }
 
   textarea.addEventListener('keydown', onKeyDown)
+  textarea.addEventListener('keyup', onKeyUp)
   textarea.addEventListener('input', onInput)
   textarea.addEventListener('compositionstart', onCompositionStart)
   textarea.addEventListener('compositionupdate', onCompositionUpdate)
@@ -242,6 +274,7 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
   return {
     dispose: () => {
       textarea.removeEventListener('keydown', onKeyDown)
+      textarea.removeEventListener('keyup', onKeyUp)
       textarea.removeEventListener('input', onInput)
       textarea.removeEventListener('compositionstart', onCompositionStart)
       textarea.removeEventListener('compositionupdate', onCompositionUpdate)

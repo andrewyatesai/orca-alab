@@ -276,4 +276,12 @@ export type AtermPaneControllerOptions = {
    *  TUIs (alt-screen arrow synthesis + mouse-report wheel forwarding). Read per
    *  wheel event. Defaults to 1. */
   getTuiScrollMultiplier?: () => number
+  /** orca's PaneManagerOptions.formatLinkTooltip: maps a hovered URL (+ the
+   *  default affordance hint) to a richer hover-tooltip label (e.g. localhost
+   *  port worktree labels), possibly async. Read per hover; a null/undefined
+   *  result keeps the default "url (modifier hint)" label. */
+  formatLinkTooltip?: (
+    url: string,
+    openLinkHint: string
+  ) => string | null | undefined | Promise<string | null | undefined>
 }

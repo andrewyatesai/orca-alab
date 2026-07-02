@@ -151,7 +151,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     scheduleDraw: () => presentNow()
   })
 
-  const { selectionInput, scrollInput, eventReportingInput, linkInput, syncDpr } =
+  const { selectionInput, scrollInput, eventReportingInput, linkInput, linkTooltip, syncDpr } =
     attachAtermPointerInputs({
       canvas,
       textarea,
@@ -350,6 +350,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     scrollInput.dispose()
     eventReportingInput.dispose()
     linkInput.dispose()
+    linkTooltip.dispose()
     scrollbarOverlay.dispose()
     searchOverlay?.dispose()
     strategy.dispose()

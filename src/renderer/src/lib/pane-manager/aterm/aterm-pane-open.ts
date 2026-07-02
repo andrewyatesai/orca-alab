@@ -6,6 +6,7 @@ import {
   normalizeTerminalScrollSensitivity
 } from '../pane-terminal-options'
 import { normalizeTerminalTuiMouseWheelMultiplier } from '../pane-terminal-mouse-wheel'
+import { normalizeDesktopTerminalScrollbackRows } from '../../../../../shared/terminal-scrollback-policy'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 
@@ -71,13 +72,12 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
           settings?.terminalFontFamily
         )
       },
-      // Convert terminalScrollbackBytes → a line count (mirrors the legacy facade option
-      // in use-terminal-pane-lifecycle) so the engine retains the user's history depth
-      // instead of its 100k default.
-      getScrollbackLines: () => {
-        const bytes = useAppStore.getState().settings?.terminalScrollbackBytes ?? 10_000_000
-        return Math.min(50_000, Math.max(1000, Math.round(bytes / 200)))
-      },
+      // The rows-based scrollback setting (upstream #7069 model), normalized the same
+      // way the lifecycle does, so the engine retains the user's history depth.
+      getScrollbackLines: () =>
+        normalizeDesktopTerminalScrollbackRows(
+          useAppStore.getState().settings?.terminalScrollbackRows
+        ),
       // Wheel sensitivities read live off the facade's options bag (kept in sync by
       // applyTerminalAppearance) so the sliders take effect without a pane rebuild.
       getScrollSensitivity: () =>
@@ -98,7 +98,11 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
               ? 3
               : 1
         return settings?.terminalCursorBlink === false ? base + 1 : base
-      }
+      },
+      // orca's formatLinkTooltip (localhost port labels): read live off the pane
+      // so the hover tooltip labels URLs however registration and pane-open
+      // interleave; unset → the default "url (modifier hint)" label.
+      formatLinkTooltip: (url, hint) => pane.formatLinkTooltip?.(url, hint)
     }
   )
     .then((controller) => {

@@ -90,6 +90,7 @@ export function createPaneDOM(
     xtermContainer,
     linkTooltip,
     terminalTuiScrollSensitivity: options.terminalTuiScrollSensitivity,
+    formatLinkTooltip: options.formatLinkTooltip,
     // The aterm controller owns GPU acceleration via its own draw strategy
     // (aterm-gpu-auto-policy reads this setting at wiring time).
     terminalGpuAcceleration: options.terminalGpuAcceleration ?? 'auto',

@@ -2,6 +2,7 @@ import { attachAtermScrollInput } from './aterm-scroll-input'
 import { attachAtermSelectionInput } from './aterm-selection-input'
 import { attachAtermEventReportingInput } from './aterm-event-reporting-input'
 import { attachAtermLinkInput } from './aterm-link-input'
+import { createAtermLinkTooltip } from './aterm-link-tooltip'
 import { createAtermUrlOpener } from './aterm-url-link-routing'
 import { copyAtermSelectionToClipboard } from './aterm-clipboard-copy'
 import type { AtermMetrics } from './aterm-grid-reflow'
@@ -50,6 +51,7 @@ export function attachAtermPointerInputs({
   scrollInput: ReturnType<typeof attachAtermScrollInput>
   eventReportingInput: ReturnType<typeof attachAtermEventReportingInput>
   linkInput: ReturnType<typeof attachAtermLinkInput>
+  linkTooltip: ReturnType<typeof createAtermLinkTooltip>
   syncDpr: () => void
 } {
   const selectionDeps = {
@@ -96,6 +98,17 @@ export function attachAtermPointerInputs({
   // late-bound openers the lifecycle set on the prior controller.
   const openUrl = createAtermUrlOpener(() => shared.activeLinkContext)
 
+  // The hover tooltip DOM overlay (main-thread on all draw paths); the link
+  // input feeds it hover/leave, and it consumes PaneManagerOptions'
+  // formatLinkTooltip (e.g. localhost port worktree labels).
+  const linkTooltip = createAtermLinkTooltip({
+    canvas,
+    textarea,
+    metrics,
+    isDisposed,
+    formatLinkTooltip: controllerOptions?.formatLinkTooltip
+  })
+
   const linkInput = attachAtermLinkInput({
     canvas,
     term,
@@ -104,7 +117,8 @@ export function attachAtermPointerInputs({
     isDisposed,
     openUrl,
     getFileLinkOpener: () => shared.fileLinkOpener,
-    getLinkProviders: () => shared.linkProviderSource?.() ?? []
+    getLinkProviders: () => shared.linkProviderSource?.() ?? [],
+    linkTooltip
   })
 
   return {
@@ -112,6 +126,7 @@ export function attachAtermPointerInputs({
     scrollInput,
     eventReportingInput,
     linkInput,
+    linkTooltip,
     // Scroll/mouse/link read the shared `metrics` live; only the selection deps
     // still hold by-value copies, so push the new metrics into them.
     syncDpr: () => {

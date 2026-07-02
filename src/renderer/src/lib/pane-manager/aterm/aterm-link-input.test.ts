@@ -3,6 +3,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { attachAtermLinkInput, type AtermLinkInput } from './aterm-link-input'
+import type { AtermLinkTooltipHover } from './aterm-link-tooltip'
 import type { AtermTerminal } from './aterm_wasm.js'
 import type { ILink, ILinkProvider } from './terminal-types'
 
@@ -37,7 +38,17 @@ function makeLink(overrides: Partial<ILink> = {}): ILink {
   }
 }
 
-function mount(link: ILink): {
+function tooltipSpy(): {
+  hoverLink: ReturnType<typeof vi.fn<(hover: AtermLinkTooltipHover) => void>>
+  leave: ReturnType<typeof vi.fn<() => void>>
+} {
+  return { hoverLink: vi.fn<(hover: AtermLinkTooltipHover) => void>(), leave: vi.fn<() => void>() }
+}
+
+function mount(
+  link: ILink,
+  linkTooltip?: ReturnType<typeof tooltipSpy>
+): {
   canvas: HTMLCanvasElement
   input: AtermLinkInput
   redraw: ReturnType<typeof vi.fn>
@@ -53,7 +64,8 @@ function mount(link: ILink): {
     isDisposed: () => false,
     openUrl: vi.fn(),
     getFileLinkOpener: () => null,
-    getLinkProviders: () => [providerWithLink(link)]
+    getLinkProviders: () => [providerWithLink(link)],
+    linkTooltip
   })
   return { canvas, input, redraw }
 }
@@ -132,5 +144,35 @@ describe('attachAtermLinkInput provider links', () => {
     canvas.dispatchEvent(mouseEventAtCell('click', 2, 0))
     expect(link.activate).not.toHaveBeenCalled()
     input.dispose()
+  })
+})
+
+describe('attachAtermLinkInput tooltip notifications', () => {
+  it('feeds a resolved provider hover to the tooltip sink with its span + text', async () => {
+    const link = makeLink()
+    const linkTooltip = tooltipSpy()
+    const { canvas, input } = mount(link, linkTooltip)
+    canvas.dispatchEvent(mouseEventAtCell('mousemove', 2, 0))
+    await settleHover()
+    expect(linkTooltip.hoverLink).toHaveBeenCalledWith({
+      span: { row: 0, startCol: 0, endCol: 6 },
+      text: 'term_abc',
+      kind: 'provider'
+    })
+    input.dispose()
+  })
+
+  it('tells the tooltip to leave when the pointer exits the link and on dispose', async () => {
+    const link = makeLink()
+    const linkTooltip = tooltipSpy()
+    const { canvas, input } = mount(link, linkTooltip)
+    canvas.dispatchEvent(mouseEventAtCell('mousemove', 2, 0))
+    await settleHover()
+    canvas.dispatchEvent(mouseEventAtCell('mousemove', 8, 0))
+    await settleHover()
+    expect(linkTooltip.leave).toHaveBeenCalled()
+    const leaveCalls = linkTooltip.leave.mock.calls.length
+    input.dispose()
+    expect(linkTooltip.leave.mock.calls.length).toBeGreaterThan(leaveCalls)
   })
 })

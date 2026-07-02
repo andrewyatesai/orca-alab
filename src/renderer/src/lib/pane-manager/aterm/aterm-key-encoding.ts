@@ -1,4 +1,5 @@
-// DOM keydown → engine-encoder bridge for the aterm helper textarea. The ENGINE
+// DOM keydown/keyup → engine-encoder bridge for the aterm helper textarea. The
+// ENGINE
 // owns byte production (legacy + xterm modifyOtherKeys + kitty CSI-u, driven by
 // the live keyboard mode: DECCKM SS3, CSI 1;mod on arrows/nav, Ctrl-letter
 // controls, Alt ESC-prefixing per 1036/1039). This module only extracts the
@@ -9,7 +10,9 @@
 // Input model (mirrors xterm): keydown encodes ONLY non-text keys (Enter, Tab,
 // arrows, editing/nav, F-keys, Ctrl/Alt chords). Plain printable characters
 // return null and flow through the textarea 'input'/IME path instead, so they
-// are never double-sent. See aterm-textarea-input.ts.
+// are never double-sent. Keyups encode every key (kitty REPORT_EVENT_TYPES
+// releases); the engine emits nothing for them in legacy mode. See
+// aterm-textarea-input.ts.
 
 /** Engine `Modifiers` bitfield (SHIFT=1 ALT=2 CTRL=4 SUPER=8). */
 export const ATERM_KEY_MOD_SHIFT = 1
@@ -17,10 +20,12 @@ export const ATERM_KEY_MOD_ALT = 2
 export const ATERM_KEY_MOD_CTRL = 4
 export const ATERM_KEY_MOD_SUPER = 8
 
-/** Engine `KeyEventType` (0=Press, 1=Repeat; 2=Release is unused — the host
- *  sends no keyup events, so kitty release reports are not produced). */
+/** Engine `KeyEventType` (0=Press, 1=Repeat, 2=Release). The engine downgrades
+ *  Repeat to Press and drops Release entirely unless the app negotiated kitty
+ *  event-type reporting, so sending the true type is always safe. */
 export const ATERM_KEY_EVENT_PRESS = 0
 export const ATERM_KEY_EVENT_REPEAT = 1
+export const ATERM_KEY_EVENT_RELEASE = 2
 
 /** The engine encoder seam: `AtermTerminal.encode_key` in-process (live keyboard
  *  mode, exact) or the free `encode_key_with_mode` + snapshot mode bits on the
@@ -91,16 +96,21 @@ export function encodeKeyEventToBytes(
 ): string | null {
   const isMac = options.isMac === true
   const macOptionIsMeta = options.macOptionIsMeta === true
+  const isRelease = event.type === 'keyup'
   const { key } = event
 
   // Cmd/Super chords are app shortcuts (menu/copy/tab nav), NOT terminal input:
-  // never encode them. The caller checks its copy-chord first, so a handled
-  // Cmd+C never reaches here; everything else returns null so the app owns it.
+  // never encode them (press OR release). The caller checks its copy-chord
+  // first, so a handled Cmd+C never reaches here; everything else returns null
+  // so the app owns it.
   if (event.metaKey) {
     return null
   }
 
-  if (isPrintableKey(key)) {
+  // The printable gates below exist to avoid double-sending with the textarea
+  // 'input' path — keyups fire no input event, so releases skip them and let
+  // the engine decide (it drops releases outside kitty event-type reporting).
+  if (!isRelease && isPrintableKey(key)) {
     // On macOS Option only acts as Meta when macOptionIsMeta is on; with it OFF
     // (the default) the OS composes the glyph ('å' for Option+a) and the input
     // event delivers it — keydown must NOT also encode the chord.
@@ -119,10 +129,17 @@ export function encodeKeyEventToBytes(
     }
   }
 
+  // True event type always: the engine downgrades Repeat→Press and drops
+  // Release when kitty event-type reporting is off (legacy semantics).
+  const eventType = isRelease
+    ? ATERM_KEY_EVENT_RELEASE
+    : event.repeat
+      ? ATERM_KEY_EVENT_REPEAT
+      : ATERM_KEY_EVENT_PRESS
   const bytes = encodeWithEngine(
     key,
     atermModsFromEvent(event),
-    event.repeat ? ATERM_KEY_EVENT_REPEAT : ATERM_KEY_EVENT_PRESS,
+    eventType,
     atermBaseLayoutKey(event)
   )
   // Undefined/empty = no terminal encoding (modifier-only, IME, unmapped named

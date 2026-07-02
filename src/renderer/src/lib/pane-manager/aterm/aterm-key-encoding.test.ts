@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   ATERM_KEY_EVENT_PRESS,
+  ATERM_KEY_EVENT_RELEASE,
   ATERM_KEY_EVENT_REPEAT,
   ATERM_KEY_MOD_ALT,
   ATERM_KEY_MOD_CTRL,
@@ -9,15 +10,16 @@ import {
   encodeKeyEventToBytes
 } from './aterm-key-encoding'
 
-// The extraction layer only reads key/code + modifier flags, so a plain object
-// (cast to KeyboardEvent) avoids needing a DOM environment.
+// The extraction layer only reads type + key/code + modifier flags, so a plain
+// object (cast to KeyboardEvent) avoids needing a DOM environment.
 function keyEvent(
   key: string,
   modifiers: Partial<
-    Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'metaKey' | 'shiftKey' | 'repeat' | 'code'>
+    Pick<KeyboardEvent, 'ctrlKey' | 'altKey' | 'metaKey' | 'shiftKey' | 'repeat' | 'code' | 'type'>
   > = {}
 ): KeyboardEvent {
   return {
+    type: 'keydown',
     key,
     code: '',
     ctrlKey: false,
@@ -139,6 +141,54 @@ describe('encodeKeyEventToBytes (engine handoff + platform gates)', () => {
       ATERM_KEY_EVENT_PRESS,
       undefined
     )
+  })
+
+  it('marks a keyup as event_type RELEASE and passes it to the engine', () => {
+    // kitty REPORT_EVENT_TYPES: releases encode as CSI-u with event-type :3.
+    const encode = mockEncoder(
+      new Uint8Array([0x1b, 0x5b, 0x39, 0x37, 0x3b, 0x31, 0x3a, 0x33, 0x75])
+    )
+    const result = encodeKeyEventToBytes(keyEvent('a', { type: 'keyup' }), encode)
+    expect(encode).toHaveBeenCalledWith('a', 0, ATERM_KEY_EVENT_RELEASE, undefined)
+    expect(result).toBe('\x1b[97;1:3u')
+  })
+
+  it('skips the printable input-path gates on release (keyups fire no input event)', () => {
+    const encode = mockEncoder(new Uint8Array([0x1b, 0x5b, 0x75]))
+    // A plain printable keydown is null (input path), but its release must
+    // still reach the engine so kitty event-type apps see it.
+    expect(encodeKeyEventToBytes(keyEvent('a'), encode)).toBeNull()
+    expect(encode).not.toHaveBeenCalled()
+    encodeKeyEventToBytes(keyEvent('a', { type: 'keyup' }), encode)
+    expect(encode).toHaveBeenCalledWith('a', 0, ATERM_KEY_EVENT_RELEASE, undefined)
+    // Mac Option+printable release also reaches the engine with macOptionIsMeta
+    // OFF: the compose-glyph gate only exists to defer to the input path.
+    encodeKeyEventToBytes(keyEvent('å', { type: 'keyup', altKey: true }), encode, {
+      isMac: true,
+      macOptionIsMeta: false
+    })
+    expect(encode).toHaveBeenLastCalledWith(
+      'å',
+      ATERM_KEY_MOD_ALT,
+      ATERM_KEY_EVENT_RELEASE,
+      undefined
+    )
+  })
+
+  it('returns null for a legacy-mode release (engine emits nothing)', () => {
+    const encode = vi.fn(() => new Uint8Array(0))
+    expect(encodeKeyEventToBytes(keyEvent('Enter', { type: 'keyup' }), encode)).toBeNull()
+    expect(encode).toHaveBeenCalledWith('Enter', 0, ATERM_KEY_EVENT_RELEASE, undefined)
+  })
+
+  it('returns null for a Cmd (metaKey) release so the app owns the shortcut end-to-end', () => {
+    const encode = mockEncoder()
+    expect(
+      encodeKeyEventToBytes(keyEvent('c', { type: 'keyup', metaKey: true }), encode, {
+        isMac: true
+      })
+    ).toBeNull()
+    expect(encode).not.toHaveBeenCalled()
   })
 
   it('returns null when the engine has no encoding for the key', () => {

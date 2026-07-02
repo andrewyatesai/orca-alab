@@ -1,5 +1,5 @@
-import { readFile } from 'fs/promises'
-import { execFile } from 'child_process'
+import { readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
 import { app } from 'electron'
 
 // The aterm canvas/WebGL renderers rasterize glyphs themselves from injected
@@ -39,7 +39,11 @@ export type TerminalFallbackFonts = {
 // (sbix) are read whole; the engine selects face 0.
 const CJK_CANDIDATES: Record<NodeJS.Platform, readonly string[]> = {
   darwin: ['/System/Library/Fonts/PingFang.ttc', '/System/Library/Fonts/Hiragino Sans GB.ttc'],
-  win32: ['C:/Windows/Fonts/msyh.ttc', 'C:/Windows/Fonts/simsun.ttc', 'C:/Windows/Fonts/msgothic.ttc'],
+  win32: [
+    'C:/Windows/Fonts/msyh.ttc',
+    'C:/Windows/Fonts/simsun.ttc',
+    'C:/Windows/Fonts/msgothic.ttc'
+  ],
   linux: [
     '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
     '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',

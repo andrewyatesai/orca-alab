@@ -4,13 +4,17 @@ import {
   flushTerminalOutput,
   requestTerminalBacklogRecovery
 } from '@/lib/pane-manager/pane-terminal-output-scheduler'
-import { resetAllTerminalWebglAtlases } from '@/lib/pane-manager/pane-manager-registry'
+import {
+  resetAllTerminalWebglAtlases,
+  resetAndRefreshAllTerminalWebglAtlases
+} from '@/lib/pane-manager/pane-manager-registry'
 import {
   beginSuppressScrollIntentWrites,
   endSuppressScrollIntentWrites,
   enforceTerminalCurrentScrollIntent
 } from '@/lib/pane-manager/terminal-scroll-intent'
 import { fitAndFocusPanes, fitPanes, focusActivePane } from './pane-helpers'
+import { scheduleTerminalWebglAtlasRecovery } from './terminal-webgl-atlas-recovery'
 
 // Re-anchor schedule after a resume: two rAFs + an 80ms backstop, matching
 // restoreScrollStateAfterLayout / syncTerminalScrollIntentSoon, so the durable pin is
@@ -19,6 +23,7 @@ import { fitAndFocusPanes, fitPanes, focusActivePane } from './pane-helpers'
 const RESUME_REANCHOR_BACKSTOP_MS = 80
 
 const VISIBLE_RESUME_FLUSH_CHARS = 256 * 1024
+const WINDOW_WAKE_FLUSH_CHARS = 64 * 1024
 
 export type TerminalHiddenReason = 'surface' | 'tab'
 
@@ -31,6 +36,7 @@ type ResumeTerminalVisibilityArgs = {
 }
 
 type HideTerminalVisibilityArgs = {
+  manager: PaneManager
   wasVisible: boolean
   wasWorktreeActive: boolean
   isWorktreeActive: boolean
@@ -41,6 +47,11 @@ type HideTerminalVisibilityArgs = {
 type HideTerminalVisibilityResult = {
   hiddenReason: TerminalHiddenReason | null
   renderingSuspended: boolean
+}
+
+type RecoverVisibleTerminalWindowWakeArgs = {
+  manager: PaneManager
+  isActive: boolean
 }
 
 export function resumeTerminalVisibility({
@@ -77,6 +88,7 @@ export function resumeTerminalVisibility({
       // hidden-output recovery: agent TUIs can suppress hidden bytes until the
       // pane is foregrounded.
       requestLightTabBacklogRecovery(manager)
+      scheduleTerminalWebglAtlasRecovery()
       if (isActive) {
         focusActivePane(manager)
       }
@@ -115,6 +127,7 @@ export function resumeTerminalVisibility({
 }
 
 export function hideTerminalVisibility({
+  manager,
   wasVisible,
   wasWorktreeActive,
   isWorktreeActive,
@@ -128,9 +141,15 @@ export function hideTerminalVisibility({
     captureViewportPositions(false)
   }
   if (!isWorktreeActive && (wasVisible || surfaceBecameHidden)) {
+    // Pause draw scheduling while hidden: engines keep ingesting PTY bytes
+    // but paint no frames (and hold no GPU work) until resumed.
+    manager.suspendRendering()
     return { hiddenReason: 'surface', renderingSuspended: true }
   }
   if (!hasCompletedVisibleResume && wasVisible && wasWorktreeActive && isWorktreeActive) {
+    // Why: the visibility hook starts wasVisible=true so terminal tabs that
+    // first mount hidden still stop painting instead of drawing offscreen.
+    manager.suspendRendering()
     return { hiddenReason: 'tab', renderingSuspended: true }
   }
   if (wasVisible && isWorktreeActive) {
@@ -140,6 +159,26 @@ export function hideTerminalVisibility({
     return { hiddenReason: 'surface', renderingSuspended: false }
   }
   return { hiddenReason: null, renderingSuspended: false }
+}
+
+export function recoverVisibleTerminalWindowWake({
+  manager,
+  isActive
+}: RecoverVisibleTerminalWindowWakeArgs): void {
+  // Why: macOS screensaver/display wake can leave xterm visible but with a
+  // stale renderer/input surface; Orca's own hidden-state resume never runs.
+  for (const pane of manager.getPanes()) {
+    requestTerminalBacklogRecovery(pane.terminal)
+    flushTerminalOutput(pane.terminal, { maxChars: WINDOW_WAKE_FLUSH_CHARS })
+  }
+  manager.resumeRendering()
+  if (isActive) {
+    fitAndFocusPanes(manager)
+  } else {
+    fitPanes(manager)
+  }
+  enforceTerminalViewportIntents(manager)
+  resetAndRefreshAllTerminalWebglAtlases()
 }
 
 function requestLightTabBacklogRecovery(manager: PaneManager): void {
@@ -157,6 +196,10 @@ function resumeTerminalVisibilityHeavy(manager: PaneManager, isActive: boolean):
     requestTerminalBacklogRecovery(pane.terminal)
     flushTerminalOutput(pane.terminal, { maxChars: VISIBLE_RESUME_FLUSH_CHARS })
   }
+  // Resume draw scheduling immediately so the terminal shows its last-known
+  // state on the first painted frame (panes may have been suspended while
+  // hidden, or created suspended via initialRenderingSuspended).
+  manager.resumeRendering()
   // Single fit on resume. Background bytes have been pushed into the engine
   // above, so this fit only absorbs container dimension changes that
   // happened while hidden (e.g. sidebar toggle on another worktree).

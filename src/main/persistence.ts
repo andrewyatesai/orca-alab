@@ -12,10 +12,10 @@ import {
   copyFileSync,
   statSync,
   realpathSync
-} from 'fs'
-import { writeFile, rename, mkdir, rm, copyFile } from 'fs/promises'
-import { join, dirname, isAbsolute, resolve, sep } from 'path'
-import { homedir } from 'os'
+} from 'node:fs'
+import { writeFile, rename, mkdir, rm, copyFile } from 'node:fs/promises'
+import { join, dirname, isAbsolute, resolve, sep } from 'node:path'
+import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import type {
   Automation,
@@ -78,7 +78,13 @@ import {
   buildWorkspaceRunContext
 } from '../shared/task-source-context'
 import type { MigrationUnsupportedPtyEntry } from '../shared/agent-status-types'
-import type { SshRemotePtyLease, SshTarget } from '../shared/ssh-types'
+import { MOBILE_PAIRING_USERDATA_FILES } from './runtime/mobile-pairing-files'
+import { hardenExistingSecureFile } from '../shared/secure-file'
+import {
+  LEGACY_DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS,
+  type SshRemotePtyLease,
+  type SshTarget
+} from '../shared/ssh-types'
 import { isFolderRepo } from '../shared/repo-kind'
 import { getGitUsername } from './git/repo'
 import { getRepoExecutionHostId, parseExecutionHostId } from '../shared/execution-host'
@@ -132,6 +138,10 @@ import { normalizeTerminalShortcutPolicy } from '../shared/keybindings'
 import { normalizeSourceControlGroupOrder } from '../shared/source-control-group-order'
 import { normalizeAppIconId } from '../shared/app-icon'
 import { normalizeTerminalCustomThemes } from '../shared/terminal-custom-themes'
+import {
+  legacyTerminalScrollbackBytesToRows,
+  normalizeDesktopTerminalScrollbackRows
+} from '../shared/terminal-scrollback-policy'
 import {
   compareFeatureInteractionUsageBuckets,
   getFeatureInteractionCategory,
@@ -203,6 +213,7 @@ import {
 } from './terminal-scrollback-snapshots'
 import { track } from './telemetry/client'
 import { getCohortAtEmit } from './telemetry/cohort-classifier'
+import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from './startup/startup-diagnostics'
 
 function encrypt(plaintext: string): string {
   if (!plaintext || !safeStorage.isEncryptionAvailable()) {
@@ -296,17 +307,74 @@ function retireLegacyInstructionsForClearedTextActionRecipes(
 // Solution: index.ts calls initDataPath() right after configureDevUserDataPath()
 // but before app.setName(), capturing the correct path at the right moment.
 let _dataFile: string | null = null
+let _userDataDir: string | null = null
 
 export function initDataPath(): void {
-  _dataFile = join(app.getPath('userData'), 'orca-data.json')
+  const userDataDir = app.getPath('userData')
+  _userDataDir = userDataDir
+  _dataFile = join(userDataDir, 'orca-data.json')
 }
 
 function getDataFile(): string {
   if (!_dataFile) {
     // Safety fallback — should not be hit in normal startup.
-    _dataFile = join(app.getPath('userData'), 'orca-data.json')
+    const userDataDir = app.getPath('userData')
+    _userDataDir = userDataDir
+    _dataFile = join(userDataDir, 'orca-data.json')
   }
   return _dataFile
+}
+
+/**
+ * Return the userData directory captured at initDataPath() time, before
+ * app.setName() can change how app.getPath('userData') resolves.
+ *
+ * Subsystems that must share storage with orca-data.json (mobile pairing's
+ * DeviceRegistry, E2EE keypair, runtime metadata) read this instead of
+ * resolving the path late, which on case-sensitive filesystems can land in a
+ * different directory and lose paired devices across restarts/updates.
+ */
+export function getCanonicalUserDataPath(): string {
+  if (!_userDataDir) {
+    // Safety fallback — should not be hit in normal startup.
+    _userDataDir = app.getPath('userData')
+  }
+  return _userDataDir
+}
+
+/**
+ * Copy legacy mobile pairing credentials into the canonical userData directory.
+ *
+ * Existing installs may already have credentials in the late app.getPath('userData')
+ * directory. Before switching the runtime server to the canonical path, copy the
+ * registry and E2EE keypair forward as a pair so an update does not force one
+ * last re-pair or mix devices with the wrong key.
+ */
+export function migrateMobilePairingDataToCanonicalUserDataPath(sourceUserDataDir: string): void {
+  const targetUserDataDir = getCanonicalUserDataPath()
+  if (resolve(sourceUserDataDir) === resolve(targetUserDataDir)) {
+    return
+  }
+
+  const migrations = MOBILE_PAIRING_USERDATA_FILES.map((fileName) => ({
+    sourcePath: join(sourceUserDataDir, fileName),
+    targetPath: join(targetUserDataDir, fileName)
+  }))
+  if (migrations.some(({ sourcePath }) => !existsSync(sourcePath))) {
+    return
+  }
+  if (migrations.some(({ targetPath }) => existsSync(targetPath))) {
+    return
+  }
+
+  mkdirSync(targetUserDataDir, { recursive: true })
+  for (const { sourcePath, targetPath } of migrations) {
+    copyFileSync(sourcePath, targetPath)
+    // Why: these are credential files (device tokens, E2EE secret key). copyFileSync
+    // does not carry Windows ACLs, so re-assert the current-user-only restriction on
+    // the copy instead of relying on the runtime's later lazy re-harden on read.
+    hardenExistingSecureFile(targetPath)
+  }
 }
 
 // Why (issue #1158): keep 5 rolling backups of orca-data.json so a corrupt or
@@ -318,6 +386,15 @@ const WORKSPACE_SESSION_PATCH_FULL_NORMALIZATION_KEYS = new Set<keyof WorkspaceS
   'tabsByWorktree',
   'terminalLayoutsByTabId'
 ])
+
+function logPersistenceStartupMilestone(
+  event: string,
+  details: Record<string, unknown> = {}
+): void {
+  if (isStartupDiagnosticsEnabled()) {
+    logStartupDiagnostic(event, { t: Math.round(performance.now()), ...details })
+  }
+}
 
 function workspaceSessionPatchNeedsFullNormalization(patch: WorkspaceSessionPatch): boolean {
   return Object.keys(patch).some((key) =>
@@ -390,6 +467,71 @@ function buildWorkspaceDirHistoryForUpdate(
     next.push(previousLayout)
   }
   return next
+}
+
+type LegacyTerminalScrollbackSettings = {
+  terminalScrollbackRows?: unknown
+  terminalScrollbackBytes?: unknown
+}
+
+const LEGACY_TERMINAL_TUI_SCROLL_SENSITIVITY_DEFAULT = 3
+
+function readLegacyTerminalScrollbackSettings(settings: unknown): LegacyTerminalScrollbackSettings {
+  return settings && typeof settings === 'object'
+    ? (settings as LegacyTerminalScrollbackSettings)
+    : {}
+}
+
+function stripLegacyTerminalScrollbackBytes(
+  settings: Partial<GlobalSettings> | undefined
+): Partial<GlobalSettings> {
+  const { terminalScrollbackBytes: _legacyScrollbackBytes, ...rest } = (settings ??
+    {}) as Partial<GlobalSettings> & { terminalScrollbackBytes?: unknown }
+  void _legacyScrollbackBytes
+  return rest
+}
+
+function migrateTerminalScrollbackRows(settings: unknown): {
+  rows: number
+  needsSave: boolean
+} {
+  const legacySettings = readLegacyTerminalScrollbackSettings(settings)
+  const hasRows = Object.prototype.hasOwnProperty.call(legacySettings, 'terminalScrollbackRows')
+  const hasLegacyBytes = Object.prototype.hasOwnProperty.call(
+    legacySettings,
+    'terminalScrollbackBytes'
+  )
+  const rows = hasRows
+    ? normalizeDesktopTerminalScrollbackRows(legacySettings.terminalScrollbackRows)
+    : legacyTerminalScrollbackBytesToRows(legacySettings.terminalScrollbackBytes)
+
+  return {
+    rows,
+    needsSave: !hasRows || hasLegacyBytes || legacySettings.terminalScrollbackRows !== rows
+  }
+}
+
+function migrateTerminalTuiScrollSensitivityDefault(settings: GlobalSettings | undefined): {
+  settings: Pick<
+    GlobalSettings,
+    'terminalTuiScrollSensitivity' | 'terminalTuiScrollSensitivityDefaultedToOne'
+  >
+  needsSave: boolean
+} {
+  const alreadyDefaultedToOne = settings?.terminalTuiScrollSensitivityDefaultedToOne === true
+  const current = settings?.terminalTuiScrollSensitivity
+  const shouldMoveInheritedDefault =
+    !alreadyDefaultedToOne &&
+    (current === undefined || current === LEGACY_TERMINAL_TUI_SCROLL_SENSITIVITY_DEFAULT)
+  const terminalTuiScrollSensitivity = shouldMoveInheritedDefault ? 1 : (current ?? 1)
+
+  return {
+    settings: {
+      terminalTuiScrollSensitivity,
+      terminalTuiScrollSensitivityDefaultedToOne: true
+    },
+    needsSave: !alreadyDefaultedToOne || current === undefined
+  }
 }
 
 function getWorkspaceLayoutHistoryKey(layout: OrcaWorkspaceLayout): string {
@@ -731,11 +873,25 @@ function normalizeAutomationPrecheckResult(
 }
 
 function normalizeAutomationSessionReuse(automation: Automation): Automation {
+  const setupDecision = normalizeAutomationSetupDecisionForWorkspaceMode(
+    automation.workspaceMode,
+    automation.setupDecision
+  )
   return {
     ...automation,
     precheck: normalizeAutomationPrecheck(automation.precheck),
+    setupDecision,
     reuseSession: automation.workspaceMode === 'existing' && automation.reuseSession === true
   }
+}
+
+function normalizeAutomationSetupDecisionForWorkspaceMode(
+  workspaceMode: Automation['workspaceMode'],
+  setupDecision: unknown
+): Automation['setupDecision'] {
+  return workspaceMode === 'new_per_run' && (setupDecision === 'run' || setupDecision === 'skip')
+    ? setupDecision
+    : undefined
 }
 
 function getAutomationContextsForRepo(
@@ -868,11 +1024,13 @@ function normalizeSshTarget(t: SshTarget): SshTarget {
   const legacySyncEnabled = target.remoteWorkspaceSyncEnabled
   const currentGracePeriodSeconds = target.relayGracePeriodSeconds
   const legacyGracePeriodSeconds = target.remoteWorkspaceSyncGracePeriodSeconds
+  const systemSshConnectionReuse = target.systemSshConnectionReuse
   // Why: remote workspace sync now follows the SSH relay lifecycle, so the
   // retired per-target sync opt-out and grace-period fields stop at disk load.
   delete target.remoteWorkspaceSyncEnabled
   delete target.remoteWorkspaceSyncGracePeriodSeconds
   delete target.relayGracePeriodSeconds
+  delete target.systemSshConnectionReuse
   // Why: synced legacy targets ignored stale relayGracePeriodSeconds values.
   // Prefer the synced grace so a user's "unlimited" (0) survives migration.
   const relayGracePeriodSeconds =
@@ -883,8 +1041,16 @@ function normalizeSshTarget(t: SshTarget): SshTarget {
     ...target,
     configHost: target.configHost ?? target.label ?? target.host
   }
-  if (relayGracePeriodSeconds !== undefined) {
+  // Why: the old SSH form eagerly persisted 10800 even when the user had not
+  // chosen a timeout; treat that legacy default as the new implicit default.
+  if (
+    relayGracePeriodSeconds !== undefined &&
+    relayGracePeriodSeconds !== LEGACY_DEFAULT_SSH_RELAY_GRACE_PERIOD_SECONDS
+  ) {
     normalized.relayGracePeriodSeconds = relayGracePeriodSeconds
+  }
+  if (systemSshConnectionReuse === false) {
+    normalized.systemSshConnectionReuse = false
   }
   return normalized
 }
@@ -2500,12 +2666,22 @@ export class Store {
     // social contract we installed them under.
     const dataFile = getDataFile()
     const fileExistedOnLoad = existsSync(dataFile)
+    logPersistenceStartupMilestone('persistence-load-start', {
+      fileExists: fileExistedOnLoad
+    })
 
     let result: PersistedState | null = null
     try {
       if (fileExistedOnLoad) {
+        const readStartedAt = performance.now()
         const raw = readFileSync(dataFile, 'utf-8')
+        logPersistenceStartupMilestone('persistence-read-done', {
+          bytes: Buffer.byteLength(raw),
+          durationMs: Math.round(performance.now() - readStartedAt)
+        })
+        logPersistenceStartupMilestone('persistence-json-parse-start')
         const parsed = JSON.parse(raw) as PersistedState
+        logPersistenceStartupMilestone('persistence-json-parse-done')
 
         // Why: secret settings are stored encrypted on disk via safeStorage.
         // Decrypt at the load boundary so the rest of the app sees plaintext.
@@ -2522,6 +2698,16 @@ export class Store {
         // Merge with defaults in case new fields were added
         const homeDir = homedir()
         const defaults = getDefaultPersistedState(homeDir)
+        const migratedTerminalScrollback = migrateTerminalScrollbackRows(parsed.settings)
+        if (migratedTerminalScrollback.needsSave) {
+          this.loadNeedsSave = true
+        }
+        const migratedTerminalTuiScrollSensitivity = migrateTerminalTuiScrollSensitivityDefault(
+          parsed.settings
+        )
+        if (migratedTerminalTuiScrollSensitivity.needsSave) {
+          this.loadNeedsSave = true
+        }
         const rawSourceControlAi = parsed.settings?.sourceControlAi
         const rawSourceControlAiMissing = rawSourceControlAi === undefined
         const rawSourceControlAiActionsMissing =
@@ -2744,7 +2930,7 @@ export class Store {
           ),
           settings: {
             ...defaults.settings,
-            ...parsed.settings,
+            ...stripLegacyTerminalScrollbackBytes(parsed.settings),
             // Why: v1.3.42 renamed the cosmetic sidekick setting to pet. Carry
             // the old persisted flag forward once so enabled users don't lose it.
             experimentalPet:
@@ -2763,6 +2949,7 @@ export class Store {
               primarySelectionDefaultedForTerminalDefaults || stampPrimarySelectionTerminalDefaults,
             ...migratedAutoRenameBranchFromWork,
             ...migratedTerminalCursorStyle,
+            ...migratedTerminalTuiScrollSensitivity.settings,
             experimentalActivity: migratedExperimentalActivity,
             experimentalActivityDefaultedOffForAllUsers: true,
             // Why: open first-run onboarding is the local fresh-install signal;
@@ -2780,6 +2967,7 @@ export class Store {
             floatingTerminalCwd: migratedFloatingTerminalCwd,
             floatingTerminalTrustedCwds: migratedFloatingTerminalTrustedCwds,
             floatingTerminalCwdMigratedToAppWorkspace: true,
+            terminalScrollbackRows: migratedTerminalScrollback.rows,
             terminalQuickCommands: normalizeTerminalQuickCommands(
               parsed.settings?.terminalQuickCommands
             ),
@@ -2839,8 +3027,11 @@ export class Store {
             }
             const workspaceStatusesDefaultOrderMigrated =
               parsed.ui?._workspaceStatusesDefaultOrderMigrated === true
-            // Why: the default workflow changed to Done -> Review -> Progress -> Todo.
-            // Only exact legacy default payloads are migrated; users who
+            // Why: a short-lived default put Done on the left. Repair only
+            // the exact raw payload once; user-authored reorders then survive.
+            const workspaceStatusesReorderedDefaultRepaired =
+              parsed.ui?._workspaceStatusesReorderedDefaultRepaired === true
+            // Why: only exact legacy default payloads are migrated; users who
             // customized status labels, colors, icons, or order keep theirs.
             const workspaceStatusesDefaultWorkflowMigrated =
               parsed.ui?._workspaceStatusesDefaultWorkflowMigrated === true
@@ -2852,12 +3043,13 @@ export class Store {
               parsed.ui?.workspaceStatuses,
               {
                 migrateDefaultWorkflowStatuses: !workspaceStatusesDefaultWorkflowMigrated,
-                repairReorderedDefaultStatuses: !workspaceStatusesDefaultOrderMigrated,
+                repairReorderedDefaultStatuses: !workspaceStatusesReorderedDefaultRepaired,
                 migrateLegacyDefaultStatusVisuals: !workspaceStatusesDefaultVisualsMigrated
               }
             )
             if (
               !workspaceStatusesDefaultOrderMigrated ||
+              !workspaceStatusesReorderedDefaultRepaired ||
               !workspaceStatusesDefaultWorkflowMigrated ||
               !workspaceStatusesDefaultVisualsMigrated
             ) {
@@ -2955,6 +3147,7 @@ export class Store {
               ),
               workspaceStatuses,
               _workspaceStatusesDefaultOrderMigrated: true,
+              _workspaceStatusesReorderedDefaultRepaired: true,
               _workspaceStatusesDefaultWorkflowMigrated: true,
               _workspaceStatusesDefaultVisualsMigrated: true,
               _sortBySmartMigrated: true,
@@ -3093,7 +3286,12 @@ export class Store {
     }
     result = folderScopeConnectionMigration.state
 
-    return this.migrateTelemetry(result, fileExistedOnLoad)
+    const migrated = this.migrateTelemetry(result, fileExistedOnLoad)
+    logPersistenceStartupMilestone('persistence-load-done', {
+      repos: migrated.repos.length,
+      workspaceSessionBytes: Buffer.byteLength(JSON.stringify(migrated.workspaceSession))
+    })
+    return migrated
   }
 
   // One-shot telemetry cohort migration. Runs on every `load()` but is a
@@ -3776,11 +3974,16 @@ export class Store {
         | 'forkSyncMode'
         | 'externalWorktreeVisibility'
         | 'externalWorktreeVisibilityPromptDismissedAt'
+        | 'externalWorktreeInboxBaselinePaths'
+        | 'importedExternalWorktreePaths'
         | 'projectGroupId'
         | 'projectGroupOrder'
         | 'projectHostSetupMethod'
       >
-    > & { sourceControlAi?: Repo['sourceControlAi'] | null }
+    > & {
+      sourceControlAi?: Repo['sourceControlAi'] | null
+      externalWorktreeDiscoverySuppressedAt?: Repo['externalWorktreeDiscoverySuppressedAt'] | null
+    }
   ): Repo | null {
     const repo = this.state.repos.find((r) => r.id === id)
     if (!repo) {
@@ -3829,6 +4032,14 @@ export class Store {
       // Why: old persisted repos have no explicit marker. Stamp it the first
       // time visibility changes so later hide/show choices keep legacy safety.
       repo.externalWorktreeVisibilityLegacy = externalWorktreeVisibilityLegacy
+    }
+    if (
+      'externalWorktreeDiscoverySuppressedAt' in sanitizedUpdates &&
+      (sanitizedUpdates.externalWorktreeDiscoverySuppressedAt === undefined ||
+        sanitizedUpdates.externalWorktreeDiscoverySuppressedAt === null)
+    ) {
+      delete repo.externalWorktreeDiscoverySuppressedAt
+      delete sanitizedUpdates.externalWorktreeDiscoverySuppressedAt
     }
     if (
       'sourceControlAi' in sanitizedUpdates &&
@@ -4048,6 +4259,10 @@ export class Store {
       workspaceMode: input.workspaceMode,
       workspaceId: input.workspaceMode === 'existing' ? (input.workspaceId ?? null) : null,
       baseBranch: input.workspaceMode === 'new_per_run' ? (input.baseBranch ?? null) : null,
+      setupDecision: normalizeAutomationSetupDecisionForWorkspaceMode(
+        input.workspaceMode,
+        input.setupDecision
+      ),
       reuseSession: input.workspaceMode === 'existing' ? (input.reuseSession ?? false) : false,
       timezone: input.timezone,
       rrule: input.rrule,
@@ -4115,6 +4330,12 @@ export class Store {
             ? (updates.baseBranch ?? null)
             : (current.baseBranch ?? null)
           : null,
+      setupDecision:
+        workspaceMode === 'new_per_run'
+          ? Object.hasOwn(updates, 'setupDecision')
+            ? normalizeAutomationSetupDecisionForWorkspaceMode(workspaceMode, updates.setupDecision)
+            : normalizeAutomationSetupDecisionForWorkspaceMode(workspaceMode, current.setupDecision)
+          : undefined,
       reuseSession:
         workspaceMode === 'existing'
           ? (updates.reuseSession ?? current.reuseSession ?? false)
@@ -4599,7 +4820,7 @@ export class Store {
     updates: Partial<GlobalSettings>,
     options: { notifyListeners?: boolean; originWebContentsId?: number } = {}
   ): GlobalSettings {
-    const sanitizedUpdates = { ...updates }
+    const sanitizedUpdates = stripLegacyTerminalScrollbackBytes(updates)
     // Why: coerce strictly to boolean here (not at the IPC edge) so every write
     // path is covered and a non-bool renderer payload can never persist a
     // truthy non-bool that later reads as "tray-minimize on".
@@ -4626,6 +4847,17 @@ export class Store {
       sanitizedUpdates.terminalCustomThemes = normalizeTerminalCustomThemes(
         updates.terminalCustomThemes
       )
+    }
+    if ('terminalScrollbackRows' in updates) {
+      sanitizedUpdates.terminalScrollbackRows = normalizeDesktopTerminalScrollbackRows(
+        updates.terminalScrollbackRows
+      )
+    }
+    if (
+      'terminalTuiScrollSensitivity' in updates ||
+      'terminalTuiScrollSensitivityDefaultedToOne' in updates
+    ) {
+      sanitizedUpdates.terminalTuiScrollSensitivityDefaultedToOne = true
     }
     if ('visibleTaskProviders' in updates || 'defaultTaskSource' in updates) {
       const taskProviderSettings = normalizeTaskProviderSettings({
@@ -5446,7 +5678,14 @@ export class Store {
     if (!target) {
       return null
     }
-    Object.assign(target, updates, normalizeSshTarget({ ...target, ...updates }))
+    const normalized = normalizeSshTarget({ ...target, ...updates })
+    Object.assign(target, updates, normalized)
+    if (!Object.hasOwn(normalized, 'relayGracePeriodSeconds')) {
+      delete target.relayGracePeriodSeconds
+    }
+    if (!Object.hasOwn(normalized, 'systemSshConnectionReuse')) {
+      delete target.systemSshConnectionReuse
+    }
     this.scheduleSave()
     return { ...target }
   }

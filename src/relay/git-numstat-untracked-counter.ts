@@ -6,7 +6,7 @@
  * of that counter. `git diff --no-index --numstat /dev/null <file>` is git's own
  * canonical added-line count, so the +N badge stays consistent with local repos.
  */
-import * as path from 'path'
+import * as path from 'node:path'
 import type { GitExec } from './git-handler-ops'
 import {
   countUntrackedFileWithCache,

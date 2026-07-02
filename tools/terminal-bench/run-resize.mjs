@@ -1,9 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 
-const here = dirname(fileURLToPath(import.meta.url))
+const here = import.meta.dirname
 const sc = JSON.parse(process.argv[2])
 const addon = join(here, '..', '..', 'native', 'orca-node', 'orca_node.node')
 const nm = join(here, 'node_modules')

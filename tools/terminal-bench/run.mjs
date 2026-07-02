@@ -3,10 +3,9 @@
 // parity verdict. Usage: node run.mjs [trials] [corpusMB]
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
-const here = dirname(fileURLToPath(import.meta.url))
+const here = import.meta.dirname
 const repo = resolve(here, '..', '..')
 const trials = Number(process.argv[2] ?? 5)
 const corpusMB = Number(process.argv[3] ?? 16)

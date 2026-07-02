@@ -14,10 +14,9 @@
 // Usage: node config/scripts/build-aterm-wasm.mjs [--cpu] [--gpu]  (default: both)
 import { execFileSync } from 'node:child_process'
 import { existsSync, copyFileSync, statSync, mkdirSync, rmSync } from 'node:fs'
-import { join, dirname, delimiter } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, delimiter } from 'node:path'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
+const ROOT = join(import.meta.dirname, '..', '..')
 const DEST = join(ROOT, 'src/renderer/src/lib/pane-manager/aterm')
 const WASM_TARGET_DIR = join(ROOT, 'rust/aterm/target/wasm32-unknown-unknown/release')
 const GLUE_OUT = join(ROOT, 'rust/aterm/target/aterm-web-glue')

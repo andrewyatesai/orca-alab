@@ -36,6 +36,21 @@ describe('buildWindowsPtyCompatibilityOptions', () => {
     })
   })
 
+  it('omits old Windows build numbers that enable xterm legacy wrap heuristics', () => {
+    expect(
+      buildWindowsPtyCompatibilityOptions({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        osRelease: '10.0.19045',
+        connectionId: null,
+        cwd: 'C:\\repo',
+        shellOverride: null,
+        executionHostId: 'local'
+      })
+    ).toEqual({
+      windowsPty: { backend: 'conpty' }
+    })
+  })
+
   it('skips compatibility options for SSH-backed Windows terminals', () => {
     expect(
       buildWindowsPtyCompatibilityOptions({

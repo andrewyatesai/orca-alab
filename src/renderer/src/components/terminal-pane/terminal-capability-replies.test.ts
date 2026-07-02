@@ -4,7 +4,8 @@ import {
   DA1_RESPONSE_WITH_SIXEL,
   DEFAULT_DA1_RESPONSE,
   createTerminalOscColorQueryResponder,
-  createTerminalPixelSizeQueryResponder
+  createTerminalPixelSizeQueryResponder,
+  sendTerminalOscColorQueryReplies
 } from './terminal-capability-replies'
 
 function createElement(width: number, height: number): HTMLElement {
@@ -33,6 +34,70 @@ describe('installTerminalCapabilityReplyHandlers', () => {
     // The Sixel DA1 carries param 4 (the bit apps gate Sixel support on).
     expect(DA1_RESPONSE_WITH_SIXEL).toBe('\x1b[?1;2;4c')
     expect(DA1_RESPONSE_WITH_SIXEL).toContain(';4c')
+  })
+
+  // Ported from upstream: sendTerminalOscColorQueryReplies is a pure helper the
+  // hidden-startup path uses; these need no terminal parser.
+  it('answers extracted OSC color queries without waiting for terminal parsing', () => {
+    const sendInput = vi.fn<(data: string) => boolean>(() => true)
+
+    const sent = sendTerminalOscColorQueryReplies(
+      '\x1b]10;?\x1b\\ordinary text\x1b]11;?\x07',
+      {
+        options: {
+          theme: {
+            foreground: '#2e3434',
+            background: '#ffffff'
+          }
+        }
+      } as never,
+      sendInput
+    )
+
+    expect(sent).toBe(true)
+    expect(sendInput).toHaveBeenCalledWith('\x1b]10;rgb:2e2e/3434/3434\x1b\\')
+    expect(sendInput).toHaveBeenCalledWith('\x1b]11;rgb:ffff/ffff/ffff\x1b\\')
+  })
+
+  it('answers extracted combined OSC foreground and background color queries', () => {
+    const sendInput = vi.fn<(data: string) => boolean>(() => true)
+
+    const sent = sendTerminalOscColorQueryReplies(
+      '\x1b]10;?;?\x1b\\',
+      {
+        options: {
+          theme: {
+            foreground: '#2e3434',
+            background: '#ffffff'
+          }
+        }
+      } as never,
+      sendInput
+    )
+
+    expect(sent).toBe(true)
+    expect(sendInput).toHaveBeenCalledWith('\x1b]10;rgb:2e2e/3434/3434\x1b\\')
+    expect(sendInput).toHaveBeenCalledWith('\x1b]11;rgb:ffff/ffff/ffff\x1b\\')
+  })
+
+  it('does not answer extracted OSC color commands that only start like queries', () => {
+    const sendInput = vi.fn<(data: string) => boolean>(() => true)
+
+    const sent = sendTerminalOscColorQueryReplies(
+      '\x1b]10;?not-a-query\x1b\\ordinary text\x1b]11;?still-not-a-query\x07\x1b]10;?;?;?\x1b\\',
+      {
+        options: {
+          theme: {
+            foreground: '#2e3434',
+            background: '#ffffff'
+          }
+        }
+      } as never,
+      sendInput
+    )
+
+    expect(sent).toBe(false)
+    expect(sendInput).not.toHaveBeenCalled()
   })
 
   it('answers window and cell pixel-size reports from renderer geometry', () => {

@@ -7,12 +7,10 @@
 
 import { spawnSync } from 'node:child_process'
 import { existsSync, copyFileSync, statSync, readdirSync } from 'node:fs'
-import { dirname, resolve, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve, join } from 'node:path'
 import { homedir } from 'node:os'
 
-const scriptPath = fileURLToPath(import.meta.url)
-const projectDir = resolve(dirname(scriptPath), '../..')
+const projectDir = resolve(import.meta.dirname, '../..')
 const addonDir = resolve(projectDir, 'native/orca-node')
 const ADDON_NAME = 'orca_node.node'
 // Skip the cargo fingerprint pass when the installed addon is already newer than

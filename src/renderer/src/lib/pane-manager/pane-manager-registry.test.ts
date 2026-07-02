@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import {
   refitAndRefreshAllTerminalPanes,
   registerLivePaneManager,
+  resetAndRefreshAllTerminalWebglAtlases,
+  resetAllTerminalWebglAtlases,
   unregisterLivePaneManager
 } from './pane-manager-registry'
 
 type RegisteredManager = {
+  resetWebglTextureAtlases?: () => void
   fitAllPanes?: () => void
   refreshAllPanes?: () => void
 }
@@ -15,16 +18,99 @@ describe('pane manager registry', () => {
   // assertion cannot leak managers into later tests.
   const registeredManagers: RegisteredManager[] = []
 
-  function register(manager: RegisteredManager): RegisteredManager {
+  function register<T extends RegisteredManager>(manager: T): T {
     registerLivePaneManager(manager)
     registeredManagers.push(manager)
     return manager
+  }
+
+  function registerManager(): { resetWebglTextureAtlases: Mock<() => void> } {
+    return register({ resetWebglTextureAtlases: vi.fn<() => void>() })
   }
 
   afterEach(() => {
     for (const manager of registeredManagers.splice(0)) {
       unregisterLivePaneManager(manager)
     }
+  })
+
+  it('resets atlases on every registered manager', () => {
+    const first = registerManager()
+    const second = registerManager()
+
+    resetAllTerminalWebglAtlases()
+
+    expect(first.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+    expect(second.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops resetting managers after they unregister', () => {
+    const manager = registerManager()
+    unregisterLivePaneManager(manager)
+
+    resetAllTerminalWebglAtlases()
+
+    expect(manager.resetWebglTextureAtlases).not.toHaveBeenCalled()
+  })
+
+  it('continues resetting later managers when one manager throws', () => {
+    const broken = {
+      resetWebglTextureAtlases: vi.fn<() => void>(() => {
+        throw new Error('pane disposed')
+      })
+    }
+    registerLivePaneManager(broken)
+    registeredManagers.push(broken)
+    const healthy = registerManager()
+
+    expect(() => resetAllTerminalWebglAtlases()).not.toThrow()
+
+    expect(broken.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+    expect(healthy.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes managers after all atlas resets complete', () => {
+    const order: string[] = []
+    const first = {
+      resetWebglTextureAtlases: vi.fn<() => void>(() => order.push('first-reset')),
+      refreshAllPanes: vi.fn<() => void>(() => order.push('first-refresh'))
+    }
+    const second = {
+      resetWebglTextureAtlases: vi.fn<() => void>(() => order.push('second-reset')),
+      refreshAllPanes: vi.fn<() => void>(() => order.push('second-refresh'))
+    }
+    registerLivePaneManager(first)
+    registeredManagers.push(first)
+    registerLivePaneManager(second)
+    registeredManagers.push(second)
+
+    resetAndRefreshAllTerminalWebglAtlases()
+
+    expect(order).toEqual(['first-reset', 'second-reset', 'first-refresh', 'second-refresh'])
+  })
+
+  it('continues reset-and-refresh recovery when one manager throws', () => {
+    const broken = {
+      resetWebglTextureAtlases: vi.fn<() => void>(() => {
+        throw new Error('pane disposed')
+      }),
+      refreshAllPanes: vi.fn<() => void>()
+    }
+    registerLivePaneManager(broken)
+    registeredManagers.push(broken)
+    const healthy = {
+      resetWebglTextureAtlases: vi.fn<() => void>(),
+      refreshAllPanes: vi.fn<() => void>()
+    }
+    registerLivePaneManager(healthy)
+    registeredManagers.push(healthy)
+
+    expect(() => resetAndRefreshAllTerminalWebglAtlases()).not.toThrow()
+
+    expect(broken.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+    expect(broken.refreshAllPanes).not.toHaveBeenCalled()
+    expect(healthy.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+    expect(healthy.refreshAllPanes).toHaveBeenCalledTimes(1)
   })
 
   it('fits and refreshes every registered manager', () => {

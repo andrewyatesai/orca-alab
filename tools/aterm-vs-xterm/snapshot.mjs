@@ -9,14 +9,13 @@
 //
 //   printf 'hi\x1b[2;5HX\x1b[31mY' | node snapshot.mjs
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
-import { resolve, dirname } from 'node:path'
+import { resolve } from 'node:path'
 const require = createRequire(import.meta.url)
 // The @xterm/headless baseline lives in the bench harness (root deps dropped it
 // when aterm became the sole engine) — `gauntlet bootstrap` installs it there.
 const { Terminal } = require(
   resolve(
-    dirname(fileURLToPath(import.meta.url)),
+    import.meta.dirname,
     '../terminal-bench/node_modules/@xterm/headless/lib-headless/xterm-headless.js'
   )
 )

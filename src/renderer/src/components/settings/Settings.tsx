@@ -1,5 +1,14 @@
 /* eslint-disable max-lines */
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject
+} from 'react'
 import { toast } from 'sonner'
 import type { GlobalSettings, OrcaHooks } from '../../../../shared/types'
 import type { SpeechModelState } from '../../../../shared/speech-types'
@@ -14,7 +23,7 @@ import { useSystemPrefersDark } from '@/components/terminal-pane/use-system-pref
 import { isMacUserAgent, isWindowsUserAgent } from '@/components/terminal-pane/pane-helpers'
 import { applyDocumentTheme } from '@/lib/document-theme'
 import { useConfirmationDialog } from '@/components/confirmation-dialog'
-import { SCROLLBACK_PRESETS_MB, getFallbackTerminalFonts } from './SettingsConstants'
+import { SCROLLBACK_PRESETS_ROWS, getFallbackTerminalFonts } from './SettingsConstants'
 import { DEFAULT_APP_FONT_FAMILY, getDefaultVoiceSettings } from '../../../../shared/constants'
 import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import { GeneralPane } from './GeneralPane'
@@ -90,6 +99,10 @@ import {
 } from './settings-load-performance'
 import { translate } from '@/i18n/i18n'
 import { getProjectHostSetupProjectionFromState } from '../../store/selectors'
+
+const DevToolsPane = import.meta.env.DEV
+  ? lazy(() => import('./DevToolsPane').then((module) => ({ default: module.DevToolsPane })))
+  : null
 
 const SETTINGS_NAV_GROUPS = [
   {
@@ -294,7 +307,7 @@ function Settings(): React.JSX.Element {
   // sidebar. We trim platform-only entries on other platforms so search never
   // reveals controls that the renderer will intentionally hide.
   const [scrollbackMode, setScrollbackMode] = useState<'preset' | 'custom'>('preset')
-  const [prevScrollbackBytes, setPrevScrollbackBytes] = useState(settings?.terminalScrollbackBytes)
+  const [prevScrollbackRows, setPrevScrollbackRows] = useState(settings?.terminalScrollbackRows)
   // Why: Appearance owns terminal visual controls, but the Ghostty import flow
   // still needs Settings-level state so the modal survives section remounts.
   const ghostty = useGhosttyImport(updateSettings, settings)
@@ -578,14 +591,15 @@ function Settings(): React.JSX.Element {
     clearSettingsTarget()
   }, [clearSettingsTarget, settings, settingsNavigationTarget])
 
-  // Why: only recompute scrollback mode when the byte value actually changes,
+  // Why: only recompute scrollback mode when the row value actually changes,
   // not on every unrelated settings mutation.
-  if (settings?.terminalScrollbackBytes !== prevScrollbackBytes) {
-    setPrevScrollbackBytes(settings?.terminalScrollbackBytes)
+  if (settings?.terminalScrollbackRows !== prevScrollbackRows) {
+    setPrevScrollbackRows(settings?.terminalScrollbackRows)
     if (settings) {
-      const scrollbackMb = Math.max(1, Math.round(settings.terminalScrollbackBytes / 1_000_000))
       setScrollbackMode(
-        SCROLLBACK_PRESETS_MB.includes(scrollbackMb as (typeof SCROLLBACK_PRESETS_MB)[number])
+        SCROLLBACK_PRESETS_ROWS.includes(
+          settings.terminalScrollbackRows as (typeof SCROLLBACK_PRESETS_ROWS)[number]
+        )
           ? 'preset'
           : 'custom'
       )
@@ -1341,7 +1355,7 @@ function Settings(): React.JSX.Element {
                   </SettingsSection>
                 ) : null}
 
-                {showDesktopOnlySettings && isMac ? (
+                {showDesktopOnlySettings ? (
                   <SettingsSection
                     id="mobile-emulator"
                     title={translate(
@@ -1559,6 +1573,24 @@ function Settings(): React.JSX.Element {
                   >
                     {isSectionMounted('advanced') ? (
                       <AdvancedPane settings={settings} updateSettings={updateSettings} />
+                    ) : null}
+                  </SettingsSection>
+                ) : null}
+
+                {showDesktopOnlySettings && import.meta.env.DEV ? (
+                  <SettingsSection
+                    id="dev"
+                    title={translate('auto.components.settings.Settings.dev', 'Dev Tools')}
+                    description={translate(
+                      'auto.components.settings.Settings.devDescription',
+                      'Dev-only tools for exercising UI states.'
+                    )}
+                    searchEntries={getSectionSearchEntries('dev')}
+                  >
+                    {DevToolsPane && isSectionMounted('dev') ? (
+                      <Suspense fallback={null}>
+                        <DevToolsPane />
+                      </Suspense>
                     ) : null}
                   </SettingsSection>
                 ) : null}

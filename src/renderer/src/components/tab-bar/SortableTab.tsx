@@ -3,7 +3,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { X, Minimize2, Pin } from 'lucide-react'
 import { ShellIcon } from './shell-icons'
 import { AgentIcon } from '@/lib/agent-catalog'
-import { stripLeadingAgentTitleDecoration } from '@/lib/agent-title-decoration'
+import { stripLeadingAgentTitleDecoration } from '../../../../shared/agent-title-decoration'
 import { useTabAgent } from '@/lib/use-tab-agent'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -45,6 +45,13 @@ type SortableTabProps = {
   dragData: TabDragItemData
   dropIndicator?: DropIndicator
   includeTopTabBorder?: boolean
+  /** True when this tab is an agent terminal that can switch to the native chat
+   *  view. Surfaces the "Switch view" item in the tab context menu. */
+  canToggleViewMode?: boolean
+  /** True when the tab is currently showing the native chat view. */
+  isChatView?: boolean
+  /** Toggle the tab between terminal and native chat view. */
+  onToggleViewMode?: () => void
 }
 
 export const CLOSE_ALL_CONTEXT_MENUS_EVENT = 'orca-close-all-context-menus'
@@ -68,7 +75,10 @@ export default function SortableTab({
   onToggleExpand,
   dragData,
   dropIndicator,
-  includeTopTabBorder = true
+  includeTopTabBorder = true,
+  canToggleViewMode = false,
+  isChatView = false,
+  onToggleViewMode
 }: SortableTabProps): React.JSX.Element {
   // Why: subscribe to the per-tab boolean directly so only the tab whose unread
   // status actually flipped re-renders. Reading the whole `unreadTerminalTabs`
@@ -477,6 +487,9 @@ export default function SortableTab({
         onRenameOpen={handleRenameOpen}
         onSetTabColor={onSetTabColor}
         onTogglePin={onTogglePin}
+        canToggleViewMode={canToggleViewMode}
+        isChatView={isChatView}
+        onToggleViewMode={onToggleViewMode}
       />
     </>
   )

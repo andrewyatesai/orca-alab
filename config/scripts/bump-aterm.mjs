@@ -11,10 +11,9 @@
 //   default: origin/main (latest)
 
 import { spawnSync } from 'node:child_process'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
-const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const projectDir = resolve(import.meta.dirname, '../..')
 const submodule = resolve(projectDir, 'rust/aterm')
 
 function revArg() {

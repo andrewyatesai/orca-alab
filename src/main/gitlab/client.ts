@@ -433,6 +433,10 @@ export async function listMergeRequests(
     // (e.g. a fresh self-hosted instance), but glab itself can still
     // resolve it from the local git config.
     const stateFlag = mrListStateFlags(state)
+    // Why: the cwd-inferred fallback must honor the same search the API path
+    // does, otherwise typing a query against a self-hosted / unresolved-projectRef
+    // repo silently returns the unfiltered list (the original #6263 symptom).
+    const searchFlag = query?.trim() ? ['--search', query.trim()] : []
     await acquire()
     try {
       const { stdout } = await glabExecFileAsync(
@@ -449,7 +453,8 @@ export async function listMergeRequests(
           'updated_at',
           '--sort',
           'desc',
-          ...stateFlag
+          ...stateFlag,
+          ...searchFlag
         ],
         glabRepoExecOptions(repoPath, connectionId, localGitOptions)
       )
@@ -1210,7 +1215,7 @@ export async function updateMRReviewers(
       try {
         const fields =
           reviewerIds.length > 0
-            ? reviewerIds.map((id) => ['-f', `reviewer_ids[]=${id}`]).flat()
+            ? reviewerIds.flatMap((id) => ['-f', `reviewer_ids[]=${id}`])
             : ['-f', 'reviewer_ids=']
         const { stdout } = await glabExecFileAsync(
           [

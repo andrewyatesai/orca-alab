@@ -114,7 +114,7 @@ function getLinkedReviewFallback(worktree: Worktree | null): {
   if (worktree.linkedGitLabMR != null) {
     return {
       label: translate(
-        'auto.components.workspace.cleanup.workspace.cleanup.presentation.506aab087d',
+        'components.workspace.cleanup.presentation.gitlabMergeRequestNumber',
         'MR #{{value0}}',
         { value0: worktree.linkedGitLabMR }
       ),
@@ -124,7 +124,7 @@ function getLinkedReviewFallback(worktree: Worktree | null): {
   if (worktree.linkedPR != null) {
     return {
       label: translate(
-        'auto.components.workspace.cleanup.workspace.cleanup.presentation.26b36ba7df',
+        'components.workspace.cleanup.presentation.githubPullRequestNumber',
         'PR #{{value0}}',
         { value0: worktree.linkedPR }
       ),

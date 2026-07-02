@@ -141,6 +141,16 @@ export class HeadlessEmulator {
     )
   }
 
+  // Why: Session.resize applies this emulator and the node-pty subprocess
+  // together behind the same dead/invalid-size gate, so the emulator's dims are
+  // an accurate proxy for the size the child actually took — and stay stale
+  // when a resize is dropped, which is exactly the drop the renderer must detect.
+  getAppliedSize(): { cols: number; rows: number } {
+    // this.cols/this.rows advance only through resize() (Session gates dead/
+    // invalid sizes before calling it), so they are the engine's applied dims.
+    return { cols: this.cols, rows: this.rows }
+  }
+
   getSnapshot(opts: { scrollbackRows?: number } = {}): TerminalSnapshot {
     const modes = this.getModes()
     const scrollbackRows = opts.scrollbackRows

@@ -9,14 +9,13 @@
 //   (2) the engine follows the spec (probe matches `correct`)
 // If either fails, the entry is stale and the run exits non-zero.
 import { writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { createRequire } from 'node:module'
 import xpkg from '@xterm/headless'
 
 const { Terminal } = xpkg
 const require = createRequire(import.meta.url)
-const here = dirname(fileURLToPath(import.meta.url))
+const here = import.meta.dirname
 const { HeadlessTerminal } = require(
   join(here, '..', '..', 'native', 'orca-node', 'orca_node.node')
 )

@@ -1,8 +1,10 @@
 const XTERM_MOUSE_REPORTING_CLASS = 'enable-mouse-events'
 const REPLAYED_WHEEL_EVENT_PROPERTY = '__orcaReplayedTerminalWheelEvent'
 const DOM_DELTA_PIXEL = 0
+const DISCRETE_PIXEL_WHEEL_DELTA_MIN = 50
+const LEGACY_MOUSE_WHEEL_DELTA_MIN = 100
 
-export const TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER = 3
+export const TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER = 1
 export const TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER_MIN = 1
 export const TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER_MAX = 10
 
@@ -10,16 +12,36 @@ type ReplayedWheelEvent = WheelEvent & {
   [REPLAYED_WHEEL_EVENT_PROPERTY]?: boolean
 }
 
+type WheelEventWithLegacyDelta = WheelEvent & {
+  wheelDelta?: number
+  wheelDeltaY?: number
+}
+
 function isReplayedWheelEvent(event: WheelEvent): boolean {
   return (event as ReplayedWheelEvent)[REPLAYED_WHEEL_EVENT_PROPERTY] === true
 }
 
+function legacyVerticalWheelDelta(event: WheelEvent): number | null {
+  const wheelEvent = event as WheelEventWithLegacyDelta
+  if (typeof wheelEvent.wheelDeltaY === 'number' && Number.isFinite(wheelEvent.wheelDeltaY)) {
+    return wheelEvent.wheelDeltaY
+  }
+  if (typeof wheelEvent.wheelDelta === 'number' && Number.isFinite(wheelEvent.wheelDelta)) {
+    return wheelEvent.wheelDelta
+  }
+  return null
+}
 function isDiscreteWheelEvent(event: WheelEvent): boolean {
   if (event.deltaMode !== DOM_DELTA_PIXEL) {
     return true
   }
 
-  return Math.abs(event.deltaY) >= 50
+  if (Math.abs(event.deltaY) >= DISCRETE_PIXEL_WHEEL_DELTA_MIN) {
+    return true
+  }
+
+  const legacyDelta = legacyVerticalWheelDelta(event)
+  return legacyDelta !== null && Math.abs(legacyDelta) >= LEGACY_MOUSE_WHEEL_DELTA_MIN
 }
 
 export function shouldMultiplyTerminalMouseWheel(
@@ -38,7 +60,6 @@ export function shouldMultiplyTerminalMouseWheel(
 
   return true
 }
-
 export function normalizeTerminalTuiMouseWheelMultiplier(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER

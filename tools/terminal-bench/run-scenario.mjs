@@ -7,11 +7,10 @@
 // Emits one JSON line to stdout (and human-readable lines to stderr).
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { SCENARIOS } from './scenarios.mjs'
 
-const here = dirname(fileURLToPath(import.meta.url))
+const here = import.meta.dirname
 const name = process.argv[2]
 // Ad-hoc mode: `run-scenario.mjs --adhoc '<json>'` where json is
 // {name?,cmd,args,inputs?,durationMs?,cols?,rows?}. Lets the swarm throw

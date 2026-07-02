@@ -1,8 +1,7 @@
 import { execFileSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { loadCorpus } from './corpus-bytes.mjs'
-const HERE = dirname(fileURLToPath(import.meta.url))
+const HERE = import.meta.dirname
 const ATERM = resolve(HERE, '../../rust/aterm/target/release/examples/snapshot')
 const corpus = loadCorpus(join(HERE, 'corpus.json'))
 const run = (cmd, args, buf) =>

@@ -13,8 +13,7 @@
 //
 // Usage: node build-corpus.mjs   (writes cases.jsonl + goldens.jsonl + CHECKLIST.md)
 import { writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import xpkg from '@xterm/headless'
 import { casesA } from './cases-a.mjs'
 import { casesB } from './cases-b.mjs'
@@ -22,7 +21,7 @@ import { attrGrid } from './attr-fingerprint.mjs'
 import { XTERM_VERSION, REGISTRY } from './xterm-registry.mjs'
 
 const { Terminal } = xpkg
-const here = dirname(fileURLToPath(import.meta.url))
+const here = import.meta.dirname
 const C = [...casesA, ...casesB]
 
 // ─── Render goldens via xterm.js ────────────────────────────────────────────

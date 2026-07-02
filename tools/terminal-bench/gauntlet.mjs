@@ -22,12 +22,11 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 
-const here = dirname(fileURLToPath(import.meta.url))
+const here = import.meta.dirname
 const repo = resolve(here, '..', '..')
 const require = createRequire(import.meta.url)
 

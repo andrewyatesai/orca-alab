@@ -1,6 +1,6 @@
-import { createRequire } from 'module'
-import { join } from 'path'
-import { existsSync } from 'fs'
+import { createRequire } from 'node:module'
+import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 
 // Typed surface of the napi addon built from native/orca-node (the Rust

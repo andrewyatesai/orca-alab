@@ -1,4 +1,5 @@
 import type { IDisposable, IParser, Terminal } from '../../lib/pane-manager/aterm/terminal-types'
+import { sendTerminalOscColorQueryReplies as sendTerminalOscColorQueryRepliesForColors } from '../../../../shared/terminal-osc-color-reply'
 
 export const DEFAULT_DA1_RESPONSE = '\x1b[?1;2c'
 export const CONPTY_DA1_RESPONSE = '\x1b[?61;4c'
@@ -67,6 +68,17 @@ export type TerminalRendererPixelSize = {
   height: number
   cellWidth: number
   cellHeight: number
+}
+
+// Why: the hidden-startup query path (pty-connection) answers Codex's palette
+// probe from the facade's theme before renderer scheduling; on aterm panes the
+// engine drains live OSC color queries, so this only serves extracted hidden data.
+export function sendTerminalOscColorQueryReplies(
+  data: string,
+  terminal: Pick<Terminal, 'options'>,
+  sendInput: (data: string) => boolean | void
+): boolean {
+  return sendTerminalOscColorQueryRepliesForColors(data, terminal.options.theme ?? {}, sendInput)
 }
 
 export function createTerminalPixelSizeQueryResponder(
@@ -246,6 +258,11 @@ export function installTerminalCapabilityReplyHandlers(
       { intermediates: '$', final: 'q' },
       () => deps.isAtermReplyOwned?.() ?? false
     )
+    // NOTE: upstream also registers OSC 10/11 parser handlers answering from
+    // options.theme. On aterm panes the engine drains + answers live OSC color
+    // queries (createTerminalOscColorQueryResponder), so registering them here
+    // would double-answer; hidden-startup extraction uses
+    // sendTerminalOscColorQueryReplies directly instead.
   ]
 
   return {

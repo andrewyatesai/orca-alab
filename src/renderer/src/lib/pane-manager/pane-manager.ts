@@ -56,6 +56,9 @@ export class PaneManager {
   constructor(root: HTMLElement, options: PaneManagerOptions) {
     this.root = root
     this.options = options
+    // Why: hidden visited worktrees keep TerminalPane mounted; panes created
+    // for them must not paint (or hold GPU budget) until the tab is revealed.
+    this.renderingSuspended = options.initialRenderingSuspended === true
     // Registered so bulk restore (refitAndRefreshAllTerminalPanes) reaches every
     // live manager.
     registerLivePaneManager(this)
@@ -369,7 +372,8 @@ export class PaneManager {
   private createDividerWrapped(isVertical: boolean): HTMLElement {
     return createDivider(isVertical, this.styleOptions, {
       refitPanesUnder: (el) => refitPanesUnder(el, this.panes),
-      onLayoutChanged: this.options.onLayoutChanged
+      onLayoutChanged: this.options.onLayoutChanged,
+      onDragActiveChange: this.options.onPaneDragActiveChange
     })
   }
 

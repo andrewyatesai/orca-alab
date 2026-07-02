@@ -4,6 +4,7 @@
 import { useEffect } from 'react'
 import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
+import { safeFind } from '../terminal-search-safe-find'
 import { resolveTerminalShortcutAction } from './terminal-shortcut-policy'
 import type { MacOptionAsAlt } from './terminal-shortcut-policy'
 import { atermAppKeyProtocolNegotiated } from '@/lib/pane-manager/aterm/aterm-key-encoding'
@@ -13,7 +14,7 @@ import {
   type KeybindingPlatform,
   type TerminalShortcutPolicy
 } from '../../../../shared/keybindings'
-import { type PaneCwdMap } from './resolve-split-cwd'
+import type { PaneCwdMap } from './resolve-split-cwd'
 import { keyboardEventBelongsToScope } from './terminal-keyboard-scope'
 import { normalizeSelectedTextForFileSearch } from '@/lib/file-search-selection'
 import { isFindQueryTooLarge } from '@/lib/find-query-bounds'
@@ -66,6 +67,8 @@ export type SearchState = {
   regex: boolean
 }
 
+export type SearchNavigationDirection = 'next' | 'previous'
+
 /**
  * Pure decision function for Cmd+G / Cmd+Shift+G search navigation.
  * Returns 'next', 'previous', or null (no match).
@@ -76,7 +79,7 @@ export function matchSearchNavigate(
   isMac: boolean,
   searchOpen: boolean,
   searchState: SearchState
-): 'next' | 'previous' | null {
+): SearchNavigationDirection | null {
   if (e.altKey) {
     return null
   }
@@ -97,6 +100,47 @@ export function matchSearchNavigate(
     return null
   }
   return e.shiftKey ? 'previous' : 'next'
+}
+
+export function runTerminalSearchNavigation(
+  pane: Pick<ManagedPane, 'searchAddon' | 'atermController'>,
+  direction: SearchNavigationDirection,
+  searchState: SearchState
+): boolean {
+  // aterm panes: the canvas controller owns search (SearchAddon isn't
+  // loaded), so route next/prev through it. It highlights + scrolls itself.
+  if (pane.atermController) {
+    if (direction === 'next') {
+      pane.atermController.findNextMatch()
+    } else {
+      pane.atermController.findPreviousMatch()
+    }
+    return true
+  }
+  const { query, caseSensitive, regex } = searchState
+  const options = { caseSensitive, regex }
+
+  // Why: Cmd/Ctrl+G hits the same decoration path as the search panel,
+  // so narrow-viewport highlight failures need the same containment.
+  // The aterm search facade returns void (the controller tracks match state
+  // itself), so report success once the call completes without throwing.
+  return direction === 'next'
+    ? safeFind(
+        (term, findOptions) => {
+          pane.searchAddon.findNext(term, findOptions)
+          return true
+        },
+        query,
+        options
+      )
+    : safeFind(
+        (term, findOptions) => {
+          pane.searchAddon.findPrevious(term, findOptions)
+          return true
+        },
+        query,
+        options
+      )
 }
 
 export function matchFileSearchShortcut(
@@ -133,6 +177,8 @@ type KeyboardHandlersDeps = {
   onSearchSelectedText: (text: string) => void
   onRequestClosePane: (paneId: number) => void
   onClearPaneScrollback: (pane: ManagedPane) => void
+  onSetTitle: (paneId: number) => void
+  onClearPaneTitle: (paneId: number) => void
   searchOpenRef: React.RefObject<boolean>
   searchStateRef: React.RefObject<SearchState>
   macOptionAsAltRef: React.RefObject<MacOptionAsAlt>
@@ -140,6 +186,11 @@ type KeyboardHandlersDeps = {
   terminalShortcutPolicy?: TerminalShortcutPolicy
 }
 
+/**
+ * Installs terminal-pane shortcuts on the tab keyboard scope.
+ * Uses the shared shortcut policy before forwarding unmatched input to xterm
+ * so configurable Orca actions remain consistent across local and SSH panes.
+ */
 export function useTerminalKeyboardShortcuts({
   tabId,
   isActive,
@@ -158,6 +209,8 @@ export function useTerminalKeyboardShortcuts({
   onSearchSelectedText,
   onRequestClosePane,
   onClearPaneScrollback,
+  onSetTitle,
+  onClearPaneTitle,
   searchOpenRef,
   searchStateRef,
   macOptionAsAltRef,
@@ -225,22 +278,7 @@ export function useTerminalKeyboardShortcuts({
         if (!pane) {
           return
         }
-        const { query, caseSensitive, regex } = searchStateRef.current
-        // aterm panes: the canvas controller owns search (SearchAddon isn't
-        // loaded), so route next/prev through it. It highlights + scrolls itself.
-        if (pane.atermController) {
-          if (direction === 'next') {
-            pane.atermController.findNextMatch()
-          } else {
-            pane.atermController.findPreviousMatch()
-          }
-          return
-        }
-        if (direction === 'next') {
-          pane.searchAddon.findNext(query, { caseSensitive, regex })
-        } else {
-          pane.searchAddon.findPrevious(query, { caseSensitive, regex })
-        }
+        runTerminalSearchNavigation(pane, direction, searchStateRef.current)
         pane.terminal.focus()
         return
       }
@@ -408,6 +446,28 @@ export function useTerminalKeyboardShortcuts({
         return
       }
 
+      if (action.type === 'setTitle') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        const pane = manager.getActivePane() ?? manager.getPanes()[0]
+        if (!pane) {
+          return
+        }
+        onSetTitle(pane.id)
+        return
+      }
+
+      if (action.type === 'clearPaneTitle') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        const pane = manager.getActivePane() ?? manager.getPanes()[0]
+        if (!pane) {
+          return
+        }
+        onClearPaneTitle(pane.id)
+        return
+      }
+
       // Cmd+W closes the active split pane (or the whole tab when only one
       // pane remains). Always intercepted here so the tab-level handler in
       // Terminal.tsx never closes the entire tab directly — that would kill
@@ -477,6 +537,8 @@ export function useTerminalKeyboardShortcuts({
     onSearchSelectedText,
     onRequestClosePane,
     onClearPaneScrollback,
+    onSetTitle,
+    onClearPaneTitle,
     searchOpenRef,
     searchStateRef,
     macOptionAsAltRef,

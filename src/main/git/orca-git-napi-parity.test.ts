@@ -1,4 +1,4 @@
-import { StringDecoder } from 'string_decoder'
+import { StringDecoder } from 'node:string_decoder'
 import { describe, expect, it } from 'vitest'
 import { loadRustGitBinding } from '../daemon/rust-git-addon'
 import { StatusPorcelainParser } from './status-porcelain-parser'

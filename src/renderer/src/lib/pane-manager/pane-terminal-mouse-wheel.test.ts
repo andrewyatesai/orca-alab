@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER,
   normalizeTerminalTuiMouseWheelMultiplier,
@@ -16,7 +16,9 @@ function terminalElement(mouseReporting = true): HTMLElement {
   } as HTMLElement
 }
 
-function wheelEvent(init: Partial<WheelEventInit> = {}): WheelEvent {
+function wheelEvent(
+  init: Partial<WheelEventInit> & { wheelDelta?: number; wheelDeltaY?: number } = {}
+): WheelEvent {
   return {
     deltaY: 100,
     deltaMode: DOM_DELTA_PIXEL,
@@ -25,12 +27,16 @@ function wheelEvent(init: Partial<WheelEventInit> = {}): WheelEvent {
 }
 
 describe('terminal mouse wheel multiplier', () => {
-  it('uses a three-report multiplier for TUI mouse wheel scrolling', () => {
-    expect(TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER).toBe(3)
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses a one-report multiplier for TUI mouse wheel scrolling', () => {
+    expect(TERMINAL_TUI_MOUSE_WHEEL_MULTIPLIER).toBe(1)
   })
 
   it('normalizes TUI wheel multipliers to the supported report range', () => {
-    expect(normalizeTerminalTuiMouseWheelMultiplier(undefined)).toBe(3)
+    expect(normalizeTerminalTuiMouseWheelMultiplier(undefined)).toBe(1)
     expect(normalizeTerminalTuiMouseWheelMultiplier(0)).toBe(1)
     expect(normalizeTerminalTuiMouseWheelMultiplier(4.4)).toBe(4)
     expect(normalizeTerminalTuiMouseWheelMultiplier(20)).toBe(10)
@@ -54,6 +60,19 @@ describe('terminal mouse wheel multiplier', () => {
         terminalElement()
       )
     ).toBe(false)
+  })
+
+  it('multiplies notched mouse wheel ticks even when Chromium exposes a small pixel delta', () => {
+    expect(
+      shouldMultiplyTerminalMouseWheel(
+        wheelEvent({
+          deltaY: 12,
+          deltaMode: DOM_DELTA_PIXEL,
+          wheelDeltaY: -120
+        }),
+        terminalElement()
+      )
+    ).toBe(true)
   })
 
   it('multiplies non-pixel wheel deltas as discrete input', () => {

@@ -7,6 +7,7 @@ import type { TerminalSnapshot } from './types'
 export type TerminalEmulator = {
   write(data: string): void
   resize(cols: number, rows: number): void
+  getAppliedSize(): { cols: number; rows: number }
   getSnapshot(): TerminalSnapshot
   getCwd(): string | null
   clearScrollback(): void

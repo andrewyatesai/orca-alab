@@ -62,11 +62,6 @@ declare global {
   interface Window {
     __paneManagers?: Map<string, PaneManager>
     __onboardingFeatureSetupDeps?: OnboardingFeatureSetupDeps
-    // e2e/dev override to force the in-page aterm canvas renderer on.
-    __atermRendererEnabled?: boolean
-    // e2e override to force the aterm renderer OFF (existing suite asserts via
-    // the xterm DOM). __atermRendererEnabled (explicit ON) takes precedence.
-    __atermRendererDisabled?: boolean
     // e2e/dev override that FORCES the aterm WebGL2 GPU draw path on, bypassing
     // the auto-safety gate (so the GPU specs run even on headless software WebGL).
     // Still requires a creatable webgl2 context. See aterm-gpu-auto-policy.
@@ -129,7 +124,6 @@ declare global {
 // oxlint-disable-next-line typescript-eslint/consistent-type-definitions -- declaration merging requires interface
 interface ImportMetaEnv {
   readonly VITE_EXPOSE_STORE?: boolean
-  readonly VITE_ATERM_RENDERER?: string
 }
 
 export {}

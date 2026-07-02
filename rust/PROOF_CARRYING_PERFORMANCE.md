@@ -73,9 +73,10 @@ attribute composition (including the flags-only and color-only fast paths agains
 the generic path), EL/ED erase, tab stops, autowrap at the right margin, relative
 cursor motion, and bottom-row scroll.
 
-This oracle is also fed by a **differential fuzzer** (`tools/conformance/hunt.mjs`)
+This oracle is also fed by a **differential fuzzer**
+([`tools/conformance/hunt.mjs`](../tools/conformance/hunt.mjs))
 that compares aterm against xterm.js and auto-minimizes divergences. Its findings
-([`tools/conformance/ATERM-FINDINGS.md`](tools/conformance/ATERM-FINDINGS.md)) are
+([`tools/conformance/ATERM-FINDINGS.md`](../tools/conformance/ATERM-FINDINGS.md)) are
 all **grid / cell / cursor** divergences — ED/EL at a pending wrap, wide-char
 editing under IRM/ICH, vertical clamping inside a scroll region, wide-glyph
 wrapping off the last column, deferred-wrap/LF double-scroll. Each fixed finding
@@ -246,7 +247,7 @@ the middle:
         set_px(integer px)   cell_width   cell_height
                                                │
    ┌───────────────────────────────────────────────────────────────┐
-   │  Rust engine   (FORMALLY VERIFIED over the abstract domain)     │
+   │  Rust engine   (model-checked + SMT-certified + diff-tested)    │
    │                                                                 │
    │   • semantics:  bytes in → grid cells / cursor / response out   │  ← aterm-conformance oracle + differential fuzzer
    │   • invariants: A1 row_index · A2 codec · A5 blend ·            │  ← ay SMT/CHC certificates (verify.sh)

@@ -342,10 +342,6 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     experimentalActivity: false,
     experimentalActivityDefaultedOffForAllUsers: true,
     experimentalTerminalAttention: false,
-    // Why: in-page aterm canvas renderer ships default-on (opt-out). Any aterm
-    // init failure transparently falls back to xterm, so default-on never
-    // leaves a black pane. Set false to force the legacy xterm rendering path.
-    experimentalAtermRenderer: true,
     experimentalAgentHibernation: false,
     agentHibernationIdleMs: 30 * 60 * 1000,
     experimentalNewWorktreeCardStyle: false,

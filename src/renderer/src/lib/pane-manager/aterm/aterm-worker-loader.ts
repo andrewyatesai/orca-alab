@@ -49,9 +49,17 @@ async function loadWorkerFallbackFonts(): Promise<WorkerFallbackFonts> {
   return workerFallbackFontsPromise
 }
 
-// Cap the wait for the worker's first frame so a wedged worker can't hang pane
-// creation; the worker normally posts state within a frame or two of init.
-const WORKER_INIT_TIMEOUT_MS = 4000
+// Cap the wait for the worker's 'booted' ack (posted synchronously on receiving
+// init) so a wedged/dead worker — failed script load, spawn failure, a crash before
+// its message loop — can't hang pane creation. A healthy worker acks near-instantly.
+const WORKER_BOOT_TIMEOUT_MS = 4000
+// After the ack the worker is provably alive and building its engine: wasm compile +
+// font parse + (possibly software) GL acquire take seconds, and CONCURRENT pane opens
+// (app start, session restore, several panes at once) contend and stretch that past
+// any frame-scale deadline. Killing a live build silently downgrades the pane to the
+// in-process path, so wait it out under a longer — still bounded, a hung GL acquire
+// must not blank the pane forever — total cap measured from the init post.
+const WORKER_FIRST_FRAME_TIMEOUT_MS = 15_000
 
 export async function loadAtermWorkerEngine(
   config: AtermDrawerBuildConfig
@@ -93,9 +101,14 @@ export async function loadAtermWorkerEngine(
   // thread — the worker's own link_at never sees them), set from bindPainter.
   let overlayGetSpan: () => AtermHoveredLinkSpan | null = () => null
   let firstResolved = false
+  // Set by the worker's 'booted' ack; read by the first-frame deadline to tell a
+  // live-but-building worker from a wedged one.
+  let workerBooted = false
   let resolveFirst: (state: AtermWorkerState) => void = () => undefined
-  const firstState = new Promise<AtermWorkerState>((resolve) => {
+  let rejectFirst: (err: Error) => void = () => undefined
+  const firstState = new Promise<AtermWorkerState>((resolve, reject) => {
     resolveFirst = resolve
+    rejectFirst = reject
   })
 
   // The hover cursor last written to the pane canvas — skip the CSSOM write on the
@@ -127,9 +140,10 @@ export async function loadAtermWorkerEngine(
       onRuntimeCrash(seedAnsi)
       return
     }
-    // Crash before the painter bound (no rebuild seam yet): stop the dead worker so
-    // the first-frame race/timeout surfaces the failure to loadAtermStrategy, whose
-    // fallback already rebuilds in-process on a fresh canvas.
+    // Crash before the painter bound (no rebuild seam yet): fail the first-frame wait
+    // NOW (don't sit out the build deadline on a dead worker) so loadAtermStrategy's
+    // fallback rebuilds in-process on a fresh canvas, and stop the dead worker.
+    rejectFirst(new Error(`aterm worker crashed before its first frame: ${message}`))
     worker.terminate()
   }
 
@@ -166,6 +180,9 @@ export async function loadAtermWorkerEngine(
         if (e2eConfig.exposeStore) {
           window.__atermWorkerRenderState = data
         }
+        return
+      case 'booted':
+        workerBooted = true
         return
       case 'reply':
         backed?.pushReply(data.data)
@@ -235,20 +252,31 @@ export async function loadAtermWorkerEngine(
   )
 
   // Wait for the worker's first frame so the controller's construction-time reads
-  // (cell_width/height) are real before wireAtermPane runs. Race a timeout so a wedged
-  // worker (no state, no error) can't hang pane creation forever; on timeout terminate
-  // it and throw (the caller surfaces a broken pane rather than an infinite await).
+  // (cell_width/height) are real before wireAtermPane runs. Race a two-phase deadline
+  // so a wedged worker (no ack, no state, no error) can't hang pane creation forever,
+  // while a live one gets to finish its seconds-long engine build (concurrent pane
+  // opens contend; killing a healthy build here would silently drop the pane to the
+  // in-process path). On timeout terminate the worker and throw (the caller falls
+  // back rather than awaiting forever).
   let initial: AtermWorkerState
   try {
     initial = await Promise.race([
       firstState,
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () =>
-            reject(new Error(`aterm worker first frame timed out (${WORKER_INIT_TIMEOUT_MS}ms)`)),
-          WORKER_INIT_TIMEOUT_MS
-        )
-      )
+      new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          if (!workerBooted) {
+            reject(new Error(`aterm worker boot timed out (${WORKER_BOOT_TIMEOUT_MS}ms)`))
+            return
+          }
+          setTimeout(
+            () =>
+              reject(
+                new Error(`aterm worker first frame timed out (${WORKER_FIRST_FRAME_TIMEOUT_MS}ms)`)
+              ),
+            WORKER_FIRST_FRAME_TIMEOUT_MS - WORKER_BOOT_TIMEOUT_MS
+          )
+        }, WORKER_BOOT_TIMEOUT_MS)
+      })
     ])
   } catch (err) {
     worker.terminate()

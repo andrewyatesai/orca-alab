@@ -79,6 +79,11 @@ function startTerminal(handle: EngineHandle): void {
 }
 
 async function handleInit(msg: AtermWorkerInit): Promise<void> {
+  // Ack BEFORE the engine build: it takes seconds (wasm compile + font parse + GL
+  // acquire, stretched further by concurrent pane opens), and without the ack the
+  // loader can't tell "alive but building" from "wedged" and would kill a healthy
+  // worker at its short first-frame deadline.
+  ctx.postMessage({ type: 'booted' })
   storedCanvas = msg.canvas
   storedInit = buildStoredInit(msg)
   let handle: EngineHandle

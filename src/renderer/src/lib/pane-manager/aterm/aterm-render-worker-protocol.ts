@@ -293,6 +293,12 @@ export type AtermWorkerState = {
   dirtyRows: AtermWorkerGridRow[]
 }
 
+/** Posted synchronously when 'init' is received, BEFORE the (seconds-long) engine
+ *  build starts. Lets the loader tell a live-but-building worker from a wedged one:
+ *  the short first-frame deadline applies only until this ack; after it the loader
+ *  waits out the build under a longer (still bounded) cap instead of killing a
+ *  healthy worker under concurrent-pane-open contention. */
+export type AtermWorkerBooted = { type: 'booted' }
 /** Engine query replies (DA/DSR/CPR/colour/CSI 14t-16t) to forward to the PTY.
  *  Posted immediately per processed chunk (NOT coalesced) so none are dropped and
  *  ordering is preserved. */
@@ -333,6 +339,7 @@ export type AtermWorkerError = {
 /** Everything the worker posts back to the main thread. */
 export type AtermWorkerMessage =
   | AtermWorkerState
+  | AtermWorkerBooted
   | AtermWorkerReply
   | AtermWorkerOsc
   | AtermWorkerBell

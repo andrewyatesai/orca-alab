@@ -87,6 +87,11 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
       // TUI wheel multiplier: the lifecycle threads a live settings reader onto the pane.
       getTuiScrollMultiplier: () =>
         normalizeTerminalTuiMouseWheelMultiplier(pane.terminalTuiScrollSensitivity?.()),
+      // The per-pane kitty keyboard policy landed on the facade's construction options
+      // (buildTerminalKeyboardProtocolOptions: vtExtensions.kittyKeyboard=false only for
+      // a genuine LOCAL Windows ConPTY pane — SSH-from-Windows panes keep kitty). The
+      // engine applies it once at construction (the policy is per-pane static).
+      getKittyKeyboardEnabled: () => pane.terminal.options.vtExtensions?.kittyKeyboard !== false,
       // Map terminalCursorStyle + terminalCursorBlink → a DECSCUSR param: block=1/2,
       // underline=3/4, bar=5/6 (blinking/steady) — the engine's default cursor shape.
       getCursorStyleParam: () => {

@@ -71,17 +71,14 @@ export function TerminalWindowSection({
           )}
           keywords={['opacity', 'transparency', 'background', 'alpha']}
         >
-          {/* Why disabled: the aterm renderer composites opaque colors (its theme
-              seed drops alpha), so this slider has no effect today. The stored
-              value is preserved so it applies when engine alpha support lands. */}
           <NumberField
             label={translate(
               'auto.components.settings.TerminalWindowSection.ea7b1a158e',
               'Background Opacity'
             )}
             description={translate(
-              'auto.components.settings.TerminalWindowSection.backgroundOpacityUnsupported',
-              'Not supported yet: the terminal renderer currently paints opaque colors. Your value is saved and will apply when transparency support lands.'
+              'auto.components.settings.TerminalWindowSection.809f37738d',
+              'Controls the transparency of the terminal background. 1 is fully opaque, 0 is fully transparent.'
             )}
             value={settings.terminalBackgroundOpacity ?? 1}
             defaultValue={1}
@@ -89,7 +86,6 @@ export function TerminalWindowSection({
             max={1}
             step={0.05}
             suffix="0 to 1"
-            disabled
             onChange={(value) =>
               updateSettings({ terminalBackgroundOpacity: clampNumber(value, 0, 1) })
             }

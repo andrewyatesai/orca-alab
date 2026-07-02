@@ -66,6 +66,16 @@ export type AtermWorkerSetWordSeparators = {
   type: 'setWordSeparators'
   separators: string | null
 }
+/** DEFAULT-background alpha (terminalBackgroundOpacity); 1 = opaque (engine default). */
+export type AtermWorkerSetBackgroundOpacity = { type: 'setBackgroundOpacity'; opacity: number }
+/** Cursor-fill alpha (terminalCursorOpacity); 1 = opaque (engine default). */
+export type AtermWorkerSetCursorOpacity = { type: 'setCursorOpacity'; opacity: number }
+/** Enable/disable the Kitty keyboard capability (per-pane static ConPTY policy;
+ *  disabled → CSI ? u unanswered, pushes ignored, keyboard_mode carries no kitty bits). */
+export type AtermWorkerSetKittyKeyboardEnabled = {
+  type: 'setKittyKeyboardEnabled'
+  enabled: boolean
+}
 /** Push the OS color scheme (light/dark). The engine queues a CSI ?997 update when the
  *  scheme changes and the app enabled DEC 2031; the worker drains it to the reply channel. */
 export type AtermWorkerSetColorScheme = { type: 'setColorScheme'; dark: boolean }
@@ -187,6 +197,9 @@ export type AtermWorkerRequest =
   | AtermWorkerSetDefaultCursorStyle
   | AtermWorkerSetMinimumContrast
   | AtermWorkerSetWordSeparators
+  | AtermWorkerSetBackgroundOpacity
+  | AtermWorkerSetCursorOpacity
+  | AtermWorkerSetKittyKeyboardEnabled
   | AtermWorkerSetColorScheme
   | AtermWorkerScrollLines
   | AtermWorkerScrollToBottom

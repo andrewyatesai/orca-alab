@@ -6424,8 +6424,7 @@
           "16c471ee03": "开",
           "typographyAdvanced": "排版",
           "dimUnfocusedPanes": "调暗未聚焦的窗格。",
-          "fontWeightFaceNote": "使用该字体已安装的最接近样式（例如 500 → Medium）；粗体文本在安装了 Bold 样式时使用该样式。适用于新终端。",
-          "cursorOpacityUnsupported": "尚不支持：终端渲染器目前以不透明颜色绘制。您的值已保存，将在支持透明度后生效。"
+          "fontWeightFaceNote": "使用该字体已安装的最接近样式（例如 500 → Medium）；粗体文本在安装了 Bold 样式时使用该样式。适用于新终端。"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "像素",
@@ -6630,8 +6629,7 @@
           "79f6bfb76e": "前景",
           "cf37ff69f6": "根据",
           "8abdab9f7c": "立即重启",
-          "907131d741": "正在重新启动...",
-          "backgroundOpacityUnsupported": "尚不支持：终端渲染器目前以不透明颜色绘制。您的值已保存，将在支持透明度后生效。"
+          "907131d741": "正在重新启动..."
         },
         "UIZoomControl": {
           "c2c64b24d0": "重置"

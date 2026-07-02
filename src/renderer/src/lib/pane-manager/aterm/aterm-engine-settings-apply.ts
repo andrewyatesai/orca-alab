@@ -2,7 +2,8 @@ import { attachAtermColorSchemeSync } from './aterm-color-scheme-sync'
 import type { AtermControllerOptionReaders } from './aterm-controller-option-readers'
 
 // Apply the user's terminal settings (ligatures, scrollback depth, default cursor shape,
-// minimum contrast, word separators) to the engine + wire the live OS color-scheme sync. The readers read the store live, so
+// minimum contrast, word separators, background/cursor opacity) plus the per-pane kitty
+// keyboard policy to the engine + wire the live OS color-scheme sync. The readers read the store live, so
 // `reapply()` re-applies them on a settings change to an OPEN pane (the setters are cheap +
 // don't change cell metrics — parity with how theme/size live-apply). Works on both render
 // paths (the worker-backed term posts each as a command). Kept out of the wiring to keep
@@ -14,6 +15,9 @@ type EngineSettingsTarget = {
   set_default_cursor_style: (param: number) => void
   set_minimum_contrast: (ratio: number) => void
   set_word_separators: (separators?: string | null) => void
+  set_background_opacity: (opacity: number) => void
+  set_cursor_opacity: (opacity: number) => void
+  set_kitty_keyboard_enabled: (enabled: boolean) => void
   set_color_scheme: (dark: boolean) => void
   take_response: () => Uint8Array | undefined
 }
@@ -44,8 +48,17 @@ export function applyAtermEngineSettings(deps: {
     term.set_minimum_contrast(readers.getMinimumContrastRatio())
     // null clears to the engine's default word logic (see the reader's mapping).
     term.set_word_separators(readers.getWordSeparators())
+    // DEFAULT-bg / cursor-fill alpha (engine-side compositing; 1 = opaque no-op).
+    // The pane DOM behind the canvas carries the theme background, so a translucent
+    // default bg reveals it on both the 2d (putImageData) and WebGL2 paths.
+    term.set_background_opacity(readers.getBackgroundOpacity())
+    term.set_cursor_opacity(readers.getCursorOpacity())
   }
   apply()
+  // Kitty keyboard capability: per-pane STATIC policy (local Windows ConPTY panes
+  // disable it), so apply once at engine construction — deliberately NOT part of
+  // apply()/reapply(), which re-reads live user settings.
+  term.set_kitty_keyboard_enabled(readers.getKittyKeyboardEnabled())
   // Seed + live-sync the OS color scheme (DEC 2031 / DSR 996); returns its disposer.
   const colorScheme = attachAtermColorSchemeSync({
     term,

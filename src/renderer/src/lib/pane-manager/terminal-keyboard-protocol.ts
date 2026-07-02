@@ -32,8 +32,8 @@ export function shouldDisableKittyKeyboardForTerminal(
  * Terminal option overrides that withhold the Kitty enhanced keyboard protocol
  * for local Windows ConPTY panes and leave every other pane untouched. Merged
  * after `buildDefaultTerminalOptions()`, so `{}` keeps the advertised default on.
- * NOTE(aterm gap): the aterm engine currently always advertises kitty; honoring
- * vtExtensions.kittyKeyboard=false needs an engine toggle (tracked, not faked).
+ * The aterm engine honors it via set_kitty_keyboard_enabled, applied once at
+ * engine construction (see aterm-pane-open's getKittyKeyboardEnabled reader).
  */
 export function buildTerminalKeyboardProtocolOptions(
   context: TerminalKeyboardProtocolContext

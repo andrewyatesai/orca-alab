@@ -6478,8 +6478,7 @@
           "16c471ee03": "on",
           "typographyAdvanced": "Typography",
           "dimUnfocusedPanes": "Dim unfocused panes.",
-          "fontWeightFaceNote": "Uses the closest installed style of the font (e.g. 500 → Medium); bold text uses the font’s Bold style when installed. Applies to new terminals.",
-          "cursorOpacityUnsupported": "Not supported yet: the terminal renderer currently paints opaque colors. Your value is saved and will apply when transparency support lands."
+          "fontWeightFaceNote": "Uses the closest installed style of the font (e.g. 500 → Medium); bold text uses the font’s Bold style when installed. Applies to new terminals."
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -6684,8 +6683,7 @@
           "79f6bfb76e": "Foreground",
           "cf37ff69f6": "Base",
           "8abdab9f7c": "Restart now",
-          "907131d741": "Restarting…",
-          "backgroundOpacityUnsupported": "Not supported yet: the terminal renderer currently paints opaque colors. Your value is saved and will apply when transparency support lands."
+          "907131d741": "Restarting…"
         },
         "UIZoomControl": {
           "c2c64b24d0": "Reset"

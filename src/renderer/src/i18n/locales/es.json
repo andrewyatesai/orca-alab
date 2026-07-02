@@ -6439,8 +6439,7 @@
           "16c471ee03": "activado",
           "typographyAdvanced": "Tipografía",
           "dimUnfocusedPanes": "Atenuar paneles sin foco.",
-          "fontWeightFaceNote": "Usa el estilo instalado más cercano de la fuente (p. ej., 500 → Medium); el texto en negrita usa el estilo Bold de la fuente cuando está instalado. Se aplica a los terminales nuevos.",
-          "cursorOpacityUnsupported": "Aún no compatible: el renderizador del terminal actualmente pinta colores opacos. Tu valor se guarda y se aplicará cuando llegue la compatibilidad con transparencia."
+          "fontWeightFaceNote": "Usa el estilo instalado más cercano de la fuente (p. ej., 500 → Medium); el texto en negrita usa el estilo Bold de la fuente cuando está instalado. Se aplica a los terminales nuevos."
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "píxeles",
@@ -6645,8 +6644,7 @@
           "79f6bfb76e": "Primer plano",
           "cf37ff69f6": "Base",
           "8abdab9f7c": "Reiniciar ahora",
-          "907131d741": "Reiniciando…",
-          "backgroundOpacityUnsupported": "Aún no compatible: el renderizador del terminal actualmente pinta colores opacos. Tu valor se guarda y se aplicará cuando llegue la compatibilidad con transparencia."
+          "907131d741": "Reiniciando…"
         },
         "UIZoomControl": {
           "c2c64b24d0": "Reiniciar"

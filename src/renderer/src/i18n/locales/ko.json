@@ -6424,8 +6424,7 @@
           "16c471ee03": "켜짐",
           "typographyAdvanced": "타이포그래피",
           "dimUnfocusedPanes": "포커스되지 않은 창을 흐리게 표시합니다.",
-          "fontWeightFaceNote": "글꼴에 설치된 가장 가까운 스타일을 사용합니다(예: 500 → Medium). 굵은 텍스트는 글꼴의 Bold 스타일이 설치된 경우 이를 사용합니다. 새 terminal에 적용됩니다.",
-          "cursorOpacityUnsupported": "아직 지원되지 않습니다. terminal 렌더러는 현재 불투명한 색상으로 그립니다. 값은 저장되며 투명도 지원이 추가되면 적용됩니다."
+          "fontWeightFaceNote": "글꼴에 설치된 가장 가까운 스타일을 사용합니다(예: 500 → Medium). 굵은 텍스트는 글꼴의 Bold 스타일이 설치된 경우 이를 사용합니다. 새 terminal에 적용됩니다."
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "px",
@@ -6630,8 +6629,7 @@
           "79f6bfb76e": "전경",
           "cf37ff69f6": "베이스",
           "8abdab9f7c": "지금 재시작",
-          "907131d741": "다시 시작하는 중…",
-          "backgroundOpacityUnsupported": "아직 지원되지 않습니다. terminal 렌더러는 현재 불투명한 색상으로 그립니다. 값은 저장되며 투명도 지원이 추가되면 적용됩니다."
+          "907131d741": "다시 시작하는 중…"
         },
         "UIZoomControl": {
           "c2c64b24d0": "재설정"

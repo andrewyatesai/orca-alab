@@ -261,6 +261,11 @@ export type AtermPaneControllerOptions = {
   /** Scrollback history line limit (resolved from terminalScrollbackBytes). Read at
    *  pane open to drive set_scrollback_limit; unset keeps the engine's 100k default. */
   getScrollbackLines?: () => number
+  /** Whether the engine may advertise/honor the Kitty keyboard protocol. Per-pane
+   *  STATIC policy (local Windows ConPTY panes withhold it — several local ConPTY
+   *  CLIs read the advertisement but don't decode CSI-u; SSH/macOS/Linux keep it),
+   *  so it's read once at engine construction. Unset → enabled (engine default). */
+  getKittyKeyboardEnabled?: () => boolean
   /** DEFAULT cursor style as a DECSCUSR param (1=blinking block … 6=steady bar),
    *  resolved from terminalCursorStyle + terminalCursorBlink. Read at pane open to drive
    *  set_default_cursor_style; unset keeps the engine default (1). Does not clobber an

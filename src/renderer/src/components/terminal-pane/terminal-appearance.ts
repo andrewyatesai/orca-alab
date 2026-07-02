@@ -157,9 +157,9 @@ export function composeActiveTerminalTheme(
     theme = { ...theme, ...settings.terminalColorOverrides }
   }
   // terminalBackgroundOpacity / terminalCursorOpacity are intentionally NOT
-  // composed into rgba() here: the aterm engine composites opaque colors (its
-  // theme seed drops alpha — see aterm-theme-colors), so an alpha channel is a
-  // dead store. The settings stay persisted for when engine alpha support lands.
+  // composed into rgba() here: the engine applies them itself via
+  // set_background_opacity/set_cursor_opacity (wired in applyAtermEngineSettings),
+  // and the theme seed drops alpha (see aterm-theme-colors).
   return theme
 }
 

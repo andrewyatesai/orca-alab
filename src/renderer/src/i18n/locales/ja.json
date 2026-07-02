@@ -6461,8 +6461,7 @@
           "16c471ee03": "オン",
           "typographyAdvanced": "タイポグラフィ",
           "dimUnfocusedPanes": "フォーカスされていないペインを暗くします。",
-          "fontWeightFaceNote": "フォントにインストールされている最も近いスタイルを使用します（例: 500 → Medium）。太字のテキストは、インストールされている場合はフォントの Bold スタイルを使用します。新しい terminal に適用されます。",
-          "cursorOpacityUnsupported": "まだサポートされていません: terminal レンダラーは現在、不透明な色で描画します。値は保存され、透明度のサポートが追加されたときに適用されます。"
+          "fontWeightFaceNote": "フォントにインストールされている最も近いスタイルを使用します（例: 500 → Medium）。太字のテキストは、インストールされている場合はフォントの Bold スタイルを使用します。新しい terminal に適用されます。"
         },
         "TerminalFontSizeSetting": {
           "9b5252c85a": "ピクセル",
@@ -6667,8 +6666,7 @@
           "79f6bfb76e": "前景",
           "cf37ff69f6": "ベース",
           "8abdab9f7c": "今すぐ再起動",
-          "907131d741": "再起動中…",
-          "backgroundOpacityUnsupported": "まだサポートされていません: terminal レンダラーは現在、不透明な色で描画します。値は保存され、透明度のサポートが追加されたときに適用されます。"
+          "907131d741": "再起動中…"
         },
         "UIZoomControl": {
           "c2c64b24d0": "リセット"

@@ -114,25 +114,18 @@ export function TerminalCursorAppearanceSection({
           )}
           keywords={['terminal', 'cursor', 'opacity', 'transparency']}
         >
-          {/* Why disabled: the aterm renderer composites opaque colors (its theme
-              seed drops alpha), so this slider has no effect today. The stored
-              value is preserved so it applies when engine alpha support lands. */}
           <NumberField
             label={translate(
               'auto.components.settings.TerminalAppearanceSection.b9f1804422',
               'Cursor Opacity'
             )}
-            description={translate(
-              'auto.components.settings.TerminalAppearanceSection.cursorOpacityUnsupported',
-              'Not supported yet: the terminal renderer currently paints opaque colors. Your value is saved and will apply when transparency support lands.'
-            )}
+            description=""
             value={settings.terminalCursorOpacity ?? 1}
             defaultValue={1}
             min={0}
             max={1}
             step={0.05}
             suffix="0-1"
-            disabled
             onChange={(value) =>
               updateSettings({
                 terminalCursorOpacity: clampNumber(value, 0, 1)

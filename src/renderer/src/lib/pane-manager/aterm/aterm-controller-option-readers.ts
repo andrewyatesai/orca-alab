@@ -28,6 +28,19 @@ export type AtermControllerOptionReaders = {
   getMinimumContrastRatio: () => number
   /** Double-click word separators (terminalWordSeparator); null = engine default. */
   getWordSeparators: () => string | null
+  /** DEFAULT-bg alpha (terminalBackgroundOpacity), clamped 0..1; default 1 (opaque). */
+  getBackgroundOpacity: () => number
+  /** Cursor-fill alpha (terminalCursorOpacity), clamped 0..1; default 1 (opaque). */
+  getCursorOpacity: () => number
+  /** Kitty keyboard capability (per-pane static policy: local Windows ConPTY panes
+   *  disable it — see terminal-keyboard-protocol); default true (engine default ON). */
+  getKittyKeyboardEnabled: () => boolean
+}
+
+/** Clamp a stored opacity setting to the engine's 0..=1 domain; anything unset or
+ *  non-finite means "opaque" (1, the engine default → a no-op set). */
+export function normalizeTerminalOpacity(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1
 }
 
 export function createAtermControllerOptionReaders(
@@ -49,6 +62,13 @@ export function createAtermControllerOptionReaders(
     // Unset/empty terminalWordSeparator meant "xterm's built-in default" on the old
     // facade option (wordSeparator) — map it to null so the engine restores its own
     // default word logic instead of treating "" as "nothing separates".
-    getWordSeparators: () => useAppStore.getState().settings?.terminalWordSeparator || null
+    getWordSeparators: () => useAppStore.getState().settings?.terminalWordSeparator || null,
+    // Read the store live (like word separators) so a slider change re-applies to
+    // open panes via reapplyEngineSettings without a pane rebuild.
+    getBackgroundOpacity: () =>
+      normalizeTerminalOpacity(useAppStore.getState().settings?.terminalBackgroundOpacity),
+    getCursorOpacity: () =>
+      normalizeTerminalOpacity(useAppStore.getState().settings?.terminalCursorOpacity),
+    getKittyKeyboardEnabled: () => options?.getKittyKeyboardEnabled?.() ?? true
   }
 }

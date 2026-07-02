@@ -39,6 +39,9 @@ type WorkerTerminal = ReturnType<typeof createWorkerTerminal>
 type EngineSettingSetters = {
   set_minimum_contrast: (ratio: number) => void
   set_word_separators: (separators?: string | null) => void
+  set_background_opacity: (opacity: number) => void
+  set_cursor_opacity: (opacity: number) => void
+  set_kitty_keyboard_enabled: (enabled: boolean) => void
 }
 
 let term: WorkerTerminal | null = null
@@ -197,6 +200,19 @@ function dispatch(msg: AtermWorkerRequest): void {
     case 'setWordSeparators':
       // Selection-behavior only (next double-click) — no repaint needed.
       engineSetters?.set_word_separators(msg.separators ?? undefined)
+      return
+    case 'setBackgroundOpacity':
+      // Appearance-only: repaint so the translucent default bg shows immediately.
+      engineSetters?.set_background_opacity(msg.opacity)
+      scheduleDraw()
+      return
+    case 'setCursorOpacity':
+      engineSetters?.set_cursor_opacity(msg.opacity)
+      scheduleDraw()
+      return
+    case 'setKittyKeyboardEnabled':
+      // Protocol capability only (affects future CSI ? u replies) — no repaint.
+      engineSetters?.set_kitty_keyboard_enabled(msg.enabled)
       return
     case 'setDefaultCursorStyle':
       term?.setDefaultCursorStyle(msg.param)

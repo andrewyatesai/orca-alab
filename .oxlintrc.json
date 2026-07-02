@@ -88,5 +88,13 @@
       }
     }
   ],
-  "ignorePatterns": ["**/node_modules", "**/dist", "**/out", "**/aterm_wasm*", "**/aterm_gpu_web*"]
+  "ignorePatterns": [
+    "**/node_modules",
+    "**/dist",
+    "**/out",
+    "**/aterm_wasm*",
+    "**/aterm_gpu_web*",
+    "rust/vendor",
+    "rust/aterm"
+  ]
 }

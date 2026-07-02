@@ -298,17 +298,6 @@ export const test = base.extend<OrcaTestFixtures, OrcaWorkerFixtures>({
       ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = false
     })
 
-    // Why: the aterm in-page renderer ships default-on, but the existing e2e
-    // suite asserts terminal content via the xterm DOM (.xterm-rows/.xterm-screen),
-    // which aterm panes don't produce. Force the xterm renderer for the suite by
-    // default. addInitScript covers reloads (orca-restart); the evaluate covers
-    // the already-loaded document. The aterm-specific specs set
-    // window.__atermRendererEnabled = true, which takes precedence (ON wins).
-    // The suite now runs on the aterm renderer (xterm.js is being removed). aterm is
-    // default-on, so no flag is needed; specs that assert via the xterm DOM are
-    // migrated to the aterm canvas/controller/a11y-region.
-    void page
-
     // Wait for the store to be available
     await page.waitForFunction(() => Boolean(window.__store), null, { timeout: 30_000 })
 

@@ -39,7 +39,9 @@ export function dispatch(fn: string, input: unknown): unknown {
     case 'decodeTerminalStreamFrame': {
       const { bytes } = input as { bytes: number[] }
       const decoded = decodeTerminalStreamFrame(toBytes(bytes))
-      if (!decoded) return null
+      if (!decoded) {
+        return null
+      }
       return {
         opcode: decoded.opcode,
         streamId: decoded.streamId,

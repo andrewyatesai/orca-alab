@@ -30,7 +30,7 @@ describe('electron-builder config', () => {
         '!skills{,/**/*}',
         '!tests{,/**/*}',
         '!Casks{,/**/*}',
-        '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,bundle-size-progress.md}',
+        '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,THIRD-PARTY-NOTICES.md,bundle-size-progress.md}',
         '!out/**/*.test.js'
       ])
     )

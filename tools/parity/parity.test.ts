@@ -60,16 +60,23 @@ describe('TS↔Rust parity', () => {
 
     describe(doc.module, () => {
       it('has a TS dispatch adapter', () => {
-        expect(dispatcher, `no TS dispatch registered for module "${doc.module}"`).toBeTypeOf('function')
+        expect(dispatcher, `no TS dispatch registered for module "${doc.module}"`).toBeTypeOf(
+          'function'
+        )
       })
 
       doc.cases.forEach((vectorCase, index) => {
         const label = `${vectorCase.function} #${index}${vectorCase.note ? ` — ${vectorCase.note}` : ''}`
         it(label, () => {
-          if (!dispatcher) return
+          if (!dispatcher) {
+            return
+          }
           const tsOutput = dispatcher(vectorCase.function, vectorCase.input)
           const rustRun = rustByKey.get(`${doc.module}::${index}`)
-          expect(rustRun, `no Rust output for ${doc.module}#${index} — re-run the Rust harness`).toBeTruthy()
+          expect(
+            rustRun,
+            `no Rust output for ${doc.module}#${index} — re-run the Rust harness`
+          ).toBeTruthy()
 
           const matches = semanticEqual(tsOutput, rustRun!.rustOutput)
           const detail =
@@ -79,7 +86,9 @@ describe('TS↔Rust parity', () => {
 
           if (vectorCase.allowDivergence) {
             // Intended fresh-reimplementation difference: report, do not fail.
-            if (!matches) console.warn(`KNOWN DIVERGENCE (${vectorCase.allowDivergence})${detail}`)
+            if (!matches) {
+              console.warn(`KNOWN DIVERGENCE (${vectorCase.allowDivergence})${detail}`)
+            }
             return
           }
 

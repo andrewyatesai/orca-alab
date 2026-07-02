@@ -196,10 +196,16 @@ async function setWideRenderedTableViewport(page: Page): Promise<void> {
       () =>
         page.evaluate(() => {
           const store = window.__store
-          if (!store) return false
+          if (!store) {
+            return false
+          }
           const s = store.getState()
-          if (s.sidebarOpen) s.setSidebarOpen(false)
-          if (s.rightSidebarOpen) s.setRightSidebarOpen(false)
+          if (s.sidebarOpen) {
+            s.setSidebarOpen(false)
+          }
+          if (s.rightSidebarOpen) {
+            s.setRightSidebarOpen(false)
+          }
           const after = store.getState()
           return !after.sidebarOpen && !after.rightSidebarOpen
         }),

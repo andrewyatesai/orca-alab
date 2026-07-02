@@ -10,7 +10,7 @@
 use orca_core::worktree_ownership::{
     are_runtime_paths_equal, build_known_orca_workspace_layouts, classify_worktree_ownership,
     effective_external_worktree_visibility, is_legacy_repo_for_external_worktree_visibility,
-    matches_strong_orca_create_path, should_show_worktree, to_detected_worktree,
+    should_show_worktree, to_detected_worktree,
     DetectedWorktree, ExternalWorktreeVisibility, OrcaWorkspaceLayout, Repo, WorkspaceLayoutSettings,
     Worktree, WorktreeMeta, WorktreeOwnership,
 };
@@ -60,12 +60,6 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
         "areRuntimePathsEqual" => {
             Value::Bool(are_runtime_paths_equal(&str_field(input, "leftPath"), &str_field(input, "rightPath")))
         }
-        "matchesStrongOrcaCreatePath" => {
-            let worktree_path = str_field(input, "worktreePath");
-            let layouts = parse_layouts(input.get("knownOrcaLayouts"));
-            let repo_path = str_field(field(input, "repo"), "path");
-            Value::Bool(matches_strong_orca_create_path(&worktree_path, &layouts, &repo_path))
-        }
         other => json!({ "__parity_error__": format!("unknown function {other}") }),
     }
 }
@@ -113,6 +107,10 @@ fn parse_meta(value: Option<&Value>) -> Option<WorktreeMeta> {
     let value = value.filter(|value| value.is_object())?;
     Some(WorktreeMeta {
         orca_created_at: value.get("orcaCreatedAt").and_then(Value::as_f64),
+        // TS truthiness: any present object/value counts (it is an object in TS).
+        orca_creation_workspace_layout: value
+            .get("orcaCreationWorkspaceLayout")
+            .is_some_and(|layout| !layout.is_null() && *layout != Value::Bool(false)),
         created_at: value.get("createdAt").and_then(Value::as_f64),
         created_with_agent: bool_field(value, "createdWithAgent"),
         push_target: bool_field(value, "pushTarget"),

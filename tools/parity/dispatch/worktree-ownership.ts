@@ -8,11 +8,10 @@ import {
   classifyWorktreeOwnership,
   effectiveExternalWorktreeVisibility,
   isLegacyRepoForExternalWorktreeVisibility,
-  matchesStrongOrcaCreatePath,
   shouldShowWorktree,
   toDetectedWorktree
 } from '../../../src/shared/worktree-ownership'
-import type { OrcaWorkspaceLayout, Repo } from '../../../src/shared/types'
+import type { Repo } from '../../../src/shared/types'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
@@ -43,14 +42,6 @@ export function dispatch(fn: string, input: unknown): unknown {
     case 'areRuntimePathsEqual': {
       const { leftPath, rightPath } = input as { leftPath: string; rightPath: string }
       return areRuntimePathsEqual(leftPath, rightPath)
-    }
-    case 'matchesStrongOrcaCreatePath': {
-      const { worktreePath, knownOrcaLayouts, repo } = input as {
-        worktreePath: string
-        knownOrcaLayouts: OrcaWorkspaceLayout[]
-        repo: Pick<Repo, 'path'>
-      }
-      return matchesStrongOrcaCreatePath(worktreePath, knownOrcaLayouts, repo)
     }
     default:
       throw new Error(`unknown function ${fn}`)

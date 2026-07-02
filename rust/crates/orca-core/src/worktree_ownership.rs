@@ -7,7 +7,7 @@
 //! `wsl_paths`. Input structs are the lean projections the logic reads.
 
 use crate::cross_platform_path::{
-    get_runtime_path_basename, is_runtime_path_absolute, is_windows_absolute_path_like,
+    is_runtime_path_absolute, is_windows_absolute_path_like,
     normalize_runtime_path_for_comparison, normalize_runtime_path_separators,
     relative_path_inside_root, resolve_runtime_path, PathFlavor,
 };
@@ -57,6 +57,9 @@ pub struct Worktree {
 #[derive(Clone, Debug, Default)]
 pub struct WorktreeMeta {
     pub orca_created_at: Option<f64>,
+    /// `orcaCreationWorkspaceLayout` — present iff Orca recorded the layout it
+    /// created the worktree under (#7078's metadata-only ownership proof).
+    pub orca_creation_workspace_layout: bool,
     pub created_at: Option<f64>,
     pub created_with_agent: bool,
     pub push_target: bool,
@@ -211,7 +214,9 @@ fn build_wsl_workspace_layouts(repo_path: &str, settings: &WorkspaceLayoutSettin
 }
 
 pub fn classify_worktree_ownership(
-    repo: &Repo,
+    // Kept for TS-signature fidelity: the TS args object still carries `repo`
+    // though #7078 removed its only use (path-shape ownership).
+    _repo: &Repo,
     worktree: &Worktree,
     meta: Option<&WorktreeMeta>,
     known_orca_layouts: &[OrcaWorkspaceLayout],
@@ -219,9 +224,8 @@ pub fn classify_worktree_ownership(
     if has_strong_orca_metadata(meta) {
         return WorktreeOwnership::OrcaManaged;
     }
-    if matches_strong_orca_create_path(&worktree.path, known_orca_layouts, &repo.path) {
-        return WorktreeOwnership::OrcaManaged;
-    }
+    // A plain `git worktree add` can target Orca's nested workspace folder —
+    // only metadata proves Orca created it (#7078); path shape never does.
     if is_under_flat_or_untrusted_orca_root(&worktree.path, known_orca_layouts) {
         return WorktreeOwnership::UnknownLegacy;
     }
@@ -280,6 +284,7 @@ fn has_strong_orca_metadata(meta: Option<&WorktreeMeta>) -> bool {
         return false;
     };
     meta.orca_created_at.is_some_and(|value| value != 0.0)
+        || meta.orca_creation_workspace_layout
         || meta.created_at.is_some_and(|value| value != 0.0)
         || meta.created_with_agent
         || meta.push_target
@@ -288,35 +293,6 @@ fn has_strong_orca_metadata(meta: Option<&WorktreeMeta>) -> bool {
         || meta.preserve_branch_on_delete
 }
 
-pub fn matches_strong_orca_create_path(
-    worktree_path: &str,
-    known_orca_layouts: &[OrcaWorkspaceLayout],
-    repo_path: &str,
-) -> bool {
-    let repo_name = strip_git_suffix(&get_runtime_path_basename(repo_path));
-    if repo_name.is_empty() {
-        return false;
-    }
-    for layout in known_orca_layouts {
-        if !layout.nest_workspaces {
-            continue;
-        }
-        let Some(relative) = relative_path_inside_root(&layout.path, worktree_path) else {
-            continue;
-        };
-        let segments = split_normalized_path(&relative);
-        let case_insensitive =
-            is_windows_absolute_path_like(&layout.path) || is_windows_absolute_path_like(worktree_path);
-        if segments.len() == 2
-            && normalize_path_segment(&segments[0], case_insensitive)
-                == normalize_path_segment(&repo_name, case_insensitive)
-            && !segments[1].is_empty()
-        {
-            return true;
-        }
-    }
-    false
-}
 
 fn is_under_flat_or_untrusted_orca_root(worktree_path: &str, known_orca_layouts: &[OrcaWorkspaceLayout]) -> bool {
     for layout in known_orca_layouts {
@@ -343,25 +319,8 @@ fn can_classify_as_external(worktree_path: &str, known_orca_layouts: &[OrcaWorks
     true
 }
 
-fn strip_git_suffix(name: &str) -> String {
-    match name.to_ascii_lowercase().strip_suffix(".git") {
-        Some(stripped) => name[..stripped.len()].to_string(),
-        None => name.to_string(),
-    }
-}
 
-fn split_normalized_path(value: &str) -> Vec<String> {
-    normalize_runtime_path_separators(value).split('/').filter(|segment| !segment.is_empty()).map(str::to_string).collect()
-}
 
-fn normalize_path_segment(value: &str, case_insensitive: bool) -> String {
-    let normalized = normalize_runtime_path_separators(value);
-    if case_insensitive {
-        normalized.to_lowercase()
-    } else {
-        normalized
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -402,12 +361,19 @@ mod tests {
     }
 
     #[test]
-    fn requires_the_nested_repo_specific_path_shape_for_path_only_ownership() {
+    fn treats_nested_orca_workspace_paths_without_metadata_as_external() {
         let repo = make_repo();
         let settings = make_settings();
         let layouts = build_known_orca_workspace_layouts(&settings, Some(&repo));
+        // #7078: a plain `git worktree add` can target the nested workspace
+        // folder — only metadata proves Orca created it, never path shape.
         assert_eq!(
             classify_worktree_ownership(&repo, &worktree("/orca/workspaces/app/feature"), None, &layouts),
+            External
+        );
+        let meta = WorktreeMeta { orca_creation_workspace_layout: true, ..Default::default() };
+        assert_eq!(
+            classify_worktree_ownership(&repo, &worktree("/orca/workspaces/app/feature"), Some(&meta), &layouts),
             OrcaManaged
         );
         assert_eq!(
@@ -450,9 +416,11 @@ mod tests {
             ..make_settings()
         };
         let layouts = build_known_orca_workspace_layouts(&settings, Some(&repo));
+        // Historical nested roots still classify by nest mode: metadata-free
+        // descendants are external (#7078), not unknown-legacy.
         assert_eq!(
             classify_worktree_ownership(&repo, &worktree("/old/workspaces/app/feature"), None, &layouts),
-            OrcaManaged
+            External
         );
     }
 
@@ -484,7 +452,9 @@ mod tests {
         let settings = WorkspaceLayoutSettings { workspace_dir: Some("C:\\Orca\\Workspaces".to_string()), ..make_settings() };
         let layouts = build_known_orca_workspace_layouts(&settings, Some(&repo));
         let worktree = Worktree { path: "C:\\ORCA\\WORKSPACES\\App\\Feature".to_string(), is_main_worktree: false };
-        assert_eq!(classify_worktree_ownership(&repo, &worktree, None, &layouts), OrcaManaged);
+        // Nested-root descendants without metadata classify external (#7078); the
+        // drive-casing/separator normalization is what keeps this off unknown-legacy.
+        assert_eq!(classify_worktree_ownership(&repo, &worktree, None, &layouts), External);
     }
 
     #[test]

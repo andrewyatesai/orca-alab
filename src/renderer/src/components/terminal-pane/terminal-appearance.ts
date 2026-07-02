@@ -19,7 +19,6 @@ import {
 import { getFitOverrideForPty } from '@/lib/pane-manager/mobile-fit-overrides'
 import type { PtyTransport } from './pty-transport'
 import type { EffectiveMacOptionAsAlt } from '@/lib/keyboard-layout/detect-option-as-alt'
-import { HEX_COLOR_RE } from '../../../../shared/color-validation'
 
 export { mode2031SequenceFor }
 
@@ -129,33 +128,12 @@ export function maybePushMode2031Flip(
   return true
 }
 
-export function hexToRgba(hex: string, alpha: number): string {
-  let clean = hex.replace('#', '')
-  if (clean.length === 3) {
-    clean = clean
-      .split('')
-      .map((c) => c + c)
-      .join('')
-  }
-  const r = parseInt(clean.slice(0, 2), 16)
-  const g = parseInt(clean.slice(2, 4), 16)
-  const b = parseInt(clean.slice(4, 6), 16)
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`
-}
-
-export function isHexColor(value: string): boolean {
-  return HEX_COLOR_RE.test(value)
-}
-
 // Why: extracted from applyTerminalAppearance so the settings preview can
 // derive the same composed theme without depending on PaneManager. Keep
 // pure — no DOM, no manager, no side effects.
 export function composeActiveTerminalTheme(
   baseTheme: ITheme | null,
-  settings: Pick<
-    GlobalSettings,
-    'terminalColorOverrides' | 'terminalBackgroundOpacity' | 'terminalCursorOpacity'
-  >
+  settings: Pick<GlobalSettings, 'terminalColorOverrides'>
 ): ITheme | null {
   if (!baseTheme) {
     return null
@@ -178,24 +156,10 @@ export function composeActiveTerminalTheme(
   if (settings.terminalColorOverrides) {
     theme = { ...theme, ...settings.terminalColorOverrides }
   }
-  // Why: Ghostty's background-opacity controls the terminal's base alpha.
-  // Convert the hex background to rgba so xterm honors it when allowTransparency
-  // is also set on the Terminal instance.
-  if (settings.terminalBackgroundOpacity !== undefined && theme.background) {
-    theme = {
-      ...theme,
-      background: hexToRgba(theme.background, settings.terminalBackgroundOpacity)
-    }
-  }
-  // Why: Ghostty's cursor-opacity applies alpha to the cursor color. Only
-  // converted when the resolved cursor is a hex value; named CSS colors are
-  // left untouched because hexToRgba expects a hex input.
-  if (settings.terminalCursorOpacity !== undefined && theme.cursor && isHexColor(theme.cursor)) {
-    theme = {
-      ...theme,
-      cursor: hexToRgba(theme.cursor, settings.terminalCursorOpacity)
-    }
-  }
+  // terminalBackgroundOpacity / terminalCursorOpacity are intentionally NOT
+  // composed into rgba() here: the aterm engine composites opaque colors (its
+  // theme seed drops alpha — see aterm-theme-colors), so an alpha channel is a
+  // dead store. The settings stay persisted for when engine alpha support lands.
   return theme
 }
 
@@ -225,11 +189,6 @@ export function applyTerminalAppearance(
       // scrollback) instead of only new ones.
       pane.atermController?.updateTheme(atermThemeColorsFromITheme(theme))
     }
-    // Why: xterm's allowTransparency has measurable rendering cost, so clear
-    // it explicitly when opacity is at (or above) 1 to avoid a stale `true`
-    // bleeding in from a prior opacity setting that has since been reset.
-    pane.terminal.options.allowTransparency =
-      settings.terminalBackgroundOpacity !== undefined && settings.terminalBackgroundOpacity < 1
     const cursorStyle = settings.terminalCursorStyle ?? 'block'
     pane.terminal.options.cursorStyle = cursorStyle
     pane.terminal.options.cursorInactiveStyle = resolveTerminalCursorInactiveStyle(cursorStyle)

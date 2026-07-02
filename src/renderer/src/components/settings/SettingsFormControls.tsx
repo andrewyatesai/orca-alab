@@ -270,7 +270,7 @@ type ColorFieldProps = {
 
 type NumberFieldProps = {
   label: string
-  description: string
+  description: React.ReactNode
   value: number
   defaultValue?: number
   min: number
@@ -278,6 +278,9 @@ type NumberFieldProps = {
   step?: number
   onChange: (value: number) => void
   suffix?: string
+  /** Grays the input and blocks commits — for settings whose backend doesn't
+   *  support the value yet (the description should say why). */
+  disabled?: boolean
 }
 
 type FontAutocompleteProps = {
@@ -515,7 +518,8 @@ export function NumberField({
   max,
   step = 1,
   onChange,
-  suffix
+  suffix,
+  disabled
 }: NumberFieldProps): React.JSX.Element {
   const [draft, setDraft] = useState(Number.isFinite(value) ? String(value) : '')
   const [prevValue, setPrevValue] = useState(value)
@@ -527,6 +531,9 @@ export function NumberField({
   }
 
   const commit = (): void => {
+    if (disabled) {
+      return
+    }
     const trimmed = draft.trim()
     if (trimmed === '') {
       // Empty input — reset to current value rather than committing 0
@@ -566,6 +573,7 @@ export function NumberField({
             max={max}
             step={step}
             value={draft}
+            disabled={disabled}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commit}
             onKeyDown={(e) => {

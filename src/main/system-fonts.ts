@@ -1,5 +1,6 @@
 import { execFile } from 'child_process'
 import { readFile } from 'fs/promises'
+import { selectTerminalFontFaces, type FontFaceCandidate } from './terminal-font-face-selection'
 
 let cachedFonts: string[] | null = null
 let fontsPromise: Promise<string[]> | null = null
@@ -96,49 +97,68 @@ $fonts.Families | ForEach-Object { $_.Name }
   )
 }
 
-// Resolve a font FAMILY NAME to its primary (regular) face FILE BYTES for the aterm
-// engine's set_primary_font. Returns null when unresolvable — the caller keeps the
-// bundled default; this never throws. .ttc collections are deprioritized because the
-// engine's glyph loader reads a single face.
-let macFontPathIndex: Map<string, string> | null = null
+// Resolve a font FAMILY NAME to face FILE BYTES for the aterm engine: the face
+// closest to the user's numeric weight (set_primary_font) plus, when the family
+// ships a real heavier style, its bold face (set_bold_font). Null members mean
+// unresolvable — the caller keeps the bundled default / synthetic embolden; this
+// never throws.
+let macFontFaceIndex: Map<string, FontFaceCandidate[]> | null = null
 
-export async function resolvePrimaryFontBytes(family: string): Promise<Uint8Array | null> {
+export type TerminalFontFaceBytes = {
+  primary: Uint8Array | null
+  bold: Uint8Array | null
+}
+
+export async function resolveTerminalFontFaceBytes(
+  family: string,
+  fontWeight?: number
+): Promise<TerminalFontFaceBytes> {
   const name = family?.trim()
   if (!name) {
-    return null
+    return { primary: null, bold: null }
   }
   try {
-    const path = await resolveFontFilePath(name)
-    if (!path) {
-      return null
-    }
-    return new Uint8Array(await readFile(path))
+    const faces = selectTerminalFontFaces(await listFamilyFaces(name), fontWeight)
+    const primary = faces.primary ? await readFontFileBytes(faces.primary.path) : null
+    // No primary bytes → keep the bundled family whole; a foreign bold face would
+    // mismatch the bundled primary's metrics.
+    const bold = primary && faces.bold ? await readFontFileBytes(faces.bold.path) : null
+    return { primary, bold }
+  } catch {
+    return { primary: null, bold: null }
+  }
+}
+
+async function readFontFileBytes(path: string): Promise<Uint8Array | null> {
+  try {
+    const buf = await readFile(path)
+    return buf.length > 0 ? new Uint8Array(buf) : null
   } catch {
     return null
   }
 }
 
-function resolveFontFilePath(family: string): Promise<string | null> {
+function listFamilyFaces(family: string): Promise<FontFaceCandidate[]> {
   if (process.platform === 'darwin') {
-    return resolveMacFontPath(family)
+    return listMacFamilyFaces(family)
   }
   if (process.platform === 'win32') {
-    return resolveWindowsFontPath(family)
+    return listWindowsFamilyFaces(family)
   }
-  return resolveLinuxFontPath(family)
+  return listLinuxFamilyFaces(family)
 }
 
-async function resolveMacFontPath(family: string): Promise<string | null> {
-  macFontPathIndex ??= await buildMacFontPathIndex()
-  return macFontPathIndex.get(family.toLowerCase()) ?? null
+async function listMacFamilyFaces(family: string): Promise<FontFaceCandidate[]> {
+  macFontFaceIndex ??= await buildMacFontFaceIndex()
+  return macFontFaceIndex.get(family.toLowerCase()) ?? []
 }
 
-async function buildMacFontPathIndex(): Promise<Map<string, string>> {
+async function buildMacFontFaceIndex(): Promise<Map<string, FontFaceCandidate[]>> {
   const out = await execFileText('system_profiler', ['SPFontsDataType', '-json'], 32 * 1024 * 1024)
   const parsed = JSON.parse(out) as {
     SPFontsDataType?: { path?: string; typefaces?: { family?: string; style?: string }[] }[]
   }
-  const byFamily = new Map<string, { path: string; style: string }[]>()
+  const byFamily = new Map<string, FontFaceCandidate[]>()
   for (const file of parsed.SPFontsDataType ?? []) {
     const path = file.path
     if (!path) {
@@ -155,46 +175,79 @@ async function buildMacFontPathIndex(): Promise<Map<string, string>> {
       byFamily.set(key, list)
     }
   }
-  const isRegular = (s: string): boolean => /^(regular|book|roman)$/i.test(s)
-  const isTtc = (p: string): boolean => p.toLowerCase().endsWith('.ttc')
-  const index = new Map<string, string>()
-  for (const [key, list] of byFamily) {
-    // Prefer a Regular style in a single-face (.ttf/.otf) file the engine can load.
-    const pick =
-      list.find((e) => isRegular(e.style) && !isTtc(e.path)) ??
-      list.find((e) => isRegular(e.style)) ??
-      list.find((e) => !isTtc(e.path)) ??
-      list[0]
-    index.set(key, pick.path)
+  return byFamily
+}
+
+// fc-list enumerates the faces the family REALLY ships (file + style); fc-match
+// alone always "succeeds" with a best-effort substitute, which would fake a bold
+// style the family doesn't have.
+async function listLinuxFamilyFaces(family: string): Promise<FontFaceCandidate[]> {
+  const out = await execFileText(
+    'fc-list',
+    ['-f', '%{file}\t%{style}\n', family],
+    1024 * 1024
+  ).catch(() => '')
+  const faces: FontFaceCandidate[] = []
+  for (const line of out.split('\n')) {
+    const [file, style = ''] = line.split('\t')
+    if (file?.trim()) {
+      // Multi-locale style lists ("Bold,Negreta") put the English name first.
+      faces.push({ path: file.trim(), style: style.split(',')[0].trim() })
+    }
   }
-  return index
-}
-
-function resolveLinuxFontPath(family: string): Promise<string | null> {
-  return execFileText('fc-match', ['-f', '%{file}', `${family}:style=Regular`], 64 * 1024)
-    .then((out) => out.trim() || null)
+  if (faces.length > 0) {
+    return faces
+  }
+  // fc-list absent/empty: fall back to fc-match's best-effort Regular (bold stays
+  // synthetic — there is no evidence the family ships one).
+  const matched = await execFileText(
+    'fc-match',
+    ['-f', '%{file}', `${family}:style=Regular`],
+    64 * 1024
+  )
+    .then((out2) => out2.trim() || null)
     .catch(() => null)
+  return matched ? [{ path: matched, style: 'Regular' }] : []
 }
 
-function resolveWindowsFontPath(family: string): Promise<string | null> {
-  // Best-effort: the Fonts registry maps "<Family> (TrueType)" → a file (usually a
-  // bare name under %WINDIR%\Fonts). Pick the first value whose name starts with the
-  // family; absent a match (or PowerShell), null → bundled default.
+async function listWindowsFamilyFaces(family: string): Promise<FontFaceCandidate[]> {
+  // The Fonts registry maps "<Family> <Style> (TrueType)" → a file (usually a bare
+  // name under %WINDIR%\Fonts); the name suffix after the family is the style.
   const script = [
     "$key = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'",
     `$fam = ${JSON.stringify(family)}`,
-    '$p = (Get-ItemProperty $key).PSObject.Properties |',
+    '(Get-ItemProperty $key).PSObject.Properties |',
     "  Where-Object { $_.Name -like ($fam + '*') } |",
-    '  Select-Object -First 1 -ExpandProperty Value',
-    "if ($p) { if ([System.IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $env:WINDIR ('Fonts\\' + $p) } }"
+    '  ForEach-Object {',
+    '    $p = $_.Value',
+    "    if (-not [System.IO.Path]::IsPathRooted($p)) { $p = Join-Path $env:WINDIR ('Fonts\\' + $p) }",
+    '    "$($_.Name)`t$p"',
+    '  }'
   ].join('\n')
-  return execFileText(
+  const out = await execFileText(
     'powershell.exe',
     ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script],
-    64 * 1024
-  )
-    .then((out) => out.trim() || null)
-    .catch(() => null)
+    1024 * 1024
+  ).catch(() => '')
+  const faces: FontFaceCandidate[] = []
+  for (const line of out.split('\n')) {
+    const [name, file] = line.split('\t')
+    if (name?.trim() && file?.trim()) {
+      faces.push({ path: file.trim(), style: windowsRegistryStyle(name.trim(), family) })
+    }
+  }
+  return faces
+}
+
+/** Style portion of a Fonts-registry value name: the family prefix and the
+ *  trailing "(TrueType)"/"(OpenType)" marker stripped off. */
+function windowsRegistryStyle(registryName: string, family: string): string {
+  const fam = family.trim()
+  let style = registryName.replace(/\s*\((?:TrueType|OpenType)\)\s*$/i, '').trim()
+  if (style.toLowerCase().startsWith(fam.toLowerCase())) {
+    style = style.slice(fam.length).trim()
+  }
+  return style
 }
 
 function execFileText(command: string, args: string[], maxBuffer: number): Promise<string> {

@@ -1,7 +1,7 @@
 import { BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import type { Store } from '../persistence'
 import type { GlobalSettings, PersistedState } from '../../shared/types'
-import { listSystemFontFamilies, resolvePrimaryFontBytes } from '../system-fonts'
+import { listSystemFontFamilies, resolveTerminalFontFaceBytes } from '../system-fonts'
 import { getTerminalFallbackFonts } from '../terminal-fallback-fonts'
 import { previewGhosttyImport } from '../ghostty/index'
 import { previewWarpThemeImport } from '../warp-themes'
@@ -172,12 +172,16 @@ export function registerSettingsHandlers(
     return getTerminalFallbackFonts()
   })
 
-  // Resolve the user's terminalFontFamily to the bytes of its primary face so the
-  // aterm renderer can inject it (set_primary_font). Always the LOCAL host's fonts
-  // (rendering is local even over SSH); null when unresolvable → bundled default.
-  ipcMain.handle('fonts:resolvePrimaryFont', (_event, family: string) => {
-    return resolvePrimaryFontBytes(family)
-  })
+  // Resolve the user's terminalFontFamily to face bytes: the primary face closest
+  // to terminalFontWeight (set_primary_font) + the family's real bold face when it
+  // ships one (set_bold_font). Always the LOCAL host's fonts (rendering is local
+  // even over SSH); null members → bundled default / synthetic embolden.
+  ipcMain.handle(
+    'fonts:resolveTerminalFontFaces',
+    (_event, family: string, fontWeight?: number) => {
+      return resolveTerminalFontFaceBytes(family, fontWeight)
+    }
+  )
 
   ipcMain.handle('settings:previewGhosttyImport', () => {
     return previewGhosttyImport(store)

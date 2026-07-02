@@ -1798,10 +1798,15 @@ export type PreloadApi = {
         script: 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'
       }[]
     }>
-    /** Resolve a font FAMILY NAME to its primary (regular) face bytes so the aterm
-     *  renderer can honor terminalFontFamily via set_primary_font. Null when the
-     *  host can't resolve it (renderer keeps the bundled JetBrains Mono). */
-    resolvePrimaryFont: (family: string) => Promise<Uint8Array | null>
+    /** Resolve a font FAMILY NAME (+ the user's numeric terminalFontWeight) to
+     *  face bytes so the aterm renderer can honor terminalFontFamily: `primary`
+     *  is the face closest to the weight (set_primary_font), `bold` is the
+     *  family's real bold style when it ships one (set_bold_font). Null members
+     *  keep the bundled JetBrains Mono / the engine's synthetic embolden. */
+    resolveTerminalFontFaces: (
+      family: string,
+      fontWeight?: number
+    ) => Promise<{ primary: Uint8Array | null; bold: Uint8Array | null }>
   }
   settings: {
     get: () => Promise<GlobalSettings>

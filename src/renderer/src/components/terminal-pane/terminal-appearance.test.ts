@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { hexToRgba, maybePushMode2031Flip, mode2031SequenceFor } from './terminal-appearance'
+import { maybePushMode2031Flip, mode2031SequenceFor } from './terminal-appearance'
 
 function fakeTransport(overrides?: { connected?: boolean; sendOk?: boolean }): {
   isConnected: () => boolean
@@ -133,21 +133,3 @@ describe('maybePushMode2031Flip', () => {
 // hiddenRendererMode2031ReplyCount), which run against the real engine + PTY.
 // The pure spam-gate logic the renderer still owns (maybePushMode2031Flip) is
 // covered above without an xterm parser.
-
-describe('hexToRgba', () => {
-  it('converts 6-char hex to rgba', () => {
-    expect(hexToRgba('#1a1a1a', 0.72)).toBe('rgba(26, 26, 26, 0.72)')
-  })
-
-  it('converts 3-char shorthand hex to rgba', () => {
-    expect(hexToRgba('#f0f', 0.5)).toBe('rgba(255, 0, 255, 0.5)')
-  })
-
-  it('handles full opacity', () => {
-    expect(hexToRgba('#000000', 1)).toBe('rgba(0, 0, 0, 1)')
-  })
-
-  it('handles zero opacity', () => {
-    expect(hexToRgba('#ffffff', 0)).toBe('rgba(255, 255, 255, 0)')
-  })
-})

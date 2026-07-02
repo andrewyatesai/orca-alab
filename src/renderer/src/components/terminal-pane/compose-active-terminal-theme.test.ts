@@ -48,34 +48,16 @@ describe('composeActiveTerminalTheme', () => {
     expect(result!.background).toBe('#101010')
   })
 
-  it('applies background opacity by converting the hex background to rgba', () => {
-    const base = { background: '#112233' }
+  it('ignores the opacity settings — the aterm engine composites opaque colors', () => {
+    // Composing rgba() here would be a dead store: the aterm theme seed drops
+    // alpha. The colors must stay hex so nothing downstream sees a fake alpha.
+    const base = { background: '#112233', cursor: '#ffffff' }
     const result = composeActiveTerminalTheme(
       base,
-      settingsWith({ terminalBackgroundOpacity: 0.5 })
+      settingsWith({ terminalBackgroundOpacity: 0.5, terminalCursorOpacity: 0.3 })
     )
-    expect(result!.background).toBe('rgba(17, 34, 51, 0.5)')
-  })
-
-  it('honors a zero background opacity', () => {
-    // Why: pin against a regression where the guard becomes truthy-only
-    // (e.g. `if (settings.terminalBackgroundOpacity)`) and silently drops
-    // the user's intent to make the background fully transparent.
-    const base = { background: '#112233' }
-    const result = composeActiveTerminalTheme(base, settingsWith({ terminalBackgroundOpacity: 0 }))
-    expect(result!.background).toBe('rgba(17, 34, 51, 0)')
-  })
-
-  it('applies cursor opacity only when the cursor is a hex color', () => {
-    const base = { cursor: '#ffffff' }
-    const result = composeActiveTerminalTheme(base, settingsWith({ terminalCursorOpacity: 0.3 }))
-    expect(result!.cursor).toBe('rgba(255, 255, 255, 0.3)')
-  })
-
-  it('leaves named CSS cursor colors untouched when applying opacity', () => {
-    const base = { cursor: 'red' }
-    const result = composeActiveTerminalTheme(base, settingsWith({ terminalCursorOpacity: 0.3 }))
-    expect(result!.cursor).toBe('red')
+    expect(result!.background).toBe('#112233')
+    expect(result!.cursor).toBe('#ffffff')
   })
 
   it('returns null when given a null base theme', () => {

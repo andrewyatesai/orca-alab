@@ -11,13 +11,17 @@ import { attachAtermCursorBlink, type AtermCursorTarget } from './aterm-cursor-b
 type RecordingTerm = AtermCursorTarget & {
   hollow: boolean[]
   inactive: boolean[]
+  phases: boolean[]
 }
 
 function makeTerm(): RecordingTerm {
   const term: RecordingTerm = {
     hollow: [],
     inactive: [],
-    set_cursor_blink_phase: () => undefined,
+    phases: [],
+    set_cursor_blink_phase: (on: boolean) => {
+      term.phases.push(on)
+    },
     set_cursor_hollow: (h: boolean) => {
       term.hollow.push(h)
     },
@@ -81,6 +85,44 @@ describe('attachAtermCursorBlink — inactive-selection focus wiring', () => {
     textarea.dispatchEvent(new FocusEvent('focus'))
     expect(term.inactive.at(-1)).toBe(false)
     expect(term.hollow.at(-1)).toBe(false)
+
+    blink.dispose()
+  })
+
+  it('refresh() applies a live terminalCursorBlink toggle to the FOCUSED pane', () => {
+    // The setting is otherwise only read on focus events, so without refresh a
+    // toggle skips the focused pane until the next blur/focus round-trip.
+    const term = makeTerm()
+    const textarea = document.createElement('textarea')
+    document.body.appendChild(textarea)
+    textarea.focus()
+    let cursorBlink = false
+
+    const blink = attachAtermCursorBlink({
+      term,
+      textarea,
+      redraw: () => undefined,
+      isDisposed: () => false,
+      getCursorBlink: () => cursorBlink
+    })
+
+    // Blink off: no timer, phase stays solid-on.
+    vi.advanceTimersByTime(2000)
+    expect(term.phases.every((p) => p)).toBe(true)
+
+    // Toggle on + refresh → the timer starts alternating the phase.
+    cursorBlink = true
+    blink.refresh()
+    term.phases.length = 0
+    vi.advanceTimersByTime(1100)
+    expect(term.phases).toContain(false)
+
+    // Toggle off + refresh → steady-on again (no further phase toggles).
+    cursorBlink = false
+    blink.refresh()
+    term.phases.length = 0
+    vi.advanceTimersByTime(2000)
+    expect(term.phases.every((p) => p)).toBe(true)
 
     blink.dispose()
   })

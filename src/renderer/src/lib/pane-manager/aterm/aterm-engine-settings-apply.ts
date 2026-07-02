@@ -24,6 +24,10 @@ export function applyAtermEngineSettings(deps: {
   isDisposed: () => boolean
   /** Schedule a repaint after a live re-apply (the cursor-style change needs one). */
   scheduleDraw: () => void
+  /** Restart the focused pane's blink timer on reapply: terminalCursorBlink is
+   *  otherwise only read on focus events, so a live toggle would skip the focused
+   *  pane until the next blur/focus. */
+  refreshCursorBlink: () => void
 }): { dispose: () => void; reapply: () => void } {
   const { term, readers } = deps
   // None of these change cell metrics, so they can apply after the grid is sized.
@@ -43,12 +47,14 @@ export function applyAtermEngineSettings(deps: {
   return {
     dispose: colorScheme.dispose,
     // Re-read the live settings + re-apply, so toggling ligatures / cursor style /
-    // scrollback updates an already-open pane (color scheme already live-syncs itself).
+    // scrollback / cursor blink updates an already-open pane (color scheme already
+    // live-syncs itself).
     reapply: () => {
       if (deps.isDisposed()) {
         return
       }
       apply()
+      deps.refreshCursorBlink()
       deps.scheduleDraw()
     }
   }

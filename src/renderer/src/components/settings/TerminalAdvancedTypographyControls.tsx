@@ -45,7 +45,12 @@ export function TerminalAdvancedTypographyControls({
             'auto.components.settings.TerminalAppearanceSection.4aae5db258',
             'Font Weight'
           )}
-          description=""
+          // Why: the aterm renderer rasterizes real font faces, not CSS weights —
+          // the number selects the closest installed style, so say so.
+          description={translate(
+            'auto.components.settings.TerminalAppearanceSection.fontWeightFaceNote',
+            'Uses the closest installed style of the font (e.g. 500 → Medium); bold text uses the font’s Bold style when installed. Applies to new terminals.'
+          )}
           value={normalizeTerminalFontWeight(settings.terminalFontWeight)}
           defaultValue={DEFAULT_TERMINAL_FONT_WEIGHT}
           min={TERMINAL_FONT_WEIGHT_MIN}

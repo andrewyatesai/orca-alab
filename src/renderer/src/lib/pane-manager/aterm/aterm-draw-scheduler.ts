@@ -28,6 +28,7 @@ export function createAtermDrawScheduler(runDraw: () => void): AtermDrawSchedule
   let scheduled = false
   let suspended = false
   let timeoutId: ReturnType<typeof setTimeout> | null = null
+  let rafId: number | null = null
 
   const clearTimer = (): void => {
     if (timeoutId !== null) {
@@ -36,8 +37,19 @@ export function createAtermDrawScheduler(runDraw: () => void): AtermDrawSchedule
     }
   }
 
+  // Keep the rAF id so dispose/suspend can really cancel the pending frame —
+  // an uncancelled rAF would run the draw after teardown (a fired id is a no-op
+  // to cancel, so clearing after the race is always safe).
+  const clearRaf = (): void => {
+    if (rafId !== null) {
+      cancelAnimationFrame(rafId)
+      rafId = null
+    }
+  }
+
   const arm = (): void => {
-    requestAnimationFrame(runDraw)
+    clearRaf()
+    rafId = requestAnimationFrame(runDraw)
     // Replace any prior backstop so timers never accumulate across schedules.
     clearTimer()
     timeoutId = setTimeout(runDraw, BACKSTOP_TIMEOUT_MS)
@@ -59,6 +71,7 @@ export function createAtermDrawScheduler(runDraw: () => void): AtermDrawSchedule
     consume: () => {
       scheduled = false
       // The winner of the rAF/timer race clears the loser so it no-ops.
+      clearRaf()
       clearTimer()
     },
     isScheduled: () => scheduled,
@@ -70,6 +83,7 @@ export function createAtermDrawScheduler(runDraw: () => void): AtermDrawSchedule
       suspended = next
       if (suspended) {
         // Drop any in-flight frame while paused; schedule() re-arms on resume.
+        clearRaf()
         clearTimer()
         return
       }
@@ -80,6 +94,7 @@ export function createAtermDrawScheduler(runDraw: () => void): AtermDrawSchedule
     },
     dispose: () => {
       scheduled = false
+      clearRaf()
       clearTimer()
     }
   }

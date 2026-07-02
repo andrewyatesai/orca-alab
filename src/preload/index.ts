@@ -1632,11 +1632,15 @@ const api = {
         script: 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'
       }[]
     }> => ipcRenderer.invoke('fonts:getTerminalFallbackFonts'),
-    // Resolve a font FAMILY NAME to its primary (regular) face bytes so the aterm
-    // renderer can honor terminalFontFamily (set_primary_font); null when the host
-    // can't resolve it → the renderer keeps the bundled JetBrains Mono.
-    resolvePrimaryFont: (family: string): Promise<Uint8Array | null> =>
-      ipcRenderer.invoke('fonts:resolvePrimaryFont', family)
+    // Resolve a font FAMILY NAME (+ the user's numeric weight) to face bytes so
+    // the aterm renderer can honor terminalFontFamily: `primary` feeds
+    // set_primary_font, `bold` (the family's real bold style, when it ships one)
+    // feeds set_bold_font. Null members → bundled face / synthetic embolden.
+    resolveTerminalFontFaces: (
+      family: string,
+      fontWeight?: number
+    ): Promise<{ primary: Uint8Array | null; bold: Uint8Array | null }> =>
+      ipcRenderer.invoke('fonts:resolveTerminalFontFaces', family, fontWeight)
   },
 
   settings: {

@@ -26,7 +26,13 @@ export type AtermCursorBlinkDeps = {
 // xterm's cursor blink interval.
 const BLINK_INTERVAL_MS = 530
 
-export type AtermCursorBlink = { dispose: () => void }
+export type AtermCursorBlink = {
+  /** Re-read getCursorBlink for a FOCUSED pane: focus/blur are the only other
+   *  triggers, so a live setting toggle needs this to start/stop the timer
+   *  without a blur/focus round-trip. No-op while unfocused (no timer runs). */
+  refresh: () => void
+  dispose: () => void
+}
 
 export function attachAtermCursorBlink(deps: AtermCursorBlinkDeps): AtermCursorBlink {
   const { term, textarea, redraw, isDisposed, getCursorBlink } = deps
@@ -92,6 +98,13 @@ export function attachAtermCursorBlink(deps: AtermCursorBlinkDeps): AtermCursorB
   textarea.addEventListener('blur', onBlur)
 
   return {
+    refresh: (): void => {
+      // startFocused re-reads getCursorBlink, so this restarts (or stops) the
+      // timer to match the live setting; it also resets the phase to solid-on.
+      if (document.activeElement === textarea) {
+        startFocused()
+      }
+    },
     dispose: (): void => {
       stopTimer()
       textarea.removeEventListener('focus', onFocus)

@@ -328,6 +328,15 @@ export class AtermGpuTerminal {
      */
     set_line_height(scale: number): void;
     /**
+     * Set the per-cell minimum contrast ratio (xterm's `minimumContrastRatio`,
+     * 1..=21; `ratio <= 1.0` = off, the default — xterm treats 1 as "do
+     * nothing"): every glyph fg is floored against its OWN cell bg. Cells whose
+     * fg == bg are never adjusted (SGR 8 conceal renders fg = bg and must stay
+     * hidden). Set on both the CPU fallback face and the live GPU renderer;
+     * forces a full present (appearance-only, not content).
+     */
+    set_minimum_contrast(ratio: number): void;
+    /**
      * Set an ANSI/indexed palette colour (index 0–255; 0–15 are the 16 ANSI
      * colours) to RGB components, so SGR-indexed cell colours resolve through the
      * host's theme palette instead of the engine's built-in VGA defaults. The
@@ -382,6 +391,16 @@ export class AtermGpuTerminal {
      * without a device/face rebuild.
      */
     set_theme(fg: number, bg: number, cursor: number, selection: number): void;
+    /**
+     * Override the characters that BREAK a double-click word (the host's
+     * word-separator setting, xterm.js `wordSeparators` semantics): a word
+     * becomes a maximal run of NON-separator characters. `undefined` restores
+     * the engine's default class-based word logic (alphanumeric + `_`)
+     * exactly. Smart-selection RULES (url/file_path/email/…) still take
+     * precedence for both `selection_word` and `link_at`; the separators only
+     * shape the plain-word fallback. Mirrors aterm-wasm.
+     */
+    set_word_separators(separators?: string | null): void;
     /**
      * Drain pending OSC app-events as a JSON array of `[code, payload]` pairs
      * (`[[7,"/home"],[52,"copied"]]`); `None` when empty. REAL decoded payloads
@@ -486,6 +505,16 @@ export class AtermGpuTerminal {
      */
     readonly is_mouse_tracking: boolean;
     /**
+     * The live `Terminal::keyboard_mode()` as its raw bitflags value, for
+     * hosts that run the engine in a Web Worker: mirror these bits into the
+     * main-thread engine-state snapshot and feed them to the free
+     * [`encode_key_with_mode`], which encodes keydowns synchronously without
+     * an instance. `KeyboardMode` is a `bitflags` struct over `u16` (bits
+     * 0..=14 defined); the value is zero-extended to `u32` for headroom.
+     * Mirrors aterm-wasm.
+     */
+    readonly keyboard_mode_bits: number;
+    /**
      * True for AnyEvent (1003): report motion even with NO button pressed.
      */
     readonly mouse_wants_any_motion: boolean;
@@ -559,6 +588,27 @@ export class SelectionRange {
     readonly start_y: number;
 }
 
+/**
+ * STATELESS key encoder for worker-hosted engines: encode a DOM keyboard
+ * event against an explicit mode-bits snapshot instead of a live terminal.
+ *
+ * Contract: the engine lives in a Web Worker while keydown handling runs on
+ * the main thread, so the host mirrors
+ * [`AtermGpuTerminal::keyboard_mode_bits`] through its engine-state snapshot
+ * and encodes synchronously here, accepting one-frame staleness — the same
+ * tradeoff the host already accepts for DECCKM gating via
+ * `is_app_cursor_mode`.
+ *
+ * Parameters match [`AtermGpuTerminal::encode_key`] (`key` = DOM
+ * `KeyboardEvent.key`; `mods` = SHIFT=1, ALT=2, CTRL=4, SUPER=8;
+ * `event_type` = 0=Press, 1=Repeat, 2=Release; `base_layout_key` = US-QWERTY
+ * char for Kitty `REPORT_ALTERNATE_KEYS`), plus `mode_bits` from
+ * `keyboard_mode_bits` (a `u16` bitflags value zero-extended to `u32`;
+ * undefined bits are truncated away). With fresh bits the output is
+ * byte-identical to the instance method. Mirrors aterm-wasm.
+ */
+export function encode_key_with_mode(key: string, mods: number, event_type: number, base_layout_key: string | null | undefined, mode_bits: number): Uint8Array | undefined;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -596,6 +646,7 @@ export interface InitOutput {
     readonly atermgputerminal_is_color_scheme_updates_mode: (a: number) => number;
     readonly atermgputerminal_is_focus_event_mode: (a: number) => number;
     readonly atermgputerminal_is_mouse_tracking: (a: number) => number;
+    readonly atermgputerminal_keyboard_mode_bits: (a: number) => number;
     readonly atermgputerminal_link_at: (a: number, b: number, c: number) => number;
     readonly atermgputerminal_mouse_wants_any_motion: (a: number) => number;
     readonly atermgputerminal_mouse_wants_motion: (a: number) => number;
@@ -638,6 +689,7 @@ export interface InitOutput {
     readonly atermgputerminal_set_font_features: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_set_ligatures: (a: number, b: number) => void;
     readonly atermgputerminal_set_line_height: (a: number, b: number) => void;
+    readonly atermgputerminal_set_minimum_contrast: (a: number, b: number) => void;
     readonly atermgputerminal_set_palette_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_primary_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_px: (a: number, b: number) => void;
@@ -646,10 +698,12 @@ export interface InitOutput {
     readonly atermgputerminal_set_selection_inactive: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_inactive_bg: (a: number, b: number) => void;
     readonly atermgputerminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly atermgputerminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_take_osc_events: (a: number) => [number, number];
     readonly atermgputerminal_take_response: (a: number) => [number, number];
     readonly atermgputerminal_title: (a: number) => [number, number];
     readonly atermgputerminal_width: (a: number) => number;
+    readonly encode_key_with_mode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly linkhit_end_col: (a: number) => number;
     readonly linkhit_kind: (a: number) => number;
     readonly linkhit_start_col: (a: number) => number;

@@ -16,7 +16,7 @@
 
 import type { AtermTerminal } from './aterm_wasm.js'
 import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
-import { buildAtermRowCells } from './aterm-worker-grid-cells'
+import { createAtermWorkerGridMirror } from './aterm-worker-grid-mirror'
 import type { AtermWorkerRequest, AtermWorkerState } from './aterm-render-worker-protocol'
 
 /** The initial snapshot the loader awaits (carries the first cell metrics) before it
@@ -65,8 +65,6 @@ export type WorkerBackedTerm = {
   dispose: () => void
 }
 
-type GridRow = { text: string; wrapped: boolean; len: number; widths: string; cells?: string[] }
-
 // One decoder for the bytes-process path (TextDecoder is stateless across decode() calls
 // for whole-buffer input, so reuse it instead of allocating one per feed).
 const PROCESS_TEXT_DECODER = new TextDecoder()
@@ -77,7 +75,7 @@ export function createWorkerBackedTerm(deps: {
 }): WorkerBackedTerm {
   const { post } = deps
   let state = deps.initial
-  const grid = new Map<number, GridRow>()
+  const grid = createAtermWorkerGridMirror()
 
   // Side-channel buffers: OSC app-events + bell are pull-drained by the facade; replies
   // are pushed to subscribers (see onReply).
@@ -125,33 +123,7 @@ export function createWorkerBackedTerm(deps: {
     if (searchChanged) {
       searchChangeListeners.forEach((fn) => fn())
     }
-    for (const row of next.dirtyRows) {
-      grid.set(row.y, {
-        text: row.text,
-        wrapped: row.wrapped,
-        len: row.len,
-        widths: row.widths
-      })
-    }
-    // Drop rows that scrolled out of the (possibly shrunk) viewport.
-    if (grid.size > next.rows) {
-      for (const y of grid.keys()) {
-        if (y >= next.rows) {
-          grid.delete(y)
-        }
-      }
-    }
-  }
-
-  const rowCells = (y: number): string[] => {
-    const row = grid.get(y)
-    if (!row) {
-      return []
-    }
-    if (!row.cells) {
-      row.cells = buildAtermRowCells(row.text, row.widths, state.cols)
-    }
-    return row.cells
+    grid.applyDirtyRows(next.dirtyRows, next.rows)
   }
 
   // The AtermTerminal-shaped surface. Reads → snapshot/grid; mutations → post.
@@ -211,14 +183,22 @@ export function createWorkerBackedTerm(deps: {
     get is_app_cursor_mode() {
       return state.isAppCursorMode
     },
+    get is_alternate_scroll() {
+      return state.isAlternateScroll
+    },
+    // For the main thread's encode_key_with_mode — synchronous, one frame stale
+    // (same tradeoff as is_app_cursor_mode).
+    get keyboard_mode_bits() {
+      return state.keyboardModeBits
+    },
 
     // ── grid-content reads (rolling visible-grid mirror) ──
-    row_text: (row: number) => grid.get(row)?.text,
-    row_len: (row: number) => grid.get(row)?.len,
-    row_is_wrapped: (row: number) => grid.get(row)?.wrapped,
-    cell_text: (row: number, col: number) => rowCells(row)[col] ?? '',
+    row_text: (row: number) => grid.row(row)?.text,
+    row_len: (row: number) => grid.row(row)?.len,
+    row_is_wrapped: (row: number) => grid.row(row)?.wrapped,
+    cell_text: (row: number, col: number) => grid.rowCells(row, state.cols)[col] ?? '',
     cell_is_wide: (row: number, col: number) => {
-      const row_ = grid.get(row)
+      const row_ = grid.row(row)
       return row_ ? row_.widths[col] === '2' : undefined
     },
 
@@ -299,6 +279,7 @@ export function createWorkerBackedTerm(deps: {
     set_cursor_blink_phase: (on: boolean) => post({ type: 'setCursorBlinkPhase', on }),
     set_cursor_hollow: (hollow: boolean) => post({ type: 'setCursorHollow', hollow }),
     set_primary_font: (bytes: Uint8Array) => post({ type: 'setPrimaryFont', bytes }),
+    set_bold_font: (bytes: Uint8Array) => post({ type: 'setBoldFont', bytes }),
     authorize_clipboard_write: () => post({ type: 'setClipboardWriteAuthorized', allowed: true }),
     revoke_clipboard_write: () => post({ type: 'setClipboardWriteAuthorized', allowed: false }),
     search: (query: string, caseSensitive: boolean, isRegex?: boolean) => {

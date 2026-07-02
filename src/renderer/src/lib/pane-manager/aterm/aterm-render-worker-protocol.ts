@@ -117,6 +117,10 @@ export type AtermWorkerSearchPrev = { type: 'searchPrev' }
 export type AtermWorkerSearchClear = { type: 'searchClear' }
 /** Swap the primary font face (terminalFontFamily) + reflow once its bytes load. */
 export type AtermWorkerSetPrimaryFont = { type: 'setPrimaryFont'; bytes: Uint8Array }
+/** Swap the SGR-bold face (the family's real bold style). Optional companion to
+ *  setPrimaryFont — never sent when the family ships no bold face, so the engine
+ *  keeps its synthetic embolden. */
+export type AtermWorkerSetBoldFont = { type: 'setBoldFont'; bytes: Uint8Array }
 /** Encode a mouse report in the worker (the engine owns the protocol). The encoded
  *  bytes are PTY input, so the worker forwards them through the SAME 'reply' channel as
  *  engine query replies → main writes them to the PTY (onReply → inputSink). The
@@ -193,6 +197,7 @@ export type AtermWorkerRequest =
   | AtermWorkerSearchPrev
   | AtermWorkerSearchClear
   | AtermWorkerSetPrimaryFont
+  | AtermWorkerSetBoldFont
   | AtermWorkerMouseEncode
   | AtermWorkerQuery
   | AtermWorkerFallback
@@ -253,6 +258,11 @@ export type AtermWorkerState = {
   isColorSchemeUpdatesMode: boolean
   /** DECCKM (application cursor keys) — drives arrow/Home/End encoding per keystroke. */
   isAppCursorMode: boolean
+  /** DEC 1007 (alternate scroll) — wheel on the alt screen sends arrow keys. */
+  isAlternateScroll: boolean
+  /** Engine KeyboardMode bitflags (kitty/modifyOtherKeys/DECCKM) for the main thread's
+   *  synchronous encode_key_with_mode; one-frame staleness accepted like the flags above. */
+  keyboardModeBits: number
   isReady: boolean
   /** OSC 0/2 title, or null. */
   title: string | null

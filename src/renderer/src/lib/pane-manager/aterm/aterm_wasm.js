@@ -341,6 +341,19 @@ export class AtermTerminal {
         return ret !== 0;
     }
     /**
+     * The live `Terminal::keyboard_mode()` as its raw bitflags value, for
+     * hosts that run the engine in a Web Worker: mirror these bits into the
+     * main-thread engine-state snapshot and feed them to the free
+     * [`encode_key_with_mode`], which encodes keydowns synchronously without
+     * an instance. `KeyboardMode` is a `bitflags` struct over `u16` (bits
+     * 0..=14 defined); the value is zero-extended to `u32` for headroom.
+     * @returns {number}
+     */
+    get keyboard_mode_bits() {
+        const ret = wasm.atermterminal_keyboard_mode_bits(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * Detect a link under display `row`/`col`. Prefers an OSC-8 hyperlink, then
      * falls back to smart-selection rules (url/file_path). Returns `None` for
      * plain words. `kind`: 0=osc8, 1=url, 2=file_path, 3=other.
@@ -843,6 +856,18 @@ export class AtermTerminal {
         wasm.atermterminal_set_line_height(this.__wbg_ptr, scale);
     }
     /**
+     * Set the per-cell minimum contrast ratio (xterm's `minimumContrastRatio`,
+     * 1..=21): every glyph fg is floored against its OWN cell bg — the classic
+     * rescue for bright-white SGR text on a light theme. `ratio <= 1.0` turns
+     * the floor off (the default; xterm treats 1 as "do nothing"). Cells whose
+     * fg == bg are never adjusted (SGR 8 conceal renders fg = bg and must stay
+     * hidden). Appearance-only, so force one full repaint next frame.
+     * @param {number} ratio
+     */
+    set_minimum_contrast(ratio) {
+        wasm.atermterminal_set_minimum_contrast(this.__wbg_ptr, ratio);
+    }
+    /**
      * Set an ANSI/indexed palette colour (index 0–255; 0–15 are the 16 ANSI
      * colours) to RGB components, so the renderer resolves SGR-indexed cell colours
      * through the host's theme palette instead of the engine's built-in VGA
@@ -929,6 +954,21 @@ export class AtermTerminal {
      */
     set_theme(fg, bg, cursor, selection) {
         wasm.atermterminal_set_theme(this.__wbg_ptr, fg, bg, cursor, selection);
+    }
+    /**
+     * Override the characters that BREAK a double-click word (the host's
+     * word-separator setting, xterm.js `wordSeparators` semantics): a word
+     * becomes a maximal run of NON-separator characters. `undefined` restores
+     * the engine's default class-based word logic (alphanumeric + `_`)
+     * exactly. Smart-selection RULES (url/file_path/email/…) still take
+     * precedence for both `selection_word` and `link_at`; the separators only
+     * shape the plain-word fallback.
+     * @param {string | null} [separators]
+     */
+    set_word_separators(separators) {
+        var ptr0 = isLikeNone(separators) ? 0 : passStringToWasm0(separators, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_word_separators(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * Drain pending OSC app-events as a JSON array of `[code, payload]` pairs
@@ -1109,6 +1149,44 @@ export class SelectionRange {
     }
 }
 if (Symbol.dispose) SelectionRange.prototype[Symbol.dispose] = SelectionRange.prototype.free;
+
+/**
+ * STATELESS key encoder for worker-hosted engines: encode a DOM keyboard
+ * event against an explicit mode-bits snapshot instead of a live terminal.
+ *
+ * Contract: the engine lives in a Web Worker while keydown handling runs on
+ * the main thread, so the host mirrors [`AtermTerminal::keyboard_mode_bits`]
+ * through its engine-state snapshot and encodes synchronously here, accepting
+ * one-frame staleness — the same tradeoff the host already accepts for
+ * DECCKM gating via `is_app_cursor_mode`.
+ *
+ * Parameters match [`AtermTerminal::encode_key`] (`key` = DOM
+ * `KeyboardEvent.key`; `mods` = SHIFT=1, ALT=2, CTRL=4, SUPER=8;
+ * `event_type` = 0=Press, 1=Repeat, 2=Release; `base_layout_key` = US-QWERTY
+ * char for Kitty `REPORT_ALTERNATE_KEYS`), plus `mode_bits` from
+ * `keyboard_mode_bits` (a `u16` bitflags value zero-extended to `u32`;
+ * undefined bits are truncated away). With fresh bits the output is
+ * byte-identical to the instance method.
+ * @param {string} key
+ * @param {number} mods
+ * @param {number} event_type
+ * @param {string | null | undefined} base_layout_key
+ * @param {number} mode_bits
+ * @returns {Uint8Array | undefined}
+ */
+export function encode_key_with_mode(key, mods, event_type, base_layout_key, mode_bits) {
+    const ptr0 = passStringToWasm0(key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const char1 = isLikeNone(base_layout_key) ? 0xFFFFFF : base_layout_key.codePointAt(0);
+    if (char1 !== 0xFFFFFF) { _assertChar(char1); }
+    const ret = wasm.encode_key_with_mode(ptr0, len0, mods, event_type, char1, mode_bits);
+    let v3;
+    if (ret[0] !== 0) {
+        v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    }
+    return v3;
+}
 
 function __wbg_get_imports() {
     const import0 = {

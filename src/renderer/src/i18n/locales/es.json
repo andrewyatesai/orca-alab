@@ -4105,7 +4105,8 @@
           "hostAuthNeeded": "Autenticación requerida",
           "hostDisconnected": "Desconectado",
           "failedNestWorkspace": "No se pudo anidar el espacio de trabajo",
-          "sidebarRowMissing": "El destino ya no existe"
+          "sidebarRowMissing": "El destino ya no existe",
+          "failedUnnestWorkspace": "No se pudo desanidar el espacio de trabajo"
         },
         "WorktreeMetaDialog": {
           "3db0a2a593": "Cancelar",

@@ -10,6 +10,7 @@ import {
   mkdirSync,
   existsSync,
   realpathSync,
+  statSync,
   symlinkSync
 } from 'node:fs'
 import { join } from 'node:path'
@@ -4442,7 +4443,7 @@ describe('Store', () => {
       const store = await createStore()
       store.addRepo(makeRepo())
       store.flush()
-      vi.advanceTimersByTime(300)
+      vi.advanceTimersByTime(1000)
 
       const persisted = readDataFile() as { repos: Repo[] }
       expect(persisted.repos).toHaveLength(1)
@@ -4462,9 +4463,9 @@ describe('Store', () => {
 
       // Before the debounce fires, file should not exist yet (or be stale)
       vi.advanceTimersByTime(100)
-      // The 300ms debounce hasn't elapsed yet
+      // The 1s debounce hasn't elapsed yet
 
-      vi.advanceTimersByTime(300)
+      vi.advanceTimersByTime(1000)
       // The timer fired; wait for the async disk write to complete
       await store.waitForPendingWrite()
 
@@ -4474,6 +4475,242 @@ describe('Store', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // ── Content-hash write skipping ────────────────────────────────────
+  // Why inode comparison: every real write is a tmp+rename, which allocates a
+  // new inode. An unchanged inode proves no write happened.
+
+  it('skips the disk write when a mutation burst nets out to already-persisted state', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = await createStore()
+      store.updateUI({ sidebarWidth: 400 })
+      vi.advanceTimersByTime(1000)
+      await store.waitForPendingWrite()
+      const inoBefore = statSync(dataFile()).ino
+
+      store.updateUI({ sidebarWidth: 500 })
+      store.updateUI({ sidebarWidth: 400 })
+      vi.advanceTimersByTime(2000)
+      await store.waitForPendingWrite()
+
+      expect(statSync(dataFile()).ino).toBe(inoBefore)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('skips the sync flush when state already matches the last write', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = await createStore()
+      store.updateUI({ sidebarWidth: 420 })
+      vi.advanceTimersByTime(1000)
+      await store.waitForPendingWrite()
+      const inoBefore = statSync(dataFile()).ino
+
+      store.flush()
+
+      expect(statSync(dataFile()).ino).toBe(inoBefore)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('bounds save postponement under sustained mutation bursts (max-wait)', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = await createStore()
+      // Mutations every 500ms keep resetting the 1s trailing debounce; the
+      // 5s max-wait must force a write anyway.
+      let width = 400
+      for (let i = 0; i < 11; i++) {
+        store.updateUI({ sidebarWidth: width++ })
+        vi.advanceTimersByTime(500)
+      }
+      await store.waitForPendingWrite()
+
+      expect(existsSync(dataFile())).toBe(true)
+      const persisted = readDataFile() as { ui: { sidebarWidth: number } }
+      expect(persisted.ui.sidebarWidth).toBeGreaterThanOrEqual(400)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('re-binding an already-persisted pty does not rewrite the state file', async () => {
+    const store = await createStore()
+    store.setWorkspaceSession({
+      activeRepoId: 'r1',
+      activeWorktreeId: 'wt1',
+      activeTabId: 'tab1',
+      tabsByWorktree: {
+        wt1: [
+          {
+            id: 'tab1',
+            worktreeId: 'wt1',
+            title: 'Terminal',
+            customTitle: null,
+            color: null,
+            sortOrder: 0,
+            createdAt: 1,
+            ptyId: null
+          }
+        ]
+      },
+      terminalLayoutsByTabId: {
+        tab1: {
+          root: null,
+          activeLeafId: null,
+          expandedLeafId: null
+        }
+      }
+    })
+
+    const binding = {
+      worktreeId: 'wt1',
+      tabId: 'tab1',
+      leafId: TEST_LEAF_1,
+      ptyId: 'daemon-pty'
+    }
+    store.persistPtyBinding(binding)
+    const inoBefore = statSync(dataFile()).ino
+
+    // The warm-restart re-bind storm: every restored terminal re-asserts an
+    // identical binding with a sync flush. Identical state must not rewrite.
+    store.persistPtyBinding(binding)
+
+    expect(statSync(dataFile()).ino).toBe(inoBefore)
+  })
+
+  // ── worktreeMeta startup GC ────────────────────────────────────────
+
+  it('garbage-collects stale local worktreeMeta at load with a 30-day grace', async () => {
+    const OLD = Date.now() - 40 * 24 * 60 * 60 * 1000
+    const RECENT = Date.now() - 1 * 24 * 60 * 60 * 1000
+    const missing = (name: string): string => join(testState.dir, 'gone', name)
+    const meta = (lastActivityAt: number, extra: Record<string, unknown> = {}) => ({
+      displayName: '',
+      comment: '',
+      lastActivityAt,
+      ...extra
+    })
+    const liveKey = `r1::${testState.dir}`
+    const deadKey = `r1::${missing('dead')}`
+    const recentKey = `r1::${missing('recent')}`
+    const sshKey = `ssh-repo::/home/alice/gone`
+    const remoteHostKey = `r1::${missing('remote-host')}`
+    const orphanKey = `removed-repo::${missing('orphan')}`
+    const wslKey = `r1::\\\\wsl$\\Ubuntu\\home\\gone`
+
+    writeDataFile({
+      repos: [
+        makeRepo(),
+        makeRepo({ id: 'ssh-repo', path: '/home/alice/repo', connectionId: 'conn-1' })
+      ],
+      worktreeMeta: {
+        [liveKey]: meta(OLD),
+        [deadKey]: meta(OLD),
+        [recentKey]: meta(RECENT),
+        [sshKey]: meta(OLD),
+        [remoteHostKey]: meta(OLD, { hostId: 'ssh:conn-1' }),
+        [orphanKey]: meta(OLD),
+        [wslKey]: meta(OLD)
+      },
+      worktreeLineageById: { [deadKey]: { parentWorktreeId: liveKey } }
+    })
+
+    const store = await createStore()
+    const kept = Object.keys(store.getAllWorktreeMeta())
+
+    expect(kept).toContain(liveKey) // path exists
+    expect(kept).toContain(recentKey) // inside the grace window
+    expect(kept).toContain(sshKey) // SSH repo: remote paths never checked locally
+    expect(kept).toContain(remoteHostKey) // remote hostId on the meta itself
+    expect(kept).toContain(wslKey) // WSL UNC path
+    expect(kept).not.toContain(deadKey)
+    expect(kept).not.toContain(orphanKey)
+    expect(store.getWorktreeLineage(deadKey)).toBeUndefined()
+  })
+
+  it('never GCs folder-workspace instance metas — the meta IS the workspace', async () => {
+    const OLD = Date.now() - 40 * 24 * 60 * 60 * 1000
+    const folderInstanceKey = `r1::${join(testState.dir, 'gone-folder')}::workspace:11111111-1111-4111-8111-111111111111`
+    writeDataFile({
+      repos: [makeRepo({ kind: 'folder' })],
+      worktreeMeta: {
+        [folderInstanceKey]: { displayName: 'Session A', comment: '', lastActivityAt: OLD }
+      }
+    })
+
+    const store = await createStore()
+    expect(Object.keys(store.getAllWorktreeMeta())).toContain(folderInstanceKey)
+  })
+
+  it('never GCs Linux-style WSL worktree paths on Windows', async () => {
+    const OLD = Date.now() - 40 * 24 * 60 * 60 * 1000
+    const wslLinkedKey = 'r1::/home/user/gone-worktree'
+    writeDataFile({
+      repos: [makeRepo()],
+      worktreeMeta: {
+        [wslLinkedKey]: { displayName: '', comment: '', lastActivityAt: OLD }
+      }
+    })
+
+    await withPlatform('win32', async () => {
+      const store = await createStore()
+      expect(Object.keys(store.getAllWorktreeMeta())).toContain(wslLinkedKey)
+    })
+  })
+
+  it('tolerates a null worktreeMeta map in the durable file', async () => {
+    writeDataFile({ worktreeMeta: null })
+    const store = await createStore()
+    expect(store.getAllWorktreeMeta()).toEqual({})
+  })
+
+  // ── GitHub cache sidecar ───────────────────────────────────────────
+
+  it('cache refreshes never rewrite the durable state file', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = await createStore()
+      store.updateUI({ sidebarWidth: 411 })
+      vi.advanceTimersByTime(1000)
+      await store.waitForPendingWrite()
+      const inoBefore = statSync(dataFile()).ino
+      expect((readDataFile() as { githubCache?: unknown }).githubCache).toBeUndefined()
+
+      store.setGitHubCache({ pr: { 'o/r#1': { fetchedAt: 123 } as never }, issue: {} })
+      vi.advanceTimersByTime(6000)
+      await store.waitForPendingWrite()
+
+      expect(statSync(dataFile()).ino).toBe(inoBefore)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('snapshots the cache at flush and seeds the next Store from the sidecar', async () => {
+    const store = await createStore()
+    store.setGitHubCache({ pr: { 'o/r#7': { fetchedAt: 7 } as never }, issue: {} })
+    store.flush()
+    expect(existsSync(join(testState.dir, 'orca-github-cache.json'))).toBe(true)
+
+    const restarted = await createStore()
+    expect(restarted.getGitHubCache().pr['o/r#7']).toEqual({ fetchedAt: 7 })
+  })
+
+  it('keeps a legacy in-file cache as the seed and strips it from disk', async () => {
+    writeDataFile({ githubCache: { pr: { legacy: { fetchedAt: 1 } }, issue: {} } })
+
+    const store = await createStore()
+    expect(store.getGitHubCache().pr.legacy).toEqual({ fetchedAt: 1 })
+
+    // The legacy key marks the state dirty at load; the next write drops it.
+    store.flush()
+    expect((readDataFile() as { githubCache?: unknown }).githubCache).toBeUndefined()
   })
 
   // ── UI state ───────────────────────────────────────────────────────
@@ -4518,7 +4755,7 @@ describe('Store', () => {
           tasks: { firstInteractedAt: 100, interactionCount: 1 }
         }
       })
-      vi.advanceTimersByTime(300)
+      vi.advanceTimersByTime(1000)
       await store.waitForPendingWrite()
       const persistedBefore = readFileSync(dataFile(), 'utf-8')
       store.onUIChanged((ui) => notifications.push(ui))
@@ -4532,7 +4769,7 @@ describe('Store', () => {
           tasks: { firstInteractedAt: 100, interactionCount: 1 }
         }
       })
-      vi.advanceTimersByTime(300)
+      vi.advanceTimersByTime(1000)
       await store.waitForPendingWrite()
 
       expect(notifications).toEqual([])
@@ -8307,7 +8544,7 @@ describe('Store', () => {
 
         const store = await createStore()
         store.addRepo(makeRepo({ id: 'first-async' }))
-        vi.advanceTimersByTime(300)
+        vi.advanceTimersByTime(1000)
         await store.waitForPendingWrite()
 
         const bak0AfterFirst = readBackup(0)
@@ -8315,7 +8552,7 @@ describe('Store', () => {
 
         vi.setSystemTime(new Date(Date.now() + 5 * 60 * 1000))
         store.addRepo(makeRepo({ id: 'within-hour-async', path: '/within-async' }))
-        vi.advanceTimersByTime(300)
+        vi.advanceTimersByTime(1000)
         await store.waitForPendingWrite()
 
         const bak0AfterSecond = readBackup(0)
@@ -8340,7 +8577,7 @@ describe('Store', () => {
 
         const store = await createStore()
         store.addRepo(makeRepo({ id: 'first-async' }))
-        vi.advanceTimersByTime(300)
+        vi.advanceTimersByTime(1000)
         await store.waitForPendingWrite()
 
         expect(
@@ -8351,7 +8588,7 @@ describe('Store', () => {
 
         vi.setSystemTime(new Date(Date.now() + 61 * 60 * 1000))
         store.addRepo(makeRepo({ id: 'after-hour-async', path: '/after-async' }))
-        vi.advanceTimersByTime(300)
+        vi.advanceTimersByTime(1000)
         await store.waitForPendingWrite()
 
         expect(
@@ -8464,9 +8701,9 @@ describe('Store', () => {
       try {
         const store = await createStore()
         store.addRepo(makeRepo({ id: 'first' }))
-        vi.advanceTimersByTime(300)
+        vi.advanceTimersByTime(1000)
         store.addRepo(makeRepo({ id: 'second', path: '/second' }))
-        vi.advanceTimersByTime(300)
+        vi.advanceTimersByTime(1000)
         await store.waitForPendingWrite()
 
         const persisted = JSON.parse(readFileSync(dataFile(), 'utf-8')) as { repos: Repo[] }

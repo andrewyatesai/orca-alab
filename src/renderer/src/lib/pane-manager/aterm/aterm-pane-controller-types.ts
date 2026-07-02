@@ -233,6 +233,9 @@ export type AtermPaneControllerOptions = {
   /** The facade consumer's attachCustomKeyEventHandler hook (IME suppression,
    *  interrupt handling, JIS-yen). Read per keydown; a `false` return means the
    *  consumer handled/suppressed the key, so nothing is encoded for it. */
+  /** Preferred IME anchor cell when an agent CLI parks the real cursor away
+   *  from its visible prompt (upstream #7061); null → the engine cursor. */
+  getImeAnchor?: () => { row: number; col: number } | null
   getCustomKeyEventHandler?: () => ((event: KeyboardEvent) => boolean) | null
   /** Latest terminalCursorBlink (xterm's cursorBlink); when true the focused cursor
    *  blinks on a ~530ms timer, else it's steady-on. Defaults to true. */

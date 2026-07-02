@@ -1,11 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
+import { existsSync } from 'node:fs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
-// orc removes GitHub CI workflows (the gauntlet replaces them); skip the
-// workflow-contract assertions when the directory is absent.
+// orc ships no GitHub workflows (no-CI policy; the gauntlet is the gate) — the
+// workflow-contract tests only apply when the upstream workflow files exist.
 const HAS_CI_WORKFLOWS = existsSync(join(projectDir, '.github/workflows'))
 const packageJson = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf8'))
 
@@ -208,6 +209,10 @@ describe('Electron runtime package contract', () => {
 
       expect(installStep.if).toBe("matrix.platform == 'win'")
       expect(installStep.shell).toBe('pwsh')
+      expect(installRun).toContain(
+        'if ($null -eq (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue))'
+      )
+      expect(installRun).toContain('Register-PSRepository -Default -InstallationPolicy Trusted')
       expect(installRun).toContain('Set-PSRepository -Name PSGallery -InstallationPolicy Trusted')
       expect(installRun).toMatch(/\$env:PSModulePath -split \[System\.IO\.Path\]::PathSeparator/)
       expect(installRun).toContain(
@@ -229,6 +234,56 @@ describe('Electron runtime package contract', () => {
       )
       expect(installRun).toMatch(/if \(\$attempt -eq 3\) {\s+throw\s+}/)
       expect(installRun).not.toMatch(/throw\s+\$_/)
+    }
+  )
+
+  it.skipIf(!HAS_CI_WORKFLOWS)(
+    'verifies the SignPath-signed Windows inner executable before publishing',
+    () => {
+      const releaseWorkflow = readFileSync(
+        join(projectDir, '.github/workflows/release-cut.yml'),
+        'utf8'
+      )
+      const parsedWorkflow = parse(releaseWorkflow)
+      const steps = parsedWorkflow.jobs.build.steps
+      const stepNames = steps.map((step) => step.name)
+      const outerVerifyIndex = stepNames.indexOf('Verify signed Windows installer')
+      const innerVerifyIndex = stepNames.indexOf('Verify signed Windows inner executable')
+      const publishIndex = stepNames.indexOf('Publish signed Windows release artifacts')
+
+      expect(outerVerifyIndex).toBeGreaterThan(-1)
+      expect(innerVerifyIndex).toBe(outerVerifyIndex + 1)
+      expect(innerVerifyIndex).toBeLessThan(publishIndex)
+
+      const innerVerifyStep = steps[innerVerifyIndex]
+      const innerVerifyRun = innerVerifyStep.run
+
+      expect(innerVerifyStep.if).toBe("matrix.platform == 'win'")
+      expect(innerVerifyStep.shell).toBe('pwsh')
+      expect(innerVerifyStep.env.ORCA_WINDOWS_EXPECTED_SIGNERS).toBe(
+        'CN=SignPath Foundation, O=SignPath Foundation, L=Lewes, S=Delaware, C=US;CN=SignPath Foundation, O=SignPath Foundation, L=Lewes, ST=Delaware, C=US'
+      )
+      expect(innerVerifyRun).toContain('& 7z x -y "-o$setupExtractDir" $installer')
+      expect(innerVerifyRun).toContain(
+        "$innerExecutables = @(Get-ChildItem -LiteralPath $setupExtractDir -File -Filter 'Orca.exe')"
+      )
+      expect(innerVerifyRun).toContain('if ($innerExecutables.Count -eq 0)')
+      expect(innerVerifyRun).toContain(
+        "$appArchives = @(Get-ChildItem -LiteralPath $setupExtractDir -Recurse -File -Filter 'app-*.7z')"
+      )
+      expect(innerVerifyRun).toContain('if ($appArchives.Count -ne 1)')
+      expect(innerVerifyRun).toContain('Expected app-root Orca.exe or exactly one app-*.7z')
+      expect(innerVerifyRun).toContain('& 7z x -y "-o$appExtractDir" $($appArchives[0].FullName)')
+      expect(innerVerifyRun).toContain(
+        "$innerExecutables = @(Get-ChildItem -LiteralPath $appExtractDir -File -Filter 'Orca.exe')"
+      )
+      expect(innerVerifyRun.indexOf("-Filter 'Orca.exe'")).toBeLessThan(
+        innerVerifyRun.indexOf("-Filter 'app-*.7z'")
+      )
+      expect(innerVerifyRun).toContain('if ($innerExecutables.Count -ne 1)')
+      expect(innerVerifyRun).toContain(
+        'node config/scripts/verify-windows-inner-signature.mjs $($innerExecutables[0].FullName)'
+      )
     }
   )
 

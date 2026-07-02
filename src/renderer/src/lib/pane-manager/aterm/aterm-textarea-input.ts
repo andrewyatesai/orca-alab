@@ -15,6 +15,9 @@ export type AtermTextareaInputDeps = {
   metrics: { dpr: number; cellWidth: number; cellHeight: number }
   /** Live theme (mutated in place on re-theme) for the IME preedit colors. */
   themeColors: { fg: number; bg: number }
+  /** Preferred IME anchor cell when an agent CLI parks the real cursor away
+   *  from its visible prompt (upstream #7061); null → the engine cursor. */
+  getImeAnchor?: () => { row: number; col: number } | null
   /** Current grid rows — the Shift+PageUp/PageDown scrollback page size. */
   getRows: () => number
   /** Repaint after a keyboard-driven scrollback move. */
@@ -89,7 +92,8 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     textarea,
     term,
     metrics,
-    themeColors
+    themeColors,
+    getAnchorOverride: deps.getImeAnchor
   })
 
   // Copy the canvas selection for the platform's copy chord; returns true when

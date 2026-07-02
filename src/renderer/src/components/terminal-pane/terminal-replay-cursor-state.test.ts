@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  POST_REPLAY_LIVE_AGENT_REATTACH_RESET,
   POST_REPLAY_LIVE_SNAPSHOT_RESET,
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
@@ -47,6 +48,15 @@ describe('terminal replay state reset constants', () => {
     // Reattach must NOT clear mouse / bracketed-paste the live TUI may rely on.
     expect(POST_REPLAY_REATTACH_RESET).not.toContain('\x1b[?1000l')
     expect(POST_REPLAY_REATTACH_RESET).not.toContain('\x1b[?2004l')
+  })
+
+  it('keeps focus reporting on the live-agent reattach reset (upstream #7061)', () => {
+    // A live agent that draws while parked relies on focus-in/out: the agent
+    // variant resets cursor style + Kitty + DECTCEM but must NOT clear 1004.
+    expect(POST_REPLAY_LIVE_AGENT_REATTACH_RESET).toBe(
+      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h`
+    )
+    expect(POST_REPLAY_LIVE_AGENT_REATTACH_RESET).not.toContain('\x1b[?1004l')
   })
 
   it('preserves Kitty keyboard flags on the live-output snapshot reset', () => {

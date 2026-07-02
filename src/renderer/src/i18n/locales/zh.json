@@ -4086,7 +4086,8 @@
           "hostAuthNeeded": "需要身份验证",
           "hostDisconnected": "已断开连接",
           "failedNestWorkspace": "无法嵌套工作区",
-          "sidebarRowMissing": "目标不再存在"
+          "sidebarRowMissing": "目标不再存在",
+          "failedUnnestWorkspace": "取消嵌套工作区失败"
         },
         "WorktreeMetaDialog": {
           "3db0a2a593": "取消",

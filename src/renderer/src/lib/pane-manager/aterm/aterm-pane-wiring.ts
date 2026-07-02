@@ -4,9 +4,8 @@ import { buildAtermThemeMutators } from './aterm-controller-theme-mutators'
 import { attachAtermPointerInputs } from './aterm-pointer-input-bundle'
 import { createAtermPaneGridSizing, type AtermPaneGridSizing } from './aterm-pane-grid-sizing'
 import type { AtermFileLinkOpener, AtermLinkProviderSource } from './aterm-link-input'
-import { createAtermSearchController, type AtermSearchMatch } from './aterm-search'
 import { createAtermDrawScheduler } from './aterm-draw-scheduler'
-import { buildAtermSearchApi } from './aterm-search-api'
+import { createAtermPaneSearchState } from './aterm-pane-search-state'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import { buildAtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import { mountAtermPaneCanvasAdjuncts } from './aterm-pane-canvas-adjuncts'
@@ -17,7 +16,7 @@ import { createAtermTitleChannel } from './aterm-title-channel'
 import { createAtermProcessPump } from './aterm-process-pump'
 import type { AtermMetrics } from './aterm-grid-reflow'
 import { createAtermPanePresenter } from './aterm-pane-present'
-import { applyTerminalPrimaryFont } from './inject-terminal-primary-font'
+import { applyTerminalPrimaryFontThenReflow } from './inject-terminal-primary-font'
 import { attachAtermCanvasFocus } from './aterm-canvas-focus'
 import { applyAtermEngineSettings } from './aterm-engine-settings-apply'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
@@ -110,18 +109,13 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     cellHeight: term.cell_height
   }
   let disposed = false
-  let searchRefreshPending = false
 
-  // Grid state + reflow + the explicit resize override live in the sizing
-  // module; assigned right after the strategy binds (the closures below only
-  // read it at runtime).
+  // Grid state + reflow + the explicit resize override live in the sizing module;
+  // assigned right after the strategy binds (closures below read it at runtime).
   let gridSizing!: AtermPaneGridSizing
   // Facade subscribers notified after each mouse-driven selection mutation, so
   // onSelectionChange fires without waiting for PTY output.
   const selectionMutationListeners = new Set<() => void>()
-
-  let searchMatches: AtermSearchMatch[] = []
-  let searchActiveIndex = -1
 
   // draw (rAF) + presentNow (interactive fast path) are assigned from the presenter
   // below, once the strategy + grid reflow exist. The drawScheduler + process pump
@@ -135,6 +129,16 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     }
   }
 
+  // Search state (matches/active-index/re-index flag) + controller + API live in
+  // their own module; getRows closes over the late-assigned gridSizing.
+  const searchState = createAtermPaneSearchState({
+    term,
+    metrics,
+    isDisposed: () => disposed,
+    getRows: () => gridSizing.grid().rows,
+    scheduleDraw
+  })
+
   const titleChannel = createAtermTitleChannel(term)
 
   const process = createAtermProcessPump({
@@ -142,10 +146,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     inputSink,
     isDisposed: () => disposed,
     emitTitleIfChanged: titleChannel.emitIfChanged,
-    hasActiveSearchQuery: () => searchController.hasActiveQuery(),
-    markSearchRefresh: () => {
-      searchRefreshPending = true
-    },
+    hasActiveSearchQuery: () => searchState.searchController.hasActiveQuery(),
+    markSearchRefresh: searchState.markSearchRefresh,
     // Present a keystroke echo immediately (coalesced to once per frame) instead of
     // waiting a full rAF — see presentNow. Bulk output still coalesces onto rAF.
     scheduleDraw: () => presentNow()
@@ -166,35 +168,18 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       onSelectionChanged: () => selectionMutationListeners.forEach((listener) => listener())
     })
 
-  const searchController = createAtermSearchController(term, {
-    setSearchHighlights: (next, activeIndex) => {
-      searchMatches = next
-      searchActiveIndex = activeIndex
-    },
-    scrollToMatch: (match) => {
-      if (!disposed) {
-        term.scroll_search_line_into_view(match.line)
-      }
-    },
-    redraw: scheduleDraw
-  })
-
   // Bind the strategy's painter now that search + getters exist (they depend on
   // the engine the strategy created). The GPU strategy forwards context loss to
   // the controller (config.onContextLoss) so it can swap to CPU; CPU ignores it.
   const strategy = pending.bindPainter({
     drawScheduler,
-    searchController,
+    searchController: searchState.searchController,
     isDisposed: () => disposed,
     getDpr: () => metrics.dpr,
     getRows: () => gridSizing.grid().rows,
-    getSearchMatches: () => searchMatches,
-    getSearchActiveIndex: () => searchActiveIndex,
-    takeSearchRefresh: () => {
-      const pendingRefresh = searchRefreshPending
-      searchRefreshPending = false
-      return pendingRefresh
-    },
+    getSearchMatches: searchState.getSearchMatches,
+    getSearchActiveIndex: searchState.getSearchActiveIndex,
+    takeSearchRefresh: searchState.takeSearchRefresh,
     getHoveredLinkSpan: () => linkInput.hoveredSpan(),
     getFgColor: () => themeColors.fg,
     onContextLoss: (seedAnsi?: string) => config.onContextLoss(seedAnsi)
@@ -218,16 +203,6 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
 
   // draw + presentNow are wired from the presenter just after the grid reflow exists
   // (it's one of the presenter's deps). See below.
-
-  const searchApi = buildAtermSearchApi({
-    searchController,
-    term,
-    metrics,
-    isDisposed: () => disposed,
-    getRows: () => gridSizing.grid().rows,
-    getSearchMatches: () => searchMatches,
-    getSearchActiveIndex: () => searchActiveIndex
-  })
 
   // Size the real grid + attach the container/DPI reflow; explicit resizes
   // (snapshot replay, mobile-fit) pin an override the reflow honors.
@@ -267,8 +242,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     drawScheduler,
     scheduleDraw,
     isDisposed: () => disposed,
-    getSearchMatches: () => searchMatches,
-    getSearchActiveIndex: () => searchActiveIndex
+    getSearchMatches: searchState.getSearchMatches,
+    getSearchActiveIndex: searchState.getSearchActiveIndex
   })
   draw = presenter.draw
   presentNow = presenter.presentNow
@@ -277,11 +252,13 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // weight-closest face (+ the family's real bold face for SGR bold, when it ships
   // one) and reflow once the bytes load; a bundled/unresolvable family is a no-op.
   // A live family/weight change applies on the next opened terminal.
-  void applyTerminalPrimaryFont(term, getFontFamily(), getFontWeight()).then((applied) => {
-    if (applied && !disposed) {
-      gridSizing.reflow.forceReflow()
-    }
-  })
+  applyTerminalPrimaryFontThenReflow(
+    term,
+    getFontFamily(),
+    getFontWeight(),
+    () => disposed,
+    () => gridSizing.reflow.forceReflow()
+  )
 
   const textareaInput = attachAtermTextareaInput({
     textarea,
@@ -295,7 +272,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     pasteSink,
     copySelection: () => selectionInput.copySelection(),
     getMacOptionIsMeta: controllerOptions?.getMacOptionIsMeta,
-    getCustomKeyEventHandler: controllerOptions?.getCustomKeyEventHandler
+    getCustomKeyEventHandler: controllerOptions?.getCustomKeyEventHandler,
+    getImeAnchor: controllerOptions?.getImeAnchor
   })
 
   // Blink the cursor (focused) + draw it hollow (unfocused); the engine paints the
@@ -362,7 +340,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // Buffer/grid reads (incl. cellSizeCss + linkAt) + scroll/selection commands (live
     // engine state); extracted to keep this file focused.
     ...buildAtermEngineReads(term, metrics, scheduleDraw, () => disposed),
-    ...searchApi,
+    ...searchState.searchApi,
     setFileLinkOpener: (fn: AtermFileLinkOpener) => void (shared.fileLinkOpener = fn),
     setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),
     setLinkProviderSource: (src: AtermLinkProviderSource) => void (shared.linkProviderSource = src),

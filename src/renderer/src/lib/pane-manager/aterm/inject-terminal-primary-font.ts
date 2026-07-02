@@ -58,3 +58,20 @@ export async function applyTerminalPrimaryFont(
   }
   return true
 }
+
+/** Apply the user's primary font, then reflow the grid when it actually changed
+ *  and the pane still lives — the metrics-affecting half of pane wiring, kept
+ *  with the injection it follows. */
+export function applyTerminalPrimaryFontThenReflow(
+  term: PrimaryFontInjectable,
+  family: string | undefined,
+  fontWeight: number | undefined,
+  isDisposed: () => boolean,
+  reflow: () => void
+): void {
+  void applyTerminalPrimaryFont(term, family, fontWeight).then((applied) => {
+    if (applied && !isDisposed()) {
+      reflow()
+    }
+  })
+}

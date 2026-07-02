@@ -77,6 +77,17 @@ export type IBufferLine = {
   translateToString(trimRight?: boolean, startColumn?: number, endColumn?: number): string
 }
 
+/** The facade `buffer.active` surface (live aterm engine state; xterm shape). */
+export type IBuffer = {
+  readonly type: 'normal' | 'alternate'
+  readonly viewportY: number
+  readonly baseY: number
+  readonly cursorX: number
+  readonly cursorY: number
+  readonly length: number
+  getLine(absY: number): IBufferLine | undefined
+}
+
 /** Identifies an escape-sequence handler (prefix/intermediates/final). */
 export type IFunctionIdentifier = {
   prefix?: string

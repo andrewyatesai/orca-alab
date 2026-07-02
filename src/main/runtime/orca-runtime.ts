@@ -14713,13 +14713,9 @@ export class OrcaRuntimeService {
       )
       if (!registeredWorktree) {
         let canCleanOrphanedDirectory = false
-        const knownOrcaLayouts = buildKnownOrcaWorkspaceLayouts(store.getSettings(), repo)
         if (
           canCleanupUnregisteredOrcaWorktreeDirectory({
-            meta: removedMeta,
-            worktreePath: removalTarget.path,
-            repo,
-            knownOrcaLayouts
+            meta: removedMeta
           })
         ) {
           if (repo.connectionId) {
@@ -14792,7 +14788,6 @@ export class OrcaRuntimeService {
               runtimeWorktreePath,
               repo,
               runtimeRepoPath: toLocalWorktreeRuntimePath(repo.path, localWorktreeGitOptions),
-              knownOrcaLayouts,
               registeredWorktrees,
               statPath: access.statPath,
               isGitRepository: (path) => isLocalRuntimeGitRepository(path, localWorktreeGitOptions)

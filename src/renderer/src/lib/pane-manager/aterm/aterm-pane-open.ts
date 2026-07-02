@@ -7,6 +7,7 @@ import {
 } from '../pane-terminal-options'
 import { normalizeTerminalTuiMouseWheelMultiplier } from '../pane-terminal-mouse-wheel'
 import { normalizeDesktopTerminalScrollbackRows } from '../../../../../shared/terminal-scrollback-policy'
+import { resolveCursorAgentImeAnchor } from '../terminal-ime-anchor'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 
@@ -107,7 +108,21 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
       // orca's formatLinkTooltip (localhost port labels): read live off the pane
       // so the hover tooltip labels URLs however registration and pane-open
       // interleave; unset → the default "url (modifier hint)" label.
-      formatLinkTooltip: (url, hint) => pane.formatLinkTooltip?.(url, hint)
+      formatLinkTooltip: (url, hint) => pane.formatLinkTooltip?.(url, hint),
+      // Agent CLIs (Cursor Agent) draw their prompt while parking the real
+      // cursor on a blank row — the IME anchor prefers the rendered prompt row
+      // (upstream #7061), read from the facade's live buffer.
+      getImeAnchor: () => {
+        const buf = pane.terminal.buffer.active
+        const anchor = resolveCursorAgentImeAnchor({
+          buffer: buf,
+          rows: pane.terminal.rows,
+          cols: pane.terminal.cols,
+          cursorX: buf.cursorX,
+          cursorY: buf.cursorY
+        })
+        return anchor ? { row: anchor.row, col: anchor.column } : null
+      }
     }
   )
     .then((controller) => {

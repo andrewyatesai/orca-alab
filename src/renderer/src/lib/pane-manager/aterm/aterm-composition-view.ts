@@ -27,6 +27,9 @@ export type AtermCompositionViewDeps = {
   metrics: { dpr: number; cellWidth: number; cellHeight: number }
   /** Live theme (mutated in place on re-theme) — preedit fg/bg follow it. */
   themeColors: { fg: number; bg: number }
+  /** Preferred anchor cell when the app parks the real cursor away from its
+   *  visible prompt (agent CLIs); null → anchor at the engine cursor. */
+  getAnchorOverride?: () => { row: number; col: number } | null
 }
 
 const toCssColor = (rgb: number): string => `#${(rgb & 0xffffff).toString(16).padStart(6, '0')}`
@@ -70,13 +73,15 @@ export function createAtermCompositionView(deps: AtermCompositionViewDeps): Ater
 
   // Cursor cell origin in DEVICE px. Worker path: snapshot cursor (≤1-frame lag,
   // the documented worker-input tradeoff); clamped so a scrolled-back viewport
-  // can't push the anchor outside the pane.
+  // can't push the anchor outside the pane. An anchor override (agent CLIs that
+  // draw their prompt while parking the real cursor on a blank row) wins.
   const cursorDeviceOrigin = (): { x: number; y: number } => {
     const grid = gridDeviceSize()
     const cols = Math.max(1, Math.floor(grid.width / Math.max(1, metrics.cellWidth)))
     const rows = Math.max(1, Math.floor(grid.height / Math.max(1, metrics.cellHeight)))
-    const col = Math.min(Math.max(term.cursor_x, 0), cols - 1)
-    const row = Math.min(Math.max(term.cursor_y, 0), rows - 1)
+    const anchor = deps.getAnchorOverride?.() ?? null
+    const col = Math.min(Math.max(anchor?.col ?? term.cursor_x, 0), cols - 1)
+    const row = Math.min(Math.max(anchor?.row ?? term.cursor_y, 0), rows - 1)
     return { x: col * metrics.cellWidth, y: row * metrics.cellHeight }
   }
 

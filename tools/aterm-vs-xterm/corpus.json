@@ -102,6 +102,7 @@
   {
     "name": "invalid-utf8-raw-bytes",
     "bytes_b64": "G1syShtbMTsxSGxhdGluMS1lLWFjdXRlOukgbG9uZS1jb250aW51YXRpb246gCB0cnVuY2F0ZWQtM2J5dGU65L0gb3Zlcmxvbmctc2xhc2g6wK8gZW5k",
-    "comment": "Deliberately invalid UTF-8 (raw 0xE9, lone continuation byte, truncated 3-byte seq, overlong encoding). Expected divergence: aterm emits U+FFFD per the Unicode substitution recommendation; xterm.js silently drops the bytes. aterm-more-correct — triage as an accepted REVIEW, not a bug."
+    "comment": "Deliberately invalid UTF-8 (raw 0xE9, lone continuation byte, truncated 3-byte seq, overlong encoding). Expected divergence: aterm emits U+FFFD per the Unicode substitution recommendation; xterm.js silently drops the bytes. aterm-more-correct — accepted divergence, see TRIAGE.md.",
+    "expected_divergence": true
   }
 ]

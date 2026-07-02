@@ -138,7 +138,8 @@ async function conformance() {
   const COLS = 80
   let parity = 0
   const diverge = []
-  for (const { name, bytes: buf, comment } of cases) {
+  const expectedDivergences = []
+  for (const { name, bytes: buf, comment, expected_divergence: expected } of cases) {
     const rt = new HeadlessTerminal(COLS, ROWS, 1000)
     rt.write(buf)
     const a = rt.snapshot().map(rstrip)
@@ -146,11 +147,24 @@ async function conformance() {
     xt.write(buf)
     await new Promise((r) => xt.write('', r)) // xterm flush
     const x = []
+    // xterm's getLine is buffer-absolute (scrollback included); aterm's snapshot
+    // is the visible viewport — offset by viewportY or any case that scrolls
+    // misreports a divergence.
+    const viewportY = xt.buffer.active.viewportY
     for (let r = 0; r < ROWS; r++) {
-      x.push(rstrip(xt.buffer.active.getLine(r)?.translateToString(true) ?? ''))
+      x.push(rstrip(xt.buffer.active.getLine(viewportY + r)?.translateToString(true) ?? ''))
     }
     if (a.join('\n') === x.join('\n')) {
       parity++
+      if (expected) {
+        // An accepted divergence that stopped diverging needs re-triage: either
+        // the baseline fixed itself or the corpus case rotted.
+        diverge.push({
+          name,
+          comment: `expected divergence NO LONGER reproduces — re-triage: ${comment ?? ''}`,
+          rows: []
+        })
+      }
     } else {
       const rows = []
       for (let r = 0; r < ROWS && rows.length < 4; r++) {
@@ -158,15 +172,26 @@ async function conformance() {
           rows.push({ row: r, aterm: (a[r] ?? '').slice(0, 60), xterm: (x[r] ?? '').slice(0, 60) })
         }
       }
-      // A case may pre-document its expected divergence (e.g. invalid UTF-8 where
-      // aterm is the more-correct engine) — surface it for the REVIEW triage.
-      diverge.push(comment ? { name, comment, rows } : { name, rows })
+      // Triaged, spec-cited divergences (expected_divergence in the corpus, verdicts
+      // in tools/aterm-vs-xterm/TRIAGE.md) are accepted rather than REVIEW — the
+      // classic conformance-suite expected-fail list. Anything untriaged is REVIEW.
+      if (expected) {
+        expectedDivergences.push(comment ? { name, comment, rows } : { name, rows })
+      } else {
+        diverge.push(comment ? { name, comment, rows } : { name, rows })
+      }
     }
   }
   return {
     status: diverge.length === 0 ? 'PASS' : 'REVIEW',
-    metrics: { parity, total: cases.length, divergences: diverge.length },
-    diverge
+    metrics: {
+      parity,
+      total: cases.length,
+      divergences: diverge.length,
+      accepted_divergences: expectedDivergences.length
+    },
+    diverge,
+    expectedDivergences
   }
 }
 
@@ -417,8 +442,11 @@ async function main() {
       const rows = d.rows.map((v) => `row ${v.row} [${v.aterm}]≠[${v.xterm}]`).join(' · ')
       console.log(`      ${C.y}diverge:${C.x} ${d.name} — ${rows}`)
       if (d.comment) {
-        console.log(`      ${C.d}expected: ${d.comment}${C.x}`)
+        console.log(`      ${C.d}${d.comment}${C.x}`)
       }
+    }
+    for (const d of r.expectedDivergences ?? []) {
+      console.log(`      ${C.d}accepted divergence: ${d.name} — ${d.comment ?? ''}${C.x}`)
     }
     for (const row of r.rows ?? []) {
       const hit = row.verdict === row.expect

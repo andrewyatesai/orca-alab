@@ -42,8 +42,11 @@ term.write(buf)
 await new Promise((r) => term.write('', r))
 
 const out = []
+// getLine is buffer-absolute (scrollback included); the comparison target is the
+// visible viewport, so offset by viewportY or scrolled cases misreport.
+const viewportY = term.buffer.active.viewportY
 for (let row = 0; row < ROWS; row++) {
-  const line = term.buffer.active.getLine(row)?.translateToString(true) ?? ''
+  const line = term.buffer.active.getLine(viewportY + row)?.translateToString(true) ?? ''
   out.push(line)
 }
 process.stdout.write(`${out.join('\n')}\n`)

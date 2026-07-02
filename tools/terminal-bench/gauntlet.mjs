@@ -112,7 +112,7 @@ function bootstrap() {
     } catch {
       // The prebuilt napi addon still runs; only the from-source rebuild is blocked.
       blocked =
-        'perf corpus BLOCKED — cargo build failed (needs network to resolve web-time, still absent from rust/vendor)'
+        'perf corpus BLOCKED — cargo build failed (see output above; rust/vendor carries the full lockfile closure, so this should build offline)'
     }
   }
   return {

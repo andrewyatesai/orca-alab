@@ -11,12 +11,10 @@
 // the shadow. We pin BOTH the cargo and rustc to the rustup `stable` toolchain,
 // matching config/scripts/build-aterm-wasm.mjs.
 //
-// OFFLINE CAVEAT: building orca-parity from source resolves the full workspace,
-// which currently pulls `web-time` (via aterm-core) — a crate not yet in
-// rust/vendor — so a fully offline `cargo run` fails. In a networked env (CI,
-// dev) it resolves fine. If a prebuilt rust/target/{debug,release}/orca-parity
-// binary exists, we use it directly and skip cargo, so the gate still runs
-// offline once the workspace has been built once.
+// Fully offline: the workspace resolves against rust/vendor (which carries the
+// complete lockfile closure, web-time included). A prebuilt
+// rust/target/{debug,release}/orca-parity binary is still preferred to skip
+// the cargo invocation entirely.
 
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
@@ -57,7 +55,7 @@ if (prebuilt) {
     console.error('[parity] no prebuilt orca-parity and rustup stable is unavailable')
     process.exit(1)
   }
-  console.log('[parity] building + running orca-parity (rustup stable, needs network for web-time)')
+  console.log('[parity] building + running orca-parity (rustup stable, offline via rust/vendor)')
   rustStatus = run(
     cargoBin,
     [

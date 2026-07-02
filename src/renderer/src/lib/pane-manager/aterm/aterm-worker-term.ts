@@ -1,5 +1,6 @@
-// The worker-backed `term`: a synchronous AtermTerminal-shaped facade over the
-// single engine that lives in the render worker (aterm-render-worker). Reads come
+// The worker-backed `term`: a synchronous AtermTerminal-shaped facade over this
+// pane's engine in the SHARED render worker (aterm-render-worker hosts one engine
+// per pane; the manager routes this pane's traffic by paneId). Reads come
 // from the latest STATE snapshot + a rolling mirror of the visible grid; mutations
 // post commands. So wireAtermPane / the controller / the facade / buffer shim / a11y
 // bind to it UNCHANGED — there is NO second engine on the main thread.
@@ -17,7 +18,7 @@
 import type { AtermTerminal } from './aterm_wasm.js'
 import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
 import { createAtermWorkerGridMirror } from './aterm-worker-grid-mirror'
-import type { AtermWorkerRequest, AtermWorkerState } from './aterm-render-worker-protocol'
+import type { AtermWorkerPaneCommand, AtermWorkerState } from './aterm-render-worker-protocol'
 
 /** The initial snapshot the loader awaits (carries the first cell metrics) before it
  *  builds the controller, so construction-time reads (cell_width/height) are real. */
@@ -75,7 +76,8 @@ export type WorkerBackedTerm = {
 const PROCESS_TEXT_DECODER = new TextDecoder()
 
 export function createWorkerBackedTerm(deps: {
-  post: (cmd: AtermWorkerRequest, transfer?: Transferable[]) => void
+  /** Pane-scoped post (the shared-worker manager stamps this pane's paneId). */
+  post: (cmd: AtermWorkerPaneCommand, transfer?: Transferable[]) => void
   initial: AtermWorkerState
 }): WorkerBackedTerm {
   const { post } = deps

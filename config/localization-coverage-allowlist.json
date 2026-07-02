@@ -5,5 +5,12 @@
     "text": "Review alpha cleanup",
     "dynamic": false,
     "count": 1
+  },
+  {
+    "filePath": "src/renderer/src/lib/pane-manager/aterm/aterm-render-worker.ts",
+    "kind": "object-property:message",
+    "text": "no resident fonts before pane init",
+    "dynamic": false,
+    "count": 1
   }
 ]

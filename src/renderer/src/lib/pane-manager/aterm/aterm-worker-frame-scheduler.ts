@@ -18,10 +18,46 @@ type SchedulerTerminal = {
   dimensions: () => { cols: number; rows: number; cellWidth: number; cellHeight: number }
 }
 
+/** ONE rAF loop for the whole shared worker: every pane's scheduler enqueues its draw
+ *  callback here and a single rAF services all dirty panes in that frame (N panes must
+ *  not book N competing rAF callbacks). Callbacks are deduped per flush — a pane's own
+ *  scheduler already coalesces, so at most one entry per pane per frame. Without a
+ *  native rAF (test envs) it runs synchronously, matching the per-pane fallback. */
+export function createSharedWorkerRafLoop(
+  raf: ((cb: () => void) => void) | undefined
+): (cb: () => void) => void {
+  const pending: (() => void)[] = []
+  let scheduled = false
+  const flush = (): void => {
+    scheduled = false
+    // Swap out the queue first: a callback that re-schedules lands in the NEXT frame.
+    const run = pending.splice(0, pending.length)
+    for (const cb of run) {
+      cb()
+    }
+  }
+  return (cb) => {
+    pending.push(cb)
+    if (scheduled) {
+      return
+    }
+    scheduled = true
+    if (raf) {
+      raf(flush)
+    } else {
+      flush()
+    }
+  }
+}
+
+/** One pane's draw/STATE-post scheduler (the shared worker keeps one per pane). */
+export type WorkerFrameScheduler = ReturnType<typeof createWorkerFrameScheduler>
+
 export function createWorkerFrameScheduler(deps: {
   getTerm: () => SchedulerTerminal | null
   post: (state: AtermWorkerState) => void
-  /** OffscreenCanvas rAF in the worker; undefined → run synchronously. */
+  /** rAF-shaped scheduler — in the shared worker this is the ONE shared rAF loop
+   *  (createSharedWorkerRafLoop); undefined → run synchronously. */
   raf: ((cb: () => void) => void) | undefined
 }): {
   /** Schedule a coalesced draw. `postState` (default true) marks that this frame must post

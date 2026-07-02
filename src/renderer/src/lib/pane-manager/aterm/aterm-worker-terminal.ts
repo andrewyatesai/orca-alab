@@ -11,6 +11,9 @@ import { createWorkerSearch } from './aterm-worker-search'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import type { AtermWorkerState, AtermWorkerThemeSet } from './aterm-render-worker-protocol'
 
+/** One pane's engine-side terminal (the shared worker hosts one per live pane). */
+export type WorkerTerminal = ReturnType<typeof createWorkerTerminal>
+
 // Scrollback cap for the debounced shutdown-cache serialize — ample for session
 // restore while bounding the per-push cost + the synchronous shutdown read.
 const SHUTDOWN_CACHE_ROWS = 2000

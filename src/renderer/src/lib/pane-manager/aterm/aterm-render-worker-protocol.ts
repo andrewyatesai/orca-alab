@@ -1,19 +1,45 @@
-// Message protocol for the single-engine aterm render worker (plan: aterm-single-
-// engine-worker.md). The worker owns the ONLY engine for a pane + its transferred
-// OffscreenCanvas, and does parse + render + search + cursor-blink + selection +
-// link-detection off the renderer main thread. The main thread keeps NO engine: it
-// reads a synchronous STATE snapshot the worker pushes each frame, posts mutations
-// as commands, and uses an id-correlated query channel for the few cold reads that
-// need off-screen history or post-mutation freshness (serialize / content / copy).
+// Message protocol (v2, shared worker) for the aterm render worker. ONE worker hosts
+// the engines for ALL worker-path panes, keyed by paneId: each engine owns its pane's
+// transferred OffscreenCanvas and does parse + render + search + cursor-blink +
+// selection + link-detection off the renderer main thread. The main thread keeps NO
+// engine: per pane it reads a synchronous STATE snapshot the worker pushes each frame,
+// posts mutations as commands, and uses an id-correlated query channel for the few
+// cold reads that need off-screen history or post-mutation freshness.
 //
-// This file is types-only so the worker and the main-side loader share one contract
-// without importing each other's runtime.
+// Wire shape: pane-scoped commands/events are the v1 message types intersected with
+// `{ paneId }` (`AtermWorkerPaneCommand & { paneId: number }`), stamped by the shared
+// worker manager's per-pane `post` — so per-pane senders (the worker-backed term, the
+// query channel) stay paneId-free. Worker-SCOPED messages (`fonts`, `booted`, `crash`)
+// have no paneId: fonts are sent ONCE per worker generation and kept resident so pane
+// inits never re-ship the multi-MB faces, and a crash retires the whole worker.
+//
+// This file is types-only so the worker and the main-side manager/loader share one
+// contract without importing each other's runtime.
 
 import type { AtermThemeColors } from './aterm-theme-colors'
 
-// ── Construction ────────────────────────────────────────────────────────────────
+// ── Worker-scoped requests (main → worker, no paneId) ─────────────────────────────
 
-/** Engine construction params (sent once on init, with the transferred canvas). */
+/** The immutable font faces every engine in this worker seeds from, sent ONCE per
+ *  worker generation BEFORE the first pane init. The worker keeps them resident so
+ *  per-pane inits carry no font bytes at all; the engine-side content-keyed intern
+ *  registry then dedupes the bytes across engines within each wasm module. */
+export type AtermWorkerFonts = {
+  type: 'fonts'
+  /** JetBrains-Mono bytes — the engines' built-in primary face. */
+  primary: Uint8Array
+  /** Optional CJK + non-Latin fallback faces (same bytes the main path injects via
+   *  set_fallback_font/add_fallback_font — the MONOCHROME glyph path). */
+  fallbacks: Uint8Array[]
+  /** Optional OS colour-emoji face (set_emoji_font — the sbix/COLR colour path). Kept
+   *  separate from `fallbacks` because the fallback chain renders monochrome. */
+  emoji?: Uint8Array
+}
+
+// ── Pane-scoped commands (main → worker; wire form adds `paneId`) ─────────────────
+
+/** Engine construction params (sent once per pane, with the transferred canvas).
+ *  Fonts are NOT here — the worker seeds every engine from its resident `fonts`. */
 export type AtermWorkerInit = {
   type: 'init'
   /** Which engine owns the OffscreenCanvas: 'cpu' (aterm-wasm: rasterize → 2d blit)
@@ -22,14 +48,6 @@ export type AtermWorkerInit = {
   engine: 'cpu' | 'gpu'
   /** The pane canvas, transferred via transferControlToOffscreen(). */
   canvas: OffscreenCanvas
-  /** JetBrains-Mono bytes (the main thread already fetched them; transferable). */
-  fontBytes: Uint8Array
-  /** Optional CJK + non-Latin fallback faces (same bytes the main path injects via
-   *  set_fallback_font/add_fallback_font — the MONOCHROME glyph path). */
-  fallbackFonts: Uint8Array[]
-  /** Optional OS colour-emoji face (set_emoji_font — the sbix/COLR colour path). Kept
-   *  separate from fallbackFonts because the fallback chain renders monochrome. */
-  emojiFont?: Uint8Array
   rows: number
   cols: number
   /** Device-pixel cell font size (already dpr-scaled by the caller). */
@@ -39,8 +57,6 @@ export type AtermWorkerInit = {
   /** Full theme: constructor colours + 16-ANSI palette + reply defaults. */
   themeColors: AtermThemeColors
 }
-
-// ── Commands (main → worker) ──────────────────────────────────────────────────────
 
 /** Feed PTY/replay output (string; the worker encodes into wasm memory). */
 export type AtermWorkerProcess = { type: 'process'; data: string }
@@ -133,7 +149,9 @@ export type AtermWorkerSearchFind = {
 export type AtermWorkerSearchNext = { type: 'searchNext' }
 export type AtermWorkerSearchPrev = { type: 'searchPrev' }
 export type AtermWorkerSearchClear = { type: 'searchClear' }
-/** Swap the primary font face (terminalFontFamily) + reflow once its bytes load. */
+/** Swap this pane's primary font face (terminalFontFamily) + reflow once its bytes
+ *  load. Carries bytes per pane (a custom family is per-pane user state); the engine
+ *  intern registry dedupes identical bytes across panes, so the transfer is transient. */
 export type AtermWorkerSetPrimaryFont = { type: 'setPrimaryFont'; bytes: Uint8Array }
 /** Swap the SGR-bold face (the family's real bold style). Optional companion to
  *  setPrimaryFont — never sent when the family ships no bold face, so the engine
@@ -157,7 +175,8 @@ export type AtermWorkerMouseEncode = {
   up?: boolean
 }
 /** Cold read needing off-screen history or post-mutation freshness; answered as a
- *  'queryResult' event correlated by id. */
+ *  'queryResult' event correlated by id (ids are per pane — the pane envelope keeps
+ *  different panes' counters from colliding). */
 export type AtermWorkerQuery = {
   type: 'query'
   id: number
@@ -180,12 +199,15 @@ export type AtermWorkerQuery = {
   /** kind-specific second numeric arg (col for cellText/cellWide/linkAt). */
   arg2?: number
 }
-/** GPU acquire failed in the worker — rebuild as CPU on the SAME canvas (it can't be
- *  re-transferred) reusing the stored init params, so the pane still renders off-main. */
+/** GPU acquire failed for this pane — rebuild it as CPU on the SAME canvas (it can't
+ *  be re-transferred) reusing the stored init params, so it still renders off-main. */
 export type AtermWorkerFallback = { type: 'fallback' }
+/** Free this pane's engine + drop its worker-side state. Other panes are untouched. */
 export type AtermWorkerDispose = { type: 'dispose' }
 
-export type AtermWorkerRequest =
+/** Every pane-scoped command, paneId-free — what per-pane senders (the worker-backed
+ *  term, the query channel) build; the manager's per-pane post stamps the paneId. */
+export type AtermWorkerPaneCommand =
   | AtermWorkerInit
   | AtermWorkerProcess
   | AtermWorkerDraw
@@ -229,6 +251,17 @@ export type AtermWorkerRequest =
   | AtermWorkerQuery
   | AtermWorkerFallback
   | AtermWorkerDispose
+
+/** Pane lifecycle (the worker entry owns these: registry create / CPU rebuild /
+ *  engine free); every other pane command is dispatched to the pane's runtime. */
+export type AtermWorkerPaneLifecycle = AtermWorkerInit | AtermWorkerFallback | AtermWorkerDispose
+export type AtermWorkerPaneRuntimeCommand = Exclude<
+  AtermWorkerPaneCommand,
+  AtermWorkerPaneLifecycle
+>
+
+/** Everything the main thread posts to the worker (the wire union). */
+export type AtermWorkerRequest = AtermWorkerFonts | (AtermWorkerPaneCommand & { paneId: number })
 
 // ── Events (worker → main) ────────────────────────────────────────────────────────
 
@@ -316,12 +349,6 @@ export type AtermWorkerState = {
   dirtyRows: AtermWorkerGridRow[]
 }
 
-/** Posted synchronously when 'init' is received, BEFORE the (seconds-long) engine
- *  build starts. Lets the loader tell a live-but-building worker from a wedged one:
- *  the short first-frame deadline applies only until this ack; after it the loader
- *  waits out the build under a longer (still bounded) cap instead of killing a
- *  healthy worker under concurrent-pane-open contention. */
-export type AtermWorkerBooted = { type: 'booted' }
 /** Engine query replies (DA/DSR/CPR/colour/CSI 14t-16t) to forward to the PTY.
  *  Posted immediately per processed chunk (NOT coalesced) so none are dropped and
  *  ordering is preserved. */
@@ -348,24 +375,42 @@ export type AtermWorkerQueryResult = {
   /** Stringified result; numeric kinds (rowLen) are JSON numbers, null when absent. */
   value: string | number | boolean | null
 }
-/** A worker failure. `phase: 'init'` (GPU acquire failed) triggers the GPU→CPU
- *  fallback; `phase: 'render'` is logged; `phase: 'runtime'` (an exception escaped
- *  the worker's message dispatch, e.g. a wasm RuntimeError) makes the loader tear
- *  the worker down and rebuild the pane in-process — without it the pane silently
- *  freezes at its last frame while keystrokes keep flowing. */
+/** A PANE-scoped failure: its engine build (GPU acquire / CPU init) failed. The
+ *  loader answers with a 'fallback' so the pane rebuilds as CPU on the same canvas.
+ *  Worker-fatal failures are NOT here — they post the worker-scoped 'crash'. */
 export type AtermWorkerError = {
   type: 'error'
-  phase: 'init' | 'render' | 'runtime'
+  phase: 'init'
   message: string
 }
 
-/** Everything the worker posts back to the main thread. */
-export type AtermWorkerMessage =
+/** Every pane-scoped event, paneId-free — what the worker's per-pane post builds;
+ *  the entry stamps the paneId and the manager routes on it. */
+export type AtermWorkerPaneEvent =
   | AtermWorkerState
-  | AtermWorkerBooted
   | AtermWorkerReply
   | AtermWorkerOsc
   | AtermWorkerBell
   | AtermWorkerSerializedCache
   | AtermWorkerQueryResult
   | AtermWorkerError
+
+// ── Worker-scoped events (worker → main, no paneId) ───────────────────────────────
+
+/** Posted once when the worker receives its 'fonts' message (always the first message
+ *  a fresh worker gets), BEFORE any engine build. Lets the manager/loader tell a
+ *  live-but-building worker from a wedged one: the short boot deadline applies only
+ *  until this ack; after it each pane waits out its own build under a longer (still
+ *  bounded) cap instead of killing a healthy worker under concurrent-open contention. */
+export type AtermWorkerBooted = { type: 'booted' }
+/** WORKER-fatal failure (an exception escaped the message dispatch — e.g. a wasm
+ *  RuntimeError, whose module state is now suspect for EVERY engine in it). The
+ *  manager retires the worker and every live pane rebuilds through its context-loss
+ *  seam — without this each pane silently freezes at its last frame. */
+export type AtermWorkerCrash = { type: 'crash'; message: string }
+
+/** Everything the worker posts back to the main thread (the wire union). */
+export type AtermWorkerMessage =
+  | AtermWorkerBooted
+  | AtermWorkerCrash
+  | (AtermWorkerPaneEvent & { paneId: number })

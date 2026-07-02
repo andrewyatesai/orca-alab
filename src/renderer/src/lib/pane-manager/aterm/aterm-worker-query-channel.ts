@@ -5,7 +5,7 @@
 // loader terminated the worker) settles awaiters to a safe null instead of hanging a
 // Promise.all at quit (save/hydrate/fork).
 
-import type { AtermWorkerQuery, AtermWorkerRequest } from './aterm-render-worker-protocol'
+import type { AtermWorkerPaneCommand, AtermWorkerQuery } from './aterm-render-worker-protocol'
 
 /** A detected link span returned by the async linkAt query. */
 export type AtermWorkerLinkHit = { url: string; kind: number; start_col: number; end_col: number }
@@ -63,7 +63,7 @@ export type AtermWorkerQueryChannel = {
 const QUERY_TIMEOUT_MS = 5000
 
 export function createAtermWorkerQueryChannel(
-  post: (cmd: AtermWorkerRequest) => void
+  post: (cmd: AtermWorkerPaneCommand) => void
 ): AtermWorkerQueryChannel {
   let nextQueryId = 1
   // Queries sent AFTER dispose (worker gone) resolve to null immediately instead of

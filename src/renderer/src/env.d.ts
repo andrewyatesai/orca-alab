@@ -90,9 +90,10 @@ declare global {
     // e2e/dev override that FORCES the aterm CPU draw path on (skips the GPU path
     // even on capable hardware). Takes precedence over the user setting + auto.
     __atermGpuDisabled?: boolean
-    // OPT-IN, default-OFF: route the aterm CPU rasterize+blit onto a render worker
-    // (OffscreenCanvas) so rendering happens off the renderer main thread. Production
-    // is unaffected while unset; see aterm-worker-mirror.
+    // Default-ON worker render path (unset/true = the SHARED render worker hosts
+    // this pane's engine on its transferred OffscreenCanvas; see
+    // aterm-shared-render-worker). Set to false to force the in-process CPU/GPU
+    // drawers — the e2e suite does, so its canvas/GPU internals stay observable.
     __atermWorkerRender?: boolean
     // e2e only: the latest render-worker STATE snapshot (size/cursor/offset), so the
     // worker-render spec can prove the off-main render happened without main-thread

@@ -1,7 +1,11 @@
-// Builds the single aterm engine the render worker owns (CPU or GPU) and normalizes
-// the few CPU/GPU differences (process encoding, render/present, framebuffer size,
-// search arity) behind one EngineHandle. The worker terminal (aterm-worker-terminal)
-// drives reads/commands through this handle so it's engine-agnostic.
+// Builds one aterm engine per pane inside the SHARED render worker (CPU or GPU) and
+// normalizes the few CPU/GPU differences (process encoding, render/present,
+// framebuffer size, search arity) behind one EngineHandle. The worker terminal
+// (aterm-worker-terminal) drives reads/commands through this handle so it's
+// engine-agnostic. Each wasm module (aterm_wasm / aterm_gpu_web) is instantiated
+// ONCE for the whole worker — `init`/`gpuInit` are idempotent (wasm-bindgen caches
+// the instance) — so every engine of a kind shares one linear memory and the
+// engine-side content-keyed font intern registry dedupes the faces across panes.
 
 import init, { AtermTerminal } from './aterm_wasm.js'
 import wasmUrl from './aterm_wasm_bg.wasm?url'
@@ -9,6 +13,13 @@ import gpuInit, { AtermGpuTerminal } from './aterm_gpu_web.js'
 import gpuWasmUrl from './aterm_gpu_web_bg.wasm?url'
 import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
 import type { AtermThemeColors } from './aterm-theme-colors'
+import type { AtermWorkerFonts } from './aterm-render-worker-protocol'
+
+/** The worker-resident immutable font faces (sent once per worker generation); every
+ *  engine build passes the SAME arrays — wasm-bindgen copies them per call, and the
+ *  engine interns the copy behind its content-keyed registry, so the per-engine cost
+ *  is a lookup, not a duplicate face. */
+export type WorkerResidentFonts = Pick<AtermWorkerFonts, 'primary' | 'fallbacks' | 'emoji'>
 
 /** The read + command surface BOTH engines expose identically; the worker terminal
  *  uses only this. `search` (arity differs) + render/process (encoding differs) are
@@ -105,13 +116,11 @@ export type EngineHandle = {
   dispose: () => void
 }
 
-/** Construction params the worker keeps so a GPU→CPU fallback can rebuild on the
- *  same canvas (canvas + font bytes were transferred and can't be re-sent). */
+/** Per-pane construction params the worker keeps so a GPU→CPU fallback can rebuild on
+ *  the same canvas (it was transferred and can't be re-sent). Fonts are a REFERENCE
+ *  to the worker-resident faces, never a per-pane copy. */
 export type StoredInit = {
-  fontBytes: Uint8Array
-  fallbackFonts: Uint8Array[]
-  /** OS colour-emoji face (set_emoji_font); absent when the host has none. */
-  emojiFont?: Uint8Array
+  fonts: WorkerResidentFonts
   rows: number
   cols: number
   fontPx: number
@@ -143,15 +152,16 @@ function seedEngine(t: SeedTarget, p: StoredInit): void {
   // unparseable/unsupported OS face throws a catchable JS error, so swallow it rather
   // than let one bad face abort the whole worker engine build (the engine still renders
   // Latin + whatever faces did parse).
-  if (p.fallbackFonts.length > 0) {
+  const { fallbacks, emoji } = p.fonts
+  if (fallbacks.length > 0) {
     try {
-      t.set_fallback_font(p.fallbackFonts[0])
+      t.set_fallback_font(fallbacks[0])
     } catch {
       /* unparseable CJK face — keep going */
     }
-    for (let i = 1; i < p.fallbackFonts.length; i++) {
+    for (let i = 1; i < fallbacks.length; i++) {
       try {
-        t.add_fallback_font(p.fallbackFonts[i])
+        t.add_fallback_font(fallbacks[i])
       } catch {
         /* unparseable chain face — skip it */
       }
@@ -159,9 +169,9 @@ function seedEngine(t: SeedTarget, p: StoredInit): void {
   }
   // Colour-emoji face AFTER the monochrome fallback chain (parity with the in-process
   // inject-terminal-fallback-fonts ordering) so emoji render in colour, not tofu.
-  if (p.emojiFont) {
+  if (emoji) {
     try {
-      t.set_emoji_font(p.emojiFont)
+      t.set_emoji_font(emoji)
     } catch {
       /* unparseable emoji face — keep going */
     }
@@ -185,7 +195,7 @@ export async function buildCpuEngine(
   const t = new AtermTerminal(
     p.rows,
     p.cols,
-    p.fontBytes,
+    p.fonts.primary,
     p.fontPx,
     p.themeColors.fg,
     p.themeColors.bg,
@@ -244,7 +254,7 @@ export async function buildGpuEngine(
   const t = new AtermGpuTerminal(
     p.rows,
     p.cols,
-    p.fontBytes,
+    p.fonts.primary,
     p.fontPx,
     p.themeColors.fg,
     p.themeColors.bg,

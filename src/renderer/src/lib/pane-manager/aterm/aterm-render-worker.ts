@@ -1,22 +1,38 @@
-// Single-engine aterm render worker entry (plan: aterm-single-engine-worker.md). The
-// worker owns the ONLY engine for a pane + its transferred OffscreenCanvas: it parses
-// PTY bytes, renders, runs search/selection/hover/cursor-blink, drains the engine's
-// side channels (reply→PTY / OSC / bell) and pushes a per-frame STATE snapshot the
-// main thread reads synchronously. The main thread keeps NO engine.
+// SHARED aterm render worker entry: ONE worker hosts the engines for ALL worker-path
+// panes, keyed by paneId. Per pane it owns the transferred OffscreenCanvas + engine:
+// parses PTY bytes, renders, runs search/selection/hover/cursor-blink, drains the
+// engine's side channels (reply→PTY / OSC / bell) and pushes a per-frame STATE
+// snapshot the main thread reads synchronously. The main thread keeps NO engine.
 //
-// Draws are coalesced to one rAF frame (state posted on the draw); side-channel events
-// are posted immediately per processed chunk so none are dropped. GPU init failure
-// posts an 'error' so the main side asks for a CPU rebuild on the same canvas.
+// Fonts arrive ONCE per worker lifetime (the 'fonts' message, always first) and stay
+// resident; every engine build seeds from them, and the engine-side content-keyed
+// intern registry dedupes the bytes across engines within each wasm module — so pane
+// N+1 costs an engine, not another copy of the multi-MB font payload.
+//
+// Draws are coalesced onto ONE shared rAF loop driving all dirty panes; side-channel
+// events post immediately per processed chunk so none are dropped. A PANE-scoped
+// engine-build failure posts a pane 'error' (→ CPU rebuild on the same canvas); an
+// exception escaping dispatch posts the worker-scoped 'crash' — the wasm module state
+// is suspect for EVERY engine in it, so the manager retires the whole worker.
 
 import {
   buildCpuEngine,
   buildGpuEngine,
   type EngineHandle,
-  type StoredInit
+  type StoredInit,
+  type WorkerResidentFonts
 } from './aterm-worker-engine-build'
 import { createWorkerTerminal } from './aterm-worker-terminal'
 import { createWorkerSerializeCache } from './aterm-worker-serialize-cache'
-import { createWorkerFrameScheduler } from './aterm-worker-frame-scheduler'
+import {
+  createSharedWorkerRafLoop,
+  createWorkerFrameScheduler
+} from './aterm-worker-frame-scheduler'
+import {
+  dispatchPaneCommand,
+  type EngineSettingSetters,
+  type PaneRuntime
+} from './aterm-worker-pane-dispatch'
 import type {
   AtermWorkerInit,
   AtermWorkerMessage,
@@ -31,324 +47,171 @@ const ctx = self as unknown as {
   requestAnimationFrame?: (cb: () => void) => number
 }
 
-type WorkerTerminal = ReturnType<typeof createWorkerTerminal>
+// The worker-resident font faces (set by the 'fonts' message before any pane init).
+let fonts: WorkerResidentFonts | null = null
 
-// Both engine bindings ship these (aterm_wasm/aterm_gpu_web), but the WorkerEngine
-// Pick + worker terminal predate them — cast here, surgically, until the planned
-// worker refactor folds them into aterm-worker-terminal.
-type EngineSettingSetters = {
-  set_minimum_contrast: (ratio: number) => void
-  set_word_separators: (separators?: string | null) => void
-  set_background_opacity: (opacity: number) => void
-  set_cursor_opacity: (opacity: number) => void
-  set_kitty_keyboard_enabled: (enabled: boolean) => void
+const panes = new Map<number, PaneRuntime>()
+
+// ONE rAF loop for every pane's frame scheduler (see createSharedWorkerRafLoop).
+const sharedRaf = createSharedWorkerRafLoop(
+  ctx.requestAnimationFrame ? (cb) => ctx.requestAnimationFrame?.(cb) : undefined
+)
+
+function createPane(paneId: number): PaneRuntime {
+  const pane: PaneRuntime = {
+    paneId,
+    term: null,
+    engineSetters: null,
+    storedInit: null,
+    canvas: null,
+    fellBackToCpu: false,
+    disposed: false,
+    // Both per-pane by design: dirty/suspend state and the serialize-cache timers
+    // must be isolated so one pane's dispose/suspend can't touch another's.
+    frameScheduler: createWorkerFrameScheduler({
+      getTerm: () => pane.term,
+      post: (state) => pane.post(state),
+      raf: sharedRaf
+    }),
+    serializeCache: createWorkerSerializeCache({
+      getTerm: () => pane.term,
+      post: (message) => pane.post(message)
+    }),
+    post: (event) => ctx.postMessage({ ...event, paneId })
+  }
+  return pane
 }
 
-let term: WorkerTerminal | null = null
-let engineSetters: EngineSettingSetters | null = null
-let storedInit: StoredInit | null = null
-let storedCanvas: OffscreenCanvas | null = null
-// Don't fall back twice if the worker posts more than one init error.
-let fellBackToCpu = false
-// Serialized-buffer cache (throttle-with-max-wait) so the main thread can read recent
-// scrollback synchronously at shutdown; the throttle logic lives in its own module.
-const serializeCache = createWorkerSerializeCache({
-  getTerm: () => term,
-  post: (message) => ctx.postMessage(message)
-})
+/** Wrap a built engine in the worker terminal and size it. Cursor focus/blink state
+ *  arrives shortly after via commands from the main-thread blink timer. */
+function startTerminal(pane: PaneRuntime, handle: EngineHandle): void {
+  pane.term = createWorkerTerminal(handle)
+  pane.engineSetters = handle.engine as unknown as EngineSettingSetters
+  if (pane.storedInit) {
+    pane.term.resize(pane.storedInit.rows, pane.storedInit.cols)
+  }
+  // The first frame MUST post: the loader awaits this initial STATE for the cell metrics.
+  pane.frameScheduler.postNow()
+}
 
-// Draw coalescing + STATE-post decisions (render-only blink frames, hidden-pane gating,
-// dimension-change posts) live in the frame scheduler.
-const frameScheduler = createWorkerFrameScheduler({
-  getTerm: () => term,
-  post: (state) => ctx.postMessage(state),
-  raf: ctx.requestAnimationFrame ? (cb) => ctx.requestAnimationFrame?.(cb) : undefined
-})
-const scheduleDraw = frameScheduler.schedule
+async function buildAndStart(pane: PaneRuntime, build: () => Promise<EngineHandle>): Promise<void> {
+  let handle: EngineHandle
+  try {
+    handle = await build()
+  } catch (err) {
+    // PANE-scoped: GPU acquire (or CPU init) failed — the loader falls this pane back
+    // to a CPU rebuild on the same canvas rather than crashing/blanking it.
+    pane.post({ type: 'error', phase: 'init', message: String(err) })
+    return
+  }
+  // Disposed while the engine was building (pane closed / loader gave up on it):
+  // free the engine now — nothing will ever drive it.
+  if (pane.disposed) {
+    handle.dispose()
+    return
+  }
+  try {
+    startTerminal(pane, handle)
+  } catch (err) {
+    // A wasm panic on the FIRST resize/render poisons the module for every engine in
+    // it — escalate as a worker-fatal crash so all panes rebuild in-process.
+    ctx.postMessage({ type: 'crash', message: String(err) })
+    throw err
+  }
+}
 
-function buildStoredInit(msg: AtermWorkerInit): StoredInit {
-  return {
-    fontBytes: msg.fontBytes,
-    fallbackFonts: msg.fallbackFonts,
-    emojiFont: msg.emojiFont,
+function handleInit(msg: AtermWorkerInit & { paneId: number }): void {
+  const pane = createPane(msg.paneId)
+  panes.set(msg.paneId, pane)
+  pane.canvas = msg.canvas
+  if (!fonts) {
+    // The manager always posts 'fonts' before the first init; reaching here means the
+    // contract broke — fail the pane (loader falls back in-process) instead of
+    // building an engine with no faces.
+    pane.post({ type: 'error', phase: 'init', message: 'no resident fonts before pane init' })
+    return
+  }
+  const stored: StoredInit = {
+    fonts,
     rows: msg.rows,
     cols: msg.cols,
     fontPx: msg.fontPx,
     lineHeight: msg.lineHeight,
     themeColors: msg.themeColors
   }
+  pane.storedInit = stored
+  void buildAndStart(pane, () =>
+    msg.engine === 'gpu' ? buildGpuEngine(stored, msg.canvas) : buildCpuEngine(stored, msg.canvas)
+  )
 }
 
-/** Wrap a built engine in the worker terminal and size it. Cursor focus/blink state
- *  arrives shortly after via commands from the main-thread blink timer. */
-function startTerminal(handle: EngineHandle): void {
-  term = createWorkerTerminal(handle)
-  engineSetters = handle.engine as unknown as EngineSettingSetters
-  if (storedInit) {
-    term.resize(storedInit.rows, storedInit.cols)
-  }
-  // The first frame MUST post: the loader awaits this initial STATE for the cell metrics.
-  frameScheduler.postNow()
-}
-
-async function handleInit(msg: AtermWorkerInit): Promise<void> {
-  // Ack BEFORE the engine build: it takes seconds (wasm compile + font parse + GL
-  // acquire, stretched further by concurrent pane opens), and without the ack the
-  // loader can't tell "alive but building" from "wedged" and would kill a healthy
-  // worker at its short first-frame deadline.
-  ctx.postMessage({ type: 'booted' })
-  storedCanvas = msg.canvas
-  storedInit = buildStoredInit(msg)
-  let handle: EngineHandle
-  try {
-    handle =
-      msg.engine === 'gpu'
-        ? await buildGpuEngine(storedInit, storedCanvas)
-        : await buildCpuEngine(storedInit, storedCanvas)
-  } catch (err) {
-    // GPU acquire (or CPU init) failed — let the main side fall back to a CPU worker on
-    // the same canvas rather than crashing/blanking the pane.
-    ctx.postMessage({ type: 'error', phase: 'init', message: String(err) })
+/** GPU→CPU fallback: rebuild this pane as CPU on the canvas the worker still holds,
+ *  reusing its stored init params, so it renders off-main instead of going blank. */
+function handleFallback(paneId: number): void {
+  const pane = panes.get(paneId)
+  if (!pane || pane.term || pane.fellBackToCpu || !pane.storedInit || !pane.canvas) {
     return
   }
-  startTerminal(handle)
+  pane.fellBackToCpu = true
+  const stored = pane.storedInit
+  const canvas = pane.canvas
+  void buildAndStart(pane, () => buildCpuEngine(stored, canvas))
 }
 
-/** GPU→CPU fallback: rebuild as CPU on the canvas the worker still holds, reusing the
- *  stored init params, so the pane renders off-main instead of going blank. */
-async function handleFallback(): Promise<void> {
-  if (term || fellBackToCpu || !storedInit || !storedCanvas) {
+/** Free ONE pane's engine + worker-side state; every other pane is untouched. */
+function handleDispose(paneId: number): void {
+  const pane = panes.get(paneId)
+  if (!pane) {
     return
   }
-  fellBackToCpu = true
-  try {
-    const handle = await buildCpuEngine(storedInit, storedCanvas)
-    startTerminal(handle)
-  } catch (err) {
-    ctx.postMessage({ type: 'error', phase: 'init', message: String(err) })
-  }
+  pane.disposed = true // a still-building engine is freed when its build resolves
+  pane.serializeCache.dispose()
+  pane.term?.dispose()
+  pane.term = null
+  pane.engineSetters = null
+  pane.storedInit = null
+  pane.canvas = null
+  panes.delete(paneId)
 }
 
 ctx.onmessage = (event): void => {
   try {
     dispatch(event.data)
   } catch (err) {
-    // A wasm RuntimeError escaping here would only fire the worker 'error' event
-    // (no structured payload across browsers) and leave the pane frozen — post a
-    // runtime error first so the loader rebuilds the pane in-process, then rethrow
-    // to keep the worker's own error-event/console semantics.
-    ctx.postMessage({ type: 'error', phase: 'runtime', message: String(err) })
+    // A wasm RuntimeError escaping here poisons the module state for EVERY engine in
+    // it, and the bare worker 'error' event carries no structured payload — post a
+    // worker-scoped crash first so the manager retires the worker and each pane
+    // rebuilds in-process, then rethrow to keep the error-event/console semantics.
+    ctx.postMessage({ type: 'crash', message: String(err) })
     throw err
   }
 }
 
 function dispatch(msg: AtermWorkerRequest): void {
-  switch (msg.type) {
-    case 'init':
-      void handleInit(msg)
-      return
-    case 'fallback':
-      void handleFallback()
-      return
-    case 'process': {
-      if (!term) {
-        return
-      }
-      const side = term.processBytes(msg.data)
-      // Post the edge-triggered side channels immediately (NOT coalesced) so none are
-      // dropped: replies → PTY, OSC app-events → dispatch, bell → re-emit.
-      if (side.reply) {
-        ctx.postMessage({ type: 'reply', data: side.reply })
-      }
-      if (side.osc) {
-        ctx.postMessage({ type: 'osc', events: side.osc })
-      }
-      if (side.bell) {
-        ctx.postMessage({ type: 'bell' })
-      }
-      scheduleDraw()
-      serializeCache.schedule()
-      return
-    }
-    case 'draw':
-      scheduleDraw()
-      return
-    case 'resize':
-      term?.resize(msg.rows, msg.cols)
-      scheduleDraw()
-      return
-    case 'setPx':
-      term?.setPx(msg.px)
-      scheduleDraw()
-      return
-    case 'setLineHeight':
-      term?.setLineHeight(msg.lineHeight)
-      scheduleDraw()
-      return
-    case 'setLigatures':
-      term?.setLigatures(msg.on)
-      scheduleDraw()
-      return
-    case 'setScrollbackLimit':
-      term?.setScrollbackLimit(msg.lines)
-      return
-    case 'setMinimumContrast':
-      // Appearance-only: repaint so the floored fg shows without waiting for output.
-      engineSetters?.set_minimum_contrast(msg.ratio)
-      scheduleDraw()
-      return
-    case 'setWordSeparators':
-      // Selection-behavior only (next double-click) — no repaint needed.
-      engineSetters?.set_word_separators(msg.separators ?? undefined)
-      return
-    case 'setBackgroundOpacity':
-      // Appearance-only: repaint so the translucent default bg shows immediately.
-      engineSetters?.set_background_opacity(msg.opacity)
-      scheduleDraw()
-      return
-    case 'setCursorOpacity':
-      engineSetters?.set_cursor_opacity(msg.opacity)
-      scheduleDraw()
-      return
-    case 'setKittyKeyboardEnabled':
-      // Protocol capability only (affects future CSI ? u replies) — no repaint.
-      engineSetters?.set_kitty_keyboard_enabled(msg.enabled)
-      return
-    case 'setDefaultCursorStyle':
-      term?.setDefaultCursorStyle(msg.param)
-      scheduleDraw()
-      return
-    case 'setColorScheme': {
-      // set_color_scheme may queue a CSI ?997 push (when the scheme changed AND the app
-      // enabled DEC 2031); forward it through the reply channel → main → PTY.
-      const reply = term ? term.setColorScheme(msg.dark) : ''
-      if (reply) {
-        ctx.postMessage({ type: 'reply', data: reply })
-      }
-      return
-    }
-    case 'scrollLines':
-      term?.scrollLines(msg.delta)
-      scheduleDraw()
-      return
-    case 'scrollToBottom':
-      term?.scrollToBottom()
-      scheduleDraw()
-      return
-    case 'scrollToTop':
-      term?.scrollToTop()
-      scheduleDraw()
-      return
-    case 'scrollToLine':
-      term?.scrollToLine(msg.line)
-      scheduleDraw()
-      return
-    case 'selectionStart':
-      term?.selectionStart(msg.row, msg.col)
-      scheduleDraw()
-      return
-    case 'selectionExtend':
-      term?.selectionExtend(msg.row, msg.col)
-      scheduleDraw()
-      return
-    case 'selectionFinish':
-      term?.selectionFinish()
-      scheduleDraw()
-      return
-    case 'selectionWord':
-      term?.selectionWord(msg.row, msg.col)
-      scheduleDraw()
-      return
-    case 'selectionLine':
-      term?.selectionLine(msg.row, msg.col)
-      scheduleDraw()
-      return
-    case 'selectionClear':
-      term?.selectionClear()
-      scheduleDraw()
-      return
-    case 'themeSet':
-      term?.themeSet(msg)
-      scheduleDraw()
-      return
-    case 'setSelectionInactive':
-      term?.setSelectionInactive(msg.inactive)
-      scheduleDraw()
-      return
-    case 'setSelectionInactiveBg':
-      term?.setSelectionInactiveBg(msg.bg)
-      scheduleDraw()
-      return
-    case 'setClipboardWriteAuthorized':
-      term?.setClipboardWriteAuthorized(msg.allowed)
-      return
-    case 'setDrawSuspended':
-      frameScheduler.setSuspended(msg.suspended)
-      return
-    case 'setCursorBlinkPhase':
-      // Render-only: repaint the cursor cell, but post NO state (no snapshot field tracks
-      // blink phase, so the STATE would be byte-identical).
-      term?.setCursorBlinkPhase(msg.on)
-      scheduleDraw(false)
-      return
-    case 'setCursorHollow':
-      term?.setCursorHollow(msg.hollow)
-      scheduleDraw(false)
-      return
-    case 'setHover':
-      term?.setHover('clear' in msg ? null : { row: msg.row, col: msg.col })
-      scheduleDraw()
-      return
-    case 'searchFind':
-      term?.searchFind(msg.query, msg.caseSensitive, msg.isRegex)
-      scheduleDraw()
-      return
-    case 'searchNext':
-      term?.searchNext()
-      scheduleDraw()
-      return
-    case 'searchPrev':
-      term?.searchPrev()
-      scheduleDraw()
-      return
-    case 'searchClear':
-      term?.searchClear()
-      scheduleDraw()
-      return
-    case 'setPrimaryFont':
-      term?.setPrimaryFont(msg.bytes)
-      scheduleDraw()
-      return
-    case 'setBoldFont':
-      term?.setBoldFont(msg.bytes)
-      scheduleDraw()
-      return
-    case 'mouseEncode': {
-      // The encoded mouse report is PTY input — forward it through the reply channel
-      // (→ main onReply → inputSink), same as engine query replies.
-      const data = term
-        ? term.mouseEncode(msg.kind, msg.col, msg.row, msg.button, msg.mods, msg.up ?? false)
-        : ''
-      if (data) {
-        ctx.postMessage({ type: 'reply', data })
-      }
-      return
-    }
-    case 'query': {
-      // 'flush' is a parse fence, not an engine read: reaching it means every
-      // earlier message (process bytes + their posted replies) was handled, so
-      // answer directly — even with no engine yet.
-      const value =
-        msg.kind === 'flush' ? true : term ? term.query(msg.kind, msg.arg, msg.arg2) : null
-      ctx.postMessage({ type: 'queryResult', id: msg.id, value })
-      return
-    }
-    case 'dispose':
-      serializeCache.dispose()
-      term?.dispose()
-      term = null
-      engineSetters = null
-      storedInit = null
-      storedCanvas = null
+  // Worker-scoped + lifecycle first (narrowing the union), then the per-pane runtime
+  // commands go to the pane's dispatcher.
+  if (msg.type === 'fonts') {
+    fonts = { primary: msg.primary, fallbacks: msg.fallbacks, emoji: msg.emoji }
+    // Ack BEFORE any engine build: builds take seconds (wasm compile + font parse +
+    // GL acquire), and without the ack the manager/loader can't tell "alive but
+    // building" from "wedged".
+    ctx.postMessage({ type: 'booted' })
+    return
+  }
+  if (msg.type === 'init') {
+    handleInit(msg)
+    return
+  }
+  if (msg.type === 'fallback') {
+    handleFallback(msg.paneId)
+    return
+  }
+  if (msg.type === 'dispose') {
+    handleDispose(msg.paneId)
+    return
+  }
+  const pane = panes.get(msg.paneId)
+  if (pane) {
+    dispatchPaneCommand(pane, msg)
   }
 }

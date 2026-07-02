@@ -49,6 +49,17 @@ export class AtermGpuTerminal {
      */
     drain_bell(): boolean;
     /**
+     * Encode a keyboard event through the engine's FULL encoder (legacy +
+     * xterm modifyOtherKeys + Kitty), driven by the LIVE
+     * `Terminal::keyboard_mode()`. `key` is a DOM `KeyboardEvent.key` value;
+     * `mods` is the engine `Modifiers` bitfield (SHIFT=1, ALT=2, CTRL=4,
+     * SUPER=8); `event_type` is 0=Press, 1=Repeat, 2=Release;
+     * `base_layout_key` is the physical key's US-QWERTY char for Kitty
+     * `REPORT_ALTERNATE_KEYS`. `None` when the event encodes to nothing or
+     * the key has no terminal encoding. Mirrors aterm-wasm.
+     */
+    encode_key(key: string, mods: number, event_type: number, base_layout_key?: string | null): Uint8Array | undefined;
+    /**
      * Encode mouse MOTION at `col`/`row`; `button` is the held button (3=none).
      */
     encode_mouse_motion(col: number, row: number, button: number, mods: number): Uint8Array | undefined;
@@ -447,6 +458,13 @@ export class AtermGpuTerminal {
      */
     readonly is_alt_screen: boolean;
     /**
+     * True when DEC private mode 1007 (alternate scroll) is set: while the
+     * alternate screen is active and mouse tracking is off, the host converts
+     * wheel ticks into arrow-key presses (aterm-gui's WheelPlan behaviour) so
+     * TUIs without mouse support still wheel-scroll. Mirrors aterm-wasm.
+     */
+    readonly is_alternate_scroll: boolean;
+    /**
      * True when DECCKM (application cursor keys) is set: the host encodes
      * arrows/Home/End as SS3 instead of CSI for full-screen apps.
      */
@@ -563,6 +581,7 @@ export interface InitOutput {
     readonly atermgputerminal_display_offset: (a: number) => number;
     readonly atermgputerminal_display_origin_absolute: (a: number) => number;
     readonly atermgputerminal_drain_bell: (a: number) => number;
+    readonly atermgputerminal_encode_key: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly atermgputerminal_encode_mouse_motion: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermgputerminal_encode_mouse_press: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermgputerminal_encode_mouse_release: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -572,6 +591,7 @@ export interface InitOutput {
     readonly atermgputerminal_init: (a: number, b: any) => any;
     readonly atermgputerminal_init_offscreen: (a: number, b: any) => any;
     readonly atermgputerminal_is_alt_screen: (a: number) => number;
+    readonly atermgputerminal_is_alternate_scroll: (a: number) => number;
     readonly atermgputerminal_is_app_cursor_mode: (a: number) => number;
     readonly atermgputerminal_is_color_scheme_updates_mode: (a: number) => number;
     readonly atermgputerminal_is_focus_event_mode: (a: number) => number;

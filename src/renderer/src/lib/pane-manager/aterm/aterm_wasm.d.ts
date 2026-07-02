@@ -43,6 +43,23 @@ export class AtermTerminal {
      */
     drain_bell(): boolean;
     /**
+     * Encode a keyboard event through the engine's FULL encoder — legacy +
+     * xterm modifyOtherKeys + Kitty progressive enhancement, driven by the
+     * LIVE `Terminal::keyboard_mode()` (DECCKM/DECBKM/1035/1036/1039 and the
+     * negotiated Kitty flags are exact), replacing the host's legacy-only TS
+     * encoder that acked Kitty on the wire but could never speak it.
+     *
+     * `key` is a DOM `KeyboardEvent.key` value (mapped by the shared
+     * `aterm_types::keyboard::map_dom_key` table); `mods` is the engine
+     * `Modifiers` bitfield (SHIFT=1, ALT=2, CTRL=4, SUPER=8); `event_type` is
+     * 0=Press, 1=Repeat, 2=Release; `base_layout_key` is the US-QWERTY char of
+     * the physical key for Kitty `REPORT_ALTERNATE_KEYS` (pass `undefined`
+     * when unknown). Returns `None` when the event encodes to nothing (e.g. a
+     * release without the Kitty protocol) or the key has no terminal encoding
+     * (modifier-only / IME / unidentified DOM keys — never guessed).
+     */
+    encode_key(key: string, mods: number, event_type: number, base_layout_key?: string | null): Uint8Array | undefined;
+    /**
      * Encode mouse MOTION at `col`/`row`; `button` is the held button (3 = none).
      * `None` unless the mode reports motion (1002 while a button is down, 1003
      * always) — see [`AtermTerminal::mouse_wants_motion`].
@@ -435,6 +452,13 @@ export class AtermTerminal {
      */
     readonly is_alt_screen: boolean;
     /**
+     * True when DEC private mode 1007 (alternate scroll) is set: while the
+     * alternate screen is active and mouse tracking is off, the host converts
+     * wheel ticks into arrow-key presses (aterm-gui's WheelPlan behaviour) so
+     * TUIs without mouse support (less, man, plain vim) still wheel-scroll.
+     */
+    readonly is_alternate_scroll: boolean;
+    /**
      * True when DECCKM (application cursor keys) is set: the host must encode
      * arrows/Home/End as SS3 (ESC O A) instead of CSI (ESC [ A) so full-screen
      * apps (vi, less, readline) receive the sequences they expect.
@@ -555,12 +579,14 @@ export interface InitOutput {
     readonly atermterminal_display_offset: (a: number) => number;
     readonly atermterminal_display_origin_absolute: (a: number) => number;
     readonly atermterminal_drain_bell: (a: number) => number;
+    readonly atermterminal_encode_key: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly atermterminal_encode_mouse_motion: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermterminal_encode_mouse_press: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermterminal_encode_mouse_release: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermterminal_encode_mouse_wheel: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermterminal_height: (a: number) => number;
     readonly atermterminal_is_alt_screen: (a: number) => number;
+    readonly atermterminal_is_alternate_scroll: (a: number) => number;
     readonly atermterminal_is_app_cursor_mode: (a: number) => number;
     readonly atermterminal_is_color_scheme_updates_mode: (a: number) => number;
     readonly atermterminal_is_focus_event_mode: (a: number) => number;

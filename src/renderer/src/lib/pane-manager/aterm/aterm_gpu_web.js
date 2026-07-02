@@ -183,6 +183,34 @@ export class AtermGpuTerminal {
         return ret !== 0;
     }
     /**
+     * Encode a keyboard event through the engine's FULL encoder (legacy +
+     * xterm modifyOtherKeys + Kitty), driven by the LIVE
+     * `Terminal::keyboard_mode()`. `key` is a DOM `KeyboardEvent.key` value;
+     * `mods` is the engine `Modifiers` bitfield (SHIFT=1, ALT=2, CTRL=4,
+     * SUPER=8); `event_type` is 0=Press, 1=Repeat, 2=Release;
+     * `base_layout_key` is the physical key's US-QWERTY char for Kitty
+     * `REPORT_ALTERNATE_KEYS`. `None` when the event encodes to nothing or
+     * the key has no terminal encoding. Mirrors aterm-wasm.
+     * @param {string} key
+     * @param {number} mods
+     * @param {number} event_type
+     * @param {string | null} [base_layout_key]
+     * @returns {Uint8Array | undefined}
+     */
+    encode_key(key, mods, event_type, base_layout_key) {
+        const ptr0 = passStringToWasm0(key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const char1 = isLikeNone(base_layout_key) ? 0xFFFFFF : base_layout_key.codePointAt(0);
+        if (char1 !== 0xFFFFFF) { _assertChar(char1); }
+        const ret = wasm.atermgputerminal_encode_key(this.__wbg_ptr, ptr0, len0, mods, event_type, char1);
+        let v3;
+        if (ret[0] !== 0) {
+            v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v3;
+    }
+    /**
      * Encode mouse MOTION at `col`/`row`; `button` is the held button (3=none).
      * @param {number} col
      * @param {number} row
@@ -313,6 +341,17 @@ export class AtermGpuTerminal {
      */
     get is_alt_screen() {
         const ret = wasm.atermgputerminal_is_alt_screen(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * True when DEC private mode 1007 (alternate scroll) is set: while the
+     * alternate screen is active and mouse tracking is off, the host converts
+     * wheel ticks into arrow-key presses (aterm-gui's WheelPlan behaviour) so
+     * TUIs without mouse support still wheel-scroll. Mirrors aterm-wasm.
+     * @returns {boolean}
+     */
+    get is_alternate_scroll() {
+        const ret = wasm.atermgputerminal_is_alternate_scroll(this.__wbg_ptr);
         return ret !== 0;
     }
     /**
@@ -2201,6 +2240,10 @@ function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
     wasm.__wbindgen_externrefs.set(idx, obj);
     return idx;
+}
+
+function _assertChar(c) {
+    if (typeof(c) === 'number' && (c >= 0x110000 || (c >= 0xD800 && c < 0xE000))) throw new Error(`expected a valid Unicode scalar value, found ${c}`);
 }
 
 const CLOSURE_DTORS = (typeof FinalizationRegistry === 'undefined')

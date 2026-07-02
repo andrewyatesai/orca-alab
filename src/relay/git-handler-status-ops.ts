@@ -15,10 +15,10 @@ import { splitRemoteBranchName } from '../shared/git-effective-upstream'
 import { readOrProbeNoEffectiveUpstreamStatus } from './git-status-upstream-negative-cache'
 import {
   applyLineStats,
-  collectUntrackedAdditions,
   parseNumstat,
   type GitLineStats
 } from '../shared/git-uncommitted-line-stats'
+import { collectUntrackedAdditionsViaGitNumstat } from './git-numstat-untracked-counter'
 import { DEFAULT_GIT_STATUS_LIMIT } from '../shared/git-status-limit'
 
 export async function resolveGitDir(worktreePath: string): Promise<string> {
@@ -215,10 +215,9 @@ async function attachLineStats(
   const [stagedStats, unstagedStats, untrackedStats] = await Promise.all([
     hasStaged ? runNumstat(git, worktreePath, true) : Promise.resolve(emptyStats),
     hasUnstaged ? runNumstat(git, worktreePath, false) : Promise.resolve(emptyStats),
-    // No native addon is shipped to the relay host, so the untracked-additions counter is
-    // omitted here (count skipped) rather than reimplemented in JS — staged/unstaged
-    // numstat still flow. Restored once orca-node ships per-arch to the relay.
-    collectUntrackedAdditions(worktreePath, untrackedPaths)
+    // No native addon ships to the relay host, so untracked counts come from git
+    // itself (diff --no-index vs /dev/null) instead of the Rust counter.
+    collectUntrackedAdditionsViaGitNumstat(git, worktreePath, untrackedPaths)
   ])
   for (const entry of entries) {
     const filePath = entry.path as string

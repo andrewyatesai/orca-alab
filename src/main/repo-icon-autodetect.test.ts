@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { gitExecFileAsync } from './git/runner'
 import { detectRepoIcon, detectRepoIconAndUpstream } from './repo-icon-autodetect'
 
@@ -14,6 +14,39 @@ async function makeTempRepoDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'orca-repo-icon-'))
   tempDirs.push(dir)
   return dir
+}
+
+// These tests assert the raw remote URLs of real temp repos, so a developer's
+// global/system git config (e.g. a url.insteadOf rewrite) must not leak into the
+// setup execs or the code under test — both inherit process.env.
+let hermeticGitConfigDir: string | undefined
+const savedGitEnv = {
+  GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+  GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM
+}
+
+beforeAll(async () => {
+  hermeticGitConfigDir = await mkdtemp(join(tmpdir(), 'orca-repo-icon-gitconfig-'))
+  const emptyConfigPath = join(hermeticGitConfigDir, 'gitconfig')
+  await writeFile(emptyConfigPath, '')
+  process.env.GIT_CONFIG_GLOBAL = emptyConfigPath
+  process.env.GIT_CONFIG_NOSYSTEM = '1'
+})
+
+afterAll(async () => {
+  restoreEnv('GIT_CONFIG_GLOBAL', savedGitEnv.GIT_CONFIG_GLOBAL)
+  restoreEnv('GIT_CONFIG_NOSYSTEM', savedGitEnv.GIT_CONFIG_NOSYSTEM)
+  if (hermeticGitConfigDir) {
+    await rm(hermeticGitConfigDir, { recursive: true, force: true })
+  }
+})
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name]
+  } else {
+    process.env[name] = value
+  }
 }
 
 afterEach(async () => {

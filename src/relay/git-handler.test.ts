@@ -333,6 +333,21 @@ describe('GitHandler', () => {
       expect(untracked!.removed).toBeUndefined()
     })
 
+    it('omits the added count for binary untracked files', async () => {
+      gitInit(tmpDir)
+      writeFileSync(path.join(tmpDir, 'tracked.txt'), 'tracked')
+      gitCommit(tmpDir, 'initial')
+      writeFileSync(path.join(tmpDir, 'blob.bin'), Buffer.from([0, 1, 2, 255, 0, 10]))
+
+      const result = (await dispatcher.callRequest('git.status', { worktreePath: tmpDir })) as {
+        entries: { path?: unknown; area?: unknown; added?: unknown }[]
+      }
+      const untracked = result.entries.find((e) => e.path === 'blob.bin')
+      expect(untracked).toBeDefined()
+      expect(untracked!.area).toBe('untracked')
+      expect(untracked!.added).toBeUndefined()
+    })
+
     it('returns ignored paths only when requested', async () => {
       gitInit(tmpDir)
       writeFileSync(path.join(tmpDir, '.gitignore'), 'dist/\n.env\n')

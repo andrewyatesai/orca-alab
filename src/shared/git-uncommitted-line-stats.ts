@@ -101,9 +101,13 @@ function parseNulDelimitedNumstat(stdout: string): Map<string, GitLineStats> {
   return stats
 }
 
-async function countFileAdditions(
+/** Shared lstat gate + stat-keyed cache for untracked-file counting, independent of
+ *  which counter produces the content stats (Rust napi in main, git numstat on the
+ *  relay): symlinks count as one added line, non-regular/oversized files get no count,
+ *  and unchanged files reuse cached stats so status polling stays cheap. */
+export async function countUntrackedFileWithCache(
   absolutePath: string,
-  count: UntrackedAdditionsCounter
+  countContent: () => Promise<GitLineStats>
 ): Promise<GitLineStats> {
   try {
     const fileStat = await lstat(absolutePath)
@@ -122,15 +126,24 @@ async function countFileAdditions(
     if (!fileStat.isFile() || fileStat.size > MAX_UNTRACKED_LINE_COUNT_BYTES) {
       return rememberUntrackedStats(absolutePath, fileStat, {})
     }
+    return rememberUntrackedStats(absolutePath, fileStat, await countContent())
+  } catch {
+    return {}
+  }
+}
+
+async function countFileAdditions(
+  absolutePath: string,
+  count: UntrackedAdditionsCounter
+): Promise<GitLineStats> {
+  return countUntrackedFileWithCache(absolutePath, async () => {
     const buffer = await readFile(absolutePath)
     // Rust `orca-git` core (count_additions_in_buffer) via napi: null = binary (no count),
     // 0 = empty, else the trailing-newline-aware line count. Parity-tested vs the former
     // TS byte-loop in orca-git-napi-parity.test.ts; the loop is deleted (single source).
     const added = count(buffer)
-    return rememberUntrackedStats(absolutePath, fileStat, added === null ? {} : { added })
-  } catch {
-    return {}
-  }
+    return added === null ? {} : { added }
+  })
 }
 
 function rememberUntrackedStats(
@@ -161,9 +174,10 @@ export async function collectUntrackedAdditions(
   count?: UntrackedAdditionsCounter
 ): Promise<Map<string, GitLineStats>> {
   const result = new Map<string, GitLineStats>()
-  // No counter (e.g. the relay, which has no per-arch native addon) → skip untracked
-  // line counting rather than reimplement the byte loop in JS. The count is the only
-  // thing affected; staged/unstaged numstat still flow.
+  // No counter (an unbuilt dev tree where the native addon isn't loadable) → skip
+  // untracked line counting rather than reimplement the byte loop in JS. The count is
+  // the only thing affected; staged/unstaged numstat still flow. The relay uses its own
+  // git-numstat collector instead of this path.
   if (!count) {
     return result
   }

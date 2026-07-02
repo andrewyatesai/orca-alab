@@ -4492,6 +4492,13 @@ export function connectPanePty(
         // clearing on restore loses scroll-up after a hidden->visible return.
         // Mirrors the attach-time guard in pty-transport.ts.
         writeReplayData('\x1b[2J\x1b[3J\x1b[H')
+      } else {
+        // Why: the snapshot's own ?1049h is a no-op when the pane is already on
+        // the alternate screen, and the serialized frame skips blank cells — so
+        // without clearing the alt screen the pre-hide frame bleeds through
+        // every cell the final frame leaves blank. \x1b[2J on the alt buffer
+        // does not touch the normal buffer's scrollback the TUI returns to.
+        writeReplayData('\x1b[?1049h\x1b[2J\x1b[H')
       }
       writeReplayData(snapshot.data)
       writeReplayData(POST_REPLAY_LIVE_SNAPSHOT_RESET)

@@ -7327,7 +7327,7 @@ describe('connectPanePty', () => {
     disposable.dispose()
   })
 
-  it('preserves scrollback by skipping the destructive clear when restoring an alternate-screen snapshot', async () => {
+  it('clears only the alternate screen when restoring an alternate-screen snapshot', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('pty-id')
     const capturedDataCallback: {
@@ -7375,6 +7375,19 @@ describe('connectPanePty', () => {
     expect(pane.terminal.write).not.toHaveBeenCalledWith(
       '\x1b[2J\x1b[3J\x1b[H',
       expect.any(Function)
+    )
+    // Why: the snapshot's ?1049h no-ops on an already-alt pane and serialized
+    // frames skip blank cells, so the pre-hide frame bleeds through unless the
+    // alt screen is cleared (without \x1b[3J) before the snapshot paints.
+    expect(pane.terminal.write).toHaveBeenCalledWith(
+      '\x1b[?1049h\x1b[2J\x1b[H',
+      expect.any(Function)
+    )
+    const writes = (pane.terminal.write as ReturnType<typeof vi.fn>).mock.calls.map(
+      (call) => call[0]
+    )
+    expect(writes.indexOf('\x1b[?1049h\x1b[2J\x1b[H')).toBeLessThan(
+      writes.indexOf('altscreen-snapshot\r\n')
     )
     expect(pane.terminal.write).toHaveBeenCalledWith('altscreen-snapshot\r\n', expect.any(Function))
     disposable.dispose()

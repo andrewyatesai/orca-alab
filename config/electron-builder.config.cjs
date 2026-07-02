@@ -48,9 +48,28 @@ const terminalAddonResource = {
   to: 'orca_node.node'
 }
 
+// Why: the OFL fonts and the Rust-built binaries (wasm blobs + orca_node.node)
+// carry redistribution-notice obligations; the distributed app must ship the
+// license texts, not just the repo. They land in Resources/licenses/.
+const thirdPartyLicenseResources = [
+  {
+    from: 'src/renderer/src/assets/fonts/JETBRAINS-MONO-OFL.txt',
+    to: 'licenses/JETBRAINS-MONO-OFL.txt'
+  },
+  {
+    from: 'src/renderer/src/assets/fonts/GEIST-OFL.txt',
+    to: 'licenses/GEIST-OFL.txt'
+  },
+  {
+    from: 'THIRD-PARTY-NOTICES.md',
+    to: 'licenses/THIRD-PARTY-NOTICES.md'
+  }
+]
+
 const commonExtraResources = [
   relayExtraResource,
   terminalAddonResource,
+  ...thirdPartyLicenseResources,
   ...packagedRuntimeNodeModuleResources
 ]
 const macSpeechNativeResource = {
@@ -85,7 +104,7 @@ module.exports = {
     '!skills{,/**/*}',
     '!tests{,/**/*}',
     '!Casks{,/**/*}',
-    '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,bundle-size-progress.md}',
+    '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,THIRD-PARTY-NOTICES.md,bundle-size-progress.md}',
     '!out/**/*.test.js',
     '!electron.vite.config.{js,ts,mjs,cjs}',
     '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,CHANGELOG.md,README.md}',

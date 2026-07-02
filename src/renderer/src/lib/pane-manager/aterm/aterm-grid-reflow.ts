@@ -20,6 +20,10 @@ type GridReflowConfig = {
   getLineHeight: () => number
   /** Read the current grid (cols/rows). */
   getGrid: () => { cols: number; rows: number }
+  /** An explicit controller.resize() override, or null. While set, container /
+   *  DPI reflows keep the grid at these dims (snapshot replay + mobile-fit hold
+   *  must survive the ResizeObserver) and only re-rasterize cell metrics. */
+  getGridOverride?: () => { cols: number; rows: number } | null
   /** Commit a new grid: resize the strategy + report it to the PTY. */
   setGrid: (cols: number, rows: number) => void
   isDisposed: () => boolean
@@ -35,6 +39,10 @@ type GridReflowConfig = {
 
 export type AtermGridReflow = {
   dispose: () => void
+  /** Recompute the grid from the container (or the explicit override) and commit
+   *  only when it changed — the same path the ResizeObserver drives. Used by
+   *  fitToContainer after an explicit resize override is cleared. */
+  reflow: () => void
   /** Cheap per-frame guard for the draw loop: a number compare + a settings read,
    *  no layout. Re-rasterizes only when the live dpr or font size diverged from
    *  what the engine was last built at — closing the dpr-settle gap the
@@ -56,7 +64,7 @@ export type AtermGridReflow = {
 export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow {
   const { term, container, metrics, getFontPx, getLineHeight, getGrid, setGrid, isDisposed } =
     config
-  const { syncDependents, scheduleDraw, asyncMetrics } = config
+  const { syncDependents, scheduleDraw, asyncMetrics, getGridOverride } = config
 
   // The engine px the glyph atlas was last rasterized at (= round(fontPx * dpr)) and
   // the line-height the cell box was last derived at. Tracked so the draw-loop guard
@@ -101,7 +109,9 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
         return
       }
     }
-    const next = computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+    const next =
+      getGridOverride?.() ??
+      computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
     const current = getGrid()
     // On a metrics change, commit even when cols/rows are unchanged: the engine's
     // framebuffer / GPU swapchain must be resized to the new cell size (set_px alone
@@ -140,7 +150,9 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
     metrics.cellWidth = term.cell_width
     metrics.cellHeight = term.cell_height
     syncDependents()
-    const next = computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+    const next =
+      getGridOverride?.() ??
+      computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
     setGrid(next.cols, next.rows)
     scheduleDraw()
   }
@@ -164,6 +176,7 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
       resizeObserver.disconnect()
       dprTracker.dispose()
     },
+    reflow: reflowGrid,
     reconcileIfNeeded,
     forceReflow
   }

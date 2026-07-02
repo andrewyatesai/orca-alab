@@ -13,8 +13,9 @@ type PointerInputBundleDeps = {
   canvas: HTMLCanvasElement
   textarea: HTMLTextAreaElement
   term: AtermTerminal
-  /** Live cell metrics (mutated by the grid reflow); syncDpr() pushes a DPI
-   *  change into the per-handler dep objects. */
+  /** SHARED live cell metrics (mutated in place by the grid reflow): the scroll/
+   *  mouse/link handlers read it per event; syncDpr() pushes changes into the
+   *  by-value selection deps. */
   metrics: AtermMetrics
   inputSink: AtermPaneInputSink
   controllerOptions?: AtermPaneControllerOptions
@@ -23,6 +24,9 @@ type PointerInputBundleDeps = {
   getRows: () => number
   scheduleDraw: () => void
   isDisposed: () => boolean
+  /** Fired after each mouse-driven selection mutation (facade onSelectionChange
+   *  must not wait for PTY output). */
+  onSelectionChanged?: () => void
 }
 
 /** The canvas pointer/scroll/selection/link/event-reporting input handlers for a
@@ -39,7 +43,8 @@ export function attachAtermPointerInputs({
   shared,
   getRows,
   scheduleDraw,
-  isDisposed
+  isDisposed,
+  onSelectionChanged
 }: PointerInputBundleDeps): {
   selectionInput: ReturnType<typeof attachAtermSelectionInput>
   scrollInput: ReturnType<typeof attachAtermScrollInput>
@@ -56,63 +61,63 @@ export function attachAtermPointerInputs({
     redraw: scheduleDraw,
     isDisposed,
     onCopy: copyAtermSelectionToClipboard,
-    getCopyOnSelect: controllerOptions?.getCopyOnSelect
+    getCopyOnSelect: controllerOptions?.getCopyOnSelect,
+    onSelectionChanged
   }
   const selectionInput = attachAtermSelectionInput(selectionDeps)
 
-  const scrollDeps = {
+  const scrollInput = attachAtermScrollInput({
     canvas,
     term,
-    dpr: metrics.dpr,
-    cellHeight: metrics.cellHeight,
+    metrics,
     getRows,
     redraw: scheduleDraw,
-    isDisposed
-  }
-  const scrollInput = attachAtermScrollInput(scrollDeps)
+    isDisposed,
+    // Alt-screen wheel synthesis sends arrow presses through the same PTY seam
+    // keystrokes use.
+    inputSink,
+    getScrollSensitivity: controllerOptions?.getScrollSensitivity,
+    getFastScrollSensitivity: controllerOptions?.getFastScrollSensitivity,
+    getTuiScrollMultiplier: controllerOptions?.getTuiScrollMultiplier
+  })
 
   const eventReportingInput = attachAtermEventReportingInput({
     canvas,
     textarea,
     term,
-    dpr: metrics.dpr,
-    cellWidth: metrics.cellWidth,
-    cellHeight: metrics.cellHeight,
+    metrics,
+    getRows,
     inputSink,
-    isDisposed
+    isDisposed,
+    getTuiScrollMultiplier: controllerOptions?.getTuiScrollMultiplier
   })
 
   // URL/file-path openers are held in `shared` so a GPU→CPU rebuild keeps the
   // late-bound openers the lifecycle set on the prior controller.
   const openUrl = createAtermUrlOpener(() => shared.activeLinkContext)
 
-  const linkDeps = {
+  const linkInput = attachAtermLinkInput({
     canvas,
     term,
-    dpr: metrics.dpr,
-    cellWidth: metrics.cellWidth,
-    cellHeight: metrics.cellHeight,
+    metrics,
     redraw: scheduleDraw,
     isDisposed,
     openUrl,
-    getFileLinkOpener: () => shared.fileLinkOpener
-  }
-  const linkInput = attachAtermLinkInput(linkDeps)
+    getFileLinkOpener: () => shared.fileLinkOpener,
+    getLinkProviders: () => shared.linkProviderSource?.() ?? []
+  })
 
   return {
     selectionInput,
     scrollInput,
     eventReportingInput,
     linkInput,
-    // Push new metrics into the live input deps after a DPR change: scroll/link
-    // need only dpr; selection needs all three; event-reporting has its own setter.
+    // Scroll/mouse/link read the shared `metrics` live; only the selection deps
+    // still hold by-value copies, so push the new metrics into them.
     syncDpr: () => {
       selectionDeps.dpr = metrics.dpr
       selectionDeps.cellWidth = metrics.cellWidth
       selectionDeps.cellHeight = metrics.cellHeight
-      scrollDeps.dpr = metrics.dpr
-      linkDeps.dpr = metrics.dpr
-      eventReportingInput.setDpr(metrics.dpr)
     }
   }
 }

@@ -1,4 +1,6 @@
 import type { AtermTerminal } from './aterm_wasm.js'
+import type { AtermMetrics } from './aterm-grid-reflow'
+import { accumulateWheelLines, resolveTuiWheelMultiplier } from './aterm-wheel-lines'
 
 /** Sends encoded PTY bytes (mouse reports) to the child. Same seam selection
  *  copy / key encoding use — the controller threads pane.terminal.input here. */
@@ -7,11 +9,15 @@ export type AtermMouseInputSink = (data: string) => void
 export type AtermMouseDeps = {
   canvas: HTMLCanvasElement
   term: AtermTerminal
-  dpr: number
-  cellWidth: number
-  cellHeight: number
+  /** Shared live cell metrics (mutated in place by the grid reflow on DPI/font
+   *  changes) — read per event so report hit-testing never goes stale. */
+  metrics: AtermMetrics
+  /** Viewport rows (page-mode wheel scaling). */
+  getRows: () => number
   inputSink: AtermMouseInputSink
   isDisposed: () => boolean
+  /** Latest terminalTuiScrollSensitivity (wheel-report count multiplier). */
+  getTuiScrollMultiplier?: () => number
 }
 
 export type AtermMouseInput = {
@@ -46,10 +52,10 @@ export function shouldForwardMouse(term: AtermTerminal, event: { shiftKey: boole
 // The engine encoders add the protocol's +1, so 0-based is correct here.
 function pointToCell(event: MouseEvent, deps: AtermMouseDeps): { col: number; row: number } {
   const rect = deps.canvas.getBoundingClientRect()
-  const deviceX = (event.clientX - rect.left) * deps.dpr
-  const deviceY = (event.clientY - rect.top) * deps.dpr
-  const col = Math.max(0, Math.floor(deviceX / deps.cellWidth))
-  const row = Math.max(0, Math.floor(deviceY / deps.cellHeight))
+  const deviceX = (event.clientX - rect.left) * deps.metrics.dpr
+  const deviceY = (event.clientY - rect.top) * deps.metrics.dpr
+  const col = Math.max(0, Math.floor(deviceX / deps.metrics.cellWidth))
+  const row = Math.max(0, Math.floor(deviceY / deps.metrics.cellHeight))
   return { col, row }
 }
 
@@ -84,9 +90,11 @@ function buttonCode(domButton: number): number {
  *  bubble-phase selection/scroll/link handlers run; those handlers also call
  *  shouldForwardMouse and bail, so the gate is enforced on both sides. */
 export function attachAtermMouseInput(deps: AtermMouseDeps): AtermMouseInput {
-  const { canvas, term, inputSink, isDisposed } = deps
+  const { canvas, term, metrics, getRows, inputSink, isDisposed } = deps
   // The button currently held during a drag (for 1002 motion); -1 = none.
   let heldButton = -1
+  // Fractional wheel lines carried between events (trackpad sub-line deltas).
+  let wheelRemainder = 0
 
   const send = (bytes: Uint8Array | undefined): void => {
     if (bytes && bytes.length > 0) {
@@ -153,13 +161,29 @@ export function attachAtermMouseInput(deps: AtermMouseDeps): AtermMouseInput {
     if (isDisposed() || !shouldForwardMouse(term, event)) {
       return
     }
-    const { col, row } = pointToCell(event, deps)
-    // Wheel-up (negative deltaY) reveals "up"; forward each notch as a wheel
-    // report instead of scrolling scrollback.
-    const up = event.deltaY < 0
-    const bytes = term.encode_mouse_wheel(col, row, up, modsByte(event))
-    if (bytes && bytes.length > 0) {
-      send(bytes)
+    // Same delta→lines accumulation as the scrollback path, so trackpad pixel
+    // deltas produce line-paced reports instead of one report per DOM event.
+    // Options are read live per event: the options bag mutates on settings change.
+    const result = accumulateWheelLines({
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
+      dpr: metrics.dpr,
+      cellHeight: metrics.cellHeight,
+      rows: getRows(),
+      sensitivity: resolveTuiWheelMultiplier(event, deps.getTuiScrollMultiplier?.() ?? 1),
+      remainder: wheelRemainder
+    })
+    wheelRemainder = result.remainder
+    if (result.lines !== 0) {
+      const { col, row } = pointToCell(event, deps)
+      // Wheel-up (negative lines) reveals "up"; one report per accumulated line.
+      const up = result.lines < 0
+      for (let i = Math.abs(result.lines); i > 0; i--) {
+        const bytes = term.encode_mouse_wheel(col, row, up, modsByte(event))
+        if (bytes && bytes.length > 0) {
+          send(bytes)
+        }
+      }
     }
     // Mouse tracking is on (gated above), so the wheel is a report to the app — consume
     // it so it doesn't also scroll scrollback. The worker encodes off-thread + sends

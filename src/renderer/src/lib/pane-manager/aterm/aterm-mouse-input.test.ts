@@ -66,9 +66,8 @@ function mount(state: FakeTermState): Harness {
   const mouse = attachAtermMouseInput({
     canvas,
     term,
-    dpr: 1,
-    cellWidth: 8,
-    cellHeight: 16,
+    metrics: { dpr: 1, cellWidth: 8, cellHeight: 16 },
+    getRows: () => 24,
     inputSink,
     isDisposed: () => false
   })
@@ -152,7 +151,13 @@ describe('aterm mouse forwarding gate', () => {
 
   it('wheel while tracking forwards a wheel report instead of scrolling', () => {
     const h = mount({ tracking: true })
-    const wheel = new WheelEvent('wheel', { deltaY: -1, bubbles: true, cancelable: true })
+    // deltaMode 1 (line) so one whole line accumulates from a single event.
+    const wheel = new WheelEvent('wheel', {
+      deltaY: -1,
+      deltaMode: 1,
+      bubbles: true,
+      cancelable: true
+    })
     // happy-dom drops clientX/Y from WheelEvent's init dict; set them so
     // pointToCell yields a real cell (real browser events carry these).
     Object.defineProperty(wheel, 'clientX', { value: 0, configurable: true })

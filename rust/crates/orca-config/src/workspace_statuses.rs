@@ -54,11 +54,13 @@ fn status(id: &str, label: &str, color: &str, icon: &str) -> WorkspaceStatusDefi
 }
 
 pub fn clone_default_workspace_statuses() -> Vec<WorkspaceStatusDefinition> {
+    // Why: workflow order (todo-first) matches the TS defaults after the
+    // upstream kanban reorder fix; the reversed order is now a repaired bug.
     vec![
-        status("completed", "Done", "conductor-done", "conductor-done"),
-        status("in-review", "In review", "conductor-review", "conductor-review"),
-        status("in-progress", "In progress", "conductor-progress", "conductor-progress"),
         status("todo", "Todo", "neutral", "circle"),
+        status("in-progress", "In progress", "conductor-progress", "conductor-progress"),
+        status("in-review", "In review", "conductor-review", "conductor-review"),
+        status("completed", "Done", "conductor-done", "conductor-done"),
     ]
 }
 
@@ -83,13 +85,14 @@ fn legacy_status_visual(id: &str) -> Option<(&'static str, &'static str)> {
     }
 }
 
-fn legacy_status_label(id: &str) -> Option<&'static str> {
+fn default_status_labels(id: &str) -> &'static [&'static str] {
     match id {
-        "todo" => Some("Todo"),
-        "in-progress" => Some("In progress"),
-        "in-review" => Some("In review"),
-        "completed" => Some("Completed"),
-        _ => None,
+        "todo" => &["Todo"],
+        "in-progress" => &["In progress"],
+        "in-review" => &["In review"],
+        // Why: both labels have shipped as defaults; either raw shape is safe to migrate.
+        "completed" => &["Completed", "Done"],
+        _ => &[],
     }
 }
 
@@ -117,7 +120,10 @@ fn is_legacy_default_status_payload(
         };
         object.len() == 4
             && object.get("id").and_then(Value::as_str) == Some(expected_id)
-            && object.get("label").and_then(Value::as_str) == legacy_status_label(expected_id)
+            && object
+                .get("label")
+                .and_then(Value::as_str)
+                .is_some_and(|label| default_status_labels(expected_id).contains(&label))
             && object.get("color").and_then(Value::as_str) == Some(color)
             && object.get("icon").and_then(Value::as_str) == Some(icon)
     })
@@ -337,9 +343,9 @@ mod tests {
 
     #[test]
     fn keeps_the_default_workflow_order() {
-        assert_eq!(ids(&clone_default_workspace_statuses()), ["completed", "in-review", "in-progress", "todo"]);
-        let first = &clone_default_workspace_statuses()[0];
-        assert_eq!((first.id.as_str(), first.label.as_str()), ("completed", "Done"));
+        assert_eq!(ids(&clone_default_workspace_statuses()), ["todo", "in-progress", "in-review", "completed"]);
+        let last = &clone_default_workspace_statuses()[3];
+        assert_eq!((last.id.as_str(), last.label.as_str()), ("completed", "Done"));
     }
 
     #[test]

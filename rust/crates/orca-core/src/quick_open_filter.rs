@@ -334,9 +334,11 @@ pub fn build_git_ls_files_args_for_quick_open(exclude_path_prefixes: &[&str]) ->
         args.extend(trailing.iter().cloned());
         args
     };
+    // Why: `-s` (stage mode) matches the TS source — it identifies gitlinks
+    // without lstat probes for ordinary tracked files.
     GitLsFilesArgs {
-        primary: with(&["-z", "--cached", "--others", "--exclude-standard"]),
-        ignored_pass: with(&["-z", "--others", "--ignored", "--exclude-standard"]),
+        primary: with(&["-z", "-s", "--cached", "--others", "--exclude-standard"]),
+        ignored_pass: with(&["-z", "-s", "--others", "--ignored", "--exclude-standard"]),
     }
 }
 
@@ -555,7 +557,7 @@ mod tests {
     #[test]
     fn git_ls_files_args() {
         let GitLsFilesArgs { primary, ignored_pass } = build_git_ls_files_args_for_quick_open(&[]);
-        assert_eq!(primary, vec!["-z", "--cached", "--others", "--exclude-standard"]);
-        assert_eq!(ignored_pass, vec!["-z", "--others", "--ignored", "--exclude-standard"]);
+        assert_eq!(primary, vec!["-z", "-s", "--cached", "--others", "--exclude-standard"]);
+        assert_eq!(ignored_pass, vec!["-z", "-s", "--others", "--ignored", "--exclude-standard"]);
     }
 }

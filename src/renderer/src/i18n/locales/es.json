@@ -547,10 +547,10 @@
         "wslDefault": "Predeterminado de WSL"
       },
       "sidebarWorktreeActivation": {
-        "wakeEphemeralVmFailed": "Failed to wake ephemeral VM workspace"
+        "wakeEphemeralVmFailed": "No se pudo activar el espacio de trabajo de VM efímera"
       },
       "ephemeralVmWorkspaceTarget": {
-        "projectRootRegistrationFailed": "Failed to register the recipe-created project root on the runtime."
+        "projectRootRegistrationFailed": "No se pudo registrar en el runtime la raíz del proyecto creada por la receta."
       }
     },
     "hooks": {
@@ -569,8 +569,8 @@
         "chooseOrAddProjectBeforeWorkspace": "Elige o agrega un proyecto antes de crear un espacio de trabajo.",
         "folderWorkspaceCreateFailedTitle": "No se pudo crear el espacio de trabajo de carpeta",
         "folderWorkspaceCreateFailedMessage": "No se pudo crear el espacio de trabajo de carpeta. Revisa los detalles del error de arriba e inténtalo de nuevo.",
-        "setupAgentStartupPolicySaveFailed": "Failed to save setup startup behavior.",
-        "5f3d2c8a1b": "Failed to resolve MR base."
+        "setupAgentStartupPolicySaveFailed": "No se pudo guardar el comportamiento de inicio del setup.",
+        "5f3d2c8a1b": "No se pudo resolver la base del MR."
       },
       "useGlobalFileDrop": {
         "38c9f034ff": "No se pudieron cargar los archivos eliminados.",
@@ -658,16 +658,16 @@
         "f70ac54d38": "Cuentas de proveedores de IA",
         "4121f7a0a2": "Administre agents de IA, establezca un valor predeterminado y personalice comandos.",
         "b49abbd2f7": "Agentes",
-        "dev": "Dev Tools",
-        "devDescription": "Dev-only tools for exercising UI states.",
+        "dev": "Herramientas de desarrollo",
+        "devDescription": "Herramientas solo de desarrollo para ejercitar estados de la UI.",
         "devBadge": "Dev",
-        "devSearchNotificationPlayground": "Notification playground",
-        "devSearchNotificationPlaygroundDescription": "Trigger representative toast and notification UI states.",
-        "devSearchKeywordDev": "dev",
+        "devSearchNotificationPlayground": "Zona de pruebas de notificaciones",
+        "devSearchNotificationPlaygroundDescription": "Active estados representativos de la UI de toasts y notificaciones.",
+        "devSearchKeywordDev": "desarrollo",
         "devSearchKeywordToast": "toast",
         "devSearchKeywordSonner": "sonner",
         "devSearchKeywordError": "error",
-        "devSearchKeywordNotification": "notification"
+        "devSearchKeywordNotification": "notificación"
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "El contenido pegado es demasiado grande."
@@ -874,22 +874,22 @@
         "5c1c973855": "Eliminar revisor",
         "commentTooLarge": "El comentario es demasiado grande para enviarlo de forma segura.",
         "timeline": {
-          "completed": "as completed",
-          "notPlanned": "as not planned",
-          "someone": "someone",
-          "assigned": "assigned",
-          "unassigned": "unassigned",
-          "mentioned": "mentioned this",
-          "in": "in",
-          "closed": "closed this",
-          "reopened": "reopened this",
-          "moved": "moved this",
-          "from": "from",
-          "to": "to",
-          "activity": "Activity",
-          "noActivity": "No activity yet."
+          "completed": "como completado",
+          "notPlanned": "como no planificado",
+          "someone": "alguien",
+          "assigned": "asignó",
+          "unassigned": "desasignó",
+          "mentioned": "mencionó esto",
+          "in": "en",
+          "closed": "cerró esto",
+          "reopened": "reabrió esto",
+          "moved": "movió esto",
+          "from": "de",
+          "to": "a",
+          "activity": "Actividad",
+          "noActivity": "Aún no hay actividad."
         },
-        "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+        "checkActionRequiredHint": "Esta comprobación necesita una acción manual en GitHub (por ejemplo, aprobar la ejecución del flujo de trabajo) antes de que se desbloquee la fusión."
       },
       "GitLabItemDialog": {
         "65e784c1f1": "Reabrir",
@@ -2462,7 +2462,7 @@
             "c2f0b72b8d": "Insertar",
             "925f49f210": "Expandir panel",
             "df766809e0": "Contraer panel",
-            "cff67afad1": "Copy Context"
+            "cff67afad1": "Copiar contexto"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "Reiniciar demonio",
@@ -2595,8 +2595,8 @@
             "localWorkspacesOnly": "Reanudar desde el historial solo está disponible en espacios de trabajo locales.",
             "openLocalWorkspace": "Abre un espacio de trabajo local antes de reanudar una sesión.",
             "sessionQueued": "Sesión en cola",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "runtimeWorkspacesUnsupported": "Reanudar desde el historial no está disponible en espacios de trabajo alojados en el runtime.",
+            "openSupportedWorkspace": "Abra un espacio de trabajo local o SSH antes de reanudar una sesión."
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "Nueva división"
@@ -4492,7 +4492,7 @@
           "saving": "Ahorro...",
           "save": "Ahorrar",
           "label": "Etiqueta",
-          "sshLabelPlaceholder": "Dev box",
+          "sshLabelPlaceholder": "Equipo de desarrollo",
           "sshHost": "Anfitrión o alias",
           "sshHostPlaceholder": "deploy@server:22",
           "username": "Nombre de usuario",
@@ -4501,7 +4501,7 @@
           "identityFile": "Archivo de identidad",
           "identityFilePlaceholder": "~/.ssh/id_ed25519 (opcional)",
           "serverName": "Nombre del servidor",
-          "serverNamePlaceholder": "Dev box",
+          "serverNamePlaceholder": "Equipo de desarrollo",
           "pairingCode": "código de emparejamiento",
           "pairingCodePlaceholder": "orca://pair?code=...",
           "pairingHelpPrefix": "Ejecuta",
@@ -4783,7 +4783,7 @@
           "windowSidebarSummary": "Barra lateral, barra de estado y explorador de archivos",
           "statusBarCount": "Indicadores visibles: {{value0}}.",
           "gitIgnoredGlossary": "Archivos coincidentes con .gitignore.",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "Elija qué indicadores aparecen en la barra de estado."
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -6154,8 +6154,8 @@
           "23c6874fdf": "Capacidades de IA",
           "2309068a6f": "destructivo",
           "65358016ea": "Desechar",
-          "dev": "Dev Tools",
-          "devDescription": "Dev-only tools for exercising UI states."
+          "dev": "Herramientas de desarrollo",
+          "devDescription": "Herramientas solo de desarrollo para ejercitar estados de la UI."
         },
         "SettingsFormControls": {
           "42a4d15a30": "No hay fuentes coincidentes.",
@@ -8201,7 +8201,7 @@
               "keyword_warp": "warp",
               "keyword_themes": "themes",
               "keyword_yaml": "yaml",
-              "keyword_legacy_title": "Import themes from Warp"
+              "keyword_legacy_title": "Importar temas de Warp"
             },
             "yaml_import": {
               "title": "Import from YAML",
@@ -8624,7 +8624,7 @@
           "b94ff260e6": "Descargar Android Studio",
           "18925b082d": "Localizar la carpeta SDK",
           "8c52684db8": "Claro",
-          "76eb88b88e": "iOS Simulator (Xcode)",
+          "76eb88b88e": "Simulador de iOS (Xcode)",
           "c6f3ea4f12": "Listo",
           "e4f14b50d7": "Instale Xcode y agregue un tiempo de ejecución del simulador de iOS.",
           "63fe73a1ea": "No se pudo actualizar la carpeta SDK de Android."
@@ -8633,34 +8633,34 @@
           "advanced": "Avanzado"
         },
         "DevToolsPane": {
-          "nativeActionLayoutCheck": "Native action layout check",
-          "secondary": "Secondary",
-          "secondaryActionClicked": "Secondary action clicked",
-          "primaryAction": "Primary action",
-          "primaryActionClicked": "Primary action clicked",
-          "branchHasChanges": "branch has changes",
-          "viewChangesClicked": "View Changes clicked",
-          "forceDeleteClicked": "Force Delete clicked",
-          "devOnlyCallback": "Dev-only callback.",
-          "infoToast": "Info toast",
-          "infoToastDescription": "Long informational copy with no explicit action.",
-          "localCanaryBehind": "Local canary is behind origin/canary",
-          "successToast": "Success toast",
-          "successToastDescription": "Short confirmation state.",
-          "settingsSaved": "Settings saved",
-          "shortSuccessCopy": "Short success copy.",
-          "errorToast": "Error toast",
-          "errorToastDescription": "Long error copy without recovery actions.",
-          "failedToSyncWorkspaceMetadata": "Failed to sync workspace metadata",
-          "nativeActionToast": "Native action toast",
-          "nativeActionToastDescription": "Uses Sonner action and cancel slots.",
-          "deleteFailureToast": "Delete failure toast",
-          "deleteFailureToastDescription": "Custom footer with View and Force Delete.",
-          "behindBaseRefToast": "Behind base ref toast",
-          "behindBaseRefToastDescription": "Persistent prompt with an inline Settings link and footer action.",
-          "notificationPlayground": "Notification playground",
-          "notificationPlaygroundDescription": "Dev-only triggers for checking toast layout, recovery actions, and long-copy wrapping.",
-          "devOnly": "Dev only"
+          "nativeActionLayoutCheck": "Comprobación del diseño de acciones nativas",
+          "secondary": "Secundaria",
+          "secondaryActionClicked": "Acción secundaria pulsada",
+          "primaryAction": "Acción principal",
+          "primaryActionClicked": "Acción principal pulsada",
+          "branchHasChanges": "la rama tiene cambios",
+          "viewChangesClicked": "«Ver cambios» pulsado",
+          "forceDeleteClicked": "«Forzar eliminación» pulsado",
+          "devOnlyCallback": "Callback solo de desarrollo.",
+          "infoToast": "Toast informativo",
+          "infoToastDescription": "Texto informativo largo sin acción explícita.",
+          "localCanaryBehind": "El canary local está detrás de origin/canary",
+          "successToast": "Toast de éxito",
+          "successToastDescription": "Estado de confirmación breve.",
+          "settingsSaved": "Ajustes guardados",
+          "shortSuccessCopy": "Texto de éxito breve.",
+          "errorToast": "Toast de error",
+          "errorToastDescription": "Texto de error largo sin acciones de recuperación.",
+          "failedToSyncWorkspaceMetadata": "Error al sincronizar los metadatos del espacio de trabajo",
+          "nativeActionToast": "Toast de acción nativa",
+          "nativeActionToastDescription": "Usa los slots de acción y cancelación de Sonner.",
+          "deleteFailureToast": "Toast de error de eliminación",
+          "deleteFailureToastDescription": "Pie personalizado con Ver y Forzar eliminación.",
+          "behindBaseRefToast": "Toast de referencia base atrasada",
+          "behindBaseRefToastDescription": "Aviso persistente con un enlace a Ajustes en línea y una acción en el pie.",
+          "notificationPlayground": "Zona de pruebas de notificaciones",
+          "notificationPlaygroundDescription": "Disparadores solo de desarrollo para comprobar el diseño de los toasts, las acciones de recuperación y el ajuste de textos largos.",
+          "devOnly": "Solo desarrollo"
         },
         "EphemeralVmRecipeRow": {
           "useInWorkspace": "Uso en el espacio de trabajo"
@@ -9321,18 +9321,18 @@
                 "f8a2c91d04": "Queue for agent",
                 "b4e8a1c902": "Queued",
                 "7c1f0a2b11": "Abrir",
-                "e8b4c1a903": "Resolved · {{value0}}",
-                "c3a8e5d710": "Needs review · {{value0}}",
+                "e8b4c1a903": "Resuelto · {{value0}}",
+                "c3a8e5d710": "Necesita revisión · {{value0}}",
                 "a7f0c7e8d1": "Queue",
                 "8a621a2c4f": "Grouped",
                 "b13f85d75c": "Timeline",
                 "f5cf324efa": "Comment display options",
                 "5e6e5a13fa": "View",
-                "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+                "actionRequiredHint": "Esta comprobación necesita una acción manual en GitHub (por ejemplo, aprobar la ejecución del flujo de trabajo) antes de que se desbloquee la fusión."
               },
               "empty": {
                 "state": {
-                  "3322603418": "Pull request status unavailable",
+                  "3322603418": "Estado de la solicitud de extracción no disponible",
                   "5b0cfae9a5": "Cree un {{value0}} para iniciar comprobaciones y revisiones.",
                   "13e1c7d5ed": "No se encontró {{value0}}",
                   "d372072df1": "La actualización de GitHub está pausada por el presupuesto de límite de velocidad actual",
@@ -9348,7 +9348,7 @@
                   "41252bc53f": "Sucursal no publicada",
                   "05e4aec17b": "{{value0}} cheques estarán disponibles una vez completada la operación.",
                   "d77c513c1e": "{{value0}} en progreso",
-                  "b597440265": "Refresh GitHub status for this branch to load checks and review."
+                  "b597440265": "Actualice el estado de GitHub de esta rama para cargar las comprobaciones y la revisión."
                 }
               }
             }
@@ -9484,8 +9484,8 @@
                   "2d8f185fbc": "Prepare todos los cambios antes de enviar archivos parcialmente preparados",
                   "a6457b46a7": "Resolver conflictos antes de comprometerse",
                   "484f45c439": "{{value0}} en progreso…",
-                  "6f7a8b9c0d": "Remote operation in progress…",
-                  "7f8a9b0c1d": "Remote operation in progress — try again once it finishes",
+                  "6f7a8b9c0d": "Operación remota en curso…",
+                  "7f8a9b0c1d": "Operación remota en curso; inténtelo de nuevo cuando termine",
                   "74fc171e99": "Empuje forzado en progreso...",
                   "16aee3a5c1": "Compromiso en progreso...",
                   "e61b0d7a3c": "Cambia a una rama antes de publicar commits.",
@@ -9505,7 +9505,7 @@
                   "d8a4c0e369": "Authenticate before creating a {{value0}}.",
                   "e9b5d1f470": "Check out a branch before creating a {{value0}}.",
                   "f0c6e2a581": "This branch is not ready for a {{value0}} yet.",
-                  "8f9a0b1c2d": "Nothing to commit. Branch is up to date.",
+                  "8f9a0b1c2d": "Nada para hacer commit. La rama está actualizada.",
                   "h3i4j5k607": "Checking whether this branch can create a {{value0}}…"
                 }
               }
@@ -9577,9 +9577,9 @@
             "sessionsShownCompact": "{{value0}} mostradas",
             "originalPaneUnavailable": "Original pane is no longer available.",
             "worktreeUnavailable": "Worktree is no longer available.",
-            "runtimeBrowseLocalHistory": "Runtime-hosted workspaces can browse local history. Resume actions are available in local and SSH workspaces.",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "runtimeBrowseLocalHistory": "Los espacios de trabajo alojados en el runtime pueden explorar el historial local. Las acciones de reanudación están disponibles en espacios de trabajo locales y SSH.",
+            "runtimeWorkspacesUnsupported": "Reanudar desde el historial no está disponible en espacios de trabajo alojados en el runtime.",
+            "openSupportedWorkspace": "Abra un espacio de trabajo local o SSH antes de reanudar una sesión."
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",
@@ -10122,7 +10122,7 @@
           "9883b58693": "Cerrar Orca Móvil",
           "fb5f28330e": "Mostrar en la barra lateral",
           "c669abcf8f": "Ocultar de la barra lateral",
-          "e1c7b4a92d": "Configure in Settings > Mobile.",
+          "e1c7b4a92d": "Configúrelo en Ajustes > Móvil.",
           "a4f8c2d91e": "Remove Orca Mobile from left sidebar",
           "b7e3d1c84a": "Show Orca Mobile in left sidebar",
           "f3d8e5b71a": "Adds the shortcut back to the left sidebar."
@@ -12071,8 +12071,8 @@
         },
         "AutomationSetupDecisionField": {
           "5a7863909c": "Ejecutar la configuración para cada espacio de trabajo nuevo",
-          "18f000ad4e": "Advanced",
-          "874b72195b": "When this automation creates a workspace, prepare it the same way creating a worktree by hand does — run the project's setup and open its terminal tabs."
+          "18f000ad4e": "Avanzado",
+          "874b72195b": "Cuando esta automatización crea un espacio de trabajo, lo prepara igual que al crear un árbol de trabajo a mano: ejecuta la configuración del proyecto y abre sus pestañas de terminal."
         }
       },
       "agent": {

@@ -547,10 +547,10 @@
         "wslDefault": "WSL 既定"
       },
       "sidebarWorktreeActivation": {
-        "wakeEphemeralVmFailed": "Failed to wake ephemeral VM workspace"
+        "wakeEphemeralVmFailed": "一時的な VM ワークスペースの復帰に失敗しました"
       },
       "ephemeralVmWorkspaceTarget": {
-        "projectRootRegistrationFailed": "Failed to register the recipe-created project root on the runtime."
+        "projectRootRegistrationFailed": "レシピで作成されたプロジェクトルートをランタイムに登録できませんでした。"
       }
     },
     "hooks": {
@@ -569,8 +569,8 @@
         "chooseOrAddProjectBeforeWorkspace": "ワークスペースを作成する前に、プロジェクトを選択または追加。",
         "folderWorkspaceCreateFailedTitle": "フォルダーワークスペースを作成できませんでした",
         "folderWorkspaceCreateFailedMessage": "フォルダーワークスペースを作成できませんでした。上のエラー詳細を確認して、もう一度お試しください。",
-        "setupAgentStartupPolicySaveFailed": "Failed to save setup startup behavior.",
-        "5f3d2c8a1b": "Failed to resolve MR base."
+        "setupAgentStartupPolicySaveFailed": "セットアップの起動時の動作を保存できませんでした。",
+        "5f3d2c8a1b": "MR のベースを解決できませんでした。"
       },
       "useGlobalFileDrop": {
         "38c9f034ff": "ドロップされたファイルのアップロードに失敗しました。",
@@ -658,16 +658,16 @@
         "f70ac54d38": "AI プロバイダー アカウント",
         "4121f7a0a2": "AI agents を管理し、デフォルトを設定し、コマンドをカスタマイズします。",
         "b49abbd2f7": "エージェント",
-        "dev": "Dev Tools",
-        "devDescription": "Dev-only tools for exercising UI states.",
+        "dev": "開発ツール",
+        "devDescription": "UI の状態を試すための開発専用ツール。",
         "devBadge": "Dev",
-        "devSearchNotificationPlayground": "Notification playground",
-        "devSearchNotificationPlaygroundDescription": "Trigger representative toast and notification UI states.",
-        "devSearchKeywordDev": "dev",
-        "devSearchKeywordToast": "toast",
+        "devSearchNotificationPlayground": "通知プレイグラウンド",
+        "devSearchNotificationPlaygroundDescription": "代表的なトーストと通知の UI 状態をトリガーします。",
+        "devSearchKeywordDev": "開発",
+        "devSearchKeywordToast": "トースト",
         "devSearchKeywordSonner": "sonner",
-        "devSearchKeywordError": "error",
-        "devSearchKeywordNotification": "notification"
+        "devSearchKeywordError": "エラー",
+        "devSearchKeywordNotification": "通知"
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "貼り付け内容が大きすぎます。"
@@ -874,22 +874,22 @@
         "5c1c973855": "レビュアーを削除",
         "commentTooLarge": "コメントが大きすぎるため安全に送信できません。",
         "timeline": {
-          "completed": "as completed",
-          "notPlanned": "as not planned",
-          "someone": "someone",
-          "assigned": "assigned",
-          "unassigned": "unassigned",
-          "mentioned": "mentioned this",
-          "in": "in",
-          "closed": "closed this",
-          "reopened": "reopened this",
-          "moved": "moved this",
-          "from": "from",
-          "to": "to",
-          "activity": "Activity",
-          "noActivity": "No activity yet."
+          "completed": "完了として",
+          "notPlanned": "未計画として",
+          "someone": "誰か",
+          "assigned": "割り当てました",
+          "unassigned": "割り当てを解除しました",
+          "mentioned": "これに言及しました",
+          "in": "で",
+          "closed": "これをクローズしました",
+          "reopened": "これを再オープンしました",
+          "moved": "これを移動しました",
+          "from": "から",
+          "to": "へ",
+          "activity": "アクティビティ",
+          "noActivity": "まだアクティビティはありません。"
         },
-        "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+        "checkActionRequiredHint": "このチェックでは、マージのブロックを解除する前に GitHub での手動操作（たとえば、ワークフロー実行の承認）が必要です。"
       },
       "GitLabItemDialog": {
         "65e784c1f1": "再度開く",
@@ -2462,7 +2462,7 @@
             "c2f0b72b8d": "入れる",
             "925f49f210": "ペインを展開する",
             "df766809e0": "ペインを折りたたむ",
-            "cff67afad1": "Copy Context"
+            "cff67afad1": "コンテキストをコピー"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "デーモンを再起動します",
@@ -2595,8 +2595,8 @@
             "localWorkspacesOnly": "履歴からの再開はローカルワークスペースでのみ利用できます。",
             "openLocalWorkspace": "セッションを再開する前にローカルワークスペースを開いてください。",
             "sessionQueued": "セッションをキューに追加しました",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "runtimeWorkspacesUnsupported": "ランタイムでホストされるワークスペースでは、履歴からの再開は利用できません。",
+            "openSupportedWorkspace": "セッションを再開する前に、ローカルまたは SSH のワークスペースを開いてください。"
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "新しい分割"
@@ -4492,7 +4492,7 @@
           "saving": "保存中...",
           "save": "保存",
           "label": "ラベル",
-          "sshLabelPlaceholder": "Dev box",
+          "sshLabelPlaceholder": "開発マシン",
           "sshHost": "ホストまたはエイリアス",
           "sshHostPlaceholder": "deploy@server:22",
           "username": "ユーザー名",
@@ -4501,7 +4501,7 @@
           "identityFile": "アイデンティティファイル",
           "identityFilePlaceholder": "~/.ssh/id_ed25519 (オプション)",
           "serverName": "サーバー名",
-          "serverNamePlaceholder": "Dev box",
+          "serverNamePlaceholder": "開発マシン",
           "pairingCode": "ペアリングコード",
           "pairingCodePlaceholder": "orca://pair?code=...",
           "pairingHelpPrefix": "サーバーで実行",
@@ -4768,7 +4768,7 @@
           "windowSidebarSummary": "サイドバー、ステータスバー、ファイルエクスプローラー",
           "statusBarCount": "{{value0}} 個のインジケーターが表示中。",
           "gitIgnoredGlossary": ".gitignore に一致するファイル。",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "ステータスバーに表示するインジケーターを選択します。"
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -6176,8 +6176,8 @@
           "23c6874fdf": "AI 機能",
           "2309068a6f": "破壊的な",
           "65358016ea": "破棄",
-          "dev": "Dev Tools",
-          "devDescription": "Dev-only tools for exercising UI states."
+          "dev": "開発ツール",
+          "devDescription": "UI の状態を試すための開発専用ツール。"
         },
         "SettingsFormControls": {
           "42a4d15a30": "一致するフォントがありません。",
@@ -8121,7 +8121,7 @@
               "keyword_warp": "warp",
               "keyword_themes": "テーマ",
               "keyword_yaml": "yaml",
-              "keyword_legacy_title": "Import themes from Warp"
+              "keyword_legacy_title": "Warp からテーマをインポート"
             },
             "yaml_import": {
               "title": "YAML からインポート",
@@ -8624,7 +8624,7 @@
           "b94ff260e6": "Android Studioをダウンロード",
           "18925b082d": "SDKフォルダーを見つけます",
           "8c52684db8": "クリア",
-          "76eb88b88e": "iOS Simulator (Xcode)",
+          "76eb88b88e": "iOS シミュレーター (Xcode)",
           "c6f3ea4f12": "準備完了",
           "e4f14b50d7": "Xcode をインストールし、iOS シミュレーター ランタイムを追加します。",
           "63fe73a1ea": "Android SDK フォルダーを更新できませんでした。"
@@ -8633,34 +8633,34 @@
           "advanced": "詳細設定"
         },
         "DevToolsPane": {
-          "nativeActionLayoutCheck": "Native action layout check",
-          "secondary": "Secondary",
-          "secondaryActionClicked": "Secondary action clicked",
-          "primaryAction": "Primary action",
-          "primaryActionClicked": "Primary action clicked",
-          "branchHasChanges": "branch has changes",
-          "viewChangesClicked": "View Changes clicked",
-          "forceDeleteClicked": "Force Delete clicked",
-          "devOnlyCallback": "Dev-only callback.",
-          "infoToast": "Info toast",
-          "infoToastDescription": "Long informational copy with no explicit action.",
-          "localCanaryBehind": "Local canary is behind origin/canary",
-          "successToast": "Success toast",
-          "successToastDescription": "Short confirmation state.",
-          "settingsSaved": "Settings saved",
-          "shortSuccessCopy": "Short success copy.",
-          "errorToast": "Error toast",
-          "errorToastDescription": "Long error copy without recovery actions.",
-          "failedToSyncWorkspaceMetadata": "Failed to sync workspace metadata",
-          "nativeActionToast": "Native action toast",
-          "nativeActionToastDescription": "Uses Sonner action and cancel slots.",
-          "deleteFailureToast": "Delete failure toast",
-          "deleteFailureToastDescription": "Custom footer with View and Force Delete.",
-          "behindBaseRefToast": "Behind base ref toast",
-          "behindBaseRefToastDescription": "Persistent prompt with an inline Settings link and footer action.",
-          "notificationPlayground": "Notification playground",
-          "notificationPlaygroundDescription": "Dev-only triggers for checking toast layout, recovery actions, and long-copy wrapping.",
-          "devOnly": "Dev only"
+          "nativeActionLayoutCheck": "ネイティブアクションのレイアウト確認",
+          "secondary": "セカンダリ",
+          "secondaryActionClicked": "セカンダリアクションがクリックされました",
+          "primaryAction": "プライマリアクション",
+          "primaryActionClicked": "プライマリアクションがクリックされました",
+          "branchHasChanges": "ブランチに変更があります",
+          "viewChangesClicked": "「変更を表示」がクリックされました",
+          "forceDeleteClicked": "「強制削除」がクリックされました",
+          "devOnlyCallback": "開発専用のコールバック。",
+          "infoToast": "情報トースト",
+          "infoToastDescription": "明示的なアクションのない長い情報テキスト。",
+          "localCanaryBehind": "ローカルの canary が origin/canary より遅れています",
+          "successToast": "成功トースト",
+          "successToastDescription": "短い確認状態。",
+          "settingsSaved": "設定を保存しました",
+          "shortSuccessCopy": "短い成功テキスト。",
+          "errorToast": "エラートースト",
+          "errorToastDescription": "回復アクションのない長いエラーテキスト。",
+          "failedToSyncWorkspaceMetadata": "ワークスペースのメタデータの同期に失敗しました",
+          "nativeActionToast": "ネイティブアクショントースト",
+          "nativeActionToastDescription": "Sonner のアクションスロットとキャンセルスロットを使用します。",
+          "deleteFailureToast": "削除失敗トースト",
+          "deleteFailureToastDescription": "「表示」と「強制削除」を備えたカスタムフッター。",
+          "behindBaseRefToast": "基本参照より遅れている場合のトースト",
+          "behindBaseRefToastDescription": "インラインの設定リンクとフッターアクションを備えた永続的なプロンプト。",
+          "notificationPlayground": "通知プレイグラウンド",
+          "notificationPlaygroundDescription": "トーストのレイアウト、回復アクション、長文の折り返しを確認するための開発専用トリガー。",
+          "devOnly": "開発専用"
         },
         "EphemeralVmRecipeRow": {
           "useInWorkspace": "ワークスペースでの使用"
@@ -8853,7 +8853,7 @@
             "d0fb0f4bf2": "commits を更新する",
             "9f7535d22b": "Ref は、その commit そのものを指すブランチ名またはタグ名です。これらは、Git に commit の名前付き参照がある場合にのみ表示されます。",
             "9289ba0cb9": "リファレンスとは何ですか?",
-            "d836037d02": "Commits",
+            "d836037d02": "コミット",
             "8232c8b2f2": "commit {{value0}}: {{value1}} を開く",
             "9a8b85882d": "読み込み中",
             "62e685d5ec": "idle",
@@ -9321,18 +9321,18 @@
                 "f8a2c91d04": "Queue for agent",
                 "b4e8a1c902": "Queued",
                 "7c1f0a2b11": "開く",
-                "e8b4c1a903": "Resolved · {{value0}}",
-                "c3a8e5d710": "Needs review · {{value0}}",
+                "e8b4c1a903": "解決済み · {{value0}}",
+                "c3a8e5d710": "レビュー待ち · {{value0}}",
                 "a7f0c7e8d1": "Queue",
                 "8a621a2c4f": "Grouped",
                 "b13f85d75c": "Timeline",
                 "f5cf324efa": "Comment display options",
                 "5e6e5a13fa": "View",
-                "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+                "actionRequiredHint": "このチェックでは、マージのブロックを解除する前に GitHub での手動操作（たとえば、ワークフロー実行の承認）が必要です。"
               },
               "empty": {
                 "state": {
-                  "3322603418": "Pull request status unavailable",
+                  "3322603418": "PR のステータスは利用できません",
                   "5b0cfae9a5": "{{value0}} を作成してチェックとレビューを開始します。",
                   "13e1c7d5ed": "{{value0}} が見つかりませんでした",
                   "d372072df1": "現在のレート制限予算により GitHub の更新が一時停止されています",
@@ -9348,7 +9348,7 @@
                   "41252bc53f": "ブランチは公開されていません",
                   "05e4aec17b": "{{value0}} チェックは操作の完了後に利用可能になります",
                   "d77c513c1e": "{{value0}} が進行中です",
-                  "b597440265": "Refresh GitHub status for this branch to load checks and review."
+                  "b597440265": "このブランチの GitHub ステータスを更新して、チェックとレビューを読み込みます。"
                 }
               }
             }
@@ -9484,8 +9484,8 @@
                   "2d8f185fbc": "部分的にステージングされたファイルを commit する前に、すべての変更をステージングします。",
                   "a6457b46a7": "commit する前に競合を解決する",
                   "484f45c439": "{{value0}} が進行中です…",
-                  "6f7a8b9c0d": "Remote operation in progress…",
-                  "7f8a9b0c1d": "Remote operation in progress — try again once it finishes",
+                  "6f7a8b9c0d": "リモート操作が進行中です…",
+                  "7f8a9b0c1d": "リモート操作が進行中です。完了したらもう一度お試しください",
                   "74fc171e99": "強制プッシュ中です…",
                   "16aee3a5c1": "Commit 中です…",
                   "e61b0d7a3c": "commits を公開する前にブランチをチェックアウトしてください。",
@@ -9505,7 +9505,7 @@
                   "d8a4c0e369": "Authenticate before creating a {{value0}}.",
                   "e9b5d1f470": "Check out a branch before creating a {{value0}}.",
                   "f0c6e2a581": "This branch is not ready for a {{value0}} yet.",
-                  "8f9a0b1c2d": "Nothing to commit. Branch is up to date.",
+                  "8f9a0b1c2d": "commit するものがありません。ブランチは最新の状態です。",
                   "h3i4j5k607": "Checking whether this branch can create a {{value0}}…"
                 }
               }
@@ -9577,9 +9577,9 @@
             "sessionsShownCompact": "{{value0}} 件表示",
             "originalPaneUnavailable": "元のペインは利用できなくなりました。",
             "worktreeUnavailable": "ワークツリーは利用できなくなりました。",
-            "runtimeBrowseLocalHistory": "Runtime-hosted workspaces can browse local history. Resume actions are available in local and SSH workspaces.",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "runtimeBrowseLocalHistory": "ランタイムでホストされるワークスペースではローカル履歴を閲覧できます。再開アクションはローカルおよび SSH のワークスペースで利用できます。",
+            "runtimeWorkspacesUnsupported": "ランタイムでホストされるワークスペースでは、履歴からの再開は利用できません。",
+            "openSupportedWorkspace": "セッションを再開する前に、ローカルまたは SSH のワークスペースを開いてください。"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",
@@ -10122,7 +10122,7 @@
           "9883b58693": "Orca モバイルを閉じる",
           "fb5f28330e": "サイドバーに表示",
           "c669abcf8f": "サイドバーから隠す",
-          "e1c7b4a92d": "Configure in Settings > Mobile.",
+          "e1c7b4a92d": "[設定] > [モバイル] で構成します。",
           "a4f8c2d91e": "Remove Orca Mobile from left sidebar",
           "b7e3d1c84a": "Show Orca Mobile in left sidebar",
           "f3d8e5b71a": "Adds the shortcut back to the left sidebar."
@@ -12071,8 +12071,8 @@
         },
         "AutomationSetupDecisionField": {
           "5a7863909c": "新しいワークスペースごとにセットアップを実行",
-          "18f000ad4e": "Advanced",
-          "874b72195b": "When this automation creates a workspace, prepare it the same way creating a worktree by hand does — run the project's setup and open its terminal tabs."
+          "18f000ad4e": "詳細設定",
+          "874b72195b": "この自動化がワークスペースを作成するときは、手動でワークツリーを作成する場合と同じように準備します。プロジェクトのセットアップを実行し、ターミナルタブを開きます。"
         }
       },
       "agent": {

@@ -547,10 +547,10 @@
         "wslDefault": "WSL 默认"
       },
       "sidebarWorktreeActivation": {
-        "wakeEphemeralVmFailed": "Failed to wake ephemeral VM workspace"
+        "wakeEphemeralVmFailed": "无法唤醒临时 VM 工作区"
       },
       "ephemeralVmWorkspaceTarget": {
-        "projectRootRegistrationFailed": "Failed to register the recipe-created project root on the runtime."
+        "projectRootRegistrationFailed": "无法在运行时上注册由配方创建的项目根目录。"
       }
     },
     "hooks": {
@@ -569,8 +569,8 @@
         "chooseOrAddProjectBeforeWorkspace": "创建工作区前，请选择或添加项目。",
         "folderWorkspaceCreateFailedTitle": "文件夹工作区创建失败",
         "folderWorkspaceCreateFailedMessage": "无法创建文件夹工作区。请查看上方错误详情，然后重试。",
-        "setupAgentStartupPolicySaveFailed": "Failed to save setup startup behavior.",
-        "5f3d2c8a1b": "Failed to resolve MR base."
+        "setupAgentStartupPolicySaveFailed": "无法保存设置启动行为。",
+        "5f3d2c8a1b": "无法解析 MR 基础分支。"
       },
       "useGlobalFileDrop": {
         "38c9f034ff": "无法上传删除的文件。",
@@ -658,16 +658,16 @@
         "f70ac54d38": "AI 提供商账户",
         "4121f7a0a2": "管理 AI 智能体、设置默认值并自定义命令。",
         "b49abbd2f7": "智能体",
-        "dev": "Dev Tools",
-        "devDescription": "Dev-only tools for exercising UI states.",
+        "dev": "开发工具",
+        "devDescription": "仅供开发使用的工具，用于检验 UI 状态。",
         "devBadge": "Dev",
-        "devSearchNotificationPlayground": "Notification playground",
-        "devSearchNotificationPlaygroundDescription": "Trigger representative toast and notification UI states.",
-        "devSearchKeywordDev": "dev",
+        "devSearchNotificationPlayground": "通知演练场",
+        "devSearchNotificationPlaygroundDescription": "触发具有代表性的 toast 和通知 UI 状态。",
+        "devSearchKeywordDev": "开发",
         "devSearchKeywordToast": "toast",
         "devSearchKeywordSonner": "sonner",
-        "devSearchKeywordError": "error",
-        "devSearchKeywordNotification": "notification"
+        "devSearchKeywordError": "错误",
+        "devSearchKeywordNotification": "通知"
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "粘贴内容过大。"
@@ -874,22 +874,22 @@
         "5c1c973855": "移除评审人",
         "commentTooLarge": "评论过长，无法安全提交。",
         "timeline": {
-          "completed": "as completed",
-          "notPlanned": "as not planned",
-          "someone": "someone",
-          "assigned": "assigned",
-          "unassigned": "unassigned",
-          "mentioned": "mentioned this",
-          "in": "in",
-          "closed": "closed this",
-          "reopened": "reopened this",
-          "moved": "moved this",
-          "from": "from",
-          "to": "to",
-          "activity": "Activity",
-          "noActivity": "No activity yet."
+          "completed": "为已完成",
+          "notPlanned": "为未计划",
+          "someone": "某人",
+          "assigned": "已分配",
+          "unassigned": "已取消分配",
+          "mentioned": "提到了此项",
+          "in": "于",
+          "closed": "关闭了此项",
+          "reopened": "重新打开了此项",
+          "moved": "移动了此项",
+          "from": "从",
+          "to": "到",
+          "activity": "活动",
+          "noActivity": "暂无活动。"
         },
-        "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+        "checkActionRequiredHint": "此检查需要在 GitHub 上执行手动操作（例如批准工作流运行），合并才能解除阻止。"
       },
       "GitLabItemDialog": {
         "65e784c1f1": "重新打开",
@@ -2462,7 +2462,7 @@
             "c2f0b72b8d": "插入",
             "925f49f210": "展开窗格",
             "df766809e0": "折叠窗格",
-            "cff67afad1": "Copy Context"
+            "cff67afad1": "复制上下文"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "重新启动守护进程",
@@ -2595,8 +2595,8 @@
             "localWorkspacesOnly": "从历史恢复仅支持本地工作区。",
             "openLocalWorkspace": "恢复会话前请先打开一个本地工作区。",
             "sessionQueued": "会话已排队",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "runtimeWorkspacesUnsupported": "运行时托管的工作区不支持从历史恢复。",
+            "openSupportedWorkspace": "请先打开本地或 SSH 工作区，再恢复会话。"
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "新建拆分"
@@ -4492,7 +4492,7 @@
           "saving": "正在保存...",
           "save": "保存",
           "label": "标签",
-          "sshLabelPlaceholder": "Dev box",
+          "sshLabelPlaceholder": "开发机",
           "sshHost": "主机或别名",
           "sshHostPlaceholder": "deploy@server:22",
           "username": "用户名",
@@ -4501,7 +4501,7 @@
           "identityFile": "身份文件",
           "identityFilePlaceholder": "~/.ssh/id_ed25519（可选）",
           "serverName": "服务器名称",
-          "serverNamePlaceholder": "Dev box",
+          "serverNamePlaceholder": "开发机",
           "pairingCode": "配对码",
           "pairingCodePlaceholder": "orca://pair?code=...",
           "pairingHelpPrefix": "在服务器上运行",
@@ -4768,7 +4768,7 @@
           "windowSidebarSummary": "侧边栏、状态栏和文件浏览器",
           "statusBarCount": "显示 {{value0}} 个指示器。",
           "gitIgnoredGlossary": "与 .gitignore 匹配的文件。",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "选择在状态栏中显示哪些指示器。"
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -6139,8 +6139,8 @@
           "23c6874fdf": "AI 能力",
           "2309068a6f": "destructive",
           "65358016ea": "放弃",
-          "dev": "Dev Tools",
-          "devDescription": "Dev-only tools for exercising UI states."
+          "dev": "开发工具",
+          "devDescription": "仅供开发使用的工具，用于检验 UI 状态。"
         },
         "SettingsFormControls": {
           "42a4d15a30": "没有匹配的字体。",
@@ -7701,7 +7701,7 @@
             "d3f1c48677": "当后台终端发出响铃字符时发出通知。",
             "a5edee1d99": "终端响铃",
             "193e1f107c": "任务",
-            "dd9d3e5f0f": "idle",
+            "dd9d3e5f0f": "空闲",
             "5f7472d3fb": "完全的",
             "7fa07e9600": "智能体",
             "10d83ef8dc": "当编码智能体从工作状态转换为空闲状态时发出通知。",
@@ -8186,7 +8186,7 @@
               "keyword_warp": "warp",
               "keyword_themes": "themes",
               "keyword_yaml": "yaml",
-              "keyword_legacy_title": "Import themes from Warp"
+              "keyword_legacy_title": "从 Warp 导入主题"
             },
             "yaml_import": {
               "title": "从 YAML 导入",
@@ -8624,7 +8624,7 @@
           "b94ff260e6": "下载 Android Studio",
           "18925b082d": "定位 SDK 文件夹",
           "8c52684db8": "清除",
-          "76eb88b88e": "iOS Simulator (Xcode)",
+          "76eb88b88e": "iOS 模拟器 (Xcode)",
           "c6f3ea4f12": "已就绪",
           "e4f14b50d7": "请安装 Xcode 并添加 iOS 模拟器运行时。",
           "63fe73a1ea": "无法更新 Android SDK 文件夹。"
@@ -8633,34 +8633,34 @@
           "advanced": "高级"
         },
         "DevToolsPane": {
-          "nativeActionLayoutCheck": "Native action layout check",
-          "secondary": "Secondary",
-          "secondaryActionClicked": "Secondary action clicked",
-          "primaryAction": "Primary action",
-          "primaryActionClicked": "Primary action clicked",
-          "branchHasChanges": "branch has changes",
-          "viewChangesClicked": "View Changes clicked",
-          "forceDeleteClicked": "Force Delete clicked",
-          "devOnlyCallback": "Dev-only callback.",
-          "infoToast": "Info toast",
-          "infoToastDescription": "Long informational copy with no explicit action.",
-          "localCanaryBehind": "Local canary is behind origin/canary",
-          "successToast": "Success toast",
-          "successToastDescription": "Short confirmation state.",
-          "settingsSaved": "Settings saved",
-          "shortSuccessCopy": "Short success copy.",
-          "errorToast": "Error toast",
-          "errorToastDescription": "Long error copy without recovery actions.",
-          "failedToSyncWorkspaceMetadata": "Failed to sync workspace metadata",
-          "nativeActionToast": "Native action toast",
-          "nativeActionToastDescription": "Uses Sonner action and cancel slots.",
-          "deleteFailureToast": "Delete failure toast",
-          "deleteFailureToastDescription": "Custom footer with View and Force Delete.",
-          "behindBaseRefToast": "Behind base ref toast",
-          "behindBaseRefToastDescription": "Persistent prompt with an inline Settings link and footer action.",
-          "notificationPlayground": "Notification playground",
-          "notificationPlaygroundDescription": "Dev-only triggers for checking toast layout, recovery actions, and long-copy wrapping.",
-          "devOnly": "Dev only"
+          "nativeActionLayoutCheck": "原生操作布局检查",
+          "secondary": "次要",
+          "secondaryActionClicked": "已点击次要操作",
+          "primaryAction": "主要操作",
+          "primaryActionClicked": "已点击主要操作",
+          "branchHasChanges": "分支有更改",
+          "viewChangesClicked": "已点击“查看更改”",
+          "forceDeleteClicked": "已点击“强制删除”",
+          "devOnlyCallback": "仅供开发的回调。",
+          "infoToast": "信息 toast",
+          "infoToastDescription": "不带明确操作的长信息文案。",
+          "localCanaryBehind": "本地 canary 落后于 origin/canary",
+          "successToast": "成功 toast",
+          "successToastDescription": "简短的确认状态。",
+          "settingsSaved": "设置已保存",
+          "shortSuccessCopy": "简短的成功文案。",
+          "errorToast": "错误 toast",
+          "errorToastDescription": "不带恢复操作的长错误文案。",
+          "failedToSyncWorkspaceMetadata": "同步工作区元数据失败",
+          "nativeActionToast": "原生操作 toast",
+          "nativeActionToastDescription": "使用 Sonner 的操作和取消插槽。",
+          "deleteFailureToast": "删除失败 toast",
+          "deleteFailureToastDescription": "带有“查看”和“强制删除”的自定义页脚。",
+          "behindBaseRefToast": "落后于基础引用的 toast",
+          "behindBaseRefToastDescription": "带有内联设置链接和页脚操作的常驻提示。",
+          "notificationPlayground": "通知演练场",
+          "notificationPlaygroundDescription": "仅供开发使用的触发器，用于检查 toast 布局、恢复操作和长文案换行。",
+          "devOnly": "仅限开发"
         },
         "EphemeralVmRecipeRow": {
           "useInWorkspace": "在工作区中使用"
@@ -8853,10 +8853,10 @@
             "d0fb0f4bf2": "刷新 commits",
             "9f7535d22b": "引用是指向该确切 commit 的分支或标记名称。它们仅出现在 Git 具有 commit 的命名引用的地方。",
             "9289ba0cb9": "什么是参考文献？",
-            "d836037d02": "Commits",
+            "d836037d02": "提交",
             "8232c8b2f2": "打开 commit {{value0}}: {{value1}}",
             "9a8b85882d": "加载中",
-            "62e685d5ec": "idle",
+            "62e685d5ec": "空闲",
             "111e1d0db4": "错误",
             "e5e81e59a6": "调整 commits 大小",
             "6d1e0a7c3b": "无法加载提交文件"
@@ -9321,18 +9321,18 @@
                 "f8a2c91d04": "加入智能体队列",
                 "b4e8a1c902": "已加入队列",
                 "7c1f0a2b11": "打开",
-                "e8b4c1a903": "Resolved · {{value0}}",
-                "c3a8e5d710": "Needs review · {{value0}}",
+                "e8b4c1a903": "已解决 · {{value0}}",
+                "c3a8e5d710": "待评审 · {{value0}}",
                 "a7f0c7e8d1": "加入队列",
                 "8a621a2c4f": "已分组",
                 "b13f85d75c": "时间线",
                 "f5cf324efa": "评论显示选项",
                 "5e6e5a13fa": "查看",
-                "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+                "actionRequiredHint": "此检查需要在 GitHub 上执行手动操作（例如批准工作流运行），合并才能解除阻止。"
               },
               "empty": {
                 "state": {
-                  "3322603418": "Pull request status unavailable",
+                  "3322603418": "PR 状态不可用",
                   "5b0cfae9a5": "创建 {{value0}} 以开始检查和评审。",
                   "13e1c7d5ed": "未找到 {{value0}}",
                   "d372072df1": "GitHub 刷新因当前速率限制预算而暂停",
@@ -9348,7 +9348,7 @@
                   "41252bc53f": "分支未发布",
                   "05e4aec17b": "{{value0}} 检查将在操作完成后可用",
                   "d77c513c1e": "{{value0}} 正在进行中",
-                  "b597440265": "Refresh GitHub status for this branch to load checks and review."
+                  "b597440265": "刷新此分支的 GitHub 状态以加载检查和评审。"
                 }
               }
             }
@@ -9458,13 +9458,13 @@
                   "9e779995dd": "创建 {{value0}}",
                   "226b85a3a7": "fetch",
                   "323bb614aa": "Commit 并同步",
-                  "2b8e6595fd": "Commit",
+                  "2b8e6595fd": "提交",
                   "04d709801d": "从远程获取但不合并"
                 }
               },
               "primary": {
                 "action": {
-                  "ed93b4f14f": "Commit",
+                  "ed93b4f14f": "提交",
                   "946a8a05ea": "为此分支创建 {{value0}}",
                   "e7ffa46946": "创建 {{value0}}",
                   "95550cff15": "推",
@@ -9484,8 +9484,8 @@
                   "2d8f185fbc": "在提交部分暂存的文件之前暂存所有更改",
                   "a6457b46a7": "提交前解决冲突",
                   "484f45c439": "{{value0}} 正在进行中...",
-                  "6f7a8b9c0d": "Remote operation in progress…",
-                  "7f8a9b0c1d": "Remote operation in progress — try again once it finishes",
+                  "6f7a8b9c0d": "远程操作进行中…",
+                  "7f8a9b0c1d": "远程操作进行中 — 完成后请重试",
                   "74fc171e99": "强制推送正在进行中...",
                   "16aee3a5c1": "正在进行中……",
                   "e61b0d7a3c": "请先检出分支再发布 commits。",
@@ -9505,7 +9505,7 @@
                   "d8a4c0e369": "Authenticate before creating a {{value0}}.",
                   "e9b5d1f470": "Check out a branch before creating a {{value0}}.",
                   "f0c6e2a581": "This branch is not ready for a {{value0}} yet.",
-                  "8f9a0b1c2d": "Nothing to commit. Branch is up to date.",
+                  "8f9a0b1c2d": "没有可提交的内容。分支已是最新。",
                   "h3i4j5k607": "Checking whether this branch can create a {{value0}}…"
                 }
               }
@@ -9577,9 +9577,9 @@
             "sessionsShownCompact": "已显示 {{value0}} 个",
             "originalPaneUnavailable": "Original pane is no longer available.",
             "worktreeUnavailable": "Worktree is no longer available.",
-            "runtimeBrowseLocalHistory": "Runtime-hosted workspaces can browse local history. Resume actions are available in local and SSH workspaces.",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "runtimeBrowseLocalHistory": "运行时托管的工作区可以浏览本地历史。恢复操作可在本地和 SSH 工作区中使用。",
+            "runtimeWorkspacesUnsupported": "运行时托管的工作区不支持从历史恢复。",
+            "openSupportedWorkspace": "请先打开本地或 SSH 工作区，再恢复会话。"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "正在扫描会话",
@@ -10122,7 +10122,7 @@
           "9883b58693": "关闭 Orca 手机",
           "fb5f28330e": "在侧边栏中显示",
           "c669abcf8f": "从侧边栏隐藏",
-          "e1c7b4a92d": "Configure in Settings > Mobile.",
+          "e1c7b4a92d": "请在“设置”>“移动”中配置。",
           "a4f8c2d91e": "Remove Orca手机端 from left sidebar",
           "b7e3d1c84a": "Show Orca手机端 in left sidebar",
           "f3d8e5b71a": "Adds the shortcut back to the left sidebar."
@@ -12071,8 +12071,8 @@
         },
         "AutomationSetupDecisionField": {
           "5a7863909c": "为每个新工作区运行设置",
-          "18f000ad4e": "Advanced",
-          "874b72195b": "When this automation creates a workspace, prepare it the same way creating a worktree by hand does — run the project's setup and open its terminal tabs."
+          "18f000ad4e": "高级",
+          "874b72195b": "当此自动化创建工作区时，会像手动创建工作树一样进行准备——运行项目的设置并打开其终端标签页。"
         }
       },
       "agent": {

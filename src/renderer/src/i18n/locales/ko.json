@@ -547,10 +547,10 @@
         "wslDefault": "WSL 기본값"
       },
       "sidebarWorktreeActivation": {
-        "wakeEphemeralVmFailed": "Failed to wake ephemeral VM workspace"
+        "wakeEphemeralVmFailed": "임시 VM 워크스페이스를 깨우지 못했습니다"
       },
       "ephemeralVmWorkspaceTarget": {
-        "projectRootRegistrationFailed": "Failed to register the recipe-created project root on the runtime."
+        "projectRootRegistrationFailed": "레시피로 생성된 프로젝트 루트를 런타임에 등록하지 못했습니다."
       }
     },
     "hooks": {
@@ -569,8 +569,8 @@
         "chooseOrAddProjectBeforeWorkspace": "워크스페이스를 만들기 전에 프로젝트를 선택하거나 추가하세요.",
         "folderWorkspaceCreateFailedTitle": "폴더 워크스페이스를 만들지 못했습니다",
         "folderWorkspaceCreateFailedMessage": "폴더 워크스페이스를 만들 수 없습니다. 위의 오류 세부 정보를 확인한 뒤 다시 시도하세요.",
-        "setupAgentStartupPolicySaveFailed": "Failed to save setup startup behavior.",
-        "5f3d2c8a1b": "Failed to resolve MR base."
+        "setupAgentStartupPolicySaveFailed": "설정 시작 동작을 저장하지 못했습니다.",
+        "5f3d2c8a1b": "MR 베이스를 확인하지 못했습니다."
       },
       "useGlobalFileDrop": {
         "38c9f034ff": "드롭한 파일을 업로드하지 못했습니다.",
@@ -658,16 +658,16 @@
         "f70ac54d38": "AI 제공업체 계정",
         "4121f7a0a2": "AI agents를 관리하고, 기본값을 설정하고, 명령을 사용자 정의하세요.",
         "b49abbd2f7": "에이전트",
-        "dev": "Dev Tools",
-        "devDescription": "Dev-only tools for exercising UI states.",
+        "dev": "개발 도구",
+        "devDescription": "UI 상태를 시험하기 위한 개발 전용 도구입니다.",
         "devBadge": "Dev",
-        "devSearchNotificationPlayground": "Notification playground",
-        "devSearchNotificationPlaygroundDescription": "Trigger representative toast and notification UI states.",
-        "devSearchKeywordDev": "dev",
-        "devSearchKeywordToast": "toast",
+        "devSearchNotificationPlayground": "알림 플레이그라운드",
+        "devSearchNotificationPlaygroundDescription": "대표적인 토스트 및 알림 UI 상태를 트리거합니다.",
+        "devSearchKeywordDev": "개발",
+        "devSearchKeywordToast": "토스트",
         "devSearchKeywordSonner": "sonner",
-        "devSearchKeywordError": "error",
-        "devSearchKeywordNotification": "notification"
+        "devSearchKeywordError": "오류",
+        "devSearchKeywordNotification": "알림"
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "붙여넣기 내용이 너무 큽니다."
@@ -874,22 +874,22 @@
         "5c1c973855": "리뷰어 삭제",
         "commentTooLarge": "댓글이 너무 커서 안전하게 제출할 수 없습니다.",
         "timeline": {
-          "completed": "as completed",
-          "notPlanned": "as not planned",
-          "someone": "someone",
-          "assigned": "assigned",
-          "unassigned": "unassigned",
-          "mentioned": "mentioned this",
-          "in": "in",
-          "closed": "closed this",
-          "reopened": "reopened this",
-          "moved": "moved this",
-          "from": "from",
-          "to": "to",
-          "activity": "Activity",
-          "noActivity": "No activity yet."
+          "completed": "완료됨으로",
+          "notPlanned": "계획되지 않음으로",
+          "someone": "누군가",
+          "assigned": "할당함",
+          "unassigned": "할당 해제함",
+          "mentioned": "이 항목을 언급함",
+          "in": "에서",
+          "closed": "이 항목을 닫음",
+          "reopened": "이 항목을 다시 엶",
+          "moved": "이 항목을 이동함",
+          "from": "에서",
+          "to": "(으)로",
+          "activity": "활동",
+          "noActivity": "아직 활동이 없습니다."
         },
-        "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+        "checkActionRequiredHint": "이 검사는 병합 차단이 해제되기 전에 GitHub에서 수동 작업(예: 워크플로 실행 승인)이 필요합니다."
       },
       "GitLabItemDialog": {
         "65e784c1f1": "다시 열기",
@@ -2462,7 +2462,7 @@
             "c2f0b72b8d": "삽입",
             "925f49f210": "창 확장",
             "df766809e0": "창 축소",
-            "cff67afad1": "Copy Context"
+            "cff67afad1": "컨텍스트 복사"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "데몬 재시작",
@@ -2595,8 +2595,8 @@
             "localWorkspacesOnly": "기록에서 재개하기는 로컬 워크스페이스에서만 사용할 수 있습니다.",
             "openLocalWorkspace": "세션을 재개하기 전에 로컬 워크스페이스를 여세요.",
             "sessionQueued": "세션이 대기열에 추가됨",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "runtimeWorkspacesUnsupported": "런타임 호스팅 워크스페이스에서는 기록에서 재개하기를 사용할 수 없습니다.",
+            "openSupportedWorkspace": "세션을 재개하기 전에 로컬 또는 SSH 워크스페이스를 여세요."
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "새 분할"
@@ -4492,7 +4492,7 @@
           "saving": "저장 중...",
           "save": "저장",
           "label": "레이블",
-          "sshLabelPlaceholder": "Dev box",
+          "sshLabelPlaceholder": "개발 머신",
           "sshHost": "호스트 또는 별칭",
           "sshHostPlaceholder": "deploy@server:22",
           "username": "사용자 이름",
@@ -4501,7 +4501,7 @@
           "identityFile": "신원 파일",
           "identityFilePlaceholder": "~/.ssh/id_ed25519 (선택 사항)",
           "serverName": "서버 이름",
-          "serverNamePlaceholder": "Dev box",
+          "serverNamePlaceholder": "개발 머신",
           "pairingCode": "페어링 코드",
           "pairingCodePlaceholder": "orca://pair?code=...",
           "pairingHelpPrefix": "서버에서 실행",
@@ -4768,7 +4768,7 @@
           "windowSidebarSummary": "사이드바, 상태 표시줄 및 파일 탐색기",
           "statusBarCount": "{{value0}}개 표시기가 보입니다.",
           "gitIgnoredGlossary": ".gitignore와 일치하는 파일.",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "상태 표시줄에 표시할 표시기를 선택하세요."
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -6139,8 +6139,8 @@
           "23c6874fdf": "AI 기능",
           "2309068a6f": "파괴적",
           "65358016ea": "버리기",
-          "dev": "Dev Tools",
-          "devDescription": "Dev-only tools for exercising UI states."
+          "dev": "개발 도구",
+          "devDescription": "UI 상태를 시험하기 위한 개발 전용 도구입니다."
         },
         "SettingsFormControls": {
           "42a4d15a30": "일치하는 글꼴이 없습니다.",
@@ -8186,7 +8186,7 @@
               "keyword_warp": "warp",
               "keyword_themes": "themes",
               "keyword_yaml": "yaml",
-              "keyword_legacy_title": "Import themes from Warp"
+              "keyword_legacy_title": "Warp에서 테마 가져오기"
             },
             "yaml_import": {
               "title": "YAML에서 가져오기",
@@ -8624,7 +8624,7 @@
           "b94ff260e6": "안드로이드 스튜디오 다운로드",
           "18925b082d": "SDK 폴더 찾기",
           "8c52684db8": "지우기",
-          "76eb88b88e": "iOS Simulator (Xcode)",
+          "76eb88b88e": "iOS 시뮬레이터 (Xcode)",
           "c6f3ea4f12": "준비됨",
           "e4f14b50d7": "Xcode를 설치하고 iOS 시뮬레이터 런타임을 추가하세요.",
           "63fe73a1ea": "Android SDK 폴더를 업데이트할 수 없습니다."
@@ -8633,34 +8633,34 @@
           "advanced": "고급"
         },
         "DevToolsPane": {
-          "nativeActionLayoutCheck": "Native action layout check",
-          "secondary": "Secondary",
-          "secondaryActionClicked": "Secondary action clicked",
-          "primaryAction": "Primary action",
-          "primaryActionClicked": "Primary action clicked",
-          "branchHasChanges": "branch has changes",
-          "viewChangesClicked": "View Changes clicked",
-          "forceDeleteClicked": "Force Delete clicked",
-          "devOnlyCallback": "Dev-only callback.",
-          "infoToast": "Info toast",
-          "infoToastDescription": "Long informational copy with no explicit action.",
-          "localCanaryBehind": "Local canary is behind origin/canary",
-          "successToast": "Success toast",
-          "successToastDescription": "Short confirmation state.",
-          "settingsSaved": "Settings saved",
-          "shortSuccessCopy": "Short success copy.",
-          "errorToast": "Error toast",
-          "errorToastDescription": "Long error copy without recovery actions.",
-          "failedToSyncWorkspaceMetadata": "Failed to sync workspace metadata",
-          "nativeActionToast": "Native action toast",
-          "nativeActionToastDescription": "Uses Sonner action and cancel slots.",
-          "deleteFailureToast": "Delete failure toast",
-          "deleteFailureToastDescription": "Custom footer with View and Force Delete.",
-          "behindBaseRefToast": "Behind base ref toast",
-          "behindBaseRefToastDescription": "Persistent prompt with an inline Settings link and footer action.",
-          "notificationPlayground": "Notification playground",
-          "notificationPlaygroundDescription": "Dev-only triggers for checking toast layout, recovery actions, and long-copy wrapping.",
-          "devOnly": "Dev only"
+          "nativeActionLayoutCheck": "네이티브 작업 레이아웃 확인",
+          "secondary": "보조",
+          "secondaryActionClicked": "보조 작업이 클릭되었습니다",
+          "primaryAction": "기본 작업",
+          "primaryActionClicked": "기본 작업이 클릭되었습니다",
+          "branchHasChanges": "브랜치에 변경 사항이 있습니다",
+          "viewChangesClicked": "'변경 사항 보기'가 클릭되었습니다",
+          "forceDeleteClicked": "'강제 삭제'가 클릭되었습니다",
+          "devOnlyCallback": "개발 전용 콜백입니다.",
+          "infoToast": "정보 토스트",
+          "infoToastDescription": "명시적인 작업이 없는 긴 안내 문구입니다.",
+          "localCanaryBehind": "로컬 canary가 origin/canary보다 뒤처져 있습니다",
+          "successToast": "성공 토스트",
+          "successToastDescription": "짧은 확인 상태입니다.",
+          "settingsSaved": "설정이 저장됨",
+          "shortSuccessCopy": "짧은 성공 문구입니다.",
+          "errorToast": "오류 토스트",
+          "errorToastDescription": "복구 작업이 없는 긴 오류 문구입니다.",
+          "failedToSyncWorkspaceMetadata": "워크스페이스 메타데이터 동기화 실패",
+          "nativeActionToast": "네이티브 작업 토스트",
+          "nativeActionToastDescription": "Sonner의 작업 및 취소 슬롯을 사용합니다.",
+          "deleteFailureToast": "삭제 실패 토스트",
+          "deleteFailureToastDescription": "'보기' 및 '강제 삭제'가 있는 사용자 지정 푸터입니다.",
+          "behindBaseRefToast": "기본 참조 뒤처짐 토스트",
+          "behindBaseRefToastDescription": "인라인 설정 링크와 푸터 작업이 있는 지속 표시 프롬프트입니다.",
+          "notificationPlayground": "알림 플레이그라운드",
+          "notificationPlaygroundDescription": "토스트 레이아웃, 복구 작업, 긴 문구 줄바꿈을 확인하기 위한 개발 전용 트리거입니다.",
+          "devOnly": "개발 전용"
         },
         "EphemeralVmRecipeRow": {
           "useInWorkspace": "워크스페이스에서 사용"
@@ -8853,7 +8853,7 @@
             "d0fb0f4bf2": "commits 새로 고침",
             "9f7535d22b": "Refs는 정확한 commit을 가리키는 브랜치 또는 태그 이름입니다. Git에 commit에 대한 명명된 참조가 있는 경우에만 나타납니다.",
             "9289ba0cb9": "refs란 무엇인가요?",
-            "d836037d02": "Commits",
+            "d836037d02": "커밋",
             "8232c8b2f2": "{{value0}} commit 열기: {{value1}}",
             "9a8b85882d": "로드 중",
             "62e685d5ec": "idle",
@@ -9321,18 +9321,18 @@
                 "f8a2c91d04": "Queue for agent",
                 "b4e8a1c902": "Queued",
                 "7c1f0a2b11": "열기",
-                "e8b4c1a903": "Resolved · {{value0}}",
-                "c3a8e5d710": "Needs review · {{value0}}",
+                "e8b4c1a903": "해결됨 · {{value0}}",
+                "c3a8e5d710": "리뷰 필요 · {{value0}}",
                 "a7f0c7e8d1": "Queue",
                 "8a621a2c4f": "Grouped",
                 "b13f85d75c": "Timeline",
                 "f5cf324efa": "Comment display options",
                 "5e6e5a13fa": "View",
-                "actionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
+                "actionRequiredHint": "이 검사는 병합 차단이 해제되기 전에 GitHub에서 수동 작업(예: 워크플로 실행 승인)이 필요합니다."
               },
               "empty": {
                 "state": {
-                  "3322603418": "Pull request status unavailable",
+                  "3322603418": "PR 상태를 사용할 수 없음",
                   "5b0cfae9a5": "체크와 리뷰를 시작하려면 {{value0}}을(를) 만드세요.",
                   "13e1c7d5ed": "{{value0}}을(를) 찾을 수 없습니다.",
                   "d372072df1": "현재 속도 제한 예산으로 인해 GitHub 새로 고침이 일시 중지되었습니다.",
@@ -9348,7 +9348,7 @@
                   "41252bc53f": "게시되지 않은 브랜치",
                   "05e4aec17b": "{{value0}} 검사는 작업이 완료된 후에 사용할 수 있습니다.",
                   "d77c513c1e": "{{value0}} 진행 중",
-                  "b597440265": "Refresh GitHub status for this branch to load checks and review."
+                  "b597440265": "이 브랜치의 GitHub 상태를 새로 고쳐 검사와 리뷰를 불러오세요."
                 }
               }
             }
@@ -9484,8 +9484,8 @@
                   "2d8f185fbc": "부분적으로 준비된 파일을 commit 하기 전에 모든 변경 사항을 준비합니다.",
                   "a6457b46a7": "commit 하기 전에 충돌을 해결하세요.",
                   "484f45c439": "{{value0}} 진행 중…",
-                  "6f7a8b9c0d": "Remote operation in progress…",
-                  "7f8a9b0c1d": "Remote operation in progress — try again once it finishes",
+                  "6f7a8b9c0d": "원격 작업 진행 중…",
+                  "7f8a9b0c1d": "원격 작업 진행 중 — 완료되면 다시 시도하세요",
                   "74fc171e99": "강제 푸시 진행 중…",
                   "16aee3a5c1": "Commit 진행 중…",
                   "e61b0d7a3c": "commits을 게시하기 전에 브랜치를 체크아웃하세요.",
@@ -9505,7 +9505,7 @@
                   "d8a4c0e369": "{{value0}}을(를) 만들기 전에 인증하세요.",
                   "e9b5d1f470": "{{value0}}을(를) 만들기 전에 브랜치를 체크아웃하세요.",
                   "f0c6e2a581": "이 브랜치는 아직 {{value0}}을(를) 만들 준비가 되지 않았습니다.",
-                  "8f9a0b1c2d": "Nothing to commit. Branch is up to date.",
+                  "8f9a0b1c2d": "commit할 항목이 없습니다. 브랜치가 최신 상태입니다.",
                   "h3i4j5k607": "이 브랜치에서 {{value0}}을(를) 만들 수 있는지 확인 중…"
                 }
               }
@@ -9577,9 +9577,9 @@
             "sessionsShownCompact": "{{value0}} 표시됨",
             "originalPaneUnavailable": "원래 창은 더 이상 사용할 수 없습니다.",
             "worktreeUnavailable": "워크트리는 더 이상 사용할 수 없습니다.",
-            "runtimeBrowseLocalHistory": "Runtime-hosted workspaces can browse local history. Resume actions are available in local and SSH workspaces.",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "runtimeBrowseLocalHistory": "런타임 호스팅 워크스페이스에서는 로컬 기록을 탐색할 수 있습니다. 재개 작업은 로컬 및 SSH 워크스페이스에서 사용할 수 있습니다.",
+            "runtimeWorkspacesUnsupported": "런타임 호스팅 워크스페이스에서는 기록에서 재개하기를 사용할 수 없습니다.",
+            "openSupportedWorkspace": "세션을 재개하기 전에 로컬 또는 SSH 워크스페이스를 여세요."
           },
           "AiVaultPanelControls": {
             "scanningSessions": "세션 스캔 중",
@@ -10122,7 +10122,7 @@
           "9883b58693": "Orca 모바일 닫기",
           "fb5f28330e": "사이드바에 표시",
           "c669abcf8f": "사이드바에서 숨기기",
-          "e1c7b4a92d": "Configure in Settings > Mobile.",
+          "e1c7b4a92d": "설정 > 모바일에서 구성하세요.",
           "a4f8c2d91e": "Remove Orca Mobile from left sidebar",
           "b7e3d1c84a": "Show Orca Mobile in left sidebar",
           "f3d8e5b71a": "Adds the shortcut back to the left sidebar."
@@ -12071,8 +12071,8 @@
         },
         "AutomationSetupDecisionField": {
           "5a7863909c": "새 워크스페이스마다 설정 실행",
-          "18f000ad4e": "Advanced",
-          "874b72195b": "When this automation creates a workspace, prepare it the same way creating a worktree by hand does — run the project's setup and open its terminal tabs."
+          "18f000ad4e": "고급",
+          "874b72195b": "이 자동화가 워크스페이스를 만들 때 직접 작업 트리를 만들 때와 같은 방식으로 준비합니다. 프로젝트 설정을 실행하고 터미널 탭을 엽니다."
         }
       },
       "agent": {

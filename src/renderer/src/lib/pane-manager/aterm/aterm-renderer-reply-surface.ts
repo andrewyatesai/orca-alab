@@ -1,5 +1,6 @@
 import { e2eConfig } from '@/lib/e2e-config'
 import { benchmarkAtermRender, type AtermRenderBenchmarkResult } from './aterm-render-benchmark'
+import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -15,23 +16,24 @@ export type AtermRendererReplySurface = {
 
 export function buildAtermRendererReplySurface(deps: {
   term: AtermTerminal
-  cellWidth: number
-  cellHeight: number
+  /** Shared mutable pane metrics — read per query so CSI 14t/16t replies track
+   *  DPI moves and live font/line-height changes instead of the attach-time cell. */
+  metrics: AtermMetrics
   themeColors: AtermThemeColors
   getGrid: () => { cols: number; rows: number }
   scheduleDraw: () => void
 }): AtermRendererReplySurface {
-  const { term, cellWidth, cellHeight, themeColors, getGrid, scheduleDraw } = deps
+  const { term, metrics, themeColors, getGrid, scheduleDraw } = deps
   return {
     // term.width/height are the last-rendered framebuffer device px; before the
     // first render they're 0, so fall back to cell*grid for a startup-race query.
     pixelSize: () => {
       const { cols, rows } = getGrid()
       return {
-        width: term.width || cellWidth * cols,
-        height: term.height || cellHeight * rows,
-        cellWidth,
-        cellHeight
+        width: term.width || metrics.cellWidth * cols,
+        height: term.height || metrics.cellHeight * rows,
+        cellWidth: metrics.cellWidth,
+        cellHeight: metrics.cellHeight
       }
     },
     themeColors: () => ({ fg: themeColors.fg, bg: themeColors.bg }),

@@ -43,7 +43,9 @@ export type AtermPainterBinding = {
   /** Theme fg (0x00RRGGBB) — the hover underline color. A getter so a live
    *  re-theme (updateTheme) is reflected without rebinding the painter. */
   getFgColor: () => number
-  /** GPU path only: called when the WebGL2 context is lost so the controller can
-   *  dispose the GPU strategy and swap to CPU. The CPU drawer ignores it. */
-  onContextLoss: () => void
+  /** Called when the draw path dies: WebGL2 context lost (GPU drawer) or the render
+   *  worker crashed (worker loader) — the controller disposes the dead strategy and
+   *  swaps to the in-process CPU path. A worker crash passes its last serialized
+   *  state so the rebuilt engine repaints. The CPU drawer ignores it. */
+  onContextLoss: (seedAnsi?: string) => void
 }

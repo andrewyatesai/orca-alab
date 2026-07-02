@@ -69,8 +69,6 @@ export async function loadAtermCpuDrawer(
         canvas,
         term,
         memory,
-        cellWidth,
-        cellHeight,
         drawScheduler: binding.drawScheduler,
         searchController: binding.searchController,
         isDisposed: binding.isDisposed,

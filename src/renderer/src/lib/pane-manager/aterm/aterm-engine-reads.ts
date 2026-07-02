@@ -16,6 +16,7 @@ type EngineReads = Pick<
   | 'is_focus_event_mode'
   | 'is_mouse_tracking'
   | 'is_color_scheme_updates_mode'
+  | 'is_app_cursor_mode'
   | 'is_alt_screen'
   | 'bracketed_paste_mode'
   | 'row_is_wrapped'
@@ -51,6 +52,7 @@ export type AtermEngineReadMembers = Pick<
   | 'isFocusEventMode'
   | 'isMouseTracking'
   | 'isColorSchemeUpdatesMode'
+  | 'isAppCursorMode'
   | 'isAltScreen'
   | 'bracketedPasteMode'
   | 'rowIsWrapped'
@@ -102,6 +104,7 @@ export function buildAtermEngineReads(
     isFocusEventMode: () => term.is_focus_event_mode,
     isMouseTracking: () => term.is_mouse_tracking,
     isColorSchemeUpdatesMode: () => term.is_color_scheme_updates_mode,
+    isAppCursorMode: () => term.is_app_cursor_mode,
     isAltScreen: () => term.is_alt_screen,
     bracketedPasteMode: () => term.bracketed_paste_mode,
     rowIsWrapped: (row) => term.row_is_wrapped(row),

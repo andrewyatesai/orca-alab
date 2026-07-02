@@ -62,6 +62,11 @@ export type AtermDrawStrategy = {
    *  strategies (whose engine is local, so serialize is synchronous). */
   serializeAsync?: (scrollbackRows?: number) => Promise<string>
   serializeScrollbackAsync?: (maxRows?: number) => Promise<string>
+  /** Worker path only: parse fence — resolves once the worker engine has parsed every
+   *  process() byte posted before it (its auto-replies already delivered). The replay
+   *  guard holds its drop window open on this. Unset for in-process strategies (their
+   *  parse + reply drain complete synchronously inside process()). */
+  settle?: () => Promise<void>
   /** Worker path only: pause/resume the WORKER's autonomous render loop for a hidden
    *  pane. The worker renders on its own rAF (the main-thread drawScheduler can't gate
    *  it), so hidden-pane draw gating must be posted across the seam. Unset for the

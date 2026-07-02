@@ -1,4 +1,4 @@
-import type { IDisposable } from './terminal-types'
+import type { IDisposable, ILinkProvider } from './terminal-types'
 import type { AtermPaneController } from './aterm-pane-controller-types'
 import { createAtermFacadeBuffer } from './aterm-facade-buffer'
 import { createAtermFacadeParser } from './aterm-facade-parser'
@@ -41,6 +41,16 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
   const titleListeners = new Set<(title: string) => void>()
   let titleDisposable: IDisposable | null = null
   let lastSelectionSignature = ''
+  // Consumer-registered link providers (term_/task_ handles, cwd-resolved file
+  // paths). The controller's link input consults them where the engine reports
+  // no link; registration order is xterm's provider precedence.
+  const linkProviders: ILinkProvider[] = []
+  // The consumer's keyboard hook (attachCustomKeyEventHandler); read per keydown
+  // by the textarea input via the controller options.
+  let customKeyEventHandler: ((event: KeyboardEvent) => boolean) | null = null
+  // A resize() issued before the async controller attach (snapshot replay can
+  // race pane creation); applied on attach BEFORE the buffered bytes replay.
+  let pendingResize: { cols: number; rows: number } | null = null
 
   const { buffer, registerMarker, pollBufferChange } = createAtermFacadeBuffer(() => controller)
   const { parser, dispatchOscEvent } = createAtermFacadeParser()
@@ -116,8 +126,7 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
     // Live DEC mode reads off the engine (no separate modes object exists).
     modes: {
       get applicationCursorKeysMode() {
-        // Not separately exposed by the facade consumers; engine owns key encoding.
-        return false
+        return controller?.isAppCursorMode() ?? false
       },
       get bracketedPasteMode() {
         return controller?.bracketedPasteMode() ?? false
@@ -184,8 +193,18 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       dataEmitter.emit(data)
     },
     resize(cols, rows) {
-      // Mirror xterm's onResize → routePtyResize chain; the engine grid itself is
-      // container-driven by the wiring's ResizeObserver (matches prior behavior).
+      // Real grid resize with an override the container observer honors until
+      // safeFit's fitToContainer clears it (snapshot replay at source dims,
+      // mobile-fit hold). The controller's commit reports the new grid through
+      // resizeSink → routePtyResize synchronously, so the snapshot-replay
+      // suppression flag still gates the PTY resize (xterm's onResize timing).
+      if (controller) {
+        controller.resize(cols, rows)
+        return
+      }
+      // Pre-attach there is no grid yet: remember the dims for the attach (the
+      // buffered replay must land in them) and keep the PTY-notify contract.
+      pendingResize = { cols, rows }
       resizeEmitter.emit({ cols, rows })
     },
     clear() {
@@ -227,15 +246,27 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       /* no-op: aterm panes don't load xterm addons; the controller owns search/
        * serialize/links/unicode natively (contract). */
     },
-    attachCustomKeyEventHandler() {
-      /* no-op: aterm intercepts keys at its helper textarea (aterm-key-encoding +
-       * aterm-textarea-input), so xterm's keyboard hook is unused (contract). */
+    attachCustomKeyEventHandler(handler) {
+      // xterm keeps ONE handler (a re-attach replaces it); the textarea keydown
+      // path consults it before encoding via the controller options.
+      customKeyEventHandler = handler
     },
-    registerLinkProvider() {
-      // no-op: aterm detects links natively (link_at + aterm-link-input hover/
-      // click + the mouseup file-link fallback), so xterm link providers are
-      // unused (contract). Returns a real disposable.
-      return { dispose: () => undefined }
+    get __customKeyEventHandler() {
+      return customKeyEventHandler
+    },
+    registerLinkProvider(provider) {
+      // Registration order is the hit-test precedence (xterm's linkifier); the
+      // controller's link input consults these where the engine's native
+      // detection (link_at) reports no link.
+      linkProviders.push(provider)
+      return {
+        dispose: () => {
+          const index = linkProviders.indexOf(provider)
+          if (index !== -1) {
+            linkProviders.splice(index, 1)
+          }
+        }
+      }
     },
     getSelection() {
       return controller?.selectionText() ?? ''
@@ -291,6 +322,8 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       resizeEmitter.clear()
       bellEmitter.clear()
       selectionChangeEmitter.clear()
+      linkProviders.length = 0
+      customKeyEventHandler = null
       controller?.dispose()
       controller = null
     },
@@ -308,6 +341,16 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       // chunk (the prompt's final-chunk events would otherwise lag or be lost on idle
       // close). In-process leaves this unset → the synchronous post-process drain stands.
       controller.onEngineSideChannel?.(() => drainEngineSideChannels())
+      // Mouse selection must ping onSelectionChange itself (PRIMARY/copy-on-select
+      // on idle shells); the drain-side dedupe keeps output-driven emits single.
+      controller.onSelectionMutation(() => maybeEmitSelectionChange())
+      controller.setLinkProviderSource(() => linkProviders)
+      // A pre-attach resize (snapshot replay racing pane creation) must size the
+      // grid BEFORE the buffered bytes replay into it.
+      if (pendingResize) {
+        controller.resize(pendingResize.cols, pendingResize.rows)
+        pendingResize = null
+      }
       // Replay buffered pre-attach output IN ORDER, then drain side channels.
       const buffered = preAttachBuffer.splice(0, preAttachBuffer.length)
       for (const chunk of buffered) {

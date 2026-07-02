@@ -24,10 +24,9 @@ export type AtermFacadeParser = {
 
 /** Re-encode an engine-decoded OSC payload back into the xterm wire format the
  *  unchanged orca OSC handlers parse. The engine pre-decodes (OSC 52 → plaintext,
- *  OSC 7 → bare path); orca's parsers expect the raw `Pc;<base64>` / `file://…`
- *  forms. Behavior is preserved (the handler decodes back to the same value);
- *  only fields orca's handlers ignore (OSC 52 selection kind, OSC 7 host) are
- *  defaulted, since the engine doesn't surface them. */
+ *  OSC 7 → path, prefixed `//host` when the URI named a non-local host); orca's
+ *  parsers expect the raw `Pc;<base64>` / `file://…` forms. Only the OSC 52
+ *  selection kind (ignored by orca's handler) is defaulted. */
 function toXtermOscWireFormat(code: number, payload: string): string {
   if (code === 52) {
     // Re-base64 the decoded UTF-8 text and tag it clipboard ("c"): the handler
@@ -40,9 +39,10 @@ function toXtermOscWireFormat(code: number, payload: string): string {
     return `c;${btoa(binary)}`
   }
   if (code === 7) {
-    // Wrap the bare path back into a host-less file:// URI; parseOsc7's regex
-    // accepts an empty host and returns the (percent-decoded) path unchanged.
-    return `file://${encodeURI(payload)}`
+    // '//host/path' (non-local host) → file://host/path; bare '/path' →
+    // file:///path. The host must survive the round trip: parseOsc7's UNC branch
+    // rebuilds \\host\share from it on Windows.
+    return `file:${payload.startsWith('//') ? '' : '//'}${encodeURI(payload)}`
   }
   return payload
 }

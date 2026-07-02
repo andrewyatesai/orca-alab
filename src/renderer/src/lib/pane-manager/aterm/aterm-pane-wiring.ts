@@ -2,21 +2,20 @@ import { attachAtermTextareaInput } from './aterm-textarea-input'
 import { attachAtermCursorBlink } from './aterm-cursor-blink'
 import { buildAtermThemeMutators } from './aterm-controller-theme-mutators'
 import { attachAtermPointerInputs } from './aterm-pointer-input-bundle'
-import { computeGrid } from './aterm-grid-size'
-import type { AtermFileLinkOpener } from './aterm-link-input'
+import { createAtermPaneGridSizing, type AtermPaneGridSizing } from './aterm-pane-grid-sizing'
+import type { AtermFileLinkOpener, AtermLinkProviderSource } from './aterm-link-input'
 import { createAtermSearchController, type AtermSearchMatch } from './aterm-search'
 import { createAtermDrawScheduler } from './aterm-draw-scheduler'
 import { buildAtermSearchApi } from './aterm-search-api'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import { buildAtermRendererReplySurface } from './aterm-renderer-reply-surface'
-import { createAtermSearchOverlayCanvas } from './aterm-search-overlay-canvas'
-import { createAtermA11yMirror } from './aterm-a11y-mirror'
+import { mountAtermPaneCanvasAdjuncts } from './aterm-pane-canvas-adjuncts'
 import { buildAtermEngineReads } from './aterm-engine-reads'
 import { wireWorkerStrategyHooks } from './aterm-worker-strategy-hookup'
 import { buildAtermSerializeMembers } from './aterm-serialize-members'
 import { createAtermTitleChannel } from './aterm-title-channel'
 import { createAtermProcessPump } from './aterm-process-pump'
-import { attachAtermGridReflow, type AtermMetrics } from './aterm-grid-reflow'
+import type { AtermMetrics } from './aterm-grid-reflow'
 import { createAtermPanePresenter } from './aterm-pane-present'
 import { applyTerminalPrimaryFont } from './inject-terminal-primary-font'
 import { attachAtermCanvasFocus } from './aterm-canvas-focus'
@@ -52,15 +51,20 @@ export type AtermPaneWiringConfig = {
   /** Late-bound bindings shared across a context-loss rebuild (so the file-path/
    *  URL openers set on the old controller carry over to the CPU one). */
   shared: AtermSharedLateBindings
-  /** GPU path only: invoked when the WebGL2 context is lost so the controller can
-   *  swap this wiring out for a CPU one (mirrors terminal-webgl-auto-policy). */
-  onContextLoss: () => void
+  /** Invoked when the draw path dies — WebGL2 context lost (GPU) or the render
+   *  worker crashed — so the controller can swap this wiring out for an in-process
+   *  CPU one. A worker crash passes its last serialized state (aterm replayable
+   *  ANSI) so the rebuilt engine repaints instead of starting blank. */
+  onContextLoss: (seedAnsi?: string) => void
 }
 
 /** Late-bound openers that survive a GPU→CPU context-loss rebuild. */
 export type AtermSharedLateBindings = {
   fileLinkOpener: AtermFileLinkOpener | null
   activeLinkContext: AtermLinkContext | undefined
+  /** The facade's registered xterm-style link providers (term_/task_ handles,
+   *  cwd-resolved file paths); consulted where the engine reports no link. */
+  linkProviderSource: AtermLinkProviderSource | null
 }
 
 /** A wired, drawing pane: its public controller surface plus a teardown that
@@ -86,7 +90,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // line-height / family are read inline here; the engine-settings applier consumes the
   // rest off `readers`.
   const readers = createAtermControllerOptionReaders(controllerOptions)
-  const { getFontPx, getLineHeight, getFontFamily } = readers
+  const { getFontPx, getLineHeight, getFontFamily, getFontWeight } = readers
   const initialDpr = window.devicePixelRatio || 1
   // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
   // the async load (GPU init can take seconds) gives the window time to settle to a
@@ -108,7 +112,13 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   let disposed = false
   let searchRefreshPending = false
 
-  let { cols, rows } = computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+  // Grid state + reflow + the explicit resize override live in the sizing
+  // module; assigned right after the strategy binds (the closures below only
+  // read it at runtime).
+  let gridSizing!: AtermPaneGridSizing
+  // Facade subscribers notified after each mouse-driven selection mutation, so
+  // onSelectionChange fires without waiting for PTY output.
+  const selectionMutationListeners = new Set<() => void>()
 
   let searchMatches: AtermSearchMatch[] = []
   let searchActiveIndex = -1
@@ -150,9 +160,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       inputSink,
       controllerOptions,
       shared,
-      getRows: () => rows,
+      getRows: () => gridSizing.grid().rows,
       scheduleDraw,
-      isDisposed: () => disposed
+      isDisposed: () => disposed,
+      onSelectionChanged: () => selectionMutationListeners.forEach((listener) => listener())
     })
 
   const searchController = createAtermSearchController(term, {
@@ -177,7 +188,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     searchController,
     isDisposed: () => disposed,
     getDpr: () => metrics.dpr,
-    getRows: () => rows,
+    getRows: () => gridSizing.grid().rows,
     getSearchMatches: () => searchMatches,
     getSearchActiveIndex: () => searchActiveIndex,
     takeSearchRefresh: () => {
@@ -187,29 +198,21 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     },
     getHoveredLinkSpan: () => linkInput.hoveredSpan(),
     getFgColor: () => themeColors.fg,
-    onContextLoss: () => config.onContextLoss()
+    onContextLoss: (seedAnsi?: string) => config.onContextLoss(seedAnsi)
   })
 
-  const searchOverlay = strategy.needsSearchOverlay
-    ? createAtermSearchOverlayCanvas(canvas, {
-        term,
-        cellWidth: metrics.cellWidth,
-        cellHeight: metrics.cellHeight,
-        getDpr: () => metrics.dpr,
-        getRows: () => rows,
-        getHoveredLinkSpan: () => linkInput.hoveredSpan(),
-        getFgColor: () => themeColors.fg
-      })
-    : null
-
-  // Mirror the engine's visible rows into the off-screen ARIA live region so
-  // screen readers can read output (the canvas is opaque to them). Reads the
-  // engine, not the canvas, so one mirror covers both the CPU + GPU draw paths.
-  const a11yMirror = createAtermA11yMirror({
+  // The DOM stacked around the grid canvas: the (GPU-only) search-highlight
+  // overlay, the overlay scrollbar, and the off-screen ARIA output mirror.
+  const { searchOverlay, scrollbarOverlay, a11yMirror } = mountAtermPaneCanvasAdjuncts({
+    canvas,
     liveRegion,
     term,
-    getRows: () => rows,
-    isAltScreen: () => term.is_alt_screen,
+    metrics,
+    needsSearchOverlay: strategy.needsSearchOverlay === true,
+    getRows: () => gridSizing.grid().rows,
+    getHoveredLinkSpan: () => linkInput.hoveredSpan(),
+    getFgColor: () => themeColors.fg,
+    scheduleDraw,
     isDisposed: () => disposed
   })
 
@@ -219,39 +222,27 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   const searchApi = buildAtermSearchApi({
     searchController,
     term,
-    cellWidth: metrics.cellWidth,
-    cellHeight: metrics.cellHeight,
+    metrics,
     isDisposed: () => disposed,
-    getRows: () => rows,
+    getRows: () => gridSizing.grid().rows,
     getSearchMatches: () => searchMatches,
     getSearchActiveIndex: () => searchActiveIndex
   })
 
-  // Size the real grid + report it so the PTY matches the canvas.
-  strategy.resize(rows, cols)
-
-  const getGrid = (): { cols: number; rows: number } => ({ cols, rows })
-  const gridReflow = attachAtermGridReflow({
+  // Size the real grid + attach the container/DPI reflow; explicit resizes
+  // (snapshot replay, mobile-fit) pin an override the reflow honors.
+  gridSizing = createAtermPaneGridSizing({
     term,
     container,
     metrics,
+    strategy,
     getFontPx,
     getLineHeight,
-    getGrid,
-    // Worker path (onMetricsChange present): cell metrics land a frame after set_px, so
-    // defer the grid commit to the worker's metrics push instead of the stale snapshot.
-    // In-process set_px is synchronous (no hook) -> commit immediately (unchanged).
-    asyncMetrics: strategy.onMetricsChange !== undefined,
-    setGrid: (nextCols, nextRows) => {
-      cols = nextCols
-      rows = nextRows
-      strategy.resize(rows, cols)
-      resizeSink(cols, rows)
-    },
-    isDisposed: () => disposed,
+    resizeSink,
     // Refresh the pointer/scroll/link handlers' cached metrics after a DPR change.
     syncDependents: syncDpr,
-    scheduleDraw
+    scheduleDraw,
+    isDisposed: () => disposed
   })
 
   // Worker path: forward engine query replies to the PTY + re-reflow on worker
@@ -261,7 +252,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     term,
     metrics,
     inputSink,
-    forceReflow: () => gridReflow.forceReflow(),
+    forceReflow: () => gridSizing.reflow.forceReflow(),
     emitTitleIfChanged: titleChannel.emitIfChanged,
     isDisposed: () => disposed
   })
@@ -272,7 +263,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     strategy,
     searchOverlay,
     a11yMirror,
-    gridReflow,
+    gridReflow: gridSizing.reflow,
     drawScheduler,
     scheduleDraw,
     isDisposed: () => disposed,
@@ -282,23 +273,29 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   draw = presenter.draw
   presentNow = presenter.presentNow
 
-  // Honor the user's terminalFontFamily: the engine starts on the bundled JetBrains
-  // Mono, then swaps in the host-resolved custom face + reflows once its bytes load
-  // (async; a bundled/unresolvable family is a no-op). New panes pick up a changed
-  // family; a live change applies on the next opened terminal.
-  void applyTerminalPrimaryFont(term, getFontFamily()).then((applied) => {
+  // Honor terminalFontFamily + terminalFontWeight: swap in the host-resolved
+  // weight-closest face (+ the family's real bold face for SGR bold, when it ships
+  // one) and reflow once the bytes load; a bundled/unresolvable family is a no-op.
+  // A live family/weight change applies on the next opened terminal.
+  void applyTerminalPrimaryFont(term, getFontFamily(), getFontWeight()).then((applied) => {
     if (applied && !disposed) {
-      gridReflow.forceReflow()
+      gridSizing.reflow.forceReflow()
     }
   })
 
   const textareaInput = attachAtermTextareaInput({
     textarea,
     term,
+    canvas,
+    metrics,
+    themeColors,
+    getRows: () => gridSizing.grid().rows,
+    redraw: scheduleDraw,
     inputSink,
     pasteSink,
     copySelection: () => selectionInput.copySelection(),
-    getMacOptionIsMeta: controllerOptions?.getMacOptionIsMeta
+    getMacOptionIsMeta: controllerOptions?.getMacOptionIsMeta,
+    getCustomKeyEventHandler: controllerOptions?.getCustomKeyEventHandler
   })
 
   // Blink the cursor (focused) + draw it hollow (unfocused); the engine paints the
@@ -322,18 +319,18 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     readers,
     inputSink,
     isDisposed: () => disposed,
-    scheduleDraw
+    scheduleDraw,
+    refreshCursorBlink: cursorBlink.refresh
   })
 
-  resizeSink(cols, rows)
+  resizeSink(gridSizing.grid().cols, gridSizing.grid().rows)
   scheduleDraw()
 
   const replySurface = buildAtermRendererReplySurface({
     term,
-    cellWidth: metrics.cellWidth,
-    cellHeight: metrics.cellHeight,
+    metrics,
     themeColors,
-    getGrid,
+    getGrid: gridSizing.grid,
     scheduleDraw
   })
 
@@ -344,7 +341,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     disposed = true
     drawScheduler.dispose()
     a11yMirror.dispose()
-    gridReflow.dispose()
+    gridSizing.reflow.dispose()
     textareaInput.dispose()
     cursorBlink.dispose()
     canvasFocus.dispose()
@@ -353,6 +350,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     scrollInput.dispose()
     eventReportingInput.dispose()
     linkInput.dispose()
+    scrollbarOverlay.dispose()
     searchOverlay?.dispose()
     strategy.dispose()
   }
@@ -366,13 +364,18 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     ...searchApi,
     setFileLinkOpener: (fn: AtermFileLinkOpener) => void (shared.fileLinkOpener = fn),
     setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),
+    setLinkProviderSource: (src: AtermLinkProviderSource) => void (shared.linkProviderSource = src),
+    onSelectionMutation: (handler: () => void) => void selectionMutationListeners.add(handler),
+    resize: (nextCols: number, nextRows: number) => gridSizing.resize(nextCols, nextRows),
+    fitToContainer: () => gridSizing.fitToContainer(),
+    keyboardModeBits: () => term.keyboard_mode_bits,
     lastMouseReport: () => eventReportingInput.lastMouseReport(),
     // aterm-native serialize (replaces xterm's SerializeAddon): sync (engine / worker
     // cached blob) + awaitable (worker round-trip for fresh history). undefined → all.
     ...buildAtermSerializeMembers(term, strategy),
     title: titleChannel.title,
     onTitleChange: titleChannel.onTitleChange,
-    gridSize: () => getGrid(),
+    gridSize: () => gridSizing.grid(),
     // Toggle the engine's fail-closed OSC 52 write gate so it queues OSC 52 set
     // events for the facade to drain; the host still enforces the user setting.
     setClipboardWriteAuthorized: (allowed: boolean) =>
@@ -383,8 +386,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // pane rebuild). `metrics` is passed by reference so re-theme reads the
     // current cell size after a DPI change, not the construction one.
     ...buildAtermThemeMutators({ term, themeColors, metrics, scheduleDraw }),
-    // Live-apply ligatures / scrollback / default cursor style to this OPEN pane on a
-    // settings change (re-reads the live readers), matching how theme/size apply live.
+    // Live-apply ligatures / scrollback / default cursor style / cursor blink to this
+    // OPEN pane on a settings change (re-reads the live readers), matching how
+    // theme/size apply live.
     reapplyEngineSettings: engineSettings.reapply,
     scheduleDraw,
     // Renderer introspection for the pane manager's diagnostics; this wiring is
@@ -395,6 +399,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // (not a chunk late). In-process leaves strategy.onSideChannel unset → no-op (its
     // post-process() drain is already synchronous + current).
     onEngineSideChannel: (handler: () => void) => strategy.onSideChannel?.(handler),
+    // Parse fence for the replay guard: worker parsing is async, so the guard stays
+    // open until the fence resolves; in-process parse is synchronous → immediate.
+    settle: () => strategy.settle?.() ?? Promise.resolve(),
     // Gate BOTH the main-thread scheduler (in-process draws + overlay) and, on the
     // worker path, the worker's autonomous render loop — it draws on its own rAF, so
     // suspension must be posted across the seam (no-op for in-process strategies).

@@ -1,4 +1,4 @@
-import type { AtermFileLinkOpener } from './aterm-link-input'
+import type { AtermFileLinkOpener, AtermLinkProviderSource } from './aterm-link-input'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -62,6 +62,10 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** Late-bind the URL link context (worktreeId + in-app-link preference) so URL
    *  clicks honor orca's open-links-in-app preference once the lifecycle has it. */
   setUrlLinkContext: (context: AtermLinkContext) => void
+  /** Late-bind the facade's registered xterm-style link providers (file paths,
+   *  term_/task_ handles). Link hit-testing consults them when the engine reports
+   *  no link at the hovered/clicked cell. */
+  setLinkProviderSource: (source: AtermLinkProviderSource) => void
   /** Re-theme the live engine in place (host theme change) without rebuilding the
    *  pane — updates default fg/bg/cursor/selection + ANSI palette + reply defaults
    *  and redraws, preserving scrollback. */
@@ -77,6 +81,17 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  so the facade drains it immediately instead of a chunk late. Unset/no-op for the
    *  in-process strategies, whose post-process() drain is already synchronous. */
   onEngineSideChannel?: (handler: () => void) => void
+  /** Parse fence: resolves once the engine has parsed every process() byte fed
+   *  before this call — so any auto-replies (DA/CPR) those bytes generated have
+   *  already been delivered. In-process parsing is synchronous (resolves
+   *  immediately); the worker path round-trips a fence message. The replay guard
+   *  holds its drop window open on this. */
+  settle: () => Promise<void>
+  /** Live engine KeyboardMode bitfield (kitty flags / modifyOtherKeys / DECCKM…).
+   *  Lets window-level shortcut policy stand its readline-compat rewrites down
+   *  once the pane's app negotiated an enhanced key protocol. Worker path reads
+   *  the snapshot mirror (≤1 frame stale — the accepted worker tradeoff). */
+  keyboardModeBits: () => number
   /** Re-apply ligatures / scrollback / default cursor style from the live settings to
    *  this open pane (cheap engine setters; mirrors how theme/size live-apply). Called by
    *  applyTerminalAppearance on a settings change so a toggle takes effect immediately. */
@@ -121,6 +136,18 @@ export type AtermPaneController = AtermRendererReplySurface & {
   onTitleChange: (handler: (title: string) => void) => { dispose: () => void }
   /** Current grid size (cols × rows) — for snapshot metadata without xterm. */
   gridSize: () => { cols: number; rows: number }
+  /** Explicitly size the grid (xterm resize semantics: snapshot replay, mobile-fit
+   *  hold). Sets an override the container ResizeObserver respects until
+   *  fitToContainer clears it, so the observer can't immediately undo it. */
+  resize: (cols: number, rows: number) => void
+  /** Drop any explicit resize override and refit the grid to the container (the
+   *  aterm equivalent of xterm's FitAddon.fit after a snapshot replay). */
+  fitToContainer: () => void
+  /** Subscribe to mouse/keyboard-driven selection mutations so the facade can
+   *  emit onSelectionChange without waiting for PTY output (Linux PRIMARY /
+   *  copy-on-select on idle shells). Worker panes notify from the state push
+   *  that carries the fresh range instead. */
+  onSelectionMutation: (handler: () => void) => void
   /** True when the alternate screen (TUI) is active — snapshot hydration uses this
    *  to avoid bleeding normal-buffer scrollback into a mid-TUI seed. */
   isAltScreen: () => boolean
@@ -139,6 +166,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
   isFocusEventMode: () => boolean
   /** True when DEC mode 2031 (color-scheme update notifications) is active. */
   isColorSchemeUpdatesMode: () => boolean
+  /** True when DECCKM (application cursor keys) is active — the facade maps this
+   *  to xterm's modes.applicationCursorKeysMode. */
+  isAppCursorMode: () => boolean
   /** Display-relative cursor column (0-based). */
   cursorX: () => number
   /** Display-relative cursor row (0-based, top of viewport). */
@@ -200,6 +230,10 @@ export type AtermPaneControllerOptions = {
   /** Latest terminalClipboardOnSelect (xterm's copyOnSelect); when true, drag /
    *  double / triple-click auto-copy the selection. Defaults to false. */
   getCopyOnSelect?: () => boolean
+  /** The facade consumer's attachCustomKeyEventHandler hook (IME suppression,
+   *  interrupt handling, JIS-yen). Read per keydown; a `false` return means the
+   *  consumer handled/suppressed the key, so nothing is encoded for it. */
+  getCustomKeyEventHandler?: () => ((event: KeyboardEvent) => boolean) | null
   /** Latest terminalCursorBlink (xterm's cursorBlink); when true the focused cursor
    *  blinks on a ~530ms timer, else it's steady-on. Defaults to true. */
   getCursorBlink?: () => boolean
@@ -215,6 +249,11 @@ export type AtermPaneControllerOptions = {
    *  the resolved face via set_primary_font; undefined / "JetBrains Mono" keeps the
    *  bundled face. */
   getFontFamily?: () => string | undefined
+  /** Numeric font weight (the user's terminalFontWeight, 100–900). Read at pane open
+   *  with the family: it selects which of the family's named styles becomes the
+   *  primary face, and the derived bold weight picks the real bold face
+   *  (set_bold_font) when the family ships one. Unset → the shared default (500). */
+  getFontWeight?: () => number | undefined
   /** Whether ligatures are enabled (resolved from terminalLigatures + the font family).
    *  Read at pane open to drive set_ligatures; the engine defaults to ON, so an unset
    *  callback keeps ligatures on. Like the font family, a change applies on new panes. */
@@ -227,4 +266,14 @@ export type AtermPaneControllerOptions = {
    *  set_default_cursor_style; unset keeps the engine default (1). Does not clobber an
    *  app's live DECSCUSR. */
   getCursorStyleParam?: () => number
+  /** Latest scrollSensitivity (xterm's option of the same name): multiplies the
+   *  scrollback wheel line count. Read per wheel event. Defaults to 1. */
+  getScrollSensitivity?: () => number
+  /** Latest fastScrollSensitivity: extra multiplier while the fast-scroll
+   *  modifier (Alt) is held. Read per wheel event. Defaults to 1. */
+  getFastScrollSensitivity?: () => number
+  /** Latest terminalTuiScrollSensitivity: multiplies discrete wheel movement in
+   *  TUIs (alt-screen arrow synthesis + mouse-report wheel forwarding). Read per
+   *  wheel event. Defaults to 1. */
+  getTuiScrollMultiplier?: () => number
 }

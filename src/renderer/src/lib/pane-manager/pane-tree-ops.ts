@@ -67,9 +67,19 @@ function canPreserveScrollIntentForFit(pane: ManagedPane): boolean {
 }
 
 export function safeFit(pane: ManagedPane): void {
-  // The aterm canvas controller owns its own ResizeObserver-driven sizing, so
-  // xterm-based fitting must not fight it.
+  // aterm panes: the controller owns container-driven sizing, but fit requests
+  // still carry the mobile-fit hold (a phone-driven PTY keeps its phone grid on
+  // the desktop) and clear a snapshot-replay resize back to the container.
   if (pane.atermController) {
+    const ptyId = pane.container.dataset.ptyId
+    const override = ptyId ? getFitOverrideForPty(ptyId) : null
+    if (override) {
+      if (pane.terminal.cols !== override.cols || pane.terminal.rows !== override.rows) {
+        pane.terminal.resize(override.cols, override.rows)
+      }
+      return
+    }
+    pane.atermController.fitToContainer()
     return
   }
   if (!canMeasurePaneForFit(pane)) {

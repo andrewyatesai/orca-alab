@@ -1,5 +1,6 @@
 import { atermSearchMatchRect } from './aterm-search-overlay'
 import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
+import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermTerminal } from './aterm_wasm.js'
 import type { AtermWorkerAsyncFacade } from './aterm-worker-query-channel'
 
@@ -26,8 +27,9 @@ export type AtermSearchApi = {
 export type AtermSearchApiDeps = {
   searchController: AtermSearchController
   term: AtermTerminal
-  cellWidth: number
-  cellHeight: number
+  /** Shared mutable pane metrics — read at call time so match rects stay correct
+   *  across DPI moves and live font/line-height changes. */
+  metrics: AtermMetrics
   isDisposed: () => boolean
   getRows: () => number
   getSearchMatches: () => AtermSearchMatch[]
@@ -38,7 +40,7 @@ export type AtermSearchApiDeps = {
  *  under the line budget; state (matches/active index/rows) is read via getters
  *  because it changes as the viewport scrolls and content updates. */
 export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
-  const { searchController, term, cellWidth, cellHeight, isDisposed, getRows } = deps
+  const { searchController, term, metrics, isDisposed, getRows } = deps
   // Worker path: the worker owns the engine, so term.search() can't return matches over
   // the seam (the main-thread controller stays empty). It instead pushes count/active-
   // index/rect each snapshot, exposed as searchStateSnapshot. Absent in-process, where
@@ -76,8 +78,8 @@ export function buildAtermSearchApi(deps: AtermSearchApiDeps): AtermSearchApi {
       // Delegate to the overlay's mapping so the rect matches the painted band.
       return atermSearchMatchRect(matches[activeIndex], {
         term,
-        cellWidth,
-        cellHeight,
+        cellWidth: metrics.cellWidth,
+        cellHeight: metrics.cellHeight,
         rows: getRows()
       })
     }

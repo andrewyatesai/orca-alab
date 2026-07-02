@@ -1,6 +1,7 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
 import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
 import type { AtermSearchMatch } from './aterm-search'
+import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 /** A stacked 2d overlay canvas for the GPU path's search highlights. The grid
@@ -22,9 +23,9 @@ export function createAtermSearchOverlayCanvas(
   gridCanvas: HTMLCanvasElement,
   deps: {
     term: AtermTerminal
-    cellWidth: number
-    cellHeight: number
-    getDpr: () => number
+    /** Shared mutable pane metrics — read at paint time so a DPI move or live
+     *  font/line-height change lands highlight rects on the re-rasterized cells. */
+    metrics: AtermMetrics
     getRows: () => number
     /** Hovered link span (or null) for the GPU-path hover underline; painted on
      *  this same stacked 2d overlay above the search highlights. */
@@ -63,7 +64,7 @@ export function createAtermSearchOverlayCanvas(
         overlay.width = width
         overlay.height = height
       }
-      const dpr = deps.getDpr()
+      const { dpr, cellWidth, cellHeight } = deps.metrics
       overlay.style.width = `${width / dpr}px`
       overlay.style.height = `${height / dpr}px`
       // Always clear (a previous frame may have painted highlights/underline now
@@ -71,13 +72,13 @@ export function createAtermSearchOverlayCanvas(
       ctx.clearRect(0, 0, width, height)
       paintAtermSearchHighlights(ctx, matches, activeIndex, {
         term: deps.term,
-        cellWidth: deps.cellWidth,
-        cellHeight: deps.cellHeight,
+        cellWidth,
+        cellHeight,
         rows: deps.getRows()
       })
       paintAtermLinkUnderline(ctx, deps.getHoveredLinkSpan(), deps.getFgColor(), {
-        cellWidth: deps.cellWidth,
-        cellHeight: deps.cellHeight,
+        cellWidth,
+        cellHeight,
         dpr
       })
     },

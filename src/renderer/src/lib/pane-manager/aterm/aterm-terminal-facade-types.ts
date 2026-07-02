@@ -1,4 +1,4 @@
-import type { IDisposable, IMarker, ITerminalOptions } from './terminal-types'
+import type { IDisposable, ILinkProvider, IMarker, ITerminalOptions } from './terminal-types'
 import type { AtermPaneController } from './aterm-pane-controller-types'
 import type { AtermFacadeBuffer } from './aterm-facade-buffer'
 import type { AtermFacadeParser } from './aterm-facade-parser'
@@ -57,7 +57,10 @@ export type AtermTerminalFacade = {
   registerMarker(cursorYOffset?: number): IMarker | undefined
   loadAddon(addon: unknown): void
   attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void
-  registerLinkProvider(provider: unknown): IDisposable
+  /** Internal: the consumer hook attachCustomKeyEventHandler registered (null
+   *  before registration). The controller options read it live per keydown. */
+  readonly __customKeyEventHandler: ((event: KeyboardEvent) => boolean) | null
+  registerLinkProvider(provider: ILinkProvider): IDisposable
   getSelection(): string
   hasSelection(): boolean
   clearSelection(): void

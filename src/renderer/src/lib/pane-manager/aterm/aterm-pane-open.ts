@@ -1,6 +1,11 @@
 import type { ManagedPaneInternal } from '../pane-manager-types'
 import { useAppStore } from '@/store'
 import { resolveTerminalLigaturesEnabled } from '../../../../../shared/terminal-ligatures'
+import {
+  normalizeTerminalFastScrollSensitivity,
+  normalizeTerminalScrollSensitivity
+} from '../pane-terminal-options'
+import { normalizeTerminalTuiMouseWheelMultiplier } from '../pane-terminal-mouse-wheel'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 
@@ -34,6 +39,9 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
     // copy-on-select reads app settings live (default false).
     {
       getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true,
+      // The lifecycle's attachCustomKeyEventHandler hook (interrupt/IME/JIS-yen);
+      // read live so it works however registration and pane-open interleave.
+      getCustomKeyEventHandler: () => pane.terminal.__customKeyEventHandler,
       getCopyOnSelect: () => useAppStore.getState().settings?.terminalClipboardOnSelect === true,
       getCursorBlink: () => pane.terminal.options.cursorBlink !== false,
       // Honor the user's terminalFontSize (UI clamps 10–24) instead of a hardcoded
@@ -51,6 +59,9 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
       // Honor the user's terminalFontFamily: its primary face is resolved on the host
       // + injected (set_primary_font) at pane open; "JetBrains Mono"/unset = bundled.
       getFontFamily: () => useAppStore.getState().settings?.terminalFontFamily,
+      // terminalFontWeight picks WHICH of the family's styles is injected (closest
+      // named style; the derived bold weight selects the real set_bold_font face).
+      getFontWeight: () => useAppStore.getState().settings?.terminalFontWeight,
       // Resolve terminalLigatures (auto/on/off) against the font family so set_ligatures
       // matches the user's choice; 'auto' enables only on a known-ligature face.
       getLigatures: () => {
@@ -67,6 +78,15 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
         const bytes = useAppStore.getState().settings?.terminalScrollbackBytes ?? 10_000_000
         return Math.min(50_000, Math.max(1000, Math.round(bytes / 200)))
       },
+      // Wheel sensitivities read live off the facade's options bag (kept in sync by
+      // applyTerminalAppearance) so the sliders take effect without a pane rebuild.
+      getScrollSensitivity: () =>
+        normalizeTerminalScrollSensitivity(pane.terminal.options.scrollSensitivity),
+      getFastScrollSensitivity: () =>
+        normalizeTerminalFastScrollSensitivity(pane.terminal.options.fastScrollSensitivity),
+      // TUI wheel multiplier: the lifecycle threads a live settings reader onto the pane.
+      getTuiScrollMultiplier: () =>
+        normalizeTerminalTuiMouseWheelMultiplier(pane.terminalTuiScrollSensitivity?.()),
       // Map terminalCursorStyle + terminalCursorBlink → a DECSCUSR param: block=1/2,
       // underline=3/4, bar=5/6 (blinking/steady) — the engine's default cursor shape.
       getCursorStyleParam: () => {

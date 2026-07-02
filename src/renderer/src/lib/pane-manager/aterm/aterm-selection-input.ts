@@ -17,6 +17,11 @@ export type AtermSelectionDeps = {
    *  false, selecting must NOT touch the clipboard — only explicit Cmd/Ctrl+C does.
    *  Read live so a settings toggle applies without recreating the pane. */
   getCopyOnSelect?: () => boolean
+  /** Fired after each mouse-driven selection mutation so the facade can emit
+   *  onSelectionChange without waiting for PTY output (Linux PRIMARY on idle
+   *  shells). The facade dedupes by range, so worker-path snapshot lag only
+   *  delays — never doubles — the emit. */
+  onSelectionChanged?: () => void
 }
 
 export type AtermSelectionInput = {
@@ -43,7 +48,7 @@ function pointToCell(event: MouseEvent, deps: AtermSelectionDeps): { col: number
  *  action (shared by mouseup and Cmd/Ctrl+C). The CPU renderer paints the
  *  highlight from the grid's selection, so we only redraw after each change. */
 export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelectionInput {
-  const { canvas, term, redraw, isDisposed, onCopy, getCopyOnSelect } = deps
+  const { canvas, term, redraw, isDisposed, onCopy, getCopyOnSelect, onSelectionChanged } = deps
   let dragging = false
   const copyOnSelect = (): boolean => getCopyOnSelect?.() ?? false
 
@@ -98,6 +103,7 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
       const selected =
         event.detail === 2 ? term.selection_word(row, col) : term.selection_line(row, col)
       redraw()
+      onSelectionChanged?.()
       // Auto-copy only when copy-on-select is enabled (default off) — otherwise the
       // selection just highlights and Cmd/Ctrl+C copies it.
       if (!copyOnSelect()) {
@@ -118,6 +124,7 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
     term.selection_start(row, col)
     dragging = true
     redraw()
+    onSelectionChanged?.()
   }
 
   const onMouseMove = (event: MouseEvent): void => {
@@ -127,6 +134,7 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
     const { col, row } = pointToCell(event, deps)
     term.selection_extend(row, col)
     redraw()
+    onSelectionChanged?.()
   }
 
   const onMouseUp = (): void => {
@@ -139,6 +147,7 @@ export function attachAtermSelectionInput(deps: AtermSelectionDeps): AtermSelect
     }
     term.selection_finish()
     redraw()
+    onSelectionChanged?.()
     // Drag-select auto-copies ONLY when copy-on-select is on (default off); without
     // this guard every drag clobbered the user's clipboard. Cmd/Ctrl+C still copies
     // unconditionally via copySelection() below.

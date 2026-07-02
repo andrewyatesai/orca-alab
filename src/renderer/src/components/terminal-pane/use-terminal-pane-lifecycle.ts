@@ -907,8 +907,12 @@ export function useTerminalPaneLifecycle({
           if (jisYenInput) {
             if (jisYenInput.type === 'input') {
               // Why: this is a translated character, not a terminal shortcut.
-              // Keep it on xterm's onData path so PTY input guards still run.
+              // Keep it on the onData path so PTY input guards still run.
               pane.terminal.input(jisYenInput.data)
+              // Why: the canvas terminal delivers printables via the textarea's
+              // input event; only cancelling the keydown stops the untranslated
+              // '¥' from also reaching the PTY.
+              e.preventDefault()
             }
             return false
           }

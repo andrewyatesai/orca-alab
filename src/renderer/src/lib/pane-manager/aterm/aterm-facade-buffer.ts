@@ -105,23 +105,73 @@ function buildBufferLine(controller: AtermBufferSource, displayRow: number): Fac
       return buildBufferCell(controller, displayRow, x)
     },
     translateToString: (trimRight, startColumn, endColumn, outColumns) => {
-      const text = controller.rowText(displayRow) ?? ''
-      const start = startColumn ?? 0
-      const end = endColumn ?? text.length
-      let sliced = text.slice(start, end)
-      if (trimRight) {
-        sliced = sliced.replace(/\s+$/, '')
-      }
-      // outColumns maps each output char index → its source column. row_text is a
-      // 1:1 char→column stream for orca's link use (no wide-cell column tracking
-      // is consumed), so emit identity columns offset by `start`.
-      if (outColumns) {
-        outColumns.length = 0
-        for (let i = 0; i <= sliced.length; i++) {
-          outColumns.push(start + i)
+      const rowText = controller.rowText(displayRow) ?? ''
+      const start = Math.max(0, startColumn ?? 0)
+      // start/end are COLUMN indices (xterm semantics); default to the logical
+      // cell length so the untranslated text matches the row's content width.
+      const end = Math.min(endColumn ?? controller.rowLen(displayRow) ?? cols, cols)
+      // Fast path: an all-ASCII row has no wide cells or surrogate pairs, so
+      // columns and char indices coincide — skip the per-cell walk (hot for the
+      // wrapped-link translation over large scrollback grids).
+      let allAscii = true
+      for (let i = 0; i < rowText.length; i++) {
+        if (rowText.charCodeAt(i) > 0x7f) {
+          allAscii = false
+          break
         }
       }
-      return sliced
+      if (allAscii) {
+        let sliced = rowText.slice(start, end)
+        if (sliced.length < end - start) {
+          sliced = sliced.padEnd(end - start, ' ')
+        }
+        if (trimRight) {
+          sliced = sliced.replace(/\s+$/, '')
+        }
+        if (outColumns) {
+          outColumns.length = 0
+          for (let i = 0; i <= sliced.length; i++) {
+            outColumns.push(start + i)
+          }
+        }
+        return sliced
+      }
+      // Per-cell walk: a wide (CJK/emoji) lead cell contributes its grapheme at
+      // its lead column and consumes the trailing spacer, so each output code
+      // unit maps to the real source column (surrogate pairs map both units to
+      // the lead column, mirroring xterm's addon contract).
+      let text = ''
+      const columns: number[] = []
+      let col = start
+      // A spacer at the slice start belongs to a wide lead before the slice.
+      if (col > 0 && controller.cellIsWide(displayRow, col - 1) === true) {
+        col++
+      }
+      let sentinel = col
+      while (col < end) {
+        const wide = controller.cellIsWide(displayRow, col) === true
+        const chars = controller.cellText(displayRow, col) || ' '
+        for (let i = 0; i < chars.length; i++) {
+          columns.push(col)
+        }
+        text += chars
+        col += wide ? 2 : 1
+        sentinel = col
+      }
+      let keep = text.length
+      if (trimRight) {
+        while (keep > 0 && /\s/.test(text[keep - 1])) {
+          keep--
+        }
+      }
+      if (outColumns) {
+        outColumns.length = 0
+        for (let i = 0; i < keep; i++) {
+          outColumns.push(columns[i])
+        }
+        outColumns.push(keep === text.length ? sentinel : columns[keep])
+      }
+      return keep === text.length ? text : text.slice(0, keep)
     }
   }
 }

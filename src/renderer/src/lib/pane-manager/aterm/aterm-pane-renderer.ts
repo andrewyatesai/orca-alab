@@ -91,7 +91,8 @@ export async function createAtermPaneController(
   // context-loss rebuild carries them onto the replacement wiring.
   const shared: AtermSharedLateBindings = {
     fileLinkOpener: null,
-    activeLinkContext: linkContext
+    activeLinkContext: linkContext,
+    linkProviderSource: null
   }
 
   // Choose the strategy: GPU when opted-in + a webgl2 context is creatable, else
@@ -159,6 +160,14 @@ export async function createAtermPaneController(
   // Set by dispose() so an in-flight context-loss swap that resolves AFTER teardown
   // doesn't build a fresh (never-torn-down) engine + listeners.
   let controllerDisposed = false
+  // Selection-mutation subscribers live HERE (not in the wiring) so a GPU→CPU
+  // context-loss rebuild keeps the facade's onSelectionChange bridge alive; each
+  // fresh wiring re-forwards into this set (see forwardSelectionMutations).
+  const selectionMutationListeners = new Set<() => void>()
+  const forwardSelectionMutations = (next: AtermWiredPane): void =>
+    next.controller.onSelectionMutation(() =>
+      selectionMutationListeners.forEach((listener) => listener())
+    )
 
   // Context-loss rebuild: a lost WebGL2 context can't draw, so tear down the GPU
   // wiring + its poisoned canvas, build a fresh canvas, load the CPU drawer, and
@@ -176,14 +185,14 @@ export async function createAtermPaneController(
   // CPU-drawer load hung (rejection is handled separately). Past the cap we stop
   // buffering — bytes are then dropped, but bounded, not an unbounded heap leak.
   const SWAP_BUFFER_CAP = 8_000_000
-  const swapToCpu = (): void => {
+  const swapToCpu = (seedAnsi?: string): void => {
     if (swapping || controllerDisposed) {
       return
     }
     swapping = true
     swapBuffer = []
     swapBufferBytes = 0
-    console.warn('[aterm] WebGL2 context lost; swapping pane to the CPU renderer')
+    console.warn('[aterm] draw path lost; swapping pane to the in-process CPU renderer')
     wired.teardown()
     if (e2eConfig.exposeStore) {
       // The GPU path is gone; drop its e2e proof hooks so they can't be probed.
@@ -235,6 +244,13 @@ export async function createAtermPaneController(
           shared,
           onContextLoss: () => undefined // CPU never loses a GL context
         })
+        forwardSelectionMutations(wired)
+        // A worker-crash swap seeds the fresh engine from the dead engine's last
+        // serialized state — aterm's OWN replayable ANSI (unlike the xterm shim
+        // buffer below), so the grid repaints instead of staying blank.
+        if (seedAnsi) {
+          wired.controller.process(seedAnsi)
+        }
         // Flush PTY output that arrived during the swap into the fresh engine, in
         // arrival order, BEFORE clearing the buffer so subsequent live bytes follow.
         const buffered = swapBuffer ?? []
@@ -280,6 +296,7 @@ export async function createAtermPaneController(
     shared,
     onContextLoss: swapToCpu
   })
+  forwardSelectionMutations(wired)
 
   // Stable controller: every method delegates to the CURRENT wiring so a
   // context-loss swap is invisible to the caller (which holds this object).
@@ -321,12 +338,17 @@ export async function createAtermPaneController(
     searchActiveMatchRect: () => wired.controller.searchActiveMatchRect(),
     setFileLinkOpener: (fn) => wired.controller.setFileLinkOpener(fn),
     setUrlLinkContext: (context) => wired.controller.setUrlLinkContext(context),
+    // Stored in `shared`, so a context-loss rebuild keeps the providers bound.
+    setLinkProviderSource: (source) => wired.controller.setLinkProviderSource(source),
+    onSelectionMutation: (handler) => void selectionMutationListeners.add(handler),
     updateTheme: (colors) => wired.controller.updateTheme(colors),
     setSelectionInactive: (inactive) => wired.controller.setSelectionInactive(inactive),
     setSelectionInactiveBg: (bg) => wired.controller.setSelectionInactiveBg(bg),
     reapplyEngineSettings: () => wired.controller.reapplyEngineSettings(),
     scheduleDraw: () => wired.controller.scheduleDraw(),
     onEngineSideChannel: (handler) => wired.controller.onEngineSideChannel?.(handler),
+    settle: () => wired.controller.settle(),
+    keyboardModeBits: () => wired.controller.keyboardModeBits(),
     // Read the CURRENT wiring's kind/adapter so a GPU→CPU swap is reflected (the
     // swap replaces `wired`, so this delegates to whichever path is live now).
     rendererKind: () => wired.controller.rendererKind(),
@@ -340,6 +362,8 @@ export async function createAtermPaneController(
     title: () => wired.controller.title(),
     onTitleChange: (handler) => wired.controller.onTitleChange(handler),
     gridSize: () => wired.controller.gridSize(),
+    resize: (cols, rows) => wired.controller.resize(cols, rows),
+    fitToContainer: () => wired.controller.fitToContainer(),
     isAltScreen: () => wired.controller.isAltScreen(),
     bracketedPasteMode: () => wired.controller.bracketedPasteMode(),
     setClipboardWriteAuthorized: (allowed) => wired.controller.setClipboardWriteAuthorized(allowed),
@@ -350,6 +374,7 @@ export async function createAtermPaneController(
     isFocusEventMode: () => wired.controller.isFocusEventMode(),
     isMouseTracking: () => wired.controller.isMouseTracking(),
     isColorSchemeUpdatesMode: () => wired.controller.isColorSchemeUpdatesMode(),
+    isAppCursorMode: () => wired.controller.isAppCursorMode(),
     cursorX: () => wired.controller.cursorX(),
     cursorY: () => wired.controller.cursorY(),
     cursorStyle: () => wired.controller.cursorStyle(),

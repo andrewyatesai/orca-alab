@@ -12,8 +12,6 @@ export type AtermFramePainterDeps = {
   term: AtermTerminal
   /** The shared wasm linear memory — for the zero-copy framebuffer view. */
   memory: WebAssembly.Memory
-  cellWidth: number
-  cellHeight: number
   drawScheduler: AtermDrawScheduler
   searchController: AtermSearchController
   isDisposed: () => boolean
@@ -35,17 +33,7 @@ export type AtermFramePainterDeps = {
  *  paint the engine framebuffer, size the canvas (CSS = device/dpr so the
  *  device-pixel framebuffer maps 1:1), then overlay search highlights on top. */
 export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void {
-  const {
-    canvas,
-    term,
-    cellWidth,
-    cellHeight,
-    drawScheduler,
-    searchController,
-    isDisposed,
-    getDpr,
-    getRows
-  } = deps
+  const { canvas, term, drawScheduler, searchController, isDisposed, getDpr, getRows } = deps
 
   return (): void => {
     const ctx = deps.ctx
@@ -81,6 +69,11 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
     // memory.buffer, so the view is rebuilt from the CURRENT buffer every frame.
     const fbView = new Uint8ClampedArray(deps.memory.buffer, term.rgba_ptr(), width * height * 4)
     ctx.putImageData(new ImageData(fbView, width, height), 0, 0)
+    // Cell metrics read from the engine each frame: set_px / set_line_height
+    // re-rasterize mid-life (DPI move, live font change) and stale copies would
+    // misplace the overlay rects below.
+    const cellWidth = term.cell_width
+    const cellHeight = term.cell_height
     // Overlay search highlights last so they sit above the rendered glyphs.
     paintAtermSearchHighlights(ctx, deps.getSearchMatches(), deps.getSearchActiveIndex(), {
       term,

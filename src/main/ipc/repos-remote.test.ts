@@ -2420,7 +2420,7 @@ describe('repos:getBaseRefDefault envelope', () => {
   const dispatchExec = (rules: ExecRule[]): ((argv: string[]) => Promise<ExecResponse>) => {
     return (argv: string[]) => {
       for (const rule of rules) {
-        if (argv.test(rule)) {
+        if (rule.match(argv)) {
           return rule.respond()
         }
       }

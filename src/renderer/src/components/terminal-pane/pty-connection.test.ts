@@ -673,6 +673,9 @@ describe('connectPanePty', () => {
       markAgentCompletionPaneUnread: vi.fn()
     } as StoreState
     ;(globalThis as unknown as { window: unknown }).window = {
+      // Why: OSC 133;D command-finished handling dispatches a window event
+      // (git-status push refresh); the fake window must accept it.
+      dispatchEvent: vi.fn(),
       api: {
         ssh: {
           connect: vi.fn().mockResolvedValue({ status: 'connected' }),
@@ -783,7 +786,10 @@ describe('connectPanePty', () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport()
     transportFactoryQueue.push(transport)
-    const pane = createPane(1)
+    const pane = createPane(1) as ReturnType<typeof createPane> & { atermController?: unknown }
+    // The diagnostic is also gated on the aterm controller being attached —
+    // pre-attach 0×0 is a transient, not a broken pane.
+    pane.atermController = { fitToContainer: vi.fn() }
     pane.terminal.cols = 0
     pane.terminal.rows = 0
     const deps = createDeps({ isVisibleRef: { current: true } })

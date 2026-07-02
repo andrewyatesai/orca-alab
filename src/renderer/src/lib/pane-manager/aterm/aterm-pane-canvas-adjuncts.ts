@@ -15,6 +15,8 @@ type PaneCanvasAdjunctDeps = {
    *  the stacked 2d overlay; the CPU drawer paints them in-frame instead. */
   needsSearchOverlay: boolean
   getRows: () => number
+  /** For the a11y mirror's rewrap detection (a cols change renumbers absolute lines). */
+  getCols: () => number
   getHoveredLinkSpan: () => AtermHoveredLinkSpan | null
   getFgColor: () => number
   scheduleDraw: () => void
@@ -55,6 +57,7 @@ export function mountAtermPaneCanvasAdjuncts(deps: PaneCanvasAdjunctDeps): {
     liveRegion: deps.liveRegion,
     term,
     getRows,
+    getCols: deps.getCols,
     isAltScreen: () => term.is_alt_screen,
     isDisposed
   })

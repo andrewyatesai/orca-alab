@@ -8,6 +8,7 @@ import {
   waitForActivePanePtyId,
   waitForTerminalOutput
 } from './helpers/terminal'
+import { waitForAtermControllerByPtyId } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { installTerminalPtyWriteSpy, readTerminalPtyWrites } from './helpers/terminal-pty-write-spy'
 
@@ -90,6 +91,10 @@ test.describe('aterm renderer query replies', () => {
     const canvas = orcaPage.locator('[data-testid="aterm-canvas"]').first()
     await expect(canvas, 'aterm canvas should mount').toBeAttached({ timeout: 20_000 })
     const ptyId = await waitForActivePanePtyId(orcaPage)
+    // Wait for THIS pane's aterm controller (by ptyId): it is the authoritative query
+    // responder, and on the worker render path the engine build can outlast the
+    // child's 1s per-query reply windows if the queries start before it attaches.
+    await waitForAtermControllerByPtyId(orcaPage, ptyId)
     await installTerminalPtyWriteSpy(electronApp)
 
     const runId = randomUUID().slice(0, 8)

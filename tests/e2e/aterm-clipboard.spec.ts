@@ -3,7 +3,7 @@ import { rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import type { ElectronApplication, Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
-import { waitForActiveAtermController } from './helpers/aterm-controller'
+import { waitForAtermControllerByPtyId } from './helpers/aterm-controller'
 import { sendToTerminal, waitForActivePanePtyId, waitForTerminalOutput } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import {
@@ -164,9 +164,10 @@ test.describe('aterm renderer clipboard capabilities', () => {
   }) => {
     const ptyId = await openAtermTerminal(orcaPage)
     // The textarea 'input' paste listener is attached only when the async aterm
-    // controller finishes loading — wait for it so the dispatched paste below
-    // isn't silently dropped under parallel load (before the handler exists).
-    await waitForActiveAtermController(orcaPage)
+    // controller finishes loading — wait for THIS pane's (by ptyId) so the dispatched
+    // paste below isn't silently dropped under parallel load (before the handler
+    // exists; the backgrounded initial pane's controller can attach first).
+    await waitForAtermControllerByPtyId(orcaPage, ptyId)
     await installTerminalPtyWriteSpy(electronApp)
 
     // 1) BRACKETED PASTE ON. Have the SHELL emit DECSET 2004h so BOTH the kept
@@ -248,6 +249,10 @@ test.describe('aterm renderer clipboard capabilities', () => {
     const canvas = orcaPage.locator('[data-testid="aterm-canvas"]').first()
     await expect(canvas, 'aterm canvas should mount').toBeAttached({ timeout: 20_000 })
     const ptyId = await waitForActivePanePtyId(orcaPage)
+    // Wait for THIS pane's aterm controller (as the bracketed-paste test does): the
+    // ENGINE owns OSC-52 parsing, so a sequence emitted before it attaches is never
+    // dispatched — on the worker render path the engine build can outlast the child.
+    await waitForAtermControllerByPtyId(orcaPage, ptyId)
 
     const runId = randomUUID().slice(0, 8)
     const expected = `aterm-osc52-proof-${runId}`

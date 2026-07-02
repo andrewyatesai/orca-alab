@@ -23,11 +23,15 @@ export type AtermA11yMirror = {
 export type AtermA11yMirrorDeps = {
   /** The off-screen role="log" / aria-live element to write the grid text into. */
   liveRegion: HTMLElement
-  /** The engine: visible row text + the display offset (to skip appending while the
-   *  viewport is scrolled back — that content is already in the log). */
-  term: Pick<AtermTerminal, 'row_text' | 'display_offset'>
+  /** The engine: visible row text, the display offset (to skip appending while the
+   *  viewport is scrolled back — that content is already in the log), and the absolute
+   *  line of visible row 0 (the log's append anchor). */
+  term: Pick<AtermTerminal, 'row_text' | 'display_offset' | 'display_origin_absolute'>
   /** Current visible row count (the wiring tracks this; the engine has no getter). */
   getRows: () => number
+  /** Current column count — a cols/rows change rewraps the buffer and renumbers
+   *  absolute lines, so the append anchor must re-seed. */
+  getCols: () => number
   /** True on the alternate screen (TUI) — mirror the visible grid, don't append. */
   isAltScreen: () => boolean
   isDisposed: () => boolean
@@ -53,31 +57,22 @@ function readVisibleLines(term: Pick<AtermTerminal, 'row_text'>, rows: number): 
   return lines
 }
 
-/** The largest k such that the TAIL of `log` equals the HEAD of `next` — the
- *  overlap, so only genuinely new lines (the suffix of `next` past it) are appended
- *  when output scrolls up or the bottom line is edited. */
-function overlapLen(log: string[], next: string[]): number {
-  const max = Math.min(log.length, next.length)
-  for (let k = max; k > 0; k--) {
-    let match = true
-    for (let i = 0; i < k; i++) {
-      if (log[log.length - k + i] !== next[i]) {
-        match = false
-        break
-      }
-    }
-    if (match) {
-      return k
-    }
-  }
-  return 0
-}
-
 export function createAtermA11yMirror(deps: AtermA11yMirrorDeps): AtermA11yMirror {
-  const { liveRegion, term, getRows, isAltScreen, isDisposed } = deps
+  const { liveRegion, term, getRows, getCols, isAltScreen, isDisposed } = deps
   let timeoutId: ReturnType<typeof setTimeout> | null = null
-  // The accumulated announced output (main-screen log), for the overlap diff.
+  // The accumulated announced output (main-screen log). Its entries map 1:1 onto
+  // liveRegion's child <div>s (both are appended together and trimmed together).
   let log: string[] = []
+  // ABSOLUTE line (display_origin_absolute + row) of the log's last entry: appends key
+  // off WHERE a row lives, not its text. A text-overlap diff mis-fires when an
+  // already-logged row is edited in place (prompt → command echo, clear-screen redraw)
+  // and re-appends the whole visible window — duplicated, order-breaking history.
+  let lastAbs = -1
+  // Grid dims + last seen origin: a resize REWRAPS the buffer (renumbering absolute
+  // lines, origin can even move backward), so the anchor is meaningless across one.
+  let lastCols = -1
+  let lastRows = -1
+  let lastOrigin = -1
   let altMode = false
 
   const clearRegion = (): void => {
@@ -85,6 +80,7 @@ export function createAtermA11yMirror(deps: AtermA11yMirrorDeps): AtermA11yMirro
       liveRegion.removeChild(liveRegion.firstChild)
     }
     log = []
+    lastAbs = -1
   }
 
   const refresh = (): void => {
@@ -117,18 +113,49 @@ export function createAtermA11yMirror(deps: AtermA11yMirrorDeps): AtermA11yMirro
     if (term.display_offset !== 0) {
       return
     }
-    // Append only the new tail so aria-live announces just the new output, and the
-    // accumulated children give screen-reader scrollback review.
-    const fresh = visible.slice(overlapLen(log, visible))
-    if (fresh.length === 0) {
+    if (visible.length === 0) {
       return
     }
-    for (const line of fresh) {
-      log.push(line)
+    const origin = term.display_origin_absolute
+    const cols = getCols()
+    const rows = getRows()
+    const rewrapped = cols !== lastCols || rows !== lastRows || origin < lastOrigin
+    lastCols = cols
+    lastRows = rows
+    lastOrigin = origin
+    if (rewrapped && lastAbs >= 0) {
+      // Re-anchor at the current bottom WITHOUT appending: the visible window is
+      // previously-announced content in its new wrap — re-appending would duplicate
+      // (and reorder) the log; edits against the stale anchor would corrupt it.
+      lastAbs = origin + visible.length - 1
+      return
+    }
+    // Still-visible rows already in the log: an edit rewrites that row's existing
+    // node (announced via aria-atomic=false) instead of growing the log.
+    const alreadyLogged = Math.max(0, lastAbs - origin + 1)
+    const editable = Math.min(alreadyLogged, visible.length)
+    const logStart = log.length - alreadyLogged
+    for (let i = 0; i < editable; i++) {
+      const at = logStart + i
+      // at < 0: the row's node was trimmed off by the log cap — nothing to update.
+      if (at < 0 || log[at] === visible[i]) {
+        continue
+      }
+      log[at] = visible[i]
+      const node = liveRegion.children[at]
+      if (node) {
+        node.textContent = visible[i]
+      }
+    }
+    // Append only rows past the anchor so aria-live announces just the new output,
+    // and the accumulated children give screen-reader scrollback review.
+    for (let i = editable; i < visible.length; i++) {
+      log.push(visible[i])
       const node = document.createElement('div')
-      node.textContent = line
+      node.textContent = visible[i]
       liveRegion.appendChild(node)
     }
+    lastAbs = Math.max(lastAbs, origin + visible.length - 1)
     if (log.length > MAX_LOG_LINES) {
       log = log.slice(-MAX_LOG_LINES)
       while (liveRegion.childElementCount > MAX_LOG_LINES && liveRegion.firstChild) {

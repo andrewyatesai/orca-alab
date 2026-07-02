@@ -1,6 +1,6 @@
 import { test, expect } from './helpers/orca-app'
 import { execInTerminal, waitForActivePanePtyId } from './helpers/terminal'
-import { waitForActiveAtermController } from './helpers/aterm-controller'
+import { waitForAtermControllerByPtyId } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 
 // PROVES GAP-2 accessibility: the aterm pane renders to an opaque <canvas>, so
@@ -25,9 +25,10 @@ test.describe('aterm screen-reader accessibility', () => {
     const canvas = orcaPage.locator('[data-testid="aterm-canvas"]').first()
     await expect(canvas, 'aterm canvas should mount').toBeAttached({ timeout: 20_000 })
     const ptyId = await waitForActivePanePtyId(orcaPage)
-    // Wait for the async aterm controller (wasm/font/GPU load) so the live-region
-    // mirror is wired — under parallel e2e load it can attach after the PTY binds.
-    await waitForActiveAtermController(orcaPage)
+    // Wait for THIS pane's aterm controller (by ptyId; wasm/font/GPU load) so the
+    // live-region mirror is wired — under parallel e2e load it can attach after the
+    // PTY binds (and the backgrounded initial pane's controller can attach first).
+    await waitForAtermControllerByPtyId(orcaPage, ptyId)
 
     // At least one aterm live region must exist with screen-reader semantics:
     // role="log", aria-live="polite", and NOT display:none (screen readers ignore
@@ -97,7 +98,7 @@ test.describe('aterm screen-reader accessibility', () => {
     const canvas = orcaPage.locator('[data-testid="aterm-canvas"]').first()
     await expect(canvas, 'aterm canvas should mount').toBeAttached({ timeout: 20_000 })
     const ptyId = await waitForActivePanePtyId(orcaPage)
-    await waitForActiveAtermController(orcaPage)
+    await waitForAtermControllerByPtyId(orcaPage, ptyId)
 
     // First command: three ordered, distinctive lines.
     const A = ['A1-aterm-log-line-alpha', 'A2-aterm-log-line-bravo', 'A3-aterm-log-line-charlie']

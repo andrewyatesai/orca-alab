@@ -172,10 +172,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       searchActiveIndex = activeIndex
     },
     scrollToMatch: (match) => {
-      if (disposed) {
-        return
+      if (!disposed) {
+        term.scroll_search_line_into_view(match.line)
       }
-      term.scroll_search_line_into_view(match.line)
     },
     redraw: scheduleDraw
   })
@@ -210,6 +209,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     metrics,
     needsSearchOverlay: strategy.needsSearchOverlay === true,
     getRows: () => gridSizing.grid().rows,
+    getCols: () => gridSizing.grid().cols,
     getHoveredLinkSpan: () => linkInput.hoveredSpan(),
     getFgColor: () => themeColors.fg,
     scheduleDraw,

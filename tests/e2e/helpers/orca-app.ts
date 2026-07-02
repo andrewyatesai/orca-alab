@@ -302,12 +302,16 @@ export const test = base.extend<OrcaTestFixtures, OrcaWorkerFixtures>({
     // fallback) so those specs are unaffected; the dedicated worker specs opt back in
     // with __atermWorkerRender = true. addInitScript covers reloads; evaluate the
     // already-loaded document.
-    await page.addInitScript(() => {
-      ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = false
-    })
-    await page.evaluate(() => {
-      ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = false
-    })
+    // ORCA_E2E_ATERM_WORKER=1 (test:e2e:aterm-worker-on) leaves the flag UNSET so a
+    // curated subset runs against the SHIPPED default — the worker render path.
+    if (process.env.ORCA_E2E_ATERM_WORKER !== '1') {
+      await page.addInitScript(() => {
+        ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = false
+      })
+      await page.evaluate(() => {
+        ;(window as unknown as { __atermWorkerRender?: boolean }).__atermWorkerRender = false
+      })
+    }
 
     // Wait for the store to be available
     await page.waitForFunction(() => Boolean(window.__store), null, { timeout: 30_000 })

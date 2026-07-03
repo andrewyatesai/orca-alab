@@ -1,6 +1,285 @@
 /* @ts-self-types="./aterm_wasm.d.ts" */
 
 /**
+ * One Living-Panel scene instance + its telemetry bus, ticked by the host
+ * and rasterized to RGBA8. See the module docs for the drive contract.
+ */
+export class AtermScene {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        AtermSceneFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_atermscene_free(ptr, 0);
+    }
+    /**
+     * Rebind which telemetry drives a behaviour (data, not code — the native
+     * manifest channel). `drive` is a [`Drive`] name (`energy`, `crowd`,
+     * `arrivals`, `departures`, `butterflies`, `weather`, `traffic`,
+     * `daylight`); `source` is a dotted system-signal name (`sys.cpu`, …),
+     * `app:<name>`, or `const:<0..1>`. Returns `false` when either fails to
+     * parse.
+     * @param {string} drive
+     * @param {string} source
+     * @returns {boolean}
+     */
+    bind_drive(drive, source) {
+        const ptr0 = passStringToWasm0(drive, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.atermscene_bind_drive(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret !== 0;
+    }
+    /**
+     * Mark a system signal as unavailable again (back to ABSENT). Returns
+     * `false` for an unknown key.
+     * @param {string} key
+     * @returns {boolean}
+     */
+    clear_signal(key) {
+        const ptr0 = passStringToWasm0(key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermscene_clear_signal(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * Human/inspection summary (the native `controls scenes` dump).
+     * @returns {string}
+     */
+    describe() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.atermscene_describe(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * Last-rendered frame height in pixels.
+     * @returns {number}
+     */
+    get height() {
+        const ret = wasm.atermscene_height(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * The scene's stable id (`"placeholder"` until the art rewrite lands).
+     * @returns {string}
+     */
+    id() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.atermscene_id(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * `true` while something is still moving — mirror of the terminal's
+     * `is_effects_active`: keep the rAF loop only while animating (or while
+     * signals keep changing), else drop to 0% idle.
+     * @returns {boolean}
+     */
+    is_active() {
+        const ret = wasm.atermscene_is_active(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Build a scene by `name` (see [`scene_names_csv`]; unknown → the inert
+     * placeholder) with its default stat→behaviour binding. `seed` makes the
+     * generation deterministic-per-panel; `w`×`h` is the panel pixel box;
+     * `bg` is the packed `0x00RRGGBB` the frame composites over.
+     * @param {string} name
+     * @param {number} seed
+     * @param {number} w
+     * @param {number} h
+     * @param {number} bg
+     */
+    constructor(name, seed, w, h, bg) {
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermscene_new(ptr0, len0, seed, w, h, bg);
+        this.__wbg_ptr = ret >>> 0;
+        AtermSceneFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * A console text-entry pulse (one per real printable keystroke) — the
+     * "typing drops a butterfly" hook.
+     * @param {boolean} printable
+     */
+    on_text(printable) {
+        wasm.atermscene_on_text(this.__wbg_ptr, printable);
+    }
+    /**
+     * Emit + composite the current frame into the internal RGBA8 buffer
+     * (straight-alpha, opaque background — ready for `putImageData` or a
+     * `drawImage` layer). Read back via `rgba`/`rgba_ptr` + `width`/`height`.
+     */
+    render() {
+        wasm.atermscene_render(this.__wbg_ptr);
+    }
+    /**
+     * Copy of the last-rendered RGBA8 frame (`width*height*4` bytes).
+     * @returns {Uint8Array}
+     */
+    rgba() {
+        const ret = wasm.atermscene_rgba(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * Byte offset of the RGBA8 frame within wasm linear memory for a
+     * zero-copy view (same caveats as `AtermTerminal::rgba_ptr`: read it
+     * synchronously after `render`, before any other call on this instance).
+     * @returns {number}
+     */
+    rgba_ptr() {
+        const ret = wasm.atermscene_rgba_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Push an app-fed named stream (the `aterm-ctl metric <name>` channel):
+     * arbitrary host streams (`"ai.tokens"`, `"build.pct"`, …) a binding can
+     * map onto a drive via `bind_drive("...", "app:<name>")`.
+     * @param {string} name
+     * @param {number} norm
+     * @param {number} value
+     * @param {number} rate
+     */
+    set_app_signal(name, norm, value, rate) {
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermscene_set_app_signal(this.__wbg_ptr, ptr0, len0, norm, value, rate);
+    }
+    /**
+     * Panel background colour (`0x00RRGGBB`) the frame composites over.
+     * @param {number} bg
+     */
+    set_background(bg) {
+        wasm.atermscene_set_background(this.__wbg_ptr, bg);
+    }
+    /**
+     * Scale a drive's resolved value (the binding `gain` channel).
+     * @param {string} drive
+     * @param {number} gain
+     * @returns {boolean}
+     */
+    set_drive_gain(drive, gain) {
+        const ptr0 = passStringToWasm0(drive, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermscene_set_drive_gain(this.__wbg_ptr, ptr0, len0, gain);
+        return ret !== 0;
+    }
+    /**
+     * Force night (`true`) / day (`false`), or `undefined` to let the scene's
+     * own day drive decide.
+     * @param {boolean | null} [night]
+     */
+    set_night(night) {
+        wasm.atermscene_set_night(this.__wbg_ptr, isLikeNone(night) ? 0xFFFFFF : night ? 1 : 0);
+    }
+    /**
+     * Theme the scene from the host colorscheme. All colours are packed
+     * `0x00RRGGBB`; the argument order matches [`aterm_scene::Palette`].
+     * @param {number} ink
+     * @param {number} dim
+     * @param {number} sky_day_top
+     * @param {number} sky_day_bot
+     * @param {number} sky_night_top
+     * @param {number} sky_night_bot
+     * @param {number} hill
+     * @param {number} grass
+     * @param {number} grass_dark
+     * @param {number} sun
+     * @param {number} accent
+     * @param {number} good
+     * @param {number} warn
+     * @param {number} hot
+     */
+    set_palette(ink, dim, sky_day_top, sky_day_bot, sky_night_top, sky_night_bot, hill, grass, grass_dark, sun, accent, good, warn, hot) {
+        wasm.atermscene_set_palette(this.__wbg_ptr, ink, dim, sky_day_top, sky_day_bot, sky_night_top, sky_night_bot, hill, grass, grass_dark, sun, accent, good, warn, hot);
+    }
+    /**
+     * Honor the OS/user reduce-motion setting: dampened speeds, no particles.
+     * @param {boolean} on
+     */
+    set_reduced_motion(on) {
+        wasm.atermscene_set_reduced_motion(this.__wbg_ptr, on);
+    }
+    /**
+     * Push one sampled system/engine signal onto the telemetry bus. `key` is
+     * a dotted [`SignalKey`] name (`sys.cpu`, `sys.mem`, `sys.gpu`,
+     * `sys.disk`, `net.rx`, `net.tx`, `ses.cpu`, `ses.mem`, `engine.fps`,
+     * `engine.frame_ms`, `engine.present_ms`, `engine.slow_frames`);
+     * `norm` is the normalized behaviour
+     * value in `[0,1]`; `value`/`rate` are the raw readout units. Returns
+     * `false` for an unknown key. A signal the host cannot sample must simply
+     * never be pushed — absent stays honest (`None`), never a fake 0.
+     * @param {string} key
+     * @param {number} norm
+     * @param {number} value
+     * @param {number} rate
+     * @returns {boolean}
+     */
+    set_signal(key, norm, value, rate) {
+        const ptr0 = passStringToWasm0(key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermscene_set_signal(this.__wbg_ptr, ptr0, len0, norm, value, rate);
+        return ret !== 0;
+    }
+    /**
+     * Resize the panel box (pixels).
+     * @param {number} w
+     * @param {number} h
+     */
+    set_size(w, h) {
+        wasm.atermscene_set_size(this.__wbg_ptr, w, h);
+    }
+    /**
+     * Emitted sprite count of the LAST rendered frame (both layers) — the
+     * bounded per-frame draw budget, for host diagnostics/tests.
+     * @returns {number}
+     */
+    get sprite_count() {
+        const ret = wasm.atermscene_sprite_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Advance the scene by `dt_ms` under the currently-pushed signals.
+     * Deterministic: same seed + same `dt`/signal stream ⇒ identical frames.
+     * Negative/NaN deltas are ignored; one tick is clamped to 250 ms so a
+     * backgrounded tab fast-forwards smoothly instead of exploding kinematics.
+     * @param {number} dt_ms
+     */
+    tick(dt_ms) {
+        wasm.atermscene_tick(this.__wbg_ptr, dt_ms);
+    }
+    /**
+     * Last-rendered frame width in pixels.
+     * @returns {number}
+     */
+    get width() {
+        const ret = wasm.atermscene_width(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+}
+if (Symbol.dispose) AtermScene.prototype[Symbol.dispose] = AtermScene.prototype.free;
+
+/**
  * A terminal + CPU renderer pair. Feed PTY bytes with [`AtermTerminal::process`],
  * then [`AtermTerminal::render`] to refresh the RGBA framebuffer, then read it
  * back via [`AtermTerminal::rgba`] (+ `width`/`height`) to draw onto a canvas.
@@ -31,6 +310,15 @@ export class AtermTerminal {
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
+    }
+    /**
+     * Advance the effects clock by `dt_ms` (the host's rAF delta). The
+     * engines never read a wall clock: same PTY bytes + same `dt` stream ⇒
+     * identical frames. Negative/NaN deltas are ignored.
+     * @param {number} dt_ms
+     */
+    advance_effects(dt_ms) {
+        wasm.atermterminal_advance_effects(this.__wbg_ptr, dt_ms);
     }
     /**
      * Authorize OSC 52 clipboard *write* (set) so the engine queues OSC 52
@@ -163,6 +451,17 @@ export class AtermTerminal {
     drain_bell() {
         const ret = wasm.atermterminal_drain_bell(this.__wbg_ptr);
         return ret !== 0;
+    }
+    /**
+     * Milliseconds until the next scheduled idle one-shot (settled-cat blink /
+     * ear-twitch), or `undefined` when none is armed. These arm while
+     * `is_effects_active()` is `false`; a host that wants idle cat life
+     * schedules one timer for this and resumes its frame loop there.
+     * @returns {number | undefined}
+     */
+    effects_next_deadline_ms() {
+        const ret = wasm.atermterminal_effects_next_deadline_ms(this.__wbg_ptr);
+        return ret[0] === 0 ? undefined : ret[1];
     }
     /**
      * Encode a keyboard event through the engine's FULL encoder — legacy +
@@ -319,6 +618,16 @@ export class AtermTerminal {
      */
     get is_color_scheme_updates_mode() {
         const ret = wasm.atermterminal_is_color_scheme_updates_mode(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * `true` while any effect is animating — keep the rAF loop running (call
+     * `advance_effects` + `render`) only while this holds, then return to 0%
+     * idle. Effects self-terminate to a stable state, so this always settles.
+     * @returns {boolean}
+     */
+    is_effects_active() {
+        const ret = wasm.atermterminal_is_effects_active(this.__wbg_ptr);
         return ret !== 0;
     }
     /**
@@ -771,6 +1080,29 @@ export class AtermTerminal {
         wasm.atermterminal_set_cursor_blink_phase(this.__wbg_ptr, on);
     }
     /**
+     * Configure the LUMEN cursor aurora (additive light in the cursor's
+     * wake). Mirrors the native knobs + clamps: `style` ∈
+     * `lumen|rainbow|sparkle|fire|laser|water` (unknown → lumen);
+     * `color`/`accent` omitted derive from the theme cursor (accent = color
+     * brightened 1.5×) exactly like the native app; `duration_ms` clamps
+     * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),
+     * `radius` (bloom crown, cells) 0..=2, `ring` = landing-ring ping.
+     * @param {boolean} enabled
+     * @param {string} style
+     * @param {number | null | undefined} color
+     * @param {number | null | undefined} accent
+     * @param {number} duration_ms
+     * @param {number} length
+     * @param {number} intensity
+     * @param {number} radius
+     * @param {boolean} ring
+     */
+    set_cursor_glow(enabled, style, color, accent, duration_ms, length, intensity, radius, ring) {
+        const ptr0 = passStringToWasm0(style, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_cursor_glow(this.__wbg_ptr, enabled, ptr0, len0, isLikeNone(color) ? 0x100000001 : (color) >>> 0, isLikeNone(accent) ? 0x100000001 : (accent) >>> 0, duration_ms, length, intensity, radius, ring);
+    }
+    /**
      * Force a hollow (unfocused) cursor when `true`, or restore the terminal's
      * DECSCUSR style when `false` — the standard focused/unfocused affordance.
      * @param {boolean} hollow
@@ -787,6 +1119,19 @@ export class AtermTerminal {
      */
     set_cursor_opacity(opacity) {
         wasm.atermterminal_set_cursor_opacity(this.__wbg_ptr, opacity);
+    }
+    /**
+     * Configure the legacy opaque comet trail (the native `cursor_trail_style
+     * = "comet"` look). `color` omitted = the theme cursor; `duration_ms`
+     * clamps 30..=2000, `length` 1..=512. Exactly one of trail/glow is on in
+     * the native app (chosen by style); the embedder decides here.
+     * @param {boolean} enabled
+     * @param {number} duration_ms
+     * @param {number} length
+     * @param {number | null} [color]
+     */
+    set_cursor_trail(enabled, duration_ms, length, color) {
+        wasm.atermterminal_set_cursor_trail(this.__wbg_ptr, enabled, duration_ms, length, isLikeNone(color) ? 0x100000001 : (color) >>> 0);
     }
     /**
      * @param {number} r
@@ -817,6 +1162,14 @@ export class AtermTerminal {
      */
     set_default_foreground(r, g, b) {
         wasm.atermterminal_set_default_foreground(this.__wbg_ptr, r, g, b);
+    }
+    /**
+     * Focus gate for the idle one-shots (`§5.6`): an unfocused pane fires no
+     * blink events (and freezes their fingerprints). Pass the pane focus.
+     * @param {boolean} focused
+     */
+    set_effects_focused(focused) {
+        wasm.atermterminal_set_effects_focused(this.__wbg_ptr, focused);
     }
     /**
      * Inject a colour-emoji (sbix) face from font bytes, driving the existing
@@ -979,6 +1332,128 @@ export class AtermTerminal {
         wasm.atermterminal_set_selection_inactive_bg(this.__wbg_ptr, isLikeNone(bg) ? 0x100000001 : (bg) >>> 0);
     }
     /**
+     * Per-class gates (native `[sparkle_words.<class>] enabled`): profanity
+     * (supernova/sparkle), feline (peeking cat/paw), orca (water splash),
+     * emphasis (ink-only; effective only while ink is enabled).
+     * @param {boolean} profanity
+     * @param {boolean} feline
+     * @param {boolean} orca
+     * @param {boolean} emphasis
+     */
+    set_sparkle_classes(profanity, feline, orca, emphasis) {
+        wasm.atermterminal_set_sparkle_classes(this.__wbg_ptr, profanity, feline, orca, emphasis);
+    }
+    /**
+     * Comma-separated exact surfaces to never decorate (the native global
+     * `deny` and `ignore_words` channel), replacing the current set. Entries
+     * are case/diacritic-folded with the scanner's own fold.
+     * @param {string} words_csv
+     */
+    set_sparkle_deny(words_csv) {
+        const ptr0 = passStringToWasm0(words_csv, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_sparkle_deny(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Feline knobs (native `[sparkle_words.feline]`): `style` = "cat" (the
+     * v2 peeking cat, default) or "paw" (the exact v1 steady paw); `color`
+     * omitted = the native soft pink; `intensity` clamps 0..=1; `idle` =
+     * sparse blink/ear-twitch one-shots (focus-gated, ≤1/s); `gaze` = pupils
+     * track the cursor (present-driven, zero new wakes); `magic` = rare
+     * Fortune/Nebula cats; `allow_bare_cat` = decorate the literal 3-letter
+     * `cat`; `cjk_single_char` = match a lone cat ideograph (high-FP).
+     * @param {string} style
+     * @param {number | null | undefined} color
+     * @param {number} intensity
+     * @param {boolean} idle
+     * @param {boolean} gaze
+     * @param {boolean} magic
+     * @param {boolean} allow_bare_cat
+     * @param {boolean} cjk_single_char
+     */
+    set_sparkle_feline(style, color, intensity, idle, gaze, magic, allow_bare_cat, cjk_single_char) {
+        const ptr0 = passStringToWasm0(style, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_sparkle_feline(this.__wbg_ptr, ptr0, len0, isLikeNone(color) ? 0x100000001 : (color) >>> 0, intensity, idle, gaze, magic, allow_bare_cat, cjk_single_char);
+    }
+    /**
+     * Animated-ink knobs (native `[sparkle_words.ink]`): the glyph-ink
+     * gradient + specular sweep on matched words. `strength` clamps 0..=1;
+     * `sweep_ms` clamps 350..=6000 (floor 600 while `loop_` — the WCAG flash
+     * margin, structural); `loop_` re-sweeps while the word stays visible.
+     * @param {boolean} enabled
+     * @param {number} strength
+     * @param {number} sweep_ms
+     * @param {boolean} loop_
+     */
+    set_sparkle_ink(enabled, strength, sweep_ms, loop_) {
+        wasm.atermterminal_set_sparkle_ink(this.__wbg_ptr, enabled, strength, sweep_ms, loop_);
+    }
+    /**
+     * Comma-separated languages whose AMBIGUOUS homograph lexicon entries
+     * un-gate (native `languages`, default `"en"`; non-ambiguous forms load
+     * regardless; `"all"` un-gates everything). Rebuilds the lexicon.
+     * @param {string} languages_csv
+     */
+    set_sparkle_languages(languages_csv) {
+        const ptr0 = passStringToWasm0(languages_csv, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_sparkle_languages(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * User lexicon-override TOML merged over the builtin (the native
+     * `lexicon` file / `extra_words` channel — the same `[[entry]]` schema).
+     * Pass `undefined` to clear. A malformed override falls back to the
+     * builtin lexicon (the native fail-open posture).
+     * @param {string | null} [toml]
+     */
+    set_sparkle_lexicon_override(toml) {
+        var ptr0 = isLikeNone(toml) ? 0 : passStringToWasm0(toml, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_sparkle_lexicon_override(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Profanity knobs (native `[sparkle_words.profanity]`): `style` = "nova"
+     * (the v2 supernova, default) or "sparkle" (the exact v1 twinkle).
+     * Clamps are the native flash-safety floors and are not bypassable:
+     * `density` 1..=12 sparks, `anim_ms` 350..=10000, `jitter` 0..=6 px,
+     * `intensity` 0..=1. `magic` = rare Quasar/Singularity novas. The
+     * window-wide ignition limiter (≤2 novas per rolling second) is always on.
+     * @param {string} style
+     * @param {number} density
+     * @param {number} anim_ms
+     * @param {number} jitter
+     * @param {number} intensity
+     * @param {boolean} magic
+     */
+    set_sparkle_profanity(style, density, anim_ms, jitter, intensity, magic) {
+        const ptr0 = passStringToWasm0(style, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_sparkle_profanity(this.__wbg_ptr, ptr0, len0, density, anim_ms, jitter, intensity, magic);
+    }
+    /**
+     * Force the static, non-animating path (no twinkle/jitter/sweep; novas
+     * collapse to a static glint) — the accessibility `reduced_motion`
+     * override. The engine's flash-limiter floors apply regardless.
+     * @param {boolean} on
+     */
+    set_sparkle_reduced_motion(on) {
+        wasm.atermterminal_set_sparkle_reduced_motion(this.__wbg_ptr, on);
+    }
+    /**
+     * MASTER sparkle-words switch (native `[sparkle_words] enabled` +
+     * `toggle_sparkle_words` panic-off). Enabling compiles the multilingual
+     * lexicon once and starts scanning the visible grid; disabling drops all
+     * occurrence state and restores byte-identical output next render.
+     * Defaults (until other setters run) mirror the native launch config:
+     * all four families on (profanity nova / feline cat / orca splash /
+     * emphasis ink), animated ink on.
+     * @param {boolean} on
+     */
+    set_sparkle_words_enabled(on) {
+        wasm.atermterminal_set_sparkle_words_enabled(this.__wbg_ptr, on);
+    }
+    /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB), so a host
      * theme change re-themes the pane without rebuilding it. Per-cell SGR colours
      * flow independently; pair with set_palette_color for the ANSI palette.
@@ -1004,6 +1479,14 @@ export class AtermTerminal {
         var ptr0 = isLikeNone(separators) ? 0 : passStringToWasm0(separators, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
         wasm.atermterminal_set_word_separators(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Whether the sparkle-words master is currently on.
+     * @returns {boolean}
+     */
+    get sparkle_words_enabled() {
+        const ret = wasm.atermterminal_sparkle_words_enabled(this.__wbg_ptr);
+        return ret !== 0;
     }
     /**
      * Drain pending OSC app-events as a JSON array of `[code, payload]` pairs
@@ -1223,6 +1706,25 @@ export function encode_key_with_mode(key, mods, event_type, base_layout_key, mod
     return v3;
 }
 
+/**
+ * Every built-in scene name, comma-separated (empty until the scene-art
+ * rewrite re-populates the registry; unknown names build the inert
+ * placeholder).
+ * @returns {string}
+ */
+export function scene_names_csv() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.scene_names_csv();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -1312,6 +1814,9 @@ function __wbg_get_imports() {
     };
 }
 
+const AtermSceneFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_atermscene_free(ptr >>> 0, 1));
 const AtermTerminalFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_atermterminal_free(ptr >>> 0, 1));

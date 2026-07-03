@@ -26,6 +26,12 @@ export class AtermGpuTerminal {
      */
     add_fallback_font(bytes: Uint8Array): void;
     /**
+     * Advance the effects clock by `dt_ms` (the host's rAF delta). The
+     * engines never read a wall clock: same PTY bytes + same `dt` stream ⇒
+     * identical frames. Negative/NaN deltas are ignored.
+     */
+    advance_effects(dt_ms: number): void;
+    /**
      * Authorize OSC 52 clipboard *write* so the engine queues OSC 52 app-events
      * for the host to drain (see aterm-wasm). Without it the engine is fail-closed
      * (CF-004) and drops PTY-origin OSC 52 set sequences. The grid is shared, so
@@ -48,6 +54,13 @@ export class AtermGpuTerminal {
      * call, then clears it (poll-based flash/ring without the bell callback).
      */
     drain_bell(): boolean;
+    /**
+     * Milliseconds until the next scheduled idle one-shot (settled-cat blink /
+     * ear-twitch), or `undefined` when none is armed. These arm while
+     * `is_effects_active()` is `false`; a host that wants idle cat life
+     * schedules one timer for this and resumes its frame loop there.
+     */
+    effects_next_deadline_ms(): number | undefined;
     /**
      * Encode a keyboard event through the engine's FULL encoder (legacy +
      * xterm modifyOtherKeys + Kitty), driven by the LIVE
@@ -104,6 +117,12 @@ export class AtermGpuTerminal {
      * the on-canvas path; only the surface target differs.
      */
     init_offscreen(canvas: OffscreenCanvas): Promise<void>;
+    /**
+     * `true` while any effect is animating — keep the rAF loop running (call
+     * `advance_effects` + `render`) only while this holds, then return to 0%
+     * idle. Effects self-terminate to a stable state, so this always settles.
+     */
+    is_effects_active(): boolean;
     /**
      * Detect a link under display `row`/`col`. Prefers an OSC-8 hyperlink, then
      * falls back to smart-selection rules (url/file_path). `None` for plain
@@ -290,6 +309,16 @@ export class AtermGpuTerminal {
      */
     set_cursor_blink_phase(on: boolean): void;
     /**
+     * Configure the LUMEN cursor aurora (additive light in the cursor's
+     * wake). Mirrors the native knobs + clamps: `style` ∈
+     * `lumen|rainbow|sparkle|fire|laser|water` (unknown → lumen);
+     * `color`/`accent` omitted derive from the theme cursor (accent = color
+     * brightened 1.5×) exactly like the native app; `duration_ms` clamps
+     * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),
+     * `radius` (bloom crown, cells) 0..=2, `ring` = landing-ring ping.
+     */
+    set_cursor_glow(enabled: boolean, style: string, color: number | null | undefined, accent: number | null | undefined, duration_ms: number, length: number, intensity: number, radius: number, ring: boolean): void;
+    /**
      * Force a hollow (unfocused) cursor when `true`, or restore the terminal's
      * DECSCUSR style when `false`. Applies to both GPU and CPU faces.
      */
@@ -302,6 +331,13 @@ export class AtermGpuTerminal {
      * forces a full present (appearance-only, not content).
      */
     set_cursor_opacity(opacity: number): void;
+    /**
+     * Configure the legacy opaque comet trail (the native `cursor_trail_style
+     * = "comet"` look). `color` omitted = the theme cursor; `duration_ms`
+     * clamps 30..=2000, `length` 1..=512. Exactly one of trail/glow is on in
+     * the native app (chosen by style); the embedder decides here.
+     */
+    set_cursor_trail(enabled: boolean, duration_ms: number, length: number, color?: number | null): void;
     set_default_background(r: number, g: number, b: number): void;
     /**
      * Set the host-preferred DEFAULT cursor style (shape used before any DECSCUSR and
@@ -315,6 +351,11 @@ export class AtermGpuTerminal {
      * replies report the host theme. RGB components, 0–255.
      */
     set_default_foreground(r: number, g: number, b: number): void;
+    /**
+     * Focus gate for the idle one-shots (`§5.6`): an unfocused pane fires no
+     * blink events (and freezes their fingerprints). Pass the pane focus.
+     */
+    set_effects_focused(focused: boolean): void;
     /**
      * Inject a colour-emoji (sbix) face from font bytes, driving the existing
      * ColorEmoji colour path. Same wiring as [`set_fallback_font`]. No-throw
@@ -417,6 +458,73 @@ export class AtermGpuTerminal {
      * both the CPU fallback face and the live GPU renderer; forces a full present.
      */
     set_selection_inactive_bg(bg?: number | null): void;
+    /**
+     * Per-class gates (native `[sparkle_words.<class>] enabled`): profanity
+     * (supernova/sparkle), feline (peeking cat/paw), orca (water splash),
+     * emphasis (ink-only; effective only while ink is enabled).
+     */
+    set_sparkle_classes(profanity: boolean, feline: boolean, orca: boolean, emphasis: boolean): void;
+    /**
+     * Comma-separated exact surfaces to never decorate (the native global
+     * `deny` and `ignore_words` channel), replacing the current set. Entries
+     * are case/diacritic-folded with the scanner's own fold.
+     */
+    set_sparkle_deny(words_csv: string): void;
+    /**
+     * Feline knobs (native `[sparkle_words.feline]`): `style` = "cat" (the
+     * v2 peeking cat, default) or "paw" (the exact v1 steady paw); `color`
+     * omitted = the native soft pink; `intensity` clamps 0..=1; `idle` =
+     * sparse blink/ear-twitch one-shots (focus-gated, ≤1/s); `gaze` = pupils
+     * track the cursor (present-driven, zero new wakes); `magic` = rare
+     * Fortune/Nebula cats; `allow_bare_cat` = decorate the literal 3-letter
+     * `cat`; `cjk_single_char` = match a lone cat ideograph (high-FP).
+     */
+    set_sparkle_feline(style: string, color: number | null | undefined, intensity: number, idle: boolean, gaze: boolean, magic: boolean, allow_bare_cat: boolean, cjk_single_char: boolean): void;
+    /**
+     * Animated-ink knobs (native `[sparkle_words.ink]`): the glyph-ink
+     * gradient + specular sweep on matched words. `strength` clamps 0..=1;
+     * `sweep_ms` clamps 350..=6000 (floor 600 while `loop_` — the WCAG flash
+     * margin, structural); `loop_` re-sweeps while the word stays visible.
+     */
+    set_sparkle_ink(enabled: boolean, strength: number, sweep_ms: number, loop_: boolean): void;
+    /**
+     * Comma-separated languages whose AMBIGUOUS homograph lexicon entries
+     * un-gate (native `languages`, default `"en"`; non-ambiguous forms load
+     * regardless; `"all"` un-gates everything). Rebuilds the lexicon.
+     */
+    set_sparkle_languages(languages_csv: string): void;
+    /**
+     * User lexicon-override TOML merged over the builtin (the native
+     * `lexicon` file / `extra_words` channel — the same `[[entry]]` schema).
+     * Pass `undefined` to clear. A malformed override falls back to the
+     * builtin lexicon (the native fail-open posture).
+     */
+    set_sparkle_lexicon_override(toml?: string | null): void;
+    /**
+     * Profanity knobs (native `[sparkle_words.profanity]`): `style` = "nova"
+     * (the v2 supernova, default) or "sparkle" (the exact v1 twinkle).
+     * Clamps are the native flash-safety floors and are not bypassable:
+     * `density` 1..=12 sparks, `anim_ms` 350..=10000, `jitter` 0..=6 px,
+     * `intensity` 0..=1. `magic` = rare Quasar/Singularity novas. The
+     * window-wide ignition limiter (≤2 novas per rolling second) is always on.
+     */
+    set_sparkle_profanity(style: string, density: number, anim_ms: number, jitter: number, intensity: number, magic: boolean): void;
+    /**
+     * Force the static, non-animating path (no twinkle/jitter/sweep; novas
+     * collapse to a static glint) — the accessibility `reduced_motion`
+     * override. The engine's flash-limiter floors apply regardless.
+     */
+    set_sparkle_reduced_motion(on: boolean): void;
+    /**
+     * MASTER sparkle-words switch (native `[sparkle_words] enabled` +
+     * `toggle_sparkle_words` panic-off). Enabling compiles the multilingual
+     * lexicon once and starts scanning the visible grid; disabling drops all
+     * occurrence state and restores byte-identical output next render.
+     * Defaults (until other setters run) mirror the native launch config:
+     * all four families on (profanity nova / feline cat / orca splash /
+     * emphasis ink), animated ink on.
+     */
+    set_sparkle_words_enabled(on: boolean): void;
     /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB) on both the
      * GPU renderer and the CPU face, so a host theme change re-themes the pane
@@ -560,8 +668,140 @@ export class AtermGpuTerminal {
      */
     readonly search_display_origin: number;
     /**
+     * Whether the sparkle-words master is currently on.
+     */
+    readonly sparkle_words_enabled: boolean;
+    /**
      * Width in pixels of the last [`render_offscreen`](Self::render_offscreen)
      * framebuffer.
+     */
+    readonly width: number;
+}
+
+/**
+ * One Living-Panel scene instance + its telemetry bus, ticked by the host
+ * and rasterized to RGBA8. See the module docs for the drive contract.
+ */
+export class AtermScene {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Rebind which telemetry drives a behaviour (data, not code — the native
+     * manifest channel). `drive` is a [`Drive`] name (`energy`, `crowd`,
+     * `arrivals`, `departures`, `butterflies`, `weather`, `traffic`,
+     * `daylight`); `source` is a dotted system-signal name (`sys.cpu`, …),
+     * `app:<name>`, or `const:<0..1>`. Returns `false` when either fails to
+     * parse.
+     */
+    bind_drive(drive: string, source: string): boolean;
+    /**
+     * Mark a system signal as unavailable again (back to ABSENT). Returns
+     * `false` for an unknown key.
+     */
+    clear_signal(key: string): boolean;
+    /**
+     * Human/inspection summary (the native `controls scenes` dump).
+     */
+    describe(): string;
+    /**
+     * The scene's stable id (`"placeholder"` until the art rewrite lands).
+     */
+    id(): string;
+    /**
+     * `true` while something is still moving — mirror of the terminal's
+     * `is_effects_active`: keep the rAF loop only while animating (or while
+     * signals keep changing), else drop to 0% idle.
+     */
+    is_active(): boolean;
+    /**
+     * Build a scene by `name` (see [`scene_names_csv`]; unknown → the inert
+     * placeholder) with its default stat→behaviour binding. `seed` makes the
+     * generation deterministic-per-panel; `w`×`h` is the panel pixel box;
+     * `bg` is the packed `0x00RRGGBB` the frame composites over.
+     */
+    constructor(name: string, seed: number, w: number, h: number, bg: number);
+    /**
+     * A console text-entry pulse (one per real printable keystroke) — the
+     * "typing drops a butterfly" hook.
+     */
+    on_text(printable: boolean): void;
+    /**
+     * Emit + composite the current frame into the internal RGBA8 buffer
+     * (straight-alpha, opaque background — ready for `putImageData` or a
+     * `drawImage` layer). Read back via `rgba`/`rgba_ptr` + `width`/`height`.
+     */
+    render(): void;
+    /**
+     * Copy of the last-rendered RGBA8 frame (`width*height*4` bytes).
+     */
+    rgba(): Uint8Array;
+    /**
+     * Byte offset of the RGBA8 frame within wasm linear memory for a
+     * zero-copy view (same caveats as `AtermGpuTerminal`'s offscreen `rgba`: read it
+     * synchronously after `render`, before any other call on this instance).
+     */
+    rgba_ptr(): number;
+    /**
+     * Push an app-fed named stream (the `aterm-ctl metric <name>` channel):
+     * arbitrary host streams (`"ai.tokens"`, `"build.pct"`, …) a binding can
+     * map onto a drive via `bind_drive("...", "app:<name>")`.
+     */
+    set_app_signal(name: string, norm: number, value: number, rate: number): void;
+    /**
+     * Panel background colour (`0x00RRGGBB`) the frame composites over.
+     */
+    set_background(bg: number): void;
+    /**
+     * Scale a drive's resolved value (the binding `gain` channel).
+     */
+    set_drive_gain(drive: string, gain: number): boolean;
+    /**
+     * Force night (`true`) / day (`false`), or `undefined` to let the scene's
+     * own day drive decide.
+     */
+    set_night(night?: boolean | null): void;
+    /**
+     * Theme the scene from the host colorscheme. All colours are packed
+     * `0x00RRGGBB`; the argument order matches [`aterm_scene::Palette`].
+     */
+    set_palette(ink: number, dim: number, sky_day_top: number, sky_day_bot: number, sky_night_top: number, sky_night_bot: number, hill: number, grass: number, grass_dark: number, sun: number, accent: number, good: number, warn: number, hot: number): void;
+    /**
+     * Honor the OS/user reduce-motion setting: dampened speeds, no particles.
+     */
+    set_reduced_motion(on: boolean): void;
+    /**
+     * Push one sampled system/engine signal onto the telemetry bus. `key` is
+     * a dotted [`SignalKey`] name (`sys.cpu`, `sys.mem`, `sys.gpu`,
+     * `sys.disk`, `net.rx`, `net.tx`, `ses.cpu`, `ses.mem`, `engine.fps`,
+     * `engine.frame_ms`, `engine.present_ms`, `engine.slow_frames`);
+     * `norm` is the normalized behaviour
+     * value in `[0,1]`; `value`/`rate` are the raw readout units. Returns
+     * `false` for an unknown key. A signal the host cannot sample must simply
+     * never be pushed — absent stays honest (`None`), never a fake 0.
+     */
+    set_signal(key: string, norm: number, value: number, rate: number): boolean;
+    /**
+     * Resize the panel box (pixels).
+     */
+    set_size(w: number, h: number): void;
+    /**
+     * Advance the scene by `dt_ms` under the currently-pushed signals.
+     * Deterministic: same seed + same `dt`/signal stream ⇒ identical frames.
+     * Negative/NaN deltas are ignored; one tick is clamped to 250 ms so a
+     * backgrounded tab fast-forwards smoothly instead of exploding kinematics.
+     */
+    tick(dt_ms: number): void;
+    /**
+     * Last-rendered frame height in pixels.
+     */
+    readonly height: number;
+    /**
+     * Emitted sprite count of the LAST rendered frame (both layers) — the
+     * bounded per-frame draw budget, for host diagnostics/tests.
+     */
+    readonly sprite_count: number;
+    /**
+     * Last-rendered frame width in pixels.
      */
     readonly width: number;
 }
@@ -641,15 +881,24 @@ export class SelectionRange {
  */
 export function encode_key_with_mode(key: string, mods: number, event_type: number, base_layout_key: string | null | undefined, mode_bits: number): Uint8Array | undefined;
 
+/**
+ * Every built-in scene name, comma-separated (empty until the scene-art
+ * rewrite re-populates the registry; unknown names build the inert
+ * placeholder).
+ */
+export function scene_names_csv(): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_atermgputerminal_free: (a: number, b: number) => void;
+    readonly __wbg_atermscene_free: (a: number, b: number) => void;
     readonly __wbg_linkhit_free: (a: number, b: number) => void;
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermgputerminal_adapter_info: (a: number) => [number, number];
     readonly atermgputerminal_add_fallback_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermgputerminal_advance_effects: (a: number, b: number) => void;
     readonly atermgputerminal_authorize_clipboard_write: (a: number) => void;
     readonly atermgputerminal_base_y: (a: number) => number;
     readonly atermgputerminal_bracketed_paste_mode: (a: number) => number;
@@ -663,6 +912,7 @@ export interface InitOutput {
     readonly atermgputerminal_display_offset: (a: number) => number;
     readonly atermgputerminal_display_origin_absolute: (a: number) => number;
     readonly atermgputerminal_drain_bell: (a: number) => number;
+    readonly atermgputerminal_effects_next_deadline_ms: (a: number) => [number, number];
     readonly atermgputerminal_encode_key: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly atermgputerminal_encode_mouse_motion: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly atermgputerminal_encode_mouse_press: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -676,6 +926,7 @@ export interface InitOutput {
     readonly atermgputerminal_is_alternate_scroll: (a: number) => number;
     readonly atermgputerminal_is_app_cursor_mode: (a: number) => number;
     readonly atermgputerminal_is_color_scheme_updates_mode: (a: number) => number;
+    readonly atermgputerminal_is_effects_active: (a: number) => number;
     readonly atermgputerminal_is_focus_event_mode: (a: number) => number;
     readonly atermgputerminal_is_mouse_tracking: (a: number) => number;
     readonly atermgputerminal_keyboard_mode_bits: (a: number) => number;
@@ -713,11 +964,14 @@ export interface InitOutput {
     readonly atermgputerminal_set_cell_pixel_size: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_set_color_scheme: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_blink_phase: (a: number, b: number) => void;
+    readonly atermgputerminal_set_cursor_glow: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;
     readonly atermgputerminal_set_cursor_hollow: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_opacity: (a: number, b: number) => void;
+    readonly atermgputerminal_set_cursor_trail: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_default_background: (a: number, b: number, c: number, d: number) => void;
     readonly atermgputerminal_set_default_cursor_style: (a: number, b: number) => void;
     readonly atermgputerminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
+    readonly atermgputerminal_set_effects_focused: (a: number, b: number) => void;
     readonly atermgputerminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_font_features: (a: number, b: number, c: number) => void;
@@ -732,17 +986,50 @@ export interface InitOutput {
     readonly atermgputerminal_set_selection_fg: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_inactive: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_inactive_bg: (a: number, b: number) => void;
+    readonly atermgputerminal_set_sparkle_classes: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly atermgputerminal_set_sparkle_deny: (a: number, b: number, c: number) => void;
+    readonly atermgputerminal_set_sparkle_feline: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
+    readonly atermgputerminal_set_sparkle_ink: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly atermgputerminal_set_sparkle_languages: (a: number, b: number, c: number) => void;
+    readonly atermgputerminal_set_sparkle_lexicon_override: (a: number, b: number, c: number) => void;
+    readonly atermgputerminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly atermgputerminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
+    readonly atermgputerminal_set_sparkle_words_enabled: (a: number, b: number) => void;
     readonly atermgputerminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_word_separators: (a: number, b: number, c: number) => void;
+    readonly atermgputerminal_sparkle_words_enabled: (a: number) => number;
     readonly atermgputerminal_take_osc_events: (a: number) => [number, number];
     readonly atermgputerminal_take_response: (a: number) => [number, number];
     readonly atermgputerminal_title: (a: number) => [number, number];
     readonly atermgputerminal_width: (a: number) => number;
+    readonly atermscene_bind_drive: (a: number, b: number, c: number, d: number, e: number) => number;
+    readonly atermscene_clear_signal: (a: number, b: number, c: number) => number;
+    readonly atermscene_describe: (a: number) => [number, number];
+    readonly atermscene_height: (a: number) => number;
+    readonly atermscene_id: (a: number) => [number, number];
+    readonly atermscene_is_active: (a: number) => number;
+    readonly atermscene_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly atermscene_on_text: (a: number, b: number) => void;
+    readonly atermscene_render: (a: number) => void;
+    readonly atermscene_rgba: (a: number) => [number, number];
+    readonly atermscene_rgba_ptr: (a: number) => number;
+    readonly atermscene_set_app_signal: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly atermscene_set_background: (a: number, b: number) => void;
+    readonly atermscene_set_drive_gain: (a: number, b: number, c: number, d: number) => number;
+    readonly atermscene_set_night: (a: number, b: number) => void;
+    readonly atermscene_set_palette: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number) => void;
+    readonly atermscene_set_reduced_motion: (a: number, b: number) => void;
+    readonly atermscene_set_signal: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly atermscene_set_size: (a: number, b: number, c: number) => void;
+    readonly atermscene_sprite_count: (a: number) => number;
+    readonly atermscene_tick: (a: number, b: number) => void;
+    readonly atermscene_width: (a: number) => number;
     readonly encode_key_with_mode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly linkhit_end_col: (a: number) => number;
     readonly linkhit_kind: (a: number) => number;
     readonly linkhit_start_col: (a: number) => number;
     readonly linkhit_url: (a: number) => [number, number];
+    readonly scene_names_csv: () => [number, number];
     readonly selectionrange_end_x: (a: number) => number;
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;

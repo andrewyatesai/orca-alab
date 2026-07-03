@@ -22,7 +22,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import { join, resolve } from 'node:path'
 import { DaemonSocketClient } from './daemon-socket-client.mjs'
-import { driveDaemon, parityConstants } from './request-vectors.mjs'
+import { driveDaemon, driveDetachReattach, parityConstants } from './request-vectors.mjs'
 
 const PROTOCOL_VERSION = 18
 const repoRoot = resolve(import.meta.dirname, '..', '..')
@@ -69,15 +69,27 @@ async function runRustLeg() {
   cleanup.push(() => child.kill('SIGKILL'))
   await waitFor(() => existsSync(socketPath))
 
-  const client = new DaemonSocketClient({
-    token: 'any-token-rust-accepts',
-    protocolVersion: PROTOCOL_VERSION,
-    clientId: 'parity-rust'
-  })
-  await connectWithRetry(client, socketPath)
-  const transcript = await driveDaemon(client)
-  client.close()
-  return transcript
+  const connectClient = makeConnectClient(socketPath, 'any-token-rust-accepts')
+  return driveBothPhases(connectClient, 'parity-rust')
+}
+
+// A `(clientId) => Promise<connected DaemonSocketClient>` factory for one daemon.
+function makeConnectClient(socketPath, token) {
+  return async (clientId) => {
+    const client = new DaemonSocketClient({ token, protocolVersion: PROTOCOL_VERSION, clientId })
+    await connectWithRetry(client, socketPath)
+    return client
+  }
+}
+
+// Phase 1 (single persistent client) then Phase 2 (detach/reattach survival),
+// against the same running daemon; concatenate the step fingerprints.
+async function driveBothPhases(connectClient, phase1ClientId) {
+  const c1 = await connectClient(phase1ClientId)
+  const phase1 = await driveDaemon(c1)
+  c1.close()
+  const phase2 = await driveDetachReattach(connectClient)
+  return { steps: [...phase1.steps, ...phase2.steps] }
 }
 
 // ── Leg B: the Node daemon (best-effort) ────────────────────────────────────
@@ -110,15 +122,9 @@ async function runNodeLeg() {
     return { skipped: `Node daemon did not come up (exit=${exited}). stderr tail:\n${tail}` }
   }
   const token = readFileSync(tokenPath, 'utf8').trim()
-  const client = new DaemonSocketClient({
-    token,
-    protocolVersion: PROTOCOL_VERSION,
-    clientId: 'parity-node'
-  })
   try {
-    await connectWithRetry(client, socketPath, 80)
-    const transcript = await driveDaemon(client)
-    client.close()
+    const connectClient = makeConnectClient(socketPath, token)
+    const transcript = await driveBothPhases(connectClient, 'parity-node')
     return { transcript }
   } catch (err) {
     return {
@@ -152,7 +158,19 @@ function checkInvariants(transcript) {
       'unknown snapshot → ok+null',
       by['getSnapshot:unknown']?.ok === true && by['getSnapshot:unknown']?.snapshotIsNull === true
     ],
-    ['kill → not alive', by.kill?.ok === true && by.kill?.noLongerAlive === true]
+    ['kill → not alive', by.kill?.ok === true && by.kill?.noLongerAlive === true],
+    // Phase 2 — detach/reattach survival (the daemon's raison d'être).
+    [
+      'reload: session created',
+      by['reload:create']?.ok === true && by['reload:create']?.isNew === true
+    ],
+    ['reload: marker printed', by['reload:marked']?.ok === true],
+    ['reload: reattach isNew:false', by['reload:reattach']?.isNew === false],
+    ['reload: engine state survived', by['reload:snapshotSurvived']?.hasMarker === true],
+    [
+      'reload: still listed alive',
+      by['reload:stillListed']?.found === true && by['reload:stillListed']?.isAlive === true
+    ]
   ]
   return checks.map(([name, pass]) => ({ name, pass }))
 }

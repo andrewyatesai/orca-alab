@@ -153,4 +153,58 @@ export async function driveDaemon(client) {
   return { steps }
 }
 
-export const parityConstants = { SID, CWD, MARKER }
+// Phase 2 — the daemon's raison d'être: a session SURVIVES full client
+// disconnect (both sockets), and a later reattach (same clientId, as after an
+// app reload) finds it live with its engine state intact. `connectClient` is a
+// factory `(clientId) => Promise<connected DaemonSocketClient>` so this can drop
+// and re-open sockets against the same running daemon.
+const SID2 = 's-parity-2'
+const MARKER2 = 'MARKER_SURVIVES_RELOAD'
+
+export async function driveDetachReattach(connectClient) {
+  const steps = []
+  const record = (step, projection) => steps.push({ step, projection })
+  const CLIENT = 'parity-reload-client'
+
+  // First attachment: create a session and print a durable marker.
+  const c1 = await connectClient(CLIENT)
+  const created = await c1.rpc('createOrAttach', { sessionId: SID2, cols: 80, rows: 24 })
+  record('reload:create', { ok: created.ok, isNew: created.payload?.isNew ?? null })
+  await c1.rpc('write', { sessionId: SID2, data: `printf '${MARKER2}\\n'\n` })
+  const marked = await waitFor(async () => {
+    const r = await c1.rpc('getSnapshot', { sessionId: SID2 })
+    return (r.payload?.snapshot?.snapshotAnsi ?? '').includes(MARKER2)
+  })
+  record('reload:marked', { ok: marked })
+
+  // Full disconnect — both sockets close, as when the renderer/window goes away.
+  c1.close()
+  await new Promise((r) => setTimeout(r, 150))
+
+  // Reattach with the SAME clientId (the reload path).
+  const c2 = await connectClient(CLIENT)
+  const reattach = await c2.rpc('createOrAttach', { sessionId: SID2, cols: 80, rows: 24 })
+  record('reload:reattach', {
+    ok: reattach.ok,
+    // The session must still be there → isNew:false, not a fresh spawn.
+    isNew: reattach.payload?.isNew ?? null
+  })
+
+  // The engine state (the marker) survived the disconnect.
+  const snap = await c2.rpc('getSnapshot', { sessionId: SID2 })
+  record('reload:snapshotSurvived', {
+    ok: snap.ok,
+    hasMarker: (snap.payload?.snapshot?.snapshotAnsi ?? '').includes(MARKER2)
+  })
+
+  // listSessions (from the new client) still reports it alive.
+  const list = await c2.rpc('listSessions')
+  const info = (list.payload?.sessions ?? []).find((x) => x.sessionId === SID2) ?? null
+  record('reload:stillListed', { found: info !== null, isAlive: info?.isAlive ?? null })
+
+  await c2.rpc('kill', { sessionId: SID2 })
+  c2.close()
+  return { steps }
+}
+
+export const parityConstants = { SID, SID2, CWD, MARKER, MARKER2 }

@@ -35,7 +35,13 @@ Prereqs:
   framing), drives the corpus, and asserts a set of **behavioral invariants**.
   This is also the first coverage of the socket transport itself — the in-process
   `rust/crates/orca-daemon/tests/rpc_lifecycle.rs` tests call `dispatch_request`
-  directly and bypass hello / socket pairing / event delivery.
+  directly and bypass hello / socket pairing / event delivery. The corpus has two
+  phases: (1) a single-client RPC lifecycle (create → drive → snapshot/size/list →
+  reattach → resize → error cases → kill) and (2) **detach/reattach survival** —
+  a session outlives a full client disconnect (both sockets close) and a later
+  reattach with the same `clientId` (the app-reload path) finds it live with its
+  engine state intact. That is the behavior that justifies a separate daemon
+  process at all.
 - **Leg B — Node daemon (differential).** If it can be spawned in this
   environment, the **same** corpus runs against it and its structural
   fingerprint is diffed against Rust's; any divergence **fails** the gate. If it

@@ -28,7 +28,11 @@ function agentSnapshotMatchesExplicitTitle(
 }
 
 export type TerminalNotificationEvent = {
-  source: 'terminal-bell' | 'agent-task-complete' | 'long-command-complete'
+  source:
+    | 'terminal-bell'
+    | 'agent-task-complete'
+    | 'long-command-complete'
+    | 'terminal-app-notification'
   terminalTitle?: string
   paneKey?: string
   agentStatusSnapshot?: AgentCompletionStatusSnapshot
@@ -36,6 +40,10 @@ export type TerminalNotificationEvent = {
   /** long-command-complete: runtime + OSC 133;D exit code for the body text. */
   commandDurationMs?: number
   commandExitCode?: number | null
+  /** terminal-app-notification: OSC 9/99/777 payload (null title → pane-title fallback). */
+  appNotificationTitle?: string | null
+  appNotificationBody?: string | null
+  appNotificationUrgency?: 'low' | 'normal' | 'critical'
 }
 
 /**
@@ -191,6 +199,13 @@ export function dispatchTerminalNotification(
         ? {
             commandDurationMs: event.commandDurationMs,
             commandExitCode: event.commandExitCode
+          }
+        : {}),
+      ...(event.source === 'terminal-app-notification'
+        ? {
+            appNotificationTitle: event.appNotificationTitle,
+            appNotificationBody: event.appNotificationBody,
+            appNotificationUrgency: event.appNotificationUrgency
           }
         : {}),
       ...agentSnapshot

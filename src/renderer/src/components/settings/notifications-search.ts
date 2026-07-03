@@ -81,6 +81,27 @@ export const getNotificationsPaneSearchEntries = createLocalizedCatalog(() => [
   },
   {
     title: translate(
+      'auto.components.settings.notifications.search.f9d5914f45',
+      'Terminal App Notifications'
+    ),
+    description: translate(
+      'auto.components.settings.notifications.search.51fe702f85',
+      'Notify when a terminal program posts a desktop notification (OSC 9).'
+    ),
+    keywords: [
+      ...translateSearchKeyword(
+        'auto.components.settings.notifications.search.ca8faa40d7',
+        'notifications'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.notifications.search.c638ae989d',
+        'terminal'
+      ),
+      ...translateSearchKeyword('auto.components.settings.notifications.search.a7c957569a', 'osc')
+    ]
+  },
+  {
+    title: translate(
       'auto.components.settings.notifications.search.a5f6ca7dd2',
       'Long Command Finished'
     ),

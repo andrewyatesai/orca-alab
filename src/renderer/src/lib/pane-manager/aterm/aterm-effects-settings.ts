@@ -80,7 +80,11 @@ export function readAtermEffectsConfig(): AtermEffectsConfig {
 
 /** Map a config snapshot onto the engine. Everything OFF is a no-op by the engine's
  *  default-off contract, so a pane with effects disabled renders byte-identically. */
-export function applyAtermEffectsConfig(term: AtermEffectsTarget, cfg: AtermEffectsConfig): void {
+export function applyAtermEffectsConfig(
+  term: AtermEffectsTarget,
+  cfg: AtermEffectsConfig,
+  cursorColor?: number
+): void {
   term.set_sparkle_words_enabled(cfg.sparkleWords)
   term.set_sparkle_classes(
     cfg.sparkleProfanity,
@@ -92,11 +96,22 @@ export function applyAtermEffectsConfig(term: AtermEffectsTarget, cfg: AtermEffe
   // (its flash-limiter floors always apply); the glow is pure motion, so the host
   // gates it fully off under the OS preference.
   term.set_sparkle_reduced_motion(cfg.reducedMotion)
+  applyAtermCursorGlowConfig(term, cfg, cursorColor)
+}
+
+/** Apply ONLY the cursor-glow config: `cursorColor` is the live OSC 12 override
+ *  (engine cursor_color); unset → the engine derives the colour from the theme
+ *  cursor exactly like the native app. Accent always stays theme-derived. */
+export function applyAtermCursorGlowConfig(
+  term: Pick<AtermEffectsTarget, 'set_cursor_glow'>,
+  cfg: AtermEffectsConfig,
+  cursorColor?: number
+): void {
   const d = ATERM_CURSOR_GLOW_DEFAULTS
   term.set_cursor_glow(
     cfg.cursorGlow && !cfg.reducedMotion,
     cfg.cursorGlowStyle,
-    undefined,
+    cursorColor ?? undefined,
     undefined,
     d.durationMs,
     d.lengthCells,

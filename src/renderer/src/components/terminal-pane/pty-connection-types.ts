@@ -55,19 +55,27 @@ export type PtyConnectionDeps = {
   clearTerminalTabUnread: (tabId: string) => void
   clearTerminalPaneUnread: (paneKey: string) => void
   onShowSessionRestoredBanner: (paneId: number) => void
-  // Why: the renderer dispatches three notification sources — BEL from the PTY
-  // byte stream, agent-task-complete on the working→idle title transition, and
-  // long-command-complete on OSC 133 C→D past the settings threshold.
+  // Why: the renderer dispatches four notification sources — BEL from the PTY
+  // byte stream, agent-task-complete on the working→idle title transition,
+  // long-command-complete on OSC 133 C→D past the settings threshold, and
+  // terminal-app-notification for engine-drained OSC 9/99/777 payloads.
   // shared/types.ts keeps a wider NotificationEventSource union because the
   // main process can also emit `'test'` from the settings-pane button.
   dispatchNotification: (event: {
-    source: 'terminal-bell' | 'agent-task-complete' | 'long-command-complete'
+    source:
+      | 'terminal-bell'
+      | 'agent-task-complete'
+      | 'long-command-complete'
+      | 'terminal-app-notification'
     terminalTitle?: string
     paneKey?: string
     agentStatusSnapshot?: AgentCompletionStatusSnapshot
     suppressOsNotification?: boolean
     commandDurationMs?: number
     commandExitCode?: number | null
+    appNotificationTitle?: string | null
+    appNotificationBody?: string | null
+    appNotificationUrgency?: 'low' | 'normal' | 'critical'
   }) => void
   setCacheTimerStartedAt: (key: string, ts: number | null) => void
   syncPanePtyLayoutBinding: (paneId: number, ptyId: string | null) => void

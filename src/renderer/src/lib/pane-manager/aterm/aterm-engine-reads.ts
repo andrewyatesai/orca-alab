@@ -27,6 +27,7 @@ type EngineReads = Pick<
   | 'link_at'
   | 'drain_bell'
   | 'take_osc_events'
+  | 'take_notifications'
   | 'selection_text'
   | 'selection_range'
   | 'selection_clear'
@@ -64,6 +65,7 @@ export type AtermEngineReadMembers = Pick<
   | 'linkAt'
   | 'drainBell'
   | 'takeOscEvents'
+  | 'takeNotifications'
   | 'selectionText'
   | 'selectionRange'
   | 'clearSelection'
@@ -125,6 +127,7 @@ export function buildAtermEngineReads(
     },
     drainBell: () => term.drain_bell(),
     takeOscEvents: () => term.take_osc_events(),
+    takeNotifications: () => term.take_notifications(),
     selectionText: () => term.selection_text() ?? '',
     selectionRange: () => {
       const range = term.selection_range()

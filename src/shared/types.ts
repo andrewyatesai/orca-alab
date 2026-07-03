@@ -2208,6 +2208,9 @@ export type NotificationSettings = {
   longCommandComplete: boolean
   /** Minimum foreground-command runtime (OSC 133 C→D) before an unfocused pane notifies. */
   longCommandThresholdSeconds: number
+  /** OSC 9/99/777 desktop notifications posted by terminal programs. Also gates the
+   *  aterm engine's fail-closed notification queue (authorize_notifications). */
+  terminalAppNotifications: boolean
   suppressWhenFocused: boolean
   customSoundId:
     | 'system'
@@ -2975,6 +2978,7 @@ export type NotificationEventSource =
   | 'agent-task-complete'
   | 'terminal-bell'
   | 'long-command-complete'
+  | 'terminal-app-notification'
   | 'test'
 
 export type NotificationDispatchRequest = {
@@ -3001,6 +3005,12 @@ export type NotificationDispatchRequest = {
   commandDurationMs?: number
   /** long-command-complete: OSC 133;D exit code; null when the shell omitted it. */
   commandExitCode?: number | null
+  /** terminal-app-notification: OSC 9/99/777 payload title; null → pane-title fallback. */
+  appNotificationTitle?: string | null
+  /** terminal-app-notification: OSC 9/99/777 payload body. */
+  appNotificationBody?: string | null
+  /** terminal-app-notification: payload urgency (maps to Electron urgency/timeoutType). */
+  appNotificationUrgency?: 'low' | 'normal' | 'critical'
 }
 
 export type NotificationDispatchResult = {

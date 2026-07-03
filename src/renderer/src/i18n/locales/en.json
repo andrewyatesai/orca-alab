@@ -5646,7 +5646,9 @@
           "1ced11d6b5": "A command in a background terminal finishes after the time threshold.",
           "08b271938b": "Long Command Threshold",
           "162aeb3e20": "Minimum command run time before Orca notifies, in seconds.",
-          "e1f2188fcd": "seconds"
+          "e1f2188fcd": "seconds",
+          "922a54c037": "Terminal App Notifications",
+          "f627c38a77": "A terminal program posts a desktop notification (OSC 9)."
         },
         "OpenAiTranscriptionKeyDialog": {
           "fa83512e48": "Save Key",
@@ -7781,7 +7783,10 @@
             "2d7d000b38": "long",
             "1e5d17005e": "duration",
             "7a8c4e87fd": "threshold",
-            "ed10d72fd4": "exit"
+            "ed10d72fd4": "exit",
+            "f9d5914f45": "Terminal App Notifications",
+            "51fe702f85": "Notify when a terminal program posts a desktop notification (OSC 9).",
+            "a7c957569a": "osc"
           }
         },
         "orchestration": {

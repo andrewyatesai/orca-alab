@@ -10,6 +10,7 @@ import type { EngineHandle } from './aterm-worker-engine-build'
 import { createWorkerSearch } from './aterm-worker-search'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
+import { decodeMouseReport, decodeReply } from './aterm-worker-reply-decode'
 import type { AtermWorkerState, AtermWorkerThemeSet } from './aterm-render-worker-protocol'
 
 /** One pane's engine-side terminal (the shared worker hosts one per live pane). */
@@ -25,41 +26,11 @@ export type WorkerSideChannels = {
   reply: string
   /** Queued OSC app-events as JSON `[[code,payload],...]`, or undefined. */
   osc: string | undefined
+  /** Queued OSC 9/99/777 desktop notifications as JSON
+   *  `[{id,title,body,urgency},...]`, or undefined (fail-closed until authorized). */
+  notifications: string | undefined
   /** A BEL fired this chunk. */
   bell: boolean
-}
-
-/** Latin-1 decode the engine's reply bytes (DA/DSR/CPR/colour are ASCII); drop any
- *  byte ≥ 0x80 rather than let the UTF-8 PTY write corrupt it (parity with the
- *  main-thread aterm-reply-drain). */
-function decodeReply(bytes: Uint8Array | undefined): string {
-  if (!bytes || bytes.length === 0) {
-    return ''
-  }
-  let out = ''
-  for (let i = 0; i < bytes.length; i++) {
-    if (bytes[i] < 0x80) {
-      out += String.fromCharCode(bytes[i])
-    }
-  }
-  return out
-}
-
-/** Latin-1 map ALL report bytes (0..255) for mouse reports. Legacy X10/1000/1002/1003
- *  encode coords as 32+value, which exceeds 0x7F past column/row 95 — decodeReply's
- *  ASCII-only filter would silently drop those bytes and truncate the report. Each byte
- *  maps 1:1 to a char code (no UTF-8 widening), matching the in-process aterm-mouse-input
- *  send() which posts String.fromCharCode(...bytes); the reply channel forwards it
- *  verbatim to the PTY input sink. */
-function decodeMouseReport(bytes: Uint8Array | undefined): string {
-  if (!bytes || bytes.length === 0) {
-    return ''
-  }
-  let out = ''
-  for (let i = 0; i < bytes.length; i++) {
-    out += String.fromCharCode(bytes[i])
-  }
-  return out
 }
 
 export function createWorkerTerminal(handle: EngineHandle): {
@@ -103,6 +74,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
   setSelectionInactive: (inactive: boolean) => void
   setSelectionInactiveBg: (bg: number | null) => void
   setClipboardWriteAuthorized: (allowed: boolean) => void
+  setNotificationsAuthorized: (allowed: boolean) => void
   setHover: (pos: { row: number; col: number } | null) => void
   searchFind: (query: string, caseSensitive: boolean, isRegex: boolean) => void
   searchNext: () => void
@@ -164,6 +136,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
       return {
         reply: decodeReply(e.take_response()),
         osc: e.take_osc_events(),
+        notifications: e.take_notifications(),
         bell: e.drain_bell()
       }
     },
@@ -213,6 +186,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
         keyboardModeBits: e.keyboard_mode_bits,
         isReady: e.cell_width > 0 && e.cell_height > 0,
         title: e.title() ?? null,
+        cursorColor: e.cursor_color ?? null,
         selectionRange: range
           ? { startX: range.start_x, startY: range.start_y, endX: range.end_x, endY: range.end_y }
           : null,
@@ -282,6 +256,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
     setSelectionInactiveBg: (bg) => e.set_selection_inactive_bg(bg ?? undefined),
     setClipboardWriteAuthorized: (allowed) =>
       allowed ? e.authorize_clipboard_write() : e.revoke_clipboard_write(),
+    setNotificationsAuthorized: (allowed) => e.authorize_notifications(allowed),
     setHover: (pos) => {
       if (!pos) {
         hoverLink = null

@@ -157,6 +157,12 @@ export type AtermWorkerSetClipboardWriteAuthorized = {
   type: 'setClipboardWriteAuthorized'
   allowed: boolean
 }
+/** Authorize/revoke OSC 9/99/777 desktop notifications on the engine (fail-closed
+ *  until authorized; synced from the user's notification settings). */
+export type AtermWorkerSetNotificationsAuthorized = {
+  type: 'setNotificationsAuthorized'
+  allowed: boolean
+}
 /** Pause/resume frame painting (hidden-pane gating); the engine still ingests bytes. */
 export type AtermWorkerSetDrawSuspended = { type: 'setDrawSuspended'; suspended: boolean }
 /** The main-thread cursor-blink timer drives these: toggle the blink phase and the
@@ -271,6 +277,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetSelectionInactive
   | AtermWorkerSetSelectionInactiveBg
   | AtermWorkerSetClipboardWriteAuthorized
+  | AtermWorkerSetNotificationsAuthorized
   | AtermWorkerSetDrawSuspended
   | AtermWorkerSetCursorBlinkPhase
   | AtermWorkerSetCursorHollow
@@ -360,6 +367,9 @@ export type AtermWorkerState = {
   isReady: boolean
   /** OSC 0/2 title, or null. */
   title: string | null
+  /** Live OSC 12 cursor colour (packed 0x00RRGGBB), or null while unset / after
+   *  OSC 112 — the glow/trail colour follow reads it like the mode flags above. */
+  cursorColor: number | null
   /** Current selection range in display cells, or null. */
   selectionRange: { startX: number; startY: number; endX: number; endY: number } | null
   /** Selection text. Pushed ONLY when the selection range changes (a large selection is
@@ -389,6 +399,9 @@ export type AtermWorkerState = {
 export type AtermWorkerReply = { type: 'reply'; data: string }
 /** Queued OSC app-events as a JSON string `[[code,payload],...]`; posted per chunk. */
 export type AtermWorkerOsc = { type: 'osc'; events: string }
+/** Queued OSC 9/99/777 desktop notifications as a JSON string
+ *  `[{id,title,body,urgency},...]`; posted per chunk like OSC app-events. */
+export type AtermWorkerNotifications = { type: 'notifications'; events: string }
 /** A BEL fired this chunk. */
 export type AtermWorkerBell = { type: 'bell' }
 /** Debounced serialized-buffer snapshot the worker pushes while idle, so the main
@@ -424,6 +437,7 @@ export type AtermWorkerPaneEvent =
   | AtermWorkerState
   | AtermWorkerReply
   | AtermWorkerOsc
+  | AtermWorkerNotifications
   | AtermWorkerBell
   | AtermWorkerSerializedCache
   | AtermWorkerQueryResult

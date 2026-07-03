@@ -5609,7 +5609,9 @@
           "1ced11d6b5": "Un comando en una terminal en segundo plano termina tras superar el umbral de tiempo.",
           "08b271938b": "Umbral de comando largo",
           "162aeb3e20": "Tiempo mínimo de ejecución del comando antes de que Orca notifique, en segundos.",
-          "e1f2188fcd": "segundos"
+          "e1f2188fcd": "segundos",
+          "922a54c037": "Notificaciones de aplicaciones del terminal",
+          "f627c38a77": "Un programa del terminal publica una notificación de escritorio (OSC 9)."
         },
         "OpenAiTranscriptionKeyDialog": {
           "fa83512e48": "Guardar clave",
@@ -7744,7 +7746,10 @@
             "2d7d000b38": "largo",
             "1e5d17005e": "duración",
             "7a8c4e87fd": "umbral",
-            "ed10d72fd4": "salida"
+            "ed10d72fd4": "salida",
+            "f9d5914f45": "Notificaciones de aplicaciones del terminal",
+            "51fe702f85": "Notificar cuando un programa del terminal publique una notificación de escritorio (OSC 9).",
+            "a7c957569a": "osc"
           }
         },
         "orchestration": {

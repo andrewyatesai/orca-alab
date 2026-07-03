@@ -252,13 +252,20 @@ type UseTerminalPaneLifecycleDeps = {
   clearTerminalPaneUnread: (paneKey: string) => void
   onShowSessionRestoredBanner: (paneId: number) => void
   dispatchNotification: (event: {
-    source: 'terminal-bell' | 'agent-task-complete' | 'long-command-complete'
+    source:
+      | 'terminal-bell'
+      | 'agent-task-complete'
+      | 'long-command-complete'
+      | 'terminal-app-notification'
     terminalTitle?: string
     paneKey?: string
     agentStatusSnapshot?: ParsedAgentStatusPayload
     suppressOsNotification?: boolean
     commandDurationMs?: number
     commandExitCode?: number | null
+    appNotificationTitle?: string | null
+    appNotificationBody?: string | null
+    appNotificationUrgency?: 'low' | 'normal' | 'critical'
   }) => void
   setCacheTimerStartedAt: (key: string, ts: number | null) => void
   syncPanePtyLayoutBinding: (paneId: number, ptyId: string | null) => void
@@ -682,9 +689,10 @@ export function useTerminalPaneLifecycle({
     // Pending file-link-opener install timers (per pane), cleared on teardown so
     // the bounded poll can't outlive the effect.
     const atermFileLinkOpenerTimers = new Map<number, number>()
-    // Same bounded-poll machinery for syncing the engine's OSC 52 write gate to
-    // the user setting once the async aterm controller attaches.
-    const atermClipboardAuthTimers = new Map<number, number>()
+    // Same bounded-poll machinery for syncing the engine's fail-closed gates
+    // (OSC 52 write, OSC 9/99/777 notifications) to the user settings once the
+    // async aterm controller attaches.
+    const atermEngineAuthTimers = new Map<number, number>()
 
     type AtermLinkBindablePane = {
       id: number
@@ -754,11 +762,12 @@ export function useTerminalPaneLifecycle({
       tick()
     }
 
-    // Sync the engine's fail-closed OSC 52 write gate to the live user setting.
-    // The JS handler still gates the actual host clipboard write; this just lets
-    // the engine queue OSC 52 set events (take_osc_events) so they reach the
-    // handler at all. Returns true once the (async) controller exists.
-    const installAtermClipboardAuth = (paneId: number): boolean => {
+    // Sync the engine's fail-closed gates to the live user settings: the OSC 52
+    // write gate and the OSC 9/99/777 notification gate. The JS handlers still
+    // gate actual delivery (defense in depth); authorization just lets the engine
+    // queue the events (take_osc_events / take_notifications) so they reach the
+    // handlers at all. Returns true once the (async) controller exists.
+    const installAtermEngineAuthorizations = (paneId: number): boolean => {
       const controller = managerRef.current
         ?.getPanes()
         .find((p) => p.id === paneId)?.atermController
@@ -768,24 +777,29 @@ export function useTerminalPaneLifecycle({
       controller.setClipboardWriteAuthorized(
         settingsRef.current?.terminalAllowOsc52Clipboard === true
       )
+      const notificationSettings = settingsRef.current?.notifications
+      controller.setNotificationsAuthorized(
+        notificationSettings?.enabled === true &&
+          notificationSettings.terminalAppNotifications === true
+      )
       return true
     }
 
     // Bounded poll (~2.5s) for the async controller, mirroring the file-link
     // opener; teardown clears any pending timer so it can't outlive the effect.
-    const scheduleAtermClipboardAuthInstall = (paneId: number): void => {
-      if (installAtermClipboardAuth(paneId)) {
+    const scheduleAtermEngineAuthInstall = (paneId: number): void => {
+      if (installAtermEngineAuthorizations(paneId)) {
         return
       }
       let attempts = 0
       const tick = (): void => {
         const paneStillOpen = managerRef.current?.getPanes().some((p) => p.id === paneId) ?? false
-        if (!paneStillOpen || installAtermClipboardAuth(paneId) || attempts >= 50) {
-          atermClipboardAuthTimers.delete(paneId)
+        if (!paneStillOpen || installAtermEngineAuthorizations(paneId) || attempts >= 50) {
+          atermEngineAuthTimers.delete(paneId)
           return
         }
         attempts += 1
-        atermClipboardAuthTimers.set(paneId, window.setTimeout(tick, 50))
+        atermEngineAuthTimers.set(paneId, window.setTimeout(tick, 50))
       }
       tick()
     }
@@ -1255,9 +1269,9 @@ export function useTerminalPaneLifecycle({
         panePtyBindings.set(pane.id, panePtyBinding)
         // Bind aterm file-path link opening once the (async) controller appears.
         scheduleAtermFileLinkOpenerInstall(pane)
-        // Authorize the engine's OSC 52 write gate to match the user setting once
-        // the controller attaches (the JS handler still enforces the setting).
-        scheduleAtermClipboardAuthInstall(pane.id)
+        // Authorize the engine's OSC 52 + notification gates to match the user
+        // settings once the controller attaches (JS still enforces the settings).
+        scheduleAtermEngineAuthInstall(pane.id)
         syncPaneCount()
         scheduleRuntimeGraphSync()
         queueResizeAll(true)
@@ -1345,10 +1359,10 @@ export function useTerminalPaneLifecycle({
           window.clearTimeout(atermFileLinkOpenerTimer)
           atermFileLinkOpenerTimers.delete(paneId)
         }
-        const atermClipboardAuthTimer = atermClipboardAuthTimers.get(paneId)
-        if (atermClipboardAuthTimer !== undefined) {
-          window.clearTimeout(atermClipboardAuthTimer)
-          atermClipboardAuthTimers.delete(paneId)
+        const atermEngineAuthTimer = atermEngineAuthTimers.get(paneId)
+        if (atermEngineAuthTimer !== undefined) {
+          window.clearTimeout(atermEngineAuthTimer)
+          atermEngineAuthTimers.delete(paneId)
         }
         const transport = paneTransportsRef.current.get(paneId)
         const panePtyBinding = panePtyBindings.get(paneId)
@@ -1781,10 +1795,10 @@ export function useTerminalPaneLifecycle({
         window.clearTimeout(timer)
       }
       atermFileLinkOpenerTimers.clear()
-      for (const timer of atermClipboardAuthTimers.values()) {
+      for (const timer of atermEngineAuthTimers.values()) {
         window.clearTimeout(timer)
       }
-      atermClipboardAuthTimers.clear()
+      atermEngineAuthTimers.clear()
       for (const disposable of linkDisposables.values()) {
         disposable.dispose()
       }
@@ -1901,11 +1915,16 @@ export function useTerminalPaneLifecycle({
       return
     }
     applyAppearance(manager)
-    // Live-sync the engine's OSC 52 write gate to the toggle so flipping
-    // terminalAllowOsc52Clipboard mid-session takes effect on open panes.
+    // Live-sync the engine's fail-closed gates to the toggles so flipping
+    // terminalAllowOsc52Clipboard / the notification settings mid-session takes
+    // effect on open panes.
     const osc52Allowed = settings.terminalAllowOsc52Clipboard === true
+    const appNotificationsAllowed =
+      settings.notifications?.enabled === true &&
+      settings.notifications.terminalAppNotifications === true
     for (const pane of manager.getPanes()) {
       pane.atermController?.setClipboardWriteAuthorized(osc52Allowed)
+      pane.atermController?.setNotificationsAuthorized(appNotificationsAllowed)
     }
     // Why: effectiveMacOptionAsAlt changes when the OS keyboard layout
     // switches mid-session (focus-in probe re-runs) or when the user flips

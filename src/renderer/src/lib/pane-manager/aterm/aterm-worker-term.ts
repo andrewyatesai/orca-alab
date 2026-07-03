@@ -18,6 +18,7 @@
 import type { AtermTerminal } from './aterm_wasm.js'
 import { createAtermWorkerQueryChannel } from './aterm-worker-query-channel'
 import { createAtermWorkerGridMirror } from './aterm-worker-grid-mirror'
+import { createWorkerSideChannelBuffers } from './aterm-worker-side-channels'
 import type { AtermWorkerPaneCommand, AtermWorkerState } from './aterm-render-worker-protocol'
 
 /** The initial snapshot the loader awaits (carries the first cell metrics) before it
@@ -35,6 +36,9 @@ export type WorkerBackedTerm = {
   /** Loader pushes queued OSC app-events (JSON `[[code,payload],...]`); the facade
    *  pull-drains them via take_osc_events on the next chunk (non-blocking). */
   pushOsc: (eventsJson: string) => void
+  /** Loader pushes queued desktop notifications (JSON `[{id,title,body,urgency},...]`);
+   *  the facade pull-drains them via take_notifications. */
+  pushNotifications: (eventsJson: string) => void
   /** Loader pushes a BEL; the facade pull-drains it via drain_bell. */
   pushBell: () => void
   /** Wiring subscribes to forward replies to the PTY input sink. */
@@ -84,16 +88,15 @@ export function createWorkerBackedTerm(deps: {
   let state = deps.initial
   const grid = createAtermWorkerGridMirror()
 
-  // Side-channel buffers: OSC app-events + bell are pull-drained by the facade; replies
-  // are pushed to subscribers (see onReply).
-  let oscEvents: [number, string][] = []
-  let bellPending = false
   const replyListeners = new Set<(data: string) => void>()
   const metricsListeners = new Set<() => void>()
-  // Fired when the worker pushes new OSC/bell or a title change, so the facade drains +
-  // re-emits the title immediately (not a chunk late). See onSideChannel.
+  // Fired when the worker pushes new OSC/notification/bell or a title change, so the
+  // facade drains + re-emits the title immediately (not a chunk late). See onSideChannel.
   const sideChannelListeners = new Set<() => void>()
   const notifySideChannel = (): void => sideChannelListeners.forEach((fn) => fn())
+  // Side-channel buffers: OSC app-events + desktop notifications + bell are
+  // pull-drained by the facade; replies are pushed to subscribers (see onReply).
+  const sideChannels = createWorkerSideChannelBuffers(notifySideChannel)
   // Fired when the worker's snapshot search count/active-index changes — the worker owns
   // the match set, so results land a frame after a posted find/next/prev; the search UI
   // subscribes (onSearchStateChange) and re-reads the snapshot-backed count then.
@@ -116,6 +119,9 @@ export function createWorkerBackedTerm(deps: {
     // A title set on the final pre-idle chunk would otherwise wait for the next
     // process() to be re-emitted — fire the side-channel notify so it lands now.
     const titleChanged = next.title !== state.title
+    // An OSC 12-only frame changes no other side channel — notify so the wiring's
+    // cursor-colour follow re-derives the glow colour now, not a chunk late.
+    const cursorColorChanged = next.cursorColor !== state.cursorColor
     // A posted selection mutation completes when its range lands here — notify so
     // the facade emits onSelectionChange now (PRIMARY / copy-on-select on idle
     // shells), not on the next PTY chunk.
@@ -131,7 +137,7 @@ export function createWorkerBackedTerm(deps: {
     if (metricsChanged) {
       metricsListeners.forEach((fn) => fn())
     }
-    if (titleChanged || selectionChanged) {
+    if (titleChanged || selectionChanged || cursorColorChanged) {
       notifySideChannel()
     }
     if (searchChanged) {
@@ -205,6 +211,11 @@ export function createWorkerBackedTerm(deps: {
     get keyboard_mode_bits() {
       return state.keyboardModeBits
     },
+    // Live OSC 12 cursor colour for the glow/trail colour follow — snapshot-backed,
+    // one frame stale like the mode flags (the side-channel notify covers the lag).
+    get cursor_color() {
+      return state.cursorColor ?? undefined
+    },
 
     // ── grid-content reads (rolling visible-grid mirror) ──
     row_text: (row: number) => grid.row(row)?.text,
@@ -239,19 +250,9 @@ export function createWorkerBackedTerm(deps: {
     //    Replies are pushed via onReply (take_response stays empty); OSC + bell are
     //    pull-drained here from the loader-fed buffers. ──
     take_response: () => undefined,
-    take_osc_events: () => {
-      if (oscEvents.length === 0) {
-        return undefined
-      }
-      const json = JSON.stringify(oscEvents)
-      oscEvents = []
-      return json
-    },
-    drain_bell: () => {
-      const fired = bellPending
-      bellPending = false
-      return fired
-    },
+    take_osc_events: () => sideChannels.takeOscEvents(),
+    take_notifications: () => sideChannels.takeNotifications(),
+    drain_bell: () => sideChannels.drainBell(),
 
     // ── mutations (post commands) ──
     process_str: (s: string) => post({ type: 'process', data: s }),
@@ -296,6 +297,8 @@ export function createWorkerBackedTerm(deps: {
     set_bold_font: (bytes: Uint8Array) => post({ type: 'setBoldFont', bytes }),
     authorize_clipboard_write: () => post({ type: 'setClipboardWriteAuthorized', allowed: true }),
     revoke_clipboard_write: () => post({ type: 'setClipboardWriteAuthorized', allowed: false }),
+    authorize_notifications: (allowed: boolean) =>
+      post({ type: 'setNotificationsAuthorized', allowed }),
     search: (query: string, caseSensitive: boolean, isRegex?: boolean) => {
       post({ type: 'searchFind', query, caseSensitive, isRegex: isRegex ?? false })
       // Counts/highlights come back via the snapshot; the search controller reads them
@@ -369,18 +372,9 @@ export function createWorkerBackedTerm(deps: {
     term: term as unknown as AtermTerminal,
     applyState,
     pushReply: (data) => replyListeners.forEach((fn) => fn(data)),
-    pushOsc: (eventsJson) => {
-      try {
-        oscEvents.push(...(JSON.parse(eventsJson) as [number, string][]))
-      } catch {
-        /* malformed OSC payload — drop */
-      }
-      notifySideChannel()
-    },
-    pushBell: () => {
-      bellPending = true
-      notifySideChannel()
-    },
+    pushOsc: sideChannels.pushOsc,
+    pushNotifications: sideChannels.pushNotifications,
+    pushBell: sideChannels.pushBell,
     onReply: (handler) => void replyListeners.add(handler),
     onMetricsChange: (handler) => void metricsListeners.add(handler),
     onSideChannel: (handler) => void sideChannelListeners.add(handler),

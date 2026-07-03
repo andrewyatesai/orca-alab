@@ -1,5 +1,9 @@
 import { attachAtermColorSchemeSync } from './aterm-color-scheme-sync'
-import { applyAtermEffectsConfig, type AtermEffectsTarget } from './aterm-effects-settings'
+import {
+  applyAtermCursorGlowConfig,
+  applyAtermEffectsConfig,
+  type AtermEffectsTarget
+} from './aterm-effects-settings'
 import type { AtermControllerOptionReaders } from './aterm-controller-option-readers'
 
 // Apply the user's terminal settings (ligatures, scrollback depth, default cursor shape,
@@ -21,6 +25,8 @@ type EngineSettingsTarget = AtermEffectsTarget & {
   set_kitty_keyboard_enabled: (enabled: boolean) => void
   set_color_scheme: (dark: boolean) => void
   take_response: () => Uint8Array | undefined
+  /** Live OSC 12 cursor colour (0x00RRGGBB), undefined while unset / after OSC 112. */
+  readonly cursor_color: number | undefined
 }
 
 export function applyAtermEngineSettings(deps: {
@@ -36,8 +42,11 @@ export function applyAtermEngineSettings(deps: {
    *  otherwise only read on focus events, so a live toggle would skip the focused
    *  pane until the next blur/focus. */
   refreshCursorBlink: () => void
-}): { dispose: () => void; reapply: () => void } {
+}): { dispose: () => void; reapply: () => void; syncCursorColor: () => void } {
   const { term, readers } = deps
+  // The cursor colour last folded into the glow config, so the per-chunk follow
+  // (syncCursorColor) only re-applies on a real OSC 12/112 transition.
+  let appliedCursorColor: number | undefined
   // None of these change cell metrics, so they can apply after the grid is sized.
   // Defaults match the engine's own, so an unset reader is a no-op.
   const apply = (): void => {
@@ -55,8 +64,10 @@ export function applyAtermEngineSettings(deps: {
     term.set_background_opacity(readers.getBackgroundOpacity())
     term.set_cursor_opacity(readers.getCursorOpacity())
     // Effects (sparkle words / cursor glow) — everything-off is byte-identical, so
-    // panes with effects disabled render exactly as before.
-    applyAtermEffectsConfig(term, readers.getEffectsConfig())
+    // panes with effects disabled render exactly as before. The glow colour follows
+    // the live OSC 12 cursor colour (unset → theme-derived, native-app parity).
+    appliedCursorColor = term.cursor_color
+    applyAtermEffectsConfig(term, readers.getEffectsConfig(), appliedCursorColor)
   }
   apply()
   // Kitty keyboard capability: per-pane STATIC policy (local Windows ConPTY panes
@@ -96,6 +107,28 @@ export function applyAtermEngineSettings(deps: {
       }
       apply()
       deps.refreshCursorBlink()
+      deps.scheduleDraw()
+    },
+    // Per-drain-tick OSC 12 follow: when the app moved the cursor colour and the
+    // glow runs theme-derived, re-fold the live colour into the glow config (OSC 112
+    // resets cursor_color to undefined → back to theme-derived), per the engine's
+    // cursor_color contract. Cheap getter compare; no-op while unchanged.
+    syncCursorColor: () => {
+      if (deps.isDisposed()) {
+        return
+      }
+      const live = term.cursor_color
+      if (live === appliedCursorColor) {
+        return
+      }
+      appliedCursorColor = live
+      const cfg = readers.getEffectsConfig()
+      // Glow off (or host-gated off under reduced motion): nothing consumes the
+      // colour; the next apply()/reapply() folds it in if the glow turns on.
+      if (!cfg.cursorGlow || cfg.reducedMotion) {
+        return
+      }
+      applyAtermCursorGlowConfig(term, cfg, live)
       deps.scheduleDraw()
     }
   }

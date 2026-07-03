@@ -25,6 +25,8 @@ export function buildNotificationOptions(args: NotificationDispatchRequest): {
   body: string
   silent?: boolean
   sound?: string
+  urgency?: 'normal' | 'critical' | 'low'
+  timeoutType?: 'default' | 'never'
 } {
   if (args.source === 'terminal-bell') {
     return {
@@ -35,6 +37,10 @@ export function buildNotificationOptions(args: NotificationDispatchRequest): {
 
   if (args.source === 'long-command-complete') {
     return buildLongCommandCompleteNotificationOptions(args)
+  }
+
+  if (args.source === 'terminal-app-notification') {
+    return buildTerminalAppNotificationOptions(args)
   }
 
   if (args.source === 'test') {
@@ -70,6 +76,38 @@ function buildLongCommandCompleteNotificationOptions(args: NotificationDispatchR
   return {
     title: paneTitle || `Command finished in ${args.worktreeLabel ?? 'workspace'}`,
     body: args.repoLabel ? `${args.repoLabel} · ${statusWithDuration}` : statusWithDuration
+  }
+}
+
+function buildTerminalAppNotificationOptions(args: NotificationDispatchRequest): {
+  title: string
+  body: string
+  urgency: 'normal' | 'critical' | 'low'
+  timeoutType?: 'default' | 'never'
+} {
+  // OSC 9 posts a bare message with no title — fall back to the pane title as the
+  // notification identity (same identity rule as the long-command builder).
+  const payloadTitle = normalizeNotificationText(
+    args.appNotificationTitle,
+    NOTIFICATION_TITLE_CONTEXT_MAX_LENGTH
+  )
+  const paneTitle = normalizeNotificationText(
+    args.terminalTitle,
+    NOTIFICATION_TITLE_CONTEXT_MAX_LENGTH
+  )
+  const body = normalizeNotificationText(
+    args.appNotificationBody,
+    NOTIFICATION_BODY_PREVIEW_MAX_LENGTH
+  )
+  const urgency = args.appNotificationUrgency ?? 'normal'
+  return {
+    title: payloadTitle || paneTitle || `Notification from ${args.worktreeLabel ?? 'workspace'}`,
+    body: args.repoLabel ? `${args.repoLabel}${body ? ` · ${body}` : ''}` : body,
+    // Electron honors urgency on Linux and timeoutType on Linux/Windows: 'critical'
+    // maps to a sticky notification there (the closest requireInteraction analog);
+    // the other platforms ignore both fields.
+    urgency,
+    ...(urgency === 'critical' ? { timeoutType: 'never' as const } : {})
   }
 }
 

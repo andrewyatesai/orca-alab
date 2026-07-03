@@ -17,6 +17,9 @@ export function wireWorkerStrategyHooks(deps: {
    *  in a STATE message after the posted process(), so the pump's per-chunk
    *  emitTitleIfChanged would lag a command; fire it on the side-channel push instead. */
   emitTitleIfChanged: () => void
+  /** Re-derive the effects colour from the live OSC 12 cursor colour. Snapshot-backed
+   *  on the worker path, so it fires on the same side-channel push as the title. */
+  syncCursorColor: () => void
   isDisposed: () => boolean
 }): void {
   const { strategy, term, metrics, inputSink, forceReflow, emitTitleIfChanged, isDisposed } = deps
@@ -40,6 +43,7 @@ export function wireWorkerStrategyHooks(deps: {
   strategy.onSideChannel?.(() => {
     if (!isDisposed()) {
       emitTitleIfChanged()
+      deps.syncCursorColor()
     }
   })
 }

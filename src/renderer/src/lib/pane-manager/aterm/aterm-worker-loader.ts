@@ -141,6 +141,9 @@ export async function loadAtermWorkerEngine(
       case 'osc':
         backed?.pushOsc(data.events)
         return
+      case 'notifications':
+        backed?.pushNotifications(data.events)
+        return
       case 'bell':
         backed?.pushBell()
         return

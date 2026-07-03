@@ -73,12 +73,16 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       }
       const side = term.processBytes(msg.data)
       // Post the edge-triggered side channels immediately (NOT coalesced) so none are
-      // dropped: replies → PTY, OSC app-events → dispatch, bell → re-emit.
+      // dropped: replies → PTY, OSC app-events → dispatch, notifications → OS
+      // dispatch, bell → re-emit.
       if (side.reply) {
         pane.post({ type: 'reply', data: side.reply })
       }
       if (side.osc) {
         pane.post({ type: 'osc', events: side.osc })
+      }
+      if (side.notifications) {
+        pane.post({ type: 'notifications', events: side.notifications })
       }
       if (side.bell) {
         pane.post({ type: 'bell' })
@@ -230,6 +234,9 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       return
     case 'setClipboardWriteAuthorized':
       term?.setClipboardWriteAuthorized(msg.allowed)
+      return
+    case 'setNotificationsAuthorized':
+      term?.setNotificationsAuthorized(msg.allowed)
       return
     case 'setDrawSuspended':
       pane.frameScheduler.setSuspended(msg.suspended)

@@ -123,6 +123,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // capture them by closure and only invoke them at runtime (after wiring completes).
   let draw: () => void = () => undefined
   let presentNow: () => void = () => undefined
+  // Late-bound like draw/presentNow: engineSettings (created below) owns the live
+  // OSC 12 → glow-colour follow; the pump + worker side-channel hooks fire it.
+  let syncCursorColorEffects: () => void = () => undefined
   const drawScheduler = createAtermDrawScheduler(() => draw())
   const scheduleDraw = (): void => {
     if (!disposed) {
@@ -149,6 +152,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     emitTitleIfChanged: titleChannel.emitIfChanged,
     hasActiveSearchQuery: () => searchState.searchController.hasActiveQuery(),
     markSearchRefresh: searchState.markSearchRefresh,
+    syncCursorColor: () => syncCursorColorEffects(),
     // Present a keystroke echo immediately (coalesced to once per frame) instead of
     // waiting a full rAF — see presentNow. Bulk output still coalesces onto rAF.
     scheduleDraw: () => presentNow()
@@ -230,6 +234,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     inputSink,
     forceReflow: () => gridSizing.reflow.forceReflow(),
     emitTitleIfChanged: titleChannel.emitIfChanged,
+    syncCursorColor: () => syncCursorColorEffects(),
     isDisposed: () => disposed
   })
 
@@ -311,6 +316,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     scheduleDraw,
     refreshCursorBlink: cursorBlink.refresh
   })
+  syncCursorColorEffects = engineSettings.syncCursorColor
 
   resizeSink(gridSizing.grid().cols, gridSizing.grid().rows)
   scheduleDraw()
@@ -371,6 +377,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // events for the facade to drain; the host still enforces the user setting.
     setClipboardWriteAuthorized: (allowed: boolean) =>
       allowed ? term.authorize_clipboard_write() : term.revoke_clipboard_write(),
+    // Engine-side fail-closed OSC 9/99/777 gate, synced from the user's notification
+    // settings by the lifecycle layer (mirrors the OSC 52 clipboard gate above).
+    setNotificationsAuthorized: (allowed: boolean) => term.authorize_notifications(allowed),
     element,
     textarea,
     // Live re-theme + selection-focus mutators (re-style the engine in place, no

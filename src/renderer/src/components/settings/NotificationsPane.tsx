@@ -8,7 +8,7 @@ import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 import { Label } from '../ui/label'
 import { Separator } from '../ui/separator'
-import { BellRing, Bot, Siren, Timer } from 'lucide-react'
+import { BellRing, Bot, Megaphone, Siren, Timer } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { NotificationSettingToggle } from './NotificationSettingToggle'
 import { NotificationSoundSection } from './NotificationSoundSection'
@@ -163,6 +163,25 @@ export function NotificationsPane({
         onToggle={() =>
           void updateNotificationSettings({
             terminalBell: !notificationSettings.terminalBell
+          })
+        }
+      />
+
+      <NotificationSettingToggle
+        icon={<Megaphone className="size-4" />}
+        label={translate(
+          'auto.components.settings.NotificationsPane.922a54c037',
+          'Terminal App Notifications'
+        )}
+        description={translate(
+          'auto.components.settings.NotificationsPane.f627c38a77',
+          'A terminal program posts a desktop notification (OSC 9).'
+        )}
+        checked={notificationSettings.terminalAppNotifications}
+        disabled={!notificationSettings.enabled}
+        onToggle={() =>
+          void updateNotificationSettings({
+            terminalAppNotifications: !notificationSettings.terminalAppNotifications
           })
         }
       />

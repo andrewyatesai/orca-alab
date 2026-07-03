@@ -3,6 +3,7 @@ import type { AtermPaneController } from './aterm-pane-controller-types'
 import { createAtermFacadeBuffer } from './aterm-facade-buffer'
 import { createAtermFacadeParser } from './aterm-facade-parser'
 import { createFacadeEmitter } from './aterm-facade-emitters'
+import { parseAtermNotifications, type AtermAppNotification } from './aterm-notification-drain'
 import type { AtermFacadeOptions, AtermTerminalFacade } from './aterm-terminal-facade-types'
 
 // The facade's public types (AtermTerminalFacade/AtermFacadeOptions) live in the
@@ -37,6 +38,7 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
   const dataEmitter = createFacadeEmitter<string>()
   const resizeEmitter = createFacadeEmitter<{ cols: number; rows: number }>()
   const bellEmitter = createFacadeEmitter<void>()
+  const appNotificationEmitter = createFacadeEmitter<AtermAppNotification>()
   const selectionChangeEmitter = createFacadeEmitter<void>()
   const titleListeners = new Set<(title: string) => void>()
   let titleDisposable: IDisposable | null = null
@@ -82,6 +84,13 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
         // dispatchOscEvent re-encodes the engine-decoded payload to the xterm wire
         // format the unchanged orca OSC handlers parse.
         dispatchOscEvent(code, value)
+      }
+    }
+    // OSC 9/99/777 desktop notifications ride the same post-process drain; skip the
+    // per-chunk engine crossing while nothing subscribed (mirrors the bell gate).
+    if (appNotificationEmitter.hasListeners()) {
+      for (const notification of parseAtermNotifications(controller.takeNotifications())) {
+        appNotificationEmitter.emit(notification)
       }
     }
     pollBufferChange()
@@ -313,6 +322,9 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
     onSelectionChange(handler) {
       return selectionChangeEmitter.on(handler)
     },
+    onTerminalAppNotification(handler) {
+      return appNotificationEmitter.on(handler)
+    },
     dispose() {
       disposed = true
       titleDisposable?.dispose()
@@ -321,6 +333,7 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       dataEmitter.clear()
       resizeEmitter.clear()
       bellEmitter.clear()
+      appNotificationEmitter.clear()
       selectionChangeEmitter.clear()
       linkProviders.length = 0
       customKeyEventHandler = null

@@ -151,6 +151,9 @@ export function getDefaultNotificationSettings(): NotificationSettings {
     terminalBell: false,
     longCommandComplete: true,
     longCommandThresholdSeconds: DEFAULT_LONG_COMMAND_THRESHOLD_SECONDS,
+    // Default ON: native terminals honor app-posted OSC 9 notifications out of the
+    // box (parity); the engine queue still stays fail-closed until authorized.
+    terminalAppNotifications: true,
     suppressWhenFocused: true,
     customSoundId: 'system',
     customSoundPath: null,

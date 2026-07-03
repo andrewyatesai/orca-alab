@@ -367,6 +367,7 @@ export async function createAtermPaneController(
     isAltScreen: () => wired.controller.isAltScreen(),
     bracketedPasteMode: () => wired.controller.bracketedPasteMode(),
     setClipboardWriteAuthorized: (allowed) => wired.controller.setClipboardWriteAuthorized(allowed),
+    setNotificationsAuthorized: (allowed) => wired.controller.setNotificationsAuthorized(allowed),
     // Stable DOM nodes: the wrapper/textarea persist across a GPU→CPU swap (only
     // the canvas inside the screen is replaced), so the facade can hold them.
     element: inputDom.wrapper,
@@ -390,6 +391,7 @@ export async function createAtermPaneController(
     cellIsWide: (row, col) => wired.controller.cellIsWide(row, col),
     drainBell: () => wired.controller.drainBell(),
     takeOscEvents: () => wired.controller.takeOscEvents(),
+    takeNotifications: () => wired.controller.takeNotifications(),
     pixelSize: () => wired.controller.pixelSize(),
     themeColors: () => wired.controller.themeColors(),
     ...(wired.controller.benchmarkRender

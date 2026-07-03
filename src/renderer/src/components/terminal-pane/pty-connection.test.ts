@@ -360,6 +360,7 @@ function createPane(paneId: number) {
       onData: vi.fn(() => ({ dispose: vi.fn() })),
       onResize: vi.fn(() => ({ dispose: vi.fn() })),
       onTitleChange: vi.fn(() => ({ dispose: vi.fn() })),
+      onTerminalAppNotification: vi.fn(() => ({ dispose: vi.fn() })),
       hasSelection: vi.fn(() => false),
       parser: {
         registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),

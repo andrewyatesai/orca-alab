@@ -17,6 +17,9 @@ type ProcessPumpDeps = {
   isDisposed: () => boolean
   /** Re-read the engine title + fire title listeners (post-process). */
   emitTitleIfChanged: () => void
+  /** Follow a live OSC 12 cursor-colour change into the effects colour
+   *  (cheap getter compare; no-op when the colour is unchanged). */
+  syncCursorColor?: () => void
   /** True if a search query is active, so highlights need re-running this frame. */
   hasActiveSearchQuery: () => boolean
   /** Mark that the next draw must refresh search highlights. */
@@ -45,6 +48,7 @@ export function createAtermProcessPump(deps: ProcessPumpDeps): (data: string) =>
     // aterm is the authoritative query responder — drain + forward its replies.
     drainAtermReplies(deps.term, deps.inputSink)
     deps.emitTitleIfChanged()
+    deps.syncCursorColor?.()
     if (wasAtBottom && deps.term.display_offset !== 0) {
       deps.term.scroll_to_bottom()
     }

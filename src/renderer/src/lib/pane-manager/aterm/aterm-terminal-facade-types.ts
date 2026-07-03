@@ -2,6 +2,7 @@ import type { IDisposable, ILinkProvider, IMarker, ITerminalOptions } from './te
 import type { AtermPaneController } from './aterm-pane-controller-types'
 import type { AtermFacadeBuffer } from './aterm-facade-buffer'
 import type { AtermFacadeParser } from './aterm-facade-parser'
+import type { AtermAppNotification } from './aterm-notification-drain'
 
 /** A live theme/option bag the facade exposes as `terminal.options`. The aterm
  *  controller reads most of these live (applyTerminalAppearance writes them here
@@ -70,6 +71,9 @@ export type AtermTerminalFacade = {
   onTitleChange(handler: (title: string) => void): IDisposable
   onBell(handler: () => void): IDisposable
   onSelectionChange(handler: () => void): IDisposable
+  /** aterm extra (no xterm equivalent): OSC 9/99/777 desktop notifications drained
+   *  from the engine's fail-closed, host-authorized queue. */
+  onTerminalAppNotification(handler: (notification: AtermAppNotification) => void): IDisposable
   dispose(): void
   /** Internal: bind the async-attached controller + its DOM and flush buffered
    *  process() bytes. Called by openAtermPane once the controller resolves. */

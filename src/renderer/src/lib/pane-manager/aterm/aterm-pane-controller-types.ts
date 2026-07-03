@@ -159,6 +159,10 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  until authorized; the host still gates the actual clipboard write on the
    *  user's terminalAllowOsc52Clipboard setting (defense in depth). */
   setClipboardWriteAuthorized: (allowed: boolean) => void
+  /** Authorize/revoke OSC 9/99/777 desktop notifications on the engine. Fail-closed
+   *  by default: until authorized the engine drops them before queueing, so
+   *  takeNotifications stays empty. Synced from the user's notification settings. */
+  setNotificationsAuthorized: (allowed: boolean) => void
   /** True when the app has enabled any mouse tracking mode (DECSET 1000/1002/1003
    *  etc.) — the facade maps this to xterm's mouseTrackingMode ('vt200' vs 'none'). */
   isMouseTracking: () => boolean
@@ -210,6 +214,10 @@ export type AtermPaneController = AtermRendererReplySurface & {
   /** Drain queued OSC app-events as a JSON string `[[code,payload],...]`, or
    *  undefined when none are pending (matches the wasm take_osc_events shape). */
   takeOscEvents: () => string | undefined
+  /** Drain queued OSC 9/99/777 desktop notifications as a JSON string
+   *  `[{id,title,body,urgency},...]`, or undefined when none are pending
+   *  (matches the wasm take_notifications shape). */
+  takeNotifications: () => string | undefined
   /** Current selection range in display cell coords, or null when none. */
   selectionRange: () => { startX: number; startY: number; endX: number; endY: number } | null
   /** Clear the active selection (removes highlight). */

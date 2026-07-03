@@ -42,10 +42,12 @@ type RecordingTerm = {
   sparkleMasters: boolean[]
   sparkleClasses: [boolean, boolean, boolean, boolean][]
   reducedMotions: boolean[]
-  glows: { enabled: boolean; style: string }[]
+  glows: { enabled: boolean; style: string; color: number | undefined }[]
 }
 
-function makeTerm(): RecordingTerm & Parameters<typeof applyAtermEngineSettings>[0]['term'] {
+function makeTerm(): RecordingTerm & {
+  liveCursorColor: number | undefined
+} & Parameters<typeof applyAtermEngineSettings>[0]['term'] {
   const calls: RecordingTerm = {
     ligatures: [],
     scrollback: [],
@@ -61,24 +63,31 @@ function makeTerm(): RecordingTerm & Parameters<typeof applyAtermEngineSettings>
     reducedMotions: [],
     glows: []
   }
-  return {
+  const term = {
     ...calls,
-    set_sparkle_words_enabled: (on) => calls.sparkleMasters.push(on),
-    set_sparkle_classes: (profanity, feline, orca, emphasis) =>
+    // The mock engine's live OSC 12 colour (tests mutate it between calls).
+    liveCursorColor: undefined as number | undefined,
+    get cursor_color(): number | undefined {
+      return term.liveCursorColor
+    },
+    set_sparkle_words_enabled: (on: boolean) => calls.sparkleMasters.push(on),
+    set_sparkle_classes: (profanity: boolean, feline: boolean, orca: boolean, emphasis: boolean) =>
       calls.sparkleClasses.push([profanity, feline, orca, emphasis]),
-    set_sparkle_reduced_motion: (on) => calls.reducedMotions.push(on),
-    set_cursor_glow: (enabled, style) => calls.glows.push({ enabled, style }),
-    set_ligatures: (on) => calls.ligatures.push(on),
-    set_scrollback_limit: (lines) => calls.scrollback.push(lines),
-    set_default_cursor_style: (param) => calls.cursorStyles.push(param),
-    set_minimum_contrast: (ratio) => calls.contrasts.push(ratio),
-    set_word_separators: (separators) => calls.separators.push(separators),
-    set_background_opacity: (opacity) => calls.bgOpacities.push(opacity),
-    set_cursor_opacity: (opacity) => calls.cursorOpacities.push(opacity),
-    set_kitty_keyboard_enabled: (enabled) => calls.kittyEnabled.push(enabled),
-    set_color_scheme: (dark) => calls.schemes.push(dark),
+    set_sparkle_reduced_motion: (on: boolean) => calls.reducedMotions.push(on),
+    set_cursor_glow: (enabled: boolean, style: string, color: number | null | undefined) =>
+      calls.glows.push({ enabled, style, color: color ?? undefined }),
+    set_ligatures: (on: boolean) => calls.ligatures.push(on),
+    set_scrollback_limit: (lines: number) => calls.scrollback.push(lines),
+    set_default_cursor_style: (param: number) => calls.cursorStyles.push(param),
+    set_minimum_contrast: (ratio: number) => calls.contrasts.push(ratio),
+    set_word_separators: (separators?: string | null) => calls.separators.push(separators),
+    set_background_opacity: (opacity: number) => calls.bgOpacities.push(opacity),
+    set_cursor_opacity: (opacity: number) => calls.cursorOpacities.push(opacity),
+    set_kitty_keyboard_enabled: (enabled: boolean) => calls.kittyEnabled.push(enabled),
+    set_color_scheme: (dark: boolean) => calls.schemes.push(dark),
     take_response: () => undefined
   }
+  return term
 }
 
 function makeReaders(
@@ -213,7 +222,7 @@ describe('applyAtermEngineSettings', () => {
     })
     // Everything-off construction: master off, glow off (engine byte-identical default).
     expect(term.sparkleMasters).toEqual([false])
-    expect(term.glows).toEqual([{ enabled: false, style: 'lumen' }])
+    expect(term.glows).toEqual([{ enabled: false, style: 'lumen', color: undefined }])
     // Live enable: sparkle master + orca-only classes + rainbow glow.
     cfg = {
       ...cfg,
@@ -227,13 +236,67 @@ describe('applyAtermEngineSettings', () => {
     reapply()
     expect(term.sparkleMasters).toEqual([false, true])
     expect(term.sparkleClasses.at(-1)).toEqual([false, false, true, false])
-    expect(term.glows.at(-1)).toEqual({ enabled: true, style: 'rainbow' })
+    expect(term.glows.at(-1)).toEqual({ enabled: true, style: 'rainbow', color: undefined })
     // OS reduce-motion: sparkle goes static in-engine; the pure-motion glow is
     // host-gated fully off.
     cfg = { ...cfg, reducedMotion: true }
     reapply()
     expect(term.reducedMotions.at(-1)).toBe(true)
-    expect(term.glows.at(-1)).toEqual({ enabled: false, style: 'rainbow' })
+    expect(term.glows.at(-1)).toEqual({ enabled: false, style: 'rainbow', color: undefined })
+  })
+
+  it('folds the live OSC 12 cursor colour into the glow on apply and follows changes via syncCursorColor', () => {
+    const term = makeTerm()
+    const scheduleDraw = vi.fn()
+    const glowOn = () => ({
+      sparkleWords: false,
+      sparkleProfanity: true,
+      sparkleFeline: true,
+      sparkleOrca: true,
+      sparkleEmphasis: true,
+      cursorGlow: true,
+      cursorGlowStyle: 'lumen' as const,
+      reducedMotion: false
+    })
+    term.liveCursorColor = 0x00ff00
+    const { syncCursorColor } = applyAtermEngineSettings({
+      term,
+      readers: makeReaders({ getEffectsConfig: glowOn }),
+      inputSink: () => undefined,
+      isDisposed: () => false,
+      scheduleDraw,
+      refreshCursorBlink: () => undefined
+    })
+    // Construction folds the live colour in.
+    expect(term.glows.at(-1)).toEqual({ enabled: true, style: 'lumen', color: 0x00ff00 })
+    // Unchanged colour: the per-chunk follow is a no-op.
+    syncCursorColor()
+    expect(term.glows).toHaveLength(1)
+    // OSC 12 change → re-applied glow with the new colour + repaint.
+    term.liveCursorColor = 0xff8800
+    syncCursorColor()
+    expect(term.glows.at(-1)).toEqual({ enabled: true, style: 'lumen', color: 0xff8800 })
+    expect(scheduleDraw).toHaveBeenCalled()
+    // OSC 112 reset → back to theme-derived (undefined colour).
+    term.liveCursorColor = undefined
+    syncCursorColor()
+    expect(term.glows.at(-1)).toEqual({ enabled: true, style: 'lumen', color: undefined })
+  })
+
+  it('syncCursorColor records but does not touch the engine while the glow is off', () => {
+    const term = makeTerm()
+    const { syncCursorColor } = applyAtermEngineSettings({
+      term,
+      readers: makeReaders({}),
+      inputSink: () => undefined,
+      isDisposed: () => false,
+      scheduleDraw: () => undefined,
+      refreshCursorBlink: () => undefined
+    })
+    const glowsAfterApply = term.glows.length
+    term.liveCursorColor = 0x123456
+    syncCursorColor()
+    expect(term.glows).toHaveLength(glowsAfterApply)
   })
 
   it('skips a reapply after dispose', () => {

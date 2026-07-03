@@ -1818,7 +1818,12 @@ type ResolvedWorktreeInFlight = {
 
 export type MobileNotificationDispatchEvent = {
   type: 'notification'
-  source: 'agent-task-complete' | 'terminal-bell' | 'long-command-complete' | 'test'
+  source:
+    | 'agent-task-complete'
+    | 'terminal-bell'
+    | 'long-command-complete'
+    | 'terminal-app-notification'
+    | 'test'
   title: string
   body: string
   worktreeId?: string

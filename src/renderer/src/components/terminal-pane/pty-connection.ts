@@ -1581,6 +1581,24 @@ export function connectPanePty(
     }
   })
   commandLifecycle.attachXtermConsumer(pane.terminal)
+  // OSC 9/99/777 app notifications drained from the aterm engine (fail-closed;
+  // the lifecycle layer authorizes the engine from the user setting). Flood
+  // posture: the engine caps its queue at 64 drop-new, and the main-process
+  // dispatcher's per-worktree cooldown throttles the OS toasts — no extra
+  // renderer-side limiter.
+  const appNotificationSubscription = pane.terminal.onTerminalAppNotification((appNotification) => {
+    if (disposed) {
+      return
+    }
+    deps.dispatchNotification({
+      source: 'terminal-app-notification',
+      terminalTitle: getCurrentTerminalTitle() ?? undefined,
+      paneKey: cacheKey,
+      appNotificationTitle: appNotification.title,
+      appNotificationBody: appNotification.body,
+      appNotificationUrgency: appNotification.urgency
+    })
+  })
   const onTerminalKeyDown = (event: KeyboardEvent): void => {
     if (isPlainEscapeKeyEvent(event)) {
       setPendingTerminalInputIntent('plain-escape')
@@ -5690,6 +5708,7 @@ export function connectPanePty(
         pendingGeometryReportRaf = null
       }
       commandLifecycle.dispose()
+      appNotificationSubscription.dispose()
       agentCompletionCoordinator.dispose()
     }
   }

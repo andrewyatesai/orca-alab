@@ -103,6 +103,7 @@ function createSettings(overrides: Partial<GlobalSettings> = {}): GlobalSettings
       terminalBell: false,
       longCommandComplete: true,
       longCommandThresholdSeconds: 15,
+      terminalAppNotifications: true,
       suppressWhenFocused: true,
       customSoundId: 'system',
       customSoundPath: null,

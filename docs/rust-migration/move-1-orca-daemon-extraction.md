@@ -111,9 +111,10 @@ orca-daemon (bin)
    `modes` + `cwd` + dims), `getCwd` (OSC-7), and `clearScrollback` are answered
    from **actual aterm engine state — no napi hop**. Two smoke tests pass: an
    8-check reattach/buffering suite and an engine suite (OSC-7 cwd round-trip +
-   rendered-grid snapshot). **Remaining in this sub-step:** the **parity gate**
-   (`orca-parity`): feed identical request vectors to the Node and Rust daemons,
-   diff the responses; and `getForegroundProcess` (needs a process-group query).
+   rendered-grid snapshot). **The differential parity gate is now live** — see
+   the next section. **Remaining in this sub-step:** `getForegroundProcess`
+   (needs a process-group query; currently the correct `{foregroundProcess:null}`
+   envelope with a null value).
 3. ⬜ **Persistence + lifecycle.** Checkpoint/session-list via `orca-store`; daemon
    health socket; crash-restart with session restore; a reaper for exited sessions
    (the spike keeps them for `listSessions`).
@@ -123,11 +124,35 @@ orca-daemon (bin)
    **autoformalization pipeline** (ts2rust two-witness) carries the bounded,
    testable request-handler logic where a hand-port is riskier.
 
+## The differential parity gate — LIVE (`tools/daemon-parity`, `pnpm parity:daemon`)
+
+The primary safety gate now exists and is **two-legged and live**. It drives one
+stateful RPC corpus over the **real Unix socket** (hello handshake, control +
+stream pairing by `clientId`, NDJSON framing, event delivery) against **both**
+daemons and diffs their structural fingerprints:
+
+- **Leg A (hard gate)** — the Rust `orca-daemon` must satisfy 15 behavioral
+  invariants (create/isNew, OSC-7 `getCwd`, snapshot dims+cwd+marker, `getSize`,
+  `listSessions` alive, live stream carries the marker, reattach `isNew:false`,
+  resize, unknown-session errors, kill → not-alive). This is also the first
+  coverage of the socket transport itself — `tests/rpc_lifecycle.rs` calls
+  `dispatch_request` directly and bypasses hello/pairing/events.
+- **Leg B (differential)** — the Node daemon (`out/main/daemon-entry.js` spawned
+  headless via `ELECTRON_RUN_AS_NODE=1`) runs the **same** corpus; any structural
+  divergence fails the gate. If it can't be spawned, the leg is loudly skipped.
+
+What is compared is **wire structure + behavior**, not engine-render bytes (the
+two daemons legitimately render through different VT engines). Its first run
+caught four real Rust wire drifts (`getCwd` bare-string, `getSize` top-level
+dims, `getForegroundProcess`/`ptySpawnHealth` envelopes, missing `sgrMouse*`
+modes) — all fixed; the gate is now green (15/15 invariants, Node == Rust across
+all 15 steps). See `tools/daemon-parity/README.md`.
+
 ## How this is verified (no GitHub CI — the agent-runnable gates)
 
-- **Differential parity** (`orca-parity` + `tools/parity`): the same request
-  corpus through both daemons must produce identical responses/events. This is
-  the primary gate — the wire is the contract.
+- **Differential parity** (`tools/daemon-parity`, above): the same request corpus
+  through both daemons must produce identical structural responses/events. This
+  is the primary gate — the wire is the contract.
 - **`orca-aterm-demo` stays green**: the session-through-aterm proof.
 - **Conformance/perf/safety gauntlet**: the Rust daemon must clear the existing
   gates (it removes a process boundary + the napi hop, so perf should *improve*).
@@ -151,14 +176,17 @@ orca-daemon (bin)
 ## Immediate next action
 
 Sub-steps 1 and 2 are done: the crate builds offline, embeds the real aterm engine
-per session, and passes both a reattach/buffering smoke test and an engine
-(cwd/snapshot) smoke test. Next, in order:
+per session, passes the in-process lifecycle tests, **and clears the live
+two-legged differential parity gate** (`pnpm parity:daemon`, 15/15, Node == Rust).
+Next, in order:
 
-1. **The `orca-parity` differential gate.** Feed the same request-vector corpus to
-   the Node daemon and `orca-daemon`, diff the responses/events; wire it into the
-   gauntlet so drift is caught before cutover. This is the gate that lets the
-   cutover be safe.
+1. **Grow the parity corpus.** Add vectors for `takePendingOutput` while detached
+   (buffer-then-replay), multi-client `clientId` isolation, `detach` keeping the
+   PTY alive, `shellReady`/startup-command timing, and the Windows shell-override
+   matrix. Each new vector that stays green is another degree of cutover safety.
 2. **Spawner wiring.** Teach `daemon-spawner.ts` to launch the Rust bin under
    `ORCA_RUST_DAEMON=1`, then run a real shell tab through it end to end.
-3. **Persistence + reaper** (sub-step 3): checkpoint/session-list via `orca-store`;
+3. **`getForegroundProcess`** — real process-group query (currently the correct
+   `{foregroundProcess:null}` envelope with a null value).
+4. **Persistence + reaper** (sub-step 3): checkpoint/session-list via `orca-store`;
    reap exited sessions; crash-restart with session restore.

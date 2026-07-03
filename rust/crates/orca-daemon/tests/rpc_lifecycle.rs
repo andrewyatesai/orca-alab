@@ -67,7 +67,7 @@ fn create_write_snapshot_cwd_lifecycle() {
                 client,
                 json!({ "id": "cwd", "type": "getCwd", "payload": { "sessionId": "s1" } }),
             );
-            r["payload"] == json!("/tmp/dtest")
+            r["payload"]["cwd"] == json!("/tmp/dtest")
         },
         Duration::from_secs(5),
     );
@@ -101,8 +101,8 @@ fn create_write_snapshot_cwd_lifecycle() {
         client,
         json!({ "id": "sz", "type": "getSize", "payload": { "sessionId": "s1" } }),
     );
-    assert_eq!(size["payload"]["cols"], json!(88));
-    assert_eq!(size["payload"]["rows"], json!(26));
+    assert_eq!(size["payload"]["size"]["cols"], json!(88));
+    assert_eq!(size["payload"]["size"]["rows"], json!(26));
 
     // listSessions shows the live session.
     let list = dispatch(&reg, client, json!({ "id": "ls", "type": "listSessions" }));

@@ -67,12 +67,14 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         "detach" => rpc_ok(id, Value::Null),
         "takePendingOutput" => rpc_ok(id, json!({ "data": registry.take_pending(&sid()) })),
         "listSessions" => rpc_ok(id, registry.list_sessions()),
+        // Wire shape mirrors the Node daemon: `{ size: { cols, rows } }` (not the
+        // dims at the payload top level) — see daemon-server.ts `getAppliedSize`.
         "getSize" => match registry.session_size(&sid()) {
-            Some((cols, rows)) => rpc_ok(id, json!({ "cols": cols, "rows": rows })),
+            Some((cols, rows)) => rpc_ok(id, json!({ "size": { "cols": cols, "rows": rows } })),
             None => rpc_err(id, "unknown session"),
         },
         "ping" => rpc_ok(id, json!({ "pong": true })),
-        "ptySpawnHealth" => rpc_ok(id, json!({ "ok": true })),
+        "ptySpawnHealth" => rpc_ok(id, json!({ "healthy": true })),
         "systemResolverHealth" => rpc_ok(id, json!({ "health": "unknown" })),
         // Real engine state from the session's headless aterm terminal — no napi hop.
         "getSnapshot" => match registry.terminal_of(&sid()) {
@@ -82,13 +84,16 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             }
             None => rpc_ok(id, json!({ "snapshot": Value::Null })),
         },
+        // Wire shape mirrors the Node daemon: `{ cwd: <string|null> }`.
         "getCwd" => {
             let cwd = registry
                 .terminal_of(&sid())
                 .and_then(|t| t.lock().unwrap().cwd().map(str::to_string));
-            rpc_ok(id, cwd.map(Value::String).unwrap_or(Value::Null))
+            rpc_ok(id, json!({ "cwd": cwd }))
         }
-        "getForegroundProcess" => rpc_ok(id, Value::Null),
+        // Wire shape mirrors the Node daemon: `{ foregroundProcess: <…|null> }`.
+        // Process-group query isn't wired yet, so the value is null (a safe stub).
+        "getForegroundProcess" => rpc_ok(id, json!({ "foregroundProcess": Value::Null })),
         "clearScrollback" => {
             if let Some(t) = registry.terminal_of(&sid()) {
                 t.lock().unwrap().clear_scrollback();
@@ -252,6 +257,10 @@ fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
         MouseTracking::Button => (true, "drag"),
         MouseTracking::Any => (true, "any"),
     };
+    // SGR mouse encoding (DECSET 1006) + its pixel variant (1016). The Node
+    // daemon carries both in TerminalModes; aterm exposes them directly.
+    let sgr_mouse = term.sgr_mouse();
+    let sgr_pixels = term.sgr_pixels();
     json!({
         "snapshotAnsi": snapshot_ansi,
         "scrollbackAnsi": scrollback_ansi,
@@ -261,6 +270,8 @@ fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
             "bracketedPaste": bracketed,
             "mouseTracking": mouse_on,
             "mouseTrackingMode": mouse_mode,
+            "sgrMouseMode": sgr_mouse,
+            "sgrMousePixelsMode": sgr_pixels,
             "applicationCursor": app_cursor,
             "alternateScreen": alt_screen,
         },

@@ -97,23 +97,28 @@ orca-daemon (bin)
 
 ## Phased sub-steps (each independently shippable behind a flag)
 
-1. **Spike (this move's opener).** New `orca-daemon` bin that: binds the socket,
-   does the `hello` handshake at version 18, handles `createOrAttach` for **one**
-   session via `orca-session`, streams `data` events, and handles
-   `write`/`resize`/`kill`/`ping`. Drive it with the **existing Electron client**
-   behind `ORCA_RUST_DAEMON=1` (`daemon-spawner.ts` picks the Rust bin over the
-   Node entry). Success = a real shell tab runs through the Rust daemon.
-2. **Full RPC surface.** Add the remaining requests (detach/reattach,
-   getSnapshot, takePendingOutput, listSessions, signal, getCwd,
-   getForegroundProcess, clearScrollback, health). Gate each with the **parity
-   harness** (`orca-parity`): feed the same JSON request vectors to the Node and
-   Rust daemons, diff the responses.
-3. **Persistence + lifecycle.** Checkpoint/session-list via `orca-store`; daemon
-   health socket; graceful `shutdown`; crash-restart with session restore.
-4. **Cutover.** Flip the default `daemon-spawner.ts` target to the Rust bin;
-   keep the Node daemon one release behind a kill-switch; delete it after a
-   green release. The **autoformalization pipeline** (ts2rust two-witness) carries
-   the bounded, testable request-handler logic where a hand-port is riskier.
+1. ✅ **Spike (this move's opener) — DONE.** `orca-daemon` bin binds the socket,
+   does the `hello` handshake at version 18, handles `createOrAttach`, streams
+   `data`/`exit` events, and handles `write`/`resize`/`kill`/`ping`. Builds offline
+   (rustc 1.96, vendored) and passes an end-to-end smoke test.
+2. 🟡 **Full RPC surface + session lifecycle — LARGELY DONE.** Reattach
+   (`createOrAttach` on a live id → `isNew:false`), **pending-output buffering**
+   (output produced while detached is buffered per session and replayed on stream
+   reconnect), `takePendingOutput`, real `listSessions`, `getSize`, `detach`,
+   `shutdown`, and safe stubs for `signal`/`cancelCreateOrAttach`/health. All pass
+   a reattach/buffering smoke test. **Remaining in this sub-step:** `getSnapshot`
+   /`getCwd`/`getForegroundProcess` need the headless terminal fed the same bytes
+   (tee the PTY reader into `orca-terminal`/aterm — this is the "napi hop
+   disappears" showcase), and the **parity gate** (`orca-parity`): feed identical
+   request vectors to the Node and Rust daemons, diff the responses.
+3. ⬜ **Persistence + lifecycle.** Checkpoint/session-list via `orca-store`; daemon
+   health socket; crash-restart with session restore; a reaper for exited sessions
+   (the spike keeps them for `listSessions`).
+4. ⬜ **Cutover.** Wire `daemon-spawner.ts` to prefer the Rust bin under
+   `ORCA_RUST_DAEMON=1`, then flip the default; keep the Node daemon one release
+   behind a kill-switch; delete it after a green release. The
+   **autoformalization pipeline** (ts2rust two-witness) carries the bounded,
+   testable request-handler logic where a hand-port is riskier.
 
 ## How this is verified (no GitHub CI — the agent-runnable gates)
 
@@ -142,9 +147,16 @@ orca-daemon (bin)
 
 ## Immediate next action
 
-Scaffold `rust/crates/orca-daemon` with the module skeleton above and implement
-**sub-step 1 (the spike)**: socket + `hello` + one `createOrAttach` session +
-`data`/`write`/`resize`/`kill`/`ping`, reusing `orca-session` and
-`orca-net::ndjson`. Wire `daemon-spawner.ts` to prefer it under
-`ORCA_RUST_DAEMON=1`. When a real shell tab runs through it, sub-step 1 is done
-and sub-step 2 (full RPC surface, parity-gated) begins.
+Sub-steps 1 and most of 2 are done (the crate builds offline and passes a
+reattach/buffering smoke test). Next, in order:
+
+1. **Snapshot via the headless terminal.** Tee the PTY reader into an
+   `orca-terminal`/aterm `HeadlessTerminal` alongside the raw forward, so
+   `getSnapshot` (scrollback replay on reattach), `getCwd` (OSC-7), and
+   `getForegroundProcess` return real values — the showcase that the daemon serves
+   engine state with **no napi hop**.
+2. **The `orca-parity` differential gate.** Feed the same request-vector corpus to
+   the Node daemon and `orca-daemon`, diff the responses/events; wire it into the
+   gauntlet so drift is caught before cutover.
+3. **Spawner wiring.** Teach `daemon-spawner.ts` to launch the Rust bin under
+   `ORCA_RUST_DAEMON=1`, then run a real shell tab through it end to end.

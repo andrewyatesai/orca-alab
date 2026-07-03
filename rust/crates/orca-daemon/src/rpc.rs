@@ -1,43 +1,48 @@
-//! Control-socket RPC dispatch (the spike subset) + the per-session output pump.
-//! Requests arrive as `serde_json::Value`; each returns the NDJSON response line
-//! the control socket writes back. `createOrAttach` additionally spawns the PTY
-//! and the reader thread that streams its output as `data` events.
+//! Control-socket RPC dispatch + the per-session output pump. Requests arrive as
+//! `serde_json::Value`; each returns the NDJSON response line the control socket
+//! writes back. `createOrAttach` additionally spawns the PTY and the reader thread
+//! that routes its output (live if the client's stream is connected, else buffered
+//! for reattach — see `registry`).
 
-use crate::protocol::{data_event, exit_event, rpc_err, rpc_ok};
+use crate::protocol::{rpc_err, rpc_ok};
 use crate::registry::{Registry, SessionEntry};
-use orca_net::encode_ndjson_line;
 use orca_pty::{PtyCommand, PtySession, PtySize};
 use serde_json::{json, Value};
 use std::io::Read;
 use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+fn field_str<'a>(payload: &'a Value, key: &str) -> &'a str {
+    payload.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+fn field_u16(payload: &Value, key: &str, default: u16) -> u16 {
+    payload
+        .get(key)
+        .and_then(Value::as_u64)
+        .unwrap_or(default as u64) as u16
+}
 
 pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &str) -> String {
     let id = request.get("id").and_then(Value::as_str).unwrap_or("");
     let kind = request.get("type").and_then(Value::as_str).unwrap_or("");
     let payload = request.get("payload").cloned().unwrap_or(Value::Null);
+    let sid = || field_str(&payload, "sessionId").to_string();
     match kind {
         "createOrAttach" => create_or_attach(id, &payload, registry, client_id),
         "write" => {
-            let sid = payload
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let data = payload.get("data").and_then(Value::as_str).unwrap_or("");
-            match registry.with_session(sid, |e| e.pty.write_all(data.as_bytes())) {
+            let data = field_str(&payload, "data").to_string();
+            match registry.with_session(&sid(), |e| e.pty.write_all(data.as_bytes())) {
                 Some(Ok(())) => rpc_ok(id, Value::Null),
                 Some(Err(e)) => rpc_err(id, &e.to_string()),
                 None => rpc_err(id, "unknown session"),
             }
         }
         "resize" => {
-            let sid = payload
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            let cols = payload.get("cols").and_then(Value::as_u64).unwrap_or(80) as u16;
-            let rows = payload.get("rows").and_then(Value::as_u64).unwrap_or(24) as u16;
-            match registry.with_session(sid, |e| {
+            let cols = field_u16(&payload, "cols", 80);
+            let rows = field_u16(&payload, "rows", 24);
+            match registry.with_session(&sid(), |e| {
                 e.cols = cols;
                 e.rows = rows;
                 e.pty.resize(PtySize { rows, cols })
@@ -47,19 +52,42 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                 None => rpc_err(id, "unknown session"),
             }
         }
+        // Kill the child; the pump's EOF then marks the session exited + emits `exit`.
         "kill" => {
-            let sid = payload
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .unwrap_or("");
-            if let Some(mut entry) = registry.remove_session(sid) {
-                let _ = entry.pty.kill();
-            }
+            registry.with_session(&sid(), |e| {
+                let _ = e.pty.kill();
+            });
             rpc_ok(id, Value::Null)
         }
+        // The session already survives control-socket close, so detach is a no-op ack.
+        "detach" => rpc_ok(id, Value::Null),
+        "takePendingOutput" => rpc_ok(id, json!({ "data": registry.take_pending(&sid()) })),
+        "listSessions" => rpc_ok(id, registry.list_sessions()),
+        "getSize" => match registry.session_size(&sid()) {
+            Some((cols, rows)) => rpc_ok(id, json!({ "cols": cols, "rows": rows })),
+            None => rpc_err(id, "unknown session"),
+        },
         "ping" => rpc_ok(id, json!({ "pong": true })),
-        // Sessions do not yet enumerate across the seam (sub-step 2).
-        "listSessions" => rpc_ok(id, json!({ "sessions": [] })),
+        "ptySpawnHealth" => rpc_ok(id, json!({ "ok": true })),
+        "systemResolverHealth" => rpc_ok(id, json!({ "health": "unknown" })),
+        // Need the headless terminal fed the same bytes (next increment); until then
+        // report empty so the client falls back to its own scrollback.
+        "getSnapshot" => rpc_ok(id, json!({ "snapshot": Value::Null })),
+        "getCwd" => rpc_ok(id, Value::Null),
+        "getForegroundProcess" => rpc_ok(id, Value::Null),
+        "clearScrollback" => rpc_ok(id, Value::Null),
+        "cancelCreateOrAttach" => rpc_ok(id, Value::Null),
+        // portable-pty has no per-signal API; the app's Ctrl-C flows through `write`
+        // (\x03) as PTY input, not this RPC, so erroring here is safe for the spike.
+        "signal" => rpc_err(id, "signal not supported in the spike"),
+        "shutdown" => {
+            // Reply first, then exit so the ok flushes to the client.
+            thread::spawn(|| {
+                thread::sleep(Duration::from_millis(50));
+                std::process::exit(0);
+            });
+            rpc_ok(id, Value::Null)
+        }
         other => rpc_err(id, &format!("unsupported in spike: {other}")),
     }
 }
@@ -70,16 +98,22 @@ fn create_or_attach(
     registry: &Arc<Registry>,
     client_id: &str,
 ) -> String {
-    let session_id = payload
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let session_id = field_str(payload, "sessionId").to_string();
     if session_id.is_empty() {
         return rpc_err(id, "missing sessionId");
     }
-    let cols = payload.get("cols").and_then(Value::as_u64).unwrap_or(80) as u16;
-    let rows = payload.get("rows").and_then(Value::as_u64).unwrap_or(24) as u16;
+    // Reattach: an existing session keeps running; the client's stream flush replays
+    // buffered output. Report isNew:false with the live pid.
+    if registry.session_exists(&session_id) {
+        let pid = registry.session_pid(&session_id);
+        return rpc_ok(
+            id,
+            json!({ "isNew": false, "snapshot": Value::Null, "pid": pid, "shellState": "unknown" }),
+        );
+    }
+
+    let cols = field_u16(payload, "cols", 80);
+    let rows = field_u16(payload, "rows", 24);
     let command = build_command(payload);
     let pty = match PtySession::spawn(&command, PtySize { rows, cols }) {
         Ok(p) => p,
@@ -90,14 +124,17 @@ fn create_or_attach(
         Ok(r) => r,
         Err(e) => return rpc_err(id, &format!("reader clone failed: {e}")),
     };
-    // Pump raw PTY output → `data` events on the owning client's stream socket; on
-    // EOF, drop the session and emit `exit`. The reader is an independent clone of
-    // the master, so it keeps reading after `pty` moves into the registry.
+    // Pump raw PTY output → routed (live or buffered) by the registry; on EOF, mark
+    // the session exited + emit `exit`. The reader is an independent clone of the
+    // master, so it keeps reading after `pty` moves into the registry.
     let pump_registry = registry.clone();
     let pump_session = session_id.clone();
-    let pump_client = client_id.to_string();
-    thread::spawn(move || pump_output(reader, pump_registry, pump_session, pump_client));
+    thread::spawn(move || pump_output(reader, pump_registry, pump_session));
 
+    let created_at_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
     registry.insert_session(
         session_id,
         SessionEntry {
@@ -106,16 +143,19 @@ fn create_or_attach(
             cols,
             rows,
             pid,
+            created_at_ms,
+            pending: Vec::new(),
+            alive: true,
         },
     );
     rpc_ok(
         id,
-        json!({ "isNew": true, "snapshot": null, "pid": pid, "shellState": "unknown" }),
+        json!({ "isNew": true, "snapshot": Value::Null, "pid": pid, "shellState": "unknown" }),
     )
 }
 
-/// Resolve the shell/command to spawn. `command` (when present) runs under the
-/// login shell; otherwise the user's `$SHELL` (or /bin/sh) starts interactively.
+/// Resolve the shell/command to spawn. `command` (when present) runs under the login
+/// shell; otherwise the user's `$SHELL` (or /bin/sh) starts interactively.
 fn build_command(payload: &Value) -> PtyCommand {
     let cwd = payload
         .get("cwd")
@@ -138,27 +178,18 @@ fn build_command(payload: &Value) -> PtyCommand {
     }
 }
 
-fn pump_output(
-    mut reader: Box<dyn Read + Send>,
-    registry: Arc<Registry>,
-    session_id: String,
-    client_id: String,
-) {
+fn pump_output(mut reader: Box<dyn Read + Send>, registry: Arc<Registry>, session_id: String) {
     let mut buf = [0u8; 65536];
     loop {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
                 let data = String::from_utf8_lossy(&buf[..n]);
-                registry.send_to_client(
-                    &client_id,
-                    encode_ndjson_line(&data_event(&session_id, data.as_ref())),
-                );
+                registry.route_output(&session_id, data.as_ref());
             }
         }
     }
-    // EOF: the child exited. The spike reports code 0 (the real daemon wait()s for
-    // the true code); drop the session and notify the client.
-    registry.remove_session(&session_id);
-    registry.send_to_client(&client_id, encode_ndjson_line(&exit_event(&session_id, 0)));
+    // EOF: the child exited. The spike reports code 0 (the real daemon wait()s for the
+    // true code); mark the session exited and notify the client.
+    registry.mark_exited(&session_id, 0);
 }

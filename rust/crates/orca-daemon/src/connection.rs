@@ -123,6 +123,9 @@ fn serve_stream(
             }
         }
     });
+    // Replay anything buffered while this client was detached (reattach), now that its
+    // stream sender + drain thread are live.
+    registry.flush_pending_for_client(&client_id);
     // A stream socket is daemon→client; the client rarely sends. Block until it
     // closes, then tear down — dropping the registry's sender ends the drain thread.
     while reader.next_line().is_some() {}

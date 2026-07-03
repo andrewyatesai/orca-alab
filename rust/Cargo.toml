@@ -17,6 +17,7 @@ members = [
     "crates/orca-config",
     "crates/orca-core",
     "crates/orca-crypto",
+    "crates/orca-daemon",
     "crates/orca-ffi",
     "crates/orca-git",
     "crates/orca-net",

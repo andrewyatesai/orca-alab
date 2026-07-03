@@ -1,0 +1,23 @@
+[package]
+name = "orca-daemon"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure-Rust terminal daemon for Orca (replaces the Node src/main/daemon): owns PTYs via orca-pty + aterm (orca-session) and speaks the existing NDJSON socket protocol, so the napi PTY→engine hop disappears. Move 1 of the native migration; this is the sub-step-1 spike."
+
+[[bin]]
+name = "orca-daemon"
+path = "src/main.rs"
+
+[dependencies]
+# The PTY + the wire framing already exist as crates; the daemon is their
+# composition over a Unix socket. serde_json (vendored) parses the requests as
+# Values (no derive), mirroring orca-relay's payload handling.
+orca-pty = { path = "../orca-pty" }
+orca-net = { path = "../orca-net" }
+serde_json = { version = "1", default-features = false, features = ["std"] }
+
+[lints.rust]
+unsafe_code = "forbid"

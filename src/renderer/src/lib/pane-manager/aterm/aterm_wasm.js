@@ -331,6 +331,18 @@ export class AtermTerminal {
         wasm.atermterminal_authorize_clipboard_write(this.__wbg_ptr);
     }
     /**
+     * Authorize (`true`) or revoke (`false`) OSC 9 / 99 / 777 desktop
+     * notifications. The engine is fail-closed by default: until the host
+     * authorizes, the notification handlers return before any dispatch, so
+     * nothing reaches [`Self::take_notifications`]. Revoking restores that
+     * default; already-queued notifications stay drainable (they were
+     * authorized when dispatched).
+     * @param {boolean} allowed
+     */
+    authorize_notifications(allowed) {
+        wasm.atermterminal_authorize_notifications(this.__wbg_ptr, allowed);
+    }
+    /**
      * Absolute row index of the live/last line (xterm `buffer.active.baseY`):
      * `oldest_absolute_row() + scrollback_lines()`. `usize` → plain JS number.
      * @returns {number}
@@ -395,6 +407,18 @@ export class AtermTerminal {
     get cell_width() {
         const ret = wasm.atermterminal_cell_width(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * The LIVE application cursor colour (OSC 12) as packed `0x00RRGGBB`, or
+     * `undefined` while unset / after an OSC 112 reset — i.e. the host/theme
+     * default applies. Read per frame so glow/trail colour derivation can
+     * follow app-driven cursor-colour changes (the renderer already draws
+     * the cursor itself with this colour).
+     * @returns {number | undefined}
+     */
+    get cursor_color() {
+        const ret = wasm.atermterminal_cursor_color(this.__wbg_ptr);
+        return ret === 0x100000001 ? undefined : ret;
     }
     /**
      * Active DECSCUSR cursor style as the discriminant of `aterm_core`'s
@@ -1487,6 +1511,26 @@ export class AtermTerminal {
     get sparkle_words_enabled() {
         const ret = wasm.atermterminal_sparkle_words_enabled(this.__wbg_ptr);
         return ret !== 0;
+    }
+    /**
+     * Drain pending desktop notifications (queued since the last drain) as a
+     * JSON array of `{"id","title","body","urgency"}` objects — string or
+     * `null` fields, urgency ∈ `"low"|"normal"|"critical"`; `None` when
+     * nothing is pending. OSC 9's bare message arrives as `body` with no
+     * title (the native mapping); OSC 99/777 carry their structured
+     * id/title/body. The queue is bounded (new notifications are dropped
+     * beyond the cap until drained), so poll after `process` like
+     * `take_osc_events`.
+     * @returns {string | undefined}
+     */
+    take_notifications() {
+        const ret = wasm.atermterminal_take_notifications(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
     }
     /**
      * Drain pending OSC app-events as a JSON array of `[code, payload]` pairs

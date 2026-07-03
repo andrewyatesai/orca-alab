@@ -160,6 +160,15 @@ export class AtermTerminal {
      */
     authorize_clipboard_write(): void;
     /**
+     * Authorize (`true`) or revoke (`false`) OSC 9 / 99 / 777 desktop
+     * notifications. The engine is fail-closed by default: until the host
+     * authorizes, the notification handlers return before any dispatch, so
+     * nothing reaches [`Self::take_notifications`]. Revoking restores that
+     * default; already-queued notifications stay drainable (they were
+     * authorized when dispatched).
+     */
+    authorize_notifications(allowed: boolean): void;
+    /**
      * Whether the cell at `row`/`col` is a wide (double-width) character;
      * `None` when out of range.
      */
@@ -660,6 +669,17 @@ export class AtermTerminal {
      */
     set_word_separators(separators?: string | null): void;
     /**
+     * Drain pending desktop notifications (queued since the last drain) as a
+     * JSON array of `{"id","title","body","urgency"}` objects — string or
+     * `null` fields, urgency ∈ `"low"|"normal"|"critical"`; `None` when
+     * nothing is pending. OSC 9's bare message arrives as `body` with no
+     * title (the native mapping); OSC 99/777 carry their structured
+     * id/title/body. The queue is bounded (new notifications are dropped
+     * beyond the cap until drained), so poll after `process` like
+     * `take_osc_events`.
+     */
+    take_notifications(): string | undefined;
+    /**
      * Drain pending OSC app-events as a JSON array of `[code, payload]` pairs
      * (`[[7,"/home"],[52,"copied"]]`); `None` when the queue is empty. These
      * carry REAL decoded payloads (OSC 52 clipboard / OSC 7 cwd / OSC 133 mark)
@@ -697,6 +717,14 @@ export class AtermTerminal {
      * Cell width in device pixels — the host computes cols = floor(canvasW / cellWidth).
      */
     readonly cell_width: number;
+    /**
+     * The LIVE application cursor colour (OSC 12) as packed `0x00RRGGBB`, or
+     * `undefined` while unset / after an OSC 112 reset — i.e. the host/theme
+     * default applies. Read per frame so glow/trail colour derivation can
+     * follow app-driven cursor-colour changes (the renderer already draws
+     * the cursor itself with this colour).
+     */
+    readonly cursor_color: number | undefined;
     /**
      * Active DECSCUSR cursor style as the discriminant of `aterm_core`'s
      * `CursorStyle` (1=BlinkingBlock, 2=SteadyBlock, 3=BlinkingUnderline,
@@ -912,12 +940,14 @@ export interface InitOutput {
     readonly atermterminal_add_fallback_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_advance_effects: (a: number, b: number) => void;
     readonly atermterminal_authorize_clipboard_write: (a: number) => void;
+    readonly atermterminal_authorize_notifications: (a: number, b: number) => void;
     readonly atermterminal_base_y: (a: number) => number;
     readonly atermterminal_bracketed_paste_mode: (a: number) => number;
     readonly atermterminal_cell_height: (a: number) => number;
     readonly atermterminal_cell_is_wide: (a: number, b: number, c: number) => number;
     readonly atermterminal_cell_text: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_cell_width: (a: number) => number;
+    readonly atermterminal_cursor_color: (a: number) => number;
     readonly atermterminal_cursor_style: (a: number) => number;
     readonly atermterminal_cursor_x: (a: number) => number;
     readonly atermterminal_cursor_y: (a: number) => number;
@@ -1008,6 +1038,7 @@ export interface InitOutput {
     readonly atermterminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermterminal_sparkle_words_enabled: (a: number) => number;
+    readonly atermterminal_take_notifications: (a: number) => [number, number];
     readonly atermterminal_take_osc_events: (a: number) => [number, number];
     readonly atermterminal_take_response: (a: number) => [number, number];
     readonly atermterminal_title: (a: number) => [number, number];

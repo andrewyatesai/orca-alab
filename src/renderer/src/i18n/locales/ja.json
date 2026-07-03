@@ -667,7 +667,11 @@
         "devSearchKeywordToast": "トースト",
         "devSearchKeywordSonner": "sonner",
         "devSearchKeywordError": "エラー",
-        "devSearchKeywordNotification": "通知"
+        "devSearchKeywordNotification": "通知",
+        "terminalEngine": {
+          "title": "ターミナルエンジン",
+          "description": "エンジンのエフェクト、レンダリング、テキスト整形、Scrollback、入力、クリップボードのセキュリティ。"
+        }
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "貼り付け内容が大きすぎます。"
@@ -5622,7 +5626,12 @@
           "274af61bc0": "システム",
           "6e6df3a09a": "カスタムファイルの選択",
           "76e02467b8": "カスタムファイルの変更",
-          "d3756cf5bc": "無効"
+          "d3756cf5bc": "無効",
+          "fb499fb735": "長時間コマンドの完了",
+          "1ced11d6b5": "バックグラウンドのターミナルでコマンドが時間しきい値を超えて完了したとき。",
+          "08b271938b": "長時間コマンドのしきい値",
+          "162aeb3e20": "Orca が通知するまでのコマンドの最小実行時間（秒）。",
+          "e1f2188fcd": "秒"
         },
         "OpenAiTranscriptionKeyDialog": {
           "fa83512e48": "キーの保存",
@@ -6178,7 +6187,11 @@
           "2309068a6f": "破壊的な",
           "65358016ea": "破棄",
           "dev": "開発ツール",
-          "devDescription": "UI の状態を試すための開発専用ツール。"
+          "devDescription": "UI の状態を試すための開発専用ツール。",
+          "terminalEngine": {
+            "title": "ターミナルエンジン",
+            "description": "エンジンのエフェクト、レンダリング、テキスト整形、Scrollback、入力、クリップボードのセキュリティ。"
+          }
         },
         "SettingsFormControls": {
           "42a4d15a30": "一致するフォントがありません。",
@@ -7746,7 +7759,14 @@
             "72539aede4": "システム",
             "51ae2183e1": "デスクトップ",
             "0534c76311": "Orca デスクトップ通知のマスター スイッチ。",
-            "4a210b2f72": "通知を有効にする"
+            "4a210b2f72": "通知を有効にする",
+            "a5f6ca7dd2": "長時間コマンドの完了",
+            "06026c6911": "長時間実行中のターミナルコマンドがバックグラウンドで完了したときに通知します。",
+            "1b2270db4f": "コマンド",
+            "2d7d000b38": "長時間",
+            "1e5d17005e": "所要時間",
+            "7a8c4e87fd": "しきい値",
+            "ed10d72fd4": "終了"
           }
         },
         "orchestration": {
@@ -8277,6 +8297,25 @@
               "713c4a2f92": "Windows 上の新規 terminal ペインのデフォルト シェルを選択します。",
               "13715f9d23": "デフォルトのシェル"
             }
+          },
+          "engine": {
+            "search": {
+              "sparkle": "スパークルワード",
+              "sparkleDescription": "ターミナル出力内の辞書ワード（オルカの水しぶき、猫、超新星）をアニメーション表示します。",
+              "glow": "カーソルグロー",
+              "glowDescription": "ターミナルカーソルの軌跡に光のオーロラを描きます。",
+              "engine": "ターミナルエンジン",
+              "engineDescription": "aterm エンジン：エフェクト、レンダリング、テキスト整形、Scrollback、入力、クリップボードのセキュリティ。",
+              "kwEffects": "エフェクト",
+              "kwSparkle": "スパークル",
+              "kwAnimation": "アニメーション",
+              "kwCursor": "カーソル",
+              "kwGlow": "グロー",
+              "kwTrail": "軌跡",
+              "kwEngine": "エンジン",
+              "kwAterm": "aterm",
+              "kwRenderer": "レンダラー"
+            }
           }
         },
         "voice": {
@@ -8713,6 +8752,130 @@
         "ephemeralVmsExperimentalSetting": {
           "description": "repo が所有するオンデマンド環境のセットアップ コントロールとワークスペース実行ターゲットを示します。",
           "toggleLabel": "ワークスペースごとの環境を切り替える"
+        },
+        "TerminalEnginePane": {
+          "scrollback": {
+            "title": "Scrollback",
+            "description": "履歴の保持とテキスト選択の動作。",
+            "rows": {
+              "title": "Scrollback の行数",
+              "description": "ライブ表示の背後に保持される履歴行数（ペインごと）。",
+              "note": "ターミナル → 詳細設定のプリセットからも選べます。",
+              "suffix": "行"
+            },
+            "wordSeparators": {
+              "title": "単語の区切り文字",
+              "description": "ダブルクリックの単語選択を区切る文字。",
+              "note": "空の場合はエンジン既定の単語ロジックを使います。URL とファイルパスは引き続き丸ごと選択されます。"
+            }
+          },
+          "input": {
+            "title": "入力",
+            "description": "キーボードプロトコルとプラットフォーム別のキー処理。",
+            "kitty": {
+              "title": "Kitty キーボードプロトコル",
+              "description": "モダンな TUI 向けのプログレッシブなキーボード拡張。",
+              "note": "エンジンは Kitty プロトコルを完全にサポートし、ペインごとに自動でネゴシエートします（誤処理するローカル Windows ConPTY シェルでは無効化）。設定は不要です。"
+            },
+            "macOption": {
+              "title": "Option キーで Alt を送信",
+              "description": "macOS の Option キーをターミナルの Alt/Meta 修飾キーとして扱うかどうか。",
+              "note": "オン：Option のコンビネーションが Alt シーケンスを送ります。オフ：Option は特殊文字を合成します。「自動」や左右個別の設定はターミナル → macOS キーボードにあります。"
+            },
+            "jisYen": {
+              "title": "JIS の ¥ キーでバックスラッシュを送信",
+              "description": "JIS キーボードの ¥ キーをシェル向けにバックスラッシュへ変換します。",
+              "note": "シェルやプログラミング言語はバックスラッシュを想定しています。Option+¥ では引き続き ¥ を入力できます。"
+            }
+          },
+          "clipboard": {
+            "title": "クリップボードとセキュリティ",
+            "description": "ターミナル内のプログラムがクリップボードに対して行えること。",
+            "osc52Description": "エンジンは既定でフェイルクローズドです。ここでオプトインするまで OSC 52 の書き込みは破棄されます。",
+            "osc52Note": "tmux・Neovim・fzf が PTY 経由（SSH 含む）でクリップボードにコピーできるようにします。ターミナルに出力するあらゆるプログラムがクリップボードを書き換えられるため、既定では無効です。"
+          },
+          "effectsDemo": {
+            "title": "ライブエフェクトプレビュー",
+            "description": "本物のターミナルエンジンがループ入力しています。有効なエフェクトは実際のペインとまったく同じようにここでアニメーションします。"
+          },
+          "effects": {
+            "title": "エフェクト",
+            "description": "エンジンのアニメーションエフェクト。すべて既定でオフ。オフの間、ターミナルの描画はバイト単位で同一です。",
+            "reducedMotionNote": "システムが視差効果を減らす設定になっています。スパークル装飾は静止表示になり、カーソルグローは無効のままです。エンジンのフラッシュ安全リミッターは常に適用されます。",
+            "sparkle": {
+              "title": "スパークルワード",
+              "description": "ターミナル出力に現れたエンジン辞書のワードを装飾します。",
+              "switchDescription": "マスタースイッチ。表示中の出力から辞書ワードを検出してアニメーション表示します。オフにするとバイト単位で同一の描画に戻ります。"
+            },
+            "sparkleClasses": {
+              "title": "スパークルワードのクラス",
+              "description": "スパークルワード辞書のファミリーごとの切り替え。"
+            },
+            "classProfanity": {
+              "title": "罵倒語のスーパーノヴァ",
+              "description": "罵倒語が短いスーパーノヴァを起こします。点滅は毎秒最大 2 回に制限されます。"
+            },
+            "classFeline": {
+              "title": "猫",
+              "description": "猫のワードには、ペインがフォーカスされている間まばたきする覗き猫が付きます。"
+            },
+            "classOrca": {
+              "title": "オルカの水しぶき",
+              "description": "オルカのワードが水滴をはね上げます。"
+            },
+            "classEmphasis": {
+              "title": "強調インク",
+              "description": "強調ワードにアニメーションするインクのグラデーションを適用します。組み込み辞書には強調ワードがまだ含まれないため、カスタム辞書のみに影響します。"
+            },
+            "cursorGlow": {
+              "title": "カーソルグロー",
+              "description": "カーソルの移動軌跡に光のオーロラを描きます。",
+              "switchDescription": "加算光がカーソルを追い、カーソルが止まるとフェードして静止します。"
+            },
+            "glowStyle": {
+              "title": "グローのスタイル",
+              "description": "色はターミナルテーマのカーソル色から導出されます。"
+            },
+            "scenes": {
+              "title": "シーン",
+              "description": "環境アニメーションのペイン背景。",
+              "unavailable": "エンジンはシーンのフレームワークを備えていますが、組み込みのシーンアートは作り直し中で、まだ利用できるシーンがありません。完成するとここにピッカーが表示されます。"
+            }
+          },
+          "rendering": {
+            "title": "レンダリング",
+            "description": "エンジンがターミナルフレームをラスタライズして表示する方法。",
+            "gpuDescription": "WebGL2 GPU による表示。CPU キャンバスへの自動フォールバック付き。",
+            "gpuRowDescription": "「自動」は対応環境で GPU を使い、非対応時は CPU レンダラーにフォールバックします。ターミナル設定でも変更できます。",
+            "backgroundOpacity": {
+              "title": "背景の不透明度",
+              "description": "ターミナルの既定背景の不透明度。1 未満ではペインが透けて見えます。"
+            },
+            "cursorOpacity": {
+              "title": "カーソルの不透明度",
+              "description": "カーソル塗りの不透明度。1 未満ではブロックカーソル下のグリフが透けて見えます。"
+            },
+            "minContrast": {
+              "title": "最小コントラスト",
+              "description": "テキスト色に対するセル単位の WCAG コントラスト下限。",
+              "note": "エンジンは各グリフの色を、そのセル自身の背景に対して WCAG 比 4.5:1 まで底上げします。常時有効で、設定はできません。"
+            }
+          },
+          "text": {
+            "title": "テキスト",
+            "description": "フォントとテキスト整形。エンジンは HarfBuzz 級の整形で実フォントファイルをラスタライズします。",
+            "familyDescription": "ターミナルの主フォントファミリー。新しいペインに適用されます。",
+            "familyRowDescription": "エンジンはファミリーの実フォントファイルを読み込みます。不明な名前の場合は同梱の JetBrains Mono を維持します。",
+            "weightRowDescription": "ファミリーから最も近いインストール済みスタイルを選びます。SGR 太字はインストールされていれば実際の Bold フェイスを使います。",
+            "ligaturesDescription": "プログラミング合字（=>、!=、===）をエンジンがネイティブに整形します。",
+            "ligaturesOnNote": "現在の解決結果：このフォントでは有効。",
+            "ligaturesOffNote": "現在の解決結果：このフォントでは無効。",
+            "fallbacks": {
+              "title": "フォールバックフォント",
+              "description": "CJK・記号・カラー絵文字のフォールバックフェイス。",
+              "note": "エンジンは OS の CJK・カラー絵文字フェイスを自動でフォールバックとして読み込むため、非ラテン文字や絵文字は設定なしで表示されます。"
+            }
+          }
         }
       },
       "right": {

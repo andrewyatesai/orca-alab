@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Smartphone,
+  Sparkles,
   TabletSmartphone,
   SquareTerminal,
   TextCursorInput,
@@ -51,6 +52,7 @@ import { getFloatingWorkspaceSearchEntries } from '@/components/settings/floatin
 import { getAppearancePaneSearchEntries } from '@/components/settings/appearance-search'
 import { getInputPaneSearchEntries } from '@/components/settings/input-search'
 import { getTerminalPaneSearchEntries } from '@/components/settings/terminal-search'
+import { getTerminalEngineSearchEntries } from '@/components/settings/terminal-engine-search'
 import { getQuickCommandsPaneSearchEntries } from '@/components/settings/quick-commands-search'
 import { getBrowserPaneCombinedSearchEntries } from '@/components/settings/browser-pane-search'
 import { getNotificationsPaneSearchEntries } from '@/components/settings/notifications-search'
@@ -308,6 +310,20 @@ export function buildSettingsNavigationMetadata({
       ),
       icon: SquareTerminal,
       searchEntries: terminalPaneSearchEntries,
+      group: 'workflows'
+    },
+    {
+      id: 'terminal-engine',
+      title: translate(
+        'auto.hooks.useSettingsNavigationMetadata.terminalEngine.title',
+        'Terminal Engine'
+      ),
+      description: translate(
+        'auto.hooks.useSettingsNavigationMetadata.terminalEngine.description',
+        'Engine effects, rendering, text shaping, scrollback, input, and clipboard security.'
+      ),
+      icon: Sparkles,
+      searchEntries: getTerminalEngineSearchEntries(),
       group: 'workflows'
     },
     {

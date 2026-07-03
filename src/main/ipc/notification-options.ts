@@ -33,6 +33,10 @@ export function buildNotificationOptions(args: NotificationDispatchRequest): {
     }
   }
 
+  if (args.source === 'long-command-complete') {
+    return buildLongCommandCompleteNotificationOptions(args)
+  }
+
   if (args.source === 'test') {
     return {
       title: 'Orca notifications are on',
@@ -46,6 +50,48 @@ export function buildNotificationOptions(args: NotificationDispatchRequest): {
   }
 
   return buildAgentTaskCompleteFallbackNotificationOptions(args)
+}
+
+function buildLongCommandCompleteNotificationOptions(args: NotificationDispatchRequest): {
+  title: string
+  body: string
+} {
+  // Why: OSC 133 carries only the exit code, not the command line, so the pane
+  // title is the best available command identity for the notification title.
+  const paneTitle = normalizeNotificationText(
+    args.terminalTitle,
+    NOTIFICATION_TITLE_CONTEXT_MAX_LENGTH
+  )
+  const status = formatCommandExitStatus(args.commandExitCode)
+  const statusWithDuration =
+    typeof args.commandDurationMs === 'number' && args.commandDurationMs >= 0
+      ? `${status} in ${formatCommandDuration(args.commandDurationMs)}`
+      : status
+  return {
+    title: paneTitle || `Command finished in ${args.worktreeLabel ?? 'workspace'}`,
+    body: args.repoLabel ? `${args.repoLabel} · ${statusWithDuration}` : statusWithDuration
+  }
+}
+
+export function formatCommandExitStatus(exitCode: number | null | undefined): string {
+  if (typeof exitCode !== 'number') {
+    return 'Command finished'
+  }
+  return exitCode === 0 ? 'Command succeeded' : `Command failed (exit ${exitCode})`
+}
+
+export function formatCommandDuration(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+  }
+  if (minutes > 0) {
+    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
+  }
+  return `${seconds}s`
 }
 
 function buildAgentTaskCompleteNotificationOptions(

@@ -1,4 +1,5 @@
 import { attachAtermColorSchemeSync } from './aterm-color-scheme-sync'
+import { applyAtermEffectsConfig, type AtermEffectsTarget } from './aterm-effects-settings'
 import type { AtermControllerOptionReaders } from './aterm-controller-option-readers'
 
 // Apply the user's terminal settings (ligatures, scrollback depth, default cursor shape,
@@ -9,7 +10,7 @@ import type { AtermControllerOptionReaders } from './aterm-controller-option-rea
 // paths (the worker-backed term posts each as a command). Kept out of the wiring to keep
 // it focused.
 
-type EngineSettingsTarget = {
+type EngineSettingsTarget = AtermEffectsTarget & {
   set_ligatures: (on: boolean) => void
   set_scrollback_limit: (lines: number) => void
   set_default_cursor_style: (param: number) => void
@@ -53,6 +54,9 @@ export function applyAtermEngineSettings(deps: {
     // default bg reveals it on both the 2d (putImageData) and WebGL2 paths.
     term.set_background_opacity(readers.getBackgroundOpacity())
     term.set_cursor_opacity(readers.getCursorOpacity())
+    // Effects (sparkle words / cursor glow) — everything-off is byte-identical, so
+    // panes with effects disabled render exactly as before.
+    applyAtermEffectsConfig(term, readers.getEffectsConfig())
   }
   apply()
   // Kitty keyboard capability: per-pane STATIC policy (local Windows ConPTY panes
@@ -65,8 +69,24 @@ export function applyAtermEngineSettings(deps: {
     inputSink: deps.inputSink,
     isDisposed: deps.isDisposed
   })
+  // OS reduce-motion changes live-apply: the effects config reads matchMedia at
+  // apply time, so an OS toggle only needs a re-apply + repaint.
+  const reduceMotion =
+    typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-reduced-motion: reduce)')
+      : null
+  const onReduceMotionChange = (): void => {
+    if (!deps.isDisposed()) {
+      apply()
+      deps.scheduleDraw()
+    }
+  }
+  reduceMotion?.addEventListener('change', onReduceMotionChange)
   return {
-    dispose: colorScheme.dispose,
+    dispose: () => {
+      reduceMotion?.removeEventListener('change', onReduceMotionChange)
+      colorScheme.dispose()
+    },
     // Re-read the live settings + re-apply, so toggling ligatures / cursor style /
     // scrollback / cursor blink updates an already-open pane (color scheme already
     // live-syncs itself).

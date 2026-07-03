@@ -262,7 +262,8 @@ export function registerNotificationHandlers(store: Store, runtime?: OrcaRuntime
 
       if (
         (args.source === 'agent-task-complete' && !settings.agentTaskComplete) ||
-        (args.source === 'terminal-bell' && !settings.terminalBell)
+        (args.source === 'terminal-bell' && !settings.terminalBell) ||
+        (args.source === 'long-command-complete' && !settings.longCommandComplete)
       ) {
         return { delivered: false, reason: 'source-disabled' }
       }

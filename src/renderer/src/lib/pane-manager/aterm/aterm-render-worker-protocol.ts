@@ -95,6 +95,35 @@ export type AtermWorkerSetKittyKeyboardEnabled = {
 /** Push the OS color scheme (light/dark). The engine queues a CSI ?997 update when the
  *  scheme changes and the app enabled DEC 2031; the worker drains it to the reply channel. */
 export type AtermWorkerSetColorScheme = { type: 'setColorScheme'; dark: boolean }
+/** MASTER sparkle-words switch (terminalEffectsSparkleWords); off restores
+ *  byte-identical output on the next render. */
+export type AtermWorkerSetSparkleWordsEnabled = { type: 'setSparkleWordsEnabled'; on: boolean }
+/** Per-class sparkle gates (profanity nova / feline cat / orca splash / emphasis ink). */
+export type AtermWorkerSetSparkleClasses = {
+  type: 'setSparkleClasses'
+  profanity: boolean
+  feline: boolean
+  orca: boolean
+  emphasis: boolean
+}
+/** OS prefers-reduced-motion → the engine's static (non-animating) sparkle path. */
+export type AtermWorkerSetSparkleReducedMotion = { type: 'setSparkleReducedMotion'; on: boolean }
+/** Cursor aurora config (terminalEffectsCursorGlow/-Style); null color/accent derive
+ *  from the theme cursor in the engine, like the native app. */
+export type AtermWorkerSetCursorGlow = {
+  type: 'setCursorGlow'
+  enabled: boolean
+  style: string
+  color: number | null
+  accent: number | null
+  durationMs: number
+  length: number
+  intensity: number
+  radius: number
+  ring: boolean
+}
+/** Pane focus for the effects idle one-shots (an unfocused pane fires no blinks). */
+export type AtermWorkerSetEffectsFocused = { type: 'setEffectsFocused'; focused: boolean }
 export type AtermWorkerScrollLines = { type: 'scrollLines'; delta: number }
 export type AtermWorkerScrollToBottom = { type: 'scrollToBottom' }
 export type AtermWorkerScrollToTop = { type: 'scrollToTop' }
@@ -223,6 +252,11 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetCursorOpacity
   | AtermWorkerSetKittyKeyboardEnabled
   | AtermWorkerSetColorScheme
+  | AtermWorkerSetSparkleWordsEnabled
+  | AtermWorkerSetSparkleClasses
+  | AtermWorkerSetSparkleReducedMotion
+  | AtermWorkerSetCursorGlow
+  | AtermWorkerSetEffectsFocused
   | AtermWorkerScrollLines
   | AtermWorkerScrollToBottom
   | AtermWorkerScrollToTop

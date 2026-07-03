@@ -165,6 +165,7 @@ function handleDispose(paneId: number): void {
     return
   }
   pane.disposed = true // a still-building engine is freed when its build resolves
+  pane.frameScheduler.dispose()
   pane.serializeCache.dispose()
   pane.term?.dispose()
   pane.term = null

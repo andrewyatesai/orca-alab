@@ -3,6 +3,8 @@ import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/a
 
 type TerminalCommandLifecycleOptions = {
   onCommandFinished: (bestEffortExitCode: number | null) => void
+  /** OSC 133;C — the shell is about to execute the entered command. */
+  onCommandStarted?: () => void
 }
 
 type OscTerminator = {
@@ -57,6 +59,8 @@ export function createTerminalCommandLifecycle(options: TerminalCommandLifecycle
     const [sequence, exitCode] = payload.split(';')
     if (sequence === 'D') {
       options.onCommandFinished(parseBestEffortExitCode(exitCode))
+    } else if (sequence === 'C') {
+      options.onCommandStarted?.()
     }
   }
 

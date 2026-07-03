@@ -39,6 +39,10 @@ type RecordingTerm = {
   cursorOpacities: number[]
   kittyEnabled: boolean[]
   schemes: boolean[]
+  sparkleMasters: boolean[]
+  sparkleClasses: [boolean, boolean, boolean, boolean][]
+  reducedMotions: boolean[]
+  glows: { enabled: boolean; style: string }[]
 }
 
 function makeTerm(): RecordingTerm & Parameters<typeof applyAtermEngineSettings>[0]['term'] {
@@ -51,10 +55,19 @@ function makeTerm(): RecordingTerm & Parameters<typeof applyAtermEngineSettings>
     bgOpacities: [],
     cursorOpacities: [],
     kittyEnabled: [],
-    schemes: []
+    schemes: [],
+    sparkleMasters: [],
+    sparkleClasses: [],
+    reducedMotions: [],
+    glows: []
   }
   return {
     ...calls,
+    set_sparkle_words_enabled: (on) => calls.sparkleMasters.push(on),
+    set_sparkle_classes: (profanity, feline, orca, emphasis) =>
+      calls.sparkleClasses.push([profanity, feline, orca, emphasis]),
+    set_sparkle_reduced_motion: (on) => calls.reducedMotions.push(on),
+    set_cursor_glow: (enabled, style) => calls.glows.push({ enabled, style }),
     set_ligatures: (on) => calls.ligatures.push(on),
     set_scrollback_limit: (lines) => calls.scrollback.push(lines),
     set_default_cursor_style: (param) => calls.cursorStyles.push(param),
@@ -84,6 +97,16 @@ function makeReaders(
     getBackgroundOpacity: () => 1,
     getCursorOpacity: () => 1,
     getKittyKeyboardEnabled: () => true,
+    getEffectsConfig: () => ({
+      sparkleWords: false,
+      sparkleProfanity: true,
+      sparkleFeline: true,
+      sparkleOrca: true,
+      sparkleEmphasis: true,
+      cursorGlow: false,
+      cursorGlowStyle: 'lumen' as const,
+      reducedMotion: false
+    }),
     ...overrides
   }
 }
@@ -166,6 +189,51 @@ describe('applyAtermEngineSettings', () => {
     expect(term.ligatures).toEqual([true, true])
     expect(term.scrollback).toEqual([100_000, 100_000])
     expect(scheduleDraw).toHaveBeenCalled()
+  })
+
+  it('applies + live-reapplies the effects config (sparkle/classes/glow), gating glow off under reduced motion', () => {
+    const term = makeTerm()
+    let cfg: ReturnType<AtermControllerOptionReaders['getEffectsConfig']> = {
+      sparkleWords: false,
+      sparkleProfanity: true,
+      sparkleFeline: true,
+      sparkleOrca: true,
+      sparkleEmphasis: true,
+      cursorGlow: false,
+      cursorGlowStyle: 'lumen',
+      reducedMotion: false
+    }
+    const { reapply } = applyAtermEngineSettings({
+      term,
+      readers: makeReaders({ getEffectsConfig: () => cfg }),
+      inputSink: () => undefined,
+      isDisposed: () => false,
+      scheduleDraw: () => undefined,
+      refreshCursorBlink: () => undefined
+    })
+    // Everything-off construction: master off, glow off (engine byte-identical default).
+    expect(term.sparkleMasters).toEqual([false])
+    expect(term.glows).toEqual([{ enabled: false, style: 'lumen' }])
+    // Live enable: sparkle master + orca-only classes + rainbow glow.
+    cfg = {
+      ...cfg,
+      sparkleWords: true,
+      sparkleProfanity: false,
+      sparkleFeline: false,
+      sparkleEmphasis: false,
+      cursorGlow: true,
+      cursorGlowStyle: 'rainbow'
+    }
+    reapply()
+    expect(term.sparkleMasters).toEqual([false, true])
+    expect(term.sparkleClasses.at(-1)).toEqual([false, false, true, false])
+    expect(term.glows.at(-1)).toEqual({ enabled: true, style: 'rainbow' })
+    // OS reduce-motion: sparkle goes static in-engine; the pure-motion glow is
+    // host-gated fully off.
+    cfg = { ...cfg, reducedMotion: true }
+    reapply()
+    expect(term.reducedMotions.at(-1)).toBe(true)
+    expect(term.glows.at(-1)).toEqual({ enabled: false, style: 'rainbow' })
   })
 
   it('skips a reapply after dispose', () => {

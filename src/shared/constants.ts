@@ -140,11 +140,17 @@ export const REPO_COLORS = [
 
 export const DEFAULT_REPO_BADGE_COLOR = REPO_COLORS[0]
 
+export const DEFAULT_LONG_COMMAND_THRESHOLD_SECONDS = 15
+export const LONG_COMMAND_THRESHOLD_SECONDS_MIN = 1
+export const LONG_COMMAND_THRESHOLD_SECONDS_MAX = 3600
+
 export function getDefaultNotificationSettings(): NotificationSettings {
   return {
     enabled: true,
     agentTaskComplete: true,
     terminalBell: false,
+    longCommandComplete: true,
+    longCommandThresholdSeconds: DEFAULT_LONG_COMMAND_THRESHOLD_SECONDS,
     suppressWhenFocused: true,
     customSoundId: 'system',
     customSoundPath: null,
@@ -228,6 +234,18 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalCursorStyle: 'block',
     terminalCursorStyleDefaultedToBlock: true,
     terminalCursorBlink: true,
+    // aterm effects default OFF: unset/false keeps engine render output
+    // byte-identical (the engine's default-off contract); per-class gates
+    // default true to mirror the engine's native launch config.
+    // Native parity: aterm enables sparkle words when no config says otherwise.
+    terminalEffectsSparkleWords: true,
+    terminalEffectsSparkleProfanity: true,
+    terminalEffectsSparkleFeline: true,
+    terminalEffectsSparkleOrca: true,
+    terminalEffectsSparkleEmphasis: true,
+    // Native parity: aterm's cursor motion trail ships DEFAULT ON (lumen style).
+    terminalEffectsCursorGlow: true,
+    terminalEffectsCursorGlowStyle: 'lumen',
     terminalThemeDark: 'Ghostty Default Style Dark',
     terminalDividerColorDark: '#3f3f46',
     terminalUseSeparateLightTheme: true,

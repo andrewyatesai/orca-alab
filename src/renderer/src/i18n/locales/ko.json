@@ -667,7 +667,11 @@
         "devSearchKeywordToast": "토스트",
         "devSearchKeywordSonner": "sonner",
         "devSearchKeywordError": "오류",
-        "devSearchKeywordNotification": "알림"
+        "devSearchKeywordNotification": "알림",
+        "terminalEngine": {
+          "title": "터미널 엔진",
+          "description": "엔진 효과, 렌더링, 텍스트 셰이핑, Scrollback, 입력 및 클립보드 보안."
+        }
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "붙여넣기 내용이 너무 큽니다."
@@ -5585,7 +5589,12 @@
           "274af61bc0": "시스템",
           "6e6df3a09a": "사용자 정의 파일 선택",
           "76e02467b8": "사용자 정의 파일 변경",
-          "d3756cf5bc": "비활성"
+          "d3756cf5bc": "비활성",
+          "fb499fb735": "장시간 명령 완료",
+          "1ced11d6b5": "백그라운드 터미널의 명령이 시간 임계값을 넘겨 완료될 때.",
+          "08b271938b": "장시간 명령 임계값",
+          "162aeb3e20": "Orca가 알리기 전 명령의 최소 실행 시간(초).",
+          "e1f2188fcd": "초"
         },
         "OpenAiTranscriptionKeyDialog": {
           "fa83512e48": "키 저장",
@@ -6141,7 +6150,11 @@
           "2309068a6f": "파괴적",
           "65358016ea": "버리기",
           "dev": "개발 도구",
-          "devDescription": "UI 상태를 시험하기 위한 개발 전용 도구입니다."
+          "devDescription": "UI 상태를 시험하기 위한 개발 전용 도구입니다.",
+          "terminalEngine": {
+            "title": "터미널 엔진",
+            "description": "엔진 효과, 렌더링, 텍스트 셰이핑, Scrollback, 입력 및 클립보드 보안."
+          }
         },
         "SettingsFormControls": {
           "42a4d15a30": "일치하는 글꼴이 없습니다.",
@@ -7709,7 +7722,14 @@
             "72539aede4": "시스템",
             "51ae2183e1": "데스크탑",
             "0534c76311": "Orca 데스크톱 알림용 마스터 스위치입니다.",
-            "4a210b2f72": "알림 활성화"
+            "4a210b2f72": "알림 활성화",
+            "a5f6ca7dd2": "장시간 명령 완료",
+            "06026c6911": "장시간 실행 중인 터미널 명령이 백그라운드에서 완료되면 알립니다.",
+            "1b2270db4f": "명령",
+            "2d7d000b38": "장시간",
+            "1e5d17005e": "지속 시간",
+            "7a8c4e87fd": "임계값",
+            "ed10d72fd4": "종료"
           }
         },
         "orchestration": {
@@ -8240,6 +8260,25 @@
               "713c4a2f92": "Windows의 새 terminal 패널에 대한 기본 셸을 선택합니다.",
               "13715f9d23": "기본 쉘"
             }
+          },
+          "engine": {
+            "search": {
+              "sparkle": "스파클 단어",
+              "sparkleDescription": "터미널 출력의 사전 단어(범고래 물튀김, 고양이, 초신성)에 애니메이션을 적용합니다.",
+              "glow": "커서 글로우",
+              "glowDescription": "터미널 커서가 지나간 자리에 빛의 오로라를 그립니다.",
+              "engine": "터미널 엔진",
+              "engineDescription": "aterm 엔진: 효과, 렌더링, 텍스트 셰이핑, Scrollback, 입력 및 클립보드 보안.",
+              "kwEffects": "효과",
+              "kwSparkle": "스파클",
+              "kwAnimation": "애니메이션",
+              "kwCursor": "커서",
+              "kwGlow": "글로우",
+              "kwTrail": "궤적",
+              "kwEngine": "엔진",
+              "kwAterm": "aterm",
+              "kwRenderer": "렌더러"
+            }
           }
         },
         "voice": {
@@ -8713,6 +8752,130 @@
         "ephemeralVmsExperimentalSetting": {
           "description": "repo 소유 온디맨드 환경에 대한 설정 제어 및 워크스페이스 실행 대상을 표시합니다.",
           "toggleLabel": "워크스페이스별 환경 전환"
+        },
+        "TerminalEnginePane": {
+          "scrollback": {
+            "title": "Scrollback",
+            "description": "기록 보존과 텍스트 선택 동작입니다.",
+            "rows": {
+              "title": "Scrollback 줄 수",
+              "description": "실시간 화면 뒤에 보존되는 기록 줄 수(창별)입니다.",
+              "note": "터미널 → 고급의 프리셋으로도 선택할 수 있습니다.",
+              "suffix": "줄"
+            },
+            "wordSeparators": {
+              "title": "단어 구분 문자",
+              "description": "더블 클릭 단어 선택을 나누는 문자입니다.",
+              "note": "비워 두면 엔진 기본 단어 논리를 사용합니다. URL과 파일 경로는 여전히 통째로 선택됩니다."
+            }
+          },
+          "input": {
+            "title": "입력",
+            "description": "키보드 프로토콜과 플랫폼별 키 처리입니다.",
+            "kitty": {
+              "title": "Kitty 키보드 프로토콜",
+              "description": "최신 TUI를 위한 점진적 키보드 향상입니다.",
+              "note": "엔진은 전체 Kitty 프로토콜을 지원하며 창마다 자동으로 협상합니다(잘못 처리하는 로컬 Windows ConPTY 셸에서는 보류). 설정이 필요 없습니다."
+            },
+            "macOption": {
+              "title": "Option 키로 Alt 전송",
+              "description": "macOS Option 키를 터미널의 Alt/Meta 보조 키로 사용할지 여부입니다.",
+              "note": "켜짐: Option 조합이 Alt 시퀀스를 보냅니다. 꺼짐: Option은 특수 문자를 조합합니다. 자동 및 좌우 개별 설정은 터미널 → macOS 키보드에 있습니다."
+            },
+            "jisYen": {
+              "title": "JIS ¥ 키로 백슬래시 전송",
+              "description": "JIS 키보드의 ¥ 키를 셸용 백슬래시로 변환합니다.",
+              "note": "셸과 프로그래밍 언어는 백슬래시를 기대합니다. Option+¥로는 여전히 ¥를 입력할 수 있습니다."
+            }
+          },
+          "clipboard": {
+            "title": "클립보드 및 보안",
+            "description": "터미널 프로그램이 클립보드로 할 수 있는 작업입니다.",
+            "osc52Description": "엔진은 기본적으로 차단 우선입니다. 여기서 허용하기 전까지 OSC 52 쓰기는 무시됩니다.",
+            "osc52Note": "tmux, Neovim, fzf가 PTY를 통해(SSH 포함) 클립보드로 복사할 수 있게 합니다. 터미널에 출력하는 어떤 프로그램이든 클립보드를 덮어쓸 수 있으므로 기본적으로 꺼져 있습니다."
+          },
+          "effectsDemo": {
+            "title": "실시간 효과 미리보기",
+            "description": "실제 터미널 엔진이 반복 입력 중입니다. 활성화된 효과는 실제 창과 똑같이 여기서 애니메이션됩니다."
+          },
+          "effects": {
+            "title": "효과",
+            "description": "엔진의 애니메이션 효과입니다. 모두 기본적으로 꺼져 있으며, 꺼진 동안 터미널 렌더링은 바이트 단위로 동일합니다.",
+            "reducedMotionNote": "시스템이 동작 줄이기를 선호합니다. 스파클 장식은 정적으로 표시되고 커서 글로우는 꺼진 상태로 유지됩니다. 엔진의 플래시 안전 제한기는 항상 적용됩니다.",
+            "sparkle": {
+              "title": "스파클 단어",
+              "description": "터미널 출력에 나타나는 엔진 사전 단어를 장식합니다.",
+              "switchDescription": "마스터 스위치입니다. 보이는 출력에서 사전 단어를 찾아 애니메이션을 적용하며, 끄면 바이트 단위로 동일한 렌더링이 복원됩니다."
+            },
+            "sparkleClasses": {
+              "title": "스파클 단어 클래스",
+              "description": "스파클 단어 사전 계열별 토글입니다."
+            },
+            "classProfanity": {
+              "title": "욕설 초신성",
+              "description": "욕설이 짧은 초신성을 일으킵니다. 플래시는 초당 최대 2회로 제한됩니다."
+            },
+            "classFeline": {
+              "title": "고양이",
+              "description": "고양이 단어에는 창이 포커스된 동안 눈을 깜빡이는 고양이가 나타납니다."
+            },
+            "classOrca": {
+              "title": "범고래 물튀김",
+              "description": "범고래 단어가 물방울을 튀깁니다."
+            },
+            "classEmphasis": {
+              "title": "강조 잉크",
+              "description": "강조 단어에 애니메이션 잉크 그라데이션을 적용합니다. 내장 사전에는 아직 강조 단어가 없으므로 사용자 지정 사전에만 영향을 줍니다."
+            },
+            "cursorGlow": {
+              "title": "커서 글로우",
+              "description": "커서가 움직일 때 지나간 자리에 빛의 오로라를 그립니다.",
+              "switchDescription": "가산 광이 커서를 따라다니며, 커서가 멈추면 서서히 사라집니다."
+            },
+            "glowStyle": {
+              "title": "글로우 스타일",
+              "description": "색상은 터미널 테마의 커서 색상에서 파생됩니다."
+            },
+            "scenes": {
+              "title": "장면",
+              "description": "분위기 있는 애니메이션 창 배경입니다.",
+              "unavailable": "엔진에 장면 프레임워크가 포함되어 있지만 내장 장면 아트는 재작성 중이라 아직 사용할 수 있는 장면이 없습니다. 완성되면 여기에 선택기가 표시됩니다."
+            }
+          },
+          "rendering": {
+            "title": "렌더링",
+            "description": "엔진이 터미널 프레임을 래스터화하고 표시하는 방식입니다.",
+            "gpuDescription": "WebGL2 GPU 표시, CPU 캔버스로 자동 대체됩니다.",
+            "gpuRowDescription": "자동은 지원되는 곳에서 GPU를 사용하고 그 외에는 CPU 렌더러로 대체합니다. 터미널 설정에서도 변경할 수 있습니다.",
+            "backgroundOpacity": {
+              "title": "배경 불투명도",
+              "description": "터미널 기본 배경의 불투명도입니다. 1 미만이면 창이 비쳐 보입니다."
+            },
+            "cursorOpacity": {
+              "title": "커서 불투명도",
+              "description": "커서 채우기의 불투명도입니다. 1 미만이면 블록 커서 아래 글자가 비쳐 보입니다."
+            },
+            "minContrast": {
+              "title": "최소 대비",
+              "description": "텍스트 색상에 대한 셀 단위 WCAG 대비 하한입니다.",
+              "note": "엔진은 각 글자 색을 해당 셀 배경 대비 WCAG 4.5:1 비율까지 보정합니다. 항상 켜져 있으며 설정할 수 없습니다."
+            }
+          },
+          "text": {
+            "title": "텍스트",
+            "description": "글꼴과 텍스트 셰이핑입니다. 엔진은 HarfBuzz급 셰이핑으로 실제 글꼴 파일을 래스터화합니다.",
+            "familyDescription": "터미널의 기본 글꼴 패밀리입니다. 새 창에 적용됩니다.",
+            "familyRowDescription": "엔진은 패밀리의 실제 글꼴 파일을 불러옵니다. 알 수 없는 이름은 번들된 JetBrains Mono를 유지합니다.",
+            "weightRowDescription": "패밀리에서 가장 가까운 설치된 스타일을 선택합니다. SGR 굵게는 설치된 경우 실제 Bold 페이스를 사용합니다.",
+            "ligaturesDescription": "프로그래밍 합자(=>, !=, ===)를 엔진이 네이티브로 셰이핑합니다.",
+            "ligaturesOnNote": "현재 확인 결과: 사용 중인 글꼴에서 켜짐.",
+            "ligaturesOffNote": "현재 확인 결과: 사용 중인 글꼴에서 꺼짐.",
+            "fallbacks": {
+              "title": "대체 글꼴",
+              "description": "CJK, 기호, 컬러 이모지 대체 페이스입니다.",
+              "note": "엔진이 OS의 CJK 및 컬러 이모지 페이스를 자동으로 대체 글꼴로 불러오므로, 비라틴 문자와 이모지가 설정 없이 표시됩니다."
+            }
+          }
         }
       },
       "right": {

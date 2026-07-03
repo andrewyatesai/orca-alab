@@ -667,7 +667,11 @@
         "devSearchKeywordToast": "toast",
         "devSearchKeywordSonner": "sonner",
         "devSearchKeywordError": "error",
-        "devSearchKeywordNotification": "notificación"
+        "devSearchKeywordNotification": "notificación",
+        "terminalEngine": {
+          "title": "Motor de terminal",
+          "description": "Efectos del motor, renderizado, tipografía, scrollback, entrada y seguridad del portapapeles."
+        }
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "El contenido pegado es demasiado grande."
@@ -5600,7 +5604,12 @@
           "274af61bc0": "sistema",
           "6e6df3a09a": "Elija un archivo personalizado",
           "76e02467b8": "Cambiar archivo personalizado",
-          "d3756cf5bc": "desactivado"
+          "d3756cf5bc": "desactivado",
+          "fb499fb735": "Comando largo finalizado",
+          "1ced11d6b5": "Un comando en una terminal en segundo plano termina tras superar el umbral de tiempo.",
+          "08b271938b": "Umbral de comando largo",
+          "162aeb3e20": "Tiempo mínimo de ejecución del comando antes de que Orca notifique, en segundos.",
+          "e1f2188fcd": "segundos"
         },
         "OpenAiTranscriptionKeyDialog": {
           "fa83512e48": "Guardar clave",
@@ -6156,7 +6165,11 @@
           "2309068a6f": "destructivo",
           "65358016ea": "Desechar",
           "dev": "Herramientas de desarrollo",
-          "devDescription": "Herramientas solo de desarrollo para ejercitar estados de la UI."
+          "devDescription": "Herramientas solo de desarrollo para ejercitar estados de la UI.",
+          "terminalEngine": {
+            "title": "Motor de terminal",
+            "description": "Efectos del motor, renderizado, tipografía, scrollback, entrada y seguridad del portapapeles."
+          }
         },
         "SettingsFormControls": {
           "42a4d15a30": "No hay fuentes coincidentes.",
@@ -7724,7 +7737,14 @@
             "72539aede4": "sistema",
             "51ae2183e1": "de oficina",
             "0534c76311": "Interruptor maestro para notificaciones de escritorio de Orca.",
-            "4a210b2f72": "Habilitar notificaciones"
+            "4a210b2f72": "Habilitar notificaciones",
+            "a5f6ca7dd2": "Comando largo finalizado",
+            "06026c6911": "Notificar cuando un comando de terminal de larga duración termina en segundo plano.",
+            "1b2270db4f": "comando",
+            "2d7d000b38": "largo",
+            "1e5d17005e": "duración",
+            "7a8c4e87fd": "umbral",
+            "ed10d72fd4": "salida"
           }
         },
         "orchestration": {
@@ -8255,6 +8275,25 @@
               "713c4a2f92": "Elija el shell predeterminado para los nuevos paneles de terminal en Windows.",
               "13715f9d23": "Shell predeterminado"
             }
+          },
+          "engine": {
+            "search": {
+              "sparkle": "Palabras brillantes",
+              "sparkleDescription": "Anima palabras del léxico (salpicaduras de orca, gatos, supernovas) en la salida del terminal.",
+              "glow": "Brillo del cursor",
+              "glowDescription": "Una aurora de luz en la estela del cursor del terminal.",
+              "engine": "Motor de terminal",
+              "engineDescription": "El motor aterm: efectos, renderizado, tipografía, scrollback, entrada y seguridad del portapapeles.",
+              "kwEffects": "efectos",
+              "kwSparkle": "brillo",
+              "kwAnimation": "animación",
+              "kwCursor": "cursor",
+              "kwGlow": "brillo del cursor",
+              "kwTrail": "estela",
+              "kwEngine": "motor",
+              "kwAterm": "aterm",
+              "kwRenderer": "renderizador"
+            }
           }
         },
         "voice": {
@@ -8713,6 +8752,130 @@
         "ephemeralVmsExperimentalSetting": {
           "description": "Muestra controles de configuración y objetivos de ejecución del espacio de trabajo para entornos bajo demanda de propiedad de repos.",
           "toggleLabel": "Alternar entornos por espacio de trabajo"
+        },
+        "TerminalEnginePane": {
+          "scrollback": {
+            "title": "Scrollback",
+            "description": "Retención del historial y comportamiento de la selección de texto.",
+            "rows": {
+              "title": "Filas de scrollback",
+              "description": "Líneas de historial retenidas detrás de la vista en vivo, por panel.",
+              "note": "También seleccionable como preajustes en Terminal → Avanzado.",
+              "suffix": "filas"
+            },
+            "wordSeparators": {
+              "title": "Separadores de palabras",
+              "description": "Caracteres que delimitan una selección de palabra con doble clic.",
+              "note": "Vacío usa la lógica de palabras por defecto del motor. Las URL y rutas de archivo se siguen seleccionando enteras."
+            }
+          },
+          "input": {
+            "title": "Entrada",
+            "description": "Protocolos de teclado y manejo de teclas por plataforma.",
+            "kitty": {
+              "title": "Protocolo de teclado Kitty",
+              "description": "Mejora progresiva del teclado para TUIs modernas.",
+              "note": "El motor habla el protocolo Kitty completo y lo negocia automáticamente por panel (se omite en shells ConPTY locales de Windows que lo gestionan mal). No requiere configuración."
+            },
+            "macOption": {
+              "title": "La tecla Option envía Alt",
+              "description": "Si la tecla Option de macOS actúa como el modificador Alt/Meta del terminal.",
+              "note": "Activado: los atajos con Option envían secuencias Alt. Desactivado: Option compone caracteres especiales. Las variantes Auto y por lado están en Terminal → Teclado de macOS."
+            },
+            "jisYen": {
+              "title": "La tecla ¥ JIS envía barra invertida",
+              "description": "Traduce la tecla ¥ del teclado JIS a barra invertida para los shells.",
+              "note": "Los shells y lenguajes de programación esperan barra invertida; Option+¥ sigue escribiendo ¥."
+            }
+          },
+          "clipboard": {
+            "title": "Portapapeles y seguridad",
+            "description": "Qué pueden hacer los programas del terminal con tu portapapeles.",
+            "osc52Description": "El motor es cerrado por defecto: las escrituras OSC 52 se descartan hasta que actives esta opción.",
+            "osc52Note": "Permite que tmux, Neovim y fzf copien a tu portapapeles a través del PTY (incluido SSH). Desactivado por defecto porque cualquier programa que imprima en el terminal podría reescribir tu portapapeles."
+          },
+          "effectsDemo": {
+            "title": "Vista previa de efectos en vivo",
+            "description": "Un motor de terminal real escribiendo en bucle: los efectos activados se animan aquí exactamente igual que en tus paneles."
+          },
+          "effects": {
+            "title": "Efectos",
+            "description": "Efectos animados del motor. Todos desactivados por defecto; desactivados, el renderizado del terminal es idéntico byte a byte.",
+            "reducedMotionNote": "Tu sistema prefiere el movimiento reducido: las decoraciones brillantes se muestran estáticas y el brillo del cursor permanece desactivado. El limitador de destellos del motor se aplica siempre.",
+            "sparkle": {
+              "title": "Palabras brillantes",
+              "description": "Decora palabras del léxico del motor cuando aparecen en la salida del terminal.",
+              "switchDescription": "Interruptor maestro. Busca palabras del léxico en la salida visible y las anima; al desactivarlo se restaura el renderizado idéntico byte a byte."
+            },
+            "sparkleClasses": {
+              "title": "Clases de palabras brillantes",
+              "description": "Interruptores por clase para las familias del léxico de palabras brillantes."
+            },
+            "classProfanity": {
+              "title": "Supernovas de improperios",
+              "description": "Los improperios encienden una breve supernova. Limitado a dos destellos por segundo como máximo."
+            },
+            "classFeline": {
+              "title": "Gatos felinos",
+              "description": "Las palabras de gato reciben un gato que se asoma y parpadea mientras el panel tiene el foco."
+            },
+            "classOrca": {
+              "title": "Salpicaduras de orca",
+              "description": "Las palabras de orca salpican gotas de agua."
+            },
+            "classEmphasis": {
+              "title": "Tinta de énfasis",
+              "description": "Gradiente de tinta animado en palabras de énfasis. El léxico integrado aún no incluye palabras de énfasis, así que solo afecta a léxicos personalizados."
+            },
+            "cursorGlow": {
+              "title": "Brillo del cursor",
+              "description": "Una aurora de luz en la estela del cursor al moverse.",
+              "switchDescription": "Una luz aditiva sigue al cursor; se desvanece y se asienta cuando el cursor descansa."
+            },
+            "glowStyle": {
+              "title": "Estilo del brillo",
+              "description": "Los colores derivan del color del cursor de tu tema de terminal."
+            },
+            "scenes": {
+              "title": "Escenas",
+              "description": "Fondos de panel animados y ambientales.",
+              "unavailable": "El motor incluye el marco de escenas, pero su arte integrado se está reescribiendo y aún no hay escenas disponibles. Aquí aparecerá un selector cuando lleguen."
+            }
+          },
+          "rendering": {
+            "title": "Renderizado",
+            "description": "Cómo el motor rasteriza y presenta los fotogramas del terminal.",
+            "gpuDescription": "Presentación por GPU WebGL2 con retorno automático al lienzo por CPU.",
+            "gpuRowDescription": "Auto usa la GPU donde es compatible y recurre al renderizador por CPU. También se ajusta en los ajustes de Terminal.",
+            "backgroundOpacity": {
+              "title": "Opacidad del fondo",
+              "description": "Opacidad del fondo por defecto del terminal; por debajo de 1 el panel se transparenta."
+            },
+            "cursorOpacity": {
+              "title": "Opacidad del cursor",
+              "description": "Opacidad del relleno del cursor; por debajo de 1 el glifo bajo un cursor de bloque se transparenta."
+            },
+            "minContrast": {
+              "title": "Contraste mínimo",
+              "description": "Suelo de contraste WCAG por celda para los colores del texto.",
+              "note": "El motor eleva el color de cada glifo frente al fondo de su propia celda hasta una relación WCAG de 4.5:1. Siempre activo; no configurable."
+            }
+          },
+          "text": {
+            "title": "Texto",
+            "description": "Fuentes y modelado de texto. El motor rasteriza archivos de fuente reales con modelado de clase HarfBuzz.",
+            "familyDescription": "Familia de fuente principal del terminal; se aplica a paneles nuevos.",
+            "familyRowDescription": "El motor carga el archivo de fuente real de la familia. Los nombres desconocidos mantienen la JetBrains Mono incluida.",
+            "weightRowDescription": "Selecciona el estilo instalado más cercano de la familia; la negrita SGR usa la cara Bold real cuando está instalada.",
+            "ligaturesDescription": "Ligaduras de programación (=>, !=, ===) modeladas nativamente por el motor.",
+            "ligaturesOnNote": "Resolución actual: activadas para tu fuente.",
+            "ligaturesOffNote": "Resolución actual: desactivadas para tu fuente.",
+            "fallbacks": {
+              "title": "Fuentes de respaldo",
+              "description": "Caras de respaldo CJK, de símbolos y de emoji a color.",
+              "note": "El motor carga automáticamente las caras CJK y de emoji a color de tu sistema como respaldo, de modo que el texto no latino y los emoji se muestran sin configuración."
+            }
+          }
         }
       },
       "right": {

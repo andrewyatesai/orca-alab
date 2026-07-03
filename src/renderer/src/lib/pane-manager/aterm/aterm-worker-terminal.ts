@@ -9,6 +9,7 @@
 import type { EngineHandle } from './aterm-worker-engine-build'
 import { createWorkerSearch } from './aterm-worker-search'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
+import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
 import type { AtermWorkerState, AtermWorkerThemeSet } from './aterm-render-worker-protocol'
 
 /** One pane's engine-side terminal (the shared worker hosts one per live pane). */
@@ -64,6 +65,16 @@ function decodeMouseReport(bytes: Uint8Array | undefined): string {
 export function createWorkerTerminal(handle: EngineHandle): {
   processBytes: (data: string) => WorkerSideChannels
   render: () => void
+  /** Advance the clockless effects before a frame; returns true while an effect is
+   *  still animating so the scheduler keeps rAF cadence (render-only frames), and
+   *  false once settled — the engine's idle-to-zero contract. */
+  tickEffects: () => boolean
+  /** Ms until the engine's next idle one-shot (settled-cat blink), or undefined.
+   *  The scheduler arms ONE timer for it — never a spinning loop. */
+  effectsIdleDeadlineMs: () => number | undefined
+  /** Cross an armed idle-deadline on the injected effects clock (it advances 0 while
+   *  no frames run), right before the timer-fired frame renders. */
+  advanceEffectsBy: (dtMs: number) => void
   buildState: () => AtermWorkerState
   /** Cheap grid dimensions (no buildState) — lets a suspended pane skip output-frame
    *  STATE posts while still posting on a dimension change (gridSize must stay correct). */
@@ -135,6 +146,9 @@ export function createWorkerTerminal(handle: EngineHandle): {
   // Per-visible-row change detection (emit only changed rows); state + logic extracted.
   const dirtyRowTracker = createAtermDirtyRowTracker(e)
 
+  // Effects clock (extracted): the frame scheduler drives it per rendered frame.
+  const effectsTick = createAtermWorkerEffectsTick(e)
+
   const followBottomAfter = (wasAtBottom: boolean): void => {
     if (wasAtBottom && e.display_offset !== 0) {
       e.scroll_to_bottom()
@@ -154,6 +168,9 @@ export function createWorkerTerminal(handle: EngineHandle): {
       }
     },
     render: () => handle.render(),
+    tickEffects: effectsTick.tick,
+    effectsIdleDeadlineMs: effectsTick.idleDeadlineMs,
+    advanceEffectsBy: effectsTick.advanceBy,
     buildState: () => {
       const fb = handle.framebuffer()
       const range = e.selection_range()

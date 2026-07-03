@@ -84,6 +84,8 @@ import {
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { makePaneKey, parseLegacyNumericPaneKey } from '../../../../shared/stable-pane-id'
 import { createTerminalCommandLifecycle } from './terminal-command-lifecycle'
+import { createLongCommandNotificationTracker } from './terminal-long-command-notification'
+import { isVisibleForegroundPaneKey } from './terminal-notification-pane-visibility'
 import { dispatchTerminalCommandFinishedEvent } from '@/hooks/terminal-command-finished-event'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AgentStatusEntry, AgentType } from '../../../../shared/agent-status-types'
@@ -1519,8 +1521,37 @@ export function connectPanePty(
     }
     return pendingWrite.then(() => interruptInference.flushPending())
   }
+  const longCommandNotificationTracker = createLongCommandNotificationTracker({
+    getSettings: () => {
+      const notifications = useAppStore.getState().settings?.notifications
+      if (!notifications) {
+        return null
+      }
+      return {
+        notificationsEnabled: notifications.enabled,
+        longCommandComplete: notifications.longCommandComplete,
+        longCommandThresholdSeconds: notifications.longCommandThresholdSeconds
+      }
+    },
+    isPaneVisibleAndFocused: () =>
+      isVisibleForegroundPaneKey(useAppStore.getState(), deps.worktreeId, cacheKey)
+  })
   const commandLifecycle = createTerminalCommandLifecycle({
-    onCommandFinished: () => {
+    onCommandStarted: () => {
+      longCommandNotificationTracker.onCommandStarted()
+    },
+    onCommandFinished: (bestEffortExitCode) => {
+      const longCommandDecision =
+        longCommandNotificationTracker.onCommandFinished(bestEffortExitCode)
+      if (longCommandDecision.notify && !disposed) {
+        deps.dispatchNotification({
+          source: 'long-command-complete',
+          terminalTitle: getCurrentTerminalTitle() ?? undefined,
+          paneKey: cacheKey,
+          commandDurationMs: longCommandDecision.durationMs,
+          commandExitCode: longCommandDecision.exitCode
+        })
+      }
       // Why: the finished command may have moved HEAD or the index (e.g.
       // `git checkout`); nudge git UI now instead of waiting for a poll.
       dispatchTerminalCommandFinishedEvent(deps.worktreeId)

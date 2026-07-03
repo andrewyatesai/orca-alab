@@ -105,6 +105,8 @@ function createSettings(overrides: Partial<GlobalSettings> = {}): GlobalSettings
       enabled: true,
       agentTaskComplete: true,
       terminalBell: false,
+      longCommandComplete: true,
+      longCommandThresholdSeconds: 15,
       suppressWhenFocused: true,
       customSoundId: 'system',
       customSoundPath: null,

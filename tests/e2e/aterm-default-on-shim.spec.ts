@@ -1,7 +1,7 @@
 import { test, expect } from './helpers/orca-app'
 import { waitForActivePanePtyId } from './helpers/terminal'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
-import { countAtermChangedPixelsSince, snapshotAtermCanvas } from './helpers/aterm-canvas-pixels'
+import { countAtermChangedPixelsSince, snapshotAtermCanvas } from './helpers/aterm-frame-diff'
 import { writeFileSync } from 'node:fs'
 
 // Proves the aterm renderer is a CREDIBLE DEFAULT: the xterm-mirroring shim DOM

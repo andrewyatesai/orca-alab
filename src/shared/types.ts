@@ -2205,6 +2205,9 @@ export type NotificationSettings = {
   enabled: boolean
   agentTaskComplete: boolean
   terminalBell: boolean
+  longCommandComplete: boolean
+  /** Minimum foreground-command runtime (OSC 133 C→D) before an unfocused pane notifies. */
+  longCommandThresholdSeconds: number
   suppressWhenFocused: boolean
   customSoundId:
     | 'system'
@@ -2409,6 +2412,9 @@ export type TerminalAgentQuickCommand = TerminalQuickCommandBase & {
 
 export type TerminalQuickCommand = TerminalCommandQuickCommand | TerminalAgentQuickCommand
 
+/** aterm cursor-glow (aurora) styles — the engine's `set_cursor_glow` style names. */
+export type TerminalCursorGlowStyle = 'lumen' | 'rainbow' | 'sparkle' | 'fire' | 'laser' | 'water'
+
 export type OpenInApplication = {
   id: string
   label: string
@@ -2524,6 +2530,17 @@ export type GlobalSettings = {
   terminalMouseHideWhileTyping?: boolean
   terminalWordSeparator?: string
   terminalCursorOpacity?: number
+  /** aterm engine effects. All default OFF/engine-native so unset settings keep the
+   *  render output byte-identical (the engine's default-off contract). */
+  terminalEffectsSparkleWords?: boolean
+  /** Per-class sparkle gates (engine `[sparkle_words.<class>]`); default true —
+   *  the engine's native launch config — and only effective while the master is on. */
+  terminalEffectsSparkleProfanity?: boolean
+  terminalEffectsSparkleFeline?: boolean
+  terminalEffectsSparkleOrca?: boolean
+  terminalEffectsSparkleEmphasis?: boolean
+  terminalEffectsCursorGlow?: boolean
+  terminalEffectsCursorGlowStyle?: TerminalCursorGlowStyle
   terminalQuickCommands?: TerminalQuickCommand[]
   windowBackgroundBlur?: boolean
   /** Why: Windows-only. When on, the close (X) button hides the window to the
@@ -2954,7 +2971,11 @@ export type GhosttyImportPreview = {
 // schema-vs-renderer enum sync guard.
 export type DiscoveryStatusEmitted = 'found' | 'absent' | 'imported'
 
-export type NotificationEventSource = 'agent-task-complete' | 'terminal-bell' | 'test'
+export type NotificationEventSource =
+  | 'agent-task-complete'
+  | 'terminal-bell'
+  | 'long-command-complete'
+  | 'test'
 
 export type NotificationDispatchRequest = {
   source: NotificationEventSource
@@ -2976,6 +2997,10 @@ export type NotificationDispatchRequest = {
   agentToolInput?: string
   agentLastAssistantMessage?: string
   agentInterrupted?: boolean
+  /** long-command-complete: wall-clock runtime of the finished foreground command. */
+  commandDurationMs?: number
+  /** long-command-complete: OSC 133;D exit code; null when the shell omitted it. */
+  commandExitCode?: number | null
 }
 
 export type NotificationDispatchResult = {

@@ -20,6 +20,26 @@ export type EngineSettingSetters = {
   set_background_opacity: (opacity: number) => void
   set_cursor_opacity: (opacity: number) => void
   set_kitty_keyboard_enabled: (enabled: boolean) => void
+  set_sparkle_words_enabled: (on: boolean) => void
+  set_sparkle_classes: (
+    profanity: boolean,
+    feline: boolean,
+    orca: boolean,
+    emphasis: boolean
+  ) => void
+  set_sparkle_reduced_motion: (on: boolean) => void
+  set_cursor_glow: (
+    enabled: boolean,
+    style: string,
+    color: number | null | undefined,
+    accent: number | null | undefined,
+    durationMs: number,
+    length: number,
+    intensity: number,
+    radius: number,
+    ring: boolean
+  ) => void
+  set_effects_focused: (focused: boolean) => void
 }
 
 /** Everything the worker keeps for ONE pane. Deliberately per-pane: the serialize
@@ -110,6 +130,38 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
     case 'setKittyKeyboardEnabled':
       // Protocol capability only (affects future CSI ? u replies) — no repaint.
       pane.engineSetters?.set_kitty_keyboard_enabled(msg.enabled)
+      return
+    // Effects setters repaint render-only (no snapshot field changes); the frame
+    // scheduler's tickEffects then keeps rAF cadence while the engine animates.
+    case 'setSparkleWordsEnabled':
+      pane.engineSetters?.set_sparkle_words_enabled(msg.on)
+      scheduleDraw(false)
+      return
+    case 'setSparkleClasses':
+      pane.engineSetters?.set_sparkle_classes(msg.profanity, msg.feline, msg.orca, msg.emphasis)
+      scheduleDraw(false)
+      return
+    case 'setSparkleReducedMotion':
+      pane.engineSetters?.set_sparkle_reduced_motion(msg.on)
+      scheduleDraw(false)
+      return
+    case 'setCursorGlow':
+      pane.engineSetters?.set_cursor_glow(
+        msg.enabled,
+        msg.style,
+        msg.color ?? undefined,
+        msg.accent ?? undefined,
+        msg.durationMs,
+        msg.length,
+        msg.intensity,
+        msg.radius,
+        msg.ring
+      )
+      scheduleDraw(false)
+      return
+    case 'setEffectsFocused':
+      pane.engineSetters?.set_effects_focused(msg.focused)
+      scheduleDraw(false)
       return
     case 'setDefaultCursorStyle':
       term?.setDefaultCursorStyle(msg.param)

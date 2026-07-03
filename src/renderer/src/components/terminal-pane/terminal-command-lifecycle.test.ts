@@ -19,6 +19,19 @@ describe('createTerminalCommandLifecycle', () => {
     expect(onCommandFinished).toHaveBeenNthCalledWith(4, null)
   })
 
+  it('emits commandStarted for OSC 133 C marks', () => {
+    const onCommandFinished = vi.fn()
+    const onCommandStarted = vi.fn()
+    const lifecycle = createTerminalCommandLifecycle({ onCommandFinished, onCommandStarted })
+
+    lifecycle.handlePtyData('\x1b]133;A\x07prompt\x1b]133;B\x07')
+    expect(onCommandStarted).not.toHaveBeenCalled()
+
+    lifecycle.handlePtyData('\x1b]133;C\x07running\x1b]133;D;0\x07')
+    expect(onCommandStarted).toHaveBeenCalledOnce()
+    expect(onCommandFinished).toHaveBeenCalledOnce()
+  })
+
   it('detects OSC 133 sequences split across PTY chunks', () => {
     const onCommandFinished = vi.fn()
     const lifecycle = createTerminalCommandLifecycle({ onCommandFinished })

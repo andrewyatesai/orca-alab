@@ -667,7 +667,11 @@
         "devSearchKeywordToast": "toast",
         "devSearchKeywordSonner": "sonner",
         "devSearchKeywordError": "error",
-        "devSearchKeywordNotification": "notification"
+        "devSearchKeywordNotification": "notification",
+        "terminalEngine": {
+          "title": "Terminal Engine",
+          "description": "Engine effects, rendering, text shaping, scrollback, input, and clipboard security."
+        }
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "Paste is too large."
@@ -5637,7 +5641,12 @@
           "274af61bc0": "system",
           "6e6df3a09a": "Choose Custom File",
           "76e02467b8": "Change Custom File",
-          "d3756cf5bc": "disabled"
+          "d3756cf5bc": "disabled",
+          "fb499fb735": "Long Command Finished",
+          "1ced11d6b5": "A command in a background terminal finishes after the time threshold.",
+          "08b271938b": "Long Command Threshold",
+          "162aeb3e20": "Minimum command run time before Orca notifies, in seconds.",
+          "e1f2188fcd": "seconds"
         },
         "OpenAiTranscriptionKeyDialog": {
           "fa83512e48": "Save Key",
@@ -6193,7 +6202,11 @@
           "2309068a6f": "destructive",
           "65358016ea": "Discard",
           "dev": "Dev Tools",
-          "devDescription": "Dev-only tools for exercising UI states."
+          "devDescription": "Dev-only tools for exercising UI states.",
+          "terminalEngine": {
+            "title": "Terminal Engine",
+            "description": "Engine effects, rendering, text shaping, scrollback, input, and clipboard security."
+          }
         },
         "SettingsFormControls": {
           "42a4d15a30": "No matching fonts.",
@@ -7761,7 +7774,14 @@
             "72539aede4": "system",
             "51ae2183e1": "desktop",
             "0534c76311": "Master switch for Orca desktop notifications.",
-            "4a210b2f72": "Enable Notifications"
+            "4a210b2f72": "Enable Notifications",
+            "a5f6ca7dd2": "Long Command Finished",
+            "06026c6911": "Notify when a long-running terminal command finishes in the background.",
+            "1b2270db4f": "command",
+            "2d7d000b38": "long",
+            "1e5d17005e": "duration",
+            "7a8c4e87fd": "threshold",
+            "ed10d72fd4": "exit"
           }
         },
         "orchestration": {
@@ -8292,6 +8312,25 @@
               "713c4a2f92": "Choose the default shell for new terminal panes on Windows.",
               "13715f9d23": "Default Shell"
             }
+          },
+          "engine": {
+            "search": {
+              "sparkle": "Sparkle Words",
+              "sparkleDescription": "Animate lexicon words (orca splashes, cats, supernovas) in terminal output.",
+              "glow": "Cursor Glow",
+              "glowDescription": "An aurora of light in the terminal cursor’s wake.",
+              "engine": "Terminal Engine",
+              "engineDescription": "The aterm engine: effects, rendering, text shaping, scrollback, input, and clipboard security.",
+              "kwEffects": "effects",
+              "kwSparkle": "sparkle",
+              "kwAnimation": "animation",
+              "kwCursor": "cursor",
+              "kwGlow": "glow",
+              "kwTrail": "trail",
+              "kwEngine": "engine",
+              "kwAterm": "aterm",
+              "kwRenderer": "renderer"
+            }
           }
         },
         "voice": {
@@ -8713,6 +8752,130 @@
         "ephemeralVmsExperimentalSetting": {
           "description": "Shows setup controls and workspace run targets for repo-owned, on-demand environments.",
           "toggleLabel": "Toggle per-workspace environments"
+        },
+        "TerminalEnginePane": {
+          "scrollback": {
+            "title": "Scrollback",
+            "description": "History retention and text selection behavior.",
+            "rows": {
+              "title": "Scrollback Rows",
+              "description": "History lines retained behind the live viewport, per pane.",
+              "note": "Also selectable as presets in Terminal → Advanced.",
+              "suffix": "rows"
+            },
+            "wordSeparators": {
+              "title": "Word Separators",
+              "description": "Characters that break a double-click word selection.",
+              "note": "Empty uses the engine’s default word logic. URLs and file paths are still selected whole."
+            }
+          },
+          "input": {
+            "title": "Input",
+            "description": "Keyboard protocols and platform key handling.",
+            "kitty": {
+              "title": "Kitty Keyboard Protocol",
+              "description": "Progressive keyboard enhancement for modern TUIs.",
+              "note": "The engine speaks the full Kitty protocol and negotiates it per pane automatically (withheld on local Windows ConPTY shells that mis-handle it). No configuration needed."
+            },
+            "macOption": {
+              "title": "Option Key Sends Alt",
+              "description": "Whether macOS Option acts as the terminal Alt/Meta modifier.",
+              "note": "On: Option chords send Alt sequences. Off: Option composes special characters. Auto and per-side variants are in Terminal → macOS Keyboard."
+            },
+            "jisYen": {
+              "title": "JIS Yen Sends Backslash",
+              "description": "Translate the JIS keyboard’s ¥ key to backslash for shells.",
+              "note": "Shells and programming languages expect backslash; Option+¥ still types ¥."
+            }
+          },
+          "clipboard": {
+            "title": "Clipboard & Security",
+            "description": "What terminal programs may do with your clipboard.",
+            "osc52Description": "The engine is fail-closed: OSC 52 writes are dropped until you opt in here.",
+            "osc52Note": "Lets tmux, Neovim, and fzf copy to your clipboard over the PTY (including SSH). Off by default because any program printing to the terminal could rewrite your clipboard."
+          },
+          "effectsDemo": {
+            "title": "Live Effects Preview",
+            "description": "A real terminal engine typing on a loop — enabled effects animate here exactly as in your panes."
+          },
+          "effects": {
+            "title": "Effects",
+            "description": "Animated engine effects. All default off; when off, terminal rendering is byte-identical.",
+            "reducedMotionNote": "Your system prefers reduced motion: sparkle decorations render statically and cursor glow stays off. The engine’s flash-safety limiter always applies.",
+            "sparkle": {
+              "title": "Sparkle Words",
+              "description": "Decorate words from the engine lexicon as they appear in terminal output.",
+              "switchDescription": "Master switch. Scans visible output for lexicon words and animates them; turning it off restores byte-identical rendering."
+            },
+            "sparkleClasses": {
+              "title": "Sparkle Word Classes",
+              "description": "Per-class toggles for the sparkle-words lexicon families."
+            },
+            "classProfanity": {
+              "title": "Profanity supernovas",
+              "description": "Expletives ignite a brief supernova. Flash-limited to at most two per second."
+            },
+            "classFeline": {
+              "title": "Feline cats",
+              "description": "Cat words get a peeking cat that blinks while the pane is focused."
+            },
+            "classOrca": {
+              "title": "Orca splashes",
+              "description": "Orca words splash water droplets."
+            },
+            "classEmphasis": {
+              "title": "Emphasis ink",
+              "description": "Animated ink gradient on emphasis words. The built-in lexicon ships no emphasis words yet, so this only affects custom lexicon overrides."
+            },
+            "cursorGlow": {
+              "title": "Cursor Glow",
+              "description": "An aurora of light in the cursor’s wake as it moves.",
+              "switchDescription": "Additive light follows the cursor; it fades and settles when the cursor rests."
+            },
+            "glowStyle": {
+              "title": "Glow Style",
+              "description": "Colors derive from your terminal theme’s cursor color."
+            },
+            "scenes": {
+              "title": "Scenes",
+              "description": "Ambient animated pane backgrounds.",
+              "unavailable": "The engine ships the scene framework, but its built-in scene art is being rewritten and no scenes are available yet. A picker will appear here when they land."
+            }
+          },
+          "rendering": {
+            "title": "Rendering",
+            "description": "How the engine rasterizes and presents terminal frames.",
+            "gpuDescription": "WebGL2 GPU presentation with automatic CPU-canvas fallback.",
+            "gpuRowDescription": "Auto uses the GPU where supported and falls back to the CPU renderer. Also set in Terminal settings.",
+            "backgroundOpacity": {
+              "title": "Background Opacity",
+              "description": "Opacity of the default terminal background; below 1 the pane shows through."
+            },
+            "cursorOpacity": {
+              "title": "Cursor Opacity",
+              "description": "Opacity of the cursor fill; below 1 the glyph under a block cursor shows through."
+            },
+            "minContrast": {
+              "title": "Minimum Contrast",
+              "description": "Per-cell WCAG contrast floor for text colors.",
+              "note": "The engine floors every glyph’s color against its own cell background at a 4.5:1 WCAG ratio. Always on; not configurable."
+            }
+          },
+          "text": {
+            "title": "Text",
+            "description": "Fonts and shaping. The engine rasterizes real font faces with HarfBuzz-class shaping.",
+            "familyDescription": "Primary terminal font family; applies to new panes.",
+            "familyRowDescription": "The engine loads the family’s real font file. Unknown names keep the bundled JetBrains Mono.",
+            "weightRowDescription": "Selects the closest installed style of the family; SGR bold uses the real Bold face when installed.",
+            "ligaturesDescription": "Programming ligatures (=>, !=, ===) shaped natively by the engine.",
+            "ligaturesOnNote": "Currently resolved: on for your font.",
+            "ligaturesOffNote": "Currently resolved: off for your font.",
+            "fallbacks": {
+              "title": "Fallback Fonts",
+              "description": "CJK, symbol, and color-emoji fallback faces.",
+              "note": "The engine automatically loads your OS’s CJK and color-emoji faces as fallbacks, so non-Latin text and emoji render without configuration."
+            }
+          }
         }
       },
       "right": {

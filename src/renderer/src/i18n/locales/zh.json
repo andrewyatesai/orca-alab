@@ -667,7 +667,11 @@
         "devSearchKeywordToast": "toast",
         "devSearchKeywordSonner": "sonner",
         "devSearchKeywordError": "错误",
-        "devSearchKeywordNotification": "通知"
+        "devSearchKeywordNotification": "通知",
+        "terminalEngine": {
+          "title": "终端引擎",
+          "description": "引擎特效、渲染、文本整形、Scrollback、输入与剪贴板安全。"
+        }
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "粘贴内容过大。"
@@ -5585,7 +5589,12 @@
           "274af61bc0": "系统",
           "6e6df3a09a": "选择自定义文件",
           "76e02467b8": "更改自定义文件",
-          "d3756cf5bc": "已禁用"
+          "d3756cf5bc": "已禁用",
+          "fb499fb735": "长时间命令完成",
+          "1ced11d6b5": "后台终端中的命令在超过时间阈值后完成。",
+          "08b271938b": "长时间命令阈值",
+          "162aeb3e20": "Orca 发出通知前命令的最短运行时间（秒）。",
+          "e1f2188fcd": "秒"
         },
         "OpenAiTranscriptionKeyDialog": {
           "fa83512e48": "保存密钥",
@@ -6141,7 +6150,11 @@
           "2309068a6f": "destructive",
           "65358016ea": "放弃",
           "dev": "开发工具",
-          "devDescription": "仅供开发使用的工具，用于检验 UI 状态。"
+          "devDescription": "仅供开发使用的工具，用于检验 UI 状态。",
+          "terminalEngine": {
+            "title": "终端引擎",
+            "description": "引擎特效、渲染、文本整形、Scrollback、输入与剪贴板安全。"
+          }
         },
         "SettingsFormControls": {
           "42a4d15a30": "没有匹配的字体。",
@@ -7709,7 +7722,14 @@
             "72539aede4": "系统",
             "51ae2183e1": "桌面",
             "0534c76311": "Orca 桌面通知的主开关。",
-            "4a210b2f72": "启用通知"
+            "4a210b2f72": "启用通知",
+            "a5f6ca7dd2": "长时间命令完成",
+            "06026c6911": "当长时间运行的终端命令在后台完成时通知。",
+            "1b2270db4f": "命令",
+            "2d7d000b38": "长时间",
+            "1e5d17005e": "时长",
+            "7a8c4e87fd": "阈值",
+            "ed10d72fd4": "退出"
           }
         },
         "orchestration": {
@@ -8240,6 +8260,25 @@
               "713c4a2f92": "为 Windows 上的新终端窗格选择默认 shell。",
               "13715f9d23": "默认外壳"
             }
+          },
+          "engine": {
+            "search": {
+              "sparkle": "闪耀词",
+              "sparkleDescription": "为终端输出中的词典词语（虎鲸水花、猫、超新星）添加动画。",
+              "glow": "光标辉光",
+              "glowDescription": "在终端光标划过之处留下光的极光。",
+              "engine": "终端引擎",
+              "engineDescription": "aterm 引擎：特效、渲染、文本整形、Scrollback、输入与剪贴板安全。",
+              "kwEffects": "特效",
+              "kwSparkle": "闪耀",
+              "kwAnimation": "动画",
+              "kwCursor": "光标",
+              "kwGlow": "辉光",
+              "kwTrail": "拖尾",
+              "kwEngine": "引擎",
+              "kwAterm": "aterm",
+              "kwRenderer": "渲染器"
+            }
           }
         },
         "voice": {
@@ -8713,6 +8752,130 @@
         "ephemeralVmsExperimentalSetting": {
           "description": "显示仓库自带按需环境的设置控件和工作区运行目标。",
           "toggleLabel": "切换工作区专属环境"
+        },
+        "TerminalEnginePane": {
+          "scrollback": {
+            "title": "Scrollback",
+            "description": "历史保留与文本选择行为。",
+            "rows": {
+              "title": "Scrollback 行数",
+              "description": "实时视口之后保留的历史行数（每个窗格）。",
+              "note": "也可在“终端 → 高级”中以预设选择。",
+              "suffix": "行"
+            },
+            "wordSeparators": {
+              "title": "单词分隔符",
+              "description": "双击选词时用作分隔的字符。",
+              "note": "留空则使用引擎默认的单词逻辑。URL 和文件路径仍会整体选中。"
+            }
+          },
+          "input": {
+            "title": "输入",
+            "description": "键盘协议与各平台按键处理。",
+            "kitty": {
+              "title": "Kitty 键盘协议",
+              "description": "面向现代 TUI 的渐进式键盘增强。",
+              "note": "引擎完整支持 Kitty 协议并按窗格自动协商（在处理不当的本地 Windows ConPTY shell 上不启用）。无需配置。"
+            },
+            "macOption": {
+              "title": "Option 键发送 Alt",
+              "description": "macOS 的 Option 键是否用作终端的 Alt/Meta 修饰键。",
+              "note": "开启：Option 组合键发送 Alt 序列。关闭：Option 用于输入特殊字符。“自动”及左右独立设置位于“终端 → macOS 键盘”。"
+            },
+            "jisYen": {
+              "title": "JIS ¥ 键发送反斜杠",
+              "description": "将 JIS 键盘的 ¥ 键转换为 shell 使用的反斜杠。",
+              "note": "Shell 和编程语言需要反斜杠；Option+¥ 仍可输入 ¥。"
+            }
+          },
+          "clipboard": {
+            "title": "剪贴板与安全",
+            "description": "终端程序可以对剪贴板执行的操作。",
+            "osc52Description": "引擎默认为失败关闭：在此处选择加入之前，OSC 52 写入会被丢弃。",
+            "osc52Note": "允许 tmux、Neovim 和 fzf 通过 PTY（包括 SSH）复制到剪贴板。默认关闭，因为任何向终端输出的程序都可能改写你的剪贴板。"
+          },
+          "effectsDemo": {
+            "title": "实时特效预览",
+            "description": "一个真实的终端引擎在循环输入——启用的特效在这里的表现与在你的窗格中完全一致。"
+          },
+          "effects": {
+            "title": "特效",
+            "description": "引擎的动画特效。全部默认关闭；关闭时终端渲染逐字节一致。",
+            "reducedMotionNote": "你的系统偏好减弱动态效果：闪耀装饰将静态显示，光标辉光保持关闭。引擎的防闪烁限制器始终生效。",
+            "sparkle": {
+              "title": "闪耀词",
+              "description": "当引擎词典中的词语出现在终端输出中时进行装饰。",
+              "switchDescription": "总开关。扫描可见输出中的词典词语并添加动画；关闭后恢复逐字节一致的渲染。"
+            },
+            "sparkleClasses": {
+              "title": "闪耀词类别",
+              "description": "按类别切换闪耀词词典中的各词族。"
+            },
+            "classProfanity": {
+              "title": "脏话超新星",
+              "description": "脏话会点燃短暂的超新星。闪烁限制为每秒最多两次。"
+            },
+            "classFeline": {
+              "title": "猫咪",
+              "description": "猫相关词语会出现一只探头的猫，在窗格聚焦时眨眼。"
+            },
+            "classOrca": {
+              "title": "虎鲸水花",
+              "description": "虎鲸相关词语会溅起水珠。"
+            },
+            "classEmphasis": {
+              "title": "强调墨迹",
+              "description": "为强调词语添加动画墨迹渐变。内置词典尚未包含强调词，因此仅影响自定义词典。"
+            },
+            "cursorGlow": {
+              "title": "光标辉光",
+              "description": "光标移动时在其划过之处留下光的极光。",
+              "switchDescription": "叠加光随光标移动；光标停下后逐渐淡出并稳定。"
+            },
+            "glowStyle": {
+              "title": "辉光样式",
+              "description": "颜色源自终端主题的光标颜色。"
+            },
+            "scenes": {
+              "title": "场景",
+              "description": "氛围化的动画窗格背景。",
+              "unavailable": "引擎已包含场景框架，但内置场景素材正在重写，目前尚无可用场景。就绪后此处会显示选择器。"
+            }
+          },
+          "rendering": {
+            "title": "渲染",
+            "description": "引擎如何栅格化并呈现终端帧。",
+            "gpuDescription": "WebGL2 GPU 呈现，并自动回退到 CPU 画布。",
+            "gpuRowDescription": "“自动”在受支持时使用 GPU，否则回退到 CPU 渲染器。也可在“终端”设置中调整。",
+            "backgroundOpacity": {
+              "title": "背景不透明度",
+              "description": "终端默认背景的不透明度；低于 1 时窗格背景可透视。"
+            },
+            "cursorOpacity": {
+              "title": "光标不透明度",
+              "description": "光标填充的不透明度；低于 1 时块状光标下的字符可透视。"
+            },
+            "minContrast": {
+              "title": "最小对比度",
+              "description": "针对文本颜色的逐单元格 WCAG 对比度下限。",
+              "note": "引擎会将每个字形的颜色相对其所在单元格背景提升至 WCAG 4.5:1 对比度。始终开启，不可配置。"
+            }
+          },
+          "text": {
+            "title": "文本",
+            "description": "字体与文本整形。引擎以 HarfBuzz 级整形栅格化真实字体文件。",
+            "familyDescription": "终端主字体族；应用于新窗格。",
+            "familyRowDescription": "引擎会加载该字体族的真实字体文件。未知名称将保留内置的 JetBrains Mono。",
+            "weightRowDescription": "选择该字体族中最接近的已安装字重；SGR 粗体在已安装时使用真实的 Bold 字面。",
+            "ligaturesDescription": "编程连字（=>、!=、===）由引擎原生整形。",
+            "ligaturesOnNote": "当前解析结果：你的字体已启用。",
+            "ligaturesOffNote": "当前解析结果：你的字体未启用。",
+            "fallbacks": {
+              "title": "回退字体",
+              "description": "CJK、符号与彩色表情的回退字面。",
+              "note": "引擎会自动加载操作系统的 CJK 和彩色表情字面作为回退，非拉丁文字和表情无需配置即可显示。"
+            }
+          }
         }
       },
       "right": {

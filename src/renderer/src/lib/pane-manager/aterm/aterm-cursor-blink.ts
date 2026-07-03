@@ -10,6 +10,9 @@ export type AtermCursorTarget = {
   set_cursor_blink_phase: (on: boolean) => void
   set_cursor_hollow: (hollow: boolean) => void
   set_selection_inactive: (inactive: boolean) => void
+  /** Effects focus gate (idle one-shots fire only while focused). Optional so
+   *  pre-effects fakes/tests and older targets stay valid. */
+  set_effects_focused?: (focused: boolean) => void
 }
 
 export type AtermCursorBlinkDeps = {
@@ -61,6 +64,8 @@ export function attachAtermCursorBlink(deps: AtermCursorBlinkDeps): AtermCursorB
     term.set_cursor_hollow(false)
     // Focus → the selection paints with the ACTIVE background.
     term.set_selection_inactive(false)
+    // Focus-gate the effects idle one-shots (engine §5.6): only a focused pane blinks.
+    term.set_effects_focused?.(true)
     setPhase(true)
     if (getCursorBlink?.() ?? true) {
       timer = setInterval(() => {
@@ -82,6 +87,7 @@ export function attachAtermCursorBlink(deps: AtermCursorBlinkDeps): AtermCursorB
     term.set_cursor_hollow(true)
     // Blur → the selection dims to the INACTIVE background.
     term.set_selection_inactive(true)
+    term.set_effects_focused?.(false)
     setPhase(true)
   }
 

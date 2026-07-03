@@ -5,6 +5,7 @@ import { attachAtermPointerInputs } from './aterm-pointer-input-bundle'
 import { createAtermPaneGridSizing, type AtermPaneGridSizing } from './aterm-pane-grid-sizing'
 import type { AtermFileLinkOpener, AtermLinkProviderSource } from './aterm-link-input'
 import { createAtermDrawScheduler } from './aterm-draw-scheduler'
+import { createAtermEffectsDrive, type AtermEffectsDriveEngine } from './aterm-effects-drive'
 import { createAtermPaneSearchState } from './aterm-pane-search-state'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import { buildAtermRendererReplySurface } from './aterm-renderer-reply-surface'
@@ -232,6 +233,15 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     isDisposed: () => disposed
   })
 
+  // Effects animation drive: rAF cadence only while the engine reports an active
+  // animation, zero scheduled work once settled. The worker-backed term lacks the
+  // effects methods (its worker ticks them itself), so the drive no-ops there.
+  const effectsDrive = createAtermEffectsDrive({
+    term: term as AtermEffectsDriveEngine,
+    scheduleDraw,
+    isDisposed: () => disposed
+  })
+
   // Wire the paint path now that the strategy + grid reflow exist: the rAF draw and
   // the interactive presentNow fast path share one presenter.
   const presenter = createAtermPanePresenter({
@@ -243,7 +253,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     scheduleDraw,
     isDisposed: () => disposed,
     getSearchMatches: searchState.getSearchMatches,
-    getSearchActiveIndex: searchState.getSearchActiveIndex
+    getSearchActiveIndex: searchState.getSearchActiveIndex,
+    effectsDrive
   })
   draw = presenter.draw
   presentNow = presenter.presentNow
@@ -318,6 +329,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     }
     disposed = true
     drawScheduler.dispose()
+    effectsDrive.dispose()
     a11yMirror.dispose()
     gridSizing.reflow.dispose()
     textareaInput.dispose()

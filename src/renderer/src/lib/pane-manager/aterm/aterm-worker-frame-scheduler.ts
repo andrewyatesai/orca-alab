@@ -14,6 +14,13 @@ import type { AtermWorkerState } from './aterm-render-worker-protocol'
 
 type SchedulerTerminal = {
   render: () => void
+  /** Advance the effects clock pre-render; true while still animating (keep rAF
+   *  cadence), false once settled (the engine's idle-to-zero contract). */
+  tickEffects: () => boolean
+  /** Ms until the next idle one-shot (settled-cat blink), or undefined. */
+  effectsIdleDeadlineMs: () => number | undefined
+  /** Cross an armed idle deadline on the injected clock (timer-fired frames). */
+  advanceEffectsBy: (dtMs: number) => void
   buildState: () => AtermWorkerState
   dimensions: () => { cols: number; rows: number; cellWidth: number; cellHeight: number }
 }
@@ -67,6 +74,8 @@ export function createWorkerFrameScheduler(deps: {
   postNow: () => void
   /** Set the hidden/suspended flag; resuming (false) schedules a post of the latest state. */
   setSuspended: (suspended: boolean) => void
+  /** Cancel the armed effects idle one-shot timer (pane dispose). */
+  dispose: () => void
 } {
   let suspended = false
   let drawScheduled = false
@@ -75,6 +84,16 @@ export function createWorkerFrameScheduler(deps: {
   let lastRows = -1
   let lastCellW = -1
   let lastCellH = -1
+  // The single armed timer for the engine's next idle one-shot while effects are
+  // settled (never a spinning loop; cleared on re-arm/animating/dispose).
+  let effectsIdleTimer: ReturnType<typeof setTimeout> | null = null
+
+  const clearEffectsIdleTimer = (): void => {
+    if (effectsIdleTimer !== null) {
+      clearTimeout(effectsIdleTimer)
+      effectsIdleTimer = null
+    }
+  }
 
   const postState = (term: SchedulerTerminal): void => {
     const state = term.buildState()
@@ -105,10 +124,38 @@ export function createWorkerFrameScheduler(deps: {
       }
       return
     }
+    // Advance the effects clock before the paint so this frame shows the advanced
+    // state; while an effect is still animating, book a render-only follow-up frame
+    // (rAF cadence). Once settled the engine reports inactive → zero rAF work, with
+    // at most ONE timer armed for its next idle one-shot.
+    const effectsAnimating = term.tickEffects()
     term.render()
     if (needStatePost) {
       needStatePost = false
       postState(term)
+    }
+    if (effectsAnimating) {
+      clearEffectsIdleTimer()
+      schedule(false)
+      return
+    }
+    clearEffectsIdleTimer()
+    const deadline = term.effectsIdleDeadlineMs()
+    if (deadline !== undefined && Number.isFinite(deadline)) {
+      effectsIdleTimer = setTimeout(
+        () => {
+          effectsIdleTimer = null
+          const liveTerm = deps.getTerm()
+          if (!liveTerm || suspended) {
+            return
+          }
+          // The injected clock advanced 0 while idle: cross the armed deadline, then
+          // resume the frame loop there (render-only — nothing state-visible changes).
+          liveTerm.advanceEffectsBy(deadline)
+          schedule(false)
+        },
+        Math.max(0, deadline)
+      )
     }
   }
 
@@ -141,9 +188,13 @@ export function createWorkerFrameScheduler(deps: {
     },
     setSuspended: (next) => {
       suspended = next
-      if (!next) {
-        schedule()
+      if (next) {
+        // A hidden pane paints nothing; drop the armed one-shot (resume re-arms).
+        clearEffectsIdleTimer()
+        return
       }
-    }
+      schedule()
+    },
+    dispose: clearEffectsIdleTimer
   }
 }

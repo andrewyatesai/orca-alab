@@ -231,6 +231,43 @@ export async function loadAtermWorkerEngine(
     post({ type: 'setCursorOpacity', opacity })
   backed.term.set_kitty_keyboard_enabled = (enabled: boolean): void =>
     post({ type: 'setKittyKeyboardEnabled', enabled })
+  // Effects setters (sparkle words / cursor glow / focus gate) as worker commands —
+  // the engine ticks + settles effects inside the worker's own frame scheduler.
+  backed.term.set_sparkle_words_enabled = (on: boolean): void =>
+    post({ type: 'setSparkleWordsEnabled', on })
+  backed.term.set_sparkle_classes = (
+    profanity: boolean,
+    feline: boolean,
+    orca: boolean,
+    emphasis: boolean
+  ): void => post({ type: 'setSparkleClasses', profanity, feline, orca, emphasis })
+  backed.term.set_sparkle_reduced_motion = (on: boolean): void =>
+    post({ type: 'setSparkleReducedMotion', on })
+  backed.term.set_cursor_glow = (
+    enabled: boolean,
+    style: string,
+    color: number | null | undefined,
+    accent: number | null | undefined,
+    durationMs: number,
+    length: number,
+    intensity: number,
+    radius: number,
+    ring: boolean
+  ): void =>
+    post({
+      type: 'setCursorGlow',
+      enabled,
+      style,
+      color: color ?? null,
+      accent: accent ?? null,
+      durationMs,
+      length,
+      intensity,
+      radius,
+      ring
+    })
+  backed.term.set_effects_focused = (focused: boolean): void =>
+    post({ type: 'setEffectsFocused', focused })
   // The worker owns the pane canvas, so search highlights + the link underline paint on
   // a main-thread stacked overlay driven by the snapshot (works for CPU + GPU worker).
   overlay = createAtermWorkerOverlay(

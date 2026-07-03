@@ -81,6 +81,40 @@ export const getNotificationsPaneSearchEntries = createLocalizedCatalog(() => [
   },
   {
     title: translate(
+      'auto.components.settings.notifications.search.a5f6ca7dd2',
+      'Long Command Finished'
+    ),
+    description: translate(
+      'auto.components.settings.notifications.search.06026c6911',
+      'Notify when a long-running terminal command finishes in the background.'
+    ),
+    keywords: [
+      ...translateSearchKeyword(
+        'auto.components.settings.notifications.search.ca8faa40d7',
+        'notifications'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.notifications.search.c638ae989d',
+        'terminal'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.notifications.search.1b2270db4f',
+        'command'
+      ),
+      ...translateSearchKeyword('auto.components.settings.notifications.search.2d7d000b38', 'long'),
+      ...translateSearchKeyword(
+        'auto.components.settings.notifications.search.1e5d17005e',
+        'duration'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.notifications.search.7a8c4e87fd',
+        'threshold'
+      ),
+      ...translateSearchKeyword('auto.components.settings.notifications.search.ed10d72fd4', 'exit')
+    ]
+  },
+  {
+    title: translate(
       'auto.components.settings.notifications.search.96562a72c6',
       'Suppress While Focused'
     ),

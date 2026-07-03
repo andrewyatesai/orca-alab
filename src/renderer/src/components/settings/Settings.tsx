@@ -32,6 +32,7 @@ import { AppearancePane } from './AppearancePane'
 import { InputPane } from './InputPane'
 import { ShortcutsPane } from './ShortcutsPane'
 import { TerminalPane } from './TerminalPane'
+import { TerminalEnginePane } from './TerminalEnginePane'
 import { FloatingWorkspacePane } from './FloatingWorkspacePane'
 import { useGhosttyImport } from './useGhosttyImport'
 import { useWarpThemeImport } from './useWarpThemeImport'
@@ -1310,6 +1311,27 @@ function Settings(): React.JSX.Element {
                       pwshAvailable={windowsTerminalCapabilities.pwshAvailable}
                       gitBashAvailable={windowsTerminalCapabilities.gitBashAvailable}
                       isWindowsTerminalHost={isWindowsTerminalHost}
+                    />
+                  ) : null}
+                </SettingsSection>
+
+                <SettingsSection
+                  id="terminal-engine"
+                  title={translate(
+                    'auto.components.settings.Settings.terminalEngine.title',
+                    'Terminal Engine'
+                  )}
+                  description={translate(
+                    'auto.components.settings.Settings.terminalEngine.description',
+                    'Engine effects, rendering, text shaping, scrollback, input, and clipboard security.'
+                  )}
+                  searchEntries={getSectionSearchEntries('terminal-engine')}
+                >
+                  {isSectionMounted('terminal-engine') ? (
+                    <TerminalEnginePane
+                      settings={settings}
+                      updateSettings={updateSettings}
+                      systemPrefersDark={systemPrefersDark}
                     />
                   ) : null}
                 </SettingsSection>

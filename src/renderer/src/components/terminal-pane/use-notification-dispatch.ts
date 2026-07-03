@@ -28,11 +28,14 @@ function agentSnapshotMatchesExplicitTitle(
 }
 
 export type TerminalNotificationEvent = {
-  source: 'terminal-bell' | 'agent-task-complete'
+  source: 'terminal-bell' | 'agent-task-complete' | 'long-command-complete'
   terminalTitle?: string
   paneKey?: string
   agentStatusSnapshot?: AgentCompletionStatusSnapshot
   suppressOsNotification?: boolean
+  /** long-command-complete: runtime + OSC 133;D exit code for the body text. */
+  commandDurationMs?: number
+  commandExitCode?: number | null
 }
 
 /**
@@ -184,6 +187,12 @@ export function dispatchTerminalNotification(
       hasMultipleActiveRepos: countReposNeedingNotificationDisambiguation(state) > 1,
       terminalTitle: event.terminalTitle,
       isActiveWorktree: state.activeWorktreeId === worktreeId,
+      ...(event.source === 'long-command-complete'
+        ? {
+            commandDurationMs: event.commandDurationMs,
+            commandExitCode: event.commandExitCode
+          }
+        : {}),
       ...agentSnapshot
     })
     .then((result) => {

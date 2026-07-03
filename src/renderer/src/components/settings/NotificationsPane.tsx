@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GlobalSettings } from '../../../../shared/types'
+import {
+  LONG_COMMAND_THRESHOLD_SECONDS_MAX,
+  LONG_COMMAND_THRESHOLD_SECONDS_MIN
+} from '../../../../shared/constants'
 import { Button } from '../ui/button'
+import { Input } from '../ui/input'
+import { Label } from '../ui/label'
 import { Separator } from '../ui/separator'
-import { BellRing, Bot, Siren } from 'lucide-react'
+import { BellRing, Bot, Siren, Timer } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { NotificationSettingToggle } from './NotificationSettingToggle'
 import { NotificationSoundSection } from './NotificationSoundSection'
@@ -66,6 +72,31 @@ export function NotificationsPane({
       ...resolveNotificationVolumeDraftState(current, notificationSettings.customSoundVolume),
       draft: value
     }))
+  }
+
+  const [thresholdDraft, setThresholdDraft] = useState(() =>
+    String(notificationSettings.longCommandThresholdSeconds)
+  )
+  const lastCommittedThreshold = useRef(notificationSettings.longCommandThresholdSeconds)
+  if (lastCommittedThreshold.current !== notificationSettings.longCommandThresholdSeconds) {
+    // Why: an external settings update (another window, reset) must refresh the
+    // draft; local typing alone must not, or every keystroke would be clamped.
+    lastCommittedThreshold.current = notificationSettings.longCommandThresholdSeconds
+    setThresholdDraft(String(notificationSettings.longCommandThresholdSeconds))
+  }
+  const commitThresholdDraft = (): void => {
+    const parsed = Number.parseInt(thresholdDraft, 10)
+    const clamped = Number.isNaN(parsed)
+      ? notificationSettings.longCommandThresholdSeconds
+      : Math.min(
+          LONG_COMMAND_THRESHOLD_SECONDS_MAX,
+          Math.max(LONG_COMMAND_THRESHOLD_SECONDS_MIN, parsed)
+        )
+    setThresholdDraft(String(clamped))
+    if (clamped !== notificationSettings.longCommandThresholdSeconds) {
+      lastCommittedThreshold.current = clamped
+      void updateNotificationSettings({ longCommandThresholdSeconds: clamped })
+    }
   }
 
   const handleVolumeCommit = (value: number): void => {
@@ -135,6 +166,67 @@ export function NotificationsPane({
           })
         }
       />
+
+      <NotificationSettingToggle
+        icon={<Timer className="size-4" />}
+        label={translate(
+          'auto.components.settings.NotificationsPane.fb499fb735',
+          'Long Command Finished'
+        )}
+        description={translate(
+          'auto.components.settings.NotificationsPane.1ced11d6b5',
+          'A command in a background terminal finishes after the time threshold.'
+        )}
+        checked={notificationSettings.longCommandComplete}
+        disabled={!notificationSettings.enabled}
+        onToggle={() =>
+          void updateNotificationSettings({
+            longCommandComplete: !notificationSettings.longCommandComplete
+          })
+        }
+      />
+
+      <div className="flex items-center justify-between gap-4 py-2">
+        <div className="space-y-0.5">
+          <Label>
+            {translate(
+              'auto.components.settings.NotificationsPane.08b271938b',
+              'Long Command Threshold'
+            )}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {translate(
+              'auto.components.settings.NotificationsPane.162aeb3e20',
+              'Minimum command run time before Orca notifies, in seconds.'
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={LONG_COMMAND_THRESHOLD_SECONDS_MIN}
+            max={LONG_COMMAND_THRESHOLD_SECONDS_MAX}
+            step={1}
+            disabled={!notificationSettings.enabled || !notificationSettings.longCommandComplete}
+            value={thresholdDraft}
+            onChange={(e) => setThresholdDraft(e.target.value)}
+            onBlur={commitThresholdDraft}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                commitThresholdDraft()
+              }
+            }}
+            aria-label={translate(
+              'auto.components.settings.NotificationsPane.08b271938b',
+              'Long Command Threshold'
+            )}
+            className="number-input-clean w-20 tabular-nums"
+          />
+          <span className="text-xs text-muted-foreground">
+            {translate('auto.components.settings.NotificationsPane.e1f2188fcd', 'seconds')}
+          </span>
+        </div>
+      </div>
 
       <Separator />
 

@@ -252,11 +252,13 @@ type UseTerminalPaneLifecycleDeps = {
   clearTerminalPaneUnread: (paneKey: string) => void
   onShowSessionRestoredBanner: (paneId: number) => void
   dispatchNotification: (event: {
-    source: 'terminal-bell' | 'agent-task-complete'
+    source: 'terminal-bell' | 'agent-task-complete' | 'long-command-complete'
     terminalTitle?: string
     paneKey?: string
     agentStatusSnapshot?: ParsedAgentStatusPayload
     suppressOsNotification?: boolean
+    commandDurationMs?: number
+    commandExitCode?: number | null
   }) => void
   setCacheTimerStartedAt: (key: string, ts: number | null) => void
   syncPanePtyLayoutBinding: (paneId: number, ptyId: string | null) => void

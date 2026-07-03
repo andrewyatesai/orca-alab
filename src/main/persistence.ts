@@ -91,6 +91,8 @@ import { getRepoExecutionHostId, parseExecutionHostId } from '../shared/executio
 import {
   getDefaultPersistedState,
   getDefaultNotificationSettings,
+  LONG_COMMAND_THRESHOLD_SECONDS_MAX,
+  LONG_COMMAND_THRESHOLD_SECONDS_MIN,
   getDefaultOnboardingState,
   getDefaultVoiceSettings,
   getDefaultUIState,
@@ -905,11 +907,22 @@ function normalizeNotificationSettings(value: unknown): NotificationSettings {
     typeof rawVolume === 'number' && Number.isFinite(rawVolume)
       ? Math.min(100, Math.max(0, rawVolume))
       : defaults.customSoundVolume
+  const rawLongCommandThreshold = candidate.longCommandThresholdSeconds
+  // Why: the threshold gates OS notifications; a persisted 0/NaN would make
+  // every trivial command notify, so clamp to the supported range instead.
+  const longCommandThresholdSeconds =
+    typeof rawLongCommandThreshold === 'number' && Number.isFinite(rawLongCommandThreshold)
+      ? Math.min(
+          LONG_COMMAND_THRESHOLD_SECONDS_MAX,
+          Math.max(LONG_COMMAND_THRESHOLD_SECONDS_MIN, Math.round(rawLongCommandThreshold))
+        )
+      : defaults.longCommandThresholdSeconds
   return {
     ...defaults,
     ...candidate,
     customSoundId,
-    customSoundVolume
+    customSoundVolume,
+    longCommandThresholdSeconds
   }
 }
 

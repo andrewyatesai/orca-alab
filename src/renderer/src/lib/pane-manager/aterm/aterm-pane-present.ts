@@ -1,5 +1,6 @@
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermDrawScheduler } from './aterm-draw-scheduler'
+import type { AtermEffectsDrive } from './aterm-effects-drive'
 import type { AtermGridReflow } from './aterm-grid-reflow'
 import type { AtermSearchMatch } from './aterm-search'
 
@@ -25,6 +26,9 @@ type AtermPanePresenterDeps = {
   isDisposed: () => boolean
   getSearchMatches: () => AtermSearchMatch[]
   getSearchActiveIndex: () => number
+  /** In-process effects animation drive (no-op for the worker path, whose engine
+   *  ticks effects inside the worker's own frame scheduler). */
+  effectsDrive: Pick<AtermEffectsDrive, 'beforeFrame' | 'afterFrame'>
 }
 
 export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPanePresenter {
@@ -44,9 +48,14 @@ export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPan
   // The actual paint: present the engine grid + overlays. Shared by the rAF draw and
   // the interactive immediate-present fast path so both render identically.
   const doPresent = (): void => {
+    // Advance the clockless effects engines by the elapsed frame time BEFORE the
+    // paint so this frame shows the advanced state; afterFrame keeps rAF cadence
+    // only while the engine reports an active animation (idle-to-zero contract).
+    deps.effectsDrive.beforeFrame()
     strategy.drawFrame()
     searchOverlay?.paint(deps.getSearchMatches(), deps.getSearchActiveIndex())
     a11yMirror.schedule()
+    deps.effectsDrive.afterFrame()
   }
 
   const draw = (): void => {

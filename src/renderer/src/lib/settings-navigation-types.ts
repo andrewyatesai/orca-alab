@@ -16,6 +16,7 @@ export type SettingsNavTarget =
   | 'input'
   | 'floating-workspace'
   | 'terminal'
+  | 'terminal-engine'
   | 'quick-commands'
   | 'notifications'
   | 'computer-use'

@@ -3,6 +3,7 @@ import {
   type AtermPaneControllerOptions
 } from './aterm-pane-controller-types'
 import { buildDefaultTerminalOptions } from '../pane-terminal-options'
+import { readAtermEffectsConfig, type AtermEffectsConfig } from './aterm-effects-settings'
 import { useAppStore } from '@/store'
 
 /** The live settings readers the wiring uses (font size / line-height / family /
@@ -35,6 +36,9 @@ export type AtermControllerOptionReaders = {
   /** Kitty keyboard capability (per-pane static policy: local Windows ConPTY panes
    *  disable it — see terminal-keyboard-protocol); default true (engine default ON). */
   getKittyKeyboardEnabled: () => boolean
+  /** Live effects config (sparkle words / cursor glow / reduced motion); defaults
+   *  keep every effect OFF, matching the engine's byte-identical default. */
+  getEffectsConfig: () => AtermEffectsConfig
 }
 
 /** Clamp a stored opacity setting to the engine's 0..=1 domain; anything unset or
@@ -69,6 +73,9 @@ export function createAtermControllerOptionReaders(
       normalizeTerminalOpacity(useAppStore.getState().settings?.terminalBackgroundOpacity),
     getCursorOpacity: () =>
       normalizeTerminalOpacity(useAppStore.getState().settings?.terminalCursorOpacity),
-    getKittyKeyboardEnabled: () => options?.getKittyKeyboardEnabled?.() ?? true
+    getKittyKeyboardEnabled: () => options?.getKittyKeyboardEnabled?.() ?? true,
+    // Read the store live (like word separators) so effect toggles re-apply to
+    // open panes via reapplyEngineSettings without a pane rebuild.
+    getEffectsConfig: readAtermEffectsConfig
   }
 }

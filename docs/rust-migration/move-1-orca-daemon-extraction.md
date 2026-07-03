@@ -101,16 +101,19 @@ orca-daemon (bin)
    does the `hello` handshake at version 18, handles `createOrAttach`, streams
    `data`/`exit` events, and handles `write`/`resize`/`kill`/`ping`. Builds offline
    (rustc 1.96, vendored) and passes an end-to-end smoke test.
-2. 🟡 **Full RPC surface + session lifecycle — LARGELY DONE.** Reattach
+2. 🟢 **Full RPC surface + session lifecycle + engine queries — DONE.** Reattach
    (`createOrAttach` on a live id → `isNew:false`), **pending-output buffering**
    (output produced while detached is buffered per session and replayed on stream
    reconnect), `takePendingOutput`, real `listSessions`, `getSize`, `detach`,
-   `shutdown`, and safe stubs for `signal`/`cancelCreateOrAttach`/health. All pass
-   a reattach/buffering smoke test. **Remaining in this sub-step:** `getSnapshot`
-   /`getCwd`/`getForegroundProcess` need the headless terminal fed the same bytes
-   (tee the PTY reader into `orca-terminal`/aterm — this is the "napi hop
-   disappears" showcase), and the **parity gate** (`orca-parity`): feed identical
-   request vectors to the Node and Rust daemons, diff the responses.
+   `shutdown`, and safe stubs for `signal`/`cancelCreateOrAttach`/health. **Plus the
+   showcase**: each session tees its raw PTY output into an `orca-terminal`/aterm
+   `HeadlessTerminal`, so `getSnapshot` (real `snapshotAnsi`/`scrollbackAnsi` +
+   `modes` + `cwd` + dims), `getCwd` (OSC-7), and `clearScrollback` are answered
+   from **actual aterm engine state — no napi hop**. Two smoke tests pass: an
+   8-check reattach/buffering suite and an engine suite (OSC-7 cwd round-trip +
+   rendered-grid snapshot). **Remaining in this sub-step:** the **parity gate**
+   (`orca-parity`): feed identical request vectors to the Node and Rust daemons,
+   diff the responses; and `getForegroundProcess` (needs a process-group query).
 3. ⬜ **Persistence + lifecycle.** Checkpoint/session-list via `orca-store`; daemon
    health socket; crash-restart with session restore; a reaper for exited sessions
    (the spike keeps them for `listSessions`).
@@ -147,16 +150,15 @@ orca-daemon (bin)
 
 ## Immediate next action
 
-Sub-steps 1 and most of 2 are done (the crate builds offline and passes a
-reattach/buffering smoke test). Next, in order:
+Sub-steps 1 and 2 are done: the crate builds offline, embeds the real aterm engine
+per session, and passes both a reattach/buffering smoke test and an engine
+(cwd/snapshot) smoke test. Next, in order:
 
-1. **Snapshot via the headless terminal.** Tee the PTY reader into an
-   `orca-terminal`/aterm `HeadlessTerminal` alongside the raw forward, so
-   `getSnapshot` (scrollback replay on reattach), `getCwd` (OSC-7), and
-   `getForegroundProcess` return real values — the showcase that the daemon serves
-   engine state with **no napi hop**.
-2. **The `orca-parity` differential gate.** Feed the same request-vector corpus to
+1. **The `orca-parity` differential gate.** Feed the same request-vector corpus to
    the Node daemon and `orca-daemon`, diff the responses/events; wire it into the
-   gauntlet so drift is caught before cutover.
-3. **Spawner wiring.** Teach `daemon-spawner.ts` to launch the Rust bin under
+   gauntlet so drift is caught before cutover. This is the gate that lets the
+   cutover be safe.
+2. **Spawner wiring.** Teach `daemon-spawner.ts` to launch the Rust bin under
    `ORCA_RUST_DAEMON=1`, then run a real shell tab through it end to end.
+3. **Persistence + reaper** (sub-step 3): checkpoint/session-list via `orca-store`;
+   reap exited sessions; crash-restart with session restore.

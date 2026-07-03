@@ -672,6 +672,7 @@ version = "0.0.1"
 dependencies = [
  "orca-net",
  "orca-pty",
+ "orca-terminal",
  "serde_json",
 ]
 

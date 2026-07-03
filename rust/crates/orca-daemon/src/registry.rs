@@ -9,10 +9,11 @@
 use crate::protocol::{data_event, exit_event};
 use orca_net::encode_ndjson_line;
 use orca_pty::PtySession;
+use orca_terminal::HeadlessTerminal;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub struct SessionEntry {
     pub pty: PtySession,
@@ -24,6 +25,10 @@ pub struct SessionEntry {
     /// Output produced while the owning client had no stream socket; drained on reattach.
     pub pending: Vec<u8>,
     pub alive: bool,
+    /// The headless aterm engine this session's raw output is teed into, so the
+    /// daemon answers getSnapshot/getCwd from real engine state (no napi hop). Its
+    /// own lock lets the reader pump feed it without holding the registry lock.
+    pub terminal: Arc<Mutex<HeadlessTerminal>>,
 }
 
 #[derive(Default)]
@@ -124,6 +129,17 @@ impl Registry {
             .sessions
             .get(id)
             .and_then(|e| e.pid)
+    }
+
+    /// Clone out the session's headless terminal handle so a caller can query it
+    /// (snapshot/cwd) without holding the registry lock.
+    pub fn terminal_of(&self, id: &str) -> Option<Arc<Mutex<HeadlessTerminal>>> {
+        self.inner
+            .lock()
+            .unwrap()
+            .sessions
+            .get(id)
+            .map(|e| Arc::clone(&e.terminal))
     }
 
     /// Mark a session's child dead and deliver an `exit` event to its client (if a

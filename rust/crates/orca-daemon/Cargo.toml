@@ -14,9 +14,12 @@ path = "src/main.rs"
 [dependencies]
 # The PTY + the wire framing already exist as crates; the daemon is their
 # composition over a Unix socket. serde_json (vendored) parses the requests as
-# Values (no derive), mirroring orca-relay's payload handling.
+# Values (no derive), mirroring orca-relay's payload handling. orca-terminal is
+# the headless aterm engine the daemon feeds per session — getSnapshot/getCwd are
+# answered from it with NO napi hop (the whole point of Move 1).
 orca-pty = { path = "../orca-pty" }
 orca-net = { path = "../orca-net" }
+orca-terminal = { path = "../orca-terminal" }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 
 [lints.rust]

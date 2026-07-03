@@ -7,9 +7,10 @@
 use crate::protocol::{rpc_err, rpc_ok};
 use crate::registry::{Registry, SessionEntry};
 use orca_pty::{PtyCommand, PtySession, PtySize};
+use orca_terminal::{HeadlessTerminal, MouseTracking, DEFAULT_SCROLLBACK};
 use serde_json::{json, Value};
 use std::io::Read;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -45,6 +46,9 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             match registry.with_session(&sid(), |e| {
                 e.cols = cols;
                 e.rows = rows;
+                if let Ok(mut t) = e.terminal.lock() {
+                    t.resize(rows as usize, cols as usize);
+                }
                 e.pty.resize(PtySize { rows, cols })
             }) {
                 Some(Ok(())) => rpc_ok(id, Value::Null),
@@ -70,12 +74,27 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         "ping" => rpc_ok(id, json!({ "pong": true })),
         "ptySpawnHealth" => rpc_ok(id, json!({ "ok": true })),
         "systemResolverHealth" => rpc_ok(id, json!({ "health": "unknown" })),
-        // Need the headless terminal fed the same bytes (next increment); until then
-        // report empty so the client falls back to its own scrollback.
-        "getSnapshot" => rpc_ok(id, json!({ "snapshot": Value::Null })),
-        "getCwd" => rpc_ok(id, Value::Null),
+        // Real engine state from the session's headless aterm terminal — no napi hop.
+        "getSnapshot" => match registry.terminal_of(&sid()) {
+            Some(terminal) => {
+                let snapshot = build_snapshot(&mut terminal.lock().unwrap());
+                rpc_ok(id, json!({ "snapshot": snapshot }))
+            }
+            None => rpc_ok(id, json!({ "snapshot": Value::Null })),
+        },
+        "getCwd" => {
+            let cwd = registry
+                .terminal_of(&sid())
+                .and_then(|t| t.lock().unwrap().cwd().map(str::to_string));
+            rpc_ok(id, cwd.map(Value::String).unwrap_or(Value::Null))
+        }
         "getForegroundProcess" => rpc_ok(id, Value::Null),
-        "clearScrollback" => rpc_ok(id, Value::Null),
+        "clearScrollback" => {
+            if let Some(t) = registry.terminal_of(&sid()) {
+                t.lock().unwrap().clear_scrollback();
+            }
+            rpc_ok(id, Value::Null)
+        }
         "cancelCreateOrAttach" => rpc_ok(id, Value::Null),
         // portable-pty has no per-signal API; the app's Ctrl-C flows through `write`
         // (\x03) as PTY input, not this RPC, so erroring here is safe for the spike.
@@ -124,12 +143,20 @@ fn create_or_attach(
         Ok(r) => r,
         Err(e) => return rpc_err(id, &format!("reader clone failed: {e}")),
     };
-    // Pump raw PTY output → routed (live or buffered) by the registry; on EOF, mark
-    // the session exited + emit `exit`. The reader is an independent clone of the
-    // master, so it keeps reading after `pty` moves into the registry.
+    // A headless aterm engine per session: the pump tees raw PTY output into it so
+    // getSnapshot/getCwd are answered from real engine state (no napi hop).
+    let terminal = Arc::new(Mutex::new(HeadlessTerminal::with_scrollback(
+        rows as usize,
+        cols as usize,
+        DEFAULT_SCROLLBACK,
+    )));
+    // Pump raw PTY output → routed (live or buffered) by the registry AND teed into
+    // the headless engine; on EOF, mark the session exited + emit `exit`. The reader
+    // is an independent clone of the master, so it keeps reading after `pty` moves in.
     let pump_registry = registry.clone();
     let pump_session = session_id.clone();
-    thread::spawn(move || pump_output(reader, pump_registry, pump_session));
+    let pump_terminal = Arc::clone(&terminal);
+    thread::spawn(move || pump_output(reader, pump_registry, pump_session, pump_terminal));
 
     let created_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -146,6 +173,7 @@ fn create_or_attach(
             created_at_ms,
             pending: Vec::new(),
             alive: true,
+            terminal,
         },
     );
     rpc_ok(
@@ -178,12 +206,22 @@ fn build_command(payload: &Value) -> PtyCommand {
     }
 }
 
-fn pump_output(mut reader: Box<dyn Read + Send>, registry: Arc<Registry>, session_id: String) {
+fn pump_output(
+    mut reader: Box<dyn Read + Send>,
+    registry: Arc<Registry>,
+    session_id: String,
+    terminal: Arc<Mutex<HeadlessTerminal>>,
+) {
     let mut buf = [0u8; 65536];
     loop {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
+                // Tee: raw bytes into the headless engine (correct VT parsing), and a
+                // lossy-UTF-8 copy out to the client stream.
+                if let Ok(mut t) = terminal.lock() {
+                    t.process(&buf[..n]);
+                }
                 let data = String::from_utf8_lossy(&buf[..n]);
                 registry.route_output(&session_id, data.as_ref());
             }
@@ -192,4 +230,43 @@ fn pump_output(mut reader: Box<dyn Read + Send>, registry: Arc<Registry>, sessio
     // EOF: the child exited. The spike reports code 0 (the real daemon wait()s for the
     // true code); mark the session exited and notify the client.
     registry.mark_exited(&session_id, 0);
+}
+
+/// Build a `TerminalSnapshot` (types.ts) from the session's headless aterm engine.
+/// The ansi/cwd/modes are REAL engine state; `rehydrateSequences` is empty and
+/// `oscLinks` omitted in the spike (the client re-applies modes at cutover).
+fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
+    let snapshot_ansi = term.serialize_ansi(None);
+    let scrollback_ansi = term.serialize_scrollback_ansi(None);
+    let cwd = term.cwd().map(str::to_string);
+    let bracketed = term.bracketed_paste();
+    let app_cursor = term.application_cursor();
+    let alt_screen = term.is_alternate_screen();
+    let title = term.title();
+    let (rows, cols) = term.size();
+    let scrollback_lines = term.scrollback_len();
+    let (mouse_on, mouse_mode) = match term.mouse_tracking() {
+        MouseTracking::None => (false, "none"),
+        MouseTracking::X10 => (true, "x10"),
+        MouseTracking::Normal => (true, "vt200"),
+        MouseTracking::Button => (true, "drag"),
+        MouseTracking::Any => (true, "any"),
+    };
+    json!({
+        "snapshotAnsi": snapshot_ansi,
+        "scrollbackAnsi": scrollback_ansi,
+        "rehydrateSequences": "",
+        "cwd": cwd,
+        "modes": {
+            "bracketedPaste": bracketed,
+            "mouseTracking": mouse_on,
+            "mouseTrackingMode": mouse_mode,
+            "applicationCursor": app_cursor,
+            "alternateScreen": alt_screen,
+        },
+        "cols": cols,
+        "rows": rows,
+        "scrollbackLines": scrollback_lines,
+        "lastTitle": title,
+    })
 }

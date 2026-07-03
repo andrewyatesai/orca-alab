@@ -75,6 +75,34 @@ export async function loadAtermWorkerEngine(
   // common steady-state frames where it's unchanged (most frames during streaming).
   let lastHoverCursor = ''
 
+  // The worker owns the OffscreenCanvas BACKING STORE (sized to device px); the
+  // on-screen <canvas> element still carries the CSS layout box. BOTH in-process
+  // drawers pin that box to backing/dpr every frame (aterm-frame-painter,
+  // aterm-gpu-drawer) so a device-pixel framebuffer maps 1:1 — the worker path never
+  // did, leaving the canvas at width:100%/height:100%. Any moment the backing is
+  // undersized — the MIN_GRID first frame, an unlaid-out container's 80x24 fallback,
+  // or the gap before a dpr-change resize round-trips — is then UPSCALED across the
+  // whole pane = the pixelated blur. Pin the box to state.width/height / reconciled
+  // dpr (exactly what the stacked overlay already does) so an undersized backing
+  // renders crisp-but-small instead of blurry. Reconciled dpr via overlayGetDpr.
+  let lastCanvasCssW = -1
+  let lastCanvasCssH = -1
+  const syncPaneCanvasCssBox = (s: AtermWorkerState): void => {
+    if (s.width <= 0 || s.height <= 0) {
+      return
+    }
+    const dpr = overlayGetDpr() || 1
+    const cssW = s.width / dpr
+    const cssH = s.height / dpr
+    if (cssW === lastCanvasCssW && cssH === lastCanvasCssH) {
+      return
+    }
+    canvas.style.width = `${cssW}px`
+    canvas.style.height = `${cssH}px`
+    lastCanvasCssW = cssW
+    lastCanvasCssH = cssH
+  }
+
   // Shared-worker crash (a wasm RuntimeError poisons the module for EVERY engine in
   // it, so the manager retires the worker and fires each pane's onCrash): without
   // recovery this pane silently freezes at its last frame while keystrokes keep
@@ -112,6 +140,9 @@ export async function loadAtermWorkerEngine(
   pane.onEvent((data) => {
     switch (data.type) {
       case 'state':
+        // Pin the on-screen <canvas> layout box to the worker's device-px backing /
+        // reconciled dpr so the browser never upscales an undersized backing to a blur.
+        syncPaneCanvasCssBox(data)
         if (!firstResolved) {
           firstResolved = true
           resolveFirst(data)

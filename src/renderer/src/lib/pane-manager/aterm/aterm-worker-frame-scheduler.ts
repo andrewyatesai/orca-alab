@@ -76,10 +76,16 @@ export function createWorkerFrameScheduler(deps: {
   setSuspended: (suspended: boolean) => void
   /** Cancel the armed effects idle one-shot timer (pane dispose). */
   dispose: () => void
+  /** Interactive echo fast path: paint SYNCHRONOUSLY now (coalesced to one eager
+   *  paint per frame) instead of waiting for this pane's shared-rAF tick. */
+  presentNow: () => void
 } {
   let suspended = false
   let drawScheduled = false
   let needStatePost = false
+  // True once an eager present painted THIS frame, so multiple interactive nudges in
+  // one frame coalesce to a single synchronous paint (reset at the next frame).
+  let eagerPresentedThisFrame = false
   let lastCols = -1
   let lastRows = -1
   let lastCellW = -1
@@ -180,6 +186,40 @@ export function createWorkerFrameScheduler(deps: {
     }
   }
 
+  // Interactive echo fast path (the main-thread presentNow nudge): render NOW in the
+  // worker so the glyph catches the current compositor frame, instead of waiting a
+  // full shared-rAF tick (~16.7ms@60Hz) behind the sibling 'process' schedule that
+  // already coalesced the nudge away. Bulk output keeps flowing through schedule() on
+  // 'process', so this adds at most one synchronous paint per frame.
+  const presentNow = (): void => {
+    const term = deps.getTerm()
+    if (!term || suspended) {
+      // Hidden pane / engine still building: fall back to the coalesced path
+      // (resume / next frame repaints the latest state).
+      schedule()
+      return
+    }
+    if (eagerPresentedThisFrame) {
+      // Already eagerly painted this frame — coalesce any newer state onto the rAF.
+      schedule()
+      return
+    }
+    // Preserve the STATE post the old 'draw'→schedule(true) carried so the main-thread
+    // mirror still updates on this frame.
+    needStatePost = true
+    eagerPresentedThisFrame = true
+    drawNow()
+    // Re-open the eager gate at the next frame boundary (a harmless one-shot even when
+    // no other draw is armed; without a native rAF each echo just presents synchronously).
+    if (deps.raf) {
+      deps.raf(() => {
+        eagerPresentedThisFrame = false
+      })
+    } else {
+      eagerPresentedThisFrame = false
+    }
+  }
+
   return {
     schedule,
     postNow: () => {
@@ -195,6 +235,7 @@ export function createWorkerFrameScheduler(deps: {
       }
       schedule()
     },
+    presentNow,
     dispose: clearEffectsIdleTimer
   }
 }

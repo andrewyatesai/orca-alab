@@ -92,7 +92,11 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       return
     }
     case 'draw':
-      scheduleDraw()
+      // Interactive echo nudge (main-thread presentNow): paint SYNCHRONOUSLY so the
+      // glyph catches the current compositor frame instead of waiting a full worker
+      // rAF behind the sibling 'process' schedule. Bulk output still coalesces via
+      // scheduleDraw() on 'process'.
+      pane.frameScheduler.presentNow()
       return
     case 'resize':
       term?.resize(msg.rows, msg.cols)

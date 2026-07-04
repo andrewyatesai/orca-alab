@@ -85,14 +85,15 @@ export class DaemonClient {
     }
 
     try {
-      // Sequential: control first, then stream
+      // Sequential: control first, then stream. Feed each hello's residual bytes into
+      // the matching parser so events/responses coalesced into the hello packet survive.
       this.controlSocket = await this.connectSocket()
-      await this.sendHello(this.controlSocket, token, 'control')
-      pendingListenerCleanups.push(this.setupControlParser(this.controlSocket))
+      const controlResidual = await this.sendHello(this.controlSocket, token, 'control')
+      pendingListenerCleanups.push(this.setupControlParser(this.controlSocket, controlResidual))
 
       this.streamSocket = await this.connectSocket()
-      await this.sendHello(this.streamSocket, token, 'stream')
-      pendingListenerCleanups.push(this.setupStreamParser(this.streamSocket))
+      const streamResidual = await this.sendHello(this.streamSocket, token, 'stream')
+      pendingListenerCleanups.push(this.setupStreamParser(this.streamSocket, streamResidual))
 
       this.connected = true
       this.disconnectArmed = true
@@ -223,7 +224,11 @@ export class DaemonClient {
     })
   }
 
-  private sendHello(socket: Socket, token: string, role: 'control' | 'stream'): Promise<void> {
+  // Resolves with any bytes that arrived AFTER the hello line in the same packet —
+  // the daemon can write hello_ok and the first stream data/exit events in one write,
+  // so on a busy stream socket they coalesce into one read. The caller must feed this
+  // residual into the parser or that terminal output is lost.
+  private sendHello(socket: Socket, token: string, role: 'control' | 'stream'): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const hello: HelloMessage = {
         type: 'hello',
@@ -233,7 +238,7 @@ export class DaemonClient {
         role
       }
 
-      let buffer = ''
+      let buffer: Buffer = Buffer.alloc(0)
       let settled = false
       let timer: ReturnType<typeof setTimeout> | null = null
       const cleanup = (): void => {
@@ -245,7 +250,7 @@ export class DaemonClient {
         socket.removeListener('error', onError)
         socket.removeListener('close', onClose)
       }
-      const finish = (error?: Error): void => {
+      const finish = (error?: Error, residual?: Buffer): void => {
         if (settled) {
           return
         }
@@ -255,23 +260,27 @@ export class DaemonClient {
           reject(error)
           return
         }
-        resolve()
+        resolve(residual ?? Buffer.alloc(0))
       }
-      // Why: daemon socket chunks can split emoji/box-drawing UTF-8 bytes.
-      // Decoding each Buffer independently would permanently inject U+FFFD.
-      const decoder = new StringDecoder('utf8')
+      // Why: buffer raw BYTES and split on the '\n' byte (0x0A never occurs inside a
+      // multibyte UTF-8 sequence), so the hello line decodes cleanly AND the residual
+      // stays byte-exact for the parser's own decoder — decoding here with a throwaway
+      // StringDecoder would strand a partial multibyte tail on handoff.
       const onData = (chunk: Buffer): void => {
-        buffer += decoder.write(chunk)
-        const newlineIdx = buffer.indexOf('\n')
+        buffer = buffer.length === 0 ? chunk : Buffer.concat([buffer, chunk])
+        const newlineIdx = buffer.indexOf(0x0a)
         if (newlineIdx === -1) {
           return
         }
 
-        const line = buffer.slice(0, newlineIdx)
+        const line = buffer.subarray(0, newlineIdx).toString('utf8')
+        // Copy the post-hello bytes out of the shared buffer so the caller can feed
+        // them to the stream/control parser instead of losing them.
+        const residual = Buffer.from(buffer.subarray(newlineIdx + 1))
         try {
           const response = JSON.parse(line) as HelloResponse
           if (response.ok) {
-            finish()
+            finish(undefined, residual)
           } else {
             finish(
               new DaemonProtocolError(addNodePtyRecoveryHint(response.error ?? 'Hello rejected'))
@@ -298,7 +307,10 @@ export class DaemonClient {
     })
   }
 
-  private setupControlParser(socket: Socket): () => void {
+  // `initial` is the residual returned by sendHello — bytes that coalesced in after
+  // the hello line — and MUST be fed through this parser's own decoder first so a
+  // partial multibyte tail carries into the next chunk.
+  private setupControlParser(socket: Socket, initial?: Buffer): () => void {
     // Why: control responses may contain terminal/startup data with multibyte
     // text; keep incomplete UTF-8 bytes until the next socket chunk.
     const decoder = new StringDecoder('utf8')
@@ -322,11 +334,14 @@ export class DaemonClient {
     )
 
     const onData = (chunk: Buffer) => parser.feed(decoder.write(chunk))
+    if (initial && initial.length > 0) {
+      parser.feed(decoder.write(initial))
+    }
     socket.on('data', onData)
     return () => socket.off('data', onData)
   }
 
-  private setupStreamParser(socket: Socket): () => void {
+  private setupStreamParser(socket: Socket, initial?: Buffer): () => void {
     // Why: PTY output streams include emoji/box-drawing tables; socket chunks
     // can split those UTF-8 sequences across packets.
     const decoder = new StringDecoder('utf8')
@@ -343,6 +358,11 @@ export class DaemonClient {
     )
 
     const onData = (chunk: Buffer) => parser.feed(decoder.write(chunk))
+    // Drain the post-hello residual BEFORE attaching the live listener so the first
+    // coalesced data/exit event isn't lost on a busy-session reconnect.
+    if (initial && initial.length > 0) {
+      parser.feed(decoder.write(initial))
+    }
     socket.on('data', onData)
     return () => socket.off('data', onData)
   }

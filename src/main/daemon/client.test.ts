@@ -69,6 +69,9 @@ describe('DaemonClient', () => {
     onStreamHello?: (msg: HelloMessage) => void
     rejectVersion?: boolean
     suppressHelloResponse?: boolean
+    // Write the stream hello_ok AND this event in ONE socket.write so they coalesce
+    // into a single client read — reproduces the busy-session reconnect packet.
+    streamHelloCoalescedEvent?: DaemonEvent
   }): Promise<void> {
     return new Promise((resolve) => {
       server = createServer((socket) => {
@@ -104,7 +107,16 @@ describe('DaemonClient', () => {
                 socket.write(encodeNdjson({ type: 'hello', ok: false, error: 'Version mismatch' }))
                 return
               }
-              socket.write(encodeNdjson({ type: 'hello', ok: true }))
+              if (hello.role === 'stream' && opts?.streamHelloCoalescedEvent) {
+                socket.write(
+                  Buffer.concat([
+                    Buffer.from(encodeNdjson({ type: 'hello', ok: true })),
+                    Buffer.from(encodeNdjson(opts.streamHelloCoalescedEvent))
+                  ])
+                )
+              } else {
+                socket.write(encodeNdjson({ type: 'hello', ok: true }))
+              }
               if (hello.role === 'stream') {
                 opts?.onStreamHello?.(hello)
               }
@@ -341,6 +353,33 @@ describe('DaemonClient', () => {
         type: 'event',
         event: 'data',
         sessionId: 'session-1'
+      })
+    })
+
+    it('delivers a stream event that coalesced into the hello packet on reconnect', async () => {
+      // Regression: the daemon can write hello_ok and the first data event in one
+      // packet on a busy-session reconnect. sendHello used to consume the hello line
+      // and DROP the rest of that read, losing the event. The residual must reach the
+      // stream parser instead.
+      const coalesced: DaemonEvent = {
+        type: 'event',
+        event: 'data',
+        sessionId: 'session-coalesced',
+        payload: { data: 'first-line-after-hello' }
+      }
+      await startMockDaemon({ streamHelloCoalescedEvent: coalesced })
+
+      const events: DaemonEvent[] = []
+      client = new DaemonClient({ socketPath, tokenPath })
+      client.onEvent((event) => events.push(event as DaemonEvent))
+      await client.ensureConnected()
+
+      await waitFor(() => events.length > 0)
+      expect(events[0]).toMatchObject({
+        type: 'event',
+        event: 'data',
+        sessionId: 'session-coalesced',
+        payload: { data: 'first-line-after-hello' }
       })
     })
 

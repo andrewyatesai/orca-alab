@@ -108,9 +108,6 @@ function getRustTerminalAddonPath(): string | null {
   // on launch), the main process cwd (repo root under `pnpm dev`/playwright),
   // and the packaged resources dir. The main process — unlike the forked daemon
   // — has a valid cwd at the repo root in dev.
-  // app.getAppPath() can be the repo root OR out/main depending on launch, and
-  // the daemon's own cwd is unusable — so also try the main process cwd (the
-  // repo root under dev) and the packaged resources dir.
   const devName = join('native', 'orca-node', 'orca_node.node')
   const candidates = [
     join(app.getAppPath(), devName),
@@ -216,9 +213,10 @@ async function shouldPreserveDaemonWithLiveSessions(
 // The pure-Rust daemon (rust/crates/orca-daemon) is THE terminal daemon on
 // macOS/Linux — no opt-in flag. Windows is the sole exception: the Rust daemon's
 // transport is Unix-socket only (its Windows `serve` is a not(unix) stub), so
-// Windows keeps the Node named-pipe daemon until that transport lands. If the
-// binary is missing or fails to launch, launchRustDaemon returns null / the
-// caller catches and falls back to the Node daemon, so terminals never hard-fail.
+// Windows keeps the Node named-pipe daemon until that transport lands. On Unix
+// there is no Node fallback: a missing binary or startup timeout makes
+// launchRustDaemon throw, which propagates through DaemonSpawner.ensureRunning
+// and degrades the app to the in-process, non-persistent LocalPtyProvider.
 function rustDaemonEnabled(): boolean {
   return process.platform !== 'win32'
 }
@@ -365,18 +363,24 @@ function writeDaemonPidFile(runtimeDir: string, pid: number, entryPath: string):
   )
 }
 
+// Best-effort SIGTERM: signal a detached daemon pid, swallowing the error when
+// the pid is already gone. No-op when pid is falsy.
+function killPidBestEffort(pid?: number): void {
+  if (pid) {
+    try {
+      process.kill(pid, 'SIGTERM')
+    } catch {
+      // already gone
+    }
+  }
+}
+
 // The shutdown handle both launchers return: SIGTERM the detached daemon on app
 // teardown. Best-effort — the pid may already be gone.
 function makeDaemonSigtermHandle(pid: number | undefined): DaemonProcessHandle {
   return {
     shutdown: async () => {
-      if (pid) {
-        try {
-          process.kill(pid, 'SIGTERM')
-        } catch {
-          // already gone
-        }
-      }
+      killPidBestEffort(pid)
     }
   }
 }
@@ -439,13 +443,7 @@ async function launchRustDaemon(
     await new Promise((resolve) => setTimeout(resolve, 150))
   }
   if (!ready) {
-    if (child.pid) {
-      try {
-        process.kill(child.pid, 'SIGTERM')
-      } catch {
-        // already gone
-      }
-    }
+    killPidBestEffort(child.pid)
     const err = spawnError as Error | null
     throw new Error(
       err ? `Rust daemon failed to spawn: ${err.message}` : 'Rust daemon startup timed out'
@@ -524,13 +522,7 @@ async function launchNodeDaemon(
       }
       settled = true
       cleanupStartupListeners()
-      if (child.pid) {
-        try {
-          process.kill(child.pid, 'SIGTERM')
-        } catch {
-          // Already dead
-        }
-      }
+      killPidBestEffort(child.pid)
       reject(error)
     }
     function onReadyMessage(msg: unknown): void {
@@ -582,6 +574,18 @@ function createOutOfProcessLauncher(runtimeDir: string): DaemonLauncher {
       : launchNodeDaemon(runtimeDir, socketPath, tokenPath)
 }
 
+// Why: when the daemon process dies (e.g. killed by a signal, OOM, or cascading
+// from a force-quit of child processes), the adapter's ensureConnected() detects
+// the dead socket and calls this to fork a replacement daemon before retrying the
+// connection. Shared by the initial adapter and the restart adapter.
+function makeRespawnCallback(spawner: DaemonSpawner): () => Promise<void> {
+  return async () => {
+    console.warn('[daemon] Daemon process died — respawning')
+    spawner.resetHandle()
+    await spawner.ensureRunning()
+  }
+}
+
 export async function initDaemonPtyProvider(signal?: AbortSignal): Promise<void> {
   logDaemonMilestone('daemon-init-start')
   // Why: e2e coverage for the startup PTY gate (#5232) needs a daemon init
@@ -615,15 +619,7 @@ export async function initDaemonPtyProvider(signal?: AbortSignal): Promise<void>
     socketPath: info.socketPath,
     tokenPath: info.tokenPath,
     historyPath: getHistoryDir(),
-    // Why: when the daemon process dies (e.g. killed by a signal, OOM, or
-    // cascading from a force-quit of child processes), the adapter's
-    // ensureConnected() detects the dead socket and calls this to fork a
-    // replacement daemon before retrying the connection.
-    respawn: async () => {
-      console.warn('[daemon] Daemon process died — respawning')
-      newSpawner.resetHandle()
-      await newSpawner.ensureRunning()
-    }
+    respawn: makeRespawnCallback(newSpawner)
   })
 
   const legacyAdapters = await createLegacyDaemonAdapters(runtimeDir)
@@ -771,17 +767,12 @@ async function runRestartDaemon(): Promise<RestartDaemonResult> {
   const info = await currentSpawner.ensureRunning()
 
   // Step 5: build a fresh current adapter against the respawned daemon. Its
-  // respawn callback closes over the same spawner instance (identical to the
-  // crash-respawn closure in initDaemonPtyProvider).
+  // respawn callback closes over the same spawner instance.
   const newCurrent = new DaemonPtyAdapter({
     socketPath: info.socketPath,
     tokenPath: info.tokenPath,
     historyPath: getHistoryDir(),
-    respawn: async () => {
-      console.warn('[daemon] Daemon process died — respawning')
-      currentSpawner.resetHandle()
-      await currentSpawner.ensureRunning()
-    }
+    respawn: makeRespawnCallback(currentSpawner)
   })
 
   // Re-wrap in router if there were legacy adapters at startup; otherwise

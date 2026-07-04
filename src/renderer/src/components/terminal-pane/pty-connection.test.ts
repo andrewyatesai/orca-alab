@@ -4125,6 +4125,41 @@ describe('connectPanePty', () => {
     )
   })
 
+  it('clears the stale restored frame when the daemon respawns a fresh session on reattach', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transport.connect.mockImplementation(async ({ sessionId }: { sessionId?: string }) => {
+      // Daemon lost the reattach target and spawned fresh: no snapshot/replay/
+      // coldRestore, just the respawnedFresh signal.
+      if (sessionId) {
+        return { id: sessionId, respawnedFresh: true }
+      }
+      return null
+    })
+    transportFactoryQueue.push(transport)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-1', ptyId: 'tab-pty' }]
+      }
+    } as StoreState
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps({
+      restoredLeafId: LEAF_1,
+      restoredPtyIdByLeafId: { [LEAF_1]: 'tab-pty' }
+    })
+
+    connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks(20)
+
+    // The stale mounted frame is cleared and the crashed-TUI modes reset,
+    // matching a fresh shell — but no snapshot bytes are written.
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[2J\x1b[3J\x1b[H', expect.any(Function))
+    expect(pane.terminal.write).toHaveBeenCalledWith(POST_REPLAY_MODE_RESET, expect.any(Function))
+  })
+
   it('preserves live modes and injects focus-in after focused agent reattach', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport()

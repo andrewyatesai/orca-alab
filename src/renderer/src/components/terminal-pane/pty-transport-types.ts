@@ -32,6 +32,11 @@ export type PtyConnectResult = {
   sessionExpired?: boolean
   coldRestore?: { scrollback: string; cwd: string }
   replay?: string
+  // Why: the renderer asked to reattach but the daemon found the session gone
+  // and spawned a fresh one (no snapshot/replay/coldRestore). Signals
+  // handleReattachResult to clear the stale frame restoreScrollbackBuffers
+  // painted at mount, so the fresh shell does not start under dead output.
+  respawnedFresh?: boolean
 }
 
 type PtyCallbacks = {

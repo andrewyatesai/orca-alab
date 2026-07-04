@@ -46,7 +46,26 @@ const ptyExitSidecars = new Map<string, Set<(code: number) => void>>()
  *  state (stale-title timer, agent tracker) that would otherwise fire after
  *  the data handler is removed. */
 export const ptyTeardownHandlers = new Map<string, () => void>()
+/** Exit code of PTYs that have already exited, so a watcher that calls
+ *  subscribeToPtyExit AFTER the exit fired (and was consumed by the primary
+ *  handler + the sidecar set deleted) is still notified — otherwise
+ *  observeExistingAutomationSession can miss an exit in the subscribe window and
+ *  leave the run hung. PTY ids are minted unique and never reused, so subscribing
+ *  to an exited id always means "watch that exited session" → replay is correct.
+ *  Bounded: cap + evict oldest (exits accumulate one per session over app life). */
+const recentPtyExits = new Map<string, number>()
+const RECENT_PTY_EXIT_MAX = 256
 let ptyDispatcherAttached = false
+
+function recordRecentPtyExit(ptyId: string, code: number): void {
+  if (!recentPtyExits.has(ptyId) && recentPtyExits.size >= RECENT_PTY_EXIT_MAX) {
+    const oldest = recentPtyExits.keys().next().value
+    if (typeof oldest === 'string') {
+      recentPtyExits.delete(oldest)
+    }
+  }
+  recentPtyExits.set(ptyId, code)
+}
 
 export type PtyDataHandlerShutdownSnapshot = {
   ptyId: string
@@ -158,6 +177,10 @@ export function ensurePtyDispatcher(): void {
     } else {
       bufferPreHandlerPtyExit(payload.id, payload.code)
     }
+    // Record BEFORE the sidecar fanout so a watcher subscribing in the same tick
+    // (or later) can be replayed even though the primary handler cleared the
+    // pre-handler buffer above.
+    recordRecentPtyExit(payload.id, payload.code)
     const sidecars = ptyExitSidecars.get(payload.id)
     if (sidecars && sidecars.size > 0) {
       const snapshot = Array.from(sidecars)
@@ -171,6 +194,14 @@ export function ensurePtyDispatcher(): void {
 
 export function subscribeToPtyExit(ptyId: string, watcher: (code: number) => void): () => void {
   ensurePtyDispatcher()
+  // Replay-on-subscribe: if this PTY already exited (the exit fired before this
+  // subscription — e.g. during the automation paste→submit gap), notify now. The
+  // exit event will never come again, so a plain future-only sidecar would hang.
+  const alreadyExited = recentPtyExits.get(ptyId)
+  if (alreadyExited !== undefined) {
+    watcher(alreadyExited)
+    return () => {}
+  }
   let set = ptyExitSidecars.get(ptyId)
   if (!set) {
     set = new Set()

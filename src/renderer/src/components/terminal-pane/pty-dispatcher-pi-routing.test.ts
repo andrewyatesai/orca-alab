@@ -142,6 +142,35 @@ describe('dispatcher → transport → onTitleChange for Pi spinner', () => {
     transport.disconnect()
   })
 
+  it('replays an already-fired exit to a watcher that subscribes afterward', async () => {
+    // Regression: an automation observer that subscribes AFTER the PTY exited (the
+    // exit fired during the paste→submit gap) used to never be notified and hung
+    // the run. subscribeToPtyExit must replay the recorded exit.
+    const { ensurePtyDispatcher, subscribeToPtyExit } = await import('./pty-dispatcher')
+    ensurePtyDispatcher()
+    expect(exitDispatcherCallback).not.toBeNull()
+
+    // The PTY exits before anyone subscribes (no primary handler → buffered + recorded).
+    exitDispatcherCallback?.({ id: 'pty-late', code: 7 })
+
+    const watcher = vi.fn()
+    const unsubscribe = subscribeToPtyExit('pty-late', watcher)
+    expect(watcher).toHaveBeenCalledWith(7)
+    unsubscribe()
+  })
+
+  it('delivers a live exit to a watcher that subscribed first', async () => {
+    const { ensurePtyDispatcher, subscribeToPtyExit } = await import('./pty-dispatcher')
+    ensurePtyDispatcher()
+
+    const watcher = vi.fn()
+    subscribeToPtyExit('pty-live', watcher)
+    expect(watcher).not.toHaveBeenCalled()
+
+    exitDispatcherCallback?.({ id: 'pty-live', code: 0 })
+    expect(watcher).toHaveBeenCalledWith(0)
+  })
+
   it('attach()-flow pipeline delivers working frames to onTitleChange', async () => {
     // Why: the reattach code path (daemon-backed or intra-session remount)
     // calls transport.attach() instead of transport.connect(). If the handler

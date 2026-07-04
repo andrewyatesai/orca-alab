@@ -26,6 +26,10 @@ fn wait_until(mut pred: impl FnMut() -> bool, timeout: Duration) -> bool {
     pred()
 }
 
+// The cwd leg drives a POSIX shell (`printf` emitting OSC-7), so it is unix-only;
+// the Windows lifecycle twin below covers the same RPC surface under cmd.exe, and
+// OSC-7 cwd parsing itself is covered cross-platform by orca-terminal's parity tests.
+#[cfg(unix)]
 #[test]
 fn create_write_snapshot_cwd_lifecycle() {
     let reg = Arc::new(Registry::new());
@@ -94,6 +98,131 @@ fn create_write_snapshot_cwd_lifecycle() {
     assert_eq!(snapshot["rows"], json!(26));
     assert_eq!(snapshot["cwd"], json!("/tmp/dtest"));
     assert!(snapshot["modes"]["applicationCursor"].is_boolean());
+
+    // getSize returns the session grid.
+    let size = dispatch(
+        &reg,
+        client,
+        json!({ "id": "sz", "type": "getSize", "payload": { "sessionId": "s1" } }),
+    );
+    assert_eq!(size["payload"]["size"]["cols"], json!(88));
+    assert_eq!(size["payload"]["size"]["rows"], json!(26));
+
+    // listSessions shows the live session.
+    let list = dispatch(&reg, client, json!({ "id": "ls", "type": "listSessions" }));
+    let sessions = list["payload"]["sessions"].as_array().unwrap();
+    assert!(
+        sessions
+            .iter()
+            .any(|s| s["sessionId"] == json!("s1") && s["isAlive"] == json!(true)),
+        "listSessions includes the live session"
+    );
+
+    // takePendingOutput drains the buffered raw bytes (no stream socket registered
+    // in this dispatch-level test, so all output was buffered).
+    let pending = dispatch(
+        &reg,
+        client,
+        json!({ "id": "tp", "type": "takePendingOutput", "payload": { "sessionId": "s1" } }),
+    );
+    assert!(pending["payload"]["data"]
+        .as_str()
+        .unwrap()
+        .contains("MARKER_XYZ"));
+
+    // Reattach on the live id → isNew:false.
+    let reattach = dispatch(
+        &reg,
+        client,
+        json!({
+            "id": "c2", "type": "createOrAttach",
+            "payload": { "sessionId": "s1", "cols": 88, "rows": 26 }
+        }),
+    );
+    assert_eq!(
+        reattach["payload"]["isNew"],
+        json!(false),
+        "reattach isNew:false"
+    );
+
+    // Clean up the child.
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s1" } }),
+    );
+}
+
+/// Windows twin of the lifecycle test: same RPC surface (createOrAttach → write →
+/// getSnapshot → getSize → listSessions → takePendingOutput → reattach → kill)
+/// through a real ConPTY running cmd.exe. cmd has no OSC-7 channel, so getCwd is
+/// asserted null rather than dropped.
+#[cfg(windows)]
+#[test]
+fn create_write_snapshot_lifecycle_windows() {
+    let reg = Arc::new(Registry::new());
+    let client = "test-client";
+
+    let created = dispatch(
+        &reg,
+        client,
+        json!({
+            "id": "c1", "type": "createOrAttach",
+            "payload": { "sessionId": "s1", "cols": 88, "rows": 26 }
+        }),
+    );
+    assert_eq!(created["ok"], json!(true), "create ok");
+    assert_eq!(
+        created["payload"]["isNew"],
+        json!(true),
+        "first create isNew"
+    );
+
+    // Drive cmd.exe: echo a marker the ConPTY renders and the engine parses.
+    dispatch(
+        &reg,
+        client,
+        json!({
+            "id": "w1", "type": "write",
+            "payload": { "sessionId": "s1", "data": "echo MARKER_XYZ\r" }
+        }),
+    );
+
+    // Poll getSnapshot (non-draining) until the rendered grid carries the marker;
+    // ConPTY + cmd.exe startup can be slow on loaded machines, hence 10s.
+    let marker_ready = wait_until(
+        || {
+            let r = dispatch(
+                &reg,
+                client,
+                json!({ "id": "g", "type": "getSnapshot", "payload": { "sessionId": "s1" } }),
+            );
+            r["payload"]["snapshot"]["snapshotAnsi"]
+                .as_str()
+                .is_some_and(|s| s.contains("MARKER_XYZ"))
+        },
+        Duration::from_secs(10),
+    );
+    assert!(marker_ready, "snapshotAnsi carries the echoed marker");
+
+    let snap = dispatch(
+        &reg,
+        client,
+        json!({ "id": "g2", "type": "getSnapshot", "payload": { "sessionId": "s1" } }),
+    );
+    let snapshot = &snap["payload"]["snapshot"];
+    assert_eq!(snapshot["cols"], json!(88));
+    assert_eq!(snapshot["rows"], json!(26));
+    assert!(snapshot["modes"]["applicationCursor"].is_boolean());
+
+    // No OSC-7 was emitted, so the engine has no cwd: the RPC answers ok with null.
+    let cwd = dispatch(
+        &reg,
+        client,
+        json!({ "id": "cwd", "type": "getCwd", "payload": { "sessionId": "s1" } }),
+    );
+    assert_eq!(cwd["ok"], json!(true));
+    assert_eq!(cwd["payload"]["cwd"], Value::Null);
 
     // getSize returns the session grid.
     let size = dispatch(

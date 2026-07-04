@@ -6,3 +6,6 @@
 /config/scripts/run-internal-dev-setup.mjs text eol=lf
 /config/scripts/verify-cli-bin.mjs text eol=lf
 /config/scripts/verify-release-required-assets.mjs text eol=lf
+# Vendored cargo sources are verified byte-for-byte against .cargo-checksum.json;
+# EOL conversion (core.autocrlf on Windows) corrupts the checksums and breaks the offline build.
+/rust/vendor/** -text

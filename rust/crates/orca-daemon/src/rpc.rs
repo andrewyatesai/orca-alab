@@ -194,11 +194,11 @@ fn build_command(payload: &Value) -> PtyCommand {
         .get("cwd")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+    let shell = default_shell();
     match payload.get("command").and_then(Value::as_str) {
         Some(cmd) if !cmd.is_empty() => PtyCommand {
             program: shell,
-            args: vec!["-lc".to_string(), cmd.to_string()],
+            args: shell_run_args(cmd),
             cwd,
             env: Vec::new(),
         },
@@ -209,6 +209,28 @@ fn build_command(payload: &Value) -> PtyCommand {
             env: Vec::new(),
         },
     }
+}
+
+#[cfg(unix)]
+fn default_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+}
+
+#[cfg(unix)]
+fn shell_run_args(cmd: &str) -> Vec<String> {
+    vec!["-lc".to_string(), cmd.to_string()]
+}
+
+/// Windows twin: ConPTY sessions run under `%ComSpec%` (cmd.exe), the platform's
+/// interactive default; `/C` is the `-lc` analogue (cmd has no login semantics).
+#[cfg(windows)]
+fn default_shell() -> String {
+    std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string())
+}
+
+#[cfg(windows)]
+fn shell_run_args(cmd: &str) -> Vec<String> {
+    vec!["/C".to_string(), cmd.to_string()]
 }
 
 fn pump_output(

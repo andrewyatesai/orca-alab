@@ -3,6 +3,11 @@
 //! published to the token file) is accepted. This is the security property the
 //! live app relies on, so it is gated by a test rather than only the app's
 //! startup health check.
+//!
+//! Unix-only: it connects a real `std::os::unix::net::UnixStream` to the daemon's
+//! socket transport, which is unix-only (see lib.rs). The Windows daemon keeps the
+//! Node path, so there is no socket boundary to gate here.
+#![cfg(unix)]
 
 use orca_daemon::serve;
 use std::io::{BufRead, BufReader, Write};

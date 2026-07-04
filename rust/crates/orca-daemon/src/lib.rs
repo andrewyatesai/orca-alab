@@ -8,18 +8,28 @@
 //! parity harness can drive `rpc::dispatch_request` against a `registry::Registry`
 //! directly. See docs/rust-migration/move-1-orca-daemon-extraction.md.
 
+#[cfg(unix)]
 pub mod connection;
 pub mod protocol;
 pub mod registry;
 pub mod rpc;
+// token.rs reads /dev/urandom and sets 0600 perms via std::os::unix — unix-only,
+// like the socket transport it guards. The Windows daemon keeps the Node path.
+#[cfg(unix)]
 pub mod token;
 
+#[cfg(unix)]
 use connection::handle_connection;
+#[cfg(unix)]
 use registry::Registry;
 use std::io;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::os::unix::net::UnixListener;
+#[cfg(unix)]
 use std::sync::Arc;
+#[cfg(unix)]
 use std::thread;
 
 /// Bind the Unix socket at `socket_path` and serve connections forever. Each
@@ -32,6 +42,7 @@ use std::thread;
 /// token, publishes it to that file (0600) for the client to read, and rejects
 /// every `hello` whose token doesn't match. When `None` (parity harness /
 /// standalone), any token is accepted.
+#[cfg(unix)]
 pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
     let _ = std::fs::remove_file(socket_path);
     let listener = UnixListener::bind(socket_path)?;
@@ -67,4 +78,18 @@ pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// The socket transport is unix-only for now: the Node daemon uses a named pipe on
+/// Windows, and Rust std offers neither named pipes nor AF_UNIX there without
+/// `unsafe` (this crate forbids it). The RPC/registry/engine core above still
+/// builds and is tested on Windows; the transport twin lands with its own port.
+/// Signature matches the unix `serve` so `main.rs` calls it unchanged; `token_path`
+/// is accepted (and ignored) because no listener is bound to gate.
+#[cfg(not(unix))]
+pub fn serve(socket_path: &str, _token_path: Option<&str>) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        format!("orca-daemon socket transport is not implemented on this platform (socket {socket_path})"),
+    ))
 }

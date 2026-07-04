@@ -147,6 +147,15 @@ export class AtermGpuTerminal {
      */
     constructor(rows: number, cols: number, font_bytes: Uint8Array, px: number, fg: number, bg: number, cursor: number, selection: number);
     /**
+     * Register one keystroke for the cursor-comet ignition: sustained fast
+     * calls heat the typing cadence so the next `render` ignites the trail,
+     * sparse/slow calls keep it gentle. The cadence reads the effects clock,
+     * so the host must `advance_effects` between keystrokes for it to reflect
+     * real time. Call this from the SAME JS keydown handler that feeds
+     * `encode_key`; without it the comet stays dormant on web hosts.
+     */
+    note_keystroke(): void;
+    /**
      * Feed raw PTY output bytes into the engine.
      */
     process(bytes: Uint8Array): void;
@@ -534,6 +543,14 @@ export class AtermGpuTerminal {
      * emphasis ink), animated ink on.
      */
     set_sparkle_words_enabled(on: boolean): void;
+    /**
+     * Inject a broad-coverage SYMBOL fallback face from font bytes (the
+     * byte-injection sibling of the config `symbol_font` path). Applies to the
+     * CPU face and the live GPU face if `init` already ran; remembered so `init`
+     * re-applies it to the fresh GPU face. No-throw: a bad blob leaves the
+     * existing faces untouched.
+     */
+    set_symbol_font(bytes: Uint8Array): void;
     /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB) on both the
      * GPU renderer and the CPU face, so a host theme change re-themes the pane
@@ -964,6 +981,7 @@ export interface InitOutput {
     readonly atermgputerminal_mouse_wants_any_motion: (a: number) => number;
     readonly atermgputerminal_mouse_wants_motion: (a: number) => number;
     readonly atermgputerminal_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly atermgputerminal_note_keystroke: (a: number) => void;
     readonly atermgputerminal_process: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_render: (a: number) => [number, number];
     readonly atermgputerminal_render_offscreen: (a: number) => [number, number];
@@ -1025,6 +1043,7 @@ export interface InitOutput {
     readonly atermgputerminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
     readonly atermgputerminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
     readonly atermgputerminal_set_sparkle_words_enabled: (a: number, b: number) => void;
+    readonly atermgputerminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_sparkle_words_enabled: (a: number) => number;

@@ -50,7 +50,7 @@ fn exit_event_carries_the_real_child_code() {
     let reg = Arc::new(Registry::new());
     let client = "c-exit";
     let (tx, rx) = channel::<String>();
-    reg.register_stream_and_flush(client.to_string(), tx);
+    reg.register_stream(client.to_string(), tx);
 
     let created = dispatch(
         &reg,
@@ -71,7 +71,7 @@ fn signal_kills_a_live_session() {
     let reg = Arc::new(Registry::new());
     let client = "c-sig";
     let (tx, rx) = channel::<String>();
-    reg.register_stream_and_flush(client.to_string(), tx);
+    reg.register_stream(client.to_string(), tx);
 
     dispatch(
         &reg,
@@ -127,7 +127,7 @@ fn create_or_attach_applies_session_env_and_deletions() {
     let reg = Arc::new(Registry::new());
     let client = "c-env";
     let (tx, rx) = channel::<String>();
-    reg.register_stream_and_flush(client.to_string(), tx);
+    reg.register_stream(client.to_string(), tx);
     dispatch(
         &reg,
         client,
@@ -166,6 +166,98 @@ fn pty_spawn_health_runs_a_real_probe() {
     let health = dispatch(&reg, "c", json!({ "id": "h", "type": "ptySpawnHealth" }));
     assert_eq!(health["ok"], json!(true));
     assert_eq!(health["payload"]["healthy"], json!(true));
+}
+
+/// getCwd falls back to the LIVE shell process's cwd when the engine has no OSC-7
+/// cwd. Orca's shells emit OSC-133 (not OSC-7), so this fallback (/proc on Linux,
+/// lsof on macOS) is the common path — it used to return null, breaking the cwd the
+/// client shows per tab. The child `cd`s into a temp dir without emitting OSC-7, so
+/// the ONLY way getCwd can report it is the process fallback.
+#[test]
+fn get_cwd_falls_back_to_live_process_cwd_without_osc7() {
+    let reg = Arc::new(Registry::new());
+    let client = "c-cwd";
+
+    // A unique temp dir (pid-derived, no rand needed) the shell will sit in.
+    let dir = std::env::temp_dir().join(format!("orca-cwd-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("mkdir temp");
+    let want = std::fs::canonicalize(&dir).expect("canonicalize temp");
+    let dir_arg = dir.to_str().unwrap().to_string();
+
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "c1", "type": "createOrAttach",
+            "payload": { "sessionId": "s-cwd", "cols": 80, "rows": 24,
+                // `cd` alone emits no OSC-7; the shell stays alive on the sleep.
+                "command": format!("cd {dir_arg} && sleep 30") } }),
+    );
+
+    let resolved = wait_until(
+        || {
+            let r = dispatch(
+                &reg,
+                client,
+                json!({ "id": "g", "type": "getCwd", "payload": { "sessionId": "s-cwd" } }),
+            );
+            r["payload"]["cwd"]
+                .as_str()
+                .and_then(|c| std::fs::canonicalize(c).ok())
+                .is_some_and(|c| c == want)
+        },
+        Duration::from_secs(10),
+    );
+    assert!(resolved, "getCwd must fall back to the live process cwd ({want:?}) with no OSC-7");
+
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-cwd" } }),
+    );
+    let _ = std::fs::remove_dir(&dir);
+}
+
+/// getForegroundProcess resolves the PTY's foreground process group to a command
+/// name (node-pty's `.process`) — it used to be an unconditional null. The wire shape
+/// is `{ foregroundProcess: <string|null> }`; on a live PTY with a running child it
+/// resolves a non-empty name (the shell or the command it's running).
+#[test]
+fn get_foreground_process_resolves_a_command_name() {
+    let reg = Arc::new(Registry::new());
+    let client = "c-fg";
+
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "c1", "type": "createOrAttach",
+            "payload": { "sessionId": "s-fg", "cols": 80, "rows": 24, "command": "sleep 30" } }),
+    );
+
+    let mut last = Value::Null;
+    let resolved = wait_until(
+        || {
+            let r = dispatch(
+                &reg,
+                client,
+                json!({ "id": "g", "type": "getForegroundProcess", "payload": { "sessionId": "s-fg" } }),
+            );
+            last = r["payload"]["foregroundProcess"].clone();
+            last.as_str().is_some_and(|n| !n.is_empty())
+        },
+        Duration::from_secs(10),
+    );
+    // Null is a valid wire value where no pgid exists, but a live PTY child on
+    // Linux/macOS must resolve a real name.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    assert!(resolved, "a live PTY child must resolve a foreground process name, got {last:?}");
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let _ = resolved;
+
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-fg" } }),
+    );
 }
 
 /// createOrAttach reports a VALID ShellReadyState (types.ts union) — the old

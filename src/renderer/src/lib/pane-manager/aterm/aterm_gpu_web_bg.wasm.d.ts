@@ -45,6 +45,7 @@ export const atermgputerminal_link_at: (a: number, b: number, c: number) => numb
 export const atermgputerminal_mouse_wants_any_motion: (a: number) => number;
 export const atermgputerminal_mouse_wants_motion: (a: number) => number;
 export const atermgputerminal_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+export const atermgputerminal_note_keystroke: (a: number) => void;
 export const atermgputerminal_process: (a: number, b: number, c: number) => void;
 export const atermgputerminal_render: (a: number) => [number, number];
 export const atermgputerminal_render_offscreen: (a: number) => [number, number];
@@ -106,6 +107,7 @@ export const atermgputerminal_set_sparkle_lexicon_override: (a: number, b: numbe
 export const atermgputerminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
 export const atermgputerminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
 export const atermgputerminal_set_sparkle_words_enabled: (a: number, b: number) => void;
+export const atermgputerminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
 export const atermgputerminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
 export const atermgputerminal_set_word_separators: (a: number, b: number, c: number) => void;
 export const atermgputerminal_sparkle_words_enabled: (a: number) => number;

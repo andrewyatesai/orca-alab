@@ -2471,7 +2471,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen__convert__closures_____invoke__h12cc62c7750ca9fe(a, state0.b, arg0, arg1);
+                        return wasm_bindgen__convert__closures_____invoke__h7ea2c37bc646fad4(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -2848,7 +2848,7 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 34, function: Function { arguments: [Externref], shim_idx: 35, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h85babbb0ee037f08, wasm_bindgen__convert__closures_____invoke__h6b25d329a61c3710);
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__he21abf1415af0320, wasm_bindgen__convert__closures_____invoke__hba85b0f6cf16ed87);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -2912,12 +2912,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen__convert__closures_____invoke__h6b25d329a61c3710(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h6b25d329a61c3710(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__hba85b0f6cf16ed87(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__hba85b0f6cf16ed87(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h12cc62c7750ca9fe(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h12cc62c7750ca9fe(arg0, arg1, arg2, arg3);
+function wasm_bindgen__convert__closures_____invoke__h7ea2c37bc646fad4(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h7ea2c37bc646fad4(arg0, arg1, arg2, arg3);
 }
 
 const AtermGpuTerminalFinalization = (typeof FinalizationRegistry === 'undefined')

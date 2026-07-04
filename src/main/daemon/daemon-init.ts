@@ -271,6 +271,29 @@ async function launchRustDaemon(
     }
     console.warn('[daemon] Replacing a non-Rust daemon on the socket (ORCA_RUST_DAEMON=1)')
     await cleanupDaemonForProtocol(runtimeDir, PROTOCOL_VERSION)
+  } else {
+    // Why: mirror the Node launcher's non-healthy guard. A busy machine can time
+    // out the health check while the daemon is alive and owning terminals —
+    // killing it would destroy every live session. Re-verify with a session list
+    // first; only a verified non-empty list preserves (a daemon that cannot even
+    // list sessions cannot serve terminals, so replacing it is the only recovery).
+    const liveSessionCount = await getAliveDaemonSessionCount(socketPath, tokenPath)
+    if (liveSessionCount !== null && liveSessionCount > 0) {
+      if (health === 'pty-spawn-unhealthy') {
+        console.warn(
+          `[daemon] DEGRADED MODE: preserving Rust daemon that failed the PTY spawn health check because it owns ${liveSessionCount} live session${liveSessionCount === 1 ? '' : 's'}. Existing sessions keep working; fresh terminals run on the local provider until you restart the daemon.`
+        )
+        return createPreservedDaemonHandle(
+          runtimeDir,
+          PROTOCOL_VERSION,
+          'degraded-new-pty-fallback'
+        )
+      }
+      console.warn(
+        `[daemon] Preserving Rust daemon that failed the health check because it owns ${liveSessionCount} live session${liveSessionCount === 1 ? '' : 's'}`
+      )
+      return createPreservedDaemonHandle(runtimeDir)
+    }
   }
   await killStaleDaemon(runtimeDir, socketPath, tokenPath)
 

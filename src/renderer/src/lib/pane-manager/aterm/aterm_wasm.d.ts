@@ -254,6 +254,15 @@ export class AtermTerminal {
      */
     constructor(rows: number, cols: number, font_bytes: Uint8Array, px: number, fg: number, bg: number, cursor: number, selection: number);
     /**
+     * Register one keystroke for the cursor-comet ignition: sustained fast
+     * calls heat the typing cadence so the next `render` ignites the trail,
+     * sparse/slow calls keep it gentle. The cadence reads the effects clock,
+     * so the host must `advance_effects` between keystrokes for it to reflect
+     * real time. Call this from the SAME JS keydown handler that feeds
+     * `encode_key`; without it the comet stays dormant on web hosts.
+     */
+    note_keystroke(): void;
+    /**
      * Feed raw PTY output bytes into the engine.
      */
     process(bytes: Uint8Array): void;
@@ -653,6 +662,15 @@ export class AtermTerminal {
      */
     set_sparkle_words_enabled(on: boolean): void;
     /**
+     * Inject a broad-coverage SYMBOL fallback face from font bytes, so symbol
+     * glyphs the primary + fallback faces lack render real shapes instead of
+     * tofu. The byte-injection sibling of the config `symbol_font` path: the host
+     * supplies the OS symbol bytes (the canvas can't read the filesystem).
+     * No-throw: a bad blob surfaces a catchable JS exception and leaves the
+     * existing face untouched.
+     */
+    set_symbol_font(bytes: Uint8Array): void;
+    /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB), so a host
      * theme change re-themes the pane without rebuilding it. Per-cell SGR colours
      * flow independently; pair with set_palette_color for the ANSI palette.
@@ -973,6 +991,7 @@ export interface InitOutput {
     readonly atermterminal_mouse_wants_any_motion: (a: number) => number;
     readonly atermterminal_mouse_wants_motion: (a: number) => number;
     readonly atermterminal_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly atermterminal_note_keystroke: (a: number) => void;
     readonly atermterminal_process: (a: number, b: number, c: number) => void;
     readonly atermterminal_process_str: (a: number, b: number, c: number) => void;
     readonly atermterminal_render: (a: number) => void;
@@ -1035,6 +1054,7 @@ export interface InitOutput {
     readonly atermterminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
     readonly atermterminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
     readonly atermterminal_set_sparkle_words_enabled: (a: number, b: number) => void;
+    readonly atermterminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermterminal_sparkle_words_enabled: (a: number) => number;

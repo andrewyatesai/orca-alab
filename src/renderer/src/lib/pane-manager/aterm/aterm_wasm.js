@@ -745,6 +745,17 @@ export class AtermTerminal {
         return this;
     }
     /**
+     * Register one keystroke for the cursor-comet ignition: sustained fast
+     * calls heat the typing cadence so the next `render` ignites the trail,
+     * sparse/slow calls keep it gentle. The cadence reads the effects clock,
+     * so the host must `advance_effects` between keystrokes for it to reflect
+     * real time. Call this from the SAME JS keydown handler that feeds
+     * `encode_key`; without it the comet stays dormant on web hosts.
+     */
+    note_keystroke() {
+        wasm.atermterminal_note_keystroke(this.__wbg_ptr);
+    }
+    /**
      * Feed raw PTY output bytes into the engine.
      * @param {Uint8Array} bytes
      */
@@ -1476,6 +1487,23 @@ export class AtermTerminal {
      */
     set_sparkle_words_enabled(on) {
         wasm.atermterminal_set_sparkle_words_enabled(this.__wbg_ptr, on);
+    }
+    /**
+     * Inject a broad-coverage SYMBOL fallback face from font bytes, so symbol
+     * glyphs the primary + fallback faces lack render real shapes instead of
+     * tofu. The byte-injection sibling of the config `symbol_font` path: the host
+     * supplies the OS symbol bytes (the canvas can't read the filesystem).
+     * No-throw: a bad blob surfaces a catchable JS exception and leaves the
+     * existing face untouched.
+     * @param {Uint8Array} bytes
+     */
+    set_symbol_font(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_set_symbol_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
     /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB), so a host

@@ -63,6 +63,7 @@ export const atermterminal_link_at: (a: number, b: number, c: number) => number;
 export const atermterminal_mouse_wants_any_motion: (a: number) => number;
 export const atermterminal_mouse_wants_motion: (a: number) => number;
 export const atermterminal_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+export const atermterminal_note_keystroke: (a: number) => void;
 export const atermterminal_process: (a: number, b: number, c: number) => void;
 export const atermterminal_process_str: (a: number, b: number, c: number) => void;
 export const atermterminal_render: (a: number) => void;
@@ -125,6 +126,7 @@ export const atermterminal_set_sparkle_lexicon_override: (a: number, b: number, 
 export const atermterminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
 export const atermterminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
 export const atermterminal_set_sparkle_words_enabled: (a: number, b: number) => void;
+export const atermterminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
 export const atermterminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
 export const atermterminal_set_word_separators: (a: number, b: number, c: number) => void;
 export const atermterminal_sparkle_words_enabled: (a: number) => number;

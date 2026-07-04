@@ -126,7 +126,6 @@ fn serve_stream(
     client_id: String,
 ) {
     let (tx, rx) = channel::<String>();
-    registry.register_stream(client_id.clone(), tx);
     // Drain queued events to the socket on a dedicated thread so the read side can
     // block on close detection independently.
     let drain = thread::spawn(move || {
@@ -136,9 +135,10 @@ fn serve_stream(
             }
         }
     });
-    // Replay anything buffered while this client was detached (reattach), now that its
-    // stream sender + drain thread are live.
-    registry.flush_pending_for_client(&client_id);
+    // Install the sender AND replay any detached-while-buffered backlog atomically,
+    // so the replay can't be overtaken by live output (both go through this tx → the
+    // drain thread, in order).
+    registry.register_stream_and_flush(client_id.clone(), tx);
     // A stream socket is daemon→client; the client rarely sends. Block until it
     // closes, then tear down — dropping the registry's sender ends the drain thread.
     while reader.next_line().is_some() {}

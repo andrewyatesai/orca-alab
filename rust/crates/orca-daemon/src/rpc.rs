@@ -175,15 +175,20 @@ fn create_or_attach(
     if session_id.is_empty() {
         return rpc_err(id, "missing sessionId");
     }
-    // Reattach: an existing session keeps running; the client's stream flush replays
-    // buffered output. Report isNew:false with the live pid.
-    if registry.session_exists(&session_id) {
+    // Reattach a live session: rebind it to this (possibly new) client, flush its
+    // backlog, and return a REAL snapshot so the reattacher repaints — matching
+    // terminal-host.ts's live branch (getSnapshot + detachAllClients + attachClient).
+    // A blank snapshot here would leave a warm-reattached pane frozen after relaunch.
+    if let Some(terminal) = registry.reattach_if_alive(&session_id, client_id) {
+        let snapshot = build_snapshot(&mut terminal.lock().unwrap());
         let pid = registry.session_pid(&session_id);
         return rpc_ok(
             id,
-            json!({ "isNew": false, "snapshot": Value::Null, "pid": pid, "shellState": SHELL_STATE }),
+            json!({ "isNew": false, "snapshot": snapshot, "pid": pid, "shellState": SHELL_STATE }),
         );
     }
+    // Not a live session: drop any lingering dead entry for this id, then spawn fresh.
+    registry.remove_session(&session_id);
 
     let cols = field_u16(payload, "cols", 80);
     let rows = field_u16(payload, "rows", 24);
@@ -205,8 +210,9 @@ fn create_or_attach(
         DEFAULT_SCROLLBACK,
     )));
     // Pump raw PTY output → routed (live or buffered) by the registry AND teed into
-    // the headless engine; on EOF, mark the session exited + emit `exit`. The reader
-    // is an independent clone of the master, so it keeps reading after `pty` moves in.
+    // the headless engine; on EOF, reap the child (remove the session + emit `exit`).
+    // The reader is an independent clone of the master, so it keeps reading after
+    // `pty` moves into the registry entry.
     let pump_registry = registry.clone();
     let pump_session = session_id.clone();
     let pump_terminal = Arc::clone(&terminal);
@@ -226,7 +232,6 @@ fn create_or_attach(
             pid,
             created_at_ms,
             pending: Vec::new(),
-            alive: true,
             terminal,
         },
     );

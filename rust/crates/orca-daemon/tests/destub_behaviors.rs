@@ -50,7 +50,7 @@ fn exit_event_carries_the_real_child_code() {
     let reg = Arc::new(Registry::new());
     let client = "c-exit";
     let (tx, rx) = channel::<String>();
-    reg.register_stream(client.to_string(), tx);
+    reg.register_stream_and_flush(client.to_string(), tx);
 
     let created = dispatch(
         &reg,
@@ -71,7 +71,7 @@ fn signal_kills_a_live_session() {
     let reg = Arc::new(Registry::new());
     let client = "c-sig";
     let (tx, rx) = channel::<String>();
-    reg.register_stream(client.to_string(), tx);
+    reg.register_stream_and_flush(client.to_string(), tx);
 
     dispatch(
         &reg,

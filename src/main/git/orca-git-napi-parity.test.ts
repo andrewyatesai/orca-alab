@@ -2,6 +2,7 @@ import { StringDecoder } from 'node:string_decoder'
 import { describe, expect, it } from 'vitest'
 import { loadRustGitBinding } from '../daemon/rust-git-addon'
 import { StatusPorcelainParser } from './status-porcelain-parser'
+import { parseWorktreeListTs } from './worktree'
 import { parseNumstat } from '../../shared/git-uncommitted-line-stats'
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { isBinaryBuffer } from '../../shared/binary-buffer'
@@ -273,6 +274,52 @@ const numstatFixtures: { name: string; bytes: Buffer }[] = [
   { name: 'empty input', bytes: Buffer.from('') }
 ]
 
+const worktreeFixtures: { name: string; output: string; nulDelimited: boolean }[] = [
+  {
+    name: 'main + linked + bare blocks',
+    output:
+      '\nworktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n' +
+      'worktree /repo-feature\nHEAD def456\nbranch refs/heads/feature/test\n\n' +
+      'worktree /repo-bare\nHEAD 0000000\nbare\n',
+    nulDelimited: false
+  },
+  {
+    name: 'detached head has no branch',
+    output: 'worktree /d\nHEAD abc123\ndetached\n',
+    nulDelimited: false
+  },
+  {
+    name: 'sparse flag',
+    output: 'worktree /repo\nHEAD abc\nbranch refs/heads/main\nsparse\n',
+    nulDelimited: false
+  },
+  {
+    name: 'path with spaces',
+    output: 'worktree /path/to/my worktree\nHEAD ccc\nbranch refs/heads/main\n',
+    nulDelimited: false
+  },
+  {
+    name: 'CRLF blocks',
+    output: 'worktree /a\r\nHEAD aaa\r\nbranch refs/heads/main\r\n',
+    nulDelimited: false
+  },
+  { name: 'empty input', output: '   \n\n  ', nulDelimited: false },
+  {
+    name: '-z NUL form with newline in a linked path',
+    output: [
+      'worktree /repo',
+      'HEAD abc',
+      'branch refs/heads/main',
+      '',
+      'worktree /repo/lin\nked',
+      'HEAD def',
+      'branch refs/heads/nl',
+      ''
+    ].join('\0'),
+    nulDelimited: true
+  }
+]
+
 const decodeFixtures = [
   'plain/path.ts',
   '"quoted/path.ts"',
@@ -364,6 +411,17 @@ suite('orca-git napi ↔ TS parser parity', () => {
       it(fixture.name, () => {
         const napi = JSON.parse(git.parseNumstat(fixture.bytes))
         expect(napi).toEqual(tsNumstatShape(fixture.bytes))
+      })
+    }
+  })
+
+  describe('parseWorktreeList', () => {
+    for (const fixture of worktreeFixtures) {
+      it(fixture.name, () => {
+        const napi = JSON.parse(git.parseWorktreeList(fixture.output, fixture.nulDelimited))
+        expect(napi).toEqual(
+          parseWorktreeListTs(fixture.output, { nulDelimited: fixture.nulDelimited })
+        )
       })
     }
   })

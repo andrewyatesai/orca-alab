@@ -2,6 +2,8 @@
 //! in `src/main/git/worktree.ts` (the rest of that file is IO/orchestration
 //! built on this pure parser).
 
+use serde_json::{Map, Value};
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GitWorktreeInfo {
     pub path: String,
@@ -79,6 +81,29 @@ pub fn parse_worktree_list(output: &str, nul_delimited: bool) -> Vec<GitWorktree
         }
     }
     worktrees
+}
+
+/// Serialize one worktree to match `JSON.stringify` of the TS `GitWorktreeInfo`:
+/// `isSparse` is only emitted when true (the TS port spreads it conditionally),
+/// so the key is omitted for non-sparse worktrees rather than serialized as false.
+fn worktree_to_json(info: &GitWorktreeInfo) -> Value {
+    let mut map = Map::new();
+    map.insert("path".to_string(), Value::String(info.path.clone()));
+    map.insert("head".to_string(), Value::String(info.head.clone()));
+    map.insert("branch".to_string(), Value::String(info.branch.clone()));
+    map.insert("isBare".to_string(), Value::Bool(info.is_bare));
+    if info.is_sparse {
+        map.insert("isSparse".to_string(), Value::Bool(true));
+    }
+    map.insert("isMainWorktree".to_string(), Value::Bool(info.is_main_worktree));
+    Value::Object(map)
+}
+
+/// Serialize a parsed worktree list to the JSON the TS `parseWorktreeList`
+/// produces, so the napi export and the differential parity harness share one
+/// canonical shape.
+pub fn worktree_list_to_json(worktrees: &[GitWorktreeInfo]) -> Value {
+    Value::Array(worktrees.iter().map(worktree_to_json).collect())
 }
 
 #[cfg(test)]

@@ -3,13 +3,16 @@
 // the live TS reference against the Rust port. Only the pure porcelain parser
 // is covered; the rest of the module is git IO/orchestration.
 
-import { parseWorktreeList } from '../../../src/main/git/worktree'
+// Why parseWorktreeListTs (not parseWorktreeList): the exported parser now routes
+// through the Rust addon in production, so comparing against it would be
+// Rust-vs-Rust. The pure TS reference keeps this a real differential check.
+import { parseWorktreeListTs } from '../../../src/main/git/worktree'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
     case 'parseWorktreeList': {
       const { output, nulDelimited } = input as { output: string; nulDelimited?: boolean }
-      return parseWorktreeList(output, { nulDelimited })
+      return parseWorktreeListTs(output, { nulDelimited })
     }
     default:
       throw new Error(`unknown function ${fn}`)

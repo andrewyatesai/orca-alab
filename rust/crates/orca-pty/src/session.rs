@@ -95,8 +95,17 @@ impl PtySession {
     /// currently in the foreground (an agent, a build, …), or the shell itself at the
     /// prompt. Feeds the daemon's getForegroundProcess. `None` on platforms/ptys
     /// without the concept.
+    #[cfg(unix)]
     pub fn foreground_process_group(&self) -> Option<i32> {
         self.master.process_group_leader()
+    }
+
+    /// Windows conpty/winpty has no foreground process group (tcgetpgrp), and
+    /// portable-pty only exposes `process_group_leader` on Unix, so report `None`
+    /// — the daemon's getForegroundProcess already treats that as "no concept".
+    #[cfg(not(unix))]
+    pub fn foreground_process_group(&self) -> Option<i32> {
+        None
     }
 
     pub fn kill(&mut self) -> io::Result<()> {

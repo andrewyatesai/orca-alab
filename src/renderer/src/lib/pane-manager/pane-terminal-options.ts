@@ -59,7 +59,8 @@ export function buildDefaultTerminalOptions(): ITerminalOptions {
       // this as a gutter, costing ~1 column per pane — accepted tradeoff so the
       // scrollbar never covers content (evidence in PR #5051). The v1.4.51
       // table corruption #4877 fixed by zeroing this was actually the ZWJ
-      // width bug; it stays fixed by pane-terminal-unicode-provider.ts. Width
+      // width bug; it stays fixed by the aterm engine's native Unicode 11 +
+      // ZWJ width tables (shared by renderer and daemon mirror). Width
       // also enables the overview ruler, whose border is hidden in
       // composeActiveTerminalTheme.
       width: 7

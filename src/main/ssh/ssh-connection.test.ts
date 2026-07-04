@@ -22,6 +22,7 @@ type MockSshClient = {
   _sock: Socket | undefined
   lastExecCommand?: string
   lastConnectConfig?: unknown
+  exec: (cmd: string, cb: (err: Error | undefined, channel: unknown) => void) => void
 }
 let clientInstances: MockSshClient[] = []
 
@@ -300,6 +301,14 @@ describe('SshConnection', () => {
 
     expect(clientInstances).toHaveLength(1)
     expect(clientInstances[0].setNoDelay).toHaveBeenCalledWith(true)
+  })
+
+  it('allows concurrent exec commands for ssh2 transport', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+
+    expect(conn.usesSystemSshTransport()).toBe(false)
+    expect(conn.canRunConcurrentExecCommands()).toBe(true)
   })
 
   it('removes startup listeners after ssh2 connect succeeds', async () => {
@@ -699,6 +708,139 @@ describe('SshConnection', () => {
     }
   })
 
+  it('retries a session-limit-refused exec open and succeeds on a later attempt', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+    const channel = { close: vi.fn() }
+    const execMock = vi
+      .fn<(cmd: string, cb: (err: Error | undefined, ch: unknown) => void) => void>()
+      .mockImplementationOnce((_cmd, cb) => {
+        cb(
+          Object.assign(new Error('(SSH) Channel open failure: open failed'), { reason: 2 }),
+          undefined
+        )
+      })
+      .mockImplementation((_cmd, cb) => cb(undefined, channel))
+    clientInstances[0].exec = execMock as never
+
+    await expect(conn.exec('printf ready')).resolves.toBe(channel)
+    expect(execMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('surfaces the session-limit error once open retries are exhausted', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+    const refusal = Object.assign(new Error('(SSH) Channel open failure: open failed'), {
+      reason: 2
+    })
+    const execMock = vi
+      .fn<(cmd: string, cb: (err: Error | undefined, ch: unknown) => void) => void>()
+      .mockImplementation((_cmd, cb) => cb(refusal, undefined))
+    clientInstances[0].exec = execMock as never
+
+    await expect(conn.exec('printf ready')).rejects.toBe(refusal)
+    expect(execMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('does not retry non-session-limit exec open failures', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+    const failure = new Error('Not connected')
+    const execMock = vi
+      .fn<(cmd: string, cb: (err: Error | undefined, ch: unknown) => void) => void>()
+      .mockImplementation((_cmd, cb) => cb(failure, undefined))
+    clientInstances[0].exec = execMock as never
+
+    await expect(conn.exec('printf ready')).rejects.toBe(failure)
+    expect(execMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('bounds an aborted exec to the close grace when ssh2 never invokes the open callback', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+    execBehavior = 'pending'
+    const controller = new AbortController()
+
+    vi.useFakeTimers()
+    try {
+      const outcomePromise = conn
+        .exec('printf ready', { signal: controller.signal })
+        .then(() => 'opened')
+        .catch((error: Error) => error.name)
+
+      controller.abort()
+      // Why: a hung socket must not pin the aborted caller for the full 30s
+      // connect timeout — the abort settles at the 5s grace bound instead.
+      await vi.advanceTimersByTimeAsync(5_000)
+
+      await expect(outcomePromise).resolves.toBe('AbortError')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects without waiting out the backoff when aborted during a session-limit retry delay', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+    const controller = new AbortController()
+    const refusal = Object.assign(new Error('(SSH) Channel open failure: open failed'), {
+      reason: 2
+    })
+    const execMock = vi
+      .fn<(cmd: string, cb: (err: Error | undefined, ch: unknown) => void) => void>()
+      .mockImplementation((_cmd, cb) => cb(refusal, undefined))
+    clientInstances[0].exec = execMock as never
+
+    vi.useFakeTimers()
+    try {
+      const outcomePromise = conn
+        .exec('printf ready', { signal: controller.signal })
+        .then(() => 'opened')
+        .catch((error: Error) => error.name)
+
+      // Flush microtasks so the first refused attempt lands in the backoff.
+      await vi.advanceTimersByTimeAsync(0)
+      controller.abort()
+
+      // No timer advance: the abort alone must release the backoff delay.
+      await expect(outcomePromise).resolves.toBe('AbortError')
+      expect(execMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('settles an abort during channel open only after the late channel closes', async () => {
+    const conn = new SshConnection(createTarget(), createCallbacks())
+    await conn.connect()
+    execBehavior = 'pending'
+    const controller = new AbortController()
+    const lateChannel = Object.assign(new EventEmitter(), {
+      close: vi.fn(),
+      resume: vi.fn(),
+      stderr: { resume: vi.fn() }
+    })
+
+    const outcomePromise = conn
+      .exec('printf ready', { signal: controller.signal })
+      .then(() => 'opened')
+      .catch((error: Error) => error.name)
+
+    await Promise.resolve()
+    controller.abort()
+    pendingExecCallback?.(undefined, lateChannel)
+
+    // Why: the sshd session slot is freed only when the channel finishes
+    // closing — settling before 'close' lets the next open race the close.
+    const early = await Promise.race([outcomePromise, Promise.resolve('pending')])
+    expect(early).toBe('pending')
+    expect(lateChannel.close).toHaveBeenCalledTimes(1)
+    expect(lateChannel.resume).toHaveBeenCalled()
+
+    lateChannel.emit('close')
+    await expect(outcomePromise).resolves.toBe('AbortError')
+  })
+
   it('times out when ssh2 never opens an SFTP channel', async () => {
     const conn = new SshConnection(createTarget(), createCallbacks())
     await conn.connect()
@@ -762,8 +904,36 @@ describe('SshConnection', () => {
     )
   })
 
+  it('allows concurrent exec commands for system SSH with an Orca ControlMaster socket', async () => {
+    getOrcaControlSocketPathMock.mockReturnValue('/tmp/orca-ssh-501/live-socket')
+    vi.mocked(resolveWithSshG).mockResolvedValueOnce(createResolvedConfig())
+    const conn = new SshConnection(createTarget({ configHost: 'fdpass-host' }), createCallbacks())
+
+    await conn.connect()
+
+    expect(conn.usesSystemSshTransport()).toBe(true)
+    expect(conn.canRunConcurrentExecCommands()).toBe(true)
+  })
+
+  it('keeps concurrent exec commands disabled for system SSH without a reusable socket', async () => {
+    getOrcaControlSocketPathMock.mockReturnValue(null)
+    vi.mocked(resolveWithSshG).mockResolvedValueOnce(createResolvedConfig())
+    const conn = new SshConnection(
+      createTarget({ configHost: 'fdpass-host', systemSshConnectionReuse: false }),
+      createCallbacks()
+    )
+
+    await conn.connect()
+
+    expect(conn.usesSystemSshTransport()).toBe(true)
+    expect(conn.canRunConcurrentExecCommands()).toBe(false)
+  })
+
   it('retries a failed system SSH probe without ControlMaster and disables mux for the session', async () => {
-    getOrcaControlSocketPathMock.mockReturnValue('/tmp/orca-ssh-501/stale-socket')
+    getOrcaControlSocketPathMock.mockImplementation(
+      (_target: SshTarget, options?: { disableControlMaster?: boolean }) =>
+        options?.disableControlMaster ? null : '/tmp/orca-ssh-501/stale-socket'
+    )
     spawnSystemSshCommandMock
       .mockImplementationOnce(() => createFailingSystemCommandChannel(255, 'mux client failed'))
       .mockImplementation(() => createSystemCommandChannel())
@@ -812,6 +982,7 @@ describe('SshConnection', () => {
         resolvedConfig: expect.objectContaining({ proxyUseFdpass: true })
       })
     )
+    expect(conn.canRunConcurrentExecCommands()).toBe(false)
   })
 
   it('uses system SSH transport for ProxyCommand targets before ssh2 auth', async () => {
@@ -952,7 +1123,10 @@ describe('SshConnection', () => {
   })
 
   it('retries direct system SSH connections without ControlMaster after mux startup failure', async () => {
-    getOrcaControlSocketPathMock.mockReturnValue('/tmp/orca-ssh-501/stale-socket')
+    getOrcaControlSocketPathMock.mockImplementation(
+      (_target: SshTarget, options?: { disableControlMaster?: boolean }) =>
+        options?.disableControlMaster ? null : '/tmp/orca-ssh-501/stale-socket'
+    )
     spawnSystemSshMock
       .mockReturnValueOnce(createFailingSystemSshProcess(255))
       .mockImplementation(() => createSystemSshProcess())
@@ -977,6 +1151,7 @@ describe('SshConnection', () => {
         resolvedConfig: expect.objectContaining({ proxyUseFdpass: true })
       }
     )
+    expect(conn.canRunConcurrentExecCommands()).toBe(false)
   })
 
   it('kills delayed direct system SSH startup on disconnect and ignores late stdout', async () => {

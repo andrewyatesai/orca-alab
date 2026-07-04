@@ -117,4 +117,6 @@ describe('buildDefaultTerminalOptions', () => {
 // renderer: aterm owns GPU rendering (aterm-gpu-drawer) and shapes ligatures
 // natively, so those render-addon paths no longer exist. The xterm
 // Unicode-11-activation ordering test went the same way — aterm bakes Unicode 11
-// width tables into the engine.
+// width tables into the engine. Upstream #7221's pane-corner tooltip placement
+// assertions went with it too: aterm's hover tooltip is a pane-local overlay
+// with its own placement (see aterm-link-tooltip.test.ts).

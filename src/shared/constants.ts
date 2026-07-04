@@ -212,6 +212,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     editorAutoSave: false,
     editorAutoSaveDelayMs: DEFAULT_EDITOR_AUTO_SAVE_DELAY_MS,
     editorMinimapEnabled: false,
+    richMarkdownSpellcheckEnabled: true,
     markdownReviewToolsEnabled: true,
     primarySelectionMiddleClickPaste: getDefaultPrimarySelectionMiddleClickPaste(),
     primarySelectionMiddleClickPasteDefaultedForLinux:

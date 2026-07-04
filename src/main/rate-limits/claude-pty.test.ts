@@ -79,6 +79,69 @@ describe('fetchViaPty', () => {
     )
   })
 
+  it('injects the configured proxy into the hidden PTY spawn env', async () => {
+    const term = makeMockTerm()
+    spawnMock.mockReturnValue(term)
+
+    const resultPromise = fetchViaPty({
+      networkProxySettings: { httpProxyUrl: 'http://127.0.0.1:7890' }
+    })
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(spawnMock).toHaveBeenCalled()
+    const spawnEnv = spawnMock.mock.calls[0]?.[2]?.env as Record<string, string>
+    expect(spawnEnv.HTTPS_PROXY).toBe('http://127.0.0.1:7890')
+    expect(spawnEnv.HTTP_PROXY).toBe('http://127.0.0.1:7890')
+
+    term.emitExit()
+    await resultPromise
+  })
+
+  it('leaves the spawn env proxy untouched when no proxy is configured', async () => {
+    const term = makeMockTerm()
+    spawnMock.mockReturnValue(term)
+    const inheritedHttpsProxy = process.env.HTTPS_PROXY
+
+    const resultPromise = fetchViaPty()
+    await vi.advanceTimersByTimeAsync(0)
+
+    const spawnEnv = spawnMock.mock.calls[0]?.[2]?.env as Record<string, string>
+    expect(spawnEnv.HTTPS_PROXY).toBe(inheritedHttpsProxy)
+
+    term.emitExit()
+    await resultPromise
+  })
+
+  it('exports the configured proxy inside the WSL launch command', async () => {
+    // Why: Windows-side spawn env does not cross into the distro, so the proxy
+    // must be exported in the bash command for the inner claude to see it.
+    const term = makeMockTerm()
+    spawnMock.mockReturnValue(term)
+
+    const resultPromise = fetchViaPty({
+      networkProxySettings: { httpProxyUrl: 'http://127.0.0.1:7890' },
+      authPreparation: {
+        configDir: '/home/u/.claude',
+        runtime: 'wsl',
+        wslDistro: 'Ubuntu',
+        wslLinuxConfigDir: '/home/u/.claude',
+        envPatch: { CLAUDE_CONFIG_DIR: '/home/u/.claude' },
+        stripAuthEnv: false,
+        provenance: 'system'
+      }
+    })
+    await vi.advanceTimersByTimeAsync(0)
+
+    const [spawnFile, spawnArgs] = spawnMock.mock.calls[0] as [string, string[]]
+    expect(spawnFile).toBe('wsl.exe')
+    const bashCommand = spawnArgs.at(-1) as string
+    expect(bashCommand).toContain("export HTTPS_PROXY='http://127.0.0.1:7890'")
+    expect(bashCommand).toContain('exec claude')
+
+    term.emitExit()
+    await resultPromise
+  })
+
   it('clears the startup delay timer when the hidden PTY exits early', async () => {
     const term = makeMockTerm()
     spawnMock.mockReturnValue(term)
@@ -181,6 +244,7 @@ describe('fetchViaPty', () => {
   it('parses the newer Claude weekly limits wording for Fable usage', async () => {
     const term = makeMockTerm()
     spawnMock.mockReturnValue(term)
+    vi.setSystemTime(new Date(2026, 6, 3, 20, 0))
 
     const resultPromise = fetchViaPty()
 
@@ -199,16 +263,20 @@ describe('fetchViaPty', () => {
     `)
     await vi.advanceTimersByTimeAsync(2_000)
 
-    await expect(resultPromise).resolves.toMatchObject({
+    const result = await resultPromise
+
+    expect(result).toMatchObject({
       provider: 'claude',
       status: 'ok',
       session: {
         usedPercent: 82,
+        resetsAt: Date.now() + 2 * 60 * 60_000 + 10 * 60_000,
         resetDescription: '2h 10m'
       },
       weekly: null,
       fableWeekly: {
         usedPercent: 42,
+        resetsAt: Date.now() + 3 * 24 * 60 * 60_000 + 2 * 60 * 60_000,
         resetDescription: '3d 2h'
       },
       error: null
@@ -253,6 +321,52 @@ describe('fetchViaPty', () => {
       fableWeekly: {
         usedPercent: 42,
         resetDescription: '3d 2h'
+      },
+      error: null
+    })
+  })
+
+  it('parses Claude current-week Fable usage as a distinct weekly window', async () => {
+    const term = makeMockTerm()
+    spawnMock.mockReturnValue(term)
+    vi.setSystemTime(new Date(2026, 6, 3, 20, 0))
+
+    const resultPromise = fetchViaPty()
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    term.emitData(`
+      Plan usage limits
+
+      Current session
+      8% used
+      Resets 3:39am
+
+      Current week (all models)
+      33% used
+      Resets Jul 10 at 12:59pm
+
+      Current week (Fable)
+      62% used
+      Resets Jul10at12:59pm(America/Los_Angeles)
+    `)
+    await vi.advanceTimersByTimeAsync(2_000)
+
+    await expect(resultPromise).resolves.toMatchObject({
+      provider: 'claude',
+      status: 'ok',
+      session: {
+        usedPercent: 8,
+        resetDescription: '3:39am'
+      },
+      weekly: {
+        usedPercent: 33,
+        resetsAt: new Date(2026, 6, 10, 12, 59).getTime(),
+        resetDescription: 'Jul 10 at 12:59pm'
+      },
+      fableWeekly: {
+        usedPercent: 62,
+        resetsAt: Date.parse('2026-07-10T19:59:00.000Z'),
+        resetDescription: 'Jul 10 at 12:59pm (America/Los_Angeles'
       },
       error: null
     })

@@ -254,9 +254,17 @@ describe('createPtySubprocess', () => {
       }
     }
 
+    // On macOS the shell is spawned through /usr/bin/login so terminal children
+    // carry their own TCC identity (#6996); the real shell rides behind it, and
+    // env(1) re-asserts the SHELL that login(1) would overwrite.
     expect(spawnMock).toHaveBeenCalledWith(
-      '/bin/bash',
-      expect.any(Array),
+      '/usr/bin/login',
+      expect.arrayContaining([
+        '-flpq',
+        '/usr/bin/env',
+        expect.stringMatching(/^SHELL=/),
+        '/bin/bash'
+      ]),
       expect.objectContaining({ cwd: originalCwd })
     )
   })
@@ -2020,15 +2028,14 @@ describe('createPtySubprocess', () => {
       }
     }
 
-    expect(spawnMock).toHaveBeenCalledWith(
-      'wsl.exe',
-      expect.any(Array),
-      expect.objectContaining({
-        env: expect.objectContaining({
-          ORCA_TERMINAL_HANDLE: 'term_wsl',
-          WSLENV: 'FOO/u:ORCA_TERMINAL_HANDLE/u:POWERLEVEL9K_DISABLE_CONFIGURATION_WIZARD'
-        })
-      })
+    const spawnCall = spawnMock.mock.calls.at(-1)!
+    expect(spawnCall[0]).toBe('wsl.exe')
+    expect(spawnCall[1]).toEqual(expect.any(Array))
+    expect(spawnCall[2].env.ORCA_TERMINAL_HANDLE).toBe('term_wsl')
+    // Why: the daemon inherits optional agent-hook env in development. This
+    // test owns only the terminal handle and Powerlevel10k WSLENV contract.
+    expect(spawnCall[2].env.WSLENV?.split(':')).toEqual(
+      expect.arrayContaining(['FOO/u', 'ORCA_TERMINAL_HANDLE/u', POWERLEVEL10K_WIZARD_DISABLE_ENV])
     )
   })
 

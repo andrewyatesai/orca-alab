@@ -1257,6 +1257,7 @@ export type PreloadApi = {
       linkedPRNumber?: number | null
       fallbackPRNumber?: number | null
       acceptMergedFallbackPR?: boolean
+      currentHeadOid?: string | null
     }) => Promise<PRInfo | null>
     refreshPRNow: (args: { candidate: GitHubPRRefreshCandidate }) => Promise<PRRefreshOutcome>
     enqueuePRRefresh: (args: {
@@ -2567,13 +2568,19 @@ export type PreloadApi = {
         requestId: string
         url: string
         worktreeId?: string
-        sessionProfileId?: string
+        sessionProfileId?: string | null
+        sessionPartition?: string
         activate?: boolean
       }) => void
     ) => () => void
     replyTabCreate: (reply: { requestId: string; browserPageId?: string; error?: string }) => void
     onRequestTabSetProfile: (
-      callback: (data: { requestId: string; browserPageId: string; profileId: string }) => void
+      callback: (data: {
+        requestId: string
+        browserPageId: string
+        profileId: string
+        sessionPartition?: string
+      }) => void
     ) => () => void
     replyTabSetProfile: (reply: { requestId: string; error?: string }) => void
     onRequestTabClose: (
@@ -2613,6 +2620,7 @@ export type PreloadApi = {
         requestId?: string
         worktreeId: string
         command?: string
+        cwd?: string
         env?: Record<string, string>
         launchConfig?: SleepingAgentLaunchConfig
         launchToken?: string

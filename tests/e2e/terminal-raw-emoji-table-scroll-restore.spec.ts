@@ -493,7 +493,25 @@ test.describe('Terminal raw emoji table scroll restore repro', () => {
     await sendToTerminal(orcaPage, ptyId, `printf ${JSON.stringify(`${marker}\\n`)}\r`)
     await waitForTerminalOutput(orcaPage, marker, 10_000)
 
-    const diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+    // Why: cursorHidden reads null until the async aterm controller attaches, and
+    // a transient ESC[?25l during a redraw can momentarily set it. Let it settle
+    // before the single-shot golden asserts so runner timing can't flake-block the
+    // release. hasComplexScriptOutput stays single-shot: its not-ready default is
+    // also false, so timing can't turn it into a false failure. (GPU-path
+    // assertions live in aterm-webgl.spec.ts, not this golden.)
+    let diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+    await expect
+      .poll(
+        async () => {
+          diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+          return diagnostics.cursorHidden === false
+        },
+        {
+          timeout: 15_000,
+          message: 'terminal render diagnostics did not settle (expected cursorHidden=false)'
+        }
+      )
+      .toBe(true)
     expect(diagnostics.hasComplexScriptOutput).toBe(false)
     expect(diagnostics.cursorHidden).toBe(false)
   })
@@ -559,7 +577,25 @@ test.describe('Terminal raw emoji table scroll restore repro', () => {
 
       await scrollActiveTerminalToText(orcaPage, 'Singer')
       await closeFeatureTips(orcaPage)
-      const diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+      // Why: after the worktree switch the aterm controller reattaches
+      // asynchronously (cursorHidden reads null until then) and a transient
+      // ESC[?25l during the restore redraw can momentarily set it. Let it settle
+      // before the single-shot golden asserts so runner timing can't flake-block
+      // the release; the geometry/wrap/overpaint checks below stay single-shot as
+      // the real regression signal.
+      let diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+      await expect
+        .poll(
+          async () => {
+            diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+            return diagnostics.cursorHidden === false
+          },
+          {
+            timeout: 15_000,
+            message: 'terminal render diagnostics did not settle (expected cursorHidden=false)'
+          }
+        )
+        .toBe(true)
       const overpaint = await readTerminalRightEdgeOverpaint(orcaPage)
       const wrapDiagnostics = await readTerminalBoxTableWrapDiagnostics(orcaPage)
       const singerGeometry = await readVisibleSingerRowGeometry(orcaPage)

@@ -14,6 +14,8 @@ export type HeadlessEmulatorOptions = {
   cols: number
   rows: number
   scrollback?: number
+  pathFlavor?: 'posix' | 'win32'
+  remotePosixFileUriAuthority?: boolean
 }
 
 const DEFAULT_SCROLLBACK = 5000
@@ -47,6 +49,10 @@ export class HeadlessEmulator {
   private privateModes = createPrivateModeScanner()
   private restoredOscLinks: TerminalOscLinkRange[] = []
   private disposed = false
+  // OSC-7 cwd parsing must use the PTY host's path flavor, not this process's:
+  // an SSH/remote PTY can be a different OS than the app (upstream #7134).
+  private readonly pathFlavor?: 'posix' | 'win32'
+  private readonly remotePosixFileUriAuthority: boolean
   // Set when a native engine call threw (a Rust panic surfaced as a JS exception
   // via catch_unwind). The engine state is untrustworthy after a panic, so every
   // later engine call is skipped — this session degrades to scan-only state and
@@ -65,6 +71,8 @@ export class HeadlessEmulator {
           `Candidates: ${rustTerminalLoadFailures().join('; ') || 'none probed'}`
       )
     }
+    this.pathFlavor = opts.pathFlavor
+    this.remotePosixFileUriAuthority = opts.remotePosixFileUriAuthority === true
     this.cols = opts.cols
     this.rows = opts.rows
     this.term = new binding.HeadlessTerminal(
@@ -314,7 +322,10 @@ export class HeadlessEmulator {
   }
 
   private parseOsc7Uri(uri: string): void {
-    const parsed = parseFileUriPath(uri)
+    const parsed = parseFileUriPath(uri, {
+      pathFlavor: this.pathFlavor,
+      remotePosixAuthority: this.remotePosixFileUriAuthority
+    })
     if (parsed) {
       this.cwd = parsed
     }

@@ -15,7 +15,11 @@ import {
   resolveOpaqueTerminalBackground,
   resolveEffectiveTerminalAppearance
 } from '@/lib/terminal-theme'
-import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
+import type {
+  ManagedPane,
+  PaneExternalDropTarget,
+  PaneManager
+} from '@/lib/pane-manager/pane-manager'
 import TerminalSearch from '@/components/TerminalSearch'
 import type { PtyTransport } from './pty-transport'
 import { fitPanes, isWindowsUserAgent } from './pane-helpers'
@@ -62,6 +66,11 @@ import { useSystemPrefersDark } from './use-system-prefers-dark'
 import { useTerminalPaneGlobalEffects } from './use-terminal-pane-global-effects'
 import { useTerminalPaneLifecycle } from './use-terminal-pane-lifecycle'
 import { useTerminalPaneContextMenu } from './use-terminal-pane-context-menu'
+import {
+  detachTerminalPaneToTab,
+  isTerminalTabStripDropTarget,
+  resolveTerminalTabStripDropTarget
+} from './terminal-pane-tab-detach'
 import type { PreparedAgentSessionFork } from './terminal-agent-session-fork'
 import { useNotificationDispatch } from './use-notification-dispatch'
 import { connectPanePty } from './pty-connection'
@@ -158,7 +167,7 @@ import {
 } from './terminal-pane-attention-subscriptions'
 import { getCachedTerminalTabForWorktree } from './terminal-tab-lookup'
 import { getCachedTerminalGroupIdForWorktree } from './terminal-unified-tab-lookup'
-import { resolveTabAgentFromTitle } from '@/lib/use-tab-agent'
+import { resolveNativeChatLeafTitleAgent } from './native-chat-leaf-title-agent'
 import { useRepoById } from '@/store/selectors'
 import {
   isXtermHelperTextarea,
@@ -581,6 +590,9 @@ export default function TerminalPane({
         (t) => t.contentType === 'terminal' && t.entityId === tabId
       )?.label
   )
+  const runtimePaneTitlesByPaneId = useAppStore(
+    useShallow((store) => store.runtimePaneTitlesByTabId[tabId] ?? {})
+  )
   // The native-chat toggle joins the pane header's split/close cluster. Eligible
   // when Orca launched a *supported* agent here or one was detected live for the
   // leaf, keyed `${tabId}:${leafId}`. Carry the agent identity, not just "an
@@ -604,11 +616,17 @@ export default function TerminalPane({
   const terminalTab = useAppStore((store) =>
     getCachedTerminalTabForWorktree(store.tabsByWorktree, worktreeId, tabId)
   )
-  // Why: manually-started/resumed TUIs can be recognized by the unified tab
-  // label before the backing terminal title or hook state catches up.
-  const titleResolvedAgent =
-    resolveTabAgentFromTitle(unifiedTabLabel ?? '') ??
-    (terminalTab ? resolveTabAgentFromTitle(terminalTab.title) : null)
+  const resolveTitleAgentForLeaf = useCallback(
+    (leafId: string | null) =>
+      resolveNativeChatLeafTitleAgent({
+        leafId,
+        panes: managerRef.current?.getPanes() ?? [],
+        runtimePaneTitlesByPaneId,
+        tabLabel: unifiedTabLabel,
+        terminalTitle: terminalTab?.title
+      }),
+    [runtimePaneTitlesByPaneId, terminalTab?.title, unifiedTabLabel]
+  )
   // Per-leaf eligibility: a split can mix a supported agent in one leaf with an
   // unsupported one in another, so the toggle is gated by the specific leaf.
   // A leaf's own live agent is authoritative; the tab-wide launch/title hints
@@ -626,7 +644,7 @@ export default function TerminalPane({
         contentType: 'terminal',
         launchAgent: detectedAgent ? null : terminalTab?.launchAgent,
         detectedAgent,
-        resolvedAgent: detectedAgent ? null : titleResolvedAgent,
+        resolvedAgent: detectedAgent ? null : resolveTitleAgentForLeaf(leafId),
         isChatViewMode: isChatViewForLeaf
       })
     },
@@ -636,7 +654,7 @@ export default function TerminalPane({
       chatLeafId,
       nativeChatEnabled,
       terminalTab?.launchAgent,
-      titleResolvedAgent
+      resolveTitleAgentForLeaf
     ]
   )
   const toggleNativeChatForLeaf = useCallback(
@@ -1297,6 +1315,54 @@ export default function TerminalPane({
     setPendingCloseConfirmation(null)
   }, [])
 
+  const resolveExternalPaneDropTarget = useCallback(
+    ({
+      sourcePaneId,
+      clientX,
+      clientY
+    }: {
+      sourcePaneId: number
+      clientX: number
+      clientY: number
+    }): PaneExternalDropTarget | null => {
+      const manager = managerRef.current
+      const panes = manager?.getPanes() ?? []
+      if (panes.length <= 1 || !panes.some((pane) => pane.id === sourcePaneId)) {
+        return null
+      }
+      return resolveTerminalTabStripDropTarget({
+        clientX,
+        clientY,
+        groupsByWorktree: useAppStore.getState().groupsByWorktree,
+        worktreeId
+      })
+    },
+    [worktreeId]
+  )
+
+  const handleExternalPaneDrop = useCallback(
+    (sourcePaneId: number, target: PaneExternalDropTarget): boolean => {
+      if (!isTerminalTabStripDropTarget(target)) {
+        return false
+      }
+      const fallbackPtyId = paneTransportsRef.current.get(sourcePaneId)?.getPtyId() ?? null
+      return (
+        detachTerminalPaneToTab({
+          fallbackPtyId,
+          getStore: useAppStore.getState,
+          manager: managerRef.current,
+          persistLayoutSnapshot,
+          sourcePaneId,
+          sourceTabId: tabId,
+          targetGroupId: target.groupId,
+          targetIndex: target.insertionIndex,
+          worktreeId
+        }) !== null
+      )
+    },
+    [persistLayoutSnapshot, tabId, worktreeId]
+  )
+
   useTerminalPaneLifecycle({
     tabId,
     worktreeId,
@@ -1353,7 +1419,9 @@ export default function TerminalPane({
     paneTitlesRef,
     setRenamingPaneId,
     setPaneCount,
-    setPaneLayoutRevision
+    setPaneLayoutRevision,
+    resolveExternalPaneDropTarget,
+    onExternalPaneDrop: handleExternalPaneDrop
   })
 
   useEffect(() => {
@@ -1619,6 +1687,7 @@ export default function TerminalPane({
 
   useTerminalKeyboardShortcuts({
     tabId,
+    worktreeId,
     isActive,
     keyboardScopeRef: containerRef,
     managerRef,
@@ -2772,6 +2841,7 @@ export default function TerminalPane({
   const chatPanePtyId = chatPane
     ? (paneTransportsRef.current.get(chatPane.id)?.getPtyId() ?? null)
     : null
+  const chatPaneResolvedAgent = chatPane ? resolveTitleAgentForLeaf(chatPane.leafId) : null
   const activePaneIsChatLeaf = Boolean(
     isChatViewMode && activePane?.leafId && activePane.leafId === chatLeafId
   )
@@ -2872,6 +2942,7 @@ export default function TerminalPane({
                 paneKey={makePaneKey(tabId, chatPane.leafId)}
                 targetPtyId={chatPanePtyId}
                 launchAgent={terminalTab?.launchAgent}
+                resolvedAgent={chatPaneResolvedAgent}
                 onSwitchToTerminal={() => toggleNativeChatForLeaf(chatPane.leafId)}
                 contextMenuActions={{
                   onSplitRight: () => contextMenu.runForPane(chatPane.id, contextMenu.onSplitRight),
@@ -2910,6 +2981,8 @@ export default function TerminalPane({
         menuPaneIsExpanded={
           contextMenu.menuPaneId !== null && contextMenu.menuPaneId === expandedPaneId
         }
+        linkUrl={contextMenu.menuLinkUrl}
+        onOpenLinkInDefaultBrowser={contextMenu.onOpenLinkInDefaultBrowser}
         onCopy={() => void contextMenu.onCopy()}
         onPaste={() => void contextMenu.onPaste()}
         onSplitRight={contextMenu.onSplitRight}

@@ -3,7 +3,7 @@ import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/a
 
 type TerminalCommandLifecycleOptions = {
   onCommandFinished: (bestEffortExitCode: number | null) => void
-  /** OSC 133;C — the shell is about to execute the entered command. */
+  /** OSC 133;C — the shell is about to execute the entered command; the pane's foreground is changing. */
   onCommandStarted?: () => void
 }
 

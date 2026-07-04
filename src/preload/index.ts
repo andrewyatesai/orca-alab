@@ -1026,6 +1026,7 @@ const api = {
       linkedPRNumber?: number | null
       fallbackPRNumber?: number | null
       acceptMergedFallbackPR?: boolean
+      currentHeadOid?: string | null
     }): Promise<unknown> => ipcRenderer.invoke('gh:prForBranch', args),
 
     refreshPRNow: (args: { candidate: GitHubPRRefreshCandidate }): Promise<unknown> =>
@@ -2190,6 +2191,7 @@ const api = {
         screenY: number
         pageUrl: string
         linkUrl: string | null
+        selectionText: string
         canGoBack: boolean
         canGoForward: boolean
       }) => void
@@ -2204,6 +2206,7 @@ const api = {
           screenY: number
           pageUrl: string
           linkUrl: string | null
+          selectionText: string
           canGoBack: boolean
           canGoForward: boolean
         }
@@ -3053,7 +3056,8 @@ const api = {
         requestId: string
         url: string
         worktreeId?: string
-        sessionProfileId?: string
+        sessionProfileId?: string | null
+        sessionPartition?: string
         activate?: boolean
       }) => void
     ): (() => void) => {
@@ -3063,7 +3067,8 @@ const api = {
           requestId: string
           url: string
           worktreeId?: string
-          sessionProfileId?: string
+          sessionProfileId?: string | null
+          sessionPartition?: string
           activate?: boolean
         }
       ) => callback(data)
@@ -3078,11 +3083,21 @@ const api = {
       ipcRenderer.send('browser:tabCreateReply', reply)
     },
     onRequestTabSetProfile: (
-      callback: (data: { requestId: string; browserPageId: string; profileId: string }) => void
+      callback: (data: {
+        requestId: string
+        browserPageId: string
+        profileId: string
+        sessionPartition?: string
+      }) => void
     ): (() => void) => {
       const listener = (
         _event: Electron.IpcRendererEvent,
-        data: { requestId: string; browserPageId: string; profileId: string }
+        data: {
+          requestId: string
+          browserPageId: string
+          profileId: string
+          sessionPartition?: string
+        }
       ) => callback(data)
       ipcRenderer.on('browser:requestTabSetProfile', listener)
       return () => ipcRenderer.removeListener('browser:requestTabSetProfile', listener)
@@ -3233,6 +3248,7 @@ const api = {
         requestId?: string
         worktreeId: string
         command?: string
+        cwd?: string
         env?: Record<string, string>
         launchConfig?: SleepingAgentLaunchConfig
         launchToken?: string
@@ -3254,6 +3270,7 @@ const api = {
           requestId?: string
           worktreeId: string
           command?: string
+          cwd?: string
           env?: Record<string, string>
           launchConfig?: SleepingAgentLaunchConfig
           launchToken?: string

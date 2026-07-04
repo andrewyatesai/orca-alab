@@ -70,6 +70,9 @@ pnpm-debug.log*
 # Coverage
 coverage/
 
+# Benchmark run output
+/tools/benchmarks/results/*.json
+
 # Temp
 tmp/
 .tmp/

@@ -59,7 +59,12 @@ export function resolveTerminalShortcutAction(
   // wants the real encoded chord, so the caller passes the pane's state here
   // (derive via atermAppKeyProtocolNegotiated(term.keyboard_mode_bits)) to
   // stand the rewrites down and let the engine encoder speak.
-  kittyKeyboardActive: boolean = false
+  kittyKeyboardActive: boolean = false,
+  // Why: lazily reports whether the active pane is a local native Windows
+  // ConPTY (PowerShell/cmd via PSReadLine). Only consulted for the Ctrl+Arrow
+  // word-nav rule below, so the execution-host lookup it performs stays off the
+  // hot path for every other keystroke.
+  isLocalWindowsConptyPane?: () => boolean
 ): TerminalShortcutAction | null {
   const platform: NodeJS.Platform = isMac ? 'darwin' : isWindows ? 'win32' : 'linux'
   if (!event.repeat) {
@@ -207,13 +212,22 @@ export function resolveTerminalShortcutAction(
     !event.shiftKey &&
     (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
   ) {
-    // Why: Windows Terminal, GNOME Terminal, and Konsole all bind Ctrl+←/→ for
-    // word navigation on Linux/Windows — but the legacy encoding is \e[1;5D /
-    // \e[1;5C, which default readline (bash, zsh) does not bind to
-    // backward-word / forward-word. Translate to \eb / \ef (same bytes as our
-    // Alt+Arrow rule) so Ctrl+←/→ works for word-nav matching user expectations
-    // on those platforms without requiring a custom inputrc. Kitty-gated like
-    // the Alt+Arrow rule above.
+    // Why: local Windows ConPTY shells (PowerShell/cmd via PSReadLine) already
+    // bind Ctrl+←/→ to word-nav, and they treat \eb/\ef (Alt+b/f) as
+    // Escape→RevertLine followed by a self-inserted "b"/"f" — so the translation
+    // below prints a stray letter instead of moving the cursor. Stand down and
+    // let the engine encoder emit its native \e[1;5D / \e[1;5C there.
+    // Remote/WSL panes on a Windows client run readline and still need the
+    // translation, so this is gated on a genuine local native ConPTY, not
+    // merely on the client being Windows.
+    if (isLocalWindowsConptyPane?.()) {
+      return null
+    }
+    // Why: default readline (bash, zsh) does not bind the legacy \e[1;5D /
+    // \e[1;5C encoding for Ctrl+←/→, so Linux and remote/WSL shells need the
+    // translation to \eb / \ef (same bytes as our Alt+Arrow rule) for word-nav
+    // to work without a custom inputrc. Kitty-gated like the Alt+Arrow rule
+    // above.
     //
     // Mac-gated: Ctrl+Arrow on macOS is reserved for Mission Control / Spaces
     // navigation at the OS level and should never reach the app.

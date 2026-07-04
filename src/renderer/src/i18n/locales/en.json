@@ -1184,7 +1184,9 @@
         "ephemeralVm": "Per-Workspace Environment",
         "chooseRunTarget": "Choose target",
         "noRunTargets": "No run targets are ready for this project.",
-        "perWorkspaceEnvHint": "Provision an on-demand environment from a recipe"
+        "perWorkspaceEnvHint": "Provision an on-demand environment from a recipe",
+        "branchName": "Branch name",
+        "branchNamePlaceholder": "feature/my-branch"
       },
       "NewWorkspaceComposerModal": {
         "createWorktree": "Create worktree",
@@ -2464,6 +2466,7 @@
             "0a917b591a": "Paste",
             "f3eeb1de13": "Copy",
             "c2f0b72b8d": "Insert",
+            "openLinkDefaultBrowser": "Open in Default Browser",
             "925f49f210": "Expand Pane",
             "df766809e0": "Collapse Pane",
             "cff67afad1": "Copy Context"
@@ -2600,7 +2603,8 @@
             "openLocalWorkspace": "Open a local workspace before resuming a session.",
             "sessionQueued": "Session queued",
             "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session.",
+            "localSessionSshWorkspaceUnsupported": "This session's history is stored on this machine, so it can't resume in an SSH workspace. Drop it onto a local workspace instead."
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "New split"
@@ -2705,7 +2709,7 @@
             "39676a184c": "Open any file, URL, agent, ..."
           },
           "TabBarQuickCommandsButton": {
-            "a2c7a33831": "Add Quick Command…",
+            "a2c7a33831": "Command",
             "20bbd75896": "No commands",
             "b82e237a4b": "More quick commands",
             "85482c57bc": "Run quick command",
@@ -2855,10 +2859,7 @@
             "41ae4fa725": "Killing…",
             "138b99bd80": "this session",
             "888dad8c55": "Loading…",
-            "56b6888304": "Local resource usage hidden for runtime servers.",
-            "14ff448686": "Unavailable for runtime servers",
             "6d9793d4bc": "Resource Manager - Terminals",
-            "6a822b06a7": "Resource Manager",
             "ca95d077db": "Daemon unreachable",
             "a82253b458": "Delete workspace.",
             "946724a70a": "The main workspace cannot be deleted.",
@@ -3536,7 +3537,9 @@
           "8401a7a0d0": "1 repository",
           "d4f1df62ef": "{{value0}} repositories",
           "b4263a2ac4": "Found {{value0}} in {{value1}}.",
-          "24eda6c8b2": "Scanning... {{value0}}"
+          "24eda6c8b2": "Scanning... {{value0}}",
+          "6149d5203f": "No repositories are selected. Open the parent folder instead to use editor, terminal, and search without Git features.",
+          "e52454b7f6": "Open as Folder"
         },
         "AddRepoRemoteStep": {
           "5b205b5281": "Stop scan",
@@ -5177,7 +5180,9 @@
           "8f1afdfbd8": "Diff Word Wrap",
           "4aa4d9fb73": "Wrap long lines in diff editors instead of requiring horizontal scrolling.",
           "bf16ef0af2": "Off",
-          "3f6892f307": "On"
+          "3f6892f307": "On",
+          "b82f86d7d2": "Rich Markdown Spellcheck",
+          "5195f0b9ef": "Show browser spelling underlines and suggestions while editing rich Markdown."
         },
         "AdvancedNetworkSettingsSection": {
           "3e431564b5": "localhost, 127.0.0.1, *.internal",
@@ -7479,7 +7484,9 @@
             "161a86a9da": "Confirm before closing pinned tabs",
             "8e593f04fc": "Show a confirmation dialog before a pinned tab is closed.",
             "defaultProjectRuntime": "Default Project Runtime",
-            "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects."
+            "defaultProjectRuntimeDescription": "Choose the runtime inherited by local Windows projects.",
+            "d2d2d929c0": "Rich Markdown Spellcheck",
+            "4497e2e2bb": "Show browser spelling underlines and suggestions while editing rich Markdown."
           }
         },
         "git": {
@@ -8999,7 +9006,8 @@
             "98a79948b3": "Copy",
             "b234ab25b4": "Could not copy the file to the clipboard",
             "f9d7ca753d": "Copy Paths",
-            "3161c4e425": "folder"
+            "3161c4e425": "folder",
+            "e887fa4b2e": "Open in Terminal"
           },
           "FileExplorerToolbar": {
             "d238264654": "Show Git Ignored Files",
@@ -9746,7 +9754,8 @@
             "worktreeUnavailable": "Worktree is no longer available.",
             "runtimeBrowseLocalHistory": "Runtime-hosted workspaces can browse local history. Resume actions are available in local and SSH workspaces.",
             "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
-            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session."
+            "openSupportedWorkspace": "Open a local or SSH workspace before resuming a session.",
+            "localSessionSshWorkspaceUnsupported": "This session's history is stored on this machine, so it can't resume in an SSH workspace. Open a local workspace instead."
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",
@@ -10388,8 +10397,8 @@
           "title": "Custom network address",
           "description": "Advertise an address your phone can reach when it is not on the same Wi-Fi — for example a Tailscale hostname or a static IP.",
           "label": "Address",
-          "placeholder": "my-mac.ts.net or 192.168.1.50",
-          "hint": "Enter an IP address or a Tailscale hostname (ends in .ts.net).",
+          "placeholder": "my-mac.ts.net, home.example.com, or 192.168.1.50",
+          "hint": "Enter an IP address or a hostname — a Tailscale MagicDNS name, a DDNS domain, or a LAN hostname — optionally with :port.",
           "cancel": "Cancel",
           "use": "Use address"
         },
@@ -11882,7 +11891,8 @@
             "4bb7424d6b": "Canceled",
             "6e776f9ef9": "Download failed",
             "756bfc25c9": "Open",
-            "09a9489aa5": "Show"
+            "09a9489aa5": "Show",
+            "2a4c4b8e1f": "Copy"
           },
           "BrowserToolbarMenu": {
             "429ef481f9": "Cancel",

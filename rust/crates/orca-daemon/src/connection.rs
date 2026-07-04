@@ -53,7 +53,11 @@ impl LineReader {
     }
 }
 
-pub fn handle_connection(stream: UnixStream, registry: Arc<Registry>) {
+pub fn handle_connection(
+    stream: UnixStream,
+    registry: Arc<Registry>,
+    expected_token: Option<Arc<str>>,
+) {
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };
@@ -71,6 +75,14 @@ pub fn handle_connection(stream: UnixStream, registry: Arc<Registry>) {
         let _ = writer
             .write_all(encode_ndjson_line(&hello_err("Protocol version mismatch")).as_bytes());
         return;
+    }
+    // Token gate (order matches the Node daemon: version → token → ok). Skipped
+    // when no token is configured (standalone / parity harness).
+    if let Some(expected) = expected_token.as_deref() {
+        if hello.token != expected {
+            let _ = writer.write_all(encode_ndjson_line(&hello_err("Invalid token")).as_bytes());
+            return;
+        }
     }
     if writer
         .write_all(encode_ndjson_line(&hello_ok()).as_bytes())

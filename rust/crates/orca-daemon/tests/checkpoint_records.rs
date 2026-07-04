@@ -53,9 +53,13 @@ fn incremental_records_seq_and_control_events() {
         wait_until(
             || {
                 let r = take(&reg, client, "s-ck", false);
-                r["payload"]["records"]
-                    .as_array()
-                    .is_some_and(|recs| recs.iter().any(|x| x["data"].as_str().is_some_and(|d| d.contains("CKPT_MARKER"))))
+                r["payload"]["records"].as_array().is_some_and(|recs| {
+                    recs.iter().any(|x| {
+                        x["data"]
+                            .as_str()
+                            .is_some_and(|d| d.contains("CKPT_MARKER"))
+                    })
+                })
             },
             Duration::from_secs(10),
         ),
@@ -76,9 +80,9 @@ fn incremental_records_seq_and_control_events() {
     let batch = take(&reg, client, "s-ck", false);
     let records = batch["payload"]["records"].as_array().unwrap();
     assert!(
-        records
-            .iter()
-            .any(|r| r["kind"] == json!("resize") && r["cols"] == json!(100) && r["rows"] == json!(30)),
+        records.iter().any(|r| r["kind"] == json!("resize")
+            && r["cols"] == json!(100)
+            && r["rows"] == json!(30)),
         "resize is recorded as a typed record"
     );
     assert!(
@@ -88,10 +92,20 @@ fn incremental_records_seq_and_control_events() {
     // seq is monotonic across takes; a drained batch resets to empty.
     let s1 = batch["payload"]["seq"].as_u64().unwrap();
     let empty = take(&reg, client, "s-ck", false);
-    assert!(empty["payload"]["records"].as_array().unwrap().is_empty(), "drained batch resets");
-    assert!(empty["payload"]["seq"].as_u64().unwrap() > s1, "seq advances each take");
+    assert!(
+        empty["payload"]["records"].as_array().unwrap().is_empty(),
+        "drained batch resets"
+    );
+    assert!(
+        empty["payload"]["seq"].as_u64().unwrap() > s1,
+        "seq advances each take"
+    );
 
-    dispatch(&reg, client, json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-ck" } }));
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-ck" } }),
+    );
 }
 
 #[test]
@@ -114,7 +128,9 @@ fn include_snapshot_supersedes_records() {
                     client,
                     json!({ "id": "g", "type": "getSnapshot", "payload": { "sessionId": "s-sk" } }),
                 );
-                snap["payload"]["snapshot"]["snapshotAnsi"].as_str().is_some_and(|s| s.contains("SNAP_CKPT"))
+                snap["payload"]["snapshot"]["snapshotAnsi"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("SNAP_CKPT"))
             },
             Duration::from_secs(10),
         ),
@@ -125,7 +141,10 @@ fn include_snapshot_supersedes_records() {
     // records (they're redundant with the snapshot), matching session.ts.
     let full = take(&reg, client, "s-sk", true);
     assert!(
-        full["payload"]["snapshot"]["snapshotAnsi"].as_str().unwrap().contains("SNAP_CKPT"),
+        full["payload"]["snapshot"]["snapshotAnsi"]
+            .as_str()
+            .unwrap()
+            .contains("SNAP_CKPT"),
         "includeSnapshot returns the full snapshot"
     );
     assert!(
@@ -133,7 +152,11 @@ fn include_snapshot_supersedes_records() {
         "records are empty when includeSnapshot supersedes them"
     );
 
-    dispatch(&reg, client, json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-sk" } }));
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-sk" } }),
+    );
 }
 
 /// takePendingOutput for a missing/just-reaped session returns ok+null, NOT an
@@ -145,8 +168,16 @@ fn include_snapshot_supersedes_records() {
 fn take_pending_output_on_unknown_session_is_ok_null() {
     let reg = Arc::new(Registry::new());
     let r = take(&reg, "c-none", "no-such-session", false);
-    assert_eq!(r["ok"], json!(true), "unknown session must be ok, not an error");
-    assert_eq!(r["payload"], Value::Null, "unknown session payload is null (null-not-throw)");
+    assert_eq!(
+        r["ok"],
+        json!(true),
+        "unknown session must be ok, not an error"
+    );
+    assert_eq!(
+        r["payload"],
+        Value::Null,
+        "unknown session payload is null (null-not-throw)"
+    );
 
     // Same for the includeSnapshot variant — null supersedes everything.
     let r2 = take(&reg, "c-none", "no-such-session", true);

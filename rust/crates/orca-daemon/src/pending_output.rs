@@ -110,7 +110,11 @@ mod tests {
         p.record_output("ab");
         p.record_output("cd");
         let (records, seq, overflowed) = p.take();
-        assert_eq!(records.len(), 1, "adjacent output coalesced into one record");
+        assert_eq!(
+            records.len(),
+            1,
+            "adjacent output coalesced into one record"
+        );
         assert_eq!(records[0]["kind"], json!("output"));
         assert_eq!(records[0]["data"], json!("abcd"));
         assert_eq!(seq, 1);
@@ -121,7 +125,10 @@ mod tests {
         p.record_output("y");
         let (records, seq, _) = p.take();
         assert_eq!(records.len(), 3);
-        assert_eq!(records[1], json!({ "kind": "resize", "cols": 100, "rows": 30 }));
+        assert_eq!(
+            records[1],
+            json!({ "kind": "resize", "cols": 100, "rows": 30 })
+        );
         assert_eq!(seq, 2);
     }
 

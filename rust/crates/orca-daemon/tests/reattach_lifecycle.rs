@@ -37,7 +37,9 @@ fn wait_for_data(rx: &Receiver<String>, session: &str, needle: &str, timeout: Du
             let v: Value = serde_json::from_str(&line).expect("event JSON");
             if v["event"] == json!("data")
                 && v["sessionId"] == json!(session)
-                && v["payload"]["data"].as_str().is_some_and(|d| d.contains(needle))
+                && v["payload"]["data"]
+                    .as_str()
+                    .is_some_and(|d| d.contains(needle))
             {
                 return true;
             }
@@ -79,7 +81,10 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
     );
     assert_eq!(created["payload"]["isNew"], json!(true));
     assert!(
-        wait_until(|| snapshot_ansi_contains(&reg, c1, "s-re", "MARKER_PRE"), Duration::from_secs(10)),
+        wait_until(
+            || snapshot_ansi_contains(&reg, c1, "s-re", "MARKER_PRE"),
+            Duration::from_secs(10)
+        ),
         "session should render its pre-detach marker"
     );
 
@@ -93,7 +98,10 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
             "payload": { "sessionId": "s-re", "data": "printf DETACHED_OUT\n" } }),
     );
     assert!(
-        wait_until(|| snapshot_ansi_contains(&reg, c1, "s-re", "DETACHED_OUT"), Duration::from_secs(10)),
+        wait_until(
+            || snapshot_ansi_contains(&reg, c1, "s-re", "DETACHED_OUT"),
+            Duration::from_secs(10)
+        ),
         "detached output should still reach the engine"
     );
 
@@ -107,15 +115,25 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
         json!({ "id": "re", "type": "createOrAttach",
             "payload": { "sessionId": "s-re", "cols": 80, "rows": 24 } }),
     );
-    assert_eq!(reattach["payload"]["isNew"], json!(false), "reattach to the live session");
+    assert_eq!(
+        reattach["payload"]["isNew"],
+        json!(false),
+        "reattach to the live session"
+    );
     // (1) real snapshot — authoritative: it repaints BOTH the pre-detach screen and
     // the output produced while detached (every byte was teed into the engine). The
     // raw backlog is NOT also replayed as data events — that would double-apply it.
     let snap = &reattach["payload"]["snapshot"];
     assert!(snap.is_object(), "reattach returns a real snapshot");
     let ansi = snap["snapshotAnsi"].as_str().unwrap();
-    assert!(ansi.contains("MARKER_PRE"), "snapshot repaints the pre-detach screen");
-    assert!(ansi.contains("DETACHED_OUT"), "snapshot includes output produced while detached");
+    assert!(
+        ansi.contains("MARKER_PRE"),
+        "snapshot repaints the pre-detach screen"
+    );
+    assert!(
+        ansi.contains("DETACHED_OUT"),
+        "snapshot includes output produced while detached"
+    );
     // (2) live output produced AFTER reattach routes to C2 (routing rebound off the
     // now-dead C1). This is the byte the old stale-client_id bug never delivered.
     dispatch(
@@ -129,7 +147,11 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
         "post-reattach live output must route to the rebound client"
     );
 
-    dispatch(&reg, c2, json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-re" } }));
+    dispatch(
+        &reg,
+        c2,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-re" } }),
+    );
 }
 
 /// A session whose shell exited while detached must be reaped: gone from
@@ -158,7 +180,10 @@ fn exited_session_is_reaped_and_recreated_fresh() {
         },
         Duration::from_secs(10),
     );
-    assert!(gone, "an exited session must be reaped out of listSessions (no zombie)");
+    assert!(
+        gone,
+        "an exited session must be reaped out of listSessions (no zombie)"
+    );
 
     // Recreating the id spawns a fresh shell — a new pid, isNew:true.
     let second = dispatch(
@@ -167,8 +192,19 @@ fn exited_session_is_reaped_and_recreated_fresh() {
         json!({ "id": "c2", "type": "createOrAttach",
             "payload": { "sessionId": "s-z", "cols": 80, "rows": 24, "command": "sleep 30" } }),
     );
-    assert_eq!(second["payload"]["isNew"], json!(true), "recreate after exit spawns fresh");
-    assert_ne!(second["payload"]["pid"], first_pid, "fresh shell has a new pid");
+    assert_eq!(
+        second["payload"]["isNew"],
+        json!(true),
+        "recreate after exit spawns fresh"
+    );
+    assert_ne!(
+        second["payload"]["pid"], first_pid,
+        "fresh shell has a new pid"
+    );
 
-    dispatch(&reg, client, json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-z" } }));
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-z" } }),
+    );
 }

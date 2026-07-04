@@ -133,7 +133,10 @@ fn create_write_snapshot_cwd_lifecycle() {
             && r["data"].as_str().is_some_and(|d| d.contains("MARKER_XYZ"))),
         "checkpoint records carry the printed marker"
     );
-    assert!(pending["payload"]["seq"].as_u64().unwrap() >= 1, "seq is monotonic from 1");
+    assert!(
+        pending["payload"]["seq"].as_u64().unwrap() >= 1,
+        "seq is monotonic from 1"
+    );
     assert_eq!(pending["payload"]["overflowed"], json!(false));
     assert_eq!(
         pending["payload"]["snapshot"],
@@ -269,7 +272,10 @@ fn create_write_snapshot_lifecycle_windows() {
             && r["data"].as_str().is_some_and(|d| d.contains("MARKER_XYZ"))),
         "checkpoint records carry the printed marker"
     );
-    assert!(pending["payload"]["seq"].as_u64().unwrap() >= 1, "seq is monotonic from 1");
+    assert!(
+        pending["payload"]["seq"].as_u64().unwrap() >= 1,
+        "seq is monotonic from 1"
+    );
     assert_eq!(pending["payload"]["overflowed"], json!(false));
     assert_eq!(
         pending["payload"]["snapshot"],

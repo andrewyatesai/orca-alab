@@ -1084,9 +1084,9 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly wasm_bindgen__closure__destroy__h5d7a8bed3c20d8b8: (a: number, b: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h73172e845d7760e8: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h86ce16dd5e9bccc0: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__closure__destroy__h85babbb0ee037f08: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h12cc62c7750ca9fe: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h6b25d329a61c3710: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

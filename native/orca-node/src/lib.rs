@@ -272,6 +272,14 @@ pub fn parse_worktree_list(output: String, nul_delimited: bool) -> String {
     orca_git::worktree::worktree_list_to_json(&worktrees).to_string()
 }
 
+/// NUL-delimited `git log` output (in `GIT_HISTORY_COMMIT_FORMAT`) parsed to the
+/// `GitHistoryItem[]` JSON the TS `parseGitHistoryLog` produces.
+#[napi(catch_unwind)]
+pub fn parse_git_history_log(stdout: String) -> String {
+    let items = orca_git::git_history_log_parser::parse_git_history_log(&stdout);
+    orca_git::git_history_log_parser::git_history_log_to_json(&items).to_string()
+}
+
 /// Count additions for an untracked file's contents: null for binary, 0 for empty,
 /// else the trailing-newline-aware line count.
 #[napi(catch_unwind)]

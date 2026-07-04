@@ -18,14 +18,19 @@ const COLS: u16 = 72;
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let command = match argv.split_first() {
-        Some((program, rest)) => {
-            PtyCommand { program: program.clone(), args: rest.to_vec(), cwd: None, env: Vec::new() }
-        }
+        Some((program, rest)) => PtyCommand {
+            program: program.clone(),
+            args: rest.to_vec(),
+            cwd: None,
+            env: Vec::new(),
+            env_remove: Vec::new(),
+        },
         None => PtyCommand {
             program: "/bin/sh".to_string(),
             args: vec!["-c".to_string(), demo_script().to_string()],
             cwd: None,
             env: Vec::new(),
+            env_remove: Vec::new(),
         },
     };
 

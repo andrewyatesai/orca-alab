@@ -1,9 +1,12 @@
 //! A spawned PTY session wrapping `portable_pty`.
 
+#[cfg(unix)]
 use nix::sys::signal::{kill, Signal};
+#[cfg(unix)]
 use nix::unistd::Pid;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize as PortablePtySize};
 use std::io::{self, Read, Write};
+#[cfg(unix)]
 use std::str::FromStr;
 
 fn to_io(error: impl std::fmt::Display) -> io::Error {
@@ -95,6 +98,7 @@ impl PtySession {
     /// Send a named signal (e.g. "SIGINT"/"SIGTERM"/"SIGWINCH") to the child,
     /// mirroring node-pty's `kill(signal)` — it targets the child pid. A dead
     /// child (no pid) is a silent no-op, matching node-pty's recycled-pid guard.
+    #[cfg(unix)]
     pub fn signal(&self, sig: &str) -> io::Result<()> {
         let Some(pid) = self.child.process_id() else {
             return Ok(());
@@ -102,6 +106,18 @@ impl PtySession {
         let signal = Signal::from_str(sig)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, format!("unknown signal: {sig}")))?;
         kill(Pid::from_raw(pid as i32), signal).map_err(to_io)
+    }
+
+    /// Windows has no POSIX signal delivery, so this reports the request as
+    /// unsupported rather than faking it. The Rust daemon that calls `signal`
+    /// runs on Unix only; on Windows the method exists purely to keep the crate
+    /// compiling, and the daemon drops the error like a dead-child signal.
+    #[cfg(not(unix))]
+    pub fn signal(&self, sig: &str) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("POSIX signal delivery ({sig}) is not supported on this platform"),
+        ))
     }
 
     /// Wait for exit and return the child's exit code.

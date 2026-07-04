@@ -259,7 +259,13 @@ pub unsafe extern "C" fn orca_session_spawn(
             }
         }
     }
-    let command = PtyCommand { program, args: arg_vec, cwd: None, env: Vec::new() };
+    let command = PtyCommand {
+        program,
+        args: arg_vec,
+        cwd: None,
+        env: Vec::new(),
+        env_remove: Vec::new(),
+    };
     match TerminalSession::spawn(&command, rows as u16, cols as u16) {
         Ok(session) => Box::into_raw(Box::new(session)),
         Err(_) => std::ptr::null_mut(),

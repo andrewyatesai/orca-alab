@@ -12,9 +12,12 @@ description = "Local PTY spawning for Orca (replaces node-pty), backed by vendor
 # feature (which would pull libssh2) and serde support. The native PTY system,
 # CommandBuilder, and Child are always available.
 portable-pty = { version = "0.8", default-features = false }
+
 # Safe wrappers over kill(2) for delivering named signals to the child (node-pty's
-# `kill(signal)`). Already in the graph via portable-pty; `signal`+`process` are
-# the only features we use (Signal + Pid). Keeps orca-pty unsafe-free.
+# `kill(signal)`). Unix-only: `nix` is an empty crate on Windows, which has no
+# POSIX signals — the Rust daemon that delivers them runs on Unix only. Already in
+# the graph via portable-pty; `signal`+`process` are the only features we use.
+[target.'cfg(unix)'.dependencies]
 nix = { version = "0.25", default-features = false, features = ["signal", "process"] }
 
 [lints.rust]

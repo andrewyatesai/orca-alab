@@ -100,6 +100,7 @@ mod tests {
             args: vec!["-c".to_string(), script.to_string()],
             cwd: None,
             env: Vec::new(),
+            env_remove: Vec::new(),
         }
     }
 

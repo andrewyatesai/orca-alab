@@ -4921,6 +4921,29 @@ export function connectPanePty(
       // and only the freshest source belongs on screen.
       if (connectResult?.snapshot) {
         rememberReattachPayloadAgentSignal(connectResult.snapshot, { fullScreenReplay: true })
+        // The daemon reattach snapshot is absolute-positioned at the SESSION's
+        // dimensions — the daemon does NOT resize its emulator on reattach. Replay
+        // at those dims first; otherwise a row wider than the (possibly resized)
+        // pane wraps and the next row's \x1b[K erases the overflow, truncating and
+        // mis-aligning restored scrollback on any size mismatch. safeFit() below
+        // reflows back to the pane and resizes the PTY. Mirrors
+        // applyMainBufferSnapshot; the xterm-only resize must not SIGWINCH the PTY.
+        const snapCols = connectResult.snapshotCols
+        const snapRows = connectResult.snapshotRows
+        if (
+          Number.isFinite(snapCols) &&
+          Number.isFinite(snapRows) &&
+          (snapCols ?? 0) > 0 &&
+          (snapRows ?? 0) > 0 &&
+          (pane.terminal.cols !== snapCols || pane.terminal.rows !== snapRows)
+        ) {
+          suppressSnapshotReplayPtyResize = true
+          try {
+            pane.terminal.resize(snapCols as number, snapRows as number)
+          } finally {
+            suppressSnapshotReplayPtyResize = false
+          }
+        }
         writeReplayData('\x1b[2J\x1b[3J\x1b[H')
         writeReplayData(connectResult.snapshot)
         // Snapshot reattach keeps a live session, so avoid the broader mode

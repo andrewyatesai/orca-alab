@@ -1,11 +1,12 @@
 //! Control-socket RPC dispatch + the per-session output pump. Requests arrive as
 //! `serde_json::Value`; each returns the NDJSON response line the control socket
 //! writes back. `createOrAttach` additionally spawns the PTY and the reader thread
-//! that routes its output (live if the client's stream is connected, else buffered
-//! for reattach — see `registry`).
+//! that feeds the session engine (terminal + checkpoint records) and streams output
+//! live to the client (dropped when detached — the reattach snapshot restores it).
 
+use crate::pending_output::PendingOutput;
 use crate::protocol::{rpc_err, rpc_ok};
-use crate::registry::{Registry, SessionEntry};
+use crate::registry::{Registry, SessionEngine, SessionEntry};
 use orca_pty::{PtyCommand, PtySession, PtySize};
 use orca_terminal::{HeadlessTerminal, MouseTracking, DEFAULT_SCROLLBACK};
 use serde_json::{json, Value};
@@ -46,8 +47,9 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             match registry.with_session(&sid(), |e| {
                 e.cols = cols;
                 e.rows = rows;
-                if let Ok(mut t) = e.terminal.lock() {
-                    t.resize(rows as usize, cols as usize);
+                if let Ok(mut engine) = e.engine.lock() {
+                    engine.terminal.resize(rows as usize, cols as usize);
+                    engine.pending.record_resize(cols, rows);
                 }
                 e.pty.resize(PtySize { rows, cols })
             }) {
@@ -65,7 +67,23 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         }
         // The session already survives control-socket close, so detach is a no-op ack.
         "detach" => rpc_ok(id, Value::Null),
-        "takePendingOutput" => rpc_ok(id, json!({ "data": registry.take_pending(&sid()) })),
+        // The incremental checkpoint batch: typed records + monotonic seq + overflow
+        // flag, and (when requested) a snapshot serialized in the same atomic turn.
+        // Mirrors the Node daemon's TakePendingOutputResult (types.ts) — the client
+        // appends each batch to the on-disk history log for crash cold-restore.
+        "takePendingOutput" => {
+            let include_snapshot = payload
+                .get("includeSnapshot")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            match registry.take_pending_output(&sid(), include_snapshot) {
+                Some((records, seq, overflowed, snapshot)) => rpc_ok(
+                    id,
+                    json!({ "records": records, "seq": seq, "overflowed": overflowed, "snapshot": snapshot }),
+                ),
+                None => rpc_err(id, "unknown session"),
+            }
+        }
         "listSessions" => rpc_ok(id, registry.list_sessions()),
         // Wire shape mirrors the Node daemon: `{ size: { cols, rows } }` (not the
         // dims at the payload top level) — see daemon-server.ts `getAppliedSize`.
@@ -88,9 +106,9 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             rpc_ok(id, json!({ "health": crate::resolver_health::system_resolver_health() }))
         }
         // Real engine state from the session's headless aterm terminal — no napi hop.
-        "getSnapshot" => match registry.terminal_of(&sid()) {
-            Some(terminal) => {
-                let snapshot = build_snapshot(&mut terminal.lock().unwrap());
+        "getSnapshot" => match registry.engine_of(&sid()) {
+            Some(engine) => {
+                let snapshot = build_snapshot(&mut engine.lock().unwrap().terminal);
                 rpc_ok(id, json!({ "snapshot": snapshot }))
             }
             None => rpc_ok(id, json!({ "snapshot": Value::Null })),
@@ -98,16 +116,18 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         // Wire shape mirrors the Node daemon: `{ cwd: <string|null> }`.
         "getCwd" => {
             let cwd = registry
-                .terminal_of(&sid())
-                .and_then(|t| t.lock().unwrap().cwd().map(str::to_string));
+                .engine_of(&sid())
+                .and_then(|engine| engine.lock().unwrap().terminal.cwd().map(str::to_string));
             rpc_ok(id, json!({ "cwd": cwd }))
         }
         // Wire shape mirrors the Node daemon: `{ foregroundProcess: <…|null> }`.
         // Process-group query isn't wired yet, so the value is null (a safe stub).
         "getForegroundProcess" => rpc_ok(id, json!({ "foregroundProcess": Value::Null })),
         "clearScrollback" => {
-            if let Some(t) = registry.terminal_of(&sid()) {
-                t.lock().unwrap().clear_scrollback();
+            if let Some(engine) = registry.engine_of(&sid()) {
+                let mut engine = engine.lock().unwrap();
+                engine.terminal.clear_scrollback();
+                engine.pending.record_clear();
             }
             rpc_ok(id, Value::Null)
         }
@@ -173,12 +193,12 @@ fn create_or_attach(
     if session_id.is_empty() {
         return rpc_err(id, "missing sessionId");
     }
-    // Reattach a live session: rebind it to this (possibly new) client, flush its
-    // backlog, and return a REAL snapshot so the reattacher repaints — matching
-    // terminal-host.ts's live branch (getSnapshot + detachAllClients + attachClient).
-    // A blank snapshot here would leave a warm-reattached pane frozen after relaunch.
-    if let Some(terminal) = registry.reattach_if_alive(&session_id, client_id) {
-        let snapshot = build_snapshot(&mut terminal.lock().unwrap());
+    // Reattach a live session: rebind it to this (possibly new) client and return a
+    // REAL snapshot so the reattacher repaints — matching terminal-host.ts's live
+    // branch (getSnapshot + detachAllClients + attachClient). A blank snapshot here
+    // would leave a warm-reattached pane frozen after relaunch.
+    if let Some(engine) = registry.reattach_if_alive(&session_id, client_id) {
+        let snapshot = build_snapshot(&mut engine.lock().unwrap().terminal);
         let pid = registry.session_pid(&session_id);
         return rpc_ok(
             id,
@@ -200,21 +220,21 @@ fn create_or_attach(
         Ok(r) => r,
         Err(e) => return rpc_err(id, &format!("reader clone failed: {e}")),
     };
-    // A headless aterm engine per session: the pump tees raw PTY output into it so
-    // getSnapshot/getCwd are answered from real engine state (no napi hop).
-    let terminal = Arc::new(Mutex::new(HeadlessTerminal::with_scrollback(
-        rows as usize,
-        cols as usize,
-        DEFAULT_SCROLLBACK,
-    )));
-    // Pump raw PTY output → routed (live or buffered) by the registry AND teed into
-    // the headless engine; on EOF, reap the child (remove the session + emit `exit`).
-    // The reader is an independent clone of the master, so it keeps reading after
-    // `pty` moves into the registry entry.
+    // Per-session engine (headless aterm terminal + checkpoint record log) behind one
+    // lock, so the pump feeds both atomically and getSnapshot/getCwd/takePendingOutput
+    // read consistent state — no napi hop.
+    let engine = Arc::new(Mutex::new(SessionEngine {
+        terminal: HeadlessTerminal::with_scrollback(rows as usize, cols as usize, DEFAULT_SCROLLBACK),
+        pending: PendingOutput::default(),
+    }));
+    // Pump raw PTY output → fed into the engine (terminal + records) AND streamed live
+    // by the registry; on EOF, reap the child (remove the session + emit `exit`). The
+    // reader is an independent clone of the master, so it keeps reading after `pty`
+    // moves into the registry entry.
     let pump_registry = registry.clone();
     let pump_session = session_id.clone();
-    let pump_terminal = Arc::clone(&terminal);
-    thread::spawn(move || pump_output(reader, pump_registry, pump_session, pump_terminal));
+    let pump_engine = Arc::clone(&engine);
+    thread::spawn(move || pump_output(reader, pump_registry, pump_session, pump_engine));
 
     let created_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -229,8 +249,7 @@ fn create_or_attach(
             rows,
             pid,
             created_at_ms,
-            pending: Vec::new(),
-            terminal,
+            engine,
         },
     );
     rpc_ok(
@@ -316,19 +335,24 @@ fn pump_output(
     mut reader: Box<dyn Read + Send>,
     registry: Arc<Registry>,
     session_id: String,
-    terminal: Arc<Mutex<HeadlessTerminal>>,
+    engine: Arc<Mutex<SessionEngine>>,
 ) {
     let mut buf = [0u8; 65536];
     loop {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
-                // Tee: raw bytes into the headless engine (correct VT parsing), and a
-                // lossy-UTF-8 copy out to the client stream.
-                if let Ok(mut t) = terminal.lock() {
-                    t.process(&buf[..n]);
-                }
                 let data = String::from_utf8_lossy(&buf[..n]);
+                // Feed the engine ATOMICALLY: raw bytes into the VT parser AND the
+                // same chunk into the checkpoint record log, under one lock so a
+                // concurrent takePendingOutput can't see the terminal updated but the
+                // record missing (which would duplicate bytes on cold restore).
+                if let Ok(mut engine) = engine.lock() {
+                    engine.terminal.process(&buf[..n]);
+                    engine.pending.record_output(data.as_ref());
+                }
+                // Stream a lossy-UTF-8 copy live to the attached client (dropped if
+                // detached — the reattach snapshot restores it).
                 registry.route_output(&session_id, data.as_ref());
             }
         }
@@ -341,8 +365,9 @@ fn pump_output(
 /// Build a `TerminalSnapshot` (types.ts) from the session's headless aterm engine.
 /// ansi/cwd/modes are REAL engine state; `rehydrateSequences` replays the screen and
 /// input modes on reattach, and `oscLinks` carries the scrollback/screen hyperlink
-/// ranges so links survive a reconnect.
-fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
+/// ranges so links survive a reconnect. `pub(crate)` so the registry can serialize a
+/// snapshot in the same engine-lock turn as a checkpoint drain (takePendingOutput).
+pub(crate) fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
     let snapshot_ansi = term.serialize_ansi(None);
     let scrollback_ansi = term.serialize_scrollback_ansi(None);
     let osc_links: Vec<Value> = term

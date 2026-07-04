@@ -58,10 +58,10 @@ fn snapshot_ansi_contains(reg: &Arc<Registry>, client: &str, session: &str, need
 }
 
 /// The full warm-reattach path: create under C1, detach, reattach under a DIFFERENT
-/// client C2. The reattach must (1) return a real snapshot carrying the pre-detach
-/// screen, (2) flush the detached-while-buffered backlog to C2, and (3) rebind live
-/// routing so post-reattach output reaches C2 — the behavior a blank snapshot +
-/// stale client_id used to break.
+/// client C2. The reattach must (1) return a real snapshot carrying BOTH the
+/// pre-detach screen and the output produced while detached (the engine stays
+/// current), and (2) rebind live routing so post-reattach output reaches C2 — the
+/// behavior a blank snapshot + stale client_id used to break.
 #[test]
 fn cross_client_reattach_rebinds_routing_and_repaints() {
     let reg = Arc::new(Registry::new());
@@ -69,7 +69,7 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
     // C1 (first app instance) creates a long-lived session and streams it.
     let c1 = "client-1";
     let (tx1, _rx1) = std::sync::mpsc::channel::<String>();
-    reg.register_stream_and_flush(c1.to_string(), tx1);
+    reg.register_stream(c1.to_string(), tx1);
     let created = dispatch(
         &reg,
         c1,
@@ -83,7 +83,8 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
         "session should render its pre-detach marker"
     );
 
-    // C1 detaches (app quit): its stream goes away, so further output BUFFERS.
+    // C1 detaches (app quit): its stream goes away, so live output is dropped — but
+    // the pump keeps feeding the engine, so the state survives for the snapshot.
     reg.unregister_stream(c1);
     dispatch(
         &reg,
@@ -91,17 +92,15 @@ fn cross_client_reattach_rebinds_routing_and_repaints() {
         json!({ "id": "w", "type": "write",
             "payload": { "sessionId": "s-re", "data": "printf DETACHED_OUT\n" } }),
     );
-    // Wait until the engine shows the detached output — guarantees the pump also
-    // buffered it into `pending`, so the reattach flush is deterministic.
     assert!(
         wait_until(|| snapshot_ansi_contains(&reg, c1, "s-re", "DETACHED_OUT"), Duration::from_secs(10)),
-        "detached output should be processed + buffered"
+        "detached output should still reach the engine"
     );
 
     // C2 (relaunched app) — a NEW clientId. Register its stream, then reattach.
     let c2 = "client-2";
     let (tx2, rx2) = std::sync::mpsc::channel::<String>();
-    reg.register_stream_and_flush(c2.to_string(), tx2);
+    reg.register_stream(c2.to_string(), tx2);
     let reattach = dispatch(
         &reg,
         c2,

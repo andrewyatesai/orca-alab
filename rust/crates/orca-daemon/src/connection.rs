@@ -135,10 +135,9 @@ fn serve_stream(
             }
         }
     });
-    // Install the sender AND replay any detached-while-buffered backlog atomically,
-    // so the replay can't be overtaken by live output (both go through this tx → the
-    // drain thread, in order).
-    registry.register_stream_and_flush(client_id.clone(), tx);
+    // Install the sender. Detached-while-idle output isn't buffered for raw replay —
+    // the reattach snapshot (built from the engine) restores state instead.
+    registry.register_stream(client_id.clone(), tx);
     // A stream socket is daemon→client; the client rarely sends. Block until it
     // closes, then tear down — dropping the registry's sender ends the drain thread.
     while reader.next_line().is_some() {}

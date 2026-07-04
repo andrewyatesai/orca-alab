@@ -10,6 +10,7 @@
 
 #[cfg(unix)]
 pub mod connection;
+pub mod pending_output;
 pub mod protocol;
 pub mod registry;
 pub mod resolver_health;

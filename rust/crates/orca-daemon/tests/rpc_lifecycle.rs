@@ -118,17 +118,28 @@ fn create_write_snapshot_cwd_lifecycle() {
         "listSessions includes the live session"
     );
 
-    // takePendingOutput drains the buffered raw bytes (no stream socket registered
-    // in this dispatch-level test, so all output was buffered).
+    // takePendingOutput returns the incremental checkpoint batch (types.ts
+    // TakePendingOutputResult): typed records + monotonic seq, no snapshot unless
+    // requested. The accumulated output records carry the printed marker.
     let pending = dispatch(
         &reg,
         client,
         json!({ "id": "tp", "type": "takePendingOutput", "payload": { "sessionId": "s1" } }),
     );
-    assert!(pending["payload"]["data"]
-        .as_str()
-        .unwrap()
-        .contains("MARKER_XYZ"));
+    assert_eq!(pending["ok"], json!(true));
+    let records = pending["payload"]["records"].as_array().unwrap();
+    assert!(
+        records.iter().any(|r| r["kind"] == json!("output")
+            && r["data"].as_str().is_some_and(|d| d.contains("MARKER_XYZ"))),
+        "checkpoint records carry the printed marker"
+    );
+    assert!(pending["payload"]["seq"].as_u64().unwrap() >= 1, "seq is monotonic from 1");
+    assert_eq!(pending["payload"]["overflowed"], json!(false));
+    assert_eq!(
+        pending["payload"]["snapshot"],
+        Value::Null,
+        "no snapshot without includeSnapshot"
+    );
 
     // Reattach on the live id → isNew:false.
     let reattach = dispatch(
@@ -243,17 +254,28 @@ fn create_write_snapshot_lifecycle_windows() {
         "listSessions includes the live session"
     );
 
-    // takePendingOutput drains the buffered raw bytes (no stream socket registered
-    // in this dispatch-level test, so all output was buffered).
+    // takePendingOutput returns the incremental checkpoint batch (types.ts
+    // TakePendingOutputResult): typed records + monotonic seq, no snapshot unless
+    // requested. The accumulated output records carry the printed marker.
     let pending = dispatch(
         &reg,
         client,
         json!({ "id": "tp", "type": "takePendingOutput", "payload": { "sessionId": "s1" } }),
     );
-    assert!(pending["payload"]["data"]
-        .as_str()
-        .unwrap()
-        .contains("MARKER_XYZ"));
+    assert_eq!(pending["ok"], json!(true));
+    let records = pending["payload"]["records"].as_array().unwrap();
+    assert!(
+        records.iter().any(|r| r["kind"] == json!("output")
+            && r["data"].as_str().is_some_and(|d| d.contains("MARKER_XYZ"))),
+        "checkpoint records carry the printed marker"
+    );
+    assert!(pending["payload"]["seq"].as_u64().unwrap() >= 1, "seq is monotonic from 1");
+    assert_eq!(pending["payload"]["overflowed"], json!(false));
+    assert_eq!(
+        pending["payload"]["snapshot"],
+        Value::Null,
+        "no snapshot without includeSnapshot"
+    );
 
     // Reattach on the live id → isNew:false.
     let reattach = dispatch(

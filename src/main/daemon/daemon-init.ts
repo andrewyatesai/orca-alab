@@ -221,23 +221,32 @@ function rustDaemonEnabled(): boolean {
   return process.env.ORCA_RUST_DAEMON === '1' && process.platform !== 'win32'
 }
 
-// Resolve the orca-daemon binary across dev + packaged layouts (mirrors
-// getRustTerminalAddonPath's multi-root probe). ORCA_RUST_DAEMON_BIN overrides.
+// Resolve the orca-daemon binary. ORCA_RUST_DAEMON_BIN overrides.
 function getRustDaemonBinPath(): string | null {
   const explicit = process.env.ORCA_RUST_DAEMON_BIN
   if (explicit && existsSync(explicit)) {
     return explicit
   }
-  const rel = join('rust', 'target', 'release', 'orca-daemon')
-  const relDebug = join('rust', 'target', 'debug', 'orca-daemon')
+  const binName = 'orca-daemon'
+  // Packaged: the binary is shipped to the resources root (electron-builder
+  // rustDaemonResource). NEVER probe app.getAppPath()-relative paths here — in a
+  // packaged app that is `…/app.asar` (a file), so a candidate inside it can pass
+  // existsSync via the asar fs shim yet fail spawn() with ENOTDIR (you cannot exec
+  // a path through the archive).
+  if (app.isPackaged) {
+    const packaged = join(process.resourcesPath ?? '', binName)
+    return existsSync(packaged) ? packaged : null
+  }
+  // Dev: the cargo build output, relative to the app root / cwd.
+  const rel = join('rust', 'target', 'release', binName)
+  const relDebug = join('rust', 'target', 'debug', binName)
   const candidates = [
     join(app.getAppPath(), rel),
     join(app.getAppPath(), relDebug),
     join(app.getAppPath(), '..', rel),
     join(app.getAppPath(), '..', relDebug),
     join(process.cwd(), rel),
-    join(process.cwd(), relDebug),
-    join(process.resourcesPath ?? '', 'orca-daemon')
+    join(process.cwd(), relDebug)
   ]
   return candidates.find((p) => existsSync(p)) ?? null
 }

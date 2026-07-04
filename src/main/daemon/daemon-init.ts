@@ -9,7 +9,7 @@ change cannot leave them drifting out of sync. */
 import { join } from 'node:path'
 import { app } from 'electron'
 import { mkdirSync, existsSync, unlinkSync, writeFileSync } from 'node:fs'
-import { fork } from 'node:child_process'
+import { fork, spawn } from 'node:child_process'
 import { connect } from 'node:net'
 import {
   DaemonSpawner,
@@ -213,8 +213,159 @@ async function shouldPreserveDaemonWithLiveSessions(
   return true
 }
 
+// Opt-in cutover to the pure-Rust daemon (rust/crates/orca-daemon). Default OFF —
+// the Node daemon stays the default until parity is proven on every platform
+// (Windows keeps the Node named-pipe transport; see the Move-1 plan). Enabled
+// per-session with ORCA_RUST_DAEMON=1.
+function rustDaemonEnabled(): boolean {
+  return process.env.ORCA_RUST_DAEMON === '1' && process.platform !== 'win32'
+}
+
+// Resolve the orca-daemon binary across dev + packaged layouts (mirrors
+// getRustTerminalAddonPath's multi-root probe). ORCA_RUST_DAEMON_BIN overrides.
+function getRustDaemonBinPath(): string | null {
+  const explicit = process.env.ORCA_RUST_DAEMON_BIN
+  if (explicit && existsSync(explicit)) {
+    return explicit
+  }
+  const rel = join('rust', 'target', 'release', 'orca-daemon')
+  const relDebug = join('rust', 'target', 'debug', 'orca-daemon')
+  const candidates = [
+    join(app.getAppPath(), rel),
+    join(app.getAppPath(), relDebug),
+    join(app.getAppPath(), '..', rel),
+    join(app.getAppPath(), '..', relDebug),
+    join(process.cwd(), rel),
+    join(process.cwd(), relDebug),
+    join(process.resourcesPath ?? '', 'orca-daemon')
+  ]
+  return candidates.find((p) => existsSync(p)) ?? null
+}
+
+// Launch (or reuse) the pure-Rust daemon; returns a handle with the same contract
+// as the Node path, or null if the binary is absent (caller falls back to Node).
+// The Rust bin isn't a Node fork, so there is no IPC 'ready' signal — readiness is
+// the protocol health check (a real hello+ping using the token the daemon
+// publishes on startup).
+async function launchRustDaemon(
+  runtimeDir: string,
+  socketPath: string,
+  tokenPath: string
+): Promise<DaemonProcessHandle | null> {
+  const binPath = getRustDaemonBinPath()
+  if (!binPath) {
+    return null
+  }
+
+  // Reuse a healthy Rust daemon we launched before (sessions survive app restart,
+  // parity with the Node reuse path). If a *different* daemon owns the socket,
+  // replace it — but honor live sessions first.
+  const health = await checkDaemonHealth(socketPath, tokenPath)
+  if (health === 'healthy') {
+    const identity = await getDaemonLaunchIdentity(runtimeDir, socketPath, tokenPath, binPath)
+    if (identity !== 'mismatch') {
+      return createPreservedDaemonHandle(runtimeDir)
+    }
+    if (await shouldPreserveDaemonWithLiveSessions(socketPath, tokenPath, 'a non-Rust daemon')) {
+      return createPreservedDaemonHandle(runtimeDir)
+    }
+    console.warn('[daemon] Replacing a non-Rust daemon on the socket (ORCA_RUST_DAEMON=1)')
+    await cleanupDaemonForProtocol(runtimeDir, PROTOCOL_VERSION)
+  }
+  await killStaleDaemon(runtimeDir, socketPath, tokenPath)
+
+  const userDataPath = app.getPath('userData')
+  const child = spawn(binPath, ['--socket', socketPath, '--token', tokenPath], {
+    // Why: match the Node daemon — start from userData so process.cwd() stays
+    // valid after a worktree is deleted, and detached + ignore stdio so the daemon
+    // outlives Electron and never holds the parent's stdout open.
+    cwd: userDataPath,
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env, ORCA_USER_DATA_PATH: userDataPath }
+  })
+  // Why: spawn() reports failures (ENOENT/EACCES) via an async 'error' event, not
+  // a throw. Without a listener Node re-raises it as an uncaught exception that
+  // crashes the main process; capture it so the poll loop bails cleanly.
+  let spawnError: Error | null = null
+  child.on('error', (err) => {
+    spawnError = err
+  })
+
+  // Poll protocol health until the daemon answers (no IPC 'ready' channel).
+  const deadlineMs = Date.now() + 10000
+  let ready = false
+  while (Date.now() < deadlineMs) {
+    if (spawnError || child.exitCode !== null || child.signalCode !== null) {
+      break
+    }
+    if ((await checkDaemonHealth(socketPath, tokenPath)) === 'healthy') {
+      ready = true
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  }
+  if (!ready) {
+    if (child.pid) {
+      try {
+        process.kill(child.pid, 'SIGTERM')
+      } catch {
+        // already gone
+      }
+    }
+    const err = spawnError as Error | null
+    throw new Error(
+      err ? `Rust daemon failed to spawn: ${err.message}` : 'Rust daemon startup timed out'
+    )
+  }
+
+  if (child.pid) {
+    // Why: same pid-file contract as the Node path so killStaleDaemon can verify
+    // pid identity (recycling guard) before SIGTERM; entryPath = the Rust bin so
+    // getDaemonLaunchIdentity recognizes our own daemon on the next launch.
+    writeFileSync(
+      getDaemonPidPath(runtimeDir),
+      serializeDaemonPidFile({
+        pid: child.pid,
+        startedAtMs: getProcessStartedAtMs(child.pid),
+        entryPath: binPath,
+        appVersion: app.getVersion()
+      }),
+      { mode: 0o600 }
+    )
+  }
+  child.unref()
+  return {
+    shutdown: async () => {
+      if (child.pid) {
+        try {
+          process.kill(child.pid, 'SIGTERM')
+        } catch {
+          // already gone
+        }
+      }
+    }
+  }
+}
+
 function createOutOfProcessLauncher(runtimeDir: string): DaemonLauncher {
   return async (socketPath, tokenPath) => {
+    if (rustDaemonEnabled()) {
+      try {
+        const rustHandle = await launchRustDaemon(runtimeDir, socketPath, tokenPath)
+        if (rustHandle) {
+          return rustHandle
+        }
+        console.warn(
+          '[daemon] ORCA_RUST_DAEMON=1 but the orca-daemon binary was not found — falling back to the Node daemon'
+        )
+      } catch (error) {
+        // Why: a Rust-daemon launch failure must not take down daemon init (which
+        // would drop the app to a degraded/local provider) — fall back to the
+        // working Node daemon instead.
+        console.warn('[daemon] Rust daemon launch failed — falling back to the Node daemon:', error)
+      }
+    }
     const entryPath = getDaemonEntryPath()
     const rustTerminalAddonPath = getRustTerminalAddonPath()
     const health = await checkDaemonHealth(socketPath, tokenPath)

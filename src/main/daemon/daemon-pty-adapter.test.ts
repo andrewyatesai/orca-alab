@@ -659,6 +659,48 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       }
     })
 
+    it('stops and does not re-arm the checkpoint timer while the daemon socket is down', () => {
+      // Regression: on a daemon disconnect the checkpoint timer used to keep firing
+      // against a dead client every 5s — takePendingOutput throws 'Not connected',
+      // the failed pass reschedules, forever. The adapter must stop the timer on
+      // disconnect and refuse to re-arm until reconnect.
+      historyAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, historyPath: historyDir })
+      const internals = historyAdapter as unknown as {
+        dirtySessionVersions: Map<string, number>
+        checkpointTimer: ReturnType<typeof setTimeout> | null
+        scheduleCheckpointTimer(): void
+      }
+      const client = historyAdapter as unknown as {
+        client: { isConnected(): boolean; disconnectedListeners: (() => void)[] }
+      }
+      let connected = true
+      client.client.isConnected = () => connected
+      internals.dirtySessionVersions.set('s1', 1)
+
+      // Connected + dirty → the timer arms.
+      internals.scheduleCheckpointTimer()
+      expect(internals.checkpointTimer).not.toBeNull()
+
+      // A disconnect fires the client's listeners → the adapter stops the timer.
+      connected = false
+      for (const listener of client.client.disconnectedListeners) {
+        listener()
+      }
+      expect(internals.checkpointTimer).toBeNull()
+
+      // While down, a re-schedule (e.g. an in-flight pass's .finally) must NOT re-arm.
+      internals.scheduleCheckpointTimer()
+      expect(internals.checkpointTimer).toBeNull()
+
+      // On reconnect it arms again.
+      connected = true
+      internals.scheduleCheckpointTimer()
+      expect(internals.checkpointTimer).not.toBeNull()
+      if (internals.checkpointTimer) {
+        clearTimeout(internals.checkpointTimer)
+      }
+    })
+
     it('limits concurrent checkpoint snapshot and disk work', async () => {
       historyAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, historyPath: historyDir })
       const releaseSnapshotRequests: (() => void)[] = []

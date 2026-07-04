@@ -120,6 +120,11 @@ export class DaemonPtyAdapter implements IPtyProvider {
     this.respawnFn = opts.respawn ?? null
     this.supportsCheckpoints = this.protocolVersion >= 4
     this.supportsIncrementalCheckpoints = this.protocolVersion >= 13
+    // Stop the checkpoint timer the instant the daemon socket drops. Otherwise a
+    // pending tick fires against a dead client, every takePendingOutput throws
+    // 'Not connected', and the failed pass reschedules — a 5s error-log spin until
+    // the next spawn. The timer resumes via restartDaemon() on reconnect.
+    this.client.onDisconnected(() => this.stopCheckpointTimer())
   }
 
   getHistoryManager(): HistoryManager | null {
@@ -656,6 +661,10 @@ export class DaemonPtyAdapter implements IPtyProvider {
       this.checkpointTimer ||
       !this.historyManager ||
       !this.supportsCheckpoints ||
+      // Don't re-arm while the daemon socket is down (a disconnect, or an in-flight
+      // pass's .finally firing after one): every tick would just throw 'Not
+      // connected'. restartDaemon() re-arms it after ensureConnected() on reconnect.
+      !this.client.isConnected() ||
       this.dirtySessionVersions.size === 0
     ) {
       return

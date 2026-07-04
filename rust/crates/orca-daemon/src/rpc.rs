@@ -81,7 +81,12 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             Ok(()) => rpc_ok(id, json!({ "healthy": true })),
             Err(e) => rpc_err(id, &format!("pty spawn health failed: {e}")),
         },
-        "systemResolverHealth" => rpc_ok(id, json!({ "health": "unknown" })),
+        // Real resolver health from the daemon's own process (scutil on macOS);
+        // "unknown" elsewhere. Lets the launcher's preserve/replace decision see a
+        // Rust daemon that lost its scoped system resolver — same as the Node daemon.
+        "systemResolverHealth" => {
+            rpc_ok(id, json!({ "health": crate::resolver_health::system_resolver_health() }))
+        }
         // Real engine state from the session's headless aterm terminal — no napi hop.
         "getSnapshot" => match registry.terminal_of(&sid()) {
             Some(terminal) => {

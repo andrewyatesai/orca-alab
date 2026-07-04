@@ -12,6 +12,7 @@
 pub mod connection;
 pub mod protocol;
 pub mod registry;
+pub mod resolver_health;
 pub mod rpc;
 // token.rs reads /dev/urandom and sets 0600 perms via std::os::unix — unix-only,
 // like the socket transport it guards. The Windows daemon keeps the Node path.

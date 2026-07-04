@@ -100,6 +100,21 @@ fn signal_kills_a_live_session() {
     assert_eq!(miss["ok"], json!(false));
 }
 
+/// systemResolverHealth runs the daemon's OWN resolver probe (scutil on macOS)
+/// end-to-end — not a hardcoded "unknown".
+#[test]
+fn system_resolver_health_probes_the_real_resolver() {
+    let reg = Arc::new(Registry::new());
+    let r = dispatch(&reg, "c", json!({ "id": "rh", "type": "systemResolverHealth" }));
+    assert_eq!(r["ok"], json!(true));
+    let health = r["payload"]["health"].as_str().unwrap();
+    assert!(["healthy", "unhealthy", "unknown"].contains(&health));
+    // A dev machine with working DNS must classify healthy through the real scutil
+    // output — proving the classifier matches production `scutil --dns`.
+    #[cfg(target_os = "macos")]
+    assert_eq!(health, "healthy", "a host with DNS should probe healthy");
+}
+
 /// ptySpawnHealth actually opens a PTY + spawns a probe child; a healthy subsystem
 /// answers ok with healthy:true (not an unconditional stub).
 #[test]

@@ -44,7 +44,11 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
     match kind {
         "createOrAttach" => create_or_attach(id, payload, registry, client_id),
         "write" => {
-            let data = field_str(payload, "data").to_string();
+            // Borrow the data straight from the payload — with_session runs its
+            // closure synchronously under the lock (FnOnce, not 'static), so no copy
+            // is needed. A `.to_string()` here would re-copy up to 16MB on every
+            // paste, the exact per-write cost the borrow-not-clone note above avoids.
+            let data = field_str(payload, "data");
             match registry.with_session(&sid(), |e| e.pty.write_all(data.as_bytes())) {
                 Some(Ok(())) => void_ack(id),
                 Some(Err(e)) => rpc_err(id, &e.to_string()),
@@ -92,7 +96,13 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                     id,
                     json!({ "records": records, "seq": seq, "overflowed": overflowed, "snapshot": snapshot }),
                 ),
-                None => rpc_err(id, "unknown session"),
+                // Missing/just-reaped session → ok+null, NOT an error. The Node host
+                // is null-not-throw here (terminal-host.ts), and the client's
+                // checkpoint loop relies on it (`if (!take) return 'done'`): an error
+                // would spuriously log "[history] checkpoint failed" and leave the
+                // session dirty until its exit event lands. Consistent with
+                // getSnapshot, which also returns ok+null for an unknown session.
+                None => rpc_ok(id, Value::Null),
             }
         }
         "listSessions" => rpc_ok(id, registry.list_sessions()),
@@ -167,8 +177,8 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         // from a dead child are dropped like the Node daemon; an unknown session
         // errors (host.signal throws on a missing session there too).
         "signal" => {
-            let sig = field_str(payload, "signal").to_string();
-            match registry.with_session(&sid(), |e| e.pty.signal(&sig)) {
+            let sig = field_str(payload, "signal");
+            match registry.with_session(&sid(), |e| e.pty.signal(sig)) {
                 Some(_) => void_ack(id),
                 None => rpc_err(id, "unknown session"),
             }

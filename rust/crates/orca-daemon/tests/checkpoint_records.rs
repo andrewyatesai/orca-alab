@@ -135,3 +135,21 @@ fn include_snapshot_supersedes_records() {
 
     dispatch(&reg, client, json!({ "id": "k", "type": "kill", "payload": { "sessionId": "s-sk" } }));
 }
+
+/// takePendingOutput for a missing/just-reaped session returns ok+null, NOT an
+/// error — matching the Node host's null-not-throw. The client's checkpoint loop
+/// treats null as "done" (`if (!take) return 'done'`); an error would spuriously log
+/// a checkpoint failure and leave the session dirty until its exit event lands. This
+/// races with reap on real exits, so it must never surface as an RPC error.
+#[test]
+fn take_pending_output_on_unknown_session_is_ok_null() {
+    let reg = Arc::new(Registry::new());
+    let r = take(&reg, "c-none", "no-such-session", false);
+    assert_eq!(r["ok"], json!(true), "unknown session must be ok, not an error");
+    assert_eq!(r["payload"], Value::Null, "unknown session payload is null (null-not-throw)");
+
+    // Same for the includeSnapshot variant — null supersedes everything.
+    let r2 = take(&reg, "c-none", "no-such-session", true);
+    assert_eq!(r2["ok"], json!(true));
+    assert_eq!(r2["payload"], Value::Null);
+}

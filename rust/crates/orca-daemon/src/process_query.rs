@@ -54,8 +54,15 @@ fn cached_or(
     }
     // Resolve OUTSIDE the lock — it may spawn a subprocess.
     let value = resolve(pid);
+    // Stamp the entry when the resolve COMPLETED, not when the call began. A macOS
+    // lsof/ps can take up to SUBPROCESS_TIMEOUT (== CACHE_TTL), so reusing the pre-
+    // resolve `now` would insert the entry already aged ~a full TTL: the very next
+    // call's retain() would evict it before the get(), defeating the (negative)
+    // cache and re-spawning lsof on every getCwd. The Node resolveProcessCwd cache
+    // likewise timestamps AFTER the await (process-cwd.ts rememberResult).
+    let resolved_at = Instant::now();
     let mut cache = CACHE.lock().unwrap();
-    select(&mut cache).insert(pid, (value.clone(), now));
+    select(&mut cache).insert(pid, (value.clone(), resolved_at));
     value
 }
 

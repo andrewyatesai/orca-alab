@@ -124,6 +124,31 @@ export async function driveDaemon(client) {
   const clear = await client.rpc('clearScrollback', { sessionId: SID })
   record('clearScrollback', { ok: clear.ok })
 
+  // 11b. takePendingOutput drains the incremental checkpoint batch: a typed records
+  //      array + monotonic seq + overflow flag, snapshot null. Both daemons must
+  //      agree on this shape — it feeds the client's crash-restore history log.
+  const take = await client.rpc('takePendingOutput', { sessionId: SID })
+  record('takePendingOutput', {
+    ok: take.ok,
+    recordsType: typeTag(take.payload?.records),
+    seqType: typeTag(take.payload?.seq),
+    overflowedType: typeTag(take.payload?.overflowed),
+    snapshotIsNull: (take.payload?.snapshot ?? null) === null
+  })
+
+  // 11c. With includeSnapshot the full snapshot SUPERSEDES the increment log — an
+  //      EMPTY records array plus a snapshot object (the cold-restore checkpoint).
+  const takeSnap = await client.rpc('takePendingOutput', {
+    sessionId: SID,
+    includeSnapshot: true
+  })
+  record('takePendingOutput:snapshot', {
+    ok: takeSnap.ok,
+    recordsType: typeTag(takeSnap.payload?.records),
+    recordsEmpty: Array.isArray(takeSnap.payload?.records) && takeSnap.payload.records.length === 0,
+    hasSnapshot: (takeSnap.payload?.snapshot ?? null) !== null
+  })
+
   // 12. Error cases: unknown-session write + snapshot must both fail cleanly.
   const badWrite = await client.rpc('write', { sessionId: 'nope', data: 'x' })
   record('write:unknown', { ok: badWrite.ok, errorType: typeTag(badWrite.error) })
@@ -133,6 +158,14 @@ export async function driveDaemon(client) {
   record('getSnapshot:unknown', {
     ok: badSnap.ok,
     snapshotIsNull: (badSnap.payload?.snapshot ?? null) === null
+  })
+  // takePendingOutput on a missing/just-reaped session is null-not-throw in BOTH
+  // daemons (ok:true, payload null) — the client's checkpoint loop treats null as
+  // "done". A regression to an error here would spuriously fail checkpoints.
+  const badTake = await client.rpc('takePendingOutput', { sessionId: 'nope' })
+  record('takePendingOutput:unknown', {
+    ok: badTake.ok,
+    payloadIsNull: (badTake.payload ?? null) === null
   })
 
   // 13. Kill ends the session; an exit event should reach the stream and the

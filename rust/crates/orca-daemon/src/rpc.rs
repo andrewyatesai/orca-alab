@@ -124,16 +124,34 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             }
             None => rpc_ok(id, json!({ "snapshot": Value::Null })),
         },
-        // Wire shape mirrors the Node daemon: `{ cwd: <string|null> }`.
+        // Wire shape mirrors the Node daemon: `{ cwd: <string|null> }`. Prefer the
+        // engine's OSC-7 cwd, but Orca's shells emit OSC-133 (not OSC-7), so that's
+        // usually absent — fall back to the live shell process's cwd (/proc on Linux,
+        // lsof on macOS), exactly as daemon-server.ts getCwd → resolveProcessCwd does.
         "getCwd" => {
+            let sid = sid();
             let cwd = registry
-                .engine_of(&sid())
-                .and_then(|engine| engine.lock().unwrap().terminal.cwd().map(str::to_string));
+                .engine_of(&sid)
+                .and_then(|engine| engine.lock().unwrap().terminal.cwd().map(str::to_string))
+                .or_else(|| {
+                    registry
+                        .session_pid(&sid)
+                        .and_then(crate::process_query::process_cwd)
+                });
             rpc_ok(id, json!({ "cwd": cwd }))
         }
-        // Wire shape mirrors the Node daemon: `{ foregroundProcess: <…|null> }`.
-        // Process-group query isn't wired yet, so the value is null (a safe stub).
-        "getForegroundProcess" => rpc_ok(id, json!({ "foregroundProcess": Value::Null })),
+        // Wire shape mirrors the Node daemon: `{ foregroundProcess: <string|null> }`.
+        // Resolve the PTY's foreground process group (tcgetpgrp) → its command name
+        // (an agent, a build, or the shell at the prompt), mirroring node-pty's
+        // `.process`. Null when the pty/platform has no such concept or the pgid is gone.
+        "getForegroundProcess" => {
+            let name = registry
+                .with_session(&sid(), |e| e.pty.foreground_process_group())
+                .flatten()
+                .filter(|pgid| *pgid > 0)
+                .and_then(|pgid| crate::process_query::process_name(pgid as u32));
+            rpc_ok(id, json!({ "foregroundProcess": name }))
+        }
         // An unknown session errors, like host.clearScrollback → getAliveSession.
         "clearScrollback" => match registry.engine_of(&sid()) {
             Some(engine) => {

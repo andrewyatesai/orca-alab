@@ -88,6 +88,14 @@ impl PtySession {
         self.child.process_id()
     }
 
+    /// The PID of the terminal's foreground process group (tcgetpgrp) — the command
+    /// currently in the foreground (an agent, a build, …), or the shell itself at the
+    /// prompt. Feeds the daemon's getForegroundProcess. `None` on platforms/ptys
+    /// without the concept.
+    pub fn foreground_process_group(&self) -> Option<i32> {
+        self.master.process_group_leader()
+    }
+
     pub fn kill(&mut self) -> io::Result<()> {
         self.child.kill()
     }

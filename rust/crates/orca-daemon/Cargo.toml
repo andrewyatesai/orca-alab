@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Pure-Rust terminal daemon for Orca (replaces the Node src/main/daemon): owns PTYs via orca-pty + aterm (orca-session) and speaks the existing NDJSON socket protocol, so the napi PTY→engine hop disappears. Move 1 of the native migration; this is the sub-step-1 spike."
+description = "Pure-Rust terminal daemon for Orca (replaces the Node src/main/daemon): owns PTYs via orca-pty + a headless aterm engine per session (orca-terminal) and speaks the existing NDJSON socket protocol, so the napi PTY→engine hop disappears. Move 1 of the native migration."
 
 [[bin]]
 name = "orca-daemon"

@@ -1,7 +1,10 @@
 //! A spawned PTY session wrapping `portable_pty`.
 
+use nix::sys::signal::{kill, Signal};
+use nix::unistd::Pid;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize as PortablePtySize};
 use std::io::{self, Read, Write};
+use std::str::FromStr;
 
 fn to_io(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
@@ -81,6 +84,18 @@ impl PtySession {
         self.child.kill()
     }
 
+    /// Send a named signal (e.g. "SIGINT"/"SIGTERM"/"SIGWINCH") to the child,
+    /// mirroring node-pty's `kill(signal)` — it targets the child pid. A dead
+    /// child (no pid) is a silent no-op, matching node-pty's recycled-pid guard.
+    pub fn signal(&self, sig: &str) -> io::Result<()> {
+        let Some(pid) = self.child.process_id() else {
+            return Ok(());
+        };
+        let signal = Signal::from_str(sig)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, format!("unknown signal: {sig}")))?;
+        kill(Pid::from_raw(pid as i32), signal).map_err(to_io)
+    }
+
     /// Wait for exit and return the child's exit code.
     pub fn wait(&mut self) -> io::Result<u32> {
         Ok(self.child.wait()?.exit_code())
@@ -123,6 +138,39 @@ mod tests {
         let output = drain(&session);
         let _ = session.wait();
         assert!(output.contains("hello-from-pty"), "got: {output:?}");
+    }
+
+    #[test]
+    fn signal_terminates_a_running_child() {
+        let mut session = PtySession::spawn(
+            &PtyCommand {
+                program: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "sleep 30".to_string()],
+                cwd: None,
+                env: Vec::new(),
+            },
+            PtySize { rows: 24, cols: 80 },
+        )
+        .expect("spawn");
+        session.signal("SIGKILL").expect("signal");
+        let code = session.wait().expect("wait");
+        assert_ne!(code, 0, "a SIGKILL'd child must not report exit 0");
+    }
+
+    #[test]
+    fn signal_rejects_an_unknown_name() {
+        let mut session = PtySession::spawn(
+            &PtyCommand {
+                program: "/bin/sh".to_string(),
+                args: vec!["-c".to_string(), "sleep 0".to_string()],
+                cwd: None,
+                env: Vec::new(),
+            },
+            PtySize { rows: 24, cols: 80 },
+        )
+        .expect("spawn");
+        assert!(session.signal("NOT_A_SIGNAL").is_err());
+        let _ = session.wait();
     }
 
     #[test]

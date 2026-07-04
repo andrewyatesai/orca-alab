@@ -1,4 +1,4 @@
-//! orca-daemon (spike) — a pure-Rust replacement for the Node terminal daemon
+//! orca-daemon — a pure-Rust replacement for the Node terminal daemon
 //! (`src/main/daemon/`). It owns PTYs via `orca-pty`, runs a real `aterm` engine
 //! per session via `orca-terminal`, and speaks the existing NDJSON Unix-socket
 //! protocol (`src/main/daemon/types.ts`), so the Electron client can drive it
@@ -58,7 +58,7 @@ pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
     };
 
     eprintln!(
-        "orca-daemon (spike) listening at {socket_path} (protocol v{}, auth={})",
+        "orca-daemon listening at {socket_path} (protocol v{}, auth={})",
         protocol::PROTOCOL_VERSION,
         if expected_token.is_some() {
             "on"

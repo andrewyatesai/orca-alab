@@ -142,14 +142,17 @@ impl Registry {
             .map(|e| Arc::clone(&e.terminal))
     }
 
-    /// Mark a session's child dead and deliver an `exit` event to its client (if a
-    /// stream is connected; an exit while detached is reflected by `listSessions`
-    /// `isAlive:false` on reattach — spike scope, no exit buffering).
-    pub fn mark_exited(&self, session_id: &str, code: i64) {
+    /// EOF on a session's PTY: reap the child for its REAL exit code, mark the
+    /// session dead, and deliver an `exit` event to its client (if a stream is
+    /// connected; an exit while detached is reflected by `listSessions`
+    /// `isAlive:false` on reattach). EOF means every slave fd is closed — the
+    /// child has exited — so `wait()` returns immediately under the lock.
+    pub fn reap_and_mark_exited(&self, session_id: &str) {
         let mut inner = self.inner.lock().unwrap();
         let Some(entry) = inner.sessions.get_mut(session_id) else {
             return;
         };
+        let code = entry.pty.wait().map(|c| c as i64).unwrap_or(0);
         entry.alive = false;
         let client_id = entry.client_id.clone();
         let line = encode_ndjson_line(&exit_event(session_id, code));
@@ -165,13 +168,17 @@ impl Registry {
             .sessions
             .iter()
             .map(|(sid, e)| {
+                // Real engine cwd (OSC 7), like the Node daemon's SessionInfo — not
+                // null. shellState is the daemon's honest, valid ShellReadyState
+                // (no OSC-133 readiness detection here → "unsupported").
+                let cwd = e.terminal.lock().ok().and_then(|t| t.cwd().map(str::to_string));
                 json!({
                     "sessionId": sid,
                     "state": if e.alive { "running" } else { "exited" },
-                    "shellState": "unknown",
+                    "shellState": "unsupported",
                     "isAlive": e.alive,
                     "pid": e.pid,
-                    "cwd": Value::Null,
+                    "cwd": cwd,
                     "cols": e.cols,
                     "rows": e.rows,
                     "createdAt": e.created_at_ms as u64,

@@ -74,7 +74,13 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             None => rpc_err(id, "unknown session"),
         },
         "ping" => rpc_ok(id, json!({ "pong": true })),
-        "ptySpawnHealth" => rpc_ok(id, json!({ "healthy": true })),
+        // Real probe: open a PTY and spawn a trivial child. If the PTY subsystem is
+        // healthy it spawns + exits; any failure surfaces as an error. Mirrors the
+        // Node daemon running checkPtySpawnHealth before answering healthy:true.
+        "ptySpawnHealth" => match probe_pty_spawn() {
+            Ok(()) => rpc_ok(id, json!({ "healthy": true })),
+            Err(e) => rpc_err(id, &format!("pty spawn health failed: {e}")),
+        },
         "systemResolverHealth" => rpc_ok(id, json!({ "health": "unknown" })),
         // Real engine state from the session's headless aterm terminal — no napi hop.
         "getSnapshot" => match registry.terminal_of(&sid()) {
@@ -101,9 +107,16 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             rpc_ok(id, Value::Null)
         }
         "cancelCreateOrAttach" => rpc_ok(id, Value::Null),
-        // portable-pty has no per-signal API; the app's Ctrl-C flows through `write`
-        // (\x03) as PTY input, not this RPC, so erroring here is safe for the spike.
-        "signal" => rpc_err(id, "signal not supported in the spike"),
+        // Deliver a named signal to the child (node-pty's `kill(signal)`). Errors
+        // from a dead child are dropped like the Node daemon; an unknown session
+        // errors (host.signal throws on a missing session there too).
+        "signal" => {
+            let sig = field_str(&payload, "signal").to_string();
+            match registry.with_session(&sid(), |e| e.pty.signal(&sig)) {
+                Some(_) => rpc_ok(id, Value::Null),
+                None => rpc_err(id, "unknown session"),
+            }
+        }
         "shutdown" => {
             // Reply first, then exit so the ok flushes to the client.
             thread::spawn(|| {
@@ -112,7 +125,38 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             });
             rpc_ok(id, Value::Null)
         }
-        other => rpc_err(id, &format!("unsupported in spike: {other}")),
+        other => rpc_err(id, &format!("unsupported request type: {other}")),
+    }
+}
+
+/// Health probe for `ptySpawnHealth`: open a PTY and spawn a trivial child that
+/// exits at once, then reap it. Bypasses the login shell (no `-lc`) so the check
+/// stays fast and free of user-profile side effects. Any error means the PTY
+/// subsystem can't currently spawn.
+fn probe_pty_spawn() -> std::io::Result<()> {
+    let mut probe = PtySession::spawn(&probe_command(), PtySize { rows: 1, cols: 1 })?;
+    // `exit 0` returns immediately; wait() reaps it so the probe leaves no child.
+    let _ = probe.wait();
+    Ok(())
+}
+
+#[cfg(unix)]
+fn probe_command() -> PtyCommand {
+    PtyCommand {
+        program: "/bin/sh".to_string(),
+        args: vec!["-c".to_string(), "exit 0".to_string()],
+        cwd: None,
+        env: Vec::new(),
+    }
+}
+
+#[cfg(windows)]
+fn probe_command() -> PtyCommand {
+    PtyCommand {
+        program: default_shell(),
+        args: vec!["/C".to_string(), "exit".to_string(), "0".to_string()],
+        cwd: None,
+        env: Vec::new(),
     }
 }
 
@@ -132,7 +176,7 @@ fn create_or_attach(
         let pid = registry.session_pid(&session_id);
         return rpc_ok(
             id,
-            json!({ "isNew": false, "snapshot": Value::Null, "pid": pid, "shellState": "unknown" }),
+            json!({ "isNew": false, "snapshot": Value::Null, "pid": pid, "shellState": SHELL_STATE }),
         );
     }
 
@@ -183,9 +227,14 @@ fn create_or_attach(
     );
     rpc_ok(
         id,
-        json!({ "isNew": true, "snapshot": Value::Null, "pid": pid, "shellState": "unknown" }),
+        json!({ "isNew": true, "snapshot": Value::Null, "pid": pid, "shellState": SHELL_STATE }),
     )
 }
+
+/// The daemon doesn't run OSC-133 shell-readiness detection, so it reports the one
+/// honest, VALID `ShellReadyState` (types.ts) for that: `unsupported`. (The prior
+/// `"unknown"` was not a member of the union and would confuse the client's gate.)
+const SHELL_STATE: &str = "unsupported";
 
 /// Resolve the shell/command to spawn. `command` (when present) runs under the login
 /// shell; otherwise the user's `$SHELL` (or /bin/sh) starts interactively.
@@ -254,17 +303,23 @@ fn pump_output(
             }
         }
     }
-    // EOF: the child exited. The spike reports code 0 (the real daemon wait()s for the
-    // true code); mark the session exited and notify the client.
-    registry.mark_exited(&session_id, 0);
+    // EOF means the child closed the PTY — i.e. it exited. Reap it for the REAL
+    // exit code (wait() returns at once now) and notify the client.
+    registry.reap_and_mark_exited(&session_id);
 }
 
 /// Build a `TerminalSnapshot` (types.ts) from the session's headless aterm engine.
-/// The ansi/cwd/modes are REAL engine state; `rehydrateSequences` is empty and
-/// `oscLinks` omitted in the spike (the client re-applies modes at cutover).
+/// ansi/cwd/modes are REAL engine state; `rehydrateSequences` replays the screen and
+/// input modes on reattach, and `oscLinks` carries the scrollback/screen hyperlink
+/// ranges so links survive a reconnect.
 fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
     let snapshot_ansi = term.serialize_ansi(None);
     let scrollback_ansi = term.serialize_scrollback_ansi(None);
+    let osc_links: Vec<Value> = term
+        .osc_link_ranges(None)
+        .into_iter()
+        .map(|l| json!({ "row": l.row, "startCol": l.start_col, "endCol": l.end_col, "uri": l.uri }))
+        .collect();
     let cwd = term.cwd().map(str::to_string);
     let bracketed = term.bracketed_paste();
     let app_cursor = term.application_cursor();
@@ -283,10 +338,13 @@ fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
     // daemon carries both in TerminalModes; aterm exposes them directly.
     let sgr_mouse = term.sgr_mouse();
     let sgr_pixels = term.sgr_pixels();
+    let rehydrate =
+        rehydrate_sequences(mouse_on, mouse_mode, bracketed, app_cursor, alt_screen, sgr_mouse, sgr_pixels);
     json!({
         "snapshotAnsi": snapshot_ansi,
         "scrollbackAnsi": scrollback_ansi,
-        "rehydrateSequences": "",
+        "rehydrateSequences": rehydrate,
+        "oscLinks": osc_links,
         "cwd": cwd,
         "modes": {
             "bracketedPaste": bracketed,
@@ -302,4 +360,42 @@ fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
         "scrollbackLines": scrollback_lines,
         "lastTitle": title,
     })
+}
+
+/// Control sequences that re-apply screen/input modes on reattach — a faithful
+/// port of headless-emulator.ts `buildRehydrateSequences`. Order matters (alt
+/// screen, bracketed paste, app cursor, mouse tracking, then SGR encoding), and
+/// the SGR encoding is preserved even when mouse reporting is off.
+fn rehydrate_sequences(
+    mouse_on: bool,
+    mouse_mode: &str,
+    bracketed: bool,
+    app_cursor: bool,
+    alt_screen: bool,
+    sgr_mouse: bool,
+    sgr_pixels: bool,
+) -> String {
+    let mut s = String::new();
+    if alt_screen {
+        s.push_str("\x1b[?1049h");
+    }
+    if bracketed {
+        s.push_str("\x1b[?2004h");
+    }
+    if app_cursor {
+        s.push_str("\x1b[?1h");
+    }
+    match if mouse_on { mouse_mode } else { "none" } {
+        "x10" => s.push_str("\x1b[?9h"),
+        "vt200" => s.push_str("\x1b[?1000h"),
+        "drag" => s.push_str("\x1b[?1002h"),
+        "any" => s.push_str("\x1b[?1003h"),
+        _ => {}
+    }
+    if sgr_pixels {
+        s.push_str("\x1b[?1016h");
+    } else if sgr_mouse {
+        s.push_str("\x1b[?1006h");
+    }
+    s
 }

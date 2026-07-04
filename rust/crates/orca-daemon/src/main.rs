@@ -1,4 +1,4 @@
-//! orca-daemon (spike) entry point. The daemon logic lives in the lib (see
+//! orca-daemon entry point. The daemon logic lives in the lib (see
 //! `lib.rs` + docs/rust-migration/move-1-orca-daemon-extraction.md); this only
 //! resolves the socket + token paths and starts serving.
 //!

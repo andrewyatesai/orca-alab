@@ -719,6 +719,7 @@ dependencies = [
 name = "orca-pty"
 version = "0.0.1"
 dependencies = [
+ "nix",
  "portable-pty",
 ]
 

@@ -1,20 +1,21 @@
-//! The daemon socket protocol, mirroring `src/main/daemon/types.ts`. Only the
-//! spike subset is modeled: the `hello` handshake, id-correlated `RpcResponse`,
-//! and the `data`/`exit` stream events. Requests are read as `serde_json::Value`
-//! (no derive), matching orca-relay's payload handling; responses/events are
-//! built with `json!`. The Rust daemon must be byte-indistinguishable from the
-//! Node one at this wire, so these shapes track types.ts exactly.
+//! The daemon socket protocol, mirroring `src/main/daemon/types.ts`: the `hello`
+//! handshake, id-correlated `RpcResponse`, and the `data`/`exit` stream events.
+//! Requests are read as `serde_json::Value` (no derive), matching orca-relay's
+//! payload handling; responses/events are built with `json!`. The Rust daemon must
+//! be indistinguishable from the Node one at this wire, so these shapes track
+//! types.ts exactly.
 
 use serde_json::{json, Value};
 
 /// Must equal `PROTOCOL_VERSION` in `src/main/daemon/types.ts`. A client hello at
-/// a different version is rejected (the spawner then falls back to the Node daemon).
+/// a different version is rejected with a `hello` error.
 pub const PROTOCOL_VERSION: u64 = 18;
 
 /// The first line on every socket: `{ type:'hello', version, token, clientId, role }`.
 pub struct Hello {
     pub version: u64,
-    #[allow(dead_code)] // spike accepts any token; the real daemon validates it
+    /// Validated against the daemon's published token when one is configured
+    /// (see `connection::handle_connection`).
     pub token: String,
     pub client_id: String,
     /// `"control"` (RPC) or `"stream"` (events). Each client opens one of each.

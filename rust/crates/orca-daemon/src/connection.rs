@@ -15,9 +15,10 @@ use std::sync::Arc;
 use std::thread;
 
 /// Blocking NDJSON line reader over a socket: feeds raw chunks through the shared
-/// splitter and yields whole lines. Chunks are decoded lossy-UTF-8 (a spike
-/// simplification; the real daemon carries partial multibyte across reads like the
-/// Node StringDecoder).
+/// splitter and yields whole lines. NOTE: chunks are decoded lossy-UTF-8, so a
+/// multibyte char split across a read boundary is corrupted; requests are NDJSON
+/// and rarely large, but carrying a partial-multibyte tail across reads (like the
+/// Node StringDecoder) is a tracked follow-up.
 struct LineReader {
     stream: UnixStream,
     splitter: NdjsonSplitter,

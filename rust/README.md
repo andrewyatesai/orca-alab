@@ -9,13 +9,18 @@ functional map, dependency map, migration plan, and the ported-modules ledger.
 ```
 rust/
 ├── Cargo.toml            # workspace (release profile: opt-level=z, LTO, strip)
-└── crates/
+├── aterm/                # terminal engine submodule, consumed by orca-terminal
+└── crates/               # 18 crates, all building today
     └── orca-core/        # pure cross-cutting logic ported from src/shared (no IO)
 ```
 
-Higher tiers (`orca-git`, `orca-pty`, `orca-ssh`, `orca-runtime`, `orca-terminal`,
-`orca-ffi`, …) are added per the migration plan. The terminal engine lives in
-the separate `aterm` repo and is consumed by `orca-terminal`.
+All 18 crates now exist and build: the pure/config tiers (`orca-core`, `orca-text`,
+`orca-config`, `orca-agents`), the IO tiers (`orca-git`, `orca-pty`, `orca-ssh`,
+`orca-net`, `orca-store`, `orca-crypto`, `orca-relay`, `orca-runtime`), the terminal
+stack (`orca-terminal`, `orca-session`, `orca-ffi`, `orca-aterm-demo`), and the native
+`orca-daemon` binary with its `orca-parity` harness. `cargo test` passes for the
+buildable set. The terminal engine lives in the `aterm` submodule (`rust/aterm`,
+pinned to `v0.18.2607040011`) and is consumed by `orca-terminal`.
 
 ## Build & test
 

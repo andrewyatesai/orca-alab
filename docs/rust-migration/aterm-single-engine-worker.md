@@ -1,6 +1,7 @@
 # aterm single-engine-in-worker (off-main parse + render, default-on)
 
-Status: **in progress** (replaces the opt-in "render mirror"). Goal: move the aterm
+Status: **shipped — default-on since 2026-06-29** (commit `16db09b23`; replaces the
+opt-in "render mirror"). Goal: move the aterm
 engine **entirely** into a Web Worker so VT parsing AND rasterization run off the
 renderer main thread, with **one** engine per pane (no duplicate), then make it the
 default. This supersedes `aterm-worker-mirror.ts`, which ran a *second* full engine
@@ -123,7 +124,7 @@ grid, so visible-row reads stay synchronous):
   path await (Cmd+F tolerates it); the active-match rect is read from the snapshot.
 - serialize call sites (TBD from survey synthesis) — `await` the async serialize.
 
-## Staging (each stage independently correct, default-OFF until E)
+## Staging (A–E complete — shipped default-on 2026-06-29, commit `16db09b23`)
 
 - **A** — extend the protocol; worker owns the terminal (search/blink/follow-bottom/
   side-channel drains/rich snapshot). No main-side behavior change yet (still the
@@ -133,9 +134,10 @@ grid, so visible-row reads stay synchronous):
 - **C** — async `serialize`/`serializeScrollback` at their lifecycle call sites.
 - **D** — side-channel push wiring (reply→PTY, OSC, bell, title, selection-change,
   buffer-change driven by worker events) + the forced input round-trips.
-- **E** — e2e validation at a real (non-1×1) grid; then flip the default in
-  `aterm-strategy-select.ts` (GPU-in-worker for GPU-capable panes — no regression
-  vs the prior main-thread GPU default; CPU-in-worker otherwise).
+- **E** ✅ — e2e validation at a real (non-1×1) grid; the default is now flipped in
+  `aterm-strategy-select.ts` (the worker path runs unless
+  `window.__atermWorkerRender === false`; GPU-in-worker for GPU-capable panes — no
+  regression vs the prior main-thread GPU default; CPU-in-worker otherwise).
 
 ## Risks / resolutions
 

@@ -288,8 +288,8 @@ function commandLineMatchesDaemon(
   socketPath: string,
   tokenPath: string
 ): boolean {
-  // The Node daemon runs `daemon-entry.js`; the opt-in Rust daemon
-  // (ORCA_RUST_DAEMON=1) runs the `orca-daemon` binary. Accept either marker —
+  // The Node daemon (Windows) runs `daemon-entry.js`; the Rust daemon (macOS/Linux
+  // default) runs the `orca-daemon` binary. Accept either marker —
   // without this, isDaemonProcess/killStaleDaemon/getDaemonLaunchIdentity never
   // recognize a live Rust daemon (its cmdline lacks 'daemon-entry'), so a stale
   // Rust daemon is neither killed nor identity-checked. The (per-daemon unique)

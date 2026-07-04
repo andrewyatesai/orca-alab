@@ -48,11 +48,12 @@ const terminalAddonResource = {
   to: 'orca_node.node'
 }
 
-// Why: the opt-in Rust daemon (ORCA_RUST_DAEMON=1) resolves its binary from
+// Why: the Rust daemon is THE terminal daemon on macOS/Linux, resolved from
 // process.resourcesPath/orca-daemon in packaged apps (getRustDaemonBinPath in
-// daemon-init.ts). Ship the release binary to the resources root so the flag
-// works in the packaged app, not just dev. Mac-only for now — the Rust daemon's
-// transport is Unix-socket; Windows keeps the Node named-pipe daemon.
+// daemon-init.ts) with NO Node fallback — so the binary MUST ship. electron-builder
+// fails the build if this `from` is missing, which is the guarantee we want.
+// Unix-only (mac + linux); Windows keeps the Node named-pipe daemon (the Rust
+// daemon's transport is Unix-socket).
 const rustDaemonResource = {
   from: 'rust/target/release/orca-daemon',
   to: 'orca-daemon'
@@ -318,6 +319,7 @@ module.exports = {
     extraResources: [
       ...commonExtraResources,
       linuxSpeechNativeResource,
+      rustDaemonResource,
       {
         from: 'resources/linux/bin/orca-ide',
         to: 'bin/orca-ide'

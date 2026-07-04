@@ -27,6 +27,8 @@ const {
   writeFileSyncMock,
   netConnectMock,
   forkMock,
+  spawnMock,
+  FAKE_RUST_DAEMON_BIN,
   checkDaemonHealthMock,
   healthCheckDaemonMock,
   getMacDaemonSystemResolverHealthMock,
@@ -51,6 +53,13 @@ const {
   const probeSocketExistsMock = vi.fn((_path?: string) => false)
   const writeFileSyncMock = vi.fn()
   const forkMock = vi.fn()
+  const spawnMock = vi.fn()
+  // Why: on macOS/Linux (the test host) the launcher takes the Rust spawn path,
+  // which resolves the daemon binary via getRustDaemonBinPath. We short-circuit
+  // that resolution through the ORCA_RUST_DAEMON_BIN env override (set in
+  // importFresh) + an existsSync stub that recognizes exactly this path, so the
+  // identity marker is a single stable value across packaged and dev tests.
+  const FAKE_RUST_DAEMON_BIN = '/fake/app/rust/target/release/orca-daemon'
   const netConnectMock = vi.fn(() => {
     // Why: the real probeSocket() in daemon-init connects to the socket and
     // resolves true on 'connect', false on 'error'. Our launcher never runs
@@ -143,6 +152,8 @@ const {
     writeFileSyncMock,
     netConnectMock,
     forkMock,
+    spawnMock,
+    FAKE_RUST_DAEMON_BIN,
     checkDaemonHealthMock,
     healthCheckDaemonMock,
     getMacDaemonSystemResolverHealthMock,
@@ -208,12 +219,13 @@ vi.mock('electron', () => ({
 
 vi.mock('fs', () => ({
   mkdirSync: vi.fn(),
-  existsSync: (p: string) => probeSocketExistsMock(p) || p.includes('.pid'),
+  existsSync: (p: string) =>
+    probeSocketExistsMock(p) || p.includes('.pid') || p === FAKE_RUST_DAEMON_BIN,
   unlinkSync: vi.fn(),
   writeFileSync: writeFileSyncMock
 }))
 
-vi.mock('child_process', () => ({ fork: forkMock }))
+vi.mock('child_process', () => ({ fork: forkMock, spawn: spawnMock }))
 
 vi.mock('net', () => ({ connect: netConnectMock }))
 
@@ -321,8 +333,48 @@ vi.mock('../ipc/pty', () => ({
   rebindLocalProviderListeners: rebindLocalProviderListenersMock
 }))
 
+// The Rust launcher's readiness is a health poll, not IPC — this fake child just
+// needs a pid, null exit/signal codes so the poll loop doesn't bail early, an
+// `on` that accepts the 'error' listener (no error fires on the happy path), and
+// unref. checkDaemonHealth returning 'healthy' resolves the poll on the first tick.
+function makeFakeSpawnChild(): {
+  pid: number
+  exitCode: null
+  signalCode: null
+  on: (event: string, cb: (arg?: unknown) => void) => unknown
+  unref: ReturnType<typeof vi.fn>
+} {
+  const child = {
+    pid: 12345,
+    exitCode: null as null,
+    signalCode: null as null,
+    on(_event: string, _cb: (arg?: unknown) => void) {
+      return child
+    },
+    unref: vi.fn()
+  }
+  return child
+}
+
+// Force process.platform for the Windows/Node launcher tests. Returns a restore
+// fn — callers must invoke it (finally) so the real platform is put back.
+function stubPlatform(value: NodeJS.Platform): () => void {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value, configurable: true })
+  return () => {
+    if (original) {
+      Object.defineProperty(process, 'platform', original)
+    }
+  }
+}
+
 async function importFresh() {
   vi.resetModules()
+  // Why: the macOS/Linux launcher resolves the Rust daemon binary; point it at a
+  // fake the existsSync stub recognizes so getRustDaemonBinPath never returns null.
+  process.env.ORCA_RUST_DAEMON_BIN = FAKE_RUST_DAEMON_BIN
+  spawnMock.mockReset()
+  spawnMock.mockImplementation(() => makeFakeSpawnChild())
   spawnerInstances.length = 0
   ensureRunningOverrides.length = 0
   adapterInstances.length = 0
@@ -360,6 +412,10 @@ async function importFresh() {
 }
 
 describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
+  // Set by the Windows/Node launcher tests via stubPlatform('win32'); restored in
+  // afterEach so a forced platform never leaks into the default (Rust) path tests.
+  let restorePlatform: (() => void) | null = null
+
   beforeEach(() => {
     probeSocketExistsMock.mockReturnValue(false)
     netConnectMock.mockReset()
@@ -384,6 +440,9 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
 
   afterEach(() => {
     vi.clearAllMocks()
+    delete process.env.ORCA_RUST_DAEMON_BIN
+    restorePlatform?.()
+    restorePlatform = null
   })
 
   it('re-binds listeners after the first daemon provider is installed', async () => {
@@ -929,29 +988,6 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       tokenPath: string
     ) => Promise<{ shutdown(): Promise<void> }>
     getDaemonLaunchIdentityMock.mockReturnValueOnce('mismatch')
-    forkMock.mockImplementationOnce(() => {
-      const handlers: Record<string, ((arg?: unknown) => void)[]> = {
-        message: [],
-        error: [],
-        exit: []
-      }
-      return {
-        pid: 12345,
-        on(event: string, cb: (arg?: unknown) => void) {
-          handlers[event]?.push(cb)
-          if (event === 'message') {
-            queueMicrotask(() => cb({ type: 'ready' }))
-          }
-          return this
-        },
-        off(event: string, cb: (arg?: unknown) => void) {
-          handlers[event] = handlers[event]?.filter((handler) => handler !== cb) ?? []
-          return this
-        },
-        disconnect: vi.fn(),
-        unref: vi.fn()
-      }
-    })
 
     await launcher('/fake/socket', '/fake/token')
 
@@ -959,15 +995,15 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       FAKE_RUNTIME_DIR,
       '/fake/socket',
       '/fake/token',
-      FAKE_DAEMON_ENTRY_PATH
+      FAKE_RUST_DAEMON_BIN
     )
     expect(killStaleDaemonMock).toHaveBeenCalledWith(
       FAKE_RUNTIME_DIR,
       '/fake/socket',
       '/fake/token'
     )
-    expect(forkMock).toHaveBeenCalledWith(
-      FAKE_DAEMON_ENTRY_PATH,
+    expect(spawnMock).toHaveBeenCalledWith(
+      FAKE_RUST_DAEMON_BIN,
       ['--socket', '/fake/socket', '--token', '/fake/token'],
       expect.objectContaining({ cwd: '/fake/userData', detached: true })
     )
@@ -1009,12 +1045,12 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       FAKE_RUNTIME_DIR,
       '/fake/socket',
       '/fake/token',
-      FAKE_DAEMON_ENTRY_PATH
+      FAKE_RUST_DAEMON_BIN
     )
     expect(requestMock).toHaveBeenCalledWith('listSessions', undefined)
     expect(disconnectMock).toHaveBeenCalledOnce()
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
-    expect(forkMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('preserves a daemon launched from another app path when live session state cannot be verified', async () => {
@@ -1047,7 +1083,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(requestMock).toHaveBeenCalledWith('listSessions', undefined)
     expect(disconnectMock).toHaveBeenCalledOnce()
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
-    expect(forkMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('respawns instead of reusing a protocol-healthy daemon with broken macOS resolver state', async () => {
@@ -1059,29 +1095,6 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       tokenPath: string
     ) => Promise<{ shutdown(): Promise<void> }>
     getMacDaemonSystemResolverHealthMock.mockReturnValueOnce('unhealthy')
-    forkMock.mockImplementationOnce(() => {
-      const handlers: Record<string, ((arg?: unknown) => void)[]> = {
-        message: [],
-        error: [],
-        exit: []
-      }
-      return {
-        pid: 12345,
-        on(event: string, cb: (arg?: unknown) => void) {
-          handlers[event]?.push(cb)
-          if (event === 'message') {
-            queueMicrotask(() => cb({ type: 'ready' }))
-          }
-          return this
-        },
-        off(event: string, cb: (arg?: unknown) => void) {
-          handlers[event] = handlers[event]?.filter((handler) => handler !== cb) ?? []
-          return this
-        },
-        disconnect: vi.fn(),
-        unref: vi.fn()
-      }
-    })
 
     await launcher('/fake/socket', '/fake/token')
 
@@ -1092,8 +1105,8 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       '/fake/socket',
       '/fake/token'
     )
-    expect(forkMock).toHaveBeenCalledWith(
-      FAKE_DAEMON_ENTRY_PATH,
+    expect(spawnMock).toHaveBeenCalledWith(
+      FAKE_RUST_DAEMON_BIN,
       ['--socket', '/fake/socket', '--token', '/fake/token'],
       expect.objectContaining({ cwd: '/fake/userData', detached: true })
     )
@@ -1136,7 +1149,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(disconnectMock).toHaveBeenCalledOnce()
     expect(getDaemonLaunchIdentityMock).not.toHaveBeenCalled()
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
-    expect(forkMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('preserves a resolver-unhealthy daemon when live session state cannot be verified', async () => {
@@ -1169,10 +1182,13 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(requestMock).toHaveBeenCalledWith('listSessions', undefined)
     expect(disconnectMock).toHaveBeenCalledOnce()
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
-    expect(forkMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('uses the direct daemon entry when Electron app path is already out/main', async () => {
+    // Windows-only Node launcher: forces the fork path so getDaemonEntryPath's
+    // out/main resolution is exercised (the Rust path never resolves an entry).
+    restorePlatform = stubPlatform('win32')
     probeSocketExistsMock.mockImplementation((p?: string) => p === FAKE_DAEMON_ENTRY_PATH)
     const mod = await importFresh()
     getAppPathMock.mockReturnValue(FAKE_APP_OUT_MAIN_PATH)
@@ -1217,6 +1233,9 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   })
 
   it('removes detached daemon startup listeners after readiness', async () => {
+    // Windows-only Node launcher: the IPC {type:'ready'} handshake + pid-file
+    // write are fork-path behavior; the Rust path uses a health poll instead.
+    restorePlatform = stubPlatform('win32')
     const mod = await importFresh()
     checkDaemonHealthMock.mockResolvedValue('unreachable')
     await mod.initDaemonPtyProvider()
@@ -1272,6 +1291,8 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   })
 
   it('removes detached daemon startup listeners after startup error', async () => {
+    // Windows-only Node launcher: startup 'error' teardown is fork-path behavior.
+    restorePlatform = stubPlatform('win32')
     const mod = await importFresh()
     checkDaemonHealthMock.mockResolvedValue('unreachable')
     await mod.initDaemonPtyProvider()
@@ -1348,7 +1369,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(requestMock).toHaveBeenCalledWith('listSessions', undefined)
     expect(disconnectMock).toHaveBeenCalledOnce()
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
-    expect(forkMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('marks a preserved daemon as degraded when its PTY spawn health check fails', async () => {
@@ -1382,7 +1403,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(requestMock).toHaveBeenCalledWith('listSessions', undefined)
     expect(handle.mode).toBe('degraded-new-pty-fallback')
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
-    expect(forkMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('replaces a health-check-failing daemon when live sessions cannot be verified', async () => {
@@ -1404,20 +1425,6 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       tokenPath: string
     ) => Promise<{ shutdown(): Promise<void> }>
     checkDaemonHealthMock.mockResolvedValueOnce('unreachable')
-    forkMock.mockImplementationOnce(() => ({
-      pid: 12345,
-      on(event: string, cb: (arg?: unknown) => void) {
-        if (event === 'message') {
-          queueMicrotask(() => cb({ type: 'ready' }))
-        }
-        return this
-      },
-      off() {
-        return this
-      },
-      disconnect: vi.fn(),
-      unref: vi.fn()
-    }))
 
     await launcher('/fake/socket', '/fake/token')
 
@@ -1426,7 +1433,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       '/fake/socket',
       '/fake/token'
     )
-    expect(forkMock).toHaveBeenCalled()
+    expect(spawnMock).toHaveBeenCalled()
   })
 
   it('replaces a health-check-failing daemon when no live sessions would be lost', async () => {
@@ -1438,29 +1445,6 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       tokenPath: string
     ) => Promise<{ shutdown(): Promise<void> }>
     checkDaemonHealthMock.mockResolvedValueOnce('unreachable')
-    forkMock.mockImplementationOnce(() => {
-      const handlers: Record<string, ((arg?: unknown) => void)[]> = {
-        message: [],
-        error: [],
-        exit: []
-      }
-      return {
-        pid: 12345,
-        on(event: string, cb: (arg?: unknown) => void) {
-          handlers[event]?.push(cb)
-          if (event === 'message') {
-            queueMicrotask(() => cb({ type: 'ready' }))
-          }
-          return this
-        },
-        off(event: string, cb: (arg?: unknown) => void) {
-          handlers[event] = handlers[event]?.filter((handler) => handler !== cb) ?? []
-          return this
-        },
-        disconnect: vi.fn(),
-        unref: vi.fn()
-      }
-    })
 
     await launcher('/fake/socket', '/fake/token')
 
@@ -1469,8 +1453,8 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       '/fake/socket',
       '/fake/token'
     )
-    expect(forkMock).toHaveBeenCalledWith(
-      FAKE_DAEMON_ENTRY_PATH,
+    expect(spawnMock).toHaveBeenCalledWith(
+      FAKE_RUST_DAEMON_BIN,
       ['--socket', '/fake/socket', '--token', '/fake/token'],
       expect.objectContaining({ detached: true })
     )
@@ -1486,7 +1470,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     ) => Promise<{ shutdown(): Promise<void> }>
     getDaemonLaunchIdentityMock.mockClear()
     killStaleDaemonMock.mockClear()
-    forkMock.mockClear()
+    spawnMock.mockClear()
     isPackagedMock.mockReturnValue(true)
 
     await launcher('/fake/socket', '/fake/token')
@@ -1495,7 +1479,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       FAKE_RUNTIME_DIR,
       '/fake/socket',
       '/fake/token',
-      FAKE_DAEMON_ENTRY_PATH
+      FAKE_RUST_DAEMON_BIN
     )
     expect(isDaemonStaleForCurrentBundleMock).toHaveBeenCalledWith(
       FAKE_RUNTIME_DIR,
@@ -1504,7 +1488,7 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       '1.2.3'
     )
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
-    expect(forkMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 
   it('respawns a packaged daemon that predates the current app bundle', async () => {
@@ -1517,29 +1501,6 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     ) => Promise<{ shutdown(): Promise<void> }>
     isPackagedMock.mockReturnValue(true)
     isDaemonStaleForCurrentBundleMock.mockReturnValueOnce(true)
-    forkMock.mockImplementationOnce(() => {
-      const handlers: Record<string, ((arg?: unknown) => void)[]> = {
-        message: [],
-        error: [],
-        exit: []
-      }
-      return {
-        pid: 12345,
-        on(event: string, cb: (arg?: unknown) => void) {
-          handlers[event]?.push(cb)
-          if (event === 'message') {
-            queueMicrotask(() => cb({ type: 'ready' }))
-          }
-          return this
-        },
-        off(event: string, cb: (arg?: unknown) => void) {
-          handlers[event] = handlers[event]?.filter((handler) => handler !== cb) ?? []
-          return this
-        },
-        disconnect: vi.fn(),
-        unref: vi.fn()
-      }
-    })
 
     await launcher('/fake/socket', '/fake/token')
 
@@ -1554,8 +1515,8 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
       '/fake/socket',
       '/fake/token'
     )
-    expect(forkMock).toHaveBeenCalledWith(
-      FAKE_DAEMON_ENTRY_PATH,
+    expect(spawnMock).toHaveBeenCalledWith(
+      FAKE_RUST_DAEMON_BIN,
       ['--socket', '/fake/socket', '--token', '/fake/token'],
       expect.objectContaining({ detached: true })
     )
@@ -1600,6 +1561,6 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     expect(requestMock).toHaveBeenCalledWith('listSessions', undefined)
     expect(disconnectMock).toHaveBeenCalledOnce()
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
-    expect(forkMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 })

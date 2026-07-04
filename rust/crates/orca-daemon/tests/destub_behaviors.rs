@@ -100,6 +100,49 @@ fn signal_kills_a_live_session() {
     assert_eq!(miss["ok"], json!(false));
 }
 
+/// Read the stream Receiver's `data` events until `needle` is seen. Used to observe
+/// what the spawned child actually printed.
+fn wait_for_data(rx: &Receiver<String>, session: &str, needle: &str, timeout: Duration) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if let Ok(line) = rx.recv_timeout(Duration::from_millis(100)) {
+            let v: Value = serde_json::from_str(&line).expect("event JSON");
+            if v["event"] == json!("data")
+                && v["sessionId"] == json!(session)
+                && v["payload"]["data"].as_str().is_some_and(|d| d.contains(needle))
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// createOrAttach honors the `env` overrides and `envToDelete` deletions the adapter
+/// forwards (agent hooks / per-profile vars) — they used to be silently dropped, so
+/// daemon-spawned shells ran with only the daemon's inherited env. `env` is applied
+/// then `env_remove`, so a var present in both is deleted.
+#[test]
+fn create_or_attach_applies_session_env_and_deletions() {
+    let reg = Arc::new(Registry::new());
+    let client = "c-env";
+    let (tx, rx) = channel::<String>();
+    reg.register_stream_and_flush(client.to_string(), tx);
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "c", "type": "createOrAttach",
+            "payload": { "sessionId": "s-env", "cols": 80, "rows": 24,
+                "env": { "ORCA_KEEP": "keep_xyz", "ORCA_DROP": "drop_xyz" },
+                "envToDelete": ["ORCA_DROP"],
+                "command": "printf 'K=[%s] D=[%s]' \"$ORCA_KEEP\" \"$ORCA_DROP\"" } }),
+    );
+    assert!(
+        wait_for_data(&rx, "s-env", "K=[keep_xyz] D=[]", Duration::from_secs(10)),
+        "child must see the env override (ORCA_KEEP) and the deletion (ORCA_DROP removed)"
+    );
+}
+
 /// systemResolverHealth runs the daemon's OWN resolver probe (scutil on macOS)
 /// end-to-end — not a hardcoded "unknown".
 #[test]

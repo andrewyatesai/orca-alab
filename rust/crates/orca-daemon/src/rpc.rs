@@ -150,8 +150,7 @@ fn probe_command() -> PtyCommand {
     PtyCommand {
         program: "/bin/sh".to_string(),
         args: vec!["-c".to_string(), "exit 0".to_string()],
-        cwd: None,
-        env: Vec::new(),
+        ..PtyCommand::default()
     }
 }
 
@@ -160,8 +159,7 @@ fn probe_command() -> PtyCommand {
     PtyCommand {
         program: default_shell(),
         args: vec!["/C".to_string(), "exit".to_string(), "0".to_string()],
-        cwd: None,
-        env: Vec::new(),
+        ..PtyCommand::default()
     }
 }
 
@@ -254,20 +252,42 @@ fn build_command(payload: &Value) -> PtyCommand {
         .and_then(Value::as_str)
         .map(str::to_string);
     let shell = default_shell();
-    match payload.get("command").and_then(Value::as_str) {
-        Some(cmd) if !cmd.is_empty() => PtyCommand {
-            program: shell,
-            args: shell_run_args(cmd),
-            cwd,
-            env: Vec::new(),
-        },
-        _ => PtyCommand {
-            program: shell,
-            args: Vec::new(),
-            cwd,
-            env: Vec::new(),
-        },
+    let (program, args) = match payload.get("command").and_then(Value::as_str) {
+        Some(cmd) if !cmd.is_empty() => (shell, shell_run_args(cmd)),
+        _ => (shell, Vec::new()),
+    };
+    PtyCommand {
+        program,
+        args,
+        cwd,
+        // Per-session env overrides (agent hooks, per-profile vars) and deletions —
+        // the createOrAttach `env` / `envToDelete` the adapter forwards. Dropping
+        // these ran daemon-spawned shells with only the daemon's inherited env.
+        env: payload_env(payload),
+        env_remove: payload_env_to_delete(payload),
     }
+}
+
+/// The `env` object (`{ KEY: "value" }`) as override pairs; empty if absent.
+fn payload_env(payload: &Value) -> Vec<(String, String)> {
+    payload
+        .get("env")
+        .and_then(Value::as_object)
+        .map(|map| {
+            map.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The `envToDelete` array of inherited var names to remove; empty if absent.
+fn payload_env_to_delete(payload: &Value) -> Vec<String> {
+    payload
+        .get("envToDelete")
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 #[cfg(unix)]

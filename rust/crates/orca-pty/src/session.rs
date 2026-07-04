@@ -22,13 +22,16 @@ impl PtySize {
     }
 }
 
-/// Spawn parameters, mirroring node-pty's `spawn(file, args, {cwd, env})`.
+/// Spawn parameters, mirroring node-pty's `spawn(file, args, {cwd, env})`. The child
+/// inherits the daemon's environment as a base; `env` overrides/adds vars and
+/// `env_remove` deletes inherited ones (the daemon's `env` / `envToDelete` payload).
 #[derive(Clone, Debug, Default)]
 pub struct PtyCommand {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: Option<String>,
     pub env: Vec<(String, String)>,
+    pub env_remove: Vec<String>,
 }
 
 pub struct PtySession {
@@ -50,6 +53,11 @@ impl PtySession {
         }
         for (key, value) in &command.env {
             builder.env(key, value);
+        }
+        // Delete inherited vars the caller wants gone (node-pty's envToDelete),
+        // applied after sets so a key can't be both added and removed inconsistently.
+        for key in &command.env_remove {
+            builder.env_remove(key);
         }
 
         let child = pair.slave.spawn_command(builder).map_err(to_io)?;
@@ -129,7 +137,7 @@ mod tests {
                 program: "/bin/sh".to_string(),
                 args: vec!["-c".to_string(), "printf hello-from-pty".to_string()],
                 cwd: None,
-                env: Vec::new(),
+                ..PtyCommand::default()
             },
             PtySize { rows: 24, cols: 80 },
         )
@@ -147,7 +155,7 @@ mod tests {
                 program: "/bin/sh".to_string(),
                 args: vec!["-c".to_string(), "sleep 30".to_string()],
                 cwd: None,
-                env: Vec::new(),
+                ..PtyCommand::default()
             },
             PtySize { rows: 24, cols: 80 },
         )
@@ -164,7 +172,7 @@ mod tests {
                 program: "/bin/sh".to_string(),
                 args: vec!["-c".to_string(), "sleep 0".to_string()],
                 cwd: None,
-                env: Vec::new(),
+                ..PtyCommand::default()
             },
             PtySize { rows: 24, cols: 80 },
         )
@@ -180,7 +188,7 @@ mod tests {
                 program: "/bin/sh".to_string(),
                 args: vec!["-c".to_string(), "sleep 0".to_string()],
                 cwd: None,
-                env: Vec::new(),
+                ..PtyCommand::default()
             },
             PtySize { rows: 24, cols: 80 },
         )

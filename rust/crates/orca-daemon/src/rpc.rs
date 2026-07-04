@@ -26,24 +26,34 @@ fn field_u16(payload: &Value, key: &str, default: u16) -> u16 {
         .unwrap_or(default as u64) as u16
 }
 
+/// A void ack. The Node daemon returns `{}` (not null) for side-effecting RPCs, so
+/// match its payload shape for wire byte-parity.
+fn void_ack(id: &str) -> String {
+    rpc_ok(id, json!({}))
+}
+
 pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &str) -> String {
     let id = request.get("id").and_then(Value::as_str).unwrap_or("");
     let kind = request.get("type").and_then(Value::as_str).unwrap_or("");
-    let payload = request.get("payload").cloned().unwrap_or(Value::Null);
-    let sid = || field_str(&payload, "sessionId").to_string();
+    // Borrow the payload — do NOT clone it: a `write` payload carries the full data
+    // chunk (up to NDJSON_MAX_LINE_BYTES), and cloning it here would copy megabytes
+    // per keystroke burst before field_str even reads it.
+    let null_payload = Value::Null;
+    let payload = request.get("payload").unwrap_or(&null_payload);
+    let sid = || field_str(payload, "sessionId").to_string();
     match kind {
-        "createOrAttach" => create_or_attach(id, &payload, registry, client_id),
+        "createOrAttach" => create_or_attach(id, payload, registry, client_id),
         "write" => {
-            let data = field_str(&payload, "data").to_string();
+            let data = field_str(payload, "data").to_string();
             match registry.with_session(&sid(), |e| e.pty.write_all(data.as_bytes())) {
-                Some(Ok(())) => rpc_ok(id, Value::Null),
+                Some(Ok(())) => void_ack(id),
                 Some(Err(e)) => rpc_err(id, &e.to_string()),
                 None => rpc_err(id, "unknown session"),
             }
         }
         "resize" => {
-            let cols = field_u16(&payload, "cols", 80);
-            let rows = field_u16(&payload, "rows", 24);
+            let cols = field_u16(payload, "cols", 80);
+            let rows = field_u16(payload, "rows", 24);
             match registry.with_session(&sid(), |e| {
                 e.cols = cols;
                 e.rows = rows;
@@ -53,20 +63,21 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                 }
                 e.pty.resize(PtySize { rows, cols })
             }) {
-                Some(Ok(())) => rpc_ok(id, Value::Null),
+                Some(Ok(())) => void_ack(id),
                 Some(Err(e)) => rpc_err(id, &e.to_string()),
                 None => rpc_err(id, "unknown session"),
             }
         }
-        // Kill the child; the pump's EOF then marks the session exited + emits `exit`.
-        "kill" => {
-            registry.with_session(&sid(), |e| {
-                let _ = e.pty.kill();
-            });
-            rpc_ok(id, Value::Null)
-        }
+        // Kill the child; the pump's EOF then reaps the session + emits `exit`. An
+        // unknown session errors, like the Node daemon's getAliveSession.
+        "kill" => match registry.with_session(&sid(), |e| {
+            let _ = e.pty.kill();
+        }) {
+            Some(()) => void_ack(id),
+            None => rpc_err(id, "unknown session"),
+        },
         // The session already survives control-socket close, so detach is a no-op ack.
-        "detach" => rpc_ok(id, Value::Null),
+        "detach" => void_ack(id),
         // The incremental checkpoint batch: typed records + monotonic seq + overflow
         // flag, and (when requested) a snapshot serialized in the same atomic turn.
         // Mirrors the Node daemon's TakePendingOutputResult (types.ts) — the client
@@ -123,22 +134,24 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         // Wire shape mirrors the Node daemon: `{ foregroundProcess: <…|null> }`.
         // Process-group query isn't wired yet, so the value is null (a safe stub).
         "getForegroundProcess" => rpc_ok(id, json!({ "foregroundProcess": Value::Null })),
-        "clearScrollback" => {
-            if let Some(engine) = registry.engine_of(&sid()) {
+        // An unknown session errors, like host.clearScrollback → getAliveSession.
+        "clearScrollback" => match registry.engine_of(&sid()) {
+            Some(engine) => {
                 let mut engine = engine.lock().unwrap();
                 engine.terminal.clear_scrollback();
                 engine.pending.record_clear();
+                void_ack(id)
             }
-            rpc_ok(id, Value::Null)
-        }
-        "cancelCreateOrAttach" => rpc_ok(id, Value::Null),
+            None => rpc_err(id, "unknown session"),
+        },
+        "cancelCreateOrAttach" => void_ack(id),
         // Deliver a named signal to the child (node-pty's `kill(signal)`). Errors
         // from a dead child are dropped like the Node daemon; an unknown session
         // errors (host.signal throws on a missing session there too).
         "signal" => {
-            let sig = field_str(&payload, "signal").to_string();
+            let sig = field_str(payload, "signal").to_string();
             match registry.with_session(&sid(), |e| e.pty.signal(&sig)) {
-                Some(_) => rpc_ok(id, Value::Null),
+                Some(_) => void_ack(id),
                 None => rpc_err(id, "unknown session"),
             }
         }
@@ -148,7 +161,7 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                 thread::sleep(Duration::from_millis(50));
                 std::process::exit(0);
             });
-            rpc_ok(id, Value::Null)
+            void_ack(id)
         }
         other => rpc_err(id, &format!("unsupported request type: {other}")),
     }
@@ -395,7 +408,7 @@ pub(crate) fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
     let sgr_pixels = term.sgr_pixels();
     let rehydrate =
         rehydrate_sequences(mouse_on, mouse_mode, bracketed, app_cursor, alt_screen, sgr_mouse, sgr_pixels);
-    json!({
+    let mut snapshot = json!({
         "snapshotAnsi": snapshot_ansi,
         "scrollbackAnsi": scrollback_ansi,
         "rehydrateSequences": rehydrate,
@@ -413,8 +426,13 @@ pub(crate) fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
         "cols": cols,
         "rows": rows,
         "scrollbackLines": scrollback_lines,
-        "lastTitle": title,
-    })
+    });
+    // `lastTitle` is an OPTIONAL field: the Node daemon OMITS the key when no title
+    // has been set, rather than emitting null. Match that so the wire shape agrees.
+    if let Some(title) = title {
+        snapshot["lastTitle"] = json!(title);
+    }
+    snapshot
 }
 
 /// Control sequences that re-apply screen/input modes on reattach — a faithful

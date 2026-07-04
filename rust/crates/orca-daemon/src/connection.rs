@@ -23,6 +23,8 @@ struct LineReader {
     stream: UnixStream,
     splitter: NdjsonSplitter,
     pending: VecDeque<String>,
+    /// Reused read scratch — allocated once per connection, not re-zeroed per read.
+    buf: Vec<u8>,
 }
 
 impl LineReader {
@@ -31,6 +33,7 @@ impl LineReader {
             stream,
             splitter: NdjsonSplitter::new(NDJSON_MAX_LINE_BYTES),
             pending: VecDeque::new(),
+            buf: vec![0u8; 65536],
         }
     }
 
@@ -39,12 +42,11 @@ impl LineReader {
             if let Some(line) = self.pending.pop_front() {
                 return Some(line);
             }
-            let mut buf = [0u8; 65536];
-            let n = self.stream.read(&mut buf).ok()?;
+            let n = self.stream.read(&mut self.buf).ok()?;
             if n == 0 {
                 return None; // peer closed
             }
-            let chunk = String::from_utf8_lossy(&buf[..n]);
+            let chunk = String::from_utf8_lossy(&self.buf[..n]);
             for event in self.splitter.feed_collect(chunk.as_ref()) {
                 if let NdjsonEvent::Line(line) = event {
                     self.pending.push_back(line);

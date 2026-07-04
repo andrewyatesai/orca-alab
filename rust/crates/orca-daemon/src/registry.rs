@@ -97,11 +97,17 @@ impl Registry {
     /// it otherwise. A detached session isn't replayed raw — its reattach snapshot
     /// (built from the engine, which the pump keeps current) is authoritative.
     pub fn route_output(&self, session_id: &str, data: &str) {
-        let inner = self.inner.lock().unwrap();
-        let Some(entry) = inner.sessions.get(session_id) else {
-            return;
+        // Resolve the target Sender under the lock (a cheap Arc clone), then encode
+        // the up-to-64KB JSON line + send OUTSIDE it, so the global mutex isn't held
+        // across serialization on every PTY read.
+        let tx = {
+            let inner = self.inner.lock().unwrap();
+            let Some(entry) = inner.sessions.get(session_id) else {
+                return;
+            };
+            inner.streams.get(&entry.client_id).cloned()
         };
-        if let Some(tx) = inner.streams.get(&entry.client_id) {
+        if let Some(tx) = tx {
             let _ = tx.send(encode_ndjson_line(&data_event(session_id, data)));
         }
     }

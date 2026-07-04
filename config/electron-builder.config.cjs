@@ -48,6 +48,16 @@ const terminalAddonResource = {
   to: 'orca_node.node'
 }
 
+// Why: the opt-in Rust daemon (ORCA_RUST_DAEMON=1) resolves its binary from
+// process.resourcesPath/orca-daemon in packaged apps (getRustDaemonBinPath in
+// daemon-init.ts). Ship the release binary to the resources root so the flag
+// works in the packaged app, not just dev. Mac-only for now — the Rust daemon's
+// transport is Unix-socket; Windows keeps the Node named-pipe daemon.
+const rustDaemonResource = {
+  from: 'rust/target/release/orca-daemon',
+  to: 'orca-daemon'
+}
+
 // Why: the OFL fonts and the Rust-built binaries (wasm blobs + orca_node.node)
 // carry redistribution-notice obligations; the distributed app must ship the
 // license texts, not just the repo. They land in Resources/licenses/.
@@ -253,6 +263,7 @@ module.exports = {
     extraResources: [
       ...commonExtraResources,
       macSpeechNativeResource,
+      rustDaemonResource,
       {
         from: 'resources/darwin/bin/orca',
         to: 'bin/orca'

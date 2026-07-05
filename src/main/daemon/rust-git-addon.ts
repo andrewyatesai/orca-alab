@@ -42,6 +42,10 @@ export type RustGitBinding = {
   parseStatusPorcelain(stdout: Buffer, limit: number): string
   /** `git diff --numstat` (text or `-z`) → `{path: {added?, removed?}}` JSON. */
   parseNumstat(stdout: Buffer): string
+  /** `git worktree list --porcelain` (or `-z`) → `GitWorktreeInfo[]` JSON. */
+  parseWorktreeList(output: string, nulDelimited: boolean): string
+  /** NUL-delimited `git log` (GIT_HISTORY_COMMIT_FORMAT) → `GitHistoryItem[]` JSON. */
+  parseGitHistoryLog(stdout: string): string
   /** Untracked-file additions: null for binary, 0 for empty, else line count. */
   countAdditionsInBuffer(bytes: Buffer): number | null
   /** Approximate added/removed line counts JSON, or null for the large guard. */

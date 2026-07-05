@@ -105,23 +105,30 @@ orca-daemon (bin)
    (`createOrAttach` on a live id → `isNew:false`), **pending-output buffering**
    (output produced while detached is buffered per session and replayed on stream
    reconnect), `takePendingOutput`, real `listSessions`, `getSize`, `detach`,
-   `shutdown`, and safe stubs for `signal`/`cancelCreateOrAttach`/health. **Plus the
+   `shutdown`, **real `signal`**, and safe stubs for `cancelCreateOrAttach`/health. **Plus the
    showcase**: each session tees its raw PTY output into an `orca-terminal`/aterm
    `HeadlessTerminal`, so `getSnapshot` (real `snapshotAnsi`/`scrollbackAnsi` +
    `modes` + `cwd` + dims), `getCwd` (OSC-7), and `clearScrollback` are answered
    from **actual aterm engine state — no napi hop**. Two smoke tests pass: an
    8-check reattach/buffering suite and an engine suite (OSC-7 cwd round-trip +
    rendered-grid snapshot). **The differential parity gate is now live** — see
-   the next section. **Remaining in this sub-step:** `getForegroundProcess`
-   (needs a process-group query; currently the correct `{foregroundProcess:null}`
-   envelope with a null value).
-3. ⬜ **Persistence + lifecycle.** Checkpoint/session-list via `orca-store`; daemon
-   health socket; crash-restart with session restore; a reaper for exited sessions
-   (the spike keeps them for `listSessions`).
-4. ⬜ **Cutover.** Wire `daemon-spawner.ts` to prefer the Rust bin under
-   `ORCA_RUST_DAEMON=1`, then flip the default; keep the Node daemon one release
-   behind a kill-switch; delete it after a green release. The
-   **autoformalization pipeline** (ts2rust two-witness) carries the bounded,
+   the next section. **`getForegroundProcess` is real too** — it resolves the PTY's
+   foreground process group (`tcgetpgrp`) to the child's command name, mirroring
+   node-pty's `.process` (null only when the pgid is gone).
+3. 🟡 **Persistence + lifecycle.** The exited-session **reaper is done**
+   (`reap_and_mark_exited` — a child exit removes the entry, so `listSessions`
+   never shows zombies and a reattach to an exited id spawns fresh). Still pending:
+   checkpoint/session-list persisted **in the daemon** via `orca-store` (records are
+   drained to the client today, not stored daemon-side), a daemon health socket, and
+   crash-restart with session restore.
+4. 🟢 **Cutover — DONE on macOS/Linux (flagless).** The Rust bin is now THE daemon
+   on Unix with **no env flag and no Node fallback** (`daemon-init.ts`
+   `rustDaemonEnabled()` = `platform !== 'win32'`; only `ORCA_RUST_DAEMON_BIN`
+   overrides the binary path). There is **no Unix kill-switch** — a missing binary or
+   startup timeout throws and degrades the app to the in-process, non-persistent
+   `LocalPtyProvider`. Windows keeps the Node named-pipe daemon until the Unix-socket
+   transport gets a Windows twin (Rust `serve` is a `not(unix)` `Unsupported` stub).
+   The **autoformalization pipeline** (ts2rust two-witness) carries the bounded,
    testable request-handler logic where a hand-port is riskier.
 
 ## The differential parity gate — LIVE (`tools/daemon-parity`, `pnpm parity:daemon`)
@@ -175,18 +182,20 @@ all 15 steps). See `tools/daemon-parity/README.md`.
 
 ## Immediate next action
 
-Sub-steps 1 and 2 are done: the crate builds offline, embeds the real aterm engine
-per session, passes the in-process lifecycle tests, **and clears the live
-two-legged differential parity gate** (`pnpm parity:daemon`, 15/15, Node == Rust).
-Next, in order:
+Sub-steps 1, 2, and the **Unix cutover** (sub-step 4) are done: the crate builds
+offline, embeds the real aterm engine per session, passes the in-process lifecycle
+tests, **clears the live two-legged differential parity gate** (`pnpm parity:daemon`,
+15/15, Node == Rust), and now **ships as THE macOS/Linux daemon with no flag** (the
+spawner launches it unconditionally; `getForegroundProcess`/`signal`/the
+exited-session reaper are all real). Next, in order:
 
 1. **Grow the parity corpus.** Add vectors for `takePendingOutput` while detached
    (buffer-then-replay), multi-client `clientId` isolation, `detach` keeping the
    PTY alive, `shellReady`/startup-command timing, and the Windows shell-override
    matrix. Each new vector that stays green is another degree of cutover safety.
-2. **Spawner wiring.** Teach `daemon-spawner.ts` to launch the Rust bin under
-   `ORCA_RUST_DAEMON=1`, then run a real shell tab through it end to end.
-3. **`getForegroundProcess`** — real process-group query (currently the correct
-   `{foregroundProcess:null}` envelope with a null value).
-4. **Persistence + reaper** (sub-step 3): checkpoint/session-list via `orca-store`;
-   reap exited sessions; crash-restart with session restore.
+2. **Windows transport.** Give the `not(unix)` `serve` a real listener (named pipe
+   or AF_UNIX) so Windows can drop the Node daemon too.
+3. **In-daemon persistence + crash-restart** (sub-step 3): persist checkpoint/
+   session-list daemon-side via `orca-store`; restore sessions after a daemon crash.
+4. **OSC-133 shell-readiness** — detect shell-ready in the engine instead of
+   reporting the honest `unsupported` `ShellReadyState`.

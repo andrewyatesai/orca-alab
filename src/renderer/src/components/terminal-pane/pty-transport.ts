@@ -568,7 +568,7 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     }
   }
 
-  function registerPtyExitHandler(id: string): void {
+  function registerPtyExitHandler(id: string, drainBuffered = true): void {
     const exitHandler = (code: number): void => {
       if (ptyId !== null && ptyId !== id) {
         // Why: a preserved sleep/reconnect session can report its old exit
@@ -592,7 +592,9 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     // would otherwise fire stale notifications after the data handler
     // is removed but before the exit event arrives.
     ptyTeardownHandlers.set(id, clearAccumulatedState)
-    drainPreHandlerPtyExit(id, exitHandler)
+    if (drainBuffered) {
+      drainPreHandlerPtyExit(id, exitHandler)
+    }
   }
 
   return {
@@ -652,9 +654,28 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
         }
 
         registerPtyDataHandler(spawnResult.id)
-        registerPtyExitHandler(spawnResult.id)
+        // Why: an exit buffered during the reattach RPC would drain synchronously
+        // here, flip connected=false, and make the guard below drop the daemon
+        // snapshot. When we have a snapshot to paint, defer that drain one
+        // macrotask so connect() returns the snapshot (the caller paints the
+        // final frame) before the exit tears the pane down — identical to an
+        // exit that lands a tick after reattach. drainPreHandlerPtyExit no-ops
+        // when nothing is buffered, so only the genuine race case changes.
+        const hasReattachSnapshot = !!(
+          spawnResult.snapshot ||
+          spawnResult.replay ||
+          spawnResult.coldRestore
+        )
+        registerPtyExitHandler(spawnResult.id, !hasReattachSnapshot)
         if (!connected || ptyId !== spawnResult.id) {
           return undefined
+        }
+        if (hasReattachSnapshot) {
+          const deferredExitId = spawnResult.id
+          const deferredExitHandler = ptyExitHandlers.get(deferredExitId)
+          if (deferredExitHandler) {
+            setTimeout(() => drainPreHandlerPtyExit(deferredExitId, deferredExitHandler), 0)
+          }
         }
 
         // A resize requested during the spawn window supersedes the spawn dims
@@ -679,6 +700,19 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
             sessionExpired: spawnResult.sessionExpired,
             coldRestore: spawnResult.coldRestore,
             replay: spawnResult.replay
+          } satisfies PtyConnectResult
+        }
+        // Why: we asked to reattach (options.sessionId) but the daemon returned
+        // a fresh session — the adapter attaches isReattach iff the daemon
+        // reattached, so its absence here means result.isNew (session gone,
+        // respawned). Flag it so handleReattachResult clears the stale mounted
+        // frame. Brand-new terminals never pass sessionId, so they never trip
+        // this. coldRestore is excluded above (it paints+clears on its own).
+        if (options.sessionId && !spawnResult.isReattach && !spawnResult.coldRestore) {
+          return {
+            id: spawnResult.id,
+            respawnedFresh: true,
+            ...(spawnResult.launchConfig ? { launchConfig: spawnResult.launchConfig } : {})
           } satisfies PtyConnectResult
         }
         if (spawnResult.launchConfig) {

@@ -8,10 +8,17 @@ import {
   GIT_HISTORY_DEFAULT_LIMIT,
   GIT_HISTORY_MAX_LIMIT,
   type GitHistoryExecutor,
+  type GitHistoryItem,
   type GitHistoryItemRef,
   type GitHistoryOptions,
   type GitHistoryResult
 } from './git-history-types'
+
+/** A `git log` stdout → `GitHistoryItem[]` parser. Injectable so the main process
+ *  can supply the verified Rust parser (via the napi addon) while this shared module
+ *  stays node-free — the renderer, which only type-imports here, keeps the pure TS
+ *  default and never pulls in the native binding. */
+export type GitHistoryLogParser = (stdout: string) => GitHistoryItem[]
 
 export type {
   GitHistoryExecutor,
@@ -158,7 +165,8 @@ async function resolveNamedRef(
 export async function loadGitHistoryFromExecutor(
   git: GitHistoryExecutor,
   cwd: string,
-  options: GitHistoryOptions = {}
+  options: GitHistoryOptions = {},
+  parseLog: GitHistoryLogParser = parseGitHistoryLog
 ): Promise<GitHistoryResult> {
   const limit = clampHistoryLimit(options.limit)
   const headOid = await resolveCommit(git, cwd, 'HEAD')
@@ -209,7 +217,7 @@ export async function loadGitHistoryFromExecutor(
     ],
     cwd
   )
-  const parsed = parseGitHistoryLog(stdout)
+  const parsed = parseLog(stdout)
   const items = parsed.slice(0, limit)
   const hasIncomingChanges =
     Boolean(remoteRef?.revision && mergeBase) && remoteRef?.revision !== mergeBase

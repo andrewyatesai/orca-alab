@@ -94,9 +94,10 @@ function getDaemonEntryPath(): string {
  *
  * Why: the daemon is forked with `cwd: userData` (so it survives worktree
  * deletion), so the addon loader's `process.cwd()/native/...` candidate never
- * resolves — without an absolute path, ORCA_RUST_TERMINAL=1 silently falls back
- * to the TypeScript emulator. The main process knows the app root, so it resolves
- * the addon here and passes it to the daemon via ORCA_RUST_TERMINAL_ADDON.
+ * resolves — and aterm is now the sole headless engine (no TypeScript fallback),
+ * so a daemon that can't find the addon fails to construct its emulator. The main
+ * process knows the app root, so it resolves the addon here and passes an absolute
+ * path to the daemon via ORCA_RUST_TERMINAL_ADDON.
  * Returns null if the addon isn't present (dev tree without a built .node).
  */
 function getRustTerminalAddonPath(): string | null {
@@ -497,9 +498,10 @@ async function launchNodeDaemon(
       // app.getPath(), but shell-ready rcfiles must live outside swept tmp.
       ORCA_USER_DATA_PATH: userDataPath,
       // Why: the daemon's cwd is userData, so the addon loader's cwd-relative
-      // candidate can't find the Rust (aterm) engine — resolve it absolutely
-      // here so ORCA_RUST_TERMINAL=1 actually loads it instead of silently
-      // falling back to the TS emulator. Omitted when no addon is present.
+      // candidate can't find the Rust (aterm) engine — resolve it absolutely here
+      // and pass it as ORCA_RUST_TERMINAL_ADDON so the daemon loads the sole
+      // headless engine (there is no TS-emulator fallback). Omitted when no addon
+      // is present (dev tree without a built .node), where the daemon throws.
       ...(rustTerminalAddonPath ? { ORCA_RUST_TERMINAL_ADDON: rustTerminalAddonPath } : {})
     }
   })

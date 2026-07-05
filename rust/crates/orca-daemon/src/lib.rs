@@ -16,6 +16,7 @@ pub mod protocol;
 pub mod registry;
 pub mod resolver_health;
 pub mod rpc;
+pub mod utf8_stream_decoder;
 // token.rs reads /dev/urandom and sets 0600 perms via std::os::unix — unix-only,
 // like the socket transport it guards. The Windows daemon keeps the Node path.
 #[cfg(unix)]
@@ -70,6 +71,7 @@ pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
         }
     );
     let registry = Arc::new(Registry::new());
+    registry.set_socket_path(socket_path);
     for incoming in listener.incoming() {
         match incoming {
             Ok(stream) => {

@@ -32,11 +32,15 @@ function getDaemonAdapters(): DaemonPtyAdapter[] {
   return [provider]
 }
 
-// Why: surface degraded mode (daemon alive but cannot spawn fresh PTYs) so the
-// session-management UI can warn that new terminals lack daemon persistence
-// until the daemon is restarted, instead of it being a silent console.warn.
+// Why: surface degraded mode so the session-management UI can warn that new
+// terminals lack daemon persistence until the daemon is restarted, instead of it
+// being a silent console.error. Covers both the daemon-alive-but-can't-spawn case
+// (DegradedDaemonPtyProvider) AND the daemon-never-started case (init failed, so no
+// provider was installed and fresh spawns fall to the in-process LocalPtyProvider) —
+// the old `instanceof DegradedDaemonPtyProvider` check silently missed the latter.
 function isDaemonDegraded(): boolean {
-  return getDaemonProvider() instanceof DegradedDaemonPtyProvider
+  const provider = getDaemonProvider()
+  return provider === null || provider instanceof DegradedDaemonPtyProvider
 }
 
 async function collectSessions(adapters: DaemonPtyAdapter[]): Promise<DaemonSessionInfo[]> {

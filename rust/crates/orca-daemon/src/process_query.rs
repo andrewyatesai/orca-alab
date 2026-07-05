@@ -78,8 +78,11 @@ fn resolve_cwd(pid: u32) -> Option<String> {
     // `-a` ANDs the -p and -d filters (macOS lsof ORs them otherwise, emitting cwd
     // for every process). `-Fn` field format prefixes the path line with 'n'.
     let out = run_capped("lsof", &["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])?;
-    out.lines()
-        .find_map(|l| l.strip_prefix('n').filter(|p| p.contains('/')).map(str::to_string))
+    out.lines().find_map(|l| {
+        l.strip_prefix('n')
+            .filter(|p| p.contains('/'))
+            .map(str::to_string)
+    })
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
@@ -186,6 +189,9 @@ mod tests {
     fn resolves_a_process_name() {
         // The name of some live pid resolves to a non-empty basename.
         let name = process_name(std::process::id());
-        assert!(name.is_some_and(|n| !n.is_empty()), "own process name should resolve");
+        assert!(
+            name.is_some_and(|n| !n.is_empty()),
+            "own process name should resolve"
+        );
     }
 }

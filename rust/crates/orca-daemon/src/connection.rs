@@ -15,6 +15,11 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 
+/// Fire-and-forget request ids carry this prefix (types.ts `NOTIFY_PREFIX`); the
+/// Node daemon writes no response for them, so neither do we (else every keystroke
+/// `write` would echo a useless `{id:'notify_N',ok:true}` line on the control socket).
+const NOTIFY_PREFIX: &str = "notify_";
+
 /// Blocking NDJSON line reader over a socket: feeds raw chunks through the shared
 /// splitter and yields whole lines. A UTF-8 char straddling a read boundary is
 /// reassembled (not corrupted) by carrying its incomplete tail across reads, so a
@@ -162,7 +167,17 @@ fn serve_control(
         let Ok(request) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
+        // A notify (write/resize/etc.) is fire-and-forget: dispatch its side effects
+        // but suppress the response line, matching the Node daemon. Its dispatch can
+        // still push events (e.g. a synthetic exit) onto the client's stream socket.
+        let is_notify = request
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.starts_with(NOTIFY_PREFIX));
         let response = dispatch_request(&request, registry, client_id);
+        if is_notify {
+            continue;
+        }
         if writer
             .write_all(encode_ndjson_line(&response).as_bytes())
             .is_err()

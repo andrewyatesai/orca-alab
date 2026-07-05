@@ -181,7 +181,7 @@ describe('pty:management IPC handlers', () => {
       expect(result.sessions.map((s) => s.sessionId)).toEqual(['preserved-1'])
     })
 
-    it('returns empty list when no daemon provider is installed', async () => {
+    it('returns empty list and reports degraded when no daemon provider is installed', async () => {
       getDaemonProviderMock.mockReturnValue(null)
 
       const { registerDaemonManagementHandlers } = await importFresh()
@@ -190,9 +190,13 @@ describe('pty:management IPC handlers', () => {
       const handlers = buildHandlerMap()
       const result = (await handlers['pty:management:listSessions']({})) as {
         sessions: DaemonSessionInfo[]
+        degraded: boolean
       }
 
       expect(result.sessions).toEqual([])
+      // The daemon never started, so fresh terminals fall to the in-process
+      // LocalPtyProvider and lose persistence — the UI must be told.
+      expect(result.degraded).toBe(true)
     })
 
     it('tolerates a failing adapter by skipping its sessions', async () => {

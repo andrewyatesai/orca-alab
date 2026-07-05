@@ -7,6 +7,7 @@
 use crate::pending_output::PendingOutput;
 use crate::protocol::{rpc_err, rpc_ok};
 use crate::registry::{Registry, SessionEngine, SessionEntry};
+use crate::utf8_stream_decoder::Utf8StreamDecoder;
 use orca_pty::{PtyCommand, PtySession, PtySize};
 use orca_terminal::{HeadlessTerminal, MouseTracking, DEFAULT_SCROLLBACK};
 use serde_json::{json, Value};
@@ -14,6 +15,10 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Graceful-kill escalation window, matching the Node session's `KILL_TIMEOUT_MS`:
+/// a child that ignores the graceful SIGHUP gets SIGKILL'd after this delay.
+const KILL_TIMEOUT: Duration = Duration::from_secs(5);
 
 fn field_str<'a>(payload: &'a Value, key: &str) -> &'a str {
     payload.get(key).and_then(Value::as_str).unwrap_or("")
@@ -32,6 +37,20 @@ fn void_ack(id: &str) -> String {
     rpc_ok(id, json!({}))
 }
 
+/// A write/resize hit an unknown session. Fire a synthetic exit(-1) on the client's
+/// stream so the renderer clears the stale pane binding (write/resize are
+/// fire-and-forget, so the control error alone is invisible), then return the error —
+/// parity with the Node daemon's sendExitEvent on SessionNotFoundError.
+fn unknown_session_exit(
+    id: &str,
+    registry: &Arc<Registry>,
+    client_id: &str,
+    session_id: &str,
+) -> String {
+    registry.route_exit_to_client(client_id, session_id, -1);
+    rpc_err(id, "unknown session")
+}
+
 pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &str) -> String {
     let id = request.get("id").and_then(Value::as_str).unwrap_or("");
     let kind = request.get("type").and_then(Value::as_str).unwrap_or("");
@@ -48,17 +67,19 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             // closure synchronously under the lock (FnOnce, not 'static), so no copy
             // is needed. A `.to_string()` here would re-copy up to 16MB on every
             // paste, the exact per-write cost the borrow-not-clone note above avoids.
+            let session_id = sid();
             let data = field_str(payload, "data");
-            match registry.with_session(&sid(), |e| e.pty.write_all(data.as_bytes())) {
+            match registry.with_session(&session_id, |e| e.pty.write_all(data.as_bytes())) {
                 Some(Ok(())) => void_ack(id),
                 Some(Err(e)) => rpc_err(id, &e.to_string()),
-                None => rpc_err(id, "unknown session"),
+                None => unknown_session_exit(id, registry, client_id, &session_id),
             }
         }
         "resize" => {
+            let session_id = sid();
             let cols = field_u16(payload, "cols", 80);
             let rows = field_u16(payload, "rows", 24);
-            match registry.with_session(&sid(), |e| {
+            match registry.with_session(&session_id, |e| {
                 e.cols = cols;
                 e.rows = rows;
                 if let Ok(mut engine) = e.engine.lock() {
@@ -69,17 +90,46 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             }) {
                 Some(Ok(())) => void_ack(id),
                 Some(Err(e)) => rpc_err(id, &e.to_string()),
-                None => rpc_err(id, "unknown session"),
+                None => unknown_session_exit(id, registry, client_id, &session_id),
             }
         }
         // Kill the child; the pump's EOF then reaps the session + emits `exit`. An
         // unknown session errors, like the Node daemon's getAliveSession.
-        "kill" => match registry.with_session(&sid(), |e| {
-            let _ = e.pty.kill();
-        }) {
-            Some(()) => void_ack(id),
-            None => rpc_err(id, "unknown session"),
-        },
+        //
+        // `immediate` mirrors terminal-host.ts kill(): the immediate path force-kills
+        // (SIGKILL) at once, while the default graceful path sends SIGHUP (node-pty's
+        // default) so the shell can run its EXIT trap / save history, then escalates
+        // to SIGKILL after KILL_TIMEOUT if the child ignored it.
+        "kill" => {
+            let session_id = sid();
+            let immediate = payload
+                .get("immediate")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if immediate {
+                match registry.with_session(&session_id, |e| {
+                    let _ = e.pty.kill();
+                }) {
+                    Some(()) => void_ack(id),
+                    None => rpc_err(id, "unknown session"),
+                }
+            } else {
+                match registry.with_session(&session_id, |e| {
+                    let _ = e.pty.signal("SIGHUP");
+                    e.pid
+                }) {
+                    Some(expected_pid) => {
+                        let reg = registry.clone();
+                        thread::spawn(move || {
+                            thread::sleep(KILL_TIMEOUT);
+                            reg.force_kill_if_still_pid(&session_id, expected_pid);
+                        });
+                        void_ack(id)
+                    }
+                    None => rpc_err(id, "unknown session"),
+                }
+            }
+        }
         // The session already survives control-socket close, so detach is a no-op ack.
         "detach" => void_ack(id),
         // The incremental checkpoint batch: typed records + monotonic seq + overflow
@@ -110,7 +160,10 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         // dims at the payload top level) — see daemon-server.ts `getAppliedSize`.
         "getSize" => match registry.session_size(&sid()) {
             Some((cols, rows)) => rpc_ok(id, json!({ "size": { "cols": cols, "rows": rows } })),
-            None => rpc_err(id, "unknown session"),
+            // Node's getAppliedSize is null-not-throw for a missing/dead session
+            // (terminal-host.ts), so the renderer resume drift-check reads null, not
+            // an error. Match that: `{ size: null }`, not an rpc error.
+            None => rpc_ok(id, json!({ "size": Value::Null })),
         },
         "ping" => rpc_ok(id, json!({ "pong": true })),
         // Real probe: open a PTY and spawn a trivial child. If the PTY subsystem is
@@ -123,9 +176,10 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         // Real resolver health from the daemon's own process (scutil on macOS);
         // "unknown" elsewhere. Lets the launcher's preserve/replace decision see a
         // Rust daemon that lost its scoped system resolver — same as the Node daemon.
-        "systemResolverHealth" => {
-            rpc_ok(id, json!({ "health": crate::resolver_health::system_resolver_health() }))
-        }
+        "systemResolverHealth" => rpc_ok(
+            id,
+            json!({ "health": crate::resolver_health::system_resolver_health() }),
+        ),
         // Real engine state from the session's headless aterm terminal — no napi hop.
         "getSnapshot" => match registry.engine_of(&sid()) {
             Some(engine) => {
@@ -140,15 +194,26 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         // lsof on macOS), exactly as daemon-server.ts getCwd → resolveProcessCwd does.
         "getCwd" => {
             let sid = sid();
-            let cwd = registry
-                .engine_of(&sid)
-                .and_then(|engine| engine.lock().unwrap().terminal.cwd().map(str::to_string))
-                .or_else(|| {
-                    registry
-                        .session_pid(&sid)
-                        .and_then(crate::process_query::process_cwd)
-                });
-            rpc_ok(id, json!({ "cwd": cwd }))
+            // Node's getCwd goes through getAliveSession, which THROWS on an unknown
+            // session (terminal-host.ts); mirror that with an error. A KNOWN session
+            // with no resolvable cwd still returns ok + null below.
+            match registry.engine_of(&sid) {
+                Some(engine) => {
+                    let cwd = engine
+                        .lock()
+                        .unwrap()
+                        .terminal
+                        .cwd()
+                        .map(str::to_string)
+                        .or_else(|| {
+                            registry
+                                .session_pid(&sid)
+                                .and_then(crate::process_query::process_cwd)
+                        });
+                    rpc_ok(id, json!({ "cwd": cwd }))
+                }
+                None => rpc_err(id, "unknown session"),
+            }
         }
         // Wire shape mirrors the Node daemon: `{ foregroundProcess: <string|null> }`.
         // Resolve the PTY's foreground process group (tcgetpgrp) → its command name
@@ -184,6 +249,18 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             }
         }
         "shutdown" => {
+            // killSessions=true → SIGKILL every child now (parity with the Node
+            // host.dispose()); a child that ignores the PTY-close SIGHUP would
+            // otherwise outlive the daemon. Then unlink the socket file so a stale
+            // path can't linger (parity with server.close→unlinkSync).
+            if payload
+                .get("killSessions")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                registry.kill_all_sessions();
+            }
+            registry.unlink_socket();
             // Reply first, then exit so the ok flushes to the client.
             thread::spawn(|| {
                 thread::sleep(Duration::from_millis(50));
@@ -265,7 +342,11 @@ fn create_or_attach(
     // lock, so the pump feeds both atomically and getSnapshot/getCwd/takePendingOutput
     // read consistent state — no napi hop.
     let engine = Arc::new(Mutex::new(SessionEngine {
-        terminal: HeadlessTerminal::with_scrollback(rows as usize, cols as usize, DEFAULT_SCROLLBACK),
+        terminal: HeadlessTerminal::with_scrollback(
+            rows as usize,
+            cols as usize,
+            DEFAULT_SCROLLBACK,
+        ),
         pending: PendingOutput::default(),
     }));
     // Pump raw PTY output → fed into the engine (terminal + records) AND streamed live
@@ -305,13 +386,21 @@ fn create_or_attach(
 const SHELL_STATE: &str = "unsupported";
 
 /// Resolve the shell/command to spawn. `command` (when present) runs under the login
-/// shell; otherwise the user's `$SHELL` (or /bin/sh) starts interactively.
+/// shell; otherwise the shell starts interactively. The shell is the renderer's
+/// per-pane `shellOverride` (the "+" menu / persisted default), falling back to the
+/// user's `$SHELL` — without honoring the override the daemon always spawned `$SHELL`
+/// regardless of the shell the pane asked for.
 fn build_command(payload: &Value) -> PtyCommand {
     let cwd = payload
         .get("cwd")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let shell = default_shell();
+    let shell = payload
+        .get("shellOverride")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(default_shell);
     let (program, args) = match payload.get("command").and_then(Value::as_str) {
         Some(cmd) if !cmd.is_empty() => (shell, shell_run_args(cmd)),
         _ => (shell, Vec::new()),
@@ -346,7 +435,12 @@ fn payload_env_to_delete(payload: &Value) -> Vec<String> {
     payload
         .get("envToDelete")
         .and_then(Value::as_array)
-        .map(|arr| arr.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -379,22 +473,28 @@ fn pump_output(
     engine: Arc<Mutex<SessionEngine>>,
 ) {
     let mut buf = [0u8; 65536];
+    // The engine is fed RAW bytes (its VT parser is byte-accurate and buffers
+    // incomplete sequences), but the checkpoint records + live stream are text, so
+    // decode with a boundary-carrying decoder: a multibyte char split across two
+    // reads is completed on the next chunk instead of becoming U+FFFD, which would
+    // desync the stream/records from the (correct) engine grid.
+    let mut decoder = Utf8StreamDecoder::new();
     loop {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
-                let data = String::from_utf8_lossy(&buf[..n]);
+                let data = decoder.decode(&buf[..n]);
                 // Feed the engine ATOMICALLY: raw bytes into the VT parser AND the
                 // same chunk into the checkpoint record log, under one lock so a
                 // concurrent takePendingOutput can't see the terminal updated but the
                 // record missing (which would duplicate bytes on cold restore).
                 if let Ok(mut engine) = engine.lock() {
                     engine.terminal.process(&buf[..n]);
-                    engine.pending.record_output(data.as_ref());
+                    engine.pending.record_output(&data);
                 }
-                // Stream a lossy-UTF-8 copy live to the attached client (dropped if
-                // detached — the reattach snapshot restores it).
-                registry.route_output(&session_id, data.as_ref());
+                // Stream the same boundary-safe copy live to the attached client
+                // (dropped if detached — the reattach snapshot restores it).
+                registry.route_output(&session_id, &data);
             }
         }
     }
@@ -414,7 +514,9 @@ pub(crate) fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
     let osc_links: Vec<Value> = term
         .osc_link_ranges(None)
         .into_iter()
-        .map(|l| json!({ "row": l.row, "startCol": l.start_col, "endCol": l.end_col, "uri": l.uri }))
+        .map(
+            |l| json!({ "row": l.row, "startCol": l.start_col, "endCol": l.end_col, "uri": l.uri }),
+        )
         .collect();
     let cwd = term.cwd().map(str::to_string);
     let bracketed = term.bracketed_paste();
@@ -434,8 +536,9 @@ pub(crate) fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
     // daemon carries both in TerminalModes; aterm exposes them directly.
     let sgr_mouse = term.sgr_mouse();
     let sgr_pixels = term.sgr_pixels();
-    let rehydrate =
-        rehydrate_sequences(mouse_on, mouse_mode, bracketed, app_cursor, alt_screen, sgr_mouse, sgr_pixels);
+    let rehydrate = rehydrate_sequences(
+        mouse_on, mouse_mode, bracketed, app_cursor, alt_screen, sgr_mouse, sgr_pixels,
+    );
     let mut snapshot = json!({
         "snapshotAnsi": snapshot_ansi,
         "scrollbackAnsi": scrollback_ansi,

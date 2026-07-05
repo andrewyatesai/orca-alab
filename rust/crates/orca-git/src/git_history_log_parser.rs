@@ -5,6 +5,8 @@
 
 use std::cmp::Ordering;
 
+use serde_json::{json, Map, Value};
+
 use crate::git_history_types::{GitHistoryItem, GitHistoryItemRef, GitHistoryRefCategory};
 
 /// Unit separator (0x1F) — Git ref names can contain commas, so the log format
@@ -267,6 +269,76 @@ pub fn git_history_ref_from_full_name(
         category: Some(GitHistoryRefCategory::Commits),
         ..Default::default()
     }
+}
+
+/// Serialize a `GitHistoryItemRef` to match `JSON.stringify` of the TS type
+/// (undefined/`None` fields are dropped, not emitted as null).
+fn ref_to_json(reference: &GitHistoryItemRef) -> Value {
+    let mut map = Map::new();
+    map.insert("id".to_string(), Value::String(reference.id.clone()));
+    map.insert("name".to_string(), Value::String(reference.name.clone()));
+    if let Some(revision) = &reference.revision {
+        map.insert("revision".to_string(), Value::String(revision.clone()));
+    }
+    if let Some(category) = reference.category {
+        map.insert("category".to_string(), Value::String(category.as_str().to_string()));
+    }
+    if let Some(description) = &reference.description {
+        map.insert("description".to_string(), Value::String(description.clone()));
+    }
+    if let Some(color) = reference.color {
+        map.insert("color".to_string(), Value::String(color.as_str().to_string()));
+    }
+    Value::Object(map)
+}
+
+/// Serialize a `GitHistoryItem` to match `JSON.stringify` of the TS type
+/// (undefined/`None` fields dropped).
+fn item_to_json(item: &GitHistoryItem) -> Value {
+    let mut map = Map::new();
+    map.insert("id".to_string(), Value::String(item.id.clone()));
+    map.insert(
+        "parentIds".to_string(),
+        Value::Array(item.parent_ids.iter().map(|id| Value::String(id.clone())).collect()),
+    );
+    map.insert("subject".to_string(), Value::String(item.subject.clone()));
+    map.insert("message".to_string(), Value::String(item.message.clone()));
+    if let Some(display_id) = &item.display_id {
+        map.insert("displayId".to_string(), Value::String(display_id.clone()));
+    }
+    if let Some(author) = &item.author {
+        map.insert("author".to_string(), Value::String(author.clone()));
+    }
+    if let Some(author_email) = &item.author_email {
+        map.insert("authorEmail".to_string(), Value::String(author_email.clone()));
+    }
+    if let Some(timestamp) = item.timestamp {
+        map.insert("timestamp".to_string(), Value::Number(timestamp.into()));
+    }
+    if let Some(statistics) = item.statistics {
+        map.insert(
+            "statistics".to_string(),
+            json!({
+                "files": statistics.files,
+                "insertions": statistics.insertions,
+                "deletions": statistics.deletions,
+            }),
+        );
+    }
+    if let Some(references) = &item.references {
+        map.insert(
+            "references".to_string(),
+            Value::Array(references.iter().map(ref_to_json).collect()),
+        );
+    }
+    Value::Object(map)
+}
+
+/// Serialize a parsed history log to the `GitHistoryItem[]` JSON the TS
+/// `parseGitHistoryLog` produces, so the napi export and the differential parity
+/// harness share one canonical shape.
+pub fn git_history_log_to_json(items: &[GitHistoryItem]) -> Value {
+    Value::Array(items.iter().map(item_to_json).collect())
 }
 
 #[cfg(test)]

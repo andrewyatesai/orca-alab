@@ -1052,6 +1052,61 @@ describe('createIpcPtyTransport', () => {
     })
   })
 
+  it('returns the reattach snapshot when the session exits during the reattach RPC', async () => {
+    const { createIpcPtyTransport, ensurePtyDispatcher } = await import('./pty-transport')
+    const spawnMock = vi.fn().mockResolvedValue({
+      id: 'pty-reattach-exit-race',
+      isReattach: true,
+      snapshot: 'final frame',
+      snapshotCols: 100,
+      snapshotRows: 30
+    })
+
+    ;(globalThis as { window: typeof window }).window = {
+      ...originalWindow,
+      api: {
+        ...originalWindow?.api,
+        pty: {
+          ...originalWindow?.api?.pty,
+          spawn: spawnMock,
+          write: vi.fn(),
+          resize: vi.fn(),
+          kill: vi.fn(),
+          onData: vi.fn((callback: (payload: { id: string; data: string }) => void) => {
+            onData = callback
+            return () => {}
+          }),
+          onReplay: vi.fn(() => () => {}),
+          onExit: vi.fn((callback: (payload: { id: string; code: number }) => void) => {
+            onExit = callback
+            return () => {}
+          })
+        }
+      }
+    } as unknown as typeof window
+
+    const transport = createIpcPtyTransport()
+    // Wire the dispatcher so the exit buffers as a pre-handler exit — the
+    // session dies before the pane registers its own handler.
+    ensurePtyDispatcher()
+    onExit?.({ id: 'pty-reattach-exit-race', code: 7 })
+
+    const exitCb = vi.fn()
+    const result = await transport.connect({
+      url: '',
+      sessionId: 'pty-reattach-exit-race',
+      callbacks: { onExit: exitCb }
+    })
+
+    // Core fix: the snapshot survives the race instead of the guard dropping it.
+    expect(result).toMatchObject({ id: 'pty-reattach-exit-race', snapshot: 'final frame' })
+    // The buffered exit is delivered on the next macrotask, after the caller
+    // has had the snapshot to paint — not synchronously during connect.
+    expect(exitCb).not.toHaveBeenCalled()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(exitCb).toHaveBeenCalledWith(7)
+  })
+
   it('kills a PTY that finishes spawning after the transport was destroyed', async () => {
     const { createIpcPtyTransport } = await import('./pty-transport')
     const spawnControls: { resolve: ((value: { id: string }) => void) | null } = { resolve: null }

@@ -108,7 +108,9 @@ fn probe_mac_resolver() -> &'static str {
             Err(_) => return "unknown",
         }
     }
-    let output = rx.recv_timeout(Duration::from_millis(200)).unwrap_or_default();
+    let output = rx
+        .recv_timeout(Duration::from_millis(200))
+        .unwrap_or_default();
     classify_mac_resolver(&output)
 }
 
@@ -132,7 +134,10 @@ mod tests {
 
     #[test]
     fn unknown_when_header_present_but_no_nameserver() {
-        assert_eq!(classify_mac_resolver("DNS configuration\n\n  resolver #1\n"), "unknown");
+        assert_eq!(
+            classify_mac_resolver("DNS configuration\n\n  resolver #1\n"),
+            "unknown"
+        );
     }
 
     #[test]

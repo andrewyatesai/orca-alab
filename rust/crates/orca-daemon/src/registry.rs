@@ -12,8 +12,8 @@
 //! per-session lock so the reader pump can feed it without the registry lock, and so
 //! `takePendingOutput` can drain records + serialize a snapshot atomically.
 
-use crate::protocol::{data_event, exit_event};
 use crate::pending_output::PendingOutput;
+use crate::protocol::{data_event, exit_event};
 use orca_net::encode_ndjson_line;
 use orca_pty::PtySession;
 use orca_terminal::HeadlessTerminal;
@@ -51,11 +51,26 @@ struct Inner {
 #[derive(Default)]
 pub struct Registry {
     inner: Mutex<Inner>,
+    /// The daemon's socket path, so `shutdown` can unlink it (parity with the Node
+    /// server.close→unlinkSync). `None` in the parity harness / standalone tests.
+    socket_path: Mutex<Option<String>>,
 }
 
 impl Registry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Record the socket path for `unlink_socket` at shutdown. Called by `serve`.
+    pub fn set_socket_path(&self, path: &str) {
+        *self.socket_path.lock().unwrap() = Some(path.to_string());
+    }
+
+    /// Remove the socket file on graceful shutdown so a stale path can't linger.
+    pub fn unlink_socket(&self) {
+        if let Some(path) = self.socket_path.lock().unwrap().as_deref() {
+            let _ = std::fs::remove_file(path);
+        }
     }
 
     pub fn insert_session(&self, id: String, entry: SessionEntry) {
@@ -115,6 +130,40 @@ impl Registry {
     /// Run `f` against a live session (write/resize/kill). None if the id is unknown.
     pub fn with_session<R>(&self, id: &str, f: impl FnOnce(&mut SessionEntry) -> R) -> Option<R> {
         self.inner.lock().unwrap().sessions.get_mut(id).map(f)
+    }
+
+    /// Deliver a synthetic exit event to a specific client's stream. Used when a
+    /// write/resize targets an unknown session: write/resize are fire-and-forget, so
+    /// this exit is the only signal the renderer gets to clear a stale pane binding
+    /// (parity with the Node daemon's sendExitEvent on SessionNotFoundError).
+    pub fn route_exit_to_client(&self, client_id: &str, session_id: &str, code: i64) {
+        let tx = self.inner.lock().unwrap().streams.get(client_id).cloned();
+        if let Some(tx) = tx {
+            let _ = tx.send(encode_ndjson_line(&exit_event(session_id, code)));
+        }
+    }
+
+    /// SIGKILL every live session's child — daemon `shutdown {killSessions:true}`,
+    /// parity with the Node host.dispose(). Children die with the daemon via PTY
+    /// master close anyway, but one that ignores that SIGHUP needs the explicit kill.
+    pub fn kill_all_sessions(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        for entry in inner.sessions.values_mut() {
+            let _ = entry.pty.kill();
+        }
+    }
+
+    /// Force-kill (SIGKILL) `session_id` iff it still maps to a live session with
+    /// `expected_pid`. The graceful-kill escalation: a child that ignored SIGHUP
+    /// within the kill timeout is force-killed, but the pid guard avoids killing a
+    /// different session recreated on the same id in the meantime.
+    pub fn force_kill_if_still_pid(&self, session_id: &str, expected_pid: Option<u32>) {
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(entry) = inner.sessions.get_mut(session_id) {
+            if entry.pid == expected_pid {
+                let _ = entry.pty.kill();
+            }
+        }
     }
 
     /// The session's (cols, rows) for `getSize`.

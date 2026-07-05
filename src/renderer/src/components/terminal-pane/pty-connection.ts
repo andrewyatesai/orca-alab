@@ -5474,6 +5474,14 @@ export function connectPanePty(
         if (didPrepareResume && !coldRestoreStartup) {
           schedulePendingStartupCommandDelivery()
         }
+      } else if (connectResult?.respawnedFresh) {
+        // Why: the daemon lost the session we tried to reattach to and spawned a
+        // fresh shell with no history to replay. restoreScrollbackBuffers()
+        // already painted the previous session's last frame at mount; clear it
+        // so the fresh shell starts clean instead of under stale output. No live
+        // TUI owns the mode state here, so also reset the crashed-TUI modes.
+        writeReplayData('\x1b[2J\x1b[3J\x1b[H')
+        writeReplayData(POST_REPLAY_MODE_RESET)
       }
       // Why: when a mobile-fit override is active, skip sending desktop dims
       // to the PTY — the PTY is already at phone dimensions and must stay there.

@@ -2,6 +2,8 @@ import { StringDecoder } from 'node:string_decoder'
 import { describe, expect, it } from 'vitest'
 import { loadRustGitBinding } from '../daemon/rust-git-addon'
 import { StatusPorcelainParser } from './status-porcelain-parser'
+import { parseWorktreeListTs } from './worktree'
+import { parseGitHistoryLog } from '../../shared/git-history-log-parser'
 import { parseNumstat } from '../../shared/git-uncommitted-line-stats'
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { isBinaryBuffer } from '../../shared/binary-buffer'
@@ -273,6 +275,52 @@ const numstatFixtures: { name: string; bytes: Buffer }[] = [
   { name: 'empty input', bytes: Buffer.from('') }
 ]
 
+const worktreeFixtures: { name: string; output: string; nulDelimited: boolean }[] = [
+  {
+    name: 'main + linked + bare blocks',
+    output:
+      '\nworktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n' +
+      'worktree /repo-feature\nHEAD def456\nbranch refs/heads/feature/test\n\n' +
+      'worktree /repo-bare\nHEAD 0000000\nbare\n',
+    nulDelimited: false
+  },
+  {
+    name: 'detached head has no branch',
+    output: 'worktree /d\nHEAD abc123\ndetached\n',
+    nulDelimited: false
+  },
+  {
+    name: 'sparse flag',
+    output: 'worktree /repo\nHEAD abc\nbranch refs/heads/main\nsparse\n',
+    nulDelimited: false
+  },
+  {
+    name: 'path with spaces',
+    output: 'worktree /path/to/my worktree\nHEAD ccc\nbranch refs/heads/main\n',
+    nulDelimited: false
+  },
+  {
+    name: 'CRLF blocks',
+    output: 'worktree /a\r\nHEAD aaa\r\nbranch refs/heads/main\r\n',
+    nulDelimited: false
+  },
+  { name: 'empty input', output: '   \n\n  ', nulDelimited: false },
+  {
+    name: '-z NUL form with newline in a linked path',
+    output: [
+      'worktree /repo',
+      'HEAD abc',
+      'branch refs/heads/main',
+      '',
+      'worktree /repo/lin\nked',
+      'HEAD def',
+      'branch refs/heads/nl',
+      ''
+    ].join('\0'),
+    nulDelimited: true
+  }
+]
+
 const decodeFixtures = [
   'plain/path.ts',
   '"quoted/path.ts"',
@@ -364,6 +412,58 @@ suite('orca-git napi ↔ TS parser parity', () => {
       it(fixture.name, () => {
         const napi = JSON.parse(git.parseNumstat(fixture.bytes))
         expect(napi).toEqual(tsNumstatShape(fixture.bytes))
+      })
+    }
+  })
+
+  describe('parseWorktreeList', () => {
+    for (const fixture of worktreeFixtures) {
+      it(fixture.name, () => {
+        const napi = JSON.parse(git.parseWorktreeList(fixture.output, fixture.nulDelimited))
+        expect(napi).toEqual(
+          parseWorktreeListTs(fixture.output, { nulDelimited: fixture.nulDelimited })
+        )
+      })
+    }
+  })
+
+  describe('parseGitHistoryLog', () => {
+    const US = '\x1f' // decoration separator (GIT_HISTORY_DECORATION_SEPARATOR)
+    const rec = (fields: string[]): string => fields.join('\n')
+    // A NUL-terminated `git log -z` stream, with the optional leading blank line
+    // git emits before the first record.
+    const stream = (...recs: string[]): string => recs.map((r) => `${r}\0`).join('')
+    const historyFixtures: { name: string; stdout: string }[] = [
+      {
+        name: 'two commits, branch + tag + remote decorations, multiline message',
+        stdout: `\n${stream(
+          rec([
+            'a'.repeat(40),
+            'Ada L',
+            'ada@x.io',
+            '1700000000',
+            '1700000001',
+            'b'.repeat(40),
+            `HEAD -> refs/heads/main${US}tag: refs/tags/v1${US}refs/remotes/origin/main`,
+            'feat: subject\n\nbody'
+          ]),
+          rec(['c'.repeat(40), '', '', 'notanumber', '0', '', '', 'second'])
+        )}`
+      },
+      { name: 'empty input', stdout: '' },
+      {
+        name: 'no decorations, single parent',
+        stdout: stream(rec(['d'.repeat(40), 'B', 'b@y', '1', '2', 'e'.repeat(40), '', 'msg']))
+      },
+      {
+        name: 'non-hash record is skipped',
+        stdout: stream(rec(['not-a-hash', 'X', 'x@z', '1', '2', '', '', 'skip me']))
+      }
+    ]
+    for (const fixture of historyFixtures) {
+      it(fixture.name, () => {
+        const napi = JSON.parse(git.parseGitHistoryLog(fixture.stdout))
+        expect(napi).toEqual(parseGitHistoryLog(fixture.stdout))
       })
     }
   })

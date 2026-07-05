@@ -228,7 +228,7 @@ assert its streamed output (offline).
 
 The foundation of the `@xterm/headless` replacement
 (`daemon/headless-emulator.ts`): a server-side grid + cursor driven by the
-**vendored `vte` ANSI parser**, tracking cwd via OSC-7, with **snapshot/restore
+**`aterm` engine (`aterm-core`)**, tracking cwd via OSC-7, with **snapshot/restore
 and resize** (the reconnect/SSH-replay role of `@xterm/addon-serialize`).
 Implemented subset: print, CR/LF/BS/HT, line scroll, **bounded scrollback**
 (default 5000 lines), OSC-7 cwd (percent-decoded), `TerminalSnapshot`
@@ -236,12 +236,13 @@ capture/restore, resize, and **per-cell SGR attributes**
 (bold/italic/underline/inverse + a full `Color` model: 16-color, bright,
 256-palette `38;5;n`, and truecolor `38;2;r;g;b` — both `;` and `:` forms), and
 **mouse-reporting modes** (DECSET 9/1000/1002/1003 tracking + 1006/1016 SGR,
-tracked for remote replay). The full `aterm` engine extends this further
-(selection/copy, full DECSET set, hyperlinks).
+tracked for remote replay). `orca-terminal` is now a thin **adapter over `aterm`**,
+so the engine's fuller features (selection/copy, full DECSET set, hyperlinks) sit
+under the same stable surface (`HeadlessTerminal`, `Cell`, `Color`, …).
 
 | Rust module | Source | Notes |
 | --- | --- | --- |
-| `headless` | `daemon/headless-emulator.ts` (subset) | grid of `Cell{ch,attrs}` over `vte::Parser`+`Perform`; OSC-7 cwd; SGR attrs; snapshot/restore; resize |
+| `headless` | `daemon/headless-emulator.ts` (subset) | grid of `Cell{ch,attrs}` over the **`aterm` engine** (`aterm-core`/`-grid`/`-types`); OSC-7 cwd; SGR attrs; snapshot/restore; resize |
 | `color_scheme_protocol` | `terminal-color-scheme-protocol.ts` | DEC mode 2031 / CSI 997 color-scheme: reply-sequence build, theme/system resolution, subscribe/unsubscribe scan with cross-chunk tail carry (vendored `regex`, literal/class only) |
 
 ## `orca-ffi` — native FFI boundary (1 module, 5 tests, clippy clean)
@@ -268,7 +269,7 @@ would (incl. null-pointer tolerance).
 
 The thin macOS wrapper (the owner's original ask). A SwiftPM package links the
 vendored Rust core through the C ABI: `OrcaTerminal` (Swift) → `COrca` (module
-map over `orca.h`) → `liborca_ffi.a` → vendored `vte`. The `orca-smoke`
+map over `orca.h`) → `liborca_ffi.a` → the `aterm` engine. The `orca-smoke`
 executable drives the core end-to-end and **passes**:
 
 ```
@@ -291,7 +292,7 @@ back to Swift:
 
 ```
 SessionTerminalView (SwiftUI) → OrcaKit.OrcaSession → orca.h (C ABI)
-        → liborca_ffi → orca-session → PTY + orca-terminal → vendored vte
+        → liborca_ffi → orca-session → PTY + orca-terminal → aterm engine
 ```
 
 **Windowed app (`OrcaApp`, `@main`) builds.** A SwiftUI `App` spawns the user's

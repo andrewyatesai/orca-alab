@@ -61,7 +61,11 @@ fn exit_event_carries_the_real_child_code() {
     assert_eq!(created["ok"], json!(true));
 
     let code = wait_for_exit_code(&rx, "s-exit", Duration::from_secs(10));
-    assert_eq!(code, Some(42), "exit event must report the real code, not 0");
+    assert_eq!(
+        code,
+        Some(42),
+        "exit event must report the real code, not 0"
+    );
 }
 
 /// Signalling a live session with SIGKILL ends it (and the exit event carries a
@@ -85,10 +89,17 @@ fn signal_kills_a_live_session() {
         client,
         json!({ "id": "sg", "type": "signal", "payload": { "sessionId": "s-sig", "signal": "SIGKILL" } }),
     );
-    assert_eq!(signalled["ok"], json!(true), "signal to a live session is ok");
+    assert_eq!(
+        signalled["ok"],
+        json!(true),
+        "signal to a live session is ok"
+    );
 
     let code = wait_for_exit_code(&rx, "s-sig", Duration::from_secs(10));
-    assert!(code.is_some(), "SIGKILL must end the session with an exit event");
+    assert!(
+        code.is_some(),
+        "SIGKILL must end the session with an exit event"
+    );
     assert_ne!(code, Some(0), "a killed child must not report exit 0");
 
     // Signalling an unknown session errors (host.signal throws in the Node daemon too).
@@ -109,7 +120,9 @@ fn wait_for_data(rx: &Receiver<String>, session: &str, needle: &str, timeout: Du
             let v: Value = serde_json::from_str(&line).expect("event JSON");
             if v["event"] == json!("data")
                 && v["sessionId"] == json!(session)
-                && v["payload"]["data"].as_str().is_some_and(|d| d.contains(needle))
+                && v["payload"]["data"]
+                    .as_str()
+                    .is_some_and(|d| d.contains(needle))
             {
                 return true;
             }
@@ -148,7 +161,11 @@ fn create_or_attach_applies_session_env_and_deletions() {
 #[test]
 fn system_resolver_health_probes_the_real_resolver() {
     let reg = Arc::new(Registry::new());
-    let r = dispatch(&reg, "c", json!({ "id": "rh", "type": "systemResolverHealth" }));
+    let r = dispatch(
+        &reg,
+        "c",
+        json!({ "id": "rh", "type": "systemResolverHealth" }),
+    );
     assert_eq!(r["ok"], json!(true));
     let health = r["payload"]["health"].as_str().unwrap();
     assert!(["healthy", "unhealthy", "unknown"].contains(&health));
@@ -207,7 +224,10 @@ fn get_cwd_falls_back_to_live_process_cwd_without_osc7() {
         },
         Duration::from_secs(10),
     );
-    assert!(resolved, "getCwd must fall back to the live process cwd ({want:?}) with no OSC-7");
+    assert!(
+        resolved,
+        "getCwd must fall back to the live process cwd ({want:?}) with no OSC-7"
+    );
 
     dispatch(
         &reg,
@@ -249,7 +269,10 @@ fn get_foreground_process_resolves_a_command_name() {
     // Null is a valid wire value where no pgid exists, but a live PTY child on
     // Linux/macOS must resolve a real name.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    assert!(resolved, "a live PTY child must resolve a foreground process name, got {last:?}");
+    assert!(
+        resolved,
+        "a live PTY child must resolve a foreground process name, got {last:?}"
+    );
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let _ = resolved;
 
@@ -276,7 +299,10 @@ fn create_reports_valid_shell_state_and_snapshot_has_rehydrate_and_osc_links() {
     );
     let valid = ["pending", "ready", "timed_out", "unsupported"];
     let shell_state = created["payload"]["shellState"].as_str().unwrap();
-    assert!(valid.contains(&shell_state), "shellState '{shell_state}' must be a ShellReadyState");
+    assert!(
+        valid.contains(&shell_state),
+        "shellState '{shell_state}' must be a ShellReadyState"
+    );
 
     // Turn bracketed paste on (DECSET 2004); the engine tracks it and the snapshot's
     // rehydrateSequences must replay it on reattach.
@@ -299,7 +325,10 @@ fn create_reports_valid_shell_state_and_snapshot_has_rehydrate_and_osc_links() {
         },
         Duration::from_secs(5),
     );
-    assert!(rehydrated, "rehydrateSequences must replay the enabled bracketed-paste mode");
+    assert!(
+        rehydrated,
+        "rehydrateSequences must replay the enabled bracketed-paste mode"
+    );
 
     let snap = dispatch(
         &reg,

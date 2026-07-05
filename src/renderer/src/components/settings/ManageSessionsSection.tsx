@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { AlertTriangle } from 'lucide-react'
 import type { PtyManagementSession } from '../../../../preload/api-types'
 import { SearchableSetting } from './SearchableSetting'
 import { getManageSessionsSearchEntries } from './terminal-search'
@@ -15,6 +16,7 @@ type ConfirmKind = 'killOne'
 
 export function ManageSessionsSection(): React.JSX.Element {
   const [sessions, setSessions] = useState<PtyManagementSession[]>([])
+  const [degraded, setDegraded] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(true)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
   const [pendingKillSession, setPendingKillSession] = useState<PtyManagementSession | null>(null)
@@ -76,6 +78,10 @@ export function ManageSessionsSection(): React.JSX.Element {
         return result.sessions
       }
       setSessions(result.sessions)
+      // Why: `degraded` means fresh terminals won't be daemon-backed (daemon down
+      // or degraded) and so won't survive a restart — surface it instead of leaving
+      // the loss of persistence silent.
+      setDegraded(result.degraded)
       return result.sessions
     } catch (err) {
       console.error('[manage-sessions] listSessions failed', err)
@@ -197,6 +203,18 @@ export function ManageSessionsSection(): React.JSX.Element {
           )}
         </p>
       </div>
+
+      {degraded && hasLoadedOnce && (
+        <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            {translate(
+              'auto.components.settings.ManageSessionsSection.daemonDegraded',
+              'The terminal daemon isn’t running, so new terminals run in-process and won’t survive a restart. Restart the daemon below to restore persistence.'
+            )}
+          </span>
+        </div>
+      )}
 
       <SearchableSetting
         title={getManageSessionsSearchEntries()[0].title}

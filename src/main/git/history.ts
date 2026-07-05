@@ -3,6 +3,7 @@ import { loadGitHistoryFromExecutor } from '../../shared/git-history'
 import type { GitRuntimeOptions } from './git-runtime-options'
 import { gitOptionsForWorktree } from './git-runtime-options'
 import { gitExecFileAsync } from './runner'
+import { parseGitHistoryLogPreferRust } from './rust-git-history-log-parser'
 
 export async function getHistory(
   worktreePath: string,
@@ -11,6 +12,8 @@ export async function getHistory(
   return loadGitHistoryFromExecutor(
     (args, cwd) => gitExecFileAsync(args, gitOptionsForWorktree(cwd, options)),
     worktreePath,
-    options
+    options,
+    // Route log parsing through the verified Rust parser in the main process.
+    parseGitHistoryLogPreferRust
   )
 }

@@ -9,15 +9,14 @@ import type { AtermGpuTerminal } from './aterm_gpu_web.js'
 // real glyphs. JetBrains Mono still covers Latin if these are absent or fail.
 
 // The minimal engine surface both the CPU and GPU terminals expose for font
-// injection: set the primary fallback (CJK), append chain faces, set the emoji face.
+// injection: set the primary fallback (CJK), append chain faces, set the emoji face,
+// set the monochrome symbol face.
 type FallbackFontInjectable = Pick<
   AtermTerminal,
-  'set_fallback_font' | 'add_fallback_font' | 'set_emoji_font'
+  'set_fallback_font' | 'add_fallback_font' | 'set_emoji_font' | 'set_symbol_font'
 >
 
-type TerminalFallbackFonts = Awaited<
-  ReturnType<typeof window.api.fonts.getTerminalFallbackFonts>
->
+type TerminalFallbackFonts = Awaited<ReturnType<typeof window.api.fonts.getTerminalFallbackFonts>>
 
 // Fetched once per renderer and shared across every pane's terminal — the OS
 // fonts are immutable, large, and the IPC reads them off disk.
@@ -42,7 +41,7 @@ function loadFallbackFonts(): Promise<TerminalFallbackFonts> {
 export async function injectTerminalFallbackFonts(
   term: FallbackFontInjectable | AtermGpuTerminal
 ): Promise<void> {
-  const { cjk, emoji, chain } = await loadFallbackFonts()
+  const { cjk, emoji, symbol, chain } = await loadFallbackFonts()
   if (cjk) {
     try {
       // RESETS the fallback chain to this single face, so it must come first.
@@ -63,6 +62,15 @@ export async function injectTerminalFallbackFonts(
       term.set_emoji_font(new Uint8Array(emoji))
     } catch {
       // Unparseable emoji face — keep going.
+    }
+  }
+  // Symbol tier AFTER emoji (parity with native): the monochrome media/technical
+  // glyphs (⏸⏹⏺) the primary + emoji faces miss.
+  if (symbol) {
+    try {
+      term.set_symbol_font(new Uint8Array(symbol))
+    } catch {
+      // Unparseable symbol face — keep going.
     }
   }
 }

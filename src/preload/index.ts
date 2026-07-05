@@ -136,11 +136,7 @@ import type {
   SpeechTranscriptEvent
 } from '../shared/speech-types'
 import type { TelemetryConsentState } from '../shared/telemetry-consent-types'
-import type {
-  DaemonRuntimeStatus,
-  PreflightRuntimeContext,
-  RefreshAgentsResult
-} from './api-types'
+import type { DaemonRuntimeStatus, PreflightRuntimeContext, RefreshAgentsResult } from './api-types'
 import type { AgentKind, LaunchSource, RequestKind } from '../shared/telemetry-events'
 import type { AppStarSource } from '../shared/gh-star-source'
 import type {
@@ -1703,11 +1699,12 @@ const api = {
 
   fonts: {
     // Local OS fallback fonts for the aterm terminal renderer: region-aware CJK
-    // face (first) + emoji + an ordered non-Latin chain (Arabic/Hebrew/Indic/Thai
-    // + broad catch-all) appended via add_fallback_font.
+    // face (first) + emoji + a monochrome symbol face + an ordered non-Latin chain
+    // (Arabic/Hebrew/Indic/Thai + broad catch-all) appended via add_fallback_font.
     getTerminalFallbackFonts: (): Promise<{
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
+      symbol?: Uint8Array
       chain: {
         bytes: Uint8Array
         script: 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'

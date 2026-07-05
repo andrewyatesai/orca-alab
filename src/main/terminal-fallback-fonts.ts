@@ -30,6 +30,10 @@ export type TerminalFallbackFonts = {
   // picked so the renderer can reason about it. Absent when no CJK face exists.
   cjk?: { bytes: Uint8Array; region: CjkRegion }
   emoji?: Uint8Array
+  // Monochrome SYMBOL tier (set_symbol_font), consulted only after the primary +
+  // fallback chain miss, so media/technical symbols (⏸⏹⏺) get a real glyph instead
+  // of tofu. Absent when the host has no symbol face.
+  symbol?: Uint8Array
   // Ordered non-Latin fallbacks appended after CJK (add_fallback_font). Only
   // faces that really resolved on this host appear; missing ones are skipped.
   chain: FallbackChainEntry[]
@@ -61,6 +65,22 @@ const EMOJI_CANDIDATES: Record<NodeJS.Platform, readonly string[]> = {
     '/usr/share/fonts/noto/NotoColorEmoji.ttf',
     '/usr/share/fonts/google-noto-emoji/NotoColorEmoji.ttf',
     '/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf'
+  ]
+} as unknown as Record<NodeJS.Platform, readonly string[]>
+
+// Monochrome symbol faces, most-preferred first — mirrors the native engine's
+// SYMBOL_FALLBACK_CANDIDATES (aterm-render). STIX Two Math / Noto Sans Symbols 2 carry
+// the media/technical glyphs (⏸⏹⏺ U+23F8..23FA) the primary + emoji faces miss. First
+// existing wins; absent on a host → no symbol tier (JetBrains Mono still covers Latin).
+const SYMBOL_CANDIDATES: Record<NodeJS.Platform, readonly string[]> = {
+  darwin: [
+    '/System/Library/Fonts/Supplemental/STIXTwoMath.otf',
+    '/System/Library/Fonts/Apple Symbols.ttf'
+  ],
+  win32: ['C:/Windows/Fonts/seguisym.ttf'],
+  linux: [
+    '/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'
   ]
 } as unknown as Record<NodeJS.Platform, readonly string[]>
 
@@ -317,16 +337,19 @@ export async function getTerminalFallbackFonts(): Promise<TerminalFallbackFonts>
   // Han-unification: pick the CJK face for the user's locale so JP/KR users see
   // their own glyph forms, not Chinese ones. On Linux, ask fontconfig for the
   // region's lang (Noto resolves the regional face); region-preferred OS faces are
-  // tried before the generic candidates. Emoji is region-independent.
+  // tried before the generic candidates. Emoji + symbol are region-independent (the
+  // symbol charset probe asks for U+23F8 ⏸, a media glyph the primary faces miss).
   const region = cjkRegionFromLocale(osLocale())
-  const [cjkFc, emojiFc] = await Promise.all([
+  const [cjkFc, emojiFc, symbolFc] = await Promise.all([
     linuxFcCandidates(`:lang=${FC_LANG[region]}`),
-    linuxFcCandidates(':charset=1F600')
+    linuxFcCandidates(':charset=1F600'),
+    linuxFcCandidates(':charset=23F8')
   ])
   const regionCjk = CJK_REGION_CANDIDATES[region][process.platform] ?? []
-  const [cjkFound, emoji] = await Promise.all([
+  const [cjkFound, emoji, symbol] = await Promise.all([
     readFirstExistingWithPath([...cjkFc, ...regionCjk, ...candidatesFor(CJK_CANDIDATES)]),
-    readFirstExisting([...emojiFc, ...candidatesFor(EMOJI_CANDIDATES)])
+    readFirstExisting([...emojiFc, ...candidatesFor(EMOJI_CANDIDATES)]),
+    readFirstExisting([...symbolFc, ...candidatesFor(SYMBOL_CANDIDATES)])
   ])
   // De-dup the chain against the CJK face so a face that doubles as both (e.g. a
   // pan-Unicode Noto) is never shipped twice.
@@ -338,6 +361,7 @@ export async function getTerminalFallbackFonts(): Promise<TerminalFallbackFonts>
   cached = {
     cjk: cjkFound ? { bytes: cjkFound.bytes, region } : undefined,
     emoji,
+    symbol,
     chain
   }
   return cached

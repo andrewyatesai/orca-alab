@@ -39,7 +39,8 @@ function makeHost() {
   const fonts = {
     primary: new Uint8Array([1, 2, 3]),
     fallbacks: [new Uint8Array([4, 5])],
-    emoji: new Uint8Array([6])
+    emoji: new Uint8Array([6]),
+    symbol: new Uint8Array([7])
   }
   const host = createAtermSharedWorkerHost({
     createWorker: () => {
@@ -67,10 +68,14 @@ describe('aterm shared render worker host', () => {
     expect(fontMessages).toHaveLength(1)
     expect(posted[0].message.type).toBe('fonts') // fonts strictly first
     // The sent faces are COPIES (transferable without detaching the renderer cache).
-    const sent = fontMessages[0].message as { primary: Uint8Array }
+    const sent = fontMessages[0].message as { primary: Uint8Array; symbol?: Uint8Array }
     expect(sent.primary).toEqual(fonts.primary)
     expect(sent.primary).not.toBe(fonts.primary)
     expect(fonts.primary.byteLength, 'renderer cache must stay intact').toBe(3)
+    // The monochrome symbol tier rides the same one-shot fonts message (copy + transfer).
+    expect(sent.symbol).toEqual(fonts.symbol)
+    expect(sent.symbol).not.toBe(fonts.symbol)
+    expect(fontMessages[0].transfer).toContain(sent.symbol?.buffer)
     // Pane commands are stamped with each pane's own id.
     const draws = posted.filter((p) => p.message.type === 'draw')
     expect(draws.map((d) => (d.message as { paneId: number }).paneId)).toEqual([a.paneId, b.paneId])

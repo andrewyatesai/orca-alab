@@ -19,7 +19,10 @@ import type { AtermWorkerFonts } from './aterm-render-worker-protocol'
  *  engine build passes the SAME arrays — wasm-bindgen copies them per call, and the
  *  engine interns the copy behind its content-keyed registry, so the per-engine cost
  *  is a lookup, not a duplicate face. */
-export type WorkerResidentFonts = Pick<AtermWorkerFonts, 'primary' | 'fallbacks' | 'emoji'>
+export type WorkerResidentFonts = Pick<
+  AtermWorkerFonts,
+  'primary' | 'fallbacks' | 'emoji' | 'symbol'
+>
 
 /** The read + command surface BOTH engines expose identically; the worker terminal
  *  uses only this. `search` (arity differs) + render/process (encoding differs) are
@@ -97,6 +100,7 @@ export type WorkerEngine = Pick<
   | 'set_fallback_font'
   | 'add_fallback_font'
   | 'set_emoji_font'
+  | 'set_symbol_font'
   | 'set_primary_font'
   | 'set_bold_font'
   | 'set_cell_pixel_size'
@@ -148,6 +152,7 @@ type SeedTarget = Pick<
   | 'set_fallback_font'
   | 'add_fallback_font'
   | 'set_emoji_font'
+  | 'set_symbol_font'
   | 'set_palette_color'
   | 'set_selection_fg'
   | 'set_selection_inactive_bg'
@@ -163,7 +168,7 @@ function seedEngine(t: SeedTarget, p: StoredInit): void {
   // unparseable/unsupported OS face throws a catchable JS error, so swallow it rather
   // than let one bad face abort the whole worker engine build (the engine still renders
   // Latin + whatever faces did parse).
-  const { fallbacks, emoji } = p.fonts
+  const { fallbacks, emoji, symbol } = p.fonts
   if (fallbacks.length > 0) {
     try {
       t.set_fallback_font(fallbacks[0])
@@ -185,6 +190,15 @@ function seedEngine(t: SeedTarget, p: StoredInit): void {
       t.set_emoji_font(emoji)
     } catch {
       /* unparseable emoji face — keep going */
+    }
+  }
+  // Monochrome symbol tier AFTER emoji (parity with inject-terminal-fallback-fonts /
+  // the native engine) so media/technical symbols get a real glyph, not tofu.
+  if (symbol) {
+    try {
+      t.set_symbol_font(symbol)
+    } catch {
+      /* unparseable symbol face */
     }
   }
   // Apply the user's line-height before metrics are read so the grid is sized to the

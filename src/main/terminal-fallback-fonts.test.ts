@@ -115,6 +115,18 @@ describe('getTerminalFallbackFonts (non-Latin chain discovery)', () => {
     expect(fonts.chain).toEqual([])
     expect(fonts.cjk).toBeUndefined()
     expect(fonts.emoji).toBeUndefined()
+    expect(fonts.symbol).toBeUndefined()
+  })
+
+  it('discovers the monochrome symbol face when a candidate exists', async () => {
+    // Only the macOS STIX Two Math symbol face exists — it populates `symbol`
+    // (the set_symbol_font tier) independently of cjk/emoji/chain.
+    existingPaths('/System/Library/Fonts/Supplemental/STIXTwoMath.otf')
+    const fonts = await freshDiscover()
+    expect(fonts.symbol?.length).toBeGreaterThan(0)
+    expect(fonts.cjk).toBeUndefined()
+    expect(fonts.emoji).toBeUndefined()
+    expect(fonts.chain).toEqual([])
   })
 
   it('de-dups a broad-coverage face shared across scripts (ships it once)', async () => {

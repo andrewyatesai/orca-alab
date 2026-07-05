@@ -32,8 +32,14 @@ import type {
 
 /** OS fallback faces for the worker engines: the monochrome fallback chain (CJK first
  *  — set_fallback_font RESETS the chain to it — then the script chain) plus the colour
- *  emoji face (set_emoji_font), kept SEPARATE because the chain renders monochrome. */
-type SharedWorkerFonts = { primary: Uint8Array; fallbacks: Uint8Array[]; emoji: Uint8Array | null }
+ *  emoji face (set_emoji_font) and the monochrome symbol face (set_symbol_font), each
+ *  kept SEPARATE because the chain + symbol render monochrome and emoji renders colour. */
+type SharedWorkerFonts = {
+  primary: Uint8Array
+  fallbacks: Uint8Array[]
+  emoji: Uint8Array | null
+  symbol: Uint8Array | null
+}
 
 /** One pane's handle onto the shared worker. Every method is a safe no-op once the
  *  pane is released or the worker generation was retired (crash/boot-wedge). */
@@ -136,10 +142,12 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
     const primary = fonts.primary.slice()
     const fallbacks = fonts.fallbacks.map((f) => f.slice())
     const emoji = fonts.emoji ? fonts.emoji.slice() : undefined
-    worker.postMessage({ type: 'fonts', primary, fallbacks, emoji }, [
+    const symbol = fonts.symbol ? fonts.symbol.slice() : undefined
+    worker.postMessage({ type: 'fonts', primary, fallbacks, emoji, symbol }, [
       primary.buffer,
       ...fallbacks.map((f) => f.buffer),
-      ...(emoji ? [emoji.buffer] : [])
+      ...(emoji ? [emoji.buffer] : []),
+      ...(symbol ? [symbol.buffer] : [])
     ])
     current = gen
     return gen
@@ -200,7 +208,7 @@ async function loadSharedWorkerFonts(): Promise<SharedWorkerFonts> {
     // engine. The OS fallback faces are best-effort (parity with the in-process path).
     const { fontBytes } = await loadAterm()
     try {
-      const { cjk, emoji, chain } = await window.api.fonts.getTerminalFallbackFonts()
+      const { cjk, emoji, symbol, chain } = await window.api.fonts.getTerminalFallbackFonts()
       const fallbacks: Uint8Array[] = []
       if (cjk) {
         fallbacks.push(new Uint8Array(cjk.bytes))
@@ -208,9 +216,14 @@ async function loadSharedWorkerFonts(): Promise<SharedWorkerFonts> {
       for (const face of chain ?? []) {
         fallbacks.push(new Uint8Array(face.bytes))
       }
-      return { primary: fontBytes, fallbacks, emoji: emoji ? new Uint8Array(emoji) : null }
+      return {
+        primary: fontBytes,
+        fallbacks,
+        emoji: emoji ? new Uint8Array(emoji) : null,
+        symbol: symbol ? new Uint8Array(symbol) : null
+      }
     } catch {
-      return { primary: fontBytes, fallbacks: [], emoji: null }
+      return { primary: fontBytes, fallbacks: [], emoji: null, symbol: null }
     }
   })()
   return sharedWorkerFontsPromise

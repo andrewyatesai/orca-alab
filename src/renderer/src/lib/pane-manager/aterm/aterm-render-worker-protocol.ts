@@ -34,6 +34,9 @@ export type AtermWorkerFonts = {
   /** Optional OS colour-emoji face (set_emoji_font — the sbix/COLR colour path). Kept
    *  separate from `fallbacks` because the fallback chain renders monochrome. */
   emoji?: Uint8Array
+  /** Optional monochrome SYMBOL face (set_symbol_font — the media/technical-glyph tier,
+   *  ⏸⏹⏺). Consulted after the fallback chain misses; parity with the native engine. */
+  symbol?: Uint8Array
 }
 
 // ── Pane-scoped commands (main → worker; wire form adds `paneId`) ─────────────────

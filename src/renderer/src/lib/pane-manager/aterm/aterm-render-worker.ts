@@ -192,7 +192,12 @@ function dispatch(msg: AtermWorkerRequest): void {
   // Worker-scoped + lifecycle first (narrowing the union), then the per-pane runtime
   // commands go to the pane's dispatcher.
   if (msg.type === 'fonts') {
-    fonts = { primary: msg.primary, fallbacks: msg.fallbacks, emoji: msg.emoji }
+    fonts = {
+      primary: msg.primary,
+      fallbacks: msg.fallbacks,
+      emoji: msg.emoji,
+      symbol: msg.symbol
+    }
     // Ack BEFORE any engine build: builds take seconds (wasm compile + font parse +
     // GL acquire), and without the ack the manager/loader can't tell "alive but
     // building" from "wedged".

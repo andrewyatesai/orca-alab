@@ -1921,14 +1921,16 @@ export type PreloadApi = {
   fonts: {
     /** Local OS fallback fonts the aterm terminal renderer injects so non-Latin
      *  scripts render real glyphs instead of .notdef tofu. `cjk` is the region-
-     *  aware Han face (set_fallback_font, first) with the resolved region; `chain`
-     *  is the ordered list of additional non-Latin faces actually found on the host
+     *  aware Han face (set_fallback_font, first) with the resolved region; `symbol`
+     *  is the monochrome media/technical-glyph face (set_symbol_font); `chain` is the
+     *  ordered list of additional non-Latin faces actually found on the host
      *  (Arabic/Hebrew/Indic/Thai + a broad catch-all), each appended via
      *  add_fallback_font. A category/entry is absent when the host has no font for
      *  it. */
     getTerminalFallbackFonts: () => Promise<{
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
+      symbol?: Uint8Array
       chain: {
         bytes: Uint8Array
         script: 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'

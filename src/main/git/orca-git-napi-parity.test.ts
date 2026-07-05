@@ -1,4 +1,5 @@
 import { StringDecoder } from 'node:string_decoder'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadRustGitBinding } from '../daemon/rust-git-addon'
 import { StatusPorcelainParser } from './status-porcelain-parser'
@@ -6,6 +7,7 @@ import { parseWorktreeListTs } from './worktree'
 import { parseGitHistoryLog } from '../../shared/git-history-log-parser'
 import { parseNumstat } from '../../shared/git-uncommitted-line-stats'
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
+import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
 import { isBinaryBuffer } from '../../shared/binary-buffer'
 
 // Dual-run parity proof: the verified Rust `orca-git` parsers (exposed via the
@@ -490,6 +492,47 @@ suite('orca-git napi ↔ TS parser parity', () => {
         const raw = git.computeLineStats(fixture.original, fixture.modified, fixture.status)
         const napi = raw === null ? null : JSON.parse(raw)
         expect(napi).toEqual(tsComputeLineStats(fixture.original, fixture.modified, fixture.status))
+      })
+    }
+  })
+
+  describe('validateGitPushTargetRules', () => {
+    // Reuse the differential goldens the parity harness already runs against
+    // orca_core::git_push_target — this proves the napi export matches BOTH the
+    // pure TS validator and the recorded expectations for the value rules (the
+    // unknown→typed guards are a JS-only concern, so vectors carry typed inputs).
+    const vectors = JSON.parse(
+      readFileSync(
+        new URL('../../../tools/parity/vectors/git-push-target.json', import.meta.url),
+        'utf8'
+      )
+    ) as {
+      cases: {
+        note: string
+        input: { remoteName: string; branchName: string; remoteUrl?: string }
+        expected: { ok: boolean; error?: string }
+      }[]
+    }
+
+    const tsValueRule = (rn: string, bn: string, url: string | null): string | null => {
+      try {
+        assertGitPushTargetShape(
+          url === null
+            ? { remoteName: rn, branchName: bn }
+            : { remoteName: rn, branchName: bn, remoteUrl: url }
+        )
+        return null
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    }
+
+    for (const c of vectors.cases) {
+      it(c.note, () => {
+        const url = c.input.remoteUrl ?? null
+        const napi = git.validateGitPushTargetRules(c.input.remoteName, c.input.branchName, url)
+        expect(napi).toBe(c.expected.ok ? null : (c.expected.error ?? null))
+        expect(napi).toBe(tsValueRule(c.input.remoteName, c.input.branchName, url))
       })
     }
   })

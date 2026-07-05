@@ -48,6 +48,13 @@ export type RustGitBinding = {
   parseGitHistoryLog(stdout: string): string
   /** Untracked-file additions: null for binary, 0 for empty, else line count. */
   countAdditionsInBuffer(bytes: Buffer): number | null
+  /** Push-target *value* rules (remote/branch/URL) — null when valid, else the
+   *  TS-identical error message. The unknown→typed guards stay in JS. */
+  validateGitPushTargetRules(
+    remoteName: string,
+    branchName: string,
+    remoteUrl: string | null
+  ): string | null
   /** Approximate added/removed line counts JSON, or null for the large guard. */
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */

@@ -1,5 +1,5 @@
 import type { GitPushTarget } from '../../shared/types'
-import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
+import { assertGitPushTargetShapePreferRust } from './rust-push-target-validation'
 import { gitExecFileAsync } from './runner'
 
 type GitExecOptions = {
@@ -11,7 +11,9 @@ export async function validateGitPushTarget(
   target: unknown,
   options: GitExecOptions = {}
 ): Promise<GitPushTarget> {
-  assertGitPushTargetShape(target)
+  // Rust owns the value-rule validation (path-traversal safety); git execution
+  // of check-ref-format stays here in TS so SSH/WSL/env routing is preserved.
+  assertGitPushTargetShapePreferRust(target)
   await gitExecFileAsync(['check-ref-format', '--branch', target.branchName], {
     cwd: repoPath,
     ...options

@@ -287,6 +287,25 @@ pub fn count_additions_in_buffer(bytes: Buffer) -> Option<u32> {
     orca_git::line_count::count_additions_in_buffer(&bytes)
 }
 
+/// Validate a persisted push target's *value* rules — the substantive
+/// path-traversal-safety check for a remote name / branch name / optional GitHub
+/// URL that gets replayed into `git push`. Returns the TS-identical error message,
+/// or `None` when valid. The `unknown`→typed guards (and their `Invalid PR push
+/// target …` messages) stay in JS; this shares `orca_core` with the parity harness.
+#[napi(catch_unwind)]
+pub fn validate_git_push_target_rules(
+    remote_name: String,
+    branch_name: String,
+    remote_url: Option<String>,
+) -> Option<String> {
+    orca_core::git_push_target::validate_git_push_target(
+        &remote_name,
+        &branch_name,
+        remote_url.as_deref(),
+    )
+    .err()
+}
+
 /// Approximate added/removed line counts; returns the line-stats JSON, or null
 /// for the large-input guard.
 #[napi(catch_unwind)]

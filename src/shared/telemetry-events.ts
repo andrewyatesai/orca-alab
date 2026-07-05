@@ -32,6 +32,12 @@ import {
   getFeatureInteractionCategory
 } from './feature-interactions'
 import { SETUP_SCRIPT_IMPORT_PROVIDERS } from './setup-script-import-providers'
+import {
+  daemonDegradedFallbackSchema,
+  daemonLaunchFailedSchema,
+  rendererProcessGoneSchema,
+  terminalGpuDowngradeSchema
+} from './fork-reliability-telemetry'
 import { WORKSPACE_SOURCE_VALUES, type WorkspaceSource } from './workspace-source'
 import { appStarSourceSchema } from './gh-star-source'
 import {
@@ -1453,7 +1459,15 @@ export const eventSchemas = {
 
   smart_sort_class_distribution: smartSortClassDistributionSchema,
   smart_sort_class_1_promotion: smartSortClass1PromotionSchema,
-  smart_to_recent_switch: smartToRecentSwitchSchema
+  smart_to_recent_switch: smartToRecentSwitchSchema,
+
+  // Fork reliability family (staging observability). Schemas live in
+  // fork-reliability-telemetry.ts; emit sites + daemon hook points are
+  // documented in docs/reference/staging-observability.md.
+  daemon_launch_failed: daemonLaunchFailedSchema,
+  daemon_degraded_fallback: daemonDegradedFallbackSchema,
+  terminal_gpu_downgrade: terminalGpuDowngradeSchema,
+  renderer_process_gone: rendererProcessGoneSchema
 } as const
 
 export type EventMap = { [N in keyof typeof eventSchemas]: z.infer<(typeof eventSchemas)[N]> }

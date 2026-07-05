@@ -16,7 +16,26 @@ vi.mock('electron', () => ({
   net: { fetch: (...args: unknown[]) => fetchMock(...args) }
 }))
 
-import { registerFeedbackHandlers, submitFeedback } from './feedback'
+import {
+  FEEDBACK_ENDPOINT_NOT_CONFIGURED,
+  registerFeedbackHandlers,
+  resolveFeedbackEndpoint,
+  submitFeedback
+} from './feedback'
+
+const TEST_ENDPOINT = 'https://feedback.fork.example/v1/feedback'
+
+// vitest does not run electron-vite's `define` pass, so the compile-time
+// ORCA_FEEDBACK_ENDPOINT constant resolves through `globalThis` here — the
+// same escape hatch telemetry/client.ts documents for its constants.
+function setBuildEndpoint(value: string | null | undefined): void {
+  const holder = globalThis as { ORCA_FEEDBACK_ENDPOINT?: string | null }
+  if (value === undefined) {
+    delete holder.ORCA_FEEDBACK_ENDPOINT
+  } else {
+    holder.ORCA_FEEDBACK_ENDPOINT = value
+  }
+}
 
 function okResponse(): Response {
   return { ok: true, status: 200 } as unknown as Response
@@ -33,10 +52,90 @@ describe('submitFeedback', () => {
     handlers.clear()
     fetchMock.mockReset()
     fetchMock.mockResolvedValue(okResponse())
+    setBuildEndpoint(TEST_ENDPOINT)
+    delete process.env.ORCA_FEEDBACK_ENDPOINT
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    setBuildEndpoint(undefined)
+    delete process.env.ORCA_FEEDBACK_ENDPOINT
+  })
+
+  it('fails closed with a typed result when no endpoint is configured', async () => {
+    setBuildEndpoint(undefined)
+
+    const result = await submitFeedback({
+      feedback: 'report with nowhere to go',
+      submitAnonymously: false,
+      githubLogin: 'trusted-user',
+      githubEmail: 'trusted@example.com'
+    })
+
+    expect(result).toEqual({ ok: false, status: null, error: FEEDBACK_ENDPOINT_NOT_CONFIGURED })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('posts to the configured endpoint and never to a hardcoded vendor host', async () => {
+    await submitFeedback({
+      feedback: 'routed report',
+      submitAnonymously: true,
+      githubLogin: null,
+      githubEmail: null
+    })
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(TEST_ENDPOINT)
+    for (const [url] of fetchMock.mock.calls) {
+      expect(String(url)).not.toContain('onorca.dev')
+    }
+  })
+
+  it('does not fall back to any other host on a server error', async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500 } as Response)
+
+    const result = await submitFeedback({
+      feedback: 'server broke',
+      submitAnonymously: true,
+      githubLogin: null,
+      githubEmail: null
+    })
+
+    expect(result).toEqual({ ok: false, status: 500, error: 'status 500' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fall back to any other host on a network failure', async () => {
+    fetchMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND'))
+
+    const result = await submitFeedback({
+      feedback: 'dns broke',
+      submitAnonymously: true,
+      githubLogin: null,
+      githubEmail: null
+    })
+
+    expect(result).toEqual({ ok: false, status: null, error: 'getaddrinfo ENOTFOUND' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts a stalled request instead of hanging the submission flow', async () => {
+    vi.useFakeTimers()
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('request aborted')))
+      })
+    })
+
+    const result = submitFeedback({
+      feedback: 'stalled endpoint',
+      submitAnonymously: false,
+      githubLogin: 'trusted-user',
+      githubEmail: 'trusted@example.com'
+    })
+    await vi.advanceTimersByTimeAsync(10_000)
+
+    await expect(result).resolves.toEqual({ ok: false, status: null, error: 'request aborted' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('strips GitHub identity and anonymous contact fields when submitted anonymously', async () => {
@@ -139,68 +238,6 @@ describe('submitFeedback', () => {
     expect(JSON.parse(String(feedbackInit?.body))).not.toHaveProperty('diagnosticBundle')
   })
 
-  it('falls back when the primary feedback request stalls', async () => {
-    vi.useFakeTimers()
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (url.includes('www.onorca.dev')) {
-        return new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => reject(new Error('request aborted')))
-        })
-      }
-      return Promise.resolve(okResponse())
-    })
-
-    const result = submitFeedback({
-      feedback: 'stalled primary',
-      submitAnonymously: false,
-      githubLogin: 'trusted-user',
-      githubEmail: 'trusted@example.com'
-    })
-    await vi.advanceTimersByTimeAsync(10_000)
-
-    await expect(Promise.race([result, Promise.resolve('pending')])).resolves.toEqual({ ok: true })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('does not retry the fallback when the fallback fails after a primary server error', async () => {
-    vi.useFakeTimers()
-    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
-      if (url.includes('www.onorca.dev')) {
-        return Promise.resolve({ ok: false, status: 500 } as Response)
-      }
-      return new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener('abort', () => reject(new Error('fallback aborted')))
-      })
-    })
-
-    const result = submitFeedback({
-      feedback: 'primary 500 and fallback stalled',
-      submitAnonymously: false,
-      githubLogin: 'trusted-user',
-      githubEmail: 'trusted@example.com'
-    })
-    await vi.advanceTimersByTimeAsync(10_000)
-
-    await expect(Promise.race([result, Promise.resolve('pending')])).resolves.toEqual({
-      ok: false,
-      status: null,
-      error: 'fallback aborted'
-    })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-
-  it('posts to the website API first so crash reports use the snippet-capable route', async () => {
-    await submitFeedback({
-      feedback: '[Crash Report]',
-      submissionType: 'crash',
-      submitAnonymously: true,
-      githubLogin: null,
-      githubEmail: null
-    } as Parameters<typeof submitFeedback>[0])
-
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://www.onorca.dev/v1/feedback')
-  })
-
   it('forces renderer IPC submissions onto the feedback lane', async () => {
     registerFeedbackHandlers()
     await handlers.get('feedback:submit')?.(null, {
@@ -217,5 +254,45 @@ describe('submitFeedback', () => {
       githubLogin: 'trusted-user',
       githubEmail: null
     })
+  })
+})
+
+describe('resolveFeedbackEndpoint', () => {
+  beforeEach(() => {
+    setBuildEndpoint(undefined)
+    delete process.env.ORCA_FEEDBACK_ENDPOINT
+    delete (globalThis as { ORCA_BUILD_IDENTITY?: string | null }).ORCA_BUILD_IDENTITY
+  })
+
+  afterEach(() => {
+    setBuildEndpoint(undefined)
+    delete process.env.ORCA_FEEDBACK_ENDPOINT
+    delete (globalThis as { ORCA_BUILD_IDENTITY?: string | null }).ORCA_BUILD_IDENTITY
+  })
+
+  it('returns null when nothing is configured', () => {
+    expect(resolveFeedbackEndpoint()).toBeNull()
+  })
+
+  it('lets a dev build point at a scratch server via env', () => {
+    process.env.ORCA_FEEDBACK_ENDPOINT = 'https://scratch.example/feedback'
+    expect(resolveFeedbackEndpoint()).toBe('https://scratch.example/feedback')
+  })
+
+  it('pins official builds to the build constant and ignores env overrides', () => {
+    const holder = globalThis as { ORCA_BUILD_IDENTITY?: string | null }
+    holder.ORCA_BUILD_IDENTITY = 'rc'
+    setBuildEndpoint(TEST_ENDPOINT)
+    process.env.ORCA_FEEDBACK_ENDPOINT = 'https://evil.example/exfil'
+
+    expect(resolveFeedbackEndpoint()).toBe(TEST_ENDPOINT)
+  })
+
+  it('fails closed in an official build even when env is set', () => {
+    const holder = globalThis as { ORCA_BUILD_IDENTITY?: string | null }
+    holder.ORCA_BUILD_IDENTITY = 'rc'
+    process.env.ORCA_FEEDBACK_ENDPOINT = 'https://evil.example/exfil'
+
+    expect(resolveFeedbackEndpoint()).toBeNull()
   })
 })

@@ -4,6 +4,7 @@ import { loadAtermWorkerEngine } from './aterm-worker-loader'
 import { isAtermGpuEnabled } from './aterm-gpu-auto-policy'
 import { probeAtermGpu } from './aterm-gpu-probe'
 import { e2eConfig } from '@/lib/e2e-config'
+import { track } from '@/lib/telemetry'
 import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer-config'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -56,6 +57,12 @@ export async function loadAtermStrategy(
       // in-process path has a usable surface; without it the fallback dies on the dead
       // canvas and the pane stays blank — strictly worse than slow.
       console.warn('[aterm] off-main worker init failed; falling back to in-process', err)
+      // Staging observability: count render-path downgrades in the field (G0-4).
+      track('terminal_gpu_downgrade', {
+        from: 'worker',
+        to: 'in_process',
+        reason: 'worker_init_failed'
+      })
       if (config.rebuildCanvas) {
         cfg = { ...config, canvas: config.rebuildCanvas() }
       }
@@ -105,6 +112,13 @@ export async function loadAtermStrategy(
         { renderer: probe.renderer, vendor: probe.vendor },
         err
       )
+      // Staging observability: hung-adapter timeouts and hard init failures are
+      // different field problems — split them by the timeout message above.
+      track('terminal_gpu_downgrade', {
+        from: 'gpu',
+        to: 'cpu',
+        reason: reason.startsWith('GPU init exceeded') ? 'gpu_init_timeout' : 'gpu_init_failed'
+      })
       // e2e only: surface the failure reason so the WebGL spec can report WHY the
       // GPU path didn't engage instead of just observing a CPU canvas.
       if (e2eConfig.exposeStore) {

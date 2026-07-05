@@ -25,7 +25,12 @@ export { tuiAgentToAgentKind } from '../../../shared/agent-kind'
 // telemetry surfaces (FirstLaunchBanner, PrivacyPane). Keeping it here — in
 // the shared telemetry lib — prevents the surfaces from drifting if the doc
 // ever moves.
-export const PRIVACY_URL = 'https://www.onorca.dev/docs/telemetry'
+//
+// Fork staging: this must point at the FORK's privacy statement, never the
+// public vendor's (onorca.dev) — the vendor's doc describes a different data
+// recipient than the fork's PostHog project. See G0-4 in the staging audit.
+export const PRIVACY_URL =
+  'https://github.com/andrewyatesai/orc/blob/main/docs/reference/privacy-staging.md'
 
 // Why: the IPC boundary is untyped at runtime, so a malformed payload from
 // main would otherwise let the Privacy pane render on garbage. Validate the

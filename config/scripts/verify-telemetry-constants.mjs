@@ -32,6 +32,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { runStagingTelemetryPreflight } from './telemetry-staging-preflight.mjs'
 // Why @electron/asar: canonical replacement for the deprecated `asar` package.
 // It's transitively available via electron-builder (and pnpm's
 // `shamefully-hoist=true` in `.npmrc` flattens it into the root
@@ -78,6 +79,31 @@ function findAsar(rootDir) {
   }
   return matches
 }
+
+// ── Mode 1: `--preflight` — staging env gate, runs BEFORE the build ─────
+//
+// Wired into the `build:desktop`/`build:release` legs so a staging build
+// (a `-fork.N` version or ORCA_STAGING=1) fails loudly when no PostHog
+// write key is injected, instead of shipping a silently-dark artifact.
+// Non-staging builds pass through untouched. The logic lives in
+// telemetry-staging-preflight.mjs so the test suite can exercise both
+// branches without spawning a process.
+if (process.argv.includes('--preflight')) {
+  const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'))
+  // Test hook: lets the suite exercise `-fork.` version detection without
+  // rewriting the repo's package.json.
+  const version = process.env.ORCA_TELEMETRY_PREFLIGHT_VERSION ?? String(pkg.version ?? '')
+  const preflight = runStagingTelemetryPreflight({ version, env: process.env })
+  for (const message of preflight.messages) {
+    console.log(message)
+  }
+  for (const error of preflight.errors) {
+    console.error(`::error::${error}`)
+  }
+  process.exit(preflight.ok ? 0 : 1)
+}
+
+// ── Mode 2 (default): post-pack asar assertion ───────────────────────────
 
 const distDir = process.argv[2] ?? 'dist'
 if (!existsSync(distDir) || !statSync(distDir).isDirectory()) {

@@ -1,15 +1,53 @@
 import os from 'node:os'
 import { app, ipcMain, net } from 'electron'
+import { resolveDiagnosticBuildIdentity } from '../observability/diagnostic-upload-endpoint'
 
 // Why: the production Mac build loads the renderer from a file:// origin, so a
 // cross-origin POST from fetch() triggers a CORS preflight that the feedback
 // endpoint rejects. Electron's net module runs in the main process and is not
 // subject to CORS, so we proxy the submission through IPC. This mirrors the
 // same pattern used by updater-changelog.ts and updater-nudge.ts.
-const FEEDBACK_API_URL = 'https://www.onorca.dev/v1/feedback'
-const FEEDBACK_API_FALLBACK_URL = 'https://api.onorca.dev/v1/feedback'
+
+// Why fail-closed: this is a fork of public Orca. The vendor's endpoints
+// (onorca.dev) must never receive fork feedback or crash reports — they would
+// deliver fork-internal diagnostics to an external party's inbox. The endpoint
+// is a compile-time build constant (electron-vite `define`, like
+// ORCA_POSTHOG_WRITE_KEY); builds without one return a typed
+// 'endpoint-not-configured' result instead of falling back to any hardcoded
+// host. Module-local ambient declaration because the constant is only read here.
+declare const ORCA_FEEDBACK_ENDPOINT: string | null
+
+export const FEEDBACK_ENDPOINT_NOT_CONFIGURED = 'endpoint-not-configured'
+
 const FEEDBACK_REQUEST_TIMEOUT_MS = 10_000
 const DIAGNOSTIC_BUNDLE_CONTENT_TYPE = 'application/x-ndjson'
+
+function resolveBuildFeedbackEndpoint(): string | null {
+  // The `globalThis` dance mirrors telemetry/client.ts: compile-time
+  // substitution in production, safe undefined in vitest (which lets tests
+  // inject an endpoint via `globalThis`).
+  const endpoint =
+    typeof ORCA_FEEDBACK_ENDPOINT !== 'undefined'
+      ? ORCA_FEEDBACK_ENDPOINT
+      : ((globalThis as { ORCA_FEEDBACK_ENDPOINT?: string | null }).ORCA_FEEDBACK_ENDPOINT ?? null)
+  return typeof endpoint === 'string' && endpoint.length > 0 ? endpoint : null
+}
+
+export function resolveFeedbackEndpoint(): string | null {
+  const buildEndpoint = resolveBuildFeedbackEndpoint()
+  // Why: official builds stay pinned to the CI-substituted endpoint; user env
+  // cannot redirect reports the UI labels as going to the Orca fork team.
+  // Dev/contributor builds may point at a scratch server via env — the same
+  // rule diagnostic-upload-endpoint.ts applies to ORCA_DIAGNOSTICS_TOKEN_URL.
+  if (resolveDiagnosticBuildIdentity()) {
+    return buildEndpoint
+  }
+  const fromEnv = process.env.ORCA_FEEDBACK_ENDPOINT
+  if (fromEnv && fromEnv.length > 0) {
+    return fromEnv
+  }
+  return buildEndpoint
+}
 
 export type FeedbackSubmissionType = 'feedback' | 'crash'
 
@@ -48,9 +86,9 @@ type InternalFeedbackSubmitArgs = FeedbackSubmitArgs & {
   diagnosticBundle?: FeedbackDiagnosticBundleAttachment
 }
 
-// Why: the Slack notification and any follow-up investigation need to know
-// which Orca build and which OS the feedback came from. The main process is
-// the only place with trusted access to these values (app.getVersion and the
+// Why: the notification and any follow-up investigation need to know which
+// Orca build and which OS the feedback came from. The main process is the
+// only place with trusted access to these values (app.getVersion and the
 // node os module), so we enrich the payload here rather than trusting the
 // renderer.
 function buildSubmitBody(args: InternalFeedbackSubmitArgs): FeedbackSubmitBody {
@@ -140,49 +178,24 @@ function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-async function submitFallbackFeedback(
-  body: FeedbackSubmitBody,
-  primaryError?: unknown
-): Promise<FeedbackSubmitResult> {
-  try {
-    const fallback = await postFeedback(FEEDBACK_API_FALLBACK_URL, body)
-    if (fallback.ok) {
-      return { ok: true }
-    }
-    return { ok: false, status: fallback.status, error: `status ${fallback.status}` }
-  } catch (fallbackError) {
-    const message = messageFromError(fallbackError)
-    if (primaryError === undefined) {
-      return { ok: false, status: null, error: message }
-    }
-    return {
-      ok: false,
-      status: null,
-      error: `${messageFromError(primaryError)}; fallback: ${message}`
-    }
-  }
-}
-
 export async function submitFeedback(
   args: InternalFeedbackSubmitArgs
 ): Promise<FeedbackSubmitResult> {
+  const endpoint = resolveFeedbackEndpoint()
+  if (!endpoint) {
+    // Fail closed, typed: the renderer surfaces this as a submission failure
+    // and no bytes leave the machine. There is deliberately NO fallback host.
+    return { ok: false, status: null, error: FEEDBACK_ENDPOINT_NOT_CONFIGURED }
+  }
   const body = buildSubmitBody(args)
   try {
-    const res = await postFeedback(FEEDBACK_API_URL, body)
+    const res = await postFeedback(endpoint, body)
     if (res.ok) {
       return { ok: true }
     }
-    // Why: keep api.onorca.dev as a compatibility fallback, but prefer the
-    // website API because it owns the Slack file/snippet crash delivery path.
-    if (res.status === 404 || res.status >= 500) {
-      return submitFallbackFeedback(body)
-    }
     return { ok: false, status: res.status, error: `status ${res.status}` }
   } catch (error) {
-    // Why: falling back on any network-level failure preserves the prior
-    // behavior where DNS/connect failures on the primary host transparently
-    // try the legacy API endpoint.
-    return submitFallbackFeedback(body, error)
+    return { ok: false, status: null, error: messageFromError(error) }
   }
 }
 

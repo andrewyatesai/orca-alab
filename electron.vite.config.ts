@@ -78,6 +78,14 @@ const ORCA_DIAGNOSTICS_TOKEN_URL_LITERAL =
   typeof orcaDiagnosticsTokenUrl === 'string' && orcaDiagnosticsTokenUrl.length > 0
     ? JSON.stringify(orcaDiagnosticsTokenUrl)
     : 'null'
+// Fork-owned feedback endpoint (staging audit G0-2): null in unkeyed builds so
+// the feedback IPC returns 'endpoint-not-configured' instead of POSTing to the
+// public vendor. Same fold-to-null contract as the constants above.
+const orcaFeedbackEndpoint = process.env.ORCA_FEEDBACK_ENDPOINT
+const ORCA_FEEDBACK_ENDPOINT_LITERAL =
+  typeof orcaFeedbackEndpoint === 'string' && orcaFeedbackEndpoint.length > 0
+    ? JSON.stringify(orcaFeedbackEndpoint)
+    : 'null'
 
 function createStartupDiagnosticsBanner(chunkName: string): string {
   return `
@@ -235,7 +243,8 @@ export default defineConfig({
     define: {
       ORCA_BUILD_IDENTITY: ORCA_BUILD_IDENTITY_LITERAL,
       ORCA_POSTHOG_WRITE_KEY: ORCA_POSTHOG_WRITE_KEY_LITERAL,
-      ORCA_DIAGNOSTICS_TOKEN_URL: ORCA_DIAGNOSTICS_TOKEN_URL_LITERAL
+      ORCA_DIAGNOSTICS_TOKEN_URL: ORCA_DIAGNOSTICS_TOKEN_URL_LITERAL,
+      ORCA_FEEDBACK_ENDPOINT: ORCA_FEEDBACK_ENDPOINT_LITERAL
     }
   },
   preload: {

@@ -22,6 +22,7 @@ import {
 } from '../../shared/browser-url'
 import { ORCA_BROWSER_GUEST_WEB_PREFERENCES } from '../../shared/browser-guest-web-preferences'
 import { isCrashReportReason } from '../../shared/crash-reporting'
+import { trackRendererProcessGone } from '../telemetry/fork-reliability-events'
 import {
   DEFAULT_RENDERER_RECOVERY_MAX_RECOVERIES,
   DEFAULT_RENDERER_RECOVERY_WINDOW_MS,
@@ -715,6 +716,9 @@ export function createMainWindow(
     }
     if (!windowClosing) {
       console.error('[window] Renderer process gone; close confirmation will be bypassed', details)
+      // Why: staging must measure renderer-loss frequency remotely; the
+      // windowClosing guard above already excludes macOS killed-on-close noise.
+      trackRendererProcessGone(details)
     }
     scheduleRendererRecovery(details)
   })

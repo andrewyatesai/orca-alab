@@ -73,7 +73,10 @@ export function readAtermEffectsConfig(): AtermEffectsConfig {
     sparkleOrca: settings?.terminalEffectsSparkleOrca ?? true,
     sparkleEmphasis: settings?.terminalEffectsSparkleEmphasis ?? true,
     cursorGlow: settings?.terminalEffectsCursorGlow ?? false,
-    cursorGlowStyle: settings?.terminalEffectsCursorGlowStyle ?? 'lumen',
+    // 'water' is Orca's native trail: a self-contained ORCA_PALETTE ocean ramp
+    // that reads on any theme, unlike 'lumen' additive white (white-on-white on
+    // light backgrounds). Only fires when settings are wholly unloaded.
+    cursorGlowStyle: settings?.terminalEffectsCursorGlowStyle ?? 'water',
     reducedMotion: prefersReducedMotion()
   }
 }

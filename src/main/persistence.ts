@@ -64,6 +64,7 @@ import type {
   TerminalPaneLayoutNode,
   TerminalLayoutSnapshot,
   TerminalTab,
+  TerminalCursorGlowStyle,
   WorkspaceSessionPatch,
   WorkspaceSessionState
 } from '../shared/types'
@@ -2876,6 +2877,26 @@ export class Store {
           : rawOptionAsAlt === undefined || rawOptionAsAlt === 'true'
             ? 'auto'
             : rawOptionAsAlt
+        // Why: early aterm-effects builds persisted a 'lumen' cursor glow, which is
+        // additive white light — invisible (white-on-white) on light terminal themes.
+        // {...defaults, ...parsed} would keep that inherited default forever, so flip
+        // the persisted 'lumen' (the only glow style ever shipped as default) → the
+        // native-Orca 'water' trail ONCE on upgrade. A later deliberate style choice
+        // survives because the flag then guards this from re-running. Sparkle words
+        // and every other effect stay exactly as the profile has them.
+        const effectsNativeOrcaMigrated =
+          parsed.settings?.terminalEffectsNativeOrcaMigrated === true
+        const rawGlowStyle = parsed.settings?.terminalEffectsCursorGlowStyle
+        const migratedCursorGlowStyle: TerminalCursorGlowStyle = effectsNativeOrcaMigrated
+          ? (rawGlowStyle ?? defaults.settings.terminalEffectsCursorGlowStyle ?? 'water')
+          : rawGlowStyle === undefined || rawGlowStyle === 'lumen'
+            ? 'water'
+            : rawGlowStyle
+        // Persist the stamp (and the flip) so a later deliberate style choice is not
+        // re-flipped on the next launch.
+        if (!effectsNativeOrcaMigrated) {
+          this.loadNeedsSave = true
+        }
         const floatingTerminalDefaultedForAllUsers =
           parsed.settings?.floatingTerminalDefaultedForAllUsers === true
         // Why: early floating-terminal builds persisted the old off-by-default
@@ -3093,6 +3114,8 @@ export class Store {
             experimentalCompactWorktreeCards: undefined,
             terminalMacOptionAsAlt: migratedOptionAsAlt,
             terminalMacOptionAsAltMigrated: true,
+            terminalEffectsCursorGlowStyle: migratedCursorGlowStyle,
+            terminalEffectsNativeOrcaMigrated: true,
             localWindowsRuntimeDefault: migratedWindowsRuntimeDefault,
             floatingTerminalEnabled: migratedFloatingTerminalEnabled,
             floatingTerminalDefaultedForAllUsers: true,

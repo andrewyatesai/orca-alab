@@ -238,18 +238,24 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     terminalCursorStyle: 'block',
     terminalCursorStyleDefaultedToBlock: true,
     terminalCursorBlink: true,
-    // aterm effects default OFF: unset/false keeps engine render output
-    // byte-identical (the engine's default-off contract); per-class gates
-    // default true to mirror the engine's native launch config.
-    // Native parity: aterm enables sparkle words when no config says otherwise.
+    // Sparkle-words ship ON (the on-brand orca splash / feline / nova whimsy).
+    // The per-frame cost is kept in check by aterm's rescan_from_cells path
+    // (one grid resolve per damaged frame, not two).
     terminalEffectsSparkleWords: true,
     terminalEffectsSparkleProfanity: true,
     terminalEffectsSparkleFeline: true,
     terminalEffectsSparkleOrca: true,
     terminalEffectsSparkleEmphasis: true,
-    // Native parity: aterm's cursor motion trail ships DEFAULT ON (lumen style).
+    // The cursor motion trail ships ON in the 'water' style: its water_ramp is a
+    // self-contained ORCA_PALETTE ocean gradient (navy→cyan→foam), so it reads
+    // on-brand and legibly on ANY theme. 'lumen' is additive white light, which
+    // vanishes into a light terminal background (the white-on-white bug).
     terminalEffectsCursorGlow: true,
-    terminalEffectsCursorGlowStyle: 'lumen',
+    terminalEffectsCursorGlowStyle: 'water',
+    // One-time upgrade stamp: existing profiles persisted the old lumen glow,
+    // which {...defaults, ...parsed} would otherwise preserve forever. The
+    // persistence migration flips the inherited lumen default to water once.
+    terminalEffectsNativeOrcaMigrated: true,
     terminalThemeDark: 'Ghostty Default Style Dark',
     terminalDividerColorDark: '#3f3f46',
     terminalUseSeparateLightTheme: true,

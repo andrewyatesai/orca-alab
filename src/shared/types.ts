@@ -2560,6 +2560,9 @@ export type GlobalSettings = {
   terminalEffectsSparkleEmphasis?: boolean
   terminalEffectsCursorGlow?: boolean
   terminalEffectsCursorGlowStyle?: TerminalCursorGlowStyle
+  /** One-time stamp: the persistence loader flipped the inherited lumen/sparkle-on
+   *  defaults to the native-Orca water trail / sparkle-off once. Guards re-running. */
+  terminalEffectsNativeOrcaMigrated?: boolean
   terminalQuickCommands?: TerminalQuickCommand[]
   windowBackgroundBlur?: boolean
   /** Why: Windows-only. When on, the close (X) button hides the window to the

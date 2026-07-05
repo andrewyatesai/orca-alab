@@ -108,3 +108,34 @@
 2. "Mobile terminal is CDN-loaded xterm.js beta" — false; the WebView bundles vendored `XTERM_ENGINE_CSS/JS`, no CDN, no offline break.
 3. "Missing GitLab/SSH compatibility fixes" — false; all five cited commits landed with the upstream sync.
 4. "Runtime-RPC terminals exposed without auth" — overstated; terminal/exec verbs require a paired device token (G1-0's residual is the 0.0.0.0 default bind — worth a loopback default, not a vuln). G1-1/G1-2 (TOCTOU chmod, non-constant-time compares) are defense-in-depth items only, safe today via 0o600 token files.
+---
+
+## Addendum — 2026-07-04 evening: blocker remediation status
+
+All launch blockers from this report are now **closed** across two fronts (verify with `git log 92c07a2e9..HEAD` and the commits below). The verdict moves from *not-ready* to **ready-pending-operational-setup**.
+
+**Closed by origin remediations** (merged in `b1f754c2f`):
+- F5 — daemon UTF-8 boundary carry (`utf8_stream_decoder.rs`), including checkpoint records.
+- F4a — `shellOverride` honored in `rpc.rs` (validated, `$SHELL` fallback).
+- F8 (first half) — degradation surfaced to Manage Sessions; dead launcher/provider deleted.
+- Kill/shutdown wire parity; aterm-pin drift guard (`check:aterm-pin`, now in the lint gate).
+
+**Closed by this session** (commits `92c07a2e9`, `19fce9bfb`, `2a15068f6`, `5afebe287`):
+- G3 — protocol namespace split (18 → 1018, legacy migration path for 18, disjoint socket/token/pid endpoints).
+- F4b/c/d — login shells, shell-ready barrier + pre-ready stdin queue, non-ports documented in `docs/rust-migration/daemon-shell-launch.md`.
+- G2-0..4 — at-rest perms (0o700/0o600 + tighten sweep), daemon-owned store subdir + migration, clean-exit deletion with cold-restore survival, worktree `@@`-prefix sweep, age/size GC.
+- F8 (second half) — daemon-status registry over IPC, sticky retry toast, status-bar indicator, localized (es/ja/ko/zh parity).
+- G0-0..4 — fail-closed feedback endpoint (never onorca.dev), staging telemetry-key preflight in the build legs, fork privacy doc, reliability event family (2 of 4 emitting; daemon hook points documented in `docs/reference/staging-observability.md`).
+- F1 — fork-owned update feed (andrewyatesai/orc), dormant-if-unconfigured, version `1.4.122-fork.1` (`docs/reference/fork-versioning.md`).
+- F13 — Windows update signature verification fail-closed; publisherName pinned by a config test.
+- F14 — default identity `com.stablyai.orca.staging` / "Orca Staging" (userData/lock/AUMID isolated; `ORCA_PUBLIC_IDENTITY=1` escape hatch).
+- F2 — per-target cargo + lipo mac multi-arch under `ORCA_MAC_BUILD_ARCHES`; afterPack bundled-binary arch assertion.
+- F15/F16 — fork CI (`.github/workflows/pr.yml`, `release-mac.yml`; see `docs/reference/ci.md`), including the aterm-worker-ON e2e lane.
+- The #7192 mirror-ordering test adapted to aterm widen-reflow (stale xterm-era expectation; ordering invariant intact).
+
+**Operational setup still required before the first staging build** (no code):
+1. Provision the fork PostHog project; set `ORCA_POSTHOG_WRITE_KEY` (and `ORCA_FEEDBACK_ENDPOINT` when a feedback inbox exists) as CI secrets — or export `ORCA_ALLOW_NO_TELEMETRY=1` for a deliberately dark build.
+2. Create the `ATERM_SUBMODULE_TOKEN` Actions secret (read-only Contents on andrewyatesai/aterm) so CI checkout of the submodule works.
+3. First `release-mac.yml` dispatch validates the workflows live (they cannot be executed pre-merge).
+
+**Known accepted residuals** (tracked, non-blocking): Linux deb/rpm keep the `orca-ide` package/executable name (a staging deb replaces an installed public deb; userData still isolated); `MACOS_PACKAGED_BUNDLE_ID` in `src/main/ipc/notifications.ts` and packaged-path consumers still reference the upstream identity; `verify-release-required-assets.mjs` expects upstream asset names (dormant until a publish gate is wired); semver orders `-fork.N` below public releases — safety rests on feed repointing + dormancy, not version comparison; e2e local default remains worker-OFF (CI runs the worker-ON lane; full inversion tracked as follow-up).

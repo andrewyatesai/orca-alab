@@ -5610,8 +5610,11 @@ describe('OrcaRuntimeService', () => {
       expect(snapshot).toMatchObject({ cols: resized.cols, rows: resized.rows })
       await expect(parseHeadlessSnapshotLines(snapshot!, resized)).resolves.toEqual([
         'prompt',
-        '                                                                               O',
-        'LD',
+        // Why: 'OLD' at column 80 (not 90) proves the queued write ran at the
+        // pre-resize 80-col grid — CSI 90G clamped. aterm's primary-screen
+        // resize then reflows, rejoining the soft-wrapped tail onto one line
+        // (the former headless xterm engine kept the wrap split).
+        '                                                                               OLD',
         'NEXT'
       ])
     } finally {

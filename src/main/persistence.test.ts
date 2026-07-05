@@ -505,9 +505,72 @@ describe('Store', () => {
     expect(settings.experimentalNewWorktreeCardStyle).toBe(true)
     expect(settings.floatingTerminalEnabled).toBe(true)
     expect(settings.floatingTerminalDefaultedForAllUsers).toBe(true)
+    // Native-Orca effect defaults: every effect ON, cursor trail in the 'water'
+    // style, already stamped migrated (fresh installs bypass the migration).
+    expect(settings.terminalEffectsCursorGlow).toBe(true)
+    expect(settings.terminalEffectsCursorGlowStyle).toBe('water')
+    expect(settings.terminalEffectsSparkleWords).toBe(true)
+    expect(settings.terminalEffectsNativeOrcaMigrated).toBe(true)
+    expect(settings.terminalEffectsSparkleProfanity).toBe(true)
+    expect(settings.terminalEffectsSparkleFeline).toBe(true)
     expect(settings.notifications.customSoundPath).toBeNull()
     expect(settings.notifications.customSoundVolume).toBe(100)
     expect(settings.notifications.suppressWhenFocused).toBe(true)
+  })
+
+  it('migrates the inherited lumen cursor glow to the native-Orca water trail once, leaving other effects', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        // A profile written before the native-Orca default, with no migrated flag.
+        terminalEffectsCursorGlowStyle: 'lumen',
+        terminalEffectsSparkleWords: true
+      }
+    })
+
+    const store = await createStore()
+    const settings = store.getSettings()
+
+    expect(settings.terminalEffectsCursorGlowStyle).toBe('water')
+    // Only the glow style migrates — sparkle words and every other effect are untouched.
+    expect(settings.terminalEffectsSparkleWords).toBe(true)
+    expect(settings.terminalEffectsNativeOrcaMigrated).toBe(true)
+    // The flip is persisted so it does not re-run and re-flip a later choice.
+    store.flush()
+    const persisted = readDataFile() as PersistedState
+    expect(persisted.settings.terminalEffectsCursorGlowStyle).toBe('water')
+    expect(persisted.settings.terminalEffectsSparkleWords).toBe(true)
+    expect(persisted.settings.terminalEffectsNativeOrcaMigrated).toBe(true)
+  })
+
+  it('preserves a deliberate lumen re-selection after the glow migration already ran', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        // Already migrated, then the user deliberately re-chose lumen.
+        terminalEffectsCursorGlowStyle: 'lumen',
+        terminalEffectsNativeOrcaMigrated: true
+      }
+    })
+
+    const store = await createStore()
+    expect(store.getSettings().terminalEffectsCursorGlowStyle).toBe('lumen')
+  })
+
+  it('carries a non-default glow style through the glow migration unchanged', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        // 'fire' was never the shipped default, so it is a deliberate choice.
+        terminalEffectsCursorGlowStyle: 'fire'
+      }
+    })
+
+    const store = await createStore()
+    const settings = store.getSettings()
+
+    expect(settings.terminalEffectsCursorGlowStyle).toBe('fire')
+    expect(settings.terminalEffectsNativeOrcaMigrated).toBe(true)
   })
 
   it('returns default UI state when no data file exists', async () => {

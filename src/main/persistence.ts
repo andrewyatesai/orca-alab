@@ -2897,6 +2897,22 @@ export class Store {
         if (!effectsNativeOrcaMigrated) {
           this.loadNeedsSave = true
         }
+        // 2026-07 macOS default font: the old default 'SF Mono' loads at its light
+        // variable instance and reads faint, so it never matched native aterm.
+        // Flip a profile still on that old default to 'Menlo' (native's default)
+        // ONCE on upgrade; a deliberate later font choice survives via the flag.
+        // Non-macOS defaults ('Cascadia Mono'/'DejaVu Sans Mono') never equal
+        // 'SF Mono', so this is a no-op there.
+        const fontMenloMigrated = parsed.settings?.terminalFontMenloMigrated === true
+        const rawFontFamily = parsed.settings?.terminalFontFamily
+        const migratedFontFamily: string = fontMenloMigrated
+          ? (rawFontFamily ?? defaults.settings.terminalFontFamily)
+          : rawFontFamily === 'SF Mono'
+            ? 'Menlo'
+            : (rawFontFamily ?? defaults.settings.terminalFontFamily)
+        if (!fontMenloMigrated) {
+          this.loadNeedsSave = true
+        }
         const floatingTerminalDefaultedForAllUsers =
           parsed.settings?.floatingTerminalDefaultedForAllUsers === true
         // Why: early floating-terminal builds persisted the old off-by-default
@@ -3116,6 +3132,8 @@ export class Store {
             terminalMacOptionAsAltMigrated: true,
             terminalEffectsCursorGlowStyle: migratedCursorGlowStyle,
             terminalEffectsNativeOrcaMigrated: true,
+            terminalFontFamily: migratedFontFamily,
+            terminalFontMenloMigrated: true,
             localWindowsRuntimeDefault: migratedWindowsRuntimeDefault,
             floatingTerminalEnabled: migratedFloatingTerminalEnabled,
             floatingTerminalDefaultedForAllUsers: true,

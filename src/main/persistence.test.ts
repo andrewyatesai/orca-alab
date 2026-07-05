@@ -511,6 +511,8 @@ describe('Store', () => {
     expect(settings.terminalEffectsCursorGlowStyle).toBe('water')
     expect(settings.terminalEffectsSparkleWords).toBe(true)
     expect(settings.terminalEffectsNativeOrcaMigrated).toBe(true)
+    // Font default is stamped migrated on fresh installs (bypasses the migration).
+    expect(settings.terminalFontMenloMigrated).toBe(true)
     expect(settings.terminalEffectsSparkleProfanity).toBe(true)
     expect(settings.terminalEffectsSparkleFeline).toBe(true)
     expect(settings.notifications.customSoundPath).toBeNull()
@@ -571,6 +573,57 @@ describe('Store', () => {
 
     expect(settings.terminalEffectsCursorGlowStyle).toBe('fire')
     expect(settings.terminalEffectsNativeOrcaMigrated).toBe(true)
+  })
+
+  it('migrates the old macOS default SF Mono font to Menlo once', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        // A profile still on the old macOS default, with no migrated flag.
+        terminalFontFamily: 'SF Mono'
+      }
+    })
+
+    const store = await createStore()
+    const settings = store.getSettings()
+
+    expect(settings.terminalFontFamily).toBe('Menlo')
+    expect(settings.terminalFontMenloMigrated).toBe(true)
+    // The flip is persisted so it does not re-run and re-flip a later choice.
+    store.flush()
+    const persisted = readDataFile() as PersistedState
+    expect(persisted.settings.terminalFontFamily).toBe('Menlo')
+    expect(persisted.settings.terminalFontMenloMigrated).toBe(true)
+  })
+
+  it('preserves a deliberate SF Mono re-selection after the font migration already ran', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        // Already migrated, then the user deliberately re-chose SF Mono.
+        terminalFontFamily: 'SF Mono',
+        terminalFontMenloMigrated: true
+      }
+    })
+
+    const store = await createStore()
+    expect(store.getSettings().terminalFontFamily).toBe('SF Mono')
+  })
+
+  it('carries a deliberately chosen font through the font migration unchanged', async () => {
+    writeDataFile({
+      ...getDefaultPersistedState(testState.dir),
+      settings: {
+        // Never the shipped default, so it is a deliberate choice — left intact.
+        terminalFontFamily: 'JetBrains Mono'
+      }
+    })
+
+    const store = await createStore()
+    const settings = store.getSettings()
+
+    expect(settings.terminalFontFamily).toBe('JetBrains Mono')
+    expect(settings.terminalFontMenloMigrated).toBe(true)
   })
 
   it('returns default UI state when no data file exists', async () => {

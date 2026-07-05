@@ -2508,6 +2508,8 @@ export type GlobalSettings = {
   primarySelectionMiddleClickPasteDefaultedForTerminalDefaults?: boolean
   terminalFontSize: number
   terminalFontFamily: string
+  /** One-time stamp: the old macOS default 'SF Mono' was migrated to 'Menlo'. */
+  terminalFontMenloMigrated?: boolean
   terminalFontWeight: number
   terminalLineHeight: number
   terminalScrollSensitivity: number

@@ -93,7 +93,10 @@ function defaultTerminalFontFamily(): string {
   if (platform === 'linux') {
     return 'DejaVu Sans Mono'
   }
-  return 'SF Mono' // macOS default
+  // Menlo, not SF Mono: matches the native aterm default and reads at full weight.
+  // SF Mono's system file loads at its light variable-font instance ("SF NS Mono
+  // Light") and renders faint — the reason native aterm rejects it as its default.
+  return 'Menlo' // macOS default
 }
 
 export const getDefaultPrimarySelectionMiddleClickPaste = (
@@ -221,6 +224,7 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
       getDefaultPrimarySelectionMiddleClickPaste(),
     terminalFontSize: 14,
     terminalFontFamily: defaultTerminalFontFamily(),
+    terminalFontMenloMigrated: true,
     terminalFontWeight: DEFAULT_TERMINAL_FONT_WEIGHT,
     terminalLineHeight: 1,
     terminalScrollSensitivity: 1.15,

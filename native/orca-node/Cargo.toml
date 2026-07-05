@@ -19,6 +19,9 @@ orca-core = { path = "../../rust/crates/orca-core" }
 # orca-net: the byte-budget NDJSON line splitter (daemon-socket OOM guard) exposed as
 # the NdjsonParser napi class.
 orca-net = { path = "../../rust/crates/orca-net" }
+# futures-executor: block_on for the IO-tier "A bridge" — a libuv worker thread
+# awaits the JS git executor's promise while the JS main thread keeps turning.
+futures-executor = { version = "0.3", default-features = false }
 
 [build-dependencies]
 napi-build = "2"

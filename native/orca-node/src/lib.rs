@@ -6,6 +6,10 @@
 use napi::bindgen_prelude::Buffer;
 use napi_derive::napi;
 
+// The IO-tier "A bridge": run orca-git's sync GitRunner logic over an async JS
+// git executor (Rust drives, JS executes — SSH-safe).
+mod git_executor_bridge;
+
 const DEFAULT_SCROLLBACK: u32 = 5000;
 
 /// One OSC-8 hyperlink run in a snapshot. Field names marshal to camelCase

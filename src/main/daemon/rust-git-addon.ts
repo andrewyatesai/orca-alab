@@ -34,6 +34,14 @@ export type RustNdjsonParserHandle = {
 
 export type RustNdjsonParserCtor = new (maxLineBytes?: number) => RustNdjsonParserHandle
 
+/** The JS git executor the "A bridge" calls back into. It MUST resolve (never
+ *  reject) for a git that spawned and exited, carrying its `exitCode`, so Rust can
+ *  classify a non-zero exit exactly like the native runner; a rejection means the
+ *  spawn itself failed. This is where `runner.ts`'s SSH/WSL/env routing lives. */
+export type RustGitExecutor = (
+  args: string[]
+) => Promise<{ stdout: string; stderr: string; exitCode: number }>
+
 export type RustGitBinding = {
   GitStatusParser: RustGitStatusParserCtor
   /** NDJSON byte-budget line splitter (orca-net) — the daemon-socket OOM guard. */
@@ -55,6 +63,16 @@ export type RustGitBinding = {
     branchName: string,
     remoteUrl: string | null
   ): string | null
+  /** IO-tier "A bridge" proof: Rust drives `validate_git_push_target` (shape check
+   *  + `git check-ref-format`) over a JS-supplied async git `executor`, so
+   *  `runner.ts` still executes git (SSH-safe). Resolves null when valid, else the
+   *  error message. */
+  validateGitPushTargetViaExecutor(
+    remoteName: string,
+    branchName: string,
+    remoteUrl: string | null,
+    executor: RustGitExecutor
+  ): Promise<string | null>
   /** Approximate added/removed line counts JSON, or null for the large guard. */
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */

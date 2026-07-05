@@ -26,9 +26,9 @@ import { isBinaryBuffer } from '../../shared/binary-buffer'
 import {
   applyLineStats,
   collectUntrackedAdditions,
-  parseNumstat,
   type GitLineStats
 } from '../../shared/git-uncommitted-line-stats'
+import { parseNumstatPreferRust } from './rust-numstat'
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { gitExecFileAsync, gitExecFileAsyncBuffer, gitOptionalLocksDisabledEnv } from './runner'
 import { streamGitStatus } from './git-status-stream'
@@ -390,7 +390,7 @@ async function computeSubmoduleRangeEntries(
   } catch {
     return []
   }
-  const statsByPath = parseNumstat(numstat)
+  const statsByPath = parseNumstatPreferRust(numstat)
   const entries: GitStatusEntry[] = []
   for (const line of nameStatus.split(/\r?\n/)) {
     if (!line) {
@@ -429,7 +429,7 @@ async function runNumstat(
       ],
       { ...gitOptionsForWorktree(worktreePath, options), env: gitOptionalLocksDisabledEnv() }
     )
-    return parseNumstat(stdout)
+    return parseNumstatPreferRust(stdout)
   } catch {
     // Why: a numstat failure (e.g. transient lock) should leave rows without
     // counts rather than break the whole status refresh.
@@ -1442,7 +1442,7 @@ async function loadBranchChanges(
       gitOptions
     )
   ])
-  const statsByPath = parseNumstat(numstat)
+  const statsByPath = parseNumstatPreferRust(numstat)
 
   const entries: GitBranchChangeEntry[] = []
   // [Fix]: Split by /\r?\n/ instead of '\n' to handle Git CRLF output on Windows,
@@ -1506,7 +1506,7 @@ async function loadCommitChanges(
     gitExecFileAsync(args, gitOptions),
     gitExecFileAsync(numstatArgs, gitOptions)
   ])
-  const statsByPath = parseNumstat(numstat)
+  const statsByPath = parseNumstatPreferRust(numstat)
 
   const entries: GitBranchChangeEntry[] = []
   for (const line of stdout.split(/\r?\n/)) {

@@ -59,6 +59,7 @@ import { StarNagCard } from './components/StarNagCard'
 import { StarNagAgentValueMomentObserver } from './components/star-nag/StarNagAgentValueMomentObserver'
 import { StarNagToastHost } from './components/star-nag/StarNagToastHost'
 import { TelemetryFirstLaunchSurface } from './components/TelemetryFirstLaunchSurface'
+import { DaemonStatusToastBridge } from './components/daemon-status/DaemonStatusToastBridge'
 import { ZoomOverlay } from './components/ZoomOverlay'
 import { onOnboardingReopened } from './components/onboarding/show-onboarding-event'
 import { shouldShowOnboarding } from './components/onboarding/should-show-onboarding'
@@ -2605,6 +2606,10 @@ function App(): React.JSX.Element {
               <StarNagToastHost />
             </RecoverableRenderErrorBoundary>
             <StarNagAgentValueMomentObserver />
+            {/* Why: daemon degradation/failure must be loud once (sticky toast)
+                — see docs/reference/daemon-staleness-ux.md §Phase 2. Mounted at App root
+                so the status subscription lives once per renderer session. */}
+            <DaemonStatusToastBridge />
             {/* Why: the existing-user opt-in banner mounts at App root so it
           renders once per renderer session, not per view. It gates
           internally on the cohort markers populated by the migration,

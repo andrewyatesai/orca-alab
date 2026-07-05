@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { DaemonPtyAdapter } from './daemon-pty-adapter'
+import { DaemonPtyAdapter, isSessionAlreadyGoneError } from './daemon-pty-adapter'
 import { DaemonServer } from './daemon-server'
 import { getHistorySessionDirName } from './history-paths'
 import type { HistoryReader } from './history-reader'
@@ -920,7 +920,7 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       }
     })
 
-    it('writes meta.json with endedAt on exit', async () => {
+    it('removes at-rest history when a session exits cleanly', async () => {
       historyAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, historyPath: historyDir })
 
       const { id } = await historyAdapter.spawn({
@@ -928,15 +928,67 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
         rows: 24,
         sessionId: 'exit-hist'
       })
+      const sessionDir = join(historyDir, getHistorySessionDirName(id))
+      expect(existsSync(sessionDir)).toBe(true)
 
       lastSubprocess._simulateExit(0)
-      await new Promise((r) => setTimeout(r, 50))
 
-      const meta = JSON.parse(
-        readFileSync(join(historyDir, getHistorySessionDirName(id), 'meta.json'), 'utf-8')
-      )
-      expect(meta.endedAt).toBeDefined()
+      // Why deletion (not just an endedAt stamp): scrollback at rest carries
+      // secrets, and a session that exits through the live stream can never
+      // cold-restore again — its files must not outlive it.
+      await waitFor(() => !existsSync(sessionDir))
+    })
+
+    it('keeps at-rest files (endedAt stamped) when an exit races an in-flight spawn', async () => {
+      historyAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, historyPath: historyDir })
+
+      const { id } = await historyAdapter.spawn({
+        cols: 80,
+        rows: 24,
+        sessionId: 'exit-during-spawn'
+      })
+      const sessionDir = join(historyDir, getHistorySessionDirName(id))
+
+      // Simulate the probe→createOrAttach race: a second spawn for the same
+      // id is in flight when the exit event lands. The ignoreCleanEnd restore
+      // path may still need the files, so only the endedAt stamp may happen.
+      const internals = historyAdapter as unknown as { spawnsInFlight: Map<string, number> }
+      internals.spawnsInFlight.set(id, 1)
+
+      lastSubprocess._simulateExit(0)
+      await waitFor(() => {
+        try {
+          const meta = JSON.parse(readFileSync(join(sessionDir, 'meta.json'), 'utf-8'))
+          return meta.endedAt !== null
+        } catch {
+          return false
+        }
+      })
+
+      expect(existsSync(sessionDir)).toBe(true)
+      const meta = JSON.parse(readFileSync(join(sessionDir, 'meta.json'), 'utf-8'))
       expect(meta.exitCode).toBe(0)
+      internals.spawnsInFlight.delete(id)
+    })
+
+    it('resolves shutdown for an already-exited session and leaves no at-rest files', async () => {
+      historyAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, historyPath: historyDir })
+
+      const { id } = await historyAdapter.spawn({
+        cols: 80,
+        rows: 24,
+        sessionId: 'kill-after-exit'
+      })
+      const sessionDir = join(historyDir, getHistorySessionDirName(id))
+
+      lastSubprocess._simulateExit(0)
+      await waitFor(() => !existsSync(sessionDir))
+
+      // Why: the daemon rejects a kill of a dead session ("Session not
+      // found" / "unknown session"), but the caller's intent is satisfied —
+      // shutdown must not surface a renderer-visible rejection here.
+      await expect(historyAdapter.shutdown(id, { immediate: true })).resolves.toBeUndefined()
+      expect(existsSync(sessionDir)).toBe(false)
     })
 
     it('removes history on explicit shutdown', async () => {
@@ -978,6 +1030,57 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
         expect.objectContaining({ snapshotAnsi: expect.stringContaining('fresh output') })
       )
       expect(existsSync(join(historyDir, getHistorySessionDirName(id)))).toBe(true)
+    })
+
+    it('keeps a keepHistory-shutdown session wake-restorable despite the kill-triggered exit event', async () => {
+      historyAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, historyPath: historyDir })
+
+      const { id } = await historyAdapter.spawn({
+        cols: 80,
+        rows: 24,
+        cwd: '/home/user',
+        sessionId: 'sleep-then-wake'
+      })
+      lastSubprocess._simulateData('output before sleep\r\n')
+
+      await historyAdapter.shutdown(id, { immediate: true, keepHistory: true })
+      // The daemon reaps the killed child and emits a normal exit event —
+      // give it time to land so the regression (endedAt stamped / files
+      // deleted by the exit handler) would be visible.
+      await new Promise((r) => setTimeout(r, 100))
+
+      const sessionDir = join(historyDir, getHistorySessionDirName(id))
+      expect(existsSync(sessionDir)).toBe(true)
+      const meta = JSON.parse(readFileSync(join(sessionDir, 'meta.json'), 'utf-8'))
+      // Why null: the restore reader rejects sessions with a stamped endedAt,
+      // so stamping here would break wake entirely.
+      expect(meta.endedAt).toBeNull()
+
+      // Wake: the daemon session is gone, so the spawn must cold-restore the
+      // final sleep checkpoint.
+      const wake = await historyAdapter.spawn({ cols: 80, rows: 24, sessionId: id })
+      expect(wake.coldRestore?.scrollback).toContain('output before sleep')
+    })
+
+    it('does not stamp endedAt on a slept session at dispose (writer released)', async () => {
+      historyAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, historyPath: historyDir })
+
+      const { id } = await historyAdapter.spawn({
+        cols: 80,
+        rows: 24,
+        cwd: '/home/user',
+        sessionId: 'sleep-then-dispose'
+      })
+      lastSubprocess._simulateData('slept output\r\n')
+      await historyAdapter.shutdown(id, { immediate: true, keepHistory: true })
+
+      historyAdapter.dispose()
+      await new Promise((r) => setTimeout(r, 50))
+
+      const meta = JSON.parse(
+        readFileSync(join(historyDir, getHistorySessionDirName(id), 'meta.json'), 'utf-8')
+      )
+      expect(meta.endedAt).toBeNull()
     })
 
     it('persists final take records that are not represented in the snapshot', async () => {
@@ -1792,7 +1895,7 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
     })
   })
 
-  // Why: the restart flow (docs/daemon-staleness-ux.md §Phase 1 step 1) relies
+  // Why: the restart flow (docs/reference/daemon-staleness-ux.md §Phase 1 step 1) relies
   // on these two primitives to fan synthetic pty:exit out to every attached
   // session *before* tearing the adapter down. The design doc calls out
   // session.ts:246-252 as the reason — the daemon's kill-all-and-shutdown
@@ -1856,5 +1959,21 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
       expect(aExits).toEqual([{ id: 'sess-a', code: -1 }])
       expect(bExits).toEqual([{ id: 'sess-a', code: -1 }])
     })
+  })
+})
+
+describe('isSessionAlreadyGoneError', () => {
+  it('matches the Node daemon "Session not found" rejection', () => {
+    expect(isSessionAlreadyGoneError(new Error('Session not found: wt@@1234'))).toBe(true)
+  })
+
+  it('matches the Rust daemon "unknown session" rejection', () => {
+    expect(isSessionAlreadyGoneError(new Error('unknown session'))).toBe(true)
+  })
+
+  it('does not match transport failures or non-Errors', () => {
+    expect(isSessionAlreadyGoneError(new Error('Connection lost'))).toBe(false)
+    expect(isSessionAlreadyGoneError(new Error('Not connected'))).toBe(false)
+    expect(isSessionAlreadyGoneError('Session not found')).toBe(false)
   })
 })

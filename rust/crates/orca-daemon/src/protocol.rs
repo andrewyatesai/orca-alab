@@ -9,7 +9,12 @@ use serde_json::{json, Value};
 
 /// Must equal `PROTOCOL_VERSION` in `src/main/daemon/types.ts`. A client hello at
 /// a different version is rejected with a `hello` error.
-pub const PROTOCOL_VERSION: u64 = 18;
+///
+/// Why 1018 (not 19): the fork reserves the 1000+ namespace so its daemon
+/// endpoints (`daemon-v1018.*`, keyed off this number) never collide with a
+/// public Orca install — a public build (v18, or any future public bump) must
+/// never handshake with this daemon, and vice versa (see types.ts).
+pub const PROTOCOL_VERSION: u64 = 1018;
 
 /// The first line on every socket: `{ type:'hello', version, token, clientId, role }`.
 pub struct Hello {

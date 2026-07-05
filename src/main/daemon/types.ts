@@ -7,9 +7,19 @@ import type { StartupCommandDelivery } from '../../shared/codex-startup-delivery
 // when daemon-baked behavior cannot be delivered by on-disk wrapper refresh.
 // Why: bump when adding daemon wire behavior so same-version old daemons do
 // not silently accept the handshake and then reject new RPCs.
-export const PROTOCOL_VERSION = 18
+// Why 1018: the fork reserves the 1000+ namespace. Socket/token/pid names key
+// off this number (daemon-spawner.ts), so the fork's Rust daemon and a public
+// Orca install (v18) get disjoint endpoints — a public build can never adopt
+// the fork daemon after a downgrade, and the fork never impersonates the
+// public Node daemon at its socket. Must equal PROTOCOL_VERSION in
+// rust/crates/orca-daemon/src/protocol.rs.
+export const PROTOCOL_VERSION = 1018
+// Why 18 is listed: a live public Node daemon (with running agent sessions)
+// found at daemon-v18.* is attached via the legacy-adapter path instead of
+// being killed or impersonated, so installing the fork over public Orca
+// preserves in-flight terminals.
 export const PREVIOUS_DAEMON_PROTOCOL_VERSIONS = [
-  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+  1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18
 ] as const
 
 // ─── Session State Machine ──────────────────────────────────────────
@@ -85,6 +95,13 @@ export type CreateOrAttachRequest = {
      *  instead of defaulting to COMSPEC (which is always cmd.exe on Windows)
      *  or the hard-coded powershell.exe fallback. */
     shellOverride?: string
+    /** POSIX (Rust daemon) only: the client-precomputed spawn argv — login
+     *  `-l`, ZDOTDIR/rcfile wrapper args, macOS login(1) wrap (see
+     *  daemon-shell-launch-config.ts). When present, `command` is delivered
+     *  via stdin into the interactive shell (behind the shell-ready barrier)
+     *  instead of a non-interactive `-lc`. Absent on Windows, where the Node
+     *  daemon computes its own launch args. */
+    shellArgs?: string[]
     /** Preferred WSL distro for generic `wsl.exe` launches. */
     terminalWindowsWslDistro?: string | null
     /** Why: the UI keeps PowerShell as one shell family, but the runtime may

@@ -24,7 +24,9 @@ import { join, resolve } from 'node:path'
 import { DaemonSocketClient } from './daemon-socket-client.mjs'
 import { driveDaemon, driveDetachReattach, parityConstants } from './request-vectors.mjs'
 
-const PROTOCOL_VERSION = 18
+// Must track PROTOCOL_VERSION in src/main/daemon/types.ts (fork namespace:
+// 1000+; both legs reject a hello at any other version).
+const PROTOCOL_VERSION = 1018
 const repoRoot = resolve(import.meta.dirname, '..', '..')
 const scratch = mkdtempSync(join(os.tmpdir(), 'daemon-parity-'))
 const cleanup = []

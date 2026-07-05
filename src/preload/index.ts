@@ -136,7 +136,11 @@ import type {
   SpeechTranscriptEvent
 } from '../shared/speech-types'
 import type { TelemetryConsentState } from '../shared/telemetry-consent-types'
-import type { PreflightRuntimeContext, RefreshAgentsResult } from './api-types'
+import type {
+  DaemonRuntimeStatus,
+  PreflightRuntimeContext,
+  RefreshAgentsResult
+} from './api-types'
 import type { AgentKind, LaunchSource, RequestKind } from '../shared/telemetry-events'
 import type { AppStarSource } from '../shared/gh-star-source'
 import type {
@@ -972,6 +976,18 @@ const api = {
       killAll: () => ipcRenderer.invoke('pty:management:killAll'),
       killOne: (args: { sessionId: string }) => ipcRenderer.invoke('pty:management:killOne', args),
       restart: () => ipcRenderer.invoke('pty:management:restart')
+    }
+  },
+
+  daemonStatus: {
+    get: (): Promise<DaemonRuntimeStatus> => ipcRenderer.invoke('daemon:status:get'),
+    relaunch: (): Promise<{ success: boolean; error?: string }> =>
+      ipcRenderer.invoke('daemon:status:relaunch'),
+    onChanged: (callback: (status: DaemonRuntimeStatus) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, status: DaemonRuntimeStatus): void =>
+        callback(status)
+      ipcRenderer.on('daemon:status:changed', listener)
+      return () => ipcRenderer.removeListener('daemon:status:changed', listener)
     }
   },
 

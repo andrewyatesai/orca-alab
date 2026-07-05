@@ -13,6 +13,7 @@ import {
   promises as fsPromises
 } from 'node:fs'
 import { getHistorySessionDirName } from './history-paths'
+import { HISTORY_DIR_MODE, HISTORY_FILE_MODE } from './history-store-layout'
 import {
   decodeLogHeader,
   encodeLogBatch,
@@ -72,7 +73,10 @@ export class HistoryManager {
     try {
       this.disabledSessions.delete(sessionId)
       const dir = join(this.basePath, getHistorySessionDirName(sessionId))
-      mkdirSync(dir, { recursive: true })
+      // Why modes: scrollback at rest routinely carries secrets, so dirs are
+      // 0o700 and files 0o600 from creation (mode options are no-ops on
+      // Windows, where the store root's NTFS ACL covers the tree instead).
+      mkdirSync(dir, { recursive: true, mode: HISTORY_DIR_MODE })
 
       const meta: SessionMeta = {
         cwd: opts.cwd,
@@ -82,7 +86,9 @@ export class HistoryManager {
         endedAt: null,
         exitCode: null
       }
-      writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta, null, 2))
+      writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta, null, 2), {
+        mode: HISTORY_FILE_MODE
+      })
 
       // Why: if a session ID is reused after a previous clean exit, stale
       // recovery files may still be on disk. Without removing them, a crash
@@ -161,10 +167,12 @@ export class HistoryManager {
         // Why: header carries the generation that ties this log to its base
         // checkpoint; written lazily so warm reattaches never clobber a log
         // that already has appended batches.
-        await fsPromises.writeFile(writer.logPath, encodeLogHeader(writer.logGeneration ?? 0))
+        await fsPromises.writeFile(writer.logPath, encodeLogHeader(writer.logGeneration ?? 0), {
+          mode: HISTORY_FILE_MODE
+        })
         writer.logBytes = LOG_HEADER_BYTES
       }
-      await fsPromises.appendFile(writer.logPath, batch)
+      await fsPromises.appendFile(writer.logPath, batch, { mode: HISTORY_FILE_MODE })
       writer.logBytes = (writer.logBytes ?? LOG_HEADER_BYTES) + batch.length
       return 'ok'
     } catch (err) {
@@ -219,13 +227,15 @@ export class HistoryManager {
       // duration. Overlap is prevented by the adapter's checkpointInFlight
       // guard, which awaits this promise before the next tick.
       const tmpPath = `${writer.checkpointPath}.tmp`
-      await fsPromises.writeFile(tmpPath, data)
+      await fsPromises.writeFile(tmpPath, data, { mode: HISTORY_FILE_MODE })
       await fsPromises.rename(tmpPath, writer.checkpointPath)
       // Why: the snapshot subsumes every logged record, so the log resets to
       // the new generation. Crash between rename and this reset is safe: the
       // stale log's generation no longer matches the checkpoint's, so the
       // restore reader ignores it.
-      await fsPromises.writeFile(writer.logPath, encodeLogHeader(generation))
+      await fsPromises.writeFile(writer.logPath, encodeLogHeader(generation), {
+        mode: HISTORY_FILE_MODE
+      })
       writer.logGeneration = generation
       writer.logBytes = LOG_HEADER_BYTES
     } catch (err) {
@@ -299,9 +309,17 @@ export class HistoryManager {
     }
   }
 
-  async removeSession(sessionId: string): Promise<void> {
+  // Why: keepHistory shutdown (sleep/exact-stop) must leave the at-rest files
+  // intact for wake cold-restore, but the writer must not linger — dispose()
+  // stamps endedAt on every remaining writer, which would make the slept
+  // session ineligible for restore after an app relaunch.
+  releaseWriter(sessionId: string): void {
     this.writers.delete(sessionId)
     this.disabledSessions.delete(sessionId)
+  }
+
+  async removeSession(sessionId: string): Promise<void> {
+    this.releaseWriter(sessionId)
     rmSync(join(this.basePath, getHistorySessionDirName(sessionId)), {
       recursive: true,
       force: true

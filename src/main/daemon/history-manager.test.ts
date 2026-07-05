@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtempSync, rmSync, readFileSync, existsSync, chmodSync } from 'node:fs'
+import { mkdtempSync, rmSync, readFileSync, existsSync, chmodSync, statSync } from 'node:fs'
 import { HistoryManager } from './history-manager'
 import type { TerminalSnapshot, TerminalModes } from './types'
 import { getHistorySessionDirName } from './history-paths'
@@ -215,6 +215,40 @@ describe('HistoryManager', () => {
 
       await mgr.removeSession('sess-1')
       expect(existsSync(join(dir, getHistorySessionDirName('sess-1')))).toBe(false)
+    })
+  })
+
+  describe('releaseWriter', () => {
+    it('drops the writer but keeps files, so dispose cannot stamp endedAt', async () => {
+      await mgr.openSession('slept', { cwd: '/tmp', cols: 80, rows: 24 })
+      await mgr.checkpoint('slept', makeSnapshot())
+
+      mgr.releaseWriter('slept')
+      await mgr.dispose()
+
+      // Files intact and still wake-restorable (endedAt untouched).
+      expect(existsSync(sessionPath(dir, 'slept', 'checkpoint.json'))).toBe(true)
+      const meta = JSON.parse(readFileSync(sessionPath(dir, 'slept', 'meta.json'), 'utf-8'))
+      expect(meta.endedAt).toBeNull()
+    })
+  })
+
+  describe('at-rest permissions', () => {
+    const itOnPosix = process.platform === 'win32' ? it.skip : it
+
+    function mode(path: string): number {
+      return statSync(path).mode & 0o777
+    }
+
+    itOnPosix('creates the session dir 0o700 and every file 0o600', async () => {
+      await mgr.openSession('secure', { cwd: '/tmp', cols: 80, rows: 24 })
+      await mgr.appendIncrements('secure', 1, [{ kind: 'output', data: 'secret token\r\n' }])
+      await mgr.checkpoint('secure', makeSnapshot())
+
+      expect(mode(join(dir, getHistorySessionDirName('secure')))).toBe(0o700)
+      expect(mode(sessionPath(dir, 'secure', 'meta.json'))).toBe(0o600)
+      expect(mode(sessionPath(dir, 'secure', 'output.log'))).toBe(0o600)
+      expect(mode(sessionPath(dir, 'secure', 'checkpoint.json'))).toBe(0o600)
     })
   })
 

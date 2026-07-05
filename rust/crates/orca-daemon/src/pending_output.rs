@@ -47,8 +47,11 @@ pub struct PendingOutput {
 impl PendingOutput {
     /// Append PTY output, coalescing into the trailing output record while it is
     /// under the segment cap. No-op once overflowed (until the next drain).
+    /// Empty chunks (a decode-carry read, a fully-stripped ready marker) are
+    /// skipped — session.ts never records them, and an empty record would just
+    /// bloat the on-disk log.
     pub fn record_output(&mut self, data: &str) {
-        if self.overflowed || self.charge(data.len()) {
+        if data.is_empty() || self.overflowed || self.charge(data.len()) {
             return;
         }
         if let Some(PendingRecord::Output(last)) = self.records.last_mut() {

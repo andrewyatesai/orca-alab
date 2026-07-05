@@ -7,6 +7,10 @@
 use crate::pending_output::PendingOutput;
 use crate::protocol::{rpc_err, rpc_ok};
 use crate::registry::{Registry, SessionEngine, SessionEntry};
+use crate::shell_ready_barrier::{
+    GateTimer, ShellReadyBarrier, POST_READY_FLUSH_DELAY_MS, POST_READY_FLUSH_FALLBACK_MS,
+    SHELL_READY_TIMEOUT_MS,
+};
 use crate::utf8_stream_decoder::Utf8StreamDecoder;
 use orca_pty::{PtyCommand, PtySession, PtySize};
 use orca_terminal::{HeadlessTerminal, MouseTracking, DEFAULT_SCROLLBACK};
@@ -69,7 +73,7 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             // paste, the exact per-write cost the borrow-not-clone note above avoids.
             let session_id = sid();
             let data = field_str(payload, "data");
-            match registry.with_session(&session_id, |e| e.pty.write_all(data.as_bytes())) {
+            match session_write(registry, &session_id, data) {
                 Some(Ok(())) => void_ack(id),
                 Some(Err(e)) => rpc_err(id, &e.to_string()),
                 None => unknown_session_exit(id, registry, client_id, &session_id),
@@ -141,7 +145,11 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
                 .get("includeSnapshot")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            match registry.take_pending_output(&sid(), include_snapshot) {
+            let teardown_snapshot = payload
+                .get("teardownSnapshot")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            match registry.take_pending_output(&sid(), include_snapshot, teardown_snapshot) {
                 Some((records, seq, overflowed, snapshot)) => rpc_ok(
                     id,
                     json!({ "records": records, "seq": seq, "overflowed": overflowed, "snapshot": snapshot }),
@@ -315,12 +323,12 @@ fn create_or_attach(
     // REAL snapshot so the reattacher repaints — matching terminal-host.ts's live
     // branch (getSnapshot + detachAllClients + attachClient). A blank snapshot here
     // would leave a warm-reattached pane frozen after relaunch.
-    if let Some(engine) = registry.reattach_if_alive(&session_id, client_id) {
+    if let Some((engine, shell_state)) = registry.reattach_if_alive(&session_id, client_id) {
         let snapshot = build_snapshot(&mut engine.lock().unwrap().terminal);
         let pid = registry.session_pid(&session_id);
         return rpc_ok(
             id,
-            json!({ "isNew": false, "snapshot": snapshot, "pid": pid, "shellState": SHELL_STATE }),
+            json!({ "isNew": false, "snapshot": snapshot, "pid": pid, "shellState": shell_state }),
         );
     }
     // Not a live session: drop any lingering dead entry for this id, then spawn fresh.
@@ -328,8 +336,8 @@ fn create_or_attach(
 
     let cols = field_u16(payload, "cols", 80);
     let rows = field_u16(payload, "rows", 24);
-    let command = build_command(payload);
-    let pty = match PtySession::spawn(&command, PtySize { rows, cols }) {
+    let launch = build_command(payload);
+    let pty = match PtySession::spawn(&launch.command, PtySize { rows, cols }) {
         Ok(p) => p,
         Err(e) => return rpc_err(id, &format!("spawn failed: {e}")),
     };
@@ -349,21 +357,26 @@ fn create_or_attach(
         ),
         pending: PendingOutput::default(),
     }));
-    // Pump raw PTY output → fed into the engine (terminal + records) AND streamed live
-    // by the registry; on EOF, reap the child (remove the session + emit `exit`). The
-    // reader is an independent clone of the master, so it keeps reading after `pty`
-    // moves into the registry entry.
-    let pump_registry = registry.clone();
-    let pump_session = session_id.clone();
-    let pump_engine = Arc::clone(&engine);
-    thread::spawn(move || pump_output(reader, pump_registry, pump_session, pump_engine));
-
+    // The shell-ready barrier (session.ts): while pending, stdin writes queue and
+    // the pump scans output for the wrapper's OSC 777 marker. Bounded by the
+    // client's shellReadyTimeoutMs (Codex markerless: 300ms) or the 15s default.
+    let shell_ready_supported = payload
+        .get("shellReadySupported")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let barrier =
+        shell_ready_supported.then(|| Arc::new(Mutex::new(ShellReadyBarrier::new_pending())));
+    let shell_state = if barrier.is_some() {
+        "pending"
+    } else {
+        "unsupported"
+    };
     let created_at_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
     registry.insert_session(
-        session_id,
+        session_id.clone(),
         SessionEntry {
             pty,
             client_id: client_id.to_string(),
@@ -371,49 +384,118 @@ fn create_or_attach(
             rows,
             pid,
             created_at_ms,
-            engine,
+            engine: Arc::clone(&engine),
+            barrier: barrier.clone(),
         },
     );
+    // Barrier timers + pump start only AFTER the session is registered: a fast
+    // child (e.g. /bin/echo) can produce output — or even exit — before the
+    // entry exists, and route_output / the timeout's flush would no-op on the
+    // missing session, dropping its first bytes (or stranding the queue).
+    if let Some(barrier) = &barrier {
+        let timeout_ms = payload
+            .get("shellReadyTimeoutMs")
+            .and_then(Value::as_u64)
+            .unwrap_or(SHELL_READY_TIMEOUT_MS);
+        spawn_ready_timeout(
+            registry.clone(),
+            session_id.clone(),
+            Arc::clone(barrier),
+            timeout_ms,
+        );
+    }
+    // Pump raw PTY output → fed into the engine (terminal + records) AND streamed live
+    // by the registry; on EOF, reap the child (remove the session + emit `exit`). The
+    // reader is an independent clone of the master, so it keeps reading after `pty`
+    // moves into the registry entry.
+    let pump_registry = registry.clone();
+    let pump_session = session_id.clone();
+    thread::spawn(move || pump_output(reader, pump_registry, pump_session, engine, barrier));
+    // Interactive-spawn sessions get their startup command through stdin (queued
+    // behind the barrier when one is armed) — terminal-host.ts createOrAttach.
+    // Legacy `-lc` spawns already carry it in argv.
+    if let Some(command) = launch.stdin_command {
+        let submit_terminated = command.ends_with('\n') || command.ends_with('\r');
+        let payload = if submit_terminated {
+            command
+        } else {
+            format!("{command}\n")
+        };
+        let _ = session_write(registry, &session_id, &payload);
+    }
     rpc_ok(
         id,
-        json!({ "isNew": true, "snapshot": Value::Null, "pid": pid, "shellState": SHELL_STATE }),
+        json!({ "isNew": true, "snapshot": Value::Null, "pid": pid, "shellState": shell_state }),
     )
 }
 
-/// The daemon doesn't run OSC-133 shell-readiness detection, so it reports the one
-/// honest, VALID `ShellReadyState` (types.ts) for that: `unsupported`. (The prior
-/// `"unknown"` was not a member of the union and would confuse the client's gate.)
-const SHELL_STATE: &str = "unsupported";
+/// A resolved spawn: the PTY command plus the startup command to deliver via
+/// stdin after spawn, when the launch args don't already carry it.
+struct ShellLaunch {
+    command: PtyCommand,
+    stdin_command: Option<String>,
+}
 
-/// Resolve the shell/command to spawn. `command` (when present) runs under the login
-/// shell; otherwise the shell starts interactively. The shell is the renderer's
-/// per-pane `shellOverride` (the "+" menu / persisted default), falling back to the
-/// user's `$SHELL` — without honoring the override the daemon always spawned `$SHELL`
-/// regardless of the shell the pane asked for.
-fn build_command(payload: &Value) -> PtyCommand {
+/// Resolve the shell/args to spawn. The shell is the renderer's per-pane
+/// `shellOverride` (the "+" menu / persisted default), then the payload env's
+/// SHELL, then the daemon's `$SHELL` — without honoring the override the daemon
+/// always spawned `$SHELL` regardless of the shell the pane asked for.
+///
+/// Args, in order of preference:
+/// - `shellArgs` from the payload: the client pre-computes the full launch
+///   config (login `-l`, ZDOTDIR/rcfile wrapper args — see
+///   docs/rust-migration/daemon-shell-launch.md), and any `command` is
+///   delivered via stdin so it runs inside the long-lived interactive shell.
+/// - no `shellArgs`, `command` present: legacy non-interactive `-lc` (kept for
+///   older clients and the parity corpus).
+/// - neither: a plain LOGIN shell (`-l`), matching pty-subprocess.ts:758 and
+///   local-pty-provider.ts:459 — without it terminals lose .zprofile/.zlogin
+///   env (brew shellenv PATH etc.).
+fn build_command(payload: &Value) -> ShellLaunch {
     let cwd = payload
         .get("cwd")
         .and_then(Value::as_str)
         .map(str::to_string);
+    let env = payload_env(payload);
     let shell = payload
         .get("shellOverride")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+        .or_else(|| env_shell_fallback(&env))
         .unwrap_or_else(default_shell);
-    let (program, args) = match payload.get("command").and_then(Value::as_str) {
-        Some(cmd) if !cmd.is_empty() => (shell, shell_run_args(cmd)),
-        _ => (shell, Vec::new()),
+    let shell_args: Option<Vec<String>> =
+        payload
+            .get("shellArgs")
+            .and_then(Value::as_array)
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            });
+    let command = payload
+        .get("command")
+        .and_then(Value::as_str)
+        .filter(|c| !c.is_empty())
+        .map(str::to_string);
+    let (args, stdin_command) = match (shell_args, command) {
+        (Some(args), command) => (args, command),
+        (None, Some(cmd)) => (shell_run_args(&cmd), None),
+        (None, None) => (plain_session_args(), None),
     };
-    PtyCommand {
-        program,
-        args,
-        cwd,
-        // Per-session env overrides (agent hooks, per-profile vars) and deletions —
-        // the createOrAttach `env` / `envToDelete` the adapter forwards. Dropping
-        // these ran daemon-spawned shells with only the daemon's inherited env.
-        env: payload_env(payload),
-        env_remove: payload_env_to_delete(payload),
+    ShellLaunch {
+        command: PtyCommand {
+            program: shell,
+            args,
+            cwd,
+            // Per-session env overrides (agent hooks, per-profile vars) and deletions —
+            // the createOrAttach `env` / `envToDelete` the adapter forwards. Dropping
+            // these ran daemon-spawned shells with only the daemon's inherited env.
+            env,
+            env_remove: payload_env_to_delete(payload),
+        },
+        stdin_command,
     }
 }
 
@@ -449,9 +531,32 @@ fn default_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }
 
+/// The Node daemon resolves the payload env's SHELL before its own `$SHELL`
+/// (shell-ready.ts resolvePtyShellPath) — mirror that on unix only; Windows
+/// shell resolution never keys off SHELL.
+#[cfg(unix)]
+fn env_shell_fallback(env: &[(String, String)]) -> Option<String> {
+    env.iter()
+        .find(|(k, _)| k == "SHELL")
+        .map(|(_, v)| v.clone())
+        .filter(|s| !s.is_empty())
+}
+
+#[cfg(windows)]
+fn env_shell_fallback(_env: &[(String, String)]) -> Option<String> {
+    None
+}
+
 #[cfg(unix)]
 fn shell_run_args(cmd: &str) -> Vec<String> {
     vec!["-lc".to_string(), cmd.to_string()]
+}
+
+/// F4b: a plain session runs the user shell as a LOGIN shell, so terminals get
+/// .zprofile/.zlogin env — same `['-l']` default as both Node references.
+#[cfg(unix)]
+fn plain_session_args() -> Vec<String> {
+    vec!["-l".to_string()]
 }
 
 /// Windows twin: ConPTY sessions run under `%ComSpec%` (cmd.exe), the platform's
@@ -466,36 +571,203 @@ fn shell_run_args(cmd: &str) -> Vec<String> {
     vec!["/C".to_string(), cmd.to_string()]
 }
 
+/// cmd.exe has no login semantics — plain Windows sessions stay arg-less.
+#[cfg(windows)]
+fn plain_session_args() -> Vec<String> {
+    Vec::new()
+}
+
+/// Write to a session's PTY through the shell-ready barrier: while the barrier
+/// is pending (or its post-ready flush gate hasn't fired), the data queues so
+/// it can't race ahead of the buffered startup command — session.ts write().
+/// Barrier locked INSIDE the registry lock (the crate-wide lock order).
+fn session_write(
+    registry: &Arc<Registry>,
+    session_id: &str,
+    data: &str,
+) -> Option<std::io::Result<()>> {
+    registry.with_session(session_id, |e| {
+        if let Some(barrier) = &e.barrier {
+            let mut barrier = barrier.lock().unwrap();
+            if barrier.should_queue() {
+                barrier.push_queued(data.to_string());
+                return Ok(());
+            }
+        }
+        e.pty.write_all(data.as_bytes())
+    })
+}
+
+/// Drain the barrier's stdin queue into the PTY iff `take` (a generation-checked
+/// gate/timeout acceptance) approves — all under the registry lock so no
+/// concurrent write can interleave with the flushed startup command.
+fn flush_queue_if(
+    registry: &Arc<Registry>,
+    session_id: &str,
+    barrier: &Arc<Mutex<ShellReadyBarrier>>,
+    take: impl FnOnce(&mut ShellReadyBarrier) -> bool,
+) {
+    registry.with_session(session_id, |e| {
+        let mut barrier = barrier.lock().unwrap();
+        if !take(&mut barrier) {
+            return;
+        }
+        for data in barrier.drain_queue() {
+            let _ = e.pty.write_all(data.as_bytes());
+        }
+    });
+}
+
+/// Schedule the post-ready flush gate timer a barrier transition asked for.
+/// Stale generations are no-ops inside the barrier, so a superseded timer
+/// firing late is harmless.
+fn spawn_gate_timer(
+    registry: Arc<Registry>,
+    session_id: String,
+    barrier: Arc<Mutex<ShellReadyBarrier>>,
+    timer: GateTimer,
+) {
+    thread::spawn(move || match timer {
+        GateTimer::PostData(generation) => {
+            thread::sleep(Duration::from_millis(POST_READY_FLUSH_DELAY_MS));
+            flush_queue_if(&registry, &session_id, &barrier, |b| {
+                b.on_post_data_elapsed(generation)
+            });
+        }
+        GateTimer::Fallback(generation) => {
+            thread::sleep(Duration::from_millis(POST_READY_FLUSH_FALLBACK_MS));
+            flush_queue_if(&registry, &session_id, &barrier, |b| {
+                b.on_fallback_elapsed(generation)
+            });
+        }
+    });
+}
+
+/// Bound the wait for a marker that may never come (wrapper-less shell, slow
+/// rc files): after `timeout_ms`, release the held partial-marker bytes
+/// downstream and flush the queued stdin — session.ts onShellReadyTimeout.
+fn spawn_ready_timeout(
+    registry: Arc<Registry>,
+    session_id: String,
+    barrier: Arc<Mutex<ShellReadyBarrier>>,
+    timeout_ms: u64,
+) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(timeout_ms));
+        // Transition + engine feed + queue flush in ONE registry-lock turn so a
+        // concurrent write can't slip between the state flip and the flush.
+        let held = registry
+            .with_session(&session_id, |e| {
+                let mut b = barrier.lock().unwrap();
+                let held = b.on_ready_timeout_elapsed()?;
+                if !held.is_empty() {
+                    if let Ok(mut engine) = e.engine.lock() {
+                        engine.terminal.process(held.as_bytes());
+                        engine.pending.record_output(&held);
+                    }
+                }
+                for data in b.drain_queue() {
+                    let _ = e.pty.write_all(data.as_bytes());
+                }
+                Some(held)
+            })
+            .flatten();
+        // Stream the released bytes outside the registry lock (route_output
+        // re-takes it). Ordering vs concurrent output is cosmetic here: the
+        // held bytes are at most a partial ESC]777 prefix.
+        if let Some(held) = held {
+            if !held.is_empty() {
+                registry.route_output(&session_id, &held);
+            }
+        }
+    });
+}
+
 fn pump_output(
     mut reader: Box<dyn Read + Send>,
     registry: Arc<Registry>,
     session_id: String,
     engine: Arc<Mutex<SessionEngine>>,
+    barrier: Option<Arc<Mutex<ShellReadyBarrier>>>,
 ) {
     let mut buf = [0u8; 65536];
-    // The engine is fed RAW bytes (its VT parser is byte-accurate and buffers
-    // incomplete sequences), but the checkpoint records + live stream are text, so
-    // decode with a boundary-carrying decoder: a multibyte char split across two
-    // reads is completed on the next chunk instead of becoming U+FFFD, which would
-    // desync the stream/records from the (correct) engine grid.
+    // Barrier-less sessions feed the engine RAW bytes (its VT parser is
+    // byte-accurate and buffers incomplete sequences), but the checkpoint records
+    // + live stream are text, so decode with a boundary-carrying decoder: a
+    // multibyte char split across two reads is completed on the next chunk
+    // instead of becoming U+FFFD, which would desync the stream/records from the
+    // (correct) engine grid.
     let mut decoder = Utf8StreamDecoder::new();
     loop {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
                 let data = decoder.decode(&buf[..n]);
-                // Feed the engine ATOMICALLY: raw bytes into the VT parser AND the
+                // While the barrier scans for the ready marker, the SCANNED text
+                // (marker stripped, partial prefix withheld) replaces the chunk
+                // everywhere downstream — engine, records, and stream — matching
+                // session.ts, where scanning runs before all fan-out. Once
+                // readiness resolves, the barrier only observes chunks for its
+                // post-ready flush gate.
+                let (scanned, timer) = match &barrier {
+                    Some(b) => {
+                        let mut b = b.lock().unwrap();
+                        if b.is_scanning() {
+                            let (text, timer) = b.process_output(&data);
+                            (Some(text), timer)
+                        } else {
+                            (None, b.notify_output())
+                        }
+                    }
+                    None => (None, None),
+                };
+                let text = scanned.as_deref().unwrap_or(&data);
+                // Feed the engine ATOMICALLY: bytes into the VT parser AND the
                 // same chunk into the checkpoint record log, under one lock so a
-                // concurrent takePendingOutput can't see the terminal updated but the
-                // record missing (which would duplicate bytes on cold restore).
-                if let Ok(mut engine) = engine.lock() {
-                    engine.terminal.process(&buf[..n]);
-                    engine.pending.record_output(&data);
+                // concurrent takePendingOutput can't see the terminal updated but
+                // the record missing (which would duplicate bytes on cold restore).
+                // A fully-withheld chunk (all bytes held by the marker scanner)
+                // feeds nothing, like session.ts's empty-output early return.
+                if scanned.is_none() || !text.is_empty() {
+                    if let Ok(mut engine) = engine.lock() {
+                        // Barrier sessions keep the DECODED engine feed for their whole
+                        // lifetime: the decoder can hold a split multibyte char as carry
+                        // across the scan→post-scan boundary, so switching back to raw
+                        // bytes there would hand the engine orphan continuation bytes
+                        // and corrupt one glyph in its grid vs the records/stream.
+                        if barrier.is_some() {
+                            engine.terminal.process(text.as_bytes());
+                        } else {
+                            engine.terminal.process(&buf[..n]);
+                        }
+                        engine.pending.record_output(text);
+                    }
+                    // Stream the same boundary-safe copy live to the attached client
+                    // (dropped if detached — the reattach snapshot restores it).
+                    registry.route_output(&session_id, text);
                 }
-                // Stream the same boundary-safe copy live to the attached client
-                // (dropped if detached — the reattach snapshot restores it).
-                registry.route_output(&session_id, &data);
+                if let Some(timer) = timer {
+                    spawn_gate_timer(
+                        registry.clone(),
+                        session_id.clone(),
+                        Arc::clone(barrier.as_ref().expect("timer implies barrier")),
+                        timer,
+                    );
+                }
             }
+        }
+    }
+    // A child that exits mid-scan releases the held partial-marker bytes so the
+    // final records/stream carry everything it wrote — session.ts
+    // handleSubprocessExit → releaseHeldShellReadyBytes.
+    if let Some(b) = &barrier {
+        let held = b.lock().unwrap().release_held_bytes();
+        if !held.is_empty() {
+            if let Ok(mut engine) = engine.lock() {
+                engine.terminal.process(held.as_bytes());
+                engine.pending.record_output(&held);
+            }
+            registry.route_output(&session_id, &held);
         }
     }
     // EOF means the child closed the PTY — i.e. it exited. Reap it for the REAL

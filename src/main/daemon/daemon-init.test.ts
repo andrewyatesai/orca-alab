@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- Why: this file covers the entire restart flow
    of daemon-init — construction, the 7-step sequence from
-   docs/daemon-staleness-ux.md §Phase 1, and the concurrency coalescer. A
+   docs/reference/daemon-staleness-ux.md §Phase 1, and the concurrency coalescer. A
    single describe block with shared mocks keeps setup in one place; splitting
    across files would duplicate the vi.hoisted boundary mocks with no cleaner
    ownership seam. */
@@ -331,6 +331,13 @@ vi.mock('../ipc/pty', () => ({
   setLocalPtyProvider: setLocalPtyProviderMock,
   unbindLocalProviderListeners: unbindLocalProviderListenersMock,
   rebindLocalProviderListeners: rebindLocalProviderListenersMock
+}))
+
+// Why: the status-reporting hooks broadcast via BrowserWindow, which this
+// suite's electron mock intentionally omits. The hooks have their own focused
+// coverage in daemon-init-status-reporting.test.ts.
+vi.mock('../ipc/daemon-status-registry', () => ({
+  setDaemonRuntimeStatus: vi.fn()
 }))
 
 // The Rust launcher's readiness is a health poll, not IPC — this fake child just

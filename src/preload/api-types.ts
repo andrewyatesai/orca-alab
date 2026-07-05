@@ -616,6 +616,31 @@ export type PtyManagementApi = {
   restart: () => Promise<{ success: boolean }>
 }
 
+// Why: renderer-facing mirror of the daemon-status registry shape
+// (src/main/ipc/daemon-status-registry.ts). Kept here instead of imported
+// because the preload boundary must not depend on main-only modules; keep the
+// two shapes in sync when adding fields on either side.
+export type DaemonRuntimeState = 'starting' | 'running' | 'degraded-fallback' | 'failed'
+
+export type DaemonRuntimeStatusCause =
+  | 'launch-failed'
+  | 'startup-timeout'
+  | 'spawn-unhealthy'
+  | 'restart-failed'
+
+export type DaemonRuntimeStatus = {
+  state: DaemonRuntimeState
+  cause: DaemonRuntimeStatusCause | null
+  detail: string | null
+  updatedAt: number
+}
+
+export type DaemonStatusApi = {
+  get: () => Promise<DaemonRuntimeStatus>
+  relaunch: () => Promise<{ success: boolean; error?: string }>
+  onChanged: (callback: (status: DaemonRuntimeStatus) => void) => () => void
+}
+
 export type ExportApi = {
   htmlToPdf: (args: {
     html: string
@@ -1217,6 +1242,7 @@ export type PreloadApi = {
     clearPendingPaneSerializer: (paneKey: string, gen: number) => Promise<void>
     management: PtyManagementApi
   }
+  daemonStatus: DaemonStatusApi
   feedback: {
     submit: (args: {
       feedback: string

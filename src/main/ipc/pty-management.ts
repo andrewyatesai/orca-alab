@@ -3,6 +3,7 @@ import { DaemonPtyRouter } from '../daemon/daemon-pty-router'
 import { DegradedDaemonPtyProvider } from '../daemon/degraded-daemon-pty-provider'
 import type { DaemonPtyAdapter } from '../daemon/daemon-pty-adapter'
 import { getDaemonProvider, restartDaemon } from '../daemon/daemon-init'
+import { registerDaemonStatusHandlers, relaunchDaemonForRecovery } from './daemon-status'
 import type { DaemonSessionInfo } from '../daemon/types'
 
 // Why: the daemon's session.kill() sends SIGTERM first and escalates to
@@ -57,6 +58,11 @@ async function collectSessions(adapters: DaemonPtyAdapter[]): Promise<DaemonSess
 }
 
 export function registerDaemonManagementHandlers(): void {
+  // Why: the daemon-status registry (docs/reference/daemon-staleness-ux.md §Phase 2)
+  // shares this registration lifecycle — both surfaces exist to make daemon
+  // failure visible, and both must be re-installed on window recreation.
+  registerDaemonStatusHandlers()
+
   ipcMain.removeHandler('pty:management:listSessions')
   ipcMain.removeHandler('pty:management:killAll')
   ipcMain.removeHandler('pty:management:killOne')
@@ -74,7 +80,7 @@ export function registerDaemonManagementHandlers(): void {
   // it fans across every adapter — current + legacy — to match the user's
   // "kill everything I might be attached to" mental model. The daemon
   // processes themselves survive; only sessions are torn down. See
-  // docs/daemon-staleness-ux.md §Phase 1 "Scope rationale" for why legacy
+  // docs/reference/daemon-staleness-ux.md §Phase 1 "Scope rationale" for why legacy
   // daemons aren't killed here.
   ipcMain.handle(
     'pty:management:killAll',
@@ -172,6 +178,18 @@ export function registerDaemonManagementHandlers(): void {
   )
 
   ipcMain.handle('pty:management:restart', async (): Promise<{ success: boolean }> => {
+    // Why: after a total launch failure or startup fail-open no provider was
+    // ever installed, so restartDaemon() has nothing to rebuild and would
+    // reject — the recovery path (kill local fallback PTYs, re-run init) is
+    // the only restart that works there. Every failure surface points users
+    // at this button, so it must succeed in all no-daemon states.
+    if (!getDaemonProvider()) {
+      const result = await relaunchDaemonForRecovery()
+      if (!result.success) {
+        console.error('[pty:management] daemon relaunch failed', result.error)
+      }
+      return { success: result.success }
+    }
     try {
       await restartDaemon()
       return { success: true }

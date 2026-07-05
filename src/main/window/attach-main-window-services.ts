@@ -95,7 +95,7 @@ export function attachMainWindowServices(
       isRecoveryReloadInFlight: options?.isRecoveryReloadInFlight
     }
   )
-  // Why: the Manage Sessions settings panel (docs/daemon-staleness-ux.md §Phase 1)
+  // Why: the Manage Sessions settings panel (docs/reference/daemon-staleness-ux.md §Phase 1)
   // uses a narrow `pty:management:*` IPC surface that reads the live
   // DaemonPtyRouter via getDaemonProvider(). Registering here — after
   // registerPtyHandlers — keeps this wiring alongside the rest of the PTY IPC

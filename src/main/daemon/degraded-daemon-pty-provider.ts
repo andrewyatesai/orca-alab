@@ -14,8 +14,10 @@ type ManagedPtyProvider = IPtyProvider & {
 export class DegradedDaemonPtyProvider implements IPtyProvider {
   readonly routesFreshSpawnsToLocalProvider = true
   // Why: the preserved daemon answers protocol but cannot spawn fresh PTYs.
-  // Surfaced (e.g. via pty:management:listSessions) so the UI can warn that
-  // new terminals are running without daemon persistence until a restart.
+  // Surfaced to the UI as the `degraded` flag on pty:management:listSessions
+  // and as 'degraded-fallback' in the daemon-status registry (both key off
+  // `instanceof DegradedDaemonPtyProvider`); this marker keeps the contract
+  // visible on the provider type itself.
   readonly isDegraded = true
 
   private current: DaemonPtyAdapter

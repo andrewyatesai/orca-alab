@@ -5,6 +5,7 @@ import { basename } from 'node:path'
 import { existsSync } from 'node:fs'
 import { DaemonClient } from './client'
 import { getMacDaemonSystemResolverHealth } from './daemon-health'
+import { buildPosixDaemonShellLaunch } from './daemon-shell-launch-config'
 import { HistoryManager } from './history-manager'
 import { HistoryReader, type ColdRestoreInfo } from './history-reader'
 import { mintPtySessionId, parsePtySessionId } from './pty-session-id'
@@ -110,6 +111,16 @@ export class DaemonPtyAdapter implements IPtyProvider {
   // unaffected and bypass this) for a ~9x cut in worst-case write volume.
   private static FULL_CHECKPOINT_COOLDOWN_MS = 45_000
   private lastFullCheckpointAt = new Map<string, number>()
+  // Why: a keepHistory shutdown (sleep/exact-stop) kills the child, and the
+  // daemon then emits a normal exit event. That exit must not stamp endedAt
+  // or delete the at-rest files — the final checkpoint written just before
+  // the kill IS the wake cold-restore source.
+  private sleptWithHistory = new Set<string>()
+  // Why: the exit handler deletes at-rest files on clean exit, but an exit
+  // event can race an in-flight doSpawn for the same id (probe→createOrAttach
+  // gap). The spawn path restores from those files via ignoreCleanEnd, so
+  // deletion must be skipped while a spawn is in flight.
+  private spawnsInFlight = new Map<string, number>()
 
   constructor(opts: DaemonPtyAdapterOptions) {
     this.protocolVersion = opts.protocolVersion ?? PROTOCOL_VERSION
@@ -147,6 +158,26 @@ export class DaemonPtyAdapter implements IPtyProvider {
       throw new TerminalKilledError(sessionId)
     }
 
+    // Wake (or id reuse): the session leaves the slept state, so its next
+    // exit goes through the normal clean-exit cleanup again.
+    this.sleptWithHistory.delete(sessionId)
+    this.spawnsInFlight.set(sessionId, (this.spawnsInFlight.get(sessionId) ?? 0) + 1)
+    try {
+      return await this.doSpawnForSession(sessionId, opts)
+    } finally {
+      const remaining = (this.spawnsInFlight.get(sessionId) ?? 1) - 1
+      if (remaining <= 0) {
+        this.spawnsInFlight.delete(sessionId)
+      } else {
+        this.spawnsInFlight.set(sessionId, remaining)
+      }
+    }
+  }
+
+  private async doSpawnForSession(
+    sessionId: string,
+    opts: PtySpawnOptions
+  ): Promise<PtySpawnResult> {
     if (opts.isNewSession) {
       await this.replaceUnhealthyMacResolverDaemonBeforeNewPty()
     }
@@ -189,12 +220,32 @@ export class DaemonPtyAdapter implements IPtyProvider {
         ? CODEX_SHELL_READY_TIMEOUT_MS
         : undefined
 
+    // Why: the Rust daemon spawns program/args verbatim, so the whole POSIX
+    // shell-launch layer (login -l, ZDOTDIR/rcfile wrappers, macOS login(1)
+    // TCC wrap) is pre-computed here from the same TS modules the local
+    // provider uses. Null on Windows — the Node daemon owns that layer.
+    // Why the fork-protocol gate: a legacy adapter (live public Node daemon
+    // attached via PREVIOUS_DAEMON_PROTOCOL_VERSIONS) ignores shellArgs, so
+    // it would spawn shellOverride — /usr/bin/login on macOS — with its own
+    // args and drop the user at a `login:` password prompt on a sleep/wake
+    // respawn. Legacy keeps the plain opts passthrough.
+    const posixLaunch =
+      this.protocolVersion === PROTOCOL_VERSION
+        ? buildPosixDaemonShellLaunch({
+            shellOverride: opts.shellOverride,
+            env: opts.env,
+            envToDelete: opts.envToDelete,
+            command: opts.command,
+            startupCommandDelivery: opts.startupCommandDelivery
+          })
+        : null
+
     const result = await this.client.request<CreateOrAttachResult>('createOrAttach', {
       sessionId,
       cols: effectiveCols,
       rows: effectiveRows,
       cwd: effectiveCwd,
-      env: opts.env,
+      env: posixLaunch ? posixLaunch.env : opts.env,
       envToDelete: opts.envToDelete,
       command: opts.command,
       startupCommandDelivery: opts.startupCommandDelivery,
@@ -203,7 +254,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
       // asked for in the "+" menu or persisted as the default. Forwarding
       // the override makes the daemon path behave the same as the in-process
       // LocalPtyProvider.
-      shellOverride: opts.shellOverride,
+      shellOverride: posixLaunch ? posixLaunch.shellOverride : opts.shellOverride,
+      ...(posixLaunch ? { shellArgs: posixLaunch.shellArgs } : {}),
       terminalWindowsWslDistro: opts.terminalWindowsWslDistro,
       terminalWindowsPowerShellImplementation: opts.terminalWindowsPowerShellImplementation,
       shellReadySupported,
@@ -354,8 +406,24 @@ export class DaemonPtyAdapter implements IPtyProvider {
     // so force a final checkpoint before killing the daemon session.
     if (opts.keepHistory) {
       await this.checkpointSessions([id], { final: true, teardown: true })
+      // Why flag before kill: the kill-triggered exit event can beat the kill
+      // RPC reply, and the exit handler must already know this session slept.
+      this.sleptWithHistory.add(id)
+      // Why release: dispose() stamps endedAt on every remaining writer,
+      // which would make the slept session ineligible for wake cold-restore.
+      this.historyManager?.releaseWriter(id)
     }
-    await this.client.request('kill', { sessionId: id, immediate: opts.immediate ?? false })
+    try {
+      await this.client.request('kill', { sessionId: id, immediate: opts.immediate ?? false })
+    } catch (err) {
+      // Why: kill's intent is "make it dead" — a session that already exited
+      // satisfies it. Rethrowing would also skip the local teardown below
+      // (tombstones, history removal), stranding at-rest scrollback whenever
+      // a close races the session's own exit.
+      if (!isSessionAlreadyGoneError(err)) {
+        throw err
+      }
+    }
     this.activeSessionIds.delete(id)
     this.dirtySessionVersions.delete(id)
     this.coldRestoreCache.delete(id)
@@ -381,6 +449,8 @@ export class DaemonPtyAdapter implements IPtyProvider {
     // killed. Sleep legitimately reattaches on wake, so skip both the LRU bump
     // and the size-cap eviction under keepHistory.
     if (!opts.keepHistory) {
+      // An explicit close of a previously-slept session ends the slept state.
+      this.sleptWithHistory.delete(id)
       this.killedSessionTombstones.delete(id)
       this.killedSessionTombstones.set(id, Date.now())
       if (this.killedSessionTombstones.size > MAX_TOMBSTONES) {
@@ -511,6 +581,15 @@ export class DaemonPtyAdapter implements IPtyProvider {
           await this.client.request('kill', { sessionId: session.sessionId })
         } catch {
           /* already dead */
+        }
+        // Why: an orphan's worktree is gone, so its at-rest scrollback has no
+        // owner left to restore it — reclaim the files with the session.
+        if (this.historyManager) {
+          void this.historyManager
+            .removeSession(session.sessionId)
+            .catch((err) =>
+              console.warn('[history] orphan removeSession failed:', session.sessionId, err)
+            )
         }
         killed.push(session.sessionId)
       } else {
@@ -1027,10 +1106,36 @@ export class DaemonPtyAdapter implements IPtyProvider {
         // not inherit the dead session's snapshot cooldown.
         this.lastFullCheckpointAt.delete(event.sessionId)
         this.stopCheckpointTimerIfIdle()
-        if (this.historyManager) {
-          void this.historyManager
+        // Why slept sessions skip everything: their final checkpoint is the
+        // wake cold-restore source, and stamping endedAt would make the
+        // restore reader reject it (parity with the Node daemon, whose
+        // immediate kill never fires onExit at all).
+        const sleptWithHistory = this.sleptWithHistory.delete(event.sessionId)
+        if (this.historyManager && !sleptWithHistory) {
+          const historyManager = this.historyManager
+          // Why files are deleted on clean exit: at-rest scrollback carries
+          // secrets and is only useful for restoring sessions that died
+          // without an exit event (daemon crash / offline exit). A session
+          // that exits through the live stream is done — except while a
+          // spawn is in flight, where the probe-race restore path may still
+          // need the files (its respawn re-anchors or reopens them).
+          const removeAtRest = (this.spawnsInFlight.get(event.sessionId) ?? 0) === 0
+          void historyManager
             .closeSession(event.sessionId, event.payload.code)
-            .catch((err) => console.warn('[history] closeSession failed:', event.sessionId, err))
+            .then(() => {
+              // Re-checked after the async close: a respawn may have started
+              // (or completed) in the meantime, and deleting the fresh
+              // session's dir would disable its history writer.
+              const respawned =
+                (this.spawnsInFlight.get(event.sessionId) ?? 0) > 0 ||
+                this.activeSessionIds.has(event.sessionId)
+              return removeAtRest && !respawned
+                ? historyManager.removeSession(event.sessionId)
+                : undefined
+            })
+            .catch((err) =>
+              console.warn('[history] exit cleanup failed:', event.sessionId, err)
+            )
         }
         this.initialCwds.delete(event.sessionId)
         // oxlint-disable-next-line unicorn/no-useless-spread -- copy-safe: listeners may unsubscribe during iteration
@@ -1040,6 +1145,14 @@ export class DaemonPtyAdapter implements IPtyProvider {
       }
     })
   }
+}
+
+// Why both strings: the Node daemon rejects a kill of a dead session with
+// "Session not found: <id>" (SessionNotFoundError) while the Rust daemon
+// says "unknown session". Either way the session is already gone and the
+// kill's intent is satisfied.
+export function isSessionAlreadyGoneError(err: unknown): boolean {
+  return err instanceof Error && /session not found|unknown session/i.test(err.message)
 }
 
 // Why: ENOENT/ECONNREFUSED with syscall 'connect' mean the socket is

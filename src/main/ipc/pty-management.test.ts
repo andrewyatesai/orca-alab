@@ -5,14 +5,21 @@ with no meaningful ownership seam. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DaemonSessionInfo } from '../daemon/types'
 
-const { handleMock, removeHandlerMock, getDaemonProviderMock, restartDaemonMock } = vi.hoisted(
-  () => ({
-    handleMock: vi.fn(),
-    removeHandlerMock: vi.fn(),
-    getDaemonProviderMock: vi.fn(),
-    restartDaemonMock: vi.fn()
-  })
-)
+const {
+  handleMock,
+  removeHandlerMock,
+  getDaemonProviderMock,
+  restartDaemonMock,
+  relaunchDaemonForRecoveryMock,
+  registerDaemonStatusHandlersMock
+} = vi.hoisted(() => ({
+  handleMock: vi.fn(),
+  removeHandlerMock: vi.fn(),
+  getDaemonProviderMock: vi.fn(),
+  restartDaemonMock: vi.fn(),
+  relaunchDaemonForRecoveryMock: vi.fn(),
+  registerDaemonStatusHandlersMock: vi.fn()
+}))
 
 vi.mock('electron', () => ({
   ipcMain: { handle: handleMock, removeHandler: removeHandlerMock }
@@ -21,6 +28,13 @@ vi.mock('electron', () => ({
 vi.mock('../daemon/daemon-init', () => ({
   getDaemonProvider: getDaemonProviderMock,
   restartDaemon: restartDaemonMock
+}))
+
+// Why: keep this file focused on channel routing — the relaunch recovery
+// behavior itself is covered by daemon-status.test.ts.
+vi.mock('./daemon-status', () => ({
+  registerDaemonStatusHandlers: registerDaemonStatusHandlersMock,
+  relaunchDaemonForRecovery: relaunchDaemonForRecoveryMock
 }))
 
 // Why: the handler uses `provider instanceof DaemonPtyRouter` to branch
@@ -137,6 +151,7 @@ describe('pty:management IPC handlers', () => {
   beforeEach(() => {
     getDaemonProviderMock.mockReset()
     restartDaemonMock.mockReset()
+    relaunchDaemonForRecoveryMock.mockReset()
   })
 
   afterEach(() => {
@@ -432,10 +447,11 @@ describe('pty:management IPC handlers', () => {
   })
 
   describe('restart', () => {
-    it('delegates to restartDaemon and reports success', async () => {
+    it('delegates to restartDaemon and reports success when a provider is installed', async () => {
       restartDaemonMock.mockResolvedValue({ killedCount: 2 })
 
       const { registerDaemonManagementHandlers } = await importFresh()
+      getDaemonProviderMock.mockReturnValue(await makeRouter(makeAdapter(5, [])))
       registerDaemonManagementHandlers()
 
       const handlers = buildHandlerMap()
@@ -443,12 +459,14 @@ describe('pty:management IPC handlers', () => {
 
       expect(result.success).toBe(true)
       expect(restartDaemonMock).toHaveBeenCalledTimes(1)
+      expect(relaunchDaemonForRecoveryMock).not.toHaveBeenCalled()
     })
 
     it('returns success=false when restartDaemon throws', async () => {
       restartDaemonMock.mockRejectedValue(new Error('spawn failed'))
 
       const { registerDaemonManagementHandlers } = await importFresh()
+      getDaemonProviderMock.mockReturnValue(await makeRouter(makeAdapter(5, [])))
       registerDaemonManagementHandlers()
 
       const handlers = buildHandlerMap()
@@ -457,6 +475,41 @@ describe('pty:management IPC handlers', () => {
       consoleErrorSpy.mockRestore()
 
       expect(result.success).toBe(false)
+    })
+
+    // Why: after a total launch failure no provider exists, so restartDaemon()
+    // would reject on its precondition — the settings Restart button (the
+    // recovery every failure surface points at) must route to the recovery
+    // relaunch instead of deterministically failing.
+    it('routes to relaunchDaemonForRecovery when no provider is installed', async () => {
+      relaunchDaemonForRecoveryMock.mockResolvedValue({ success: true })
+
+      const { registerDaemonManagementHandlers } = await importFresh()
+      getDaemonProviderMock.mockReturnValue(null)
+      registerDaemonManagementHandlers()
+
+      const handlers = buildHandlerMap()
+      const result = (await handlers['pty:management:restart']({})) as { success: boolean }
+
+      expect(result.success).toBe(true)
+      expect(relaunchDaemonForRecoveryMock).toHaveBeenCalledTimes(1)
+      expect(restartDaemonMock).not.toHaveBeenCalled()
+    })
+
+    it('surfaces relaunch failure as success=false', async () => {
+      relaunchDaemonForRecoveryMock.mockResolvedValue({ success: false, error: 'still broken' })
+
+      const { registerDaemonManagementHandlers } = await importFresh()
+      getDaemonProviderMock.mockReturnValue(null)
+      registerDaemonManagementHandlers()
+
+      const handlers = buildHandlerMap()
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const result = (await handlers['pty:management:restart']({})) as { success: boolean }
+      consoleErrorSpy.mockRestore()
+
+      expect(result.success).toBe(false)
+      expect(restartDaemonMock).not.toHaveBeenCalled()
     })
   })
 })

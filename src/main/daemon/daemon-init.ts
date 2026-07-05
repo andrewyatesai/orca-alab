@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- Why: this module owns the complete daemon
 lifecycle for the Electron main process — init, out-of-process launch,
 current+legacy adapter wiring, restart orchestration (the 7-step sequence
-from docs/daemon-staleness-ux.md §Phase 1), and teardown on app quit. Splitting
+from docs/reference/daemon-staleness-ux.md §Phase 1), and teardown on app quit. Splitting
 it would scatter the "swap the running provider atomically" invariant across
 files with no cleaner ownership seam: restart, replaceDaemonProvider, and the
 module-level spawner/adapter singletons must stay co-located so a future
@@ -43,7 +43,10 @@ import {
   unbindLocalProviderListeners,
   rebindLocalProviderListeners
 } from '../ipc/pty'
+import { setDaemonRuntimeStatus } from '../ipc/daemon-status-registry'
 import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from '../startup/startup-diagnostics'
+import { prepareDaemonSessionStoreRoot } from './history-store-layout'
+import { scheduleDaemonSessionHistoryGc } from './history-retention'
 
 // Why: daemon init runs concurrently with window load, so harness-side stderr
 // arrival times are useless — in-process `t` lets the startup benchmark derive
@@ -71,9 +74,32 @@ function getRuntimeDir(): string {
 }
 
 function getHistoryDir(): string {
-  const dir = join(app.getPath('userData'), 'terminal-history')
-  mkdirSync(dir, { recursive: true })
-  return dir
+  // Why the layout module: daemon session history lives in a daemon-owned
+  // subdir of terminal-history (0o700/ACL-hardened, with a one-time migration
+  // of dirs older builds wrote at the shared top level).
+  return prepareDaemonSessionStoreRoot(join(app.getPath('userData'), 'terminal-history'))
+}
+
+// Why null on failure: the history GC treats unknown liveness as "only prune
+// dirs that are provably dead (stamped endedAt)", so a daemon hiccup can
+// never cost restorable crash scrollback.
+async function collectDaemonLiveSessionIdsForHistoryGc(): Promise<Set<string> | null> {
+  const provider = getDaemonProvider()
+  if (!provider) {
+    return null
+  }
+  try {
+    const adapters = [getCurrentDaemonAdapter(provider), ...getLegacyDaemonAdapters(provider)]
+    const ids = new Set<string>()
+    for (const daemonAdapter of adapters) {
+      for (const session of await daemonAdapter.listSessions()) {
+        ids.add(session.sessionId)
+      }
+    }
+    return ids
+  } catch {
+    return null
+  }
 }
 
 function getDaemonEntryPath(): string {
@@ -589,6 +615,34 @@ function makeRespawnCallback(spawner: DaemonSpawner): () => Promise<void> {
 }
 
 export async function initDaemonPtyProvider(signal?: AbortSignal): Promise<void> {
+  // Why (docs/reference/daemon-staleness-ux.md §Phase 2): every init outcome must land in
+  // the daemon-status registry so the renderer can surface lost persistence —
+  // a silent fallback to the local provider is the failure mode this prevents.
+  setDaemonRuntimeStatus('starting')
+  let installed: DaemonProvider | null
+  try {
+    installed = await runInitDaemonPtyProvider(signal)
+  } catch (error) {
+    setDaemonRuntimeStatus('failed', {
+      cause: 'launch-failed',
+      detail: error instanceof Error ? error.message : String(error)
+    })
+    throw error
+  }
+  if (installed instanceof DegradedDaemonPtyProvider) {
+    setDaemonRuntimeStatus('degraded-fallback', { cause: 'spawn-unhealthy' })
+  } else if (installed) {
+    setDaemonRuntimeStatus('running')
+  } else {
+    // Aborted by startup fail-open: no daemon provider was installed, so fresh
+    // spawns run on the in-process LocalPtyProvider without persistence.
+    setDaemonRuntimeStatus('degraded-fallback', { cause: 'startup-timeout' })
+  }
+}
+
+// Returns the provider that was installed, or null when the init attempt was
+// aborted by the startup fail-open path (no swap happened).
+async function runInitDaemonPtyProvider(signal?: AbortSignal): Promise<DaemonProvider | null> {
   logDaemonMilestone('daemon-init-start')
   // Why: e2e coverage for the startup PTY gate (#5232) needs a daemon init
   // that deterministically outlasts the first-window timeout. Real triggers
@@ -614,7 +668,7 @@ export async function initDaemonPtyProvider(signal?: AbortSignal): Promise<void>
   if (signal?.aborted) {
     // Why: startup fail-open may already have allowed fallback LocalPtyProvider
     // PTYs to spawn. A late daemon swap would strand those PTYs on the old owner.
-    return
+    return null
   }
 
   const newAdapter = new DaemonPtyAdapter({
@@ -649,7 +703,7 @@ export async function initDaemonPtyProvider(signal?: AbortSignal): Promise<void>
   if (signal?.aborted) {
     // Why: same late-swap guard after legacy discovery, which can also exceed
     // the first-window startup timeout on slow or stale daemon state.
-    return
+    return null
   }
 
   spawner = newSpawner
@@ -659,7 +713,14 @@ export async function initDaemonPtyProvider(signal?: AbortSignal): Promise<void>
   // before daemon init finishes. Rebind here so daemon PTYs still fan out
   // data/exit events through the renderer and runtime listeners.
   rebindLocalProviderListeners()
+  // Startup + periodic reclaim of stranded at-rest scrollback (age + size
+  // caps). Idempotent across daemon restarts; liveness is re-queried per pass.
+  scheduleDaemonSessionHistoryGc({
+    getSessionsRoot: getHistoryDir,
+    collectLiveSessionIds: collectDaemonLiveSessionIdsForHistoryGc
+  })
   logDaemonMilestone('daemon-init-done', { legacyAdapters: legacyAdapters.length })
+  return routedAdapter
 }
 
 // Why: the Manage Sessions IPC handlers need read access to the current
@@ -707,7 +768,7 @@ export type RestartDaemonResult = {
   killedCount: number
 }
 
-// Why: the 7-step sequence from docs/daemon-staleness-ux.md §Phase 1 restart.
+// Why: the 7-step sequence from docs/reference/daemon-staleness-ux.md §Phase 1 restart.
 // Current-protocol only — legacy adapters are preserved and route to their
 // original daemons with no respawn path. See the design doc for rationale on
 // each step, notably why synthetic exits must fan out *before* the listener
@@ -716,9 +777,39 @@ export async function restartDaemon(): Promise<RestartDaemonResult> {
   if (restartInFlight) {
     return restartInFlight
   }
-  restartInFlight = runRestartDaemon().finally(() => {
-    restartInFlight = null
-  })
+  // Why: with no provider installed (launch failed or startup fail-open) there
+  // is nothing to restart — recovery is re-running init (see
+  // relaunchDaemonForRecovery in ipc/daemon-status.ts). Reject before the
+  // status hooks below so the registry keeps the actionable launch-failed
+  // detail instead of clobbering it with this precondition as 'restart-failed'.
+  if (!spawner || !adapter) {
+    throw new Error('restartDaemon called before initDaemonPtyProvider')
+  }
+  // Why: every restart caller (settings button, status-toast Retry) must flip
+  // the shared daemon-status registry, not just its own toast — the sticky
+  // degraded/failed surfaces clear only on a registry transition.
+  restartInFlight = runRestartDaemon()
+    .then((result) => {
+      // Why: key success off the installed provider — restart currently always
+      // installs a healthy adapter/router, but a future degraded restart
+      // outcome must not be misreported as 'running'.
+      if (adapter instanceof DegradedDaemonPtyProvider) {
+        setDaemonRuntimeStatus('degraded-fallback', { cause: 'spawn-unhealthy' })
+      } else {
+        setDaemonRuntimeStatus('running')
+      }
+      return result
+    })
+    .catch((error: unknown) => {
+      setDaemonRuntimeStatus('failed', {
+        cause: 'restart-failed',
+        detail: error instanceof Error ? error.message : String(error)
+      })
+      throw error
+    })
+    .finally(() => {
+      restartInFlight = null
+    })
   return restartInFlight
 }
 
@@ -726,6 +817,8 @@ async function runRestartDaemon(): Promise<RestartDaemonResult> {
   const currentSpawner = spawner
   const currentAdapter = adapter
   if (!currentSpawner || !currentAdapter) {
+    // Unreachable: restartDaemon rejects pre-hook when these are null (and
+    // calls us synchronously, so they can't be nulled in between). TS narrowing.
     throw new Error('restartDaemon called before initDaemonPtyProvider')
   }
 

@@ -14,6 +14,7 @@
 
 use crate::pending_output::PendingOutput;
 use crate::protocol::{data_event, exit_event};
+use crate::shell_ready_barrier::ShellReadyBarrier;
 use orca_net::encode_ndjson_line;
 use orca_pty::PtySession;
 use orca_terminal::HeadlessTerminal;
@@ -40,6 +41,10 @@ pub struct SessionEntry {
     pub pid: Option<u32>,
     pub created_at_ms: u128,
     pub engine: Arc<Mutex<SessionEngine>>,
+    /// The shell-ready startup barrier (session.ts pre-ready stdin queue).
+    /// `None` when the client didn't request readiness detection. Lock order:
+    /// registry → barrier (never the reverse) — the pump locks it alone.
+    pub barrier: Option<Arc<Mutex<ShellReadyBarrier>>>,
 }
 
 #[derive(Default)]
@@ -87,11 +92,11 @@ impl Registry {
         &self,
         session_id: &str,
         new_client_id: &str,
-    ) -> Option<Arc<Mutex<SessionEngine>>> {
+    ) -> Option<(Arc<Mutex<SessionEngine>>, &'static str)> {
         let mut inner = self.inner.lock().unwrap();
         let entry = inner.sessions.get_mut(session_id)?;
         entry.client_id = new_client_id.to_string();
-        Some(Arc::clone(&entry.engine))
+        Some((Arc::clone(&entry.engine), shell_state_of(entry)))
     }
 
     /// Dispose a session outright (drop its PTY + engine). Used to clear a dead entry
@@ -205,17 +210,42 @@ impl Registry {
         &self,
         session_id: &str,
         include_snapshot: bool,
+        teardown_snapshot: bool,
     ) -> Option<(Vec<Value>, u64, bool, Value)> {
-        let engine = self.engine_of(session_id)?;
+        let (engine, barrier) = {
+            let inner = self.inner.lock().unwrap();
+            let entry = inner.sessions.get(session_id)?;
+            (Arc::clone(&entry.engine), entry.barrier.clone())
+        };
+        // Final (teardown) takes release the barrier's held partial-marker bytes
+        // — session.ts prepareForFinalSnapshot. They are fed to the engine (its
+        // parser just buffers the incomplete OSC, so the snapshot won't render
+        // them) and returned as a post-checkpoint log-tail record below.
+        let released_held = if include_snapshot && teardown_snapshot {
+            barrier
+                .map(|b| b.lock().unwrap().release_held_bytes())
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         let mut engine = engine.lock().unwrap();
+        if !released_held.is_empty() {
+            engine.terminal.process(released_held.as_bytes());
+        }
         // Always drain (resets the accumulator + advances seq), but a full-snapshot
         // checkpoint SUPERSEDES the incremental log: return the snapshot and DROP the
-        // records, matching session.ts (which returns [] when includeSnapshot). A
-        // plain incremental take returns the records with no snapshot.
+        // records, matching session.ts (which returns [] when includeSnapshot — held
+        // bytes are the one exception, as a post-checkpoint tail). A plain
+        // incremental take returns the records with no snapshot.
         let (records, seq, overflowed) = engine.pending.take();
         if include_snapshot {
             let snapshot = crate::rpc::build_snapshot(&mut engine.terminal);
-            Some((Vec::new(), seq, overflowed, snapshot))
+            let records = if released_held.is_empty() {
+                Vec::new()
+            } else {
+                vec![json!({ "kind": "output", "data": released_held })]
+            };
+            Some((records, seq, overflowed, snapshot))
         } else {
             Some((records, seq, overflowed, Value::Null))
         }
@@ -253,8 +283,8 @@ impl Registry {
                 // Every entry in the map is live (exited sessions are reaped), so
                 // state is always running/isAlive:true — the Node daemon likewise
                 // only lists live sessions. Real engine cwd (OSC 7), not null;
-                // shellState is the honest valid ShellReadyState ("unsupported" — no
-                // OSC-133 readiness detection here).
+                // shellState is the session's live barrier state (pending/ready/
+                // timed_out), or "unsupported" when no barrier was requested.
                 let cwd = e
                     .engine
                     .lock()
@@ -263,7 +293,7 @@ impl Registry {
                 json!({
                     "sessionId": sid,
                     "state": "running",
-                    "shellState": "unsupported",
+                    "shellState": shell_state_of(e),
                     "isAlive": true,
                     "pid": e.pid,
                     "cwd": cwd,
@@ -275,4 +305,14 @@ impl Registry {
             .collect();
         json!({ "sessions": sessions })
     }
+}
+
+/// The session's wire `ShellReadyState`. Locked inside the registry lock —
+/// consistent with the registry → barrier lock order used everywhere.
+fn shell_state_of(entry: &SessionEntry) -> &'static str {
+    entry
+        .barrier
+        .as_ref()
+        .map(|b| b.lock().unwrap().state().as_wire())
+        .unwrap_or("unsupported")
 }

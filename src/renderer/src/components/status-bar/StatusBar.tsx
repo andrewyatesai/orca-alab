@@ -58,6 +58,7 @@ import { AgentIcon } from '@/lib/agent-catalog'
 import { formatWindowLabel } from '@/lib/window-label-formatter'
 import { markLiveCodexSessionsForRestart } from '@/lib/codex-session-restart'
 import { UpdateStatusSegment } from './UpdateStatusSegment'
+import { DaemonStatusSegment } from './DaemonStatusSegment'
 import { isStatusBarItemAvailable } from './status-bar-agent-gating'
 import { getVisibleUsageProvider, isUsageEmptyState } from './status-bar-provider-visibility'
 import { StatusBarUsageEmptyCta } from './StatusBarUsageEmptyCta'
@@ -1987,6 +1988,10 @@ function StatusBarInner({ floatingTerminalOpen }: StatusBarProps): React.JSX.Ele
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
+        {/* Why: always mounted (not gated by a visibility toggle) — it renders
+            nothing while the daemon is healthy and is the persistent half of
+            the daemon failure-visibility UX (docs/reference/daemon-staleness-ux.md §Phase 2). */}
+        <DaemonStatusSegment compact={compact} iconOnly={iconOnly} />
         <UpdateStatusSegment compact={compact} iconOnly={iconOnly} />
         <React.Suspense fallback={null}>
           {petEnabled ? <PetStatusSegment /> : null}

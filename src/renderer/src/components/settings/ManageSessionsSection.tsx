@@ -10,6 +10,7 @@ import { activateTabAndFocusPane } from '@/lib/activate-tab-and-focus-pane'
 import { useDaemonActions, DaemonActionDialog } from '../shared/useDaemonActions'
 import { ManageSessionKillDialog } from './ManageSessionKillDialog'
 import { ManageSessionsTable } from './ManageSessionsTable'
+import { useDaemonRuntimeStatus } from '@/lib/daemon-runtime-status-store'
 import { translate } from '@/i18n/i18n'
 
 type ConfirmKind = 'killOne'
@@ -25,6 +26,7 @@ export function ManageSessionsSection(): React.JSX.Element {
   const isMounted = useRef(true)
   const mutationInFlight = useRef(false)
 
+  const daemonStatus = useDaemonRuntimeStatus()
   const tabsByWorktree = useAppStore((s) => s.tabsByWorktree)
   const ptyIdsByTabId = useAppStore((s) => s.ptyIdsByTabId)
   const setActiveView = useAppStore((s) => s.setActiveView)
@@ -207,12 +209,27 @@ export function ManageSessionsSection(): React.JSX.Element {
       {degraded && hasLoadedOnce && (
         <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            {translate(
-              'auto.components.settings.ManageSessionsSection.daemonDegraded',
-              'The terminal daemon isn’t running, so new terminals run in-process and won’t survive a restart. Restart the daemon below to restore persistence.'
-            )}
-          </span>
+          <div className="space-y-1">
+            <span>
+              {daemonStatus.state === 'failed'
+                ? translate(
+                    'auto.components.settings.ManageSessionsSection.daemonFailed',
+                    'The terminal daemon failed to start, so new terminals run in-process and won’t survive a restart. Restart the daemon below to restore persistence.'
+                  )
+                : translate(
+                    'auto.components.settings.ManageSessionsSection.daemonDegraded',
+                    'The terminal daemon isn’t running, so new terminals run in-process and won’t survive a restart. Restart the daemon below to restore persistence.'
+                  )}
+            </span>
+            {/* Why: the raw launch error is the only actionable diagnostic for a
+                failed daemon (missing binary, exec perms); surface it where the
+                recovery action lives. */}
+            {daemonStatus.detail ? (
+              <div className="break-all text-[11px] text-destructive/80">
+                {daemonStatus.detail}
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
 

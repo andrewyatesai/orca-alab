@@ -323,6 +323,7 @@ fn ping_and_unknown_session_error() {
 
 #[test]
 fn protocol_version_is_pinned() {
-    // Guards against an accidental bump away from the Node daemon's version.
-    assert_eq!(orca_daemon::protocol::PROTOCOL_VERSION, 18);
+    // Guards the fork's daemon namespace: 1000+ is fork-reserved so a public
+    // Orca build (v18) never handshakes with this daemon (see protocol.rs).
+    assert_eq!(orca_daemon::protocol::PROTOCOL_VERSION, 1018);
 }

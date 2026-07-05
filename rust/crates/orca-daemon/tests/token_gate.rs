@@ -45,7 +45,7 @@ fn hello_reply(socket_path: &str, token: &str) -> String {
     let hello = format!(
         "{}\n",
         serde_json::json!({
-            "type": "hello", "version": 18, "token": token,
+            "type": "hello", "version": orca_daemon::protocol::PROTOCOL_VERSION, "token": token,
             "clientId": "tok-test", "role": "control"
         })
     );

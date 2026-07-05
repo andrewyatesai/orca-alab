@@ -4631,7 +4631,7 @@
           "b15ce90870": "{{value0}} -> {{value1}}. Reinicia los terminales Claude activos antes de continuar sesiones antiguas.",
           "f921d32606": "Cuenta Claude actualizada.",
           "5bf8764953": "Error al actualizar la cuenta del Codex.",
-          "9baf45d071": "Este dispositivo",
+          "9baf45d071": "este dispositivo",
           "2358ac71d2": "WSL predeterminado",
           "ad47a33f72": "Cargando WSL",
           "8619f9afa9": "WSL",
@@ -5500,7 +5500,9 @@
           "bfba05dccd": "Sesión finalizada.",
           "c535cbdd09": "No se pudieron cargar las sesiones.",
           "e3d1fbe008": "Reanudar",
-          "a06ababda0": "matar a todos"
+          "a06ababda0": "matar a todos",
+          "daemonDegraded": "The terminal daemon isn’t running, so new terminals run in-process and won’t survive a restart. Restart the daemon below to restore persistence.",
+          "daemonFailed": "The terminal daemon failed to start, so new terminals run in-process and won’t survive a restart. Restart the daemon below to restore persistence."
         },
         "McpConfigFileRow": {
           "b145eb6009": "entorno:",
@@ -12476,6 +12478,25 @@
       "nativeChat": {
         "contextMenu": {
           "copy": "Copiar"
+        }
+      },
+      "daemon": {
+        "status": {
+          "copy": {
+            "failedTitle": "Terminal persistence unavailable",
+            "failedDescription": "The terminal daemon didn’t start. New terminals run in-process and won’t survive quitting Orca.",
+            "retryAction": "Retry",
+            "degradedTitle": "Terminal persistence degraded",
+            "timeoutDescription": "The terminal daemon didn’t finish starting in time, so new terminals won’t survive quitting Orca. Retrying closes open terminal panes.",
+            "degradedDescription": "Existing terminals keep working, but new terminals won’t survive quitting Orca. Restarting the daemon closes open terminal panes.",
+            "restartAction": "Restart daemon",
+            "restoredMessage": "Terminal persistence restored.",
+            "retryFailedTitle": "Daemon restart failed.",
+            "indicatorLabel": "Terminal persistence off",
+            "indicatorFailedTooltip": "The terminal daemon isn’t running, so new terminals won’t survive quitting Orca. Open Manage Sessions to restart it.",
+            "indicatorDegradedTooltip": "New terminals are running without daemon persistence. Open Manage Sessions to restart the daemon.",
+            "indicatorAriaLabel": "Terminal daemon status: persistence off"
+          }
         }
       }
     },

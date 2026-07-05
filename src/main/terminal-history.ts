@@ -11,6 +11,7 @@ import {
 } from 'node:fs'
 import { app } from 'electron'
 import { parseWslPath, toLinuxPath } from './wsl'
+import { sweepWorktreeDaemonSessionHistory } from './daemon/history-retention'
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -210,6 +211,17 @@ export function logHistoryInjection(worktreeId: string, result: HistoryInjection
 
 /** Delete the history directory for a removed worktree. Non-fatal. */
 export function deleteWorktreeHistoryDir(worktreeId: string): void {
+  // Why: daemon session scrollback is keyed by `${worktreeId}@@…` session ids
+  // (not the hashed shell-HISTFILE dirs below) — sweep it in the same removal
+  // pass or at-rest checkpoints outlive the deleted worktree.
+  try {
+    sweepWorktreeDaemonSessionHistory(getHistoryRoot(), worktreeId)
+  } catch (err) {
+    console.warn(
+      `[pty:history] Failed to sweep daemon session history: ${err instanceof Error ? err.message : String(err)}`
+    )
+  }
+
   const worktreeHash = hashWorktreeId(worktreeId)
   const dir = join(getHistoryRoot(), worktreeHash)
   try {

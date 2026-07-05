@@ -204,7 +204,7 @@ describe('DaemonPtyRouter', () => {
     expect(legacy.dispose).toHaveBeenCalled()
   })
 
-  // Why: docs/daemon-staleness-ux.md §Phase 1 step 5 requires the restart flow
+  // Why: docs/reference/daemon-staleness-ux.md §Phase 1 step 5 requires the restart flow
   // to preserve the legacy adapter instances across the current-adapter swap,
   // and it reads them back via these accessors. Locking the return shape
   // prevents a future refactor from quietly switching to a defensive copy

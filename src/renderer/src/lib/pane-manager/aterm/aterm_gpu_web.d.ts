@@ -477,6 +477,12 @@ export class AtermGpuTerminal {
      */
     set_selection_inactive_bg(bg?: number | null): void;
     /**
+     * Alt-screen suppression (native `[sparkle_words] suppress_in_alt_screen`,
+     * default off): when on, full-screen apps render undecorated — the v1
+     * launch behavior. Off, the alternate screen sparkles like the main one.
+     */
+    set_sparkle_alt_screen_suppression(on: boolean): void;
+    /**
      * Per-class gates (native `[sparkle_words.<class>] enabled`): profanity
      * (supernova/sparkle), feline (peeking cat/paw), orca (water splash),
      * emphasis (ink-only; effective only while ink is enabled).
@@ -1034,6 +1040,7 @@ export interface InitOutput {
     readonly atermgputerminal_set_selection_fg: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_inactive: (a: number, b: number) => void;
     readonly atermgputerminal_set_selection_inactive_bg: (a: number, b: number) => void;
+    readonly atermgputerminal_set_sparkle_alt_screen_suppression: (a: number, b: number) => void;
     readonly atermgputerminal_set_sparkle_classes: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_sparkle_deny: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_set_sparkle_feline: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;

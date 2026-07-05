@@ -117,6 +117,7 @@ export const atermterminal_set_scrollback_limit: (a: number, b: number) => void;
 export const atermterminal_set_selection_fg: (a: number, b: number) => void;
 export const atermterminal_set_selection_inactive: (a: number, b: number) => void;
 export const atermterminal_set_selection_inactive_bg: (a: number, b: number) => void;
+export const atermterminal_set_sparkle_alt_screen_suppression: (a: number, b: number) => void;
 export const atermterminal_set_sparkle_classes: (a: number, b: number, c: number, d: number, e: number) => void;
 export const atermterminal_set_sparkle_deny: (a: number, b: number, c: number) => void;
 export const atermterminal_set_sparkle_feline: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;

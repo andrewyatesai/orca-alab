@@ -1367,6 +1367,15 @@ export class AtermTerminal {
         wasm.atermterminal_set_selection_inactive_bg(this.__wbg_ptr, isLikeNone(bg) ? 0x100000001 : (bg) >>> 0);
     }
     /**
+     * Alt-screen suppression (native `[sparkle_words] suppress_in_alt_screen`,
+     * default off): when on, full-screen apps render undecorated — the v1
+     * launch behavior. Off, the alternate screen sparkles like the main one.
+     * @param {boolean} on
+     */
+    set_sparkle_alt_screen_suppression(on) {
+        wasm.atermterminal_set_sparkle_alt_screen_suppression(this.__wbg_ptr, on);
+    }
+    /**
      * Per-class gates (native `[sparkle_words.<class>] enabled`): profanity
      * (supernova/sparkle), feline (peeking cat/paw), orca (water splash),
      * emphasis (ink-only; effective only while ink is enabled).

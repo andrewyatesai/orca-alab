@@ -1,9 +1,20 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+// Type-only: erased at runtime, so importing it keeps this module loadable in
+// non-Electron unit tests while typing the guarded lazy require below.
+import type * as ElectronModule from 'electron'
 import type { AppIdentity } from '../../shared/app-identity'
 
 const BASE_APP_NAME = 'Orca'
 const BASE_APP_USER_MODEL_ID = 'com.stablyai.orca'
+// Why: fork staging builds need a distinct AUMID so Windows taskbar grouping,
+// notifications, and shortcuts never collide with an installed public Orca
+// (staging-launch audit F14). Must equal the staging appId in
+// config/electron-builder.config.cjs.
+const FORK_APP_USER_MODEL_ID = 'com.stablyai.orca.staging'
+// Raw package.json "name" — what Electron reports when no productName was
+// injected into the packaged metadata (i.e. an upstream-identity build).
+const RAW_PACKAGE_NAME = 'orca'
 const MAX_LABEL_LENGTH = 80
 
 export type DevInstanceIdentity = AppIdentity & {
@@ -43,20 +54,46 @@ function createDevAppUserModelId(identityKey: string | null): string {
   return `${BASE_APP_USER_MODEL_ID}.dev.${hash}`
 }
 
+function readPackagedProductName(): string | null {
+  // Why: fork staging builds inject their productName ("Orca Staging") into
+  // the packaged package.json via electron-builder extraMetadata, and Electron
+  // initializes app.name from it before any of this code runs. A guarded lazy
+  // require keeps this module importable in non-Electron unit tests.
+  if (!process.versions.electron || typeof require !== 'function') {
+    return null
+  }
+  try {
+    const { app } = require('electron') as typeof ElectronModule
+    return app?.name ?? null
+  } catch {
+    return null
+  }
+}
+
 export function getDevInstanceIdentity(
   isDev: boolean,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  packagedProductName: string | null = readPackagedProductName()
 ): DevInstanceIdentity {
   if (!isDev) {
+    // Why: an injected productName that differs from upstream's names marks a
+    // fork-identity build; echoing it back (instead of forcing 'Orca') keeps
+    // app.setName from flipping the userData dir public Orca uses (audit F14).
+    const forkProductName =
+      packagedProductName &&
+      packagedProductName !== RAW_PACKAGE_NAME &&
+      packagedProductName !== BASE_APP_NAME
+        ? packagedProductName
+        : null
     return {
-      name: BASE_APP_NAME,
+      name: forkProductName ?? BASE_APP_NAME,
       isDev: false,
       devLabel: null,
       devBranch: null,
       devWorktreeName: null,
       devRepoRoot: null,
       dockBadgeLabel: null,
-      appUserModelId: BASE_APP_USER_MODEL_ID
+      appUserModelId: forkProductName ? FORK_APP_USER_MODEL_ID : BASE_APP_USER_MODEL_ID
     }
   }
 

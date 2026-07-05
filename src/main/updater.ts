@@ -25,6 +25,7 @@ import {
   getReleaseDownloadUrl
 } from './updater-prerelease-feed'
 import { fetchNudge, shouldApplyNudge } from './updater-nudge'
+import { getReleasesLatestDownloadUrl, isUpdateFeedConfigured } from './updater-feed-endpoints'
 
 type CheckFailureSource = 'event' | 'promise' | 'fallback-promise'
 type MissingManifestPrereleaseFallbackResult = { userInitiated: boolean }
@@ -835,7 +836,7 @@ async function pinDefaultReleaseFeed(): Promise<void> {
   } else {
     clearPrereleaseFallbackContext()
     clearPublishingWindowLastGoodCheck()
-    const url = 'https://github.com/stablyai/orca/releases/latest/download'
+    const url = getReleasesLatestDownloadUrl()
     console.info(
       `[updater] release feed fallback: current=${currentVersion} includePrerelease=${includePrerelease} → ${url}`
     )
@@ -913,6 +914,12 @@ function runBackgroundUpdateCheck(
     sendStatus({ state: 'not-available' })
     return
   }
+  if (!isUpdateFeedConfigured()) {
+    // Why: no fork-owned feed means there is nothing safe to poll — checking
+    // any public URL could hand this install to the public build (audit F1).
+    sendStatus({ state: 'not-available' })
+    return
+  }
   // Why: scope the nudge marker to the updater cycle being launched right now.
   // Setting it here, before any updater events or rejected promises can arrive,
   // prevents later ordinary checks from inheriting an older campaign id. Use
@@ -987,6 +994,12 @@ function enableIncludePrerelease(): void {
 /** Menu-triggered check — delegates feedback to renderer toasts via userInitiated flag */
 export function checkForUpdatesFromMenu(options?: { includePrerelease?: boolean }): void {
   if (!app.isPackaged || is.dev) {
+    sendStatus({ state: 'not-available', userInitiated: true })
+    return
+  }
+  if (!isUpdateFeedConfigured()) {
+    // Why: dormant posture — a manual check must not fall back to any public
+    // feed either; answer quietly instead (audit F1).
     sendStatus({ state: 'not-available', userInitiated: true })
     return
   }
@@ -1159,6 +1172,14 @@ export function setupAutoUpdater(
   if (is.dev) {
     return
   }
+  if (!isUpdateFeedConfigured()) {
+    // Why: dormant-by-design. Without a fork-owned release feed there is
+    // nothing safe to poll; wiring the updater anyway would risk a fallback to
+    // the public feed, whose first accepted update replaces this fork build
+    // with public Orca (audit F1). No feed, no timers, no checks.
+    console.info('[updater] no fork update feed configured; auto-updater stays dormant')
+    return
+  }
 
   const autoUpdater = getAutoUpdater()
   autoUpdater.autoDownload = false
@@ -1177,14 +1198,27 @@ export function setupAutoUpdater(
     debug: (m: unknown) => console.debug('[autoUpdater]', m)
   } as never
 
-  // Why: older Windows installs either have no publisherName or have the
-  // stale macOS Apple Developer ID publisherName from issue #631. Keep the
-  // migration path open while SignPath-signed builds roll out.
-  //
-  // TODO: re-enable after SignPath-signed builds with the explicit Windows
-  // publisherName have been the minimum supported updater source for a while.
+  // Why: this fork has no Windows code-signing identity yet (audit F13), so a
+  // downloaded installer cannot be verified against any trusted publisher.
+  // Fail closed — electron-updater treats a resolved string as a verification
+  // failure and skips the install — instead of inheriting upstream's
+  // accept-everything bypass. Consequence (documented in
+  // docs/reference/fork-versioning.md): Windows staging updates require a
+  // manual reinstall, and the unsigned installer trips SmartScreen. Remove
+  // this override only once fork-signed builds exist and
+  // win.signtoolOptions.publisherName names the fork's certificate.
+  // Caution: electron-updater only calls this override when app-update.yml
+  // carries a publisherName — keep win.signtoolOptions.publisherName set in
+  // config/electron-builder.config.cjs (pinned by its config test) or
+  // verification is skipped entirely.
   if (process.platform === 'win32') {
-    ;(autoUpdater as NsisUpdater).verifyUpdateCodeSignature = () => Promise.resolve(null)
+    ;(autoUpdater as NsisUpdater).verifyUpdateCodeSignature = () => {
+      const message =
+        'Update rejected: this fork build has no Windows code-signing publisher identity ' +
+        'configured, so downloaded update signatures cannot be verified. Install updates manually.'
+      console.error(`[updater] ${message}`)
+      return Promise.resolve(message)
+    }
   }
 
   // Use the generic provider with GitHub's /releases/latest/download/ URL as
@@ -1198,7 +1232,7 @@ export function setupAutoUpdater(
   // moving /latest redirect changing between check and download.
   autoUpdater.setFeedURL({
     provider: 'generic',
-    url: 'https://github.com/stablyai/orca/releases/latest/download'
+    url: getReleasesLatestDownloadUrl()
   })
 
   if (autoUpdaterInitialized) {

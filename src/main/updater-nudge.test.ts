@@ -10,19 +10,29 @@ vi.mock('electron', () => ({
 
 import { fetchNudge, versionMatchesRange, shouldApplyNudge } from './updater-nudge'
 
+// Why: the parsing tests below exercise fetchNudge against an injected URL —
+// the fork's default nudge endpoint is null (dormant), so the default-arg
+// call must never hit the network.
+const TEST_NUDGE_URL = 'https://releases.example/nudge.json'
+
 describe('updater-nudge', () => {
   beforeEach(() => {
     netFetchMock.mockReset()
   })
 
   describe('fetchNudge', () => {
+    it('stays dormant by default: no configured nudge URL means no fetch', async () => {
+      await expect(fetchNudge()).resolves.toBeNull()
+      expect(netFetchMock).not.toHaveBeenCalled()
+    })
+
     it('returns a valid config for a well-formed response', async () => {
       netFetchMock.mockResolvedValue({
         ok: true,
         json: async () => ({ id: 'campaign-1', minVersion: '1.1.0', maxVersion: '1.1.19' })
       })
 
-      const result = await fetchNudge()
+      const result = await fetchNudge(TEST_NUDGE_URL)
       expect(result).toEqual({ id: 'campaign-1', minVersion: '1.1.0', maxVersion: '1.1.19' })
     })
 
@@ -32,7 +42,7 @@ describe('updater-nudge', () => {
         json: async () => ({ id: 'campaign-2', maxVersion: '1.1.19' })
       })
 
-      const result = await fetchNudge()
+      const result = await fetchNudge(TEST_NUDGE_URL)
       expect(result).toEqual({ id: 'campaign-2', maxVersion: '1.1.19' })
     })
 
@@ -42,7 +52,7 @@ describe('updater-nudge', () => {
         json: async () => ({})
       })
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
 
     it('returns null for a null response', async () => {
@@ -51,19 +61,19 @@ describe('updater-nudge', () => {
         json: async () => null
       })
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
 
     it('returns null on non-ok HTTP response', async () => {
       netFetchMock.mockResolvedValue({ ok: false })
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
 
     it('returns null on network error', async () => {
       netFetchMock.mockRejectedValue(new Error('network down'))
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
 
     it('trims whitespace from the campaign id', async () => {
@@ -72,7 +82,7 @@ describe('updater-nudge', () => {
         json: async () => ({ id: '  campaign-1  ', minVersion: '1.0.0' })
       })
 
-      const result = await fetchNudge()
+      const result = await fetchNudge(TEST_NUDGE_URL)
       expect(result?.id).toBe('campaign-1')
     })
 
@@ -82,7 +92,7 @@ describe('updater-nudge', () => {
         json: async () => ({ minVersion: '1.0.0' })
       })
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
 
     it('returns null when neither version endpoint is present', async () => {
@@ -91,7 +101,7 @@ describe('updater-nudge', () => {
         json: async () => ({ id: 'campaign-1' })
       })
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
 
     it('returns null when minVersion is invalid', async () => {
@@ -100,7 +110,7 @@ describe('updater-nudge', () => {
         json: async () => ({ id: 'campaign-1', minVersion: 'not-a-version' })
       })
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
 
     it('returns null when maxVersion is invalid', async () => {
@@ -109,7 +119,7 @@ describe('updater-nudge', () => {
         json: async () => ({ id: 'campaign-1', maxVersion: 'wat' })
       })
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
 
     it('returns null when the configured range is inverted', async () => {
@@ -122,7 +132,7 @@ describe('updater-nudge', () => {
         })
       })
 
-      await expect(fetchNudge()).resolves.toBeNull()
+      await expect(fetchNudge(TEST_NUDGE_URL)).resolves.toBeNull()
     })
   })
 

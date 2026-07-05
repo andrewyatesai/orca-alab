@@ -9,6 +9,14 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, copyFileSync, statSync, readdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { homedir } from 'node:os'
+import {
+  DARWIN_TRIPLES,
+  assertRustupDarwinTargetsInstalled,
+  lipoCreate,
+  machOFileArches,
+  needsPerTargetMacBuild,
+  resolveMacBuildArches
+} from './mac-build-arches.mjs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
 const addonDir = resolve(projectDir, 'native/orca-node')
@@ -17,6 +25,11 @@ const ADDON_NAME = 'orca_node.node'
 // every input the build would touch; `--force` always rebuilds.
 const ifMissing = process.argv.includes('--if-missing')
 const force = process.argv.includes('--force')
+// Why: mac release/dual-arch packaging must not ship the host-arch addon in
+// the foreign-arch bundle (audit F2); per-target cargo builds + lipo keep the
+// single static extraResources path valid for every packaged arch.
+const macArches = process.platform === 'darwin' ? resolveMacBuildArches() : null
+const perTargetMacBuild = macArches !== null && needsPerTargetMacBuild(macArches)
 
 function cdylibName() {
   // cargo's `cdylib` output name differs per platform; the loader requires the
@@ -109,12 +122,22 @@ function newestMtime() {
 
 const dest = resolve(addonDir, ADDON_NAME)
 
+function destCoversRequestedArches() {
+  // Why: an addon left over from a host-arch dev build looks "fresh" by mtime
+  // but is unusable for a dual-arch package; require the requested slices too.
+  if (macArches === null) {
+    return true
+  }
+  const covered = machOFileArches(dest)
+  return macArches.every((arch) => covered.includes(arch))
+}
+
 if (!force) {
-  if (ifMissing && existsSync(dest)) {
+  if (ifMissing && existsSync(dest) && destCoversRequestedArches()) {
     console.log('[terminal-addon] addon present; skipping (--if-missing).')
     process.exit(0)
   }
-  if (existsSync(dest) && statSync(dest).mtimeMs >= newestMtime()) {
+  if (existsSync(dest) && statSync(dest).mtimeMs >= newestMtime() && destCoversRequestedArches()) {
     console.log('[terminal-addon] addon up to date; skipping rebuild.')
     process.exit(0)
   }
@@ -132,29 +155,54 @@ const env = cargoEnv()
 if (stableRustc) {
   env.RUSTC = stableRustc
 }
-console.log('[terminal-addon] building aterm napi addon (cargo build --release)…')
-const build = spawnSync(stableCargo ?? 'cargo', ['build', '--release'], {
-  cwd: addonDir,
-  env,
-  stdio: 'inherit',
-  // shell only for bare-name PATH lookup; an absolute cargo path may contain spaces.
-  shell: process.platform === 'win32' && !stableCargo
-})
-if (build.error) {
-  console.error(`[terminal-addon] cargo failed to start: ${build.error.message}`)
-  console.error(
-    '[terminal-addon] Install rustup with a stable toolchain >=1.96 (https://rustup.rs), then re-run.'
+
+function runCargoBuild(targetTriple) {
+  const args = ['build', '--release', ...(targetTriple ? ['--target', targetTriple] : [])]
+  const build = spawnSync(stableCargo ?? 'cargo', args, {
+    cwd: addonDir,
+    env,
+    stdio: 'inherit',
+    // shell only for bare-name PATH lookup; an absolute cargo path may contain spaces.
+    shell: process.platform === 'win32' && !stableCargo
+  })
+  if (build.error) {
+    console.error(`[terminal-addon] cargo failed to start: ${build.error.message}`)
+    console.error(
+      '[terminal-addon] Install rustup with a stable toolchain >=1.96 (https://rustup.rs), then re-run.'
+    )
+    process.exit(1)
+  }
+  if (build.status !== 0) {
+    process.exit(build.status ?? 1)
+  }
+  const built = resolve(
+    addonDir,
+    targetTriple ? `target/${targetTriple}/release` : 'target/release',
+    cdylibName()
   )
-  process.exit(1)
-}
-if (build.status !== 0) {
-  process.exit(build.status ?? 1)
+  if (!existsSync(built)) {
+    console.error(`[terminal-addon] expected cargo artifact missing: ${built}`)
+    process.exit(1)
+  }
+  return built
 }
 
-const built = resolve(addonDir, 'target/release', cdylibName())
-if (!existsSync(built)) {
-  console.error(`[terminal-addon] expected cargo artifact missing: ${built}`)
-  process.exit(1)
+if (perTargetMacBuild) {
+  assertRustupDarwinTargetsInstalled(macArches)
+  const perTargetArtifacts = macArches.map((arch) => {
+    const triple = DARWIN_TRIPLES[arch]
+    console.log(`[terminal-addon] building aterm napi addon for ${triple}…`)
+    return runCargoBuild(triple)
+  })
+  if (perTargetArtifacts.length === 1) {
+    copyFileSync(perTargetArtifacts[0], dest)
+  } else {
+    lipoCreate(perTargetArtifacts, dest)
+  }
+  console.log(`[terminal-addon] installed ${dest} (${macArches.join(' + ')})`)
+} else {
+  console.log('[terminal-addon] building aterm napi addon (cargo build --release)…')
+  const built = runCargoBuild(null)
+  copyFileSync(built, dest)
+  console.log(`[terminal-addon] installed ${dest}`)
 }
-copyFileSync(built, dest)
-console.log(`[terminal-addon] installed ${dest}`)

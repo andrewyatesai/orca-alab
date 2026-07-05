@@ -1,5 +1,8 @@
 /* eslint-disable max-lines */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+// Type-only alias for the partial mock below; erased at runtime so it cannot
+// defeat vi.mock hoisting.
+import type * as UpdaterFeedEndpoints from './updater-feed-endpoints'
 
 const {
   appMock,
@@ -134,6 +137,18 @@ const { fetchNewerReleaseTagsMock } = vi.hoisted(() => ({
   fetchNewerReleaseTagsMock: vi.fn()
 }))
 
+const { updateFeedConfiguredRef } = vi.hoisted(() => ({
+  updateFeedConfiguredRef: { value: true }
+}))
+
+vi.mock('./updater-feed-endpoints', async (importOriginal) => {
+  const actual = await importOriginal<typeof UpdaterFeedEndpoints>()
+  return {
+    ...actual,
+    isUpdateFeedConfigured: () => updateFeedConfiguredRef.value
+  }
+})
+
 vi.mock('./updater-prerelease-feed', () => ({
   fetchNewerReleaseTagsWithReadiness: async (...args: unknown[]) => {
     const result = await fetchNewerReleaseTagsMock(...args)
@@ -142,7 +157,7 @@ vi.mock('./updater-prerelease-feed', () => ({
       : result
   },
   getReleaseDownloadUrl: (tag: string) =>
-    `https://github.com/stablyai/orca/releases/download/${tag}`
+    `https://github.com/andrewyatesai/orc/releases/download/${tag}`
 }))
 
 describe('updater', () => {
@@ -163,8 +178,57 @@ describe('updater', () => {
     shouldApplyNudgeMock.mockReset().mockReturnValue(false)
     fetchChangelogMock.mockReset().mockResolvedValue(null)
     fetchNewerReleaseTagsMock.mockReset().mockResolvedValue([])
+    updateFeedConfiguredRef.value = true
     vi.unstubAllGlobals()
     vi.useRealTimers()
+  })
+
+  // Why: dormant-if-unconfigured posture (audit F1). Without a fork-owned
+  // feed the updater must wire nothing and never touch any URL — a fallback
+  // to the public feed would let a public release replace this fork build.
+  describe('when no fork update feed is configured', () => {
+    it('setupAutoUpdater stays dormant: no feed, no handlers, no checks', async () => {
+      updateFeedConfiguredRef.value = false
+      const { setupAutoUpdater } = await import('./updater')
+
+      setupAutoUpdater({ webContents: { send: vi.fn() } } as never, {
+        getLastUpdateCheckAt: () => null
+      })
+
+      expect(autoUpdaterMock.setFeedURL).not.toHaveBeenCalled()
+      expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
+      expect(autoUpdaterMock.on).not.toHaveBeenCalled()
+      expect(powerMonitorOnMock).not.toHaveBeenCalled()
+    })
+
+    it('manual menu checks answer not-available without any network', async () => {
+      updateFeedConfiguredRef.value = false
+      const sendMock = vi.fn()
+      const { setupAutoUpdater, checkForUpdatesFromMenu } = await import('./updater')
+
+      setupAutoUpdater({ webContents: { send: sendMock } } as never)
+      checkForUpdatesFromMenu()
+
+      const statuses = sendMock.mock.calls
+        .filter(([channel]) => channel === 'updater:status')
+        .map(([, status]) => status)
+      expect(statuses).toContainEqual({ state: 'not-available', userInitiated: true })
+      expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
+      expect(fetchNewerReleaseTagsMock).not.toHaveBeenCalled()
+    })
+
+    it('background checks answer not-available without any network', async () => {
+      updateFeedConfiguredRef.value = false
+      const sendMock = vi.fn()
+      const { setupAutoUpdater, checkForUpdates } = await import('./updater')
+
+      setupAutoUpdater({ webContents: { send: sendMock } } as never)
+      checkForUpdates()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
+      expect(fetchNewerReleaseTagsMock).not.toHaveBeenCalled()
+    })
   })
 
   it('does not load or configure electron-updater during dev setup', async () => {
@@ -892,7 +956,7 @@ describe('updater', () => {
     })
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.4.36-rc.5'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.4.36-rc.5'
     })
     expect(
       sendMock.mock.calls
@@ -1004,7 +1068,7 @@ describe('updater', () => {
       })
       expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
         provider: 'generic',
-        url: 'https://github.com/stablyai/orca/releases/download/v1.3.18-rc.1'
+        url: 'https://github.com/andrewyatesai/orc/releases/download/v1.3.18-rc.1'
       })
       expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
     })
@@ -1675,11 +1739,11 @@ describe('updater', () => {
     expect(setPendingUpdateNudgeId).toHaveBeenCalledWith(null)
   })
 
-  // Why: issue #631 — the Windows auto-updater fails because installed
-  // versions signed with the wrong certificate have a stale publisherName
-  // in app-update.yml. verifyUpdateCodeSignature must be overridden on
-  // Windows so electron-updater skips Authenticode verification.
-  it('overrides verifyUpdateCodeSignature on Windows to skip signing verification', async () => {
+  // Why: this fork has no Windows code-signing identity (audit F13), so the
+  // updater must fail closed: electron-updater treats a resolved string as a
+  // verification failure and skips the install. Accepting everything (the
+  // upstream stub this replaced) would install whatever the feed serves.
+  it('rejects Windows update signatures while no fork publisher identity exists', async () => {
     vi.stubGlobal('process', { ...process, platform: 'win32' })
 
     const { setupAutoUpdater } = await import('./updater')
@@ -1692,8 +1756,10 @@ describe('updater', () => {
     // The override should be set on the autoUpdater mock
     const override = (autoUpdaterMock as Record<string, unknown>).verifyUpdateCodeSignature
     expect(override).toBeTypeOf('function')
-    // Calling it should resolve to null (meaning "signature valid, skip check")
-    await expect((override as () => Promise<string | null>)()).resolves.toBeNull()
+    // Resolving to a string means "verification failed" — the update is skipped.
+    await expect((override as () => Promise<string | null>)()).resolves.toMatch(
+      /no Windows code-signing publisher identity/
+    )
   })
 
   it('does not override verifyUpdateCodeSignature on non-Windows platforms', async () => {
@@ -1728,7 +1794,7 @@ describe('updater', () => {
     // Setup pins the default generic feed; resolver only runs per check.
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/latest/download'
+      url: 'https://github.com/andrewyatesai/orc/releases/latest/download'
     })
     expect(autoUpdaterMock.allowPrerelease).not.toBe(true)
 
@@ -1740,7 +1806,7 @@ describe('updater', () => {
       })
       expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
         provider: 'generic',
-        url: 'https://github.com/stablyai/orca/releases/download/v1.3.17-rc.2'
+        url: 'https://github.com/andrewyatesai/orc/releases/download/v1.3.17-rc.2'
       })
       expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
     })
@@ -1764,7 +1830,7 @@ describe('updater', () => {
     await vi.waitFor(() => {
       expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
         provider: 'generic',
-        url: 'https://github.com/stablyai/orca/releases/download/v1.3.19'
+        url: 'https://github.com/andrewyatesai/orc/releases/download/v1.3.19'
       })
     })
     expect(autoUpdaterMock.allowPrerelease).not.toBe(true)
@@ -1790,7 +1856,7 @@ describe('updater', () => {
     })
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/latest/download'
+      url: 'https://github.com/andrewyatesai/orc/releases/latest/download'
     })
   })
 
@@ -1829,16 +1895,16 @@ describe('updater', () => {
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.4.26'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.4.26'
     })
     expect(autoUpdaterMock.setFeedURL).not.toHaveBeenCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.4.27'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.4.27'
     })
     expect(autoUpdaterMock.setFeedURL.mock.calls.slice(feedCallsBeforeCheck)).not.toContainEqual([
       {
         provider: 'generic',
-        url: 'https://github.com/stablyai/orca/releases/latest/download'
+        url: 'https://github.com/andrewyatesai/orc/releases/latest/download'
       }
     ])
     expect(sendMock).not.toHaveBeenCalledWith(
@@ -1881,7 +1947,7 @@ describe('updater', () => {
     })
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.4.26'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.4.26'
     })
   })
 
@@ -1916,7 +1982,7 @@ describe('updater', () => {
     })
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.4.26'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.4.26'
     })
     expect(setLastUpdateCheckAt).not.toHaveBeenCalled()
 
@@ -1936,7 +2002,7 @@ describe('updater', () => {
     })
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.4.27'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.4.27'
     })
   })
 
@@ -1986,7 +2052,7 @@ describe('updater', () => {
     })
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.4.27'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.4.27'
     })
   })
 
@@ -2022,7 +2088,7 @@ describe('updater', () => {
     })
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.4.27'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.4.27'
     })
   })
 
@@ -2260,11 +2326,11 @@ describe('updater', () => {
       expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(2)
       expect(autoUpdaterMock.setFeedURL).toHaveBeenCalledWith({
         provider: 'generic',
-        url: 'https://github.com/stablyai/orca/releases/download/v1.3.51-rc.7'
+        url: 'https://github.com/andrewyatesai/orc/releases/download/v1.3.51-rc.7'
       })
       expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
         provider: 'generic',
-        url: 'https://github.com/stablyai/orca/releases/download/v1.3.51-rc.6'
+        url: 'https://github.com/andrewyatesai/orc/releases/download/v1.3.51-rc.6'
       })
     })
 
@@ -2892,7 +2958,7 @@ describe('updater', () => {
     })
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.3.18'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.3.18'
     })
   })
 
@@ -2920,7 +2986,7 @@ describe('updater', () => {
     expect(autoUpdaterMock.allowPrerelease).toBe(true)
     expect(autoUpdaterMock.setFeedURL).toHaveBeenLastCalledWith({
       provider: 'generic',
-      url: 'https://github.com/stablyai/orca/releases/download/v1.3.18-rc.1'
+      url: 'https://github.com/andrewyatesai/orc/releases/download/v1.3.18-rc.1'
     })
   })
 })

@@ -18,7 +18,116 @@ const {
   verifyPackagedMainRuntimeDeps
 } = require('../packaged-runtime-node-modules.cjs')
 
+function reloadConfigWithEnv(envOverrides, run) {
+  const configPath = require.resolve('../electron-builder.config.cjs')
+  const originals = {}
+  try {
+    delete require.cache[configPath]
+    for (const [key, value] of Object.entries(envOverrides)) {
+      originals[key] = process.env[key]
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+    return run(require('../electron-builder.config.cjs'))
+  } finally {
+    for (const [key, original] of Object.entries(originals)) {
+      if (original === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = original
+      }
+    }
+    delete require.cache[configPath]
+    require('../electron-builder.config.cjs')
+  }
+}
+
 describe('electron-builder config', () => {
+  // Why: audit F14/G3 — wearing public Orca's identity would share userData,
+  // the single-instance lock, and the installer namespace with the public app.
+  it('defaults to the staging fork identity', () => {
+    expect(electronBuilderConfig.appId).toBe('com.stablyai.orca.staging')
+    expect(electronBuilderConfig.productName).toBe('Orca Staging')
+    // Why: Electron derives app.name/userData from the packaged package.json,
+    // so the fork productName must be injected there via extraMetadata.
+    expect(electronBuilderConfig.extraMetadata).toEqual({ productName: 'Orca Staging' })
+  })
+
+  it('keeps mac zip asset names space-free for the fork identity', () => {
+    // Why: GitHub rewrites spaces in release asset names, so a productName
+    // with a space would make latest-mac.yml reference a 404ing filename.
+    expect(electronBuilderConfig.mac.artifactName).toBe(
+      'orca-staging-${version}-${arch}-mac.${ext}'
+    )
+    reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
+      expect(config.mac.artifactName).toBeUndefined()
+    })
+  })
+
+  it('restores the upstream identity only under ORCA_PUBLIC_IDENTITY=1', () => {
+    reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
+      expect(config.appId).toBe('com.stablyai.orca')
+      expect(config.productName).toBe('Orca')
+      // Why: public-identity diff builds must keep packaged metadata
+      // byte-compatible with upstream — no extraMetadata injection.
+      expect(config.extraMetadata).toBeUndefined()
+    })
+  })
+
+  // Why: audit F13 — electron-updater only invokes verifyUpdateCodeSignature
+  // when app-update.yml carries win.signtoolOptions.publisherName. Losing it
+  // would silently skip the fail-closed override in src/main/updater.ts and
+  // install unsigned updates.
+  it('keeps the Windows publisherName so update signature verification stays armed', () => {
+    expect(electronBuilderConfig.win.signtoolOptions.publisherName).toBe('SignPath Foundation')
+    reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
+      expect(config.win.signtoolOptions.publisherName).toBe('SignPath Foundation')
+    })
+  })
+
+  // Why: audit F1 — publishing to (or polling) the public repo would hand
+  // staging installs to the public build on the next accepted update.
+  it('publishes to the fork release repo, never the public one', () => {
+    expect(electronBuilderConfig.publish).toMatchObject({
+      provider: 'github',
+      owner: 'andrewyatesai',
+      repo: 'orc'
+    })
+    reloadConfigWithEnv({ ORCA_PUBLIC_IDENTITY: '1' }, (config) => {
+      expect(config.publish).toMatchObject({ owner: 'andrewyatesai', repo: 'orc' })
+    })
+  })
+
+  // Why: audit F2 — afterPack must fail on foreign-arch cargo binaries instead
+  // of shipping a bundle whose daemon/addon can never load.
+  it('fails afterPack when bundled cargo binaries do not match the bundle arch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'orca-bundle-arch-afterpack-'))
+    try {
+      const resourcesDir = join(root, 'linux-unpacked', 'resources')
+      await mkdir(resourcesDir, { recursive: true })
+      const arm64Elf = Buffer.alloc(64)
+      arm64Elf.writeUInt32BE(0x7f454c46, 0)
+      arm64Elf[4] = 2
+      arm64Elf[5] = 1
+      arm64Elf.writeUInt16LE(0xb7, 18) // aarch64
+      await writeFile(join(resourcesDir, 'orca-daemon'), arm64Elf)
+      await writeFile(join(resourcesDir, 'orca_node.node'), arm64Elf)
+
+      await expect(
+        electronBuilderConfig.afterPack({
+          appOutDir: join(root, 'linux-unpacked'),
+          electronPlatformName: 'linux',
+          arch: 1 // electron-builder Arch.x64
+        })
+      ).rejects.toThrow(/requires x64/)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('excludes repo-only source trees from app.asar', () => {
     expect(electronBuilderConfig.files).toEqual(
       expect.arrayContaining([

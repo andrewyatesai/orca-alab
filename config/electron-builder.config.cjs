@@ -8,8 +8,17 @@ const {
   verifyPackagedMainRuntimeDeps
 } = require('./packaged-runtime-node-modules.cjs')
 
+const { assertBundledBinaryArchitectures } = require('./scripts/assert-bundled-binary-arch.cjs')
+
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1'
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
+// Why: fork builds must not wear public Orca's identity — the same
+// appId/productName would share userData, the single-instance lock, and the
+// installer namespace with the public app (staging-launch audit F14/G3).
+// ORCA_PUBLIC_IDENTITY=1 restores the upstream identity for diff builds only.
+const isPublicIdentity = process.env.ORCA_PUBLIC_IDENTITY === '1'
+const appId = isPublicIdentity ? 'com.stablyai.orca' : 'com.stablyai.orca.staging'
+const productName = isPublicIdentity ? 'Orca' : 'Orca Staging'
 // Why: release/CI builds ship both Intel + Apple-silicon slices — Intel Macs
 // need a native x64 app (see the npmRebuild note below). A local dev build only
 // needs the host arch; emitting a foreign-arch app would force the developer
@@ -98,8 +107,15 @@ const winSpeechNativeResource = {
 
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
-  appId: 'com.stablyai.orca',
-  productName: 'Orca',
+  appId,
+  productName,
+  // Why: Electron derives app.name — and with it the default userData dir and
+  // the single-instance lock namespace — from the packaged package.json, not
+  // from this builder config. Injecting productName there is what actually
+  // isolates staging state from public Orca's. Public-identity diff builds
+  // skip the injection so their packaged metadata stays byte-compatible with
+  // upstream (whose runtime app.name starts as the raw 'orca').
+  ...(isPublicIdentity ? {} : { extraMetadata: { productName } }),
   directories: {
     buildResources: 'resources/build'
   },
@@ -182,6 +198,15 @@ module.exports = {
     if (!existsSync(resourcesDir)) {
       return
     }
+    // Why: electron-builder only checks that extraResources exist; a host-arch
+    // cargo binary copied into a foreign-arch bundle passes silently and the
+    // daemon/addon can never load on the target machine (audit F2). Fail the
+    // build on any arch mismatch.
+    assertBundledBinaryArchitectures({
+      resourcesDir,
+      electronPlatformName: context.electronPlatformName,
+      arch: context.arch
+    })
     prunePackagedRuntimeNodeModules(resourcesDir, context.electronPlatformName, context.arch)
     verifyPackagedMainRuntimeDeps(resourcesDir)
     chmodUnixCliLaunchers(resourcesDir, context.electronPlatformName)
@@ -203,6 +228,11 @@ module.exports = {
     executableName: 'Orca',
     // Why: Windows installers are signed after electron-builder packaging by
     // SignPath, so the packager cannot infer the updater publisherName.
+    // Do NOT remove publisherName: app-builder-lib stamps it into
+    // app-update.yml, and electron-updater only calls
+    // verifyUpdateCodeSignature when that field is present — dropping it
+    // would silently skip the F13 fail-closed override in src/main/updater.ts
+    // and let unsigned updates install.
     signtoolOptions: {
       publisherName: 'SignPath Foundation'
     },
@@ -231,6 +261,12 @@ module.exports = {
     createDesktopShortcut: 'always'
   },
   mac: {
+    // Why: the default mac zip name embeds productName, and 'Orca Staging'
+    // contains a space — GitHub rewrites spaces in release asset names, so
+    // latest-mac.yml would reference a filename that 404s on download. Pin a
+    // space-free name for fork builds; public-identity diff builds keep the
+    // upstream default (dmg names are pinned separately below).
+    ...(isPublicIdentity ? {} : { artifactName: 'orca-staging-${version}-${arch}-mac.${ext}' }),
     icon: 'resources/build/icon.icns',
     entitlements: 'resources/build/entitlements.mac.plist',
     entitlementsInherit: 'resources/build/entitlements.mac.plist',
@@ -390,8 +426,12 @@ module.exports = {
   npmRebuild: true,
   publish: {
     provider: 'github',
-    owner: 'stablyai',
-    repo: 'orca',
+    // Why: fork releases live on the fork's own repo. Publishing to (or
+    // polling) stablyai/orca would hand staging installs to the public build
+    // on the next accepted update (staging-launch audit F1). Must match
+    // UPDATE_FEED_REPO_SLUG in src/main/updater-feed-endpoints.ts.
+    owner: 'andrewyatesai',
+    repo: 'orc',
     releaseType: 'release'
   }
 }

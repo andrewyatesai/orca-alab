@@ -1,6 +1,7 @@
 import { net } from 'electron'
 import type { ChangelogData } from '../shared/types'
 import { compareVersions } from './updater-fallback'
+import { getUpdateChangelogPageUrl, UPDATE_CHANGELOG_JSON_URL } from './updater-feed-endpoints'
 
 type ChangelogEntry = {
   version: string
@@ -9,8 +10,6 @@ type ChangelogEntry = {
   mediaUrl?: string
   releaseNotesUrl: string
 }
-
-const CHANGELOG_URL = 'https://onorca.dev/changelog'
 
 function isValidEntry(entry: ChangelogEntry): boolean {
   return (
@@ -40,13 +39,20 @@ function hasRichContent(entry: ChangelogEntry): boolean {
  */
 export async function fetchChangelog(
   incomingVersion: string,
-  localVersion: string
+  localVersion: string,
+  changelogJsonUrl: string | null = UPDATE_CHANGELOG_JSON_URL
 ): Promise<ChangelogData | null> {
+  // Why: the fork has no changelog service; the update card simply shows no
+  // rich changelog rather than fetching the public vendor's content.
+  if (!changelogJsonUrl) {
+    return null
+  }
+
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
 
   try {
-    const res = await net.fetch('https://onorca.dev/whats-new/changelog.json', {
+    const res = await net.fetch(changelogJsonUrl, {
       signal: controller.signal
     })
     if (!res.ok) {
@@ -131,7 +137,10 @@ export async function fetchChangelog(
       const { version: _, ...release } = candidate
       // Why: the shown content is from an older entry, not the incoming version.
       // Point to the generic changelog page so the link doesn't mislead.
-      return { release: { ...release, releaseNotesUrl: CHANGELOG_URL }, releasesBehind }
+      return {
+        release: { ...release, releaseNotesUrl: getUpdateChangelogPageUrl() },
+        releasesBehind
+      }
     }
 
     return null

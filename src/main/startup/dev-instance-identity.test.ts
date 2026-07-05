@@ -12,6 +12,31 @@ describe('dev-instance-identity', () => {
     })
   })
 
+  // Why: fork staging builds inject productName via electron-builder
+  // extraMetadata (audit F14); the packaged identity must echo it back so
+  // app.setName never flips userData onto public Orca's directory, and the
+  // AUMID must match the staging appId for Windows taskbar/notifications.
+  it('adopts the injected fork productName and staging AUMID when packaged', () => {
+    expect(getDevInstanceIdentity(false, {}, 'Orca Staging')).toMatchObject({
+      name: 'Orca Staging',
+      isDev: false,
+      appUserModelId: 'com.stablyai.orca.staging'
+    })
+  })
+
+  it('keeps the upstream packaged identity for public-identity builds', () => {
+    // 'orca' is the raw package.json name — what Electron reports when no
+    // productName was injected (ORCA_PUBLIC_IDENTITY=1 diff builds).
+    expect(getDevInstanceIdentity(false, {}, 'orca')).toMatchObject({
+      name: 'Orca',
+      appUserModelId: 'com.stablyai.orca'
+    })
+    expect(getDevInstanceIdentity(false, {}, 'Orca')).toMatchObject({
+      name: 'Orca',
+      appUserModelId: 'com.stablyai.orca'
+    })
+  })
+
   it('derives a readable dev label from worktree and branch env', () => {
     const identity = getDevInstanceIdentity(true, {
       ORCA_DEV_REPO_ROOT: '/repo/worktrees/dev-indicator',

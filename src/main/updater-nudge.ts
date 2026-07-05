@@ -1,5 +1,6 @@
 import { net } from 'electron'
 import { compareVersions, isValidVersion } from './updater-fallback'
+import { UPDATE_NUDGE_URL } from './updater-feed-endpoints'
 
 export type NudgeConfig = {
   id: string
@@ -7,12 +8,20 @@ export type NudgeConfig = {
   maxVersion?: string
 }
 
-export async function fetchNudge(): Promise<NudgeConfig | null> {
+export async function fetchNudge(
+  nudgeUrl: string | null = UPDATE_NUDGE_URL
+): Promise<NudgeConfig | null> {
+  // Why: the fork has no nudge service; staying dormant beats polling the
+  // public vendor's endpoint, which could remotely re-prompt fork users.
+  if (!nudgeUrl) {
+    return null
+  }
+
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5000)
 
   try {
-    const res = await net.fetch('https://onorca.dev/whats-new/nudge.json', {
+    const res = await net.fetch(nudgeUrl, {
       signal: controller.signal
     })
     if (!res.ok) {

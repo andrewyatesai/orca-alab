@@ -1,5 +1,6 @@
-// Build + size-optimize the aterm renderer wasm glue (CPU `aterm-wasm` and GPU
-// `aterm-gpu-web`) and copy it into the renderer.
+// Build + speed-optimize the aterm renderer wasm glue (CPU `aterm-wasm` and GPU
+// `aterm-gpu-web`) and copy it into the renderer. Speed over size: the hot render
+// loop runs in this wasm every frame, so it inherits aterm's native opt-3 profile.
 //
 // The crates LIVE in aterm (vendored at rust/aterm/crates/*), so this builds
 // them from there. Two wrinkles handled here:
@@ -100,10 +101,12 @@ function buildCrate(key, wasmBindgen) {
   const { dir, stem } = CRATES[key]
   console.log(`\n[aterm-wasm] building ${key} (${dir}) …`)
   // Build from ROOT (online ancestry) via --manifest-path so the web deps
-  // resolve from crates.io, not the offline rust/vendor. Force opt-level="z" for
-  // the WHOLE wasm build (engine code is compiled INTO the wasm, so size-opt must
-  // cover it, not just the leaf crate) — these are browser download assets. The
-  // engine's native profile (opt-3) is unaffected; this only governs this build.
+  // resolve from crates.io, not the offline rust/vendor. Inherit aterm's native
+  // [profile.release] as-is: opt-level=3 + fat LTO. The per-frame render, glyph
+  // layout, and ALL effects run in this wasm every frame (even on the WebGL2 GPU
+  // path), so hot-loop speed drives animation smoothness — a size-opt override
+  // (opt-level="z") made the wasm visibly chunkier than the native opt-3 build.
+  // A few MB more download is a non-issue; smoothness is the product.
   runWasmCargo(
     [
       'build',
@@ -111,9 +114,7 @@ function buildCrate(key, wasmBindgen) {
       '--target',
       'wasm32-unknown-unknown',
       '--manifest-path',
-      join(dir, 'Cargo.toml'),
-      '--config',
-      'profile.release.opt-level="z"'
+      join(dir, 'Cargo.toml')
     ],
     // Pin to stable (aterm's rust-toolchain.toml channel): the machine's global rustup
     // default may be an older nightly that lacks the wasm32-unknown-unknown target (or
@@ -130,7 +131,9 @@ function buildCrate(key, wasmBindgen) {
 
   const bg = join(pkg, `${stem}_bg.wasm`)
   const before = statSync(bg).size
-  run('wasm-opt', ['-Oz', ...WASM_OPT_FEATURES, '-o', bg, bg])
+  // -O3 (speed), NOT -Oz (size): match the native opt-3 profile so wasm-opt's
+  // pass reinforces the cargo speed build instead of trading it back for bytes.
+  run('wasm-opt', ['-O3', ...WASM_OPT_FEATURES, '-o', bg, bg])
   const after = statSync(bg).size
   console.log(
     `[aterm-wasm] ${stem}_bg.wasm ${before} -> ${after} bytes ` +

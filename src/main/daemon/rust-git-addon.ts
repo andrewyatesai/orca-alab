@@ -73,6 +73,17 @@ export type RustGitBinding = {
     remoteUrl: string | null,
     executor: RustGitExecutor
   ): Promise<string | null>
+  /** IO-tier "A bridge" cutover: Rust drives the multi-round upstream/ahead-behind
+   *  status for an explicit publish target (validate → rev-parse → rev-list → log)
+   *  over the JS `executor`, applying the no-upstream swallow + normalization
+   *  in-process. Resolves the `GitUpstreamStatus` JSON string, or rejects with the
+   *  normalized error message. */
+  getUpstreamStatusViaExecutor(
+    remoteName: string,
+    branchName: string,
+    remoteUrl: string | null,
+    executor: RustGitExecutor
+  ): Promise<string>
   /** Approximate added/removed line counts JSON, or null for the large guard. */
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */

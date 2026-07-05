@@ -49,6 +49,9 @@ pub fn get_publish_target_status<R: GitRunner>(
             upstream_name: Some(upstream_name),
             ahead: 0,
             behind: 0,
+            // The tracking ref isn't fetched yet, but the branch can still be
+            // published — the TS missing-ref branch sets this flag for the UI.
+            has_configured_push_target: Some(true),
             behind_commits_are_patch_equivalent: None,
         });
     }
@@ -67,6 +70,7 @@ pub fn get_publish_target_status<R: GitRunner>(
         upstream_name: Some(upstream_name),
         ahead,
         behind,
+        has_configured_push_target: None,
         behind_commits_are_patch_equivalent,
     })
 }

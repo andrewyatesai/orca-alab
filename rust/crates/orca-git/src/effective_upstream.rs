@@ -170,6 +170,7 @@ pub fn effective_git_upstream_status<R: GitRunner>(
             upstream_name: None,
             ahead: 0,
             behind: 0,
+            has_configured_push_target: None,
             behind_commits_are_patch_equivalent: None,
         });
     };
@@ -193,6 +194,9 @@ pub fn effective_git_upstream_status<R: GitRunner>(
         upstream_name: Some(upstream.upstream_name),
         ahead,
         behind,
+        // The effective-upstream (no explicit target) path doesn't compute this;
+        // the pushTarget path owns the "can still publish" flag.
+        has_configured_push_target: None,
         behind_commits_are_patch_equivalent,
     })
 }

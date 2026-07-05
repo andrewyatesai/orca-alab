@@ -28,6 +28,8 @@ use napi_derive::napi;
 
 use orca_git::push_target::{validate_git_push_target, GitPushTarget};
 use orca_git::runner::{GitError, GitOutput, GitRunner};
+use orca_git::status_result::git_upstream_status_to_json;
+use orca_git::upstream::get_upstream_status;
 
 /// One git call's captured result, marshalled from the JS executor. The executor
 /// MUST resolve (never reject) for a git process that spawned and exited — carrying
@@ -94,12 +96,21 @@ impl GitRunner for JsExecutorGitRunner<'_> {
         match block_on(promise) {
             Ok(out) if out.exit_code == 0 => Ok(GitOutput { stdout: out.stdout, stderr: out.stderr }),
             Ok(out) => {
-                // Mirror ProcessGitRunner's GitError shape so orca-git's classifiers
-                // behave identically over either runner.
-                let code = Some(out.exit_code);
+                // Carry git's stderr in `message` so orca-git's classifiers and
+                // normalizers (which read GitError.message) see the real git
+                // diagnostic — matching TS, where the thrown execFile error's message
+                // embeds stderr and normalizeGitErrorMessage tails it. Fall back to
+                // the exit-code form (mirrors ProcessGitRunner) only when stderr is
+                // empty, which is also the missing-tracking-ref signal classified by
+                // exit code, not message.
+                let message = if out.stderr.trim().is_empty() {
+                    format!("git exited with {:?}", Some(out.exit_code))
+                } else {
+                    out.stderr.clone()
+                };
                 Err(GitError {
-                    code,
-                    message: format!("git exited with {code:?}"),
+                    code: Some(out.exit_code),
+                    message,
                     stdout: out.stdout,
                     stderr: out.stderr,
                 })
@@ -150,5 +161,53 @@ impl Task for ValidatePushTargetTask {
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         Ok(output)
+    }
+}
+
+/// Drive orca-git's multi-round upstream/ahead-behind status for an EXPLICIT
+/// publish target over the JS executor: `check-ref-format` → `rev-parse` →
+/// (conditionally) `rev-list` → (conditionally) `log`, with the data-dependent
+/// decisions between them owned by Rust. Resolves the `GitUpstreamStatus` JSON
+/// (exact TS shape), or REJECTS with the normalized error message. get_upstream_status
+/// applies the no-upstream swallow + error normalization in-process (full stderr
+/// in hand), so the JS side never re-decides the git sequence or re-normalizes.
+#[napi(ts_return_type = "Promise<string>")]
+pub fn get_upstream_status_via_executor(
+    remote_name: String,
+    branch_name: String,
+    remote_url: Option<String>,
+    executor: Function<Vec<String>, Promise<BridgeGitOutput>>,
+) -> Result<AsyncTask<UpstreamStatusTask>> {
+    let tsfn = build_bridge_tsfn(executor)?;
+    Ok(AsyncTask::new(UpstreamStatusTask {
+        target: GitPushTarget { remote_name, branch_name, remote_url },
+        tsfn,
+    }))
+}
+
+pub struct UpstreamStatusTask {
+    target: GitPushTarget,
+    tsfn: BridgeTsfn,
+}
+
+impl Task for UpstreamStatusTask {
+    // Ok = the GitUpstreamStatus JSON; Err = the already-normalized error message
+    // (which resolve() turns into a promise rejection).
+    type Output = std::result::Result<String, String>;
+    type JsValue = String;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let runner = JsExecutorGitRunner { tsfn: &self.tsfn };
+        match get_upstream_status(&runner, Some(&self.target)) {
+            Ok(status) => Ok(Ok(git_upstream_status_to_json(&status).to_string())),
+            Err(err) => Ok(Err(err.message)),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        match output {
+            Ok(json) => Ok(json),
+            Err(message) => Err(napi::Error::from_reason(message)),
+        }
     }
 }

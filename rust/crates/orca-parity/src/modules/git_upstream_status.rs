@@ -33,6 +33,9 @@ fn parse_status(input: &Value) -> Option<GitUpstreamStatus> {
             .map(str::to_string),
         ahead: obj.get("ahead").and_then(Value::as_i64).unwrap_or(0),
         behind: obj.get("behind").and_then(Value::as_i64).unwrap_or(0),
+        has_configured_push_target: obj
+            .get("hasConfiguredPushTarget")
+            .and_then(Value::as_bool),
         behind_commits_are_patch_equivalent: obj
             .get("behindCommitsArePatchEquivalent")
             .and_then(Value::as_bool),

@@ -9,7 +9,32 @@ use crate::numstat::NumstatEntry;
 use crate::status::{GitStagingArea, GitStatusEntry};
 use crate::status_parse::{GitConflictKind, GitFileStatus};
 use crate::status_stream::StatusParseResult;
+use orca_core::git_upstream_status::GitUpstreamStatus;
 use serde_json::{Map, Value};
+
+/// Serialize a `GitUpstreamStatus` to the exact TS `GitUpstreamStatus` object
+/// shape: `hasUpstream`/`ahead`/`behind` always present; `upstreamName`,
+/// `hasConfiguredPushTarget`, and `behindCommitsArePatchEquivalent` present only
+/// when `Some` (the TS `...(x ? {x} : {})` optional-spread contract).
+pub fn git_upstream_status_to_json(status: &GitUpstreamStatus) -> Value {
+    let mut m = Map::new();
+    m.insert("hasUpstream".into(), Value::Bool(status.has_upstream));
+    if let Some(name) = &status.upstream_name {
+        m.insert("upstreamName".into(), Value::String(name.clone()));
+    }
+    m.insert("ahead".into(), Value::from(status.ahead));
+    m.insert("behind".into(), Value::from(status.behind));
+    if let Some(has_configured) = status.has_configured_push_target {
+        m.insert("hasConfiguredPushTarget".into(), Value::Bool(has_configured));
+    }
+    if let Some(patch_equivalent) = status.behind_commits_are_patch_equivalent {
+        m.insert(
+            "behindCommitsArePatchEquivalent".into(),
+            Value::Bool(patch_equivalent),
+        );
+    }
+    Value::Object(m)
+}
 
 fn file_status_str(status: GitFileStatus) -> &'static str {
     match status {

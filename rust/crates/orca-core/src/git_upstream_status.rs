@@ -10,6 +10,11 @@ pub struct GitUpstreamStatus {
     pub upstream_name: Option<String>,
     pub ahead: i64,
     pub behind: i64,
+    /// Set (Some(true)) only when the remote-tracking ref for an explicit publish
+    /// target hasn't been fetched yet: there's no upstream to compare against, but
+    /// the branch CAN still be published. Absent otherwise (mirrors the TS
+    /// `hasConfiguredPushTarget?` optional the "can still publish" UI reads).
+    pub has_configured_push_target: Option<bool>,
     /// When a branch was rebased, upstream-only commits can be older
     /// patch-equivalent copies; pulling them reintroduces stale history.
     pub behind_commits_are_patch_equivalent: Option<bool>,

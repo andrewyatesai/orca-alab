@@ -50,6 +50,7 @@ pub fn get_upstream_status<R: GitRunner>(
             upstream_name: None,
             ahead: 0,
             behind: 0,
+            has_configured_push_target: None,
             behind_commits_are_patch_equivalent: None,
         }),
         Err(error) => Err(GitError::from_message(normalize_git_error_message(
@@ -96,6 +97,7 @@ mod tests {
             upstream_name: name.map(str::to_string),
             ahead,
             behind,
+            has_configured_push_target: None,
             behind_commits_are_patch_equivalent: bce,
         }
     }
@@ -193,7 +195,15 @@ mod tests {
     fn reports_no_upstream_when_publish_target_not_fetched() {
         let r = SeqRunner::new(vec![ok(""), err_full(None, "", "git exited with 1.")]);
         let target = GitPushTarget { remote_name: "fork".into(), branch_name: "feature/fix".into(), remote_url: None };
-        assert_eq!(get_upstream_status(&r, Some(&target)).unwrap(), status(false, Some("fork/feature/fix"), 0, 0, None));
+        // The not-fetched (missing-tracking-ref) branch flags that the branch can
+        // still be published, mirroring TS getPublishTargetStatus.
+        assert_eq!(
+            get_upstream_status(&r, Some(&target)).unwrap(),
+            GitUpstreamStatus {
+                has_configured_push_target: Some(true),
+                ..status(false, Some("fork/feature/fix"), 0, 0, None)
+            }
+        );
     }
 
     #[test]

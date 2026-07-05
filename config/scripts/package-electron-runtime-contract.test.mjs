@@ -5,9 +5,10 @@ import { parse } from 'yaml'
 import { existsSync } from 'node:fs'
 
 const projectDir = resolve(import.meta.dirname, '../..')
-// orc ships no GitHub workflows (no-CI policy; the gauntlet is the gate) — the
-// workflow-contract tests only apply when the upstream workflow files exist.
-const HAS_CI_WORKFLOWS = existsSync(join(projectDir, '.github/workflows'))
+// The release-pipeline contract asserts upstream's release-cut.yml. The fork
+// ships its own lean workflows (pr.yml, release-mac.yml) WITHOUT that pipeline,
+// so gate on the pipeline file itself, not on the workflows directory.
+const HAS_CI_WORKFLOWS = existsSync(join(projectDir, '.github/workflows/release-cut.yml'))
 const packageJson = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf8'))
 
 describe('Electron runtime package contract', () => {

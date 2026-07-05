@@ -1,0 +1,252 @@
+# Fork CI (staging-launch audit F15/F16). Lean by design: upstream's release/
+# mobile automation was deliberately deleted with the fork; this pipeline gates
+# only what the fork ships. docs/reference/ci.md documents every job, its local
+# equivalent, and the deliberate exclusions.
+name: pr
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.workflow }}-${{ github.ref }}
+  # Never cancel main-branch runs: their results are the regression baseline.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    # bash on all three OSes so multi-line steps behave identically (AGENTS.md
+    # cross-platform rule); Windows runners provide Git Bash.
+    shell: bash
+
+env:
+  # The rust/aterm submodule lives in a separate private repo, so the job-scoped
+  # GITHUB_TOKEN cannot fetch it. ATERM_SUBMODULE_TOKEN must be a PAT with read
+  # access to that repo (see docs/reference/ci.md); fallback keeps public-clone
+  # setups working without the secret.
+  CHECKOUT_TOKEN: ${{ secrets.ATERM_SUBMODULE_TOKEN || github.token }}
+
+jobs:
+  # ── (a) Typecheck + lint + full unit suite ─────────────────────────────────
+  core:
+    name: core (typecheck + lint + vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # cold addon build + type-aware lint + full vitest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # check:aterm-pin (inside `pnpm lint`) and build:terminal-addon both
+          # need the rust/aterm submodule tree.
+          submodules: true
+          token: ${{ env.CHECKOUT_TOKEN }}
+      - uses: pnpm/action-setup@v4 # version comes from package.json "packageManager"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable # build:terminal-addon needs cargo
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/orca-node
+      - run: pnpm install --frozen-lockfile
+      - name: Configure git identity for test fixtures
+        # Some vitest suites drive real git fixtures; fresh runners have no
+        # global identity, so commit-creating fixtures would otherwise fail.
+        run: |
+          git config --global user.email "ci@orca.invalid"
+          git config --global user.name "Orca CI"
+      - name: Build aterm terminal addon (vitest prerequisite)
+        run: pnpm run build:terminal-addon
+      - name: Typecheck
+        run: pnpm tc
+      - name: Lint
+        run: pnpm lint
+      - name: Unit tests (full vitest suite)
+        # `pnpm test` = build:terminal-addon (fresh from the step above, skips)
+        # + ensure-native-runtime (node-pty for Node) + vitest full run.
+        run: pnpm test
+
+  # ── (b) Rust workspace gates ───────────────────────────────────────────────
+  rust:
+    name: rust (cargo check + daemon/pty tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true # orca-terminal path-deps into rust/aterm
+          token: ${{ env.CHECKOUT_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      # The workspace is offline-by-construction (rust/.cargo/config.toml
+      # resolves every third-party crate from rust/vendor).
+      - name: cargo check --workspace
+        run: cargo check --workspace
+        working-directory: rust
+      - name: cargo test (orca-daemon + orca-pty)
+        run: cargo test -p orca-daemon -p orca-pty
+        working-directory: rust
+
+  # ── (c) Daemon parity gate (Rust invariants + Rust↔Node differential) ─────
+  daemon-parity:
+    name: daemon parity (macOS)
+    runs-on: macos-15
+    timeout-minutes: 45
+    needs: core # don't burn 10x-priced mac minutes on commits that fail cheap gates
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          token: ${{ env.CHECKOUT_TOKEN }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            native/orca-node
+      - run: pnpm install --frozen-lockfile
+      - name: Build release orca-daemon (parity leg A)
+        run: pnpm run build:rust-daemon
+      - name: Build aterm terminal addon (Node daemon engine)
+        # Without orca_node.node the Node daemon throws at startup and leg B
+        # degrades to a loud SKIP — build it so the differential actually runs.
+        run: pnpm run build:terminal-addon
+      - name: Build electron bundles (out/main/daemon-entry.js for parity leg B)
+        run: node config/scripts/run-electron-vite-build.mjs
+      - name: Run daemon parity gate
+        run: node tools/daemon-parity/run.mjs
+
+  # ── (d) Electron E2E — default suite, sharded ──────────────────────────────
+  e2e:
+    name: e2e shard ${{ matrix.shard }}/4 (macOS)
+    runs-on: macos-15
+    timeout-minutes: 90
+    needs: core
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          token: ${{ env.CHECKOUT_TOKEN }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            native/orca-node
+      - run: pnpm install --frozen-lockfile
+      - name: Build release orca-daemon
+        # On macOS the Rust daemon is THE terminal daemon with no Node fallback;
+        # without this binary every terminal spec runs against the degraded
+        # in-process provider (daemon-init.ts getRustDaemonBinPath dev probe).
+        run: pnpm run build:rust-daemon
+      - name: Build aterm terminal addon
+        run: pnpm run build:terminal-addon
+      - name: Run default E2E suite (Playwright globalSetup builds the app)
+        # No `--` separator: pnpm appends trailing flags verbatim to the script
+        # line (a literal `--` would reach playwright and demote --shard to a
+        # positional test filter). workers=1 under CI per playwright.config.ts;
+        # shards, not workers, provide the parallelism.
+        run: pnpm run test:e2e --shard=${{ matrix.shard }}/4
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-traces-shard-${{ matrix.shard }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ── (d, F16) Electron E2E — shipped worker-ON aterm config ────────────────
+  e2e-aterm-worker-on:
+    name: e2e aterm worker-ON (macOS)
+    runs-on: macos-15
+    timeout-minutes: 60
+    needs: core
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          token: ${{ env.CHECKOUT_TOKEN }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            rust
+            native/orca-node
+      - run: pnpm install --frozen-lockfile
+      - name: Build release orca-daemon
+        run: pnpm run build:rust-daemon
+      - name: Build aterm terminal addon
+        run: pnpm run build:terminal-addon
+      - name: Run worker-ON curated E2E suite
+        # F16: production ships the shared render worker ON, but the default
+        # suite forces it OFF for canvas-internal assertions. This gate runs the
+        # curated worker-compatible specs on the exact path real users get.
+        run: pnpm run test:e2e:aterm-worker-on
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-traces-aterm-worker-on
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ── (e) Windows — typecheck + daemon/runtime unit lane ────────────────────
+  windows:
+    name: windows (typecheck + daemon/pty/providers/runtime vitest)
+    runs-on: windows-latest
+    timeout-minutes: 75 # windows cargo + process-spawn-heavy suites run slower
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: true
+          token: ${{ env.CHECKOUT_TOKEN }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/orca-node
+      - run: pnpm install --frozen-lockfile
+      - name: Configure git identity for test fixtures
+        run: |
+          git config --global user.email "ci@orca.invalid"
+          git config --global user.name "Orca CI"
+      - name: Typecheck
+        run: pnpm tc
+      - name: Build aterm terminal addon
+        run: pnpm run build:terminal-addon
+      - name: Ensure native Node runtime (node-pty)
+        run: node config/scripts/ensure-native-runtime.mjs --runtime=node
+      - name: Unit tests (daemon + pty + providers + runtime)
+        # Windows ships the Node named-pipe daemon, so this lane runs the
+        # daemon/terminal-runtime suites where Windows behavior actually
+        # diverges. Scope rationale + expansion path: docs/reference/ci.md.
+        run: pnpm exec vitest run --config config/vitest.config.ts src/main/daemon src/main/pty src/main/providers src/main/runtime

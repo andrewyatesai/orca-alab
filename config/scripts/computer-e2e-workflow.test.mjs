@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 
 const projectDir = resolve(import.meta.dirname, '../..')
-// orc removes GitHub CI workflows (the gauntlet replaces them); skip the
-// workflow-contract assertions when the directory is absent.
-const HAS_CI_WORKFLOWS = existsSync(join(projectDir, '.github/workflows'))
+// These contract assertions target upstream's computer-e2e.yml. The fork ships
+// its own lean workflows (pr.yml, release-mac.yml) without that pipeline, so
+// gate on the asserted file itself, not on the workflows directory.
+const HAS_CI_WORKFLOWS = existsSync(join(projectDir, '.github/workflows/computer-e2e.yml'))
 
 describe('computer-use e2e workflow', () => {
   it('runs computer-use e2e files serially because they share desktop focus', () => {

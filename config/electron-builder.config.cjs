@@ -128,6 +128,12 @@ module.exports = {
     '!docs{,/**/*}',
     '!mobile{,/**/*}',
     '!native{,/**/*}',
+    // Why: the Rust workspace is a build input, not a runtime asset — the only
+    // binaries the app needs (orca-daemon, orca_node.node) ship via
+    // extraResources. Without this exclude, electron-builder swept the entire
+    // rust/target + rust/aterm/target build-artifact trees (multi-GB after any
+    // local cargo run) into app.asar, bloating the bundle ~20x (11GB vs ~150MB).
+    '!rust{,/**/*}',
     '!skills{,/**/*}',
     '!tests{,/**/*}',
     '!Casks{,/**/*}',

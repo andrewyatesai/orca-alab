@@ -90,6 +90,14 @@ export type RustGitBinding = {
    *  normalization in-process. Resolves the `GitUpstreamStatus` JSON string, or rejects
    *  with the normalized error message. */
   getEffectiveUpstreamStatusViaExecutor(executor: RustGitExecutor): Promise<string>
+  /** IO-tier "A bridge" cutover: Rust drives the read-only rebase-source resolver
+   *  (`git remote` → longest match → `check-ref-format`) over the JS `executor`.
+   *  Resolves `{remoteName, branchName, displayName}` JSON, or rejects with the RAW
+   *  resolver message (the caller normalizes). `git pull --rebase` stays in TS. */
+  resolveGitRemoteRebaseSourceViaExecutor(
+    baseRef: string,
+    executor: RustGitExecutor
+  ): Promise<string>
   /** Approximate added/removed line counts JSON, or null for the large guard. */
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */

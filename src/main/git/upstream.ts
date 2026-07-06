@@ -2,50 +2,11 @@ import type { GitPushTarget, GitUpstreamStatus } from '../../shared/types'
 import { isNoUpstreamError, normalizeGitErrorMessage } from '../../shared/git-remote-error'
 import { gitExecFileAsync } from './runner'
 import { assertGitPushTargetShapeNative } from './rust-push-target-validation'
-import { requireRustGitBinding, type RustGitExecutor } from '../daemon/rust-git-addon'
+import { makeRustGitExecutor } from './rust-git-executor'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
 
 type GitExecOptions = {
   wslDistro?: string
-}
-
-/**
- * A {@link RustGitExecutor} over `gitExecFileAsync` — the SSH-safe seam for the
- * "A bridge": Rust drives the multi-round status logic, but git is still spawned
- * here with all WSL/SSH/env routing intact. gitExecFileAsync REJECTS on a
- * non-zero exit; map that back to a RESOLVED result carrying the exit code so the
- * Rust runner classifies it (BridgeGitOutput's resolve-never-reject contract). A
- * spawn failure (non-numeric code, e.g. ENOENT) is re-thrown so the bridge treats
- * it as a spawn error, not a git exit.
- */
-function makeRustGitExecutor(worktreePath: string, options: GitExecOptions): RustGitExecutor {
-  return async (args) => {
-    try {
-      const { stdout, stderr } = await gitExecFileAsync(args, gitExecOptions(worktreePath, options))
-      // Default to '' — the bridge's BridgeGitOutput requires string stdout/stderr.
-      return { stdout: stdout ?? '', stderr: stderr ?? '', exitCode: 0 }
-    } catch (error) {
-      const err = error as { code?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown }
-      // A true spawn failure (git binary missing) carries a STRING errno like
-      // 'ENOENT'; re-throw so the bridge reports a spawn error. Anything else is a
-      // git process that spawned and exited non-zero — map it to a resolved result
-      // carrying the exit code (default 1) and stderr (falling back to the error
-      // message) so the Rust runner classifies it (BridgeGitOutput never rejects).
-      if (typeof err.code === 'string') {
-        throw error
-      }
-      const stderr =
-        typeof err.stderr === 'string'
-          ? err.stderr
-          : typeof err.message === 'string'
-            ? err.message
-            : ''
-      return {
-        stdout: typeof err.stdout === 'string' ? err.stdout : '',
-        stderr,
-        exitCode: typeof err.code === 'number' ? err.code : 1
-      }
-    }
-  }
 }
 
 function gitExecOptions(
@@ -64,7 +25,9 @@ export async function getUpstreamStatus(
   // log) and applies the no-upstream swallow + error normalization in-process;
   // runner.ts still executes git so SSH/WSL/env routing is preserved.
   const binding = requireRustGitBinding()
-  const executor = makeRustGitExecutor(worktreePath, options)
+  const executor = makeRustGitExecutor((args) =>
+    gitExecFileAsync(args, gitExecOptions(worktreePath, options))
+  )
   try {
     if (pushTarget) {
       // The JS-boundary shape guards run here — the typed Rust driver can't produce

@@ -1,7 +1,7 @@
 import { normalizeGitErrorMessage } from '../../shared/git-remote-error'
 import { resolveEffectiveGitUpstream } from '../../shared/git-effective-upstream'
 import { gitRefTargetsBranchOnRemote } from '../../shared/git-remote-branch-name'
-import { resolveGitRemoteRebaseSource } from '../../shared/git-rebase-source'
+import { resolveGitRemoteRebaseSourceNative } from './rust-rebase-source'
 import type { GitPushTarget } from '../../shared/types'
 import type { GitRuntimeOptions } from './git-runtime-options'
 import { gitOptionsForWorktree } from './git-runtime-options'
@@ -266,7 +266,9 @@ export async function gitPullRebaseFromBase(
   options: GitRuntimeOptions = {}
 ): Promise<void> {
   try {
-    const source = await resolveGitRemoteRebaseSource(
+    // Rust resolves the remote/branch (read-only: git remote + check-ref-format);
+    // runner.ts still executes the mutating `git pull --rebase` below.
+    const source = await resolveGitRemoteRebaseSourceNative(
       (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
       baseRef
     )

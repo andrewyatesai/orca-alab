@@ -115,7 +115,7 @@ type StoreState = {
       | { kind: 'windows-host' }
       | { kind: 'wsl'; distro: string }
   }[]
-  sshConnectionStates: Map<string, { status: string }>
+  sshConnectionStates: Map<string, { status: string; remotePlatform?: NodeJS.Platform }>
   cacheTimerByKey: Record<string, number | null>
   settings: {
     theme?: 'system' | 'dark' | 'light'
@@ -226,9 +226,10 @@ function notifyStoreSubscribers(): void {
 
 vi.mock('@/lib/agent-status', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
+  const isGeminiTerminalTitle = actual.isGeminiTerminalTitle as (title: string) => boolean
   return {
     ...actual,
-    isGeminiTerminalTitle: vi.fn(() => false),
+    isGeminiTerminalTitle: vi.fn((title: string) => isGeminiTerminalTitle(title)),
     isClaudeAgent: vi.fn(() => false),
     detectAgentStatusFromTitle: vi.fn((title: string) => {
       if (/Claude (working|done)/.test(title)) {
@@ -3069,9 +3070,8 @@ describe('connectPanePty', () => {
     // user-input signal's gesture classifier.
     const keydownListenersPerConnect = terminalTarget.handlers.size
     expect(keydownListenersPerConnect).toBe(2)
-    const addCallsPerConnect = (
-      terminalTarget.target.addEventListener as ReturnType<typeof vi.fn>
-    ).mock.calls.length
+    const addCallsPerConnect = (terminalTarget.target.addEventListener as ReturnType<typeof vi.fn>)
+      .mock.calls.length
 
     firstConnection.dispose()
     expect(terminalTarget.handlers.size).toBe(0)
@@ -3107,6 +3107,45 @@ describe('connectPanePty', () => {
 
     expect(getFitOverrideForPane(1, 'tab-1')).toBeNull()
     expect(pane.container.dataset.ptyId).toBeUndefined()
+  })
+
+  it('refits immediately when binding to a PTY with an active mobile-fit override', async () => {
+    const { setFitOverride } = await import('@/lib/pane-manager/mobile-fit-overrides')
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+    const pane = createPane(1)
+    Object.defineProperty(pane.container, 'getBoundingClientRect', {
+      configurable: true,
+      value: () =>
+        ({
+          width: 800,
+          height: 400,
+          top: 0,
+          left: 0,
+          right: 800,
+          bottom: 400
+        }) as DOMRect
+    })
+    ;(
+      pane.fitAddon as unknown as { proposeDimensions: () => { cols: number; rows: number } }
+    ).proposeDimensions = vi.fn(() => ({ cols: 120, rows: 40 }))
+    pane.terminal.resize.mockImplementation((cols: number, rows: number) => {
+      pane.terminal.cols = cols
+      pane.terminal.rows = rows
+    })
+    setFitOverride('pty-fit', 'mobile-fit', 49, 20)
+
+    connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+    const onPtySpawn = createdTransportOptions[0]?.onPtySpawn as
+      | ((ptyId: string) => void)
+      | undefined
+    expect(onPtySpawn).toBeTypeOf('function')
+    onPtySpawn?.('pty-fit')
+
+    expect(pane.terminal.resize).toHaveBeenCalledWith(49, 20)
+    expect(pane.terminal.cols).toBe(49)
+    expect(pane.terminal.rows).toBe(20)
   })
 
   it('continues post-spawn size reconcile after a transient mobile presence lock', async () => {
@@ -5600,6 +5639,285 @@ describe('connectPanePty', () => {
     // Why: consuming the record prevents a later worktree activation from
     // launching a duplicate resume tab for the same session.
     expect(mockStoreState.clearSleepingAgentSession).toHaveBeenCalledWith(paneKey)
+  })
+
+  // #4557: an agent terminal that can't be resumed should come back as a fresh
+  // agent (prior agent, else default) instead of a blank shell.
+  const findReattachConnect = (transport: ReturnType<typeof createMockTransport>) => {
+    const call = transport.connect.mock.calls.find(
+      (args) => (args[0] as { sessionId?: string })?.sessionId === 'lost-pty'
+    )
+    return call?.[0] as
+      | {
+          command?: string
+          launchAgent?: string
+          launchConfig?: {
+            agentCommand?: string
+            agentArgs?: string
+            agentEnv?: Record<string, string>
+          }
+          env?: Record<string, string>
+        }
+      | undefined
+  }
+
+  const mountColdRestore = async (
+    transport: ReturnType<typeof createMockTransport>,
+    depsOverrides: Record<string, unknown> = {}
+  ) => {
+    const { connectPanePty } = await import('./pty-connection')
+    transport.connect.mockImplementation(async ({ sessionId }: { sessionId?: string }) => {
+      if (sessionId) {
+        return { id: 'fresh-pty', coldRestore: { scrollback: 'cold-payload', cwd: '/tmp/wt-1' } }
+      }
+      return 'fresh-pty'
+    })
+    transportFactoryQueue.push(transport)
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps({
+      restoredLeafId: LEAF_1,
+      restoredPtyIdByLeafId: { [LEAF_1]: 'lost-pty' },
+      ...depsOverrides
+    })
+    connectPanePty(pane as never, manager as never, deps as never)
+    await flushAsyncTicks(20)
+    await new Promise((resolve) => setTimeout(resolve, 70))
+    return deps
+  }
+
+  it('cold-restores a fresh agent from the sleeping record when its session is unresumable', async () => {
+    const transport = createMockTransport('fresh-pty')
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'lost-pty' }] },
+      settings: { ...mockStoreState.settings, agentCmdOverrides: {} },
+      agentStatusByPaneKey: {},
+      sleepingAgentSessionsByPaneKey: {
+        // Agent known, but no resumable provider session id.
+        [paneKey]: {
+          paneKey,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          agent: 'codex',
+          prompt: 'finish the task',
+          state: 'working',
+          capturedAt: 1,
+          updatedAt: 1
+        }
+      }
+    } as StoreState
+
+    await mountColdRestore(transport)
+
+    const reattach = findReattachConnect(transport)
+    expect(reattach?.command).toMatch(/^codex /)
+    expect(reattach?.command).not.toContain('resume')
+    expect(reattach?.launchAgent).toBe('codex')
+    expect(reattach?.env?.ORCA_AGENT_LAUNCH_TOKEN).toMatch(new RegExp(`^${UUID_RE}$`))
+  })
+
+  it('cold-restores a fresh agent with the sleeping record launch config when resume is unavailable', async () => {
+    const transport = createMockTransport('fresh-pty')
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'lost-pty' }] },
+      settings: {
+        ...mockStoreState.settings,
+        agentCmdOverrides: { codex: 'current-codex' },
+        agentDefaultArgs: { codex: '--current-args' }
+      },
+      agentStatusByPaneKey: {},
+      sleepingAgentSessionsByPaneKey: {
+        [paneKey]: {
+          paneKey,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          agent: 'codex',
+          prompt: 'finish the task',
+          state: 'working',
+          capturedAt: 1,
+          updatedAt: 1,
+          launchConfig: {
+            agentCommand: 'sleeping-codex --stored-args',
+            agentArgs: '--stored-args',
+            agentEnv: { CODEX_HOME: '/tmp/orca-stored-codex' }
+          }
+        }
+      }
+    } as StoreState
+
+    await mountColdRestore(transport)
+
+    const reattach = findReattachConnect(transport)
+    expect(reattach?.command).toBe('sleeping-codex --stored-args')
+    expect(reattach?.launchAgent).toBe('codex')
+    expect(reattach?.launchConfig).toMatchObject({
+      agentCommand: 'sleeping-codex --stored-args',
+      agentArgs: '--stored-args',
+      agentEnv: { CODEX_HOME: '/tmp/orca-stored-codex' }
+    })
+    expect(reattach?.env).toMatchObject({
+      CODEX_HOME: '/tmp/orca-stored-codex',
+      ORCA_AGENT_LAUNCH_TOKEN: expect.stringMatching(new RegExp(`^${UUID_RE}$`))
+    })
+  })
+
+  it('uses the known SSH remote platform when fresh-launching an unresumable agent', async () => {
+    const transport = createMockTransport('fresh-pty')
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: {
+        'wt-1': [{ id: 'tab-1', ptyId: 'lost-pty', launchAgent: 'claude-agent-teams' }]
+      },
+      repos: [{ id: 'repo1', connectionId: 'ssh-win' }],
+      sshConnectionStates: new Map([['ssh-win', { status: 'connected', remotePlatform: 'win32' }]]),
+      settings: { ...mockStoreState.settings, agentCmdOverrides: {} },
+      agentStatusByPaneKey: {},
+      sleepingAgentSessionsByPaneKey: {}
+    } as StoreState
+
+    await mountColdRestore(transport)
+
+    const reattach = findReattachConnect(transport)
+    expect(reattach?.command).toMatch(/^orca\.cmd claude-teams/)
+    expect(reattach?.command).not.toContain('orca-ide')
+    expect(reattach?.launchAgent).toBe('claude-agent-teams')
+  })
+
+  it('cold-restores the prior agent from the persisted tab launchAgent after a restart', async () => {
+    const transport = createMockTransport('fresh-pty')
+    mockStoreState = {
+      ...mockStoreState,
+      // After a restart there is no live status nor sleeping record — only the
+      // persisted tab.launchAgent tells us this terminal ran an agent.
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'lost-pty', launchAgent: 'claude' }] },
+      settings: { ...mockStoreState.settings, agentCmdOverrides: {} },
+      agentStatusByPaneKey: {},
+      sleepingAgentSessionsByPaneKey: {}
+    } as StoreState
+
+    await mountColdRestore(transport)
+
+    const reattach = findReattachConnect(transport)
+    expect(reattach?.command).toContain('claude')
+    expect(reattach?.command).not.toContain('resume')
+    expect(reattach?.launchAgent).toBe('claude')
+  })
+
+  it('cold-restores the default agent when an agent terminal has no recoverable agent', async () => {
+    const transport = createMockTransport('fresh-pty')
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'lost-pty' }] },
+      settings: { ...mockStoreState.settings, agentCmdOverrides: {}, defaultTuiAgent: 'codex' },
+      agentStatusByPaneKey: {},
+      // A record exists (it was an agent terminal) but carries no usable agent id.
+      sleepingAgentSessionsByPaneKey: {
+        [paneKey]: { paneKey, tabId: 'tab-1', worktreeId: 'wt-1', capturedAt: 1, updatedAt: 1 }
+      }
+    } as StoreState
+
+    await mountColdRestore(transport)
+
+    const reattach = findReattachConnect(transport)
+    expect(reattach?.command).toMatch(/^codex /)
+    expect(reattach?.command).not.toContain('resume')
+    expect(reattach?.launchAgent).toBe('codex')
+  })
+
+  it('does not cold-restore a fresh agent from only a completed live status row', async () => {
+    const transport = createMockTransport('fresh-pty')
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'lost-pty' }] },
+      settings: { ...mockStoreState.settings, agentCmdOverrides: {}, defaultTuiAgent: 'codex' },
+      agentStatusByPaneKey: {
+        [paneKey]: {
+          agentType: 'codex',
+          paneKey,
+          prompt: 'done task',
+          state: 'done',
+          stateHistory: [],
+          stateStartedAt: 1,
+          updatedAt: 1
+        }
+      },
+      sleepingAgentSessionsByPaneKey: {}
+    } as StoreState
+
+    await mountColdRestore(transport)
+
+    const reattach = findReattachConnect(transport)
+    expect(reattach?.command).toBeUndefined()
+    expect(reattach?.launchAgent).toBeUndefined()
+  })
+
+  it('ignores malformed sleeping launch config when a live resumable status exists', async () => {
+    const transport = createMockTransport('fresh-pty')
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'lost-pty' }] },
+      settings: { ...mockStoreState.settings, agentCmdOverrides: {} },
+      agentStatusByPaneKey: {
+        [paneKey]: {
+          agentType: 'codex',
+          paneKey,
+          prompt: 'live task',
+          providerSession: { key: 'session_id', id: 'live-session' },
+          state: 'working',
+          stateHistory: [],
+          stateStartedAt: 1,
+          updatedAt: 1
+        }
+      },
+      sleepingAgentSessionsByPaneKey: {
+        [paneKey]: {
+          paneKey,
+          tabId: 'tab-1',
+          worktreeId: 'wt-1',
+          agent: 'codex',
+          prompt: 'malformed sleeping task',
+          state: 'working',
+          capturedAt: 1,
+          updatedAt: 1,
+          launchConfig: {
+            agentCommand: 'malformed-sleeping-codex',
+            agentArgs: '',
+            agentEnv: {}
+          }
+        }
+      }
+    } as StoreState
+
+    await mountColdRestore(transport)
+
+    const reattach = findReattachConnect(transport)
+    expect(reattach?.command).toContain("'resume' 'live-session'")
+    expect(reattach?.command).not.toBe('malformed-sleeping-codex')
+    expect(reattach?.launchAgent).toBe('codex')
+  })
+
+  it('leaves a plain shell blank on cold restore (no prior agent, no default)', async () => {
+    const transport = createMockTransport('fresh-pty')
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: 'lost-pty' }] },
+      settings: { ...mockStoreState.settings, agentCmdOverrides: {} },
+      agentStatusByPaneKey: {},
+      sleepingAgentSessionsByPaneKey: {}
+    } as StoreState
+
+    await mountColdRestore(transport)
+
+    const reattach = findReattachConnect(transport)
+    expect(reattach?.command).toBeUndefined()
+    expect(reattach?.launchAgent).toBeUndefined()
   })
 
   it('resumes from an unambiguous legacy sleeping record when cold-restoring a preserved pane', async () => {
@@ -12339,6 +12657,39 @@ describe('connectPanePty', () => {
       },
       '\u280b OMP'
     )
+  })
+
+  // Upstream (#7447) also asserts per-pane GPU rendering is re-enabled here via
+  // manager.setPaneGpuRendering(1, true). aterm has no per-pane GPU toggle (see
+  // pty-connection.ts), so we keep only the title-labeling assertions — the OMP-
+  // not-Gemini mislabeling fix — which is the part that applies to this fork.
+  it('keeps the OMP title for OMP terminals whose cwd mentions Gemini', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-omp-gemini-cwd')
+    transportFactoryQueue.push(transport)
+    enableActiveRuntimeEnvironment()
+    mockStoreState.tabsByWorktree = {
+      'wt-1': [{ id: 'tab-1', ptyId: 'tab-pty', launchAgent: 'omp' }]
+    }
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    manager.getActivePane.mockReturnValue({ id: 1 })
+    const deps = createDeps()
+
+    connectPanePty(pane as never, manager as never, deps as never)
+
+    const titleHandler = createdTransportOptions[0]?.onTitleChange as
+      | ((title: string, rawTitle: string) => void)
+      | undefined
+    if (!titleHandler) {
+      throw new Error('Expected onTitleChange to be registered')
+    }
+
+    titleHandler('\u280b Pi', '\u280b π: gemini')
+
+    expect(deps.setRuntimePaneTitle).toHaveBeenCalledWith('tab-1', 1, '\u280b OMP')
+    expect(deps.updateTabTitle).toHaveBeenCalledWith('tab-1', '\u280b OMP')
   })
 
   it('leaves local IPC OSC 9999 status ownership in the main runtime', async () => {

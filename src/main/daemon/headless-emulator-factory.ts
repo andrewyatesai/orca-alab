@@ -11,6 +11,9 @@ export type TerminalEmulator = {
   getSnapshot(): TerminalSnapshot
   getCwd(): string | null
   clearScrollback(): void
+  // Gate for the Ctrl+K PTY-buffer clear: only form-feed when the cursor sits on
+  // an empty prompt, so PSReadLine/ConPTY doesn't repaint at a stale row.
+  isCursorOnEmptyPromptLine(): boolean
   dispose(): void
 }
 

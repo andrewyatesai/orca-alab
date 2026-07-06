@@ -27,7 +27,8 @@
         "kimiToggleDescription": "활성 워크스페이스의 Kimi 구독 사용량을 표시합니다.",
         "sshToggleDescription": "사용 가능한 SSH 및 원격 Orca 호스트가 있으면 표시합니다.",
         "resourceUsageToggleDescription": "리소스 관리자를 표시합니다. 클릭하면 CPU, 메모리, 세션, 데몬 제어, 워크스페이스 디스크 스캔을 볼 수 있습니다.",
-        "portsToggleDescription": "라이브 워크스페이스 포트를 표시합니다. 워크스페이스 범위 포트 및 외부 수신기를 보려면 클릭하세요."
+        "portsToggleDescription": "라이브 워크스페이스 포트를 표시합니다. 워크스페이스 범위 포트 및 외부 수신기를 보려면 클릭하세요.",
+        "minimaxToggleDescription": "활성 워크스페이스의 MiniMax 구독 사용량을 표시합니다."
       }
     },
     "about": {
@@ -67,7 +68,7 @@
     "openWorktreePalette": "워크트리 팔레트 열기",
     "window": "창",
     "help": "도움말",
-    "paste": "Paste"
+    "paste": "붙여넣기"
   },
   "tray": {
     "openOrca": "Orca 열기",
@@ -2028,7 +2029,7 @@
           "13b3ac0a84": "상태",
           "79c54552f7": "필터",
           "8a2ffbf9b3": "{{value0}} 필터 제거",
-          "19bb6f115f": "reviewed-by"
+          "19bb6f115f": "리뷰 완료"
         },
         "PRFilterPickers": {
           "fdf387297c": "지우기 (",
@@ -2604,7 +2605,8 @@
             "sessionQueued": "세션이 대기열에 추가됨",
             "runtimeWorkspacesUnsupported": "런타임 호스팅 워크스페이스에서는 기록에서 재개하기를 사용할 수 없습니다.",
             "openSupportedWorkspace": "세션을 재개하기 전에 로컬 또는 SSH 워크스페이스를 여세요.",
-            "localSessionSshWorkspaceUnsupported": "이 세션의 기록은 이 컴퓨터에 저장되어 있어 SSH 워크스페이스에서는 재개할 수 없습니다. 대신 로컬 워크스페이스에 놓으세요."
+            "localSessionSshWorkspaceUnsupported": "이 세션의 기록은 이 컴퓨터에 저장되어 있어 SSH 워크스페이스에서는 재개할 수 없습니다. 대신 로컬 워크스페이스에 놓으세요.",
+            "sessionHostMismatchUnsupported": "이 세션은 다른 호스트에 속합니다. 같은 호스트의 워크스페이스에 놓으세요."
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "새 분할"
@@ -2949,7 +2951,9 @@
             "972a1ff497": "Codex 한도를 재설정할까요?",
             "6d1042aa6f": "활성 계정의 Codex rate-limit 재설정 크레딧 1회를 사용해 재설정 가능한 사용량 창을 즉시 초기화합니다.",
             "f077f586db": "다시 묻지 않기",
-            "c0e972d726": "취소"
+            "c0e972d726": "취소",
+            "06741a2f3d": "MiniMax 사용량 세부 정보 열기",
+            "3bbf140864": "MiniMax 사용량"
           },
           "StatusBarUsageEmptyCta": {
             "828c764a79": "계정 연결",
@@ -4648,7 +4652,48 @@
           "75ca9b718e": "Codex는 활성 계정에 새로 로그인해야 한다고 보고했습니다. 새 Codex 세션을 시작하기 전에 다시 인증하세요.",
           "b11078a9c2": "wsl",
           "350b2a1aa7": "현재 사용 중인",
-          "e05d0ff737": "현재 {{value0}} Claude 로그인을 사용하세요."
+          "e05d0ff737": "현재 {{value0}} Claude 로그인을 사용하세요.",
+          "316ca4e610": "쿠키 잊기",
+          "2f24f244a4": "MiniMax Cookie가 필요합니다.",
+          "8e6f0cb1d8": "MiniMax Cookie가 저장되지 않았습니다.",
+          "8d61637a77": "MiniMax Cookie가 저장되었습니다.",
+          "b43e761fe5": "MiniMax Cookie 업데이트에 실패했습니다.",
+          "5d63bbfbec": "MiniMax",
+          "15e831350e": "platform.minimax.io에서 MiniMax 사용량 추적을 설정합니다.",
+          "21d6eb141e": "MiniMax 세션 Cookie",
+          "33bba5ad83": "로컬 rate-limit 가져오기에 사용할 MiniMax 세션 Cookie를 붙여넣으세요.",
+          "73ea15f24b": "저장됨",
+          "23afe8f226": "저장되지 않음",
+          "566d9a99ab": "_token=…; minimax_group_id_v2=…",
+          "f38b9cc4bd": "교체",
+          "590a3130f9": "저장",
+          "79418c782a": "브라우저에서 platform.minimax.io/console/usage 를 열고 로그인한 다음 DevTools(네트워크 → 임의의 remains 요청 → Cookie)에서 Cookie 요청 헤더를 복사하세요.",
+          "9dd50d3f75": "고급",
+          "174fb408f9": "MiniMax 사용량 새로 고침이 잘못된 워크스페이스나 모델을 가리키는 경우에만 이 기본값을 변경하세요.",
+          "bf160bb6c0": "Group ID 재정의",
+          "b1e2743313": "선택 항목입니다. 비워두면 Cookie의 minimax_group_id_v2가 사용됩니다.",
+          "0747d6391a": "Cookie의 Group ID 사용",
+          "4ff2af7524": "사용 모델 이름",
+          "5cf4b0f85f": "선택적인 쉼표로 구분된 모델 이름. MiniMax가 모델 관련 오류를 반환하지 않는 한 general로 두세요.",
+          "3c92b0d31c": "general",
+          "0d8e77bc40": "콘솔 열기",
+          "0b8c1c7e02": "로컬에 저장됨",
+          "1fd1b1b6b4": "Cookie가 설정되지 않음",
+          "5e08b0fe57": "로컬에 저장되며 사용량 새로 고침을 위해 platform.minimax.io로만 전송됩니다.",
+          "43d7a45b97": "복사 방법",
+          "b8a4f21c3e": "DevTools에서 Cookie 헤더 붙여넣기",
+          "53f7b8c7a2": "마지막 새로 고침: {{value0}}",
+          "31d24a4e87": "브라우저에서 로그아웃하면 Cookie가 만료됩니다.",
+          "3a30aaf526": "방금 전",
+          "f5d8d2a6a1": "브라우저에서 platform.minimax.io/console/usage를 열고 로그인합니다.",
+          "24560fe830": "DevTools를 엽니다.",
+          "4cab0fa42d": "네트워크 탭으로 이동하여 Preserve log를 활성화합니다.",
+          "bee4e63e1c": "페이지를 새로 고침합니다.",
+          "87f814af6f": "remains로 필터링하고 coding_plan/remains 요청을 선택합니다.",
+          "435df0ee51": "Request Headers에서 Cookie 값을 복사합니다.",
+          "7492fb3bba": "여기에 붙여넣고 저장을 클릭합니다.",
+          "9fec52de4b": "Cookie 복사 방법",
+          "4e32e030b2": "로컬에 저장됩니다. Orca는 사용량 새로 고침을 위해 platform.minimax.io로만 전송합니다."
         },
         "AdvancedPane": {
           "40b29e0bf3": "다시 시작",
@@ -4896,7 +4941,8 @@
           "d420c43729": "{{value1}}{{value2}}에서 {{value0}}개의 쿠키를 {{value3}}(으)로 가져왔습니다.",
           "b4c167764d": "파일에서 {{value0}}개의 쿠키를 {{value1}}에 가져왔습니다.",
           "a3f8c2d1e0b4": "{{value1}} ({{value2}})에서 {{value0}}개의 쿠키를 {{value3}}(으)로 가져왔습니다.",
-          "b4e9d3f2a1c5": "{{value1}}에서 {{value0}}개의 쿠키를 {{value2}}(으)로 가져왔습니다."
+          "b4e9d3f2a1c5": "{{value1}}에서 {{value0}}개의 쿠키를 {{value2}}(으)로 가져왔습니다.",
+          "c5a273a809": "{{value0}}에서"
         },
         "BrowserUseComputerUseNotice": {
           "15b5e680ba": "컴퓨터 사용 열기",
@@ -4920,7 +4966,7 @@
           "be6df68384": "파일에서…",
           "e44c5d681e": "에서",
           "67d9a53f47": "별도의 로그인을 위한 프로필 관리",
-          "112f70adc4": "마지막으로 가져온 위치",
+          "112f70adc4": "{{value0}}에서 마지막으로 가져옴",
           "72d4815523": "agents가 인증된 페이지에 접근할 수 있도록 기존 로그인을 Orca로 가져오세요. 기본 프로필로 가져옵니다.",
           "2eb906706c": "브라우저 쿠키 가져오기",
           "af8c83ed61": "agents가 로그인을 재사용할 수 있도록 Chrome, Edge 또는 기타 브라우저에서 쿠키를 가져옵니다.",
@@ -4942,7 +4988,8 @@
           "ad8cb0ee22": "경로 수정",
           "0289434ed6": "활성화됨",
           "8b3054dac7": "등록 중...",
-          "8f2675c2f3": "파일에서 {{value0}}개의 쿠키를 가져왔습니다."
+          "8f2675c2f3": "파일에서 {{value0}}개의 쿠키를 가져왔습니다.",
+          "5301857d88": "{{value0}}에서"
         },
         "BrowserUseSkillStep": {
           "0871b6998d": "agents가 Orca 브라우저에서 페이지를 탐색하고 확인할 수 있습니다.",
@@ -5353,7 +5400,7 @@
           "aefa1ecb59": "Git 사용자 이름이 구성되지 않았습니다.",
           "f35007e6e8": "git-username",
           "3d172725cc": "없음",
-          "1f32ba27a6": "Custom",
+          "1f32ba27a6": "사용자 정의",
           "a182c5125e": "Git 사용자 이름",
           "sourceControlGroupOrderTitle": "소스 제어 그룹 순서",
           "sourceControlGroupOrderDescription": "소스 제어에서 변경 사항, 스테이징된 변경 사항 또는 추적되지 않는 파일 중 무엇을 먼저 표시할지 선택합니다.",
@@ -6828,7 +6875,9 @@
             "bdbd1e668e": "Windows",
             "593720c17f": "위치",
             "b84a5b0c8a": "이 장치 또는 WSL에서 공급자 계정을 검사하고 추가할지 선택합니다.",
-            "d09fb5ca92": "계정 위치"
+            "d09fb5ca92": "계정 위치",
+            "733f9e2a93": "MiniMax 사용량",
+            "f8374c3151": "로컬 rate-limit 가져오기에 사용할 platform.minimax.io 세션 Cookie를 붙여넣으세요."
           }
         },
         "advanced": {
@@ -7037,7 +7086,12 @@
               "cardLayout": "카드 레이아웃",
               "workspaceOptions": "워크스페이스 옵션",
               "detailed": "상세"
-            }
+            },
+            "25e51b62ee": "사용 한도",
+            "d9e7cef86f": "쿠키",
+            "d16378a88f": "minimax",
+            "e46178eb1b": "상태 표시줄에 MiniMax 구독 사용량을 표시합니다.",
+            "0f08f6b483": "MiniMax 사용량"
           }
         },
         "auto": {
@@ -8630,12 +8684,12 @@
           "07939d084e": "Reset {{value0}} to default",
           "9b02917027": "Reset to default",
           "a799f90f82": "Disable {{value0}}",
-          "25e6e76618": "Disable shortcut",
-          "035a822ef0": "Add shortcut",
+          "25e6e76618": "단축키 비활성화",
+          "035a822ef0": "단축키 추가",
           "a0e2ef0e61": "Add another shortcut for {{value0}}",
-          "245c83af24": "Add another shortcut",
+          "245c83af24": "다른 단축키 추가",
           "482a60225d": "Enable {{value0}}",
-          "6287677c37": "Enable",
+          "6287677c37": "활성화",
           "01481b964c": "Add shortcut for {{value0}}"
         },
         "ShortcutRecorderButton": {
@@ -8643,10 +8697,10 @@
           "3732775d74": "Add shortcut for {{value0}}",
           "88764af2c1": "Change shortcut for {{value0}}",
           "30feb099d6": "Change shortcut {{value0}} of {{value1}} for {{value2}}",
-          "5d982a2a1f": "Listening for shortcut",
-          "152e0bcd64": "Add shortcut",
-          "5bd56445da": "Change shortcut",
-          "f5ed5dcbf6": "Press keys…"
+          "5d982a2a1f": "단축키 대기 중",
+          "152e0bcd64": "단축키 추가",
+          "5bd56445da": "단축키 변경",
+          "f5ed5dcbf6": "키를 누르세요…"
         },
         "ShortcutRemoveButton": {
           "9e29aff18b": "{{value0}} 바로가기 {{value1}} 제거",
@@ -8890,6 +8944,18 @@
               "note": "엔진이 OS의 CJK 및 컬러 이모지 페이스를 자동으로 대체 글꼴로 불러오므로, 비라틴 문자와 이모지가 설정 없이 표시됩니다."
             }
           }
+        },
+        "SourceControlActionRepoOverrideNote": {
+          "agent": "Agent",
+          "agentArgs": "CLI arguments",
+          "commandTemplate": "Command template",
+          "more": "+{{count}} more",
+          "plural": "Global saves won't change {{count}} repositories with their own recipes.",
+          "recipe": "Recipe",
+          "review": "Review",
+          "reviewFirst": "Review first",
+          "singular": "Global saves won't change 1 repository with its own recipe.",
+          "tooltipTitle": "Repository overrides"
         }
       },
       "right": {
@@ -9356,7 +9422,9 @@
             "b715ef615b": "{{value1}}보다 {{value0}} commits 앞서 있음",
             "c1a8f3e204": "{{value0}}보다 1 commit 뒤처짐",
             "d2b9g4f315": "{{value1}}보다 {{value0}} commits 뒤처짐",
-            "e9c2a5d416": "{{value0}}와 동일한 상태"
+            "e9c2a5d416": "{{value0}}와 동일한 상태",
+            "4b4a7de138": "Open review page in browser",
+            "createPrIntentCommitBlockedSummary": "Commit blocked: {{value0}} Fix the issue, then retry Create PR."
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "선택한 agent를 시작할 수 없습니다.",
@@ -9387,7 +9455,8 @@
             "c7ff8cef11": "agents 감지 중...",
             "b0da3a4d3e": "실행 레시피가 이미 저장되었습니다",
             "bff4795a6d": "저장된 레시피를 업데이트하려면 agent, 인수 또는 프롬프트 템플릿을 변경하세요.",
-            "5c75b24735": "Orca가 시작하기 전에 agent가 받을 내용을 사용자 지정합니다."
+            "5c75b24735": "Orca가 시작하기 전에 agent가 받을 내용을 사용자 지정합니다.",
+            "repoAgentOverrideNote": "This repository overrides your global default ({{global}}) and currently runs {{effective}}. Save to this repository to change what runs here."
           },
           "SourceControlTextGenerationDialog": {
             "c5b7fa7cb6": "전역 기본값으로 저장",
@@ -9487,7 +9556,7 @@
                 "f5bc5c4cf1": "The hosting provider reports conflicts, but local Git did not reproduce them. Refresh the review or push the branch to recalculate mergeability.",
                 "5bc9bda2af": "Run from this worktree",
                 "e87fb3d929": "Copy mergeability refresh commands",
-                "1e53e45072": "Copied",
+                "1e53e45072": "복사됨",
                 "084c516efb": "Copy commands",
                 "5dc3af25c0": "댓글 선택",
                 "d7a2f9c401": "해결되지 않은 댓글 {{value0}}개 보내기",
@@ -9501,10 +9570,10 @@
                 "e8b4c1a903": "해결됨 · {{value0}}",
                 "c3a8e5d710": "리뷰 필요 · {{value0}}",
                 "a7f0c7e8d1": "Queue",
-                "8a621a2c4f": "Grouped",
-                "b13f85d75c": "Timeline",
+                "8a621a2c4f": "그룹화",
+                "b13f85d75c": "타임라인",
                 "f5cf324efa": "Comment display options",
-                "5e6e5a13fa": "View",
+                "5e6e5a13fa": "보기",
                 "actionRequiredHint": "이 검사는 병합 차단이 해제되기 전에 GitHub에서 수동 작업(예: 워크플로 실행 승인)이 필요합니다."
               },
               "empty": {
@@ -9757,7 +9826,8 @@
             "runtimeBrowseLocalHistory": "런타임 호스팅 워크스페이스에서는 로컬 기록을 탐색할 수 있습니다. 재개 작업은 로컬 및 SSH 워크스페이스에서 사용할 수 있습니다.",
             "runtimeWorkspacesUnsupported": "런타임 호스팅 워크스페이스에서는 기록에서 재개하기를 사용할 수 없습니다.",
             "openSupportedWorkspace": "세션을 재개하기 전에 로컬 또는 SSH 워크스페이스를 여세요.",
-            "localSessionSshWorkspaceUnsupported": "이 세션의 기록은 이 컴퓨터에 저장되어 있어 SSH 워크스페이스에서는 재개할 수 없습니다. 대신 로컬 워크스페이스를 여세요."
+            "localSessionSshWorkspaceUnsupported": "이 세션의 기록은 이 컴퓨터에 저장되어 있어 SSH 워크스페이스에서는 재개할 수 없습니다. 대신 로컬 워크스페이스를 여세요.",
+            "sessionHostMismatchUnsupported": "이 세션은 다른 호스트에 속합니다. 재개하려면 같은 호스트의 워크스페이스를 여세요."
           },
           "AiVaultPanelControls": {
             "scanningSessions": "세션 스캔 중",
@@ -9786,7 +9856,9 @@
             "globalScope": "전역",
             "projectScope": "프로젝트",
             "currentProjectLower": "현재 프로젝트",
-            "project": "프로젝트"
+            "project": "프로젝트",
+            "hostScopeAriaLabel": "Session History host: {{value0}}",
+            "host": "Host"
           },
           "AiVaultSessionDetails": {
             "originalAsk": "원래 요청",
@@ -10506,7 +10578,7 @@
             "4b2fc4b80c": "사고 강도",
             "be8917699e": "모델",
             "4d9b6d84df": "지원되지 않습니다. Claude, Codex 또는 Custom을 선택하세요.",
-            "560d4feb00": "Custom",
+            "560d4feb00": "사용자 정의",
             "29d119fe95": "에이전트",
             "f9382b48a1": "AI author 활성화",
             "1c0cb4fabb": "AI 작성자",
@@ -10714,7 +10786,7 @@
             "ca2cfbf188": "Terminal을 아래로 분할",
             "e370fa8c2b": "Terminal을 오른쪽으로 분할",
             "b85eab49dd": "src/auth/session.ts",
-            "99f5224f1e": "Edit",
+            "99f5224f1e": "편집",
             "0d93c298a7": "src/auth 던지기",
             "17cfdc3344": "Grep",
             "9923847785": "Read",
@@ -11893,7 +11965,7 @@
             "4bb7424d6b": "Canceled",
             "6e776f9ef9": "Download failed",
             "756bfc25c9": "열기",
-            "09a9489aa5": "Show",
+            "09a9489aa5": "표시",
             "2a4c4b8e1f": "복사"
           },
           "BrowserToolbarMenu": {
@@ -12582,7 +12654,8 @@
         "title": "{{value0}}을(를) 허용하시겠습니까?",
         "allow": "허용하다",
         "deny": "부인하다"
-      }
+      },
+      "launchPromptNotDelivered": "Not delivered — check the terminal"
     },
     "tab": {
       "bar": {

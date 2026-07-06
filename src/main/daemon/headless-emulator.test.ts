@@ -503,6 +503,36 @@ describe('HeadlessEmulator', () => {
     })
   })
 
+  describe('isCursorOnEmptyPromptLine', () => {
+    // Gates the Ctrl+K form-feed (PSReadLine/ConPTY stale-row repaint). Reads the
+    // cursor row through the aterm facade (cursor()/snapshot()) rather than the
+    // removed xterm buffer API.
+    it('is true when the cursor sits just after a lone > prompt', async () => {
+      emulator = new HeadlessEmulator({ cols: 80, rows: 24 })
+      await emulator.write('PS> ')
+      expect(emulator.isCursorOnEmptyPromptLine()).toBe(true)
+    })
+
+    it('is false once input follows the prompt', async () => {
+      emulator = new HeadlessEmulator({ cols: 80, rows: 24 })
+      await emulator.write('PS> ls')
+      expect(emulator.isCursorOnEmptyPromptLine()).toBe(false)
+    })
+
+    it('is false when text sits after the cursor on the prompt line', async () => {
+      emulator = new HeadlessEmulator({ cols: 80, rows: 24 })
+      await emulator.write('PS> ls')
+      await emulator.write('\x1b[2D') // cursor back over "ls", now just past "PS> "
+      expect(emulator.isCursorOnEmptyPromptLine()).toBe(false)
+    })
+
+    it('is false at the >> continuation prompt (multiline edit in flight)', async () => {
+      emulator = new HeadlessEmulator({ cols: 80, rows: 24 })
+      await emulator.write('>> ')
+      expect(emulator.isCursorOnEmptyPromptLine()).toBe(false)
+    })
+  })
+
   describe('dispose', () => {
     it('can be disposed without error', () => {
       emulator = new HeadlessEmulator({ cols: 80, rows: 24 })

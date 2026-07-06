@@ -27,7 +27,8 @@
         "kimiToggleDescription": "Muestra el uso de la suscripción de Kimi para el espacio de trabajo activo.",
         "sshToggleDescription": "Muestra hosts SSH configurados y hosts remotos de Orca cuando haya alguno disponible.",
         "resourceUsageToggleDescription": "Muestra el Administrador de recursos. Haz clic para ver CPU, memoria, sesiones, controles del servicio en segundo plano y análisis de disco de los espacios de trabajo.",
-        "portsToggleDescription": "Muestra los puertos activos de los espacios de trabajo. Haz clic para ver los puertos de cada espacio de trabajo y los puertos externos."
+        "portsToggleDescription": "Muestra los puertos activos de los espacios de trabajo. Haz clic para ver los puertos de cada espacio de trabajo y los puertos externos.",
+        "minimaxToggleDescription": "Muestra el uso de la suscripción de MiniMax para el espacio de trabajo activo."
       }
     },
     "about": {
@@ -1123,7 +1124,7 @@
         "reuseExistingBranchHint": "Haz checkout de la rama existente en lugar de crear una nueva a partir de ella.",
         "createMultiple": "Crear más",
         "cbb47ee0dc": "Solo disponible para proyectos Git locales.",
-        "d861de981b": "Sparse checkout",
+        "d861de981b": "Checkout sparse",
         "090cfedeb4": "Escribe una nota",
         "f8728aa4f9": "Nota",
         "0ee17638fe": "Nombre del espacio de trabajo",
@@ -1457,7 +1458,7 @@
         "af9e877f30": "Sin etiquetas",
         "d6cda23ef1": "Miembros",
         "cfaadb6b22": "Sin lead",
-        "34da8ac06c": "Lead",
+        "34da8ac06c": "Líder",
         "579f98afcd": "Añade un breve resumen...",
         "ecbcc83140": "Nombre del proyecto",
         "b6795e65fd": "Cerrar",
@@ -1495,7 +1496,7 @@
         "733b8f2421": "Linear / Vistas",
         "bc06ed0fb0": "Volver a vistas",
         "3cb855080f": "vistas",
-        "b4e10f096e": "Owner",
+        "b4e10f096e": "Propietario",
         "a04fe7ba73": "Visibilidad",
         "0aa8525950": "Modelo",
         "dfc0c79bd8": "Issues",
@@ -1613,7 +1614,7 @@
         "d45a910c4a": "Cambiar estado Linear de {{value0}}",
         "d8a517ad89": "Identificador",
         "50387522d7": "Sin agrupación",
-        "d747aed72f": "Board",
+        "d747aed72f": "Tablero",
         "a6f7e93d7f": "Lista",
         "e78ec261ed": "Vistas",
         "727069bee5": "Proyectos",
@@ -1737,7 +1738,7 @@
         "db234b7519": "Cerrar",
         "7cb40c04eb": "Siguiente coincidencia",
         "0f3066256e": "Coincidencia anterior",
-        "42e466b9f1": "Regex",
+        "42e466b9f1": "Expresión regular",
         "90c61387d9": "Distingue mayúsculas y minúsculas",
         "e07012f26e": "Buscar..."
       },
@@ -2017,7 +2018,7 @@
           "643d7e9496": "upstream",
           "51d1608920": "Origen",
           "cdc9bd64fa": "compacto",
-          "30b2c9df91": "Upstream"
+          "30b2c9df91": "Ascendente"
         },
         "PRFilterDropdowns": {
           "979be3cf6b": "Asignado",
@@ -2162,7 +2163,7 @@
               "c5f79616c3": "Equipos",
               "25a2196732": "Objetivo",
               "3fb6473111": "Inicio",
-              "111bef9aa8": "Lead",
+              "111bef9aa8": "Líder",
               "3be47aed6f": "Prioridad",
               "f5ef24cf46": "Salud",
               "9ddb58edbd": "Estado",
@@ -2264,7 +2265,7 @@
             "38ca0b1400": "Esto elimina permanentemente sus archivos locales. No puedes deshacer esto.",
             "c4f4782c02": "No sugerido",
             "0a2e3c7cba": "Revisar",
-            "e97e4580c7": "Dirty",
+            "e97e4580c7": "Sucio",
             "9623a5107d": "commits sin push",
             "e8b3741ff7": "ignorado",
             "a9957007eb": "Ignorar {{value0}}",
@@ -2604,7 +2605,8 @@
             "sessionQueued": "Sesión en cola",
             "runtimeWorkspacesUnsupported": "Reanudar desde el historial no está disponible en espacios de trabajo alojados en el runtime.",
             "openSupportedWorkspace": "Abra un espacio de trabajo local o SSH antes de reanudar una sesión.",
-            "localSessionSshWorkspaceUnsupported": "El historial de esta sesión solo existe en este equipo. Para reanudarla, arrástrala a un workspace local. Los workspaces SSH no tienen acceso a ese historial."
+            "localSessionSshWorkspaceUnsupported": "El historial de esta sesión solo existe en este equipo. Para reanudarla, arrástrala a un workspace local. Los workspaces SSH no tienen acceso a ese historial.",
+            "sessionHostMismatchUnsupported": "Esta sesión pertenece a un host diferente. Suéltala en un espacio de trabajo del mismo host."
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "Nueva división"
@@ -2949,7 +2951,9 @@
             "972a1ff497": "¿Restablecer límites de Codex?",
             "6d1042aa6f": "Esto usa un crédito de reset de rate limit de Codex para la cuenta activa y restablece de inmediato las ventanas de uso elegibles.",
             "f077f586db": "No volver a preguntar",
-            "c0e972d726": "Cancelar"
+            "c0e972d726": "Cancelar",
+            "06741a2f3d": "Abrir detalles de uso de MiniMax",
+            "3bbf140864": "Uso de MiniMax"
           },
           "StatusBarUsageEmptyCta": {
             "828c764a79": "Conectar una cuenta",
@@ -3838,7 +3842,7 @@
           "eb9884e55b": "Discord",
           "5687ab246a": "GitHub",
           "5f83d86d92": "Changelog",
-          "cdc87f897e": "Docs",
+          "cdc87f897e": "Documentación",
           "e565171a7c": "Atajos de teclado",
           "4cf5b868d7": "Enviar comentarios",
           "a428c25998": "Ajustes",
@@ -4292,12 +4296,12 @@
             "6c1efa2cf8": "En revisión",
             "6b8285b8dd": "Hecho",
             "93ac840dcb": "Bloqueado",
-            "2c19d1db33": "Play",
+            "2c19d1db33": "Reproducir",
             "111db162bf": "En pausa",
             "642da473f2": "Alerta",
             "6380517b10": "Bandera",
             "251c817bdd": "Temporizador",
-            "409528031f": "Review",
+            "409528031f": "Revisión",
             "5f9ca31a84": "En espera",
             "821d156f54": "Discontinuo",
             "226d1e7773": "Progreso",
@@ -4648,7 +4652,48 @@
           "75ca9b718e": "Codex informó que la cuenta activa requiere un inicio de sesión nuevo. Reautentícala antes de iniciar nuevas sesiones de Codex.",
           "b11078a9c2": "wsl",
           "350b2a1aa7": "Usa tu actual",
-          "e05d0ff737": "Usa tu login actual de Claude de {{value0}}."
+          "e05d0ff737": "Usa tu login actual de Claude de {{value0}}.",
+          "316ca4e610": "Olvidar cookie",
+          "2f24f244a4": "La cookie de MiniMax es obligatoria.",
+          "8e6f0cb1d8": "La cookie de MiniMax no se guardó.",
+          "8d61637a77": "Cookie de MiniMax guardada.",
+          "b43e761fe5": "No se pudo actualizar la cookie de MiniMax.",
+          "5d63bbfbec": "MiniMax",
+          "15e831350e": "Configura el seguimiento de uso de MiniMax desde platform.minimax.io.",
+          "21d6eb141e": "Cookie de sesión de MiniMax",
+          "33bba5ad83": "Pega tu cookie de sesión de MiniMax para obtener límites de uso locales.",
+          "73ea15f24b": "Guardado",
+          "23afe8f226": "No guardado",
+          "566d9a99ab": "_token=…; minimax_group_id_v2=…",
+          "f38b9cc4bd": "Reemplazar",
+          "590a3130f9": "Guardar",
+          "79418c782a": "Abre platform.minimax.io/console/usage en tu navegador, inicia sesión y copia el encabezado Cookie de DevTools (Red → cualquier solicitud a remains → Cookie).",
+          "9dd50d3f75": "Avanzado",
+          "174fb408f9": "Deja estos valores predeterminados a menos que la actualización de uso de MiniMax apunte al workspace o modelo equivocado.",
+          "bf160bb6c0": "Anulación de Group ID",
+          "b1e2743313": "Opcional. Déjalo en blanco para usar minimax_group_id_v2 de la cookie.",
+          "0747d6391a": "Usar el Group ID de la cookie",
+          "4ff2af7524": "Nombres de modelos de uso",
+          "5cf4b0f85f": "Nombres de modelos opcionales separados por comas. Déjalo en general a menos que MiniMax devuelva un error específico del modelo.",
+          "3c92b0d31c": "general",
+          "0d8e77bc40": "Abrir consola",
+          "0b8c1c7e02": "Almacenado localmente",
+          "1fd1b1b6b4": "Cookie no configurada",
+          "5e08b0fe57": "Se almacena localmente y se envía solo a platform.minimax.io para actualizar el uso.",
+          "43d7a45b97": "Cómo copiar",
+          "b8a4f21c3e": "Pega el encabezado Cookie desde DevTools",
+          "53f7b8c7a2": "Última actualización: {{value0}}",
+          "31d24a4e87": "La cookie caduca cuando cierras sesión en el navegador.",
+          "3a30aaf526": "ahora mismo",
+          "f5d8d2a6a1": "Abre platform.minimax.io/console/usage en tu navegador e inicia sesión.",
+          "24560fe830": "Abre DevTools.",
+          "4cab0fa42d": "Ve a la pestaña Red y activa Preserve log.",
+          "bee4e63e1c": "Recarga la página.",
+          "87f814af6f": "Filtra por remains y selecciona la solicitud coding_plan/remains.",
+          "435df0ee51": "En Request Headers, copia el valor de Cookie.",
+          "7492fb3bba": "Pégalo aquí y haz clic en Guardar.",
+          "9fec52de4b": "Cómo copiar la cookie",
+          "4e32e030b2": "Se almacena localmente. Orca solo la envía a platform.minimax.io para actualizar el uso."
         },
         "AdvancedPane": {
           "40b29e0bf3": "Reiniciar",
@@ -4700,7 +4745,7 @@
           "385212c7a1": "Agent predeterminado",
           "f9f127d664": "Override de la ruta o nombre del binario, y edición de argumentos de lanzamiento o entorno predeterminados para este agent.",
           "f95b5c79b8": "Instalar",
-          "fe4d630c94": "Docs",
+          "fe4d630c94": "Documentación",
           "8dc0192e48": "Desactivado",
           "df123171d1": "No instalado",
           "c8794e622e": "Detectado",
@@ -4896,7 +4941,8 @@
           "d420c43729": "Se importaron {{value0}} cookies de {{value1}}{{value2}} a {{value3}}.",
           "b4c167764d": "Se importaron {{value0}} cookies desde un archivo a {{value1}}.",
           "a3f8c2d1e0b4": "Se importaron {{value0}} cookies de {{value1}} ({{value2}}) a {{value3}}.",
-          "b4e9d3f2a1c5": "Se importaron {{value0}} cookies de {{value1}} a {{value2}}."
+          "b4e9d3f2a1c5": "Se importaron {{value0}} cookies de {{value1}} a {{value2}}.",
+          "c5a273a809": "Desde {{value0}}"
         },
         "BrowserUseComputerUseNotice": {
           "15b5e680ba": "Abrir Computer Use",
@@ -4920,7 +4966,7 @@
           "be6df68384": "Desde archivo…",
           "e44c5d681e": "Desde ",
           "67d9a53f47": "Gestionar perfiles para logins separados",
-          "112f70adc4": "Última importación desde ",
+          "112f70adc4": "Última importación desde {{value0}}",
           "72d4815523": "Trae tus logins existentes a Orca para que los agents puedan acceder a páginas autenticadas. Importa al perfil predeterminado.",
           "2eb906706c": "Importar cookies del navegador",
           "af8c83ed61": "Importa cookies de Chrome, Edge u otros navegadores para que los agents puedan reutilizar tus logins.",
@@ -4942,7 +4988,8 @@
           "ad8cb0ee22": "Corregir PATH",
           "0289434ed6": "Activado",
           "8b3054dac7": "Registrando...",
-          "8f2675c2f3": "Se importaron {{value0}} cookies desde un archivo."
+          "8f2675c2f3": "Se importaron {{value0}} cookies desde un archivo.",
+          "5301857d88": "Desde {{value0}}"
         },
         "BrowserUseSkillStep": {
           "0871b6998d": "Permite a los agents navegar y verificar páginas en el navegador de Orca.",
@@ -5165,7 +5212,7 @@
           "1de48ad940": "Árbol de archivos de diff predeterminado",
           "1b87897af9": "Muestra u oculta el árbol de archivos al abrir vistas de diff combinado.",
           "12cbc0d0d6": "Lado a lado",
-          "05b6df93b3": "Inline",
+          "05b6df93b3": "En línea",
           "7311f67ee7": "Vista de diff predeterminada",
           "b492397d34": "Formato de presentación preferido para mostrar diffs de git de forma predeterminada.",
           "a5db1d3975": "ms",
@@ -6828,7 +6875,9 @@
             "bdbd1e668e": "Windows",
             "593720c17f": "ubicación",
             "b84a5b0c8a": "Elija si las cuentas de proveedor se inspeccionan y agregan en este dispositivo o en WSL.",
-            "d09fb5ca92": "Ubicación de cuentas"
+            "d09fb5ca92": "Ubicación de cuentas",
+            "733f9e2a93": "Uso de MiniMax",
+            "f8374c3151": "Pega tu cookie de sesión de platform.minimax.io para obtener límites de uso locales."
           }
         },
         "advanced": {
@@ -7037,7 +7086,12 @@
               "cardLayout": "diseño de tarjeta",
               "workspaceOptions": "opciones de espacios de trabajo",
               "detailed": "detallado"
-            }
+            },
+            "25e51b62ee": "rate limit",
+            "d9e7cef86f": "cookie",
+            "d16378a88f": "minimax",
+            "e46178eb1b": "Muestra el uso de la suscripción de MiniMax en la barra de estado.",
+            "0f08f6b483": "Uso de MiniMax"
           }
         },
         "auto": {
@@ -8890,6 +8944,18 @@
               "note": "El motor carga automáticamente las caras CJK y de emoji a color de tu sistema como respaldo, de modo que el texto no latino y los emoji se muestran sin configuración."
             }
           }
+        },
+        "SourceControlActionRepoOverrideNote": {
+          "agent": "Agente",
+          "agentArgs": "Argumentos de la CLI",
+          "commandTemplate": "Plantilla del comando",
+          "more": "+{{count}} más",
+          "plural": "Los guardados globales no cambiarán {{count}} repositorios con sus propias recetas.",
+          "recipe": "Receta",
+          "review": "Revisar",
+          "reviewFirst": "Revisar primero",
+          "singular": "Los guardados globales no cambiarán 1 repositorio con su propia receta.",
+          "tooltipTitle": "Anulaciones del repositorio"
         }
       },
       "right": {
@@ -9356,7 +9422,9 @@
             "b715ef615b": "{{value0}} commits por delante de {{value1}}",
             "c1a8f3e204": "1 commit por detrás de {{value0}}",
             "d2b9g4f315": "{{value0}} commits por detrás de {{value1}}",
-            "e9c2a5d416": "A la par con {{value0}}"
+            "e9c2a5d416": "A la par con {{value0}}",
+            "4b4a7de138": "Open review page in browser",
+            "createPrIntentCommitBlockedSummary": "Commit blocked: {{value0}} Fix the issue, then retry Create PR."
           },
           "SourceControlAgentActionDialog": {
             "8e856842d1": "No se pudo iniciar el agente seleccionado.",
@@ -9387,7 +9455,8 @@
             "c7ff8cef11": "Detectando agentes...",
             "b0da3a4d3e": "La receta de lanzamiento ya está guardada",
             "bff4795a6d": "Cambia el agente, los argumentos o la plantilla del prompt para actualizar la receta guardada.",
-            "5c75b24735": "Personaliza lo que recibe el agente antes de que Orca lo inicie."
+            "5c75b24735": "Personaliza lo que recibe el agente antes de que Orca lo inicie.",
+            "repoAgentOverrideNote": "Este repositorio anula tu valor predeterminado global ({{global}}) y actualmente ejecuta {{effective}}. Guarda en este repositorio para cambiar lo que se ejecuta aquí."
           },
           "SourceControlTextGenerationDialog": {
             "c5b7fa7cb6": "Guardar como valor predeterminado global",
@@ -9746,7 +9815,7 @@
             "refreshSessionHistory": "Actualizar historial de sesiones",
             "searchSessions": "Buscar sesiones",
             "clearSearch": "Limpiar búsqueda",
-            "remoteBrowseLocalHistory": "Remote workspaces can browse local history. Resume actions run from local workspaces.",
+            "remoteBrowseLocalHistory": "Los espacios de trabajo remotos pueden explorar el historial local. Las acciones de reanudación se ejecutan desde espacios de trabajo locales.",
             "transcriptsSkipped": "{{count}} transcripciones omitidas",
             "noAgentSessionsFound": "No se encontraron sesiones de agentes",
             "noSessionsMatchFilters": "Ninguna sesión coincide con los filtros actuales",
@@ -9757,19 +9826,20 @@
             "runtimeBrowseLocalHistory": "Los espacios de trabajo alojados en el runtime pueden explorar el historial local. Las acciones de reanudación están disponibles en espacios de trabajo locales y SSH.",
             "runtimeWorkspacesUnsupported": "Reanudar desde el historial no está disponible en espacios de trabajo alojados en el runtime.",
             "openSupportedWorkspace": "Abra un espacio de trabajo local o SSH antes de reanudar una sesión.",
-            "localSessionSshWorkspaceUnsupported": "El historial de esta sesión solo existe en este equipo. Para reanudarla, abre un workspace local. Los workspaces SSH no tienen acceso a ese historial."
+            "localSessionSshWorkspaceUnsupported": "El historial de esta sesión solo existe en este equipo. Para reanudarla, abre un workspace local. Los workspaces SSH no tienen acceso a ese historial.",
+            "sessionHostMismatchUnsupported": "Esta sesión pertenece a un host diferente. Abre un espacio de trabajo en el mismo host para reanudarla."
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Buscando sesiones",
             "scopeAriaLabel": "Ámbito del historial de sesiones: {{value0}}",
             "currentWorkspaceLower": "workspace actual",
-            "currentWorktreeLower": "current worktree",
+            "currentWorktreeLower": "worktree actual",
             "allSessionsLower": "todas las sesiones",
-            "thisScope": "This",
+            "thisScope": "Este",
             "allScope": "Todo",
-            "scope": "Scope",
-            "currentWorkspace": "Current workspace",
-            "allSessions": "All sessions",
+            "scope": "Ámbito",
+            "currentWorkspace": "Espacio de trabajo actual",
+            "allSessions": "Todas las sesiones",
             "viewOptionsAriaLabel": "Opciones de vista del historial de sesiones",
             "viewOptions": "Opciones de vista",
             "agents": "Agentes",
@@ -9786,7 +9856,9 @@
             "globalScope": "Global",
             "projectScope": "Proyecto",
             "currentProjectLower": "proyecto actual",
-            "project": "Proyecto"
+            "project": "Proyecto",
+            "hostScopeAriaLabel": "Session History host: {{value0}}",
+            "host": "Host"
           },
           "AiVaultSessionDetails": {
             "originalAsk": "Solicitud original",
@@ -10199,7 +10271,7 @@
             "2cfc6be192": "GitLab",
             "7a47af0565": "Linear",
             "0a180280bd": "GitHub",
-            "b3c60c2b7c": "Smart",
+            "b3c60c2b7c": "Inteligente",
             "26824f60dd": "Todo",
             "6fad211c66": "Cerrado",
             "2319d87718": "Fusionado",
@@ -10671,7 +10743,7 @@
             "8ed213397c": "En ejecución",
             "d340c052fb": "verify",
             "9a097cae12": "1 pendiente",
-            "2f37142229": "Squash and merge",
+            "2f37142229": "Squash y merge",
             "0aab7ab84a": "Agregar seguimiento de errores de diagnóstico local",
             "dfe313e0c9": "ABIERTO",
             "6e3f5223c5": "Explorador",
@@ -12582,7 +12654,8 @@
         "title": "¿Permitir {{value0}}?",
         "allow": "Permitir",
         "deny": "Denegar"
-      }
+      },
+      "launchPromptNotDelivered": "Not delivered — check the terminal"
     },
     "tab": {
       "bar": {

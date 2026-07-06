@@ -55,6 +55,7 @@ import { resolveAgentForegroundProcess } from './agent-foreground-process'
 import { getAgentForegroundContextPaths } from './agent-foreground-context-paths'
 import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process-recognition'
 import { shouldUseShellReadyStartupDelivery } from '../../shared/codex-startup-delivery'
+import { assertSafeAgentStartupCwd, resolveSafePtyDefaultCwd } from './pty-default-cwd'
 
 const PANE_IDENTITY_ENV_KEYS = [
   'ORCA_PANE_KEY',
@@ -88,20 +89,7 @@ const exitListeners = new Set<ExitCallback>()
  * Returns a stable default cwd for locally spawned PTYs.
  */
 function getDefaultCwd(): string {
-  if (process.platform !== 'win32') {
-    return process.env.HOME || '/'
-  }
-
-  // Why: USERPROFILE is not guaranteed in all Windows launch contexts.
-  // Falling back to bare HOMEPATH yields a drive-relative path, so combine
-  // HOMEDRIVE + HOMEPATH to keep spawned PTYs anchored to the intended home.
-  if (process.env.USERPROFILE) {
-    return process.env.USERPROFILE
-  }
-  if (process.env.HOMEDRIVE && process.env.HOMEPATH) {
-    return `${process.env.HOMEDRIVE}${process.env.HOMEPATH}`
-  }
-  return 'C:\\'
+  return resolveSafePtyDefaultCwd()
 }
 
 /**
@@ -352,8 +340,18 @@ export class LocalPtyProvider implements IPtyProvider {
     }
     const id = allocatePtyId(reattachId ?? undefined)
 
+    const startupAgentRecognition = args.command
+      ? recognizeAgentProcessFromCommandLine(args.command)
+      : null
+
     const defaultCwd = getDefaultCwd()
     const cwd = args.cwd || defaultCwd
+    // Why: gate on the effective cwd (post default-cwd fallback), not the raw
+    // args.cwd — an omitted cwd resolves to a safe default and must not be
+    // rejected as if it were a root-like path.
+    if (args.command && startupAgentRecognition) {
+      assertSafeAgentStartupCwd(cwd, args.command)
+    }
     const wslInfo = process.platform === 'win32' ? parseWslPath(cwd) : null
     const worktreeWslContext =
       process.platform === 'win32' ? getWslContextFromWorktreeId(args.worktreeId) : undefined
@@ -594,8 +592,7 @@ export class LocalPtyProvider implements IPtyProvider {
         finalEnv.ORCA_OMP_STATUS_EXTENSION ||
         finalEnv.ORCA_CODEX_HOME ||
         finalEnv.ORCA_AGENT_TEAMS_SHIM_DIR
-      const isCodexStartupCommand =
-        recognizeAgentProcessFromCommandLine(args.command)?.agent === 'codex'
+      const isCodexStartupCommand = startupAgentRecognition?.agent === 'codex'
       let shellLaunch: ReturnType<typeof getShellReadyLaunchConfig> | null = null
       if (args.command && isCodexStartupCommand) {
         const shouldWaitForShellReady = shouldUseShellReadyStartupDelivery({
@@ -808,9 +805,21 @@ export class LocalPtyProvider implements IPtyProvider {
     ptyDisposables.set(id, disposables)
 
     if (args.command && !startupCommandDeliveredInShellArgs) {
-      writeStartupCommandWhenShellReady(shellReadyPromise, proc, args.command, (cleanup) => {
-        startupCommandCleanup = cleanup
-      })
+      // Why: only Orca-wrapped POSIX bash/zsh have bracketed-paste mode armed
+      // (bash via `bind`, zsh on by default), so multiline startup prompts can
+      // be pasted literally there; other shells keep the raw submit path.
+      const spawnedShellName = getSpawnedShellName(shellPath).toLowerCase()
+      const bracketedPasteSafe =
+        process.platform !== 'win32' && (spawnedShellName === 'bash' || spawnedShellName === 'zsh')
+      writeStartupCommandWhenShellReady(
+        shellReadyPromise,
+        proc,
+        args.command,
+        (cleanup) => {
+          startupCommandCleanup = cleanup
+        },
+        { bracketedPasteSafe }
+      )
     }
 
     // Why: publish the OS pid so ipc/pty can register the PTY with the memory
@@ -901,8 +910,19 @@ export class LocalPtyProvider implements IPtyProvider {
   async getInitialCwd(_id: string): Promise<string> {
     return ''
   }
-  async clearBuffer(_id: string): Promise<void> {
-    /* handled client-side in xterm.js */
+  async clearBuffer(id: string): Promise<void> {
+    // Why: xterm.js clear() only resets the renderer. ConPTY keeps its own
+    // screen buffer, so without this its stale cursor row makes the next
+    // prompt repaint land below a blank gap. No-op on POSIX.
+    //
+    // Unlike the daemon session, no PSReadLine form-feed nudge here: it is
+    // only safe at an empty prompt, and without a headless emulator this
+    // provider cannot tell whether input is pending.
+    try {
+      ptyProcesses.get(id)?.clear()
+    } catch {
+      /* PTY may have just exited */
+    }
   }
   acknowledgeDataEvent(_id: string, _charCount: number): void {
     /* no flow control for local */

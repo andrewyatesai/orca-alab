@@ -283,3 +283,60 @@ suite('resolve rebase source via bridge (read-only resolver)', () => {
     expect(error).toBe("fatal: 'bad..name' is not a valid branch name")
   })
 })
+
+suite('branch cleanup decision via bridge (stdin: git patch-id)', () => {
+  // Deterministic responder for a branch that is squash-merged (its net patch
+  // matches a squash commit on the target) yet carries a merge commit.
+  const squashScenario = (
+    branchPatchId: string,
+    squashPatchId: string,
+    stdinSeen: (string | null)[]
+  ): RustGitExecutor => {
+    const map: Record<string, string> = {
+      'config --get branch.feature.base': 'origin/main',
+      'rev-parse --verify --quiet origin/main^{commit}': 'TOID',
+      'merge-tree --write-tree TOID refs/heads/feature': 'OTHERTREE\n',
+      'rev-parse --verify --quiet TOID^{tree}': 'TTREE',
+      'rev-list --right-only --merges --count TOID...refs/heads/feature': '1',
+      'merge-base TOID refs/heads/feature': 'MBASE',
+      'diff MBASE refs/heads/feature': 'BRANCH_PATCH_TEXT',
+      'show --format= SQUASH': 'SQUASH_PATCH_TEXT',
+      'merge-tree --write-tree SQUASH refs/heads/feature': 'STREE\n',
+      'rev-parse --verify --quiet SQUASH^{tree}': 'STREE'
+    }
+    return (args, stdin) => {
+      let stdout: string | undefined = map[args.join(' ')]
+      if (args[0] === 'rev-list' && args[1] === '--ancestry-path') {
+        stdout = 'SQUASH\n'
+      }
+      if (args[0] === 'patch-id') {
+        stdinSeen.push(stdin)
+        stdout = stdin === 'BRANCH_PATCH_TEXT' ? branchPatchId : stdin === 'SQUASH_PATCH_TEXT' ? squashPatchId : ''
+      }
+      const found = stdout !== undefined
+      return Promise.resolve({ stdout: found ? stdout : '', stderr: '', exitCode: found ? 0 : 1 })
+    }
+  }
+
+  it('deletes a squash-merged branch — patch text piped to git patch-id via stdin', async () => {
+    const stdinSeen: (string | null)[] = []
+    // same patch-id (first token) -> squash match -> safe. Output is
+    // "<patch-id> <commit-id>", so the shared leading token is the patch-id.
+    const safe = await git.branchIsSafeToDeleteViaExecutor(
+      'feature',
+      squashScenario('SAMEID aaa\n', 'SAMEID bbb\n', stdinSeen)
+    )
+    expect(safe).toBe(true)
+    expect(stdinSeen).toEqual(['BRANCH_PATCH_TEXT', 'SQUASH_PATCH_TEXT'])
+  })
+
+  it('preserves a merge-commit branch whose patch-id matches no squash commit', async () => {
+    const stdinSeen: (string | null)[] = []
+    // different patch-ids (leading token) -> no squash match -> preserve
+    const safe = await git.branchIsSafeToDeleteViaExecutor(
+      'feature',
+      squashScenario('BRANCHID aaa\n', 'SQUASHID bbb\n', stdinSeen)
+    )
+    expect(safe).toBe(false)
+  })
+})

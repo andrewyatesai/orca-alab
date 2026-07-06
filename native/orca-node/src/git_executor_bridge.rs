@@ -21,11 +21,15 @@
 use std::sync::mpsc;
 
 use futures_executor::block_on;
-use napi::bindgen_prelude::{AsyncTask, Function, Promise};
+use napi::bindgen_prelude::{AsyncTask, FnArgs, Function, Promise};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi::{Env, Result, Status, Task};
 use napi_derive::napi;
 
+use orca_git::branch_cleanup::{
+    branch_has_no_unmerged_changes_on_any_target, get_branch_cleanup_target_refs,
+    refresh_branch_cleanup_target_refs,
+};
 use orca_git::push_target::{validate_git_push_target, GitPushTarget};
 use orca_git::rebase_source::resolve_git_remote_rebase_source;
 use orca_git::runner::{GitError, GitOutput, GitRunner};
@@ -50,16 +54,21 @@ pub struct BridgeGitOutput {
 /// the TSFN is storable in the `AsyncTask` and its result is shippable to the
 /// worker thread. The TSFN owns a threadsafe ref to the executor (released on drop
 /// — no leak, unlike a bare `napi_ref`).
-type BridgeTsfn =
-    ThreadsafeFunction<Vec<String>, Promise<BridgeGitOutput>, Vec<String>, Status, false>;
+type BridgeTsfn = ThreadsafeFunction<
+    FnArgs<(Vec<String>, Option<String>)>,
+    Promise<BridgeGitOutput>,
+    FnArgs<(Vec<String>, Option<String>)>,
+    Status,
+    false,
+>;
 
 /// What one bridged call ships JS-thread → worker: the executor's promise, or a
 /// message if the executor threw synchronously (before returning a promise).
 type PendingCall = std::result::Result<Promise<BridgeGitOutput>, String>;
 
-fn build_bridge_tsfn(executor: Function<Vec<String>, Promise<BridgeGitOutput>>) -> Result<BridgeTsfn> {
+fn build_bridge_tsfn(executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>) -> Result<BridgeTsfn> {
     executor
-        .build_threadsafe_function::<Vec<String>>()
+        .build_threadsafe_function::<FnArgs<(Vec<String>, Option<String>)>>()
         .build_callback(|ctx| Ok(ctx.value))
 }
 
@@ -70,11 +79,22 @@ struct JsExecutorGitRunner<'a> {
 
 impl GitRunner for JsExecutorGitRunner<'_> {
     fn run(&self, args: &[&str]) -> std::result::Result<GitOutput, GitError> {
+        self.run_impl(args, None)
+    }
+
+    fn run_with_stdin(&self, args: &[&str], stdin: &str) -> std::result::Result<GitOutput, GitError> {
+        self.run_impl(args, Some(stdin.to_string()))
+    }
+}
+
+impl JsExecutorGitRunner<'_> {
+    fn run_impl(&self, args: &[&str], stdin: Option<String>) -> std::result::Result<GitOutput, GitError> {
         let (reply, rx) = mpsc::channel::<PendingCall>();
         let args: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
-        // Hop to the JS thread, call the executor, and ship its promise back.
+        // Hop to the JS thread, call the executor with (args, stdin), and ship its
+        // promise back.
         let status = self.tsfn.call_with_return_value(
-            args,
+            FnArgs::from((args, stdin)),
             ThreadsafeFunctionCallMode::NonBlocking,
             move |ret: Result<Promise<BridgeGitOutput>>, _env| {
                 let _ = reply.send(ret.map_err(|e| e.to_string()));
@@ -134,7 +154,7 @@ pub fn validate_git_push_target_via_executor(
     remote_name: String,
     branch_name: String,
     remote_url: Option<String>,
-    executor: Function<Vec<String>, Promise<BridgeGitOutput>>,
+    executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>,
 ) -> Result<AsyncTask<ValidatePushTargetTask>> {
     let tsfn = build_bridge_tsfn(executor)?;
     Ok(AsyncTask::new(ValidatePushTargetTask {
@@ -177,7 +197,7 @@ pub fn get_upstream_status_via_executor(
     remote_name: String,
     branch_name: String,
     remote_url: Option<String>,
-    executor: Function<Vec<String>, Promise<BridgeGitOutput>>,
+    executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>,
 ) -> Result<AsyncTask<UpstreamStatusTask>> {
     let tsfn = build_bridge_tsfn(executor)?;
     Ok(AsyncTask::new(UpstreamStatusTask {
@@ -220,7 +240,7 @@ impl Task for UpstreamStatusTask {
 /// Resolves the `GitUpstreamStatus` JSON, or rejects with the normalized message.
 #[napi(ts_return_type = "Promise<string>")]
 pub fn get_effective_upstream_status_via_executor(
-    executor: Function<Vec<String>, Promise<BridgeGitOutput>>,
+    executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>,
 ) -> Result<AsyncTask<EffectiveUpstreamStatusTask>> {
     let tsfn = build_bridge_tsfn(executor)?;
     Ok(AsyncTask::new(EffectiveUpstreamStatusTask { tsfn }))
@@ -260,7 +280,7 @@ impl Task for EffectiveUpstreamStatusTask {
 #[napi(ts_return_type = "Promise<string>")]
 pub fn resolve_git_remote_rebase_source_via_executor(
     base_ref: String,
-    executor: Function<Vec<String>, Promise<BridgeGitOutput>>,
+    executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>,
 ) -> Result<AsyncTask<ResolveRebaseSourceTask>> {
     let tsfn = build_bridge_tsfn(executor)?;
     Ok(AsyncTask::new(ResolveRebaseSourceTask { base_ref, tsfn }))
@@ -289,5 +309,48 @@ impl Task for ResolveRebaseSourceTask {
             Ok(json) => Ok(json),
             Err(message) => Err(napi::Error::from_reason(message)),
         }
+    }
+}
+
+/// Drive orca-git's branch-cleanup safe-to-delete DECISION over the JS executor:
+/// gather candidate base refs, refresh the relevant remotes (a non-fatal
+/// `fetch --prune`, the one mutation, inside the driver), then decide whether the
+/// branch has any unmerged changes — tree-equal merge, patch-equivalent commits,
+/// or a squash match (which pipes patch text to `git patch-id --stable` via the
+/// executor's stdin). Resolves the boolean; the destructive `git branch -d/-D`
+/// stays in TS, gated on this result. The decision only ever moves toward
+/// *preserve*, so it can never over-delete.
+#[napi(ts_return_type = "Promise<boolean>")]
+pub fn branch_is_safe_to_delete_via_executor(
+    branch_name: String,
+    executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>,
+) -> Result<AsyncTask<BranchCleanupDecisionTask>> {
+    let tsfn = build_bridge_tsfn(executor)?;
+    Ok(AsyncTask::new(BranchCleanupDecisionTask { branch_name, tsfn }))
+}
+
+pub struct BranchCleanupDecisionTask {
+    branch_name: String,
+    tsfn: BridgeTsfn,
+}
+
+impl Task for BranchCleanupDecisionTask {
+    type Output = bool;
+    type JsValue = bool;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let runner = JsExecutorGitRunner { tsfn: &self.tsfn };
+        let refs = get_branch_cleanup_target_refs(&runner, &self.branch_name);
+        let refs_as_str: Vec<&str> = refs.iter().map(String::as_str).collect();
+        refresh_branch_cleanup_target_refs(&runner, &refs_as_str);
+        Ok(branch_has_no_unmerged_changes_on_any_target(
+            &runner,
+            &self.branch_name,
+            &refs_as_str,
+        ))
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output)
     }
 }

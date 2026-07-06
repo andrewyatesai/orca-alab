@@ -47,6 +47,12 @@ impl std::error::Error for GitError {}
 /// captured output, or a [`GitError`] on non-zero exit.
 pub trait GitRunner {
     fn run(&self, args: &[&str]) -> Result<GitOutput, GitError>;
+    /// Run git with `stdin` piped to the process (e.g. `git patch-id --stable`).
+    /// Bare `Fn` mocks can't supply stdin, so the default errors; the process
+    /// runner and the napi executor bridge override this.
+    fn run_with_stdin(&self, _args: &[&str], _stdin: &str) -> Result<GitOutput, GitError> {
+        Err(GitError::from_message("this git runner does not support stdin"))
+    }
 }
 
 /// Any `Fn(&[&str]) -> Result<GitOutput, GitError>` is a runner — used by tests
@@ -84,6 +90,39 @@ impl GitRunner for ProcessGitRunner {
                 stderr: String::new(),
                 message: format!("failed to spawn git: {e}"),
             })?;
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        if output.status.success() {
+            Ok(GitOutput { stdout, stderr })
+        } else {
+            let code = output.status.code();
+            Err(GitError { code, message: format!("git exited with {code:?}"), stdout, stderr })
+        }
+    }
+
+    fn run_with_stdin(&self, args: &[&str], stdin: &str) -> Result<GitOutput, GitError> {
+        use std::io::Write;
+        use std::process::Stdio;
+        let spawn_err = |e: std::io::Error| GitError {
+            code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            message: format!("failed to spawn git: {e}"),
+        };
+        let mut child = Command::new(&self.git_path)
+            .args(args)
+            .current_dir(&self.cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(spawn_err)?;
+        if let Some(mut child_stdin) = child.stdin.take() {
+            // Ignore a broken pipe (git exited before reading all input); the exit
+            // status below is authoritative. Dropping child_stdin closes the pipe (EOF).
+            let _ = child_stdin.write_all(stdin.as_bytes());
+        }
+        let output = child.wait_with_output().map_err(spawn_err)?;
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         if output.status.success() {

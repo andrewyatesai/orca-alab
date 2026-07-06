@@ -1,8 +1,12 @@
 import type { RustGitExecutor } from '../daemon/rust-git-addon'
 
-/** A git command runner: executes git and resolves its captured output, or
- *  rejects (non-zero exit or spawn failure) exactly like `gitExecFileAsync`. */
-export type RunGit = (args: string[]) => Promise<{ stdout: string; stderr: string }>
+/** A git command runner: executes git (optionally piping `stdin`) and resolves its
+ *  captured output, or rejects (non-zero exit or spawn failure) like
+ *  `gitExecFileAsync`. Callers that never pipe stdin may ignore the second arg. */
+export type RunGit = (
+  args: string[],
+  stdin: string | null
+) => Promise<{ stdout: string; stderr: string }>
 
 /**
  * Adapt a `runGit` (over `gitExecFileAsync`) into the {@link RustGitExecutor} the
@@ -16,9 +20,9 @@ export type RunGit = (args: string[]) => Promise<{ stdout: string; stderr: strin
  * re-thrown so the bridge reports a spawn error, not a git exit.
  */
 export function makeRustGitExecutor(runGit: RunGit): RustGitExecutor {
-  return async (args) => {
+  return async (args, stdin) => {
     try {
-      const { stdout, stderr } = await runGit(args)
+      const { stdout, stderr } = await runGit(args, stdin)
       return { stdout: stdout ?? '', stderr: stderr ?? '', exitCode: 0 }
     } catch (error) {
       const err = error as { code?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown }

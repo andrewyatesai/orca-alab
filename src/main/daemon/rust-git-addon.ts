@@ -37,9 +37,11 @@ export type RustNdjsonParserCtor = new (maxLineBytes?: number) => RustNdjsonPars
 /** The JS git executor the "A bridge" calls back into. It MUST resolve (never
  *  reject) for a git that spawned and exited, carrying its `exitCode`, so Rust can
  *  classify a non-zero exit exactly like the native runner; a rejection means the
- *  spawn itself failed. This is where `runner.ts`'s SSH/WSL/env routing lives. */
+ *  spawn itself failed. `stdin` (when non-null) is piped to git — e.g. for
+ *  `git patch-id --stable`. This is where `runner.ts`'s SSH/WSL/env routing lives. */
 export type RustGitExecutor = (
-  args: string[]
+  args: string[],
+  stdin: string | null
 ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
 
 export type RustGitBinding = {
@@ -98,6 +100,12 @@ export type RustGitBinding = {
     baseRef: string,
     executor: RustGitExecutor
   ): Promise<string>
+  /** IO-tier "A bridge" cutover: Rust drives the branch-cleanup safe-to-delete
+   *  DECISION (gather base refs → non-fatal fetch → tree/merge/patch/squash checks,
+   *  the squash path piping patch text to `git patch-id --stable` via executor stdin)
+   *  over the JS `executor`. Resolves the boolean; the destructive `git branch -d`
+   *  stays in TS, gated on it. Only ever moves toward *preserve* — never over-deletes. */
+  branchIsSafeToDeleteViaExecutor(branchName: string, executor: RustGitExecutor): Promise<boolean>
   /** Approximate added/removed line counts JSON, or null for the large guard. */
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */

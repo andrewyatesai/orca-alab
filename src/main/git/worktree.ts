@@ -1,11 +1,8 @@
 /* eslint-disable max-lines -- Why: this file keeps git worktree create/remove behavior together so local cleanup and creation invariants stay in one place. */
 import { stat } from 'node:fs/promises'
 import { join, posix, win32 } from 'node:path'
-import {
-  branchHasNoUnmergedChangesOnAnyTarget,
-  getBranchCleanupTargetRefs,
-  refreshBranchCleanupTargetRefs
-} from '../../shared/git-branch-cleanup'
+import { branchIsSafeToDeleteNative } from './rust-branch-cleanup'
+import type { RunGit } from './rust-git-executor'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
 import type {
   GitWorktreeInfo,
@@ -1194,17 +1191,16 @@ async function deleteAlreadyMergedBranchAfterSafeDeleteFailure(
   branchHead: string,
   options: GitWorktreeExecOptions = {}
 ): Promise<boolean> {
-  const runGit = (args: string[], execOptions?: { stdin?: string }) =>
+  // Why: squash merges rewrite commit IDs, so `branch -d` can reject a branch
+  // whose changes are already on the base ref. Rust drives the safe-to-delete
+  // decision (only ever moving toward preserve); runGit executes git (SSH/WSL-safe),
+  // piping stdin for the squash-detection patch-id.
+  const runGit: RunGit = (args, stdin) =>
     gitExecFileAsync(args, {
       ...gitExecOptions(repoPath, options),
-      ...(execOptions?.stdin !== undefined ? { stdin: execOptions.stdin } : {})
+      ...(stdin != null ? { stdin } : {})
     })
-  const targetRefs = await getBranchCleanupTargetRefs(runGit, branchName)
-  await refreshBranchCleanupTargetRefs(runGit, targetRefs)
-  // Why: squash merges rewrite commit IDs, so `branch -d` can reject a branch
-  // whose changes are already on the base ref. Delete only when Git can prove
-  // the branch contributes no tree changes to that base.
-  if (!(await branchHasNoUnmergedChangesOnAnyTarget(runGit, branchName, targetRefs))) {
+  if (!(await branchIsSafeToDeleteNative(runGit, branchName))) {
     return false
   }
   await forceDeleteLocalBranch(repoPath, branchName, branchHead, (args, cwd) =>

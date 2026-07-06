@@ -9,6 +9,10 @@
 use crate::runner::GitRunner;
 use std::collections::HashSet;
 
+/// Cap on the target-ancestry commits scanned for a squash match (matches the TS
+/// `SQUASH_PATCH_SCAN_LIMIT`).
+const SQUASH_PATCH_SCAN_LIMIT: usize = 200;
+
 /// Run git, returning trimmed non-empty stdout, or `None` on error/empty.
 fn read_optional<R: GitRunner>(runner: &R, argv: &[&str]) -> Option<String> {
     match runner.run(argv) {
@@ -110,6 +114,90 @@ fn branch_only_commits_are_patch_equivalent<R: GitRunner>(runner: &R, target_oid
     }
 }
 
+/// Raw (untrimmed) stdout, or `None` on error/empty — patch text for `git
+/// patch-id` must not be trimmed.
+fn read_optional_raw<R: GitRunner>(runner: &R, argv: &[&str]) -> Option<String> {
+    match runner.run(argv) {
+        Ok(out) if !out.stdout.is_empty() => Some(out.stdout),
+        _ => None,
+    }
+}
+
+/// The patch-id: first whitespace token of the first non-empty line.
+fn parse_patch_id(stdout: Option<&str>) -> Option<String> {
+    let line = stdout?.split('\n').map(str::trim).find(|line| !line.is_empty())?;
+    let patch_id = line.split_whitespace().next().unwrap_or("");
+    if patch_id.is_empty() {
+        None
+    } else {
+        Some(patch_id.to_string())
+    }
+}
+
+/// Stable patch-id for the given patch text (`git patch-id --stable`, piped stdin).
+fn compute_stable_patch_id<R: GitRunner>(runner: &R, patch_text: Option<&str>) -> Option<String> {
+    let patch_text = patch_text?;
+    if patch_text.is_empty() {
+        return None;
+    }
+    let out = runner.run_with_stdin(&["patch-id", "--stable"], patch_text).ok()?;
+    parse_patch_id(Some(&out.stdout))
+}
+
+/// A branch whose only extra commits are merges can still be squash-merged into
+/// the target: scan the target's ancestry for a commit whose patch-id matches the
+/// branch's net diff AND that the branch merges into without tree changes.
+fn branch_net_patch_matches_target_squash_commit<R: GitRunner>(
+    runner: &R,
+    target_oid: &str,
+    branch_ref: &str,
+) -> bool {
+    let Some(merge_base) = read_optional(runner, &["merge-base", target_oid, branch_ref]) else {
+        return false;
+    };
+    let branch_patch_id = compute_stable_patch_id(
+        runner,
+        read_optional_raw(runner, &["diff", &merge_base, branch_ref]).as_deref(),
+    );
+    let Some(branch_patch_id) = branch_patch_id else {
+        return false;
+    };
+    let commits: Vec<String> = match read_optional(
+        runner,
+        &[
+            "rev-list",
+            "--ancestry-path",
+            &format!("--max-count={}", SQUASH_PATCH_SCAN_LIMIT + 1),
+            &format!("{merge_base}..{target_oid}"),
+        ],
+    ) {
+        None => return false,
+        Some(stdout) => stdout
+            .split('\n')
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect(),
+    };
+    if commits.is_empty() || commits.len() > SQUASH_PATCH_SCAN_LIMIT {
+        return false;
+    }
+    for commit_oid in &commits {
+        let commit_patch_id = compute_stable_patch_id(
+            runner,
+            read_optional_raw(runner, &["show", "--format=", commit_oid]).as_deref(),
+        );
+        // A matching patch-id flags a possible squash; the tree merge proves the
+        // branch adds no further changes there.
+        if commit_patch_id.as_deref() == Some(branch_patch_id.as_str())
+            && branch_merges_without_tree_changes(runner, commit_oid, branch_ref)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// True when the branch has no unmerged changes against any candidate target —
 /// i.e. it's safe to delete.
 pub fn branch_has_no_unmerged_changes_on_any_target<R: GitRunner>(
@@ -126,6 +214,11 @@ pub fn branch_has_no_unmerged_changes_on_any_target<R: GitRunner>(
             return true;
         }
         if has_branch_only_merge_commits(runner, &target_oid, &branch_ref) {
+            // The branch's only extra commits are merges — but it may still have
+            // been squash-merged into the target.
+            if branch_net_patch_matches_target_squash_commit(runner, &target_oid, &branch_ref) {
+                return true;
+            }
             continue;
         }
         if branch_only_commits_are_patch_equivalent(runner, &target_oid, &branch_ref) {
@@ -143,6 +236,87 @@ mod tests {
 
     fn ok(stdout: &str) -> Result<GitOutput, GitError> {
         Ok(GitOutput { stdout: stdout.to_string(), stderr: String::new() })
+    }
+
+    /// A struct runner (unlike the bare `Fn` mocks) so it can implement
+    /// `run_with_stdin` — needed to exercise the `git patch-id --stable` squash path.
+    struct StdinAwareRunner<F: Fn(&[&str], Option<&str>) -> Result<GitOutput, GitError>> {
+        respond: F,
+        stdin_calls: RefCell<Vec<(Vec<String>, String)>>,
+    }
+    impl<F: Fn(&[&str], Option<&str>) -> Result<GitOutput, GitError>> GitRunner for StdinAwareRunner<F> {
+        fn run(&self, args: &[&str]) -> Result<GitOutput, GitError> {
+            (self.respond)(args, None)
+        }
+        fn run_with_stdin(&self, args: &[&str], stdin: &str) -> Result<GitOutput, GitError> {
+            self.stdin_calls
+                .borrow_mut()
+                .push((args.iter().map(|s| s.to_string()).collect(), stdin.to_string()));
+            (self.respond)(args, Some(stdin))
+        }
+    }
+
+    #[test]
+    fn squash_merged_branch_with_merge_commits_is_safe_to_delete() {
+        // A branch whose only extra commits are merges, but whose net patch matches a
+        // squash commit on the target — TS deletes it; the ported squash path must too.
+        let runner = StdinAwareRunner {
+            stdin_calls: RefCell::new(Vec::new()),
+            respond: |args: &[&str], stdin: Option<&str>| match args {
+                ["rev-parse", "--verify", "--quiet", r] if *r == "origin/main^{commit}" => ok("TOID"),
+                // not tree-equal directly against the target
+                ["merge-tree", "--write-tree", "TOID", "refs/heads/feature"] => ok("OTHERTREE\n"),
+                ["rev-parse", "--verify", "--quiet", "TOID^{tree}"] => ok("TTREE"),
+                // branch has a merge commit -> take the squash path
+                ["rev-list", "--right-only", "--merges", "--count", "TOID...refs/heads/feature"] => ok("1"),
+                ["merge-base", "TOID", "refs/heads/feature"] => ok("MBASE"),
+                ["diff", "MBASE", "refs/heads/feature"] => ok("BRANCH_PATCH_TEXT"),
+                ["rev-list", "--ancestry-path", _, range] if *range == "MBASE..TOID" => ok("SQUASH\n"),
+                ["show", "--format=", "SQUASH"] => ok("SQUASH_PATCH_TEXT"),
+                // the squash commit is tree-equal when the branch merges into it
+                ["merge-tree", "--write-tree", "SQUASH", "refs/heads/feature"] => ok("STREE\n"),
+                ["rev-parse", "--verify", "--quiet", "SQUASH^{tree}"] => ok("STREE"),
+                ["patch-id", "--stable"] => match stdin {
+                    // both diffs hash to the same stable patch-id
+                    Some("BRANCH_PATCH_TEXT") => ok("PID 111\n"),
+                    Some("SQUASH_PATCH_TEXT") => ok("PID 222\n"),
+                    _ => ok(""),
+                },
+                other => Err(GitError::from_message(format!("unexpected git args: {other:?}"))),
+            },
+        };
+        assert!(branch_has_no_unmerged_changes_on_any_target(&runner, "feature", &["origin/main"]));
+        // proves patch text was piped to `git patch-id --stable` via run_with_stdin
+        let stdin_calls = runner.stdin_calls.borrow();
+        assert_eq!(stdin_calls.len(), 2);
+        assert!(stdin_calls.iter().all(|(args, _)| args == &["patch-id", "--stable"]));
+        assert_eq!(stdin_calls[0].1, "BRANCH_PATCH_TEXT");
+        assert_eq!(stdin_calls[1].1, "SQUASH_PATCH_TEXT");
+    }
+
+    #[test]
+    fn merge_commit_branch_without_squash_match_is_preserved() {
+        // Same shape, but the patch-ids differ -> no squash match -> preserve (false).
+        let runner = StdinAwareRunner {
+            stdin_calls: RefCell::new(Vec::new()),
+            respond: |args: &[&str], stdin: Option<&str>| match args {
+                ["rev-parse", "--verify", "--quiet", r] if *r == "origin/main^{commit}" => ok("TOID"),
+                ["merge-tree", "--write-tree", "TOID", "refs/heads/feature"] => ok("OTHERTREE\n"),
+                ["rev-parse", "--verify", "--quiet", "TOID^{tree}"] => ok("TTREE"),
+                ["rev-list", "--right-only", "--merges", "--count", "TOID...refs/heads/feature"] => ok("1"),
+                ["merge-base", "TOID", "refs/heads/feature"] => ok("MBASE"),
+                ["diff", "MBASE", "refs/heads/feature"] => ok("BRANCH_PATCH_TEXT"),
+                ["rev-list", "--ancestry-path", _, range] if *range == "MBASE..TOID" => ok("SQUASH\n"),
+                ["show", "--format=", "SQUASH"] => ok("DIFFERENT_PATCH_TEXT"),
+                ["patch-id", "--stable"] => match stdin {
+                    Some("BRANCH_PATCH_TEXT") => ok("PID 111\n"),
+                    Some("DIFFERENT_PATCH_TEXT") => ok("PID 999\n"),
+                    _ => ok(""),
+                },
+                other => Err(GitError::from_message(format!("unexpected git args: {other:?}"))),
+            },
+        };
+        assert!(!branch_has_no_unmerged_changes_on_any_target(&runner, "feature", &["origin/main"]));
     }
 
     #[test]

@@ -163,79 +163,11 @@ export function isUnsupportedWorktreeListZError(error: unknown): boolean {
   return /(?:unknown|invalid|unrecognized) (?:switch|option).*`?-?z'?/i.test(getErrorText(error))
 }
 
-export function parseWorktreeList(
-  output: string,
-  options: { nulDelimited?: boolean } = {}
-): Record<string, unknown>[] {
-  const worktrees: Record<string, unknown>[] = []
-  const blocks = options.nulDelimited ? splitNulWorktreeList(output) : splitLineWorktreeList(output)
-
-  for (const lines of blocks) {
-    if (lines.length === 0) {
-      continue
-    }
-    let wtPath = ''
-    let head = ''
-    let branch = ''
-    let isBare = false
-
-    for (const line of lines) {
-      if (line.startsWith('worktree ')) {
-        wtPath = line.slice('worktree '.length)
-      } else if (line.startsWith('HEAD ')) {
-        head = line.slice('HEAD '.length)
-      } else if (line.startsWith('branch ')) {
-        branch = line.slice('branch '.length)
-      } else if (line === 'bare') {
-        isBare = true
-      }
-    }
-
-    if (wtPath) {
-      worktrees.push({
-        path: wtPath,
-        head,
-        branch,
-        isBare,
-        isMainWorktree: worktrees.length === 0
-      })
-    }
-  }
-  return worktrees
-}
-
-function splitLineWorktreeList(output: string): string[][] {
-  return output
-    .trim()
-    .split(/\r?\n\r?\n/)
-    .map((block) => block.trim().split(/\r?\n/))
-}
-
-function splitNulWorktreeList(output: string): string[][] {
-  if (!output.includes('\0')) {
-    return splitLineWorktreeList(output)
-  }
-
-  const blocks: string[][] = []
-  let currentBlock: string[] = []
-
-  for (const field of output.split('\0')) {
-    if (field) {
-      currentBlock.push(field)
-      continue
-    }
-    if (currentBlock.length > 0) {
-      blocks.push(currentBlock)
-      currentBlock = []
-    }
-  }
-
-  if (currentBlock.length > 0) {
-    blocks.push(currentBlock)
-  }
-
-  return blocks
-}
+// The relay's `git worktree list` parser now runs the orca-git Rust core via
+// wasm (git-wasm.ts) — the same code the main process runs via napi — instead of
+// the hand-maintained TS reimplementation that used to live here. Re-exported to
+// keep the import path stable for the worktree ops.
+export { parseWorktreeList } from './git-wasm'
 
 // ─── Binary / blob helpers ───────────────────────────────────────────
 

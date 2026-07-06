@@ -10,8 +10,7 @@ vi.mock('fs/promises', () => ({ lstat: lstatMock, readFile: readFileMock }))
 import {
   applyLineStats,
   collectUntrackedAdditions,
-  MAX_UNTRACKED_LINE_COUNT_BYTES,
-  parseNumstat
+  MAX_UNTRACKED_LINE_COUNT_BYTES
 } from './git-uncommitted-line-stats'
 
 function mockFileStat(size: number, mtimeMs = 1) {
@@ -24,50 +23,9 @@ function mockFileStat(size: number, mtimeMs = 1) {
   }
 }
 
-describe('parseNumstat', () => {
-  it('parses added/removed counts keyed by path', () => {
-    const stats = parseNumstat('3\t4\tsrc/app.ts\n10\t0\tsrc/new.ts\n')
-    expect(stats.get('src/app.ts')).toEqual({ added: 3, removed: 4 })
-    expect(stats.get('src/new.ts')).toEqual({ added: 10, removed: 0 })
-  })
-
-  it('treats binary "-" columns as undefined counts', () => {
-    expect(parseNumstat('-\t-\tassets/logo.png\n').get('assets/logo.png')).toEqual({
-      added: undefined,
-      removed: undefined
-    })
-  })
-
-  it('keys renames to the post-rename path', () => {
-    const braced = parseNumstat('2\t1\tsrc/{old => new}/file.ts\n')
-    expect(braced.get('src/new/file.ts')).toEqual({ added: 2, removed: 1 })
-    const plain = parseNumstat('2\t1\told.ts => new.ts\n')
-    expect(plain.get('new.ts')).toEqual({ added: 2, removed: 1 })
-  })
-
-  it('keeps literal rename-marker filenames when parsing NUL-delimited numstat', () => {
-    const stats = parseNumstat('1\t0\tdocs/a => b.txt\0')
-
-    expect(stats.get('docs/a => b.txt')).toEqual({ added: 1, removed: 0 })
-  })
-
-  it('keys NUL-delimited renames to the post-rename path', () => {
-    const stats = parseNumstat('2\t1\t\0old.ts\0new.ts\0')
-
-    expect(stats.get('new.ts')).toEqual({ added: 2, removed: 1 })
-  })
-
-  it('decodes Git C-quoted paths before keying stats', () => {
-    expect(parseNumstat('1\t1\t"tab\\tfile.txt"\n').get('tab\tfile.txt')).toEqual({
-      added: 1,
-      removed: 1
-    })
-  })
-
-  it('ignores blank lines', () => {
-    expect(parseNumstat('').size).toBe(0)
-  })
-})
+// The parseNumstat tests were removed with the TS parser: numstat parsing is now
+// the Rust orca_git::numstat core (napi in main, wasm in the relay), covered by
+// orca-git's unit tests and the relay's git-wasm path.
 
 describe('collectUntrackedAdditions', () => {
   // The byte-counting algorithm now lives in Rust (orca-git count_additions_in_buffer,

@@ -1,16 +1,44 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { GitHistoryExecutor } from './git-history'
-import {
-  GIT_HISTORY_MAX_LIMIT,
-  loadGitHistoryFromExecutor,
-  parseGitHistoryLog
-} from './git-history'
+import { GIT_HISTORY_MAX_LIMIT, loadGitHistoryFromExecutor } from './git-history'
 import { GIT_HISTORY_COMMIT_FORMAT } from './git-history-log-parser'
+import type { GitHistoryItem } from './git-history-types'
 
 const HEAD_OID = 'a'.repeat(40)
 const REMOTE_OID = 'b'.repeat(40)
 const BASE_OID = 'c'.repeat(40)
-const DECORATION_SEPARATOR = '\x1f'
+
+// Test double for the deleted TS log parser: the loader (loadGitHistoryFromExecutor)
+// takes an injected parser (Rust napi in main, Rust wasm in the relay). These
+// orchestration tests inject this minimal parser of the fixture records; the Rust
+// parser's own correctness is covered by orca-git's unit tests + the relay's tests.
+function testParseLog(stdout: string): GitHistoryItem[] {
+  const items: GitHistoryItem[] = []
+  for (const raw of stdout.split('\0')) {
+    const record = raw.replace(/^\n+/, '')
+    if (!record.trim()) {
+      continue
+    }
+    const lines = record.split('\n')
+    const id = lines[0]?.trim() ?? ''
+    if (!/^[0-9a-fA-F]{40,64}$/.test(id)) {
+      continue
+    }
+    const parents = (lines[5] ?? '').trim()
+    items.push({
+      id,
+      parentIds: parents ? parents.split(' ') : [],
+      subject: lines.slice(7).join('\n').split('\n')[0]?.trim() || '(no commit message)',
+      message: lines.slice(7).join('\n').replace(/\n$/, ''),
+      author: lines[1] || undefined,
+      authorEmail: lines[2] || undefined,
+      displayId: id.slice(0, 7),
+      timestamp: Number.parseInt(lines[3] ?? '', 10) * 1000,
+      references: []
+    })
+  }
+  return items
+}
 
 function logRecord({
   hash,
@@ -89,58 +117,12 @@ function createHistoryExecutor(limitRecords = 2): {
   return { executor, calls }
 }
 
-describe('git history parsing', () => {
-  it('parses VS Code-compatible git log records with decorations and multiline messages', () => {
-    const stdout = logRecord({
-      hash: HEAD_OID,
-      parents: [BASE_OID],
-      decorations:
-        'HEAD -> refs/heads/feature, refs/remotes/origin/HEAD -> refs/remotes/origin/feature, refs/remotes/origin/feature, tag: refs/tags/v1.0.0',
-      message: 'feat: add graph\n\nbody line'
-    })
-
-    const [item] = parseGitHistoryLog(stdout)
-
-    expect(item).toMatchObject({
-      id: HEAD_OID,
-      parentIds: [BASE_OID],
-      subject: 'feat: add graph',
-      message: 'feat: add graph\n\nbody line',
-      author: 'Ada Lovelace',
-      authorEmail: 'ada@example.com',
-      displayId: HEAD_OID.slice(0, 7)
-    })
-    expect(item?.references?.map((ref) => [ref.id, ref.name, ref.category])).toEqual([
-      ['refs/heads/feature', 'feature', 'branches'],
-      ['refs/remotes/origin/feature', 'origin/feature', 'remote branches'],
-      ['refs/tags/v1.0.0', 'v1.0.0', 'tags']
-    ])
-  })
-
-  it('preserves commas inside branch and tag decoration names', () => {
-    const stdout = logRecord({
-      hash: HEAD_OID,
-      decorations: ['HEAD -> refs/heads/feat,one', 'tag: refs/tags/v1,0', 'refs/heads/master'].join(
-        DECORATION_SEPARATOR
-      ),
-      message: 'initial'
-    })
-
-    const [item] = parseGitHistoryLog(stdout)
-
-    expect(item?.references?.map((ref) => [ref.id, ref.name, ref.category])).toEqual([
-      ['refs/heads/feat,one', 'feat,one', 'branches'],
-      ['refs/heads/master', 'master', 'branches'],
-      ['refs/tags/v1,0', 'v1,0', 'tags']
-    ])
-  })
-})
 
 describe('git history loader', () => {
   it('uses one bounded topo-order log query for the graph data', async () => {
     const { executor, calls } = createHistoryExecutor()
 
-    const result = await loadGitHistoryFromExecutor(executor, '/repo', { limit: 50 })
+    const result = await loadGitHistoryFromExecutor(executor, '/repo', { limit: 50 }, testParseLog)
 
     const logCall = calls.find((args) => args[0] === 'log')
     expect(logCall).toEqual(
@@ -218,10 +200,12 @@ describe('git history loader', () => {
       throw new Error(`unexpected git command: ${args.join(' ')}`)
     })
 
-    const result = await loadGitHistoryFromExecutor(executor, '/repo', {
-      limit: 50,
-      baseRef: 'origin/main'
-    })
+    const result = await loadGitHistoryFromExecutor(
+      executor,
+      '/repo',
+      { limit: 50, baseRef: 'origin/main' },
+      testParseLog
+    )
 
     const logCall = calls.find((args) => args[0] === 'log')
     expect(logCall).not.toContain(REMOTE_OID)
@@ -235,7 +219,7 @@ describe('git history loader', () => {
   it('clamps oversized limits before shelling out to git log', async () => {
     const { executor, calls } = createHistoryExecutor(GIT_HISTORY_MAX_LIMIT + 1)
 
-    const result = await loadGitHistoryFromExecutor(executor, '/repo', { limit: 500 })
+    const result = await loadGitHistoryFromExecutor(executor, '/repo', { limit: 500 }, testParseLog)
 
     const logCall = calls.find((args) => args[0] === 'log')
     expect(logCall).toContain(`-n${GIT_HISTORY_MAX_LIMIT + 1}`)
@@ -252,7 +236,7 @@ describe('git history loader', () => {
       throw new Error(`unexpected git command: ${args.join(' ')}`)
     })
 
-    const result = await loadGitHistoryFromExecutor(executor, '/repo')
+    const result = await loadGitHistoryFromExecutor(executor, '/repo', {}, testParseLog)
 
     expect(result).toMatchObject({
       items: [],

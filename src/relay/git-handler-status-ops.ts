@@ -13,11 +13,8 @@ import type { GitExec } from './git-handler-ops'
 import type { GitUpstreamStatus } from '../shared/types'
 import { splitRemoteBranchName } from '../shared/git-effective-upstream'
 import { readOrProbeNoEffectiveUpstreamStatus } from './git-status-upstream-negative-cache'
-import {
-  applyLineStats,
-  parseNumstat,
-  type GitLineStats
-} from '../shared/git-uncommitted-line-stats'
+import { applyLineStats, type GitLineStats } from '../shared/git-uncommitted-line-stats'
+import { parseNumstat } from './git-wasm'
 import { collectUntrackedAdditionsViaGitNumstat } from './git-numstat-untracked-counter'
 import { DEFAULT_GIT_STATUS_LIMIT } from '../shared/git-status-limit'
 

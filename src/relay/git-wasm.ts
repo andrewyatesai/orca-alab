@@ -12,11 +12,16 @@ import {
   initSync,
   normalizeGitErrorMessage as wasmNormalizeGitErrorMessage,
   isNoUpstreamError as wasmIsNoUpstreamError,
-  parseStatusPorcelain as wasmParseStatusPorcelain
+  parseStatusPorcelain as wasmParseStatusPorcelain,
+  parseNumstat as wasmParseNumstat,
+  parseWorktreeList as wasmParseWorktreeList,
+  parseGitHistoryLog as wasmParseGitHistoryLog
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
 import type { GitRemoteOperation } from '../shared/git-remote-error'
 import type { GitStatusEntry } from '../shared/types'
+import type { GitLineStats } from '../shared/git-uncommitted-line-stats'
+import type { GitHistoryItem } from '../shared/git-history-types'
 
 let inited = false
 function ensureGitWasm(): void {
@@ -95,4 +100,45 @@ export function parseStatusOutput(stdout: string): {
           }
         : { hasUpstream: false, ahead: 0, behind: 0 }
   }
+}
+
+/**
+ * `git diff --numstat` (text or `-z`) parsed to a `path -> {added?, removed?}`
+ * Map — same shape as the old shared TS `parseNumstat`. The wasm returns a JSON
+ * object; JSON preserves the file order so the Map keeps numstat order.
+ */
+export function parseNumstat(stdout: string): Map<string, GitLineStats> {
+  ensureGitWasm()
+  const obj = JSON.parse(wasmParseNumstat(Buffer.from(stdout, 'utf8'))) as Record<
+    string,
+    GitLineStats
+  >
+  return new Map(Object.entries(obj))
+}
+
+/**
+ * `git worktree list --porcelain` (or the `-z` NUL form) parsed to
+ * `GitWorktreeInfo[]`. Same signature as the old relay-local parser; the wasm
+ * output additionally carries `isSparse: true` for sparse worktrees (the main
+ * process's napi path already emits it, so consumers handle it).
+ */
+export function parseWorktreeList(
+  output: string,
+  options: { nulDelimited?: boolean } = {}
+): Record<string, unknown>[] {
+  ensureGitWasm()
+  return JSON.parse(wasmParseWorktreeList(output, options.nulDelimited ?? false)) as Record<
+    string,
+    unknown
+  >[]
+}
+
+/**
+ * NUL-delimited `git log` (in `GIT_HISTORY_COMMIT_FORMAT`) parsed to
+ * `GitHistoryItem[]`. Injected into the shared `loadGitHistoryFromExecutor` so the
+ * relay runs the Rust parser instead of the TS default.
+ */
+export function parseGitHistoryLog(stdout: string): GitHistoryItem[] {
+  ensureGitWasm()
+  return JSON.parse(wasmParseGitHistoryLog(stdout)) as GitHistoryItem[]
 }

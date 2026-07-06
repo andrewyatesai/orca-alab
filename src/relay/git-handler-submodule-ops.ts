@@ -10,7 +10,7 @@
 import * as path from 'node:path'
 import { buildDiffResult } from './git-diff-result'
 import { parseBranchDiff } from './git-handler-utils'
-import { parseNumstat } from '../shared/git-uncommitted-line-stats'
+import { parseNumstat } from './git-wasm'
 import { readBlobAtOid, type GitBufferExec, type GitExec } from './git-handler-ops'
 
 /**

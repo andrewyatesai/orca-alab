@@ -3,9 +3,6 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadRustGitBinding } from '../daemon/rust-git-addon'
 import { StatusPorcelainParser } from './status-porcelain-parser'
-import { parseWorktreeListTs } from './worktree'
-import { parseGitHistoryLog } from '../../shared/git-history-log-parser'
-import { parseNumstat } from '../../shared/git-uncommitted-line-stats'
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
 import { isBinaryBuffer } from '../../shared/binary-buffer'
@@ -101,23 +98,6 @@ function tsStatusStreaming(bytes: Buffer, limit: number, chunkSize: number): unk
     parser.finish()
   }
   return tsStatusShape(parser, stopped, limit)
-}
-
-/** Convert the live TS numstat Map into the Rust `numstat_to_json` shape (a
- *  plain object keyed by path; binary files become `{}`). */
-function tsNumstatShape(bytes: Buffer): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [path, stats] of parseNumstat(bytes.toString('utf8'))) {
-    const inner: Record<string, number> = {}
-    if (stats.added !== undefined) {
-      inner.added = stats.added
-    }
-    if (stats.removed !== undefined) {
-      inner.removed = stats.removed
-    }
-    out[path] = inner
-  }
-  return out
 }
 
 /** Live TS untracked-additions counter — transcribed from the inline logic in
@@ -258,71 +238,6 @@ const streamingFixtures: { name: string; bytes: Buffer; limit: number; chunkSize
   }
 ]
 
-const numstatFixtures: { name: string; bytes: Buffer }[] = [
-  {
-    name: 'text added/removed counts',
-    bytes: Buffer.from('3\t4\tsrc/app.ts\n10\t0\tsrc/new.ts\n')
-  },
-  { name: 'binary dash columns → empty object', bytes: Buffer.from('-\t-\tassets/logo.png\n') },
-  {
-    name: 'text rename brace + arrow normalization',
-    bytes: Buffer.from('2\t1\tsrc/{old => new}/file.ts\n2\t1\told.ts => new.ts\n')
-  },
-  { name: '-z NUL-delimited rename', bytes: Buffer.from('2\t1\t\0old.ts\0new.ts\0') },
-  {
-    name: '-z literal arrow filename kept verbatim',
-    bytes: Buffer.from('1\t0\tdocs/a => b.txt\0')
-  },
-  { name: 'C-quoted tab path key', bytes: Buffer.from('1\t1\t"tab\\tfile.txt"\n') },
-  { name: 'empty input', bytes: Buffer.from('') }
-]
-
-const worktreeFixtures: { name: string; output: string; nulDelimited: boolean }[] = [
-  {
-    name: 'main + linked + bare blocks',
-    output:
-      '\nworktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n' +
-      'worktree /repo-feature\nHEAD def456\nbranch refs/heads/feature/test\n\n' +
-      'worktree /repo-bare\nHEAD 0000000\nbare\n',
-    nulDelimited: false
-  },
-  {
-    name: 'detached head has no branch',
-    output: 'worktree /d\nHEAD abc123\ndetached\n',
-    nulDelimited: false
-  },
-  {
-    name: 'sparse flag',
-    output: 'worktree /repo\nHEAD abc\nbranch refs/heads/main\nsparse\n',
-    nulDelimited: false
-  },
-  {
-    name: 'path with spaces',
-    output: 'worktree /path/to/my worktree\nHEAD ccc\nbranch refs/heads/main\n',
-    nulDelimited: false
-  },
-  {
-    name: 'CRLF blocks',
-    output: 'worktree /a\r\nHEAD aaa\r\nbranch refs/heads/main\r\n',
-    nulDelimited: false
-  },
-  { name: 'empty input', output: '   \n\n  ', nulDelimited: false },
-  {
-    name: '-z NUL form with newline in a linked path',
-    output: [
-      'worktree /repo',
-      'HEAD abc',
-      'branch refs/heads/main',
-      '',
-      'worktree /repo/lin\nked',
-      'HEAD def',
-      'branch refs/heads/nl',
-      ''
-    ].join('\0'),
-    nulDelimited: true
-  }
-]
-
 const decodeFixtures = [
   'plain/path.ts',
   '"quoted/path.ts"',
@@ -409,66 +324,10 @@ suite('orca-git napi ↔ TS parser parity', () => {
     expect(napi.statusLength).not.toBe(total)
   })
 
-  describe('numstat', () => {
-    for (const fixture of numstatFixtures) {
-      it(fixture.name, () => {
-        const napi = JSON.parse(git.parseNumstat(fixture.bytes))
-        expect(napi).toEqual(tsNumstatShape(fixture.bytes))
-      })
-    }
-  })
-
-  describe('parseWorktreeList', () => {
-    for (const fixture of worktreeFixtures) {
-      it(fixture.name, () => {
-        const napi = JSON.parse(git.parseWorktreeList(fixture.output, fixture.nulDelimited))
-        expect(napi).toEqual(
-          parseWorktreeListTs(fixture.output, { nulDelimited: fixture.nulDelimited })
-        )
-      })
-    }
-  })
-
-  describe('parseGitHistoryLog', () => {
-    const US = '\x1f' // decoration separator (GIT_HISTORY_DECORATION_SEPARATOR)
-    const rec = (fields: string[]): string => fields.join('\n')
-    // A NUL-terminated `git log -z` stream, with the optional leading blank line
-    // git emits before the first record.
-    const stream = (...recs: string[]): string => recs.map((r) => `${r}\0`).join('')
-    const historyFixtures: { name: string; stdout: string }[] = [
-      {
-        name: 'two commits, branch + tag + remote decorations, multiline message',
-        stdout: `\n${stream(
-          rec([
-            'a'.repeat(40),
-            'Ada L',
-            'ada@x.io',
-            '1700000000',
-            '1700000001',
-            'b'.repeat(40),
-            `HEAD -> refs/heads/main${US}tag: refs/tags/v1${US}refs/remotes/origin/main`,
-            'feat: subject\n\nbody'
-          ]),
-          rec(['c'.repeat(40), '', '', 'notanumber', '0', '', '', 'second'])
-        )}`
-      },
-      { name: 'empty input', stdout: '' },
-      {
-        name: 'no decorations, single parent',
-        stdout: stream(rec(['d'.repeat(40), 'B', 'b@y', '1', '2', 'e'.repeat(40), '', 'msg']))
-      },
-      {
-        name: 'non-hash record is skipped',
-        stdout: stream(rec(['not-a-hash', 'X', 'x@z', '1', '2', '', '', 'skip me']))
-      }
-    ]
-    for (const fixture of historyFixtures) {
-      it(fixture.name, () => {
-        const napi = JSON.parse(git.parseGitHistoryLog(fixture.stdout))
-        expect(napi).toEqual(parseGitHistoryLog(fixture.stdout))
-      })
-    }
-  })
+  // numstat, parseWorktreeList, and parseGitHistoryLog parity sections were
+  // retired: those TS parsers were deleted once the Rust core became the sole impl
+  // (napi in main, wasm in the relay). The Rust logic is covered by orca-git's unit
+  // tests and the relay's differential tests (which run through the same wasm).
 
   describe('decodeGitCQuotedPath', () => {
     for (const value of decodeFixtures) {

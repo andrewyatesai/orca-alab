@@ -11,7 +11,6 @@ import {
   parseBranchDiff,
   parseWorktreeList
 } from './git-handler-utils'
-import { parseNumstat } from '../shared/git-uncommitted-line-stats'
 import {
   computeDiff,
   branchCompare as branchCompareOp,
@@ -41,9 +40,14 @@ import { forceDeletePreservedRelayBranch } from './git-handler-branch-cleanup'
 import { refreshLocalBaseRefForWorktreeCreateOp } from './git-handler-local-base-ref-refresh'
 import { checkIgnoredPathsOp, detectConflictOperation, getStatusOp } from './git-handler-status-ops'
 import { resolveRelayPushTarget } from './git-handler-push-target'
-// Rust-via-wasm (see git-wasm.ts): the same error normaliser the main process
-// runs, instead of the shared TS copy — one source of truth for the relay.
-import { isNoUpstreamError, normalizeGitErrorMessage } from './git-wasm'
+// Rust-via-wasm (see git-wasm.ts): the same parsers/normaliser the main process
+// runs, instead of the shared/relay-local TS copies — one source of truth.
+import {
+  isNoUpstreamError,
+  normalizeGitErrorMessage,
+  parseNumstat,
+  parseGitHistoryLog
+} from './git-wasm'
 import { upstreamOnlyCommitsArePatchEquivalent } from '../shared/git-upstream-status'
 import { assertGitPushTargetShape } from '../shared/git-push-target-validation'
 import { getPublishTargetStatus, type GitCommandRunner } from '../shared/git-publish-target-status'
@@ -347,10 +351,17 @@ export class GitHandler {
 
   private async history(params: Record<string, unknown>) {
     const worktreePath = params.worktreePath as string
-    return loadGitHistoryFromExecutor(this.git.bind(this), worktreePath, {
-      limit: typeof params.limit === 'number' ? params.limit : undefined,
-      baseRef: typeof params.baseRef === 'string' ? params.baseRef : null
-    })
+    return loadGitHistoryFromExecutor(
+      this.git.bind(this),
+      worktreePath,
+      {
+        limit: typeof params.limit === 'number' ? params.limit : undefined,
+        baseRef: typeof params.baseRef === 'string' ? params.baseRef : null
+      },
+      // Inject the Rust log parser (wasm) so the relay runs the same code the
+      // main process runs via napi, not the shared TS default.
+      parseGitHistoryLog
+    )
   }
 
   private async getDiff(params: Record<string, unknown>) {

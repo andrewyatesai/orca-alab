@@ -12,19 +12,17 @@ import {
   countUntrackedFileWithCache,
   type GitLineStats
 } from '../shared/git-uncommitted-line-stats'
+import { parseNumstat } from './git-wasm'
 
 // Each count spawns a git process; bound the fan-out so a burst of new untracked
 // files can't swamp the SSH host during a status refresh.
 const GIT_NUMSTAT_CONCURRENCY = 4
 
 function parseAddedCount(stdout: string): number | undefined {
-  // Numstat line: "<added>\t<removed>\t<path>"; binary files report '-'.
-  const added = stdout.split('\t', 1)[0]
-  if (!added || added === '-') {
-    return undefined
-  }
-  const count = Number.parseInt(added, 10)
-  return Number.isFinite(count) && count >= 0 ? count : undefined
+  // The single `git diff --no-index --numstat` line, parsed by the Rust core
+  // (wasm) instead of by hand — binary files (added '-') yield no count.
+  const [stats] = parseNumstat(stdout).values()
+  return stats?.added
 }
 
 async function countFileViaGitNumstat(

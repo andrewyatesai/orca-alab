@@ -25,7 +25,6 @@ import { dispatch as featureTips } from './feature-tips'
 import { dispatch as featureWallTourDepth } from './feature-wall-tour-depth'
 import { dispatch as fetchErrorClassification } from './fetch-error-classification'
 import { dispatch as gitCquotedPath } from './git-cquoted-path'
-import { dispatch as gitHistoryLogParser } from './git-history-log-parser'
 import { dispatch as gitPublishTargetStatus } from './git-publish-target-status'
 import { dispatch as gitPushTarget } from './git-push-target'
 import { dispatch as gitRemoteError } from './git-remote-error'
@@ -77,7 +76,6 @@ import { dispatch as workspaceCleanup } from './workspace-cleanup'
 import { dispatch as workspaceName } from './workspace-name'
 import { dispatch as workspaceSessionTerminalBuffers } from './workspace-session-terminal-buffers'
 import { dispatch as workspaceStatuses } from './workspace-statuses'
-import { dispatch as worktree } from './worktree'
 import { dispatch as worktreeId } from './worktree-id'
 import { dispatch as worktreeOwnership } from './worktree-ownership'
 import { dispatch as wslPaths } from './wsl-paths'
@@ -111,7 +109,6 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'feature-wall-tour-depth': featureWallTourDepth,
   'fetch-error-classification': fetchErrorClassification,
   'git-cquoted-path': gitCquotedPath,
-  'git-history-log-parser': gitHistoryLogParser,
   'git-publish-target-status': gitPublishTargetStatus,
   'git-push-target': gitPushTarget,
   'git-remote-error': gitRemoteError,
@@ -163,7 +160,6 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'workspace-name': workspaceName,
   'workspace-session-terminal-buffers': workspaceSessionTerminalBuffers,
   'workspace-statuses': workspaceStatuses,
-  worktree: worktree,
   'worktree-id': worktreeId,
   'worktree-ownership': worktreeOwnership,
   'wsl-paths': wslPaths

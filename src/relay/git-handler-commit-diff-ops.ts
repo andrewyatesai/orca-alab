@@ -1,7 +1,7 @@
 import { readBlobAtOid, type GitBufferExec, type GitExec } from './git-handler-ops'
 import { parseBranchDiff } from './git-handler-utils'
 import { buildDiffResult } from './git-diff-result'
-import { parseNumstat } from '../shared/git-uncommitted-line-stats'
+import { parseNumstat } from './git-wasm'
 import { parseGitRevListFirstParentOid } from '../shared/git-rev-list-output'
 
 const FULL_GIT_OBJECT_ID_PATTERN = /^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/

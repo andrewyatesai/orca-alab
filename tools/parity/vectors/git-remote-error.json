@@ -80,6 +80,192 @@
       "note": "mixed message: https userpass scrubbed while ssh git@ is kept",
       "input": "clone https://u:p@h/r over ssh://git@h2/r2",
       "expected": "clone https://h/r over ssh://git@h2/r2"
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "submodule push failure with a remote-changed hint wins over non-fast-forward",
+      "input": {
+        "message": "Command failed: git push\nPushing submodule 'find-cmux-followers'\n ! [rejected]        master -> master (fetch first)\nUnable to push submodule 'find-cmux-followers'\nfatal: failed to push all needed submodules",
+        "operation": "push"
+      },
+      "expected": "Submodule 'find-cmux-followers' has remote changes. Pull inside the submodule, then try again."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "submodule sentinel without a remote-changed hint yields generic push guidance",
+      "input": { "message": "fatal: failed to push all needed submodules", "operation": "push" },
+      "expected": "A submodule could not be pushed. Resolve the submodule push error, then try again."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "an already-normalized submodule detail round-trips unchanged (idempotent)",
+      "input": {
+        "message": "Submodule 'x' has remote changes. Pull inside the submodule, then try again.",
+        "operation": "push"
+      },
+      "expected": "Submodule 'x' has remote changes. Pull inside the submodule, then try again."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "submodule guidance is push/undefined-only; on fetch it falls through to the tail line",
+      "input": { "message": "fatal: failed to push all needed submodules", "operation": "fetch" },
+      "expected": "fatal: failed to push all needed submodules"
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "non-fast-forward on push yields sync-first guidance",
+      "input": { "message": "error: failed to push\nhint: non-fast-forward", "operation": "push" },
+      "expected": "Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "absent operation keeps the legacy push-shaped non-fast-forward message",
+      "input": { "message": "error: failed to push\nhint: non-fast-forward" },
+      "expected": "Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "non-fast-forward on fetch falls through to the tail line",
+      "input": { "message": "hint: non-fast-forward update rejected", "operation": "fetch" },
+      "expected": "hint: non-fast-forward update rejected"
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "the 'fetch first' phrase also triggers push sync-first guidance",
+      "input": { "message": " ! [rejected]        main -> main (fetch first)", "operation": "push" },
+      "expected": "Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "authentication failure is mapped regardless of operation",
+      "input": {
+        "message": "remote: Support for password authentication was removed.\nfatal: Authentication failed for 'https://github.com/o/r.git/'",
+        "operation": "push"
+      },
+      "expected": "Authentication failed. Check your remote credentials."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "'could not read Username' on fetch is an auth failure",
+      "input": {
+        "message": "fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+        "operation": "fetch"
+      },
+      "expected": "Authentication failed. Check your remote credentials."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "could not resolve host is a network error",
+      "input": {
+        "message": "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com",
+        "operation": "fetch"
+      },
+      "expected": "Network error. Check your connection."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "network is unreachable is a network error",
+      "input": {
+        "message": "fatal: unable to access 'https://github.com/o/r.git/': Failed to connect to github.com port 443: Network is unreachable",
+        "operation": "push"
+      },
+      "expected": "Network error. Check your connection."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "no tracking information maps to publish-branch guidance (upstream op)",
+      "input": { "message": "fatal: no tracking information for the current branch.", "operation": "upstream" },
+      "expected": "Branch has no upstream. Publish the branch first."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "no-upstream is matched before the divergent-pull branch on pull",
+      "input": { "message": "fatal: no upstream configured for branch 'feature'", "operation": "pull" },
+      "expected": "Branch has no upstream. Publish the branch first."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "divergent branches on pull yields the pull-policy guidance",
+      "input": {
+        "message": "hint: You have divergent branches and need to specify how to reconcile them.\nfatal: Need to specify how to reconcile divergent branches",
+        "operation": "pull"
+      },
+      "expected": "Pull needs a Git pull policy for divergent branches. Configure one for this repository or host, then try again: git config pull.rebase false (merge), git config pull.rebase true (rebase), or git config pull.ff only (fast-forward only)."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "divergent-pull guidance is pull-only; on push it falls through to the tail line",
+      "input": {
+        "message": "hint: You have divergent branches and need to specify how to reconcile them.\nfatal: Need to specify how to reconcile divergent branches",
+        "operation": "push"
+      },
+      "expected": "fatal: Need to specify how to reconcile divergent branches"
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "local changes would be overwritten (merge phrasing) maps to commit/stash guidance",
+      "input": {
+        "message": "error: Your local changes to the following files would be overwritten by merge:\n\tsrc/app.ts\nPlease commit your changes or stash them before you merge.",
+        "operation": "pull"
+      },
+      "expected": "Pull would overwrite local changes. Commit, stash, or discard them before pulling."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "the shorter 'Your local changes would be overwritten' phrasing also maps",
+      "input": {
+        "message": "error: Your local changes would be overwritten by checkout. Please commit or stash them.",
+        "operation": "pull"
+      },
+      "expected": "Pull would overwrite local changes. Commit, stash, or discard them before pulling."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "untracked files would be overwritten maps to move/remove guidance",
+      "input": {
+        "message": "error: The following untracked working tree files would be overwritten by merge:\n\tnotes.txt\nPlease move or remove them before you merge.",
+        "operation": "pull"
+      },
+      "expected": "Pull would overwrite untracked files. Move, remove, or add them before pulling."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "unrecognized failure falls through to the last non-empty stderr line",
+      "input": { "message": "Command failed: git push\nfatal: something specific went wrong", "operation": "push" },
+      "expected": "fatal: something specific went wrong"
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "a trailing newline is skipped when extracting the tail line",
+      "input": { "message": "Command failed: git fetch\nfatal: repository 'x' not found\n", "operation": "fetch" },
+      "expected": "fatal: repository 'x' not found"
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "credentials are scrubbed even in the tail-line fallback path",
+      "input": {
+        "message": "Command failed: git push\nfatal: unable to access 'https://user:ghp_secret@github.com/o/r.git/': The requested URL returned error: 403",
+        "operation": "push"
+      },
+      "expected": "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403"
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "a null message (non-Error in TS, None in Rust) returns the fixed literal",
+      "input": { "message": null, "operation": "push" },
+      "expected": "Git remote operation failed."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "a null message with no operation also returns the fixed literal",
+      "input": { "message": null },
+      "expected": "Git remote operation failed."
+    },
+    {
+      "function": "normalizeGitErrorMessage",
+      "note": "an empty message falls through to an empty tail line",
+      "input": { "message": "", "operation": "push" },
+      "expected": ""
     }
   ]
 }

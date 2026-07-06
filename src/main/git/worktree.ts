@@ -1,11 +1,8 @@
 /* eslint-disable max-lines -- Why: this file keeps git worktree create/remove behavior together so local cleanup and creation invariants stay in one place. */
 import { stat } from 'node:fs/promises'
 import { join, posix, win32 } from 'node:path'
-import {
-  branchHasNoUnmergedChangesOnAnyTarget,
-  getBranchCleanupTargetRefs,
-  refreshBranchCleanupTargetRefs
-} from '../../shared/git-branch-cleanup'
+import { branchIsSafeToDeleteNative } from './rust-branch-cleanup'
+import type { RunGit } from './rust-git-executor'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
 import type {
   GitWorktreeInfo,
@@ -16,7 +13,7 @@ import type {
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import { gitExecFileAsync, translateWslOutputPaths } from './runner'
-import { loadRustGitBinding } from '../daemon/rust-git-addon'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import { resolveGitDir } from './status'
 import { hasWorktreeBaseCommitRef } from './worktree-base-ref-probe'
 
@@ -471,32 +468,21 @@ async function normalizeMainWorktreePath(
 /**
  * Parse the porcelain output of `git worktree list --porcelain`.
  *
- * Prefers the verified Rust parser (orca-git, via the napi addon) when it loads,
- * with the TypeScript parser below as the proven-identical fallback — the same
- * cutover pattern as git-status-stream. The two are held in lockstep by the
- * orca-parity `parseWorktreeList` differential vectors.
+ * Runs through the verified Rust parser (orca-git, via the napi addon) — the sole
+ * main-process path (the addon is a required dependency). {@link parseWorktreeListTs}
+ * below is NOT a runtime fallback; it is the differential-parity reference oracle.
  */
 export function parseWorktreeList(
   output: string,
   options: { nulDelimited?: boolean } = {}
 ): GitWorktreeInfo[] {
-  const binding = loadRustGitBinding()
-  if (binding) {
-    try {
-      return JSON.parse(
-        binding.parseWorktreeList(output, options.nulDelimited ?? false)
-      ) as GitWorktreeInfo[]
-    } catch {
-      // A bad/incompatible addon must never break worktree listing — fall through
-      // to the identical TS parser below.
-    }
-  }
-  return parseWorktreeListTs(output, options)
+  return JSON.parse(
+    requireRustGitBinding().parseWorktreeList(output, options.nulDelimited ?? false)
+  ) as GitWorktreeInfo[]
 }
 
 /**
- * The pure TypeScript worktree-list parser. It backs `parseWorktreeList` as the
- * fallback when the Rust addon is absent, and is the differential-parity reference
+ * The pure TypeScript worktree-list parser. It is the differential-parity reference
  * (tools/parity + orca-git-napi-parity.test) — parity harnesses MUST call this, not
  * the addon-routed `parseWorktreeList`, or the comparison becomes Rust-vs-Rust.
  */
@@ -1216,17 +1202,16 @@ async function deleteAlreadyMergedBranchAfterSafeDeleteFailure(
   branchHead: string,
   options: GitWorktreeExecOptions = {}
 ): Promise<boolean> {
-  const runGit = (args: string[], execOptions?: { stdin?: string }) =>
+  // Why: squash merges rewrite commit IDs, so `branch -d` can reject a branch
+  // whose changes are already on the base ref. Rust drives the safe-to-delete
+  // decision (only ever moving toward preserve); runGit executes git (SSH/WSL-safe),
+  // piping stdin for the squash-detection patch-id.
+  const runGit: RunGit = (args, stdin) =>
     gitExecFileAsync(args, {
       ...gitExecOptions(repoPath, options),
-      ...(execOptions?.stdin !== undefined ? { stdin: execOptions.stdin } : {})
+      ...(stdin != null ? { stdin } : {})
     })
-  const targetRefs = await getBranchCleanupTargetRefs(runGit, branchName)
-  await refreshBranchCleanupTargetRefs(runGit, targetRefs)
-  // Why: squash merges rewrite commit IDs, so `branch -d` can reject a branch
-  // whose changes are already on the base ref. Delete only when Git can prove
-  // the branch contributes no tree changes to that base.
-  if (!(await branchHasNoUnmergedChangesOnAnyTarget(runGit, branchName, targetRefs))) {
+  if (!(await branchIsSafeToDeleteNative(runGit, branchName))) {
     return false
   }
   await forceDeleteLocalBranch(repoPath, branchName, branchHead, (args, cwd) =>

@@ -69,6 +69,22 @@ vi.mock('fs', () => ({
   existsSync: existsSyncMock
 }))
 
+// The orca-git native addon is a required main-process dependency — git parsing
+// (numstat, status stream) has no TS fallback. This suite mocks `fs`, which breaks
+// the addon loader's existsSync probe, so provide the real native binding directly:
+// a native addon require bypasses the `fs` JS mock, and `test` always builds it.
+vi.mock('../daemon/rust-git-addon', async () => {
+  const { createRequire } = await import('node:module')
+  const { join } = await import('node:path')
+  const binding = createRequire(import.meta.url)(
+    join(process.cwd(), 'native', 'orca-node', 'orca_node.node')
+  )
+  return {
+    loadRustGitBinding: () => binding,
+    requireRustGitBinding: () => binding
+  }
+})
+
 // Test double for the Rust orca-git untracked-additions counter (the per-file byte loop
 // now lives in Rust; its correctness is proven by orca-git-napi-parity.test.ts). This
 // stands in for the native addon so getStatus's untracked-additions path runs

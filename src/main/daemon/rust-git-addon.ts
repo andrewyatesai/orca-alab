@@ -37,9 +37,11 @@ export type RustNdjsonParserCtor = new (maxLineBytes?: number) => RustNdjsonPars
 /** The JS git executor the "A bridge" calls back into. It MUST resolve (never
  *  reject) for a git that spawned and exited, carrying its `exitCode`, so Rust can
  *  classify a non-zero exit exactly like the native runner; a rejection means the
- *  spawn itself failed. This is where `runner.ts`'s SSH/WSL/env routing lives. */
+ *  spawn itself failed. `stdin` (when non-null) is piped to git — e.g. for
+ *  `git patch-id --stable`. This is where `runner.ts`'s SSH/WSL/env routing lives. */
 export type RustGitExecutor = (
-  args: string[]
+  args: string[],
+  stdin: string | null
 ) => Promise<{ stdout: string; stderr: string; exitCode: number }>
 
 export type RustGitBinding = {
@@ -84,6 +86,26 @@ export type RustGitBinding = {
     remoteUrl: string | null,
     executor: RustGitExecutor
   ): Promise<string>
+  /** IO-tier "A bridge" cutover: Rust drives the EFFECTIVE upstream/ahead-behind
+   *  status (no explicit target — resolves the configured upstream, then ahead/behind
+   *  + patch equivalence) over the JS `executor`, applying the no-upstream swallow +
+   *  normalization in-process. Resolves the `GitUpstreamStatus` JSON string, or rejects
+   *  with the normalized error message. */
+  getEffectiveUpstreamStatusViaExecutor(executor: RustGitExecutor): Promise<string>
+  /** IO-tier "A bridge" cutover: Rust drives the read-only rebase-source resolver
+   *  (`git remote` → longest match → `check-ref-format`) over the JS `executor`.
+   *  Resolves `{remoteName, branchName, displayName}` JSON, or rejects with the RAW
+   *  resolver message (the caller normalizes). `git pull --rebase` stays in TS. */
+  resolveGitRemoteRebaseSourceViaExecutor(
+    baseRef: string,
+    executor: RustGitExecutor
+  ): Promise<string>
+  /** IO-tier "A bridge" cutover: Rust drives the branch-cleanup safe-to-delete
+   *  DECISION (gather base refs → non-fatal fetch → tree/merge/patch/squash checks,
+   *  the squash path piping patch text to `git patch-id --stable` via executor stdin)
+   *  over the JS `executor`. Resolves the boolean; the destructive `git branch -d`
+   *  stays in TS, gated on it. Only ever moves toward *preserve* — never over-deletes. */
+  branchIsSafeToDeleteViaExecutor(branchName: string, executor: RustGitExecutor): Promise<boolean>
   /** Approximate added/removed line counts JSON, or null for the large guard. */
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */
@@ -113,8 +135,10 @@ function candidatePaths(): string[] {
 
 let cached: RustGitBinding | null | undefined
 
-/** Load the orca-git addon, or return null if it is unavailable or fails to
- *  load. Never throws — callers fall back to the TypeScript git parsers. */
+/** Load the orca-git addon, or return null if it is unavailable. Prefer
+ *  {@link requireRustGitBinding} in the main process, where the addon is a hard
+ *  requirement — this null-returning form exists for the few callers that must
+ *  probe availability (e.g. the parity tests, which skip when it is absent). */
 export function loadRustGitBinding(): RustGitBinding | null {
   if (cached !== undefined) {
     return cached
@@ -136,4 +160,17 @@ export function loadRustGitBinding(): RustGitBinding | null {
   }
   cached = null
   return cached
+}
+
+/** Load the orca-git addon or throw. Use this in the main process, where the
+ *  native addon is a mandatory dependency (the terminal daemon already requires
+ *  it) — git parsing runs through Rust with no TypeScript fallback. */
+export function requireRustGitBinding(): RustGitBinding {
+  const binding = loadRustGitBinding()
+  if (!binding) {
+    throw new Error(
+      'orca-git native addon (orca_node.node) failed to load; it is a required dependency of the main process'
+    )
+  }
+  return binding
 }

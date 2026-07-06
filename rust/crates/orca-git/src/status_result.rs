@@ -9,8 +9,19 @@ use crate::numstat::NumstatEntry;
 use crate::status::{GitStagingArea, GitStatusEntry};
 use crate::status_parse::{GitConflictKind, GitFileStatus};
 use crate::status_stream::StatusParseResult;
+use crate::rebase_source::GitRemoteRebaseSource;
 use orca_core::git_upstream_status::GitUpstreamStatus;
 use serde_json::{Map, Value};
+
+/// Serialize a `GitRemoteRebaseSource` to the TS `{remoteName, branchName,
+/// displayName}` object shape.
+pub fn git_remote_rebase_source_to_json(source: &GitRemoteRebaseSource) -> Value {
+    let mut m = Map::new();
+    m.insert("remoteName".into(), Value::String(source.remote_name.clone()));
+    m.insert("branchName".into(), Value::String(source.branch_name.clone()));
+    m.insert("displayName".into(), Value::String(source.display_name.clone()));
+    Value::Object(m)
+}
 
 /// Serialize a `GitUpstreamStatus` to the exact TS `GitUpstreamStatus` object
 /// shape: `hasUpstream`/`ahead`/`behind` always present; `upstreamName`,

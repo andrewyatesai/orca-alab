@@ -1,14 +1,13 @@
 import type { GitPushTarget } from '../../shared/types'
-import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
-import { loadRustGitBinding } from '../daemon/rust-git-addon'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
 
-// Main-only Rust-preferring wrapper for push-target validation. The substantive
-// path-traversal-safety rules (remote name / branch name / GitHub URL) run in the
-// verified `orca_core` validator behind the napi boundary; the pure TS
-// `assertGitPushTargetShape` is the proven-identical fallback (shared with the
-// relay + parity harness, which must NOT depend on the native addon). Only the
-// `unknown`→typed guards live here in JS — they own the JS-boundary "Invalid PR
-// push target …" messages the Rust value-rule validator never produces.
+// Main-process push-target validation. The substantive path-traversal-safety rules
+// (remote name / branch name / GitHub URL) run in the verified `orca_core` validator
+// behind the napi boundary — the sole path (the addon is a required main-process
+// dependency). Only the `unknown`→typed guards live here in JS — they own the
+// JS-boundary "Invalid PR push target …" messages the Rust value-rule validator never
+// produces. The pure TS `assertGitPushTargetShape` (shared) still backs the addon-less
+// SSH relay and the differential parity oracle; it is NOT a runtime fallback here.
 
 function assertString(value: unknown, name: string): asserts value is string {
   if (typeof value !== 'string') {
@@ -17,20 +16,16 @@ function assertString(value: unknown, name: string): asserts value is string {
 }
 
 /**
- * Prefer the Rust value-rule validator, falling back to the pure TS validator
- * when the addon is unavailable. Behaviour — including exact error message and
- * ordering — is identical to {@link assertGitPushTargetShape}.
+ * Validate a push target's shape using the native value-rule validator. Behaviour —
+ * including exact error message and ordering — is identical to the shared TS
+ * `assertGitPushTargetShape`.
  */
-export function assertGitPushTargetShapePreferRust(
+export function assertGitPushTargetShapeNative(
   target: unknown
 ): asserts target is GitPushTarget {
-  const binding = loadRustGitBinding()
-  if (!binding?.validateGitPushTargetRules) {
-    assertGitPushTargetShape(target)
-    return
-  }
+  const binding = requireRustGitBinding()
 
-  // Type-coercion guards, in the order assertGitPushTargetShape applies them:
+  // Type-coercion guards, in the order the canonical TS validator applies them:
   // object, then remoteName/branchName strings. remoteUrl's type guard is
   // deliberately deferred below — the canonical validator runs it AFTER the
   // name/branch value rules, so preserving that ordering keeps error parity when

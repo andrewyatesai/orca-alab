@@ -127,21 +127,34 @@ mod tests {
         assert_eq!(get_upstream_status(&r, None).unwrap(), status(true, Some("main"), 1, 0, None));
     }
 
+    // After HEAD@{u} yields no upstream, the effective path probes the configured
+    // branch remote (branch.<b>.{remote,merge,base}), the origin tracking ref, then
+    // the push-target config (pushRemote, pushDefault, branch remote, merge, base) —
+    // nine more git calls that all miss in these "truly no upstream" cases.
+    fn no_config_misses() -> Vec<Result<GitOutput, GitError>> {
+        (0..9).map(|_| err("missing config")).collect()
+    }
+    fn no_upstream_responses(head_u: Result<GitOutput, GitError>) -> Vec<Result<GitOutput, GitError>> {
+        let mut responses = vec![ok("feature\n"), head_u];
+        responses.extend(no_config_misses());
+        responses
+    }
+
     #[test]
     fn returns_no_upstream_when_output_empty() {
-        let r = SeqRunner::new(vec![ok("feature\n"), ok("\n"), err("missing remote branch")]);
+        let r = SeqRunner::new(no_upstream_responses(ok("\n")));
         assert_eq!(get_upstream_status(&r, None).unwrap(), status(false, None, 0, 0, None));
     }
 
     #[test]
     fn returns_no_upstream_when_missing() {
-        let r = SeqRunner::new(vec![ok("feature\n"), err("fatal: no upstream configured"), err("missing remote branch")]);
+        let r = SeqRunner::new(no_upstream_responses(err("fatal: no upstream configured")));
         assert_eq!(get_upstream_status(&r, None).unwrap(), status(false, None, 0, 0, None));
     }
 
     #[test]
     fn returns_no_upstream_when_tracking_ref_missing() {
-        let r = SeqRunner::new(vec![ok("feature\n"), err(MISSING_TRACKING_REF), err("missing remote branch")]);
+        let r = SeqRunner::new(no_upstream_responses(err(MISSING_TRACKING_REF)));
         assert_eq!(get_upstream_status(&r, None).unwrap(), status(false, None, 0, 0, None));
     }
 

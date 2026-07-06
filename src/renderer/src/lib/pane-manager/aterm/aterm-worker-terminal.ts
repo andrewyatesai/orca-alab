@@ -31,6 +31,12 @@ export type WorkerSideChannels = {
   notifications: string | undefined
   /** A BEL fired this chunk. */
   bell: boolean
+  /** New engine KeyboardMode bits when THIS chunk changed them, else undefined.
+   *  Posted immediately (not with the coalesced frame STATE) because the main
+   *  thread encodes keys synchronously from its snapshot mirror: an idle kitty
+   *  app that flips modes with no further output would otherwise leave the
+   *  mirror stale indefinitely (unbounded wrong-encoding window). */
+  keyboardModeBits: number | undefined
 }
 
 export function createWorkerTerminal(handle: EngineHandle): {
@@ -130,14 +136,20 @@ export function createWorkerTerminal(handle: EngineHandle): {
   return {
     processBytes: (data) => {
       const wasAtBottom = e.display_offset === 0
+      // Mode flip detection must bracket process(): DECSET/kitty push/pop in
+      // this chunk changes encoding for the very next keystroke.
+      const keyboardModeBitsBefore = e.keyboard_mode_bits
       handle.process(data)
       followBottomAfter(wasAtBottom)
       search.refresh()
+      const keyboardModeBitsAfter = e.keyboard_mode_bits
       return {
         reply: decodeReply(e.take_response()),
         osc: e.take_osc_events(),
         notifications: e.take_notifications(),
-        bell: e.drain_bell()
+        bell: e.drain_bell(),
+        keyboardModeBits:
+          keyboardModeBitsAfter !== keyboardModeBitsBefore ? keyboardModeBitsAfter : undefined
       }
     },
     render: () => handle.render(),

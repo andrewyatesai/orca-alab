@@ -6,7 +6,11 @@ import type { ManagedPane, PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { PtyTransport } from './pty-transport'
 import { resolveTerminalShortcutAction } from './terminal-shortcut-policy'
 import type { MacOptionAsAlt } from './terminal-shortcut-policy'
-import { atermAppKeyProtocolNegotiated } from '@/lib/pane-manager/aterm/aterm-key-encoding'
+import {
+  ATERM_KEY_MOD_ALT,
+  ATERM_KEY_MOD_SUPER,
+  atermAppKeyProtocolNegotiated
+} from '@/lib/pane-manager/aterm/aterm-key-encoding'
 import {
   keybindingMatchesAction,
   type KeybindingOverrides,
@@ -333,6 +337,30 @@ export function useTerminalKeyboardShortcuts({
           return
         }
         const sent = paneTransportsRef.current.get(pane.id)?.sendInput(action.data) === true
+        if (sent) {
+          recordTerminalUserInputForLeaf(tabId, pane.leafId)
+        }
+        return
+      }
+
+      // Encode through the ACTIVE pane's engine (live keyboard mode) so the
+      // app receives its negotiated dialect (kitty CSI-u vs modifyOtherKeys) —
+      // the policy emits this only for kitty-negotiated panes, for chords the
+      // textarea encoder can't see (Cmd metaKey firewall, Option composition).
+      // Falls back to the action's legacy bytes when the engine returns
+      // nothing, so the chord never goes dead.
+      if (action.type === 'encodeKey') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        const pane = activePane
+        if (!pane) {
+          return
+        }
+        const mods =
+          (action.mods.alt ? ATERM_KEY_MOD_ALT : 0) | (action.mods.super ? ATERM_KEY_MOD_SUPER : 0)
+        const encoded = pane.atermController?.encodeKeyForHost(action.key, mods)
+        const data = encoded != null && encoded.length > 0 ? encoded : action.fallback
+        const sent = paneTransportsRef.current.get(pane.id)?.sendInput(data) === true
         if (sent) {
           recordTerminalUserInputForLeaf(tabId, pane.leafId)
         }

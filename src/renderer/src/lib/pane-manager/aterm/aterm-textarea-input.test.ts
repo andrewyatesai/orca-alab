@@ -245,6 +245,37 @@ describe('attachAtermTextareaInput', () => {
     h.dispose()
   })
 
+  it('report-all: printable keydown engine-encodes + preventDefaults (never double-sends)', () => {
+    // Kitty REPORT_ALL_KEYS_AS_ESC (mode bit 0x100): the app negotiated escape
+    // reports for EVERY key, so a plain printable press must be engine-encoded
+    // on keydown instead of flowing out as raw text.
+    const encodeKey = vi.fn(() => new Uint8Array([0x1b, 0x5b, 0x39, 0x37, 0x75])) // ESC[97u
+    const h = mount({ encodeKey, keyboardModeBits: 0x100 })
+    const keydown = fireKeydown(h.textarea, 'a')
+    expect(encodeKey).toHaveBeenCalledWith('a', 0, 0, undefined)
+    expect(h.inputSink).toHaveBeenCalledTimes(1)
+    expect(h.inputSink).toHaveBeenCalledWith('\x1b[97u')
+    // CRITICAL never-double-send invariant: bytes on keydown ⇒ preventDefault,
+    // so the browser fires NO input event for this press — the report is the
+    // only thing sent. (No manual input dispatch here on purpose: a real
+    // browser cannot produce one after a cancelled keydown.)
+    expect(keydown.defaultPrevented).toBe(true)
+    h.dispose()
+  })
+
+  it('report-all: engine returning nothing falls back to the text path (key never dead)', () => {
+    const encodeKey = vi.fn(() => new Uint8Array(0))
+    const h = mount({ encodeKey, keyboardModeBits: 0x100 })
+    const keydown = fireKeydown(h.textarea, 'a')
+    expect(keydown.defaultPrevented).toBe(false)
+    expect(h.inputSink).not.toHaveBeenCalled()
+    // The un-cancelled keydown lets the browser deliver the text input event.
+    fireInput(h.textarea, 'a', 'insertText')
+    expect(h.inputSink).toHaveBeenCalledTimes(1)
+    expect(h.inputSink).toHaveBeenCalledWith('a')
+    h.dispose()
+  })
+
   it('sends a non-text key (Enter) via the ENGINE encoder and preventDefaults it', () => {
     const encodeKey = vi.fn(() => new Uint8Array([0x0d]))
     const h = mount({ encodeKey })

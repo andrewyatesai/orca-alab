@@ -86,6 +86,121 @@ describe('resolveTerminalShortcutAction', () => {
     })
   })
 
+  describe('kitty/modifyOtherKeys negotiated (kittyKeyboardActive)', () => {
+    // Signature: (event, isMac, macOptionAsAlt, optionKeyLocation, isWindows,
+    // keybindings, kittyKeyboardActive, isLocalWindowsConptyPane).
+    const resolveNegotiated = (
+      e: TerminalShortcutEvent,
+      isMac: boolean,
+      macOptionAsAlt: Parameters<typeof resolveTerminalShortcutAction>[2] = 'false',
+      optionKeyLocation = 0
+    ) =>
+      resolveTerminalShortcutAction(
+        e,
+        isMac,
+        macOptionAsAlt,
+        optionKeyLocation,
+        false,
+        undefined,
+        true
+      )
+
+    it('stands the Ctrl+Backspace readline rewrite down (engine emits \\x1b[127;5u)', () => {
+      const chord = event({ key: 'Backspace', ctrlKey: true })
+      expect(resolveNegotiated(chord, true)).toBeNull()
+      expect(resolveNegotiated(chord, false)).toBeNull()
+      // Un-negotiated panes keep the legacy delete-word byte.
+      expect(resolveTerminalShortcutAction(chord, true)).toEqual({
+        type: 'sendInput',
+        data: '\x17'
+      })
+    })
+
+    it('stands the Alt+Backspace readline rewrite down (engine emits \\x1b[127;3u)', () => {
+      const chord = event({ key: 'Backspace', altKey: true })
+      expect(resolveNegotiated(chord, true)).toBeNull()
+      expect(resolveTerminalShortcutAction(chord, true)).toEqual({
+        type: 'sendInput',
+        data: '\x1b\x7f'
+      })
+    })
+
+    it('routes Cmd+Backspace/Delete/←/→ through the engine as SUPER chords (never dead)', () => {
+      // Why not a silent stand-down: the aterm keydown encoder hard-nulls ALL
+      // metaKey events, so these chords would go dead without the encodeKey
+      // action. The fallback is the legacy byte so an engine miss still works.
+      expect(resolveNegotiated(event({ key: 'Backspace', metaKey: true }), true)).toEqual({
+        type: 'encodeKey',
+        key: 'Backspace',
+        mods: { super: true },
+        fallback: '\x15'
+      })
+      expect(resolveNegotiated(event({ key: 'Delete', metaKey: true }), true)).toEqual({
+        type: 'encodeKey',
+        key: 'Delete',
+        mods: { super: true },
+        fallback: '\x0b'
+      })
+      expect(
+        resolveNegotiated(event({ key: 'ArrowLeft', code: 'ArrowLeft', metaKey: true }), true)
+      ).toEqual({ type: 'encodeKey', key: 'ArrowLeft', mods: { super: true }, fallback: '\x01' })
+      expect(
+        resolveNegotiated(event({ key: 'ArrowRight', code: 'ArrowRight', metaKey: true }), true)
+      ).toEqual({ type: 'encodeKey', key: 'ArrowRight', mods: { super: true }, fallback: '\x05' })
+    })
+
+    it('keeps Cmd+↑/↓ as host scrollback navigation even when negotiated', () => {
+      expect(
+        resolveNegotiated(event({ key: 'ArrowUp', code: 'ArrowUp', metaKey: true }), true)
+      ).toEqual({ type: 'scrollViewport', position: 'top' })
+      expect(
+        resolveNegotiated(event({ key: 'ArrowDown', code: 'ArrowDown', metaKey: true }), true)
+      ).toEqual({ type: 'scrollViewport', position: 'bottom' })
+    })
+
+    it('routes the macOS Option+B/F/D compensation through the engine as ALT chords', () => {
+      // The ENGINE picks the dialect from live mode bits (kitty CSI-u vs xterm
+      // modifyOtherKeys) — the policy must not hard-code either form.
+      expect(resolveNegotiated(event({ key: '∫', code: 'KeyB', altKey: true }), true)).toEqual({
+        type: 'encodeKey',
+        key: 'b',
+        mods: { alt: true },
+        fallback: '\x1bb'
+      })
+      expect(resolveNegotiated(event({ key: 'ƒ', code: 'KeyF', altKey: true }), true)).toEqual({
+        type: 'encodeKey',
+        key: 'f',
+        mods: { alt: true },
+        fallback: '\x1bf'
+      })
+      expect(resolveNegotiated(event({ key: '∂', code: 'KeyD', altKey: true }), true)).toEqual({
+        type: 'encodeKey',
+        key: 'd',
+        mods: { alt: true },
+        fallback: '\x1bd'
+      })
+    })
+
+    it('routes designated Option-as-meta letters through the engine as ALT chords', () => {
+      // Left Option acting as Meta (macOptionAsAlt='left', location=1).
+      expect(
+        resolveNegotiated(event({ key: '˜', code: 'KeyN', altKey: true }), true, 'left', 1)
+      ).toEqual({ type: 'encodeKey', key: 'n', mods: { alt: true }, fallback: '\x1bn' })
+      expect(
+        resolveNegotiated(event({ key: '¡', code: 'Digit1', altKey: true }), true, 'left', 1)
+      ).toEqual({ type: 'encodeKey', key: '1', mods: { alt: true }, fallback: '\x1b1' })
+      // Un-negotiated: the legacy Esc+letter rewrite is preserved.
+      expect(
+        resolveTerminalShortcutAction(
+          event({ key: '˜', code: 'KeyN', altKey: true }),
+          true,
+          'left',
+          1
+        )
+      ).toEqual({ type: 'sendInput', data: '\x1bn' })
+    })
+  })
+
   it('lets Shift+Enter fall through to the engine encoder (LF legacy, CSI-u kitty)', () => {
     // The engine imposes a usable Shift+Enter in every keyboard mode
     // (keyboard_mode.rs e2e tests), so the policy must not rewrite it.

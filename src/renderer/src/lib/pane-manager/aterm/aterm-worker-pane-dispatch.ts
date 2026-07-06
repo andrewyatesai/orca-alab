@@ -87,6 +87,13 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       if (side.bell) {
         pane.post({ type: 'bell' })
       }
+      // KeyboardMode flips post immediately too: the main thread's synchronous
+      // key encoding reads its snapshot mirror, and waiting for the next
+      // coalesced frame STATE leaves an idle (no-output) kitty app encoding
+      // under the OLD mode for an unbounded window.
+      if (side.keyboardModeBits !== undefined) {
+        pane.post({ type: 'keyboardModeBits', bits: side.keyboardModeBits })
+      }
       scheduleDraw()
       pane.serializeCache.schedule()
       return

@@ -509,60 +509,68 @@ test.describe('Terminal Shortcuts', () => {
     await pressAndExpectWrite(orcaPage, electronApp, 'Control+Enter', '\x1b[13;5u')
   })
 
-  test('plain Ctrl+C sends ETX under kitty keyboard reporting', async ({
+  test('plain Ctrl+C reaches a kitty-negotiated app as the CSI-u interrupt (flags survive)', async ({
     orcaPage,
     electronApp
   }) => {
     await installMainProcessPtyWriteSpy(electronApp)
     await waitForActivePanePtyId(orcaPage)
     // The aterm controller (which owns the textarea keyboard encoder) attaches
-    // asynchronously after the PTY binds; the synthetic Ctrl+C keydown below only
-    // encodes to ETX once that listener is live, so wait for it first.
+    // asynchronously after the PTY binds; the synthetic Ctrl+C keydown below
+    // only encodes once that listener is live, so wait for it first.
     await waitForActiveAtermController(orcaPage)
-    await enableKittyKeyboardReporting(orcaPage, 31)
+    // CSI > 1 u = disambiguate-only: exactly what Claude Code pushes
+    // unconditionally at startup. The host interrupt claim STANDS DOWN for a
+    // negotiated pane, so the engine encoder owns Ctrl+C from live mode bits.
+    await enableKittyKeyboardReporting(orcaPage, 1)
     await clearPtyWriteLog(electronApp)
     await focusActiveTerminal(orcaPage)
+    // Standalone modifier presses stay silent under disambiguate-only — the
+    // ENGINE gates modifier reports on kitty flag 8 (report-all-keys), and the
+    // host modifier suppression only stands down for that same flag.
     await orcaPage.keyboard.down('Control')
     await orcaPage.keyboard.up('Control')
     expect((await getPtyWrites(electronApp)).join('')).toBe('')
     await clearPtyWriteLog(electronApp)
 
-    // The aterm textarea keydown encoder consumes Ctrl+C (encoding it to ETX) and
-    // preventDefaults the keydown — the standard "we handled this key" contract.
-    // The 'c' keyup (no Ctrl) carries no byte, so it is never preventDefaulted.
+    // The aterm textarea keydown encoder consumes Ctrl+C — encoding it to the
+    // kitty CSI-u interrupt, NOT host-claimed raw ETX — and preventDefaults the
+    // keydown ("we handled this key"). The 'c' keyup (no Ctrl) carries no byte
+    // under disambiguate-only (the engine drops releases without kitty
+    // REPORT_EVENT_TYPES), so it is never preventDefaulted.
     expect(await dispatchCtrlCToActiveTerminalTextarea(orcaPage, { keyupCtrlKey: false })).toEqual({
       keydownDefaultPrevented: true,
       keyupDefaultPrevented: false
     })
 
     await expect
-      .poll(async () => (await getPtyWrites(electronApp)).some((write) => write.includes('\x03')), {
-        timeout: 5_000,
-        message: 'Ctrl+C did not reach the PTY as ETX'
-      })
+      .poll(
+        async () => (await getPtyWrites(electronApp)).some((write) => write.includes('\x1b[99;5u')),
+        {
+          timeout: 5_000,
+          message: 'Ctrl+C did not reach the PTY as the kitty CSI-u interrupt'
+        }
+      )
       .toBe(true)
-    // The aterm keyboard encoder has no Kitty CSI-u path at all — plain Ctrl+C
-    // always emits ETX — so it structurally cannot leak the CSI-u interrupt the
-    // old xterm encoder could under stale Kitty mode. These guards still assert
-    // that no CSI-u Ctrl+C sequence reached the PTY.
+    // Exactly ONE interrupt form: the negotiated CSI-u press must not be
+    // doubled by a host-claimed raw ETX (ETX remains correct only for
+    // UN-negotiated panes, where the host claim still owns the interrupt).
     const writes = (await getPtyWrites(electronApp)).join('')
-    expect(writes).not.toContain('\x1b[99;5u')
-    expect(writes).not.toContain('\x1b[99')
+    expect(writes).not.toContain('\x03')
 
-    // Why no Kitty-flag-clear assertion: Kitty keyboard flags live in xterm's
-    // coreService, which (for aterm panes) is a headless shadow buffer that does
-    // not drive keyboard encoding. Clearing it was an xterm-only recovery
-    // (RESET_KITTY_KEYBOARD_PROTOCOL via attachCustomKeyEventHandler, which never
-    // runs because terminal.open() is skipped under aterm). The aterm encoder
-    // ignores Kitty mode entirely, so there is no stale CSI-u state to clear.
-
+    // A surviving app KEEPS its negotiated kitty flags across Ctrl+C: the old
+    // per-interrupt RESET_KITTY_KEYBOARD_PROTOCOL engine write is gone (Claude
+    // Code survives Ctrl+C and was desynced by it; died-mid-kitty recovery now
+    // rides the agent-status 'done' transition in pty-connection.ts). Under
+    // surviving disambiguate-only flags, kitty-conformant TEXT STAYS TEXT:
+    // plain 'x' arrives as 'x', not as a CSI-u report.
     await clearPtyWriteLog(electronApp)
     await focusActiveTerminal(orcaPage)
     await orcaPage.keyboard.type('x')
     await expect
       .poll(async () => (await getPtyWrites(electronApp)).some((write) => write === 'x'), {
         timeout: 5_000,
-        message: 'Post-interrupt keyboard input stayed in Kitty CSI-u mode'
+        message: 'Post-interrupt text did not stay plain text under surviving kitty flags'
       })
       .toBe(true)
     const postInterruptWrites = (await getPtyWrites(electronApp)).join('')

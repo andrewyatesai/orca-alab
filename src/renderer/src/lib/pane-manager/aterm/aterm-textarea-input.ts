@@ -1,7 +1,42 @@
-import { encodeKeyEventToBytes, type AtermEngineKeyEncoder } from './aterm-key-encoding'
+import {
+  ATERM_KEY_EVENT_PRESS,
+  encodeKeyEventToBytes,
+  type AtermEngineKeyEncoder
+} from './aterm-key-encoding'
 import { createAtermCompositionView } from './aterm-composition-view'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
+
+/** The engine encoder for a live/worker-backed term: `term.encode_key` when the
+ *  engine is in-process (LIVE keyboard mode — exact), else the wasm free
+ *  function + the STATE snapshot's `keyboard_mode_bits` (worker path; ≤1-frame
+ *  stale — see the attachAtermTextareaInput JSDoc for why that trade is kept). */
+export function selectAtermEngineKeyEncoder(term: AtermTerminal): AtermEngineKeyEncoder {
+  return typeof term.encode_key === 'function'
+    ? (key, mods, eventType, baseLayoutKey) => term.encode_key(key, mods, eventType, baseLayoutKey)
+    : (key, mods, eventType, baseLayoutKey) =>
+        encode_key_with_mode(key, mods, eventType, baseLayoutKey, term.keyboard_mode_bits)
+}
+
+const HOST_KEY_BYTES_DECODER = new TextDecoder()
+
+/** Encode a host-synthesized key PRESS (window-level shortcut policy 'encodeKey'
+ *  actions — e.g. Cmd+Backspace / Option+B routed to a kitty/modifyOtherKeys
+ *  pane) through the pane's engine, honoring the live keyboard mode so the
+ *  ENGINE picks the negotiated dialect (kitty CSI-u vs xterm modifyOtherKeys).
+ *  Returns null when the engine has no encoding (caller falls back to legacy
+ *  bytes so the chord never goes dead). */
+export function encodeAtermKeyForHost(
+  term: AtermTerminal,
+  key: string,
+  mods: number
+): string | null {
+  const bytes = selectAtermEngineKeyEncoder(term)(key, mods, ATERM_KEY_EVENT_PRESS, null)
+  if (!bytes || bytes.length === 0) {
+    return null
+  }
+  return HOST_KEY_BYTES_DECODER.decode(bytes)
+}
 
 /** Inputs for the helper-textarea keyboard/text wiring. The textarea is the
  *  app's focus/paste/IME sink (mirrors xterm's helper textarea); this module owns
@@ -78,12 +113,10 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
 
   // Worker-backed terms expose no encode_key (no engine on this thread); they
   // encode through the free function + snapshot mode bits (see the JSDoc above).
-  const encodeWithEngine: AtermEngineKeyEncoder =
-    typeof term.encode_key === 'function'
-      ? (key, mods, eventType, baseLayoutKey) =>
-          term.encode_key(key, mods, eventType, baseLayoutKey)
-      : (key, mods, eventType, baseLayoutKey) =>
-          encode_key_with_mode(key, mods, eventType, baseLayoutKey, term.keyboard_mode_bits)
+  const encodeWithEngine: AtermEngineKeyEncoder = selectAtermEngineKeyEncoder(term)
+  // Live/snapshot KeyboardMode bits for the report-all printable-routing gate
+  // (works on both paths: in-process getter + worker snapshot mirror).
+  const getKeyboardModeBits = (): number => term.keyboard_mode_bits
 
   // Anchors the textarea (and paints the preedit) at the cursor cell while an
   // IME composition is open, so the candidate window opens at the caret.
@@ -167,10 +200,14 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     const bytes = encodeKeyEventToBytes(event, encodeWithEngine, {
       isMac,
       // Read per press so a live settings toggle applies without a pane rebuild.
-      macOptionIsMeta: getMacOptionIsMeta?.() ?? false
+      macOptionIsMeta: getMacOptionIsMeta?.() ?? false,
+      getKeyboardModeBits
     })
     // Plain printable chars return null here; they flow through onInput instead,
-    // so keydown sends ONLY non-text keys and nothing is double-sent.
+    // so keydown sends ONLY non-text keys and nothing is double-sent. (Under
+    // kitty REPORT_ALL_KEYS_AS_ESC printables DO encode here — and the
+    // preventDefault below then suppresses the input event, keeping the
+    // never-double-send property.)
     if (bytes === null) {
       return
     }
@@ -198,7 +235,8 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     }
     const bytes = encodeKeyEventToBytes(event, encodeWithEngine, {
       isMac,
-      macOptionIsMeta: getMacOptionIsMeta?.() ?? false
+      macOptionIsMeta: getMacOptionIsMeta?.() ?? false,
+      getKeyboardModeBits
     })
     if (bytes === null) {
       return

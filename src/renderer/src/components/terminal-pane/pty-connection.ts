@@ -54,6 +54,11 @@ import {
   RESET_KITTY_KEYBOARD_PROTOCOL,
   RESET_TERMINAL_CURSOR_STYLE
 } from './layout-serialization'
+import {
+  TERMINAL_ESCAPE_INPUT_KITTY,
+  TERMINAL_INTERRUPT_INPUT,
+  TERMINAL_INTERRUPT_INPUT_KITTY
+} from './xterm-bypass-policy'
 import { buildFreshShellViewportBlankingSequence } from './terminal-restored-viewport'
 import { createShellReadyMarkerScanState, scanForShellReadyMarker } from './shell-ready-marker-scan'
 import { shouldUseShellReadyStartupDelivery } from '../../../../shared/codex-startup-delivery'
@@ -1081,12 +1086,15 @@ export function connectPanePty(
   // Why: idle callbacks are registered before the deferred PTY output plumbing
   // exists. Start with the shared scheduler, then switch to the PTY writer
   // below so hidden-tab resets keep backlog-recovery callbacks and byte order.
+  // `reset` defaults to the pane's idle reset (read at CALL time — ConPTY
+  // panes append their kitty clear to it after transport setup); the
+  // agent-done subscription passes an explicit kitty-inclusive reset instead.
   let idleAgentTerminalModeReset = RESET_TERMINAL_CURSOR_STYLE
-  let queueAgentIdleTerminalModeReset = (): void => {
+  let queueAgentIdleTerminalModeReset = (reset?: string): void => {
     if (disposed) {
       return
     }
-    writeTerminalOutput(pane.terminal, idleAgentTerminalModeReset, {
+    writeTerminalOutput(pane.terminal, reset ?? idleAgentTerminalModeReset, {
       foreground: shouldWritePtyOutputForeground(deps.isVisibleRef.current)
     })
   }
@@ -1717,16 +1725,27 @@ export function connectPanePty(
       clearPendingTerminalInputIntent()
     }, 0)
   }
+  // Why two encodings each: a kitty-negotiated aterm pane encodes plain
+  // Ctrl+C/Escape via the ENGINE (the host interrupt claim stands down for
+  // negotiated apps), so the interrupt arrives as the CSI-u press — Claude
+  // Code under CSI > 1 u receives ESC[99;5u, not ETX. Exact-match either form.
+  const isTerminalInterruptInputData = (data: string): boolean => {
+    return data === TERMINAL_INTERRUPT_INPUT || data === TERMINAL_INTERRUPT_INPUT_KITTY
+  }
+  const isTerminalEscapeInputData = (data: string): boolean => {
+    return data === '\x1b' || data === TERMINAL_ESCAPE_INPUT_KITTY
+  }
   const inputMatchesIntent = (intent: AgentInterruptInputIntent, data: string): boolean => {
     return (
-      (intent === 'plain-escape' && data === '\x1b') || (intent === 'ctrl-c' && data === '\x03')
+      (intent === 'plain-escape' && isTerminalEscapeInputData(data)) ||
+      (intent === 'ctrl-c' && isTerminalInterruptInputData(data))
     )
   }
   const inferIntentFromExactTerminalInput = (data: string): AgentInterruptInputIntent | null => {
-    if (data === '\x03') {
+    if (isTerminalInterruptInputData(data)) {
       return 'ctrl-c'
     }
-    if (data === '\x1b') {
+    if (isTerminalEscapeInputData(data)) {
       return 'plain-escape'
     }
     return null
@@ -1744,7 +1763,7 @@ export function connectPanePty(
     data: string,
     intent: AgentInterruptInputIntent | null = null
   ): void => {
-    if (intent === 'ctrl-c' || data === '\x03') {
+    if (intent === 'ctrl-c' || isTerminalInterruptInputData(data)) {
       markTerminalBracketedPasteInterrupted(pane.terminal)
     }
   }
@@ -2613,16 +2632,30 @@ export function connectPanePty(
   const shouldApplyWindowsRendererUnicodeRefresh = CLIENT_PLATFORM === 'win32'
   const shouldProtectNativeWindowsSynchronizedOutput = isNativeWindowsConpty
   let lastAgentStatusState = state.agentStatusByPaneKey[cacheKey]?.state
-  let unsubscribeWindowsDoneTerminalModeReset: (() => void) | null = null
-  if (isNativeWindowsConpty) {
-    unsubscribeWindowsDoneTerminalModeReset = useAppStore.subscribe((nextState) => {
-      const nextAgentStatusState = nextState.agentStatusByPaneKey[cacheKey]?.state
-      if (lastAgentStatusState !== 'done' && nextAgentStatusState === 'done') {
+  // Why the 'done' transition (all platforms, aterm panes): it is the
+  // correctly-targeted "client is gone / turn is over" signal for recovering
+  // the engine's kitty keyboard state when an agent dies mid-kitty without
+  // popping its flags (#3941: Codex killed by SIGINT leaves the engine in
+  // CSI-u mode and the shell's keys corrupt). This replaces the old
+  // Ctrl+C-keypress-time RESET_KITTY_KEYBOARD_PROTOCOL write in
+  // use-terminal-pane-lifecycle.ts, which fired on EVERY interrupt and
+  // desynced apps that survive Ctrl+C (Claude Code keeps running — and now
+  // keeps its negotiated flags). ConPTY panes keep their historical behavior:
+  // their idle reset already carries the kitty clear (see above).
+  let unsubscribeAgentDoneTerminalModeReset: (() => void) | null = null
+  unsubscribeAgentDoneTerminalModeReset = useAppStore.subscribe((nextState) => {
+    const nextAgentStatusState = nextState.agentStatusByPaneKey[cacheKey]?.state
+    if (lastAgentStatusState !== 'done' && nextAgentStatusState === 'done') {
+      if (isNativeWindowsConpty) {
         queueAgentIdleTerminalModeReset()
+      } else if (pane.atermController) {
+        queueAgentIdleTerminalModeReset(
+          `${idleAgentTerminalModeReset}${RESET_KITTY_KEYBOARD_PROTOCOL}`
+        )
       }
-      lastAgentStatusState = nextAgentStatusState
-    })
-  }
+    }
+    lastAgentStatusState = nextAgentStatusState
+  })
 
   const restoredPtyIdForTransport =
     deps.restoredLeafId && deps.restoredPtyIdByLeafId
@@ -4524,12 +4557,12 @@ export function connectPanePty(
       })
     }
 
-    queueAgentIdleTerminalModeReset = (): void => {
+    queueAgentIdleTerminalModeReset = (reset?: string): void => {
       if (disposed) {
         return
       }
       writePtyOutputToXterm(
-        idleAgentTerminalModeReset,
+        reset ?? idleAgentTerminalModeReset,
         shouldWritePtyOutputForeground(deps.isVisibleRef.current)
       )
     }
@@ -6311,9 +6344,9 @@ export function connectPanePty(
         agentTaskCompleteSettingsUnsubscribe()
         agentTaskCompleteSettingsUnsubscribe = null
       }
-      if (unsubscribeWindowsDoneTerminalModeReset !== null) {
-        unsubscribeWindowsDoneTerminalModeReset()
-        unsubscribeWindowsDoneTerminalModeReset = null
+      if (unsubscribeAgentDoneTerminalModeReset !== null) {
+        unsubscribeAgentDoneTerminalModeReset()
+        unsubscribeAgentDoneTerminalModeReset = null
       }
       if (connectFrame !== null) {
         // Why: StrictMode and split-group remounts can dispose a pane binding

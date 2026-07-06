@@ -1,0 +1,34 @@
+[package]
+name = "orca-winpipe"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Windows named-pipe server transport (listener + Read/Write stream) + OS entropy, isolated behind a safe API. The unsafe winapi FFI lives here so orca-daemon stays unsafe-forbidden, following the portable-pty precedent. Empty on non-Windows."
+
+[target.'cfg(windows)'.dependencies]
+# Vendored (already in the workspace via orca-pty -> portable-pty). Features gate
+# which winapi modules compile; the vendored source carries them all.
+winapi = { version = "0.3", features = [
+    # function modules
+    "namedpipeapi",
+    "fileapi",
+    "handleapi",
+    "processthreadsapi",
+    "errhandlingapi",
+    "ntsecapi",
+    # type modules the signatures above reference (each winapi feature is an
+    # independent gate — the function modules do NOT auto-enable their types)
+    "minwindef",
+    "basetsd",
+    "winnt",
+    "minwinbase",
+    "winbase",
+] }
+
+[lints.rust]
+# This crate is the isolated FFI boundary — unsafe is its whole purpose. Every
+# other Orca crate keeps unsafe_code = "forbid"; the daemon depends on this one
+# the way it already depends on portable-pty's unsafe internals.
+unsafe_code = "allow"

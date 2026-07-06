@@ -30,6 +30,7 @@ members = [
     "crates/orca-store",
     "crates/orca-terminal",
     "crates/orca-text",
+    "crates/orca-winpipe",
 ]
 # The vendored aterm engine under rust/aterm is its OWN workspace (path-dep'd by
 # orca-terminal). Exclude it so this workspace never tries to absorb its members.

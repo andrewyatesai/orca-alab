@@ -8,7 +8,8 @@
 //! parity harness can drive `rpc::dispatch_request` against a `registry::Registry`
 //! directly. See docs/rust-migration/move-1-orca-daemon-extraction.md.
 
-#[cfg(unix)]
+// The connection logic is transport-generic (see connection::DaemonStream), so it
+// compiles on every platform; each `serve` below supplies its own socket type.
 pub mod connection;
 pub mod pending_output;
 pub mod process_query;
@@ -17,24 +18,21 @@ pub mod registry;
 pub mod resolver_health;
 pub mod rpc;
 pub mod shell_ready_barrier;
-pub mod utf8_stream_decoder;
-// token.rs reads /dev/urandom and sets 0600 perms via std::os::unix — unix-only,
-// like the socket transport it guards. The Windows daemon keeps the Node path.
-#[cfg(unix)]
 pub mod token;
+pub mod utf8_stream_decoder;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use connection::handle_connection;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use registry::Registry;
 use std::io;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::sync::Arc;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::thread;
 
 /// Bind the Unix socket at `socket_path` and serve connections forever. Each
@@ -86,13 +84,50 @@ pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
     Ok(())
 }
 
-/// The socket transport is unix-only for now: the Node daemon uses a named pipe on
-/// Windows, and Rust std offers neither named pipes nor AF_UNIX there without
-/// `unsafe` (this crate forbids it). The RPC/registry/engine core above still
-/// builds and is tested on Windows; the transport twin lands with its own port.
-/// Signature matches the unix `serve` so `main.rs` calls it unchanged; `token_path`
-/// is accepted (and ignored) because no listener is bound to gate.
-#[cfg(not(unix))]
+/// Windows transport: the Node daemon uses a named pipe, and the client dials the
+/// exact pipe path the spawner passes us (`\\?\pipe\orca-terminal-host-v…`), so
+/// this mirrors the unix `serve` with a named-pipe listener instead of a
+/// `UnixListener`. The unsafe winapi FFI is isolated in `orca-winpipe` so this
+/// crate stays `unsafe_code = "forbid"`. Each accepted pipe instance is handled on
+/// its own thread via the shared, transport-generic `handle_connection`.
+///
+/// Unverified on the build host (no Windows toolchain); the wire protocol,
+/// handshake, and threading model are identical to the unix path.
+#[cfg(windows)]
+pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
+    let listener = orca_winpipe::NamedPipeListener::bind(socket_path)?;
+
+    let expected_token: Option<Arc<str>> = match token_path {
+        Some(path) => {
+            let generated = token::generate_token()?;
+            token::write_token_file(path, &generated)?;
+            Some(Arc::from(generated.as_str()))
+        }
+        None => None,
+    };
+
+    eprintln!(
+        "orca-daemon listening at {socket_path} (protocol v{}, auth={})",
+        protocol::PROTOCOL_VERSION,
+        if expected_token.is_some() { "on" } else { "off" }
+    );
+    let registry = Arc::new(Registry::new());
+    registry.set_socket_path(socket_path);
+    loop {
+        match listener.accept() {
+            Ok(stream) => {
+                let registry = registry.clone();
+                let expected = expected_token.clone();
+                thread::spawn(move || handle_connection(stream, registry, expected));
+            }
+            Err(e) => eprintln!("orca-daemon: accept error: {e}"),
+        }
+    }
+}
+
+/// Fallback for any other platform: no socket transport. Signature matches the
+/// real `serve` so `main.rs` calls it unchanged.
+#[cfg(not(any(unix, windows)))]
 pub fn serve(socket_path: &str, _token_path: Option<&str>) -> io::Result<()> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,

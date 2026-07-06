@@ -673,6 +673,7 @@ dependencies = [
  "orca-net",
  "orca-pty",
  "orca-terminal",
+ "orca-winpipe",
  "serde_json",
 ]
 
@@ -774,6 +775,13 @@ name = "orca-text"
 version = "0.0.1"
 dependencies = [
  "regex",
+]
+
+[[package]]
+name = "orca-winpipe"
+version = "0.0.1"
+dependencies = [
+ "winapi",
 ]
 
 [[package]]

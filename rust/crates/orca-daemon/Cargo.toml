@@ -22,6 +22,11 @@ orca-net = { path = "../orca-net" }
 orca-terminal = { path = "../orca-terminal" }
 serde_json = { version = "1", default-features = false, features = ["std"] }
 
+# Windows named-pipe transport: the unsafe winapi FFI is isolated here so this
+# crate keeps unsafe_code = "forbid". Empty (no-op) on non-Windows targets.
+[target.'cfg(windows)'.dependencies]
+orca-winpipe = { path = "../orca-winpipe" }
+
 [dev-dependencies]
 # Integration tests are their own crate; they build request Values + parse responses.
 serde_json = { version = "1", default-features = false, features = ["std"] }

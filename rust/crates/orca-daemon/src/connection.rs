@@ -9,11 +9,35 @@ use orca_net::{encode_ndjson_line, NdjsonEvent, NdjsonSplitter, NDJSON_MAX_LINE_
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::VecDeque;
-use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
+use std::io::{self, Read, Write};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
+
+/// A daemon transport stream: readable, writable, movable onto worker threads, and
+/// cloneable into an independent reader/writer pair. Implemented by `UnixStream`
+/// (macOS/Linux) and the Windows named-pipe stream, so all the connection logic
+/// below — hello handshake, control RPC loop, stream fan-out — is transport-
+/// agnostic and each platform only supplies the socket type.
+pub trait DaemonStream: Read + Write + Send + 'static {
+    fn try_clone_stream(&self) -> io::Result<Self>
+    where
+        Self: Sized;
+}
+
+#[cfg(unix)]
+impl DaemonStream for std::os::unix::net::UnixStream {
+    fn try_clone_stream(&self) -> io::Result<Self> {
+        self.try_clone()
+    }
+}
+
+#[cfg(windows)]
+impl DaemonStream for orca_winpipe::NamedPipeStream {
+    fn try_clone_stream(&self) -> io::Result<Self> {
+        self.try_clone()
+    }
+}
 
 /// Fire-and-forget request ids carry this prefix (types.ts `NOTIFY_PREFIX`); the
 /// Node daemon writes no response for them, so neither do we (else every keystroke
@@ -24,8 +48,8 @@ const NOTIFY_PREFIX: &str = "notify_";
 /// splitter and yields whole lines. A UTF-8 char straddling a read boundary is
 /// reassembled (not corrupted) by carrying its incomplete tail across reads, so a
 /// >64KB non-ASCII `write`/paste survives the transport byte-exact.
-struct LineReader {
-    stream: UnixStream,
+struct LineReader<S> {
+    stream: S,
     splitter: NdjsonSplitter,
     pending: VecDeque<String>,
     /// Reused read scratch — allocated once per connection, not re-zeroed per read.
@@ -35,8 +59,8 @@ struct LineReader {
     carry: Vec<u8>,
 }
 
-impl LineReader {
-    fn new(stream: UnixStream) -> Self {
+impl<S: Read> LineReader<S> {
+    fn new(stream: S) -> Self {
         Self {
             stream,
             splitter: NdjsonSplitter::new(NDJSON_MAX_LINE_BYTES),
@@ -112,12 +136,12 @@ fn decode_streaming<'a>(carry: &mut Vec<u8>, bytes: &'a [u8]) -> Cow<'a, str> {
     }
 }
 
-pub fn handle_connection(
-    stream: UnixStream,
+pub fn handle_connection<S: DaemonStream>(
+    stream: S,
     registry: Arc<Registry>,
     expected_token: Option<Arc<str>>,
 ) {
-    let Ok(mut writer) = stream.try_clone() else {
+    let Ok(mut writer) = stream.try_clone_stream() else {
         return;
     };
     let mut reader = LineReader::new(stream);
@@ -157,9 +181,9 @@ pub fn handle_connection(
     }
 }
 
-fn serve_control(
-    reader: &mut LineReader,
-    writer: &mut UnixStream,
+fn serve_control<S: Read + Write>(
+    reader: &mut LineReader<S>,
+    writer: &mut S,
     registry: &Arc<Registry>,
     client_id: &str,
 ) {
@@ -187,9 +211,9 @@ fn serve_control(
     }
 }
 
-fn serve_stream(
-    reader: &mut LineReader,
-    mut writer: UnixStream,
+fn serve_stream<S: DaemonStream>(
+    reader: &mut LineReader<S>,
+    mut writer: S,
     registry: &Arc<Registry>,
     client_id: String,
 ) {

@@ -41,7 +41,9 @@ import { forceDeletePreservedRelayBranch } from './git-handler-branch-cleanup'
 import { refreshLocalBaseRefForWorktreeCreateOp } from './git-handler-local-base-ref-refresh'
 import { checkIgnoredPathsOp, detectConflictOperation, getStatusOp } from './git-handler-status-ops'
 import { resolveRelayPushTarget } from './git-handler-push-target'
-import { isNoUpstreamError, normalizeGitErrorMessage } from '../shared/git-remote-error'
+// Rust-via-wasm (see git-wasm.ts): the same error normaliser the main process
+// runs, instead of the shared TS copy — one source of truth for the relay.
+import { isNoUpstreamError, normalizeGitErrorMessage } from './git-wasm'
 import { upstreamOnlyCommitsArePatchEquivalent } from '../shared/git-upstream-status'
 import { assertGitPushTargetShape } from '../shared/git-push-target-validation'
 import { getPublishTargetStatus, type GitCommandRunner } from '../shared/git-publish-target-status'

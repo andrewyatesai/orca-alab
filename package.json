@@ -48,6 +48,7 @@
     "build:terminal-addon": "node config/scripts/build-terminal-addon.mjs",
     "build:rust-daemon": "node config/scripts/build-rust-daemon.mjs",
     "build:aterm-wasm": "node config/scripts/build-aterm-wasm.mjs",
+    "build:relay-wasm": "node config/scripts/build-orca-git-wasm.mjs",
     "bump:aterm": "node config/scripts/bump-aterm.mjs",
     "smoke:computer": "node config/scripts/computer-use-smoke.mjs",
     "verify:computer-native": "node config/scripts/verify-computer-native.mjs",

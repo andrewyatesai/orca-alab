@@ -184,7 +184,7 @@ impl StatusPorcelainParser {
         let line = String::from_utf8_lossy(line);
         let parts: Vec<&str> = line.split(' ').collect();
         let xy = parts.get(1).copied().unwrap_or("");
-        let submodule = parse_submodule_status(parts.get(2).copied());
+        let submodule_field = parts.get(2).copied();
         let mut xy_chars = xy.chars();
         let index_status = xy_chars.next().unwrap_or('.');
         let worktree_status = xy_chars.next().unwrap_or('.');
@@ -209,7 +209,8 @@ impl StatusPorcelainParser {
                 old_path: old_path.clone(),
                 conflict_kind: None,
                 conflict_status: None,
-                submodule,
+                // Per-area: the S... commit-change flag depends on THIS area's char.
+                submodule: parse_submodule_status(submodule_field, index_status),
                 added: None,
                 removed: None,
             });
@@ -222,7 +223,7 @@ impl StatusPorcelainParser {
                 old_path,
                 conflict_kind: None,
                 conflict_status: None,
-                submodule,
+                submodule: parse_submodule_status(submodule_field, worktree_status),
                 added: None,
                 removed: None,
             });

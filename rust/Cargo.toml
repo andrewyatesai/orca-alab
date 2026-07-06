@@ -33,7 +33,10 @@ members = [
 ]
 # The vendored aterm engine under rust/aterm is its OWN workspace (path-dep'd by
 # orca-terminal). Exclude it so this workspace never tries to absorb its members.
-exclude = ["aterm"]
+# orca-git-wasm is likewise its OWN workspace: it pulls wasm-bindgen (a web dep
+# that is NOT vendored) for the wasm32 target, so it must stay out of this
+# offline/vendored workspace's lock. Built from the repo root online.
+exclude = ["aterm", "orca-git-wasm"]
 
 [workspace.package]
 edition = "2021"

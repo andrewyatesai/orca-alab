@@ -25,6 +25,15 @@ src/**/*.d.ts
 !src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web.d.ts
 !src/renderer/src/lib/pane-manager/aterm/aterm_gpu_web_bg.wasm.d.ts
 
+# orca-git wasm-bindgen glue for the addon-less SSH relay: commit the JS + .d.ts
+# bindings and the base64-embedded bytes (orca_git_wasm_bg.wasm.base64.ts, which
+# the relay imports) so a fresh clone builds without regenerating. The raw
+# _bg.wasm is redundant with the base64 module, so it is NOT committed.
+!src/relay/wasm/orca_git_wasm.js
+!src/relay/wasm/orca_git_wasm.d.ts
+!src/relay/wasm/orca_git_wasm_bg.wasm.d.ts
+src/relay/wasm/orca_git_wasm_bg.wasm
+
 # Dependencies
 node_modules/
 
@@ -143,6 +152,11 @@ src/renderer/src/i18n/locales/.es-catalog-cache.json
 
 # aterm vendored engine build artifacts
 rust/aterm/target/
+
+# orca-git-wasm build artifacts (its own workspace; the glue + base64 land in
+# src/relay/wasm, which is committed). Track its Cargo.lock for reproducible
+# wasm builds; ignore the target dir.
+rust/orca-git-wasm/target/
 # Offline-build scaffolding for the aterm sub-workspace (conformance snapshot tool):
 # regenerable `cargo vendor` output (~650MB) + its offline cargo config.
 rust/aterm/.aterm-vendor/

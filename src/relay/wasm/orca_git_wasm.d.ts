@@ -1,0 +1,107 @@
+/* tslint:disable */
+/* eslint-disable */
+
+/**
+ * Count additions for an untracked file's contents: `undefined` for binary, 0 for
+ * empty, else the trailing-newline-aware line count.
+ */
+export function countAdditionsInBuffer(bytes: Uint8Array): number | undefined;
+
+/**
+ * Decode a git C-quoted (octal-escaped) path. Raw (unquoted) input passes through.
+ */
+export function decodeGitCQuotedPath(value: string): string;
+
+/**
+ * True only for clearly-no-upstream signals (an expected state, gated on a
+ * `fatal:` prefix). `undefined` message -> false (a non-Error throw in TS).
+ */
+export function isNoUpstreamError(message?: string | null): boolean;
+
+/**
+ * Normalise a git remote-operation error into a user-facing message. `message`
+ * is `undefined` for a non-Error throw (returns the fixed fallback). `operation`
+ * is `"push" | "pull" | "fetch" | "upstream"` (or `undefined`); an unrecognised
+ * value maps to `None`, matching the TS default-parameter behaviour.
+ */
+export function normalizeGitErrorMessage(message?: string | null, operation?: string | null): string;
+
+/**
+ * NUL-delimited `git log` (in `GIT_HISTORY_COMMIT_FORMAT`) parsed to the
+ * `GitHistoryItem[]` JSON the TS `parseGitHistoryLog` produced.
+ */
+export function parseGitHistoryLog(stdout: string): string;
+
+/**
+ * `git diff --numstat` (text or `-z`) parsed to `{path: {added?, removed?}}` JSON.
+ */
+export function parseNumstat(stdout: Uint8Array): string;
+
+/**
+ * One-shot status scan (the relay's `parseStatusOutput` replacement): the cap is
+ * applied DURING the scan, so `entries` is bounded by `limit`. Returns the
+ * status-parse-result JSON.
+ */
+export function parseStatusPorcelain(stdout: Uint8Array, limit: number): string;
+
+/**
+ * `git worktree list --porcelain` (or the `-z` NUL form) parsed to the
+ * `GitWorktreeInfo[]` JSON the TS `parseWorktreeList` produced.
+ */
+export function parseWorktreeList(output: string, nul_delimited: boolean): string;
+
+/**
+ * Scrub credentials embedded in a git URL within `message` (keeps SSH user-info;
+ * strips `user:password@` on any scheme + HTTP(S) token-only `user@`).
+ */
+export function stripCredentialsFromMessage(message: string): string;
+
+/**
+ * Validate a persisted push target's *value* rules (path-traversal safety for a
+ * remote name / branch name / optional GitHub URL). Returns the TS-identical
+ * error message, or `undefined` when valid. The `unknown`->typed guards (the
+ * "Invalid PR push target …" messages) stay in JS.
+ */
+export function validateGitPushTargetRules(remote_name: string, branch_name: string, remote_url?: string | null): string | undefined;
+
+export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+
+export interface InitOutput {
+    readonly memory: WebAssembly.Memory;
+    readonly countAdditionsInBuffer: (a: number, b: number) => number;
+    readonly decodeGitCQuotedPath: (a: number, b: number, c: number) => void;
+    readonly isNoUpstreamError: (a: number, b: number) => number;
+    readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly parseGitHistoryLog: (a: number, b: number, c: number) => void;
+    readonly parseNumstat: (a: number, b: number, c: number) => void;
+    readonly parseStatusPorcelain: (a: number, b: number, c: number, d: number) => void;
+    readonly parseWorktreeList: (a: number, b: number, c: number, d: number) => void;
+    readonly stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
+    readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
+    readonly __wbindgen_export: (a: number, b: number) => number;
+    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+    readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_export3: (a: number, b: number, c: number) => void;
+}
+
+export type SyncInitInput = BufferSource | WebAssembly.Module;
+
+/**
+ * Instantiates the given `module`, which can either be bytes or
+ * a precompiled `WebAssembly.Module`.
+ *
+ * @param {{ module: SyncInitInput }} module - Passing `SyncInitInput` directly is deprecated.
+ *
+ * @returns {InitOutput}
+ */
+export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
+
+/**
+ * If `module_or_path` is {RequestInfo} or {URL}, makes a request and
+ * for everything else, calls `WebAssembly.instantiate` directly.
+ *
+ * @param {{ module_or_path: InitInput | Promise<InitInput> }} module_or_path - Passing `InitInput` directly is deprecated.
+ *
+ * @returns {Promise<InitOutput>}
+ */
+export default function __wbg_init (module_or_path?: { module_or_path: InitInput | Promise<InitInput> } | InitInput | Promise<InitInput>): Promise<InitOutput>;

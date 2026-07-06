@@ -62,15 +62,18 @@ pub fn parse_conflict_kind(xy: &str) -> Option<GitConflictKind> {
 
 /// Parse a porcelain-v2 `<sub>` field: `None` unless it starts with `S`, then
 /// the three dirtiness flags by fixed position. The field is ASCII, so byte
-/// indexing is exact.
-pub fn parse_submodule_status(field: Option<&str>) -> Option<GitSubmoduleStatus> {
+/// indexing is exact. `status_char` is this entry's XY char for its area (index
+/// for staged, worktree for unstaged) — a bare `S...` gitlink that git reports as
+/// modified is a commit change, matching the TS parsers (the flag is area-
+/// sensitive, so this must be computed per-area, not once per line).
+pub fn parse_submodule_status(field: Option<&str>, status_char: char) -> Option<GitSubmoduleStatus> {
     let field = field?;
     if !field.starts_with('S') {
         return None;
     }
     let b = field.as_bytes();
     Some(GitSubmoduleStatus {
-        commit_changed: b.get(1) == Some(&b'C'),
+        commit_changed: b.get(1) == Some(&b'C') || (field == "S..." && status_char == 'M'),
         tracked_changes: b.get(2) == Some(&b'M'),
         untracked_changes: b.get(3) == Some(&b'U'),
     })
@@ -118,11 +121,11 @@ mod tests {
 
     #[test]
     fn submodule_status_parsing() {
-        assert_eq!(parse_submodule_status(None), None);
-        assert_eq!(parse_submodule_status(Some("N...")), None);
-        assert_eq!(parse_submodule_status(Some("....")), None);
+        assert_eq!(parse_submodule_status(None, '.'), None);
+        assert_eq!(parse_submodule_status(Some("N..."), '.'), None);
+        assert_eq!(parse_submodule_status(Some("...."), '.'), None);
         assert_eq!(
-            parse_submodule_status(Some("S..U")),
+            parse_submodule_status(Some("S..U"), '.'),
             Some(GitSubmoduleStatus {
                 commit_changed: false,
                 tracked_changes: false,
@@ -130,12 +133,32 @@ mod tests {
             })
         );
         assert_eq!(
-            parse_submodule_status(Some("SCMU")),
+            parse_submodule_status(Some("SCMU"), '.'),
             Some(GitSubmoduleStatus {
                 commit_changed: true,
                 tracked_changes: true,
                 untracked_changes: true
             })
+        );
+    }
+
+    #[test]
+    fn bare_gitlink_reported_modified_is_a_commit_change() {
+        // A `S...` gitlink (all sub-flags dot) that git reports as modified in
+        // this area is a commit change — matches the TS `submoduleField === 'S...'
+        // && statusChar === 'M'` special case. Only for the exact `M` char.
+        assert_eq!(
+            parse_submodule_status(Some("S..."), 'M'),
+            Some(GitSubmoduleStatus {
+                commit_changed: true,
+                tracked_changes: false,
+                untracked_changes: false
+            })
+        );
+        // Not modified (e.g. the other area's `.`) -> no commit change.
+        assert_eq!(
+            parse_submodule_status(Some("S..."), '.').unwrap().commit_changed,
+            false
         );
     }
 

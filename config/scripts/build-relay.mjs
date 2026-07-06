@@ -47,7 +47,12 @@ for (const platform of PLATFORMS) {
     minify: true,
     define: {
       'process.env.NODE_ENV': '"production"'
-    }
+    },
+    // The orca-git wasm glue's UNUSED default init (`__wbg_init`) references
+    // `import.meta.url`; the relay drives it via `initSync` with embedded base64
+    // bytes (git-wasm.ts) and never calls that path, so silence the CJS
+    // import.meta warning rather than let it mask real ones.
+    logOverride: { 'empty-import-meta': 'silent' }
   })
 
   // Why: include a content hash so the deploy check detects code changes

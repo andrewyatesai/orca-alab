@@ -16,6 +16,7 @@ import {
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
 import type { GitRemoteOperation } from '../shared/git-remote-error'
+import type { GitStatusEntry } from '../shared/types'
 
 let inited = false
 function ensureGitWasm(): void {
@@ -55,7 +56,7 @@ export function isNoUpstreamError(error: unknown): boolean {
  * `upstreamStatus` the relay consumers expect.
  */
 export function parseStatusOutput(stdout: string): {
-  entries: Record<string, unknown>[]
+  entries: GitStatusEntry[]
   unmergedLines: string[]
   ignoredPaths: string[]
   head?: string
@@ -69,7 +70,7 @@ export function parseStatusOutput(stdout: string): {
 } {
   ensureGitWasm()
   const r = JSON.parse(wasmParseStatusPorcelain(Buffer.from(stdout, 'utf8'), 0)) as {
-    entries: Record<string, unknown>[]
+    entries: GitStatusEntry[]
     unmergedLines: string[]
     ignoredPaths: string[]
     head?: string

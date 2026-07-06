@@ -28,8 +28,9 @@ describe('parseStatusOutput', () => {
         '1 .M N... 100644 100644 100644 aaa bbb src/unstaged.ts',
         '2 R. N... 100644 100644 100644 aaa bbb R100 new name.ts\told name.ts',
         '? untracked.ts',
-        '! ignored.ts'
-      ].join('\n') + '\n'
+        '! ignored.ts',
+        ''
+      ].join('\n')
     )
 
     expect(parsed.head).toBe('abc123')

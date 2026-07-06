@@ -16,5 +16,12 @@
       { "allowDefaultCaseForExhaustiveSwitch": false }
     ]
   },
-  "ignorePatterns": ["**/node_modules", "**/dist", "**/out", "**/aterm_wasm*", "**/aterm_gpu_web*"]
+  "ignorePatterns": [
+    "**/node_modules",
+    "**/dist",
+    "**/out",
+    "**/aterm_wasm*",
+    "**/aterm_gpu_web*",
+    "**/orca_git_wasm*"
+  ]
 }

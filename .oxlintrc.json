@@ -102,6 +102,7 @@
     "**/out",
     "**/aterm_wasm*",
     "**/aterm_gpu_web*",
+    "**/orca_git_wasm*",
     "rust/vendor",
     "rust/aterm"
   ]

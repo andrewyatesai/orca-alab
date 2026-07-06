@@ -1,25 +1,15 @@
-import { loadRustGitBinding } from '../daemon/rust-git-addon'
-import { parseGitHistoryLog } from '../../shared/git-history-log-parser'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import type { GitHistoryItem } from '../../shared/git-history-types'
 
-// Main-process-only wrapper: prefer the verified Rust `orca-git` history-log parser
-// (via the napi addon) with the pure TS parser as the proven-identical fallback.
-// Kept out of the shared git-history module so the renderer never imports the native
-// binding — the same cutover shape as git-status-stream and parseWorktreeList. The
-// two are held in lockstep by the orca-parity `parseGitHistoryLog` differential
-// vectors and orca-git-napi-parity.test.
+// Main-process history-log parsing runs through the verified Rust `orca-git`
+// parser via the napi addon — the sole path (the addon is a required main-process
+// dependency). Kept out of the shared git-history module so the renderer never
+// imports the native binding. The pure TS parser in `git-history-log-parser` still
+// backs the addon-less SSH relay and the differential parity oracle; it is NOT a
+// runtime fallback here.
 
 /** Parse NUL-delimited `git log` output (GIT_HISTORY_COMMIT_FORMAT) into history
- *  items, using the Rust parser when the addon loads and the TS parser otherwise. */
-export function parseGitHistoryLogPreferRust(stdout: string): GitHistoryItem[] {
-  const binding = loadRustGitBinding()
-  if (binding) {
-    try {
-      return JSON.parse(binding.parseGitHistoryLog(stdout)) as GitHistoryItem[]
-    } catch {
-      // A bad/incompatible addon must never break the history panel — fall through
-      // to the identical TS parser.
-    }
-  }
-  return parseGitHistoryLog(stdout)
+ *  items using the Rust parser. */
+export function parseGitHistoryLogNative(stdout: string): GitHistoryItem[] {
+  return JSON.parse(requireRustGitBinding().parseGitHistoryLog(stdout)) as GitHistoryItem[]
 }

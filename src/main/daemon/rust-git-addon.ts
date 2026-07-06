@@ -113,8 +113,10 @@ function candidatePaths(): string[] {
 
 let cached: RustGitBinding | null | undefined
 
-/** Load the orca-git addon, or return null if it is unavailable or fails to
- *  load. Never throws — callers fall back to the TypeScript git parsers. */
+/** Load the orca-git addon, or return null if it is unavailable. Prefer
+ *  {@link requireRustGitBinding} in the main process, where the addon is a hard
+ *  requirement — this null-returning form exists for the few callers that must
+ *  probe availability (e.g. the parity tests, which skip when it is absent). */
 export function loadRustGitBinding(): RustGitBinding | null {
   if (cached !== undefined) {
     return cached
@@ -136,4 +138,17 @@ export function loadRustGitBinding(): RustGitBinding | null {
   }
   cached = null
   return cached
+}
+
+/** Load the orca-git addon or throw. Use this in the main process, where the
+ *  native addon is a mandatory dependency (the terminal daemon already requires
+ *  it) — git parsing runs through Rust with no TypeScript fallback. */
+export function requireRustGitBinding(): RustGitBinding {
+  const binding = loadRustGitBinding()
+  if (!binding) {
+    throw new Error(
+      'orca-git native addon (orca_node.node) failed to load; it is a required dependency of the main process'
+    )
+  }
+  return binding
 }

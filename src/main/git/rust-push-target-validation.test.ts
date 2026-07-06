@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
-import { assertGitPushTargetShapePreferRust } from './rust-push-target-validation'
+import { assertGitPushTargetShapeNative } from './rust-push-target-validation'
 
 // The Rust-preferring wrapper must be a byte-for-byte behavioural drop-in for the
 // canonical pure-TS validator — same accept/reject AND same error message. This
@@ -60,10 +60,10 @@ const cases: unknown[] = [
   { remoteName: 'origin', branchName: 'main', remoteUrl: {} }
 ]
 
-describe('assertGitPushTargetShapePreferRust', () => {
+describe('assertGitPushTargetShapeNative', () => {
   for (const [i, input] of cases.entries()) {
     it(`${i}: ${JSON.stringify(input) ?? String(input)}`, () => {
-      expect(outcome(assertGitPushTargetShapePreferRust, input)).toEqual(
+      expect(outcome(assertGitPushTargetShapeNative, input)).toEqual(
         outcome(assertGitPushTargetShape, input)
       )
     })

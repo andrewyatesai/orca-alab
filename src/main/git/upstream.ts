@@ -2,11 +2,9 @@ import type { GitPushTarget, GitUpstreamStatus } from '../../shared/types'
 import { upstreamOnlyCommitsArePatchEquivalent } from '../../shared/git-upstream-status'
 import { isNoUpstreamError, normalizeGitErrorMessage } from '../../shared/git-remote-error'
 import { getEffectiveGitUpstreamStatus } from '../../shared/git-effective-upstream'
-import { getPublishTargetStatus } from '../../shared/git-publish-target-status'
 import { gitExecFileAsync } from './runner'
-import { validateGitPushTarget } from './push-target-validation'
-import { assertGitPushTargetShapePreferRust } from './rust-push-target-validation'
-import { loadRustGitBinding, type RustGitExecutor } from '../daemon/rust-git-addon'
+import { assertGitPushTargetShapeNative } from './rust-push-target-validation'
+import { requireRustGitBinding, type RustGitExecutor } from '../daemon/rust-git-addon'
 
 type GitExecOptions = {
   wslDistro?: string
@@ -72,29 +70,20 @@ export async function getUpstreamStatus(
 ): Promise<GitUpstreamStatus> {
   try {
     if (pushTarget) {
-      const binding = loadRustGitBinding()
-      if (binding?.getUpstreamStatusViaExecutor) {
-        // Rust drives the multi-round status (validate → rev-parse → rev-list →
-        // log) and applies the no-upstream swallow + error normalization
-        // in-process; runner.ts still executes git so SSH/WSL/env routing is
-        // preserved. The JS-boundary shape guards run here — the typed Rust driver
-        // can't produce the "Invalid PR push target …" messages — and are
-        // normalized by the outer catch, exactly as validateGitPushTarget's assert.
-        assertGitPushTargetShapePreferRust(pushTarget)
-        const json = await binding.getUpstreamStatusViaExecutor(
-          pushTarget.remoteName,
-          pushTarget.branchName,
-          pushTarget.remoteUrl ?? null,
-          makeRustGitExecutor(worktreePath, options)
-        )
-        return JSON.parse(json) as GitUpstreamStatus
-      }
-      const target = await validateGitPushTarget(worktreePath, pushTarget, options)
-      return await getPublishTargetStatus(
-        (args) => gitExecFileAsync(args, gitExecOptions(worktreePath, options)),
-        target,
-        (upstreamName) => getBehindCommitsArePatchEquivalent(worktreePath, upstreamName, options)
+      // Rust drives the multi-round status (validate → rev-parse → rev-list → log)
+      // and applies the no-upstream swallow + error normalization in-process;
+      // runner.ts still executes git so SSH/WSL/env routing is preserved. The
+      // JS-boundary shape guards run here — the typed Rust driver can't produce the
+      // "Invalid PR push target …" messages — and are normalized by the outer catch,
+      // exactly as validateGitPushTarget's assert.
+      assertGitPushTargetShapeNative(pushTarget)
+      const json = await requireRustGitBinding().getUpstreamStatusViaExecutor(
+        pushTarget.remoteName,
+        pushTarget.branchName,
+        pushTarget.remoteUrl ?? null,
+        makeRustGitExecutor(worktreePath, options)
       )
+      return JSON.parse(json) as GitUpstreamStatus
     }
     return await getEffectiveGitUpstreamStatus(
       (args) => gitExecFileAsync(args, gitExecOptions(worktreePath, options)),

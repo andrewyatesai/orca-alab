@@ -1,285 +1,6 @@
 /* @ts-self-types="./aterm_wasm.d.ts" */
 
 /**
- * One Living-Panel scene instance + its telemetry bus, ticked by the host
- * and rasterized to RGBA8. See the module docs for the drive contract.
- */
-export class AtermScene {
-    __destroy_into_raw() {
-        const ptr = this.__wbg_ptr;
-        this.__wbg_ptr = 0;
-        AtermSceneFinalization.unregister(this);
-        return ptr;
-    }
-    free() {
-        const ptr = this.__destroy_into_raw();
-        wasm.__wbg_atermscene_free(ptr, 0);
-    }
-    /**
-     * Rebind which telemetry drives a behaviour (data, not code — the native
-     * manifest channel). `drive` is a [`Drive`] name (`energy`, `crowd`,
-     * `arrivals`, `departures`, `butterflies`, `weather`, `traffic`,
-     * `daylight`); `source` is a dotted system-signal name (`sys.cpu`, …),
-     * `app:<name>`, or `const:<0..1>`. Returns `false` when either fails to
-     * parse.
-     * @param {string} drive
-     * @param {string} source
-     * @returns {boolean}
-     */
-    bind_drive(drive, source) {
-        const ptr0 = passStringToWasm0(drive, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(source, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.atermscene_bind_drive(this.__wbg_ptr, ptr0, len0, ptr1, len1);
-        return ret !== 0;
-    }
-    /**
-     * Mark a system signal as unavailable again (back to ABSENT). Returns
-     * `false` for an unknown key.
-     * @param {string} key
-     * @returns {boolean}
-     */
-    clear_signal(key) {
-        const ptr0 = passStringToWasm0(key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.atermscene_clear_signal(this.__wbg_ptr, ptr0, len0);
-        return ret !== 0;
-    }
-    /**
-     * Human/inspection summary (the native `controls scenes` dump).
-     * @returns {string}
-     */
-    describe() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const ret = wasm.atermscene_describe(this.__wbg_ptr);
-            deferred1_0 = ret[0];
-            deferred1_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
-        } finally {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        }
-    }
-    /**
-     * Last-rendered frame height in pixels.
-     * @returns {number}
-     */
-    get height() {
-        const ret = wasm.atermscene_height(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * The scene's stable id (`"placeholder"` until the art rewrite lands).
-     * @returns {string}
-     */
-    id() {
-        let deferred1_0;
-        let deferred1_1;
-        try {
-            const ret = wasm.atermscene_id(this.__wbg_ptr);
-            deferred1_0 = ret[0];
-            deferred1_1 = ret[1];
-            return getStringFromWasm0(ret[0], ret[1]);
-        } finally {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        }
-    }
-    /**
-     * `true` while something is still moving — mirror of the terminal's
-     * `is_effects_active`: keep the rAF loop only while animating (or while
-     * signals keep changing), else drop to 0% idle.
-     * @returns {boolean}
-     */
-    is_active() {
-        const ret = wasm.atermscene_is_active(this.__wbg_ptr);
-        return ret !== 0;
-    }
-    /**
-     * Build a scene by `name` (see [`scene_names_csv`]; unknown → the inert
-     * placeholder) with its default stat→behaviour binding. `seed` makes the
-     * generation deterministic-per-panel; `w`×`h` is the panel pixel box;
-     * `bg` is the packed `0x00RRGGBB` the frame composites over.
-     * @param {string} name
-     * @param {number} seed
-     * @param {number} w
-     * @param {number} h
-     * @param {number} bg
-     */
-    constructor(name, seed, w, h, bg) {
-        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.atermscene_new(ptr0, len0, seed, w, h, bg);
-        this.__wbg_ptr = ret >>> 0;
-        AtermSceneFinalization.register(this, this.__wbg_ptr, this);
-        return this;
-    }
-    /**
-     * A console text-entry pulse (one per real printable keystroke) — the
-     * "typing drops a butterfly" hook.
-     * @param {boolean} printable
-     */
-    on_text(printable) {
-        wasm.atermscene_on_text(this.__wbg_ptr, printable);
-    }
-    /**
-     * Emit + composite the current frame into the internal RGBA8 buffer
-     * (straight-alpha, opaque background — ready for `putImageData` or a
-     * `drawImage` layer). Read back via `rgba`/`rgba_ptr` + `width`/`height`.
-     */
-    render() {
-        wasm.atermscene_render(this.__wbg_ptr);
-    }
-    /**
-     * Copy of the last-rendered RGBA8 frame (`width*height*4` bytes).
-     * @returns {Uint8Array}
-     */
-    rgba() {
-        const ret = wasm.atermscene_rgba(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * Byte offset of the RGBA8 frame within wasm linear memory for a
-     * zero-copy view (same caveats as `AtermTerminal::rgba_ptr`: read it
-     * synchronously after `render`, before any other call on this instance).
-     * @returns {number}
-     */
-    rgba_ptr() {
-        const ret = wasm.atermscene_rgba_ptr(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * Push an app-fed named stream (the `aterm-ctl metric <name>` channel):
-     * arbitrary host streams (`"ai.tokens"`, `"build.pct"`, …) a binding can
-     * map onto a drive via `bind_drive("...", "app:<name>")`.
-     * @param {string} name
-     * @param {number} norm
-     * @param {number} value
-     * @param {number} rate
-     */
-    set_app_signal(name, norm, value, rate) {
-        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        wasm.atermscene_set_app_signal(this.__wbg_ptr, ptr0, len0, norm, value, rate);
-    }
-    /**
-     * Panel background colour (`0x00RRGGBB`) the frame composites over.
-     * @param {number} bg
-     */
-    set_background(bg) {
-        wasm.atermscene_set_background(this.__wbg_ptr, bg);
-    }
-    /**
-     * Scale a drive's resolved value (the binding `gain` channel).
-     * @param {string} drive
-     * @param {number} gain
-     * @returns {boolean}
-     */
-    set_drive_gain(drive, gain) {
-        const ptr0 = passStringToWasm0(drive, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.atermscene_set_drive_gain(this.__wbg_ptr, ptr0, len0, gain);
-        return ret !== 0;
-    }
-    /**
-     * Force night (`true`) / day (`false`), or `undefined` to let the scene's
-     * own day drive decide.
-     * @param {boolean | null} [night]
-     */
-    set_night(night) {
-        wasm.atermscene_set_night(this.__wbg_ptr, isLikeNone(night) ? 0xFFFFFF : night ? 1 : 0);
-    }
-    /**
-     * Theme the scene from the host colorscheme. All colours are packed
-     * `0x00RRGGBB`; the argument order matches [`aterm_scene::Palette`].
-     * @param {number} ink
-     * @param {number} dim
-     * @param {number} sky_day_top
-     * @param {number} sky_day_bot
-     * @param {number} sky_night_top
-     * @param {number} sky_night_bot
-     * @param {number} hill
-     * @param {number} grass
-     * @param {number} grass_dark
-     * @param {number} sun
-     * @param {number} accent
-     * @param {number} good
-     * @param {number} warn
-     * @param {number} hot
-     */
-    set_palette(ink, dim, sky_day_top, sky_day_bot, sky_night_top, sky_night_bot, hill, grass, grass_dark, sun, accent, good, warn, hot) {
-        wasm.atermscene_set_palette(this.__wbg_ptr, ink, dim, sky_day_top, sky_day_bot, sky_night_top, sky_night_bot, hill, grass, grass_dark, sun, accent, good, warn, hot);
-    }
-    /**
-     * Honor the OS/user reduce-motion setting: dampened speeds, no particles.
-     * @param {boolean} on
-     */
-    set_reduced_motion(on) {
-        wasm.atermscene_set_reduced_motion(this.__wbg_ptr, on);
-    }
-    /**
-     * Push one sampled system/engine signal onto the telemetry bus. `key` is
-     * a dotted [`SignalKey`] name (`sys.cpu`, `sys.mem`, `sys.gpu`,
-     * `sys.disk`, `net.rx`, `net.tx`, `ses.cpu`, `ses.mem`, `engine.fps`,
-     * `engine.frame_ms`, `engine.present_ms`, `engine.slow_frames`);
-     * `norm` is the normalized behaviour
-     * value in `[0,1]`; `value`/`rate` are the raw readout units. Returns
-     * `false` for an unknown key. A signal the host cannot sample must simply
-     * never be pushed — absent stays honest (`None`), never a fake 0.
-     * @param {string} key
-     * @param {number} norm
-     * @param {number} value
-     * @param {number} rate
-     * @returns {boolean}
-     */
-    set_signal(key, norm, value, rate) {
-        const ptr0 = passStringToWasm0(key, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.atermscene_set_signal(this.__wbg_ptr, ptr0, len0, norm, value, rate);
-        return ret !== 0;
-    }
-    /**
-     * Resize the panel box (pixels).
-     * @param {number} w
-     * @param {number} h
-     */
-    set_size(w, h) {
-        wasm.atermscene_set_size(this.__wbg_ptr, w, h);
-    }
-    /**
-     * Emitted sprite count of the LAST rendered frame (both layers) — the
-     * bounded per-frame draw budget, for host diagnostics/tests.
-     * @returns {number}
-     */
-    get sprite_count() {
-        const ret = wasm.atermscene_sprite_count(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-    /**
-     * Advance the scene by `dt_ms` under the currently-pushed signals.
-     * Deterministic: same seed + same `dt`/signal stream ⇒ identical frames.
-     * Negative/NaN deltas are ignored; one tick is clamped to 250 ms so a
-     * backgrounded tab fast-forwards smoothly instead of exploding kinematics.
-     * @param {number} dt_ms
-     */
-    tick(dt_ms) {
-        wasm.atermscene_tick(this.__wbg_ptr, dt_ms);
-    }
-    /**
-     * Last-rendered frame width in pixels.
-     * @returns {number}
-     */
-    get width() {
-        const ret = wasm.atermscene_width(this.__wbg_ptr);
-        return ret >>> 0;
-    }
-}
-if (Symbol.dispose) AtermScene.prototype[Symbol.dispose] = AtermScene.prototype.free;
-
-/**
  * A terminal + CPU renderer pair. Feed PTY bytes with [`AtermTerminal::process`],
  * then [`AtermTerminal::render`] to refresh the RGBA framebuffer, then read it
  * back via [`AtermTerminal::rgba`] (+ `width`/`height`) to draw onto a canvas.
@@ -860,6 +581,28 @@ export class AtermTerminal {
         return v1;
     }
     /**
+     * The SIGNED device-px band shift the next `render()` presents for the
+     * banked residual (negative = band shifted DOWN, toward older). Exposed
+     * so hosts/harnesses can assert the CPU and GPU bundles present the same
+     * sub-row frame.
+     * @returns {number}
+     */
+    get scroll_frac_px() {
+        const ret = wasm.atermterminal_scroll_frac_px(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * The banked sub-row residual in ROWS — signed, in `(-1.0, 1.0)`,
+     * positive = partway toward OLDER lines. `0` whenever the viewport is
+     * row-aligned (after a flip, a whole-row navigation, or at a clamped
+     * history end).
+     * @returns {number}
+     */
+    get scroll_frac_rows() {
+        const ret = wasm.atermterminal_scroll_frac_rows(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * Scroll the viewport through scrollback: positive `delta` reveals older
      * lines, negative reveals newer. `render` already honors the display offset,
      * so the host only needs to redraw afterwards.
@@ -867,6 +610,29 @@ export class AtermTerminal {
      */
     scroll_lines(delta) {
         wasm.atermterminal_scroll_lines(this.__wbg_ptr, delta);
+    }
+    /**
+     * Sub-row scroll input in fractional LINES (`deltaMode ==
+     * DOM_DELTA_LINE` hosts, or a host that scales pixels itself). Same
+     * accumulation contract as [`scroll_px`](Self::scroll_px): whole rows
+     * flip at ±1.0 accumulated, the remainder banks.
+     * @param {number} delta_rows
+     */
+    scroll_lines_frac(delta_rows) {
+        wasm.atermterminal_scroll_lines_frac(this.__wbg_ptr, delta_rows);
+    }
+    /**
+     * Sub-row scroll input in device PIXELS — the wheel/trackpad `deltaY` at
+     * `deltaMode == DOM_DELTA_PIXEL`, sign-adjusted by the host so POSITIVE
+     * reveals older lines (the [`scroll_lines`](Self::scroll_lines)
+     * convention). Fractions accumulate across calls; each whole
+     * `cell_height` of accumulation flips one engine row, and the sub-row
+     * remainder is presented by the next `render()` as a pixel shift of the
+     * grid band — the host only needs to redraw afterwards.
+     * @param {number} delta_px
+     */
+    scroll_px(delta_px) {
+        wasm.atermterminal_scroll_px(this.__wbg_ptr, delta_px);
     }
     /**
      * Scroll the viewport so the match at absolute `line` is visible, placing it
@@ -1787,25 +1553,6 @@ export function encode_key_with_mode(key, mods, event_type, base_layout_key, mod
     return v3;
 }
 
-/**
- * Every built-in scene name, comma-separated (empty until the scene-art
- * rewrite re-populates the registry; unknown names build the inert
- * placeholder).
- * @returns {string}
- */
-export function scene_names_csv() {
-    let deferred1_0;
-    let deferred1_1;
-    try {
-        const ret = wasm.scene_names_csv();
-        deferred1_0 = ret[0];
-        deferred1_1 = ret[1];
-        return getStringFromWasm0(ret[0], ret[1]);
-    } finally {
-        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-    }
-}
-
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -1895,9 +1642,6 @@ function __wbg_get_imports() {
     };
 }
 
-const AtermSceneFinalization = (typeof FinalizationRegistry === 'undefined')
-    ? { register: () => {}, unregister: () => {} }
-    : new FinalizationRegistry(ptr => wasm.__wbg_atermscene_free(ptr >>> 0, 1));
 const AtermTerminalFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_atermterminal_free(ptr >>> 0, 1));

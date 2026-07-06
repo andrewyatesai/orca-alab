@@ -218,6 +218,23 @@ export class AtermGpuTerminal {
      */
     scroll_lines(delta: number): void;
     /**
+     * Sub-row scroll input in fractional LINES (`deltaMode ==
+     * DOM_DELTA_LINE` hosts, or a host that scales pixels itself). Same
+     * accumulation contract as [`scroll_px`](Self::scroll_px): whole rows
+     * flip at ±1.0 accumulated, the remainder banks.
+     */
+    scroll_lines_frac(delta_rows: number): void;
+    /**
+     * Sub-row scroll input in device PIXELS — the wheel/trackpad `deltaY` at
+     * `deltaMode == DOM_DELTA_PIXEL`, sign-adjusted by the host so POSITIVE
+     * reveals older lines (the [`scroll_lines`](Self::scroll_lines)
+     * convention). Fractions accumulate across calls; each whole
+     * `cell_height` of accumulation flips one engine row, and the sub-row
+     * remainder is presented by the next `render()` as a pixel shift of the
+     * grid band — the host only needs to redraw afterwards.
+     */
+    scroll_px(delta_px: number): void;
+    /**
      * Scroll the viewport so the match at absolute `line` is visible (top row),
      * clamped to the retained scrollback. Host redraws after.
      */
@@ -714,6 +731,20 @@ export class AtermGpuTerminal {
      */
     readonly mouse_wants_motion: boolean;
     /**
+     * The SIGNED device-px band shift the next `render()` presents for the
+     * banked residual (negative = band shifted DOWN, toward older). Exposed
+     * so hosts/harnesses can assert the CPU and GPU bundles present the same
+     * sub-row frame.
+     */
+    readonly scroll_frac_px: number;
+    /**
+     * The banked sub-row residual in ROWS — signed, in `(-1.0, 1.0)`,
+     * positive = partway toward OLDER lines. `0` whenever the viewport is
+     * row-aligned (after a flip, a whole-row navigation, or at a clamped
+     * history end).
+     */
+    readonly scroll_frac_rows: number;
+    /**
      * Absolute row of display row 0 at the live bottom. A match at absolute
      * `line` is at display row `line - origin + display_offset`.
      */
@@ -725,134 +756,6 @@ export class AtermGpuTerminal {
     /**
      * Width in pixels of the last [`render_offscreen`](Self::render_offscreen)
      * framebuffer.
-     */
-    readonly width: number;
-}
-
-/**
- * One Living-Panel scene instance + its telemetry bus, ticked by the host
- * and rasterized to RGBA8. See the module docs for the drive contract.
- */
-export class AtermScene {
-    free(): void;
-    [Symbol.dispose](): void;
-    /**
-     * Rebind which telemetry drives a behaviour (data, not code — the native
-     * manifest channel). `drive` is a [`Drive`] name (`energy`, `crowd`,
-     * `arrivals`, `departures`, `butterflies`, `weather`, `traffic`,
-     * `daylight`); `source` is a dotted system-signal name (`sys.cpu`, …),
-     * `app:<name>`, or `const:<0..1>`. Returns `false` when either fails to
-     * parse.
-     */
-    bind_drive(drive: string, source: string): boolean;
-    /**
-     * Mark a system signal as unavailable again (back to ABSENT). Returns
-     * `false` for an unknown key.
-     */
-    clear_signal(key: string): boolean;
-    /**
-     * Human/inspection summary (the native `controls scenes` dump).
-     */
-    describe(): string;
-    /**
-     * The scene's stable id (`"placeholder"` until the art rewrite lands).
-     */
-    id(): string;
-    /**
-     * `true` while something is still moving — mirror of the terminal's
-     * `is_effects_active`: keep the rAF loop only while animating (or while
-     * signals keep changing), else drop to 0% idle.
-     */
-    is_active(): boolean;
-    /**
-     * Build a scene by `name` (see [`scene_names_csv`]; unknown → the inert
-     * placeholder) with its default stat→behaviour binding. `seed` makes the
-     * generation deterministic-per-panel; `w`×`h` is the panel pixel box;
-     * `bg` is the packed `0x00RRGGBB` the frame composites over.
-     */
-    constructor(name: string, seed: number, w: number, h: number, bg: number);
-    /**
-     * A console text-entry pulse (one per real printable keystroke) — the
-     * "typing drops a butterfly" hook.
-     */
-    on_text(printable: boolean): void;
-    /**
-     * Emit + composite the current frame into the internal RGBA8 buffer
-     * (straight-alpha, opaque background — ready for `putImageData` or a
-     * `drawImage` layer). Read back via `rgba`/`rgba_ptr` + `width`/`height`.
-     */
-    render(): void;
-    /**
-     * Copy of the last-rendered RGBA8 frame (`width*height*4` bytes).
-     */
-    rgba(): Uint8Array;
-    /**
-     * Byte offset of the RGBA8 frame within wasm linear memory for a
-     * zero-copy view (same caveats as `AtermGpuTerminal`'s offscreen `rgba`: read it
-     * synchronously after `render`, before any other call on this instance).
-     */
-    rgba_ptr(): number;
-    /**
-     * Push an app-fed named stream (the `aterm-ctl metric <name>` channel):
-     * arbitrary host streams (`"ai.tokens"`, `"build.pct"`, …) a binding can
-     * map onto a drive via `bind_drive("...", "app:<name>")`.
-     */
-    set_app_signal(name: string, norm: number, value: number, rate: number): void;
-    /**
-     * Panel background colour (`0x00RRGGBB`) the frame composites over.
-     */
-    set_background(bg: number): void;
-    /**
-     * Scale a drive's resolved value (the binding `gain` channel).
-     */
-    set_drive_gain(drive: string, gain: number): boolean;
-    /**
-     * Force night (`true`) / day (`false`), or `undefined` to let the scene's
-     * own day drive decide.
-     */
-    set_night(night?: boolean | null): void;
-    /**
-     * Theme the scene from the host colorscheme. All colours are packed
-     * `0x00RRGGBB`; the argument order matches [`aterm_scene::Palette`].
-     */
-    set_palette(ink: number, dim: number, sky_day_top: number, sky_day_bot: number, sky_night_top: number, sky_night_bot: number, hill: number, grass: number, grass_dark: number, sun: number, accent: number, good: number, warn: number, hot: number): void;
-    /**
-     * Honor the OS/user reduce-motion setting: dampened speeds, no particles.
-     */
-    set_reduced_motion(on: boolean): void;
-    /**
-     * Push one sampled system/engine signal onto the telemetry bus. `key` is
-     * a dotted [`SignalKey`] name (`sys.cpu`, `sys.mem`, `sys.gpu`,
-     * `sys.disk`, `net.rx`, `net.tx`, `ses.cpu`, `ses.mem`, `engine.fps`,
-     * `engine.frame_ms`, `engine.present_ms`, `engine.slow_frames`);
-     * `norm` is the normalized behaviour
-     * value in `[0,1]`; `value`/`rate` are the raw readout units. Returns
-     * `false` for an unknown key. A signal the host cannot sample must simply
-     * never be pushed — absent stays honest (`None`), never a fake 0.
-     */
-    set_signal(key: string, norm: number, value: number, rate: number): boolean;
-    /**
-     * Resize the panel box (pixels).
-     */
-    set_size(w: number, h: number): void;
-    /**
-     * Advance the scene by `dt_ms` under the currently-pushed signals.
-     * Deterministic: same seed + same `dt`/signal stream ⇒ identical frames.
-     * Negative/NaN deltas are ignored; one tick is clamped to 250 ms so a
-     * backgrounded tab fast-forwards smoothly instead of exploding kinematics.
-     */
-    tick(dt_ms: number): void;
-    /**
-     * Last-rendered frame height in pixels.
-     */
-    readonly height: number;
-    /**
-     * Emitted sprite count of the LAST rendered frame (both layers) — the
-     * bounded per-frame draw budget, for host diagnostics/tests.
-     */
-    readonly sprite_count: number;
-    /**
-     * Last-rendered frame width in pixels.
      */
     readonly width: number;
 }
@@ -932,19 +835,11 @@ export class SelectionRange {
  */
 export function encode_key_with_mode(key: string, mods: number, event_type: number, base_layout_key: string | null | undefined, mode_bits: number): Uint8Array | undefined;
 
-/**
- * Every built-in scene name, comma-separated (empty until the scene-art
- * rewrite re-populates the registry; unknown names build the inert
- * placeholder).
- */
-export function scene_names_csv(): string;
-
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_atermgputerminal_free: (a: number, b: number) => void;
-    readonly __wbg_atermscene_free: (a: number, b: number) => void;
     readonly __wbg_linkhit_free: (a: number, b: number) => void;
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermgputerminal_adapter_info: (a: number) => [number, number];
@@ -997,7 +892,11 @@ export interface InitOutput {
     readonly atermgputerminal_row_is_wrapped: (a: number, b: number) => number;
     readonly atermgputerminal_row_len: (a: number, b: number) => number;
     readonly atermgputerminal_row_text: (a: number, b: number) => [number, number];
+    readonly atermgputerminal_scroll_frac_px: (a: number) => number;
+    readonly atermgputerminal_scroll_frac_rows: (a: number) => number;
     readonly atermgputerminal_scroll_lines: (a: number, b: number) => void;
+    readonly atermgputerminal_scroll_lines_frac: (a: number, b: number) => void;
+    readonly atermgputerminal_scroll_px: (a: number, b: number) => void;
     readonly atermgputerminal_scroll_search_line_into_view: (a: number, b: number) => void;
     readonly atermgputerminal_scroll_to_bottom: (a: number) => void;
     readonly atermgputerminal_scroll_to_top: (a: number) => void;
@@ -1059,34 +958,11 @@ export interface InitOutput {
     readonly atermgputerminal_take_response: (a: number) => [number, number];
     readonly atermgputerminal_title: (a: number) => [number, number];
     readonly atermgputerminal_width: (a: number) => number;
-    readonly atermscene_bind_drive: (a: number, b: number, c: number, d: number, e: number) => number;
-    readonly atermscene_clear_signal: (a: number, b: number, c: number) => number;
-    readonly atermscene_describe: (a: number) => [number, number];
-    readonly atermscene_height: (a: number) => number;
-    readonly atermscene_id: (a: number) => [number, number];
-    readonly atermscene_is_active: (a: number) => number;
-    readonly atermscene_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-    readonly atermscene_on_text: (a: number, b: number) => void;
-    readonly atermscene_render: (a: number) => void;
-    readonly atermscene_rgba: (a: number) => [number, number];
-    readonly atermscene_rgba_ptr: (a: number) => number;
-    readonly atermscene_set_app_signal: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
-    readonly atermscene_set_background: (a: number, b: number) => void;
-    readonly atermscene_set_drive_gain: (a: number, b: number, c: number, d: number) => number;
-    readonly atermscene_set_night: (a: number, b: number) => void;
-    readonly atermscene_set_palette: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number) => void;
-    readonly atermscene_set_reduced_motion: (a: number, b: number) => void;
-    readonly atermscene_set_signal: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-    readonly atermscene_set_size: (a: number, b: number, c: number) => void;
-    readonly atermscene_sprite_count: (a: number) => number;
-    readonly atermscene_tick: (a: number, b: number) => void;
-    readonly atermscene_width: (a: number) => number;
     readonly encode_key_with_mode: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly linkhit_end_col: (a: number) => number;
     readonly linkhit_kind: (a: number) => number;
     readonly linkhit_start_col: (a: number) => number;
     readonly linkhit_url: (a: number) => [number, number];
-    readonly scene_names_csv: () => [number, number];
     readonly selectionrange_end_x: (a: number) => number;
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;

@@ -211,3 +211,40 @@ impl Task for UpstreamStatusTask {
         }
     }
 }
+
+/// Drive orca-git's EFFECTIVE upstream/ahead-behind status (no explicit target)
+/// over the JS executor: resolve the configured upstream (HEAD@{u}, configured
+/// branch remote, or same-name origin), then compute ahead/behind + patch
+/// equivalence, applying the no-upstream swallow + normalization in-process.
+/// Resolves the `GitUpstreamStatus` JSON, or rejects with the normalized message.
+#[napi(ts_return_type = "Promise<string>")]
+pub fn get_effective_upstream_status_via_executor(
+    executor: Function<Vec<String>, Promise<BridgeGitOutput>>,
+) -> Result<AsyncTask<EffectiveUpstreamStatusTask>> {
+    let tsfn = build_bridge_tsfn(executor)?;
+    Ok(AsyncTask::new(EffectiveUpstreamStatusTask { tsfn }))
+}
+
+pub struct EffectiveUpstreamStatusTask {
+    tsfn: BridgeTsfn,
+}
+
+impl Task for EffectiveUpstreamStatusTask {
+    type Output = std::result::Result<String, String>;
+    type JsValue = String;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let runner = JsExecutorGitRunner { tsfn: &self.tsfn };
+        match get_upstream_status(&runner, None) {
+            Ok(status) => Ok(Ok(git_upstream_status_to_json(&status).to_string())),
+            Err(err) => Ok(Err(err.message)),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        match output {
+            Ok(json) => Ok(json),
+            Err(message) => Err(napi::Error::from_reason(message)),
+        }
+    }
+}

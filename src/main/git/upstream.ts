@@ -1,7 +1,5 @@
 import type { GitPushTarget, GitUpstreamStatus } from '../../shared/types'
-import { upstreamOnlyCommitsArePatchEquivalent } from '../../shared/git-upstream-status'
 import { isNoUpstreamError, normalizeGitErrorMessage } from '../../shared/git-remote-error'
-import { getEffectiveGitUpstreamStatus } from '../../shared/git-effective-upstream'
 import { gitExecFileAsync } from './runner'
 import { assertGitPushTargetShapeNative } from './rust-push-target-validation'
 import { requireRustGitBinding, type RustGitExecutor } from '../daemon/rust-git-addon'
@@ -23,16 +21,28 @@ function makeRustGitExecutor(worktreePath: string, options: GitExecOptions): Rus
   return async (args) => {
     try {
       const { stdout, stderr } = await gitExecFileAsync(args, gitExecOptions(worktreePath, options))
-      return { stdout, stderr, exitCode: 0 }
+      // Default to '' — the bridge's BridgeGitOutput requires string stdout/stderr.
+      return { stdout: stdout ?? '', stderr: stderr ?? '', exitCode: 0 }
     } catch (error) {
-      const err = error as { code?: unknown; stdout?: unknown; stderr?: unknown }
-      if (typeof err.code !== 'number') {
+      const err = error as { code?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown }
+      // A true spawn failure (git binary missing) carries a STRING errno like
+      // 'ENOENT'; re-throw so the bridge reports a spawn error. Anything else is a
+      // git process that spawned and exited non-zero — map it to a resolved result
+      // carrying the exit code (default 1) and stderr (falling back to the error
+      // message) so the Rust runner classifies it (BridgeGitOutput never rejects).
+      if (typeof err.code === 'string') {
         throw error
       }
+      const stderr =
+        typeof err.stderr === 'string'
+          ? err.stderr
+          : typeof err.message === 'string'
+            ? err.message
+            : ''
       return {
         stdout: typeof err.stdout === 'string' ? err.stdout : '',
-        stderr: typeof err.stderr === 'string' ? err.stderr : '',
-        exitCode: err.code
+        stderr,
+        exitCode: typeof err.code === 'number' ? err.code : 1
       }
     }
   }
@@ -45,50 +55,32 @@ function gitExecOptions(
   return options.wslDistro ? { cwd, wslDistro: options.wslDistro } : { cwd }
 }
 
-async function getBehindCommitsArePatchEquivalent(
-  worktreePath: string,
-  upstreamName: string,
-  options: GitExecOptions = {}
-): Promise<boolean> {
-  try {
-    const { stdout } = await gitExecFileAsync(
-      ['log', '--oneline', '--cherry-mark', '--right-only', `HEAD...${upstreamName}`, '--'],
-      gitExecOptions(worktreePath, options)
-    )
-    return upstreamOnlyCommitsArePatchEquivalent(stdout)
-  } catch {
-    // Why: patch-equivalence is an optimization for the rebase case. If the
-    // probe fails, keep the conservative pull-first behavior.
-    return false
-  }
-}
-
 export async function getUpstreamStatus(
   worktreePath: string,
   pushTarget?: GitPushTarget,
   options: GitExecOptions = {}
 ): Promise<GitUpstreamStatus> {
+  // Rust drives the multi-round status (resolve upstream → rev-list → cherry-mark
+  // log) and applies the no-upstream swallow + error normalization in-process;
+  // runner.ts still executes git so SSH/WSL/env routing is preserved.
+  const binding = requireRustGitBinding()
+  const executor = makeRustGitExecutor(worktreePath, options)
   try {
     if (pushTarget) {
-      // Rust drives the multi-round status (validate → rev-parse → rev-list → log)
-      // and applies the no-upstream swallow + error normalization in-process;
-      // runner.ts still executes git so SSH/WSL/env routing is preserved. The
-      // JS-boundary shape guards run here — the typed Rust driver can't produce the
-      // "Invalid PR push target …" messages — and are normalized by the outer catch,
-      // exactly as validateGitPushTarget's assert.
+      // The JS-boundary shape guards run here — the typed Rust driver can't produce
+      // the "Invalid PR push target …" messages — and are normalized by the outer
+      // catch, exactly as validateGitPushTarget's assert.
       assertGitPushTargetShapeNative(pushTarget)
-      const json = await requireRustGitBinding().getUpstreamStatusViaExecutor(
+      const json = await binding.getUpstreamStatusViaExecutor(
         pushTarget.remoteName,
         pushTarget.branchName,
         pushTarget.remoteUrl ?? null,
-        makeRustGitExecutor(worktreePath, options)
+        executor
       )
       return JSON.parse(json) as GitUpstreamStatus
     }
-    return await getEffectiveGitUpstreamStatus(
-      (args) => gitExecFileAsync(args, gitExecOptions(worktreePath, options)),
-      (upstreamName) => getBehindCommitsArePatchEquivalent(worktreePath, upstreamName, options)
-    )
+    const json = await binding.getEffectiveUpstreamStatusViaExecutor(executor)
+    return JSON.parse(json) as GitUpstreamStatus
   } catch (error) {
     // Why: we only swallow clearly-no-upstream signals — that's an expected
     // state, not a failure. Other errors (auth, corruption, "not a git

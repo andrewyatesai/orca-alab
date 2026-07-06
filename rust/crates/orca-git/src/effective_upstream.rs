@@ -115,17 +115,188 @@ fn same_name_origin(branch: &str) -> EffectiveGitUpstream {
     }
 }
 
+/// Port of `getGitConfigValue`: `git config --get <key>`, trimmed; `None` on empty
+/// value or a config miss (git exits non-zero).
+fn git_config_value<R: GitRunner>(runner: &R, key: &str) -> Option<String> {
+    let out = runner.run(&["config", "--get", key]).ok()?;
+    let value = out.stdout.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+/// Port of `isUrlValuedRemote`: a scheme URL (`scheme://…`) or scp-like SSH
+/// (`user@host:path`). Mirrors `^[A-Za-z][A-Za-z0-9+.-]*://` and `^[^@/:]+@[^:]+:.+`.
+fn is_url_valued_remote(remote: &str) -> bool {
+    let has_scheme = {
+        let bytes = remote.as_bytes();
+        !bytes.is_empty()
+            && bytes[0].is_ascii_alphabetic()
+            && {
+                let mut i = 1;
+                while i < bytes.len()
+                    && (bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'+' | b'.' | b'-'))
+                {
+                    i += 1;
+                }
+                remote[i..].starts_with("://")
+            }
+    };
+    if has_scheme {
+        return true;
+    }
+    // scp-like: [^@/:]+ @ [^:]+ : .+
+    match remote.find('@') {
+        Some(at) if at > 0 && !remote[..at].contains(['/', ':']) => {
+            let rest = &remote[at + 1..];
+            match rest.find(':') {
+                Some(colon) if colon > 0 => !rest[colon + 1..].is_empty(),
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Port of `findRemoteNameForUrl`: the configured remote whose `get-url` matches.
+fn find_remote_name_for_url<R: GitRunner>(runner: &R, remote_url: &str) -> Option<String> {
+    let out = runner.run(&["remote"]).ok()?;
+    for remote_name in out.stdout.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()) {
+        if let Ok(url_out) = runner.run(&["remote", "get-url", remote_name]) {
+            if url_out.stdout.trim() == remote_url {
+                return Some(remote_name.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Port of `gitRefTargetsBranchOnRemote` (git-remote-branch-name.ts): does a saved
+/// base ref point at `<remote>/<branch>` (or a plain `<branch>` on the current remote)?
+fn git_ref_targets_branch_on_remote(
+    ref_name: Option<&str>,
+    remote_name: &str,
+    branch_name: &str,
+) -> bool {
+    let trimmed = ref_name.map(str::trim).unwrap_or("");
+    if trimmed.is_empty() || remote_name.is_empty() || branch_name.is_empty() {
+        return false;
+    }
+    if trimmed == format!("{remote_name}/{branch_name}")
+        || trimmed == format!("remotes/{remote_name}/{branch_name}")
+        || trimmed == format!("refs/remotes/{remote_name}/{branch_name}")
+    {
+        return true;
+    }
+    if trimmed.starts_with("refs/remotes/") || trimmed.starts_with("remotes/") {
+        return false;
+    }
+    if let Some(rest) = trimmed.strip_prefix("refs/heads/") {
+        return rest == branch_name;
+    }
+    trimmed == branch_name
+}
+
+/// Port of `getConfiguredBranchRemoteUpstream`: an older fork-review worktree can
+/// carry a usable `branch.<name>.{remote,merge}` even when git can't resolve
+/// `HEAD@{u}` (URL-valued `branch.remote`). Returns the resolved upstream or `None`.
+fn get_configured_branch_remote_upstream<R: GitRunner>(
+    runner: &R,
+    current_branch: &str,
+) -> Option<EffectiveGitUpstream> {
+    // Fetch all three up front (the TS source does Promise.all), then decide — so the
+    // git-call count matches regardless of which value is missing.
+    let remote = git_config_value(runner, &format!("branch.{current_branch}.remote"));
+    let merge_ref = git_config_value(runner, &format!("branch.{current_branch}.merge"));
+    let base_ref = git_config_value(runner, &format!("branch.{current_branch}.base"));
+    let remote = remote?;
+    let branch_name = merge_ref
+        .as_deref()
+        .map(|m| m.strip_prefix("refs/heads/").unwrap_or(m).to_string())
+        .unwrap_or_default();
+    if branch_name.is_empty() || Some(&branch_name) == merge_ref.as_ref() || remote == "." {
+        return None;
+    }
+    let remote_name = if is_url_valued_remote(&remote) {
+        find_remote_name_for_url(runner, &remote)?
+    } else {
+        remote
+    };
+    if git_ref_targets_branch_on_remote(base_ref.as_deref(), &remote_name, &branch_name)
+        || !remote_tracking_ref_exists(runner, &remote_name, &branch_name)
+    {
+        return None;
+    }
+    Some(EffectiveGitUpstream {
+        upstream_name: format!("{remote_name}/{branch_name}"),
+        remote_name: Some(remote_name),
+        branch_name,
+        is_configured_upstream: false,
+    })
+}
+
+/// Port of `hasConfiguredBranchPushTarget`: is there a configured remote+branch the
+/// current branch can be published to, even without a tracking upstream?
+fn has_configured_branch_push_target<R: GitRunner>(runner: &R, current_branch: &str) -> bool {
+    let push_remote = git_config_value(runner, &format!("branch.{current_branch}.pushRemote"));
+    let push_default = git_config_value(runner, "remote.pushDefault");
+    let branch_remote = git_config_value(runner, &format!("branch.{current_branch}.remote"));
+    let merge_ref = git_config_value(runner, &format!("branch.{current_branch}.merge"));
+    let base_ref = git_config_value(runner, &format!("branch.{current_branch}.base"));
+    let Some(remote) = push_remote.or(push_default).or_else(|| branch_remote.clone()) else {
+        return false;
+    };
+    let branch_name = merge_ref
+        .as_deref()
+        .map(|m| m.strip_prefix("refs/heads/").unwrap_or(m).to_string())
+        .unwrap_or_default();
+    if remote == "." || branch_name.is_empty() || Some(&branch_name) == merge_ref.as_ref() {
+        return false;
+    }
+    let resolve_name = |value: &str| -> String {
+        if is_url_valued_remote(value) {
+            find_remote_name_for_url(runner, value).unwrap_or_else(|| value.to_string())
+        } else {
+            value.to_string()
+        }
+    };
+    let push_remote_name = resolve_name(&remote);
+    let branch_remote_name = branch_remote.as_deref().map(resolve_name);
+    if git_ref_targets_branch_on_remote(base_ref.as_deref(), &push_remote_name, &branch_name) {
+        return false;
+    }
+    // branch.merge belongs to branch.remote: don't combine a pushDefault fork with an
+    // origin/main merge target and call it pushable.
+    if branch_name != current_branch
+        && (push_remote_name == "origin" || branch_remote_name.as_deref() != Some(push_remote_name.as_str()))
+    {
+        return false;
+    }
+    true
+}
+
 pub fn resolve_effective_git_upstream<R: GitRunner>(
     runner: &R,
 ) -> Result<Option<EffectiveGitUpstream>, GitError> {
     let current = current_branch_name(runner);
+    resolve_effective_git_upstream_for_branch(runner, current.as_deref())
+}
 
+/// Resolve the effective upstream for an already-known current branch — split out
+/// so `effective_git_upstream_status` computes the current branch exactly once
+/// (matching the TS `resolveEffectiveGitUpstreamForBranch`).
+fn resolve_effective_git_upstream_for_branch<R: GitRunner>(
+    runner: &R,
+    current: Option<&str>,
+) -> Result<Option<EffectiveGitUpstream>, GitError> {
     if let Some(mut configured) = configured_upstream(runner)? {
         // Legacy `origin/<base>` upstream whose name has multiple segments: try
         // to re-split against the known remotes so the publish branch wins.
-        if let Some(cur) = &current {
+        if let Some(cur) = current {
             if configured.remote_name.as_deref() == Some("origin")
-                && configured.branch_name != *cur
+                && configured.branch_name.as_str() != cur
                 && has_multiple_slash_segments(&configured.upstream_name)
             {
                 if let Some((remote, branch)) = split_by_known_remote(runner, &configured.upstream_name) {
@@ -135,9 +306,9 @@ pub fn resolve_effective_git_upstream<R: GitRunner>(
             }
         }
 
-        match &current {
+        match current {
             None => return Ok(Some(configured)),
-            Some(cur) if configured.branch_name == *cur => return Ok(Some(configured)),
+            Some(cur) if configured.branch_name.as_str() == cur => return Ok(Some(configured)),
             Some(cur) => {
                 // Old worktrees inherited origin/<base>; if a same-name origin
                 // tracking ref exists, follow the publish branch instead.
@@ -151,7 +322,15 @@ pub fn resolve_effective_git_upstream<R: GitRunner>(
         }
     }
 
-    if let Some(cur) = &current {
+    if let Some(cur) = current {
+        // Git can't resolve HEAD@{u} when branch.<name>.remote is URL-valued, but an
+        // older fork-review worktree still carries the usable merge target.
+        if let Some(branch_remote_upstream) = get_configured_branch_remote_upstream(runner, cur) {
+            return Ok(Some(branch_remote_upstream));
+        }
+    }
+
+    if let Some(cur) = current {
         if remote_tracking_ref_exists(runner, "origin", cur) {
             return Ok(Some(same_name_origin(cur)));
         }
@@ -164,13 +343,21 @@ pub fn effective_git_upstream_status<R: GitRunner>(
     runner: &R,
     behind_equiv: Option<&dyn Fn(&str) -> bool>,
 ) -> Result<GitUpstreamStatus, GitError> {
-    let Some(upstream) = resolve_effective_git_upstream(runner)? else {
+    let current = current_branch_name(runner);
+    let Some(upstream) = resolve_effective_git_upstream_for_branch(runner, current.as_deref())? else {
+        // No upstream, but the branch may still be publishable to a configured
+        // remote — flag it (Some(true)) so the UI keeps the publish action.
+        let has_configured_push_target = current
+            .as_deref()
+            .map(|cur| has_configured_branch_push_target(runner, cur))
+            .filter(|&pushable| pushable)
+            .map(|_| true);
         return Ok(GitUpstreamStatus {
             has_upstream: false,
             upstream_name: None,
             ahead: 0,
             behind: 0,
-            has_configured_push_target: None,
+            has_configured_push_target,
             behind_commits_are_patch_equivalent: None,
         });
     };
@@ -204,6 +391,40 @@ pub fn effective_git_upstream_status<R: GitRunner>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_url_valued_remote_matches_ts_regex() {
+        // scheme URLs
+        assert!(is_url_valued_remote("https://github.com/o/r.git"));
+        assert!(is_url_valued_remote("ssh://git@host/o/r.git"));
+        assert!(is_url_valued_remote("git+ssh://host/x"));
+        // scp-like ssh
+        assert!(is_url_valued_remote("git@github.com:owner/repo.git"));
+        assert!(is_url_valued_remote("user@host:path"));
+        // plain remote names are NOT url-valued
+        assert!(!is_url_valued_remote("origin"));
+        assert!(!is_url_valued_remote("fork"));
+        assert!(!is_url_valued_remote("my-remote"));
+        // no path after the colon → not scp-like
+        assert!(!is_url_valued_remote("user@host:"));
+        // slash/colon before @ disqualifies the scp form
+        assert!(!is_url_valued_remote("a/b@host:path"));
+    }
+
+    #[test]
+    fn git_ref_targets_branch_on_remote_matches_ts() {
+        assert!(git_ref_targets_branch_on_remote(Some("fork/main"), "fork", "main"));
+        assert!(git_ref_targets_branch_on_remote(Some("remotes/fork/main"), "fork", "main"));
+        assert!(git_ref_targets_branch_on_remote(Some("refs/remotes/fork/main"), "fork", "main"));
+        assert!(git_ref_targets_branch_on_remote(Some("refs/heads/main"), "fork", "main"));
+        assert!(git_ref_targets_branch_on_remote(Some("main"), "fork", "main"));
+        // a remote-qualified ref on a DIFFERENT remote must not match
+        assert!(!git_ref_targets_branch_on_remote(Some("origin/main"), "fork", "main"));
+        assert!(!git_ref_targets_branch_on_remote(Some("refs/remotes/origin/main"), "fork", "main"));
+        // empties
+        assert!(!git_ref_targets_branch_on_remote(None, "fork", "main"));
+        assert!(!git_ref_targets_branch_on_remote(Some("  "), "fork", "main"));
+    }
 
     #[test]
     fn split_remote_branch_name_cases() {

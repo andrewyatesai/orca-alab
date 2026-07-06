@@ -117,7 +117,7 @@ fn same_name_origin(branch: &str) -> EffectiveGitUpstream {
 
 /// Port of `getGitConfigValue`: `git config --get <key>`, trimmed; `None` on empty
 /// value or a config miss (git exits non-zero).
-fn git_config_value<R: GitRunner>(runner: &R, key: &str) -> Option<String> {
+pub(crate) fn git_config_value<R: GitRunner>(runner: &R, key: &str) -> Option<String> {
     let out = runner.run(&["config", "--get", key]).ok()?;
     let value = out.stdout.trim();
     if value.is_empty() {
@@ -129,7 +129,7 @@ fn git_config_value<R: GitRunner>(runner: &R, key: &str) -> Option<String> {
 
 /// Port of `isUrlValuedRemote`: a scheme URL (`scheme://…`) or scp-like SSH
 /// (`user@host:path`). Mirrors `^[A-Za-z][A-Za-z0-9+.-]*://` and `^[^@/:]+@[^:]+:.+`.
-fn is_url_valued_remote(remote: &str) -> bool {
+pub(crate) fn is_url_valued_remote(remote: &str) -> bool {
     let has_scheme = {
         let bytes = remote.as_bytes();
         !bytes.is_empty()
@@ -161,7 +161,7 @@ fn is_url_valued_remote(remote: &str) -> bool {
 }
 
 /// Port of `findRemoteNameForUrl`: the configured remote whose `get-url` matches.
-fn find_remote_name_for_url<R: GitRunner>(runner: &R, remote_url: &str) -> Option<String> {
+pub(crate) fn find_remote_name_for_url<R: GitRunner>(runner: &R, remote_url: &str) -> Option<String> {
     let out = runner.run(&["remote"]).ok()?;
     for remote_name in out.stdout.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()) {
         if let Ok(url_out) = runner.run(&["remote", "get-url", remote_name]) {
@@ -175,7 +175,7 @@ fn find_remote_name_for_url<R: GitRunner>(runner: &R, remote_url: &str) -> Optio
 
 /// Port of `gitRefTargetsBranchOnRemote` (git-remote-branch-name.ts): does a saved
 /// base ref point at `<remote>/<branch>` (or a plain `<branch>` on the current remote)?
-fn git_ref_targets_branch_on_remote(
+pub(crate) fn git_ref_targets_branch_on_remote(
     ref_name: Option<&str>,
     remote_name: &str,
     branch_name: &str,

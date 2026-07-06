@@ -52,6 +52,78 @@ fn extract_tail_line(message: &str) -> String {
         .to_string()
 }
 
+fn submodule_named_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r#"(?i)Unable to push submodule ['"](.+?)['"]"#).unwrap())
+}
+
+fn submodule_sentinel_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)failed to push all needed submodules|Unable to push submodule").unwrap()
+    })
+}
+
+fn submodule_remote_changed_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)non-fast-forward|fetch first|updates were rejected|remote contains work that you do not have",
+        )
+        .unwrap()
+    })
+}
+
+fn normalized_submodule_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)(?:^|:\s)((?:Submodule '[^'\n]+'|A submodule) (?:has remote changes\. Pull inside the submodule, then try again\.|could not be pushed\. Resolve the submodule push error, then try again\.))(?:$|\s)",
+        )
+        .unwrap()
+    })
+}
+
+fn divergent_pull_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)Need to specify how to reconcile divergent branches|divergent branches and need to specify how to reconcile them",
+        )
+        .unwrap()
+    })
+}
+
+/// Port of `formatSubmodulePushFailureDetail`: recursive push can hide the
+/// actionable nested submodule rejection behind a top-level "failed to push all
+/// needed submodules" line. Returns the user-facing detail, or `None`.
+fn format_submodule_push_failure_detail(message: &str) -> Option<String> {
+    let raw = strip_credentials_from_message(message);
+    let trimmed = raw.trim();
+    if let Some(caps) = normalized_submodule_re().captures(trimmed) {
+        return caps.get(1).map(|m| m.as_str().to_string());
+    }
+    if !submodule_sentinel_re().is_match(trimmed) {
+        return None;
+    }
+    let submodule_name = submodule_named_re()
+        .captures(trimmed)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().trim().to_string())
+        .filter(|n| !n.is_empty());
+    let subject = match submodule_name {
+        Some(name) => format!("Submodule '{name}'"),
+        None => "A submodule".to_string(),
+    };
+    if submodule_remote_changed_re().is_match(trimmed) {
+        Some(format!("{subject} has remote changes. Pull inside the submodule, then try again."))
+    } else {
+        Some(format!(
+            "{subject} could not be pushed. Resolve the submodule push error, then try again."
+        ))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GitRemoteOperation {
     Push,
@@ -71,6 +143,14 @@ pub fn normalize_git_error_message(
     // Scrub up-front so every branch operates on already-redacted text.
     let raw = strip_credentials_from_message(message);
 
+    // A submodule push failure carries the actionable detail — check it BEFORE the
+    // generic non-fast-forward branch (the recursive push stderr contains both).
+    if operation == Some(GitRemoteOperation::Push) || operation.is_none() {
+        if let Some(detail) = format_submodule_push_failure_detail(&raw) {
+            return detail;
+        }
+    }
+
     // non-fast-forward guidance only makes sense when pushing (or for legacy
     // callers that pass no operation).
     if (operation == Some(GitRemoteOperation::Push) || operation.is_none())
@@ -86,6 +166,9 @@ pub fn normalize_git_error_message(
     }
     if raw.contains("no tracking information") || raw.contains("no upstream") {
         return "Branch has no upstream. Publish the branch first.".to_string();
+    }
+    if operation == Some(GitRemoteOperation::Pull) && divergent_pull_re().is_match(&raw) {
+        return "Pull needs a Git pull policy for divergent branches. Configure one for this repository or host, then try again: git config pull.rebase false (merge), git config pull.rebase true (rebase), or git config pull.ff only (fast-forward only).".to_string();
     }
     if raw.contains("Your local changes to the following files would be overwritten")
         || raw.contains("Your local changes would be overwritten")
@@ -158,6 +241,45 @@ mod tests {
             "fatal: something specific went wrong"
         );
         assert_eq!(normalize_git_error_message(None, None), "Git remote operation failed.");
+    }
+
+    #[test]
+    fn submodule_push_failure_wins_over_non_fast_forward() {
+        // A recursive push failure carries BOTH the submodule sentinel and a
+        // non-fast-forward hint; the submodule detail must win.
+        let stderr = "Command failed: git push\nPushing submodule 'find-cmux-followers'\n ! [rejected]        master -> master (fetch first)\nUnable to push submodule 'find-cmux-followers'\nfatal: failed to push all needed submodules";
+        assert_eq!(
+            normalize_git_error_message(Some(stderr), Some(GitRemoteOperation::Push)),
+            "Submodule 'find-cmux-followers' has remote changes. Pull inside the submodule, then try again."
+        );
+        // An already-normalized detail round-trips (idempotent).
+        assert_eq!(
+            normalize_git_error_message(
+                Some("Submodule 'x' has remote changes. Pull inside the submodule, then try again."),
+                Some(GitRemoteOperation::Push)
+            ),
+            "Submodule 'x' has remote changes. Pull inside the submodule, then try again."
+        );
+        // Sentinel without a remote-changed hint -> generic push-error guidance.
+        assert_eq!(
+            normalize_git_error_message(
+                Some("fatal: failed to push all needed submodules"),
+                Some(GitRemoteOperation::Push)
+            ),
+            "A submodule could not be pushed. Resolve the submodule push error, then try again."
+        );
+    }
+
+    #[test]
+    fn divergent_pull_guidance_only_for_pull() {
+        let stderr = "hint: You have divergent branches and need to specify how to reconcile them.\nfatal: Need to specify how to reconcile divergent branches";
+        assert!(normalize_git_error_message(Some(stderr), Some(GitRemoteOperation::Pull))
+            .starts_with("Pull needs a Git pull policy for divergent branches."));
+        // Not pull -> falls through to the tail line.
+        assert_eq!(
+            normalize_git_error_message(Some(stderr), Some(GitRemoteOperation::Push)),
+            "fatal: Need to specify how to reconcile divergent branches"
+        );
     }
 
     #[test]

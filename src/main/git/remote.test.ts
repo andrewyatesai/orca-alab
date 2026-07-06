@@ -220,10 +220,13 @@ describe('git remote operations', () => {
 
   it('passes --force-with-lease when requested', async () => {
     gitExecFileAsyncMock
-      .mockResolvedValueOnce({ stdout: 'feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'origin\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+      .mockResolvedValueOnce({ stdout: 'feature\n', stderr: '' }) // symbolic-ref
+      .mockResolvedValueOnce({ stdout: 'origin\n', stderr: '' }) // branch.feature.remote
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // branch.feature.pushRemote (none)
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // remote.pushDefault (none)
+      .mockResolvedValueOnce({ stdout: 'refs/heads/feature\n', stderr: '' }) // branch.feature.merge
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // branch.feature.base (none)
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // push
 
     await gitPush('/repo', false, undefined, { forceWithLease: true })
 
@@ -311,12 +314,17 @@ describe('git remote operations', () => {
     expect(caught?.message).not.toContain('ghp_onlyToken')
   })
 
-  it('falls back to a generic message for non-Error rejections', async () => {
+  it('surfaces a normalized message for a non-Error push rejection', async () => {
+    // A non-Error rejection can't reach the outer catch's `!(error instanceof
+    // Error)` generic path anymore: the Rust push driver runs git via the executor,
+    // which maps a non-Error rejection to a git-exit result, so gitPush rejects with
+    // the normalized exit message. (gitExecFileAsync only ever rejects with Errors in
+    // production, so this defensive edge is unreachable there.)
     gitExecFileAsyncMock
-      .mockRejectedValueOnce(new Error('no branch'))
-      .mockRejectedValueOnce('string')
+      .mockRejectedValueOnce(new Error('no branch')) // symbolic-ref -> no configured target
+      .mockRejectedValueOnce('string') // push -> non-Error rejection
 
-    await expect(gitPush('/repo', false)).rejects.toThrow('Git remote operation failed.')
+    await expect(gitPush('/repo', false)).rejects.toThrow(/git exited/)
   })
 
   it("runs pull with the user's configured strategy", async () => {

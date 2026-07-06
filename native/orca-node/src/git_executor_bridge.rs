@@ -32,6 +32,7 @@ use orca_git::branch_cleanup::{
 };
 use orca_git::push_target::{validate_git_push_target, GitPushTarget};
 use orca_git::rebase_source::resolve_git_remote_rebase_source;
+use orca_git::remote::git_push;
 use orca_git::runner::{GitError, GitOutput, GitRunner};
 use orca_git::status_result::{git_remote_rebase_source_to_json, git_upstream_status_to_json};
 use orca_git::upstream::get_upstream_status;
@@ -352,5 +353,59 @@ impl Task for BranchCleanupDecisionTask {
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         Ok(output)
+    }
+}
+
+/// Drive orca-git's `git_push` (the one destructive IO-tier op) over the JS
+/// executor: validate an explicit target, resolve the refspec (explicit, else the
+/// branch's fully-resolved configured push remote, else first-publish origin/HEAD),
+/// then run `git push [--force-with-lease] --set-upstream …`. An explicit target
+/// requires both remote+branch; otherwise the configured-target path. `git_push`
+/// normalizes errors internally, so the Task rejects with the already-normalized
+/// message (the renderer's non-fast-forward reject-classifier still matches it).
+/// `force_with_lease` is threaded verbatim and defaults false; the bare
+/// `--force-with-lease` (no `=<sha>`) fails safe on 'stale info'.
+#[napi(ts_return_type = "Promise<void>")]
+pub fn git_push_via_executor(
+    remote_name: Option<String>,
+    branch_name: Option<String>,
+    remote_url: Option<String>,
+    force_with_lease: bool,
+    executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>,
+) -> Result<AsyncTask<PushTask>> {
+    let tsfn = build_bridge_tsfn(executor)?;
+    let target = match (remote_name, branch_name) {
+        (Some(remote_name), Some(branch_name)) => {
+            Some(GitPushTarget { remote_name, branch_name, remote_url })
+        }
+        _ => None,
+    };
+    Ok(AsyncTask::new(PushTask { target, force_with_lease, tsfn }))
+}
+
+pub struct PushTask {
+    target: Option<GitPushTarget>,
+    force_with_lease: bool,
+    tsfn: BridgeTsfn,
+}
+
+impl Task for PushTask {
+    type Output = std::result::Result<(), String>;
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let runner = JsExecutorGitRunner { tsfn: &self.tsfn };
+        match git_push(&runner, self.target.as_ref(), self.force_with_lease) {
+            Ok(()) => Ok(Ok(())),
+            // Already normalized by git_push.
+            Err(err) => Ok(Err(err.message)),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        match output {
+            Ok(()) => Ok(()),
+            Err(message) => Err(napi::Error::from_reason(message)),
+        }
     }
 }

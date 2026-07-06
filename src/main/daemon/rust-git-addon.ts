@@ -106,6 +106,19 @@ export type RustGitBinding = {
    *  over the JS `executor`. Resolves the boolean; the destructive `git branch -d`
    *  stays in TS, gated on it. Only ever moves toward *preserve* — never over-deletes. */
   branchIsSafeToDeleteViaExecutor(branchName: string, executor: RustGitExecutor): Promise<boolean>
+  /** IO-tier "A bridge" cutover (the one destructive op): Rust drives `git push`
+   *  — validate an explicit target, resolve the refspec (explicit, else the branch's
+   *  fully-resolved configured push remote, else first-publish origin/HEAD), run
+   *  `git push [--force-with-lease] --set-upstream …` — over the JS `executor`. An
+   *  explicit target needs both remoteName+branchName (else the configured path).
+   *  Resolves void, or rejects with the already-normalized error message. */
+  gitPushViaExecutor(
+    remoteName: string | null,
+    branchName: string | null,
+    remoteUrl: string | null,
+    forceWithLease: boolean,
+    executor: RustGitExecutor
+  ): Promise<void>
   /** Approximate added/removed line counts JSON, or null for the large guard. */
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */

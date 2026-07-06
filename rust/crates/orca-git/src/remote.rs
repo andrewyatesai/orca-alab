@@ -4,7 +4,10 @@
 //! errors are normalised (credential-scrubbed, tail line) before surfacing,
 //! matching the TS IPC-boundary contract.
 
-use crate::effective_upstream::resolve_effective_git_upstream;
+use crate::effective_upstream::{
+    find_remote_name_for_url, git_config_value, git_ref_targets_branch_on_remote,
+    is_url_valued_remote, resolve_effective_git_upstream,
+};
 use crate::push_target::{validate_git_push_target, GitPushTarget};
 use crate::rebase_source::resolve_git_remote_rebase_source;
 use crate::runner::{GitError, GitRunner};
@@ -14,20 +17,83 @@ fn normalize(error: GitError, op: GitRemoteOperation) -> GitError {
     GitError::from_message(normalize_git_error_message(Some(&error.message), Some(op)))
 }
 
+/// The push remote resolved from config, plus the (resolved) `branch.<b>.remote`.
+struct ConfiguredPushRemote {
+    remote: String,
+    branch_remote: Option<String>,
+}
+
+/// Resolve a URL-valued remote to its configured name (else return it as-is).
+fn normalize_push_remote<R: GitRunner>(runner: &R, remote: &str) -> String {
+    if !is_url_valued_remote(remote) {
+        return remote.to_string();
+    }
+    find_remote_name_for_url(runner, remote).unwrap_or_else(|| remote.to_string())
+}
+
+/// Port of `getConfiguredPushRemote`: `branch.<b>.pushRemote ?? remote.pushDefault
+/// ?? branch.<b>.remote`, with URL-valued remotes resolved to names.
+fn get_configured_push_remote<R: GitRunner>(runner: &R, branch: &str) -> Option<ConfiguredPushRemote> {
+    let branch_remote = git_config_value(runner, &format!("branch.{branch}.remote"));
+    let remote = git_config_value(runner, &format!("branch.{branch}.pushRemote"))
+        .or_else(|| git_config_value(runner, "remote.pushDefault"))
+        .or_else(|| branch_remote.clone())?;
+    Some(ConfiguredPushRemote {
+        remote: normalize_push_remote(runner, &remote),
+        branch_remote: branch_remote.as_deref().map(|br| normalize_push_remote(runner, br)),
+    })
+}
+
+/// Port of `branchMergeTargetsConfiguredBase`: does `branch.<b>.base` point at the
+/// merge branch on the push remote (a fork-review base pinned to origin)?
+fn branch_merge_targets_configured_base<R: GitRunner>(
+    runner: &R,
+    branch: &str,
+    remote: &str,
+    branch_ref: &str,
+) -> bool {
+    git_ref_targets_branch_on_remote(
+        git_config_value(runner, &format!("branch.{branch}.base")).as_deref(),
+        remote,
+        branch_ref,
+    )
+}
+
+/// Port of `canPushConfiguredMergeBranch`: `branch.merge` belongs to `branch.remote`,
+/// so a `pushDefault` fork must not inherit an `origin/main` merge target.
+fn can_push_configured_merge_branch(
+    push_remote: &ConfiguredPushRemote,
+    branch: &str,
+    branch_ref: &str,
+) -> bool {
+    if branch_ref == branch {
+        return true;
+    }
+    push_remote.remote != "origin"
+        && push_remote.branch_remote.as_deref() == Some(push_remote.remote.as_str())
+}
+
 /// The branch's configured push target (`remote`, `HEAD:<ref>`), or `None` if
 /// not configured / not safe to infer. Swallows all git errors (→ `None`).
+/// Ported faithfully from `getConfiguredPushTarget` (remote.ts): the push remote is
+/// pushRemote/pushDefault/branch.remote (URL-resolved), and a merge branch pointing
+/// at the configured base or a mismatched fork is rejected.
 fn get_configured_push_target<R: GitRunner>(runner: &R) -> Option<(String, String)> {
     let branch = runner.run(&["symbolic-ref", "--quiet", "--short", "HEAD"]).ok()?.stdout.trim().to_string();
     if branch.is_empty() {
         return None;
     }
-    let remote = runner.run(&["config", "--get", &format!("branch.{branch}.remote")]).ok()?.stdout.trim().to_string();
+    let push_remote = get_configured_push_remote(runner, &branch)?;
     let merge_ref = runner.run(&["config", "--get", &format!("branch.{branch}.merge")]).ok()?.stdout.trim().to_string();
     let branch_ref = merge_ref.strip_prefix("refs/heads/").unwrap_or(&merge_ref).to_string();
-    if remote.is_empty() || branch_ref.is_empty() || remote == "." || branch_ref == merge_ref {
+    let remote = push_remote.remote.clone();
+    if branch_ref.is_empty() || remote == "." || branch_ref == merge_ref {
         return None;
     }
-    if remote == "origin" && branch_ref != branch {
+    if branch_merge_targets_configured_base(runner, &branch, &remote, &branch_ref) {
+        return None;
+    }
+    if !can_push_configured_merge_branch(&push_remote, &branch, &branch_ref) {
         return None;
     }
     Some((remote, format!("HEAD:{branch_ref}")))
@@ -176,10 +242,13 @@ mod tests {
     #[test]
     fn pushes_to_configured_upstream_remote_and_branch() {
         let r = SeqRunner::new(vec![
-            ok("review/pr-1738\n"),
-            ok("pr-prateek-orca\n"),
-            ok("refs/heads/prateek/fix-sidebar-agents-toggle\n"),
-            ok(""),
+            ok("review/pr-1738\n"),                               // symbolic-ref
+            ok("pr-prateek-orca\n"),                              // branch.<b>.remote
+            err("no pushRemote"),                                 // branch.<b>.pushRemote
+            err("no pushDefault"),                                // remote.pushDefault
+            ok("refs/heads/prateek/fix-sidebar-agents-toggle\n"), // branch.<b>.merge
+            err("no base"),                                       // branch.<b>.base
+            ok(""),                                               // push
         ]);
         git_push(&r, None, false).unwrap();
         assert_eq!(
@@ -187,7 +256,10 @@ mod tests {
             vec![
                 vec!["symbolic-ref", "--quiet", "--short", "HEAD"],
                 vec!["config", "--get", "branch.review/pr-1738.remote"],
+                vec!["config", "--get", "branch.review/pr-1738.pushRemote"],
+                vec!["config", "--get", "remote.pushDefault"],
                 vec!["config", "--get", "branch.review/pr-1738.merge"],
+                vec!["config", "--get", "branch.review/pr-1738.base"],
                 vec!["push", "--set-upstream", "pr-prateek-orca", "HEAD:prateek/fix-sidebar-agents-toggle"],
             ]
         );
@@ -208,11 +280,58 @@ mod tests {
 
     #[test]
     fn passes_force_with_lease() {
-        let r = SeqRunner::new(vec![ok("feature\n"), ok("origin\n"), ok("refs/heads/feature\n"), ok("")]);
+        let r = SeqRunner::new(vec![
+            ok("feature\n"),            // symbolic-ref
+            ok("origin\n"),             // branch.feature.remote
+            err("no pushRemote"),       // branch.feature.pushRemote
+            err("no pushDefault"),      // remote.pushDefault
+            ok("refs/heads/feature\n"), // branch.feature.merge
+            err("no base"),             // branch.feature.base
+            ok(""),                     // push
+        ]);
         git_push(&r, None, true).unwrap();
         assert_eq!(
             r.calls().last().unwrap(),
             &vec!["push", "--force-with-lease", "--set-upstream", "origin", "HEAD:feature"]
+        );
+    }
+
+    #[test]
+    fn pushes_to_configured_push_remote_over_branch_remote() {
+        // branch.pushRemote overrides branch.remote — the incomplete port ignored it
+        // and would have pushed to origin instead of the fork.
+        let r = SeqRunner::new(vec![
+            ok("feature\n"),            // symbolic-ref
+            ok("origin\n"),             // branch.feature.remote
+            ok("myfork\n"),             // branch.feature.pushRemote  <- wins
+            ok("refs/heads/feature\n"), // branch.feature.merge
+            err("no base"),             // branch.feature.base
+            ok(""),                     // push
+        ]);
+        git_push(&r, None, false).unwrap();
+        assert_eq!(
+            r.calls().last().unwrap(),
+            &vec!["push", "--set-upstream", "myfork", "HEAD:feature"]
+        );
+    }
+
+    #[test]
+    fn skips_push_target_when_merge_targets_the_configured_base() {
+        // branch.base points at origin/main and merge is main -> a fork-review base
+        // pinned to origin -> don't infer a push target; fall back to origin HEAD.
+        let r = SeqRunner::new(vec![
+            ok("review/x\n"),        // symbolic-ref
+            ok("origin\n"),          // branch.review/x.remote
+            err("no pushRemote"),    // branch.review/x.pushRemote
+            err("no pushDefault"),   // remote.pushDefault
+            ok("refs/heads/main\n"), // branch.review/x.merge -> branchRef=main
+            ok("origin/main\n"),     // branch.review/x.base -> targets origin/main
+            ok(""),                  // push (origin HEAD)
+        ]);
+        git_push(&r, None, false).unwrap();
+        assert_eq!(
+            r.calls().last().unwrap(),
+            &vec!["push", "--set-upstream", "origin", "HEAD"]
         );
     }
 

@@ -262,6 +262,133 @@
         "ok": false,
         "error": "Thinking level \"ultra\" is not valid for Sonnet."
       }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "extra CLI args weave in BEFORE a trailing argv prompt (Cursor)",
+      "input": {
+        "planInput": {
+          "agentId": "cursor",
+          "model": "gpt-5.2",
+          "thinkingLevel": "xhigh",
+          "agentArgs": "--foo bar"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "cursor-agent",
+          "args": [
+            "--print",
+            "--mode",
+            "ask",
+            "--trust",
+            "--output-format",
+            "text",
+            "--model",
+            "gpt-5.2",
+            "--foo",
+            "bar",
+            "PROMPT"
+          ],
+          "stdinPayload": null,
+          "label": "Cursor"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "extra CLI args append for a stdin-delivered agent (Claude)",
+      "input": {
+        "planInput": {
+          "agentId": "claude",
+          "model": "sonnet",
+          "thinkingLevel": "high",
+          "agentArgs": "--verbose"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "claude",
+          "args": [
+            "-p",
+            "--output-format",
+            "text",
+            "--model",
+            "sonnet",
+            "--permission-mode",
+            "plan",
+            "--effort",
+            "high",
+            "--verbose"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Claude"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "custom {prompt} command: extra args weave in before the substituted argv prompt",
+      "input": {
+        "planInput": {
+          "agentId": "custom",
+          "model": "ignored",
+          "customAgentCommand": "ollama run llama3 {prompt}",
+          "agentArgs": "--temp 0"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "ollama",
+          "args": ["run", "llama3", "--temp", "0", "PROMPT"],
+          "stdinPayload": null,
+          "label": "ollama"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "custom stdin command: extra args append (no argv prompt to protect)",
+      "input": {
+        "planInput": {
+          "agentId": "custom",
+          "model": "ignored",
+          "customAgentCommand": "ollama run llama3",
+          "agentArgs": "--keep-alive 5m"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "ollama",
+          "args": ["run", "llama3", "--keep-alive", "5m"],
+          "stdinPayload": "PROMPT",
+          "label": "ollama"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "invalid extra CLI args (unclosed quote) are rejected with the CLI-arguments prefix",
+      "input": {
+        "planInput": {
+          "agentId": "claude",
+          "model": "sonnet",
+          "agentArgs": "--flag \"unterminated"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": false,
+        "error": "CLI arguments are invalid: Unclosed quote in command template."
+      }
     }
   ]
 }

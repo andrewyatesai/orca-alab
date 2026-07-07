@@ -21,6 +21,7 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let custom_agent_command = plan_input.and_then(|v| v.get("customAgentCommand")).and_then(Value::as_str);
             let agent_command_override =
                 plan_input.and_then(|v| v.get("agentCommandOverride")).and_then(Value::as_str);
+            let agent_args = plan_input.and_then(|v| v.get("agentArgs")).and_then(Value::as_str);
             let prompt = input.get("prompt").and_then(Value::as_str).unwrap_or_default();
 
             let parsed = CommitMessagePlanInput {
@@ -29,6 +30,7 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
                 thinking_level,
                 custom_agent_command,
                 agent_command_override,
+                agent_args,
             };
             match plan_commit_message_generation(&parsed, prompt) {
                 Ok(plan) => json!({ "ok": true, "plan": plan_to_json(plan) }),

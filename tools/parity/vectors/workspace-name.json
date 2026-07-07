@@ -6,7 +6,7 @@
     {
       "function": "slugifyForWorkspaceName",
       "note": "strips path-traversal dots, emoji, and uppercases to a git-ref-safe seed",
-      "input": "../../Fix mobile Tasks 🚀",
+      "input": "../../Fix mobile Tasks \ud83d\ude80",
       "expected": "fix-mobile-tasks"
     },
     {
@@ -60,7 +60,7 @@
     {
       "function": "slugifyForWorkspaceName",
       "note": "non-ascii (CJK) characters are stripped to dashes then collapsed",
-      "input": "Tokyo 日本 Test",
+      "input": "Tokyo \u65e5\u672c Test",
       "expected": "tokyo-test"
     },
     {
@@ -102,7 +102,7 @@
     {
       "function": "slugifyForWorkspaceName",
       "note": "emoji-only input reduces to empty",
-      "input": "🚀🎉",
+      "input": "\ud83d\ude80\ud83c\udf89",
       "expected": ""
     },
     {
@@ -128,6 +128,83 @@
       "note": "interleaved dot/dash runs at both ends are trimmed",
       "input": ".-.-.foo.-.-.",
       "expected": "foo"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "intra-word apostrophes drop instead of splitting tokens (resync pin)",
+      "input": "Don't break the user's flow",
+      "expected": "dont-break-the-users-flow"
+    },
+    {
+      "function": "slugifyForWorkspaceName",
+      "note": "curly apostrophes normalize before the apostrophe pass",
+      "input": "Fix \u2019quoted\u2019 names",
+      "expected": "fix-quoted-names"
+    },
+    {
+      "function": "getLinkedWorkItemSuggestedName",
+      "note": "GitLab MR prefixes with ! markers strip (resync pin)",
+      "input": {
+        "title": "MR !42: Fix pipeline caching"
+      },
+      "expected": "fix-pipeline-caching"
+    },
+    {
+      "function": "getLinkedWorkItemSuggestedName",
+      "note": "(!812)-style bang numbers strip",
+      "input": {
+        "title": "Add drawer (!812)"
+      },
+      "expected": "add-drawer"
+    },
+    {
+      "function": "getWorkspaceIntentName",
+      "note": "URL tokens skip whole; possessive acronyms keep 's (scanner resync pin)",
+      "input": {
+        "sourceText": "polish ABC's homepage at https://example.com/x quickly today"
+      },
+      "expected": {
+        "displayName": "Polish ABC's Homepage At Quickly",
+        "seedName": "polish-abcs-homepage-at-quickly"
+      }
+    },
+    {
+      "function": "getWorkspaceIntentName",
+      "note": "single-letter contractions title-case before the apostrophe",
+      "input": {
+        "sourceText": "i'm polishing the docs"
+      },
+      "expected": {
+        "displayName": "I'm Polishing Docs",
+        "seedName": "im-polishing-docs"
+      }
+    },
+    {
+      "function": "getLinkedWorkItemWorkspaceName",
+      "note": "identifier + stripped subject join (the newly ported function)",
+      "input": {
+        "type": "issue",
+        "number": 7,
+        "title": "ENG-42: Fix the flaky sync",
+        "linearIdentifier": "ENG-42"
+      },
+      "expected": {
+        "displayName": "ENG-42 Fix the flaky sync",
+        "seedName": "eng-42-fix-the-flaky-sync"
+      }
+    },
+    {
+      "function": "getLinkedWorkItemWorkspaceName",
+      "note": "no identifier: the plain title is the display name",
+      "input": {
+        "type": "pr",
+        "number": 12,
+        "title": "Improve boot performance"
+      },
+      "expected": {
+        "displayName": "Improve boot performance",
+        "seedName": "improve-boot-performance"
+      }
     }
   ]
 }

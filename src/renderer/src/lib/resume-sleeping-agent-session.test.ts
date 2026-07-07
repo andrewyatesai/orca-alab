@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
 import { makePaneKey } from '../../../shared/stable-pane-id'
-import { parseWorkspaceSession } from '../../../shared/workspace-session-schema'
 import { useAppStore } from '@/store'
 import { resumeSleepingAgentSessionsForWorktree } from './resume-sleeping-agent-session'
 
@@ -796,25 +795,14 @@ describe('resumeSleepingAgentSessionsForWorktree', () => {
   })
 
   it('clears hydrated interrupted worktree-sleep records without launching a tab', () => {
-    const parsed = parseWorkspaceSession({
-      activeRepoId: null,
-      activeWorktreeId: null,
-      activeTabId: null,
-      tabsByWorktree: {},
-      terminalLayoutsByTabId: {},
-      sleepingAgentSessionsByPaneKey: {
-        'tab-1:leaf-1': makeRecord({
-          state: 'done',
-          origin: 'worktree-sleep',
-          interrupted: true
-        })
-      }
+    // Build the hydrated record directly (like the sibling cases) — the
+    // parse/repair boundary now lives in the Rust core (napi, main-only) and is
+    // covered by its own parity + main-process suites.
+    const record = makeRecord({
+      state: 'done',
+      origin: 'worktree-sleep',
+      interrupted: true
     })
-    expect(parsed.ok).toBe(true)
-    if (!parsed.ok) {
-      throw new Error(parsed.error)
-    }
-    const record = parsed.value.sleepingAgentSessionsByPaneKey!['tab-1:leaf-1']!
     useAppStore.setState({
       tabsByWorktree: { 'wt-1': [] },
       sleepingAgentSessionsByPaneKey: { [record.paneKey]: record }

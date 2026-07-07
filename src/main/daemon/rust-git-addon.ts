@@ -151,6 +151,9 @@ export type RustGitBinding = {
   /** Spawn binary + prefix args from an optional command override, as
    *  `{ok:true, binary, prefixArgs} | {ok:false, error}` JSON. */
   planAgentBinary(defaultBinary: string, commandOverride: string | undefined): string
+  /** Validate raw session JSON as a `WorkspaceSessionState`, returning the
+   *  `ParsedWorkspaceSession` union (`{ok:true, value} | {ok:false, error}`) JSON. */
+  parseWorkspaceSession(rawJson: string): string
   gitEngine(): string
 }
 

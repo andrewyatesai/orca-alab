@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { parseWorkspaceSession } from './workspace-session-schema'
+// The parse/repair moved to the Rust orca-config core; drive the real
+// production path (napi in main) so this coverage exercises the shipped impl.
+import { parseWorkspaceSession } from './rust-workspace-session-parse'
 
 describe('parseWorkspaceSession terminal fields', () => {
   it('preserves terminal startup cwd while accepting older omitted fields', () => {

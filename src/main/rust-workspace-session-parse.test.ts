@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { parseWorkspaceSession } from './workspace-session-schema'
-import { MAX_BROWSER_HISTORY_ENTRIES } from './workspace-session-browser-history'
+// The parse/repair moved to the Rust orca-config core; drive the real
+// production path (napi in main) so this coverage exercises the shipped impl.
+import { parseWorkspaceSession } from './rust-workspace-session-parse'
+import { MAX_BROWSER_HISTORY_ENTRIES } from '../shared/workspace-session-browser-history'
 
 describe('parseWorkspaceSession', () => {
   it('accepts a minimal valid session', () => {

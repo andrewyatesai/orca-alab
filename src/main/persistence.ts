@@ -105,7 +105,7 @@ import {
   ONBOARDING_FLOW_VERSION,
   ONBOARDING_FINAL_STEP
 } from '../shared/constants'
-import { parseWorkspaceSession } from '../shared/workspace-session-schema'
+import { parseWorkspaceSession } from './rust-workspace-session-parse'
 import {
   LOCAL_EXECUTION_HOST_ID,
   normalizeExecutionHostOrder,

@@ -483,6 +483,25 @@ fn plan_agent_binary_result_to_json(default_binary: &str, command_override: Opti
     }
 }
 
+/// Validate raw session JSON as a `WorkspaceSessionState`, returning the TS
+/// `ParsedWorkspaceSession` union (`{ok:true, value} | {ok:false, error}`) JSON.
+/// Same parse/repair `src/main/persistence.ts` relied on the deleted shared zod
+/// schema for — the Rust orca-config port is now the sole impl.
+#[napi(catch_unwind)]
+pub fn parse_workspace_session(raw_json: String) -> String {
+    // JSON.stringify always yields valid JSON; Null models a non-object input,
+    // which the parser rejects exactly as zod did.
+    let raw: serde_json::Value = serde_json::from_str(&raw_json).unwrap_or(serde_json::Value::Null);
+    match orca_config::parse_workspace_session(&raw) {
+        orca_config::ParsedWorkspaceSession::Ok(value) => {
+            serde_json::json!({ "ok": true, "value": value }).to_string()
+        }
+        orca_config::ParsedWorkspaceSession::Err(error) => {
+            serde_json::json!({ "ok": false, "error": error }).to_string()
+        }
+    }
+}
+
 #[napi(catch_unwind)]
 pub fn git_engine() -> &'static str {
     "orca-git"

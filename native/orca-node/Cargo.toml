@@ -21,6 +21,9 @@ orca-text = { path = "../../rust/crates/orca-text" }
 # orca-agents: the commit-message spawn planner (agent choice + prompt -> binary
 # + argv + stdin) the local generator and SSH provider drive via this addon.
 orca-agents = { path = "../../rust/crates/orca-agents" }
+# orca-config: the workspace-session schema parse/repair persistence.ts relies on
+# (the shared zod twin was deleted; the Rust port is the sole impl).
+orca-config = { path = "../../rust/crates/orca-config" }
 # serde_json: builds the JSON marshalling for the orca-text summaries.
 serde_json = { version = "1", features = ["preserve_order"] }
 # orca-net: the byte-budget NDJSON line splitter (daemon-socket OOM guard) exposed as

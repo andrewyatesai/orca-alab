@@ -659,8 +659,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION: unknown keys at four depths (top level, terminal tab, layout snapshot, layout leaf node) — zod strips them, the Rust port deliberately preserves them (documented deviation #1)",
-      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: unrecognized keys are preserved in the Rust output, zod's z.object strips them.",
+      "note": "unknown keys at four depths (top level, terminal tab, layout snapshot, layout leaf node) are stripped by z.object on both legs",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -731,8 +730,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION: missing required tabsByWorktree — both legs reject at the same path, but zod's wording differs from the Rust port's (documented deviation #2)",
-      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "note": "missing required tabsByWorktree — both legs reject at the same path with zod 4.4.3 wording",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -746,8 +744,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION: wrong-typed field (ptyId as number, the motivating corruption) — same rejection path, zod wording differs (documented deviation #2)",
-      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "note": "wrong-typed field (ptyId as number, the motivating corruption) — same rejection path and zod 4.4.3 wording on both legs",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -913,8 +910,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION: empty object — both reject at the first required field (activeRepoId), zod wording differs (documented deviation #2)",
-      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "note": "empty object — both legs reject at the first required field (activeRepoId) with zod 4.4.3 wording",
       "input": {},
       "expected": {
         "ok": false,
@@ -923,8 +919,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION: null root — both reject at <root>, zod wording differs (documented deviation #2)",
-      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "note": "null root — both legs reject at <root> with zod 4.4.3 wording",
       "input": null,
       "expected": {
         "ok": false,
@@ -933,8 +928,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION: array where a record is expected (tabsByWorktree) — both reject at the same path, zod wording differs (documented deviation #2)",
-      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "note": "array where a record is expected (tabsByWorktree) — both legs reject at the same path with zod 4.4.3 wording",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -977,7 +971,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION (undocumented drift): unknown unified-tab viewMode — zod .catch repairs it to 'terminal', the Rust port neither validates nor repairs viewMode and passes 'canvas' through",
+      "note": "unknown unified-tab viewMode — .catch repairs it to 'terminal' on both legs",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -1032,7 +1026,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION (undocumented drift): contentType 'simulator' is a valid TS enum member but missing from the Rust port's enum (as is 'check-details') — TS accepts, Rust rejects",
+      "note": "contentType 'simulator' (and 'check-details') are valid enum members accepted on both legs",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -1085,7 +1079,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION (undocumented drift): invalid activeWorkspaceKey — TS validates via isWorkspaceKey and rejects, the Rust port does not validate the field and accepts",
+      "note": "invalid activeWorkspaceKey — both legs validate via isWorkspaceKey and reject with z.custom's 'Invalid input'",
       "input": {
         "activeRepoId": null,
         "activeWorkspaceKey": "not-a-workspace-key",
@@ -1101,7 +1095,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION (undocumented drift): sleepingAgentSessionsByPaneKey cleanup — TS drops the invalid record and trims the provider session id; the Rust port passes the raw map through unvalidated",
+      "note": "sleepingAgentSessionsByPaneKey cleanup — both legs drop the invalid record and trim the provider session id",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -1165,8 +1159,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION: invalid terminalLayoutsByTabId record key (contains ':') — both reject the key, zod reports the key schema's refine message while the Rust port says 'Invalid record key' (documented deviation #2)",
-      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "note": "invalid terminalLayoutsByTabId record key (contains ':') — both legs reject the key with zod's invalid_key wording",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,
@@ -1187,7 +1180,7 @@
     },
     {
       "function": "parseWorkspaceSession",
-      "note": "KNOWN-DEVIATION (undocumented drift): empty startupCwd — TS enforces .min(1) and rejects, the Rust port does not validate startupCwd and accepts",
+      "note": "empty startupCwd — both legs enforce .min(1) and reject with zod's too_small wording",
       "input": {
         "activeRepoId": null,
         "activeWorktreeId": null,

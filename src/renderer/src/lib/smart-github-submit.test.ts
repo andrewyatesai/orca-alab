@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearSmartGitHubSubmitLookupCacheForTests,
   getSmartGitHubSubmitIntent,
@@ -6,6 +7,15 @@ import {
   getSmartGitHubSubmitLookupCacheSizeForTests,
   lookupSmartGitHubSubmitItem
 } from './smart-github-submit'
+import { initGitWasmForTestFromBytes } from './git-wasm/git-line-stats'
+
+// getSmartGitHubSubmitResolution derives the workspace seed through the Rust
+// orca-text core via wasm; init it synchronously from the committed bytes.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 describe('getSmartGitHubSubmitIntent', () => {
   it('treats GitHub issue and pull URLs as submit-time source intent', () => {

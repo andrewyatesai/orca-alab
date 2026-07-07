@@ -2,9 +2,9 @@
 //! `src/shared/workspace-name.ts`.
 
 use orca_text::workspace_name::{
-    get_linked_work_item_suggested_name, get_linked_work_item_workspace_name,
-    get_workspace_intent_name, slugify_for_workspace_name, WorkItemType, WorkspaceIntentArgs,
-    WorkspaceIntentName, WorkspaceIntentWorkItem,
+    get_linear_issue_workspace_name, get_linked_work_item_suggested_name,
+    get_linked_work_item_workspace_name, get_workspace_intent_name, slugify_for_workspace_name,
+    WorkItemType, WorkspaceIntentArgs, WorkspaceIntentName, WorkspaceIntentWorkItem,
 };
 use serde_json::{json, Value};
 
@@ -36,6 +36,12 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             Some(item) => intent_name_to_json(get_linked_work_item_workspace_name(&item)),
             None => json!({ "__parity_error__": "getLinkedWorkItemWorkspaceName expects an item" }),
         },
+        // `{identifier, title}` in, dedup-aware combined seed slug out.
+        "getLinearIssueWorkspaceName" => {
+            let identifier = input.get("identifier").and_then(Value::as_str).unwrap_or_default();
+            let title = input.get("title").and_then(Value::as_str).unwrap_or_default();
+            Value::String(get_linear_issue_workspace_name(identifier, title))
+        }
         other => json!({ "__parity_error__": format!("unknown function {other}") }),
     }
 }

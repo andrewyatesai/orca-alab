@@ -14,11 +14,13 @@ import {
 } from '@/lib/agent-startup-delayed-delivery'
 import type { FolderWorkspaceLinkedTask, OrcaHooks, TaskViewPresetId } from '../../../shared/types'
 import { resolveHookCommandSourcePolicy } from '../../../shared/hook-command-source-policy'
-import { slugifyForWorkspaceName } from '../../../shared/workspace-name'
+import { slugifyForWorkspaceName } from '@/lib/git-wasm/workspace-name'
 import { createBrowserUuid } from '@/lib/browser-uuid'
-export { getLinkedWorkItemSuggestedName } from '../../../shared/workspace-name'
-export { getLinkedWorkItemWorkspaceName } from '../../../shared/workspace-name'
-export { getWorkspaceIntentName } from '../../../shared/workspace-name'
+export {
+  getLinkedWorkItemSuggestedName,
+  getLinkedWorkItemWorkspaceName,
+  getWorkspaceIntentName
+} from '@/lib/git-wasm/workspace-name'
 
 /**
  * Why: the TaskPage's preset buttons and the openTaskPage prefetcher both need

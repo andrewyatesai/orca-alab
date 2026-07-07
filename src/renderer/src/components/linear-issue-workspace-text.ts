@@ -1,4 +1,4 @@
-import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
+import { getLinearIssueWorkspaceName } from '@/lib/git-wasm/workspace-name'
 import type { LinearIssue } from '../../../shared/types'
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })

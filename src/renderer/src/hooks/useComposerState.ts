@@ -79,7 +79,7 @@ import {
   buildLinearIssueLinkedWorkItem,
   isLinearLinkedWorkItem
 } from '@/lib/linear-linked-work-item'
-import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
+import { getLinearIssueWorkspaceName } from '@/lib/git-wasm/workspace-name'
 import {
   getFullComposerCreateDisabled,
   getQuickComposerCreateDisabled

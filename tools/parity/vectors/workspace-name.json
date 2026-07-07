@@ -205,6 +205,24 @@
         "displayName": "Improve boot performance",
         "seedName": "improve-boot-performance"
       }
+    },
+    {
+      "function": "getLinearIssueWorkspaceName",
+      "note": "identifier prepends the title slug in the combined seed",
+      "input": { "identifier": "ENG-42", "title": "Ship Linear parity" },
+      "expected": "eng-42-ship-linear-parity"
+    },
+    {
+      "function": "getLinearIssueWorkspaceName",
+      "note": "an identifier already present in the title is not duplicated",
+      "input": { "identifier": "ENG-42", "title": "ENG-42 Ship Linear parity" },
+      "expected": "eng-42-ship-linear-parity"
+    },
+    {
+      "function": "getLinearIssueWorkspaceName",
+      "note": "a distinct identifier and title slug both survive the join",
+      "input": { "identifier": "STA-7", "title": "Add drawer" },
+      "expected": "sta-7-add-drawer"
     }
   ]
 }

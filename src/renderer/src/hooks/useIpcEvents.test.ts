@@ -1,6 +1,16 @@
 /* eslint-disable max-lines -- Why: this test file keeps the hook wiring mocks close to the assertions so IPC event behavior stays understandable and maintainable. */
+import { readFileSync } from 'node:fs'
 import type * as ReactModule from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
+
+// The Linear-issue new-workspace prefill derives its seed through the Rust
+// orca-text core via wasm; init it synchronously from the committed bytes.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 import {
   buildRuntimeClientEventEnvironmentKey,
   buildNewWorkspaceShortcutModalData,

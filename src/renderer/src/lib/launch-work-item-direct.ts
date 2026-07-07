@@ -15,7 +15,7 @@ import {
 import { ensureHooksConfirmed } from '@/lib/ensure-hooks-confirmed'
 import { getConnectionId } from '@/lib/connection-context'
 import type { GitPushTarget, SetupDecision, TuiAgent } from '../../../shared/types'
-import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
+import { getLinearIssueWorkspaceName } from '@/lib/git-wasm/workspace-name'
 import { resolveGitHubWorkItemIdentity } from '@/lib/github-work-item-identity'
 import {
   buildDirectWorkItemAgentStartupPlan,

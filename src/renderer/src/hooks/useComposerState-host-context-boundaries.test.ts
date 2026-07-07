@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
   canResolveFolderSmartGitHubSubmit,
   getInitialAutoManagedWorkspaceName,
@@ -8,8 +8,17 @@ import {
   resolveSmartGitHubCreateNames,
   resolveInitialWorkspaceRunSeed
 } from './useComposerState'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
 
 const HOOK_SOURCE = readFileSync(join(__dirname, 'useComposerState.ts'), 'utf8')
+
+// getInitialAutoManagedWorkspaceName compares against the linked-item seed
+// derived by the Rust orca-text core via wasm; init it from the committed bytes.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(join(__dirname, '../lib/git-wasm/orca_git_wasm_bg.wasm'))
+  )
+})
 
 function sourceBetween(source: string, startPattern: string, endPattern: string): string {
   const start = source.indexOf(startPattern)

@@ -1,7 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store'
 import type * as TuiAgentSelectionModule from '../../../shared/tui-agent-selection'
 import type * as TuiAgentStartupModule from '@/lib/tui-agent-startup'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
+
+// The direct-launch flow derives Linear workspace names through the Rust
+// orca-text core via wasm; init it synchronously from the committed bytes.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),

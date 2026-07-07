@@ -68,6 +68,29 @@ export function detectPiAgentKindFromCommand(command?: string | null): string;
 export function formatSubmodulePushFailureDetail(message: string): string | undefined;
 
 /**
+ * Combined Linear identifier+title workspace seed (dedup-aware).
+ */
+export function getLinearIssueWorkspaceName(identifier: string, title: string): string;
+
+/**
+ * Title → slug suggestion for a linked work item (TS takes `{ title }`; the
+ * wrapper passes `.title`).
+ */
+export function getLinkedWorkItemSuggestedName(title: string): string;
+
+/**
+ * Display+seed for a linked work item as `{displayName, seedName}` JSON, or
+ * `undefined` when no git-safe seed derives. Input is the work item as JSON.
+ */
+export function getLinkedWorkItemWorkspaceName(item_json: string): string | undefined;
+
+/**
+ * First-create intent display+seed as `{displayName, seedName}` JSON, or
+ * `undefined`. Input is `{sourceText?, workItem?, fallbackName?}` JSON.
+ */
+export function getWorkspaceIntentName(args_json: string): string | undefined;
+
+/**
  * True only for clearly-no-upstream signals (an expected state, gated on a
  * `fatal:` prefix). `undefined` message -> false (a non-Error throw in TS).
  */
@@ -106,6 +129,11 @@ export function parseStatusPorcelain(stdout: Uint8Array, limit: number): string;
 export function parseWorktreeList(output: string, nul_delimited: boolean): string;
 
 /**
+ * Slugify free text into a git-ref-safe workspace seed.
+ */
+export function slugifyForWorkspaceName(input: string): string;
+
+/**
  * Scrub credentials embedded in a git URL within `message` (keeps SSH user-info;
  * strips `user:password@` on any scheme + HTTP(S) token-only `user@`).
  */
@@ -137,6 +165,10 @@ export interface InitOutput {
     readonly deriveGeneratedTabTitle: (a: number, b: number, c: number) => void;
     readonly detectPiAgentKindFromCommand: (a: number, b: number, c: number) => void;
     readonly formatSubmodulePushFailureDetail: (a: number, b: number, c: number) => void;
+    readonly getLinearIssueWorkspaceName: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly getLinkedWorkItemSuggestedName: (a: number, b: number, c: number) => void;
+    readonly getLinkedWorkItemWorkspaceName: (a: number, b: number, c: number) => void;
+    readonly getWorkspaceIntentName: (a: number, b: number, c: number) => void;
     readonly isNoUpstreamError: (a: number, b: number) => number;
     readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly parseGitHistoryLog: (a: number, b: number, c: number) => void;
@@ -147,6 +179,7 @@ export interface InitOutput {
     readonly quickopenindex_fileCount: (a: number) => number;
     readonly quickopenindex_new: (a: number, b: number) => number;
     readonly quickopenindex_rank: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly slugifyForWorkspaceName: (a: number, b: number, c: number) => void;
     readonly stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;

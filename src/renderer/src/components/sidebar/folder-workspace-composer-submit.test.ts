@@ -1,7 +1,20 @@
 // @vitest-environment happy-dom
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
 import type { FolderWorkspace, ProjectGroup } from '../../../../shared/types'
+
+// The folder-workspace composer derives its Linear seed through the Rust
+// orca-text core via wasm; init it synchronously from the committed bytes.
+// Why __dirname (not import.meta.url): this suite runs under happy-dom, where
+// import.meta.url is a non-file: URL that readFileSync rejects.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(join(__dirname, '../../lib/git-wasm/orca_git_wasm_bg.wasm'))
+  )
+})
 import { folderWorkspaceKey } from '../../../../shared/workspace-scope'
 import type * as NewWorkspaceModule from '@/lib/new-workspace'
 

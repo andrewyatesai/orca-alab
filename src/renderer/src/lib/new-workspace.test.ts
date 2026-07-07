@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   mockInspectRuntimeTerminalProcess,
@@ -95,6 +96,15 @@ import {
   isGitLabIssueUrl
 } from './new-workspace'
 import { resetAgentStartupDelayedDeliveryForTests } from './agent-startup-delayed-delivery'
+import { initGitWasmForTestFromBytes } from './git-wasm/git-line-stats'
+
+// getWorkspaceSeedName slugifies through the Rust orca-text core via wasm; init
+// it synchronously from the committed bytes (Node has no sync-compile limit).
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 describe('getWorkspaceSeedName', () => {
   it('prefers an explicit name', () => {

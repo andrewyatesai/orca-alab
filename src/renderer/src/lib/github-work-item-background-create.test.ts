@@ -1,5 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
+
+// The background create flow derives the workspace seed through the Rust
+// orca-text core via wasm; init it synchronously from the committed bytes.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 import type { RuntimeStatus } from '../../../shared/runtime-types'
 import type { GitHubWorkItem, Repo } from '../../../shared/types'
 import {

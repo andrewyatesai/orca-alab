@@ -1,7 +1,17 @@
 /* eslint-disable max-lines -- Why: fork flow tests share a mocked store and launch harness. */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
+
+// Fork names slugify through the Rust orca-text core via wasm; init it
+// synchronously from the committed bytes (Node has no sync-compile limit).
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 const mockLaunchAgentInNewTab = vi.fn()
 const mockActivateAndRevealWorktree = vi.fn()

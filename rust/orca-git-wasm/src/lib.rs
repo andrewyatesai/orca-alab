@@ -220,3 +220,82 @@ pub fn detect_pi_agent_kind_from_command(command: Option<String>) -> String {
         orca_text::pi_agent_kind::PiAgentKind::Pi => "pi".to_string(),
     }
 }
+
+// --- RENDERER workspace-name seam ----------------------------------------
+// The renderer's workspace-name/seed preview helpers (the shared TS impl was
+// deleted). These are PREVIEW/seed derivations — the main process runs the
+// authoritative worktree-name sanitizer at create time, and every consumer
+// already falls back to a valid seed, so a null/empty during the wasm boot
+// window degrades to a less-descriptive (never broken) name.
+
+/// Slugify free text into a git-ref-safe workspace seed.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "slugifyForWorkspaceName"))]
+pub fn slugify_for_workspace_name(input: &str) -> String {
+    orca_text::workspace_name::slugify_for_workspace_name(input)
+}
+
+/// Title → slug suggestion for a linked work item (TS takes `{ title }`; the
+/// wrapper passes `.title`).
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "getLinkedWorkItemSuggestedName"))]
+pub fn get_linked_work_item_suggested_name(title: &str) -> String {
+    orca_text::workspace_name::get_linked_work_item_suggested_name(title)
+}
+
+/// Combined Linear identifier+title workspace seed (dedup-aware).
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "getLinearIssueWorkspaceName"))]
+pub fn get_linear_issue_workspace_name(identifier: &str, title: &str) -> String {
+    orca_text::workspace_name::get_linear_issue_workspace_name(identifier, title)
+}
+
+/// Display+seed for a linked work item as `{displayName, seedName}` JSON, or
+/// `undefined` when no git-safe seed derives. Input is the work item as JSON.
+#[cfg_attr(
+    target_arch = "wasm32",
+    wasm_bindgen(js_name = "getLinkedWorkItemWorkspaceName")
+)]
+pub fn get_linked_work_item_workspace_name(item_json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(item_json).ok()?;
+    let item = work_item_from_value(&value)?;
+    orca_text::workspace_name::get_linked_work_item_workspace_name(&item)
+        .map(|name| intent_name_to_json(&name))
+}
+
+/// First-create intent display+seed as `{displayName, seedName}` JSON, or
+/// `undefined`. Input is `{sourceText?, workItem?, fallbackName?}` JSON.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "getWorkspaceIntentName"))]
+pub fn get_workspace_intent_name(args_json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(args_json).ok()?;
+    let args = orca_text::workspace_name::WorkspaceIntentArgs {
+        source_text: value.get("sourceText").and_then(|v| v.as_str()).map(str::to_string),
+        work_item: value.get("workItem").and_then(work_item_from_value),
+        fallback_name: value.get("fallbackName").and_then(|v| v.as_str()).map(str::to_string),
+    };
+    orca_text::workspace_name::get_workspace_intent_name(&args).map(|name| intent_name_to_json(&name))
+}
+
+/// `JSON.stringify` of the TS `WorkspaceIntentName` (camelCase keys).
+fn intent_name_to_json(name: &orca_text::workspace_name::WorkspaceIntentName) -> String {
+    serde_json::json!({ "displayName": name.display_name, "seedName": name.seed_name }).to_string()
+}
+
+/// Rebuild the pure `WorkspaceIntentWorkItem` from its TS JSON shape — the same
+/// field mapping the parity dispatch uses (`type`→kind, camelCase identifiers).
+fn work_item_from_value(
+    value: &serde_json::Value,
+) -> Option<orca_text::workspace_name::WorkspaceIntentWorkItem> {
+    use orca_text::workspace_name::{WorkItemType, WorkspaceIntentWorkItem};
+    let object = value.as_object()?;
+    let kind = match object.get("type").and_then(|v| v.as_str()) {
+        Some("pr") => Some(WorkItemType::Pr),
+        Some("mr") => Some(WorkItemType::Mr),
+        Some("issue") => Some(WorkItemType::Issue),
+        _ => None,
+    };
+    Some(WorkspaceIntentWorkItem {
+        kind,
+        number: object.get("number").and_then(|v| v.as_u64()).unwrap_or_default(),
+        title: object.get("title").and_then(|v| v.as_str()).unwrap_or_default().to_string(),
+        linear_identifier: object.get("linearIdentifier").and_then(|v| v.as_str()).map(str::to_string),
+        jira_identifier: object.get("jiraIdentifier").and_then(|v| v.as_str()).map(str::to_string),
+    })
+}

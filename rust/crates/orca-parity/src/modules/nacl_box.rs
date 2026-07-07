@@ -8,11 +8,43 @@
 //! `SharedBox` only from (secret, peer-public) via `derive_shared_box`, so the
 //! adapter derives it the same way the TS `deriveSharedKey` does, then decrypts.
 
-use orca_crypto::{decrypt_bytes, derive_shared_box, encrypt_bytes_with_nonce, key_pair_from_seed};
+use orca_crypto::{
+    decrypt_bytes, derive_shared_box, encrypt_bytes_with_nonce, key_pair_from_seed,
+    open_with_shared_key, seal_with_shared_key, shared_key_before,
+};
 use serde_json::{json, Value};
 
 pub fn dispatch(function: &str, input: &Value) -> Value {
     match function {
+        // Raw-key `nacl.box.before`: the 32-byte precomputed shared key the TS
+        // boundary keeps passing around (so the wasm cutover stays API-stable).
+        "deriveSharedKey" => {
+            let our_secret = bytes_from_json(input.get("ourSecretKey"));
+            let peer_public = bytes_from_json(input.get("peerPublicKey"));
+            match shared_key_before(&our_secret, &peer_public) {
+                Some(key) => bytes_to_json(&key),
+                None => Value::Null,
+            }
+        }
+        // Raw-key seal/open (`nacl.box.after` / `open.after`) — the injected
+        // nonce makes the seal deterministic, pinning `nonce || box` bytes.
+        "sealWithSharedKey" => {
+            let shared_key = bytes_from_json(input.get("sharedKey"));
+            let nonce = bytes_from_json(input.get("nonce"));
+            let message = bytes_from_json(input.get("message"));
+            match seal_with_shared_key(&shared_key, &nonce, &message) {
+                Some(bundle) => bytes_to_json(&bundle),
+                None => Value::Null,
+            }
+        }
+        "openWithSharedKey" => {
+            let shared_key = bytes_from_json(input.get("sharedKey"));
+            let bundle = bytes_from_json(input.get("bundle"));
+            match open_with_shared_key(&shared_key, &bundle) {
+                Some(plaintext) => bytes_to_json(&plaintext),
+                None => Value::Null,
+            }
+        }
         // Deterministic encrypt-path pin: the vector injects the nonce (the TS
         // module's only nondeterminism is `nacl.randomBytes`), so the bundle is
         // byte-exact `nonce || box` on both sides.

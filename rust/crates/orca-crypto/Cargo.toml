@@ -12,6 +12,12 @@ description = "NaCl box (X25519 + XSalsa20-Poly1305) for Orca's E2EE remote-runt
 # (nonces/seeds are injected at the IO edge), no std/serde — just the alloc AEAD
 # API + the salsa (XSalsa20-Poly1305) box.
 crypto_box = { version = "0.9", default-features = false, features = ["alloc", "salsa20"] }
+# The raw-shared-key variant (nacl.box.before + secretbox) so the TS boundary can
+# keep passing an opaque 32-byte shared key. These are the same primitives
+# crypto_box composes internally, used directly to expose the beforenm key.
+crypto_secretbox = { version = "0.1", default-features = false, features = ["alloc", "salsa20"] }
+curve25519-dalek = { version = "4", default-features = false }
+salsa20 = { version = "0.10", default-features = false }
 
 [lints.rust]
 unsafe_code = "forbid"

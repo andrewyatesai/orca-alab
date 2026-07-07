@@ -24,6 +24,36 @@ function fromBytes(bytes: Uint8Array): number[] {
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
+    case 'deriveSharedKey': {
+      // Raw `nacl.box.before` key — pins the Rust `shared_key_before` beforenm.
+      const { ourSecretKey, peerPublicKey } = input as {
+        ourSecretKey: number[]
+        peerPublicKey: number[]
+      }
+      return fromBytes(deriveSharedKey(toBytes(ourSecretKey), toBytes(peerPublicKey)))
+    }
+    case 'sealWithSharedKey': {
+      // `nacl.box.after` with an injected nonce == the raw-key seal.
+      const { sharedKey, nonce, message } = input as {
+        sharedKey: number[]
+        nonce: number[]
+        message: number[]
+      }
+      const nonceBytes = toBytes(nonce)
+      if (nonceBytes.length !== nacl.box.nonceLength) {
+        return null
+      }
+      const ciphertext = nacl.box.after(toBytes(message), nonceBytes, toBytes(sharedKey))
+      const bundle = new Uint8Array(nonceBytes.length + ciphertext.length)
+      bundle.set(nonceBytes)
+      bundle.set(ciphertext, nonceBytes.length)
+      return fromBytes(bundle)
+    }
+    case 'openWithSharedKey': {
+      const { sharedKey, bundle } = input as { sharedKey: number[]; bundle: number[] }
+      const plaintext = decryptBytes(toBytes(bundle), toBytes(sharedKey))
+      return plaintext ? fromBytes(plaintext) : null
+    }
     case 'encryptBytesWithNonce': {
       // The TS `encryptBytes` is `randomBytes(24)` + `nacl.box.after` + concat;
       // with the vector-injected nonce this reproduces its deterministic core

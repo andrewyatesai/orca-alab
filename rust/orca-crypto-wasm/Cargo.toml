@@ -1,0 +1,38 @@
+# Its OWN workspace (like rust/orca-git-wasm and rust/aterm) so the wasm-bindgen
+# web deps below never enter the main rust/Cargo.lock — that workspace builds
+# offline from rust/vendor and has no wasm-bindgen vendored. Excluded from
+# rust/Cargo.toml's workspace. Built from the repo root (online) by
+# config/scripts/build-orca-crypto-wasm.mjs.
+[workspace]
+
+[package]
+name = "orca-crypto-wasm"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "wasm-bindgen binding for orca-crypto's NaCl box primitives (raw-shared-key variant), so the app's E2EE runs the SAME Rust the napi/native path proves — one source of truth instead of the tweetnacl TS twins."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The SAME crate the parity suite pins — the wasm binding calls the identical
+# pure functions so ciphertext is byte-identical to tweetnacl and the Rust core.
+orca-crypto = { path = "../crates/orca-crypto" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Pinned to the CLI version (config/.tooling/wasm-bindgen-0.2.108), matching aterm.
+wasm-bindgen = "=0.2.108"
+console_error_panic_hook = "0.1"
+# curve25519-dalek/crypto_secretbox may pull getrandom transitively; on wasm32 it
+# needs the JS backend. Harmless if unused. Mirrors aterm-wasm / orca-git-wasm.
+getrandom = { version = "0.2", features = ["js"] }
+
+# Own workspace root -> profiles live here. Loaded by the app (main/CLI/renderer),
+# not shipped to remote hosts, but still size-optimise (crypto is not a throughput
+# hot path; RPC messages are small).
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

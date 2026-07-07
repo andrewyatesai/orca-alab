@@ -3,7 +3,7 @@
 // offer so the mobile client can derive a shared secret via ECDH.
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import nacl from 'tweetnacl'
+import { generateKeyPair } from '../../shared/e2ee-crypto'
 import { hardenExistingSecureFile, writeSecureJsonFile } from '../../shared/secure-file'
 import { E2EE_KEYPAIR_FILENAME } from './mobile-pairing-files'
 
@@ -47,7 +47,7 @@ export function loadOrCreateE2EEKeypair(userDataPath: string): E2EEKeypair {
     }
   }
 
-  const keypair = nacl.box.keyPair()
+  const keypair = generateKeyPair()
   const publicKeyB64 = Buffer.from(keypair.publicKey).toString('base64')
   const secretKeyB64 = Buffer.from(keypair.secretKey).toString('base64')
 

@@ -41,6 +41,20 @@ src/relay/wasm/orca_git_wasm_bg.wasm
 !src/renderer/src/lib/git-wasm/orca_git_wasm.d.ts
 !src/renderer/src/lib/git-wasm/orca_git_wasm_bg.wasm.d.ts
 
+# orca-crypto wasm-bindgen glue for the app's E2EE. The Node main/CLI processes
+# import the base64-embedded bytes (orca_crypto_wasm_bg.wasm.base64.ts); the raw
+# _bg.wasm there is redundant with the base64 module, so NOT committed.
+!src/shared/crypto-wasm/orca_crypto_wasm.js
+!src/shared/crypto-wasm/orca_crypto_wasm.d.ts
+!src/shared/crypto-wasm/orca_crypto_wasm_bg.wasm.d.ts
+src/shared/crypto-wasm/orca_crypto_wasm_bg.wasm
+# The RENDERER's copy of the same crypto glue (loaded via vite `?url` + async
+# init). Here the raw _bg.wasm IS committed so `?url` imports work from a fresh
+# clone.
+!src/renderer/src/lib/crypto-wasm/orca_crypto_wasm.js
+!src/renderer/src/lib/crypto-wasm/orca_crypto_wasm.d.ts
+!src/renderer/src/lib/crypto-wasm/orca_crypto_wasm_bg.wasm.d.ts
+
 # Dependencies
 node_modules/
 
@@ -164,6 +178,7 @@ rust/aterm/target/
 # src/relay/wasm, which is committed). Track its Cargo.lock for reproducible
 # wasm builds; ignore the target dir.
 rust/orca-git-wasm/target/
+rust/orca-crypto-wasm/target/
 # Offline-build scaffolding for the aterm sub-workspace (conformance snapshot tool):
 # regenerable `cargo vendor` output (~650MB) + its offline cargo config.
 rust/aterm/.aterm-vendor/

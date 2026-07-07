@@ -1,5 +1,15 @@
-import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { describe, expect, it, vi, afterEach, beforeAll, beforeEach } from 'vitest'
 import { WebRuntimeClient } from './web-runtime-client'
+import { initCryptoWasmForTestFromBytes } from '../lib/crypto-wasm/browser-crypto-wasm'
+
+// The browser E2EE handshake runs through wasm (eager-inited at bootstrap in
+// production); init it synchronously here so the mocked connect flow is ready.
+beforeAll(() => {
+  initCryptoWasmForTestFromBytes(
+    readFileSync(new URL('../lib/crypto-wasm/orca_crypto_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 // Why: a half-open browser WebSocket stays readyState===OPEN with no
 // onclose/onerror, so the client must actively detect server silence and force

@@ -1,10 +1,21 @@
 /* eslint-disable max-lines -- Why: these tests share one mocked browser
    WebSocket/E2EE transport fixture, and splitting them would obscure the
    subscription lifecycle regressions they cover. */
-import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { describe, expect, it, vi, afterEach, beforeAll, beforeEach } from 'vitest'
 import WebSocket, { WebSocketServer } from 'ws'
 import { WebRuntimeClient } from './web-runtime-client'
 import { encryptBytes } from './web-e2ee'
+import { initCryptoWasmForTestFromBytes } from '../lib/crypto-wasm/browser-crypto-wasm'
+
+// The browser E2EE crypto now runs through wasm (eager-inited at renderer
+// bootstrap in production); init it synchronously here so the mocked handshake's
+// generateKeyPair/encryptBytes are ready.
+beforeAll(() => {
+  initCryptoWasmForTestFromBytes(
+    readFileSync(new URL('../lib/crypto-wasm/orca_crypto_wasm_bg.wasm', import.meta.url))
+  )
+})
 import {
   decrypt,
   deriveSharedKey,

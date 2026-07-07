@@ -1,14 +1,36 @@
 // Why: Orca's remote runtime transports share one NaCl box format across
-// desktop, CLI, and mobile pairing. Keeping the Node-compatible primitives in
-// shared code prevents the CLI from importing main-process modules.
-import nacl from 'tweetnacl'
+// desktop, CLI, and mobile pairing. The crypto core is now the orca-crypto Rust
+// port compiled to wasm (byte-identical to tweetnacl, proven by orca-parity);
+// the OS RNG (node:crypto) + base64 (Buffer) stay at this JS edge so the CLI
+// never imports main-process modules. The renderer has a browser-flavoured twin
+// (web-e2ee.ts) over the same wasm.
+import { randomBytes } from 'node:crypto'
+import {
+  deriveSharedKey as wasmDeriveSharedKey,
+  keyPairFromSeed as wasmKeyPairFromSeed,
+  openWithSharedKey as wasmOpenWithSharedKey,
+  sealWithSharedKey as wasmSealWithSharedKey
+} from './crypto-wasm/node-crypto-wasm'
 
-export function generateKeyPair(): nacl.BoxKeyPair {
-  return nacl.box.keyPair()
+const NONCE_LENGTH = 24
+
+export type BoxKeyPair = { publicKey: Uint8Array; secretKey: Uint8Array }
+
+export function generateKeyPair(): BoxKeyPair {
+  // The seed IS the X25519 secret key; the OS RNG owns the entropy.
+  const packed = wasmKeyPairFromSeed(randomBytes(32))
+  if (!packed) {
+    throw new Error('Failed to generate key pair')
+  }
+  return { publicKey: packed.slice(0, 32), secretKey: packed.slice(32, 64) }
 }
 
 export function deriveSharedKey(ourSecretKey: Uint8Array, peerPublicKey: Uint8Array): Uint8Array {
-  return nacl.box.before(peerPublicKey, ourSecretKey)
+  const sharedKey = wasmDeriveSharedKey(ourSecretKey, peerPublicKey)
+  if (!sharedKey) {
+    throw new Error('Invalid key: expected 32-byte secret and public keys')
+  }
+  return sharedKey
 }
 
 export function publicKeyFromBase64(b64: string): Uint8Array {
@@ -34,32 +56,15 @@ export function decrypt(encrypted: string, sharedKey: Uint8Array): string | null
   return plaintext ? new TextDecoder().decode(plaintext) : null
 }
 
-export function encryptBytes(
-  plaintext: Uint8Array<ArrayBufferLike>,
-  sharedKey: Uint8Array
-): Uint8Array {
-  const nonce = nacl.randomBytes(nacl.box.nonceLength)
-  const ciphertext = nacl.box.after(plaintext, nonce, sharedKey)
-
-  const bundle = new Uint8Array(nonce.length + ciphertext.length)
-  bundle.set(nonce)
-  bundle.set(ciphertext, nonce.length)
-
+export function encryptBytes(plaintext: Uint8Array, sharedKey: Uint8Array): Uint8Array {
+  const nonce = randomBytes(NONCE_LENGTH)
+  const bundle = wasmSealWithSharedKey(sharedKey, nonce, plaintext)
+  if (!bundle) {
+    throw new Error('Failed to encrypt: invalid shared key')
+  }
   return bundle
 }
 
 export function decryptBytes(bundle: Uint8Array, sharedKey: Uint8Array): Uint8Array | null {
-  if (bundle.length < nacl.box.nonceLength + nacl.box.overheadLength) {
-    return null
-  }
-
-  const nonce = bundle.slice(0, nacl.box.nonceLength)
-  const ciphertext = bundle.slice(nacl.box.nonceLength)
-  const plaintext = nacl.box.open.after(ciphertext, nonce, sharedKey)
-
-  if (!plaintext) {
-    return null
-  }
-
-  return plaintext
+  return wasmOpenWithSharedKey(sharedKey, bundle) ?? null
 }

@@ -11,6 +11,7 @@ import {
 } from './lib/crash-diagnostics'
 import { applyDocumentTheme } from './lib/document-theme'
 import { startGitWasm } from './lib/git-wasm/git-line-stats'
+import { startCryptoWasm } from './lib/crypto-wasm/browser-crypto-wasm'
 import { shouldEnableReactGrab } from './lib/react-grab-dev-gate'
 import { I18nProvider } from './i18n/I18nProvider'
 import { translate } from './i18n/i18n'
@@ -21,6 +22,9 @@ installRendererCrashDiagnostics()
 // ready long before any diff section renders; consumers degrade to numstat
 // counts until then.
 void startGitWasm()
+// Compile the E2EE crypto wasm eagerly so it is ready before any remote
+// WebSocket handshake (which needs it synchronously to seal the box).
+void startCryptoWasm()
 
 if (
   import.meta.env.DEV &&

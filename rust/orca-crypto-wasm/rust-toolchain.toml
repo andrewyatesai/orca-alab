@@ -1,0 +1,6 @@
+# Pin stable so the wasm32-unknown-unknown build resolves the same toolchain the
+# aterm/orca-git wasm builds use (Homebrew cargo on PATH lacks the wasm32 target).
+# The build script also resolves rustup's stable cargo by absolute path.
+[toolchain]
+channel = "stable"
+targets = ["wasm32-unknown-unknown"]

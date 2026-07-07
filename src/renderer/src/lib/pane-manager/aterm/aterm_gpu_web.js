@@ -1466,6 +1466,18 @@ export class AtermGpuTerminal {
         return ret !== 0;
     }
     /**
+     * Drain the missing-font CLASS bits (1 = text/mono fallback, 2 = colour
+     * emoji) accumulated by renders since the last call — see the aterm-wasm
+     * twin. Misses accumulate on the PRE-init metrics face before `init` and
+     * inside the GPU renderer's wrapped CPU face after it, so both are drained
+     * and OR-ed.
+     * @returns {number}
+     */
+    take_missing_font_classes() {
+        const ret = wasm.atermgputerminal_take_missing_font_classes(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * Drain pending desktop notifications (queued since the last drain) as a
      * JSON array of `{"id","title","body","urgency"}` objects — string or
      * `null` fields, urgency ∈ `"low"|"normal"|"critical"`; `None` when

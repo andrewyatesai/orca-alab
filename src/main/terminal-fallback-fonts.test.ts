@@ -160,4 +160,38 @@ describe('getTerminalFallbackFonts (non-Latin chain discovery)', () => {
     // ships it once under the first script that hit it (arabic).
     expect(fonts.chain.map((entry) => entry.script)).toEqual(['arabic'])
   })
+
+  it("classes: ['text'] never reads the emoji face; ['emoji'] never reads the mono faces (E1)", async () => {
+    const MAC_EMOJI = '/System/Library/Fonts/Apple Color Emoji.ttc'
+    const MAC_CJK = '/System/Library/Fonts/PingFang.ttc'
+    existingPaths(MAC_CJK, MAC_EMOJI, MAC_ARABIC)
+    vi.resetModules()
+    const mod = await import('./terminal-fallback-fonts')
+
+    const text = await mod.getTerminalFallbackFonts(['text'])
+    expect(text.cjk).toBeDefined()
+    expect(text.chain.map((entry) => entry.script)).toEqual(['arabic'])
+    expect(text.emoji, 'text-scoped read must not surface emoji').toBeUndefined()
+    expect(
+      readFileMock.mock.calls.some(([path]) => path === MAC_EMOJI),
+      'the ~183MB emoji face must not be read for a text-class request'
+    ).toBe(false)
+
+    readFileMock.mockClear()
+    const emoji = await mod.getTerminalFallbackFonts(['emoji'])
+    expect(emoji.emoji).toBeDefined()
+    expect(emoji.cjk).toBeUndefined()
+    expect(emoji.chain).toEqual([])
+    expect(
+      readFileMock.mock.calls.some(([path]) => path === MAC_CJK),
+      'the text class is cached from the first read — and never re-read for emoji'
+    ).toBe(false)
+
+    // Per-class caching: a repeat request reads nothing at all.
+    readFileMock.mockClear()
+    const both = await mod.getTerminalFallbackFonts()
+    expect(both.cjk).toBeDefined()
+    expect(both.emoji).toBeDefined()
+    expect(readFileMock).not.toHaveBeenCalled()
+  })
 })

@@ -152,125 +152,153 @@ test.describe('aterm showcase', () => {
     void nonBg
 
     // CJK + emoji are NOT tofu: the canvas renderer ships only JetBrains Mono
-    // (Latin), so without the host OS fallback fonts injected over IPC the CJK
-    // "你好世界" run renders as .notdef boxes and the emoji as monochrome/blank.
+    // (Latin), so without the host OS fallback fonts the CJK "你好世界" run
+    // renders as .notdef boxes and the emoji as monochrome/blank. The faces
+    // inject LAZILY on the engine's first observed miss (E1) and the pane
+    // repaints when they land, so the pixel read POLLS until the glyphs resolve
+    // — the same rendered truth, decoupled from the injection round-trip.
     // The CJK+emoji line is the one carrying multi-coloured pixels (emoji), so we
     // FIND that row band by its colour, then assert: (a) CJK glyphs cover the left
     // of the band (real glyphs, not boxes), and (b) the emoji band on the right
     // has many DISTINCT colours (real colour emoji, not mono tofu).
-    const fallback = await orcaPage.evaluate(
-      ({ findSrc, ptyId }) => {
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-        const findCanvas = new Function(`return (${findSrc})`)() as (
-          id: string
-        ) => HTMLCanvasElement | null
-        const c = findCanvas(ptyId)
-        const ctx = c?.getContext('2d')
-        if (!c || !ctx || !c.width) {
-          return null
-        }
-        const W = c.width
-        const H = c.height
-        const d = ctx.getImageData(0, 0, W, H).data
-        const at = (x: number, y: number): [number, number, number] => {
-          const i = (y * W + x) * 4
-          return [d[i], d[i + 1], d[i + 2]]
-        }
-        const bg = at(0, 0)
-        const isBg = (p: [number, number, number]): boolean =>
-          p[0] === bg[0] && p[1] === bg[1] && p[2] === bg[2]
-        // A chromatic pixel (channel spread): neither background nor grey/white
-        // text — the signature of colour emoji (and the colour ramp/gradient/sixel).
-        const isColourful = (p: [number, number, number]): boolean => {
-          const max = Math.max(p[0], p[1], p[2])
-          const min = Math.min(p[0], p[1], p[2])
-          return max - min > 40 && max > 60
-        }
-        // Find the emoji LINE geometry-independently (the pane's column count — and
-        // so where emoji land horizontally — varies with layout): colour emoji form
-        // MULTIPLE small chromatic CLUSTERS separated by gaps ("🚀 🔥 ✨ 🦀"),
-        // unlike the ramp/gradient rows (one contiguous chromatic run) and the
-        // single-hue magenta sixel. Pick the row with ≥3 clusters and the most
-        // distinct quantised hues; remember where its first cluster starts (the
-        // CJK/Latin run sits left of it).
-        const quant = (p: [number, number, number]): number =>
-          ((p[0] >> 4) << 8) | ((p[1] >> 4) << 4) | (p[2] >> 4)
-        let bestRow = -1
-        let bestHues = 0
-        let bestClusterX0 = 0
-        for (let y = 0; y < H; y++) {
-          const hues = new Set<number>()
-          let clusters = 0
-          let inCluster = false
-          let gap = 0
-          let firstClusterX0 = -1
-          for (let x = 0; x < W; x++) {
-            const p = at(x, y)
-            if (isColourful(p)) {
-              hues.add(quant(p))
-              if (!inCluster) {
-                clusters++
-                inCluster = true
-                if (firstClusterX0 < 0) {
-                  firstClusterX0 = x
+    const readFallbackProbe = (): Promise<{
+      found: boolean
+      cjkNonBg?: number
+      emojiColourful?: number
+      distinctEmojiColours?: number
+    } | null> =>
+      orcaPage.evaluate(
+        ({ findSrc, ptyId }) => {
+          // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+          const findCanvas = new Function(`return (${findSrc})`)() as (
+            id: string
+          ) => HTMLCanvasElement | null
+          const c = findCanvas(ptyId)
+          const ctx = c?.getContext('2d')
+          if (!c || !ctx || !c.width) {
+            return null
+          }
+          const W = c.width
+          const H = c.height
+          const d = ctx.getImageData(0, 0, W, H).data
+          const at = (x: number, y: number): [number, number, number] => {
+            const i = (y * W + x) * 4
+            return [d[i], d[i + 1], d[i + 2]]
+          }
+          const bg = at(0, 0)
+          const isBg = (p: [number, number, number]): boolean =>
+            p[0] === bg[0] && p[1] === bg[1] && p[2] === bg[2]
+          // A chromatic pixel (channel spread): neither background nor grey/white
+          // text — the signature of colour emoji (and the colour ramp/gradient/sixel).
+          const isColourful = (p: [number, number, number]): boolean => {
+            const max = Math.max(p[0], p[1], p[2])
+            const min = Math.min(p[0], p[1], p[2])
+            return max - min > 40 && max > 60
+          }
+          // Find the emoji LINE geometry-independently (the pane's column count — and
+          // so where emoji land horizontally — varies with layout): colour emoji form
+          // MULTIPLE small chromatic CLUSTERS separated by gaps ("🚀 🔥 ✨ 🦀"),
+          // unlike the ramp/gradient rows (one contiguous chromatic run) and the
+          // single-hue magenta sixel. Pick the row with ≥3 clusters and the most
+          // distinct quantised hues; remember where its first cluster starts (the
+          // CJK/Latin run sits left of it).
+          const quant = (p: [number, number, number]): number =>
+            ((p[0] >> 4) << 8) | ((p[1] >> 4) << 4) | (p[2] >> 4)
+          let bestRow = -1
+          let bestHues = 0
+          let bestClusterX0 = 0
+          for (let y = 0; y < H; y++) {
+            const hues = new Set<number>()
+            let clusters = 0
+            let inCluster = false
+            let gap = 0
+            let firstClusterX0 = -1
+            for (let x = 0; x < W; x++) {
+              const p = at(x, y)
+              if (isColourful(p)) {
+                hues.add(quant(p))
+                if (!inCluster) {
+                  clusters++
+                  inCluster = true
+                  if (firstClusterX0 < 0) {
+                    firstClusterX0 = x
+                  }
+                }
+                gap = 0
+              } else if (inCluster) {
+                gap++
+                if (gap > 8) {
+                  inCluster = false
+                  gap = 0
                 }
               }
-              gap = 0
-            } else if (inCluster) {
-              gap++
-              if (gap > 8) {
-                inCluster = false
-                gap = 0
+            }
+            if (clusters >= 3 && hues.size > bestHues) {
+              bestHues = hues.size
+              bestRow = y
+              bestClusterX0 = firstClusterX0
+            }
+          }
+          if (bestRow < 0) {
+            return { found: false }
+          }
+          // Sample a vertical band around the detected row (a glyph spans many rows).
+          const y0 = Math.max(0, bestRow - 10)
+          const y1 = Math.min(H - 1, bestRow + 10)
+          // CJK region: everything LEFT of the first emoji cluster holds
+          // "CJK 你好世界  café  Ω≈ç√∫". Count non-bg pixels (real glyphs paint
+          // many; blank/sparse .notdef paints far fewer).
+          const cjkX1 = Math.max(8, bestClusterX0 - 4)
+          let cjkNonBg = 0
+          for (let y = y0; y <= y1; y++) {
+            for (let x = 0; x < cjkX1; x++) {
+              if (!isBg(at(x, y))) {
+                cjkNonBg++
               }
             }
           }
-          if (clusters >= 3 && hues.size > bestHues) {
-            bestHues = hues.size
-            bestRow = y
-            bestClusterX0 = firstClusterX0
-          }
-        }
-        if (bestRow < 0) {
-          return { found: false }
-        }
-        // Sample a vertical band around the detected row (a glyph spans many rows).
-        const y0 = Math.max(0, bestRow - 10)
-        const y1 = Math.min(H - 1, bestRow + 10)
-        // CJK region: everything LEFT of the first emoji cluster holds
-        // "CJK 你好世界  café  Ω≈ç√∫". Count non-bg pixels (real glyphs paint
-        // many; blank/sparse .notdef paints far fewer).
-        const cjkX1 = Math.max(8, bestClusterX0 - 4)
-        let cjkNonBg = 0
-        for (let y = y0; y <= y1; y++) {
-          for (let x = 0; x < cjkX1; x++) {
-            if (!isBg(at(x, y))) {
-              cjkNonBg++
+          // Emoji region (the clusters and rightward): count chromatic pixels and the
+          // DISTINCT quantised colours among them — colour emoji yield many; a mono
+          // tofu box or blank slot yields ~0-1.
+          const colours = new Set<number>()
+          let emojiColourful = 0
+          for (let y = y0; y <= y1; y++) {
+            for (let x = cjkX1; x < W; x++) {
+              const p = at(x, y)
+              if (isColourful(p)) {
+                emojiColourful++
+                colours.add(quant(p))
+              }
             }
           }
-        }
-        // Emoji region (the clusters and rightward): count chromatic pixels and the
-        // DISTINCT quantised colours among them — colour emoji yield many; a mono
-        // tofu box or blank slot yields ~0-1.
-        const colours = new Set<number>()
-        let emojiColourful = 0
-        for (let y = y0; y <= y1; y++) {
-          for (let x = cjkX1; x < W; x++) {
-            const p = at(x, y)
-            if (isColourful(p)) {
-              emojiColourful++
-              colours.add(quant(p))
-            }
+          return {
+            found: true,
+            cjkNonBg,
+            emojiColourful,
+            distinctEmojiColours: colours.size
           }
+        },
+        { findSrc: CANVAS_BY_PTY, ptyId }
+      )
+
+    let fallback: Awaited<ReturnType<typeof readFallbackProbe>> = null
+    await expect
+      .poll(
+        async () => {
+          fallback = await readFallbackProbe()
+          return Boolean(
+            fallback?.found &&
+            (fallback.cjkNonBg ?? 0) > 400 &&
+            (fallback.emojiColourful ?? 0) > 200 &&
+            (fallback.distinctEmojiColours ?? 0) > 8
+          )
+        },
+        {
+          timeout: 30_000,
+          message: 'CJK + colour-emoji glyphs should resolve once the lazy fallback faces land'
         }
-        return {
-          found: true,
-          cjkNonBg,
-          emojiColourful,
-          distinctEmojiColours: colours.size
-        }
-      },
-      { findSrc: CANVAS_BY_PTY, ptyId }
-    )
+      )
+      .toBe(true)
 
     expect(fallback?.found).toBe(true)
     // CJK "你好世界" rendered real glyphs (not blank, not sparse .notdef boxes).

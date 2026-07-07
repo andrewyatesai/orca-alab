@@ -1928,8 +1928,10 @@ export type PreloadApi = {
      *  ordered list of additional non-Latin faces actually found on the host
      *  (Arabic/Hebrew/Indic/Thai + a broad catch-all), each appended via
      *  add_fallback_font. A category/entry is absent when the host has no font for
-     *  it. */
-    getTerminalFallbackFonts: () => Promise<{
+     *  it. `classes` scopes the read to the face class the engine reported
+     *  missing ('text' = CJK+chain+symbol, 'emoji') — E1 lazy fonts; omitted =
+     *  both. */
+    getTerminalFallbackFonts: (classes?: ('text' | 'emoji')[]) => Promise<{
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
       symbol?: Uint8Array

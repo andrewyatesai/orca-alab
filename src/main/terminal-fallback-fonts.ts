@@ -247,7 +247,16 @@ function osLocale(): string {
   return process.env.LC_ALL || process.env.LC_CTYPE || process.env.LANG || ''
 }
 
-let cached: TerminalFallbackFonts | null = null
+/** The injectable face classes the aterm engine reports misses for (E1 lazy
+ *  fonts): 'text' = the mono faces (CJK + script chain + symbol), 'emoji' =
+ *  the colour emoji face. Kept as separate loads because emoji dominates the
+ *  payload (Apple Color Emoji is ~183MB) and most sessions never render one. */
+export type FallbackFontClass = 'text' | 'emoji'
+
+// Per-class caches (promises, so concurrent requests share one disk read). The
+// emoji read only ever happens when a renderer actually reports an emoji miss.
+let cachedText: Promise<Omit<TerminalFallbackFonts, 'emoji'>> | null = null
+let cachedEmoji: Promise<Uint8Array | undefined> | null = null
 
 function candidatesFor(table: Record<NodeJS.Platform, readonly string[]>): readonly string[] {
   return table[process.platform] ?? []
@@ -330,25 +339,20 @@ async function discoverChain(usedPaths: Set<string>): Promise<FallbackChainEntry
   return chain
 }
 
-export async function getTerminalFallbackFonts(): Promise<TerminalFallbackFonts> {
-  if (cached) {
-    return cached
-  }
+async function loadTextFonts(): Promise<Omit<TerminalFallbackFonts, 'emoji'>> {
   // Han-unification: pick the CJK face for the user's locale so JP/KR users see
   // their own glyph forms, not Chinese ones. On Linux, ask fontconfig for the
   // region's lang (Noto resolves the regional face); region-preferred OS faces are
-  // tried before the generic candidates. Emoji + symbol are region-independent (the
+  // tried before the generic candidates. Symbol is region-independent (the
   // symbol charset probe asks for U+23F8 ⏸, a media glyph the primary faces miss).
   const region = cjkRegionFromLocale(osLocale())
-  const [cjkFc, emojiFc, symbolFc] = await Promise.all([
+  const [cjkFc, symbolFc] = await Promise.all([
     linuxFcCandidates(`:lang=${FC_LANG[region]}`),
-    linuxFcCandidates(':charset=1F600'),
     linuxFcCandidates(':charset=23F8')
   ])
   const regionCjk = CJK_REGION_CANDIDATES[region][process.platform] ?? []
-  const [cjkFound, emoji, symbol] = await Promise.all([
+  const [cjkFound, symbol] = await Promise.all([
     readFirstExistingWithPath([...cjkFc, ...regionCjk, ...candidatesFor(CJK_CANDIDATES)]),
-    readFirstExisting([...emojiFc, ...candidatesFor(EMOJI_CANDIDATES)]),
     readFirstExisting([...symbolFc, ...candidatesFor(SYMBOL_CANDIDATES)])
   ])
   // De-dup the chain against the CJK face so a face that doubles as both (e.g. a
@@ -358,11 +362,32 @@ export async function getTerminalFallbackFonts(): Promise<TerminalFallbackFonts>
     usedPaths.add(cjkFound.path)
   }
   const chain = await discoverChain(usedPaths)
-  cached = {
+  return {
     cjk: cjkFound ? { bytes: cjkFound.bytes, region } : undefined,
-    emoji,
     symbol,
     chain
   }
-  return cached
+}
+
+async function loadEmojiFont(): Promise<Uint8Array | undefined> {
+  const emojiFc = await linuxFcCandidates(':charset=1F600')
+  return readFirstExisting([...emojiFc, ...candidatesFor(EMOJI_CANDIDATES)])
+}
+
+/**
+ * Read the host fallback fonts for the requested face classes (both when
+ * `classes` is omitted — the legacy eager shape). Class results are cached for
+ * the process lifetime; the ~183MB emoji face is only ever read once a
+ * renderer actually reports an emoji glyph miss (E1 lazy fonts).
+ */
+export async function getTerminalFallbackFonts(
+  classes?: readonly FallbackFontClass[]
+): Promise<TerminalFallbackFonts> {
+  const wantText = !classes || classes.includes('text')
+  const wantEmoji = !classes || classes.includes('emoji')
+  const [text, emoji] = await Promise.all([
+    wantText ? (cachedText ??= loadTextFonts()) : undefined,
+    wantEmoji ? (cachedEmoji ??= loadEmojiFont()) : undefined
+  ])
+  return { cjk: text?.cjk, symbol: text?.symbol, chain: text?.chain ?? [], emoji }
 }

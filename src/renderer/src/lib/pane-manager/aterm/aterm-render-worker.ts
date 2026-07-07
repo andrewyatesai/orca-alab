@@ -19,9 +19,9 @@ import {
   buildCpuEngine,
   buildGpuEngine,
   type EngineHandle,
-  type StoredInit,
-  type WorkerResidentFonts
+  type StoredInit
 } from './aterm-worker-engine-build'
+import { applyResidentFontClass, type WorkerResidentFonts } from './aterm-worker-font-registry'
 import { createWorkerTerminal } from './aterm-worker-terminal'
 import { createWorkerSerializeCache } from './aterm-worker-serialize-cache'
 import {
@@ -47,10 +47,44 @@ const ctx = self as unknown as {
   requestAnimationFrame?: (cb: () => void) => number
 }
 
-// The worker-resident font faces (set by the 'fonts' message before any pane init).
+// The worker-resident font faces (set by the 'fonts' message before any pane init;
+// E1: primary-only at boot, fallback classes stream in via 'fontClass' on demand).
 let fonts: WorkerResidentFonts | null = null
 
+// Classes already announced to the manager (bit 1 = text, 2 = emoji). Latched for
+// the worker's lifetime: a class is requested at most once — if the delivered
+// faces still miss a char the engine re-fires the bit, and re-requesting would
+// loop (the engine docs require the host to latch per class).
+let announcedFontClasses = 0
+
 const panes = new Map<number, PaneRuntime>()
+
+/** Post-frame drain (E1): collect the engine's missing-font class bits and ask the
+ *  manager for any class not yet announced. Cheap — one wasm call returning a u8. */
+function reportMissingFontClasses(pane: PaneRuntime): void {
+  if (!pane.engine) {
+    return
+  }
+  let bits = 0
+  try {
+    bits = pane.engine.take_missing_font_classes()
+  } catch {
+    return
+  }
+  const fresh = bits & ~announcedFontClasses
+  if (!fresh) {
+    return
+  }
+  announcedFontClasses |= fresh
+  const classes: ('text' | 'emoji')[] = []
+  if (fresh & 1) {
+    classes.push('text')
+  }
+  if (fresh & 2) {
+    classes.push('emoji')
+  }
+  ctx.postMessage({ type: 'missingFontClasses', classes })
+}
 
 // ONE rAF loop for every pane's frame scheduler (see createSharedWorkerRafLoop).
 const sharedRaf = createSharedWorkerRafLoop(
@@ -62,6 +96,8 @@ function createPane(paneId: number): PaneRuntime {
     paneId,
     term: null,
     engineSetters: null,
+    engine: null,
+    engineKind: null,
     storedInit: null,
     canvas: null,
     fellBackToCpu: false,
@@ -70,7 +106,12 @@ function createPane(paneId: number): PaneRuntime {
     // must be isolated so one pane's dispose/suspend can't touch another's.
     frameScheduler: createWorkerFrameScheduler({
       getTerm: () => pane.term,
-      post: (state) => pane.post(state),
+      post: (state) => {
+        pane.post(state)
+        // After the frame that exposed them: any `.notdef` misses this render
+        // recorded reach the manager while the pane is still on glass (E1).
+        reportMissingFontClasses(pane)
+      },
       raf: sharedRaf
     }),
     serializeCache: createWorkerSerializeCache({
@@ -87,6 +128,8 @@ function createPane(paneId: number): PaneRuntime {
 function startTerminal(pane: PaneRuntime, handle: EngineHandle): void {
   pane.term = createWorkerTerminal(handle)
   pane.engineSetters = handle.engine as unknown as EngineSettingSetters
+  pane.engine = handle.engine
+  pane.engineKind = handle.kind
   if (pane.storedInit) {
     pane.term.resize(pane.storedInit.rows, pane.storedInit.cols)
   }
@@ -173,6 +216,8 @@ function handleDispose(paneId: number): void {
   pane.term?.dispose()
   pane.term = null
   pane.engineSetters = null
+  pane.engine = null
+  pane.engineKind = null
   pane.storedInit = null
   pane.canvas = null
   panes.delete(paneId)
@@ -208,6 +253,28 @@ function dispatch(msg: AtermWorkerRequest): void {
     // GL acquire), and without the ack the manager/loader can't tell "alive but
     // building" from "wedged".
     ctx.postMessage({ type: 'booted' })
+    return
+  }
+  if (msg.type === 'fontClass') {
+    if (!fonts) {
+      return
+    }
+    // Grow the resident faces (future engine builds seed them via ensureModuleHandles)…
+    if (msg.class === 'text') {
+      fonts.fallbacks = msg.fallbacks ?? []
+      fonts.symbol = msg.symbol
+    } else {
+      fonts.emoji = msg.emoji
+    }
+    // …and retrofit every LIVE engine: the installers clear the per-char memos and
+    // force a full repaint, so `.notdef` cells re-render through the new faces.
+    for (const pane of panes.values()) {
+      if (pane.engine && pane.engineKind) {
+        applyResidentFontClass(pane.engine, pane.engineKind, msg.class, fonts)
+        // Render-only: content is unchanged, the glyphs just resolve now.
+        pane.frameScheduler.schedule(false)
+      }
+    }
     return
   }
   if (msg.type === 'init') {

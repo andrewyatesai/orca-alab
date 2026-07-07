@@ -1433,6 +1433,19 @@ export class AtermTerminal {
         return ret !== 0;
     }
     /**
+     * Drain the missing-font CLASS bits (1 = text/mono fallback, 2 = colour
+     * emoji) accumulated by renders since the last call. The host polls this
+     * after a frame and lazily injects ONLY the face class actually missed —
+     * an ASCII-only session never pays the multi-hundred-MB emoji/CJK payload.
+     * Latch per class host-side: a bit can re-fire if the injected faces still
+     * miss a char.
+     * @returns {number}
+     */
+    take_missing_font_classes() {
+        const ret = wasm.atermterminal_take_missing_font_classes(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * Drain pending desktop notifications (queued since the last drain) as a
      * JSON array of `{"id","title","body","urgency"}` objects — string or
      * `null` fields, urgency ∈ `"low"|"normal"|"critical"`; `None` when

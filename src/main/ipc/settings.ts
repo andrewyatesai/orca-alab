@@ -187,8 +187,11 @@ export function registerSettingsHandlers(
   // which rasterizes glyphs itself and ships only JetBrains Mono — without these
   // CJK/emoji render as .notdef tofu. Always the LOCAL host's fonts (rendering is
   // always local, even over SSH).
-  ipcMain.handle('fonts:getTerminalFallbackFonts', () => {
-    return getTerminalFallbackFonts()
+  // `classes` (['text' | 'emoji']) scopes the read: renderers request a class
+  // only when the engine reports a glyph miss for it (E1 lazy fonts), so an
+  // ASCII-only session never pays the ~183MB emoji read. Omitted = both.
+  ipcMain.handle('fonts:getTerminalFallbackFonts', (_event, classes?: ('text' | 'emoji')[]) => {
+    return getTerminalFallbackFonts(classes)
   })
 
   // Resolve the user's terminalFontFamily to face bytes: the primary face closest

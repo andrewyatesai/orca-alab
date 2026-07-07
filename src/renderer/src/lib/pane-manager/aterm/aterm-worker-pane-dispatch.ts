@@ -3,7 +3,7 @@
 // messages (init / fallback / dispose); every other pane-scoped command lands here.
 // Split from the entry to keep both files under the line budget.
 
-import type { StoredInit } from './aterm-worker-engine-build'
+import type { StoredInit, WorkerEngine } from './aterm-worker-engine-build'
 import type { WorkerTerminal } from './aterm-worker-terminal'
 import type { WorkerFrameScheduler } from './aterm-worker-frame-scheduler'
 import type {
@@ -49,6 +49,10 @@ export type PaneRuntime = {
   paneId: number
   term: WorkerTerminal | null
   engineSetters: EngineSettingSetters | null
+  /** The raw engine + its module kind, for worker-level font work: the per-frame
+   *  missing-font-class drain and late 'fontClass' application (E1 lazy fonts). */
+  engine: WorkerEngine | null
+  engineKind: 'cpu' | 'gpu' | null
   storedInit: StoredInit | null
   canvas: OffscreenCanvas | null
   /** Don't fall back twice if more than one init error is posted for this pane. */

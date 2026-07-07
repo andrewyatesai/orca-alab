@@ -628,6 +628,14 @@ export class AtermGpuTerminal {
      */
     set_word_separators(separators?: string | null): void;
     /**
+     * Drain the missing-font CLASS bits (1 = text/mono fallback, 2 = colour
+     * emoji) accumulated by renders since the last call — see the aterm-wasm
+     * twin. Misses accumulate on the PRE-init metrics face before `init` and
+     * inside the GPU renderer's wrapped CPU face after it, so both are drained
+     * and OR-ed.
+     */
+    take_missing_font_classes(): number;
+    /**
      * Drain pending desktop notifications (queued since the last drain) as a
      * JSON array of `{"id","title","body","urgency"}` objects — string or
      * `null` fields, urgency ∈ `"low"|"normal"|"critical"`; `None` when
@@ -1015,6 +1023,7 @@ export interface InitOutput {
     readonly atermgputerminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_sparkle_lexicon_warnings: (a: number) => [number, number];
     readonly atermgputerminal_sparkle_words_enabled: (a: number) => number;
+    readonly atermgputerminal_take_missing_font_classes: (a: number) => number;
     readonly atermgputerminal_take_notifications: (a: number) => [number, number];
     readonly atermgputerminal_take_osc_events: (a: number) => [number, number];
     readonly atermgputerminal_take_response: (a: number) => [number, number];

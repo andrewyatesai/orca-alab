@@ -120,6 +120,7 @@ export const atermterminal_set_theme: (a: number, b: number, c: number, d: numbe
 export const atermterminal_set_word_separators: (a: number, b: number, c: number) => void;
 export const atermterminal_sparkle_lexicon_warnings: (a: number) => [number, number];
 export const atermterminal_sparkle_words_enabled: (a: number) => number;
+export const atermterminal_take_missing_font_classes: (a: number) => number;
 export const atermterminal_take_notifications: (a: number) => [number, number];
 export const atermterminal_take_osc_events: (a: number) => [number, number];
 export const atermterminal_take_response: (a: number) => [number, number];

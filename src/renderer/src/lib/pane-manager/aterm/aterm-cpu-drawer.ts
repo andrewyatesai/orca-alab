@@ -1,5 +1,5 @@
 import { loadAterm } from './load-aterm'
-import { injectTerminalFallbackFonts } from './inject-terminal-fallback-fonts'
+import { createLazyFallbackFontInjector } from './inject-terminal-fallback-fonts'
 import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
 import { createAtermFramePainter } from './aterm-frame-painter'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
@@ -44,9 +44,9 @@ export async function loadAtermCpuDrawer(
     themeColors.cursor,
     themeColors.selection
   )
-  // Inject the local OS CJK + colour-emoji fallback faces so non-Latin scripts
-  // render real glyphs instead of .notdef tofu (JetBrains Mono is Latin-only).
-  await injectTerminalFallbackFonts(term, 'cpu')
+  // OS fallback faces (CJK/emoji/symbol) inject LAZILY on the engine's glyph-miss
+  // signal (see the per-frame poll in bindPainter) — E1: an ASCII-only pane never
+  // pays the multi-hundred-MB payload. JetBrains Mono covers Latin from frame 1.
   // Seed the 16 ANSI palette colours from the theme so SGR-indexed cell colours
   // (ls/git/prompts) render in the user's theme, not the engine's VGA defaults.
   seedAtermPalette(term, themeColors)
@@ -64,7 +64,7 @@ export async function loadAtermCpuDrawer(
     cellWidth,
     cellHeight,
     bindPainter: (binding) => {
-      const drawFrame = createAtermFramePainter({
+      const paintFrame = createAtermFramePainter({
         ctx,
         canvas,
         term,
@@ -80,6 +80,18 @@ export async function loadAtermCpuDrawer(
         getHoveredLinkSpan: binding.getHoveredLinkSpan,
         getFgColor: binding.getFgColor
       })
+      // E1 lazy fonts: drain the engine's missing-font classes after each frame
+      // and inject only what a render actually missed.
+      const lazyFonts = createLazyFallbackFontInjector({
+        term,
+        engine: 'cpu',
+        requestRedraw: binding.drawScheduler.schedule,
+        isDisposed: binding.isDisposed
+      })
+      const drawFrame = (): void => {
+        paintFrame()
+        lazyFonts.poll()
+      }
       return {
         term,
         getCanvas: () => canvas,

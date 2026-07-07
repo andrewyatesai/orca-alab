@@ -20,8 +20,11 @@ import type { AtermThemeColors } from './aterm-theme-colors'
 
 // ── Worker-scoped requests (main → worker, no paneId) ─────────────────────────────
 
-/** The immutable font faces every engine in this worker seeds from, sent ONCE per
- *  worker generation BEFORE the first pane init. The worker keeps them resident so
+/** The font faces every engine in this worker seeds from, sent ONCE per worker
+ *  generation BEFORE the first pane init. E1 LAZY FONTS: at boot this carries the
+ *  ~264KB primary ONLY — the multi-hundred-MB OS fallback classes arrive later via
+ *  'fontClass', and only when an engine actually reports a glyph miss for them
+ *  (the 'missingFontClasses' worker event). The worker keeps faces resident so
  *  per-pane inits carry no font bytes at all; the engine-side content-keyed intern
  *  registry then dedupes the bytes across engines within each wasm module. */
 export type AtermWorkerFonts = {
@@ -37,6 +40,26 @@ export type AtermWorkerFonts = {
   /** Optional monochrome SYMBOL face (set_symbol_font — the media/technical-glyph tier,
    *  ⏸⏹⏺). Consulted after the fallback chain misses; parity with the native engine. */
   symbol?: Uint8Array
+}
+
+/** The injectable font classes the aterm engine reports misses for (mirrors the
+ *  engine's MISSING_FONT_CLASS_TEXT/EMOJI bits): 'text' = the monochrome faces
+ *  (CJK + script chain + symbol), 'emoji' = the colour emoji face. */
+export type AtermFontClass = 'text' | 'emoji'
+
+/** A lazily delivered font CLASS (E1): posted by the manager after the worker's
+ *  'missingFontClasses' event, once per class per generation. The worker registers
+ *  the faces on every live wasm module and applies them to every live engine —
+ *  previously `.notdef` cells re-render through the new faces on the next frame. */
+export type AtermWorkerFontClass = {
+  type: 'fontClass'
+  class: AtermFontClass
+  /** 'text': CJK-first + script chain (set_fallback_font, then add_fallback_font). */
+  fallbacks?: Uint8Array[]
+  /** 'text': the monochrome symbol tier (set_symbol_font). */
+  symbol?: Uint8Array
+  /** 'emoji': the colour face (set_emoji_font). */
+  emoji?: Uint8Array
 }
 
 // ── Pane-scoped commands (main → worker; wire form adds `paneId`) ─────────────────
@@ -305,7 +328,10 @@ export type AtermWorkerPaneRuntimeCommand = Exclude<
 >
 
 /** Everything the main thread posts to the worker (the wire union). */
-export type AtermWorkerRequest = AtermWorkerFonts | (AtermWorkerPaneCommand & { paneId: number })
+export type AtermWorkerRequest =
+  | AtermWorkerFonts
+  | AtermWorkerFontClass
+  | (AtermWorkerPaneCommand & { paneId: number })
 
 // ── Events (worker → main) ────────────────────────────────────────────────────────
 
@@ -471,9 +497,20 @@ export type AtermWorkerBooted = { type: 'booted' }
  *  manager retires the worker and every live pane rebuilds through its context-loss
  *  seam — without this each pane silently freezes at its last frame. */
 export type AtermWorkerCrash = { type: 'crash'; message: string }
+/** An engine rendered `.notdef` for a char an absent font CLASS would have served
+ *  (E1 lazy fonts, drained from the engine's take_missing_font_classes after a
+ *  frame). Worker-scoped — fonts are worker-resident, one delivery serves every
+ *  pane. The worker posts each class at most once per generation (latched); the
+ *  manager answers with a 'fontClass' delivery, self-healing across crashes
+ *  because a rebuilt generation simply re-fires on the next miss. */
+export type AtermWorkerMissingFontClasses = {
+  type: 'missingFontClasses'
+  classes: AtermFontClass[]
+}
 
 /** Everything the worker posts back to the main thread (the wire union). */
 export type AtermWorkerMessage =
   | AtermWorkerBooted
   | AtermWorkerCrash
+  | AtermWorkerMissingFontClasses
   | (AtermWorkerPaneEvent & { paneId: number })

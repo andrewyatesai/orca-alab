@@ -1,5 +1,5 @@
 import { loadAtermGpu } from './load-aterm-gpu'
-import { injectTerminalFallbackFonts } from './inject-terminal-fallback-fonts'
+import { createLazyFallbackFontInjector } from './inject-terminal-fallback-fonts'
 import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
@@ -45,9 +45,9 @@ export async function loadAtermGpuDrawer(
     themeColors.cursor,
     themeColors.selection
   )
-  // Inject the local OS CJK + colour-emoji fallback faces BEFORE init so the
-  // engine re-applies them to the GPU face it builds there (else CJK/emoji tofu).
-  await injectTerminalFallbackFonts(gpuTerm, 'gpu')
+  // OS fallback faces inject LAZILY on the engine's glyph-miss signal (the
+  // per-frame poll in bindPainter) — E1. The registered setters also fill the
+  // GPU terminal's retention slots, so late faces survive an init() rebuild.
   // Seed the 16 ANSI palette colours from the theme so SGR-indexed cell colours
   // (ls/git/prompts) render in the user's theme, not the engine's VGA defaults.
   seedAtermPalette(gpuTerm, themeColors)
@@ -87,6 +87,15 @@ export async function loadAtermGpuDrawer(
       }
       canvas.addEventListener('webglcontextlost', onLost)
 
+      // E1 lazy fonts: drain the engine's missing-font classes after each frame
+      // and inject only what a render actually missed.
+      const lazyFonts = createLazyFallbackFontInjector({
+        term: gpuTerm,
+        engine: 'gpu',
+        requestRedraw: binding.drawScheduler.schedule,
+        isDisposed: () => binding.isDisposed() || contextLost
+      })
+
       const drawFrame = (): void => {
         if (binding.isDisposed() || contextLost || !binding.drawScheduler.isScheduled()) {
           return
@@ -116,6 +125,7 @@ export async function loadAtermGpuDrawer(
           canvas.style.width = `${canvas.width / dpr}px`
           canvas.style.height = `${canvas.height / dpr}px`
         }
+        lazyFonts.poll()
       }
 
       return {

@@ -3,8 +3,10 @@ import { createAtermSharedWorkerHost } from './aterm-shared-render-worker'
 import type { AtermWorkerMessage, AtermWorkerRequest } from './aterm-render-worker-protocol'
 
 // Lifecycle proofs for the SHARED render-worker manager: one worker for N panes,
-// fonts sent once per generation, paneId routing, crash retirement (every pane
-// recovers, one-shot), terminate-on-last-release, lazy recreation.
+// the primary-only boot fonts sent once per generation, LAZY font-class delivery
+// on the worker's miss signal (E1: once per class per generation, buffers
+// transferred, no renderer byte cache), paneId routing, crash retirement (every
+// pane recovers, one-shot), terminate-on-last-release, lazy recreation.
 
 type MessageListener = (event: { data: AtermWorkerMessage }) => void
 type ErrorListener = (event: { message: string }) => void
@@ -34,27 +36,46 @@ function makeFakeWorker() {
   return { worker, posted }
 }
 
-function makeHost() {
+function makeHost(
+  loadFontClass?: (cls: 'text' | 'emoji') => Promise<{
+    fallbacks?: Uint8Array[]
+    symbol?: Uint8Array
+    emoji?: Uint8Array
+  }>
+) {
   const workers: ReturnType<typeof makeFakeWorker>[] = []
-  const fonts = {
-    primary: new Uint8Array([1, 2, 3]),
+  const fonts = { primary: new Uint8Array([1, 2, 3]) }
+  const classFaces = {
     fallbacks: [new Uint8Array([4, 5])],
-    emoji: new Uint8Array([6]),
-    symbol: new Uint8Array([7])
+    symbol: new Uint8Array([7]),
+    emoji: new Uint8Array([6])
   }
+  const loadClass = vi.fn(
+    loadFontClass ??
+      ((cls: 'text' | 'emoji') =>
+        Promise.resolve(
+          cls === 'text'
+            ? { fallbacks: classFaces.fallbacks, symbol: classFaces.symbol }
+            : { emoji: classFaces.emoji }
+        ))
+  )
   const host = createAtermSharedWorkerHost({
     createWorker: () => {
       const fake = makeFakeWorker()
       workers.push(fake)
       return fake.worker
     },
-    loadFonts: () => Promise.resolve(fonts)
+    loadFonts: () => Promise.resolve(fonts),
+    loadFontClass: loadClass
   })
-  return { host, workers, fonts }
+  return { host, workers, fonts, classFaces, loadClass }
 }
 
+/** Let the async deliverFontClass chain settle. */
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
 describe('aterm shared render worker host', () => {
-  it('creates ONE worker for many panes and sends fonts once, before any init', async () => {
+  it('creates ONE worker for many panes and sends the primary-only fonts once, first', async () => {
     const { host, workers, fonts } = makeHost()
     const a = await host.acquirePane()
     const b = await host.acquirePane()
@@ -67,18 +88,76 @@ describe('aterm shared render worker host', () => {
     const fontMessages = posted.filter((p) => p.message.type === 'fonts')
     expect(fontMessages).toHaveLength(1)
     expect(posted[0].message.type).toBe('fonts') // fonts strictly first
-    // The sent faces are COPIES (transferable without detaching the renderer cache).
-    const sent = fontMessages[0].message as { primary: Uint8Array; symbol?: Uint8Array }
+    // The boot payload is the PRIMARY only (E1: fallback classes are lazy), sent
+    // as a COPY so the transfer can't detach the cached asset bytes.
+    const sent = fontMessages[0].message as { primary: Uint8Array; fallbacks: Uint8Array[] }
     expect(sent.primary).toEqual(fonts.primary)
     expect(sent.primary).not.toBe(fonts.primary)
-    expect(fonts.primary.byteLength, 'renderer cache must stay intact').toBe(3)
-    // The monochrome symbol tier rides the same one-shot fonts message (copy + transfer).
-    expect(sent.symbol).toEqual(fonts.symbol)
-    expect(sent.symbol).not.toBe(fonts.symbol)
-    expect(fontMessages[0].transfer).toContain(sent.symbol?.buffer)
+    expect(fonts.primary.byteLength, 'cached asset bytes must stay intact').toBe(3)
+    expect(sent.fallbacks).toEqual([])
     // Pane commands are stamped with each pane's own id.
     const draws = posted.filter((p) => p.message.type === 'draw')
     expect(draws.map((d) => (d.message as { paneId: number }).paneId)).toEqual([a.paneId, b.paneId])
+  })
+
+  it('delivers a missed font class once per generation, buffers transferred', async () => {
+    const { host, workers, classFaces, loadClass } = makeHost()
+    await host.acquirePane()
+    const worker = workers[0]
+    worker.worker.emit({ type: 'missingFontClasses', classes: ['text'] })
+    await settle()
+    expect(loadClass).toHaveBeenCalledWith('text')
+    const deliveries = worker.posted.filter((p) => p.message.type === 'fontClass')
+    expect(deliveries).toHaveLength(1)
+    const sent = deliveries[0].message as {
+      class: string
+      fallbacks?: Uint8Array[]
+      symbol?: Uint8Array
+    }
+    expect(sent.class).toBe('text')
+    expect(sent.fallbacks?.[0]).toEqual(classFaces.fallbacks[0])
+    expect(sent.symbol).toEqual(classFaces.symbol)
+    expect(deliveries[0].transfer).toContain(sent.fallbacks?.[0].buffer)
+    expect(deliveries[0].transfer).toContain(sent.symbol?.buffer)
+
+    // A re-fired miss for the same class is latched (no duplicate fetch/delivery).
+    worker.worker.emit({ type: 'missingFontClasses', classes: ['text'] })
+    await settle()
+    expect(loadClass).toHaveBeenCalledTimes(1)
+
+    // The emoji class is independent and carries the colour face.
+    worker.worker.emit({ type: 'missingFontClasses', classes: ['emoji'] })
+    await settle()
+    const emojiDelivery = worker.posted.filter((p) => p.message.type === 'fontClass')[1]
+    expect((emojiDelivery.message as { emoji?: Uint8Array }).emoji).toEqual(classFaces.emoji)
+  })
+
+  it('a failed class fetch is latched for the generation (no delivery, no crash)', async () => {
+    const { host, workers, loadClass } = makeHost(() => Promise.reject(new Error('no ipc')))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await host.acquirePane()
+      const worker = workers[0]
+      worker.worker.emit({ type: 'missingFontClasses', classes: ['text'] })
+      worker.worker.emit({ type: 'missingFontClasses', classes: ['text'] })
+      await settle()
+      expect(loadClass).toHaveBeenCalledTimes(1)
+      expect(worker.posted.filter((p) => p.message.type === 'fontClass')).toHaveLength(0)
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('a class delivery for a retired generation is dropped', async () => {
+    const { host, workers } = makeHost()
+    const a = await host.acquirePane()
+    a.onCrash(() => {})
+    const worker = workers[0]
+    worker.worker.emit({ type: 'missingFontClasses', classes: ['text'] })
+    worker.worker.emit({ type: 'crash', message: 'wasm panic' })
+    await settle()
+    expect(worker.posted.filter((p) => p.message.type === 'fontClass')).toHaveLength(0)
   })
 
   it('routes pane events by paneId and worker-scoped booted to all', async () => {

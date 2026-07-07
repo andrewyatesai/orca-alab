@@ -619,6 +619,15 @@ export class AtermTerminal {
      */
     set_word_separators(separators?: string | null): void;
     /**
+     * Drain the missing-font CLASS bits (1 = text/mono fallback, 2 = colour
+     * emoji) accumulated by renders since the last call. The host polls this
+     * after a frame and lazily injects ONLY the face class actually missed —
+     * an ASCII-only session never pays the multi-hundred-MB emoji/CJK payload.
+     * Latch per class host-side: a bit can re-fire if the injected faces still
+     * miss a char.
+     */
+    take_missing_font_classes(): number;
+    /**
      * Drain pending desktop notifications (queued since the last drain) as a
      * JSON array of `{"id","title","body","urgency"}` objects — string or
      * `null` fields, urgency ∈ `"low"|"normal"|"critical"`; `None` when
@@ -1004,6 +1013,7 @@ export interface InitOutput {
     readonly atermterminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermterminal_sparkle_lexicon_warnings: (a: number) => [number, number];
     readonly atermterminal_sparkle_words_enabled: (a: number) => number;
+    readonly atermterminal_take_missing_font_classes: (a: number) => number;
     readonly atermterminal_take_notifications: (a: number) => [number, number];
     readonly atermterminal_take_osc_events: (a: number) => [number, number];
     readonly atermterminal_take_response: (a: number) => [number, number];

@@ -1708,7 +1708,11 @@ const api = {
     // Local OS fallback fonts for the aterm terminal renderer: region-aware CJK
     // face (first) + emoji + a monochrome symbol face + an ordered non-Latin chain
     // (Arabic/Hebrew/Indic/Thai + broad catch-all) appended via add_fallback_font.
-    getTerminalFallbackFonts: (): Promise<{
+    // `classes` scopes the read to the face class the engine actually reported
+    // missing ('text' = CJK+chain+symbol, 'emoji') — E1 lazy fonts; omitted = both.
+    getTerminalFallbackFonts: (
+      classes?: ('text' | 'emoji')[]
+    ): Promise<{
       cjk?: { bytes: Uint8Array; region: 'ja' | 'ko' | 'zh-Hant' | 'zh-Hans' }
       emoji?: Uint8Array
       symbol?: Uint8Array
@@ -1716,7 +1720,7 @@ const api = {
         bytes: Uint8Array
         script: 'arabic' | 'hebrew' | 'devanagari' | 'thai' | 'unicode'
       }[]
-    }> => ipcRenderer.invoke('fonts:getTerminalFallbackFonts'),
+    }> => ipcRenderer.invoke('fonts:getTerminalFallbackFonts', classes),
     // Resolve a font FAMILY NAME (+ the user's numeric weight) to face bytes so
     // the aterm renderer can honor terminalFontFamily: `primary` feeds
     // set_primary_font, `bold` (the family's real bold style, when it ships one)

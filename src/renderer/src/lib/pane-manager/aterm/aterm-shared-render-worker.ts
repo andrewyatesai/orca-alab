@@ -25,20 +25,37 @@
 
 import { loadAterm } from './load-aterm'
 import type {
+  AtermFontClass,
   AtermWorkerMessage,
   AtermWorkerPaneCommand,
   AtermWorkerPaneEvent
 } from './aterm-render-worker-protocol'
 
-/** OS fallback faces for the worker engines: the monochrome fallback chain (CJK first
- *  — set_fallback_font RESETS the chain to it — then the script chain) plus the colour
- *  emoji face (set_emoji_font) and the monochrome symbol face (set_symbol_font), each
- *  kept SEPARATE because the chain + symbol render monochrome and emoji renders colour. */
+/** The boot font payload for the worker engines. E1 LAZY FONTS: primary only
+ *  (~264KB bundled JetBrains Mono) — the multi-hundred-MB OS fallback classes are
+ *  fetched and delivered only when an engine reports a glyph miss for them, so an
+ *  ASCII-only session never pays them in ANY process (the main-side read is
+ *  class-scoped too). */
 type SharedWorkerFonts = {
   primary: Uint8Array
-  fallbacks: Uint8Array[]
-  emoji: Uint8Array | null
-  symbol: Uint8Array | null
+}
+
+/** Fetch one missed font CLASS from the main process ('text' = CJK-first chain +
+ *  symbol, monochrome; 'emoji' = the colour face), shaped for the worker's
+ *  'fontClass' message. Injected for tests. */
+type LoadFontClass = (cls: AtermFontClass) => Promise<{
+  fallbacks?: Uint8Array[]
+  symbol?: Uint8Array
+  emoji?: Uint8Array
+}>
+
+/** A view whose buffer can be transferred whole (postMessage transfer lists move
+ *  ArrayBuffers, not views): IPC-delivered bytes normally own their buffer; a view
+ *  into a larger one is copied out first so the transfer can't leak siblings. */
+function transferableBytes(bytes: Uint8Array): Uint8Array {
+  return bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength
+    ? bytes
+    : bytes.slice()
 }
 
 /** One pane's handle onto the shared worker. Every method is a safe no-op once the
@@ -77,6 +94,7 @@ type WorkerLike = {
 type SharedWorkerHostDeps = {
   createWorker: () => WorkerLike
   loadFonts: () => Promise<SharedWorkerFonts>
+  loadFontClass: LoadFontClass
 }
 
 export type AtermSharedWorkerHost = {
@@ -91,6 +109,11 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
     booted: boolean
     retired: boolean
     panes: Map<number, PaneClient>
+    /** Font classes already requested for THIS generation (in flight or delivered).
+     *  Generation-scoped on purpose: resident faces die with the worker, and a
+     *  rebuilt generation self-heals by re-firing the miss signal — the main
+     *  process caches the class read, so re-delivery is one IPC copy. */
+    requestedFontClasses: Set<AtermFontClass>
   }
   let current: Generation | null = null
   let nextPaneId = 1
@@ -113,12 +136,62 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
     }
   }
 
+  // A missed font CLASS: fetch it (main caches per class) and deliver it to the
+  // generation's worker, transferring the buffers — the renderer keeps NO byte
+  // cache (pre-E1 it retained the whole ~229MB payload for post-crash re-sends;
+  // now a rebuilt generation just re-fires the miss signal).
+  const deliverFontClass = async (gen: Generation, cls: AtermFontClass): Promise<void> => {
+    if (gen.retired || gen.requestedFontClasses.has(cls)) {
+      return
+    }
+    gen.requestedFontClasses.add(cls)
+    let faces: Awaited<ReturnType<LoadFontClass>>
+    try {
+      faces = await deps.loadFontClass(cls)
+    } catch (err) {
+      // Permanent for this generation (latched): rendering stays Latin-correct
+      // with `.notdef` for the missed scripts, same as a host with no such font.
+      console.warn(`[aterm] lazy fallback-font fetch failed (class=${cls})`, err)
+      return
+    }
+    if (gen.retired) {
+      return
+    }
+    const fallbacks = (faces.fallbacks ?? []).map(transferableBytes)
+    const symbol = faces.symbol ? transferableBytes(faces.symbol) : undefined
+    const emoji = faces.emoji ? transferableBytes(faces.emoji) : undefined
+    // Byte count BEFORE the transfer detaches the buffers (the e2e hook below).
+    const bytes =
+      fallbacks.reduce((sum, f) => sum + f.byteLength, 0) +
+      (symbol?.byteLength ?? 0) +
+      (emoji?.byteLength ?? 0)
+    gen.worker.postMessage({ type: 'fontClass', class: cls, fallbacks, symbol, emoji }, [
+      ...fallbacks.map((f) => f.buffer),
+      ...(symbol ? [symbol.buffer] : []),
+      ...(emoji ? [emoji.buffer] : [])
+    ])
+    // e2e truth hook: which classes actually crossed, when — the lazy-font gate
+    // asserts the emoji face does NOT ship before an emoji renders.
+    if (typeof window !== 'undefined') {
+      const w = window as unknown as {
+        __atermFontClassDeliveries?: { class: AtermFontClass; bytes: number }[]
+      }
+      ;(w.__atermFontClassDeliveries ??= []).push({ class: cls, bytes })
+    }
+  }
+
   const ensureWorker = (fonts: SharedWorkerFonts): Generation => {
     if (current) {
       return current
     }
     const worker = deps.createWorker()
-    const gen: Generation = { worker, booted: false, retired: false, panes: new Map() }
+    const gen: Generation = {
+      worker,
+      booted: false,
+      retired: false,
+      panes: new Map(),
+      requestedFontClasses: new Set()
+    }
     worker.addEventListener('message', (event) => {
       const data = event.data
       if (data.type === 'booted') {
@@ -129,6 +202,12 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
         retire(gen, data.message)
         return
       }
+      if (data.type === 'missingFontClasses') {
+        for (const cls of data.classes) {
+          void deliverFontClass(gen, cls)
+        }
+        return
+      }
       gen.panes.get(data.paneId)?.onEvent?.(data)
     })
     worker.addEventListener('error', (event) => {
@@ -136,19 +215,10 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
       // silently freezes at its last frame while keystrokes keep flowing.
       retire(gen, event.message || 'uncaught worker error')
     })
-    // Fonts ONCE per worker generation, before any pane init. Slice the renderer-side
-    // cache so transferring the buffers doesn't detach it (a post-crash generation
-    // re-sends from the same cache).
+    // The boot 'fonts' message, before any pane init — E1: the ~264KB primary only.
+    // Slice the cached asset bytes so the transfer doesn't detach the cache.
     const primary = fonts.primary.slice()
-    const fallbacks = fonts.fallbacks.map((f) => f.slice())
-    const emoji = fonts.emoji ? fonts.emoji.slice() : undefined
-    const symbol = fonts.symbol ? fonts.symbol.slice() : undefined
-    worker.postMessage({ type: 'fonts', primary, fallbacks, emoji, symbol }, [
-      primary.buffer,
-      ...fallbacks.map((f) => f.buffer),
-      ...(emoji ? [emoji.buffer] : []),
-      ...(symbol ? [symbol.buffer] : [])
-    ])
+    worker.postMessage({ type: 'fonts', primary, fallbacks: [] }, [primary.buffer])
     current = gen
     return gen
   }
@@ -198,42 +268,36 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
   }
 }
 
-// The renderer-wide font fetch, shared across worker generations (the OS faces are
-// immutable + large; the IPC copies them whole each call — cache ONE fetch).
-let sharedWorkerFontsPromise: Promise<SharedWorkerFonts> | null = null
-
+// The boot payload is just the bundled primary (loadAterm caches the asset fetch);
+// its failure must be loud — no face, no engine.
 async function loadSharedWorkerFonts(): Promise<SharedWorkerFonts> {
-  sharedWorkerFontsPromise ??= (async () => {
-    // The primary (bundled JetBrains Mono) fetch must fail loudly — no face, no
-    // engine. The OS fallback faces are best-effort (parity with the in-process path).
-    const { fontBytes } = await loadAterm()
-    try {
-      const { cjk, emoji, symbol, chain } = await window.api.fonts.getTerminalFallbackFonts()
-      const fallbacks: Uint8Array[] = []
-      if (cjk) {
-        fallbacks.push(new Uint8Array(cjk.bytes))
-      }
-      for (const face of chain ?? []) {
-        fallbacks.push(new Uint8Array(face.bytes))
-      }
-      return {
-        primary: fontBytes,
-        fallbacks,
-        emoji: emoji ? new Uint8Array(emoji) : null,
-        symbol: symbol ? new Uint8Array(symbol) : null
-      }
-    } catch {
-      return { primary: fontBytes, fallbacks: [], emoji: null, symbol: null }
-    }
-  })()
-  return sharedWorkerFontsPromise
+  const { fontBytes } = await loadAterm()
+  return { primary: fontBytes }
+}
+
+// One missed class from the main process (per-class cached there); the bytes are
+// transferred straight into the worker — the renderer keeps no copy.
+async function loadSharedWorkerFontClass(cls: AtermFontClass): ReturnType<LoadFontClass> {
+  const { cjk, emoji, symbol, chain } = await window.api.fonts.getTerminalFallbackFonts([cls])
+  if (cls === 'emoji') {
+    return { emoji: emoji ? new Uint8Array(emoji) : undefined }
+  }
+  const fallbacks: Uint8Array[] = []
+  if (cjk) {
+    fallbacks.push(new Uint8Array(cjk.bytes))
+  }
+  for (const face of chain ?? []) {
+    fallbacks.push(new Uint8Array(face.bytes))
+  }
+  return { fallbacks, symbol: symbol ? new Uint8Array(symbol) : undefined }
 }
 
 const productionHost = createAtermSharedWorkerHost({
   // Vite (renderer worker:{format:'es'}) bundles the worker from this URL.
   createWorker: () =>
     new Worker(new URL('./aterm-render-worker.ts', import.meta.url), { type: 'module' }),
-  loadFonts: loadSharedWorkerFonts
+  loadFonts: loadSharedWorkerFonts,
+  loadFontClass: loadSharedWorkerFontClass
 })
 
 /** Acquire a pane slot on THE shared render worker (created lazily, terminated when

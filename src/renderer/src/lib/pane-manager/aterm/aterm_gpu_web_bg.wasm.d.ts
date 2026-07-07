@@ -123,6 +123,7 @@ export const atermgputerminal_set_theme: (a: number, b: number, c: number, d: nu
 export const atermgputerminal_set_word_separators: (a: number, b: number, c: number) => void;
 export const atermgputerminal_sparkle_lexicon_warnings: (a: number) => [number, number];
 export const atermgputerminal_sparkle_words_enabled: (a: number) => number;
+export const atermgputerminal_take_missing_font_classes: (a: number) => number;
 export const atermgputerminal_take_notifications: (a: number) => [number, number];
 export const atermgputerminal_take_osc_events: (a: number) => [number, number];
 export const atermgputerminal_take_response: (a: number) => [number, number];

@@ -1,5 +1,5 @@
 import { register_font as registerCpuFont, type AtermTerminal } from './aterm_wasm.js'
-import type { AtermGpuTerminal } from './aterm_gpu_web.js'
+import { register_font as registerGpuFont } from './aterm_gpu_web.js'
 
 // The aterm renderer rasterizes glyphs itself from injected fonts and ships only
 // JetBrains Mono, so non-Latin scripts render as .notdef tofu. The main process
@@ -8,27 +8,20 @@ import type { AtermGpuTerminal } from './aterm_gpu_web.js'
 // here we push them into the engine so its existing fallback/colour paths render
 // real glyphs. JetBrains Mono still covers Latin if these are absent or fail.
 //
-// CPU-module injection is HANDLE-based: the module registers the faces ONCE via
-// `register_font` (one marshal per blob) and every pane after that seeds from
-// 4-byte handles — the ~100–400MB faces are never re-copied across the JS/wasm
-// boundary per pane (the transient copies fragment the linear memory into a
-// per-pane high-water ratchet; wasm memory never shrinks). The GPU module keeps
-// byte-based injection: its registered twins intermittently trap `memory access
-// out of bounds` (an init interplay under investigation upstream).
+// Injection is HANDLE-based: each wasm module registers the faces ONCE via
+// `register_font` (one marshal per blob per module — CPU and GPU are separate
+// modules with separate linear memories) and every pane after that seeds from
+// 4-byte handles, so the ~100–400MB faces are never re-copied across the
+// JS/wasm boundary per pane (the transient copies fragment the never-shrinking
+// linear memory into a per-pane high-water ratchet).
 
-// The CPU module's handle-injection surface.
-type CpuFallbackFontInjectable = Pick<
+// The handle-injection surface — identical signatures on both modules' classes.
+type FallbackFontInjectable = Pick<
   AtermTerminal,
   | 'set_fallback_font_registered'
   | 'add_fallback_font_registered'
   | 'set_emoji_font_registered'
   | 'set_symbol_font_registered'
->
-
-// The GPU terminal's byte-injection surface.
-type GpuFallbackFontInjectable = Pick<
-  AtermGpuTerminal,
-  'set_fallback_font' | 'add_fallback_font' | 'set_emoji_font' | 'set_symbol_font'
 >
 
 type TerminalFallbackFonts = Awaited<ReturnType<typeof window.api.fonts.getTerminalFallbackFonts>>
@@ -51,17 +44,20 @@ function loadFallbackFonts(): Promise<TerminalFallbackFonts> {
   return fallbackFontsPromise
 }
 
-// One registration for the CPU module. Safe to run lazily from an inject: the
-// module is initialized by the time a live terminal reaches us.
+// One registration per wasm module. Safe to run lazily from an inject: the
+// pane's module is initialized by the time a live terminal reaches us.
 let cpuHandlesPromise: Promise<FallbackFontHandles> | null = null
+let gpuHandlesPromise: Promise<FallbackFontHandles> | null = null
 
-async function registerCpuFallbackFonts(): Promise<FallbackFontHandles> {
+async function registerFallbackFonts(
+  register: (bytes: Uint8Array) => number
+): Promise<FallbackFontHandles> {
   const { cjk, emoji, symbol, chain } = await loadFallbackFonts()
   return {
-    cjk: cjk ? registerCpuFont(new Uint8Array(cjk.bytes)) : null,
-    chain: (chain ?? []).map((face) => registerCpuFont(new Uint8Array(face.bytes))),
-    emoji: emoji ? registerCpuFont(new Uint8Array(emoji)) : null,
-    symbol: symbol ? registerCpuFont(new Uint8Array(symbol)) : null
+    cjk: cjk ? register(new Uint8Array(cjk.bytes)) : null,
+    chain: (chain ?? []).map((face) => register(new Uint8Array(face.bytes))),
+    emoji: emoji ? register(new Uint8Array(emoji)) : null,
+    symbol: symbol ? register(new Uint8Array(symbol)) : null
   }
 }
 
@@ -73,77 +69,42 @@ async function registerCpuFallbackFonts(): Promise<FallbackFontHandles> {
  *  parse failure is swallowed per face (parsing happens at set-time; Latin still
  *  renders). For the GPU terminal, call this BEFORE `init()` so the engine
  *  re-applies the faces to the one it builds there (it also accepts injection
- *  after init). `engine` picks the module path: CPU seeds by registry handle,
- *  GPU by bytes (see the header note). */
+ *  after init). `engine` picks the wasm module whose registry the handles live
+ *  in. */
 export async function injectTerminalFallbackFonts(
-  term: CpuFallbackFontInjectable | GpuFallbackFontInjectable,
+  term: FallbackFontInjectable,
   engine: 'cpu' | 'gpu'
 ): Promise<void> {
-  if (engine === 'cpu') {
-    const t = term as CpuFallbackFontInjectable
-    const handles = await (cpuHandlesPromise ??= registerCpuFallbackFonts())
-    if (handles.cjk != null) {
-      try {
-        // RESETS the fallback chain to this single face, so it must come first.
-        t.set_fallback_font_registered(handles.cjk)
-      } catch {
-        // Unparseable CJK face — keep going; the chain + Latin still render.
-      }
-    }
-    for (const face of handles.chain) {
-      try {
-        t.add_fallback_font_registered(face)
-      } catch {
-        // Unparseable chain face — skip it; later faces still apply.
-      }
-    }
-    if (handles.emoji != null) {
-      try {
-        t.set_emoji_font_registered(handles.emoji)
-      } catch {
-        // Unparseable emoji face — keep going.
-      }
-    }
-    // Symbol tier AFTER emoji (parity with native): the monochrome
-    // media/technical glyphs (⏸⏹⏺) the primary + emoji faces miss.
-    if (handles.symbol != null) {
-      try {
-        t.set_symbol_font_registered(handles.symbol)
-      } catch {
-        // Unparseable symbol face — keep going.
-      }
-    }
-    return
-  }
-  const t = term as GpuFallbackFontInjectable
-  const { cjk, emoji, symbol, chain } = await loadFallbackFonts()
-  if (cjk) {
+  const handles = await (engine === 'cpu'
+    ? (cpuHandlesPromise ??= registerFallbackFonts(registerCpuFont))
+    : (gpuHandlesPromise ??= registerFallbackFonts(registerGpuFont)))
+  if (handles.cjk != null) {
     try {
       // RESETS the fallback chain to this single face, so it must come first.
-      t.set_fallback_font(new Uint8Array(cjk.bytes))
+      term.set_fallback_font_registered(handles.cjk)
     } catch {
       // Unparseable CJK face — keep going; the chain + Latin still render.
     }
   }
-  for (const face of chain ?? []) {
+  for (const face of handles.chain) {
     try {
-      t.add_fallback_font(new Uint8Array(face.bytes))
+      term.add_fallback_font_registered(face)
     } catch {
       // Unparseable chain face — skip it; later faces still apply.
     }
   }
-  if (emoji) {
+  if (handles.emoji != null) {
     try {
-      t.set_emoji_font(new Uint8Array(emoji))
+      term.set_emoji_font_registered(handles.emoji)
     } catch {
       // Unparseable emoji face — keep going.
     }
   }
   // Symbol tier AFTER emoji (parity with native): the monochrome media/technical
   // glyphs (⏸⏹⏺) the primary + emoji faces miss.
-  if (symbol) {
+  if (handles.symbol != null) {
     try {
-      t.set_symbol_font(new Uint8Array(symbol))
+      term.set_symbol_font_registered(handles.symbol)
     } catch {
       // Unparseable symbol face — keep going.
     }

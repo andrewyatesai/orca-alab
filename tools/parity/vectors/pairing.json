@@ -151,6 +151,47 @@
       "note": "valid base64 of unrelated JSON returns null",
       "input": "eyJoZWxsbyI6IndvcmxkIn0=",
       "expected": null
+    },
+    {
+      "function": "encodePairingOffer",
+      "note": "scope 'runtime' is encoded when present (the resync pin \u2014 web-client phone-QR gating)",
+      "input": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "token-abc",
+        "publicKeyB64": "pubkey-xyz",
+        "scope": "runtime"
+      },
+      "expected": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoiLCJzY29wZSI6InJ1bnRpbWUifQ"
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "scope 'mobile' round-trips",
+      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoiLCJzY29wZSI6Im1vYmlsZSJ9",
+      "expected": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "token-abc",
+        "publicKeyB64": "pubkey-xyz",
+        "scope": "mobile"
+      }
+    },
+    {
+      "function": "decodePairingOffer",
+      "note": "absent scope stays absent (zod .optional(): JSON.stringify drops undefined)",
+      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoifQ",
+      "expected": {
+        "v": 2,
+        "endpoint": "ws://192.168.1.10:6768",
+        "deviceToken": "token-abc",
+        "publicKeyB64": "pubkey-xyz"
+      }
+    },
+    {
+      "function": "parsePairingCode",
+      "note": "a present-but-unknown scope value rejects the offer (zod enum)",
+      "input": "orca://pair?code=eyJ2IjoyLCJlbmRwb2ludCI6IndzOi8vMTkyLjE2OC4xLjEwOjY3NjgiLCJkZXZpY2VUb2tlbiI6InRva2VuLWFiYyIsInB1YmxpY0tleUI2NCI6InB1YmtleS14eXoiLCJzY29wZSI6ImRlc2t0b3AifQ",
+      "expected": null
     }
   ]
 }

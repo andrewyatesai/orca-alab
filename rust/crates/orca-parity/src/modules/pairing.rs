@@ -1,7 +1,7 @@
 //! Parity dispatch for `orca_relay::pairing` vs `src/shared/pairing.ts`.
 
 use orca_relay::{
-    decode_pairing_offer, encode_pairing_offer, parse_pairing_code, PairingOffer,
+    decode_pairing_offer, encode_pairing_offer, parse_pairing_code, PairingOffer, PairingScope,
     PAIRING_OFFER_VERSION,
 };
 use serde_json::{json, Value};
@@ -25,12 +25,16 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
 
 /// Match `JSON.stringify` of the TS `PairingOffer` object (camelCase keys).
 fn offer_to_json(offer: &PairingOffer) -> Value {
-    json!({
+    let mut value = json!({
         "v": offer.v,
         "endpoint": offer.endpoint,
         "deviceToken": offer.device_token,
         "publicKeyB64": offer.public_key_b64,
-    })
+    });
+    if let (Some(scope), Some(object)) = (offer.scope, value.as_object_mut()) {
+        object.insert("scope".to_string(), Value::String(scope.as_str().to_string()));
+    }
+    value
 }
 
 fn offer_from_input(input: &Value) -> PairingOffer {
@@ -42,6 +46,7 @@ fn offer_from_input(input: &Value) -> PairingOffer {
         endpoint: string_field(input, "endpoint"),
         device_token: string_field(input, "deviceToken"),
         public_key_b64: string_field(input, "publicKeyB64"),
+        scope: input.get("scope").and_then(Value::as_str).and_then(PairingScope::from_str),
     }
 }
 

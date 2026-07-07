@@ -28,6 +28,10 @@ pub enum TerminalStreamOpcode {
     /// Client asks the host to (re)send a full snapshot for a stream. Sent by the
     /// renderer multiplexer; decoded + branched by the main RPC server.
     SnapshotRequest = 11,
+    /// Out-of-band stream metadata (JSON payload) pushed by the host alongside
+    /// output. Added to the TS protocol after the original port — resynced here
+    /// (a decoder without this arm silently DROPS Metadata frames).
+    Metadata = 12,
 }
 
 impl TerminalStreamOpcode {
@@ -44,6 +48,7 @@ impl TerminalStreamOpcode {
             9 => Some(Self::Subscribe),
             10 => Some(Self::Unsubscribe),
             11 => Some(Self::SnapshotRequest),
+            12 => Some(Self::Metadata),
             _ => None,
         }
     }

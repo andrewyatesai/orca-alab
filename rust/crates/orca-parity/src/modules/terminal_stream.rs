@@ -82,6 +82,7 @@ fn opcode_from_u8(value: u8) -> Option<TerminalStreamOpcode> {
         9 => Some(TerminalStreamOpcode::Subscribe),
         10 => Some(TerminalStreamOpcode::Unsubscribe),
         11 => Some(TerminalStreamOpcode::SnapshotRequest),
+        12 => Some(TerminalStreamOpcode::Metadata),
         _ => None,
     }
 }

@@ -11,7 +11,7 @@ pub mod terminal_stream;
 
 pub use e2ee_channel::{E2eeChannel, E2eeEffect, RawMessage, HANDSHAKE_TIMEOUT_MS, MAX_BINARY_BUFFERED_AMOUNT};
 pub use pairing::{
-    decode_pairing_offer, encode_pairing_offer, parse_pairing_code, PairingOffer,
+    decode_pairing_offer, encode_pairing_offer, parse_pairing_code, PairingOffer, PairingScope,
     PAIRING_OFFER_VERSION,
 };
 pub use terminal_stream::{

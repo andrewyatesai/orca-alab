@@ -11,6 +11,33 @@ use serde_json::Value;
 
 pub const PAIRING_OFFER_VERSION: u32 = 2;
 
+/// Advisory UI scope on an offer: lets the web client reject phone-QR offers
+/// before opening a socket; the runtime still authorizes solely from the
+/// device token. Mirrors the TS `z.enum(['mobile', 'runtime']).optional()`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PairingScope {
+    Mobile,
+    Runtime,
+}
+
+impl PairingScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PairingScope::Mobile => "mobile",
+            PairingScope::Runtime => "runtime",
+        }
+    }
+
+    /// Public for the parity harness (vectors carry the scope as its wire string).
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "mobile" => Some(PairingScope::Mobile),
+            "runtime" => Some(PairingScope::Runtime),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairingOffer {
     /// Always [`PAIRING_OFFER_VERSION`]; decode rejects any other value.
@@ -18,15 +45,21 @@ pub struct PairingOffer {
     pub endpoint: String,
     pub device_token: String,
     pub public_key_b64: String,
+    /// Optional advisory scope; omitted from the encoded JSON when absent
+    /// (TS `JSON.stringify` drops `undefined` fields).
+    pub scope: Option<PairingScope>,
 }
 
 pub fn encode_pairing_offer(offer: &PairingOffer) -> String {
-    let value = serde_json::json!({
+    let mut value = serde_json::json!({
         "v": offer.v,
         "endpoint": offer.endpoint,
         "deviceToken": offer.device_token,
         "publicKeyB64": offer.public_key_b64,
     });
+    if let (Some(scope), Some(object)) = (offer.scope, value.as_object_mut()) {
+        object.insert("scope".to_string(), Value::String(scope.as_str().to_string()));
+    }
     let json = serde_json::to_string(&value).unwrap_or_default();
     // Query param, not fragment: Android camera intents / Expo Router preserve
     // query params more reliably than URL fragments on custom-scheme launches.
@@ -112,11 +145,18 @@ fn parse_offer_schema(value: &Value) -> Option<PairingOffer> {
     if object.get("v")?.as_u64()? != u64::from(PAIRING_OFFER_VERSION) {
         return None;
     }
+    // zod `.optional()`: an absent key is fine, but a PRESENT key must be a
+    // valid enum string — `null` or an unknown value rejects the whole offer.
+    let scope = match object.get("scope") {
+        None => None,
+        Some(value) => Some(PairingScope::from_str(value.as_str()?)?),
+    };
     Some(PairingOffer {
         v: PAIRING_OFFER_VERSION,
         endpoint: non_empty_string(object.get("endpoint"))?,
         device_token: non_empty_string(object.get("deviceToken"))?,
         public_key_b64: non_empty_string(object.get("publicKeyB64"))?,
+        scope,
     })
 }
 
@@ -135,6 +175,7 @@ mod tests {
             endpoint: "ws://192.168.1.10:6768".to_string(),
             device_token: "abcdef1234567890abcdef1234567890abcdef1234567890".to_string(),
             public_key_b64: "dGVzdC1wdWJsaWMta2V5LWJhc2U2NC1lbmNvZGVk".to_string(),
+            scope: None,
         }
     }
 
@@ -206,6 +247,33 @@ mod tests {
         assert!(decode_pairing_offer(&url).is_err());
     }
 
+    #[test]
+    fn scope_round_trips_for_both_values_and_is_omitted_when_absent() {
+        for scope in [PairingScope::Mobile, PairingScope::Runtime] {
+            let scoped = PairingOffer { scope: Some(scope), ..offer() };
+            let url = encode_pairing_offer(&scoped);
+            assert_eq!(decode_pairing_offer(&url).unwrap(), scoped);
+        }
+        // Absent scope: encode must OMIT the key (TS JSON.stringify drops
+        // undefined), so the payload stays byte-compatible with old clients.
+        let json_b64 = code_of(&encode_pairing_offer(&offer()));
+        let json = String::from_utf8(crate::base64::decode(&json_b64).unwrap()).unwrap();
+        assert!(!json.contains("scope"));
+    }
+
+    #[test]
+    fn rejects_present_but_invalid_scope_like_zod() {
+        // zod .optional(): absent is fine; present must be a valid enum string.
+        let bad = fragment_url(
+            r#"{"v":2,"endpoint":"ws://h:1","deviceToken":"t","publicKeyB64":"k","scope":"desktop"}"#,
+        );
+        assert!(decode_pairing_offer(&bad).is_err());
+        let null_scope = fragment_url(
+            r#"{"v":2,"endpoint":"ws://h:1","deviceToken":"t","publicKeyB64":"k","scope":null}"#,
+        );
+        assert!(decode_pairing_offer(&null_scope).is_err());
+    }
+
     // --- parse_pairing_code ---
 
     fn paste_offer() -> PairingOffer {
@@ -214,6 +282,7 @@ mod tests {
             endpoint: "ws://192.168.1.10:6768".to_string(),
             device_token: "token-abc".to_string(),
             public_key_b64: "pubkey-xyz".to_string(),
+            scope: None,
         }
     }
 

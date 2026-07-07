@@ -66,10 +66,10 @@ export function buildDefaultTerminalOptions(): ITerminalOptions {
       width: 7
     },
     // Why: advertise kitty keyboard protocol support so CLIs that probe
-    // (CSI ? u) know Orca accepts enhanced key reporting. Orca still writes
-    // CSI-u for Shift+Enter on non-Windows platforms; programs that respect
-    // the handshake otherwise fall back to legacy encodings and miss it.
-    // Matches VS Code's xtermTerminal.ts.
+    // (CSI ? u) know Orca accepts enhanced key reporting. Shift+Enter emits LF
+    // (aterm's imposed insert-newline) in legacy mode and the negotiated CSI-u /
+    // modifyOtherKeys form once an app handshakes — the engine encoder owns this
+    // (see terminal-shortcut-policy.ts). Matches VS Code's xtermTerminal.ts.
     vtExtensions: {
       kittyKeyboard: true
     }

@@ -210,6 +210,17 @@ function seedEngine(t: SeedTarget, p: StoredInit): void {
   seedAtermReplyDefaults(t, p.themeColors, t.cell_width, t.cell_height)
 }
 
+// The wasm modules' linear memories (one per module; all engines of a kind share
+// it — fonts intern module-wide). Exposed so the worker's state message can report
+// the true wasm footprint (the E1 font-dedup gate measures marginal heap per pane;
+// process RSS cannot resolve that signal against GC noise).
+let cpuWasmMemory: WebAssembly.Memory | null = null
+let gpuWasmMemory: WebAssembly.Memory | null = null
+
+export function workerWasmHeapBytes(): number {
+  return (cpuWasmMemory?.buffer.byteLength ?? 0) + (gpuWasmMemory?.buffer.byteLength ?? 0)
+}
+
 /** CPU engine: rasterize → zero-copy 2d blit (identical to the main-thread painter). */
 export async function buildCpuEngine(
   p: StoredInit,
@@ -217,6 +228,7 @@ export async function buildCpuEngine(
 ): Promise<EngineHandle> {
   const out = await init(wasmUrl)
   const memory = out.memory
+  cpuWasmMemory = memory
   const t = new AtermTerminal(
     p.rows,
     p.cols,
@@ -273,7 +285,8 @@ export async function buildGpuEngine(
   p: StoredInit,
   canvas: OffscreenCanvas
 ): Promise<EngineHandle> {
-  await gpuInit(gpuWasmUrl)
+  const gpuOut = await gpuInit(gpuWasmUrl)
+  gpuWasmMemory = gpuOut.memory
   const rows = p.rows
   const cols = p.cols
   const t = new AtermGpuTerminal(

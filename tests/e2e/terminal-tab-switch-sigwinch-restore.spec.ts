@@ -264,7 +264,11 @@ test.describe('Terminal tab switch SIGWINCH restore', () => {
       data: buildSigwinchResetProbeSnapshot('RESTORED_SNAPSHOT'),
       cols: paneIdentity.cols,
       rows: paneIdentity.rows,
-      seq: hiddenFrame.length
+      seq: hiddenFrame.length,
+      // The probe is an alt-screen TUI (?1049h); the real daemon snapshot reports
+      // this via HeadlessEmulator isAlternateScreen() — the override must too, so
+      // restore takes the alt-screen path (no scrollback clear, no restore SIGWINCH).
+      alternateScreen: true
     })
 
     await activateTerminalTab(orcaPage, agentTabId)

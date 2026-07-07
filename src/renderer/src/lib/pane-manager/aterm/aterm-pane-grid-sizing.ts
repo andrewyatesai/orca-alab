@@ -12,6 +12,9 @@ import type { AtermPaneResizeSink } from './aterm-pane-controller-types'
 export type AtermPaneGridSizing = {
   /** Live grid (cols × rows) — the controller's gridSize and the PTY report. */
   grid: () => { cols: number; rows: number }
+  /** True when the initial grid came from real container layout (not the 80x24
+   *  pre-layout fallback). Gates the attach-time PTY report. */
+  initialGridMeasured: boolean
   /** Explicit grid resize (xterm resize semantics): pins an override the
    *  container ResizeObserver honors, so it can't undo a snapshot-replay or
    *  mobile-fit grid mid-hold. */
@@ -38,7 +41,8 @@ type GridSizingDeps = {
 
 export function createAtermPaneGridSizing(deps: GridSizingDeps): AtermPaneGridSizing {
   const { container, metrics, strategy, resizeSink, scheduleDraw, isDisposed } = deps
-  let { cols, rows } = computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+  const initialGrid = computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+  let { cols, rows } = initialGrid
   // An explicit facade resize pins the grid here until fitToContainer clears it.
   let explicitGrid: { cols: number; rows: number } | null = null
 
@@ -75,6 +79,7 @@ export function createAtermPaneGridSizing(deps: GridSizingDeps): AtermPaneGridSi
 
   return {
     grid: () => ({ cols, rows }),
+    initialGridMeasured: initialGrid.measured,
     resize: (nextCols, nextRows) => {
       if (isDisposed() || !Number.isFinite(nextCols) || !Number.isFinite(nextRows)) {
         return

@@ -17,23 +17,41 @@ describe('computeGrid', () => {
     // A pane mounted before layout (hidden/background/pre-mount) reports clientWidth 0.
     // It must fall back to a usable 80×24, never 0×0 — the reflow corrects it once the
     // container has real dimensions. This is the invariant the 0×0 banner violated.
-    expect(computeGrid(container(0, 0), 2, 8, 16)).toEqual({ cols: 80, rows: 24 })
-    expect(computeGrid(container(0, 600), 2, 8, 16)).toEqual({ cols: 80, rows: 24 })
-    expect(computeGrid(container(800, 0), 2, 8, 16)).toEqual({ cols: 80, rows: 24 })
+    // measured:false marks the fallback so it is never reported to a live PTY.
+    expect(computeGrid(container(0, 0), 2, 8, 16)).toEqual({ cols: 80, rows: 24, measured: false })
+    expect(computeGrid(container(0, 600), 2, 8, 16)).toEqual({
+      cols: 80,
+      rows: 24,
+      measured: false
+    })
+    expect(computeGrid(container(800, 0), 2, 8, 16)).toEqual({
+      cols: 80,
+      rows: 24,
+      measured: false
+    })
   })
 
   it('scales cols/rows with devicePixelRatio for the same CSS size + cell metrics', () => {
     // deviceWidth = clientWidth * dpr. With device-px cell metrics held fixed, a 2×
     // dpr yields a 2× grid — proving dpr is honored (a dpr=1 pane on a dpr=2 display
     // would otherwise under-resolve).
-    expect(computeGrid(container(800, 600), 1, 8, 16)).toEqual({ cols: 100, rows: 37 })
-    expect(computeGrid(container(800, 600), 2, 8, 16)).toEqual({ cols: 200, rows: 75 })
+    expect(computeGrid(container(800, 600), 1, 8, 16)).toEqual({
+      cols: 100,
+      rows: 37,
+      measured: true
+    })
+    expect(computeGrid(container(800, 600), 2, 8, 16)).toEqual({
+      cols: 200,
+      rows: 75,
+      measured: true
+    })
   })
 
   it('floors to whole cells and clamps to the minimum for a tiny laid-out container', () => {
     expect(computeGrid(container(10, 20), 1, 8, 16)).toEqual({
       cols: MIN_GRID_COLS,
-      rows: MIN_GRID_ROWS
+      rows: MIN_GRID_ROWS,
+      measured: true
     })
   })
 })

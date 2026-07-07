@@ -64,8 +64,35 @@ test.describe('aterm off-main GPU render worker', () => {
     // acquire a context for it: getContext THROWS InvalidStateError. This uniquely
     // identifies the OffscreenCanvas worker — a non-worker CPU pane returns a live 2d
     // context and a non-worker GPU pane returns null WITHOUT throwing.
-    const ownership = await orcaPage.evaluate(() => {
-      const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement | null
+    const ownership = await orcaPage.evaluate((ptyId) => {
+      // Scope to the pane under test by ptyId: the FIRST canvas in the DOM is the
+      // bootstrap pane (in-process, GPU-owned on capable hosts — getContext('2d')
+      // returns null WITHOUT throwing), not this test's worker-owned pane.
+      const managers = (
+        window as unknown as {
+          __paneManagers?: Map<
+            string,
+            {
+              getPanes?: () => {
+                container?: {
+                  dataset?: { ptyId?: string }
+                  querySelector: (s: string) => Element | null
+                }
+              }[]
+            }
+          >
+        }
+      ).__paneManagers
+      let c: HTMLCanvasElement | null = null
+      for (const mgr of managers?.values() ?? []) {
+        for (const pane of mgr.getPanes?.() ?? []) {
+          if (pane?.container?.dataset?.ptyId === ptyId) {
+            c = pane.container.querySelector(
+              '[data-testid="aterm-canvas"]'
+            ) as HTMLCanvasElement | null
+          }
+        }
+      }
       if (!c) {
         return { found: false, transferred: false, detail: 'no canvas' }
       }
@@ -75,7 +102,7 @@ test.describe('aterm off-main GPU render worker', () => {
       } catch (e) {
         return { found: true, transferred: true, detail: String(e) }
       }
-    })
+    }, ptyId)
     // eslint-disable-next-line no-console
     console.log(`[aterm-gpu-worker] canvas ownership: ${JSON.stringify(ownership)}`)
     expect(ownership.found, 'the aterm grid canvas should exist').toBe(true)

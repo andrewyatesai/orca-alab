@@ -112,14 +112,17 @@ test.describe('aterm per-pane memory @aterm-memory', () => {
   // (noise headroom) and far below any per-pane font payload — the old architecture
   // FAILS this on every supported platform.
   test('worker-path panes 2..N do not re-pay the font payload (shared render worker)', async ({
-    orcaPage,
-    electronApp
+    orcaPage
   }, testInfo) => {
     await waitForSessionReady(orcaPage)
     await waitForActiveWorktree(orcaPage)
     // Opt INTO the worker render path (the e2e suite defaults it off; production is on).
+    // Force CPU worker engines: a GPU worker engine carries an undedupable per-pane wgpu
+    // device + device-pixel swapchain (tens of MB) that would swamp the font-payload
+    // signal this gate measures; CPU engines share the interned fonts in the wasm heap.
     await orcaPage.evaluate(() => {
       ;(window as unknown as WorkerRenderProbe).__atermWorkerRender = true
+      ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true
     })
 
     const canvasCount = (): Promise<number> =>
@@ -161,47 +164,46 @@ test.describe('aterm per-pane memory @aterm-memory', () => {
         .toBe(true)
     }
 
-    // Renderer-process RSS: min of several samples — the floor is stabler than an
-    // instantaneous reading (GC of transient postMessage/transfer copies).
-    const rendererWorkingSetBytes = async (): Promise<number> => {
-      let min = Number.POSITIVE_INFINITY
-      for (let i = 0; i < 6; i++) {
-        const kb = await electronApp.evaluate(({ BrowserWindow, app }) => {
-          const wc = BrowserWindow.getAllWindows()[0]?.webContents
-          if (!wc) {
-            return -1
-          }
-          const pid = wc.getOSProcessId()
-          const metric = app.getAppMetrics().find((m) => m.pid === pid)
-          return metric ? metric.memory.workingSetSize : -1
-        })
-        if (kb > 0) {
-          min = Math.min(min, kb * 1024)
-        }
-        await orcaPage.waitForTimeout(400)
-      }
-      expect(min, 'renderer process memory should be measurable').toBeLessThan(
-        Number.POSITIVE_INFINITY
-      )
-      return min
+    // The worker's wasm linear memory (from the per-frame state message; module-
+    // wide, so any pane's message reports it). Wasm memory only grows and holds
+    // the interned fonts, so marginal growth per pane IS the dedup signal —
+    // renderer-process RSS cannot resolve ~MB against multi-GB baseline GC noise.
+    const workerWasmHeapBytes = async (): Promise<number> => {
+      let heap = 0
+      await expect
+        .poll(
+          async () => {
+            heap = await orcaPage.evaluate(
+              () =>
+                (
+                  (window as unknown as WorkerRenderProbe).__atermWorkerRenderState as
+                    | { wasmHeapBytes?: number }
+                    | undefined
+                )?.wasmHeapBytes ?? 0
+            )
+            return heap
+          },
+          { timeout: 10_000, message: 'worker state should report the wasm heap' }
+        )
+        .toBeGreaterThan(0)
+      return heap
     }
 
     // Pane 1 pays the one-time costs (worker spawn, wasm modules, the full font
     // payload); measure AFTER it so the gate isolates the marginal per-pane cost.
     await openWorkerPane(1)
-    await orcaPage.waitForTimeout(2000) // let the first-pane boot allocations settle
-    const afterFirst = await rendererWorkingSetBytes()
+    const afterFirst = await workerWasmHeapBytes()
 
     await openWorkerPane(2)
     await openWorkerPane(3)
-    await orcaPage.waitForTimeout(2000)
-    const afterThird = await rendererWorkingSetBytes()
+    const afterThird = await workerWasmHeapBytes()
 
     const marginalMB = (afterThird - afterFirst) / 2 / (1024 * 1024)
     const line =
-      `[aterm-worker-memory] renderer RSS after pane 1: ${(afterFirst / (1024 * 1024)).toFixed(1)} MB; ` +
+      `[aterm-worker-memory] worker wasm heap after pane 1: ${(afterFirst / (1024 * 1024)).toFixed(1)} MB; ` +
       `after pane 3: ${(afterThird / (1024 * 1024)).toFixed(1)} MB → marginal ` +
-      `${marginalMB.toFixed(1)} MB/pane for worker panes 2-3 (gate: < 48 MB/pane).`
+      `${marginalMB.toFixed(1)} MB/pane for worker panes 2-3 (gate: < 48 MB/pane; ` +
+      `a per-pane font payload would add hundreds of MB).`
     // eslint-disable-next-line no-console
     console.log(`\n${line}\n`)
     testInfo.annotations.push({ type: 'aterm-worker-memory', description: line })

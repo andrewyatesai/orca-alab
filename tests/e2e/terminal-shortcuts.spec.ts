@@ -490,12 +490,19 @@ test.describe('Terminal Shortcuts', () => {
   }) => {
     await installMainProcessPtyWriteSpy(electronApp)
     await waitForActivePanePtyId(orcaPage)
+    // The aterm controller owns the keyboard encoder and attaches asynchronously
+    // after the PTY binds; the synthetic keydown only encodes once it's live.
+    await waitForActiveAtermController(orcaPage)
 
     await pressAndExpectWrite(
       orcaPage,
       electronApp,
       'Shift+Enter',
-      process.platform === 'win32' ? '\x1b\r' : '\x1b[13;2u'
+      // aterm imposes LF (insert-newline) for Shift+Enter in legacy mode on every
+      // platform (engine ground-truth: legacy_shift_enter_is_lf_aterm_imposes_newline);
+      // the shortcut policy defers to the engine (terminal-shortcut-policy.ts). The
+      // CSI-u form only appears once an app negotiates kitty/modifyOtherKeys.
+      '\n'
     )
   })
 

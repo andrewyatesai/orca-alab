@@ -7,7 +7,7 @@ import {
   waitForActiveWorktree,
   waitForSessionReady
 } from './helpers/store'
-import { getTerminalContent, waitForActiveTerminalManager } from './helpers/terminal'
+import { getTerminalLogicalText, waitForActiveTerminalManager } from './helpers/terminal'
 import { BACKGROUND_MOUNT_TERMINAL_WORKTREE_EVENT } from '../../src/renderer/src/constants/terminal'
 
 async function waitForHiddenTabPtyId(
@@ -142,7 +142,7 @@ test.describe('Automation hidden terminal first mount', () => {
     await waitForActiveTerminalManager(orcaPage, 30_000)
 
     await expect
-      .poll(async () => (await getTerminalContent(orcaPage)).includes(marker), {
+      .poll(async () => (await getTerminalLogicalText(orcaPage)).includes(marker), {
         timeout: 10_000,
         message: 'First visible mount did not replay the hidden automation terminal output'
       })

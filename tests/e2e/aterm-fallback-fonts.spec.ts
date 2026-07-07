@@ -1,5 +1,5 @@
 import { test, expect } from './helpers/orca-app'
-import { waitForActivePanePtyId } from './helpers/terminal'
+import { getTerminalLogicalText, waitForActivePanePtyId } from './helpers/terminal'
 import { waitForActiveAtermController } from './helpers/aterm-controller'
 import { waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import { atermCanvasReady } from './helpers/aterm-canvas-pixels'
@@ -23,19 +23,26 @@ import { writeFileSync } from 'node:fs'
 
 type Probe = { process: (d: string) => void; cellSizeCss: () => { width: number; height: number } }
 
-function findController(): Probe {
+// Resolve the controller BY PTY ID — the same identity the test drives bytes
+// through. Manager-iteration order surfaces the bootstrap "Terminal 1" first, so
+// a positional lookup injects into a DIFFERENT (hidden, GPU) pane than the one
+// whose canvas is scanned.
+function findController(ptyId: string): Probe {
   const managers = (window as unknown as { __paneManagers?: Map<string, unknown> }).__paneManagers
   for (const m of managers?.values() ?? []) {
     const mgr = m as {
-      getActivePane?: () => { atermController?: Probe | null } | null
-      getPanes?: () => { atermController?: Probe | null }[]
+      getPanes?: () => {
+        atermController?: Probe | null
+        container?: { dataset?: { ptyId?: string } }
+      }[]
     }
-    const pane = mgr.getActivePane?.() ?? mgr.getPanes?.()[0] ?? null
-    if (pane?.atermController) {
-      return pane.atermController
+    for (const pane of mgr.getPanes?.() ?? []) {
+      if (pane?.container?.dataset?.ptyId === ptyId && pane.atermController) {
+        return pane.atermController
+      }
     }
   }
-  throw new Error('no aterm controller')
+  throw new Error(`no aterm controller for pty ${ptyId}`)
 }
 
 // Per-script sample text + whether the host has a covering font. macOS ships CJK
@@ -101,12 +108,23 @@ test.describe('aterm non-Latin fallback fonts', () => {
 
     const canvas = orcaPage.locator('[data-testid="aterm-canvas"]').first()
     await expect(canvas, 'aterm canvas should mount').toBeAttached({ timeout: 20_000 })
-    await waitForActivePanePtyId(orcaPage)
+    const ptyId = await waitForActivePanePtyId(orcaPage)
     await waitForActiveAtermController(orcaPage)
     await expect
       .poll(async () => atermCanvasReady(orcaPage), {
         timeout: 20_000,
         message: 'aterm canvas should be ready to read'
+      })
+      .toBe(true)
+
+    // Let the shell emit its startup prompt and go idle BEFORE injecting: the
+    // controller shares the buffer with the live PTY, so a prompt arriving after
+    // our clear+glyphs overwrites them (the pane reads blank). Wait for a settled
+    // prompt line (ends with a shell sigil).
+    await expect
+      .poll(async () => /[%$#>]\s*$/.test((await getTerminalLogicalText(orcaPage)).trimEnd()), {
+        timeout: 15_000,
+        message: 'shell prompt should settle before injecting glyphs'
       })
       .toBe(true)
 
@@ -132,16 +150,47 @@ test.describe('aterm non-Latin fallback fonts', () => {
     const payload = lines.join('')
 
     const fingerprints = await orcaPage.evaluate(
-      async ({ findSrc, payload, scripts, controlRow }) => {
+      async ({ findSrc, payload, scripts, controlRow, ptyId }) => {
         // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
-        const find = new Function(`return (${findSrc})()`) as () => Probe
-        const ctrl = find()
+        const find = new Function(`return (${findSrc})`)() as (id: string) => Probe
+        const ctrl = find(ptyId)
         ctrl.process(payload)
         // Wait two frames so the rAF-coalesced draw flushes all rows (the CJK +
         // Arabic + Devanagari runs are all painted in the next frame).
         await new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)))
 
-        const c = document.querySelector('[data-testid="aterm-canvas"]') as HTMLCanvasElement
+        // Scope to the pane the payload was driven into (by ptyId): a bare
+        // querySelector returns the FIRST aterm canvas, which on GPU-capable hosts is a
+        // different, webgl2-owned pane whose getContext('2d') is null. The forced-CPU
+        // pane this test created is the one bound to ptyId.
+        const managers = (
+          window as unknown as {
+            __paneManagers?: Map<
+              string,
+              {
+                getPanes?: () => {
+                  container?: {
+                    dataset?: { ptyId?: string }
+                    querySelector: (s: string) => Element | null
+                  }
+                }[]
+              }
+            >
+          }
+        ).__paneManagers
+        let c: HTMLCanvasElement | null = null
+        for (const mgr of managers?.values() ?? []) {
+          for (const pane of mgr.getPanes?.() ?? []) {
+            if (pane?.container?.dataset?.ptyId === ptyId) {
+              c = pane.container.querySelector(
+                '[data-testid="aterm-canvas"]'
+              ) as HTMLCanvasElement | null
+            }
+          }
+        }
+        if (!c) {
+          return null
+        }
         const ctx = c.getContext('2d')
         if (!ctx) {
           return null
@@ -193,7 +242,8 @@ test.describe('aterm non-Latin fallback fonts', () => {
         findSrc: findController.toString(),
         payload,
         scripts: active.map((s) => ({ name: s.name, rowOffset: s.rowOffset })),
-        controlRow
+        controlRow,
+        ptyId
       }
     )
 

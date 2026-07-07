@@ -339,6 +339,11 @@ export type AtermWorkerState = {
   type: 'state'
   /** Which engine produced this frame (after a possible GPU→CPU fallback). */
   engine: 'cpu' | 'gpu'
+  /** Total wasm linear memory reserved in the worker (module-wide; all engines
+   *  share it — fonts intern once per module). The E1 font-dedup gate reads the
+   *  marginal growth per pane from here: wasm memory only grows, so the signal
+   *  is deterministic where process RSS drowns in GC noise. */
+  wasmHeapBytes: number
   /** Framebuffer device-pixel size after the last render. */
   width: number
   height: number

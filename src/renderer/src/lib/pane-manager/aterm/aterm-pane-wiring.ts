@@ -318,7 +318,15 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   })
   syncCursorColorEffects = engineSettings.syncCursorColor
 
-  resizeSink(gridSizing.grid().cols, gridSizing.grid().rows)
+  // Report the initial grid to the PTY only when it came from real layout. An
+  // unmeasured container (pre-layout remount, hidden pane) yields the 80x24
+  // fallback — pushing that placeholder onto a live reattached PTY kernel-
+  // SIGWINCHes TUIs into a placeholder relayout and back (resetting alt-screen
+  // viewports to the top); the reflow observer reports the real grid as soon
+  // as layout lands.
+  if (gridSizing.initialGridMeasured) {
+    resizeSink(gridSizing.grid().cols, gridSizing.grid().rows)
+  }
   scheduleDraw()
 
   const replySurface = buildAtermRendererReplySurface({

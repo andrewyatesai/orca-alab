@@ -11,19 +11,22 @@ const DEFAULT_GRID_ROWS = 24
  *  to a standard 80x24 when the container isn't laid out yet (hidden/background
  *  pane, pre-mount) so the terminal is usable; the ResizeObserver corrects it
  *  once the pane has real dimensions. Never returns a 1x1 grid for a laid-out
- *  container. `cellWidth`/`cellHeight` are device-pixel cell metrics. */
+ *  container. `cellWidth`/`cellHeight` are device-pixel cell metrics.
+ *  `measured` distinguishes a real layout-derived grid from that fallback —
+ *  fallback dims must never be reported to a live PTY (the placeholder kernel-
+ *  SIGWINCHes TUIs into a bogus relayout before the observer corrects it). */
 export function computeGrid(
   container: HTMLElement,
   dpr: number,
   cellWidth: number,
   cellHeight: number
-): { cols: number; rows: number } {
+): { cols: number; rows: number; measured: boolean } {
   const deviceWidth = container.clientWidth * dpr
   const deviceHeight = container.clientHeight * dpr
   if (deviceWidth < cellWidth || deviceHeight < cellHeight) {
-    return { cols: DEFAULT_GRID_COLS, rows: DEFAULT_GRID_ROWS }
+    return { cols: DEFAULT_GRID_COLS, rows: DEFAULT_GRID_ROWS, measured: false }
   }
   const cols = Math.max(MIN_GRID_COLS, Math.floor(deviceWidth / cellWidth))
   const rows = Math.max(MIN_GRID_ROWS, Math.floor(deviceHeight / cellHeight))
-  return { cols, rows }
+  return { cols, rows, measured: true }
 }

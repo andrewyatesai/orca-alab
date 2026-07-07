@@ -4,6 +4,7 @@ import path from 'node:path'
 import type { Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
+import { waitForActiveAtermController } from './helpers/aterm-controller'
 import {
   execInTerminal,
   waitForActivePanePtyId,
@@ -45,12 +46,18 @@ async function startHeavyTuiFixture(page: Page, logPath: string): Promise<void> 
   )
 
   const ptyId = await waitForActivePanePtyId(page)
+  // The aterm controller owns the mouse-input seam; it attaches asynchronously
+  // after the PTY binds, and no wheel report can flow before it does.
+  await waitForActiveAtermController(page)
   await execInTerminal(
     page,
     ptyId,
     `node ${JSON.stringify(VISIBLE_TUI_FIXTURE_PATH)} --heavy --log ${JSON.stringify(logPath)}`
   )
 
+  // Engine truth via the facade's live DEC-mode surface: the fixture's ?1003h
+  // must reach the engine parser. (xterm surfaced this as an 'enable-mouse-events'
+  // CSS class; the aterm facade exposes the mode directly.)
   await expect
     .poll(
       () =>
@@ -65,7 +72,10 @@ async function startHeavyTuiFixture(page: Page, logPath: string): Promise<void> 
                 : null
           const manager = tabId ? window.__paneManagers?.get(tabId) : null
           const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
-          return pane?.terminal.element?.classList.contains('enable-mouse-events') ?? false
+          const terminal = pane?.terminal as unknown as {
+            modes?: { mouseTrackingMode?: string }
+          } | null
+          return (terminal?.modes?.mouseTrackingMode ?? 'none') !== 'none'
         }),
       { timeout: 15_000, message: 'fixture did not enable mouse reporting' }
     )
@@ -86,17 +96,18 @@ async function terminalWheelTarget(
           : null
     const manager = tabId ? window.__paneManagers?.get(tabId) : null
     const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
-    const screen = pane?.terminal.element?.querySelector<HTMLElement>('.xterm-screen')
-    if (!pane?.terminal || !screen) {
-      throw new Error('Active terminal screen unavailable')
+    // The aterm grid canvas is the wheel-listener target (aterm-mouse-input
+    // attaches there); xterm's .xterm-screen does not exist on this engine.
+    const container = (pane as unknown as { container?: Element | null } | null)?.container
+    const canvas = container?.querySelector<HTMLElement>('[data-testid="aterm-canvas"]')
+    if (!pane?.terminal || !canvas) {
+      throw new Error('Active terminal canvas unavailable')
     }
-    const rect = screen.getBoundingClientRect()
+    const rect = canvas.getBoundingClientRect()
     return {
       x: rect.left + rect.width / 2,
       y: rect.top + Math.min(rect.height - 1, 40),
-      cellHeight:
-        pane.terminal._core?._renderService?.dimensions?.css?.cell?.height ??
-        rect.height / pane.terminal.rows
+      cellHeight: rect.height / pane.terminal.rows
     }
   })
 }

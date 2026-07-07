@@ -614,10 +614,23 @@ export async function waitForTerminalOutput(
   charLimit = 4000
 ): Promise<void> {
   await expect
-    .poll(async () => (await getTerminalContent(page, charLimit)).includes(expected), {
-      timeout: timeoutMs,
-      message: `Terminal did not contain "${expected}"`
-    })
+    .poll(
+      async () => {
+        // aterm's serialize emits per-row cursor-homing escapes between soft-wrapped
+        // rows, which split a matched token mid-string; also check the de-wrapped
+        // logical text so a wrapped marker/path is still found (serialize match kept
+        // for callers relying on the raw form).
+        const [serialized, logical] = await Promise.all([
+          getTerminalContent(page, charLimit),
+          getTerminalLogicalText(page)
+        ])
+        return serialized.includes(expected) || logical.includes(expected)
+      },
+      {
+        timeout: timeoutMs,
+        message: `Terminal did not contain "${expected}"`
+      }
+    )
     .toBe(true)
 }
 

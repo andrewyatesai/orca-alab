@@ -109,9 +109,17 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
         return
       }
     }
-    const next =
-      getGridOverride?.() ??
-      computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+    const override = getGridOverride?.()
+    const computed = override
+      ? null
+      : computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+    // An unmeasured container (pre-layout remount, hidden pane) yields the 80x24
+    // fallback — never regress a live grid (and its PTY report) to the placeholder;
+    // the ResizeObserver re-fires with real dimensions once layout lands.
+    if (computed && !computed.measured) {
+      return
+    }
+    const next = override ?? computed!
     const current = getGrid()
     // On a metrics change, commit even when cols/rows are unchanged: the engine's
     // framebuffer / GPU swapchain must be resized to the new cell size (set_px alone
@@ -150,9 +158,16 @@ export function attachAtermGridReflow(config: GridReflowConfig): AtermGridReflow
     metrics.cellWidth = term.cell_width
     metrics.cellHeight = term.cell_height
     syncDependents()
-    const next =
-      getGridOverride?.() ??
-      computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+    const override = getGridOverride?.()
+    const computed = override
+      ? null
+      : computeGrid(container, metrics.dpr, metrics.cellWidth, metrics.cellHeight)
+    // Same unmeasured-fallback guard as reflowGrid: a hidden pane's swapchain
+    // reconfigure can wait for the visible ResizeObserver fire.
+    if (computed && !computed.measured) {
+      return
+    }
+    const next = override ?? computed!
     setGrid(next.cols, next.rows)
     scheduleDraw()
   }

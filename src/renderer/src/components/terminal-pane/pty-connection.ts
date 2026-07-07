@@ -5128,11 +5128,19 @@ export function connectPanePty(
         const replayChangedDimensions = hasSnapshotDimensions
           ? pane.terminal.cols !== snapshot.cols || pane.terminal.rows !== snapshot.rows
           : pane.terminal.cols !== colsBeforeReplay || pane.terminal.rows !== rowsBeforeReplay
-        if (replayChangedDimensions && isRendererPtyResizeAuthoritative()) {
+        // Why: a restore-time SIGWINCH makes alternate-screen TUIs (Codex, vim)
+        // rebuild their full-screen layout to the TOP, discarding the snapshot we
+        // just replayed. Suppress the resize+SIGWINCH for any alt-screen restore; a
+        // genuine window resize is reconciled by the pane's own resize observer when
+        // the hidden tab becomes visible, so the child still learns its size.
+        const suppressRestoreResize = snapshot.alternateScreen === true
+        if (
+          replayChangedDimensions &&
+          isRendererPtyResizeAuthoritative() &&
+          !suppressRestoreResize
+        ) {
           transport.resize(pane.terminal.cols, pane.terminal.rows)
           if (!isRemoteRuntimePtyId(currentPtyId)) {
-            // Why: redundant SIGWINCH can make alternate-screen TUIs rebuild
-            // their internal scroll viewport to the top on tab return.
             window.api.pty.signal(currentPtyId, 'SIGWINCH')
           }
         }
@@ -5606,14 +5614,35 @@ export function connectPanePty(
         safeFit(pane)
         const reattachCols = pane.terminal.cols
         const reattachRows = pane.terminal.rows
-        if (reattachCols > 0 && reattachRows > 0) {
+        // Only push the fitted dims when the fit was layout-backed: a pane whose
+        // container has not laid out yet (tab-return remount) still holds the
+        // 80x24 pre-layout grid, and pushing that placeholder onto the live PTY
+        // kernel-SIGWINCHes TUIs into a bogus relayout. The ResizeObserver
+        // forwards the real dims as soon as layout lands.
+        const fitIsLayoutBacked =
+          pane.container instanceof Element &&
+          pane.container.clientWidth > 0 &&
+          pane.container.clientHeight > 0
+        if (reattachCols > 0 && reattachRows > 0 && fitIsLayoutBacked) {
           transport.resize(reattachCols, reattachRows)
         }
       }
       // Why: POSIX only delivers SIGWINCH when terminal dimensions actually
       // change. Sending it explicitly guarantees restored TUIs repaint at
-      // the correct cursor position after snapshot replay.
-      if (!isRemoteRuntimePtyId(ptyId)) {
+      // the correct cursor position after snapshot replay — on the NORMAL
+      // screen. Stand down when the pane is on the alt screen (the TUI owns
+      // its full frame; a forced repaint makes some TUIs rebuild their
+      // viewport to the top) or a hidden-output restore is still pending
+      // (applyMainBufferSnapshot decides repaint from the snapshot's own
+      // alt-screen flag once it replays — signaling first races the replay
+      // and the TUI's top-rebuild frame lands last, clobbering it).
+      const hiddenRestorePending =
+        hiddenOutputRestoreNeeded || hiddenOutputRestorePendingChunks.length > 0
+      if (
+        !isRemoteRuntimePtyId(ptyId) &&
+        pane.terminal.buffer.active.type !== 'alternate' &&
+        !hiddenRestorePending
+      ) {
         window.api.pty.signal(ptyId, 'SIGWINCH')
       }
       scheduleReattachIdleAgentCursorReset()

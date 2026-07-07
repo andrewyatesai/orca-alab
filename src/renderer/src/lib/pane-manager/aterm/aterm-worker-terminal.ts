@@ -6,7 +6,7 @@
 // the overlay stage; this cut renders the engine grid + selection (both engine-drawn)
 // and reports search/hover so the UI stays correct.
 
-import type { EngineHandle } from './aterm-worker-engine-build'
+import { workerWasmHeapBytes, type EngineHandle } from './aterm-worker-engine-build'
 import { createWorkerSearch } from './aterm-worker-search'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
@@ -162,6 +162,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
       return {
         type: 'state',
         engine: handle.kind,
+        wasmHeapBytes: workerWasmHeapBytes(),
         width: fb.width,
         height: fb.height,
         cols,

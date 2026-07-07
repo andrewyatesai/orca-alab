@@ -1,7 +1,7 @@
 import { test, expect } from './helpers/orca-app'
 import {
   execInTerminal,
-  getTerminalContent,
+  getTerminalLogicalText,
   waitForActivePanePtyId,
   waitForActiveTerminalManager
 } from './helpers/terminal'
@@ -42,7 +42,7 @@ test.describe('Terminal Codex runtime home', () => {
     await expect
       .poll(
         async () => {
-          probe = readCodexHomeProbe(await getTerminalContent(orcaPage), marker)
+          probe = readCodexHomeProbe(await getTerminalLogicalText(orcaPage), marker)
           return Boolean(
             probe?.codexHome &&
             probe.orcaCodexHome &&

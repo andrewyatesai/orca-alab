@@ -841,15 +841,17 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
         bufferHandle.dispose()
       }
 
-      // A resize requested during the attach window carries the newest renderer
-      // grid — prefer it over the dims captured when attach() was called.
-      if (pendingPreConnectResize) {
-        const { cols, rows } = pendingPreConnectResize
-        pendingPreConnectResize = null
-        window.api.pty.resize(id, cols, rows)
-      } else if (options.cols && options.rows) {
-        window.api.pty.resize(id, options.cols, options.rows)
-      }
+      // Attach binds to a LIVE pty whose dims are already correct from before the
+      // remount. Any resize queued during the attach window came from the fresh
+      // terminal's PRE-FIT state (the aterm controller reports its 80x24
+      // constructor grid before the first fit) — delivering it would kernel-
+      // SIGWINCH every TUI into a placeholder relayout, then again when the
+      // post-connect fit restores the real grid (a 128x55→80x24→128x55 bounce on
+      // every tab return, which resets alt-screen TUI viewports to the top).
+      // Drop it: the post-connect fit reconcile sends the authoritative dims and
+      // is a no-op signal-wise when they already match. (Spawn keeps its pending
+      // delivery — a FRESH pty genuinely needs its initial dims.)
+      pendingPreConnectResize = null
 
       storedCallbacks.onConnect?.()
       storedCallbacks.onStatus?.('shell')

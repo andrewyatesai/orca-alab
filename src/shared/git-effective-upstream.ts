@@ -1,4 +1,3 @@
-import { isNoUpstreamError } from './git-remote-error'
 import type { GitUpstreamStatus } from './types'
 import {
   getConfiguredBranchRemoteUpstream,
@@ -11,6 +10,12 @@ import { iterateProcessOutputLines } from './process-output-field-scanner'
 export { gitRefTargetsBranchName, splitRemoteBranchName } from './git-remote-branch-name'
 
 export type GitCommandRunner = (args: string[]) => Promise<{ stdout: string }>
+
+/** "Is this error just 'no upstream configured'?" — injectable because this
+ *  module is dual-bundled: the main process supplies the Rust napi classifier
+ *  (rust-git-remote-error.ts), the relay the same core via wasm (git-wasm.ts).
+ *  The shared TS classifier was deleted. */
+export type IsNoUpstreamError = (error: unknown) => boolean
 
 export type EffectiveGitUpstream =
   | {
@@ -71,7 +76,8 @@ async function getCurrentBranchName(runGit: GitCommandRunner): Promise<string | 
 }
 
 async function getConfiguredUpstream(
-  runGit: GitCommandRunner
+  runGit: GitCommandRunner,
+  isNoUpstreamError: IsNoUpstreamError
 ): Promise<EffectiveGitUpstream | null> {
   try {
     const { stdout } = await runGit(['rev-parse', '--abbrev-ref', 'HEAD@{u}'])
@@ -117,9 +123,10 @@ async function remoteTrackingRefExists(
 
 async function resolveEffectiveGitUpstreamForBranch(
   runGit: GitCommandRunner,
+  isNoUpstream: IsNoUpstreamError,
   currentBranchName: string | null
 ): Promise<EffectiveGitUpstream | null> {
-  let configured = await getConfiguredUpstream(runGit)
+  let configured = await getConfiguredUpstream(runGit, isNoUpstream)
 
   if (configured) {
     if (
@@ -183,17 +190,27 @@ async function resolveEffectiveGitUpstreamForBranch(
 }
 
 export async function resolveEffectiveGitUpstream(
-  runGit: GitCommandRunner
+  runGit: GitCommandRunner,
+  isNoUpstream: IsNoUpstreamError
 ): Promise<EffectiveGitUpstream | null> {
-  return resolveEffectiveGitUpstreamForBranch(runGit, await getCurrentBranchName(runGit))
+  return resolveEffectiveGitUpstreamForBranch(
+    runGit,
+    isNoUpstream,
+    await getCurrentBranchName(runGit)
+  )
 }
 
 export async function getEffectiveGitUpstreamStatus(
   runGit: GitCommandRunner,
+  isNoUpstream: IsNoUpstreamError,
   getBehindCommitsArePatchEquivalent?: (upstreamName: string) => Promise<boolean>
 ): Promise<GitUpstreamStatus> {
   const currentBranchName = await getCurrentBranchName(runGit)
-  const upstream = await resolveEffectiveGitUpstreamForBranch(runGit, currentBranchName)
+  const upstream = await resolveEffectiveGitUpstreamForBranch(
+    runGit,
+    isNoUpstream,
+    currentBranchName
+  )
   if (!upstream) {
     const hasConfiguredPushTarget = currentBranchName
       ? await hasConfiguredBranchPushTarget(runGit, currentBranchName)

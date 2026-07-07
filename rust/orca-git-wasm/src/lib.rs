@@ -61,6 +61,17 @@ pub fn count_additions_in_buffer(bytes: &[u8]) -> Option<u32> {
     orca_git::line_count::count_additions_in_buffer(bytes)
 }
 
+/// Approximate added/removed line counts for a diff section; returns the
+/// line-stats JSON, or `undefined` for the large-input guard (>500k combined
+/// chars — splitting that in a React render would block the UI). This one is
+/// consumed by the RENDERER (not the relay): the renderer has no napi access,
+/// so it loads this same wasm.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "computeLineStats"))]
+pub fn compute_line_stats(original: &str, modified: &str, status: &str) -> Option<String> {
+    orca_git::line_count::compute_line_stats(original, modified, status)
+        .map(|stats| orca_git::status_result::line_stats_to_json(Some(stats)).to_string())
+}
+
 /// Validate a persisted push target's *value* rules (path-traversal safety for a
 /// remote name / branch name / optional GitHub URL). Returns the TS-identical
 /// error message, or `undefined` when valid. The `unknown`->typed guards (the
@@ -113,4 +124,37 @@ pub fn strip_credentials_from_message(message: &str) -> String {
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "isNoUpstreamError"))]
 pub fn is_no_upstream_error(message: Option<String>) -> bool {
     orca_text::git_remote_error::is_no_upstream_error(message.as_deref())
+}
+
+/// The actionable nested-submodule rejection hidden behind a recursive-push
+/// failure, or `undefined`. Consumed by the RENDERER (push-failure toasts) via
+/// this same wasm.
+#[cfg_attr(
+    target_arch = "wasm32",
+    wasm_bindgen(js_name = "formatSubmodulePushFailureDetail")
+)]
+pub fn format_submodule_push_failure_detail(message: &str) -> Option<String> {
+    orca_text::git_remote_error::format_submodule_push_failure_detail(message)
+}
+
+/// True when `git cherry <upstream> HEAD`-style mark output shows at least one
+/// commit and every commit is patch-equivalent (`=`). The relay's
+/// behind-commits-are-patch-equivalent probe.
+#[cfg_attr(
+    target_arch = "wasm32",
+    wasm_bindgen(js_name = "upstreamOnlyCommitsArePatchEquivalent")
+)]
+pub fn upstream_only_commits_are_patch_equivalent(cherry_mark_output: &str) -> bool {
+    orca_core::git_upstream_status::upstream_only_commits_are_patch_equivalent(cherry_mark_output)
+}
+
+/// Which Pi-compatible agent a launch command starts: `"omp"` for OMP
+/// (`omp` / `omp.sh`), else `"pi"`. The relay uses this to target the managed
+/// extension dir for the actual agent being launched.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "detectPiAgentKindFromCommand"))]
+pub fn detect_pi_agent_kind_from_command(command: Option<String>) -> String {
+    match orca_text::pi_agent_kind::detect_pi_agent_kind_from_command(command.as_deref()) {
+        orca_text::pi_agent_kind::PiAgentKind::Omp => "omp".to_string(),
+        orca_text::pi_agent_kind::PiAgentKind::Pi => "pi".to_string(),
+    }
 }

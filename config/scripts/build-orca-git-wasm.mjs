@@ -19,7 +19,15 @@
 //
 // Usage: node config/scripts/build-orca-git-wasm.mjs
 import { execFileSync } from 'node:child_process'
-import { existsSync, copyFileSync, readFileSync, statSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  copyFileSync,
+  readFileSync,
+  statSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { join, delimiter } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..', '..')
@@ -83,7 +91,15 @@ function resolveWasmBindgen() {
     return cached
   }
   console.log(`[orca-git-wasm] bootstrapping wasm-bindgen-cli ${WB_VERSION} → ${WB_DIR}`)
-  run('cargo', ['install', 'wasm-bindgen-cli', '--version', WB_VERSION, '--root', WB_DIR, '--locked'])
+  run('cargo', [
+    'install',
+    'wasm-bindgen-cli',
+    '--version',
+    WB_VERSION,
+    '--root',
+    WB_DIR,
+    '--locked'
+  ])
   return cached
 }
 
@@ -94,7 +110,14 @@ console.log(`\n[orca-git-wasm] building ${CRATE_DIR} …`)
 // from crates.io, not the offline rust/vendor. RUSTUP_TOOLCHAIN pins stable for
 // the no-rustup fallback (matching rust-toolchain.toml in the crate).
 runWasmCargo(
-  ['build', '--release', '--target', 'wasm32-unknown-unknown', '--manifest-path', join(CRATE_DIR, 'Cargo.toml')],
+  [
+    'build',
+    '--release',
+    '--target',
+    'wasm32-unknown-unknown',
+    '--manifest-path',
+    join(CRATE_DIR, 'Cargo.toml')
+  ],
   { env: { ...process.env, CARGO_NET_OFFLINE: 'false', RUSTUP_TOOLCHAIN: 'stable' } }
 )
 
@@ -116,13 +139,27 @@ if (which('wasm-opt')) {
 } else {
   // Optional: the wasm is correct un-opted, just larger. Don't hard-fail a build
   // on a dev box without binaryen (the relay artifact is only shipped on release).
-  console.warn('[orca-git-wasm] wasm-opt not found on PATH — shipping un-optimised wasm (install binaryen to shrink it)')
+  console.warn(
+    '[orca-git-wasm] wasm-opt not found on PATH — shipping un-optimised wasm (install binaryen to shrink it)'
+  )
 }
 
 mkdirSync(DEST, { recursive: true })
 for (const ext of ['.js', '.d.ts', '_bg.wasm', '_bg.wasm.d.ts']) {
   copyFileSync(join(GLUE_OUT, `${STEM}${ext}`), join(DEST, `${STEM}${ext}`))
 }
+
+// The RENDERER loads the same module via vite's `?url` asset + async init (the
+// aterm precedent — no sync-compile on the Chromium main thread, no base64
+// bundle bloat). Its copy is committed INCLUDING the raw _bg.wasm (unlike the
+// relay dir, where the raw wasm is gitignored in favour of the base64 embed)
+// so `?url` imports work from a fresh checkout.
+const RENDERER_DEST = join(ROOT, 'src/renderer/src/lib/git-wasm')
+mkdirSync(RENDERER_DEST, { recursive: true })
+for (const ext of ['.js', '.d.ts', '_bg.wasm', '_bg.wasm.d.ts']) {
+  copyFileSync(join(GLUE_OUT, `${STEM}${ext}`), join(RENDERER_DEST, `${STEM}${ext}`))
+}
+console.log(`[orca-git-wasm] copied glue + raw wasm → src/renderer/src/lib/git-wasm/`)
 
 // Embed the wasm bytes as a base64 TS module so the relay stays a SINGLE
 // self-contained relay.js. A raw-file + readFileSync/import.meta.url approach
@@ -136,5 +173,7 @@ writeFileSync(
     `// base64 of ${STEM}_bg.wasm, embedded so the relay bundle stays self-contained.\n` +
     `export const ORCA_GIT_WASM_BASE64 =\n  '${b64}'\n`
 )
-console.log(`[orca-git-wasm] copied glue + wrote ${STEM}_bg.wasm.base64.ts (${b64.length} b64 chars) → src/relay/wasm/`)
+console.log(
+  `[orca-git-wasm] copied glue + wrote ${STEM}_bg.wasm.base64.ts (${b64.length} b64 chars) → src/relay/wasm/`
+)
 console.log('\n[orca-git-wasm] done.')

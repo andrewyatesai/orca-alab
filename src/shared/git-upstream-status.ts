@@ -1,40 +1,11 @@
 import type { GitUpstreamStatus } from './git-status-types'
 
-export function upstreamOnlyCommitsArePatchEquivalent(cherryMarkOutput: string): boolean {
-  let hasCommit = false
-  for (const rawLine of iterateGitOutputLines(cherryMarkOutput)) {
-    const line = rawLine.trim()
-    if (!line) {
-      continue
-    }
-    hasCommit = true
-    if (!line.startsWith('=')) {
-      return false
-    }
-  }
-  return hasCommit
-}
-
-function* iterateGitOutputLines(output: string): Generator<string> {
-  let lineStart = 0
-
-  for (let index = 0; index < output.length; index++) {
-    const code = output.charCodeAt(index)
-    if (code !== 10 && code !== 13) {
-      continue
-    }
-
-    yield output.slice(lineStart, index)
-    if (code === 13 && output.charCodeAt(index + 1) === 10) {
-      index++
-    }
-    lineStart = index + 1
-  }
-
-  if (lineStart <= output.length) {
-    yield output.slice(lineStart)
-  }
-}
+// The `git cherry` mark-output parser (upstreamOnlyCommitsArePatchEquivalent)
+// moved to the Rust orca-core git_upstream_status module: the relay drives it
+// via wasm (src/relay/git-wasm.ts); main's equivalent runs inside the Rust
+// upstream/push flows via the napi A-bridge. This shared module keeps only the
+// typed-object predicate below — object-field logic the compiler pins, not
+// drift-prone output parsing.
 
 export function shouldForcePushWithLeaseForUpstream(
   status: GitUpstreamStatus | undefined

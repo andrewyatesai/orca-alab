@@ -1,11 +1,13 @@
-import { isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
+import { resolve } from 'node:path'
 import type { Stats } from 'node:fs'
 import { lstat, mkdir, rm } from 'node:fs/promises'
-import {
-  isWindowsAbsolutePathLike,
-  normalizeRuntimePathForComparison,
-  normalizeRuntimePathSeparators
-} from '../../shared/cross-platform-path'
+import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
+
+// The pure derivation/validation logic (repo name from URL, escape-safe clone
+// path, WSL-UNC-aware comparison key) runs in the Rust `orca-git` core
+// (repo_clone_path.rs — the TS bodies were deleted). Only the fs claim/cleanup
+// IO and the cwd-dependent `resolve()` stay at this JS boundary.
 
 export type ClaimedCloneTarget = {
   canCleanup: boolean
@@ -15,58 +17,23 @@ export type ClaimedCloneTarget = {
 type CloneDirectoryIdentity = Pick<Stats, 'dev' | 'ino' | 'birthtimeMs'>
 
 export function deriveCloneRepoNameFromUrl(url: string): string {
-  // Why: direct callers can supply URLs whose default git clone folder would
-  // be "." or ".."; rejecting them prevents parent/destination deletion.
-  const source = url.replace(/\.git\/?$/, '')
-  const isWindowsLocalSource = /^[A-Za-z]:[\\/]/.test(source) || source.startsWith('\\\\')
-  const repoName = isWindowsLocalSource ? win32.basename(source) : posix.basename(source)
-  if (!repoName || repoName === '.' || repoName === '..') {
-    throw new Error('Invalid repository name derived from URL')
-  }
-  if (repoName.includes('/') || repoName.includes('\\')) {
-    throw new Error('Invalid repository name derived from URL')
-  }
-  return repoName
+  return requireRustGitBinding().deriveCloneRepoNameFromUrl(url)
 }
 
 export function deriveValidatedClonePath(args: { url: string; destination: string }): string {
-  if (
-    !args.destination ||
-    !isAbsolute(args.destination) ||
-    (process.platform !== 'win32' && isWindowsAbsolutePathLike(args.destination))
-  ) {
-    throw new Error('Clone destination must be an absolute path')
-  }
-
-  const repoName = deriveCloneRepoNameFromUrl(args.url)
-
-  const clonePath = join(args.destination, repoName)
-  const resolvedDestination = resolve(args.destination)
-  const resolvedClonePath = resolve(clonePath)
-  const pathFromDestination = relative(resolvedDestination, resolvedClonePath)
-  if (
-    pathFromDestination === '' ||
-    pathFromDestination === '..' ||
-    pathFromDestination.startsWith(`..${sep}`) ||
-    isAbsolute(pathFromDestination)
-  ) {
-    throw new Error('Clone path must be inside the destination directory')
-  }
-
-  return clonePath
+  return requireRustGitBinding().deriveValidatedClonePath(
+    args.url,
+    args.destination,
+    process.platform === 'win32' ? 'win32' : 'posix'
+  )
 }
 
 export function getClonePathComparisonKey(clonePath: string): string {
+  // Why: `resolve()` is cwd-dependent IO, so it stays in JS; Rust receives an
+  // already-absolute path (Windows-absolute-like paths pass through unresolved,
+  // matching the old TS behaviour on non-Windows hosts).
   const resolvedClonePath = isWindowsAbsolutePathLike(clonePath) ? clonePath : resolve(clonePath)
-  const normalized = normalizeRuntimePathSeparators(resolvedClonePath)
-  const wslUncMatch = normalized.match(/^\/\/(?:wsl\.localhost|wsl\$)\/([^/]+)(\/.*)?$/i)
-  if (wslUncMatch) {
-    // Why: WSL UNC paths cross into a case-sensitive Linux filesystem, so only
-    // the Windows UNC server alias and distro segment should be case-folded.
-    const linuxPath = (wslUncMatch[2] ?? '').replace(/\/+$/, '')
-    return `//wsl/${wslUncMatch[1].toLowerCase()}${linuxPath}`
-  }
-  return normalizeRuntimePathForComparison(resolvedClonePath)
+  return requireRustGitBinding().getClonePathComparisonKey(resolvedClonePath)
 }
 
 export async function claimCloneTarget(clonePath: string): Promise<ClaimedCloneTarget> {

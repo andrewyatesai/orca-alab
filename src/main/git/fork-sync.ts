@@ -1,4 +1,4 @@
-import { normalizeGitErrorMessage } from '../../shared/git-remote-error'
+import { normalizeGitErrorMessage } from './rust-git-remote-error'
 import {
   syncForkDefaultBranch,
   type GitForkSyncExpectedUpstream,

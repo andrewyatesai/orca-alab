@@ -13,19 +13,19 @@ dependencies = [
 
 [[package]]
 name = "aterm-alloc"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-bits"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-codec"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-containment"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-error",
  "aterm-log",
@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-core"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-alloc",
  "aterm-bits",
@@ -63,14 +63,14 @@ dependencies = [
 
 [[package]]
 name = "aterm-error"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-error-derive",
 ]
 
 [[package]]
 name = "aterm-error-derive"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -79,7 +79,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-ffi-types"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-log",
  "aterm-types",
@@ -87,14 +87,14 @@ dependencies = [
 
 [[package]]
 name = "aterm-grapheme"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-types",
 ]
 
 [[package]]
 name = "aterm-grid"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-alloc",
  "aterm-error",
@@ -110,19 +110,19 @@ dependencies = [
 
 [[package]]
 name = "aterm-hash"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-log"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-lz4"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-parser"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-alloc",
  "aterm-provenance",
@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-policy"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-error",
  "serde",
@@ -140,18 +140,18 @@ dependencies = [
 
 [[package]]
 name = "aterm-provenance"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-error",
 ]
 
 [[package]]
 name = "aterm-rle"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-scrollback"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-alloc",
  "aterm-error",
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-search"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-error",
  "aterm-grapheme",
@@ -177,7 +177,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-selection"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-ffi-types",
  "aterm-grapheme",
@@ -187,7 +187,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-shell-integration"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "getrandom 0.2.17",
  "rand_core",
@@ -195,11 +195,11 @@ dependencies = [
 
 [[package]]
 name = "aterm-sixel"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-spec"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-error",
  "aterm-spec-macros",
@@ -208,7 +208,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-spec-macros"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -217,11 +217,11 @@ dependencies = [
 
 [[package]]
 name = "aterm-tempfile"
-version = "0.25.0"
+version = "0.26.0"
 
 [[package]]
 name = "aterm-types"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-alloc",
  "aterm-error",
@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "aterm-vi"
-version = "0.25.0"
+version = "0.26.0"
 dependencies = [
  "aterm-types",
 ]
@@ -589,6 +589,8 @@ dependencies = [
  "orca-git",
  "orca-net",
  "orca-terminal",
+ "orca-text",
+ "serde_json",
 ]
 
 [[package]]
@@ -736,6 +738,7 @@ version = "1.0.150"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8014e44b4736ed0538adeecded0fce2a272f22dc9578a7eb6b2d9993c74cfb9"
 dependencies = [
+ "indexmap",
  "itoa",
  "memchr",
  "serde",

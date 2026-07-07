@@ -1,5 +1,5 @@
 import type { GitPushTarget, GitUpstreamStatus } from '../../shared/types'
-import { isNoUpstreamError, normalizeGitErrorMessage } from '../../shared/git-remote-error'
+import { isNoUpstreamError, normalizeGitErrorMessage } from './rust-git-remote-error'
 import { gitExecFileAsync } from './runner'
 import { assertGitPushTargetShapeNative } from './rust-push-target-validation'
 import { makeRustGitExecutor } from './rust-git-executor'

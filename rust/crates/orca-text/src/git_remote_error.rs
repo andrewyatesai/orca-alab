@@ -97,7 +97,8 @@ fn divergent_pull_re() -> &'static Regex {
 /// Port of `formatSubmodulePushFailureDetail`: recursive push can hide the
 /// actionable nested submodule rejection behind a top-level "failed to push all
 /// needed submodules" line. Returns the user-facing detail, or `None`.
-fn format_submodule_push_failure_detail(message: &str) -> Option<String> {
+/// Public: the renderer consumes it directly (via wasm) for push-failure toasts.
+pub fn format_submodule_push_failure_detail(message: &str) -> Option<String> {
     let raw = strip_credentials_from_message(message);
     let trimmed = raw.trim();
     if let Some(caps) = normalized_submodule_re().captures(trimmed) {

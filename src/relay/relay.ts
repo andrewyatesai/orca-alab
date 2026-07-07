@@ -56,7 +56,7 @@ import {
 } from '../shared/ssh-types'
 import { assertPluginSourceUnderByteCap } from './plugin-source-limit'
 import { resolveOpenCodeSourceConfigDir, resolvePiSourceAgentDir } from './plugin-overlay-env'
-import { detectPiAgentKindFromCommand } from '../shared/pi-agent-kind'
+import { detectPiAgentKindFromCommand } from './git-wasm'
 import { resolveSetupAgentSequenceLaunchCommand } from '../shared/setup-agent-sequencing'
 import { pickRemoteCliEnv } from './remote-cli-env'
 import { remoteCliRequestTimeoutMs } from './remote-cli-timeout'

@@ -1,4 +1,4 @@
-import { isNoUpstreamError } from '../../shared/git-remote-error'
+import { isNoUpstreamError } from './rust-git-remote-error'
 import {
   resolveEffectiveGitUpstream,
   type GitCommandRunner
@@ -18,7 +18,7 @@ export type GitExec = GitCommandRunner
  */
 export async function branchHasUpstream(exec: GitExec): Promise<boolean> {
   try {
-    return (await resolveEffectiveGitUpstream(exec)) !== null
+    return (await resolveEffectiveGitUpstream(exec, isNoUpstreamError)) !== null
   } catch (error) {
     if (isNoUpstreamError(error)) {
       return false

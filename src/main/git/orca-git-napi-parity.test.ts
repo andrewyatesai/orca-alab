@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadRustGitBinding } from '../daemon/rust-git-addon'
-import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
 import { isBinaryBuffer } from '../../shared/binary-buffer'
 
@@ -9,11 +8,11 @@ import { isBinaryBuffer } from '../../shared/binary-buffer'
 // were retired as each TS parser was deleted (the Rust core is the sole impl —
 // napi in main, wasm in the relay); the parser logic itself is covered by
 // orca-git's unit tests and the relay's differential tests. What remains here:
-// status streaming↔one-shot self-consistency, parity against the STILL-LIVE
-// shared TS at the JS boundary (decodeGitCQuotedPath, push-target shape), a
-// transcribed golden for count (its inline TS loop was deleted), and a
-// transcribed golden for line-stats (its TS original, computeLineStats, is
-// still live in the renderer project — which this node project cannot import).
+// status streaming↔one-shot self-consistency, absolute goldens for the
+// C-quoted decode (its shared TS was deleted; the relay runs the same core
+// via wasm), parity against the STILL-LIVE push-target shape guard, and
+// transcribed goldens for count and line-stats (both TS originals are deleted —
+// the renderer now runs line-stats through the same Rust core via wasm).
 //
 // Skips cleanly when the .node is absent (CI without a native build), so the
 // suite still passes there.
@@ -55,10 +54,11 @@ function tsCountAdditions(bytes: Buffer): number | null {
   return bytes.at(-1) === 0x0a ? newlines : newlines + 1
 }
 
-/** Live TS line-stats — transcribed 1:1 from `diff-line-stats.ts`'s
- *  `computeLineStats` (it lives in the renderer tsconfig project, which the node
- *  project cannot import; `line_count.rs` is the Rust port of the same algorithm).
- *  forEachDiffLine splits on `\n`, so `.split('\n')` is the faithful equivalent. */
+/** Frozen line-stats golden — transcribed 1:1 from the (since deleted) renderer
+ *  `diff-line-stats.ts` `computeLineStats`; the renderer now runs `line_count.rs`
+ *  via wasm (src/renderer/src/lib/git-wasm/git-line-stats.ts), so this
+ *  transcription is the recorded pre-cutover behaviour, not a live twin.
+ *  forEachDiffLine split on `\n`, so `.split('\n')` is the faithful equivalent. */
 function tsComputeLineStats(
   original: string,
   modified: string,
@@ -174,15 +174,18 @@ const streamingFixtures: { name: string; bytes: Buffer; limit: number; chunkSize
   }
 ]
 
-const decodeFixtures = [
-  'plain/path.ts',
-  '"quoted/path.ts"',
-  '"tab\\tfile.txt"',
-  '"new\\nline.txt"',
-  '"\\303\\251.txt"',
-  '"a\\142c.txt"',
-  '"\\"quoted\\".txt"',
-  'old.ts => new.ts'
+// Absolute goldens (the shared TS decoder was deleted; main runs the napi
+// decode, the relay the same core via wasm). Octal escapes decode PER-BYTE
+// (fromCharCode-faithful), so \303\251 → 'Ã©'.
+const decodeFixtures: { value: string; expected: string }[] = [
+  { value: 'plain/path.ts', expected: 'plain/path.ts' },
+  { value: '"quoted/path.ts"', expected: 'quoted/path.ts' },
+  { value: '"tab\\tfile.txt"', expected: 'tab\tfile.txt' },
+  { value: '"new\\nline.txt"', expected: 'new\nline.txt' },
+  { value: '"\\303\\251.txt"', expected: 'Ã©.txt' },
+  { value: '"a\\142c.txt"', expected: 'abc.txt' },
+  { value: '"\\"quoted\\".txt"', expected: '"quoted".txt' },
+  { value: 'old.ts => new.ts', expected: 'old.ts => new.ts' }
 ]
 
 const countFixtures: { name: string; bytes: Buffer }[] = [
@@ -274,9 +277,9 @@ suite('orca-git napi surface', () => {
   // orca-git's unit tests and the relay's differential tests (same wasm core).
 
   describe('decodeGitCQuotedPath', () => {
-    for (const value of decodeFixtures) {
+    for (const { value, expected } of decodeFixtures) {
       it(JSON.stringify(value), () => {
-        expect(git.decodeGitCQuotedPath(value)).toBe(decodeGitCQuotedPath(value))
+        expect(git.decodeGitCQuotedPath(value)).toBe(expected)
       })
     }
   })

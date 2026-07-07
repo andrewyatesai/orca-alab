@@ -15,13 +15,16 @@ import {
   parseStatusPorcelain as wasmParseStatusPorcelain,
   parseNumstat as wasmParseNumstat,
   parseWorktreeList as wasmParseWorktreeList,
-  parseGitHistoryLog as wasmParseGitHistoryLog
+  parseGitHistoryLog as wasmParseGitHistoryLog,
+  detectPiAgentKindFromCommand as wasmDetectPiAgentKindFromCommand,
+  upstreamOnlyCommitsArePatchEquivalent as wasmUpstreamOnlyCommitsArePatchEquivalent
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
 import type { GitRemoteOperation } from '../shared/git-remote-error'
 import type { GitStatusEntry } from '../shared/types'
 import type { GitLineStats } from '../shared/git-uncommitted-line-stats'
 import type { GitHistoryItem } from '../shared/git-history-types'
+import type { PiAgentKind } from '../shared/pi-agent-kind'
 
 let inited = false
 function ensureGitWasm(): void {
@@ -141,4 +144,19 @@ export function parseWorktreeList(
 export function parseGitHistoryLog(stdout: string): GitHistoryItem[] {
   ensureGitWasm()
   return JSON.parse(wasmParseGitHistoryLog(stdout)) as GitHistoryItem[]
+}
+
+/** Which Pi-compatible agent a launch command starts ('omp' for OMP, else
+ *  'pi') — the same orca-text detector the main process runs via napi. */
+export function detectPiAgentKindFromCommand(command: string | undefined): PiAgentKind {
+  ensureGitWasm()
+  return wasmDetectPiAgentKindFromCommand(command) as PiAgentKind
+}
+
+/** True when `git cherry` mark output shows ≥1 commit and every commit is
+ *  patch-equivalent (`=`) — the behind-commits probe. Main's equivalent runs
+ *  inside the Rust upstream/push flows; the shared TS parser was deleted. */
+export function upstreamOnlyCommitsArePatchEquivalent(cherryMarkOutput: string): boolean {
+  ensureGitWasm()
+  return wasmUpstreamOnlyCommitsArePatchEquivalent(cherryMarkOutput)
 }

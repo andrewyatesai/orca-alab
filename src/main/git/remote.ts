@@ -1,4 +1,4 @@
-import { normalizeGitErrorMessage } from '../../shared/git-remote-error'
+import { isNoUpstreamError, normalizeGitErrorMessage } from './rust-git-remote-error'
 import { resolveEffectiveGitUpstream } from '../../shared/git-effective-upstream'
 import { resolveGitRemoteRebaseSourceNative } from './rust-rebase-source'
 import { gitPushNative } from './rust-push'
@@ -45,8 +45,9 @@ async function gitPullWithArgs(
       )
       return
     }
-    const upstream = await resolveEffectiveGitUpstream((args) =>
-      gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options))
+    const upstream = await resolveEffectiveGitUpstream(
+      (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
+      isNoUpstreamError
     )
     if (upstream && !upstream.isConfiguredUpstream) {
       // Why: legacy Orca branches may still track origin/main while pushes

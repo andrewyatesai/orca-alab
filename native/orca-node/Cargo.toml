@@ -13,9 +13,13 @@ napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
 orca-terminal = { path = "../../rust/crates/orca-terminal" }
 # orca-git: the verified status/numstat/line-count parsers exposed to JS via this
-# same .node. orca-core supplies the C-quoted-path decoder.
+# same .node. orca-core supplies the C-quoted-path decoder; orca-text the
+# remote-error normaliser + pi-agent-kind + skill-metadata text logic.
 orca-git = { path = "../../rust/crates/orca-git" }
 orca-core = { path = "../../rust/crates/orca-core" }
+orca-text = { path = "../../rust/crates/orca-text" }
+# serde_json: builds the JSON marshalling for the orca-text summaries.
+serde_json = { version = "1", features = ["preserve_order"] }
 # orca-net: the byte-budget NDJSON line splitter (daemon-socket OOM guard) exposed as
 # the NdjsonParser napi class.
 orca-net = { path = "../../rust/crates/orca-net" }

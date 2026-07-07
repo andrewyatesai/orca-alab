@@ -10,12 +10,17 @@ import {
   recordRendererCrashBreadcrumb
 } from './lib/crash-diagnostics'
 import { applyDocumentTheme } from './lib/document-theme'
+import { startGitWasm } from './lib/git-wasm/git-line-stats'
 import { shouldEnableReactGrab } from './lib/react-grab-dev-gate'
 import { I18nProvider } from './i18n/I18nProvider'
 import { translate } from './i18n/i18n'
 
 recordRendererCrashBreadcrumb('renderer_bootstrap_started', { dev: import.meta.env.DEV })
 installRendererCrashDiagnostics()
+// Compile the orca-git wasm (diff line stats) off the critical path so it is
+// ready long before any diff section renders; consumers degrade to numstat
+// counts until then.
+void startGitWasm()
 
 if (
   import.meta.env.DEV &&

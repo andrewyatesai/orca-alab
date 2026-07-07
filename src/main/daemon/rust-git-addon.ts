@@ -123,6 +123,28 @@ export type RustGitBinding = {
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */
   decodeGitCQuotedPath(value: string): string
+  /** True when a fetch/pull error message means the remote ref does not exist. */
+  isMissingRemoteRefGitError(message: string): boolean
+  /** Default `git clone` folder name from a URL; throws on unsafe names. */
+  deriveCloneRepoNameFromUrl(url: string): string
+  /** `<destination>/<repoName>` with escape validation; `platform` is the
+   *  Node `process.platform` value ("win32" → Windows path rules, else POSIX).
+   *  Throws the TS-identical message on invalid input. */
+  deriveValidatedClonePath(url: string, destination: string, platform: string): string
+  /** Stable clone-path comparison key (WSL-UNC aware); pass a resolved path. */
+  getClonePathComparisonKey(clonePath: string): string
+  /** User-facing message for a git remote-operation error. `message` is
+   *  undefined for a non-Error throw; `operation` is "push"|"pull"|"fetch"|
+   *  "upstream". Mirrors the wasm export the relay runs. */
+  normalizeGitErrorMessage(message: string | undefined, operation?: string): string
+  /** True only for clearly-no-upstream signals (an expected state). */
+  isNoUpstreamError(message: string | undefined): boolean
+  /** Scrub credentials embedded in a git URL within `message`. */
+  stripCredentialsFromMessage(message: string): string
+  /** "omp" when the launch command starts OMP, else "pi". */
+  detectPiAgentKindFromCommand(command: string | undefined): string
+  /** Skill markdown frontmatter summary (name/description) as JSON. */
+  summarizeSkillMarkdown(markdown: string): string
   gitEngine(): string
 }
 

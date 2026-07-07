@@ -31,6 +31,25 @@ fn basename(source: &str, windows_local: bool) -> &str {
     source.trim_end_matches(separators).rsplit(separators).next().unwrap_or("")
 }
 
+/// Derive the default `git clone` folder name from a URL, rejecting names that
+/// would escape or clobber the destination (`.`, `..`, separator-bearing).
+/// The TS `deriveCloneRepoNameFromUrl`; also the first step of
+/// [`derive_validated_clone_path`].
+pub fn derive_clone_repo_name_from_url(url: &str) -> Result<String, String> {
+    let source = strip_git_suffix(url);
+    let windows_local = starts_with_windows_drive(source) || source.starts_with("\\\\");
+    let repo_name = basename(source, windows_local);
+    if repo_name.is_empty()
+        || repo_name == "."
+        || repo_name == ".."
+        || repo_name.contains('/')
+        || repo_name.contains('\\')
+    {
+        return Err("Invalid repository name derived from URL".to_string());
+    }
+    Ok(repo_name.to_string())
+}
+
 /// Derive `<destination>/<repoName>` for `git clone`, validating that the
 /// destination is absolute (in the given flavour) and the result stays inside
 /// it. Returns the clone path or an error message.
@@ -46,17 +65,7 @@ pub fn derive_validated_clone_path(
         return Err("Clone destination must be an absolute path".to_string());
     }
 
-    let source = strip_git_suffix(url);
-    let windows_local = starts_with_windows_drive(source) || source.starts_with("\\\\");
-    let repo_name = basename(source, windows_local);
-    if repo_name.is_empty()
-        || repo_name == "."
-        || repo_name == ".."
-        || repo_name.contains('/')
-        || repo_name.contains('\\')
-    {
-        return Err("Invalid repository name derived from URL".to_string());
-    }
+    let repo_name = derive_clone_repo_name_from_url(url)?;
 
     let separator = if platform == PathFlavor::Windows { '\\' } else { '/' };
     let clone_path = format!("{}{separator}{repo_name}", destination.trim_end_matches(['/', '\\']));

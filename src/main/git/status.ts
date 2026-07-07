@@ -201,8 +201,7 @@ async function runGetStatus(
   // Why: stream + parse incrementally and stop git the moment the entry count
   // crosses `limit`, so a repo with an enormous un-ignored folder never buffers
   // a status listing big enough to crash the process. streamGitStatus drives the
-  // Trust-verified Rust parser (orca_node.node) when present, else the identical
-  // TypeScript StatusPorcelainParser fallback (proven equal in parity tests).
+  // Rust orca-git streaming parser (orca_node.node — a required dependency).
   const conflictOperation = await conflictPromise
   const streamed = await streamGitStatus(
     statusArgs,

@@ -12,13 +12,14 @@ const { existsSyncMock, gitExecFileAsyncMock, readFileMock } = vi.hoisted(() => 
 vi.mock('./runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock,
   // Why: getStatus streams status output; forward args to the same mock so this
-  // suite's arg-routing implementation still matches the status read.
+  // suite's arg-routing implementation still matches the status read. The Rust
+  // status parser consumes raw bytes, so feed onStdoutBytes.
   gitStreamStdout: async (
     args: string[],
-    options: { onStdout: (chunk: string) => boolean | void }
+    options: { onStdoutBytes: (chunk: Buffer) => boolean | void }
   ) => {
     const { stdout } = await gitExecFileAsyncMock(args)
-    const stoppedEarly = options.onStdout(stdout ?? '') === true
+    const stoppedEarly = options.onStdoutBytes(Buffer.from(stdout ?? '', 'utf8')) === true
     return { stoppedEarly }
   },
   gitOptionalLocksDisabledEnv: (env: NodeJS.ProcessEnv = process.env) => ({
@@ -34,6 +35,22 @@ vi.mock('fs/promises', () => ({
 vi.mock('fs', () => ({
   existsSync: existsSyncMock
 }))
+
+// The orca-git native addon is a required main-process dependency (the status
+// stream has no TS fallback). This suite mocks `fs`, which breaks the addon
+// loader's existsSync probe, so provide the real native binding directly: a
+// native addon require bypasses the `fs` JS mock, and `test` always builds it.
+vi.mock('../daemon/rust-git-addon', async () => {
+  const { createRequire } = await import('node:module')
+  const { join } = await import('node:path')
+  const binding = createRequire(import.meta.url)(
+    join(process.cwd(), 'native', 'orca-node', 'orca_node.node')
+  )
+  return {
+    loadRustGitBinding: () => binding,
+    requireRustGitBinding: () => binding
+  }
+})
 
 import { clearEffectiveUpstreamStatusCacheForTests, getStatus } from './status'
 

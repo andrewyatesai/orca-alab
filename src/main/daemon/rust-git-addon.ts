@@ -6,9 +6,9 @@ import { existsSync } from 'node:fs'
 // native/orca-node (the verified `orca_git` status/numstat/line-count parsers).
 // It is the SAME orca_node.node the terminal binding loads — Node-API is
 // ABI-stable, so one .node serves both bindings in plain Node and Electron.
-// These parsers ARE the live path: git-status-stream drives them in production
-// whenever the addon loads, with the TypeScript parsers as the proven-identical
-// fallback when it does not.
+// These parsers ARE the sole path: the main process requires the addon (the
+// duplicated TypeScript parsers were deleted; the relay runs the same Rust
+// core via wasm).
 
 /** Streaming `git status --porcelain=v2 --branch` parser (chunked stdout). */
 export type RustGitStatusParserHandle = {

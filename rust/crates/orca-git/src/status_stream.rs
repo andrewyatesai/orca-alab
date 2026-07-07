@@ -1,5 +1,6 @@
 //! The single `git status --porcelain=v2 --branch` record scanner, ported from
-//! `src/main/git/status-porcelain-parser.ts`. It is fed RAW bytes (git runs with
+//! `src/main/git/status-porcelain-parser.ts` (since deleted post-cutover — this
+//! port is the sole implementation). It is fed RAW bytes (git runs with
 //! `core.quotePath=false`, so path bytes can be invalid UTF-8) and splits records
 //! on `0x0A`, carrying a partial trailing line across `update` calls. The caller
 //! can cap the changed-entry count to keep memory bounded on a huge worktree.
@@ -329,6 +330,18 @@ mod tests {
     fn strips_trailing_cr_for_crlf_output() {
         let r = parse_status_porcelain(b"? win.txt\r\n", 0);
         assert_eq!(r.entries, vec![untracked("win.txt")]);
+    }
+
+    #[test]
+    fn decodes_cquoted_untracked_and_ignored_paths() {
+        // Pins the decode_git_cquoted_path wiring on the `? `/`! ` branches: even
+        // under core.quotePath=false git C-quotes names containing `"`, `\`, tab,
+        // or newline. The deleted TS parity oracle used to pin this wiring.
+        // Octal escapes decode per-byte to code points (TS fromCharCode-faithful),
+        // so UTF-8 bytes \303\251 become "\u{c3}\u{a9}", not "é".
+        let r = parse_status_porcelain(b"? \"\\303\\251.txt\"\n! \"tab\\tname.log\"\n", 0);
+        assert_eq!(r.entries, vec![untracked("\u{c3}\u{a9}.txt")]);
+        assert_eq!(r.ignored_paths, vec!["tab\tname.log".to_string()]);
     }
 
     #[test]

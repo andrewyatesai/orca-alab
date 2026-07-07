@@ -31,24 +31,18 @@ vi.mock('./runner', () => ({
   gitExecFileAsync: gitExecFileAsyncMock,
   gitExecFileAsyncBuffer: gitExecFileAsyncBufferMock,
   // Why: getStatus now streams status output. The mock pulls the next queued
-  // stdout from gitExecFileAsyncMock and feeds it to onStdout, so existing tests
-  // that seed the status call via `gitExecFileAsyncMock.mockResolvedValueOnce`
-  // keep working unchanged and call ordering (status, then numstat) is preserved.
+  // stdout from gitExecFileAsyncMock and feeds it to onStdoutBytes (the Rust
+  // status parser consumes raw bytes), so existing tests that seed the status
+  // call via `gitExecFileAsyncMock.mockResolvedValueOnce` keep working unchanged
+  // and call ordering (status, then numstat) is preserved.
   gitStreamStdout: async (
     args: string[],
-    options: {
-      onStdout?: (chunk: string) => boolean | void
-      onStdoutBytes?: (chunk: Buffer) => boolean | void
-    }
+    options: { onStdoutBytes: (chunk: Buffer) => boolean | void }
   ) => {
     // Forward args so arg-routing mock implementations (e.g. `args.includes`)
-    // still match the status read. Feed whichever sink the active parser uses:
-    // onStdoutBytes (raw) for the Rust path, else onStdout (decoded string).
+    // still match the status read.
     const { stdout } = await gitExecFileAsyncMock(args)
-    const text: string = stdout ?? ''
-    const stoppedEarly = options.onStdoutBytes
-      ? options.onStdoutBytes(Buffer.from(text, 'utf8')) === true
-      : options.onStdout?.(text) === true
+    const stoppedEarly = options.onStdoutBytes(Buffer.from(stdout ?? '', 'utf8')) === true
     return { stoppedEarly }
   },
   gitOptionalLocksDisabledEnv: (env: NodeJS.ProcessEnv = process.env) => ({

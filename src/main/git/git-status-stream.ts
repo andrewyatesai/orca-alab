@@ -1,10 +1,9 @@
 import type { GitStatusEntry } from '../../shared/git-status-types'
-import { loadRustGitBinding, type RustGitStatusParserCtor } from '../daemon/rust-git-addon'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import { gitStreamStdout, type GitStreamOptions } from './runner'
-import { StatusPorcelainParser } from './status-porcelain-parser'
 
-/** Normalized streamed `git status` result — identical whether produced by the
- *  Trust-verified Rust parser (orca_node.node) or the TypeScript fallback. */
+/** Normalized streamed `git status` result, produced by the verified Rust
+ *  `orca-git` streaming parser (orca_node.node). */
 export type StreamedGitStatus = {
   /** Changed-file entries, already capped to `limit` when the cap was hit. */
   entries: GitStatusEntry[]
@@ -23,21 +22,6 @@ export type StreamedGitStatus = {
 
 type StatusStreamOptions = Pick<GitStreamOptions, 'cwd' | 'env' | 'wslDistro' | 'signal'>
 
-/** Stream + parse `git status --porcelain=v2 --branch`, stopping git the moment
- *  the entry count crosses `limit` (0 = no cap). Drives the verified Rust parser
- *  when the napi addon is present, else the TypeScript StatusPorcelainParser —
- *  the two are proven output-identical by orca-git-napi-parity.test.ts. */
-export async function streamGitStatus(
-  statusArgs: string[],
-  options: StatusStreamOptions,
-  limit: number
-): Promise<StreamedGitStatus> {
-  const binding = loadRustGitBinding()
-  return binding
-    ? streamViaRust(binding.GitStatusParser, statusArgs, options, limit)
-    : streamViaTs(statusArgs, options, limit)
-}
-
 type RustStatusResult = {
   entries: GitStatusEntry[]
   ignoredPaths: string[]
@@ -50,13 +34,16 @@ type RustStatusResult = {
   behind?: number
 }
 
-async function streamViaRust(
-  Parser: RustGitStatusParserCtor,
+/** Stream + parse `git status --porcelain=v2 --branch`, stopping git the moment
+ *  the entry count crosses `limit` (0 = no cap). Drives the Rust `orca-git`
+ *  streaming parser — the napi addon is a required main-process dependency, so
+ *  there is no TypeScript fallback (the former StatusPorcelainParser was deleted). */
+export async function streamGitStatus(
   statusArgs: string[],
   options: StatusStreamOptions,
   limit: number
 ): Promise<StreamedGitStatus> {
-  const parser = new Parser()
+  const parser = new (requireRustGitBinding().GitStatusParser)()
   try {
     // Raw bytes: git runs with core.quotePath=false, so filename bytes may be
     // invalid UTF-8; the Rust parser carries bytes + decodes lossily itself.
@@ -84,53 +71,14 @@ async function streamViaRust(
       succeeded: true
     }
   } catch {
-    // Not a git repo / git unavailable / addon error — empty, same as the TS path.
-    return emptyStatus()
-  }
-}
-
-async function streamViaTs(
-  statusArgs: string[],
-  options: StatusStreamOptions,
-  limit: number
-): Promise<StreamedGitStatus> {
-  const parser = new StatusPorcelainParser()
-  try {
-    const { stoppedEarly } = await gitStreamStdout(statusArgs, {
-      ...options,
-      onStdout: (chunk) => parser.update(chunk, limit)
-    })
-    if (!stoppedEarly) {
-      parser.finish()
-    }
-    // Why: the parser stops one entry past the limit (it checks after pushing),
-    // so trim back to exactly `limit` for a stable "first N shown" contract.
-    const entries = stoppedEarly ? parser.entries.slice(0, limit) : parser.entries
-    const { head, branch, upstreamName, upstreamAheadBehind } = parser.branch
+    // Not a git repo / git unavailable — an empty, non-succeeded status.
     return {
-      entries,
-      head,
-      branch,
-      upstreamName,
-      upstreamAheadBehind,
-      ignoredPaths: parser.ignoredPaths,
-      unmergedLines: parser.unmergedLines,
-      statusLength: parser.statusLength,
-      didHitLimit: stoppedEarly,
-      succeeded: true
+      entries: [],
+      ignoredPaths: [],
+      unmergedLines: [],
+      statusLength: 0,
+      didHitLimit: false,
+      succeeded: false
     }
-  } catch {
-    return emptyStatus()
-  }
-}
-
-function emptyStatus(): StreamedGitStatus {
-  return {
-    entries: [],
-    ignoredPaths: [],
-    unmergedLines: [],
-    statusLength: 0,
-    didHitLimit: false,
-    succeeded: false
   }
 }

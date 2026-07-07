@@ -199,13 +199,15 @@ pub fn engine() -> String {
 }
 
 // --- orca-git: the verified status/numstat/line-count parsers, exposed to JS
-// via this same .node so the daemon can prove parity with the TS parsers before
-// any cut-over. JSON strings are the marshalling format (the status_result.rs
-// builders match the TS shapes verbatim, omitting None fields). ---
+// via this same .node. They are the SOLE implementation in the main process
+// (the duplicated TS parsers were deleted after the dual-run parity phase; the
+// relay runs the same core via wasm). JSON strings are the marshalling format
+// (the status_result.rs builders match the original TS shapes verbatim,
+// omitting None fields). ---
 
 /// Streaming `git status --porcelain=v2 --branch` parser — the chunked path the
-/// daemon feeds raw stdout bytes. Mirrors `StatusPorcelainParser` in
-/// `src/main/git/status-porcelain-parser.ts`.
+/// daemon feeds raw stdout bytes. Ported from the (since deleted)
+/// `StatusPorcelainParser` in `src/main/git/status-porcelain-parser.ts`.
 #[napi(js_name = "GitStatusParser")]
 pub struct JsGitStatusParser {
     // Option because into_result consumes the parser; result() take()s it.

@@ -1,6 +1,7 @@
+import { readFileSync } from 'node:fs'
 import React, { type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { buildCommitMessageGenerationParams } from './SourceControlTextGenerationDialog'
 import {
   getDefaultSourceControlTextGenerationSaveTargetKey,
@@ -10,6 +11,15 @@ import {
   applyCommitMessageGenerationDefaults,
   applySourceControlTextGenerationDefaults
 } from './SourceControlTextGenerationDefaults'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
+
+// The dialog's dry-run plan preview derives through the Rust orca-agents core
+// via wasm; init it synchronously so the rendered command label is populated.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 vi.mock('../source-control/SourceControlActionVariableChips', () => ({
   SourceControlActionVariableChips: ({

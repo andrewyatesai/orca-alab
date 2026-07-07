@@ -41,7 +41,9 @@ pub use commit_message_models::{
     parse_codex_models, parse_cursor_models, parse_line_models, parse_pi_models,
     CommitMessageModel, ThinkingLevel,
 };
-pub use commit_message_plan::{plan_commit_message_generation, CommitMessagePlan, CommitMessagePlanInput};
+pub use commit_message_plan::{
+    plan_agent_binary, plan_commit_message_generation, CommitMessagePlan, CommitMessagePlanInput,
+};
 pub use pull_request_generation::{
     build_pull_request_fields_prompt, parse_generated_pull_request_fields,
     GeneratedPullRequestFields, PullRequestDraftContext,

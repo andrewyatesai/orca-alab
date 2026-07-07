@@ -1,8 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
   planSourceControlCommitMessageGeneration,
   planSourceControlTextGeneration
 } from './source-control-generation-plan'
+import { initGitWasmForTestFromBytes } from './git-wasm/git-line-stats'
+
+// The planner preview derives its plan through the Rust orca-agents core via
+// wasm; init it synchronously from the committed bytes (else it returns null).
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 describe('planSourceControlCommitMessageGeneration', () => {
   it('catches empty custom commands without invoking an agent', () => {
@@ -35,9 +45,9 @@ describe('planSourceControlCommitMessageGeneration', () => {
       thinkingLevel: 'low'
     })
 
-    expect(result.ok && result.commandLabel).toContain('codex exec')
-    expect(result.ok && result.delivery).toContain('stdin')
-    expect(result.ok && result.caveat).toContain('Windows .cmd')
+    expect(result?.ok && result.commandLabel).toContain('codex exec')
+    expect(result?.ok && result.delivery).toContain('stdin')
+    expect(result?.ok && result.caveat).toContain('Windows .cmd')
   })
 
   it('plans pull-request generation with pull-request variables', () => {
@@ -47,7 +57,7 @@ describe('planSourceControlCommitMessageGeneration', () => {
       commandInputTemplate: '{basePrompt}\n\nReview {changedFiles}'
     })
 
-    expect(result.ok && result.commandLabel).toContain('codex exec')
+    expect(result?.ok && result.commandLabel).toContain('codex exec')
   })
 
   it('shows per-action CLI arguments in dry-run command labels', () => {
@@ -58,6 +68,6 @@ describe('planSourceControlCommitMessageGeneration', () => {
       commandInputTemplate: '{basePrompt}'
     })
 
-    expect(result.ok && result.commandLabel).toContain('--model gpt-5.4')
+    expect(result?.ok && result.commandLabel).toContain('--model gpt-5.4')
   })
 })

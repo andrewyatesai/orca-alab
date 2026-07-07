@@ -29,11 +29,8 @@ import {
   type CommitMessageAgentCapability,
   type CommitMessageModelCapability
 } from '../../shared/commit-message-agent-spec'
-import {
-  planAgentBinary,
-  planCommitMessageGeneration,
-  type CommitMessagePlan
-} from '../../shared/commit-message-plan'
+import { planAgentBinary, planCommitMessageGeneration } from './rust-commit-message-plan'
+import type { CommitMessagePlan } from '../../shared/commit-message-plan'
 import { LOCAL_COMMIT_MESSAGE_HOST_KEY } from '../../shared/commit-message-host-key'
 import {
   resolveSourceControlAiForOperation,

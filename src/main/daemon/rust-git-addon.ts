@@ -145,6 +145,12 @@ export type RustGitBinding = {
   detectPiAgentKindFromCommand(command: string | undefined): string
   /** Skill markdown frontmatter summary (name/description) as JSON. */
   summarizeSkillMarkdown(markdown: string): string
+  /** Commit-message spawn plan as `CommitMessagePlanResult` JSON. Input is the
+   *  `CommitMessagePlanInput` object as JSON + the prompt. */
+  planCommitMessageGeneration(planInputJson: string, prompt: string): string
+  /** Spawn binary + prefix args from an optional command override, as
+   *  `{ok:true, binary, prefixArgs} | {ok:false, error}` JSON. */
+  planAgentBinary(defaultBinary: string, commandOverride: string | undefined): string
   gitEngine(): string
 }
 

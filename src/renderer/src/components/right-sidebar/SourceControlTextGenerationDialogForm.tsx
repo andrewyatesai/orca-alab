@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 import { RefreshCw, Save, Sparkles, Terminal, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DialogFooter } from '@/components/ui/dialog'
@@ -12,6 +12,7 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
+import { isGitWasmReady, subscribeGitWasmReady } from '@/lib/git-wasm/git-line-stats'
 import { planSourceControlTextGeneration } from '@/lib/source-control-generation-plan'
 import {
   CUSTOM_AGENT_ID,
@@ -86,6 +87,10 @@ export function SourceControlTextGenerationDialogForm({
   onSaveDefaults
 }: SourceControlTextGenerationDialogFormProps): React.JSX.Element {
   const capabilities = useMemo(() => listCommitMessageAgentCapabilities(), [])
+  // Recompute the dry-run plan preview once the orca-git wasm planner initialises
+  // (it backs planSourceControlTextGeneration below). The third arg gives SSR a
+  // server snapshot (the dialog is server-rendered in tests).
+  useSyncExternalStore(subscribeGitWasmReady, isGitWasmReady, isGitWasmReady)
   const showCustomAgent = Boolean(
     baseParams && (isCustomAgentId(baseParams.agentId) || baseParams.customAgentCommand?.trim())
   )

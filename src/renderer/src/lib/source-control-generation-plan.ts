@@ -1,4 +1,4 @@
-import { planCommitMessageGeneration } from '../../../shared/commit-message-plan'
+import { planCommitMessageGeneration } from '@/lib/git-wasm/commit-message-plan'
 import {
   renderSourceControlActionCommandTemplate,
   type SourceControlTextActionId
@@ -51,7 +51,7 @@ const SYNTHETIC_BASE_PROMPTS: Record<SourceControlTextActionId, string> = {
 export function planSourceControlTextGeneration(
   actionId: SourceControlTextActionId,
   params: ResolvedSourceControlAiGenerationParams
-): SourceControlGenerationPlanResult {
+): SourceControlGenerationPlanResult | null {
   const prompt =
     params.commandInputTemplate !== undefined
       ? renderSourceControlActionCommandTemplate(
@@ -69,6 +69,11 @@ export function planSourceControlTextGeneration(
     }
   }
   const planned = planCommitMessageGeneration(params, prompt)
+  // Null while the wasm planner is still initialising — the dialog leaves Run
+  // disabled and recomputes once ready; the authoritative plan runs in main.
+  if (planned === null) {
+    return null
+  }
   if (!planned.ok) {
     return { ok: false, error: planned.error }
   }
@@ -87,6 +92,6 @@ export function planSourceControlTextGeneration(
 
 export function planSourceControlCommitMessageGeneration(
   params: ResolvedSourceControlAiGenerationParams
-): SourceControlGenerationPlanResult {
+): SourceControlGenerationPlanResult | null {
   return planSourceControlTextGeneration('commitMessage', params)
 }

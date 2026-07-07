@@ -299,3 +299,59 @@ fn work_item_from_value(
         jira_identifier: object.get("jiraIdentifier").and_then(|v| v.as_str()).map(str::to_string),
     })
 }
+
+// --- commit-message spawn planner (RENDERER diagnostic; main runs it via napi) -
+// Pure "agent choice + prompt -> spawn plan"; the renderer's dry-run preview
+// checks the SAME Rust planner the main process runs, so the two never drift.
+
+/// Plan a commit-message generation as `{ok:true, plan:{binary,args,stdinPayload,
+/// label}} | {ok:false, error}` JSON (the TS `CommitMessagePlanResult` union).
+/// Input is the `CommitMessagePlanInput` object as JSON + the prompt.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "planCommitMessageGeneration"))]
+pub fn plan_commit_message_generation_json(plan_input_json: &str, prompt: &str) -> String {
+    commit_message_plan_result_to_json(plan_input_json, prompt)
+}
+
+/// Resolve the spawn binary + prefix args from an optional command override, as
+/// `{ok:true, binary, prefixArgs} | {ok:false, error}` JSON.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "planAgentBinary"))]
+pub fn plan_agent_binary_json(default_binary: &str, command_override: Option<String>) -> String {
+    plan_agent_binary_result_to_json(default_binary, command_override.as_deref())
+}
+
+fn commit_message_plan_result_to_json(plan_input_json: &str, prompt: &str) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(plan_input_json) else {
+        return serde_json::json!({ "ok": false, "error": "Invalid plan input JSON." }).to_string();
+    };
+    let input = orca_agents::CommitMessagePlanInput {
+        agent_id: value.get("agentId").and_then(|v| v.as_str()).unwrap_or_default(),
+        model: value.get("model").and_then(|v| v.as_str()).unwrap_or_default(),
+        thinking_level: value.get("thinkingLevel").and_then(|v| v.as_str()),
+        custom_agent_command: value.get("customAgentCommand").and_then(|v| v.as_str()),
+        agent_command_override: value.get("agentCommandOverride").and_then(|v| v.as_str()),
+        agent_args: value.get("agentArgs").and_then(|v| v.as_str()),
+    };
+    match orca_agents::plan_commit_message_generation(&input, prompt) {
+        // TS always emits stdinPayload as an explicit string|null (never absent).
+        Ok(plan) => serde_json::json!({
+            "ok": true,
+            "plan": {
+                "binary": plan.binary,
+                "args": plan.args,
+                "stdinPayload": plan.stdin_payload,
+                "label": plan.label,
+            }
+        })
+        .to_string(),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }).to_string(),
+    }
+}
+
+fn plan_agent_binary_result_to_json(default_binary: &str, command_override: Option<&str>) -> String {
+    match orca_agents::plan_agent_binary(default_binary, command_override) {
+        Ok((binary, prefix_args)) => {
+            serde_json::json!({ "ok": true, "binary": binary, "prefixArgs": prefix_args }).to_string()
+        }
+        Err(error) => serde_json::json!({ "ok": false, "error": error }).to_string(),
+    }
+}

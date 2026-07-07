@@ -143,7 +143,7 @@ fn pi_build_args(params: &BuildArgsParams) -> Vec<String> {
 }
 
 fn amp_build_args(params: &BuildArgsParams) -> Vec<String> {
-    let mut args = flag(&["--execute", "--archive", "--no-notifications", "--no-ide", "--no-jetbrains", "--mode"]);
+    let mut args = flag(&["--execute", "--no-notifications", "--no-ide", "--no-jetbrains", "--mode"]);
     args.push(params.model.to_string());
     if let Some(thinking) = params.thinking_level {
         args.extend([String::from("--effort"), thinking.to_string()]);

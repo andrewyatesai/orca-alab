@@ -129,6 +129,19 @@ export function parseStatusPorcelain(stdout: Uint8Array, limit: number): string;
 export function parseWorktreeList(output: string, nul_delimited: boolean): string;
 
 /**
+ * Resolve the spawn binary + prefix args from an optional command override, as
+ * `{ok:true, binary, prefixArgs} | {ok:false, error}` JSON.
+ */
+export function planAgentBinary(default_binary: string, command_override?: string | null): string;
+
+/**
+ * Plan a commit-message generation as `{ok:true, plan:{binary,args,stdinPayload,
+ * label}} | {ok:false, error}` JSON (the TS `CommitMessagePlanResult` union).
+ * Input is the `CommitMessagePlanInput` object as JSON + the prompt.
+ */
+export function planCommitMessageGeneration(plan_input_json: string, prompt: string): string;
+
+/**
  * Slugify free text into a git-ref-safe workspace seed.
  */
 export function slugifyForWorkspaceName(input: string): string;
@@ -175,6 +188,8 @@ export interface InitOutput {
     readonly parseNumstat: (a: number, b: number, c: number) => void;
     readonly parseStatusPorcelain: (a: number, b: number, c: number, d: number) => void;
     readonly parseWorktreeList: (a: number, b: number, c: number, d: number) => void;
+    readonly planAgentBinary: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly planCommitMessageGeneration: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly quickopenindex_exactMatches: (a: number, b: number, c: number, d: number) => void;
     readonly quickopenindex_fileCount: (a: number) => number;
     readonly quickopenindex_new: (a: number, b: number) => number;

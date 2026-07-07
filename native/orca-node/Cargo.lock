@@ -585,6 +585,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "orca-agents",
  "orca-core",
  "orca-git",
  "orca-net",

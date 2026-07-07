@@ -486,6 +486,63 @@ export function parseWorktreeList(output, nul_delimited) {
 }
 
 /**
+ * Resolve the spawn binary + prefix args from an optional command override, as
+ * `{ok:true, binary, prefixArgs} | {ok:false, error}` JSON.
+ * @param {string} default_binary
+ * @param {string | null} [command_override]
+ * @returns {string}
+ */
+export function planAgentBinary(default_binary, command_override) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(default_binary, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        var ptr1 = isLikeNone(command_override) ? 0 : passStringToWasm0(command_override, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        var len1 = WASM_VECTOR_LEN;
+        wasm.planAgentBinary(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred3_0 = r0;
+        deferred3_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Plan a commit-message generation as `{ok:true, plan:{binary,args,stdinPayload,
+ * label}} | {ok:false, error}` JSON (the TS `CommitMessagePlanResult` union).
+ * Input is the `CommitMessagePlanInput` object as JSON + the prompt.
+ * @param {string} plan_input_json
+ * @param {string} prompt
+ * @returns {string}
+ */
+export function planCommitMessageGeneration(plan_input_json, prompt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(plan_input_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(prompt, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.planCommitMessageGeneration(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred3_0 = r0;
+        deferred3_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Slugify free text into a git-ref-safe workspace seed.
  * @param {string} input
  * @returns {string}

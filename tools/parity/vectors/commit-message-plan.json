@@ -7,7 +7,11 @@
       "function": "planCommitMessageGeneration",
       "note": "Claude: prompt on stdin only (stdinPayload set, args carry no positional prompt)",
       "input": {
-        "planInput": { "agentId": "claude", "model": "sonnet", "thinkingLevel": "high" },
+        "planInput": {
+          "agentId": "claude",
+          "model": "sonnet",
+          "thinkingLevel": "high"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -65,7 +69,11 @@
       "function": "planCommitMessageGeneration",
       "note": "Cursor dynamic model not in seed catalog is accepted",
       "input": {
-        "planInput": { "agentId": "cursor", "model": "gpt-5.2", "thinkingLevel": "xhigh" },
+        "planInput": {
+          "agentId": "cursor",
+          "model": "gpt-5.2",
+          "thinkingLevel": "xhigh"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -92,7 +100,11 @@
       "function": "planCommitMessageGeneration",
       "note": "Codex exec read-only, prompt on stdin only",
       "input": {
-        "planInput": { "agentId": "codex", "model": "gpt-5.4-mini", "thinkingLevel": "medium" },
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.4-mini",
+          "thinkingLevel": "medium"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -176,7 +188,11 @@
         "ok": true,
         "plan": {
           "binary": "ollama",
-          "args": ["run", "llama3", "PROMPT"],
+          "args": [
+            "run",
+            "llama3",
+            "PROMPT"
+          ],
           "stdinPayload": null,
           "label": "ollama"
         }
@@ -197,7 +213,10 @@
         "ok": true,
         "plan": {
           "binary": "ollama",
-          "args": ["run", "llama3"],
+          "args": [
+            "run",
+            "llama3"
+          ],
           "stdinPayload": "PROMPT",
           "label": "ollama"
         }
@@ -207,7 +226,10 @@
       "function": "planCommitMessageGeneration",
       "note": "custom agent with empty command is rejected",
       "input": {
-        "planInput": { "agentId": "custom", "model": "ignored" },
+        "planInput": {
+          "agentId": "custom",
+          "model": "ignored"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -219,7 +241,10 @@
       "function": "planCommitMessageGeneration",
       "note": "unknown agent id is rejected",
       "input": {
-        "planInput": { "agentId": "bogus", "model": "anything" },
+        "planInput": {
+          "agentId": "bogus",
+          "model": "anything"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -231,7 +256,10 @@
       "function": "planCommitMessageGeneration",
       "note": "model not in a static agent's catalog is rejected with the agent label",
       "input": {
-        "planInput": { "agentId": "claude", "model": "gpt-4" },
+        "planInput": {
+          "agentId": "claude",
+          "model": "gpt-4"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -243,7 +271,11 @@
       "function": "planCommitMessageGeneration",
       "note": "thinking level on a model without an effort selector is rejected (uses model label)",
       "input": {
-        "planInput": { "agentId": "claude", "model": "haiku", "thinkingLevel": "high" },
+        "planInput": {
+          "agentId": "claude",
+          "model": "haiku",
+          "thinkingLevel": "high"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -255,7 +287,11 @@
       "function": "planCommitMessageGeneration",
       "note": "thinking level not in the model's level list is rejected (uses model label)",
       "input": {
-        "planInput": { "agentId": "claude", "model": "sonnet", "thinkingLevel": "ultra" },
+        "planInput": {
+          "agentId": "claude",
+          "model": "sonnet",
+          "thinkingLevel": "ultra"
+        },
         "prompt": "PROMPT"
       },
       "expected": {
@@ -346,7 +382,13 @@
         "ok": true,
         "plan": {
           "binary": "ollama",
-          "args": ["run", "llama3", "--temp", "0", "PROMPT"],
+          "args": [
+            "run",
+            "llama3",
+            "--temp",
+            "0",
+            "PROMPT"
+          ],
           "stdinPayload": null,
           "label": "ollama"
         }
@@ -368,7 +410,12 @@
         "ok": true,
         "plan": {
           "binary": "ollama",
-          "args": ["run", "llama3", "--keep-alive", "5m"],
+          "args": [
+            "run",
+            "llama3",
+            "--keep-alive",
+            "5m"
+          ],
           "stdinPayload": "PROMPT",
           "label": "ollama"
         }
@@ -388,6 +435,1694 @@
       "expected": {
         "ok": false,
         "error": "CLI arguments are invalid: Unclosed quote in command template."
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "claude haiku",
+      "input": {
+        "planInput": {
+          "agentId": "claude",
+          "model": "haiku"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "claude",
+          "args": [
+            "-p",
+            "--output-format",
+            "text",
+            "--model",
+            "haiku",
+            "--permission-mode",
+            "plan"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Claude"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "claude sonnet",
+      "input": {
+        "planInput": {
+          "agentId": "claude",
+          "model": "sonnet"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "claude",
+          "args": [
+            "-p",
+            "--output-format",
+            "text",
+            "--model",
+            "sonnet",
+            "--permission-mode",
+            "plan"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Claude"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "claude sonnet +low",
+      "input": {
+        "planInput": {
+          "agentId": "claude",
+          "model": "sonnet",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "claude",
+          "args": [
+            "-p",
+            "--output-format",
+            "text",
+            "--model",
+            "sonnet",
+            "--permission-mode",
+            "plan",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Claude"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "claude opus",
+      "input": {
+        "planInput": {
+          "agentId": "claude",
+          "model": "opus"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "claude",
+          "args": [
+            "-p",
+            "--output-format",
+            "text",
+            "--model",
+            "opus",
+            "--permission-mode",
+            "plan"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Claude"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "claude opus +low",
+      "input": {
+        "planInput": {
+          "agentId": "claude",
+          "model": "opus",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "claude",
+          "args": [
+            "-p",
+            "--output-format",
+            "text",
+            "--model",
+            "opus",
+            "--permission-mode",
+            "plan",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Claude"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.5",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.5"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.5"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.5 +low",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.5",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.5",
+            "-c",
+            "model_reasoning_effort=low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.4",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.4"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.4"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.4 +low",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.4",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.4",
+            "-c",
+            "model_reasoning_effort=low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.4-mini",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.4-mini"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.4-mini"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.4-mini +low",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.4-mini",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.4-mini",
+            "-c",
+            "model_reasoning_effort=low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.3-codex",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.3-codex"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.3-codex"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.3-codex +low",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.3-codex",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.3-codex",
+            "-c",
+            "model_reasoning_effort=low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.3-codex-spark",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.3-codex-spark"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.3-codex-spark"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.3-codex-spark +low",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.3-codex-spark",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.3-codex-spark",
+            "-c",
+            "model_reasoning_effort=low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.2",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.2"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.2"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "codex gpt-5.2 +low",
+      "input": {
+        "planInput": {
+          "agentId": "codex",
+          "model": "gpt-5.2",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "codex",
+          "args": [
+            "exec",
+            "--ephemeral",
+            "--skip-git-repo-check",
+            "-s",
+            "read-only",
+            "--model",
+            "gpt-5.2",
+            "-c",
+            "model_reasoning_effort=low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Codex"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "opencode opencode/deepseek-v4-flash-free",
+      "input": {
+        "planInput": {
+          "agentId": "opencode",
+          "model": "opencode/deepseek-v4-flash-free"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "opencode",
+          "args": [
+            "run",
+            "--model",
+            "opencode/deepseek-v4-flash-free",
+            "--agent",
+            "build",
+            "--format",
+            "default"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "OpenCode"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "opencode opencode/gpt-5.4-mini",
+      "input": {
+        "planInput": {
+          "agentId": "opencode",
+          "model": "opencode/gpt-5.4-mini"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "opencode",
+          "args": [
+            "run",
+            "--model",
+            "opencode/gpt-5.4-mini",
+            "--agent",
+            "build",
+            "--format",
+            "default"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "OpenCode"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "opencode opencode/gpt-5.4-mini +low",
+      "input": {
+        "planInput": {
+          "agentId": "opencode",
+          "model": "opencode/gpt-5.4-mini",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "opencode",
+          "args": [
+            "run",
+            "--model",
+            "opencode/gpt-5.4-mini",
+            "--agent",
+            "build",
+            "--format",
+            "default",
+            "--variant",
+            "low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "OpenCode"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "pi github-copilot/gpt-5.4-mini",
+      "input": {
+        "planInput": {
+          "agentId": "pi",
+          "model": "github-copilot/gpt-5.4-mini"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "pi",
+          "args": [
+            "--print",
+            "--no-session",
+            "--no-tools",
+            "--no-extensions",
+            "--no-skills",
+            "--no-context-files",
+            "--mode",
+            "text",
+            "--model",
+            "github-copilot/gpt-5.4-mini"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Pi"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "pi github-copilot/gpt-5.4-mini +low",
+      "input": {
+        "planInput": {
+          "agentId": "pi",
+          "model": "github-copilot/gpt-5.4-mini",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "pi",
+          "args": [
+            "--print",
+            "--no-session",
+            "--no-tools",
+            "--no-extensions",
+            "--no-skills",
+            "--no-context-files",
+            "--mode",
+            "text",
+            "--model",
+            "github-copilot/gpt-5.4-mini",
+            "--thinking",
+            "low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Pi"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "amp smart",
+      "input": {
+        "planInput": {
+          "agentId": "amp",
+          "model": "smart"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "amp",
+          "args": [
+            "--execute",
+            "--no-notifications",
+            "--no-ide",
+            "--no-jetbrains",
+            "--mode",
+            "smart"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Amp"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "amp rush",
+      "input": {
+        "planInput": {
+          "agentId": "amp",
+          "model": "rush"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "amp",
+          "args": [
+            "--execute",
+            "--no-notifications",
+            "--no-ide",
+            "--no-jetbrains",
+            "--mode",
+            "rush"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Amp"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "amp large",
+      "input": {
+        "planInput": {
+          "agentId": "amp",
+          "model": "large"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "amp",
+          "args": [
+            "--execute",
+            "--no-notifications",
+            "--no-ide",
+            "--no-jetbrains",
+            "--mode",
+            "large"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Amp"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "amp large +low",
+      "input": {
+        "planInput": {
+          "agentId": "amp",
+          "model": "large",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "amp",
+          "args": [
+            "--execute",
+            "--no-notifications",
+            "--no-ide",
+            "--no-jetbrains",
+            "--mode",
+            "large",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Amp"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "amp deep",
+      "input": {
+        "planInput": {
+          "agentId": "amp",
+          "model": "deep"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "amp",
+          "args": [
+            "--execute",
+            "--no-notifications",
+            "--no-ide",
+            "--no-jetbrains",
+            "--mode",
+            "deep"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Amp"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "amp deep +low",
+      "input": {
+        "planInput": {
+          "agentId": "amp",
+          "model": "deep",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "amp",
+          "args": [
+            "--execute",
+            "--no-notifications",
+            "--no-ide",
+            "--no-jetbrains",
+            "--mode",
+            "deep",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Amp"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "cursor auto",
+      "input": {
+        "planInput": {
+          "agentId": "cursor",
+          "model": "auto"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "cursor-agent",
+          "args": [
+            "--print",
+            "--mode",
+            "ask",
+            "--trust",
+            "--output-format",
+            "text",
+            "--model",
+            "auto",
+            "PROMPT"
+          ],
+          "stdinPayload": null,
+          "label": "Cursor"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "kimi default",
+      "input": {
+        "planInput": {
+          "agentId": "kimi",
+          "model": "default"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "kimi",
+          "args": [
+            "--print",
+            "--quiet"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Kimi"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "kimi kimi-code/kimi-for-coding",
+      "input": {
+        "planInput": {
+          "agentId": "kimi",
+          "model": "kimi-code/kimi-for-coding"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "kimi",
+          "args": [
+            "--print",
+            "--quiet",
+            "--model",
+            "kimi-code/kimi-for-coding"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Kimi"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "kimi kimi-code/kimi-for-coding +on",
+      "input": {
+        "planInput": {
+          "agentId": "kimi",
+          "model": "kimi-code/kimi-for-coding",
+          "thinkingLevel": "on"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "kimi",
+          "args": [
+            "--print",
+            "--quiet",
+            "--model",
+            "kimi-code/kimi-for-coding",
+            "--thinking"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Kimi"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot auto",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "auto"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "auto"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot claude-haiku-4.5",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "claude-haiku-4.5"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "claude-haiku-4.5"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot claude-sonnet-4.5",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "claude-sonnet-4.5"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "claude-sonnet-4.5"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot claude-sonnet-4.6",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "claude-sonnet-4.6"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "claude-sonnet-4.6"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot claude-opus-4.5",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "claude-opus-4.5"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "claude-opus-4.5"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot claude-opus-4.6",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "claude-opus-4.6"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "claude-opus-4.6"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot claude-opus-4.6-fast",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "claude-opus-4.6-fast"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "claude-opus-4.6-fast"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot claude-opus-4.7",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "claude-opus-4.7"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "claude-opus-4.7"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-4.1",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-4.1"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-4.1"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5-mini",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5-mini"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5-mini"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5-mini +low",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5-mini",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5-mini",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.2",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.2"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.2"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.2 +low",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.2",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.2",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.2-codex",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.2-codex"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.2-codex"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.2-codex +low",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.2-codex",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.2-codex",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.3-codex",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.3-codex"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.3-codex"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.3-codex +low",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.3-codex",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.3-codex",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.4",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.4"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.4"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.4 +low",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.4",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.4",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.4-mini",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.4-mini"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.4-mini"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.4-mini +low",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.4-mini",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.4-mini",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.5",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.5"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.5"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "copilot gpt-5.5 +low",
+      "input": {
+        "planInput": {
+          "agentId": "copilot",
+          "model": "gpt-5.5",
+          "thinkingLevel": "low"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "copilot",
+          "args": [
+            "--prompt",
+            "PROMPT",
+            "--silent",
+            "--stream",
+            "off",
+            "--no-custom-instructions",
+            "--model",
+            "gpt-5.5",
+            "--effort",
+            "low"
+          ],
+          "stdinPayload": null,
+          "label": "GitHub Copilot"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "antigravity Gemini 3.5 Flash (Medium)",
+      "input": {
+        "planInput": {
+          "agentId": "antigravity",
+          "model": "Gemini 3.5 Flash (Medium)"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "agy",
+          "args": [
+            "--print",
+            "--sandbox",
+            "--model",
+            "Gemini 3.5 Flash (Medium)"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Antigravity"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "antigravity Gemini 3.5 Flash (High)",
+      "input": {
+        "planInput": {
+          "agentId": "antigravity",
+          "model": "Gemini 3.5 Flash (High)"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "agy",
+          "args": [
+            "--print",
+            "--sandbox",
+            "--model",
+            "Gemini 3.5 Flash (High)"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Antigravity"
+        }
+      }
+    },
+    {
+      "function": "planCommitMessageGeneration",
+      "note": "antigravity Gemini 3.5 Flash (Low)",
+      "input": {
+        "planInput": {
+          "agentId": "antigravity",
+          "model": "Gemini 3.5 Flash (Low)"
+        },
+        "prompt": "PROMPT"
+      },
+      "expected": {
+        "ok": true,
+        "plan": {
+          "binary": "agy",
+          "args": [
+            "--print",
+            "--sandbox",
+            "--model",
+            "Gemini 3.5 Flash (Low)"
+          ],
+          "stdinPayload": "PROMPT",
+          "label": "Antigravity"
+        }
       }
     }
   ]

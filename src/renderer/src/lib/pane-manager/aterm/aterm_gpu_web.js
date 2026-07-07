@@ -958,7 +958,7 @@ export class AtermGpuTerminal {
     /**
      * Configure the LUMEN cursor aurora (additive light in the cursor's
      * wake). Mirrors the native knobs + clamps: `style` ∈
-     * `lumen|rainbow|sparkle|fire|laser|water` (unknown → lumen);
+     * `lumen|phaser|nyan|sparkle|fire|laser|water` (unknown → lumen);
      * `color`/`accent` omitted derive from the theme cursor (accent = color
      * brightened 1.5×) exactly like the native app; `duration_ms` clamps
      * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),

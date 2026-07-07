@@ -15,7 +15,6 @@
 #![cfg_attr(trust_verify, feature(register_tool))]
 #![cfg_attr(trust_verify, register_tool(trust))]
 
-pub mod agent_hook_endpoint_file;
 pub mod agent_kind;
 pub mod agent_notification_id;
 pub mod agent_recognition;
@@ -32,7 +31,6 @@ pub mod gitlab_projects;
 pub mod git_upstream_status;
 pub mod hook_command_source_policy;
 pub mod hosted_remote_url;
-pub mod hosted_review_queue;
 pub mod hosted_review_refs;
 pub mod linear_links;
 pub mod github_pr_merge_methods;

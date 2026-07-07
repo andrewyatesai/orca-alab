@@ -41,6 +41,20 @@ export type TerminalShortcutAction =
   | { type: 'splitActivePane'; direction: 'vertical' | 'horizontal' }
   | { type: 'scrollViewport'; position: 'top' | 'bottom' }
   | { type: 'sendInput'; data: string }
+  // Encode `key`+`mods` through the ACTIVE pane's engine (live keyboard mode)
+  // and send the result — for chords the browser/OS would otherwise mangle
+  // (Cmd chords hard-nulled by the encoder's metaKey firewall, macOS Option
+  // composition replacing event.key). Only emitted when kittyKeyboardActive:
+  // the ENGINE picks the negotiated dialect (kitty CSI-u vs xterm
+  // modifyOtherKeys), which this policy must not hard-code. `fallback` is the
+  // legacy bytes the ungated rewrite would have sent — used when the engine
+  // returns nothing, so the chord never goes dead.
+  | {
+      type: 'encodeKey'
+      key: string
+      mods: { alt?: boolean; super?: boolean }
+      fallback: string
+    }
 
 /**
  * Resolves terminal keyboard events before xterm receives them.
@@ -139,34 +153,51 @@ export function resolveTerminalShortcutAction(
   }
 
   if (
+    !kittyKeyboardActive &&
     event.ctrlKey &&
     !event.metaKey &&
     !event.altKey &&
     !event.shiftKey &&
     event.key === 'Backspace'
   ) {
+    // Readline-compat delete-word; kitty-gated because the engine encodes the
+    // real chord (\x1b[127;5u) for negotiated apps.
     return { type: 'sendInput', data: '\x17' }
   }
 
   if (isMac && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+    // Why encodeKey (not a silent stand-down) under kitty: the aterm keydown
+    // encoder hard-nulls ALL metaKey events (Cmd chords are app domain), so
+    // standing down would make these chords go DEAD on negotiated apps.
+    // Route them back through the engine with SUPER so the app receives the
+    // real modified key in its negotiated dialect.
     if (event.key === 'Backspace') {
-      return { type: 'sendInput', data: '\x15' }
+      return kittyKeyboardActive
+        ? { type: 'encodeKey', key: 'Backspace', mods: { super: true }, fallback: '\x15' }
+        : { type: 'sendInput', data: '\x15' }
     }
     if (event.key === 'Delete') {
-      return { type: 'sendInput', data: '\x0b' }
+      return kittyKeyboardActive
+        ? { type: 'encodeKey', key: 'Delete', mods: { super: true }, fallback: '\x0b' }
+        : { type: 'sendInput', data: '\x0b' }
     }
     // Why: Cmd+←/→ on macOS conventionally moves to start/end of line in
     // terminals (iTerm2, Ghostty). xterm.js has no default mapping for
     // Cmd+Arrow, so we translate to readline's Ctrl+A (\x01) / Ctrl+E (\x05),
     // which work universally across bash/zsh/fish and most TUI editors.
     if (event.key === 'ArrowLeft') {
-      return { type: 'sendInput', data: '\x01' }
+      return kittyKeyboardActive
+        ? { type: 'encodeKey', key: 'ArrowLeft', mods: { super: true }, fallback: '\x01' }
+        : { type: 'sendInput', data: '\x01' }
     }
     if (event.key === 'ArrowRight') {
-      return { type: 'sendInput', data: '\x05' }
+      return kittyKeyboardActive
+        ? { type: 'encodeKey', key: 'ArrowRight', mods: { super: true }, fallback: '\x05' }
+        : { type: 'sendInput', data: '\x05' }
     }
     // Why: macOS terminal users expect Cmd+↑/↓ to jump through scrollback
-    // without writing escape bytes into the shell.
+    // without writing escape bytes into the shell. Host action — legitimate
+    // even for kitty apps, so deliberately NOT kitty-gated.
     if (event.key === 'ArrowUp') {
       return { type: 'scrollViewport', position: 'top' }
     }
@@ -176,12 +207,15 @@ export function resolveTerminalShortcutAction(
   }
 
   if (
+    !kittyKeyboardActive &&
     !event.metaKey &&
     !event.ctrlKey &&
     event.altKey &&
     !event.shiftKey &&
     event.key === 'Backspace'
   ) {
+    // Readline-compat delete-word (backward); kitty-gated because the engine
+    // encodes the real chord (\x1b[127;3u) for negotiated apps.
     return { type: 'sendInput', data: '\x1b\x7f' }
   }
 
@@ -255,19 +289,30 @@ export function resolveTerminalShortcutAction(
     const shouldActAsMeta =
       (macOptionAsAlt === 'left' && isLeftOption) || (macOptionAsAlt === 'right' && isRightOption)
 
+    // Why encodeKey under kitty: a negotiated app wants the real Alt+key report
+    // in ITS dialect, not a hard-coded Esc+letter (or hard-coded kitty CSI-u —
+    // kittyKeyboardActive is also true for panes that negotiated ONLY xterm
+    // modifyOtherKeys, so the ENGINE must pick the form from live mode bits).
+    // The base char comes from event.code because macOS composition replaces
+    // event.key with the composed glyph (Option+B reports key='∫').
+    const encodeOptionChord = (baseChar: string): TerminalShortcutAction => {
+      return kittyKeyboardActive
+        ? { type: 'encodeKey', key: baseChar, mods: { alt: true }, fallback: `\x1b${baseChar}` }
+        : { type: 'sendInput', data: `\x1b${baseChar}` }
+    }
+
     if (shouldActAsMeta) {
       // Emit Esc+key for letter keys (e.g. Option+B → \x1bb)
       if (event.code?.startsWith('Key') && event.code.length === 4) {
-        const letter = event.code.charAt(3).toLowerCase()
-        return { type: 'sendInput', data: `\x1b${letter}` }
+        return encodeOptionChord(event.code.charAt(3).toLowerCase())
       }
       // Emit Esc+digit for number keys (e.g. Option+1 → \x1b1)
       if (event.code?.startsWith('Digit') && event.code.length === 6) {
-        return { type: 'sendInput', data: `\x1b${event.code.charAt(5)}` }
+        return encodeOptionChord(event.code.charAt(5))
       }
       const punct = event.code ? PUNCTUATION_CODE_MAP[event.code] : undefined
       if (punct) {
-        return { type: 'sendInput', data: `\x1b${punct}` }
+        return encodeOptionChord(punct)
       }
     }
 
@@ -275,13 +320,13 @@ export function resolveTerminalShortcutAction(
     // needs the three most critical readline shortcuts patched.
     if (macOptionAsAlt !== 'true' && !shouldActAsMeta) {
       if (event.code === 'KeyB') {
-        return { type: 'sendInput', data: '\x1bb' }
+        return encodeOptionChord('b')
       }
       if (event.code === 'KeyF') {
-        return { type: 'sendInput', data: '\x1bf' }
+        return encodeOptionChord('f')
       }
       if (event.code === 'KeyD') {
-        return { type: 'sendInput', data: '\x1bd' }
+        return encodeOptionChord('d')
       }
     }
   }

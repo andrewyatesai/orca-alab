@@ -412,6 +412,12 @@ export type AtermWorkerOsc = { type: 'osc'; events: string }
 export type AtermWorkerNotifications = { type: 'notifications'; events: string }
 /** A BEL fired this chunk. */
 export type AtermWorkerBell = { type: 'bell' }
+/** The engine's KeyboardMode bits changed while processing a chunk. Posted
+ *  immediately (per chunk, like replies) — NOT with the coalesced frame STATE —
+ *  so the main thread's synchronous keyboard-mode mirror is fresh before the
+ *  next keystroke even when the app flips modes and then goes idle (no frame
+ *  would ever refresh the snapshot). */
+export type AtermWorkerKeyboardModeBits = { type: 'keyboardModeBits'; bits: number }
 /** Debounced serialized-buffer snapshot the worker pushes while idle, so the main
  *  thread can read a recent buffer SYNCHRONOUSLY at shutdown layout-capture (which
  *  can't await). Slightly stale (the debounce window); the awaitable save paths use
@@ -447,6 +453,7 @@ export type AtermWorkerPaneEvent =
   | AtermWorkerOsc
   | AtermWorkerNotifications
   | AtermWorkerBell
+  | AtermWorkerKeyboardModeBits
   | AtermWorkerSerializedCache
   | AtermWorkerQueryResult
   | AtermWorkerError

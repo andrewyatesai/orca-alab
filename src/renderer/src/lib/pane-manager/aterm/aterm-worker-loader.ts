@@ -178,6 +178,12 @@ export async function loadAtermWorkerEngine(
       case 'bell':
         backed?.pushBell()
         return
+      case 'keyboardModeBits':
+        // Immediate mode-flip push: refresh the synchronous snapshot mirror so
+        // the next keystroke encodes under the NEW keyboard mode even when the
+        // app emits no further output (no frame STATE would arrive).
+        backed?.applyKeyboardModeBits(data.bits)
+        return
       case 'queryResult':
         backed?.resolveQuery(data.id, data.value)
         return

@@ -1,4 +1,5 @@
 import { keybindingMatchesInput } from '../../../../shared/keybindings'
+import { ATERM_KEYBOARD_MODE_REPORT_ALL_KEYS_AS_ESC } from '@/lib/pane-manager/aterm/aterm-key-encoding'
 
 // Why: when a CLI activates kitty progressive enhancement (CSI > N u), xterm's
 // KittyKeyboard encoder turns every modifier chord — including plain Cmd+C —
@@ -41,6 +42,15 @@ export type XtermImeKeyboardOptions = {
 }
 
 export const TERMINAL_INTERRUPT_INPUT = '\x03'
+/** The kitty CSI-u form of a plain Ctrl+C press ('c' = 99, modifiers 5 = Ctrl):
+ *  what a kitty-negotiated aterm pane sends instead of raw ETX now that the
+ *  host interrupt claim stands down for negotiated apps (Claude Code under
+ *  CSI > 1 u receives its interrupt this way). Interrupt-intent detectors must
+ *  accept BOTH forms. */
+export const TERMINAL_INTERRUPT_INPUT_KITTY = '\x1b[99;5u'
+/** The kitty CSI-u form of a plain Escape press (key 27) under disambiguate —
+ *  the escape-intent twin of TERMINAL_INTERRUPT_INPUT_KITTY. */
+export const TERMINAL_ESCAPE_INPUT_KITTY = '\x1b[27u'
 const TERMINAL_MODIFIER_KEYS = new Set(['Alt', 'AltGraph', 'Control', 'Meta', 'Shift'])
 const TERMINAL_IME_OWNED_KEYS = new Set([
   'ArrowDown',
@@ -132,6 +142,31 @@ export function shouldHandleTerminalInterruptKeyboardEvent(
   return !options.hasSelection
 }
 
+export type TerminalInterruptClaimOptions = XtermBypassOptions & {
+  /** True when the pane's app negotiated kitty / modifyOtherKeys
+   *  (atermAppKeyProtocolNegotiated over the live engine mode bits). */
+  appKeyProtocolNegotiated: boolean
+}
+
+/**
+ * The full interrupt-claim decision: claim plain Ctrl+C (send raw ETX, own the
+ * paired keyup) ONLY for panes whose app has NOT negotiated an enhanced key
+ * protocol. A negotiated pane stands down entirely — the engine encoder emits
+ * the app's negotiated interrupt form (ESC[99;5u under kitty) from live mode
+ * bits, its release gating owns the keyup, and the app keeps its flags (the
+ * old unconditional claim also reset kitty state, desyncing apps that survive
+ * Ctrl+C, like Claude Code).
+ */
+export function shouldClaimTerminalInterruptKeyboardEvent(
+  event: XtermBypassEvent,
+  options: TerminalInterruptClaimOptions
+): boolean {
+  if (options.appKeyProtocolNegotiated) {
+    return false
+  }
+  return shouldHandleTerminalInterruptKeyboardEvent(event, options)
+}
+
 export function shouldSuppressTerminalInterruptKeyup(event: XtermBypassEvent): boolean {
   return (
     event.type === 'keyup' &&
@@ -142,8 +177,30 @@ export function shouldSuppressTerminalInterruptKeyup(event: XtermBypassEvent): b
   )
 }
 
-export function shouldSuppressTerminalModifierKeyboardEvent(event: XtermBypassEvent): boolean {
-  return isXtermHandledKeyEvent(event.type) && TERMINAL_MODIFIER_KEYS.has(event.key)
+export type XtermModifierSuppressionOptions = {
+  /** The pane's live engine KeyboardMode bitfield (0 when unavailable — e.g.
+   *  no aterm controller yet — which keeps the legacy suppression). */
+  keyboardModeBits: number
+}
+
+/**
+ * Suppress standalone modifier key events (Shift/Control/Alt/Meta/AltGraph)
+ * before the engine encoder — UNLESS the app negotiated kitty
+ * REPORT_ALL_KEYS_AS_ESC, which explicitly asks for modifier press/release
+ * reports. The engine maps "Shift"→ShiftLeft (Left-canonical) and gates the
+ * report on that mode bit itself, so outside report-all this suppression is
+ * belt-and-braces; under report-all it must stand down or those apps never
+ * see their modifier events.
+ */
+export function shouldSuppressTerminalModifierKeyboardEvent(
+  event: XtermBypassEvent,
+  options?: XtermModifierSuppressionOptions
+): boolean {
+  if (!isXtermHandledKeyEvent(event.type) || !TERMINAL_MODIFIER_KEYS.has(event.key)) {
+    return false
+  }
+  const keyboardModeBits = options?.keyboardModeBits ?? 0
+  return (keyboardModeBits & ATERM_KEYBOARD_MODE_REPORT_ALL_KEYS_AS_ESC) === 0
 }
 
 /**

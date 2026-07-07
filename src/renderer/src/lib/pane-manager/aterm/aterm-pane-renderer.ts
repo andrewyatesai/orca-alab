@@ -349,6 +349,7 @@ export async function createAtermPaneController(
     onEngineSideChannel: (handler) => wired.controller.onEngineSideChannel?.(handler),
     settle: () => wired.controller.settle(),
     keyboardModeBits: () => wired.controller.keyboardModeBits(),
+    encodeKeyForHost: (key, mods) => wired.controller.encodeKeyForHost(key, mods),
     // Read the CURRENT wiring's kind/adapter so a GPU→CPU swap is reflected (the
     // swap replaces `wired`, so this delegates to whichever path is live now).
     rendererKind: () => wired.controller.rendererKind(),

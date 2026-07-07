@@ -27,7 +27,6 @@ pub mod feature_tips;
 pub mod feature_wall_tour_depth;
 pub mod fetch_error_classification;
 pub mod git_cquoted_path;
-pub mod git_history_log_parser;
 pub mod push_target;
 pub mod git_push_target;
 pub mod git_remote_error;
@@ -79,7 +78,6 @@ pub mod workspace_cleanup;
 pub mod workspace_name;
 pub mod workspace_session_terminal_buffers;
 pub mod workspace_statuses;
-pub mod worktree;
 pub mod worktree_id;
 pub mod worktree_ownership;
 pub mod wsl_paths;
@@ -113,7 +111,6 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "feature-wall-tour-depth" => Some(feature_wall_tour_depth::dispatch(function, input)),
         "fetch-error-classification" => Some(fetch_error_classification::dispatch(function, input)),
         "git-cquoted-path" => Some(git_cquoted_path::dispatch(function, input)),
-        "git-history-log-parser" => Some(git_history_log_parser::dispatch(function, input)),
         "git-publish-target-status" => Some(push_target::dispatch(function, input)),
         "git-push-target" => Some(git_push_target::dispatch(function, input)),
         "git-remote-error" => Some(git_remote_error::dispatch(function, input)),
@@ -165,7 +162,6 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "workspace-name" => Some(workspace_name::dispatch(function, input)),
         "workspace-session-terminal-buffers" => Some(workspace_session_terminal_buffers::dispatch(function, input)),
         "workspace-statuses" => Some(workspace_statuses::dispatch(function, input)),
-        "worktree" => Some(worktree::dispatch(function, input)),
         "worktree-id" => Some(worktree_id::dispatch(function, input)),
         "worktree-ownership" => Some(worktree_ownership::dispatch(function, input)),
         "wsl-paths" => Some(wsl_paths::dispatch(function, input)),

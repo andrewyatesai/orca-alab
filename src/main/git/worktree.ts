@@ -469,8 +469,8 @@ async function normalizeMainWorktreePath(
  * Parse the porcelain output of `git worktree list --porcelain`.
  *
  * Runs through the verified Rust parser (orca-git, via the napi addon) — the sole
- * main-process path (the addon is a required dependency). {@link parseWorktreeListTs}
- * below is NOT a runtime fallback; it is the differential-parity reference oracle.
+ * main-process path (the addon is a required dependency). The pure-TS reference
+ * parser was deleted once Rust became the sole impl (parity oracle retired).
  */
 export function parseWorktreeList(
   output: string,
@@ -479,92 +479,6 @@ export function parseWorktreeList(
   return JSON.parse(
     requireRustGitBinding().parseWorktreeList(output, options.nulDelimited ?? false)
   ) as GitWorktreeInfo[]
-}
-
-/**
- * The pure TypeScript worktree-list parser. It is the differential-parity reference
- * (tools/parity + orca-git-napi-parity.test) — parity harnesses MUST call this, not
- * the addon-routed `parseWorktreeList`, or the comparison becomes Rust-vs-Rust.
- */
-export function parseWorktreeListTs(
-  output: string,
-  options: { nulDelimited?: boolean } = {}
-): GitWorktreeInfo[] {
-  const worktrees: GitWorktreeInfo[] = []
-  const blocks = options.nulDelimited ? splitNulWorktreeList(output) : splitLineWorktreeList(output)
-
-  for (const lines of blocks) {
-    if (lines.length === 0) {
-      continue
-    }
-
-    let path = ''
-    let head = ''
-    let branch = ''
-    let isBare = false
-    let isSparse = false
-
-    for (const line of lines) {
-      if (line.startsWith('worktree ')) {
-        path = line.slice('worktree '.length)
-      } else if (line.startsWith('HEAD ')) {
-        head = line.slice('HEAD '.length)
-      } else if (line.startsWith('branch ')) {
-        branch = line.slice('branch '.length)
-      } else if (line === 'bare') {
-        isBare = true
-      } else if (line === 'sparse') {
-        isSparse = true
-      }
-    }
-
-    if (path) {
-      // `git worktree list` always emits the main working tree first.
-      worktrees.push({
-        path,
-        head,
-        branch,
-        isBare,
-        ...(isSparse ? { isSparse } : {}),
-        isMainWorktree: worktrees.length === 0
-      })
-    }
-  }
-
-  return worktrees
-}
-
-function splitLineWorktreeList(output: string): string[][] {
-  return output
-    .trim()
-    .split(/\r?\n\r?\n/)
-    .map((block) => block.trim().split(/\r?\n/))
-}
-
-function splitNulWorktreeList(output: string): string[][] {
-  if (!output.includes('\0')) {
-    return splitLineWorktreeList(output)
-  }
-
-  const blocks: string[][] = []
-  let currentBlock: string[] = []
-
-  for (const field of output.split('\0')) {
-    if (field) {
-      currentBlock.push(field)
-      continue
-    }
-    if (currentBlock.length > 0) {
-      blocks.push(currentBlock)
-      currentBlock = []
-    }
-  }
-
-  if (currentBlock.length > 0) {
-    blocks.push(currentBlock)
-  }
-
-  return blocks
 }
 
 async function readWorktreeList(

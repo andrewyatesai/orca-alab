@@ -863,7 +863,7 @@ export async function gitExecFileAsyncBuffer(
 }
 
 /** Result of a streamed git command. `stoppedEarly` is true when the caller's
- * onStdout hook asked to stop and the child was killed before exiting. */
+ * onStdoutBytes hook asked to stop and the child was killed before exiting. */
 export type GitStreamResult = { stoppedEarly: boolean }
 
 export type GitStreamOptions = {
@@ -874,17 +874,13 @@ export type GitStreamOptions = {
   /** Byte backstop; defaults to DEFAULT_GIT_MAX_BUFFER. */
   maxBuffer?: number
   /**
-   * Called for each decoded stdout chunk as it arrives. Return true to stop:
-   * the child is killed and the promise resolves with stoppedEarly=true. This
-   * lets a streaming parser bail out (e.g. once an entry limit is reached)
-   * without ever buffering the full output.
-   */
-  onStdout?: (chunk: string) => boolean | void
-  /**
-   * Raw-bytes alternative to onStdout: receives the undecoded Buffer chunk and
-   * skips the StringDecoder. For the napi status parser, which carries bytes
-   * itself (git runs with core.quotePath=false, so filename bytes may be
-   * invalid UTF-8). Takes precedence over onStdout when set.
+   * Called for each raw (undecoded) stdout Buffer chunk as it arrives — the
+   * Rust status parser carries bytes itself (git runs with core.quotePath=false,
+   * so filename bytes may be invalid UTF-8). Return true to stop: the child is
+   * killed and the promise resolves with stoppedEarly=true. This lets a
+   * streaming parser bail out (e.g. once an entry limit is reached) without
+   * ever buffering the full output. (The decoded-string variant was deleted
+   * with the TS status parser — decode-before-parse is the hazard this avoids.)
    */
   onStdoutBytes?: (chunk: Buffer) => boolean | void
 }
@@ -922,10 +918,8 @@ export async function gitStreamStdout(
       let stdoutBytes = 0
       let stderr = ''
       let stderrBytes = 0
-      // Why: decode statefully so a multibyte UTF-8 character split across two
-      // chunks (common with non-ASCII filenames) isn't corrupted into
-      // replacement characters and mis-parsed.
-      const stdoutDecoder = new StringDecoder('utf8')
+      // Why: decode stderr statefully so a multibyte UTF-8 character split
+      // across two chunks isn't corrupted into replacement characters.
       const stderrDecoder = new StringDecoder('utf8')
 
       const cleanup = (): void => {
@@ -934,8 +928,7 @@ export async function gitStreamStdout(
         child.off('error', onError)
         child.off('close', onClose)
         options.signal?.removeEventListener('abort', onAbort)
-        // Flush any bytes the decoders were holding for an incomplete sequence.
-        stdoutDecoder.end()
+        // Flush any bytes the decoder was holding for an incomplete sequence.
         stderrDecoder.end()
       }
       const finish = (error: Error | null): void => {
@@ -963,15 +956,7 @@ export async function gitStreamStdout(
         // mode this streaming path exists to prevent). Convert it to a rejection.
         let shouldStop: boolean | void
         try {
-          if (options.onStdoutBytes) {
-            shouldStop = options.onStdoutBytes(chunk)
-          } else {
-            const decoded = stdoutDecoder.write(chunk)
-            if (decoded.length === 0) {
-              return
-            }
-            shouldStop = options.onStdout?.(decoded)
-          }
+          shouldStop = options.onStdoutBytes?.(chunk)
         } catch (error) {
           killSpawnedCommandTree(child)
           finish(error instanceof Error ? error : new Error(String(error)))

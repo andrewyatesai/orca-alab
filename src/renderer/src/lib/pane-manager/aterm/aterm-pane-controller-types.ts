@@ -92,6 +92,13 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  once the pane's app negotiated an enhanced key protocol. Worker path reads
    *  the snapshot mirror (≤1 frame stale — the accepted worker tradeoff). */
   keyboardModeBits: () => number
+  /** Encode a host-synthesized key PRESS (engine `Modifiers` bitfield:
+   *  SHIFT=1 ALT=2 CTRL=4 SUPER=8) through the pane's engine under its LIVE
+   *  keyboard mode — the window-level shortcut policy's 'encodeKey' seam for
+   *  chords whose DOM events can't reach the textarea encoder (Cmd chords
+   *  behind the metaKey firewall, macOS Option composition). Returns null when
+   *  the engine has no encoding (the caller falls back to legacy bytes). */
+  encodeKeyForHost: (key: string, mods: number) => string | null
   /** Re-apply ligatures / scrollback / default cursor style from the live settings to
    *  this open pane (cheap engine setters; mirrors how theme/size live-apply). Called by
    *  applyTerminalAppearance on a settings change so a toggle takes effect immediately. */

@@ -2667,6 +2667,125 @@ describe('connectPanePty', () => {
     })
   })
 
+  it('infers the kitty CSI-u interrupt form when keydown capture misses the press', async () => {
+    // A kitty-negotiated aterm pane encodes plain Ctrl+C via the ENGINE as
+    // ESC[99;5u (the host ETX claim stands down for negotiated apps), so the
+    // exact-input intent detector must accept that form alongside \x03.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+    vi.useFakeTimers()
+    vi.setSystemTime(1_100)
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      state: 'working',
+      prompt: 'stop from kitty interrupt byte',
+      updatedAt: 1_000,
+      stateStartedAt: 900,
+      agentType: 'codex',
+      paneKey,
+      terminalTitle: 'Codex working',
+      stateHistory: []
+    }
+    const pane = createPane(1)
+    let onDataHandler: ((data: string) => void) | null = null
+    pane.terminal.onData = vi.fn(((handler: (data: string) => void) => {
+      onDataHandler = handler
+      return { dispose: vi.fn() }
+    }) as typeof pane.terminal.onData)
+
+    connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+    if (!onDataHandler) {
+      throw new Error('expected onData handler to be registered')
+    }
+    ;(onDataHandler as unknown as (data: string) => void)('\x1b[99;5u')
+    await flushAsyncTicks()
+    vi.advanceTimersByTime(500)
+    await flushAsyncTicks()
+
+    expect(window.api.agentStatus.inferInterrupt).toHaveBeenCalledWith({
+      paneKey,
+      baselineUpdatedAt: 1_000,
+      baselineStateStartedAt: 900,
+      baselinePrompt: 'stop from kitty interrupt byte',
+      baselineAgentType: 'codex',
+      intent: 'ctrl-c'
+    })
+  })
+
+  it('infers the kitty CSI-u escape form as a plain-escape intent', async () => {
+    // Plain Escape under kitty disambiguate encodes as ESC[27u, not bare \x1b.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+    vi.useFakeTimers()
+    vi.setSystemTime(1_100)
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      state: 'working',
+      prompt: 'stop from kitty escape byte',
+      updatedAt: 1_000,
+      stateStartedAt: 900,
+      agentType: 'codex',
+      paneKey,
+      terminalTitle: 'Codex working',
+      stateHistory: []
+    }
+    const pane = createPane(1)
+    let onDataHandler: ((data: string) => void) | null = null
+    pane.terminal.onData = vi.fn(((handler: (data: string) => void) => {
+      onDataHandler = handler
+      return { dispose: vi.fn() }
+    }) as typeof pane.terminal.onData)
+
+    connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+    if (!onDataHandler) {
+      throw new Error('expected onData handler to be registered')
+    }
+    ;(onDataHandler as unknown as (data: string) => void)('\x1b[27u')
+    await flushAsyncTicks()
+    vi.advanceTimersByTime(500)
+    await flushAsyncTicks()
+
+    expect(window.api.agentStatus.inferInterrupt).toHaveBeenCalledWith({
+      paneKey,
+      baselineUpdatedAt: 1_000,
+      baselineStateStartedAt: 900,
+      baselinePrompt: 'stop from kitty escape byte',
+      baselineAgentType: 'codex',
+      intent: 'plain-escape'
+    })
+  })
+
+  it('marks bracketed paste as stale after an acknowledged kitty CSI-u interrupt', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const { pasteTerminalText } = await import('./terminal-bracketed-paste')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+    const pane = createPane(1)
+    pane.terminal.modes.bracketedPasteMode = true
+    const observedIgnoreValues: (boolean | undefined)[] = []
+    pane.terminal.paste.mockImplementation(() => {
+      observedIgnoreValues.push(pane.terminal.options.ignoreBracketedPasteMode)
+    })
+    let onDataHandler: ((data: string) => void) | null = null
+    pane.terminal.onData = vi.fn(((handler: (data: string) => void) => {
+      onDataHandler = handler
+      return { dispose: vi.fn() }
+    }) as typeof pane.terminal.onData)
+
+    connectPanePty(pane as never, createManager(1) as never, createDeps() as never)
+    if (!onDataHandler) {
+      throw new Error('expected onData handler to be registered')
+    }
+    ;(onDataHandler as unknown as (data: string) => void)('\x1b[99;5u')
+    await flushAsyncTicks()
+    pasteTerminalText(pane.terminal as never, 'a69ce28e1d092e0c8825cd1a109ac36409962bc1')
+
+    expect(observedIgnoreValues).toEqual([true])
+    expect(pane.terminal.options.ignoreBracketedPasteMode).toBe(false)
+  })
+
   it('marks bracketed paste as stale after acknowledged Ctrl+C input', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const { pasteTerminalText } = await import('./terminal-bracketed-paste')
@@ -11927,10 +12046,16 @@ describe('connectPanePty', () => {
     )
     await flushAsyncTicks()
 
-    expect(storeSubscribers).toHaveLength(1)
+    // 1 shared agent-complete settings subscriber + 1 PER-PANE agent-done
+    // terminal-mode-reset subscriber (the exit-driven kitty keyboard recovery
+    // rides the agent-status 'done' transition on every pane; it was
+    // ConPTY-only before the kitty conformance campaign).
+    expect(storeSubscribers).toHaveLength(3)
 
     firstBinding.dispose()
-    expect(storeSubscribers).toHaveLength(1)
+    // Pane 1's done-reset subscriber unsubscribed; the shared settings
+    // subscriber survives while pane 2 still holds it.
+    expect(storeSubscribers).toHaveLength(2)
     secondBinding.dispose()
     expect(storeSubscribers).toHaveLength(0)
   })
@@ -13589,6 +13714,82 @@ describe('connectPanePty', () => {
     } finally {
       restoreUserAgent()
     }
+  })
+
+  it('resets kitty keyboard state on aterm panes when hook status reaches done (all platforms)', async () => {
+    // The exit-driven kitty recovery (#3941 Codex-died-mid-kitty): the
+    // agent-status 'done' transition is the correctly-targeted "client is
+    // gone" signal, replacing the old Ctrl+C-keypress-time engine reset that
+    // desynced surviving apps.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    const pane = createPane(1)
+    ;(pane as { atermController?: unknown }).atermController = {
+      keyboardModeBits: () => 0x1,
+      // The deferred connect path fits the pane after attach.
+      fitToContainer: () => undefined
+    }
+    const manager = createManager(1)
+    const deps = createDeps()
+
+    connectPanePty(pane as never, manager as never, deps as never)
+
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      state: 'working',
+      prompt: 'ship it',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      agentType: 'codex',
+      paneKey,
+      stateHistory: []
+    }
+    notifyStoreSubscribers()
+    expect(pane.terminal.write).not.toHaveBeenCalled()
+
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      state: 'done',
+      prompt: 'ship it',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      agentType: 'codex',
+      paneKey,
+      stateHistory: []
+    }
+    notifyStoreSubscribers()
+
+    expect(pane.terminal.write).toHaveBeenCalledWith(
+      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}`,
+      expect.any(Function)
+    )
+  })
+
+  it('leaves non-aterm panes alone on the done transition (outside ConPTY)', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport()
+    transportFactoryQueue.push(transport)
+
+    const paneKey = makePaneKey('tab-1', LEAF_1)
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps()
+
+    connectPanePty(pane as never, manager as never, deps as never)
+
+    mockStoreState.agentStatusByPaneKey[paneKey] = {
+      state: 'done',
+      prompt: 'ship it',
+      updatedAt: Date.now(),
+      stateStartedAt: Date.now(),
+      agentType: 'codex',
+      paneKey,
+      stateHistory: []
+    }
+    notifyStoreSubscribers()
+
+    expect(pane.terminal.write).not.toHaveBeenCalled()
   })
 
   it('unsubscribes the native Windows done reset watcher on pane dispose', async () => {

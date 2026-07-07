@@ -1,6 +1,5 @@
 import { lstat, readFile } from 'node:fs/promises'
 import * as path from 'node:path'
-import { decodeGitCQuotedPath } from './git-cquoted-path'
 
 export type GitLineStats = { added?: number; removed?: number }
 
@@ -27,79 +26,10 @@ type CachedUntrackedStats = {
 
 const untrackedStatsCache = new Map<string, CachedUntrackedStats>()
 
-function parseNumstatCount(value: string): number | undefined {
-  // git reports binary files as '-' in the numstat columns.
-  if (value === '-') {
-    return undefined
-  }
-  const count = Number.parseInt(value, 10)
-  return Number.isFinite(count) ? count : undefined
-}
-
-// `git diff -M` reports renames in the numstat path column as `old => new` or
-// `dir/{old => new}/file`; normalize to the post-rename path so it keys to the
-// porcelain status entry, which always reports the new path.
-function normalizeNumstatPath(rawPath: string): string {
-  const decodedPath = decodeGitCQuotedPath(rawPath)
-  const braced = /^(.*)\{(.+) => (.+)\}(.*)$/.exec(decodedPath)
-  if (braced) {
-    return `${braced[1]}${braced[3]}${braced[4]}`
-  }
-  const marker = ' => '
-  const markerIndex = decodedPath.lastIndexOf(marker)
-  return markerIndex === -1 ? decodedPath : decodedPath.slice(markerIndex + marker.length)
-}
-
-export function parseNumstat(stdout: string): Map<string, GitLineStats> {
-  if (stdout.includes('\0')) {
-    return parseNulDelimitedNumstat(stdout)
-  }
-
-  const stats = new Map<string, GitLineStats>()
-  for (const line of stdout.split(/\r?\n/)) {
-    if (!line) {
-      continue
-    }
-    const parts = line.split('\t')
-    const rawPath = parts.slice(2).join('\t')
-    if (!rawPath) {
-      continue
-    }
-    stats.set(normalizeNumstatPath(rawPath), {
-      added: parseNumstatCount(parts[0] ?? ''),
-      removed: parseNumstatCount(parts[1] ?? '')
-    })
-  }
-  return stats
-}
-
-function parseNulDelimitedNumstat(stdout: string): Map<string, GitLineStats> {
-  const stats = new Map<string, GitLineStats>()
-  const records = stdout.split('\0')
-  for (let i = 0; i < records.length; i += 1) {
-    const record = records[i]
-    if (!record) {
-      continue
-    }
-    const parts = record.split('\t')
-    const rawPath = parts.slice(2).join('\t')
-    let path = rawPath
-    if (!path) {
-      // Git -z emits rename paths as: "added<TAB>removed<TAB>\0old\0new\0".
-      // The split record has an empty path in the header; the postimage is next.
-      i += 2
-      path = records[i] ?? ''
-    }
-    if (!path) {
-      continue
-    }
-    stats.set(path, {
-      added: parseNumstatCount(parts[0] ?? ''),
-      removed: parseNumstatCount(parts[1] ?? '')
-    })
-  }
-  return stats
-}
+// The `git diff --numstat` parser (parseNumstat) was deleted here: it is now the
+// Rust `orca_git::numstat` core, reached via napi in the main process and via wasm
+// in the relay (src/relay/git-wasm.ts). This module keeps only the runner-agnostic
+// untracked-counting orchestration below.
 
 /** Shared lstat gate + stat-keyed cache for untracked-file counting, independent of
  *  which counter produces the content stats (Rust napi in main, git numstat on the

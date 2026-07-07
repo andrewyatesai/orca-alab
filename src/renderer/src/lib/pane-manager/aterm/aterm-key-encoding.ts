@@ -10,9 +10,12 @@
 // Input model (mirrors xterm): keydown encodes ONLY non-text keys (Enter, Tab,
 // arrows, editing/nav, F-keys, Ctrl/Alt chords). Plain printable characters
 // return null and flow through the textarea 'input'/IME path instead, so they
-// are never double-sent. Keyups encode every key (kitty REPORT_EVENT_TYPES
-// releases); the engine emits nothing for them in legacy mode. See
-// aterm-textarea-input.ts.
+// are never double-sent — EXCEPT under kitty REPORT_ALL_KEYS_AS_ESC, where the
+// app negotiated escape reports for everything and printable presses go to the
+// engine too (bytes ⇒ preventDefault ⇒ no input event follows, so the
+// never-double-send property holds). Keyups encode every key (kitty
+// REPORT_EVENT_TYPES releases); the engine emits nothing for them in legacy
+// mode. See aterm-textarea-input.ts.
 
 /** Engine `Modifiers` bitfield (SHIFT=1 ALT=2 CTRL=4 SUPER=8). */
 export const ATERM_KEY_MOD_SHIFT = 1
@@ -40,11 +43,23 @@ export type AtermEngineKeyEncoder = (
 /** `isMac` selects macOS Option semantics; `macOptionIsMeta` mirrors xterm's
  *  option of the same name — only when true does macOS Option act as Meta,
  *  otherwise the OS composes the glyph and we defer to the input event. On
- *  non-Mac these are ignored (Alt always reaches the engine as a chord). */
+ *  non-Mac these are ignored (Alt always reaches the engine as a chord).
+ *  `getKeyboardModeBits` (read per event, so a mode flip applies immediately)
+ *  lets the printable keydown gates stand down under kitty
+ *  REPORT_ALL_KEYS_AS_ESC — that mode promises "text will not be sent", so
+ *  printable presses must reach the engine encoder instead of the textarea
+ *  input path. */
 export type AtermKeyEncodingOptions = {
   isMac?: boolean
   macOptionIsMeta?: boolean
+  getKeyboardModeBits?: () => number
 }
+
+/** KeyboardMode bit for kitty progressive flag 8, "report all keys as escape
+ *  codes" (aterm_types::keyboard mode.rs: 1<<8). While active the app wants
+ *  EVERY key — printables and standalone modifiers included — as an escape
+ *  report, so host-side printable/modifier gating must stand down. */
+export const ATERM_KEYBOARD_MODE_REPORT_ALL_KEYS_AS_ESC = 0x100
 
 // Keyboard-mode bits (mirror aterm_types::keyboard::KeyboardMode) meaning the
 // app negotiated an enhanced key protocol — kitty progressive enhancement
@@ -107,10 +122,22 @@ export function encodeKeyEventToBytes(
     return null
   }
 
+  // Under kitty REPORT_ALL_KEYS_AS_ESC the app negotiated "text will not be
+  // sent": every printable press/repeat must be ENGINE-encoded (ESC report),
+  // not routed through the textarea input path as raw text. Skipping the
+  // gates below cannot double-send: when the engine returns bytes the caller
+  // preventDefaults the keydown, so no input event follows; and when it
+  // returns nothing we fall back to null (text path) so keys never go dead.
+  // The metaKey firewall above still wins (Cmd chords stay app-domain — a
+  // documented host divergence), and the caller checks IME composition first.
+  const reportAllKeysActive =
+    options.getKeyboardModeBits !== undefined &&
+    (options.getKeyboardModeBits() & ATERM_KEYBOARD_MODE_REPORT_ALL_KEYS_AS_ESC) !== 0
+
   // The printable gates below exist to avoid double-sending with the textarea
   // 'input' path — keyups fire no input event, so releases skip them and let
   // the engine decide (it drops releases outside kitty event-type reporting).
-  if (!isRelease && isPrintableKey(key)) {
+  if (!isRelease && !reportAllKeysActive && isPrintableKey(key)) {
     // On macOS Option only acts as Meta when macOptionIsMeta is on; with it OFF
     // (the default) the OS composes the glyph ('å' for Option+a) and the input
     // event delivers it — keydown must NOT also encode the chord.

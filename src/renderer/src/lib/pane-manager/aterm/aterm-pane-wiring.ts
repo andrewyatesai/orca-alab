@@ -1,4 +1,4 @@
-import { attachAtermTextareaInput } from './aterm-textarea-input'
+import { attachAtermTextareaInput, encodeAtermKeyForHost } from './aterm-textarea-input'
 import { attachAtermCursorBlink } from './aterm-cursor-blink'
 import { buildAtermThemeMutators } from './aterm-controller-theme-mutators'
 import { attachAtermPointerInputs } from './aterm-pointer-input-bundle'
@@ -374,6 +374,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     resize: (nextCols: number, nextRows: number) => gridSizing.resize(nextCols, nextRows),
     fitToContainer: () => gridSizing.fitToContainer(),
     keyboardModeBits: () => term.keyboard_mode_bits,
+    // Same engine encoder the textarea keydown path selects (live mode
+    // in-process, snapshot mode bits on the worker path).
+    encodeKeyForHost: (key: string, mods: number) => encodeAtermKeyForHost(term, key, mods),
     lastMouseReport: () => eventReportingInput.lastMouseReport(),
     // aterm-native serialize (replaces xterm's SerializeAddon): sync (engine / worker
     // cached blob) + awaitable (worker round-trip for fresh history). undefined → all.

@@ -50,10 +50,10 @@ import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
 import {
   buildFontFamily,
   normalizeTerminalLayoutSnapshot,
-  RESET_KITTY_KEYBOARD_PROTOCOL,
   replayTerminalLayout,
   restoreScrollbackBuffers
 } from './layout-serialization'
+import { atermAppKeyProtocolNegotiated } from '@/lib/pane-manager/aterm/aterm-key-encoding'
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { applyExpandedLayoutTo, restoreExpandedLayoutFrom } from './expand-collapse'
@@ -74,12 +74,12 @@ import {
 import { installTerminalImeNativeTextForwarder } from './terminal-ime-native-text-forwarder'
 import {
   shouldBypassXtermKeyboardEvent,
-  shouldHandleTerminalInterruptKeyboardEvent,
+  shouldClaimTerminalInterruptKeyboardEvent,
   shouldSuppressTerminalImeKeyboardEvent,
-  shouldSuppressTerminalInterruptKeyup,
   shouldSuppressTerminalModifierKeyboardEvent,
   TERMINAL_INTERRUPT_INPUT
 } from './xterm-bypass-policy'
+import { createTerminalInterruptKeyupGuard } from './terminal-interrupt-keyup-guard'
 import type { PaneCwdMap } from './resolve-split-cwd'
 import { installMouseHideWhileTyping } from './mouse-hide-while-typing'
 import type { EffectiveMacOptionAsAlt } from '@/lib/keyboard-layout/detect-option-as-alt'
@@ -589,6 +589,7 @@ export function useTerminalPaneLifecycle({
   const scrollIntentTrackingDisposablesRef = useRef(new Map<number, IDisposable>())
   const imeCompositionDisposablesRef = useRef(new Map<number, IDisposable>())
   const imeNativeTextForwarderDisposablesRef = useRef(new Map<number, IDisposable>())
+  const interruptKeyupBlurDisposablesRef = useRef(new Map<number, IDisposable>())
   const queuedInitialCwdRef = useRef<string | null | undefined>(undefined)
   const restoredViewportBlankingPanesRef = useRef(new Set<number>())
 
@@ -658,6 +659,7 @@ export function useTerminalPaneLifecycle({
     const mouseHideDisposables = mouseHideDisposablesRef.current
     const imeCompositionDisposables = imeCompositionDisposablesRef.current
     const imeNativeTextForwarderDisposables = imeNativeTextForwarderDisposablesRef.current
+    const interruptKeyupBlurDisposables = interruptKeyupBlurDisposablesRef.current
     const worktreePath =
       useAppStore
         .getState()
@@ -977,17 +979,20 @@ export function useTerminalPaneLifecycle({
         })
         osc7DisposablesRef.current.set(pane.id, osc7Disposable)
 
-        // Why: let host-handled keys bypass xterm's kitty CSI-u encoder.
-        // With vtExtensions.kittyKeyboard on, a CLI that activates progressive
-        // enhancement (Codex does, Claude Code does not) makes xterm encode
-        // Cmd+C as a CSI-u sequence with cancel=true, which preventDefaults
-        // the keydown and suppresses Chromium's native copy event — so the
-        // selection never reaches the clipboard. The same hook also bypasses
-        // matching keyups so kitty release sequences do not leak after a
-        // bypassed press. Returning false here short-circuits xterm before the
-        // encoder runs, letting the browser and Electron paths fire normally.
-        // See xterm-bypass-policy.ts for the rule derivation.
-        let pendingTerminalInterruptKeyup = false
+        // Why: let host-handled keys bypass the pane's keyboard encoder.
+        // (There is no xterm.js here — the aterm facade keeps xterm's
+        // attachCustomKeyEventHandler interface name, and the aterm textarea
+        // input consults this hook BEFORE the engine encoder runs.) CLIs that
+        // activate kitty progressive enhancement — Claude Code pushes
+        // CSI > 1 u + CSI > 4;2 m unconditionally at startup; Codex pushes its
+        // own flag set — make a negotiated encoder turn app-domain chords like
+        // Cmd+C into CSI-u with preventDefault, which suppresses Chromium's
+        // native copy event so the selection never reaches the clipboard. The
+        // same hook also bypasses matching keyups so kitty release sequences
+        // do not leak after a bypassed press. Returning false here
+        // short-circuits the input path before the encoder runs, letting the
+        // browser and Electron paths fire normally. See xterm-bypass-policy.ts
+        // for the rule derivation.
         const isMac = navigator.userAgent.includes('Mac')
         const macNativeTextInputSourceTracker = isMac ? getMacNativeTextInputSourceTracker() : null
         const imeCompositionTracker = installTerminalImeCompositionTracker(pane.terminal.element)
@@ -1009,6 +1014,13 @@ export function useTerminalPaneLifecycle({
               dispose: () => undefined
             }
         imeNativeTextForwarderDisposablesRef.current.set(pane.id, imeNativeTextForwarder)
+        // Why a guard object: the keyup half of a host-claimed interrupt press
+        // must be suppressed exactly once, and the armed state must not
+        // survive focus loss (a leaked flag would swallow an unrelated 'c'
+        // keyup after refocus). The guard installs a capture-phase blur
+        // listener on the terminal element for that.
+        const interruptKeyupGuard = createTerminalInterruptKeyupGuard(pane.terminal.element)
+        interruptKeyupBlurDisposablesRef.current.set(pane.id, interruptKeyupGuard)
         pane.terminal.attachCustomKeyEventHandler((e) => {
           if (
             shouldSuppressTerminalImeKeyboardEvent(e, {
@@ -1018,32 +1030,51 @@ export function useTerminalPaneLifecycle({
           ) {
             return false
           }
-          if (pendingTerminalInterruptKeyup && shouldSuppressTerminalInterruptKeyup(e)) {
-            pendingTerminalInterruptKeyup = false
+          if (interruptKeyupGuard.claimKeyEvent(e)) {
             return false
           }
+          // Live engine KeyboardMode bits (null when the aterm controller has
+          // not attached yet) — drives both the interrupt stand-down and the
+          // modifier-suppression gate below.
+          const atermKeyboardModeBits = pane.atermController
+            ? pane.atermController.keyboardModeBits()
+            : null
+          // Why stand down for negotiated panes: the app asked for encoded
+          // chords, so the aterm textarea path must encode Ctrl+C from live
+          // engine mode (ESC[99;5u under kitty; ETX in legacy) and the
+          // engine's release gating owns the keyup. The old claim sent raw ETX
+          // AND reset the engine's negotiated kitty flags on EVERY interrupt,
+          // desyncing apps that survive Ctrl+C (Claude Code does). The
+          // died-mid-kitty recovery now rides the agent-status 'done'
+          // transition in pty-connection.ts instead of the keypress path.
           if (
-            shouldHandleTerminalInterruptKeyboardEvent(e, {
+            shouldClaimTerminalInterruptKeyboardEvent(e, {
               isMac,
-              hasSelection: pane.terminal.hasSelection()
+              hasSelection: pane.terminal.hasSelection(),
+              appKeyProtocolNegotiated:
+                atermKeyboardModeBits !== null &&
+                atermAppKeyProtocolNegotiated(atermKeyboardModeBits)
             })
           ) {
             if (e.type === 'keydown') {
-              // Why: xterm's kitty encoder can turn plain Ctrl+C into CSI-u;
-              // ETX must stay transport-agnostic through the existing onData path.
-              pendingTerminalInterruptKeyup = true
+              // Why: for un-negotiated apps the interrupt must stay plain ETX,
+              // transport-agnostic through the existing onData path.
+              interruptKeyupGuard.arm()
               pane.terminal.input(TERMINAL_INTERRUPT_INPUT)
-              // Why: CLIs such as Codex can die on SIGINT before restoring
-              // xterm's renderer-side Kitty flags, leaving the shell corrupted.
-              pane.terminal.write(RESET_KITTY_KEYBOARD_PROTOCOL)
             } else {
-              pendingTerminalInterruptKeyup = false
+              interruptKeyupGuard.disarm()
             }
             return false
           }
-          if (shouldSuppressTerminalModifierKeyboardEvent(e)) {
-            // Why: stale Kitty keyboard reporting can encode standalone
-            // modifier presses before Ctrl+C reaches the interrupt handler.
+          if (
+            shouldSuppressTerminalModifierKeyboardEvent(e, {
+              keyboardModeBits: atermKeyboardModeBits ?? 0
+            })
+          ) {
+            // Why: outside kitty report-all the engine encodes standalone
+            // modifiers to nothing anyway (suppressing here is belt-and-
+            // braces); under report-all (0x100) the app explicitly asked for
+            // modifier press/release reports, so the gate stands down.
             return false
           }
 
@@ -1327,6 +1358,11 @@ export function useTerminalPaneLifecycle({
         if (imeNativeTextForwarderDisposable) {
           imeNativeTextForwarderDisposable.dispose()
           imeNativeTextForwarderDisposablesRef.current.delete(paneId)
+        }
+        const interruptKeyupBlurDisposable = interruptKeyupBlurDisposablesRef.current.get(paneId)
+        if (interruptKeyupBlurDisposable) {
+          interruptKeyupBlurDisposable.dispose()
+          interruptKeyupBlurDisposablesRef.current.delete(paneId)
         }
         const selectionCaptureTimer = selectionCaptureTimersRef.current.get(paneId)
         if (selectionCaptureTimer !== undefined) {
@@ -1867,6 +1903,10 @@ export function useTerminalPaneLifecycle({
         disposable.dispose()
       }
       imeNativeTextForwarderDisposables.clear()
+      for (const disposable of interruptKeyupBlurDisposables.values()) {
+        disposable.dispose()
+      }
+      interruptKeyupBlurDisposables.clear()
       for (const transport of paneTransports.values()) {
         const ptyId = transport.getPtyId()
         if (

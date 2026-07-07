@@ -6,6 +6,7 @@ import {
   ATERM_KEY_MOD_ALT,
   ATERM_KEY_MOD_CTRL,
   ATERM_KEY_MOD_SHIFT,
+  ATERM_KEYBOARD_MODE_REPORT_ALL_KEYS_AS_ESC,
   atermAppKeyProtocolNegotiated,
   encodeKeyEventToBytes
 } from './aterm-key-encoding'
@@ -210,5 +211,49 @@ describe('atermAppKeyProtocolNegotiated', () => {
     expect(atermAppKeyProtocolNegotiated(0x1)).toBe(true) // kitty disambiguate
     expect(atermAppKeyProtocolNegotiated(0x20)).toBe(true) // modifyOtherKeys L2
     expect(atermAppKeyProtocolNegotiated(0x100)).toBe(true) // report-all-keys
+  })
+})
+
+describe('kitty REPORT_ALL_KEYS_AS_ESC printable routing', () => {
+  const reportAll = { getKeyboardModeBits: () => ATERM_KEYBOARD_MODE_REPORT_ALL_KEYS_AS_ESC }
+  const legacyBits = { getKeyboardModeBits: () => 0x1 | 0x2 } // kitty, but no flag 8
+
+  it('routes plain printable presses to the engine (text will not be sent)', () => {
+    const encode = mockEncoder(new Uint8Array([0x1b, 0x5b, 0x39, 0x37, 0x75])) // ESC[97u
+    expect(encodeKeyEventToBytes(keyEvent('a'), encode, reportAll)).toBe('\x1b[97u')
+    expect(encode).toHaveBeenCalledWith('a', 0, ATERM_KEY_EVENT_PRESS, undefined)
+    // Repeats too — the engine owns downgrade/report semantics.
+    encodeKeyEventToBytes(keyEvent('a', { repeat: true }), encode, reportAll)
+    expect(encode).toHaveBeenLastCalledWith('a', 0, ATERM_KEY_EVENT_REPEAT, undefined)
+    // Shifted printables as well ('A' must not sneak out via the input path).
+    encodeKeyEventToBytes(keyEvent('A', { shiftKey: true }), encode, reportAll)
+    expect(encode).toHaveBeenLastCalledWith(
+      'A',
+      ATERM_KEY_MOD_SHIFT,
+      ATERM_KEY_EVENT_PRESS,
+      undefined
+    )
+  })
+
+  it('keeps the input-path gates when report-all is NOT negotiated', () => {
+    const encode = mockEncoder()
+    expect(encodeKeyEventToBytes(keyEvent('a'), encode, legacyBits)).toBeNull()
+    expect(encode).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the text path when the engine returns nothing (keys never go dead)', () => {
+    const encode = vi.fn(() => new Uint8Array(0))
+    expect(encodeKeyEventToBytes(keyEvent('a'), encode, reportAll)).toBeNull()
+  })
+
+  it('keeps the metaKey firewall: Cmd chords stay app-domain even under report-all', () => {
+    const encode = mockEncoder()
+    expect(
+      encodeKeyEventToBytes(keyEvent('c', { metaKey: true }), encode, {
+        isMac: true,
+        ...reportAll
+      })
+    ).toBeNull()
+    expect(encode).not.toHaveBeenCalled()
   })
 })

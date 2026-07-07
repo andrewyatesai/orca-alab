@@ -1,19 +1,19 @@
-import { StringDecoder } from 'node:string_decoder'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { loadRustGitBinding } from '../daemon/rust-git-addon'
-import { StatusPorcelainParser } from './status-porcelain-parser'
-import { parseWorktreeListTs } from './worktree'
-import { parseGitHistoryLog } from '../../shared/git-history-log-parser'
-import { parseNumstat } from '../../shared/git-uncommitted-line-stats'
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
 import { isBinaryBuffer } from '../../shared/binary-buffer'
 
-// Dual-run parity proof: the verified Rust `orca-git` parsers (exposed via the
-// napi addon) must be a faithful drop-in for the live TS parsers. Each fixture
-// is parsed by BOTH and asserted deepEqual. This is the load-bearing evidence
-// for a later cut-over; it touches none of the live git-status paths.
+// napi-surface checks for the Rust `orca-git` parsers. The dual-run TS oracles
+// were retired as each TS parser was deleted (the Rust core is the sole impl —
+// napi in main, wasm in the relay); the parser logic itself is covered by
+// orca-git's unit tests and the relay's differential tests. What remains here:
+// status streaming↔one-shot self-consistency, parity against the STILL-LIVE
+// shared TS at the JS boundary (decodeGitCQuotedPath, push-target shape), a
+// transcribed golden for count (its inline TS loop was deleted), and a
+// transcribed golden for line-stats (its TS original, computeLineStats, is
+// still live in the renderer project — which this node project cannot import).
 //
 // Skips cleanly when the .node is absent (CI without a native build), so the
 // suite still passes there.
@@ -22,49 +22,6 @@ const binding = loadRustGitBinding()
 const suite = binding ? describe : describe.skip
 // Safe under describe.skip: the closure never runs when the binding is null.
 const git = binding!
-
-/** Flatten a live TS `StatusPorcelainParser` into the exact JSON shape the Rust
- *  `status_parse_result_to_json` builder emits (None/undefined fields omitted,
- *  branch flattened to the top level, entries sliced to the cap when stopped). */
-function tsStatusShape(parser: StatusPorcelainParser, stopped: boolean, limit: number): unknown {
-  const count = parser.statusLength
-  const entries = stopped ? parser.entries.slice(0, Math.min(count, limit)) : parser.entries
-  const out: Record<string, unknown> = {
-    entries,
-    ignoredPaths: parser.ignoredPaths,
-    unmergedLines: parser.unmergedLines
-  }
-  const branch = parser.branch
-  if (branch.head !== undefined) {
-    out.head = branch.head
-  }
-  if (branch.branch !== undefined) {
-    out.branch = branch.branch
-  }
-  if (branch.upstreamName !== undefined) {
-    out.upstreamName = branch.upstreamName
-  }
-  if (branch.upstreamAheadBehind) {
-    out.ahead = branch.upstreamAheadBehind.ahead
-    out.behind = branch.upstreamAheadBehind.behind
-  }
-  if (stopped) {
-    out.didHitLimit = true
-  }
-  out.statusLength = count
-  return out
-}
-
-/** Live TS one-shot status parse — mirrors `parse_status_porcelain`. The raw
- *  bytes are lossy-utf8-decoded the same way the daemon decodes git stdout. */
-function tsStatusOneShot(bytes: Buffer, limit: number): unknown {
-  const parser = new StatusPorcelainParser()
-  const stopped = parser.update(bytes.toString('utf8'), limit)
-  if (!stopped) {
-    parser.finish()
-  }
-  return tsStatusShape(parser, stopped, limit)
-}
 
 /** napi streaming parse: feed RAW byte chunks (the Rust parser carries bytes). */
 function napiStatusStreaming(bytes: Buffer, limit: number, chunkSize: number): unknown {
@@ -77,47 +34,6 @@ function napiStatusStreaming(bytes: Buffer, limit: number, chunkSize: number): u
     parser.finish()
   }
   return JSON.parse(parser.result(limit))
-}
-
-/** Live TS streaming parse: decode chunks through a StringDecoder exactly as
- *  the daemon runner does (carrying incomplete utf8 sequences across chunks). */
-function tsStatusStreaming(bytes: Buffer, limit: number, chunkSize: number): unknown {
-  const parser = new StatusPorcelainParser()
-  const decoder = new StringDecoder('utf8')
-  let stopped = false
-  for (let i = 0; i < bytes.length && !stopped; i += chunkSize) {
-    const decoded = decoder.write(bytes.subarray(i, i + chunkSize))
-    if (decoded) {
-      stopped = parser.update(decoded, limit)
-    }
-  }
-  if (!stopped) {
-    const tail = decoder.end()
-    if (tail) {
-      stopped = parser.update(tail, limit)
-    }
-  }
-  if (!stopped) {
-    parser.finish()
-  }
-  return tsStatusShape(parser, stopped, limit)
-}
-
-/** Convert the live TS numstat Map into the Rust `numstat_to_json` shape (a
- *  plain object keyed by path; binary files become `{}`). */
-function tsNumstatShape(bytes: Buffer): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [path, stats] of parseNumstat(bytes.toString('utf8'))) {
-    const inner: Record<string, number> = {}
-    if (stats.added !== undefined) {
-      inner.added = stats.added
-    }
-    if (stats.removed !== undefined) {
-      inner.removed = stats.removed
-    }
-    out[path] = inner
-  }
-  return out
 }
 
 /** Live TS untracked-additions counter — transcribed from the inline logic in
@@ -258,71 +174,6 @@ const streamingFixtures: { name: string; bytes: Buffer; limit: number; chunkSize
   }
 ]
 
-const numstatFixtures: { name: string; bytes: Buffer }[] = [
-  {
-    name: 'text added/removed counts',
-    bytes: Buffer.from('3\t4\tsrc/app.ts\n10\t0\tsrc/new.ts\n')
-  },
-  { name: 'binary dash columns → empty object', bytes: Buffer.from('-\t-\tassets/logo.png\n') },
-  {
-    name: 'text rename brace + arrow normalization',
-    bytes: Buffer.from('2\t1\tsrc/{old => new}/file.ts\n2\t1\told.ts => new.ts\n')
-  },
-  { name: '-z NUL-delimited rename', bytes: Buffer.from('2\t1\t\0old.ts\0new.ts\0') },
-  {
-    name: '-z literal arrow filename kept verbatim',
-    bytes: Buffer.from('1\t0\tdocs/a => b.txt\0')
-  },
-  { name: 'C-quoted tab path key', bytes: Buffer.from('1\t1\t"tab\\tfile.txt"\n') },
-  { name: 'empty input', bytes: Buffer.from('') }
-]
-
-const worktreeFixtures: { name: string; output: string; nulDelimited: boolean }[] = [
-  {
-    name: 'main + linked + bare blocks',
-    output:
-      '\nworktree /repo\nHEAD abc123\nbranch refs/heads/main\n\n' +
-      'worktree /repo-feature\nHEAD def456\nbranch refs/heads/feature/test\n\n' +
-      'worktree /repo-bare\nHEAD 0000000\nbare\n',
-    nulDelimited: false
-  },
-  {
-    name: 'detached head has no branch',
-    output: 'worktree /d\nHEAD abc123\ndetached\n',
-    nulDelimited: false
-  },
-  {
-    name: 'sparse flag',
-    output: 'worktree /repo\nHEAD abc\nbranch refs/heads/main\nsparse\n',
-    nulDelimited: false
-  },
-  {
-    name: 'path with spaces',
-    output: 'worktree /path/to/my worktree\nHEAD ccc\nbranch refs/heads/main\n',
-    nulDelimited: false
-  },
-  {
-    name: 'CRLF blocks',
-    output: 'worktree /a\r\nHEAD aaa\r\nbranch refs/heads/main\r\n',
-    nulDelimited: false
-  },
-  { name: 'empty input', output: '   \n\n  ', nulDelimited: false },
-  {
-    name: '-z NUL form with newline in a linked path',
-    output: [
-      'worktree /repo',
-      'HEAD abc',
-      'branch refs/heads/main',
-      '',
-      'worktree /repo/lin\nked',
-      'HEAD def',
-      'branch refs/heads/nl',
-      ''
-    ].join('\0'),
-    nulDelimited: true
-  }
-]
-
 const decodeFixtures = [
   'plain/path.ts',
   '"quoted/path.ts"',
@@ -362,31 +213,41 @@ const lineStatsFixtures: { name: string; original: string; modified: string; sta
   }
 ]
 
-suite('orca-git napi ↔ TS parser parity', () => {
+suite('orca-git napi surface', () => {
   it('exposes the orca-git engine marker', () => {
     expect(git.gitEngine()).toBe('orca-git')
   })
 
-  describe('status porcelain one-shot', () => {
+  // Streaming (chunked) must agree with the one-shot scan for the same bytes +
+  // cap — this pins the napi streaming surface (chunk carry, cap semantics,
+  // lossy decode at chunk boundaries) against the one-shot scan the relay wasm
+  // differential tests verify. Chunk size 5 splits every multi-byte fixture.
+  describe('status porcelain streaming (chunked) agrees with the one-shot scan', () => {
     for (const fixture of statusFixtures) {
       it(fixture.name, () => {
-        const napi = JSON.parse(git.parseStatusPorcelain(fixture.bytes, fixture.limit))
-        const ts = tsStatusOneShot(fixture.bytes, fixture.limit)
-        expect(napi).toEqual(ts)
+        const napi = napiStatusStreaming(fixture.bytes, fixture.limit, 5)
+        expect(napi).toEqual(JSON.parse(git.parseStatusPorcelain(fixture.bytes, fixture.limit)))
+      })
+    }
+    for (const fixture of streamingFixtures) {
+      it(fixture.name, () => {
+        const napi = napiStatusStreaming(fixture.bytes, fixture.limit, fixture.chunkSize)
+        expect(napi).toEqual(JSON.parse(git.parseStatusPorcelain(fixture.bytes, fixture.limit)))
       })
     }
   })
 
-  describe('status porcelain streaming (chunked) matches TS and one-shot', () => {
-    for (const fixture of streamingFixtures) {
-      it(fixture.name, () => {
-        const napi = napiStatusStreaming(fixture.bytes, fixture.limit, fixture.chunkSize)
-        const ts = tsStatusStreaming(fixture.bytes, fixture.limit, fixture.chunkSize)
-        expect(napi).toEqual(ts)
-        // Streaming must agree with the one-shot scan for the same bytes + cap.
-        expect(napi).toEqual(JSON.parse(git.parseStatusPorcelain(fixture.bytes, fixture.limit)))
-      })
-    }
+  it('pins C-quoted decoding on the untracked/ignored branches (absolute expectations)', () => {
+    // Guards the decode_git_cquoted_path wiring in the `? `/`! ` record branches
+    // with fixed expected paths — the streaming↔one-shot self-consistency check
+    // above cannot catch a decode dropped from BOTH legs (they share parse_line).
+    // Octal escapes decode per-byte (fromCharCode semantics, matching the live
+    // shared TS decoder), so \303\251 pins to 'Ã©', not 'é'.
+    const napi = JSON.parse(
+      git.parseStatusPorcelain(Buffer.from('? "\\303\\251.txt"\n! "tab\\tname.log"\n'), 0)
+    ) as { entries: { path: string }[]; ignoredPaths: string[] }
+    expect(napi.entries.map((entry) => entry.path)).toEqual(['Ã©.txt'])
+    expect(napi.ignoredPaths).toEqual(['tab\tname.log'])
   })
 
   it('relay regression: cap stops the scan instead of materializing all rows', () => {
@@ -399,9 +260,7 @@ suite('orca-git napi ↔ TS parser parity', () => {
     const bytes = Buffer.from(`${lines.join('\n')}\n`)
 
     const napi = JSON.parse(git.parseStatusPorcelain(bytes, limit))
-    const ts = tsStatusOneShot(bytes, limit)
 
-    expect(napi).toEqual(ts)
     expect(napi.entries.length).toBe(limit)
     expect(napi.didHitLimit).toBe(true)
     // The cap stops the scan one entry past the limit; statusLength is NOT 150000.
@@ -409,66 +268,10 @@ suite('orca-git napi ↔ TS parser parity', () => {
     expect(napi.statusLength).not.toBe(total)
   })
 
-  describe('numstat', () => {
-    for (const fixture of numstatFixtures) {
-      it(fixture.name, () => {
-        const napi = JSON.parse(git.parseNumstat(fixture.bytes))
-        expect(napi).toEqual(tsNumstatShape(fixture.bytes))
-      })
-    }
-  })
-
-  describe('parseWorktreeList', () => {
-    for (const fixture of worktreeFixtures) {
-      it(fixture.name, () => {
-        const napi = JSON.parse(git.parseWorktreeList(fixture.output, fixture.nulDelimited))
-        expect(napi).toEqual(
-          parseWorktreeListTs(fixture.output, { nulDelimited: fixture.nulDelimited })
-        )
-      })
-    }
-  })
-
-  describe('parseGitHistoryLog', () => {
-    const US = '\x1f' // decoration separator (GIT_HISTORY_DECORATION_SEPARATOR)
-    const rec = (fields: string[]): string => fields.join('\n')
-    // A NUL-terminated `git log -z` stream, with the optional leading blank line
-    // git emits before the first record.
-    const stream = (...recs: string[]): string => recs.map((r) => `${r}\0`).join('')
-    const historyFixtures: { name: string; stdout: string }[] = [
-      {
-        name: 'two commits, branch + tag + remote decorations, multiline message',
-        stdout: `\n${stream(
-          rec([
-            'a'.repeat(40),
-            'Ada L',
-            'ada@x.io',
-            '1700000000',
-            '1700000001',
-            'b'.repeat(40),
-            `HEAD -> refs/heads/main${US}tag: refs/tags/v1${US}refs/remotes/origin/main`,
-            'feat: subject\n\nbody'
-          ]),
-          rec(['c'.repeat(40), '', '', 'notanumber', '0', '', '', 'second'])
-        )}`
-      },
-      { name: 'empty input', stdout: '' },
-      {
-        name: 'no decorations, single parent',
-        stdout: stream(rec(['d'.repeat(40), 'B', 'b@y', '1', '2', 'e'.repeat(40), '', 'msg']))
-      },
-      {
-        name: 'non-hash record is skipped',
-        stdout: stream(rec(['not-a-hash', 'X', 'x@z', '1', '2', '', '', 'skip me']))
-      }
-    ]
-    for (const fixture of historyFixtures) {
-      it(fixture.name, () => {
-        const napi = JSON.parse(git.parseGitHistoryLog(fixture.stdout))
-        expect(napi).toEqual(parseGitHistoryLog(fixture.stdout))
-      })
-    }
-  })
+  // The status one-shot, numstat, parseWorktreeList, and parseGitHistoryLog TS
+  // oracles were retired: those TS parsers were deleted once the Rust core became
+  // the sole impl (napi in main, wasm in the relay). The Rust logic is covered by
+  // orca-git's unit tests and the relay's differential tests (same wasm core).
 
   describe('decodeGitCQuotedPath', () => {
     for (const value of decodeFixtures) {

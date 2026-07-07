@@ -2,7 +2,11 @@
 
 > **Status (2026-06-28):** Phase 0 (locale lazy-load) shipped. `orca-git` is the first
 > fully-landed subsumption: verified pure-Rust core + `ay` proofs → napi exposure →
-> dual-run parity (43/43) → **live cutover** of `getStatus` behind the TS fallback. The
+> dual-run parity (43/43) → **live cutover** of `getStatus` behind the TS fallback.
+> **Update (2026-07-06):** the arc completed — the TS fallback itself was since deleted
+> (the napi addon is a required main-process dependency; the SSH relay runs the same
+> Rust core via wasm, `src/relay/git-wasm.ts`). Dual-run is the *landing* recipe; once a
+> port is proven live, its TS twin is deleted. The
 > recipe below is now proven end-to-end; everything in §6 follows it. See
 > [§7 Aterm responsiveness roadmap](#7-aterm-responsiveness-roadmap) and
 > [§8 Trust subsumption order](#8-trust-subsumption-order-what-to-pull-in-next) for the
@@ -71,13 +75,17 @@ the ripgrep `--json` parse, the Electron fs-watcher fan-out, the keystroke input
 The highest sustained Rust ROI and the cleanest Trust target, so it goes first and
 establishes the orca-side Trust pipeline.
 
-- **What's hot today (TS):**
-  - `src/main/git/status-porcelain-parser.ts:47,130-184` — porcelain v2 parse (local).
-  - `src/relay/git-status-output-parser.ts:43` — the SSH/relay variant, with **no early-stop**:
-    it materializes the entire array (200k+ untracked files) before truncating.
-  - `src/shared/git-uncommitted-line-stats.ts:125-136` — a hand-rolled newline byte-loop that
-    reads each file up to 2 MB.
-  - `src/renderer/src/components/editor/diff-line-stats.ts:5-39` — per-section line-multiset Map.
+- **What was hot at audit time (TS — all but the last since deleted, replaced by the Rust core):**
+  - `src/main/git/status-porcelain-parser.ts` — porcelain v2 parse (local). *Deleted*;
+    `git-status-stream.ts` drives the Rust streaming parser (required addon, no fallback).
+  - `src/relay/git-status-output-parser.ts` — the SSH/relay variant, which had **no early-stop**
+    (it materialized the entire array before truncating). *Now a re-export of the wasm-backed
+    parser* (`src/relay/git-wasm.ts`), cap applied during the scan.
+  - `src/shared/git-uncommitted-line-stats.ts` — had a hand-rolled newline byte-loop reading
+    each file up to 2 MB. *Loop deleted*; the Rust `count_additions_in_buffer` is injected.
+  - `src/renderer/src/components/editor/diff-line-stats.ts:5-39` — per-section line-multiset
+    Map. *Still live TS* (renderer-only consumer; `line_count.rs` is the ported twin awaiting
+    the injectable-param pattern or an IPC hop).
   - Driven by the worktree fs-watcher (debounced 150/500 ms) **plus** every stage / discard /
     commit / branch-switch — i.e. constantly during active editing. Cap is
     `DEFAULT_GIT_STATUS_LIMIT = 10_000` (`src/shared/git-status-limit.ts:6`).
@@ -194,9 +202,12 @@ aterm submodule** and ride aterm's existing `tools/verify.sh` proof gate (free T
 - **Phase 3 — `orca-text` fuzzy/index (wasm):** once Phase 1 has established orca-side Trust.
 - **Phase 4 — `orca-crypto` E2EE (wasm):** web/mobile path.
 
-Each phase ships behind the existing TS fallback (napi: `rust-terminal-addon.ts` already falls
+Each phase *lands* behind the existing TS fallback (napi: `rust-terminal-addon.ts` already falls
 back to the TS emulator when the `.node` is absent; wasm: keep the TS path until the crate is
-proven on the target arch). Dual-run, never a hard cutover.
+proven on the target arch). Dual-run to land — but the fallback is scaffolding, not a permanent
+fixture: once a port is proven live, its TS twin is deleted so it cannot drift (Phase 1 completed
+this full arc on 2026-07-06 — the git parsers are Rust-only in main via napi and in the relay via
+wasm, and the duplicated TS parsers are gone).
 
 ---
 

@@ -524,15 +524,15 @@ describe('gitStreamStdout', () => {
     spawnMock.mockReset()
   })
 
-  it('streams chunks to onStdout and resolves cleanly on a zero exit', async () => {
+  it('streams raw byte chunks to onStdoutBytes and resolves cleanly on a zero exit', async () => {
     const child = createMockChildProcess(1234)
     spawnMock.mockReturnValue(child)
 
     const chunks: string[] = []
     const promise = gitStreamStdout(['status', '--porcelain=v2'], {
       cwd: '/repo',
-      onStdout: (chunk) => {
-        chunks.push(chunk)
+      onStdoutBytes: (chunk) => {
+        chunks.push(chunk.toString('utf8'))
       }
     })
     child.stdout.emit('data', Buffer.from('? a.txt\n'))
@@ -544,7 +544,7 @@ describe('gitStreamStdout', () => {
     expect(child.kill).not.toHaveBeenCalled()
   })
 
-  it('kills git early and resolves stoppedEarly when onStdout requests a stop', async () => {
+  it('kills git early and resolves stoppedEarly when onStdoutBytes requests a stop', async () => {
     const child = createMockChildProcess(1234)
     spawnMock.mockReturnValue(child)
 
@@ -552,7 +552,7 @@ describe('gitStreamStdout', () => {
     const promise = gitStreamStdout(['status'], {
       cwd: '/repo',
       // Stop after the first chunk — mirrors a parser hitting its entry limit.
-      onStdout: () => {
+      onStdoutBytes: () => {
         calls += 1
         return true
       }
@@ -571,7 +571,7 @@ describe('gitStreamStdout', () => {
     const promise = gitStreamStdout(['status'], {
       cwd: '/repo',
       maxBuffer: 4,
-      onStdout: () => {}
+      onStdoutBytes: () => {}
     })
     const rejection = expect(promise).rejects.toThrow('git stdout exceeded maxBuffer.')
     child.stdout.emit('data', Buffer.from('way too much'))
@@ -584,7 +584,7 @@ describe('gitStreamStdout', () => {
     const child = createMockChildProcess(1234)
     spawnMock.mockReturnValue(child)
 
-    const promise = gitStreamStdout(['status'], { cwd: '/repo', onStdout: () => {} })
+    const promise = gitStreamStdout(['status'], { cwd: '/repo', onStdoutBytes: () => {} })
     const rejection = expect(promise).rejects.toThrow('git exited with 128')
     child.stderr.emit('data', Buffer.from('fatal: not a git repository'))
     child.emit('close', 128)
@@ -592,13 +592,13 @@ describe('gitStreamStdout', () => {
     await rejection
   })
 
-  it('rejects (not crashes) when the onStdout callback throws', async () => {
+  it('rejects (not crashes) when the onStdoutBytes callback throws', async () => {
     const child = createMockChildProcess(1234)
     spawnMock.mockReturnValue(child)
 
     const promise = gitStreamStdout(['status'], {
       cwd: '/repo',
-      onStdout: () => {
+      onStdoutBytes: () => {
         throw new Error('parser blew up')
       }
     })

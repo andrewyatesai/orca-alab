@@ -41,6 +41,12 @@ export type WorkerBackedTerm = {
   pushNotifications: (eventsJson: string) => void
   /** Loader pushes a BEL; the facade pull-drains it via drain_bell. */
   pushBell: () => void
+  /** Loader pushes a keyboard-mode flip the worker detected while processing a
+   *  chunk. Updates the SYNCHRONOUS snapshot field immediately so the main
+   *  thread's key encoding stops lagging a frame behind a mode change — an
+   *  idle kitty app produces no frames, so without this push the stale window
+   *  after a flip-with-no-output is unbounded. */
+  applyKeyboardModeBits: (bits: number) => void
   /** Wiring subscribes to forward replies to the PTY input sink. */
   onReply: (handler: (data: string) => void) => void
   /** Wiring subscribes to re-reflow the grid when the worker re-rasterizes at a new
@@ -375,6 +381,12 @@ export function createWorkerBackedTerm(deps: {
     pushOsc: sideChannels.pushOsc,
     pushNotifications: sideChannels.pushNotifications,
     pushBell: sideChannels.pushBell,
+    // Mutate the CURRENT snapshot in place (no listeners: the next key event
+    // simply reads the fresh bits synchronously). The next full STATE carries
+    // the same value, so there is nothing to reconcile.
+    applyKeyboardModeBits: (bits) => {
+      state.keyboardModeBits = bits
+    },
     onReply: (handler) => void replyListeners.add(handler),
     onMetricsChange: (handler) => void metricsListeners.add(handler),
     onSideChannel: (handler) => void sideChannelListeners.add(handler),

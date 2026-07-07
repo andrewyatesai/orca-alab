@@ -1,7 +1,6 @@
 import {
   GIT_HISTORY_COMMIT_FORMAT,
   gitHistoryRefFromFullName,
-  parseGitHistoryLog,
   shortGitHash
 } from './git-history-log-parser'
 import {
@@ -38,7 +37,7 @@ export {
   GIT_HISTORY_REF_COLOR,
   GIT_HISTORY_REMOTE_REF_COLOR
 } from './git-history-types'
-export { compareGitHistoryItemRefsByCategory, parseGitHistoryLog } from './git-history-log-parser'
+export { compareGitHistoryItemRefsByCategory } from './git-history-log-parser'
 
 function clampHistoryLimit(limit: number | undefined): number {
   if (!Number.isFinite(limit)) {
@@ -165,8 +164,10 @@ async function resolveNamedRef(
 export async function loadGitHistoryFromExecutor(
   git: GitHistoryExecutor,
   cwd: string,
-  options: GitHistoryOptions = {},
-  parseLog: GitHistoryLogParser = parseGitHistoryLog
+  options: GitHistoryOptions,
+  // Required (no TS default): the caller injects the Rust log parser — napi in the
+  // main process, wasm in the relay. The pure-TS parser was deleted.
+  parseLog: GitHistoryLogParser
 ): Promise<GitHistoryResult> {
   const limit = clampHistoryLimit(options.limit)
   const headOid = await resolveCommit(git, cwd, 'HEAD')

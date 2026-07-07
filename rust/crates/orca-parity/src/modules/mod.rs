@@ -51,6 +51,7 @@ pub mod quick_open_rank;
 pub mod repo_badge_color;
 pub mod repo_icon;
 pub mod setup_runner_command;
+pub mod setup_script_imports;
 pub mod setup_script_telemetry;
 pub mod skill_metadata;
 pub mod source_control_ai;
@@ -129,6 +130,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "repo-badge-color" => Some(repo_badge_color::dispatch(function, input)),
         "repo-icon" => Some(repo_icon::dispatch(function, input)),
         "setup-runner-command" => Some(setup_runner_command::dispatch(function, input)),
+        "setup-script-imports" => Some(setup_script_imports::dispatch(function, input)),
         "setup-script-telemetry" => Some(setup_script_telemetry::dispatch(function, input)),
         "skill-metadata" => Some(skill_metadata::dispatch(function, input)),
         "source-control-ai" => Some(source_control_ai::dispatch(function, input)),

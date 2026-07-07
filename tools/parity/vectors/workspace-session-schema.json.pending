@@ -1,0 +1,1218 @@
+{
+  "module": "workspace-session-schema",
+  "source": "src/shared/workspace-session-schema.ts",
+  "rustCrate": "orca-config::workspace_session_schema",
+  "cases": [
+    {
+      "function": "parseWorkspaceSession",
+      "note": "minimal valid session (only required fields) parses ok on both legs",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {}
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {}
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "realistic full blob: terminal tabs + split pane layout with buffers, unified tabs/groups/layouts, editor files, browser tabs/pages/history, sleeping agent session",
+      "input": {
+        "activeRepoId": "repo-orca",
+        "activeWorkspaceKey": "worktree:repo-orca::/Users/dev/orca-wt-main",
+        "activeWorktreeId": "repo-orca::/Users/dev/orca-wt-main",
+        "activeTabId": "tab-main",
+        "tabsByWorktree": {
+          "repo-orca::/Users/dev/orca-wt-main": [
+            {
+              "id": "tab-main",
+              "ptyId": "pty-11",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "title": "zsh",
+              "defaultTitle": "Terminal 1",
+              "generatedTitle": null,
+              "quickCommandLabel": null,
+              "customTitle": null,
+              "color": null,
+              "isPinned": false,
+              "sortOrder": 0,
+              "createdAt": 1751500000000,
+              "generation": 2,
+              "startupCwd": "/Users/dev/orca-wt-main"
+            },
+            {
+              "id": "tab-agent",
+              "ptyId": null,
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "title": "claude",
+              "generatedTitle": "Fix session schema",
+              "customTitle": null,
+              "color": "#7c3aed",
+              "sortOrder": 1,
+              "createdAt": 1751500100000,
+              "launchAgent": "claude"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "tab-main": {
+            "root": {
+              "type": "split",
+              "direction": "horizontal",
+              "first": {
+                "type": "leaf",
+                "leafId": "leaf-a"
+              },
+              "second": {
+                "type": "split",
+                "direction": "vertical",
+                "first": {
+                  "type": "leaf",
+                  "leafId": "leaf-b"
+                },
+                "second": {
+                  "type": "leaf",
+                  "leafId": "leaf-c"
+                },
+                "ratio": 0.4
+              },
+              "ratio": 0.6
+            },
+            "activeLeafId": "leaf-a",
+            "expandedLeafId": null,
+            "ptyIdsByLeafId": {
+              "leaf-a": "pty-11",
+              "leaf-b": "pty-12",
+              "leaf-c": "pty-13"
+            },
+            "buffersByLeafId": {
+              "leaf-a": "$ pnpm test\u001b[32m PASS \u001b[0m\r\n"
+            },
+            "scrollbackRefsByLeafId": {
+              "leaf-b": "scrollback-leaf-b.bin"
+            },
+            "titlesByLeafId": {
+              "leaf-a": "zsh",
+              "leaf-b": "vitest",
+              "leaf-c": "logs"
+            }
+          },
+          "tab-agent": {
+            "root": {
+              "type": "leaf",
+              "leafId": "leaf-d"
+            },
+            "activeLeafId": "leaf-d",
+            "expandedLeafId": null
+          }
+        },
+        "activeWorktreeIdsOnShutdown": [
+          "repo-orca::/Users/dev/orca-wt-main"
+        ],
+        "openFilesByWorktree": {
+          "repo-orca::/Users/dev/orca-wt-main": [
+            {
+              "filePath": "/Users/dev/orca-wt-main/src/shared/types.ts",
+              "relativePath": "src/shared/types.ts",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "language": "typescript",
+              "isPreview": false,
+              "runtimeEnvironmentId": null,
+              "dirtyDraftContent": "// wip\n"
+            }
+          ]
+        },
+        "activeFileIdByWorktree": {
+          "repo-orca::/Users/dev/orca-wt-main": "/Users/dev/orca-wt-main/src/shared/types.ts"
+        },
+        "markdownFrontmatterVisible": {
+          "/Users/dev/orca-wt-main/README.md": true
+        },
+        "browserTabsByWorktree": {
+          "repo-orca::/Users/dev/orca-wt-main": [
+            {
+              "id": "bw-1",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "label": "Preview",
+              "sessionProfileId": null,
+              "sessionPartition": "persist:orca-profile-default",
+              "activePageId": "pg-1",
+              "pageIds": [
+                "pg-1"
+              ],
+              "url": "http://localhost:5173/",
+              "title": "Orca Dev",
+              "loading": false,
+              "faviconUrl": null,
+              "canGoBack": false,
+              "canGoForward": false,
+              "loadError": null,
+              "createdAt": 1751500200000
+            }
+          ]
+        },
+        "browserPagesByWorkspace": {
+          "bw-1": [
+            {
+              "id": "pg-1",
+              "workspaceId": "bw-1",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "url": "http://localhost:5173/",
+              "title": "Orca Dev",
+              "loading": false,
+              "faviconUrl": null,
+              "canGoBack": false,
+              "canGoForward": false,
+              "loadError": {
+                "code": -102,
+                "description": "ERR_CONNECTION_REFUSED",
+                "validatedUrl": "http://localhost:5173/"
+              },
+              "createdAt": 1751500200000,
+              "browserRuntimeEnvironmentId": null,
+              "viewportPresetId": "laptop"
+            }
+          ]
+        },
+        "activeBrowserTabIdByWorktree": {
+          "repo-orca::/Users/dev/orca-wt-main": "bw-1"
+        },
+        "activeTabTypeByWorktree": {
+          "repo-orca::/Users/dev/orca-wt-main": "terminal"
+        },
+        "browserUrlHistory": [
+          {
+            "url": "http://localhost:5173/",
+            "normalizedUrl": "http://localhost:5173",
+            "title": "Orca Dev",
+            "lastVisitedAt": 1751500300000,
+            "visitCount": 4
+          },
+          {
+            "url": "https://docs.orca.dev/guide",
+            "normalizedUrl": "https://docs.orca.dev/guide",
+            "title": "Guide",
+            "lastVisitedAt": 1751500200000,
+            "visitCount": 2
+          }
+        ],
+        "activeTabIdByWorktree": {
+          "repo-orca::/Users/dev/orca-wt-main": "tab-main"
+        },
+        "unifiedTabs": {
+          "repo-orca::/Users/dev/orca-wt-main": [
+            {
+              "id": "tab-main",
+              "entityId": "term-entity-1",
+              "groupId": "group-1",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "contentType": "terminal",
+              "label": "zsh",
+              "generatedLabel": null,
+              "quickCommandLabel": null,
+              "customLabel": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500000000,
+              "isPreview": false,
+              "isPinned": false,
+              "viewMode": "terminal"
+            },
+            {
+              "id": "tab-agent",
+              "entityId": "term-entity-2",
+              "groupId": "group-1",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "contentType": "terminal",
+              "label": "claude",
+              "generatedLabel": "Fix session schema",
+              "customLabel": null,
+              "color": "#7c3aed",
+              "sortOrder": 1,
+              "createdAt": 1751500100000,
+              "viewMode": "chat"
+            },
+            {
+              "id": "tab-editor",
+              "entityId": "/Users/dev/orca-wt-main/src/shared/types.ts",
+              "groupId": "group-2",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "contentType": "editor",
+              "label": "types.ts",
+              "customLabel": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500150000,
+              "isPreview": true
+            }
+          ]
+        },
+        "tabGroups": {
+          "repo-orca::/Users/dev/orca-wt-main": [
+            {
+              "id": "group-1",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "activeTabId": "tab-main",
+              "tabOrder": [
+                "tab-main",
+                "tab-agent"
+              ],
+              "recentTabIds": [
+                "tab-agent"
+              ]
+            },
+            {
+              "id": "group-2",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "activeTabId": "tab-editor",
+              "tabOrder": [
+                "tab-editor"
+              ]
+            }
+          ]
+        },
+        "tabGroupLayouts": {
+          "repo-orca::/Users/dev/orca-wt-main": {
+            "type": "split",
+            "direction": "horizontal",
+            "first": {
+              "type": "leaf",
+              "groupId": "group-1"
+            },
+            "second": {
+              "type": "leaf",
+              "groupId": "group-2"
+            },
+            "ratio": 0.55
+          }
+        },
+        "activeGroupIdByWorktree": {
+          "repo-orca::/Users/dev/orca-wt-main": "group-1"
+        },
+        "activeConnectionIdsAtShutdown": [
+          "conn-local"
+        ],
+        "remoteSessionIdsByTabId": {
+          "tab-agent": "remote-sess-9"
+        },
+        "lastVisitedAtByWorktreeId": {
+          "repo-orca::/Users/dev/orca-wt-main": 1751500300000
+        },
+        "defaultTerminalTabsAppliedByWorktreeId": {
+          "repo-orca::/Users/dev/orca-wt-main": true
+        },
+        "sleepingAgentSessionsByPaneKey": {
+          "tab-agent__leaf-d": {
+            "paneKey": "tab-agent__leaf-d",
+            "tabId": "tab-agent",
+            "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+            "agent": "codex",
+            "providerSession": {
+              "key": "session_id",
+              "id": "sess-abc123"
+            },
+            "prompt": "Fix the workspace session schema",
+            "state": "done",
+            "capturedAt": 1751500400000,
+            "updatedAt": 1751500400000,
+            "terminalTitle": "codex",
+            "lastAssistantMessage": "Done.",
+            "interrupted": false,
+            "connectionId": null,
+            "launchConfig": {
+              "agentCommand": "codex",
+              "agentArgs": "--resume sess-abc123",
+              "agentEnv": {
+                "ORCA_PANE": "tab-agent__leaf-d"
+              }
+            },
+            "origin": "quit"
+          }
+        }
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": "repo-orca",
+          "activeWorkspaceKey": "worktree:repo-orca::/Users/dev/orca-wt-main",
+          "activeWorktreeId": "repo-orca::/Users/dev/orca-wt-main",
+          "activeTabId": "tab-main",
+          "tabsByWorktree": {
+            "repo-orca::/Users/dev/orca-wt-main": [
+              {
+                "id": "tab-main",
+                "ptyId": "pty-11",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "title": "zsh",
+                "defaultTitle": "Terminal 1",
+                "generatedTitle": null,
+                "quickCommandLabel": null,
+                "customTitle": null,
+                "color": null,
+                "isPinned": false,
+                "sortOrder": 0,
+                "createdAt": 1751500000000,
+                "generation": 2,
+                "startupCwd": "/Users/dev/orca-wt-main"
+              },
+              {
+                "id": "tab-agent",
+                "ptyId": null,
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "title": "claude",
+                "generatedTitle": "Fix session schema",
+                "customTitle": null,
+                "color": "#7c3aed",
+                "sortOrder": 1,
+                "createdAt": 1751500100000,
+                "launchAgent": "claude"
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "tab-main": {
+              "root": {
+                "type": "split",
+                "direction": "horizontal",
+                "first": {
+                  "type": "leaf",
+                  "leafId": "leaf-a"
+                },
+                "second": {
+                  "type": "split",
+                  "direction": "vertical",
+                  "first": {
+                    "type": "leaf",
+                    "leafId": "leaf-b"
+                  },
+                  "second": {
+                    "type": "leaf",
+                    "leafId": "leaf-c"
+                  },
+                  "ratio": 0.4
+                },
+                "ratio": 0.6
+              },
+              "activeLeafId": "leaf-a",
+              "expandedLeafId": null,
+              "ptyIdsByLeafId": {
+                "leaf-a": "pty-11",
+                "leaf-b": "pty-12",
+                "leaf-c": "pty-13"
+              },
+              "buffersByLeafId": {
+                "leaf-a": "$ pnpm test\u001b[32m PASS \u001b[0m\r\n"
+              },
+              "scrollbackRefsByLeafId": {
+                "leaf-b": "scrollback-leaf-b.bin"
+              },
+              "titlesByLeafId": {
+                "leaf-a": "zsh",
+                "leaf-b": "vitest",
+                "leaf-c": "logs"
+              }
+            },
+            "tab-agent": {
+              "root": {
+                "type": "leaf",
+                "leafId": "leaf-d"
+              },
+              "activeLeafId": "leaf-d",
+              "expandedLeafId": null
+            }
+          },
+          "activeWorktreeIdsOnShutdown": [
+            "repo-orca::/Users/dev/orca-wt-main"
+          ],
+          "openFilesByWorktree": {
+            "repo-orca::/Users/dev/orca-wt-main": [
+              {
+                "filePath": "/Users/dev/orca-wt-main/src/shared/types.ts",
+                "relativePath": "src/shared/types.ts",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "language": "typescript",
+                "isPreview": false,
+                "runtimeEnvironmentId": null,
+                "dirtyDraftContent": "// wip\n"
+              }
+            ]
+          },
+          "activeFileIdByWorktree": {
+            "repo-orca::/Users/dev/orca-wt-main": "/Users/dev/orca-wt-main/src/shared/types.ts"
+          },
+          "markdownFrontmatterVisible": {
+            "/Users/dev/orca-wt-main/README.md": true
+          },
+          "browserTabsByWorktree": {
+            "repo-orca::/Users/dev/orca-wt-main": [
+              {
+                "id": "bw-1",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "label": "Preview",
+                "sessionProfileId": null,
+                "sessionPartition": "persist:orca-profile-default",
+                "activePageId": "pg-1",
+                "pageIds": [
+                  "pg-1"
+                ],
+                "url": "http://localhost:5173/",
+                "title": "Orca Dev",
+                "loading": false,
+                "faviconUrl": null,
+                "canGoBack": false,
+                "canGoForward": false,
+                "loadError": null,
+                "createdAt": 1751500200000
+              }
+            ]
+          },
+          "browserPagesByWorkspace": {
+            "bw-1": [
+              {
+                "id": "pg-1",
+                "workspaceId": "bw-1",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "url": "http://localhost:5173/",
+                "title": "Orca Dev",
+                "loading": false,
+                "faviconUrl": null,
+                "canGoBack": false,
+                "canGoForward": false,
+                "loadError": {
+                  "code": -102,
+                  "description": "ERR_CONNECTION_REFUSED",
+                  "validatedUrl": "http://localhost:5173/"
+                },
+                "createdAt": 1751500200000,
+                "browserRuntimeEnvironmentId": null,
+                "viewportPresetId": "laptop"
+              }
+            ]
+          },
+          "activeBrowserTabIdByWorktree": {
+            "repo-orca::/Users/dev/orca-wt-main": "bw-1"
+          },
+          "activeTabTypeByWorktree": {
+            "repo-orca::/Users/dev/orca-wt-main": "terminal"
+          },
+          "browserUrlHistory": [
+            {
+              "url": "http://localhost:5173/",
+              "normalizedUrl": "http://localhost:5173",
+              "title": "Orca Dev",
+              "lastVisitedAt": 1751500300000,
+              "visitCount": 4
+            },
+            {
+              "url": "https://docs.orca.dev/guide",
+              "normalizedUrl": "https://docs.orca.dev/guide",
+              "title": "Guide",
+              "lastVisitedAt": 1751500200000,
+              "visitCount": 2
+            }
+          ],
+          "activeTabIdByWorktree": {
+            "repo-orca::/Users/dev/orca-wt-main": "tab-main"
+          },
+          "unifiedTabs": {
+            "repo-orca::/Users/dev/orca-wt-main": [
+              {
+                "id": "tab-main",
+                "entityId": "term-entity-1",
+                "groupId": "group-1",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "contentType": "terminal",
+                "label": "zsh",
+                "generatedLabel": null,
+                "quickCommandLabel": null,
+                "customLabel": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1751500000000,
+                "isPreview": false,
+                "isPinned": false,
+                "viewMode": "terminal"
+              },
+              {
+                "id": "tab-agent",
+                "entityId": "term-entity-2",
+                "groupId": "group-1",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "contentType": "terminal",
+                "label": "claude",
+                "generatedLabel": "Fix session schema",
+                "customLabel": null,
+                "color": "#7c3aed",
+                "sortOrder": 1,
+                "createdAt": 1751500100000,
+                "viewMode": "chat"
+              },
+              {
+                "id": "tab-editor",
+                "entityId": "/Users/dev/orca-wt-main/src/shared/types.ts",
+                "groupId": "group-2",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "contentType": "editor",
+                "label": "types.ts",
+                "customLabel": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1751500150000,
+                "isPreview": true
+              }
+            ]
+          },
+          "tabGroups": {
+            "repo-orca::/Users/dev/orca-wt-main": [
+              {
+                "id": "group-1",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "activeTabId": "tab-main",
+                "tabOrder": [
+                  "tab-main",
+                  "tab-agent"
+                ],
+                "recentTabIds": [
+                  "tab-agent"
+                ]
+              },
+              {
+                "id": "group-2",
+                "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+                "activeTabId": "tab-editor",
+                "tabOrder": [
+                  "tab-editor"
+                ]
+              }
+            ]
+          },
+          "tabGroupLayouts": {
+            "repo-orca::/Users/dev/orca-wt-main": {
+              "type": "split",
+              "direction": "horizontal",
+              "first": {
+                "type": "leaf",
+                "groupId": "group-1"
+              },
+              "second": {
+                "type": "leaf",
+                "groupId": "group-2"
+              },
+              "ratio": 0.55
+            }
+          },
+          "activeGroupIdByWorktree": {
+            "repo-orca::/Users/dev/orca-wt-main": "group-1"
+          },
+          "activeConnectionIdsAtShutdown": [
+            "conn-local"
+          ],
+          "remoteSessionIdsByTabId": {
+            "tab-agent": "remote-sess-9"
+          },
+          "lastVisitedAtByWorktreeId": {
+            "repo-orca::/Users/dev/orca-wt-main": 1751500300000
+          },
+          "defaultTerminalTabsAppliedByWorktreeId": {
+            "repo-orca::/Users/dev/orca-wt-main": true
+          },
+          "sleepingAgentSessionsByPaneKey": {
+            "tab-agent__leaf-d": {
+              "paneKey": "tab-agent__leaf-d",
+              "tabId": "tab-agent",
+              "worktreeId": "repo-orca::/Users/dev/orca-wt-main",
+              "agent": "codex",
+              "providerSession": {
+                "key": "session_id",
+                "id": "sess-abc123"
+              },
+              "prompt": "Fix the workspace session schema",
+              "state": "done",
+              "capturedAt": 1751500400000,
+              "updatedAt": 1751500400000,
+              "terminalTitle": "codex",
+              "lastAssistantMessage": "Done.",
+              "interrupted": false,
+              "connectionId": null,
+              "launchConfig": {
+                "agentCommand": "codex",
+                "agentArgs": "--resume sess-abc123",
+                "agentEnv": {
+                  "ORCA_PANE": "tab-agent__leaf-d"
+                }
+              },
+              "origin": "quit"
+            }
+          }
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION: unknown keys at four depths (top level, terminal tab, layout snapshot, layout leaf node) — zod strips them, the Rust port deliberately preserves them (documented deviation #1)",
+      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: unrecognized keys are preserved in the Rust output, zod's z.object strips them.",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "sessionSchemaVersion": 42,
+        "tabsByWorktree": {
+          "wt-1": [
+            {
+              "id": "tab-1",
+              "ptyId": null,
+              "worktreeId": "wt-1",
+              "title": "zsh",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500000000,
+              "legacyPaneState": {
+                "zoom": 2
+              }
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {
+          "tab-1": {
+            "root": {
+              "type": "leaf",
+              "leafId": "leaf-a",
+              "legacySize": 120
+            },
+            "activeLeafId": "leaf-a",
+            "expandedLeafId": null,
+            "zoomLevel": 1.5
+          }
+        }
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {
+            "wt-1": [
+              {
+                "id": "tab-1",
+                "ptyId": null,
+                "worktreeId": "wt-1",
+                "title": "zsh",
+                "customTitle": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1751500000000
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {
+            "tab-1": {
+              "root": {
+                "type": "leaf",
+                "leafId": "leaf-a"
+              },
+              "activeLeafId": "leaf-a",
+              "expandedLeafId": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION: missing required tabsByWorktree — both legs reject at the same path, but zod's wording differs from the Rust port's (documented deviation #2)",
+      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "terminalLayoutsByTabId": {}
+      },
+      "expected": {
+        "ok": false,
+        "error": "tabsByWorktree: Invalid input: expected record, received undefined"
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION: wrong-typed field (ptyId as number, the motivating corruption) — same rejection path, zod wording differs (documented deviation #2)",
+      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {
+          "wt-1": [
+            {
+              "id": "tab-1",
+              "ptyId": 42,
+              "worktreeId": "wt-1",
+              "title": "zsh",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500000000
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {}
+      },
+      "expected": {
+        "ok": false,
+        "error": "tabsByWorktree.wt-1.0.ptyId: Invalid input: expected string, received number"
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "legacy repair: stale launchAgent id is dropped from the tab without failing the session (zod .catch(undefined) == Rust repair)",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {
+          "wt-1": [
+            {
+              "id": "tab-1",
+              "ptyId": null,
+              "worktreeId": "wt-1",
+              "title": "bash",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500000000,
+              "launchAgent": "totally-retired-agent"
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {}
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {
+            "wt-1": [
+              {
+                "id": "tab-1",
+                "ptyId": null,
+                "worktreeId": "wt-1",
+                "title": "bash",
+                "customTitle": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1751500000000
+              }
+            ]
+          },
+          "terminalLayoutsByTabId": {}
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "legacy repair: corrupted lastVisitedAtByWorktreeId entries (null, negative, string) are dropped entry-wise instead of failing the session",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "lastVisitedAtByWorktreeId": {
+          "wt-good": 1751500300000,
+          "wt-nullish": null,
+          "wt-negative": -5,
+          "wt-string": "soon"
+        }
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "lastVisitedAtByWorktreeId": {
+            "wt-good": 1751500300000
+          }
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "legacy repair: browserUrlHistory is re-sorted by recency, deduped by normalized URL (host case + trailing slash), and Kagi session tokens are redacted",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://EXAMPLE.com/Docs",
+            "normalizedUrl": "stale-a",
+            "title": "Docs (old)",
+            "lastVisitedAt": 100,
+            "visitCount": 3
+          },
+          {
+            "url": "https://example.com/Docs/",
+            "normalizedUrl": "stale-b",
+            "title": "Docs (new)",
+            "lastVisitedAt": 300,
+            "visitCount": 5
+          },
+          {
+            "url": "https://kagi.com/search?q=orca+rust&token=SECRET123",
+            "normalizedUrl": "stale-c",
+            "title": "Kagi search",
+            "lastVisitedAt": 200,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "https://example.com/Docs/",
+              "normalizedUrl": "https://example.com/Docs",
+              "title": "Docs (new)",
+              "lastVisitedAt": 300,
+              "visitCount": 5
+            },
+            {
+              "url": "https://kagi.com/search?q=orca+rust",
+              "normalizedUrl": "https://kagi.com/search?q=orca+rust",
+              "title": "Kagi search",
+              "lastVisitedAt": 200,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION: empty object — both reject at the first required field (activeRepoId), zod wording differs (documented deviation #2)",
+      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "input": {},
+      "expected": {
+        "ok": false,
+        "error": "activeRepoId: Invalid input: expected string, received undefined"
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION: null root — both reject at <root>, zod wording differs (documented deviation #2)",
+      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "input": null,
+      "expected": {
+        "ok": false,
+        "error": "<root>: Invalid input: expected object, received null"
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION: array where a record is expected (tabsByWorktree) — both reject at the same path, zod wording differs (documented deviation #2)",
+      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": [],
+        "terminalLayoutsByTabId": {}
+      },
+      "expected": {
+        "ok": false,
+        "error": "tabsByWorktree: Invalid input: expected record, received array"
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "terminal tab id containing ':' — the shared refine message matches exactly on both legs (same path, same wording)",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {
+          "wt-1": [
+            {
+              "id": "tab:with-colon",
+              "ptyId": null,
+              "worktreeId": "wt-1",
+              "title": "zsh",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500000000
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {}
+      },
+      "expected": {
+        "ok": false,
+        "error": "tabsByWorktree.wt-1.0.id: terminal tab id must not contain \":\""
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION (undocumented drift): unknown unified-tab viewMode — zod .catch repairs it to 'terminal', the Rust port neither validates nor repairs viewMode and passes 'canvas' through",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "unifiedTabs": {
+          "wt-1": [
+            {
+              "id": "tab-1",
+              "entityId": "term-entity-1",
+              "groupId": "group-1",
+              "worktreeId": "wt-1",
+              "contentType": "terminal",
+              "label": "zsh",
+              "customLabel": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500000000,
+              "viewMode": "canvas"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "unifiedTabs": {
+            "wt-1": [
+              {
+                "id": "tab-1",
+                "entityId": "term-entity-1",
+                "groupId": "group-1",
+                "worktreeId": "wt-1",
+                "contentType": "terminal",
+                "label": "zsh",
+                "customLabel": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1751500000000,
+                "viewMode": "terminal"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION (undocumented drift): contentType 'simulator' is a valid TS enum member but missing from the Rust port's enum (as is 'check-details') — TS accepts, Rust rejects",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "unifiedTabs": {
+          "wt-1": [
+            {
+              "id": "tab-sim",
+              "entityId": "sim-entity-1",
+              "groupId": "group-1",
+              "worktreeId": "wt-1",
+              "contentType": "simulator",
+              "label": "iOS Simulator",
+              "customLabel": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500000000
+            }
+          ]
+        }
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "unifiedTabs": {
+            "wt-1": [
+              {
+                "id": "tab-sim",
+                "entityId": "sim-entity-1",
+                "groupId": "group-1",
+                "worktreeId": "wt-1",
+                "contentType": "simulator",
+                "label": "iOS Simulator",
+                "customLabel": null,
+                "color": null,
+                "sortOrder": 0,
+                "createdAt": 1751500000000
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION (undocumented drift): invalid activeWorkspaceKey — TS validates via isWorkspaceKey and rejects, the Rust port does not validate the field and accepts",
+      "input": {
+        "activeRepoId": null,
+        "activeWorkspaceKey": "not-a-workspace-key",
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {}
+      },
+      "expected": {
+        "ok": false,
+        "error": "activeWorkspaceKey: Invalid input"
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION (undocumented drift): sleepingAgentSessionsByPaneKey cleanup — TS drops the invalid record and trims the provider session id; the Rust port passes the raw map through unvalidated",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "sleepingAgentSessionsByPaneKey": {
+          "pane-good": {
+            "paneKey": "pane-good",
+            "worktreeId": "wt-1",
+            "agent": "claude",
+            "providerSession": {
+              "key": "session_id",
+              "id": "  sess-42  "
+            },
+            "prompt": "resume me",
+            "state": "waiting",
+            "capturedAt": 1751500400000,
+            "updatedAt": 1751500500000
+          },
+          "pane-broken": {
+            "paneKey": "pane-broken",
+            "worktreeId": "",
+            "agent": "claude",
+            "providerSession": {
+              "key": "session_id",
+              "id": "sess-43"
+            },
+            "prompt": "broken record",
+            "state": "waiting",
+            "capturedAt": 1751500400000,
+            "updatedAt": 1751500500000
+          }
+        }
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "sleepingAgentSessionsByPaneKey": {
+            "pane-good": {
+              "paneKey": "pane-good",
+              "worktreeId": "wt-1",
+              "agent": "claude",
+              "providerSession": {
+                "key": "session_id",
+                "id": "sess-42"
+              },
+              "prompt": "resume me",
+              "state": "waiting",
+              "capturedAt": 1751500400000,
+              "updatedAt": 1751500500000
+            }
+          }
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION: invalid terminalLayoutsByTabId record key (contains ':') — both reject the key, zod reports the key schema's refine message while the Rust port says 'Invalid record key' (documented deviation #2)",
+      "allowDivergence": "Documented orca-config::workspace_session_schema deviation: error strings carry path + short message, not zod's exact wording.",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {
+          "bad:key": {
+            "root": null,
+            "activeLeafId": null,
+            "expandedLeafId": null
+          }
+        }
+      },
+      "expected": {
+        "ok": false,
+        "error": "terminalLayoutsByTabId.bad:key: Invalid key in record"
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "KNOWN-DEVIATION (undocumented drift): empty startupCwd — TS enforces .min(1) and rejects, the Rust port does not validate startupCwd and accepts",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {
+          "wt-1": [
+            {
+              "id": "tab-1",
+              "ptyId": null,
+              "worktreeId": "wt-1",
+              "title": "zsh",
+              "customTitle": null,
+              "color": null,
+              "sortOrder": 0,
+              "createdAt": 1751500000000,
+              "startupCwd": ""
+            }
+          ]
+        },
+        "terminalLayoutsByTabId": {}
+      },
+      "expected": {
+        "ok": false,
+        "error": "tabsByWorktree.wt-1.0.startupCwd: Too small: expected string to have >=1 characters"
+      }
+    }
+  ]
+}

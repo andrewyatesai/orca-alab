@@ -1,0 +1,393 @@
+{
+  "module": "setup-script-imports",
+  "source": "src/shared/setup-script-imports.ts",
+  "rustCrate": "orca-config::setup_script_imports",
+  "cases": [
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "Superset base config: setup/teardown arrays import; run and cwd are unsupported",
+      "input": {
+        "contentsByPath": {
+          ".superset/config.json": "{\"setup\":[\"./.superset/setup.sh\",\"bun install\"],\"teardown\":[\"./.superset/teardown.sh\"],\"run\":[\"bun dev\"],\"cwd\":\"packages/web\"}"
+        }
+      },
+      "expected": [
+        {
+          "provider": "superset",
+          "label": "Superset",
+          "files": [
+            ".superset/config.json"
+          ],
+          "setup": "./.superset/setup.sh\nbun install",
+          "archive": "./.superset/teardown.sh",
+          "unsupportedFields": [
+            "run",
+            "cwd"
+          ]
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "Superset local overlay: before/after wrap base setup, local teardown overrides, extra local fields flagged",
+      "input": {
+        "contentsByPath": {
+          ".superset/config.json": "{\"setup\":[\"bun install\"],\"teardown\":[\"docker compose down\"],\"cwd\":\"packages/web\"}",
+          ".superset/config.local.json": "{\"setup\":{\"before\":[\"corepack enable\"],\"after\":[\"bun run db:migrate\"],\"cwd\":\"packages/api\"},\"teardown\":[\"docker compose down --remove-orphans\"],\"run\":[\"bun dev\"]}"
+        }
+      },
+      "expected": [
+        {
+          "provider": "superset",
+          "label": "Superset",
+          "files": [
+            ".superset/config.json",
+            ".superset/config.local.json"
+          ],
+          "setup": "corepack enable\nbun install\nbun run db:migrate",
+          "archive": "docker compose down --remove-orphans",
+          "unsupportedFields": [
+            "cwd",
+            "config.local.run",
+            "config.local.setup.cwd"
+          ]
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "Conductor config: setup + archive import; top-level and script fields flagged",
+      "input": {
+        "contentsByPath": {
+          "conductor.json": "{\"scripts\":{\"setup\":\"pnpm install\",\"archive\":\"pnpm run archive\",\"run\":\"pnpm dev\",\"teardown\":\"pnpm clean\"},\"enterpriseDataPrivacy\":true,\"runScriptMode\":\"auto\"}"
+        }
+      },
+      "expected": [
+        {
+          "provider": "conductor",
+          "label": "Conductor",
+          "files": [
+            "conductor.json"
+          ],
+          "setup": "pnpm install",
+          "archive": "pnpm run archive",
+          "unsupportedFields": [
+            "enterpriseDataPrivacy",
+            "runScriptMode",
+            "scripts.run",
+            "scripts.teardown"
+          ]
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "Codex environment.toml: multiline setup + literal cleanup; actions assignment and section flagged",
+      "input": {
+        "contentsByPath": {
+          ".codex/environments/environment.toml": "# Codex environment\n\n[setup]\nscript = \"\"\"\nnpm ci\npnpm build\n\"\"\"\n\n[cleanup]\nscript = 'pnpm clean'\n\nactions = \"deploy\"\n\n[actions.test]\ncommand = \"pnpm test\"\n"
+        }
+      },
+      "expected": [
+        {
+          "provider": "codex",
+          "label": "Codex environment",
+          "files": [
+            ".codex/environments/environment.toml"
+          ],
+          "setup": "npm ci\npnpm build",
+          "archive": "pnpm clean",
+          "unsupportedFields": [
+            "actions",
+            "[actions.test]"
+          ]
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "cmux project config: keyword+command match selects setup command; unknown fields flagged",
+      "input": {
+        "contentsByPath": {
+          ".cmux/cmux.json": "{\"commands\":[{\"name\":\"Run Unit Tests\",\"keywords\":[\"test\"],\"command\":\"./scripts/test.sh\"},{\"name\":\"Bootstrap deps\",\"keywords\":[\"install\"],\"command\":\"./scripts/setup.sh --full\",\"confirm\":true,\"cwd\":\"packages/app\"}]}"
+        }
+      },
+      "expected": [
+        {
+          "provider": "cmux",
+          "label": "cmux",
+          "files": [
+            ".cmux/cmux.json"
+          ],
+          "setup": "./scripts/setup.sh --full",
+          "unsupportedFields": [
+            "commands.1.confirm",
+            "commands.1.cwd"
+          ]
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "cmux root config fallback when the project config has no setup command",
+      "input": {
+        "contentsByPath": {
+          ".cmux/cmux.json": "{\"commands\":[{\"name\":\"Deploy\",\"keywords\":[\"deploy\"],\"command\":\"./scripts/deploy.sh\"}]}",
+          "cmux.json": "{\"commands\":[{\"title\":\"Workspace Setup\",\"command\":\"pnpm install && pnpm build\"}]}"
+        }
+      },
+      "expected": [
+        {
+          "provider": "cmux",
+          "label": "cmux",
+          "files": [
+            "cmux.json"
+          ],
+          "setup": "pnpm install && pnpm build",
+          "unsupportedFields": []
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "package.json packageManager wins without consulting lockfiles",
+      "input": {
+        "contentsByPath": {
+          "package.json": "{\"name\":\"app\",\"packageManager\":\"pnpm@9.15.0\"}"
+        },
+        "existingPaths": [
+          "package-lock.json"
+        ]
+      },
+      "expected": [
+        {
+          "provider": "package-manager",
+          "label": "package manager",
+          "files": [
+            "package.json"
+          ],
+          "setup": "pnpm install",
+          "unsupportedFields": []
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "yarn.lock detected through the fileExists option (worktrees.ts caller shape)",
+      "input": {
+        "contentsByPath": {
+          "package.json": "{\"name\":\"app\"}"
+        },
+        "existingPaths": [
+          "yarn.lock"
+        ]
+      },
+      "expected": [
+        {
+          "provider": "package-manager",
+          "label": "package manager",
+          "files": [
+            "yarn.lock"
+          ],
+          "setup": "yarn install",
+          "unsupportedFields": []
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "bun.lock + bun.lockb are one family; first lockfile is reported",
+      "input": {
+        "contentsByPath": {
+          "package.json": "{\"name\":\"app\"}"
+        },
+        "existingPaths": [
+          "bun.lock",
+          "bun.lockb"
+        ]
+      },
+      "expected": [
+        {
+          "provider": "package-manager",
+          "label": "package manager",
+          "files": [
+            "bun.lock"
+          ],
+          "setup": "bun install",
+          "unsupportedFields": []
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "npm family via read-fallback existence checks (orca-runtime.ts caller shape, no fileExists)",
+      "input": {
+        "contentsByPath": {
+          "package.json": "{\"name\":\"app\"}",
+          "package-lock.json": "{}",
+          "npm-shrinkwrap.json": "{}"
+        }
+      },
+      "expected": [
+        {
+          "provider": "package-manager",
+          "label": "package manager",
+          "files": [
+            "package-lock.json"
+          ],
+          "setup": "npm install",
+          "unsupportedFields": []
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "pnpm-lock.yaml via read-fallback existence checks",
+      "input": {
+        "contentsByPath": {
+          "package.json": "{\"name\":\"app\"}",
+          "pnpm-lock.yaml": "lockfileVersion: '9.0'"
+        }
+      },
+      "expected": [
+        {
+          "provider": "package-manager",
+          "label": "package manager",
+          "files": [
+            "pnpm-lock.yaml"
+          ],
+          "setup": "pnpm install",
+          "unsupportedFields": []
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "package.json with no lockfiles defaults to npm install",
+      "input": {
+        "contentsByPath": {
+          "package.json": "{\"name\":\"app\"}"
+        },
+        "existingPaths": []
+      },
+      "expected": [
+        {
+          "provider": "package-manager",
+          "label": "package manager",
+          "files": [
+            "package.json"
+          ],
+          "setup": "npm install",
+          "unsupportedFields": []
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "conflicting lockfile families suggest nothing",
+      "input": {
+        "contentsByPath": {
+          "package.json": "{\"name\":\"app\"}"
+        },
+        "existingPaths": [
+          "pnpm-lock.yaml",
+          "package-lock.json"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "unreadable (null) and empty files read as absent; remaining provider still imports",
+      "input": {
+        "contentsByPath": {
+          ".superset/config.json": null,
+          ".codex/environments/environment.toml": "",
+          "conductor.json": "{\"scripts\":{\"setup\":\"make bootstrap\"}}"
+        }
+      },
+      "expected": [
+        {
+          "provider": "conductor",
+          "label": "Conductor",
+          "files": [
+            "conductor.json"
+          ],
+          "setup": "make bootstrap",
+          "unsupportedFields": []
+        }
+      ]
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "nothing present yields no candidates",
+      "input": {
+        "contentsByPath": {}
+      },
+      "expected": []
+    },
+    {
+      "function": "inspectSetupScriptImportCandidates",
+      "note": "all five providers aggregate in provider order",
+      "input": {
+        "contentsByPath": {
+          ".superset/config.json": "{\"setup\":\"./setup.sh\"}",
+          "conductor.json": "{\"scripts\":{\"setup\":\"pnpm install\"}}",
+          ".codex/environments/environment.toml": "[setup]\nscript = \"make dev\"\n",
+          ".cmux/cmux.json": "{\"commands\":[{\"name\":\"Setup\",\"command\":\"./scripts/setup.sh\"}]}",
+          "package.json": "{\"name\":\"app\"}"
+        },
+        "existingPaths": [
+          "pnpm-lock.yaml"
+        ]
+      },
+      "expected": [
+        {
+          "provider": "superset",
+          "label": "Superset",
+          "files": [
+            ".superset/config.json"
+          ],
+          "setup": "./setup.sh",
+          "unsupportedFields": []
+        },
+        {
+          "provider": "conductor",
+          "label": "Conductor",
+          "files": [
+            "conductor.json"
+          ],
+          "setup": "pnpm install",
+          "unsupportedFields": []
+        },
+        {
+          "provider": "codex",
+          "label": "Codex environment",
+          "files": [
+            ".codex/environments/environment.toml"
+          ],
+          "setup": "make dev",
+          "unsupportedFields": []
+        },
+        {
+          "provider": "cmux",
+          "label": "cmux",
+          "files": [
+            ".cmux/cmux.json"
+          ],
+          "setup": "./scripts/setup.sh",
+          "unsupportedFields": []
+        },
+        {
+          "provider": "package-manager",
+          "label": "package manager",
+          "files": [
+            "pnpm-lock.yaml"
+          ],
+          "setup": "pnpm install",
+          "unsupportedFields": []
+        }
+      ]
+    }
+  ]
+}

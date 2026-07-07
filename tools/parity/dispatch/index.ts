@@ -49,6 +49,7 @@ import { dispatch as quickOpenRank } from './quick-open-rank'
 import { dispatch as repoBadgeColor } from './repo-badge-color'
 import { dispatch as repoIcon } from './repo-icon'
 import { dispatch as setupRunnerCommand } from './setup-runner-command'
+import { dispatch as setupScriptImports } from './setup-script-imports'
 import { dispatch as setupScriptTelemetry } from './setup-script-telemetry'
 import { dispatch as skillMetadata } from './skill-metadata'
 import { dispatch as sourceControlAi } from './source-control-ai'
@@ -127,6 +128,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'repo-badge-color': repoBadgeColor,
   'repo-icon': repoIcon,
   'setup-runner-command': setupRunnerCommand,
+  'setup-script-imports': setupScriptImports,
   'setup-script-telemetry': setupScriptTelemetry,
   'skill-metadata': skillMetadata,
   'source-control-ai': sourceControlAi,

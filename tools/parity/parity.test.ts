@@ -67,11 +67,13 @@ describe('TS↔Rust parity', () => {
 
       doc.cases.forEach((vectorCase, index) => {
         const label = `${vectorCase.function} #${index}${vectorCase.note ? ` — ${vectorCase.note}` : ''}`
-        it(label, () => {
+        it(label, async () => {
           if (!dispatcher) {
             return
           }
-          const tsOutput = dispatcher(vectorCase.function, vectorCase.input)
+          // Why: entries with injected async readers (e.g. setup-script-imports)
+          // return promises; await passes sync dispatcher results through unchanged.
+          const tsOutput = await dispatcher(vectorCase.function, vectorCase.input)
           const rustRun = rustByKey.get(`${doc.module}::${index}`)
           expect(
             rustRun,

@@ -29,14 +29,32 @@ export type QuickOpenRankIndex = {
 
 const EMPTY_EXACT: QuickOpenExactMatches = { paths: [], basenames: [] }
 
+// Why: call sites construct per render/keystroke (the tab-create classifier
+// runs on every input change with the SAME store-owned file array), and each
+// abandoned index leaves a prepared corpus in grow-only wasm linear memory
+// until the FinalizationRegistry fires. Memoizing on file-list identity makes
+// repeat construction free and bounds wasm churn to one corpus per list.
+const indexByFiles = new WeakMap<readonly string[], QuickOpenRankIndex>()
+
 /**
- * Build a prepared ranking index over a worktree file list. Construction is
+ * Build a prepared ranking index over a worktree file list (memoized per
+ * `files` identity — file lists are immutable store state). Construction is
  * lazy against wasm readiness: until the module initialises (a ~tens-of-ms
  * window at boot), rank/exactMatches return empty and consumers re-render via
  * `subscribeGitWasmReady` — Quick Open surfaces open on user action, well
  * after readiness in practice.
  */
 export function createQuickOpenIndex(files: readonly string[]): QuickOpenRankIndex {
+  const cached = indexByFiles.get(files)
+  if (cached) {
+    return cached
+  }
+  const created = buildQuickOpenIndex(files)
+  indexByFiles.set(files, created)
+  return created
+}
+
+function buildQuickOpenIndex(files: readonly string[]): QuickOpenRankIndex {
   let inner: WasmQuickOpenIndex | null = null
   const getInner = (): WasmQuickOpenIndex | null => {
     if (inner === null && isGitWasmReady()) {

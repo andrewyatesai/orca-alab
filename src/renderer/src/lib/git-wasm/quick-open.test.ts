@@ -54,9 +54,7 @@ describe('quick-open ranking (orca-text wasm)', () => {
   })
 
   it('keeps first-seen order for tie-heavy results at the limit boundary', () => {
-    const index = createQuickOpenIndex(
-      Array.from({ length: 10 }, (_, i) => `src/path-${i}.bin`)
-    )
+    const index = createQuickOpenIndex(Array.from({ length: 10 }, (_, i) => `src/path-${i}.bin`))
 
     expect(index.rank('s', 4)).toEqual([
       { path: 'src/path-0.bin', score: 0 },
@@ -70,10 +68,7 @@ describe('quick-open ranking (orca-text wasm)', () => {
     const fillerCount = 99_940
     const topCandidateCount = 60
     const index = createQuickOpenIndex([
-      ...Array.from(
-        { length: fillerCount },
-        (_, i) => `n-x-e-x-e-x-d-x-l-x-e/group-${i}/file.ts`
-      ),
+      ...Array.from({ length: fillerCount }, (_, i) => `n-x-e-x-e-x-d-x-l-x-e/group-${i}/file.ts`),
       ...Array.from({ length: topCandidateCount }, (_, i) => `bulk/special-${i}/needle.ts`)
     ])
 
@@ -133,6 +128,13 @@ describe('quick-open ranking (orca-text wasm)', () => {
       paths: [],
       basenames: ['src/app.ts', 'legacy\\provider\\app.ts', 'other/App.ts']
     })
+  })
+
+  it('memoizes the index per file-list identity (classifier re-calls per keystroke)', () => {
+    const files = ['src/a.ts', 'src/b.ts']
+
+    expect(createQuickOpenIndex(files)).toBe(createQuickOpenIndex(files))
+    expect(createQuickOpenIndex([...files])).not.toBe(createQuickOpenIndex(files))
   })
 
   it('reports the prepared file count', () => {

@@ -137,6 +137,68 @@ pub fn format_submodule_push_failure_detail(message: &str) -> Option<String> {
     orca_text::git_remote_error::format_submodule_push_failure_detail(message)
 }
 
+/// Prepared Quick Open index for the RENDERER: the worktree file list crosses
+/// the wasm boundary ONCE (NUL-joined — file names cannot contain NUL), then
+/// each keystroke sends only the query and gets the top-N `{path, score}`
+/// JSON back. Preparation (slash-normalize, lowercase, UTF-16 encode) happens
+/// at construction, so the per-keystroke cost is only the subsequence scans.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub struct QuickOpenIndex {
+    inner: orca_text::quick_open_rank::QuickOpenIndex,
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+impl QuickOpenIndex {
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(constructor))]
+    pub fn new(nul_joined_paths: &str) -> QuickOpenIndex {
+        let paths = if nul_joined_paths.is_empty() {
+            Vec::new()
+        } else {
+            nul_joined_paths.split('\0').collect()
+        };
+        QuickOpenIndex { inner: orca_text::quick_open_rank::QuickOpenIndex::new(paths) }
+    }
+
+    /// Rank against the prepared list; returns `[{path, score}, …]` JSON,
+    /// best (lowest score) first, ties by original input order.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+    pub fn rank(&self, query: &str, limit: usize) -> String {
+        let results = self.inner.rank(query, limit);
+        serde_json::Value::Array(
+            results
+                .into_iter()
+                .map(|r| serde_json::json!({ "path": r.path, "score": r.score }))
+                .collect(),
+        )
+        .to_string()
+    }
+
+    /// Exact-path and exact-basename matches for an already-lowercased query
+    /// (the TS `findExistingFileMatches` passes), as
+    /// `{"paths":[…],"basenames":[…]}` JSON in input order.
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "exactMatches"))]
+    pub fn exact_matches(&self, lower_query: &str) -> String {
+        serde_json::json!({
+            "paths": self.inner.exact_path_matches(lower_query),
+            "basenames": self.inner.exact_basename_matches(lower_query),
+        })
+        .to_string()
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "fileCount"))]
+    pub fn file_count(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+/// Short generated tab title from a free-form agent prompt (first clause,
+/// filler stripped, capped at a word boundary), or `undefined` when the prompt
+/// has no usable title text. Consumed by the RENDERER terminal store.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "deriveGeneratedTabTitle"))]
+pub fn derive_generated_tab_title(prompt: &str) -> Option<String> {
+    orca_text::agent_tab_title::derive_generated_tab_title(prompt)
+}
+
 /// True when `git cherry <upstream> HEAD`-style mark output shows at least one
 /// commit and every commit is patch-equivalent (`=`). The relay's
 /// behind-commits-are-patch-equivalent probe.

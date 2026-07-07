@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useMemo, useState } from 'react'
+import React, { useCallback, useDeferredValue, useMemo, useState, useSyncExternalStore } from 'react'
 import { useAppStore } from '@/store'
 import { useActiveWorktree } from '@/store/selectors'
 import { detectLanguage } from '@/lib/language-detect'
@@ -11,7 +11,8 @@ import {
   CommandEmpty,
   CommandItem
 } from '@/components/ui/command'
-import { prepareQuickOpenFiles, rankQuickOpenFiles } from '@/components/quick-open-search'
+import { createQuickOpenIndex } from '@/lib/git-wasm/quick-open'
+import { isGitWasmReady, subscribeGitWasmReady } from '@/lib/git-wasm/git-line-stats'
 import { useRuntimeFileListForWorktree } from '@/components/quick-open-file-list'
 import { useModalReturnFocus } from '@/hooks/useModalReturnFocus'
 import { translate } from '@/i18n/i18n'
@@ -60,11 +61,16 @@ export default function QuickOpen(): React.JSX.Element | null {
     }
   }
 
-  const indexedFiles = useMemo(() => prepareQuickOpenFiles(files), [files])
-  const filtered = useMemo(
-    () => rankQuickOpenFiles(deferredQuery, indexedFiles),
-    [deferredQuery, indexedFiles]
-  )
+  // Why: ranking runs in the orca-git wasm (prepared index in linear memory,
+  // only the query crosses per keystroke). Until the wasm initialises the
+  // index ranks empty; the ready subscription recomputes results then.
+  const wasmReady = useSyncExternalStore(subscribeGitWasmReady, isGitWasmReady)
+  const index = useMemo(() => createQuickOpenIndex(files), [files])
+  const filtered = useMemo(() => {
+    // Recompute when the wasm flips ready (the index lazy-builds on first ready call).
+    void wasmReady
+    return index.rank(deferredQuery)
+  }, [deferredQuery, index, wasmReady])
 
   const handleSelect = useCallback(
     (relativePath: string) => {

@@ -20,6 +20,8 @@ crate-type = ["cdylib", "rlib"]
 orca-git = { path = "../crates/orca-git" }
 orca-core = { path = "../crates/orca-core" }
 orca-text = { path = "../crates/orca-text" }
+# JSON marshalling for structured results (quick-open ranks etc.).
+serde_json = "1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Pinned to the CLI version (config/.tooling/wasm-bindgen-0.2.108), matching aterm.

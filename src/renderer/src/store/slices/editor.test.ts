@@ -1,8 +1,18 @@
 /* eslint-disable max-lines */
 
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from 'vitest'
+import { initGitWasmForTestFromBytes } from '../../lib/git-wasm/git-line-stats'
 import { createEditorSlice } from './editor'
+
+// Remote-error toasts run the Rust orca-text core via wasm; init it
+// synchronously from the committed bytes.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 import { createTabsSlice } from './tabs'
 import type { AppState } from '../types'
 import {

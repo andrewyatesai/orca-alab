@@ -1,15 +1,25 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import {
-  deriveGeneratedTabTitle,
-  GENERATED_TAB_TITLE_MAX_LENGTH,
-  GENERATED_TAB_TITLE_SOURCE_SCAN_LIMIT
-} from './agent-tab-title'
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { GENERATED_TAB_TITLE_MAX_LENGTH } from '../../../../shared/agent-tab-title'
+import { deriveGeneratedTabTitle } from './agent-tab-title'
+import { initGitWasmForTestFromBytes } from './git-line-stats'
 
-afterEach(() => {
-  vi.restoreAllMocks()
+// Ported from the deleted src/shared/agent-tab-title.test.ts: the same golden
+// expectations now run THROUGH the Rust orca-text core via wasm (the spy-based
+// normalization-bound test died with the TS body — the 512-unit preview cap is
+// pinned in the Rust crate's tests).
+
+const preInitTitle = deriveGeneratedTabTitle('Fix the flaky status tests')
+
+beforeAll(() => {
+  initGitWasmForTestFromBytes(readFileSync(new URL('./orca_git_wasm_bg.wasm', import.meta.url)))
 })
 
-describe('deriveGeneratedTabTitle', () => {
+describe('deriveGeneratedTabTitle (orca-text wasm)', () => {
+  it('returns null before the wasm is ready (tab keeps its default title)', () => {
+    expect(preInitTitle).toBeNull()
+  })
+
   it('derives a short title from the first useful prompt clause', () => {
     expect(
       deriveGeneratedTabTitle('Can you please refactor the auth middleware to use JWT tokens?')
@@ -23,7 +33,7 @@ describe('deriveGeneratedTabTitle', () => {
   })
 
   it('preserves non-ASCII title text while folding Unicode whitespace', () => {
-    expect(deriveGeneratedTabTitle('Please 修正\u00a0résumé\t検索\u3000１２３!!!')).toBe(
+    expect(deriveGeneratedTabTitle('Please 修正 résumé\t検索　１２３!!!')).toBe(
       '修正 résumé 検索 １２３'
     )
   })
@@ -48,27 +58,12 @@ describe('deriveGeneratedTabTitle', () => {
     expect(deriveGeneratedTabTitle('please!!!')).toBeNull()
   })
 
-  it('bounds normalization work for paste-sized prompts before truncating the title', () => {
-    const replaceSpy = vi.spyOn(String.prototype, 'replace')
-    const splitSpy = vi.spyOn(String.prototype, 'split')
-    const prompt = `Please fix \`src/auth.ts\` ${'large pasted text '.repeat(5000)}`
-
-    const title = deriveGeneratedTabTitle(prompt)
+  it('caps paste-sized prompts at the 512-unit preview before deriving', () => {
+    const title = deriveGeneratedTabTitle(
+      `Please fix \`src/auth.ts\` ${'large pasted text '.repeat(5000)}`
+    )
 
     expect(title).toBeTruthy()
     expect(title!.length).toBeLessThanOrEqual(GENERATED_TAB_TITLE_MAX_LENGTH)
-    const replaceContextLengths = replaceSpy.mock.contexts.map((context) => String(context).length)
-    const splitContextLengths = splitSpy.mock.contexts.map((context) => String(context).length)
-    expect(Math.max(...replaceContextLengths)).toBeLessThanOrEqual(
-      GENERATED_TAB_TITLE_SOURCE_SCAN_LIMIT
-    )
-    expect(Math.max(...splitContextLengths)).toBeLessThanOrEqual(
-      GENERATED_TAB_TITLE_SOURCE_SCAN_LIMIT
-    )
-    expect(
-      replaceSpy.mock.calls.filter(
-        ([pattern]) => pattern instanceof RegExp && pattern.source === '\\s+'
-      )
-    ).toHaveLength(0)
   })
 })

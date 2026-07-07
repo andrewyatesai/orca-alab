@@ -1,6 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
+import { initGitWasmForTestFromBytes } from './git-wasm/git-line-stats'
 import { resolveRemoteOperationErrorMessage } from './source-control-remote-error'
+
+// Detail extraction (credential scrub, submodule detail) runs the Rust
+// orca-text core via wasm; init it synchronously from the committed bytes.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 describe('source-control remote error formatting', () => {
   afterEach(() => {

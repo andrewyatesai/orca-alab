@@ -1,13 +1,12 @@
-// TS dispatch for the quick-open-rank parity module: maps the shared vector
-// function names to the real quick-open ranking exports so the harness compares
-// the live TS reference against the Rust port. The vector passes RAW paths; this
-// runs prepareQuickOpenFiles + rankQuickOpenFiles, exactly as the renderer does.
+// TS dispatch for the quick-open-rank parity module. The TS ranking was
+// DELETED (the Rust orca-text index is the sole impl — the renderer drives it
+// via a prepared wasm QuickOpenIndex), so this adapter drives the same wasm:
+// the vectors' recorded goldens now pin that surface absolutely. The vector
+// passes RAW paths; the index prepares them at construction, exactly as the
+// renderer does.
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
-import {
-  prepareQuickOpenFiles,
-  QUICK_OPEN_RESULT_LIMIT,
-  rankQuickOpenFiles
-} from '../../../src/renderer/src/components/quick-open-search'
+const QUICK_OPEN_RESULT_LIMIT = 50
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
@@ -17,9 +16,11 @@ export function dispatch(fn: string, input: unknown): unknown {
         paths: string[]
         limit?: number
       }
-      const indexed = prepareQuickOpenFiles(paths)
-      const results = rankQuickOpenFiles(query, indexed, limit ?? QUICK_OPEN_RESULT_LIMIT)
-      return results.map((result) => ({ path: result.path, score: result.score }))
+      const index = new (gitWasmOracle().QuickOpenIndex)(paths.join('\0'))
+      return JSON.parse(index.rank(query, limit ?? QUICK_OPEN_RESULT_LIMIT)) as {
+        path: string
+        score: number
+      }[]
     }
     default:
       throw new Error(`unknown function ${fn}`)

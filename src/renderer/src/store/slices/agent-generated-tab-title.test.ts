@@ -1,5 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { initGitWasmForTestFromBytes } from '../../lib/git-wasm/git-line-stats'
 import { GENERATED_TAB_TITLE_SOURCE_SCAN_LIMIT } from '../../../../shared/agent-tab-title'
+
+// The store's title derivation runs the Rust orca-text core via wasm; init it
+// synchronously from the committed renderer-tree bytes (Node has no
+// main-thread sync-compile restriction).
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 import { getDefaultSettings } from '../../../../shared/constants'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { resolveTerminalTabTitle } from '../../../../shared/tab-title-resolution'

@@ -113,6 +113,7 @@ dependencies = [
  "orca-core",
  "orca-git",
  "orca-text",
+ "serde_json",
  "wasm-bindgen",
 ]
 

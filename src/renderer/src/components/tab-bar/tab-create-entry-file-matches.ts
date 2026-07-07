@@ -1,4 +1,4 @@
-import { rankQuickOpenFiles, type QuickOpenIndexedFile } from '../quick-open-search'
+import type { QuickOpenRankIndex } from '../../lib/git-wasm/quick-open'
 
 export type ExistingFileMatch = {
   kind: 'existing-file'
@@ -35,7 +35,7 @@ function dedupeMatches(matches: ExistingFileMatch[]): ExistingFileMatch[] {
 
 export function findExistingFileMatches(
   query: string,
-  indexedFiles: readonly QuickOpenIndexedFile[],
+  index: QuickOpenRankIndex,
   limit: number
 ): ExistingFileMatch[] {
   const normalizedQuery = normalizeFileMatchQuery(query)
@@ -43,21 +43,18 @@ export function findExistingFileMatches(
     return []
   }
   const lowerQuery = normalizedQuery.toLowerCase()
-  const exactPathMatches = indexedFiles
-    .filter((file) => file.lowerPath === lowerQuery)
-    .map((file) => ({
-      kind: 'existing-file' as const,
-      matchKind: 'exact-path' as const,
-      relativePath: file.path
-    }))
-  const exactBasenameMatches = indexedFiles
-    .filter((file) => file.lowerFilename === lowerQuery)
-    .map((file) => ({
-      kind: 'existing-file' as const,
-      matchKind: 'exact-basename' as const,
-      relativePath: file.path
-    }))
-  const fuzzyMatches = rankQuickOpenFiles(normalizedQuery, indexedFiles, limit).map((file) => ({
+  const exact = index.exactMatches(lowerQuery)
+  const exactPathMatches = exact.paths.map((path) => ({
+    kind: 'existing-file' as const,
+    matchKind: 'exact-path' as const,
+    relativePath: path
+  }))
+  const exactBasenameMatches = exact.basenames.map((path) => ({
+    kind: 'existing-file' as const,
+    matchKind: 'exact-basename' as const,
+    relativePath: path
+  }))
+  const fuzzyMatches = index.rank(normalizedQuery, limit).map((file) => ({
     kind: 'existing-file' as const,
     matchKind: 'fuzzy' as const,
     relativePath: file.path

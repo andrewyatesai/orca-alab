@@ -37,42 +37,117 @@ pub fn is_query_too_large(query: &str, max_bytes: usize) -> bool {
     query.len() > max_bytes
 }
 
-/// Faithful port of `rankQuickOpenFiles(query, prepareQuickOpenFiles(paths), limit)`:
-/// the raw path list + raw query in, up to `limit` `{ path, score }` out, best
-/// first, ties broken by original input order.
+/// Prepared index over a worktree's file list: preparation (slash-normalize,
+/// lowercase, UTF-16 encode) happens ONCE per file-list change, so the
+/// per-keystroke cost is only the subsequence scans. This is the shape the
+/// renderer consumes through wasm — the file list crosses the boundary once,
+/// then each keystroke sends only the query.
+pub struct QuickOpenIndex {
+    entries: Vec<IndexedFile>,
+}
+
+struct IndexedFile {
+    path: String,
+    prepared: Prepared,
+}
+
+impl QuickOpenIndex {
+    /// Mirror of `prepareQuickOpenFiles`: input order is the tie-break order.
+    #[must_use]
+    pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
+        Self {
+            entries: paths
+                .into_iter()
+                .map(|path| IndexedFile { path: path.to_string(), prepared: prepare(path) })
+                .collect(),
+        }
+    }
+
+    /// Faithful port of `rankQuickOpenFiles(query, files, limit)`: up to `limit`
+    /// `{ path, score }` out, best (lowest) first, ties by original input order.
+    #[must_use]
+    pub fn rank(&self, query: &str, limit: usize) -> Vec<QuickOpenResult> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        if is_query_too_large(query, QUICK_OPEN_QUERY_MAX_BYTES) {
+            return Vec::new();
+        }
+        // Quick Open presents slash-normalized paths even on Windows; users still
+        // naturally type backslashes in path queries. Trim with the JS
+        // `String.prototype.trim` whitespace set (not Rust's) so a pasted BOM is
+        // stripped and a bare NEL is not — matching the raw `deferredQuery` the
+        // renderer feeds in.
+        let normalized_query =
+            query.trim_matches(is_js_trim_whitespace).replace('\\', "/").to_lowercase();
+        if normalized_query.is_empty() {
+            return self
+                .entries
+                .iter()
+                .take(limit)
+                .map(|entry| QuickOpenResult { path: entry.path.clone(), score: 0 })
+                .collect();
+        }
+        let query_units: Vec<u16> = normalized_query.encode_utf16().collect();
+
+        let mut ranked: Vec<Ranked> = Vec::new();
+        for (input_index, entry) in self.entries.iter().enumerate() {
+            let score =
+                fuzzy_match(&query_units, &entry.prepared.lower_path, &entry.prepared.lower_filename);
+            if score == -1 {
+                continue;
+            }
+            insert_top(
+                &mut ranked,
+                Ranked { path: entry.path.clone(), score, input_index },
+                limit,
+            );
+        }
+        ranked.into_iter().map(|r| QuickOpenResult { path: r.path, score: r.score }).collect()
+    }
+
+    /// Original paths whose prepared (slash-normalized, lowercased) full path
+    /// equals `lower_query`, in input order — the TS
+    /// `file.lowerPath === lowerQuery` exact-path pass of
+    /// `findExistingFileMatches`. The caller supplies the already-lowercased
+    /// query (that normalization stays at the JS boundary).
+    #[must_use]
+    pub fn exact_path_matches(&self, lower_query: &str) -> Vec<&str> {
+        let query_units: Vec<u16> = lower_query.encode_utf16().collect();
+        self.entries
+            .iter()
+            .filter(|entry| entry.prepared.lower_path == query_units)
+            .map(|entry| entry.path.as_str())
+            .collect()
+    }
+
+    /// Original paths whose prepared basename equals `lower_query`, in input
+    /// order — the TS `file.lowerFilename === lowerQuery` exact-basename pass.
+    #[must_use]
+    pub fn exact_basename_matches(&self, lower_query: &str) -> Vec<&str> {
+        let query_units: Vec<u16> = lower_query.encode_utf16().collect();
+        self.entries
+            .iter()
+            .filter(|entry| entry.prepared.lower_filename == query_units)
+            .map(|entry| entry.path.as_str())
+            .collect()
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// One-shot form (the parity-harness surface): build the index and rank once.
 #[must_use]
 pub fn rank_quick_open_files(query: &str, paths: &[&str], limit: usize) -> Vec<QuickOpenResult> {
-    if limit == 0 {
-        return Vec::new();
-    }
-    if is_query_too_large(query, QUICK_OPEN_QUERY_MAX_BYTES) {
-        return Vec::new();
-    }
-    // Quick Open presents slash-normalized paths even on Windows; users still
-    // naturally type backslashes in path queries. Trim with the JS
-    // `String.prototype.trim` whitespace set (not Rust's) so a pasted BOM is
-    // stripped and a bare NEL is not — matching the raw `deferredQuery` the
-    // renderer feeds in.
-    let normalized_query = query.trim_matches(is_js_trim_whitespace).replace('\\', "/").to_lowercase();
-    if normalized_query.is_empty() {
-        return paths
-            .iter()
-            .take(limit)
-            .map(|p| QuickOpenResult { path: (*p).to_string(), score: 0 })
-            .collect();
-    }
-    let query_units: Vec<u16> = normalized_query.encode_utf16().collect();
-
-    let mut ranked: Vec<Ranked> = Vec::new();
-    for (input_index, path) in paths.iter().enumerate() {
-        let prepared = prepare(path);
-        let score = fuzzy_match(&query_units, &prepared.lower_path, &prepared.lower_filename);
-        if score == -1 {
-            continue;
-        }
-        insert_top(&mut ranked, Ranked { path: (*path).to_string(), score, input_index }, limit);
-    }
-    ranked.into_iter().map(|r| QuickOpenResult { path: r.path, score: r.score }).collect()
+    QuickOpenIndex::new(paths.iter().copied()).rank(query, limit)
 }
 
 /// The ECMAScript `String.prototype.trim` whitespace set = Unicode White_Space

@@ -1,10 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { initGitWasmForTestFromBytes } from '../../lib/git-wasm/git-line-stats'
 import { QUICK_OPEN_QUERY_MAX_BYTES } from '../quick-open-search'
 import {
   classifyTabEntryQuery,
   getTabEntryOptions,
   validateNewTabEntryRelativePath
 } from './tab-create-entry-action'
+
+// Existing-file matching runs the Rust orca-text index via wasm; init it
+// synchronously from the committed renderer-tree bytes.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 const readyFiles = (files: string[]) => ({ files, loading: false, loadError: null })
 

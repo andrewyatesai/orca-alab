@@ -1,4 +1,5 @@
-import { isQuickOpenQueryTooLarge, prepareQuickOpenFiles } from '../quick-open-search'
+import { isQuickOpenQueryTooLarge } from '../quick-open-search'
+import { createQuickOpenIndex } from '../../lib/git-wasm/quick-open'
 import type { RuntimeFileListState } from '../quick-open-file-list'
 import { translate } from '@/i18n/i18n'
 import { findExistingFileMatches, isLikelyNewFileIntent } from './tab-create-entry-file-matches'
@@ -109,7 +110,7 @@ export function getTabEntryOptions(
   }
   const existingFiles = findExistingFileMatches(
     trimmed,
-    prepareQuickOpenFiles(fileList.files),
+    createQuickOpenIndex(fileList.files),
     Math.max(limit, 1)
   )
   const exactExistingFiles = existingFiles.filter((file) => file.matchKind !== 'fuzzy')

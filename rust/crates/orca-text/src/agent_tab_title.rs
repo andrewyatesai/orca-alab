@@ -9,6 +9,26 @@ use regex::Regex;
 use std::sync::OnceLock;
 
 pub const GENERATED_TAB_TITLE_MAX_LENGTH: usize = 40;
+/// Titles are previews — cleanup must not scan a paste-sized prompt on the
+/// renderer state path. Counted in UTF-16 code units (the TS `.slice(0, 512)`).
+pub const GENERATED_TAB_TITLE_SOURCE_SCAN_LIMIT: usize = 512;
+
+/// First `limit` UTF-16 code units of `value` (TS `String.prototype.slice`
+/// semantics — a surrogate pair counts as two units; we never split a pair,
+/// matching `slice`'s behaviour of keeping whole chars via lone-surrogate
+/// replacement being irrelevant here because a trailing lone surrogate would
+/// be stripped by the later non-text pass anyway).
+fn utf16_prefix(value: &str, limit: usize) -> &str {
+    let mut units = 0;
+    for (byte_index, ch) in value.char_indices() {
+        let next = units + ch.len_utf16();
+        if next > limit {
+            return &value[..byte_index];
+        }
+        units = next;
+    }
+    value
+}
 
 fn capitalize_first_letter(value: &str) -> String {
     letter_re().replace(value, |captures: &regex::Captures| captures[0].to_uppercase()).into_owned()
@@ -35,7 +55,8 @@ fn truncate_at_word_boundary(value: &str, max_length: usize) -> String {
 }
 
 pub fn derive_generated_tab_title(prompt: &str) -> Option<String> {
-    let stripped_markup = markup_re().replace_all(prompt.trim(), " ");
+    let prompt_preview = utf16_prefix(prompt, GENERATED_TAB_TITLE_SOURCE_SCAN_LIMIT);
+    let stripped_markup = markup_re().replace_all(prompt_preview.trim(), " ");
     let without_prefix = issue_prefix_re().replace(&stripped_markup, "");
     let without_links = url_re().replace_all(&without_prefix, " ");
     let first_clause = without_links
@@ -61,11 +82,11 @@ pub fn derive_generated_tab_title(prompt: &str) -> Option<String> {
     }
 
     let no_symbols = non_text_re().replace_all(&candidate, " ");
-    let collapsed = whitespace_re().replace_all(&no_symbols, " ");
-    let candidate = collapsed.trim();
+    let candidate = fold_generated_tab_title_whitespace(&no_symbols);
     if candidate.is_empty() {
         return None;
     }
+    let candidate = candidate.as_str();
 
     Some(truncate_at_word_boundary(&capitalize_first_letter(candidate), GENERATED_TAB_TITLE_MAX_LENGTH))
 }
@@ -90,9 +111,41 @@ fn non_text_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"[^\p{L}\p{N}\s]").unwrap())
 }
 
-fn whitespace_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\s+").unwrap())
+/// The TS `isGeneratedTabTitleWhitespace` code list — NOT Unicode White_Space:
+/// it includes U+FEFF (BOM) and excludes U+0085 (NEL), so a `\s` regex is not a
+/// faithful substitute.
+fn is_generated_tab_title_whitespace(c: char) -> bool {
+    let code = c as u32;
+    code == 32
+        || (9..=13).contains(&code)
+        || code == 160
+        || code == 5760
+        || (8192..=8202).contains(&code)
+        || code == 8232
+        || code == 8233
+        || code == 8239
+        || code == 8287
+        || code == 12288
+        || code == 65279
+}
+
+/// Mirror of `foldGeneratedTabTitleWhitespace`: collapse runs of the fold set
+/// to single spaces, dropping leading/trailing runs entirely.
+fn fold_generated_tab_title_whitespace(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    let mut pending_whitespace = false;
+    for c in value.chars() {
+        if is_generated_tab_title_whitespace(c) {
+            pending_whitespace = !normalized.is_empty();
+            continue;
+        }
+        if pending_whitespace {
+            normalized.push(' ');
+            pending_whitespace = false;
+        }
+        normalized.push(c);
+    }
+    normalized
 }
 
 fn letter_re() -> &'static Regex {
@@ -161,5 +214,32 @@ mod tests {
     #[test]
     fn returns_none_when_the_prompt_has_no_useful_title_text() {
         assert_eq!(derive_generated_tab_title("please!!!"), None);
+    }
+
+    #[test]
+    fn preserves_non_ascii_text_while_folding_the_ts_whitespace_set() {
+        // NBSP + ideographic space fold; BOM (not Unicode WS) folds too.
+        assert_eq!(
+            derive_generated_tab_title("Please 修正\u{00a0}résumé\t検索\u{3000}１２３!!!").as_deref(),
+            Some("修正 résumé 検索 １２３")
+        );
+    }
+
+    #[test]
+    fn scans_only_the_first_512_utf16_units_of_a_paste_sized_prompt() {
+        // A paste whose first sentence terminator sits beyond the scan limit:
+        // the preview slice caps the clause, so the title derives from the
+        // truncated preview instead of scanning the full prompt.
+        let prompt = format!("{} end. Second sentence", "word ".repeat(200));
+        let title = derive_generated_tab_title(&prompt).unwrap();
+        assert!(title.chars().count() <= GENERATED_TAB_TITLE_MAX_LENGTH);
+        // And the slice counts UTF-16 units: 512 BMP chars → identical result
+        // whether or not a multi-byte char follows the boundary.
+        let mut multibyte = "é".repeat(512);
+        multibyte.push_str(". tail");
+        assert_eq!(
+            derive_generated_tab_title(&multibyte),
+            derive_generated_tab_title(&"é".repeat(512))
+        );
     }
 }

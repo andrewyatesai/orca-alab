@@ -94,6 +94,7 @@ function makeWorkerState(overrides: Partial<AtermWorkerState> = {}): AtermWorker
   return {
     type: 'state',
     engine: 'cpu',
+    wasmHeapBytes: 0,
     width: 0,
     height: 0,
     cols: 80,

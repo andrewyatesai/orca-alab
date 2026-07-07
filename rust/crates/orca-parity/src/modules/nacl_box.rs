@@ -8,11 +8,38 @@
 //! `SharedBox` only from (secret, peer-public) via `derive_shared_box`, so the
 //! adapter derives it the same way the TS `deriveSharedKey` does, then decrypts.
 
-use orca_crypto::{decrypt_bytes, derive_shared_box};
+use orca_crypto::{decrypt_bytes, derive_shared_box, encrypt_bytes_with_nonce, key_pair_from_seed};
 use serde_json::{json, Value};
 
 pub fn dispatch(function: &str, input: &Value) -> Value {
     match function {
+        // Deterministic encrypt-path pin: the vector injects the nonce (the TS
+        // module's only nondeterminism is `nacl.randomBytes`), so the bundle is
+        // byte-exact `nonce || box` on both sides.
+        "encryptBytesWithNonce" => {
+            let message = bytes_from_json(input.get("message"));
+            let nonce = bytes_from_json(input.get("nonce"));
+            let our_secret = bytes_from_json(input.get("ourSecretKey"));
+            let peer_public = bytes_from_json(input.get("peerPublicKey"));
+            match derive_shared_box(&our_secret, &peer_public) {
+                Some(shared) => match encrypt_bytes_with_nonce(&message, &shared, &nonce) {
+                    Some(bundle) => bytes_to_json(&bundle),
+                    None => Value::Null,
+                },
+                None => json!({ "__parity_error__": "derive_shared_box: keys must be 32 bytes" }),
+            }
+        }
+        // X25519 keypair from a 32-byte seed (`nacl.box.keyPair.fromSecretKey`).
+        "keyPairFromSeed" => {
+            let seed = bytes_from_json(input.get("seed"));
+            match key_pair_from_seed(&seed) {
+                Some(pair) => json!({
+                    "publicKey": bytes_to_json(&pair.public_key),
+                    "secretKey": bytes_to_json(&pair.secret_key),
+                }),
+                None => Value::Null,
+            }
+        }
         "decryptBytes" => {
             let bundle = bytes_from_json(input.get("bundle"));
             let our_secret = bytes_from_json(input.get("ourSecretKey"));

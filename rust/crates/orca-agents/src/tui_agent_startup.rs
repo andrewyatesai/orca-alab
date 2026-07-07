@@ -185,6 +185,48 @@ fn codex_startup_delivery(agent: &str) -> Option<String> {
     (agent == "codex").then(|| "shell-ready".to_string())
 }
 
+/// The provider-session key kind a resume argv is valid for (the TS
+/// `AgentProviderSessionMetadata['key']` union).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderSessionKey {
+    SessionId,
+    ConversationId,
+}
+
+impl ProviderSessionKey {
+    /// Parse the TS wire literal (`'session_id' | 'conversation_id'`).
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "session_id" => Some(Self::SessionId),
+            "conversation_id" => Some(Self::ConversationId),
+            _ => None,
+        }
+    }
+}
+
+/// Port of `getAgentResumeArgv` (agent-session-resume.ts): the per-agent argv
+/// that resumes a provider session, or `None` when the agent cannot resume
+/// from the given key kind (or is not a resumable agent).
+pub fn get_agent_resume_argv(
+    agent: &str,
+    key: ProviderSessionKey,
+    id: &str,
+) -> Option<Vec<String>> {
+    let argv: &[&str] = match (agent, key) {
+        ("claude", ProviderSessionKey::SessionId) => &["claude", "--resume", id],
+        ("codex", ProviderSessionKey::SessionId) => &["codex", "resume", id],
+        ("gemini", ProviderSessionKey::SessionId) => &["gemini", "--resume", id],
+        ("antigravity", ProviderSessionKey::ConversationId) => &["agy", "--conversation", id],
+        ("opencode", ProviderSessionKey::SessionId) => &["opencode", "--session", id],
+        ("mimo-code", ProviderSessionKey::SessionId) => &["mimo", "--session", id],
+        ("droid", ProviderSessionKey::SessionId) => &["droid", "--resume", id],
+        ("grok", ProviderSessionKey::SessionId) => &["grok", "--resume", id],
+        ("devin", ProviderSessionKey::SessionId) => &["devin", "--resume", id],
+        _ => return None,
+    };
+    Some(argv.iter().map(|s| s.to_string()).collect())
+}
+
 /// Build the launch plan, or `None` when there is no prompt and empty-prompt
 /// launch is not allowed (or the agent id is unknown).
 pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStartupPlan> {
@@ -280,6 +322,21 @@ pub fn build_agent_draft_launch_plan(args: &AgentDraftLaunchArgs) -> Option<Agen
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resume_argv_matches_the_ts_table_per_agent_and_key() {
+        use ProviderSessionKey::{ConversationId, SessionId};
+        let argv = |a: &str, k, id: &str| get_agent_resume_argv(a, k, id);
+        assert_eq!(argv("claude", SessionId, "s1").unwrap(), ["claude", "--resume", "s1"]);
+        assert_eq!(argv("codex", SessionId, "s2").unwrap(), ["codex", "resume", "s2"]);
+        assert_eq!(argv("antigravity", ConversationId, "c1").unwrap(), ["agy", "--conversation", "c1"]);
+        assert_eq!(argv("opencode", SessionId, "s3").unwrap(), ["opencode", "--session", "s3"]);
+        // Wrong key kind for the agent -> None (the TS key guard).
+        assert_eq!(argv("claude", ConversationId, "x"), None);
+        assert_eq!(argv("antigravity", SessionId, "x"), None);
+        // Non-resumable agent -> None.
+        assert_eq!(argv("pi", SessionId, "x"), None);
+    }
 
     fn startup(args: &AgentStartupPlanArgs) -> AgentStartupPlan {
         build_agent_startup_plan(args).unwrap()

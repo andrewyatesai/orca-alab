@@ -33,7 +33,8 @@ pub struct CommitMessagePlan {
 
 /// Resolve the spawn binary + any prefix args from an optional command override
 /// (e.g. `npx codex`); without an override the spec binary is used directly.
-fn plan_agent_binary(default_binary: &str, command_override: Option<&str>) -> Result<(String, Vec<String>), String> {
+/// Public: the napi whole-plan surface resolves binaries through this too.
+pub fn plan_agent_binary(default_binary: &str, command_override: Option<&str>) -> Result<(String, Vec<String>), String> {
     let Some(command) = command_override.map(str::trim).filter(|c| !c.is_empty()) else {
         return Ok((default_binary.to_string(), Vec::new()));
     };

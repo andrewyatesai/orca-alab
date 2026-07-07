@@ -24,8 +24,6 @@ pub mod feature_education_telemetry;
 pub mod feature_interactions;
 pub mod feature_tips;
 pub mod feature_wall_tour_depth;
-pub mod fetch_error_classification;
-pub mod git_cquoted_path;
 pub mod push_target;
 pub mod git_push_target;
 pub mod git_remote_error;
@@ -51,7 +49,6 @@ pub mod pull_request_generation;
 pub mod quick_open_filter;
 pub mod quick_open_rank;
 pub mod repo_badge_color;
-pub mod repo_clone_path;
 pub mod repo_icon;
 pub mod setup_runner_command;
 pub mod setup_script_telemetry;
@@ -105,8 +102,6 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "feature-interactions" => Some(feature_interactions::dispatch(function, input)),
         "feature-tips" => Some(feature_tips::dispatch(function, input)),
         "feature-wall-tour-depth" => Some(feature_wall_tour_depth::dispatch(function, input)),
-        "fetch-error-classification" => Some(fetch_error_classification::dispatch(function, input)),
-        "git-cquoted-path" => Some(git_cquoted_path::dispatch(function, input)),
         "git-publish-target-status" => Some(push_target::dispatch(function, input)),
         "git-push-target" => Some(git_push_target::dispatch(function, input)),
         "git-remote-error" => Some(git_remote_error::dispatch(function, input)),
@@ -132,7 +127,6 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "quick-open-filter" => Some(quick_open_filter::dispatch(function, input)),
         "quick-open-rank" => Some(quick_open_rank::dispatch(function, input)),
         "repo-badge-color" => Some(repo_badge_color::dispatch(function, input)),
-        "repo-clone-path" => Some(repo_clone_path::dispatch(function, input)),
         "repo-icon" => Some(repo_icon::dispatch(function, input)),
         "setup-runner-command" => Some(setup_runner_command::dispatch(function, input)),
         "setup-script-telemetry" => Some(setup_script_telemetry::dispatch(function, input)),

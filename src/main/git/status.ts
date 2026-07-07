@@ -29,7 +29,7 @@ import {
   type GitLineStats
 } from '../../shared/git-uncommitted-line-stats'
 import { parseNumstatNative } from './rust-numstat'
-import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import { gitExecFileAsync, gitExecFileAsyncBuffer, gitOptionalLocksDisabledEnv } from './runner'
 import { streamGitStatus } from './git-status-stream'
 import { untrackedAdditionsCounter } from './untracked-additions-counter'
@@ -46,6 +46,12 @@ import { InFlightPromiseDedupe, stableInFlightKey } from '../../shared/in-flight
 import type { GitRuntimeOptions } from './git-runtime-options'
 import { gitOptionsForWorktree } from './git-runtime-options'
 import { parseGitRevListFirstParentOid } from '../../shared/git-rev-list-output'
+
+// C-quoted path decode runs in the Rust orca-git core via napi; the shared TS
+// decoder was deleted (the relay decodes through the same core via wasm).
+function decodeGitCQuotedPath(value: string): string {
+  return requireRustGitBinding().decodeGitCQuotedPath(value)
+}
 
 const MAX_GIT_SHOW_BYTES = 10 * 1024 * 1024
 const MAX_STAGED_COMMIT_CONTEXT_BYTES = MAX_GIT_SHOW_BYTES

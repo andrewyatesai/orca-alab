@@ -22,8 +22,6 @@ import { dispatch as featureEducationTelemetry } from './feature-education-telem
 import { dispatch as featureInteractions } from './feature-interactions'
 import { dispatch as featureTips } from './feature-tips'
 import { dispatch as featureWallTourDepth } from './feature-wall-tour-depth'
-import { dispatch as fetchErrorClassification } from './fetch-error-classification'
-import { dispatch as gitCquotedPath } from './git-cquoted-path'
 import { dispatch as gitPublishTargetStatus } from './git-publish-target-status'
 import { dispatch as gitPushTarget } from './git-push-target'
 import { dispatch as gitRemoteError } from './git-remote-error'
@@ -49,7 +47,6 @@ import { dispatch as pullRequestGeneration } from './pull-request-generation'
 import { dispatch as quickOpenFilter } from './quick-open-filter'
 import { dispatch as quickOpenRank } from './quick-open-rank'
 import { dispatch as repoBadgeColor } from './repo-badge-color'
-import { dispatch as repoClonePath } from './repo-clone-path'
 import { dispatch as repoIcon } from './repo-icon'
 import { dispatch as setupRunnerCommand } from './setup-runner-command'
 import { dispatch as setupScriptTelemetry } from './setup-script-telemetry'
@@ -103,8 +100,6 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'feature-interactions': featureInteractions,
   'feature-tips': featureTips,
   'feature-wall-tour-depth': featureWallTourDepth,
-  'fetch-error-classification': fetchErrorClassification,
-  'git-cquoted-path': gitCquotedPath,
   'git-publish-target-status': gitPublishTargetStatus,
   'git-push-target': gitPushTarget,
   'git-remote-error': gitRemoteError,
@@ -130,7 +125,6 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'quick-open-filter': quickOpenFilter,
   'quick-open-rank': quickOpenRank,
   'repo-badge-color': repoBadgeColor,
-  'repo-clone-path': repoClonePath,
   'repo-icon': repoIcon,
   'setup-runner-command': setupRunnerCommand,
   'setup-script-telemetry': setupScriptTelemetry,

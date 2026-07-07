@@ -123,6 +123,16 @@ export type RustGitBinding = {
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */
   decodeGitCQuotedPath(value: string): string
+  /** True when a fetch/pull error message means the remote ref does not exist. */
+  isMissingRemoteRefGitError(message: string): boolean
+  /** Default `git clone` folder name from a URL; throws on unsafe names. */
+  deriveCloneRepoNameFromUrl(url: string): string
+  /** `<destination>/<repoName>` with escape validation; `platform` is the
+   *  Node `process.platform` value ("win32" → Windows path rules, else POSIX).
+   *  Throws the TS-identical message on invalid input. */
+  deriveValidatedClonePath(url: string, destination: string, platform: string): string
+  /** Stable clone-path comparison key (WSL-UNC aware); pass a resolved path. */
+  getClonePathComparisonKey(clonePath: string): string
   gitEngine(): string
 }
 

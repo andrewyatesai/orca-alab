@@ -328,6 +328,54 @@ pub fn decode_git_cquoted_path(value: String) -> String {
     orca_core::git_cquoted_path::decode_git_cquoted_path(&value)
 }
 
+/// True when a git fetch/pull error message means the remote ref does not
+/// exist (an expected state, not a failure). The `unknown`→message extraction
+/// stays at the JS boundary.
+#[napi(catch_unwind)]
+pub fn is_missing_remote_ref_git_error(message: String) -> bool {
+    orca_git::fetch_error_classification::is_missing_remote_ref_git_error(&message)
+}
+
+fn clone_path_flavor(platform: &str) -> orca_core::cross_platform_path::PathFlavor {
+    if platform == "win32" {
+        orca_core::cross_platform_path::PathFlavor::Windows
+    } else {
+        orca_core::cross_platform_path::PathFlavor::Posix
+    }
+}
+
+/// Derive the default `git clone` folder name from a URL; throws the
+/// TS-identical message for names that would escape the destination.
+#[napi(catch_unwind)]
+pub fn derive_clone_repo_name_from_url(url: String) -> napi::Result<String> {
+    orca_git::repo_clone_path::derive_clone_repo_name_from_url(&url)
+        .map_err(napi::Error::from_reason)
+}
+
+/// Derive `<destination>/<repoName>` for `git clone`, validating the
+/// destination is absolute and the result stays inside it. `platform` is the
+/// Node `process.platform` value ("win32" → Windows path rules, else POSIX).
+#[napi(catch_unwind)]
+pub fn derive_validated_clone_path(
+    url: String,
+    destination: String,
+    platform: String,
+) -> napi::Result<String> {
+    orca_git::repo_clone_path::derive_validated_clone_path(
+        &url,
+        &destination,
+        clone_path_flavor(&platform),
+    )
+    .map_err(napi::Error::from_reason)
+}
+
+/// Stable key for comparing clone paths (WSL-UNC aware). Callers pass an
+/// already-resolved absolute path — the cwd `resolve()` stays in JS.
+#[napi(catch_unwind)]
+pub fn get_clone_path_comparison_key(clone_path: String) -> String {
+    orca_git::repo_clone_path::get_clone_path_comparison_key(&clone_path)
+}
+
 #[napi(catch_unwind)]
 pub fn git_engine() -> &'static str {
     "orca-git"

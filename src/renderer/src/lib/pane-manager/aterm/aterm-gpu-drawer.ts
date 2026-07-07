@@ -47,7 +47,7 @@ export async function loadAtermGpuDrawer(
   )
   // Inject the local OS CJK + colour-emoji fallback faces BEFORE init so the
   // engine re-applies them to the GPU face it builds there (else CJK/emoji tofu).
-  await injectTerminalFallbackFonts(gpuTerm)
+  await injectTerminalFallbackFonts(gpuTerm, 'gpu')
   // Seed the 16 ANSI palette colours from the theme so SGR-indexed cell colours
   // (ls/git/prompts) render in the user's theme, not the engine's VGA defaults.
   seedAtermPalette(gpuTerm, themeColors)

@@ -7,22 +7,60 @@
 // the instance) — so every engine of a kind shares one linear memory and the
 // engine-side content-keyed font intern registry dedupes the faces across panes.
 
-import init, { AtermTerminal } from './aterm_wasm.js'
+import init, { AtermTerminal, register_font as registerCpuFont } from './aterm_wasm.js'
 import wasmUrl from './aterm_wasm_bg.wasm?url'
-import gpuInit, { AtermGpuTerminal } from './aterm_gpu_web.js'
+import gpuInit, { AtermGpuTerminal, register_font as registerGpuFont } from './aterm_gpu_web.js'
 import gpuWasmUrl from './aterm_gpu_web_bg.wasm?url'
 import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermWorkerFonts } from './aterm-render-worker-protocol'
 
-/** The worker-resident immutable font faces (sent once per worker generation); every
- *  engine build passes the SAME arrays — wasm-bindgen copies them per call, and the
- *  engine interns the copy behind its content-keyed registry, so the per-engine cost
- *  is a lookup, not a duplicate face. */
+/** The worker-resident immutable font faces (sent once per worker generation).
+ *  Each wasm module registers them ONCE via `register_font` (one marshal per
+ *  blob per module); every engine build after that passes 4-byte HANDLES — the
+ *  ~100–400MB faces are never re-copied across the JS/wasm boundary per pane
+ *  (the transient copies fragmented the linear memory into a ~183MB/pane
+ *  high-water ratchet: wasm memory never shrinks). */
 export type WorkerResidentFonts = Pick<
   AtermWorkerFonts,
   'primary' | 'fallbacks' | 'emoji' | 'symbol'
 >
+
+/** Handles into a wasm module's font registry (module-scoped: each module has
+ *  its own linear memory, so CPU and GPU register independently). */
+type RegisteredFontHandles = {
+  primary: number
+  fallbacks: number[]
+  emoji: number | null
+  symbol: number | null
+}
+
+// Once per module per worker generation (fonts are immutable within one).
+let cpuFontHandles: RegisteredFontHandles | null = null
+let gpuFontHandles: RegisteredFontHandles | null = null
+
+// SINGLE-FLIGHT init per module: the glue's idempotency guard (`if (wasm !==
+// undefined) return`) is race-able — overlapping FIRST init() calls (concurrent
+// pane builds at worker boot) each instantiate the module and the second
+// CLOBBERS the glue's module-level `wasm` binding. Engines built against the
+// first instance then dereference into the second instance's memory: the
+// worker's `memory access out of bounds` crashes, and module state (the font
+// registry, the heap measurement) splits across instances. Memoizing the
+// PROMISE guarantees one instance per module for the worker's lifetime.
+let cpuInitPromise: ReturnType<typeof init> | null = null
+let gpuInitPromise: ReturnType<typeof gpuInit> | null = null
+
+function registerWorkerFonts(
+  register: (bytes: Uint8Array) => number,
+  fonts: WorkerResidentFonts
+): RegisteredFontHandles {
+  return {
+    primary: register(fonts.primary),
+    fallbacks: fonts.fallbacks.map((face) => register(face)),
+    emoji: fonts.emoji ? register(fonts.emoji) : null,
+    symbol: fonts.symbol ? register(fonts.symbol) : null
+  }
+}
 
 /** The read + command surface BOTH engines expose identically; the worker terminal
  *  uses only this. `search` (arity differs) + render/process (encoding differs) are
@@ -146,13 +184,13 @@ export type StoredInit = {
 /** Font + theme seeding both engines share; byte-for-byte the main-thread drawers'
  *  setup so the worker engine matches what the main path would have produced. */
 type SeedTarget = Pick<
-  WorkerEngine,
+  AtermTerminal,
   | 'cell_width'
   | 'cell_height'
-  | 'set_fallback_font'
-  | 'add_fallback_font'
-  | 'set_emoji_font'
-  | 'set_symbol_font'
+  | 'set_fallback_font_registered'
+  | 'add_fallback_font_registered'
+  | 'set_emoji_font_registered'
+  | 'set_symbol_font_registered'
   | 'set_palette_color'
   | 'set_selection_fg'
   | 'set_selection_inactive_bg'
@@ -162,22 +200,23 @@ type SeedTarget = Pick<
   | 'set_line_height'
 >
 
-function seedEngine(t: SeedTarget, p: StoredInit): void {
-  // CJK first RESETS the chain to it; the rest append (parity with the main path).
-  // Each injection is fault-tolerant (matches inject-terminal-fallback-fonts): an
-  // unparseable/unsupported OS face throws a catchable JS error, so swallow it rather
-  // than let one bad face abort the whole worker engine build (the engine still renders
-  // Latin + whatever faces did parse).
-  const { fallbacks, emoji, symbol } = p.fonts
-  if (fallbacks.length > 0) {
+function seedEngine(t: SeedTarget, p: StoredInit, h: RegisteredFontHandles): void {
+  // Handle-based injection: the module registered the faces once; per-pane seeds
+  // pass 4-byte handles so no blob is re-marshaled per pane. CJK first RESETS the
+  // chain to it; the rest append (parity with the main path). Each injection is
+  // fault-tolerant (matches inject-terminal-fallback-fonts): parsing happens at
+  // set-time, so an unparseable/unsupported OS face still throws a catchable JS
+  // error here — swallow it rather than let one bad face abort the whole worker
+  // engine build (the engine still renders Latin + whatever faces did parse).
+  if (h.fallbacks.length > 0) {
     try {
-      t.set_fallback_font(fallbacks[0])
+      t.set_fallback_font_registered(h.fallbacks[0])
     } catch {
       /* unparseable CJK face — keep going */
     }
-    for (let i = 1; i < fallbacks.length; i++) {
+    for (let i = 1; i < h.fallbacks.length; i++) {
       try {
-        t.add_fallback_font(fallbacks[i])
+        t.add_fallback_font_registered(h.fallbacks[i])
       } catch {
         /* unparseable chain face — skip it */
       }
@@ -185,18 +224,18 @@ function seedEngine(t: SeedTarget, p: StoredInit): void {
   }
   // Colour-emoji face AFTER the monochrome fallback chain (parity with the in-process
   // inject-terminal-fallback-fonts ordering) so emoji render in colour, not tofu.
-  if (emoji) {
+  if (h.emoji != null) {
     try {
-      t.set_emoji_font(emoji)
+      t.set_emoji_font_registered(h.emoji)
     } catch {
       /* unparseable emoji face — keep going */
     }
   }
   // Monochrome symbol tier AFTER emoji (parity with inject-terminal-fallback-fonts /
   // the native engine) so media/technical symbols get a real glyph, not tofu.
-  if (symbol) {
+  if (h.symbol != null) {
     try {
-      t.set_symbol_font(symbol)
+      t.set_symbol_font_registered(h.symbol)
     } catch {
       /* unparseable symbol face */
     }
@@ -221,25 +260,29 @@ export function workerWasmHeapBytes(): number {
   return (cpuWasmMemory?.buffer.byteLength ?? 0) + (gpuWasmMemory?.buffer.byteLength ?? 0)
 }
 
+// TEMP DIAGNOSTIC
 /** CPU engine: rasterize → zero-copy 2d blit (identical to the main-thread painter). */
 export async function buildCpuEngine(
   p: StoredInit,
   canvas: OffscreenCanvas
 ): Promise<EngineHandle> {
-  const out = await init(wasmUrl)
+  const out = await (cpuInitPromise ??= init(wasmUrl))
   const memory = out.memory
   cpuWasmMemory = memory
-  const t = new AtermTerminal(
+  // Register the worker-resident faces ONCE per module; this and every later
+  // pane build constructs + seeds from 4-byte handles (no per-pane blob marshal).
+  cpuFontHandles ??= registerWorkerFonts(registerCpuFont, p.fonts)
+  const t = AtermTerminal.new_registered(
     p.rows,
     p.cols,
-    p.fonts.primary,
+    cpuFontHandles.primary,
     p.fontPx,
     p.themeColors.fg,
     p.themeColors.bg,
     p.themeColors.cursor,
     p.themeColors.selection
   )
-  seedEngine(t, p)
+  seedEngine(t, p, cpuFontHandles)
   const canvasCtx = canvas.getContext('2d')
   if (!canvasCtx) {
     t.free()
@@ -285,14 +328,16 @@ export async function buildGpuEngine(
   p: StoredInit,
   canvas: OffscreenCanvas
 ): Promise<EngineHandle> {
-  const gpuOut = await gpuInit(gpuWasmUrl)
+  const gpuOut = await (gpuInitPromise ??= gpuInit(gpuWasmUrl))
   gpuWasmMemory = gpuOut.memory
   const rows = p.rows
   const cols = p.cols
-  const t = new AtermGpuTerminal(
+  // The GPU module has its own linear memory — its own one-time registration.
+  gpuFontHandles ??= registerWorkerFonts(registerGpuFont, p.fonts)
+  const t = AtermGpuTerminal.new_registered(
     p.rows,
     p.cols,
-    p.fonts.primary,
+    gpuFontHandles.primary,
     p.fontPx,
     p.themeColors.fg,
     p.themeColors.bg,
@@ -301,7 +346,7 @@ export async function buildGpuEngine(
   )
   // Seed BEFORE init_offscreen so the engine re-applies fonts/theme to the GPU face it
   // builds there (matches aterm-gpu-drawer's seed-then-init ordering).
-  seedEngine(t as unknown as SeedTarget, p)
+  seedEngine(t as unknown as SeedTarget, p, gpuFontHandles)
   try {
     await t.init_offscreen(canvas)
   } catch (err) {

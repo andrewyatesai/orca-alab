@@ -46,7 +46,7 @@ export async function loadAtermCpuDrawer(
   )
   // Inject the local OS CJK + colour-emoji fallback faces so non-Latin scripts
   // render real glyphs instead of .notdef tofu (JetBrains Mono is Latin-only).
-  await injectTerminalFallbackFonts(term)
+  await injectTerminalFallbackFonts(term, 'cpu')
   // Seed the 16 ANSI palette colours from the theme so SGR-indexed cell colours
   // (ls/git/prompts) render in the user's theme, not the engine's VGA defaults.
   seedAtermPalette(term, themeColors)

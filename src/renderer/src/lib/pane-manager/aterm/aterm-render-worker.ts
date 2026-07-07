@@ -115,7 +115,10 @@ async function buildAndStart(pane: PaneRuntime, build: () => Promise<EngineHandl
   } catch (err) {
     // A wasm panic on the FIRST resize/render poisons the module for every engine in
     // it — escalate as a worker-fatal crash so all panes rebuild in-process.
-    ctx.postMessage({ type: 'crash', message: String(err) })
+    ctx.postMessage({
+      type: 'crash',
+      message: err instanceof Error && err.stack ? err.stack : String(err)
+    })
     throw err
   }
 }
@@ -183,7 +186,10 @@ ctx.onmessage = (event): void => {
     // it, and the bare worker 'error' event carries no structured payload — post a
     // worker-scoped crash first so the manager retires the worker and each pane
     // rebuilds in-process, then rethrow to keep the error-event/console semantics.
-    ctx.postMessage({ type: 'crash', message: String(err) })
+    ctx.postMessage({
+      type: 'crash',
+      message: err instanceof Error && err.stack ? err.stack : String(err)
+    })
     throw err
   }
 }

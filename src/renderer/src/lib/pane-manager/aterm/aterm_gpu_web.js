@@ -1,8 +1,6 @@
 /* @ts-self-types="./aterm_gpu_web.d.ts" */
 
 /**
- * The terminal engine + GPU presentation state for one `<canvas>`.
- *
  * Construction is split in two, matching the browser lifecycle:
  *   1. [`AtermGpuTerminal::new`] — synchronous: build the engine grid + a CPU
  *      face from injected font bytes (for cell metrics / the glyph atlas). No
@@ -13,6 +11,13 @@
  *      paid for the engine teardown.
  */
 export class AtermGpuTerminal {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(AtermGpuTerminal.prototype);
+        obj.__wbg_ptr = ptr;
+        AtermGpuTerminalFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
@@ -53,6 +58,16 @@ export class AtermGpuTerminal {
         const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.atermgputerminal_add_fallback_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * [`AtermGpuTerminal::add_fallback_font`] from a registered handle.
+     * @param {number} handle
+     */
+    add_fallback_font_registered(handle) {
+        const ret = wasm.atermgputerminal_add_fallback_font_registered(this.__wbg_ptr, handle);
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
@@ -514,6 +529,25 @@ export class AtermGpuTerminal {
         return this;
     }
     /**
+     * [`AtermGpuTerminal::new`] from a registered PRIMARY font handle.
+     * @param {number} rows
+     * @param {number} cols
+     * @param {number} font_handle
+     * @param {number} px
+     * @param {number} fg
+     * @param {number} bg
+     * @param {number} cursor
+     * @param {number} selection
+     * @returns {AtermGpuTerminal}
+     */
+    static new_registered(rows, cols, font_handle, px, fg, bg, cursor, selection) {
+        const ret = wasm.atermgputerminal_new_registered(rows, cols, font_handle, px, fg, bg, cursor, selection);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return AtermGpuTerminal.__wrap(ret[0]);
+    }
+    /**
      * Register one keystroke for the cursor-comet ignition: sustained fast
      * calls heat the typing cadence so the next `render` ignites the trail,
      * sparse/slow calls keep it gentle. The cadence reads the effects clock,
@@ -885,6 +919,16 @@ export class AtermGpuTerminal {
         }
     }
     /**
+     * [`AtermGpuTerminal::set_bold_font`] from a registered handle.
+     * @param {number} handle
+     */
+    set_bold_font_registered(handle) {
+        const ret = wasm.atermgputerminal_set_bold_font_registered(this.__wbg_ptr, handle);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Tell the engine the real device-pixel cell size so CSI 14t/16t reports are
      * accurate (the engine has no canvas otherwise).
      * @param {number} width
@@ -1017,6 +1061,19 @@ export class AtermGpuTerminal {
         }
     }
     /**
+     * [`AtermGpuTerminal::set_emoji_font`] from a registered handle. Installs
+     * the SHARED interned copy on the CPU face (no `to_vec` of the ~190MB emoji
+     * face per pane); a LIVE GPU face still receives its own copy (rare — the
+     * worker seeds fonts before `init`, so `gpu` is None during pane builds).
+     * @param {number} handle
+     */
+    set_emoji_font_registered(handle) {
+        const ret = wasm.atermgputerminal_set_emoji_font_registered(this.__wbg_ptr, handle);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Inject a broad-coverage (CJK + symbols) fallback face from font bytes, so
      * glyphs the primary face lacks render real shapes instead of `.notdef` tofu.
      * Applies to the CPU face (metrics) and the live GPU face if `init` already
@@ -1028,6 +1085,16 @@ export class AtermGpuTerminal {
         const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.atermgputerminal_set_fallback_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * [`AtermGpuTerminal::set_fallback_font`] from a registered handle.
+     * @param {number} handle
+     */
+    set_fallback_font_registered(handle) {
+        const ret = wasm.atermgputerminal_set_fallback_font_registered(this.__wbg_ptr, handle);
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
@@ -1332,6 +1399,16 @@ export class AtermGpuTerminal {
         }
     }
     /**
+     * [`AtermGpuTerminal::set_symbol_font`] from a registered handle.
+     * @param {number} handle
+     */
+    set_symbol_font_registered(handle) {
+        const ret = wasm.atermgputerminal_set_symbol_font_registered(this.__wbg_ptr, handle);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB) on both the
      * GPU renderer and the CPU face, so a host theme change re-themes the pane
      * without a device/face rebuild.
@@ -1624,6 +1701,20 @@ export function encode_key_with_mode(key, mods, event_type, base_layout_key, mod
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     }
     return v3;
+}
+
+/**
+ * Register a font blob for handle-based reuse by every engine in this module.
+ * Content-interned: registering identical bytes returns a handle to ONE shared
+ * copy (re-registration returns the same storage, so handles stay cheap).
+ * @param {Uint8Array} bytes
+ * @returns {number}
+ */
+export function register_font(bytes) {
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.register_font(ptr0, len0);
+    return ret >>> 0;
 }
 
 function __wbg_get_imports() {
@@ -2643,7 +2734,7 @@ function __wbg_get_imports() {
             arg0.viewport(arg1, arg2, arg3, arg4);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 34, function: Function { arguments: [Externref], shim_idx: 35, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 35, function: Function { arguments: [Externref], shim_idx: 36, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h1a0100ca1d7e7abb, wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da);
             return ret;
         },

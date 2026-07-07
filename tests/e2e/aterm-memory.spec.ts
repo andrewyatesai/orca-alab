@@ -189,20 +189,22 @@ test.describe('aterm per-pane memory @aterm-memory', () => {
       return heap
     }
 
-    // Pane 1 pays the one-time costs (worker spawn, wasm modules, the full font
-    // payload); measure AFTER it so the gate isolates the marginal per-pane cost.
+    // Panes 1-2 absorb the one-time costs (worker spawn, wasm modules, the full
+    // font payload registered once, first-engine atlas/parse warmup — pane 1's
+    // heap still settles by tens of MB while those materialize); measure the
+    // pane2→pane3 delta so the gate isolates the steady marginal per-pane cost.
     await openWorkerPane(1)
-    const afterFirst = await workerWasmHeapBytes()
-
     await openWorkerPane(2)
+    const afterSecond = await workerWasmHeapBytes()
+
     await openWorkerPane(3)
     const afterThird = await workerWasmHeapBytes()
 
-    const marginalMB = (afterThird - afterFirst) / 2 / (1024 * 1024)
+    const marginalMB = (afterThird - afterSecond) / (1024 * 1024)
     const line =
-      `[aterm-worker-memory] worker wasm heap after pane 1: ${(afterFirst / (1024 * 1024)).toFixed(1)} MB; ` +
+      `[aterm-worker-memory] worker wasm heap after pane 2: ${(afterSecond / (1024 * 1024)).toFixed(1)} MB; ` +
       `after pane 3: ${(afterThird / (1024 * 1024)).toFixed(1)} MB → marginal ` +
-      `${marginalMB.toFixed(1)} MB/pane for worker panes 2-3 (gate: < 48 MB/pane; ` +
+      `${marginalMB.toFixed(1)} MB/pane (gate: < 48 MB/pane; ` +
       `a per-pane font payload would add hundreds of MB).`
     // eslint-disable-next-line no-console
     console.log(`\n${line}\n`)

@@ -69,6 +69,7 @@ import { dispatch as tuiAgentStartup } from './tui-agent-startup'
 import { dispatch as uriComponent } from './uri-component'
 import { dispatch as workspaceCleanup } from './workspace-cleanup'
 import { dispatch as workspaceName } from './workspace-name'
+import { dispatch as workspaceSessionSchema } from './workspace-session-schema'
 import { dispatch as workspaceSessionTerminalBuffers } from './workspace-session-terminal-buffers'
 import { dispatch as workspaceStatuses } from './workspace-statuses'
 import { dispatch as worktreeId } from './worktree-id'
@@ -148,6 +149,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'uri-component': uriComponent,
   'workspace-cleanup': workspaceCleanup,
   'workspace-name': workspaceName,
+  'workspace-session-schema': workspaceSessionSchema,
   'workspace-session-terminal-buffers': workspaceSessionTerminalBuffers,
   'workspace-statuses': workspaceStatuses,
   'worktree-id': worktreeId,

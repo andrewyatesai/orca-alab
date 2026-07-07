@@ -2,9 +2,9 @@
 //! `src/shared/tui-agent-startup.ts`.
 
 use orca_agents::tui_agent_startup::{
-    build_agent_draft_launch_plan, build_agent_startup_plan, AgentDraftLaunchArgs,
-    AgentDraftLaunchPlan, AgentStartupPlan, AgentStartupPlanArgs, AgentStartupShell,
-    SleepingAgentLaunchConfig,
+    build_agent_draft_launch_plan, build_agent_resume_startup_plan, build_agent_startup_plan,
+    AgentDraftLaunchArgs, AgentDraftLaunchPlan, AgentResumeStartupPlanArgs, AgentStartupPlan,
+    AgentStartupPlanArgs, AgentStartupShell, ProviderSessionKey, SleepingAgentLaunchConfig,
 };
 use serde_json::{json, Map, Value};
 
@@ -14,18 +14,54 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let overrides = collect_overrides(input.get("cmdOverrides"));
             let cmd_overrides: Vec<(&str, &str)> =
                 overrides.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+            let agent_env = collect_env(input.get("agentEnv"));
             let args = AgentStartupPlanArgs {
                 agent: str_field(input, "agent"),
                 prompt: str_field(input, "prompt"),
                 cmd_overrides: &cmd_overrides,
                 platform: str_field(input, "platform"),
                 shell: parse_shell(input.get("shell")),
-                allow_empty_prompt_launch: input
-                    .get("allowEmptyPromptLaunch")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
+                allow_empty_prompt_launch: bool_field(input, "allowEmptyPromptLaunch"),
+                agent_args: input.get("agentArgs").and_then(Value::as_str),
+                agent_env: agent_env.as_deref(),
+                is_remote: bool_field(input, "isRemote"),
             };
             match build_agent_startup_plan(&args) {
+                Some(plan) => startup_plan_to_json(&plan),
+                None => Value::Null,
+            }
+        }
+        "buildAgentResumeStartupPlan" => {
+            let overrides = collect_overrides(input.get("cmdOverrides"));
+            let cmd_overrides: Vec<(&str, &str)> =
+                overrides.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+            let agent_env = collect_env(input.get("agentEnv"));
+            let session = input.get("providerSession");
+            // An unknown key kind cannot match any resume argv (the TS key
+            // guard yields null), so it maps straight to a null plan.
+            let Some(key) = session
+                .and_then(|value| value.get("key"))
+                .and_then(Value::as_str)
+                .and_then(ProviderSessionKey::from_label)
+            else {
+                return Value::Null;
+            };
+            let args = AgentResumeStartupPlanArgs {
+                agent: str_field(input, "agent"),
+                provider_session_key: key,
+                provider_session_id: session
+                    .and_then(|value| value.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or(""),
+                cmd_overrides: &cmd_overrides,
+                platform: str_field(input, "platform"),
+                shell: parse_shell(input.get("shell")),
+                agent_args: input.get("agentArgs").and_then(Value::as_str),
+                agent_env: agent_env.as_deref(),
+                agent_command: input.get("agentCommand").and_then(Value::as_str),
+                is_remote: bool_field(input, "isRemote"),
+            };
+            match build_agent_resume_startup_plan(&args) {
                 Some(plan) => startup_plan_to_json(&plan),
                 None => Value::Null,
             }
@@ -34,12 +70,16 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let overrides = collect_overrides(input.get("cmdOverrides"));
             let cmd_overrides: Vec<(&str, &str)> =
                 overrides.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+            let agent_env = collect_env(input.get("agentEnv"));
             let args = AgentDraftLaunchArgs {
                 agent: str_field(input, "agent"),
                 draft: str_field(input, "draft"),
                 cmd_overrides: &cmd_overrides,
                 platform: str_field(input, "platform"),
                 shell: parse_shell(input.get("shell")),
+                agent_args: input.get("agentArgs").and_then(Value::as_str),
+                agent_env: agent_env.as_deref(),
+                is_remote: bool_field(input, "isRemote"),
             };
             match build_agent_draft_launch_plan(&args) {
                 Some(plan) => draft_plan_to_json(&plan),
@@ -52,6 +92,10 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
 
 fn str_field<'a>(input: &'a Value, key: &str) -> &'a str {
     input.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+fn bool_field(input: &Value, key: &str) -> bool {
+    input.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
 /// Flatten a `cmdOverrides` JSON object into `(agent, command)` pairs, dropping
@@ -67,8 +111,27 @@ fn collect_overrides(value: Option<&Value>) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// Flatten an `agentEnv` JSON object into ordered `(name, value)` pairs;
+/// `None` for absent/null so the TS truthiness guard round-trips (any object,
+/// even `{}`, still threads an `env` key into the plan).
+fn collect_env(value: Option<&Value>) -> Option<Vec<(String, String)>> {
+    value.and_then(Value::as_object).map(|obj| {
+        obj.iter()
+            .filter_map(|(key, val)| val.as_str().map(|s| (key.clone(), s.to_string())))
+            .collect()
+    })
+}
+
 fn parse_shell(value: Option<&Value>) -> Option<AgentStartupShell> {
     value.and_then(Value::as_str).and_then(AgentStartupShell::from_label)
+}
+
+fn env_to_json(env: &[(String, String)]) -> Value {
+    let map: Map<String, Value> = env
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect();
+    Value::Object(map)
 }
 
 /// Match `JSON.stringify` of the TS `SleepingAgentLaunchConfig`; `agentCommand`
@@ -79,17 +142,12 @@ fn launch_config_to_json(config: &SleepingAgentLaunchConfig) -> Value {
         map.insert("agentCommand".to_string(), Value::String(command.clone()));
     }
     map.insert("agentArgs".to_string(), Value::String(config.agent_args.clone()));
-    let env: Map<String, Value> = config
-        .agent_env
-        .iter()
-        .map(|(k, v)| (k.clone(), Value::String(v.clone())))
-        .collect();
-    map.insert("agentEnv".to_string(), Value::Object(env));
+    map.insert("agentEnv".to_string(), env_to_json(&config.agent_env));
     Value::Object(map)
 }
 
 /// Match `JSON.stringify` of the TS `AgentStartupPlan` (the optional
-/// `draftPrompt`/`env` fields are never set by `buildAgentStartupPlan`).
+/// `launchToken`/`draftPrompt` fields are never set by the plan builders).
 fn startup_plan_to_json(plan: &AgentStartupPlan) -> Value {
     let mut map = Map::new();
     map.insert("agent".to_string(), Value::String(plan.agent.clone()));
@@ -104,24 +162,26 @@ fn startup_plan_to_json(plan: &AgentStartupPlan) -> Value {
     if let Some(delivery) = &plan.startup_command_delivery {
         map.insert("startupCommandDelivery".to_string(), Value::String(delivery.clone()));
     }
+    // OMITTED when the caller passed no agentEnv, matching the TS spread guard.
+    if let Some(env) = &plan.env {
+        map.insert("env".to_string(), env_to_json(env));
+    }
     Value::Object(map)
 }
 
 /// Match `JSON.stringify` of the TS `AgentDraftLaunchPlan`; `env` is omitted
-/// (undefined) on the flag path, matching the TS object shape.
+/// on the flag path without caller env, matching the TS object shape.
 fn draft_plan_to_json(plan: &AgentDraftLaunchPlan) -> Value {
     let mut map = Map::new();
     map.insert("agent".to_string(), Value::String(plan.agent.clone()));
     map.insert("launchCommand".to_string(), Value::String(plan.launch_command.clone()));
     map.insert("expectedProcess".to_string(), Value::String(plan.expected_process.clone()));
-    if let Some((name, value)) = &plan.env {
-        let mut env = Map::new();
-        env.insert(name.clone(), Value::String(value.clone()));
-        map.insert("env".to_string(), Value::Object(env));
-    }
     map.insert("launchConfig".to_string(), launch_config_to_json(&plan.launch_config));
     if let Some(delivery) = &plan.startup_command_delivery {
         map.insert("startupCommandDelivery".to_string(), Value::String(delivery.clone()));
+    }
+    if let Some(env) = &plan.env {
+        map.insert("env".to_string(), env_to_json(env));
     }
     Value::Object(map)
 }

@@ -71,6 +71,7 @@ pub mod tui_agent_startup;
 pub mod uri_component;
 pub mod workspace_cleanup;
 pub mod workspace_name;
+pub mod workspace_session_schema;
 pub mod workspace_session_terminal_buffers;
 pub mod workspace_statuses;
 pub mod worktree_id;
@@ -150,6 +151,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "uri-component" => Some(uri_component::dispatch(function, input)),
         "workspace-cleanup" => Some(workspace_cleanup::dispatch(function, input)),
         "workspace-name" => Some(workspace_name::dispatch(function, input)),
+        "workspace-session-schema" => Some(workspace_session_schema::dispatch(function, input)),
         "workspace-session-terminal-buffers" => Some(workspace_session_terminal_buffers::dispatch(function, input)),
         "workspace-statuses" => Some(workspace_statuses::dispatch(function, input)),
         "worktree-id" => Some(worktree_id::dispatch(function, input)),

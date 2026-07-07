@@ -4,9 +4,9 @@
 //!
 //! Output mirrors `JSON.stringify` of the TS discriminated union:
 //! `{ "ok": true, "value": <session> }` or `{ "ok": false, "error": "path: msg" }`.
-//! Why: the Rust port documents two deliberate divergences (unknown keys are
-//! preserved, not stripped; error wording differs from zod) — vectors hitting
-//! them carry a KNOWN-DEVIATION note and pin the TS output as the golden.
+//! The port's two former deviations (unknown-key preservation, zod-3-era error
+//! wording) were FIXED in the 2026-07-07 drift pass — every vector is now an
+//! exact match against the live zod 4.4.3 output.
 
 use orca_config::{parse_workspace_session, ParsedWorkspaceSession};
 use serde_json::{json, Value};

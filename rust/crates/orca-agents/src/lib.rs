@@ -55,6 +55,7 @@ pub use tui_agent_selection::{
 // --- ported user-story slice (workflow w8rbqzuzc) ---
 pub mod tui_agent_config;
 pub mod tui_agent_startup;
+pub mod tui_agent_startup_shell;
 pub mod terminal_quick_commands;
 
 pub use tui_agent_config::{
@@ -62,8 +63,14 @@ pub use tui_agent_config::{
     DraftPasteReadySignal, PreflightTrust, TuiAgentConfig, TUI_AGENT_CONFIG,
 };
 pub use tui_agent_startup::{
-    build_agent_draft_launch_plan, build_agent_startup_plan, AgentDraftLaunchArgs,
-    AgentDraftLaunchPlan, AgentStartupPlan, AgentStartupPlanArgs, AgentStartupShell,
+    build_agent_draft_launch_plan, build_agent_resume_startup_plan, build_agent_startup_plan,
+    get_agent_resume_argv, AgentDraftLaunchArgs, AgentDraftLaunchPlan,
+    AgentResumeStartupPlanArgs, AgentStartupPlan, AgentStartupPlanArgs, AgentStartupShell,
+    ProviderSessionKey, SleepingAgentLaunchConfig,
+};
+pub use tui_agent_startup_shell::{
+    build_shell_command_from_argv, clear_env_command, command_separator,
+    plan_agent_cli_args_suffix, quote_startup_arg, resolve_startup_shell,
 };
 pub use terminal_quick_commands::{
     build_terminal_quick_command_input, flatten_terminal_quick_command,

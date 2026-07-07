@@ -72,6 +72,58 @@ export function decodeGitCQuotedPath(value) {
 }
 
 /**
+ * Which Pi-compatible agent a launch command starts: `"omp"` for OMP
+ * (`omp` / `omp.sh`), else `"pi"`. The relay uses this to target the managed
+ * extension dir for the actual agent being launched.
+ * @param {string | null} [command]
+ * @returns {string}
+ */
+export function detectPiAgentKindFromCommand(command) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        var ptr0 = isLikeNone(command) ? 0 : passStringToWasm0(command, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        var len0 = WASM_VECTOR_LEN;
+        wasm.detectPiAgentKindFromCommand(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred2_0 = r0;
+        deferred2_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * The actionable nested-submodule rejection hidden behind a recursive-push
+ * failure, or `undefined`. Consumed by the RENDERER (push-failure toasts) via
+ * this same wasm.
+ * @param {string} message
+ * @returns {string | undefined}
+ */
+export function formatSubmodulePushFailureDetail(message) {
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(message, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.formatSubmodulePushFailureDetail(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        let v2;
+        if (r0 !== 0) {
+            v2 = getStringFromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export3(r0, r1 * 1, 1);
+        }
+        return v2;
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+    }
+}
+
+/**
  * True only for clearly-no-upstream signals (an expected state, gated on a
  * `fatal:` prefix). `undefined` message -> false (a non-Error throw in TS).
  * @param {string | null} [message]

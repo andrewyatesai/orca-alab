@@ -1,7 +1,7 @@
 import type { Dirent } from 'node:fs'
 import { open, readdir, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
-import { summarizeSkillMarkdown } from '../../shared/skill-metadata'
+import { summarizeSkillMarkdown } from './rust-skill-metadata'
 import type { Repo } from '../../shared/types'
 import type {
   DiscoveredSkill,

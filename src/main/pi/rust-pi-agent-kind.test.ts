@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { detectPiAgentKindFromCommand } from './pi-agent-kind'
+import { detectPiAgentKindFromCommand } from './rust-pi-agent-kind'
 
-describe('detectPiAgentKindFromCommand', () => {
+// Ported from the deleted detect half of src/shared/pi-agent-kind.test.ts:
+// the same expectations now run THROUGH the Rust orca-text detector via napi
+// (the relay runs the identical core via wasm).
+
+describe('detectPiAgentKindFromCommand (Rust napi)', () => {
   it('returns "pi" for undefined or empty commands', () => {
     expect(detectPiAgentKindFromCommand(undefined)).toBe('pi')
     expect(detectPiAgentKindFromCommand('')).toBe('pi')

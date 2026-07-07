@@ -30,6 +30,7 @@ import {
 } from '../../shared/git-uncommitted-line-stats'
 import { parseNumstatNative } from './rust-numstat'
 import { requireRustGitBinding } from '../daemon/rust-git-addon'
+import { isNoUpstreamError } from './rust-git-remote-error'
 import { gitExecFileAsync, gitExecFileAsyncBuffer, gitOptionalLocksDisabledEnv } from './runner'
 import { streamGitStatus } from './git-status-stream'
 import { untrackedAdditionsCounter } from './untracked-additions-counter'
@@ -660,7 +661,7 @@ async function probeEffectiveUpstreamStatus(
       probedSameNameOriginRef = true
     }
     return snapshotRunner(args)
-  })
+  }, isNoUpstreamError)
   return { status, probedSameNameOriginRef }
 }
 

@@ -4,6 +4,8 @@ export const memory: WebAssembly.Memory;
 export const computeLineStats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const countAdditionsInBuffer: (a: number, b: number) => number;
 export const decodeGitCQuotedPath: (a: number, b: number, c: number) => void;
+export const detectPiAgentKindFromCommand: (a: number, b: number, c: number) => void;
+export const formatSubmodulePushFailureDetail: (a: number, b: number, c: number) => void;
 export const isNoUpstreamError: (a: number, b: number) => number;
 export const normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
 export const parseGitHistoryLog: (a: number, b: number, c: number) => void;

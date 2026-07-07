@@ -1,4 +1,5 @@
 import { createGitConfigSnapshotRunner } from '../shared/git-config-snapshot-runner'
+import { isNoUpstreamError } from './git-wasm'
 import { getEffectiveGitUpstreamStatus } from '../shared/git-effective-upstream'
 import type { GitCommandRunner } from '../shared/git-effective-upstream'
 import type { GitUpstreamStatus } from '../shared/types'
@@ -123,7 +124,7 @@ export async function readOrProbeNoEffectiveUpstreamStatus(
       probedSameNameOriginRef = true
     }
     return snapshotRunner(args)
-  }).then((status) => {
+  }, isNoUpstreamError).then((status) => {
     cacheNoEffectiveUpstreamStatus(cacheKey, status, probedSameNameOriginRef, writeGeneration)
     return status
   })

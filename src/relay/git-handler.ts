@@ -763,6 +763,7 @@ export class GitHandler {
       }
       return await getEffectiveGitUpstreamStatus(
         (args) => this.git(args, worktreePath),
+        isNoUpstreamError,
         (upstreamName) => this.getBehindCommitsArePatchEquivalent(worktreePath, upstreamName)
       )
     } catch (error) {
@@ -976,7 +977,10 @@ export class GitHandler {
           )
           return
         }
-        const upstream = await resolveEffectiveGitUpstream((args) => this.git(args, worktreePath))
+        const upstream = await resolveEffectiveGitUpstream(
+          (args) => this.git(args, worktreePath),
+          isNoUpstreamError
+        )
         if (upstream && !upstream.isConfiguredUpstream) {
           // Why: legacy Orca branches may still track origin/main while pushes
           // target origin/<branch>. Pull the same effective branch the UI reports.

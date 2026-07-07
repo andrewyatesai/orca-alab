@@ -376,6 +376,61 @@ pub fn get_clone_path_comparison_key(clone_path: String) -> String {
     orca_git::repo_clone_path::get_clone_path_comparison_key(&clone_path)
 }
 
+/// Normalise a git remote-operation error message into the user-facing string.
+/// `message` is `None` for a non-Error throw (fixed fallback); `operation` is
+/// `"push" | "pull" | "fetch" | "upstream"` (unrecognised → `None`), matching
+/// the TS default-parameter behaviour. Mirrors the wasm export the relay runs.
+#[napi(catch_unwind)]
+pub fn normalize_git_error_message(message: Option<String>, operation: Option<String>) -> String {
+    let operation = match operation.as_deref() {
+        Some("push") => Some(orca_text::git_remote_error::GitRemoteOperation::Push),
+        Some("pull") => Some(orca_text::git_remote_error::GitRemoteOperation::Pull),
+        Some("fetch") => Some(orca_text::git_remote_error::GitRemoteOperation::Fetch),
+        Some("upstream") => Some(orca_text::git_remote_error::GitRemoteOperation::Upstream),
+        _ => None,
+    };
+    orca_text::git_remote_error::normalize_git_error_message(message.as_deref(), operation)
+}
+
+/// True only for clearly-no-upstream signals (an expected state, gated on a
+/// `fatal:` prefix). `None` message → false (a non-Error throw in TS).
+#[napi(catch_unwind)]
+pub fn is_no_upstream_error(message: Option<String>) -> bool {
+    orca_text::git_remote_error::is_no_upstream_error(message.as_deref())
+}
+
+/// Scrub credentials embedded in a git URL within `message` (keeps SSH
+/// user-info; strips `user:password@` on any scheme + HTTP(S) token-only
+/// `user@`).
+#[napi(catch_unwind)]
+pub fn strip_credentials_from_message(message: String) -> String {
+    orca_text::git_remote_error::strip_credentials_from_message(&message)
+}
+
+/// Which Pi-compatible agent a launch command starts: `"omp"` for OMP
+/// (`omp` / `omp.sh`), else `"pi"`.
+#[napi(catch_unwind)]
+pub fn detect_pi_agent_kind_from_command(command: Option<String>) -> String {
+    match orca_text::pi_agent_kind::detect_pi_agent_kind_from_command(command.as_deref()) {
+        orca_text::pi_agent_kind::PiAgentKind::Omp => "omp".to_string(),
+        orca_text::pi_agent_kind::PiAgentKind::Pi => "pi".to_string(),
+    }
+}
+
+/// Skill markdown frontmatter summary (`name`/`description`) as JSON.
+#[napi(catch_unwind)]
+pub fn summarize_skill_markdown(markdown: String) -> String {
+    let summary = orca_text::skill_metadata::summarize_skill_markdown(&markdown);
+    let mut out = serde_json::Map::new();
+    if let Some(name) = summary.name {
+        out.insert("name".to_string(), serde_json::Value::String(name));
+    }
+    if let Some(description) = summary.description {
+        out.insert("description".to_string(), serde_json::Value::String(description));
+    }
+    serde_json::Value::Object(out).to_string()
+}
+
 #[napi(catch_unwind)]
 pub fn git_engine() -> &'static str {
     "orca-git"

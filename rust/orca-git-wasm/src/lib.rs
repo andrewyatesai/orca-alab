@@ -125,3 +125,25 @@ pub fn strip_credentials_from_message(message: &str) -> String {
 pub fn is_no_upstream_error(message: Option<String>) -> bool {
     orca_text::git_remote_error::is_no_upstream_error(message.as_deref())
 }
+
+/// The actionable nested-submodule rejection hidden behind a recursive-push
+/// failure, or `undefined`. Consumed by the RENDERER (push-failure toasts) via
+/// this same wasm.
+#[cfg_attr(
+    target_arch = "wasm32",
+    wasm_bindgen(js_name = "formatSubmodulePushFailureDetail")
+)]
+pub fn format_submodule_push_failure_detail(message: &str) -> Option<String> {
+    orca_text::git_remote_error::format_submodule_push_failure_detail(message)
+}
+
+/// Which Pi-compatible agent a launch command starts: `"omp"` for OMP
+/// (`omp` / `omp.sh`), else `"pi"`. The relay uses this to target the managed
+/// extension dir for the actual agent being launched.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "detectPiAgentKindFromCommand"))]
+pub fn detect_pi_agent_kind_from_command(command: Option<String>) -> String {
+    match orca_text::pi_agent_kind::detect_pi_agent_kind_from_command(command.as_deref()) {
+        orca_text::pi_agent_kind::PiAgentKind::Omp => "omp".to_string(),
+        orca_text::pi_agent_kind::PiAgentKind::Pi => "pi".to_string(),
+    }
+}

@@ -22,6 +22,20 @@ export function countAdditionsInBuffer(bytes: Uint8Array): number | undefined;
 export function decodeGitCQuotedPath(value: string): string;
 
 /**
+ * Which Pi-compatible agent a launch command starts: `"omp"` for OMP
+ * (`omp` / `omp.sh`), else `"pi"`. The relay uses this to target the managed
+ * extension dir for the actual agent being launched.
+ */
+export function detectPiAgentKindFromCommand(command?: string | null): string;
+
+/**
+ * The actionable nested-submodule rejection hidden behind a recursive-push
+ * failure, or `undefined`. Consumed by the RENDERER (push-failure toasts) via
+ * this same wasm.
+ */
+export function formatSubmodulePushFailureDetail(message: string): string | undefined;
+
+/**
  * True only for clearly-no-upstream signals (an expected state, gated on a
  * `fatal:` prefix). `undefined` message -> false (a non-Error throw in TS).
  */
@@ -80,6 +94,8 @@ export interface InitOutput {
     readonly computeLineStats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly countAdditionsInBuffer: (a: number, b: number) => number;
     readonly decodeGitCQuotedPath: (a: number, b: number, c: number) => void;
+    readonly detectPiAgentKindFromCommand: (a: number, b: number, c: number) => void;
+    readonly formatSubmodulePushFailureDetail: (a: number, b: number, c: number) => void;
     readonly isNoUpstreamError: (a: number, b: number) => number;
     readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly parseGitHistoryLog: (a: number, b: number, c: number) => void;

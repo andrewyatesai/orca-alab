@@ -19,7 +19,7 @@ import {
 import { isAzureDevOpsReviewCreationAuthenticated } from '../azure-devops/pull-request-creation'
 import { isGiteaReviewCreationAuthenticated } from '../gitea/pull-request-creation'
 import { acquire, ghExecFileAsync, gitExecFileAsync, release } from '../github/gh-utils'
-import { isNoUpstreamError, normalizeGitErrorMessage } from '../../shared/git-remote-error'
+import { isNoUpstreamError, normalizeGitErrorMessage } from '../git/rust-git-remote-error'
 import type { GitUpstreamStatus } from '../../shared/types'
 import { gitOptionalLocksDisabledEnv } from '../git/runner'
 import { resolveDefaultBaseRefViaExec } from '../git/repo'

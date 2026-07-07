@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { summarizeSkillMarkdown } from './skill-metadata'
+import { summarizeSkillMarkdown } from './rust-skill-metadata'
 
-describe('summarizeSkillMarkdown', () => {
+// Ported from the deleted src/shared/skill-metadata.test.ts: the same
+// expectations now run THROUGH the Rust orca-text parser via napi.
+
+describe('summarizeSkillMarkdown (Rust napi)', () => {
   it('reads name and folded description from YAML frontmatter', () => {
     const summary = summarizeSkillMarkdown(`---
 name: orca-cli
@@ -29,5 +32,9 @@ Use when reviewing UI implementation quality.
       name: 'Design Review',
       description: 'Use when reviewing UI implementation quality.'
     })
+  })
+
+  it('returns nulls for markdown with no frontmatter, heading, or paragraph', () => {
+    expect(summarizeSkillMarkdown('')).toEqual({ name: null, description: null })
   })
 })

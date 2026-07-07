@@ -1,7 +1,7 @@
 import {
   formatSubmodulePushFailureDetail,
   stripCredentialsFromMessage
-} from '../../../shared/git-remote-error'
+} from './git-wasm/git-remote-error'
 
 const REMOTE_OPERATION_FAILED_MESSAGE = 'Remote operation failed'
 const REMOTE_OPERATION_DETAIL_MAX_LENGTH = 200
@@ -17,6 +17,14 @@ function truncateDetail(detail: string): string {
   return `${detail.slice(0, REMOTE_OPERATION_DETAIL_MAX_LENGTH).trimEnd()}...`
 }
 
+// Why: the credential scrubber is the Rust wasm; while it initialises (a
+// ~tens-of-ms window at boot) it returns null, and we must SKIP the detail —
+// never surface an unscrubbed line.
+function scrubbedDetail(raw: string): string | null {
+  const stripped = stripCredentialsFromMessage(raw)
+  return stripped === null ? null : truncateDetail(stripped)
+}
+
 function extractPublishFailureDetail(message: string): string | null {
   let remoteDetail: string | null = null
 
@@ -26,12 +34,10 @@ function extractPublishFailureDetail(message: string): string | null {
       continue
     }
     if (line.startsWith('fatal:')) {
-      return truncateDetail(stripCredentialsFromMessage(line.slice('fatal:'.length).trim()))
+      return scrubbedDetail(line.slice('fatal:'.length).trim())
     }
     if (remoteDetail === null && line.startsWith('remote:')) {
-      remoteDetail = truncateDetail(
-        stripCredentialsFromMessage(line.slice('remote:'.length).trim())
-      )
+      remoteDetail = scrubbedDetail(line.slice('remote:'.length).trim())
     }
   }
 
@@ -247,24 +253,18 @@ export function resolveRemoteOperationErrorMessage(
   }
 
   if (options?.isFetch) {
-    const detail =
-      extractPublishFailureDetail(error.message) ??
-      truncateDetail(stripCredentialsFromMessage(error.message))
-    return `Fetch failed. ${detail}`
+    const detail = extractPublishFailureDetail(error.message) ?? scrubbedDetail(error.message)
+    return detail === null ? 'Fetch failed.' : `Fetch failed. ${detail}`
   }
 
   if (options?.isFastForward) {
-    const detail =
-      extractPublishFailureDetail(error.message) ??
-      truncateDetail(stripCredentialsFromMessage(error.message))
-    return `Fast-forward failed. ${detail}`
+    const detail = extractPublishFailureDetail(error.message) ?? scrubbedDetail(error.message)
+    return detail === null ? 'Fast-forward failed.' : `Fast-forward failed. ${detail}`
   }
 
   if (options?.isRebase) {
-    const detail =
-      extractPublishFailureDetail(error.message) ??
-      truncateDetail(stripCredentialsFromMessage(error.message))
-    return `Rebase failed. ${detail}`
+    const detail = extractPublishFailureDetail(error.message) ?? scrubbedDetail(error.message)
+    return detail === null ? 'Rebase failed.' : `Rebase failed. ${detail}`
   }
 
   return error.message

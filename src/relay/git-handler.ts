@@ -44,11 +44,12 @@ import { resolveRelayPushTarget } from './git-handler-push-target'
 // runs, instead of the shared/relay-local TS copies — one source of truth.
 import {
   isNoUpstreamError,
+  upstreamOnlyCommitsArePatchEquivalent,
   normalizeGitErrorMessage,
   parseNumstat,
   parseGitHistoryLog
 } from './git-wasm'
-import { upstreamOnlyCommitsArePatchEquivalent } from '../shared/git-upstream-status'
+
 import { assertGitPushTargetShape } from '../shared/git-push-target-validation'
 import { getPublishTargetStatus, type GitCommandRunner } from '../shared/git-publish-target-status'
 import { resolveGitRemoteRebaseSource } from '../shared/git-rebase-source'

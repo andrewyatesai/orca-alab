@@ -137,6 +137,17 @@ pub fn format_submodule_push_failure_detail(message: &str) -> Option<String> {
     orca_text::git_remote_error::format_submodule_push_failure_detail(message)
 }
 
+/// True when `git cherry <upstream> HEAD`-style mark output shows at least one
+/// commit and every commit is patch-equivalent (`=`). The relay's
+/// behind-commits-are-patch-equivalent probe.
+#[cfg_attr(
+    target_arch = "wasm32",
+    wasm_bindgen(js_name = "upstreamOnlyCommitsArePatchEquivalent")
+)]
+pub fn upstream_only_commits_are_patch_equivalent(cherry_mark_output: &str) -> bool {
+    orca_core::git_upstream_status::upstream_only_commits_are_patch_equivalent(cherry_mark_output)
+}
+
 /// Which Pi-compatible agent a launch command starts: `"omp"` for OMP
 /// (`omp` / `omp.sh`), else `"pi"`. The relay uses this to target the managed
 /// extension dir for the actual agent being launched.

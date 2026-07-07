@@ -294,6 +294,20 @@ export function stripCredentialsFromMessage(message) {
 }
 
 /**
+ * True when `git cherry <upstream> HEAD`-style mark output shows at least one
+ * commit and every commit is patch-equivalent (`=`). The relay's
+ * behind-commits-are-patch-equivalent probe.
+ * @param {string} cherry_mark_output
+ * @returns {boolean}
+ */
+export function upstreamOnlyCommitsArePatchEquivalent(cherry_mark_output) {
+    const ptr0 = passStringToWasm0(cherry_mark_output, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.upstreamOnlyCommitsArePatchEquivalent(ptr0, len0);
+    return ret !== 0;
+}
+
+/**
  * Validate a persisted push target's *value* rules (path-traversal safety for a
  * remote name / branch name / optional GitHub URL). Returns the TS-identical
  * error message, or `undefined` when valid. The `unknown`->typed guards (the

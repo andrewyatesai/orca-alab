@@ -16,7 +16,8 @@ import {
   parseNumstat as wasmParseNumstat,
   parseWorktreeList as wasmParseWorktreeList,
   parseGitHistoryLog as wasmParseGitHistoryLog,
-  detectPiAgentKindFromCommand as wasmDetectPiAgentKindFromCommand
+  detectPiAgentKindFromCommand as wasmDetectPiAgentKindFromCommand,
+  upstreamOnlyCommitsArePatchEquivalent as wasmUpstreamOnlyCommitsArePatchEquivalent
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
 import type { GitRemoteOperation } from '../shared/git-remote-error'
@@ -150,4 +151,12 @@ export function parseGitHistoryLog(stdout: string): GitHistoryItem[] {
 export function detectPiAgentKindFromCommand(command: string | undefined): PiAgentKind {
   ensureGitWasm()
   return wasmDetectPiAgentKindFromCommand(command) as PiAgentKind
+}
+
+/** True when `git cherry` mark output shows ≥1 commit and every commit is
+ *  patch-equivalent (`=`) — the behind-commits probe. Main's equivalent runs
+ *  inside the Rust upstream/push flows; the shared TS parser was deleted. */
+export function upstreamOnlyCommitsArePatchEquivalent(cherryMarkOutput: string): boolean {
+  ensureGitWasm()
+  return wasmUpstreamOnlyCommitsArePatchEquivalent(cherryMarkOutput)
 }

@@ -80,6 +80,13 @@ export function parseWorktreeList(output: string, nul_delimited: boolean): strin
 export function stripCredentialsFromMessage(message: string): string;
 
 /**
+ * True when `git cherry <upstream> HEAD`-style mark output shows at least one
+ * commit and every commit is patch-equivalent (`=`). The relay's
+ * behind-commits-are-patch-equivalent probe.
+ */
+export function upstreamOnlyCommitsArePatchEquivalent(cherry_mark_output: string): boolean;
+
+/**
  * Validate a persisted push target's *value* rules (path-traversal safety for a
  * remote name / branch name / optional GitHub URL). Returns the TS-identical
  * error message, or `undefined` when valid. The `unknown`->typed guards (the
@@ -103,6 +110,7 @@ export interface InitOutput {
     readonly parseStatusPorcelain: (a: number, b: number, c: number, d: number) => void;
     readonly parseWorktreeList: (a: number, b: number, c: number, d: number) => void;
     readonly stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
+    readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;

@@ -13,6 +13,7 @@ export const parseNumstat: (a: number, b: number, c: number) => void;
 export const parseStatusPorcelain: (a: number, b: number, c: number, d: number) => void;
 export const parseWorktreeList: (a: number, b: number, c: number, d: number) => void;
 export const stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
+export const upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
 export const validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const __wbindgen_add_to_stack_pointer: (a: number) => number;
 export const __wbindgen_export: (a: number, b: number) => number;

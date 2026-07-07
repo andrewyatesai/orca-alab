@@ -61,6 +61,17 @@ pub fn count_additions_in_buffer(bytes: &[u8]) -> Option<u32> {
     orca_git::line_count::count_additions_in_buffer(bytes)
 }
 
+/// Approximate added/removed line counts for a diff section; returns the
+/// line-stats JSON, or `undefined` for the large-input guard (>500k combined
+/// chars — splitting that in a React render would block the UI). This one is
+/// consumed by the RENDERER (not the relay): the renderer has no napi access,
+/// so it loads this same wasm.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "computeLineStats"))]
+pub fn compute_line_stats(original: &str, modified: &str, status: &str) -> Option<String> {
+    orca_git::line_count::compute_line_stats(original, modified, status)
+        .map(|stats| orca_git::status_result::line_stats_to_json(Some(stats)).to_string())
+}
+
 /// Validate a persisted push target's *value* rules (path-traversal safety for a
 /// remote name / branch name / optional GitHub URL). Returns the TS-identical
 /// error message, or `undefined` when valid. The `unknown`->typed guards (the

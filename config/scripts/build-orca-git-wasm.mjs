@@ -124,6 +124,18 @@ for (const ext of ['.js', '.d.ts', '_bg.wasm', '_bg.wasm.d.ts']) {
   copyFileSync(join(GLUE_OUT, `${STEM}${ext}`), join(DEST, `${STEM}${ext}`))
 }
 
+// The RENDERER loads the same module via vite's `?url` asset + async init (the
+// aterm precedent — no sync-compile on the Chromium main thread, no base64
+// bundle bloat). Its copy is committed INCLUDING the raw _bg.wasm (unlike the
+// relay dir, where the raw wasm is gitignored in favour of the base64 embed)
+// so `?url` imports work from a fresh checkout.
+const RENDERER_DEST = join(ROOT, 'src/renderer/src/lib/git-wasm')
+mkdirSync(RENDERER_DEST, { recursive: true })
+for (const ext of ['.js', '.d.ts', '_bg.wasm', '_bg.wasm.d.ts']) {
+  copyFileSync(join(GLUE_OUT, `${STEM}${ext}`), join(RENDERER_DEST, `${STEM}${ext}`))
+}
+console.log(`[orca-git-wasm] copied glue + raw wasm → src/renderer/src/lib/git-wasm/`)
+
 // Embed the wasm bytes as a base64 TS module so the relay stays a SINGLE
 // self-contained relay.js. A raw-file + readFileSync/import.meta.url approach
 // resolves differently under vite (relay tests), esbuild (the bundle), and the

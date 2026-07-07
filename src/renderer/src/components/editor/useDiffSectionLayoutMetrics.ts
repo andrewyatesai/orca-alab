@@ -1,5 +1,9 @@
-import { useMemo } from 'react'
-import { computeLineStats } from './diff-line-stats'
+import { useMemo, useSyncExternalStore } from 'react'
+import {
+  computeLineStats,
+  isGitWasmReady,
+  subscribeGitWasmReady
+} from '../../lib/git-wasm/git-line-stats'
 import {
   getDiffSectionBodyHeight,
   getLargeDiffFallbackBodyHeight,
@@ -21,6 +25,10 @@ export function useDiffSectionLayoutMetrics({
 } {
   const renderLimit = section.largeDiffRenderLimit
   const isLargeDiffLimited = renderLimit?.limited === true
+  // Why: line stats come from the orca-git wasm; until it initialises,
+  // computeLineStats returns null (numstat fallback below). Subscribing to
+  // readiness recomputes stats for diffs already open at that moment.
+  const wasmReady = useSyncExternalStore(subscribeGitWasmReady, isGitWasmReady)
   const lineStats = useMemo(
     () =>
       section.loading || section.error || isLargeDiffLimited
@@ -32,7 +40,8 @@ export function useDiffSectionLayoutMetrics({
       section.originalContent,
       section.modifiedContent,
       section.status,
-      isLargeDiffLimited
+      isLargeDiffLimited,
+      wasmReady
     ]
   )
   const changedLineCount = useMemo(() => {

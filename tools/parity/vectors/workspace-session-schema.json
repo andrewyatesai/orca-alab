@@ -1206,6 +1206,540 @@
         "ok": false,
         "error": "tabsByWorktree.wt-1.0.startupCwd: Too small: expected string to have >=1 characters"
       }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://github.com/anthropics/claude-code",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://github.com/anthropics/claude-code",
+            "normalizedUrl": "stale",
+            "title": "t0",
+            "lastVisitedAt": 1000,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "https://github.com/anthropics/claude-code",
+              "normalizedUrl": "https://github.com/anthropics/claude-code",
+              "title": "t0",
+              "lastVisitedAt": 1000,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://GitHub.com/Anthropics/Claude-Code",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://GitHub.com/Anthropics/Claude-Code",
+            "normalizedUrl": "stale",
+            "title": "t1",
+            "lastVisitedAt": 1001,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "https://GitHub.com/Anthropics/Claude-Code",
+              "normalizedUrl": "https://github.com/Anthropics/Claude-Code",
+              "title": "t1",
+              "lastVisitedAt": 1001,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://google.com/",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://google.com/",
+            "normalizedUrl": "stale",
+            "title": "t2",
+            "lastVisitedAt": 1002,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "https://google.com/",
+              "normalizedUrl": "https://google.com",
+              "title": "t2",
+              "lastVisitedAt": 1002,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://www.google.com/search?q=rust+wasm",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://www.google.com/search?q=rust+wasm",
+            "normalizedUrl": "stale",
+            "title": "t3",
+            "lastVisitedAt": 1003,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "https://www.google.com/search?q=rust+wasm",
+              "normalizedUrl": "https://www.google.com/search?q=rust+wasm",
+              "title": "t3",
+              "lastVisitedAt": 1003,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://example.com/a/b/c#frag",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://example.com/a/b/c#frag",
+            "normalizedUrl": "stale",
+            "title": "t4",
+            "lastVisitedAt": 1004,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "https://example.com/a/b/c#frag",
+              "normalizedUrl": "https://example.com/a/b/c#frag",
+              "title": "t4",
+              "lastVisitedAt": 1004,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: http://example.com:80/path",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "http://example.com:80/path",
+            "normalizedUrl": "stale",
+            "title": "t5",
+            "lastVisitedAt": 1005,
+            "visitCount": 1
+          }
+        ]
+      },
+      "allowDivergence": "browserUrlHistory dedup key: TS `new URL()` strips the default port (http :80) per WHATWG; the Rust hand-rolled normalizer (no vendored WHATWG parser) keeps ':80'. Low-stakes self-healing history field."
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://example.com:443/path",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://example.com:443/path",
+            "normalizedUrl": "stale",
+            "title": "t6",
+            "lastVisitedAt": 1006,
+            "visitCount": 1
+          }
+        ]
+      },
+      "allowDivergence": "browserUrlHistory dedup key: TS `new URL()` strips the default port (https :443) per WHATWG; the Rust hand-rolled normalizer keeps ':443'. Low-stakes self-healing history field."
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://example.com/a/./b/../c",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://example.com/a/./b/../c",
+            "normalizedUrl": "stale",
+            "title": "t7",
+            "lastVisitedAt": 1007,
+            "visitCount": 1
+          }
+        ]
+      },
+      "allowDivergence": "browserUrlHistory dedup key: TS `new URL()` resolves path dot-segments ('/a/./b/../c'->'/a/c') per WHATWG; the Rust hand-rolled normalizer keeps the path verbatim. Low-stakes self-healing history field."
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://example.com/%7euser",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://example.com/%7euser",
+            "normalizedUrl": "stale",
+            "title": "t8",
+            "lastVisitedAt": 1008,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "https://example.com/%7euser",
+              "normalizedUrl": "https://example.com/%7euser",
+              "title": "t8",
+              "lastVisitedAt": 1008,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://münchen.de/straße",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://münchen.de/straße",
+            "normalizedUrl": "stale",
+            "title": "t9",
+            "lastVisitedAt": 1009,
+            "visitCount": 1
+          }
+        ]
+      },
+      "allowDivergence": "browserUrlHistory dedup key: TS `new URL()` applies IDNA punycode to the host and percent-encodes the non-ASCII path; the Rust hand-rolled normalizer only ASCII-lowercases and keeps Unicode verbatim. Low-stakes self-healing history field."
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://xn--mnchen-3ya.de/path",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://xn--mnchen-3ya.de/path",
+            "normalizedUrl": "stale",
+            "title": "t10",
+            "lastVisitedAt": 1010,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "https://xn--mnchen-3ya.de/path",
+              "normalizedUrl": "https://xn--mnchen-3ya.de/path",
+              "title": "t10",
+              "lastVisitedAt": 1010,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: https://user:Pass@Example.com/x",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "https://user:Pass@Example.com/x",
+            "normalizedUrl": "stale",
+            "title": "t11",
+            "lastVisitedAt": 1011,
+            "visitCount": 1
+          }
+        ]
+      },
+      "allowDivergence": "browserUrlHistory dedup key: TS `new URL()` lowercases only the host, preserving userinfo case ('user:Pass@'); the Rust hand-rolled normalizer ASCII-lowercases the whole authority. Low-stakes self-healing history field."
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: about:blank",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "about:blank",
+            "normalizedUrl": "stale",
+            "title": "t12",
+            "lastVisitedAt": 1012,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "about:blank",
+              "normalizedUrl": "about:blank",
+              "title": "t12",
+              "lastVisitedAt": 1012,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: file:///Users/me/notes.md",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "file:///Users/me/notes.md",
+            "normalizedUrl": "stale",
+            "title": "t13",
+            "lastVisitedAt": 1013,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "file:///Users/me/notes.md",
+              "normalizedUrl": "file:///Users/me/notes.md",
+              "title": "t13",
+              "lastVisitedAt": 1013,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: not a url at all",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "not a url at all",
+            "normalizedUrl": "stale",
+            "title": "t14",
+            "lastVisitedAt": 1014,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "not a url at all",
+              "normalizedUrl": "not a url at all",
+              "title": "t14",
+              "lastVisitedAt": 1014,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "function": "parseWorkspaceSession",
+      "note": "browserUrlHistory url normalization: HTTPS://EXAMPLE.COM/UPPER",
+      "input": {
+        "activeRepoId": null,
+        "activeWorktreeId": null,
+        "activeTabId": null,
+        "tabsByWorktree": {},
+        "terminalLayoutsByTabId": {},
+        "browserUrlHistory": [
+          {
+            "url": "HTTPS://EXAMPLE.COM/UPPER",
+            "normalizedUrl": "stale",
+            "title": "t15",
+            "lastVisitedAt": 1015,
+            "visitCount": 1
+          }
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "value": {
+          "activeRepoId": null,
+          "activeWorktreeId": null,
+          "activeTabId": null,
+          "tabsByWorktree": {},
+          "terminalLayoutsByTabId": {},
+          "browserUrlHistory": [
+            {
+              "url": "HTTPS://EXAMPLE.COM/UPPER",
+              "normalizedUrl": "https://example.com/UPPER",
+              "title": "t15",
+              "lastVisitedAt": 1015,
+              "visitCount": 1
+            }
+          ]
+        }
+      }
     }
   ]
 }

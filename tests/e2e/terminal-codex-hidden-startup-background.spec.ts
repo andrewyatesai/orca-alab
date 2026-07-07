@@ -25,7 +25,6 @@ type CodexStartupBackgroundTarget = {
   cellHeight: number
   cols: number
   row: number
-  modelBackgroundCells: number
 }
 
 type CodexStartupBackgroundWindow = Window & {
@@ -121,78 +120,75 @@ async function mainSnapshotContains(page: Page, ptyId: string, text: string): Pr
   )
 }
 
+// Locate the marker ROW + its on-screen geometry via the aterm surface (the
+// facade buffer for text, the grid canvas + controller cell metrics for
+// geometry). The composer-background evidence itself comes from the SCREENSHOT
+// pixel count below — the facade's buffer cells are deliberately neutral stubs
+// (attribute reads are not part of its surface), and the visible pixels are the
+// UX truth this spec guards anyway.
 async function readCodexStartupBackgroundTarget(
   page: Page,
+  ptyId: string,
   marker: string
 ): Promise<CodexStartupBackgroundTarget> {
   return page.evaluate(
-    ({ marker, expected }) => {
-      const isExpectedBackground = (cell: unknown): boolean => {
-        const record = cell as {
-          isBgRGB?: () => boolean
-          getBgColor?: () => number
+    ({ ptyId, marker }) => {
+      type PaneProbe = {
+        container?: ({ dataset?: { ptyId?: string } } & Element) | null
+        atermController?: { cellSizeCss?: () => { width: number; height: number } } | null
+        terminal?: {
+          rows?: number
+          cols?: number
+          buffer?: {
+            active?: {
+              viewportY?: number
+              getLine?: (row: number) => { translateToString(trim?: boolean): string } | undefined
+            }
+          }
         }
-        if (!record?.isBgRGB?.()) {
-          return false
-        }
-        const color = record.getBgColor?.() ?? 0
-        const red = (color >> 16) & 0xff
-        const green = (color >> 8) & 0xff
-        const blue = color & 0xff
-        return (
-          Math.abs(red - expected.red) <= 3 &&
-          Math.abs(green - expected.green) <= 3 &&
-          Math.abs(blue - expected.blue) <= 3
-        )
       }
-
-      const state = window.__store?.getState()
-      const worktreeId = state?.activeWorktreeId
-      const tabId =
-        state?.activeTabType === 'terminal'
-          ? state.activeTabId
-          : worktreeId
-            ? (state?.activeTabIdByWorktree?.[worktreeId] ?? null)
-            : null
-      const manager = tabId ? window.__paneManagers?.get(tabId) : null
-      const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0] ?? null
+      const managers = (
+        window as unknown as { __paneManagers?: Map<string, { getPanes?: () => PaneProbe[] }> }
+      ).__paneManagers
+      let pane: PaneProbe | null = null
+      for (const mgr of managers?.values() ?? []) {
+        for (const p of mgr.getPanes?.() ?? []) {
+          if (p?.container?.dataset?.ptyId === ptyId) {
+            pane = p
+          }
+        }
+      }
       if (!pane) {
-        throw new Error('Active Codex terminal pane is unavailable')
+        throw new Error('Codex terminal pane is unavailable')
       }
-      const screen = pane.container.querySelector<HTMLElement>('.xterm-screen')
-      const dimensions = pane.terminal._core?._renderService?.dimensions?.css?.cell
-      if (!screen || !dimensions) {
-        throw new Error('Active Codex terminal has no measurable xterm screen')
+      const canvas = pane.container?.querySelector('[data-testid="aterm-canvas"]')
+      const cell = pane.atermController?.cellSizeCss?.()
+      if (!canvas || !cell) {
+        throw new Error('Codex terminal has no measurable aterm canvas')
       }
-      const rect = screen.getBoundingClientRect()
+      const rect = (canvas as HTMLElement).getBoundingClientRect()
       if (rect.width <= 0 || rect.height <= 0) {
-        throw new Error('Active Codex terminal screen is not visible')
+        throw new Error('Codex terminal canvas is not visible')
       }
-      const activeBuffer = pane.terminal.buffer.active
-      for (let row = 0; row < pane.terminal.rows; row += 1) {
-        const line = activeBuffer.getLine(activeBuffer.viewportY + row)
-        const rowText = line?.translateToString(true) ?? ''
+      const term = pane.terminal
+      const buffer = term?.buffer?.active
+      const viewportY = buffer?.viewportY ?? 0
+      for (let row = 0; row < (term?.rows ?? 0); row += 1) {
+        const rowText = buffer?.getLine?.(viewportY + row)?.translateToString(true) ?? ''
         if (!rowText.includes(marker)) {
           continue
         }
-        let modelBackgroundCells = 0
-        for (let col = 0; col < pane.terminal.cols; col += 1) {
-          if (isExpectedBackground(line?.getCell(col))) {
-            modelBackgroundCells += 1
-          }
-        }
         return {
           clip: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-          cellWidth: dimensions.width,
-          cellHeight: dimensions.height,
-          cols: pane.terminal.cols,
-          row,
-          modelBackgroundCells
+          cellWidth: cell.width,
+          cellHeight: cell.height,
+          cols: term?.cols ?? 0,
+          row
         }
       }
       throw new Error(`Could not find Codex startup background marker ${marker}`)
     },
-    { marker, expected: COMPOSER_BG }
+    { ptyId, marker }
   )
 }
 
@@ -344,14 +340,22 @@ test.describe('Codex hidden startup composer background', () => {
       })
       .toContain(marker)
 
+    // The composer row paints its background across the full width; require the
+    // VISIBLE pixel evidence for a substantial run of cells (the fixture pads the
+    // row to the terminal width). Polled: the restored frame renders async.
     let target: CodexStartupBackgroundTarget | null = null
     await expect
       .poll(
         async () => {
           try {
-            const nextTarget = await readCodexStartupBackgroundTarget(orcaPage, marker)
+            const nextTarget = await readCodexStartupBackgroundTarget(orcaPage, hiddenPtyId, marker)
             target = nextTarget
-            return nextTarget.modelBackgroundCells >= Math.min(40, nextTarget.cols)
+            const minimumVisiblePixels = Math.round(
+              Math.min(40, nextTarget.cols) * nextTarget.cellWidth * nextTarget.cellHeight * 0.2
+            )
+            return (
+              (await countVisibleBackgroundPixels(orcaPage, nextTarget)) >= minimumVisiblePixels
+            )
           } catch {
             target = null
             return false
@@ -366,10 +370,5 @@ test.describe('Codex hidden startup composer background', () => {
     if (!target) {
       throw new Error('Codex startup background target was not captured')
     }
-    const visibleBackgroundPixels = await countVisibleBackgroundPixels(orcaPage, target)
-    const minimumVisiblePixels = Math.round(
-      target.modelBackgroundCells * target.cellWidth * target.cellHeight * 0.2
-    )
-    expect(visibleBackgroundPixels).toBeGreaterThanOrEqual(minimumVisiblePixels)
   })
 })

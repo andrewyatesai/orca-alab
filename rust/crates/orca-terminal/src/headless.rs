@@ -451,6 +451,21 @@ impl HeadlessTerminal {
             out.push_str(&self.scrollback_row_text(i));
             out.push_str("\r\n");
         }
+        if take > 0 {
+            // Scroll the printed history OFF the screen so it lands in the replay
+            // target's scrollback: the trailing printed lines are still on the
+            // visible grid here, and the absolute-CUP viewport paint below would
+            // ERASE them — losing a viewport-sized chunk of history on every
+            // replay (all of it when take < rows). One LF per resident text line
+            // (at most rows-1: the final CRLF left the bottom row blank) from the
+            // bottom row scrolls each top line into history and leaves a clean
+            // screen for the viewport paint.
+            let rows = self.inner.rows() as usize;
+            out.push_str(&format!("\x1b[{};1H", rows));
+            for _ in 0..take.min(rows.saturating_sub(1)) {
+                out.push('\n');
+            }
+        }
         out.push_str("\x1b[H");
         let grid = self.inner.grid();
         for r in 0..self.inner.rows() {

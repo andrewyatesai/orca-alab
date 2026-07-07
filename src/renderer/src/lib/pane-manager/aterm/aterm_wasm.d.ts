@@ -496,6 +496,15 @@ export class AtermTerminal {
      */
     set_sparkle_classes(profanity: boolean, feline: boolean, orca: boolean, emphasis: boolean): void;
     /**
+     * Custom word-effect specs (native `[[sparkle_words.custom]]`): pass the
+     * SAME TOML fragment the native config carries — per-word `ink` /
+     * `burst` / `graphic` axes. Custom words are auto-appended to the
+     * emphasis class (CJK surfaces included), override class defaults, and
+     * bypass per-class enable gates. Malformed TOML fails open to no
+     * customs; pass `undefined` to clear.
+     */
+    set_sparkle_custom_specs(toml?: string | null): void;
+    /**
      * Comma-separated exact surfaces to never decorate (the native global
      * `deny` and `ignore_words` channel), replacing the current set. Entries
      * are case/diacritic-folded with the scanner's own fold.
@@ -532,14 +541,17 @@ export class AtermTerminal {
      */
     set_sparkle_lexicon_override(toml?: string | null): void;
     /**
-     * Profanity knobs (native `[sparkle_words.profanity]`): `style` = "nova"
-     * (the v2 supernova, default) or "sparkle" (the exact v1 twinkle).
-     * Clamps are the native flash-safety floors and are not bypassable:
-     * `density` 1..=12 sparks, `anim_ms` 350..=10000, `jitter` 0..=6 px,
-     * `intensity` 0..=1. `magic` = rare Quasar/Singularity novas. The
-     * window-wide ignition limiter (≤2 novas per rolling second) is always on.
+     * Profanity knobs (native `[sparkle_words.profanity]`): `style` =
+     * "rainbow" (the v3 animated rainbow ink, the default) | "nova" (the v2
+     * classic nova) | "sparkle" (the exact v1 twinkle). Clamps are the
+     * native flash-safety floors and are not bypassable: `density` 1..=12
+     * sparks, `anim_ms` 350..=10000, `jitter` 0..=6 px, `intensity` 0..=1.
+     * `magic` = rare Quasar/Singularity novas. `supernova_chance` (0..=100,
+     * 0 disables) = the FUCK SUPER NOVA escalation chance under
+     * `style = "rainbow"`. The window-wide ignition limiter (≤2 ignitions
+     * per rolling second) is always on.
      */
-    set_sparkle_profanity(style: string, density: number, anim_ms: number, jitter: number, intensity: number, magic: boolean): void;
+    set_sparkle_profanity(style: string, density: number, anim_ms: number, jitter: number, intensity: number, magic: boolean, supernova_chance: number): void;
     /**
      * Force the static, non-animating path (no twinkle/jitter/sweep; novas
      * collapse to a static glint) — the accessibility `reduced_motion`
@@ -745,6 +757,16 @@ export class AtermTerminal {
      */
     readonly search_display_origin: number;
     /**
+     * Lexicon build diagnostics (v3 §6), newline-joined — one warning per
+     * line for every user/custom surface that can never scan as written
+     * (single-char CJK without the `cjk_single_char` opt-in, mixed-script /
+     * multi-word) or collides across classes; the same warnings the native
+     * resolver logs. Empty string while sparkle words are off or the lexicon
+     * is clean. Filtered by the current knobs: a "requires cjk_single_char =
+     * true" warning disappears once `set_sparkle_feline` enables the opt-in.
+     */
+    readonly sparkle_lexicon_warnings: string;
+    /**
      * Whether the sparkle-words master is currently on.
      */
     readonly sparkle_words_enabled: boolean;
@@ -930,17 +952,19 @@ export interface InitOutput {
     readonly atermterminal_set_selection_inactive_bg: (a: number, b: number) => void;
     readonly atermterminal_set_sparkle_alt_screen_suppression: (a: number, b: number) => void;
     readonly atermterminal_set_sparkle_classes: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly atermterminal_set_sparkle_custom_specs: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_sparkle_deny: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_sparkle_feline: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
     readonly atermterminal_set_sparkle_ink: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_sparkle_languages: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_sparkle_lexicon_override: (a: number, b: number, c: number) => void;
-    readonly atermterminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => void;
+    readonly atermterminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
     readonly atermterminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
     readonly atermterminal_set_sparkle_words_enabled: (a: number, b: number) => void;
     readonly atermterminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_word_separators: (a: number, b: number, c: number) => void;
+    readonly atermterminal_sparkle_lexicon_warnings: (a: number) => [number, number];
     readonly atermterminal_sparkle_words_enabled: (a: number) => number;
     readonly atermterminal_take_notifications: (a: number) => [number, number];
     readonly atermterminal_take_osc_events: (a: number) => [number, number];

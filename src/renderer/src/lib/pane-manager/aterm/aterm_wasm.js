@@ -1154,6 +1154,20 @@ export class AtermTerminal {
         wasm.atermterminal_set_sparkle_classes(this.__wbg_ptr, profanity, feline, orca, emphasis);
     }
     /**
+     * Custom word-effect specs (native `[[sparkle_words.custom]]`): pass the
+     * SAME TOML fragment the native config carries — per-word `ink` /
+     * `burst` / `graphic` axes. Custom words are auto-appended to the
+     * emphasis class (CJK surfaces included), override class defaults, and
+     * bypass per-class enable gates. Malformed TOML fails open to no
+     * customs; pass `undefined` to clear.
+     * @param {string | null} [toml]
+     */
+    set_sparkle_custom_specs(toml) {
+        var ptr0 = isLikeNone(toml) ? 0 : passStringToWasm0(toml, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_sparkle_custom_specs(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * Comma-separated exact surfaces to never decorate (the native global
      * `deny` and `ignore_words` channel), replacing the current set. Entries
      * are case/diacritic-folded with the scanner's own fold.
@@ -1223,23 +1237,27 @@ export class AtermTerminal {
         wasm.atermterminal_set_sparkle_lexicon_override(this.__wbg_ptr, ptr0, len0);
     }
     /**
-     * Profanity knobs (native `[sparkle_words.profanity]`): `style` = "nova"
-     * (the v2 supernova, default) or "sparkle" (the exact v1 twinkle).
-     * Clamps are the native flash-safety floors and are not bypassable:
-     * `density` 1..=12 sparks, `anim_ms` 350..=10000, `jitter` 0..=6 px,
-     * `intensity` 0..=1. `magic` = rare Quasar/Singularity novas. The
-     * window-wide ignition limiter (≤2 novas per rolling second) is always on.
+     * Profanity knobs (native `[sparkle_words.profanity]`): `style` =
+     * "rainbow" (the v3 animated rainbow ink, the default) | "nova" (the v2
+     * classic nova) | "sparkle" (the exact v1 twinkle). Clamps are the
+     * native flash-safety floors and are not bypassable: `density` 1..=12
+     * sparks, `anim_ms` 350..=10000, `jitter` 0..=6 px, `intensity` 0..=1.
+     * `magic` = rare Quasar/Singularity novas. `supernova_chance` (0..=100,
+     * 0 disables) = the FUCK SUPER NOVA escalation chance under
+     * `style = "rainbow"`. The window-wide ignition limiter (≤2 ignitions
+     * per rolling second) is always on.
      * @param {string} style
      * @param {number} density
      * @param {number} anim_ms
      * @param {number} jitter
      * @param {number} intensity
      * @param {boolean} magic
+     * @param {number} supernova_chance
      */
-    set_sparkle_profanity(style, density, anim_ms, jitter, intensity, magic) {
+    set_sparkle_profanity(style, density, anim_ms, jitter, intensity, magic, supernova_chance) {
         const ptr0 = passStringToWasm0(style, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        wasm.atermterminal_set_sparkle_profanity(this.__wbg_ptr, ptr0, len0, density, anim_ms, jitter, intensity, magic);
+        wasm.atermterminal_set_sparkle_profanity(this.__wbg_ptr, ptr0, len0, density, anim_ms, jitter, intensity, magic, supernova_chance);
     }
     /**
      * Force the static, non-animating path (no twinkle/jitter/sweep; novas
@@ -1306,6 +1324,28 @@ export class AtermTerminal {
         var ptr0 = isLikeNone(separators) ? 0 : passStringToWasm0(separators, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         var len0 = WASM_VECTOR_LEN;
         wasm.atermterminal_set_word_separators(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Lexicon build diagnostics (v3 §6), newline-joined — one warning per
+     * line for every user/custom surface that can never scan as written
+     * (single-char CJK without the `cjk_single_char` opt-in, mixed-script /
+     * multi-word) or collides across classes; the same warnings the native
+     * resolver logs. Empty string while sparkle words are off or the lexicon
+     * is clean. Filtered by the current knobs: a "requires cjk_single_char =
+     * true" warning disappears once `set_sparkle_feline` enables the opt-in.
+     * @returns {string}
+     */
+    get sparkle_lexicon_warnings() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.atermterminal_sparkle_lexicon_warnings(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
     }
     /**
      * Whether the sparkle-words master is currently on.

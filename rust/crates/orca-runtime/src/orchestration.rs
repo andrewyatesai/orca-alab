@@ -1,90 +1,12 @@
 //! Orchestration coordination store, ported from
-//! `src/main/runtime/orchestration/db.ts`. Schema is faithful to the source;
-//! this first cut implements the message + task operations (dispatch contexts,
-//! decision gates, and coordinator runs share the schema and are added next).
+//! `src/main/runtime/orchestration/db.ts`. Schema creation and the
+//! `user_version` migration ladder live in `orchestration_schema`; this module
+//! implements the message + task operations (dispatch contexts, decision
+//! gates, and coordinator runs share the schema and are added next).
 
+use crate::orchestration_schema;
 use orca_store::{Database, OpenOptions, StoreError};
 use rusqlite::{params, OptionalExtension};
-
-/// The full orchestration schema (verbatim from `db.ts createTables`).
-const SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS messages (
-  id            TEXT NOT NULL,
-  from_handle   TEXT NOT NULL,
-  to_handle     TEXT NOT NULL,
-  subject       TEXT NOT NULL,
-  body          TEXT NOT NULL DEFAULT '',
-  type          TEXT NOT NULL DEFAULT 'status'
-    CHECK(type IN ('status','dispatch','worker_done','merge_ready','escalation','handoff','decision_gate','heartbeat')),
-  priority      TEXT NOT NULL DEFAULT 'normal'
-    CHECK(priority IN ('normal','high','urgent')),
-  thread_id     TEXT,
-  payload       TEXT,
-  read          INTEGER NOT NULL DEFAULT 0,
-  sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  delivered_at  TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
-CREATE INDEX IF NOT EXISTS idx_inbox ON messages(to_handle, read);
-CREATE INDEX IF NOT EXISTS idx_thread ON messages(thread_id);
-
-CREATE TABLE IF NOT EXISTS tasks (
-  id            TEXT PRIMARY KEY,
-  parent_id     TEXT,
-  created_by_terminal_handle TEXT,
-  spec          TEXT NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'pending'
-    CHECK(status IN ('pending','ready','dispatched','completed','failed','blocked')),
-  deps          TEXT NOT NULL DEFAULT '[]',
-  result        TEXT,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  completed_at  TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
-
-CREATE TABLE IF NOT EXISTS dispatch_contexts (
-  id                  TEXT PRIMARY KEY,
-  task_id             TEXT NOT NULL,
-  assignee_handle     TEXT,
-  status              TEXT NOT NULL DEFAULT 'pending'
-    CHECK(status IN ('pending','dispatched','completed','failed','circuit_broken')),
-  failure_count       INTEGER NOT NULL DEFAULT 0,
-  last_failure        TEXT,
-  dispatched_at       TEXT,
-  completed_at        TEXT,
-  created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-  last_heartbeat_at   TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_dispatch_task ON dispatch_contexts(task_id);
-CREATE INDEX IF NOT EXISTS idx_dispatch_status ON dispatch_contexts(status);
-
-CREATE TABLE IF NOT EXISTS decision_gates (
-  id            TEXT PRIMARY KEY,
-  task_id       TEXT NOT NULL,
-  question      TEXT NOT NULL,
-  options       TEXT NOT NULL DEFAULT '[]',
-  status        TEXT NOT NULL DEFAULT 'pending'
-    CHECK(status IN ('pending','resolved','timeout')),
-  resolution    TEXT,
-  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  resolved_at   TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_gates_task ON decision_gates(task_id);
-CREATE INDEX IF NOT EXISTS idx_gates_status ON decision_gates(status);
-
-CREATE TABLE IF NOT EXISTS coordinator_runs (
-  id                  TEXT PRIMARY KEY,
-  spec                TEXT NOT NULL,
-  status              TEXT NOT NULL DEFAULT 'idle'
-    CHECK(status IN ('idle','running','completed','failed')),
-  coordinator_handle  TEXT NOT NULL,
-  poll_interval_ms    INTEGER NOT NULL DEFAULT 2000,
-  created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-  completed_at        TEXT
-);
-"#;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NewMessage {
@@ -163,10 +85,13 @@ impl OrchestrationDb {
     }
 
     fn init(db: Database) -> Result<Self, StoreError> {
-        // WAL is a no-op for :memory:; harmless and matches the TS pragmas.
-        db.set_pragma_i64("busy_timeout", 5000)?;
-        db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
-        db.exec(SCHEMA)?;
+        // Why: same pragmas in the same order as the TS constructor. WAL is a
+        // no-op for :memory:; harmless on both sides.
+        db.exec("PRAGMA journal_mode = WAL")?;
+        db.exec("PRAGMA synchronous = NORMAL")?;
+        db.exec("PRAGMA busy_timeout = 5000")?;
+        orchestration_schema::create_tables(&db)?;
+        orchestration_schema::migrate(&db)?;
         Ok(Self { db })
     }
 

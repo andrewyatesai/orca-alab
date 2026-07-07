@@ -6,5 +6,6 @@
 //! SQLite.
 
 pub mod orchestration;
+mod orchestration_schema;
 
 pub use orchestration::{Message, NewMessage, OrchestrationDb, Task};

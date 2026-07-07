@@ -600,10 +600,15 @@ dependencies = [
  "orca-core",
  "orca-git",
  "orca-net",
+ "orca-ssh",
  "orca-terminal",
  "orca-text",
  "serde_json",
 ]
+
+[[package]]
+name = "orca-ssh"
+version = "0.0.1"
 
 [[package]]
 name = "orca-terminal"

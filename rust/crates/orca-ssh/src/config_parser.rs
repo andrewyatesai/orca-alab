@@ -6,7 +6,9 @@
 pub struct SshConfigHost {
     pub host: String,
     pub hostname: Option<String>,
-    pub port: Option<u32>,
+    // i64, not u32: TS stores `parseInt(value,10) || 22`, which preserves a
+    // negative or >u32 port verbatim (byte-faithful to the JS number).
+    pub port: Option<i64>,
     pub user: Option<String>,
     pub identity_file: Option<String>,
     pub identity_agent: Option<String>,
@@ -60,8 +62,9 @@ pub fn parse_ssh_config(content: &str, home: &str) -> Vec<SshConfigHost> {
         match key.as_str() {
             "hostname" => set_all(&mut current, |h| h.hostname = Some(value.clone())),
             "port" => {
-                // TS: `parseInt(value, 10) || 22` — invalid or 0 falls back to 22.
-                let port = value.parse::<u32>().ok().filter(|&p| p > 0).unwrap_or(22);
+                // TS: `parseInt(value, 10) || 22` — leading-digit parse (trailing
+                // junk / decimals keep the leading int), then 0 or NaN falls to 22.
+                let port = js_parse_int_base10(&value).filter(|&p| p != 0).unwrap_or(22);
                 set_all(&mut current, |h| h.port = Some(port));
             }
             "user" => set_all(&mut current, |h| h.user = Some(value.clone())),
@@ -157,21 +160,66 @@ fn split_openssh_arguments(input: &str) -> Vec<String> {
     args
 }
 
+/// JS `parseInt(s, 10)`: skip leading whitespace, take an optional sign then
+/// base-10 digits, stopping at the first non-digit (trailing junk and the
+/// fractional part are ignored). `None` models `NaN` (no digits).
+fn js_parse_int_base10(s: &str) -> Option<i64> {
+    let s = s.trim_start();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    let negative = match bytes.first() {
+        Some(b'-') => {
+            i = 1;
+            true
+        }
+        Some(b'+') => {
+            i = 1;
+            false
+        }
+        _ => false,
+    };
+    let digits_start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == digits_start {
+        return None;
+    }
+    // Absurdly long digit runs saturate — parseInt would return a lossy f64
+    // there anyway, and no real Port line reaches i64::MAX.
+    let magnitude = s[digits_start..i].parse::<i64>().unwrap_or(i64::MAX);
+    Some(if negative { -magnitude } else { magnitude })
+}
+
 /// Expand a leading `~` (with `/` or `\` separators) against `home`; other
-/// values pass through. Separators are normalised to `/`.
+/// values pass through. Mirrors the TS `resolveSshConfigHomePath`, whose
+/// `path.join(homedir(), ...split(/[\\/]+/).filter(Boolean))` collapses runs of
+/// separators and resolves `.`/`..` segments. Emits `/`-separated paths (OpenSSH
+/// accepts them on every platform, matching the prior Rust behaviour + the
+/// posix-generated goldens).
 fn resolve_ssh_config_home_path(value: &str, home: &str) -> String {
     let bytes = value.as_bytes();
-    let tilde_path = bytes.first() == Some(&b'~')
-        && (value.len() == 1 || matches!(bytes[1], b'/' | b'\\'));
+    let tilde_path =
+        bytes.first() == Some(&b'~') && (value.len() == 1 || matches!(bytes[1], b'/' | b'\\'));
     if !tilde_path {
         return value.to_string();
     }
-    let rest = value[1..].replace('\\', "/");
-    let rest = rest.trim_start_matches('/');
-    if rest.is_empty() {
-        home.to_string()
+    // `~` alone → homedir; otherwise join the non-empty segments after `~/`.
+    let mut parts: Vec<&str> = home.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+    for segment in value[1..].split(['/', '\\']).filter(|s| !s.is_empty()) {
+        match segment {
+            "." => {}
+            // `..` cannot climb above root (path.join clamps at the filesystem root).
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    if parts.is_empty() {
+        "/".to_string()
     } else {
-        format!("{home}/{rest}")
+        format!("/{}", parts.join("/"))
     }
 }
 

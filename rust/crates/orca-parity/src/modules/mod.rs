@@ -55,6 +55,7 @@ pub mod setup_script_imports;
 pub mod setup_script_telemetry;
 pub mod skill_metadata;
 pub mod source_control_ai;
+pub mod ssh_config_parser;
 pub mod stable_pane_id;
 pub mod synthetic_agent_title;
 pub mod tab_title_resolution;
@@ -135,6 +136,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "setup-script-telemetry" => Some(setup_script_telemetry::dispatch(function, input)),
         "skill-metadata" => Some(skill_metadata::dispatch(function, input)),
         "source-control-ai" => Some(source_control_ai::dispatch(function, input)),
+        "ssh-config-parser" => Some(ssh_config_parser::dispatch(function, input)),
         "stable-pane-id" => Some(stable_pane_id::dispatch(function, input)),
         "synthetic-agent-title" => Some(synthetic_agent_title::dispatch(function, input)),
         "tab-title-resolution" => Some(tab_title_resolution::dispatch(function, input)),

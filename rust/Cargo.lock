@@ -740,6 +740,7 @@ dependencies = [
  "orca-git",
  "orca-net",
  "orca-relay",
+ "orca-ssh",
  "orca-text",
  "serde_json",
 ]

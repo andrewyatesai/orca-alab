@@ -8,7 +8,23 @@ afterEach(() => {
   vi.resetModules()
   vi.doUnmock('fs')
   vi.doUnmock('os')
+  vi.doUnmock('../daemon/rust-git-addon')
 })
+
+// parseSshConfig now runs through the Rust orca-ssh core (napi). These suites
+// mock `fs`, which breaks the addon loader's existsSync probe, so provide the
+// real native binding directly — a native require bypasses the `fs` JS mock,
+// and `test` always builds it.
+function mockRustGitAddon() {
+  vi.doMock('../daemon/rust-git-addon', async () => {
+    const { createRequire } = await import('node:module')
+    const { join } = await import('node:path')
+    const binding = createRequire(import.meta.url)(
+      join(process.cwd(), 'native', 'orca-node', 'orca_node.node')
+    )
+    return { loadRustGitBinding: () => binding, requireRustGitBinding: () => binding }
+  })
+}
 
 function normalizeWin(value: string): string {
   return win32.normalize(value.replaceAll('/', '\\'))
@@ -42,6 +58,7 @@ async function mockOs(
 }
 
 async function loadUserSshConfig() {
+  mockRustGitAddon()
   const mod = await import('./ssh-config-parser')
   return mod.loadUserSshConfig()
 }

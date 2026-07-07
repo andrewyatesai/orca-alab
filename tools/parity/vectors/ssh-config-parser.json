@@ -1,0 +1,437 @@
+{
+  "module": "ssh-config-parser",
+  "cases": [
+    {
+      "function": "parseSshConfig",
+      "note": "basic host block",
+      "input": {
+        "content": "Host web\n  HostName 10.0.0.1\n  User deploy\n  Port 2222\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "web",
+          "hostname": "10.0.0.1",
+          "user": "deploy",
+          "port": 2222
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "multiple aliases on one Host line",
+      "input": {
+        "content": "Host a b c\n  HostName shared.example.com\n  User root\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "a",
+          "hostname": "shared.example.com",
+          "user": "root"
+        },
+        {
+          "host": "b",
+          "hostname": "shared.example.com",
+          "user": "root"
+        },
+        {
+          "host": "c",
+          "hostname": "shared.example.com",
+          "user": "root"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "wildcard-only Host is skipped",
+      "input": {
+        "content": "Host *\n  User everyone\n",
+        "home": "/home/testuser"
+      },
+      "expected": []
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "wildcard + concrete mix keeps only concrete",
+      "input": {
+        "content": "Host prod-* db1 !secret\n  HostName box\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "db1",
+          "hostname": "box"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "equals separator",
+      "input": {
+        "content": "Host eq\nHostName=eq.example.com\nPort=443\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "eq",
+          "hostname": "eq.example.com",
+          "port": 443
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "inline comment stripped from scalar",
+      "input": {
+        "content": "Host c\n  User bob # my login\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "c",
+          "user": "bob"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "quoted value",
+      "input": {
+        "content": "Host q\n  User \"space user\"\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "q",
+          "user": "space user"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "ProxyCommand preserves the rest of the line incl # and quotes",
+      "input": {
+        "content": "Host p\n  ProxyCommand ssh -W %h:%p bastion # via jump\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "p",
+          "proxyCommand": "ssh -W %h:%p bastion # via jump"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "ProxyJump + IdentityAgent + IdentitiesOnly yes",
+      "input": {
+        "content": "Host j\n  ProxyJump jump.example.com\n  IdentityAgent ~/agent.sock\n  IdentitiesOnly yes\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "j",
+          "proxyJump": "jump.example.com",
+          "identityAgent": "/home/testuser/agent.sock",
+          "identitiesOnly": true
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "IdentitiesOnly no + ProxyUseFdpass yes",
+      "input": {
+        "content": "Host f\n  IdentitiesOnly No\n  ProxyUseFdpass YES\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "f",
+          "identitiesOnly": false,
+          "proxyUseFdpass": true
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "identityfile tilde simple",
+      "input": {
+        "content": "Host i\n  IdentityFile ~/.ssh/id_ed25519\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "i",
+          "identityFile": "/home/testuser/.ssh/id_ed25519"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "identityfile bare tilde",
+      "input": {
+        "content": "Host i2\n  IdentityFile ~\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "i2",
+          "identityFile": "/home/testuser"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "identityfile tilde with dot-segments",
+      "input": {
+        "content": "Host i3\n  IdentityFile ~/.ssh/../keys/./id_rsa\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "i3",
+          "identityFile": "/home/testuser/keys/id_rsa"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "identityfile tilde with doubled slashes",
+      "input": {
+        "content": "Host i4\n  IdentityFile ~/.ssh//id_rsa\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "i4",
+          "identityFile": "/home/testuser/.ssh/id_rsa"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "identityfile tilde trailing slash",
+      "input": {
+        "content": "Host i5\n  IdentityFile ~/.ssh/\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "i5",
+          "identityFile": "/home/testuser/.ssh"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "identityfile tilde backslash separator",
+      "input": {
+        "content": "Host i6\n  IdentityFile ~\\keys\\id_rsa\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "i6",
+          "identityFile": "/home/testuser/keys/id_rsa"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "identityfile absolute passthrough",
+      "input": {
+        "content": "Host i7\n  IdentityFile /etc/ssh/id\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "i7",
+          "identityFile": "/etc/ssh/id"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "identityfile relative passthrough",
+      "input": {
+        "content": "Host i8\n  IdentityFile keys/id\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "i8",
+          "identityFile": "keys/id"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "port plain",
+      "input": {
+        "content": "Host pt\n  Port 22\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "pt",
+          "port": 22
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "port zero falls back to 22",
+      "input": {
+        "content": "Host pt0\n  Port 0\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "pt0",
+          "port": 22
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "port non-numeric falls back to 22",
+      "input": {
+        "content": "Host ptx\n  Port ssh\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "ptx",
+          "port": 22
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "port with trailing junk",
+      "input": {
+        "content": "Host ptj\n  Port 2222abc\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "ptj",
+          "port": 2222
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "port negative",
+      "input": {
+        "content": "Host ptn\n  Port -5\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "ptn",
+          "port": -5
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "port decimal",
+      "input": {
+        "content": "Host ptd\n  Port 3.9\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "ptd",
+          "port": 3
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "port above u16",
+      "input": {
+        "content": "Host pth\n  Port 70000\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "pth",
+          "port": 70000
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "match block resets current host",
+      "input": {
+        "content": "Host m\n  User first\nMatch host m\n  User second\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "m",
+          "user": "first"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "directive before any Host is ignored",
+      "input": {
+        "content": "User orphan\nHost after\n  User real\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "after",
+          "user": "real"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "comment + blank lines",
+      "input": {
+        "content": "# header\n\nHost cm\n\n  User x\n\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "cm",
+          "user": "x"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "unknown directive ignored",
+      "input": {
+        "content": "Host u\n  ForwardAgent yes\n  User keep\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "u",
+          "user": "keep"
+        }
+      ]
+    },
+    {
+      "function": "parseSshConfig",
+      "note": "leading whitespace + tabs",
+      "input": {
+        "content": "Host\tt\n\t\tHostName tabbed\n",
+        "home": "/home/testuser"
+      },
+      "expected": [
+        {
+          "host": "t",
+          "hostname": "tabbed"
+        }
+      ]
+    }
+  ]
+}

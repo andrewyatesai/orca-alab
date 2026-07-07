@@ -483,6 +483,49 @@ fn plan_agent_binary_result_to_json(default_binary: &str, command_override: Opti
     }
 }
 
+/// Parse an OpenSSH config file into `SshConfigHost[]` JSON (the same shape TS
+/// `parseSshConfig` returns). `home` is the `~`-expansion base the caller reads
+/// from `os.homedir()` — kept explicit so the Rust core stays pure.
+#[napi(catch_unwind)]
+pub fn parse_ssh_config(content: String, home: String) -> String {
+    let hosts = orca_ssh::parse_ssh_config(&content, &home);
+    let array: Vec<serde_json::Value> = hosts.iter().map(ssh_config_host_to_json).collect();
+    serde_json::Value::Array(array).to_string()
+}
+
+fn ssh_config_host_to_json(host: &orca_ssh::SshConfigHost) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    map.insert("host".into(), serde_json::Value::from(host.host.clone()));
+    if let Some(v) = &host.hostname {
+        map.insert("hostname".into(), serde_json::Value::from(v.clone()));
+    }
+    if let Some(v) = host.port {
+        map.insert("port".into(), serde_json::Value::from(v));
+    }
+    if let Some(v) = &host.user {
+        map.insert("user".into(), serde_json::Value::from(v.clone()));
+    }
+    if let Some(v) = &host.identity_file {
+        map.insert("identityFile".into(), serde_json::Value::from(v.clone()));
+    }
+    if let Some(v) = &host.identity_agent {
+        map.insert("identityAgent".into(), serde_json::Value::from(v.clone()));
+    }
+    if let Some(v) = host.identities_only {
+        map.insert("identitiesOnly".into(), serde_json::Value::from(v));
+    }
+    if let Some(v) = &host.proxy_command {
+        map.insert("proxyCommand".into(), serde_json::Value::from(v.clone()));
+    }
+    if let Some(v) = host.proxy_use_fdpass {
+        map.insert("proxyUseFdpass".into(), serde_json::Value::from(v));
+    }
+    if let Some(v) = &host.proxy_jump {
+        map.insert("proxyJump".into(), serde_json::Value::from(v.clone()));
+    }
+    serde_json::Value::Object(map)
+}
+
 /// Validate raw session JSON as a `WorkspaceSessionState`, returning the TS
 /// `ParsedWorkspaceSession` union (`{ok:true, value} | {ok:false, error}`) JSON.
 /// Same parse/repair `src/main/persistence.ts` relied on the deleted shared zod

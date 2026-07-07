@@ -154,6 +154,9 @@ export type RustGitBinding = {
   /** Validate raw session JSON as a `WorkspaceSessionState`, returning the
    *  `ParsedWorkspaceSession` union (`{ok:true, value} | {ok:false, error}`) JSON. */
   parseWorkspaceSession(rawJson: string): string
+  /** Parse an OpenSSH config file into `SshConfigHost[]` JSON. `home` is the
+   *  `~`-expansion base (the caller's `os.homedir()`). */
+  parseSshConfig(content: string, home: string): string
   gitEngine(): string
 }
 

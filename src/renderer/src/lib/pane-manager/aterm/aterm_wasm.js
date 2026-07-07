@@ -6,6 +6,13 @@
  * back via [`AtermTerminal::rgba`] (+ `width`/`height`) to draw onto a canvas.
  */
 export class AtermTerminal {
+    static __wrap(ptr) {
+        ptr = ptr >>> 0;
+        const obj = Object.create(AtermTerminal.prototype);
+        obj.__wbg_ptr = ptr;
+        AtermTerminalFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
         this.__wbg_ptr = 0;
@@ -28,6 +35,16 @@ export class AtermTerminal {
         const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.atermterminal_add_fallback_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * [`AtermTerminal::add_fallback_font`] from a registered handle.
+     * @param {number} handle
+     */
+    add_fallback_font_registered(handle) {
+        const ret = wasm.atermterminal_add_fallback_font_registered(this.__wbg_ptr, handle);
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
@@ -466,6 +483,25 @@ export class AtermTerminal {
         return this;
     }
     /**
+     * [`AtermTerminal::new`] from a registered PRIMARY font handle.
+     * @param {number} rows
+     * @param {number} cols
+     * @param {number} font_handle
+     * @param {number} px
+     * @param {number} fg
+     * @param {number} bg
+     * @param {number} cursor
+     * @param {number} selection
+     * @returns {AtermTerminal}
+     */
+    static new_registered(rows, cols, font_handle, px, fg, bg, cursor, selection) {
+        const ret = wasm.atermterminal_new_registered(rows, cols, font_handle, px, fg, bg, cursor, selection);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return AtermTerminal.__wrap(ret[0]);
+    }
+    /**
      * Register one keystroke for the cursor-comet ignition: sustained fast
      * calls heat the typing cadence so the next `render` ignites the trail,
      * sparse/slow calls keep it gentle. The cadence reads the effects clock,
@@ -853,6 +889,16 @@ export class AtermTerminal {
         }
     }
     /**
+     * [`AtermTerminal::set_bold_font`] from a registered handle.
+     * @param {number} handle
+     */
+    set_bold_font_registered(handle) {
+        const ret = wasm.atermterminal_set_bold_font_registered(this.__wbg_ptr, handle);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Tell the engine the real device-pixel cell size so its CSI 14t/16t
      * window/cell-pixel reports are accurate (the engine has no canvas otherwise).
      * @param {number} width
@@ -988,6 +1034,17 @@ export class AtermTerminal {
         }
     }
     /**
+     * [`AtermTerminal::set_emoji_font`] from a registered handle. Installs the
+     * SHARED interned copy (no `to_vec` of the ~190MB emoji face per pane).
+     * @param {number} handle
+     */
+    set_emoji_font_registered(handle) {
+        const ret = wasm.atermterminal_set_emoji_font_registered(this.__wbg_ptr, handle);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Inject a broad-coverage (CJK + symbols) fallback face from font bytes, so
      * glyphs the primary face lacks render real shapes instead of `.notdef` tofu.
      * The canvas renderer can't read the host filesystem, so the host pushes the
@@ -998,6 +1055,16 @@ export class AtermTerminal {
         const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.atermterminal_set_fallback_font(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * [`AtermTerminal::set_fallback_font`] from a registered handle.
+     * @param {number} handle
+     */
+    set_fallback_font_registered(handle) {
+        const ret = wasm.atermterminal_set_fallback_font_registered(this.__wbg_ptr, handle);
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
@@ -1299,6 +1366,16 @@ export class AtermTerminal {
         }
     }
     /**
+     * [`AtermTerminal::set_symbol_font`] from a registered handle.
+     * @param {number} handle
+     */
+    set_symbol_font_registered(handle) {
+        const ret = wasm.atermterminal_set_symbol_font_registered(this.__wbg_ptr, handle);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB), so a host
      * theme change re-themes the pane without rebuilding it. Per-cell SGR colours
      * flow independently; pair with set_palette_color for the ANSI palette.
@@ -1591,6 +1668,20 @@ export function encode_key_with_mode(key, mods, event_type, base_layout_key, mod
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     }
     return v3;
+}
+
+/**
+ * Register a font blob for handle-based reuse by every engine in this module.
+ * Content-interned: registering identical bytes returns a handle to ONE shared
+ * copy (and re-registration returns the same storage, so handles stay cheap).
+ * @param {Uint8Array} bytes
+ * @returns {number}
+ */
+export function register_font(bytes) {
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.register_font(ptr0, len0);
+    return ret >>> 0;
 }
 
 function __wbg_get_imports() {

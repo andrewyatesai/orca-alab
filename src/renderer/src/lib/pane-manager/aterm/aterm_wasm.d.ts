@@ -18,6 +18,10 @@ export class AtermTerminal {
      */
     add_fallback_font(bytes: Uint8Array): void;
     /**
+     * [`AtermTerminal::add_fallback_font`] from a registered handle.
+     */
+    add_fallback_font_registered(handle: number): void;
+    /**
      * Advance the effects clock by `dt_ms` (the host's rAF delta). The
      * engines never read a wall clock: same PTY bytes + same `dt` stream ⇒
      * identical frames. Negative/NaN deltas are ignored.
@@ -125,6 +129,10 @@ export class AtermTerminal {
      * per-cell SGR colors still flow through the grid independently.
      */
     constructor(rows: number, cols: number, font_bytes: Uint8Array, px: number, fg: number, bg: number, cursor: number, selection: number);
+    /**
+     * [`AtermTerminal::new`] from a registered PRIMARY font handle.
+     */
+    static new_registered(rows: number, cols: number, font_handle: number, px: number, fg: number, bg: number, cursor: number, selection: number): AtermTerminal;
     /**
      * Register one keystroke for the cursor-comet ignition: sustained fast
      * calls heat the typing cadence so the next `render` ignites the trail,
@@ -319,6 +327,10 @@ export class AtermTerminal {
      */
     set_bold_font(bytes: Uint8Array): void;
     /**
+     * [`AtermTerminal::set_bold_font`] from a registered handle.
+     */
+    set_bold_font_registered(handle: number): void;
+    /**
      * Tell the engine the real device-pixel cell size so its CSI 14t/16t
      * window/cell-pixel reports are accurate (the engine has no canvas otherwise).
      */
@@ -393,12 +405,21 @@ export class AtermTerminal {
      */
     set_emoji_font(bytes: Uint8Array): void;
     /**
+     * [`AtermTerminal::set_emoji_font`] from a registered handle. Installs the
+     * SHARED interned copy (no `to_vec` of the ~190MB emoji face per pane).
+     */
+    set_emoji_font_registered(handle: number): void;
+    /**
      * Inject a broad-coverage (CJK + symbols) fallback face from font bytes, so
      * glyphs the primary face lacks render real shapes instead of `.notdef` tofu.
      * The canvas renderer can't read the host filesystem, so the host pushes the
      * OS font bytes in. No-throw: a bad blob leaves the existing face untouched.
      */
     set_fallback_font(bytes: Uint8Array): void;
+    /**
+     * [`AtermTerminal::set_fallback_font`] from a registered handle.
+     */
+    set_fallback_font_registered(handle: number): void;
     /**
      * OpenType FONT FEATURES for the primary face, as a space-separated spec
      * (`"+ss01 zero -calt"` — bare/`+tag` enables, `-tag` disables, `tag=N` sets a
@@ -577,6 +598,10 @@ export class AtermTerminal {
      * existing face untouched.
      */
     set_symbol_font(bytes: Uint8Array): void;
+    /**
+     * [`AtermTerminal::set_symbol_font`] from a registered handle.
+     */
+    set_symbol_font_registered(handle: number): void;
     /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB), so a host
      * theme change re-themes the pane without rebuilding it. Per-cell SGR colours
@@ -849,6 +874,13 @@ export class SelectionRange {
  */
 export function encode_key_with_mode(key: string, mods: number, event_type: number, base_layout_key: string | null | undefined, mode_bits: number): Uint8Array | undefined;
 
+/**
+ * Register a font blob for handle-based reuse by every engine in this module.
+ * Content-interned: registering identical bytes returns a handle to ONE shared
+ * copy (and re-registration returns the same storage, so handles stay cheap).
+ */
+export function register_font(bytes: Uint8Array): number;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -857,6 +889,7 @@ export interface InitOutput {
     readonly __wbg_linkhit_free: (a: number, b: number) => void;
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermterminal_add_fallback_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermterminal_add_fallback_font_registered: (a: number, b: number) => [number, number];
     readonly atermterminal_advance_effects: (a: number, b: number) => void;
     readonly atermterminal_authorize_clipboard_write: (a: number) => void;
     readonly atermterminal_authorize_notifications: (a: number, b: number) => void;
@@ -892,6 +925,7 @@ export interface InitOutput {
     readonly atermterminal_mouse_wants_any_motion: (a: number) => number;
     readonly atermterminal_mouse_wants_motion: (a: number) => number;
     readonly atermterminal_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly atermterminal_new_registered: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly atermterminal_note_keystroke: (a: number) => void;
     readonly atermterminal_process: (a: number, b: number, c: number) => void;
     readonly atermterminal_process_str: (a: number, b: number, c: number) => void;
@@ -925,6 +959,7 @@ export interface InitOutput {
     readonly atermterminal_serialize_scrollback: (a: number, b: number) => [number, number];
     readonly atermterminal_set_background_opacity: (a: number, b: number) => void;
     readonly atermterminal_set_bold_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermterminal_set_bold_font_registered: (a: number, b: number) => [number, number];
     readonly atermterminal_set_cell_pixel_size: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_color_scheme: (a: number, b: number) => void;
     readonly atermterminal_set_cursor_blink_phase: (a: number, b: number) => void;
@@ -937,7 +972,9 @@ export interface InitOutput {
     readonly atermterminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
     readonly atermterminal_set_effects_focused: (a: number, b: number) => void;
     readonly atermterminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermterminal_set_emoji_font_registered: (a: number, b: number) => [number, number];
     readonly atermterminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermterminal_set_fallback_font_registered: (a: number, b: number) => [number, number];
     readonly atermterminal_set_font_features: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_kitty_keyboard_enabled: (a: number, b: number) => void;
     readonly atermterminal_set_ligatures: (a: number, b: number) => void;
@@ -962,6 +999,7 @@ export interface InitOutput {
     readonly atermterminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
     readonly atermterminal_set_sparkle_words_enabled: (a: number, b: number) => void;
     readonly atermterminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermterminal_set_symbol_font_registered: (a: number, b: number) => [number, number];
     readonly atermterminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermterminal_sparkle_lexicon_warnings: (a: number) => [number, number];
@@ -976,6 +1014,7 @@ export interface InitOutput {
     readonly linkhit_kind: (a: number) => number;
     readonly linkhit_start_col: (a: number) => number;
     readonly linkhit_url: (a: number) => [number, number];
+    readonly register_font: (a: number, b: number) => number;
     readonly selectionrange_end_x: (a: number) => number;
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;

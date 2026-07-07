@@ -2,8 +2,6 @@
 /* eslint-disable */
 
 /**
- * The terminal engine + GPU presentation state for one `<canvas>`.
- *
  * Construction is split in two, matching the browser lifecycle:
  *   1. [`AtermGpuTerminal::new`] — synchronous: build the engine grid + a CPU
  *      face from injected font bytes (for cell metrics / the glyph atlas). No
@@ -25,6 +23,10 @@ export class AtermGpuTerminal {
      * reaches a covering face. No-throw: a bad blob leaves the chain untouched.
      */
     add_fallback_font(bytes: Uint8Array): void;
+    /**
+     * [`AtermGpuTerminal::add_fallback_font`] from a registered handle.
+     */
+    add_fallback_font_registered(handle: number): void;
     /**
      * Advance the effects clock by `dt_ms` (the host's rAF delta). The
      * engines never read a wall clock: same PTY bytes + same `dt` stream ⇒
@@ -146,6 +148,10 @@ export class AtermGpuTerminal {
      * through the grid independently).
      */
     constructor(rows: number, cols: number, font_bytes: Uint8Array, px: number, fg: number, bg: number, cursor: number, selection: number);
+    /**
+     * [`AtermGpuTerminal::new`] from a registered PRIMARY font handle.
+     */
+    static new_registered(rows: number, cols: number, font_handle: number, px: number, fg: number, bg: number, cursor: number, selection: number): AtermGpuTerminal;
     /**
      * Register one keystroke for the cursor-comet ignition: sustained fast
      * calls heat the typing cadence so the next `render` ignites the trail,
@@ -327,6 +333,10 @@ export class AtermGpuTerminal {
      */
     set_bold_font(bytes: Uint8Array): void;
     /**
+     * [`AtermGpuTerminal::set_bold_font`] from a registered handle.
+     */
+    set_bold_font_registered(handle: number): void;
+    /**
      * Tell the engine the real device-pixel cell size so CSI 14t/16t reports are
      * accurate (the engine has no canvas otherwise).
      */
@@ -398,6 +408,13 @@ export class AtermGpuTerminal {
      */
     set_emoji_font(bytes: Uint8Array): void;
     /**
+     * [`AtermGpuTerminal::set_emoji_font`] from a registered handle. Installs
+     * the SHARED interned copy on the CPU face (no `to_vec` of the ~190MB emoji
+     * face per pane); a LIVE GPU face still receives its own copy (rare — the
+     * worker seeds fonts before `init`, so `gpu` is None during pane builds).
+     */
+    set_emoji_font_registered(handle: number): void;
+    /**
      * Inject a broad-coverage (CJK + symbols) fallback face from font bytes, so
      * glyphs the primary face lacks render real shapes instead of `.notdef` tofu.
      * Applies to the CPU face (metrics) and the live GPU face if `init` already
@@ -405,6 +422,10 @@ export class AtermGpuTerminal {
      * GPU face it builds. No-throw: a bad blob leaves the existing faces untouched.
      */
     set_fallback_font(bytes: Uint8Array): void;
+    /**
+     * [`AtermGpuTerminal::set_fallback_font`] from a registered handle.
+     */
+    set_fallback_font_registered(handle: number): void;
     /**
      * OpenType FONT FEATURES for the primary face, as a space-separated spec
      * (`"+ss01 zero -calt"`). Mirrors the native `font_features` config knob. An
@@ -586,6 +607,10 @@ export class AtermGpuTerminal {
      * existing faces untouched.
      */
     set_symbol_font(bytes: Uint8Array): void;
+    /**
+     * [`AtermGpuTerminal::set_symbol_font`] from a registered handle.
+     */
+    set_symbol_font_registered(handle: number): void;
     /**
      * Replace the default fg/bg/cursor/selection theme live (0x00RRGGBB) on both the
      * GPU renderer and the CPU face, so a host theme change re-themes the pane
@@ -857,6 +882,13 @@ export class SelectionRange {
  */
 export function encode_key_with_mode(key: string, mods: number, event_type: number, base_layout_key: string | null | undefined, mode_bits: number): Uint8Array | undefined;
 
+/**
+ * Register a font blob for handle-based reuse by every engine in this module.
+ * Content-interned: registering identical bytes returns a handle to ONE shared
+ * copy (re-registration returns the same storage, so handles stay cheap).
+ */
+export function register_font(bytes: Uint8Array): number;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -866,6 +898,7 @@ export interface InitOutput {
     readonly __wbg_selectionrange_free: (a: number, b: number) => void;
     readonly atermgputerminal_adapter_info: (a: number) => [number, number];
     readonly atermgputerminal_add_fallback_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermgputerminal_add_fallback_font_registered: (a: number, b: number) => [number, number];
     readonly atermgputerminal_advance_effects: (a: number, b: number) => void;
     readonly atermgputerminal_authorize_clipboard_write: (a: number) => void;
     readonly atermgputerminal_authorize_notifications: (a: number, b: number) => void;
@@ -904,6 +937,7 @@ export interface InitOutput {
     readonly atermgputerminal_mouse_wants_any_motion: (a: number) => number;
     readonly atermgputerminal_mouse_wants_motion: (a: number) => number;
     readonly atermgputerminal_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly atermgputerminal_new_registered: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly atermgputerminal_note_keystroke: (a: number) => void;
     readonly atermgputerminal_process: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_render: (a: number) => [number, number];
@@ -936,6 +970,7 @@ export interface InitOutput {
     readonly atermgputerminal_serialize_scrollback: (a: number, b: number) => [number, number];
     readonly atermgputerminal_set_background_opacity: (a: number, b: number) => void;
     readonly atermgputerminal_set_bold_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermgputerminal_set_bold_font_registered: (a: number, b: number) => [number, number];
     readonly atermgputerminal_set_cell_pixel_size: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_set_color_scheme: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_blink_phase: (a: number, b: number) => void;
@@ -948,7 +983,9 @@ export interface InitOutput {
     readonly atermgputerminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
     readonly atermgputerminal_set_effects_focused: (a: number, b: number) => void;
     readonly atermgputerminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermgputerminal_set_emoji_font_registered: (a: number, b: number) => [number, number];
     readonly atermgputerminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermgputerminal_set_fallback_font_registered: (a: number, b: number) => [number, number];
     readonly atermgputerminal_set_font_features: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_set_kitty_keyboard_enabled: (a: number, b: number) => void;
     readonly atermgputerminal_set_ligatures: (a: number, b: number) => void;
@@ -973,6 +1010,7 @@ export interface InitOutput {
     readonly atermgputerminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
     readonly atermgputerminal_set_sparkle_words_enabled: (a: number, b: number) => void;
     readonly atermgputerminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
+    readonly atermgputerminal_set_symbol_font_registered: (a: number, b: number) => [number, number];
     readonly atermgputerminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_sparkle_lexicon_warnings: (a: number) => [number, number];
@@ -987,13 +1025,14 @@ export interface InitOutput {
     readonly linkhit_kind: (a: number) => number;
     readonly linkhit_start_col: (a: number) => number;
     readonly linkhit_url: (a: number) => [number, number];
+    readonly register_font: (a: number, b: number) => number;
     readonly selectionrange_end_x: (a: number) => number;
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly wasm_bindgen__closure__destroy__h1a0100ca1d7e7abb: (a: number, b: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__closure__destroy__h3083892b977ce66d: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__h8213ea38bdb807ad: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hb1346b57a9cb9c6d: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

@@ -1,3 +1,4 @@
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { getDefaultOnboardingState, getDefaultSettings } from '../../../../shared/constants'
 import { createTestStore, makeWorktree } from './store-test-helpers'

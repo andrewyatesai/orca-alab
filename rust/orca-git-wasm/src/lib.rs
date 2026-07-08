@@ -389,6 +389,15 @@ pub fn terminal_quick_command_op_json(function: &str, input_json: &str) -> Strin
     orca_agents::terminal_quick_command_json::dispatch(function, &input).to_string()
 }
 
+/// Dispatch one TUI agent-startup plan builder by name over its camelCase JSON
+/// (TS `tui-agent-startup.ts`). The renderer drives buildAgentStartupPlan /
+/// …Resume… / …Draft… through this — see `orca_agents::tui_agent_startup_json`.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "tuiAgentStartupOp"))]
+pub fn tui_agent_startup_op_json(function: &str, input_json: &str) -> String {
+    let input = serde_json::from_str::<serde_json::Value>(input_json).unwrap_or(serde_json::Value::Null);
+    orca_agents::tui_agent_startup_json::dispatch(function, &input).to_string()
+}
+
 fn parse_pull_request_context(context_json: &str) -> orca_agents::PullRequestDraftContext {
     let value = serde_json::from_str::<serde_json::Value>(context_json).unwrap_or(serde_json::Value::Null);
     let str_field = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();

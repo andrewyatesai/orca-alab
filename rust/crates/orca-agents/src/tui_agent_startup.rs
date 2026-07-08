@@ -134,10 +134,13 @@ fn get_tui_agent_launch_command(
     if is_remote && platform == "linux" {
         return config.launch_cmd;
     }
-    // Why: `TuiAgentConfig` has no launchCmdByPlatform port yet — TS sets it
-    // only for claude-agent-teams, which is absent from the Rust catalog — so
-    // the by-platform lookup always falls through to the base launch command.
-    config.launch_cmd
+    // Mirror TS `config.launchCmdByPlatform?.[platform] ?? config.launchCmd`.
+    config
+        .launch_cmd_by_platform
+        .iter()
+        .find(|(candidate, _)| *candidate == platform)
+        .map(|(_, cmd)| *cmd)
+        .unwrap_or(config.launch_cmd)
 }
 
 struct ResolveBaseCommandArgs<'a> {
@@ -656,16 +659,35 @@ mod tests {
     }
 
     #[test]
-    fn resolves_the_same_launch_command_for_remote_launches() {
-        // Why: launchCmdByPlatform is unported (TS sets it only for
-        // claude-agent-teams, absent from the Rust catalog), so isRemote can
-        // not change any catalog agent's command yet — pin that down.
+    fn is_remote_is_a_no_op_for_agents_without_a_by_platform_override() {
+        // claude has no launchCmdByPlatform, so the remote SSH-shim guard leaves
+        // its command unchanged.
         let local = startup(&startup_args("claude", "fix it", "linux"));
         let remote = startup(&AgentStartupPlanArgs {
             is_remote: true,
             ..startup_args("claude", "fix it", "linux")
         });
         assert_eq!(local.launch_command, remote.launch_command);
+    }
+
+    #[test]
+    fn applies_the_by_platform_launch_rename_except_over_ssh() {
+        // claude-agent-teams is the only agent with launchCmdByPlatform: the
+        // local `orca-ide`/`orca.cmd` rename applies, but an SSH remote on Linux
+        // must fall back to the plain `orca` shim.
+        let linux_local = startup(&startup_args("claude-agent-teams", "fix it", "linux"));
+        assert_eq!(linux_local.launch_command, "orca-ide claude-teams");
+
+        let win32 = startup(&startup_args("claude-agent-teams", "fix it", "win32"));
+        assert_eq!(win32.launch_command, "orca.cmd claude-teams");
+
+        let linux_remote = startup(&AgentStartupPlanArgs {
+            is_remote: true,
+            ..startup_args("claude-agent-teams", "fix it", "linux")
+        });
+        assert_eq!(linux_remote.launch_command, "orca claude-teams");
+        // stdin-after-start agents carry the prompt as a followup, not on argv.
+        assert_eq!(linux_remote.followup_prompt.as_deref(), Some("fix it"));
     }
 
     fn resume_args<'a>(agent: &'a str, id: &'a str) -> AgentResumeStartupPlanArgs<'a> {

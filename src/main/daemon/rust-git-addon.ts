@@ -245,6 +245,9 @@ export type RustGitBinding = {
   /** Run one terminal quick-command helper by name over its JSON input, returning
    *  JSON (TS `terminal-quick-commands.ts` — normalize + typed-object accessors). */
   terminalQuickCommandOp(functionName: string, inputJson: string): string
+  /** Build one TUI agent-startup plan by name over its camelCase JSON, returning
+   *  the plan JSON or `"null"` (TS `tui-agent-startup.ts` — startup/resume/draft). */
+  tuiAgentStartupOp(functionName: string, inputJson: string): string
   /** Validate raw session JSON as a `WorkspaceSessionState`, returning the
    *  `ParsedWorkspaceSession` union (`{ok:true, value} | {ok:false, error}`) JSON. */
   parseWorkspaceSession(rawJson: string): string

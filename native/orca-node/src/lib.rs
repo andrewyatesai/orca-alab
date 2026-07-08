@@ -515,6 +515,15 @@ pub fn terminal_quick_command_op(function: String, input_json: String) -> String
     orca_agents::terminal_quick_command_json::dispatch(&function, &input).to_string()
 }
 
+/// Dispatch one TUI agent-startup plan builder by name over its camelCase JSON
+/// (TS `tui-agent-startup.ts`). Covers buildAgentStartupPlan / …Resume… / …Draft…
+/// — see `orca_agents::tui_agent_startup_json`. Returns `"null"` for a null plan.
+#[napi(catch_unwind)]
+pub fn tui_agent_startup_op(function: String, input_json: String) -> String {
+    let input = serde_json::from_str::<serde_json::Value>(&input_json).unwrap_or(serde_json::Value::Null);
+    orca_agents::tui_agent_startup_json::dispatch(&function, &input).to_string()
+}
+
 /// Build a `PullRequestDraftContext` from its camelCase JSON (string fields default
 /// to "", `branch` nullable → `None`); shared by prompt-build + reply-parse.
 fn parse_pull_request_context(context_json: &str) -> orca_agents::PullRequestDraftContext {

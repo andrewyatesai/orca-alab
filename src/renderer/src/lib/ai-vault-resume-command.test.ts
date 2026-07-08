@@ -1,3 +1,4 @@
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store/types'
 import { buildAiVaultResumeCommand } from '../../../shared/ai-vault-types'

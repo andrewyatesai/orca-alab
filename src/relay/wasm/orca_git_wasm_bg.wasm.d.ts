@@ -29,6 +29,7 @@ export const quickopenindex_rank: (a: number, b: number, c: number, d: number, e
 export const slugifyForWorkspaceName: (a: number, b: number, c: number) => void;
 export const stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
 export const terminalQuickCommandOp: (a: number, b: number, c: number, d: number, e: number) => void;
+export const tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
 export const upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
 export const validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const __wbindgen_add_to_stack_pointer: (a: number) => number;

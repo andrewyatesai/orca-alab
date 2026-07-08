@@ -1,3 +1,4 @@
+import '@/lib/git-wasm/init-git-wasm-for-test'
 /* eslint-disable max-lines -- Why: local/runtime launch tests share a mock harness. */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BACKGROUND_MOUNT_TERMINAL_WORKTREE_EVENT } from '@/constants/terminal'

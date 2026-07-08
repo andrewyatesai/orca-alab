@@ -29,6 +29,7 @@ pub enum AgentPromptInjectionMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DraftPasteReadySignal {
     RenderQuietAfterBracketedPaste,
+    RenderCursorAfterBracketedPaste,
     CodexComposerPrompt,
 }
 
@@ -48,6 +49,10 @@ pub struct TuiAgentConfig {
     /// Additional executable names that identify the same agent on PATH.
     pub detect_cmd_aliases: &'static [&'static str],
     pub launch_cmd: &'static str,
+    /// Per-platform launch overrides (TS `launchCmdByPlatform`); empty when the
+    /// agent uses `launch_cmd` on every platform. Consulted unless an SSH remote
+    /// on Linux forces the plain shim. Only `claude-agent-teams` sets it.
+    pub launch_cmd_by_platform: &'static [(&'static str, &'static str)],
     pub expected_process: &'static str,
     pub prompt_injection_mode: AgentPromptInjectionMode,
     /// Flag that launches the TUI with the given text already in the input box
@@ -76,6 +81,7 @@ const fn agent(
         detect_cmd,
         detect_cmd_aliases: &[],
         launch_cmd,
+        launch_cmd_by_platform: &[],
         expected_process,
         prompt_injection_mode,
         draft_prompt_flag: None,
@@ -96,6 +102,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             detect_cmd: "claude",
             detect_cmd_aliases: &[],
             launch_cmd: "claude",
+            launch_cmd_by_platform: &[],
             expected_process: "claude",
             prompt_injection_mode: Argv,
             // `claude --prefill <text>` lands the TUI with `<text>` in the
@@ -113,6 +120,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             detect_cmd: "openclaude",
             detect_cmd_aliases: &[],
             launch_cmd: "openclaude",
+            launch_cmd_by_platform: &[],
             expected_process: "openclaude",
             prompt_injection_mode: Argv,
             draft_prompt_flag: Some("--prefill"),
@@ -127,6 +135,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             detect_cmd: "codex",
             detect_cmd_aliases: &[],
             launch_cmd: "codex",
+            launch_cmd_by_platform: &[],
             expected_process: "codex",
             prompt_injection_mode: Argv,
             draft_prompt_flag: None,
@@ -138,13 +147,29 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
         },
     ),
     ("autohand", agent("autohand", "autohand", "autohand", StdinAfterStart)),
-    ("opencode", agent("opencode", "opencode", "opencode", FlagPrompt)),
+    (
+        "opencode",
+        TuiAgentConfig {
+            detect_cmd: "opencode",
+            detect_cmd_aliases: &[],
+            launch_cmd: "opencode",
+            launch_cmd_by_platform: &[],
+            expected_process: "opencode",
+            prompt_injection_mode: FlagPrompt,
+            draft_prompt_flag: None,
+            draft_prompt_env_var: None,
+            preflight_trust: None,
+            // opencode's flag-prompt paste route is cursor-gated (mimo-code shares it).
+            draft_paste_ready_signal: Some(DraftPasteReadySignal::RenderCursorAfterBracketedPaste),
+        },
+    ),
     (
         "pi",
         TuiAgentConfig {
             detect_cmd: "pi",
             detect_cmd_aliases: &[],
             launch_cmd: "pi",
+            launch_cmd_by_platform: &[],
             expected_process: "pi",
             prompt_injection_mode: Argv,
             draft_prompt_flag: None,
@@ -161,6 +186,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             detect_cmd: "omp",
             detect_cmd_aliases: &[],
             launch_cmd: "omp",
+            launch_cmd_by_platform: &[],
             expected_process: "omp",
             prompt_injection_mode: Argv,
             draft_prompt_flag: None,
@@ -177,8 +203,24 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
     ("amp", agent("amp", "amp", "amp", StdinAfterStart)),
     ("kilo", agent("kilo", "kilo", "kilo", StdinAfterStart)),
     // The official Kiro installer places `kiro-cli` on PATH — there is no
-    // `kiro` binary — but the stored id stays `kiro`.
-    ("kiro", agent("kiro-cli", "kiro-cli", "kiro-cli", StdinAfterStart)),
+    // `kiro` binary — but the stored id stays `kiro`. Trust flags are accepted by
+    // the `chat` subcommand, so TUI startup is explicit (`chat --tui`) to keep
+    // default args like --trust-all-tools where the installed CLI accepts them.
+    (
+        "kiro",
+        TuiAgentConfig {
+            detect_cmd: "kiro-cli",
+            detect_cmd_aliases: &[],
+            launch_cmd: "kiro-cli chat --tui",
+            launch_cmd_by_platform: &[],
+            expected_process: "kiro-cli",
+            prompt_injection_mode: StdinAfterStart,
+            draft_prompt_flag: None,
+            draft_prompt_env_var: None,
+            preflight_trust: None,
+            draft_paste_ready_signal: None,
+        },
+    ),
     ("crush", agent("crush", "crush", "crush", StdinAfterStart)),
     // @augmentcode/auggie installs a binary named `auggie` (not `aug`).
     ("aug", agent("auggie", "auggie", "auggie", StdinAfterStart)),
@@ -190,13 +232,16 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
         "command-code",
         agent("command-code", "command-code --trust", "command-code", Argv),
     ),
-    ("continue", agent("continue", "continue", "continue", StdinAfterStart)),
+    // Continue's CLI binary is `cn`; `continue` is a shell builtin, so launching
+    // by that name can resolve to the keyword instead of the agent.
+    ("continue", agent("cn", "cn", "cn", StdinAfterStart)),
     (
         "cursor",
         TuiAgentConfig {
             detect_cmd: "cursor-agent",
             detect_cmd_aliases: &[],
             launch_cmd: "cursor-agent",
+            launch_cmd_by_platform: &[],
             expected_process: "cursor-agent",
             prompt_injection_mode: Argv,
             draft_prompt_flag: None,
@@ -216,6 +261,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             // Mistral's installer exposes `vibe`; keep the old name as an alias.
             detect_cmd_aliases: &["mistral-vibe"],
             launch_cmd: "vibe",
+            launch_cmd_by_platform: &[],
             expected_process: "vibe",
             prompt_injection_mode: StdinAfterStart,
             draft_prompt_flag: None,
@@ -224,7 +270,8 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             draft_paste_ready_signal: None,
         },
     ),
-    ("qwen-code", agent("qwen-code", "qwen-code", "qwen-code", StdinAfterStart)),
+    // The upstream package is QwenLM/qwen-code but its installed binary is `qwen`.
+    ("qwen-code", agent("qwen", "qwen", "qwen", StdinAfterStart)),
     ("rovo", agent("rovo", "rovo", "rovo", StdinAfterStart)),
     // Bare `hermes` opens the classic REPL; `--tui` starts the agent UI.
     ("hermes", agent("hermes", "hermes --tui", "hermes", StdinAfterStart)),
@@ -235,6 +282,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             detect_cmd: "copilot",
             detect_cmd_aliases: &[],
             launch_cmd: "copilot",
+            launch_cmd_by_platform: &[],
             expected_process: "copilot",
             // `copilot --prompt` runs non-interactively and exits; `-i` starts
             // an interactive session with the prompt pre-executed.
@@ -246,6 +294,52 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
         },
     ),
     ("grok", agent("grok", "grok", "grok", StdinAfterStart)),
+    (
+        "claude-agent-teams",
+        TuiAgentConfig {
+            // Why: an Orca-provided launch mode, not a separate upstream binary —
+            // detection follows the Orca CLI; the wrapper validates the real
+            // Claude binary at startup.
+            detect_cmd: "orca",
+            detect_cmd_aliases: &["orca-dev", "orca-ide"],
+            launch_cmd: "orca claude-teams",
+            // The local `orca-ide` (linux) / `orca.cmd` (win32) rename shim, baked
+            // from getOrcaCliCommandNameForPlatform; skipped for SSH remotes so the
+            // plain `orca claude-teams` runs remotely.
+            launch_cmd_by_platform: &[
+                ("linux", "orca-ide claude-teams"),
+                ("win32", "orca.cmd claude-teams"),
+            ],
+            expected_process: "claude",
+            prompt_injection_mode: StdinAfterStart,
+            draft_prompt_flag: None,
+            draft_prompt_env_var: None,
+            preflight_trust: None,
+            draft_paste_ready_signal: None,
+        },
+    ),
+    // Ante's `--prompt` is headless (runs once and exits), so Orca launches the
+    // bare TUI and injects the prompt after startup.
+    ("ante", agent("ante", "ante", "ante", StdinAfterStart)),
+    // `devin -- <prompt>` auto-submits, so launch bare and send the prompt to the
+    // PTY after startup.
+    ("devin", agent("devin", "devin", "devin", StdinAfterStart)),
+    (
+        "mimo-code",
+        TuiAgentConfig {
+            detect_cmd: "mimo",
+            detect_cmd_aliases: &[],
+            launch_cmd: "mimo",
+            launch_cmd_by_platform: &[],
+            expected_process: "mimo",
+            prompt_injection_mode: FlagPrompt,
+            draft_prompt_flag: None,
+            draft_prompt_env_var: None,
+            preflight_trust: None,
+            // mimo-code shares opencode's flag-prompt paste route (cursor-gated).
+            draft_paste_ready_signal: Some(DraftPasteReadySignal::RenderCursorAfterBracketedPaste),
+        },
+    ),
 ];
 
 /// Look up the config for an agent id, or `None` when the id is unknown.
@@ -283,16 +377,24 @@ mod tests {
         assert!(is_tui_agent("command-code"));
         assert!(!is_tui_agent("not-real"));
         assert!(!is_tui_agent(""));
-        // The full TuiAgent union has 30 members.
-        assert_eq!(TUI_AGENT_CONFIG.len(), 30);
+        // The full TuiAgent union has 34 members.
+        assert_eq!(TUI_AGENT_CONFIG.len(), 34);
     }
 
     #[test]
     fn looks_up_renamed_binaries_for_detect_launch_identify() {
         let kiro = tui_agent_config("kiro").unwrap();
         assert_eq!(kiro.detect_cmd, "kiro-cli");
-        assert_eq!(kiro.launch_cmd, "kiro-cli");
+        // Trust flags attach to the `chat` subcommand, so launch is explicit.
+        assert_eq!(kiro.launch_cmd, "kiro-cli chat --tui");
         assert_eq!(kiro.expected_process, "kiro-cli");
+
+        let continue_cli = tui_agent_config("continue").unwrap();
+        assert_eq!(continue_cli.launch_cmd, "cn");
+
+        let qwen = tui_agent_config("qwen-code").unwrap();
+        assert_eq!(qwen.launch_cmd, "qwen");
+        assert_eq!(qwen.expected_process, "qwen");
 
         let aug = tui_agent_config("aug").unwrap();
         assert_eq!(aug.detect_cmd, "auggie");
@@ -324,6 +426,15 @@ mod tests {
         assert_eq!(
             tui_agent_config("codex").unwrap().draft_paste_ready_signal,
             Some(DraftPasteReadySignal::CodexComposerPrompt)
+        );
+        // opencode and mimo-code share the cursor-gated flag-prompt paste route.
+        assert_eq!(
+            tui_agent_config("opencode").unwrap().draft_paste_ready_signal,
+            Some(DraftPasteReadySignal::RenderCursorAfterBracketedPaste)
+        );
+        assert_eq!(
+            tui_agent_config("mimo-code").unwrap().draft_paste_ready_signal,
+            Some(DraftPasteReadySignal::RenderCursorAfterBracketedPaste)
         );
         assert_eq!(
             tui_agent_config("aider").unwrap().prompt_injection_mode,

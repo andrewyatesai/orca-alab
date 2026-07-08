@@ -1,3 +1,4 @@
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockCreateTab = vi.fn()

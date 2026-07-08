@@ -1,12 +1,25 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
   buildAgentDraftLaunchPlan,
   buildAgentResumeStartupPlan,
-  buildAgentStartupPlan,
-  buildShellCommandFromArgv
+  buildAgentStartupPlan
 } from './tui-agent-startup'
-import { TUI_AGENT_CONFIG } from './tui-agent-config'
-import { normalizeTuiAgentArgsRecord, resolveTuiAgentLaunchArgs } from './tui-agent-launch-defaults'
+import { initGitWasmForTestFromBytes } from './git-line-stats'
+import { buildShellCommandFromArgv } from '../../../../shared/tui-agent-startup'
+import { TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
+import {
+  normalizeTuiAgentArgsRecord,
+  resolveTuiAgentLaunchArgs
+} from '../../../../shared/tui-agent-launch-defaults'
+
+// The plan builders are Rust-backed via the git wasm — init it so the wrapper
+// returns real plans instead of the pre-ready null fallback.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 describe('tui agent startup plans', () => {
   it('uses POSIX quoting when the target shell is Linux', () => {

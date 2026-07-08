@@ -1,10 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
 import {
   buildAgentDraftLaunchPlan,
   buildAgentStartupPlan,
   isShellProcess
 } from './tui-agent-startup'
+import { initGitWasmForTestFromBytes } from './git-wasm/git-line-stats'
 import { resolveTuiAgentLaunchArgs } from '../../../shared/tui-agent-launch-defaults'
+
+// The plan builders are Rust-backed via the git wasm (through the hub) — init it
+// so the builders return real plans instead of the pre-ready null fallback.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 const emptyLaunchConfig = (agentCommand: string) => ({
   agentCommand,

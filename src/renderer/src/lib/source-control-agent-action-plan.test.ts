@@ -1,3 +1,4 @@
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it } from 'vitest'
 import { planSourceControlAgentActionLaunch } from './source-control-agent-action-plan'
 

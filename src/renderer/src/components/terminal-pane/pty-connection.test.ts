@@ -678,8 +678,12 @@ describe('connectPanePty', () => {
   const originalCancelAnimationFrame = globalThis.cancelAnimationFrame
   const originalDocument = globalThis.document
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules()
+    // Re-init the git wasm in the reset module realm: the dynamically-imported
+    // pty-connection drives the Rust-backed agent-startup/resume builders, which
+    // return null until the wasm (fresh per resetModules) is ready.
+    await import('@/lib/git-wasm/init-git-wasm-for-test')
     vi.clearAllMocks()
     transportFactoryQueue = []
     createdTransportOptions = []

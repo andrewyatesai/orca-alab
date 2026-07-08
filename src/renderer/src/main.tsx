@@ -18,10 +18,11 @@ import { translate } from './i18n/i18n'
 
 recordRendererCrashBreadcrumb('renderer_bootstrap_started', { dev: import.meta.env.DEV })
 installRendererCrashDiagnostics()
-// Compile the orca-git wasm (diff line stats) off the critical path so it is
-// ready long before any diff section renders; consumers degrade to numstat
-// counts until then.
-void startGitWasm()
+// Compile the orca-git wasm eagerly. It backs the Rust agent-startup plan
+// builders (session auto-resume / cold-restore run these imperatively on boot,
+// with no ready-subscription), so gate the first render on it below — otherwise
+// a pre-ready builder call returns null and a restored agent fails to resume.
+const gitWasmReady = startGitWasm()
 // Compile the E2EE crypto wasm eagerly so it is ready before any remote
 // WebSocket handshake (which needs it synchronously to seal the box).
 void startCryptoWasm()
@@ -44,6 +45,8 @@ if (!rootElement) {
   recordRendererCrashBreadcrumb('renderer_root_missing')
   throw new Error('Renderer root element not found.')
 }
+// Capture the narrowed element so the deferred `renderApp` closure keeps it non-null.
+const rootContainer: HTMLElement = rootElement
 
 function RendererRoot(): React.JSX.Element {
   useTranslation()
@@ -62,11 +65,22 @@ function RendererRoot(): React.JSX.Element {
   )
 }
 
-createRoot(rootElement).render(
-  <StrictMode>
-    <I18nProvider>
-      <RendererRoot />
-    </I18nProvider>
-  </StrictMode>
-)
-recordRendererCrashBreadcrumb('renderer_bootstrap_rendered')
+function renderApp(): void {
+  createRoot(rootContainer).render(
+    <StrictMode>
+      <I18nProvider>
+        <RendererRoot />
+      </I18nProvider>
+    </StrictMode>
+  )
+  recordRendererCrashBreadcrumb('renderer_bootstrap_rendered')
+}
+
+// Render once the git wasm is ready so the agent-startup builders never hit
+// their pre-ready null fallback. The wasm is a local bundled asset (~tens of ms
+// to compile); the timeout is a safety valve so a stalled/failed compile still
+// renders the shell — line stats then degrade to numstat until it recovers.
+void Promise.race([
+  gitWasmReady.catch(() => undefined),
+  new Promise<void>((resolve) => setTimeout(resolve, 2000))
+]).then(renderApp)

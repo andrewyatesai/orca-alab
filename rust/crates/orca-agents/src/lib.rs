@@ -57,6 +57,7 @@ pub use tui_agent_selection::{
 // --- ported user-story slice (workflow w8rbqzuzc) ---
 pub mod tui_agent_config;
 pub mod tui_agent_startup;
+pub mod tui_agent_startup_json;
 pub mod tui_agent_startup_shell;
 pub mod terminal_quick_command_json;
 pub mod terminal_quick_commands;

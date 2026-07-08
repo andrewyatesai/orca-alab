@@ -268,6 +268,1261 @@
           "agentEnv": {}
         }
       }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume claude from a session_id provider session (--resume <id>)",
+      "input": {
+        "agent": "claude",
+        "providerSession": {
+          "key": "session_id",
+          "id": "abc-123"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "claude",
+        "launchCommand": "claude '--resume' 'abc-123'",
+        "expectedProcess": "claude",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume codex uses the `resume` subcommand verb, not a flag",
+      "input": {
+        "agent": "codex",
+        "providerSession": {
+          "key": "session_id",
+          "id": "sess-9"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "codex",
+        "launchCommand": "codex 'resume' 'sess-9'",
+        "expectedProcess": "codex",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "codex",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume mimo-code (newly ported) uses --session <id>",
+      "input": {
+        "agent": "mimo-code",
+        "providerSession": {
+          "key": "session_id",
+          "id": "m1"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "mimo-code",
+        "launchCommand": "mimo '--session' 'm1'",
+        "expectedProcess": "mimo",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "mimo",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume devin (newly ported) uses --resume <id>",
+      "input": {
+        "agent": "devin",
+        "providerSession": {
+          "key": "session_id",
+          "id": "d1"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "devin",
+        "launchCommand": "devin '--resume' 'd1'",
+        "expectedProcess": "devin",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "devin",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume returns null when the provider key kind cannot resume the agent",
+      "input": {
+        "agent": "claude",
+        "providerSession": {
+          "key": "conversation_id",
+          "id": "x"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": null
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume threads an explicit agentCommand override, agentArgs, and agentEnv",
+      "input": {
+        "agent": "claude",
+        "providerSession": {
+          "key": "session_id",
+          "id": "id with space"
+        },
+        "cmdOverrides": {},
+        "platform": "linux",
+        "agentCommand": "claude --foo",
+        "agentArgs": "--model opus",
+        "agentEnv": {
+          "FOO": "bar"
+        }
+      },
+      "expected": {
+        "agent": "claude",
+        "launchCommand": "claude --foo '--resume' 'id with space'",
+        "expectedProcess": "claude",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude --foo",
+          "agentArgs": "--model opus",
+          "agentEnv": {
+            "FOO": "bar"
+          }
+        },
+        "env": {
+          "FOO": "bar"
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "threads agentArgs into the launch command suffix and the resume snapshot",
+      "input": {
+        "agent": "claude",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux",
+        "agentArgs": "--model opus"
+      },
+      "expected": {
+        "agent": "claude",
+        "launchCommand": "claude '--model' 'opus' 'fix it'",
+        "expectedProcess": "claude",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude '--model' 'opus'",
+          "agentArgs": "--model opus",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "threads agentEnv into both the plan env and the resume snapshot",
+      "input": {
+        "agent": "claude",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux",
+        "agentEnv": {
+          "ORCA_PANE": "p1"
+        }
+      },
+      "expected": {
+        "agent": "claude",
+        "launchCommand": "claude 'fix it'",
+        "expectedProcess": "claude",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude",
+          "agentArgs": "",
+          "agentEnv": {
+            "ORCA_PANE": "p1"
+          }
+        },
+        "env": {
+          "ORCA_PANE": "p1"
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "isRemote skips the linux-only orca-ide rename for the SSH shim (claude-agent-teams)",
+      "input": {
+        "agent": "claude-agent-teams",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux",
+        "isRemote": true
+      },
+      "expected": {
+        "agent": "claude-agent-teams",
+        "launchCommand": "orca claude-teams",
+        "expectedProcess": "claude",
+        "followupPrompt": "fix it",
+        "launchConfig": {
+          "agentCommand": "orca claude-teams",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "local linux launch keeps the orca-ide rename (claude-agent-teams by-platform)",
+      "input": {
+        "agent": "claude-agent-teams",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "claude-agent-teams",
+        "launchCommand": "orca-ide claude-teams",
+        "expectedProcess": "claude",
+        "followupPrompt": "fix it",
+        "launchConfig": {
+          "agentCommand": "orca-ide claude-teams",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "win32 launch uses the orca.cmd by-platform rename (claude-agent-teams)",
+      "input": {
+        "agent": "claude-agent-teams",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "win32"
+      },
+      "expected": {
+        "agent": "claude-agent-teams",
+        "launchCommand": "orca.cmd claude-teams",
+        "expectedProcess": "claude",
+        "followupPrompt": "fix it",
+        "launchConfig": {
+          "agentCommand": "orca.cmd claude-teams",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "ante (newly ported) is stdin-after-start: bare launch, prompt as followup",
+      "input": {
+        "agent": "ante",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "ante",
+        "launchCommand": "ante",
+        "expectedProcess": "ante",
+        "followupPrompt": "fix it",
+        "launchConfig": {
+          "agentCommand": "ante",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "mimo-code (newly ported) is flag-prompt: prompt on --prompt",
+      "input": {
+        "agent": "mimo-code",
+        "prompt": "fix it",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "mimo-code",
+        "launchCommand": "mimo --prompt 'fix it'",
+        "expectedProcess": "mimo",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "mimo",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentDraftLaunchPlan",
+      "note": "mimo-code draft uses opencode-style flag-prompt with no native draft flag \u2192 null",
+      "input": {
+        "agent": "mimo-code",
+        "draft": "do a thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": null
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for claude (per-agent catalog pin)",
+      "input": {
+        "agent": "claude",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "claude",
+        "launchCommand": "claude 'do the thing'",
+        "expectedProcess": "claude",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "claude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for claude-agent-teams (per-agent catalog pin)",
+      "input": {
+        "agent": "claude-agent-teams",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "claude-agent-teams",
+        "launchCommand": "orca-ide claude-teams",
+        "expectedProcess": "claude",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "orca-ide claude-teams",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for openclaude (per-agent catalog pin)",
+      "input": {
+        "agent": "openclaude",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "openclaude",
+        "launchCommand": "openclaude 'do the thing'",
+        "expectedProcess": "openclaude",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "openclaude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for codex (per-agent catalog pin)",
+      "input": {
+        "agent": "codex",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "codex",
+        "launchCommand": "codex 'do the thing'",
+        "expectedProcess": "codex",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "codex",
+          "agentArgs": "",
+          "agentEnv": {}
+        },
+        "startupCommandDelivery": "shell-ready"
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for autohand (per-agent catalog pin)",
+      "input": {
+        "agent": "autohand",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "autohand",
+        "launchCommand": "autohand",
+        "expectedProcess": "autohand",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "autohand",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for ante (per-agent catalog pin)",
+      "input": {
+        "agent": "ante",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "ante",
+        "launchCommand": "ante",
+        "expectedProcess": "ante",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "ante",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for opencode (per-agent catalog pin)",
+      "input": {
+        "agent": "opencode",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "opencode",
+        "launchCommand": "opencode --prompt 'do the thing'",
+        "expectedProcess": "opencode",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "opencode",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for mimo-code (per-agent catalog pin)",
+      "input": {
+        "agent": "mimo-code",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "mimo-code",
+        "launchCommand": "mimo --prompt 'do the thing'",
+        "expectedProcess": "mimo",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "mimo",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for pi (per-agent catalog pin)",
+      "input": {
+        "agent": "pi",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "pi",
+        "launchCommand": "pi 'do the thing'",
+        "expectedProcess": "pi",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "pi",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for omp (per-agent catalog pin)",
+      "input": {
+        "agent": "omp",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "omp",
+        "launchCommand": "omp 'do the thing'",
+        "expectedProcess": "omp",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "omp",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for gemini (per-agent catalog pin)",
+      "input": {
+        "agent": "gemini",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "gemini",
+        "launchCommand": "gemini --prompt-interactive 'do the thing'",
+        "expectedProcess": "gemini",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "gemini",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for antigravity (per-agent catalog pin)",
+      "input": {
+        "agent": "antigravity",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "antigravity",
+        "launchCommand": "agy --prompt-interactive 'do the thing'",
+        "expectedProcess": "agy",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "agy",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for aider (per-agent catalog pin)",
+      "input": {
+        "agent": "aider",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "aider",
+        "launchCommand": "aider",
+        "expectedProcess": "aider",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "aider",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for goose (per-agent catalog pin)",
+      "input": {
+        "agent": "goose",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "goose",
+        "launchCommand": "goose",
+        "expectedProcess": "goose",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "goose",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for amp (per-agent catalog pin)",
+      "input": {
+        "agent": "amp",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "amp",
+        "launchCommand": "amp",
+        "expectedProcess": "amp",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "amp",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for kilo (per-agent catalog pin)",
+      "input": {
+        "agent": "kilo",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "kilo",
+        "launchCommand": "kilo",
+        "expectedProcess": "kilo",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "kilo",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for kiro (per-agent catalog pin)",
+      "input": {
+        "agent": "kiro",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "kiro",
+        "launchCommand": "kiro-cli chat --tui",
+        "expectedProcess": "kiro-cli",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "kiro-cli chat --tui",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for crush (per-agent catalog pin)",
+      "input": {
+        "agent": "crush",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "crush",
+        "launchCommand": "crush",
+        "expectedProcess": "crush",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "crush",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for aug (per-agent catalog pin)",
+      "input": {
+        "agent": "aug",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "aug",
+        "launchCommand": "auggie",
+        "expectedProcess": "auggie",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "auggie",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for cline (per-agent catalog pin)",
+      "input": {
+        "agent": "cline",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "cline",
+        "launchCommand": "cline",
+        "expectedProcess": "cline",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "cline",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for codebuff (per-agent catalog pin)",
+      "input": {
+        "agent": "codebuff",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "codebuff",
+        "launchCommand": "codebuff",
+        "expectedProcess": "codebuff",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "codebuff",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for command-code (per-agent catalog pin)",
+      "input": {
+        "agent": "command-code",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "command-code",
+        "launchCommand": "command-code --trust 'do the thing'",
+        "expectedProcess": "command-code",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "command-code --trust",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for continue (per-agent catalog pin)",
+      "input": {
+        "agent": "continue",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "continue",
+        "launchCommand": "cn",
+        "expectedProcess": "cn",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "cn",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for cursor (per-agent catalog pin)",
+      "input": {
+        "agent": "cursor",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "cursor",
+        "launchCommand": "cursor-agent 'do the thing'",
+        "expectedProcess": "cursor-agent",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "cursor-agent",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for droid (per-agent catalog pin)",
+      "input": {
+        "agent": "droid",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "droid",
+        "launchCommand": "droid 'do the thing'",
+        "expectedProcess": "droid",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "droid",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for kimi (per-agent catalog pin)",
+      "input": {
+        "agent": "kimi",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "kimi",
+        "launchCommand": "kimi",
+        "expectedProcess": "kimi",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "kimi",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for mistral-vibe (per-agent catalog pin)",
+      "input": {
+        "agent": "mistral-vibe",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "mistral-vibe",
+        "launchCommand": "vibe",
+        "expectedProcess": "vibe",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "vibe",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for qwen-code (per-agent catalog pin)",
+      "input": {
+        "agent": "qwen-code",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "qwen-code",
+        "launchCommand": "qwen",
+        "expectedProcess": "qwen",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "qwen",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for rovo (per-agent catalog pin)",
+      "input": {
+        "agent": "rovo",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "rovo",
+        "launchCommand": "rovo",
+        "expectedProcess": "rovo",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "rovo",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for hermes (per-agent catalog pin)",
+      "input": {
+        "agent": "hermes",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "hermes",
+        "launchCommand": "hermes --tui",
+        "expectedProcess": "hermes",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "hermes --tui",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for openclaw (per-agent catalog pin)",
+      "input": {
+        "agent": "openclaw",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "openclaw",
+        "launchCommand": "openclaw",
+        "expectedProcess": "openclaw",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "openclaw",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for copilot (per-agent catalog pin)",
+      "input": {
+        "agent": "copilot",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "copilot",
+        "launchCommand": "copilot -i 'do the thing'",
+        "expectedProcess": "copilot",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "copilot",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for grok (per-agent catalog pin)",
+      "input": {
+        "agent": "grok",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "grok",
+        "launchCommand": "grok",
+        "expectedProcess": "grok",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "grok",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentStartupPlan",
+      "note": "startup plan for devin (per-agent catalog pin)",
+      "input": {
+        "agent": "devin",
+        "prompt": "do the thing",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "devin",
+        "launchCommand": "devin",
+        "expectedProcess": "devin",
+        "followupPrompt": "do the thing",
+        "launchConfig": {
+          "agentCommand": "devin",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume gemini (per-agent resume-argv pin)",
+      "input": {
+        "agent": "gemini",
+        "providerSession": {
+          "key": "session_id",
+          "id": "sid-1"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "gemini",
+        "launchCommand": "gemini '--resume' 'sid-1'",
+        "expectedProcess": "gemini",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "gemini",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume antigravity (per-agent resume-argv pin)",
+      "input": {
+        "agent": "antigravity",
+        "providerSession": {
+          "key": "conversation_id",
+          "id": "sid-1"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "antigravity",
+        "launchCommand": "agy '--conversation' 'sid-1'",
+        "expectedProcess": "agy",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "agy",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume opencode (per-agent resume-argv pin)",
+      "input": {
+        "agent": "opencode",
+        "providerSession": {
+          "key": "session_id",
+          "id": "sid-1"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "opencode",
+        "launchCommand": "opencode '--session' 'sid-1'",
+        "expectedProcess": "opencode",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "opencode",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume droid (per-agent resume-argv pin)",
+      "input": {
+        "agent": "droid",
+        "providerSession": {
+          "key": "session_id",
+          "id": "sid-1"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "droid",
+        "launchCommand": "droid '--resume' 'sid-1'",
+        "expectedProcess": "droid",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "droid",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentResumeStartupPlan",
+      "note": "resume grok (per-agent resume-argv pin)",
+      "input": {
+        "agent": "grok",
+        "providerSession": {
+          "key": "session_id",
+          "id": "sid-1"
+        },
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "grok",
+        "launchCommand": "grok '--resume' 'sid-1'",
+        "expectedProcess": "grok",
+        "followupPrompt": null,
+        "launchConfig": {
+          "agentCommand": "grok",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentDraftLaunchPlan",
+      "note": "draft launch for claude (per-agent draft flag/env pin)",
+      "input": {
+        "agent": "claude",
+        "draft": "seed this",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "claude",
+        "launchCommand": "claude --prefill 'seed this'",
+        "expectedProcess": "claude",
+        "launchConfig": {
+          "agentCommand": "claude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentDraftLaunchPlan",
+      "note": "draft launch for openclaude (per-agent draft flag/env pin)",
+      "input": {
+        "agent": "openclaude",
+        "draft": "seed this",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "openclaude",
+        "launchCommand": "openclaude --prefill 'seed this'",
+        "expectedProcess": "openclaude",
+        "launchConfig": {
+          "agentCommand": "openclaude",
+          "agentArgs": "",
+          "agentEnv": {}
+        }
+      }
+    },
+    {
+      "function": "buildAgentDraftLaunchPlan",
+      "note": "draft launch for pi (per-agent draft flag/env pin)",
+      "input": {
+        "agent": "pi",
+        "draft": "seed this",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "pi",
+        "launchCommand": "pi; unset ORCA_PI_PREFILL",
+        "expectedProcess": "pi",
+        "launchConfig": {
+          "agentCommand": "pi",
+          "agentArgs": "",
+          "agentEnv": {}
+        },
+        "env": {
+          "ORCA_PI_PREFILL": "seed this"
+        }
+      }
+    },
+    {
+      "function": "buildAgentDraftLaunchPlan",
+      "note": "draft launch for omp (per-agent draft flag/env pin)",
+      "input": {
+        "agent": "omp",
+        "draft": "seed this",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": {
+        "agent": "omp",
+        "launchCommand": "omp; unset ORCA_OMP_PREFILL",
+        "expectedProcess": "omp",
+        "launchConfig": {
+          "agentCommand": "omp",
+          "agentArgs": "",
+          "agentEnv": {}
+        },
+        "env": {
+          "ORCA_OMP_PREFILL": "seed this"
+        }
+      }
+    },
+    {
+      "function": "buildAgentDraftLaunchPlan",
+      "note": "draft launch for aider (per-agent draft flag/env pin)",
+      "input": {
+        "agent": "aider",
+        "draft": "seed this",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": null
+    },
+    {
+      "function": "buildAgentDraftLaunchPlan",
+      "note": "draft launch for gemini (per-agent draft flag/env pin)",
+      "input": {
+        "agent": "gemini",
+        "draft": "seed this",
+        "cmdOverrides": {},
+        "platform": "linux"
+      },
+      "expected": null
     }
   ]
 }

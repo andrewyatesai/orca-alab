@@ -174,6 +174,13 @@ export function stripCredentialsFromMessage(message: string): string;
 export function terminalQuickCommandOp(_function: string, input_json: string): string;
 
 /**
+ * Dispatch one TUI agent-startup plan builder by name over its camelCase JSON
+ * (TS `tui-agent-startup.ts`). The renderer drives buildAgentStartupPlan /
+ * …Resume… / …Draft… through this — see `orca_agents::tui_agent_startup_json`.
+ */
+export function tuiAgentStartupOp(_function: string, input_json: string): string;
+
+/**
  * True when `git cherry <upstream> HEAD`-style mark output shows at least one
  * commit and every commit is patch-equivalent (`=`). The relay's
  * behind-commits-are-patch-equivalent probe.
@@ -220,6 +227,7 @@ export interface InitOutput {
     readonly slugifyForWorkspaceName: (a: number, b: number, c: number) => void;
     readonly stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
     readonly terminalQuickCommandOp: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

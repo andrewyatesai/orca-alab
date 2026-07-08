@@ -1,42 +1,10 @@
-// TS dispatch for the tui-agent-startup parity module: maps the shared vector
-// function names to the real `src/shared/tui-agent-startup.ts` exports so the
-// harness compares the live TS reference against the Rust port.
-
-import {
-  buildAgentDraftLaunchPlan,
-  buildAgentStartupPlan,
-  type AgentStartupShell
-} from '../../../src/shared/tui-agent-startup'
-import type { TuiAgent } from '../../../src/shared/types'
+// TS dispatch for the tui-agent-startup parity module. The shared TS bodies were
+// DELETED (the Rust orca-agents core is the sole impl — napi in main, wasm in the
+// renderer), so this adapter drives the SAME wasm through the single
+// `tuiAgentStartupOp` boundary: the vectors' goldens pin that surface and the
+// harness's TS-vs-Rust diff degenerates to wasm-vs-binary.
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'buildAgentStartupPlan':
-      return (
-        buildAgentStartupPlan(
-          input as {
-            agent: TuiAgent
-            prompt: string
-            cmdOverrides: Partial<Record<TuiAgent, string>>
-            platform: NodeJS.Platform
-            shell?: AgentStartupShell
-            allowEmptyPromptLaunch?: boolean
-          }
-        ) ?? null
-      )
-    case 'buildAgentDraftLaunchPlan':
-      return (
-        buildAgentDraftLaunchPlan(
-          input as {
-            agent: TuiAgent
-            draft: string
-            cmdOverrides: Partial<Record<TuiAgent, string>>
-            platform: NodeJS.Platform
-            shell?: AgentStartupShell
-          }
-        ) ?? null
-      )
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(gitWasmOracle().tuiAgentStartupOp(fn, JSON.stringify(input ?? null)))
 }

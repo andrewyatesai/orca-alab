@@ -1997,6 +1997,17 @@ export function connectPanePty(
       }),
     shouldPollProcessCadence: () =>
       isAgentTaskCompleteTrackingEnabled() && deps.isVisibleRef.current,
+    isProcessInspectionCostly: () => {
+      // Why: local Windows inspection forks a powershell.exe whole-process-table
+      // CIM scan per poll (~10-40x heavier than POSIX `ps`); SSH/remote PTYs run
+      // their scans on the remote host, so only local Windows panes relax the
+      // no-evidence cadence.
+      if (!navigator.userAgent.includes('Windows')) {
+        return false
+      }
+      const ptyId = transport.getPtyId()
+      return ptyId !== null && !isRemoteRuntimePtyId(ptyId) && parseAppSshPtyId(ptyId) === null
+    },
     isLive: () => {
       if (disposed) {
         return false
@@ -5246,6 +5257,9 @@ export function connectPanePty(
       if (data.length > 0) {
         hasReceivedPtyOutput = true
         recordAgentHibernationPaneOutput(cacheKey)
+        // Why: output is the agent-start escalation signal that ends the relaxed
+        // no-evidence process-scan cadence (a starting agent always prints).
+        agentCompletionCoordinator.observeOutputActivity()
       }
       if (sshShellReadyMarkerScan) {
         const scanned = scanForShellReadyMarker(sshShellReadyMarkerScan, data)

@@ -9278,11 +9278,8 @@ describe('connectPanePty', () => {
     })
     await flushAsyncTicks(4)
 
-    vi.advanceTimersByTime(750)
-    await vi.runAllTimersAsync()
+    await vi.advanceTimersByTimeAsync(750)
     await flushAsyncTicks(20)
-    vi.advanceTimersByTime(0)
-    await flushAsyncTicks(10)
 
     expect(pane.terminal.write).toHaveBeenCalledWith(
       expect.stringContaining('main recovery was unavailable'),

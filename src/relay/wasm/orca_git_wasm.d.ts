@@ -27,6 +27,13 @@ export class QuickOpenIndex {
 }
 
 /**
+ * Build the PR-fields generation prompt (TS `buildPullRequestFieldsPrompt`); the
+ * renderer's dry-run preview dialog runs this. `context_json` is the
+ * `PullRequestDraftContext` object; returns the prompt string.
+ */
+export function buildPullRequestFieldsPrompt(context_json: string, custom_prompt: string): string;
+
+/**
  * Approximate added/removed line counts for a diff section; returns the
  * line-stats JSON, or `undefined` for the large-input guard (>500k combined
  * chars — splitting that in a React render would block the UI). This one is
@@ -105,6 +112,13 @@ export function isNoUpstreamError(message?: string | null): boolean;
 export function normalizeGitErrorMessage(message?: string | null, operation?: string | null): string;
 
 /**
+ * Parse an agent's PR-fields JSON reply (TS `parseGeneratedPullRequestFields`) as
+ * `{ok:true, fields:{base,title,body,draft}} | {ok:false, error}` JSON. Exported for
+ * parity/surface symmetry (the renderer only calls build; parse runs in main via napi).
+ */
+export function parseGeneratedPullRequestFields(raw: string, fallback_json: string): string;
+
+/**
  * NUL-delimited `git log` (in `GIT_HISTORY_COMMIT_FORMAT`) parsed to the
  * `GitHistoryItem[]` JSON the TS `parseGitHistoryLog` produced.
  */
@@ -172,6 +186,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_quickopenindex_free: (a: number, b: number) => void;
+    readonly buildPullRequestFieldsPrompt: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly computeLineStats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly countAdditionsInBuffer: (a: number, b: number) => number;
     readonly decodeGitCQuotedPath: (a: number, b: number, c: number) => void;
@@ -184,6 +199,7 @@ export interface InitOutput {
     readonly getWorkspaceIntentName: (a: number, b: number, c: number) => void;
     readonly isNoUpstreamError: (a: number, b: number) => number;
     readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly parseGeneratedPullRequestFields: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly parseGitHistoryLog: (a: number, b: number, c: number) => void;
     readonly parseNumstat: (a: number, b: number, c: number) => void;
     readonly parseStatusPorcelain: (a: number, b: number, c: number, d: number) => void;

@@ -117,23 +117,29 @@ pub fn parse_generated_pull_request_fields(
     fallback: &PullRequestDraftContext,
 ) -> Result<GeneratedPullRequestFields, String> {
     let parsed: Value = serde_json::from_str(&strip_json_fence(raw)).map_err(|error| error.to_string())?;
-    let record = parsed.as_object().ok_or_else(|| "Expected a JSON object.".to_string())?;
+    // TS gate is `if (!parsed || typeof parsed !== 'object') throw`. In JS a JSON
+    // array is `typeof 'object'` and truthy, so it is accepted and — having no
+    // base/title/body/draft keys — yields all fallbacks; only null/number/string/
+    // bool throw. `Value::get(&str)` returns None on an array, matching that.
+    if !parsed.is_object() && !parsed.is_array() {
+        return Err("Expected a JSON object.".to_string());
+    }
 
-    let base = record.get("base").and_then(Value::as_str).map(str::trim).unwrap_or(fallback.base.as_str());
+    let base = parsed.get("base").and_then(Value::as_str).map(str::trim).unwrap_or(fallback.base.as_str());
     let base = if base.is_empty() { fallback.base.clone() } else { base.to_string() };
 
-    let title = match record.get("title").and_then(Value::as_str) {
+    let title = match parsed.get("title").and_then(Value::as_str) {
         Some(raw) if !raw.trim().is_empty() => trailing_dots_re().replace(raw.trim(), "").into_owned(),
         _ => fallback.current_title.trim().to_string(),
     };
     let title = if title.is_empty() { "Update project files".to_string() } else { title };
 
-    let body = match record.get("body").and_then(Value::as_str) {
+    let body = match parsed.get("body").and_then(Value::as_str) {
         Some(raw) => trailing_whitespace_re().replace(raw, "").into_owned(),
         None => fallback.current_body.clone(),
     };
 
-    let draft = record.get("draft").and_then(Value::as_bool).unwrap_or(fallback.current_draft);
+    let draft = parsed.get("draft").and_then(Value::as_bool).unwrap_or(fallback.current_draft);
 
     Ok(GeneratedPullRequestFields { base, title, body, draft })
 }
@@ -211,5 +217,28 @@ mod tests {
                 draft: false,
             }
         );
+    }
+
+    #[test]
+    fn json_array_is_treated_as_an_empty_object_all_fallbacks() {
+        // TS: `typeof [] === 'object'` so an array passes the object gate and,
+        // having no base/title/body/draft keys, produces all fallbacks (no throw).
+        let fields = parse_generated_pull_request_fields("[1, 2, 3]", &context()).unwrap();
+        assert_eq!(
+            fields,
+            GeneratedPullRequestFields {
+                base: "main".to_string(),
+                title: "Feature pr details".to_string(),
+                body: "- Add form".to_string(),
+                draft: false,
+            }
+        );
+    }
+
+    #[test]
+    fn json_scalar_and_null_are_rejected() {
+        for raw in ["null", "42", "\"text\"", "true"] {
+            assert!(parse_generated_pull_request_fields(raw, &context()).is_err(), "{raw} must error");
+        }
     }
 }

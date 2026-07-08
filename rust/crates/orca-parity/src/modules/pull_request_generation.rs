@@ -1,7 +1,9 @@
 //! Parity dispatch for `orca_agents::pull_request_generation` vs
 //! `src/shared/pull-request-generation.ts`.
 
-use orca_agents::{build_pull_request_fields_prompt, PullRequestDraftContext};
+use orca_agents::{
+    build_pull_request_fields_prompt, parse_generated_pull_request_fields, PullRequestDraftContext,
+};
 use serde_json::{json, Value};
 
 pub fn dispatch(function: &str, input: &Value) -> Value {
@@ -11,6 +13,20 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let custom_prompt = input.get("customPrompt").and_then(Value::as_str).unwrap_or("");
             // TS returns a plain string; `JSON.stringify` of it is a JSON string.
             Value::String(build_pull_request_fields_prompt(&context, custom_prompt))
+        }
+        "parseGeneratedPullRequestFields" => {
+            // `fallback` carries the current PR fields (base/currentTitle/…); the
+            // TS twin throws on a non-object payload, so the error path is not
+            // vectored (V8 vs serde message text diverges) — only success cases.
+            let fallback = parse_context(input.get("fallback").unwrap_or(&Value::Null));
+            let raw = input.get("raw").and_then(Value::as_str).unwrap_or("");
+            match parse_generated_pull_request_fields(raw, &fallback) {
+                Ok(fields) => json!({
+                    "base": fields.base, "title": fields.title,
+                    "body": fields.body, "draft": fields.draft,
+                }),
+                Err(error) => json!({ "__parity_error__": error }),
+            }
         }
         other => json!({ "__parity_error__": format!("unknown function {other}") }),
     }

@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_quickopenindex_free: (a: number, b: number) => void;
+export const buildPullRequestFieldsPrompt: (a: number, b: number, c: number, d: number, e: number) => void;
 export const computeLineStats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const countAdditionsInBuffer: (a: number, b: number) => number;
 export const decodeGitCQuotedPath: (a: number, b: number, c: number) => void;
@@ -14,6 +15,7 @@ export const getLinkedWorkItemWorkspaceName: (a: number, b: number, c: number) =
 export const getWorkspaceIntentName: (a: number, b: number, c: number) => void;
 export const isNoUpstreamError: (a: number, b: number) => number;
 export const normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
+export const parseGeneratedPullRequestFields: (a: number, b: number, c: number, d: number, e: number) => void;
 export const parseGitHistoryLog: (a: number, b: number, c: number) => void;
 export const parseNumstat: (a: number, b: number, c: number) => void;
 export const parseStatusPorcelain: (a: number, b: number, c: number, d: number) => void;

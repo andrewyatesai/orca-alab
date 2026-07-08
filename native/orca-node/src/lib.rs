@@ -483,6 +483,48 @@ fn plan_agent_binary_result_to_json(default_binary: &str, command_override: Opti
     }
 }
 
+/// Build the PR-fields generation prompt (TS `buildPullRequestFieldsPrompt`).
+/// `context_json` is the `PullRequestDraftContext` object; returns the prompt string.
+#[napi(catch_unwind)]
+pub fn build_pull_request_fields_prompt(context_json: String, custom_prompt: String) -> String {
+    orca_agents::build_pull_request_fields_prompt(&parse_pull_request_context(&context_json), &custom_prompt)
+}
+
+/// Parse an agent's PR-fields JSON reply (TS `parseGeneratedPullRequestFields`) as
+/// `{ok:true, fields:{base,title,body,draft}} | {ok:false, error}` JSON; `fallback_json`
+/// supplies the current PR fields for missing/blank values (the shim throws on `!ok`).
+#[napi(catch_unwind)]
+pub fn parse_generated_pull_request_fields(raw: String, fallback_json: String) -> String {
+    let fallback = parse_pull_request_context(&fallback_json);
+    match orca_agents::parse_generated_pull_request_fields(&raw, &fallback) {
+        Ok(fields) => serde_json::json!({
+            "ok": true,
+            "fields": { "base": fields.base, "title": fields.title, "body": fields.body, "draft": fields.draft }
+        })
+        .to_string(),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }).to_string(),
+    }
+}
+
+/// Build a `PullRequestDraftContext` from its camelCase JSON (string fields default
+/// to "", `branch` nullable → `None`); shared by prompt-build + reply-parse.
+fn parse_pull_request_context(context_json: &str) -> orca_agents::PullRequestDraftContext {
+    let value = serde_json::from_str::<serde_json::Value>(context_json).unwrap_or(serde_json::Value::Null);
+    let str_field = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let bool_field = |key: &str| value.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
+    orca_agents::PullRequestDraftContext {
+        branch: value.get("branch").and_then(|v| v.as_str()).map(str::to_string),
+        base: str_field("base"),
+        branch_changed_by_preparation: bool_field("branchChangedByPreparation"),
+        current_title: str_field("currentTitle"),
+        current_body: str_field("currentBody"),
+        current_draft: bool_field("currentDraft"),
+        commit_summary: str_field("commitSummary"),
+        change_summary: str_field("changeSummary"),
+        patch: str_field("patch"),
+    }
+}
+
 /// Parse an OpenSSH config file into `SshConfigHost[]` JSON (the same shape TS
 /// `parseSshConfig` returns). `home` is the `~`-expansion base the caller reads
 /// from `os.homedir()` — kept explicit so the Rust core stays pure.

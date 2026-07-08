@@ -355,3 +355,44 @@ fn plan_agent_binary_result_to_json(default_binary: &str, command_override: Opti
         Err(error) => serde_json::json!({ "ok": false, "error": error }).to_string(),
     }
 }
+
+/// Build the PR-fields generation prompt (TS `buildPullRequestFieldsPrompt`); the
+/// renderer's dry-run preview dialog runs this. `context_json` is the
+/// `PullRequestDraftContext` object; returns the prompt string.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "buildPullRequestFieldsPrompt"))]
+pub fn build_pull_request_fields_prompt_json(context_json: &str, custom_prompt: &str) -> String {
+    orca_agents::build_pull_request_fields_prompt(&parse_pull_request_context(context_json), custom_prompt)
+}
+
+/// Parse an agent's PR-fields JSON reply (TS `parseGeneratedPullRequestFields`) as
+/// `{ok:true, fields:{base,title,body,draft}} | {ok:false, error}` JSON. Exported for
+/// parity/surface symmetry (the renderer only calls build; parse runs in main via napi).
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "parseGeneratedPullRequestFields"))]
+pub fn parse_generated_pull_request_fields_json(raw: &str, fallback_json: &str) -> String {
+    let fallback = parse_pull_request_context(fallback_json);
+    match orca_agents::parse_generated_pull_request_fields(raw, &fallback) {
+        Ok(fields) => serde_json::json!({
+            "ok": true,
+            "fields": { "base": fields.base, "title": fields.title, "body": fields.body, "draft": fields.draft }
+        })
+        .to_string(),
+        Err(error) => serde_json::json!({ "ok": false, "error": error }).to_string(),
+    }
+}
+
+fn parse_pull_request_context(context_json: &str) -> orca_agents::PullRequestDraftContext {
+    let value = serde_json::from_str::<serde_json::Value>(context_json).unwrap_or(serde_json::Value::Null);
+    let str_field = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let bool_field = |key: &str| value.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
+    orca_agents::PullRequestDraftContext {
+        branch: value.get("branch").and_then(|v| v.as_str()).map(str::to_string),
+        base: str_field("base"),
+        branch_changed_by_preparation: bool_field("branchChangedByPreparation"),
+        current_title: str_field("currentTitle"),
+        current_body: str_field("currentBody"),
+        current_draft: bool_field("currentDraft"),
+        commit_summary: str_field("commitSummary"),
+        change_summary: str_field("changeSummary"),
+        patch: str_field("patch"),
+    }
+}

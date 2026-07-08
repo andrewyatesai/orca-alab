@@ -9,12 +9,14 @@ import {
   type CommitMessageDraftContext,
   type GeneratedCommitMessage
 } from '../../shared/commit-message-generation'
+import type {
+  GeneratedPullRequestFields,
+  PullRequestDraftContext
+} from '../../shared/pull-request-generation'
 import {
   buildPullRequestFieldsPrompt,
-  parseGeneratedPullRequestFields,
-  type GeneratedPullRequestFields,
-  type PullRequestDraftContext
-} from '../../shared/pull-request-generation'
+  parseGeneratedPullRequestFields
+} from './rust-pull-request-generation'
 import {
   cleanGeneratedCommitMessage,
   extractAgentErrorMessage

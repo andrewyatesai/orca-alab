@@ -90,6 +90,35 @@ export class QuickOpenIndex {
 if (Symbol.dispose) QuickOpenIndex.prototype[Symbol.dispose] = QuickOpenIndex.prototype.free;
 
 /**
+ * Build the PR-fields generation prompt (TS `buildPullRequestFieldsPrompt`); the
+ * renderer's dry-run preview dialog runs this. `context_json` is the
+ * `PullRequestDraftContext` object; returns the prompt string.
+ * @param {string} context_json
+ * @param {string} custom_prompt
+ * @returns {string}
+ */
+export function buildPullRequestFieldsPrompt(context_json, custom_prompt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(context_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(custom_prompt, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.buildPullRequestFieldsPrompt(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred3_0 = r0;
+        deferred3_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Approximate added/removed line counts for a diff section; returns the
  * line-stats JSON, or `undefined` for the large-input guard (>500k combined
  * chars — splitting that in a React render would block the UI). This one is
@@ -372,6 +401,35 @@ export function normalizeGitErrorMessage(message, operation) {
         var ptr1 = isLikeNone(operation) ? 0 : passStringToWasm0(operation, wasm.__wbindgen_export, wasm.__wbindgen_export2);
         var len1 = WASM_VECTOR_LEN;
         wasm.normalizeGitErrorMessage(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred3_0 = r0;
+        deferred3_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Parse an agent's PR-fields JSON reply (TS `parseGeneratedPullRequestFields`) as
+ * `{ok:true, fields:{base,title,body,draft}} | {ok:false, error}` JSON. Exported for
+ * parity/surface symmetry (the renderer only calls build; parse runs in main via napi).
+ * @param {string} raw
+ * @param {string} fallback_json
+ * @returns {string}
+ */
+export function parseGeneratedPullRequestFields(raw, fallback_json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(raw, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(fallback_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.parseGeneratedPullRequestFields(retptr, ptr0, len0, ptr1, len1);
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         deferred3_0 = r0;

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useSyncExternalStore } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import {
   Dialog,
@@ -16,7 +16,8 @@ import type { GlobalSettings, Repo } from '../../../../shared/types'
 import type { SourceControlAiWriteTarget } from '../../../../shared/source-control-ai-recipe-save'
 import { buildBranchNamePrompt } from '../../../../shared/branch-name-from-work'
 import { buildCommitMessagePrompt } from '../../../../shared/commit-message-generation'
-import { buildPullRequestFieldsPrompt } from '../../../../shared/pull-request-generation'
+import { buildPullRequestFieldsPrompt } from '@/lib/git-wasm/pull-request-generation'
+import { isGitWasmReady, subscribeGitWasmReady } from '@/lib/git-wasm/git-line-stats'
 import {
   SourceControlTextGenerationDialogForm,
   type SourceControlTextGenerationSaveTarget
@@ -57,19 +58,23 @@ function buildBasePromptPreview(actionId: SourceControlTextActionId): string {
         ''
       )
     case 'pullRequest':
-      return buildPullRequestFieldsPrompt(
-        {
-          branch: 'feature/example',
-          base: 'main',
-          branchChangedByPreparation: false,
-          currentTitle: 'Draft title',
-          currentBody: 'Draft description',
-          currentDraft: false,
-          commitSummary: 'a1b2c3d Add Source Control AI prompt previews',
-          changeSummary: 'src/example.ts | 12 ++++++++++--',
-          patch: 'diff --git a/src/example.ts b/src/example.ts\n+addSourceControlAiPreview()'
-        },
-        ''
+      // Rust/wasm builder — null until the wasm initialises; the preview shows
+      // nothing during that (eager-init) window rather than throwing.
+      return (
+        buildPullRequestFieldsPrompt(
+          {
+            branch: 'feature/example',
+            base: 'main',
+            branchChangedByPreparation: false,
+            currentTitle: 'Draft title',
+            currentBody: 'Draft description',
+            currentDraft: false,
+            commitSummary: 'a1b2c3d Add Source Control AI prompt previews',
+            changeSummary: 'src/example.ts | 12 ++++++++++--',
+            patch: 'diff --git a/src/example.ts b/src/example.ts\n+addSourceControlAiPreview()'
+          },
+          ''
+        ) ?? ''
       )
     case 'branchName':
       return buildBranchNamePrompt({
@@ -92,6 +97,9 @@ export function SourceControlTextGenerationDialog({
   onGenerate,
   onSaveDefaults
 }: SourceControlTextGenerationDialogProps): React.JSX.Element {
+  // Re-render when the git wasm finishes initialising so the pull-request prompt
+  // preview (built via wasm) recomputes from null → the real text.
+  useSyncExternalStore(subscribeGitWasmReady, isGitWasmReady, isGitWasmReady)
   const resolved = useMemo(
     () =>
       settings

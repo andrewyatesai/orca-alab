@@ -235,6 +235,13 @@ export type RustGitBinding = {
   /** Spawn binary + prefix args from an optional command override, as
    *  `{ok:true, binary, prefixArgs} | {ok:false, error}` JSON. */
   planAgentBinary(defaultBinary: string, commandOverride: string | undefined): string
+  /** PR-fields generation prompt (TS `buildPullRequestFieldsPrompt`). `contextJson`
+   *  is the `PullRequestDraftContext` object; returns the prompt string. */
+  buildPullRequestFieldsPrompt(contextJson: string, customPrompt: string): string
+  /** Parse an agent's PR-fields reply (TS `parseGeneratedPullRequestFields`) as
+   *  `{ok:true, fields:{base,title,body,draft}} | {ok:false, error}` JSON;
+   *  `fallbackJson` supplies the current fields for missing/blank values. */
+  parseGeneratedPullRequestFields(raw: string, fallbackJson: string): string
   /** Validate raw session JSON as a `WorkspaceSessionState`, returning the
    *  `ParsedWorkspaceSession` union (`{ok:true, value} | {ok:false, error}`) JSON. */
   parseWorkspaceSession(rawJson: string): string

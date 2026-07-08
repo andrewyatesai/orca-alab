@@ -1,9 +1,15 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+// Behavioural coverage for the PR-fields generator, now driven through the napi
+// binding to the Rust orca-agents core (the shared TS bodies were deleted). Lives
+// in the node project because it loads the native addon (the src/shared → src/main
+// relocation precedent from the workspace-session parse cutover). The prompt-string
+// shape + parse edge cases are pinned by the parity vectors; these assert the
+// production napi surface end-to-end.
+import { describe, expect, it } from 'vitest'
 import {
   buildPullRequestFieldsPrompt,
-  parseGeneratedPullRequestFields,
-  type PullRequestDraftContext
-} from './pull-request-generation'
+  parseGeneratedPullRequestFields
+} from './rust-pull-request-generation'
+import type { PullRequestDraftContext } from '../../shared/pull-request-generation'
 
 const context: PullRequestDraftContext = {
   branch: 'feature/pr-details',
@@ -16,10 +22,6 @@ const context: PullRequestDraftContext = {
   changeSummary: 'M\tsrc/file.ts',
   patch: 'diff --git a/src/file.ts b/src/file.ts\n+export const value = true'
 }
-
-afterEach(() => {
-  vi.restoreAllMocks()
-})
 
 describe('buildPullRequestFieldsPrompt', () => {
   it('asks for compact JSON and includes PR context', () => {
@@ -34,10 +36,7 @@ describe('buildPullRequestFieldsPrompt', () => {
 
   it('tells the agent to preserve existing review templates', () => {
     const prompt = buildPullRequestFieldsPrompt(
-      {
-        ...context,
-        currentBody: '## Summary\n\n## Testing\n\n- [ ] Required checks'
-      },
+      { ...context, currentBody: '## Summary\n\n## Testing\n\n- [ ] Required checks' },
       ''
     )
 
@@ -47,40 +46,22 @@ describe('buildPullRequestFieldsPrompt', () => {
 })
 
 describe('parseGeneratedPullRequestFields', () => {
-  it('parses fenced JSON output', () => {
+  it('parses fenced JSON output and strips the trailing period from the title', () => {
     const fields = parseGeneratedPullRequestFields(
       '```json\n{"base":"main","title":"fix: add details.","body":"Summary","draft":true}\n```',
       context
     )
 
-    expect(fields).toEqual({
-      base: 'main',
-      title: 'fix: add details',
-      body: 'Summary',
-      draft: true
-    })
+    expect(fields).toEqual({ base: 'main', title: 'fix: add details', body: 'Summary', draft: true })
   })
 
-  it('parses CRLF fenced JSON output without full-string fence matching', () => {
-    const matchSpy = vi.spyOn(String.prototype, 'match')
-    const replaceSpy = vi.spyOn(String.prototype, 'replace')
+  it('parses CRLF fenced JSON output', () => {
     const fields = parseGeneratedPullRequestFields(
       '```JSON\r\n{"base":"main","title":"fix: add details.","body":"Summary","draft":true}\r\n```',
       context
     )
 
     expect(fields.title).toBe('fix: add details')
-    const usedFenceMatch = matchSpy.mock.calls.some(
-      ([pattern]) =>
-        pattern instanceof RegExp &&
-        pattern.source.startsWith('^```') &&
-        pattern.source.includes('[\\s\\S]')
-    )
-    const usedCrlfReplace = replaceSpy.mock.calls.some(
-      ([pattern]) => pattern instanceof RegExp && pattern.source === '\\r\\n' && pattern.global
-    )
-    expect(usedFenceMatch).toBe(false)
-    expect(usedCrlfReplace).toBe(false)
   })
 
   it('falls back for missing optional values', () => {
@@ -92,5 +73,20 @@ describe('parseGeneratedPullRequestFields', () => {
       body: '- Add form',
       draft: false
     })
+  })
+
+  it('treats a JSON array as an empty object (all fallbacks, no throw)', () => {
+    const fields = parseGeneratedPullRequestFields('[1, 2, 3]', context)
+
+    expect(fields).toEqual({
+      base: 'main',
+      title: 'Feature pr details',
+      body: '- Add form',
+      draft: false
+    })
+  })
+
+  it('throws on a non-object, non-array payload', () => {
+    expect(() => parseGeneratedPullRequestFields('42', context)).toThrow()
   })
 })

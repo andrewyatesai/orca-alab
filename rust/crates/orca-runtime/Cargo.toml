@@ -12,6 +12,9 @@ orca-store = { path = "../orca-store" }
 # Same vendored, bundled SQLite as orca-store (version-matched so the
 # libsqlite3-sys build is shared).
 rusqlite = { version = "0.31", default-features = false, features = ["bundled"] }
+# Deps are stored/read as JSON string arrays (byte-identical to the TS
+# `JSON.stringify`), and DAG promotion parses them back.
+serde_json = { version = "1", default-features = false, features = ["std"] }
 
 [lints.rust]
 unsafe_code = "forbid"

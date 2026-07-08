@@ -41,6 +41,7 @@ pub mod native_file_drop;
 pub mod nested_repo_telemetry;
 pub mod network_proxy;
 pub mod open_in_applications;
+pub mod orchestration_store;
 pub mod pairing;
 pub mod pi_agent_kind;
 pub mod project_groups;
@@ -122,6 +123,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "nested-repo-telemetry" => Some(nested_repo_telemetry::dispatch(function, input)),
         "network-proxy" => Some(network_proxy::dispatch(function, input)),
         "open-in-applications" => Some(open_in_applications::dispatch(function, input)),
+        "orchestration-store" => Some(orchestration_store::dispatch(function, input)),
         "pairing" => Some(pairing::dispatch(function, input)),
         "pi-agent-kind" => Some(pi_agent_kind::dispatch(function, input)),
         "project-groups" => Some(project_groups::dispatch(function, input)),

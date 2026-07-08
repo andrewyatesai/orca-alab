@@ -743,8 +743,10 @@ dependencies = [
  "orca-git",
  "orca-net",
  "orca-relay",
+ "orca-runtime",
  "orca-ssh",
  "orca-text",
+ "rusqlite",
  "serde_json",
 ]
 
@@ -771,6 +773,7 @@ version = "0.0.1"
 dependencies = [
  "orca-store",
  "rusqlite",
+ "serde_json",
 ]
 
 [[package]]

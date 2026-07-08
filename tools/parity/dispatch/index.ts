@@ -39,6 +39,7 @@ import { dispatch as nativeFileDrop } from './native-file-drop'
 import { dispatch as nestedRepoTelemetry } from './nested-repo-telemetry'
 import { dispatch as networkProxy } from './network-proxy'
 import { dispatch as openInApplications } from './open-in-applications'
+import { dispatch as orchestrationStore } from './orchestration-store'
 import { dispatch as pairing } from './pairing'
 import { dispatch as piAgentKind } from './pi-agent-kind'
 import { dispatch as projectGroups } from './project-groups'
@@ -120,6 +121,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'nested-repo-telemetry': nestedRepoTelemetry,
   'network-proxy': networkProxy,
   'open-in-applications': openInApplications,
+  'orchestration-store': orchestrationStore,
   pairing: pairing,
   'pi-agent-kind': piAgentKind,
   'project-groups': projectGroups,

@@ -458,7 +458,7 @@ fn already_current_open_is_a_noop() {
     let path = temp_db_path("noop");
     {
         let db = open_orchestration(&path).unwrap();
-        db.create_task("t1", "spec one", None, "[]", Some("term-1")).unwrap();
+        db.create_task("t1", "spec one", None, &[], Some("term-1")).unwrap();
     }
     let (version_before, master_before, tasks_before) = {
         let conn = Connection::open(&path).unwrap();

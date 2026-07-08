@@ -1,0 +1,1133 @@
+{
+  "module": "orchestration-store",
+  "cases": [
+    {
+      "function": "runOpSequence",
+      "note": "DAG promotion: completing deps promotes pending dependents to ready",
+      "input": {
+        "ops": [
+          {
+            "op": "createTask",
+            "spec": "root"
+          },
+          {
+            "op": "createTask",
+            "spec": "mid",
+            "deps": [
+              "@0"
+            ]
+          },
+          {
+            "op": "createTask",
+            "spec": "leaf",
+            "deps": [
+              "@0",
+              "@1"
+            ]
+          },
+          {
+            "op": "listTasks"
+          },
+          {
+            "op": "updateTaskStatus",
+            "task": "@0",
+            "status": "completed",
+            "result": "r0"
+          },
+          {
+            "op": "getTask",
+            "task": "@1"
+          },
+          {
+            "op": "getTask",
+            "task": "@2"
+          },
+          {
+            "op": "updateTaskStatus",
+            "task": "@1",
+            "status": "completed"
+          },
+          {
+            "op": "getTask",
+            "task": "@2"
+          },
+          {
+            "op": "listTasks",
+            "status": "ready"
+          }
+        ]
+      },
+      "expected": {
+        "ops": [
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          [
+            {
+              "id": "task_0",
+              "parent_id": null,
+              "spec": "root",
+              "status": "ready",
+              "deps": [],
+              "result": null
+            },
+            {
+              "id": "task_1",
+              "parent_id": null,
+              "spec": "mid",
+              "status": "pending",
+              "deps": [
+                "task_0"
+              ],
+              "result": null
+            },
+            {
+              "id": "task_2",
+              "parent_id": null,
+              "spec": "leaf",
+              "status": "pending",
+              "deps": [
+                "task_0",
+                "task_1"
+              ],
+              "result": null
+            }
+          ],
+          {
+            "ok": true
+          },
+          {
+            "id": "task_1",
+            "parent_id": null,
+            "spec": "mid",
+            "status": "ready",
+            "deps": [
+              "task_0"
+            ],
+            "result": null
+          },
+          {
+            "id": "task_2",
+            "parent_id": null,
+            "spec": "leaf",
+            "status": "pending",
+            "deps": [
+              "task_0",
+              "task_1"
+            ],
+            "result": null
+          },
+          {
+            "ok": true
+          },
+          {
+            "id": "task_2",
+            "parent_id": null,
+            "spec": "leaf",
+            "status": "ready",
+            "deps": [
+              "task_0",
+              "task_1"
+            ],
+            "result": null
+          },
+          [
+            {
+              "id": "task_2",
+              "parent_id": null,
+              "spec": "leaf",
+              "status": "ready",
+              "deps": [
+                "task_0",
+                "task_1"
+              ],
+              "result": null
+            }
+          ]
+        ],
+        "state": {
+          "messages": [],
+          "tasks": [
+            {
+              "id": "task_0",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "root",
+              "status": "completed",
+              "deps": [],
+              "result": "r0",
+              "completed_at": "SET",
+              "created_at": "SET"
+            },
+            {
+              "id": "task_1",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "mid",
+              "status": "completed",
+              "deps": [
+                "task_0"
+              ],
+              "result": null,
+              "completed_at": "SET",
+              "created_at": "SET"
+            },
+            {
+              "id": "task_2",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "leaf",
+              "status": "ready",
+              "deps": [
+                "task_0",
+                "task_1"
+              ],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            }
+          ],
+          "dispatch_contexts": [],
+          "decision_gates": [],
+          "coordinator_runs": []
+        }
+      }
+    },
+    {
+      "function": "runOpSequence",
+      "note": "circuit breaker: failure_count carries forward across retries, trips at 3",
+      "input": {
+        "ops": [
+          {
+            "op": "createTask",
+            "spec": "work"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@0",
+            "assignee": "w1"
+          },
+          {
+            "op": "failDispatch",
+            "dispatch": "@1",
+            "error": "boom1"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@0",
+            "assignee": "w1"
+          },
+          {
+            "op": "failDispatch",
+            "dispatch": "@3",
+            "error": "boom2"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@0",
+            "assignee": "w1"
+          },
+          {
+            "op": "failDispatch",
+            "dispatch": "@5",
+            "error": "boom3"
+          },
+          {
+            "op": "getTask",
+            "task": "@0"
+          }
+        ]
+      },
+      "expected": {
+        "ops": [
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "id": "task_0",
+            "parent_id": null,
+            "spec": "work",
+            "status": "failed",
+            "deps": [],
+            "result": null
+          }
+        ],
+        "state": {
+          "messages": [],
+          "tasks": [
+            {
+              "id": "task_0",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "work",
+              "status": "failed",
+              "deps": [],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            }
+          ],
+          "dispatch_contexts": [
+            {
+              "id": "ctx_0",
+              "task_id": "task_0",
+              "assignee_handle": "w1",
+              "status": "failed",
+              "failure_count": 1,
+              "last_failure": "boom1",
+              "dispatched_at": "SET",
+              "completed_at": null,
+              "created_at": "SET",
+              "last_heartbeat_at": null
+            },
+            {
+              "id": "ctx_1",
+              "task_id": "task_0",
+              "assignee_handle": "w1",
+              "status": "failed",
+              "failure_count": 2,
+              "last_failure": "boom2",
+              "dispatched_at": "SET",
+              "completed_at": null,
+              "created_at": "SET",
+              "last_heartbeat_at": null
+            },
+            {
+              "id": "ctx_2",
+              "task_id": "task_0",
+              "assignee_handle": "w1",
+              "status": "circuit_broken",
+              "failure_count": 3,
+              "last_failure": "boom3",
+              "dispatched_at": "SET",
+              "completed_at": null,
+              "created_at": "SET",
+              "last_heartbeat_at": null
+            }
+          ],
+          "decision_gates": [],
+          "coordinator_runs": []
+        }
+      }
+    },
+    {
+      "function": "runOpSequence",
+      "note": "dispatch guards: pending task and busy assignee are refused",
+      "input": {
+        "ops": [
+          {
+            "op": "createTask",
+            "spec": "dep"
+          },
+          {
+            "op": "createTask",
+            "spec": "t1",
+            "deps": [
+              "@0"
+            ]
+          },
+          {
+            "op": "createDispatch",
+            "task": "@1",
+            "assignee": "w1"
+          },
+          {
+            "op": "createTask",
+            "spec": "t2"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@3",
+            "assignee": "w1"
+          },
+          {
+            "op": "createTask",
+            "spec": "t3"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@5",
+            "assignee": "w1"
+          },
+          {
+            "op": "completeDispatch",
+            "dispatch": "@4"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@5",
+            "assignee": "w1"
+          }
+        ]
+      },
+      "expected": {
+        "ops": [
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": false
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": false
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          }
+        ],
+        "state": {
+          "messages": [],
+          "tasks": [
+            {
+              "id": "task_0",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "dep",
+              "status": "ready",
+              "deps": [],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            },
+            {
+              "id": "task_1",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "t1",
+              "status": "pending",
+              "deps": [
+                "task_0"
+              ],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            },
+            {
+              "id": "task_2",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "t2",
+              "status": "dispatched",
+              "deps": [],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            },
+            {
+              "id": "task_3",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "t3",
+              "status": "dispatched",
+              "deps": [],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            }
+          ],
+          "dispatch_contexts": [
+            {
+              "id": "ctx_0",
+              "task_id": "task_2",
+              "assignee_handle": "w1",
+              "status": "completed",
+              "failure_count": 0,
+              "last_failure": null,
+              "dispatched_at": "SET",
+              "completed_at": "SET",
+              "created_at": "SET",
+              "last_heartbeat_at": null
+            },
+            {
+              "id": "ctx_1",
+              "task_id": "task_3",
+              "assignee_handle": "w1",
+              "status": "dispatched",
+              "failure_count": 0,
+              "last_failure": null,
+              "dispatched_at": "SET",
+              "completed_at": null,
+              "created_at": "SET",
+              "last_heartbeat_at": null
+            }
+          ],
+          "decision_gates": [],
+          "coordinator_runs": []
+        }
+      }
+    },
+    {
+      "function": "runOpSequence",
+      "note": "decision gate blocks the task; resolve unblocks, timeout does not",
+      "input": {
+        "ops": [
+          {
+            "op": "createTask",
+            "spec": "t"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@0",
+            "assignee": "w1"
+          },
+          {
+            "op": "createGate",
+            "task": "@0",
+            "question": "go?",
+            "options": [
+              "yes",
+              "no"
+            ]
+          },
+          {
+            "op": "getTask",
+            "task": "@0"
+          },
+          {
+            "op": "listGates",
+            "task": "@0"
+          },
+          {
+            "op": "resolveGate",
+            "gate": "@2",
+            "resolution": "yes"
+          },
+          {
+            "op": "getTask",
+            "task": "@0"
+          },
+          {
+            "op": "createGate",
+            "task": "@0",
+            "question": "again?",
+            "options": [
+              "ok"
+            ]
+          },
+          {
+            "op": "timeoutGate",
+            "gate": "@7"
+          },
+          {
+            "op": "getTask",
+            "task": "@0"
+          },
+          {
+            "op": "listGates",
+            "task": "@0",
+            "status": "pending"
+          }
+        ]
+      },
+      "expected": {
+        "ops": [
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "id": "task_0",
+            "parent_id": null,
+            "spec": "t",
+            "status": "blocked",
+            "deps": [],
+            "result": null
+          },
+          [
+            {
+              "id": "gate_0",
+              "task_id": "task_0",
+              "question": "go?",
+              "options": "[\"yes\",\"no\"]",
+              "status": "pending",
+              "resolution": null
+            }
+          ],
+          {
+            "ok": true
+          },
+          {
+            "id": "task_0",
+            "parent_id": null,
+            "spec": "t",
+            "status": "ready",
+            "deps": [],
+            "result": null
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "id": "task_0",
+            "parent_id": null,
+            "spec": "t",
+            "status": "blocked",
+            "deps": [],
+            "result": null
+          },
+          []
+        ],
+        "state": {
+          "messages": [],
+          "tasks": [
+            {
+              "id": "task_0",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "t",
+              "status": "blocked",
+              "deps": [],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            }
+          ],
+          "dispatch_contexts": [
+            {
+              "id": "ctx_0",
+              "task_id": "task_0",
+              "assignee_handle": "w1",
+              "status": "completed",
+              "failure_count": 0,
+              "last_failure": null,
+              "dispatched_at": "SET",
+              "completed_at": "SET",
+              "created_at": "SET",
+              "last_heartbeat_at": null
+            }
+          ],
+          "decision_gates": [
+            {
+              "id": "gate_0",
+              "task_id": "task_0",
+              "question": "go?",
+              "options": "[\"yes\",\"no\"]",
+              "status": "resolved",
+              "resolution": "yes",
+              "resolved_at": "SET",
+              "created_at": "SET"
+            },
+            {
+              "id": "gate_1",
+              "task_id": "task_0",
+              "question": "again?",
+              "options": "[\"ok\"]",
+              "status": "timeout",
+              "resolution": null,
+              "resolved_at": "SET",
+              "created_at": "SET"
+            }
+          ],
+          "coordinator_runs": []
+        }
+      }
+    },
+    {
+      "function": "runOpSequence",
+      "note": "stale-dispatch detector respects heartbeat + dispatched-at grace",
+      "input": {
+        "ops": [
+          {
+            "op": "createTask",
+            "spec": "t"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@0",
+            "assignee": "w1"
+          },
+          {
+            "op": "getStaleDispatches",
+            "threshold": "2999-01-01 00:00:00"
+          },
+          {
+            "op": "recordHeartbeat",
+            "dispatch": "@1",
+            "at": "2999-06-01 00:00:00"
+          },
+          {
+            "op": "getStaleDispatches",
+            "threshold": "2999-01-01 00:00:00"
+          },
+          {
+            "op": "getStaleDispatches",
+            "threshold": "2000-01-01 00:00:00"
+          }
+        ]
+      },
+      "expected": {
+        "ops": [
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          [
+            {
+              "id": "ctx_0",
+              "task_id": "task_0",
+              "assignee_handle": "w1",
+              "status": "dispatched",
+              "failure_count": 0
+            }
+          ],
+          {
+            "ok": true
+          },
+          [],
+          []
+        ],
+        "state": {
+          "messages": [],
+          "tasks": [
+            {
+              "id": "task_0",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "t",
+              "status": "dispatched",
+              "deps": [],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            }
+          ],
+          "dispatch_contexts": [
+            {
+              "id": "ctx_0",
+              "task_id": "task_0",
+              "assignee_handle": "w1",
+              "status": "dispatched",
+              "failure_count": 0,
+              "last_failure": null,
+              "dispatched_at": "SET",
+              "completed_at": null,
+              "created_at": "SET",
+              "last_heartbeat_at": "SET"
+            }
+          ],
+          "decision_gates": [],
+          "coordinator_runs": []
+        }
+      }
+    },
+    {
+      "function": "runOpSequence",
+      "note": "zombie heartbeat guard: a completed dispatch is not revived",
+      "input": {
+        "ops": [
+          {
+            "op": "createTask",
+            "spec": "t"
+          },
+          {
+            "op": "createDispatch",
+            "task": "@0",
+            "assignee": "w1"
+          },
+          {
+            "op": "completeDispatch",
+            "dispatch": "@1"
+          },
+          {
+            "op": "recordHeartbeat",
+            "dispatch": "@1",
+            "at": "2999-06-01 00:00:00"
+          }
+        ]
+      },
+      "expected": {
+        "ops": [
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          }
+        ],
+        "state": {
+          "messages": [],
+          "tasks": [
+            {
+              "id": "task_0",
+              "parent_id": null,
+              "created_by_terminal_handle": null,
+              "spec": "t",
+              "status": "dispatched",
+              "deps": [],
+              "result": null,
+              "completed_at": null,
+              "created_at": "SET"
+            }
+          ],
+          "dispatch_contexts": [
+            {
+              "id": "ctx_0",
+              "task_id": "task_0",
+              "assignee_handle": "w1",
+              "status": "completed",
+              "failure_count": 0,
+              "last_failure": null,
+              "dispatched_at": "SET",
+              "completed_at": "SET",
+              "created_at": "SET",
+              "last_heartbeat_at": null
+            }
+          ],
+          "decision_gates": [],
+          "coordinator_runs": []
+        }
+      }
+    },
+    {
+      "function": "runOpSequence",
+      "note": "messages: unread/read and delivered replay guard are independent",
+      "input": {
+        "ops": [
+          {
+            "op": "sendMessage",
+            "from": "coord",
+            "to": "w1",
+            "subject": "s1",
+            "type": "dispatch"
+          },
+          {
+            "op": "sendMessage",
+            "from": "coord",
+            "to": "w1",
+            "subject": "s2"
+          },
+          {
+            "op": "sendMessage",
+            "from": "coord",
+            "to": "w2",
+            "subject": "s3"
+          },
+          {
+            "op": "getUnreadMessages",
+            "handle": "w1"
+          },
+          {
+            "op": "getUndeliveredUnread",
+            "handle": "w1"
+          },
+          {
+            "op": "markDelivered",
+            "message": "@0"
+          },
+          {
+            "op": "getUndeliveredUnread",
+            "handle": "w1"
+          },
+          {
+            "op": "getUnreadMessages",
+            "handle": "w1"
+          },
+          {
+            "op": "markRead",
+            "message": "@1"
+          },
+          {
+            "op": "getUnreadMessages",
+            "handle": "w1"
+          }
+        ]
+      },
+      "expected": {
+        "ops": [
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          },
+          [
+            {
+              "id": "msg_0",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s1",
+              "body": "",
+              "type": "dispatch",
+              "priority": "normal"
+            },
+            {
+              "id": "msg_1",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s2",
+              "body": "",
+              "type": "status",
+              "priority": "normal"
+            }
+          ],
+          [
+            {
+              "id": "msg_0",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s1",
+              "body": "",
+              "type": "dispatch",
+              "priority": "normal"
+            },
+            {
+              "id": "msg_1",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s2",
+              "body": "",
+              "type": "status",
+              "priority": "normal"
+            }
+          ],
+          {
+            "ok": true
+          },
+          [
+            {
+              "id": "msg_1",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s2",
+              "body": "",
+              "type": "status",
+              "priority": "normal"
+            }
+          ],
+          [
+            {
+              "id": "msg_0",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s1",
+              "body": "",
+              "type": "dispatch",
+              "priority": "normal"
+            },
+            {
+              "id": "msg_1",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s2",
+              "body": "",
+              "type": "status",
+              "priority": "normal"
+            }
+          ],
+          {
+            "ok": true
+          },
+          [
+            {
+              "id": "msg_0",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s1",
+              "body": "",
+              "type": "dispatch",
+              "priority": "normal"
+            }
+          ]
+        ],
+        "state": {
+          "messages": [
+            {
+              "id": "msg_0",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s1",
+              "body": "",
+              "type": "dispatch",
+              "priority": "normal",
+              "thread_id": null,
+              "payload": null,
+              "read": 0,
+              "sequence": 1,
+              "delivered_at": "SET",
+              "created_at": "SET"
+            },
+            {
+              "id": "msg_1",
+              "from_handle": "coord",
+              "to_handle": "w1",
+              "subject": "s2",
+              "body": "",
+              "type": "status",
+              "priority": "normal",
+              "thread_id": null,
+              "payload": null,
+              "read": 1,
+              "sequence": 2,
+              "delivered_at": null,
+              "created_at": "SET"
+            },
+            {
+              "id": "msg_2",
+              "from_handle": "coord",
+              "to_handle": "w2",
+              "subject": "s3",
+              "body": "",
+              "type": "status",
+              "priority": "normal",
+              "thread_id": null,
+              "payload": null,
+              "read": 0,
+              "sequence": 3,
+              "delivered_at": null,
+              "created_at": "SET"
+            }
+          ],
+          "tasks": [],
+          "dispatch_contexts": [],
+          "decision_gates": [],
+          "coordinator_runs": []
+        }
+      }
+    },
+    {
+      "function": "runOpSequence",
+      "note": "coordinator run lifecycle: active reflects running state, poll interval default/custom",
+      "input": {
+        "ops": [
+          {
+            "op": "createCoordinatorRun",
+            "spec": "ship",
+            "coordinator": "c1"
+          },
+          {
+            "op": "getActiveCoordinatorRun"
+          },
+          {
+            "op": "updateCoordinatorRun",
+            "run": "@0",
+            "status": "completed"
+          },
+          {
+            "op": "getActiveCoordinatorRun"
+          },
+          {
+            "op": "createCoordinatorRun",
+            "spec": "ship2",
+            "coordinator": "c2",
+            "pollIntervalMs": 500
+          },
+          {
+            "op": "getActiveCoordinatorRun"
+          }
+        ]
+      },
+      "expected": {
+        "ops": [
+          {
+            "ok": true
+          },
+          {
+            "id": "run_0",
+            "spec": "ship",
+            "status": "running",
+            "coordinator_handle": "c1",
+            "poll_interval_ms": 2000
+          },
+          {
+            "ok": true
+          },
+          null,
+          {
+            "ok": true
+          },
+          {
+            "id": "run_1",
+            "spec": "ship2",
+            "status": "running",
+            "coordinator_handle": "c2",
+            "poll_interval_ms": 500
+          }
+        ],
+        "state": {
+          "messages": [],
+          "tasks": [],
+          "dispatch_contexts": [],
+          "decision_gates": [],
+          "coordinator_runs": [
+            {
+              "id": "run_0",
+              "spec": "ship",
+              "status": "completed",
+              "coordinator_handle": "c1",
+              "poll_interval_ms": 2000,
+              "completed_at": "SET",
+              "created_at": "SET"
+            },
+            {
+              "id": "run_1",
+              "spec": "ship2",
+              "status": "running",
+              "coordinator_handle": "c2",
+              "poll_interval_ms": 500,
+              "completed_at": null,
+              "created_at": "SET"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

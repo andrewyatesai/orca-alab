@@ -13,7 +13,15 @@ description = "Remote/mobile transport for Orca: the terminal binary-stream fram
 # bounds (no derive feature — payloads round-trip through serde_json::Value).
 serde = { version = "1", default-features = false, features = ["std"] }
 serde_json = { version = "1", default-features = false, features = ["std"] }
-orca-crypto = { path = "../orca-crypto" }
+# Only the `e2ee_channel` reducer needs the NaCl-box crypto stack. It is behind
+# the default `e2ee` feature so pure dependents (the aggregate dispatch registry
+# feeding the relay/renderer wasm) can opt out and keep ~400 KB of curve25519/
+# salsa20/poly1305 out of an artifact that never runs the encrypted channel.
+orca-crypto = { path = "../orca-crypto", optional = true }
+
+[features]
+default = ["e2ee"]
+e2ee = ["dep:orca-crypto"]
 
 [lints.rust]
 unsafe_code = "forbid"

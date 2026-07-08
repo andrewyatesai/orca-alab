@@ -26,6 +26,10 @@ orca-text = { path = "../crates/orca-text" }
 orca-agents = { path = "../crates/orca-agents" }
 # JSON marshalling for structured results (quick-open ranks etc.).
 serde_json = "1"
+# orca-dispatch: the aggregate per-module dispatch registry, exposed as the single
+# `orcaDispatch` op so any ported pure module ships to the relay/renderer via a TS
+# wrapper (no per-module wasm export). The identical registry the napi addon runs.
+orca-dispatch = { path = "../crates/orca-dispatch" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Pinned to the CLI version (config/.tooling/wasm-bindgen-0.2.108), matching aterm.

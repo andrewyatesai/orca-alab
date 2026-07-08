@@ -9,15 +9,13 @@ description = "Differential parity harness: runs the fresh Rust ports over a sha
 
 [dependencies]
 serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
-orca-core = { path = "../orca-core" }
-orca-config = { path = "../orca-config" }
-orca-agents = { path = "../orca-agents" }
-orca-text = { path = "../orca-text" }
-orca-git = { path = "../orca-git" }
-orca-relay = { path = "../orca-relay" }
-orca-net = { path = "../orca-net" }
+# The shippable per-module dispatch registry this harness is the acceptance gate
+# for: parity re-exports it and layers only the two local parity-only oracles
+# (orchestration-store, nacl-box) on top. Every other domain crate reaches parity
+# transitively through orca-dispatch, so they are no longer direct deps here.
+orca-dispatch = { path = "../orca-dispatch" }
+# nacl-box oracle (kept local so the crypto stack stays out of the shipped wasm).
 orca-crypto = { path = "../orca-crypto" }
-orca-ssh = { path = "../orca-ssh" }
 orca-runtime = { path = "../orca-runtime" }
 # The orchestration-store module dumps raw table state for canonicalization;
 # version-matched with orca-store/orca-runtime so the bundled SQLite is shared.

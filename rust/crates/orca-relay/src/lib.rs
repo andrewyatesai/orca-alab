@@ -5,10 +5,15 @@
 //! ride the vendored `serde_json`; the frame header is hand-rolled bytes.
 
 mod base64;
+// The encrypted-channel reducer is the only crypto consumer; behind the default
+// `e2ee` feature so pure dependents (aggregate dispatch → relay/renderer wasm)
+// opt out and keep the NaCl-box stack out of a crypto-free artifact.
+#[cfg(feature = "e2ee")]
 pub mod e2ee_channel;
 pub mod pairing;
 pub mod terminal_stream;
 
+#[cfg(feature = "e2ee")]
 pub use e2ee_channel::{E2eeChannel, E2eeEffect, RawMessage, HANDSHAKE_TIMEOUT_MS, MAX_BINARY_BUFFERED_AMOUNT};
 pub use pairing::{
     decode_pairing_offer, encode_pairing_offer, parse_pairing_code, PairingOffer, PairingScope,

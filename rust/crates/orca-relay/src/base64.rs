@@ -2,9 +2,14 @@
 //! deep link uses url-safe-no-pad; the E2EE channel uses standard base64 (the
 //! `Buffer.toString('base64')` form the peers speak). `decode` accepts either.
 
+// Standard-alphabet encoding is only spoken by the E2EE channel; url-safe-no-pad
+// backs the pairing deep link. Gate the standard side with the `e2ee` feature so
+// a crypto-free build (aggregate dispatch → relay/renderer wasm) has no dead code.
+#[cfg(feature = "e2ee")]
 const STANDARD: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const URL_SAFE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+#[cfg(feature = "e2ee")]
 pub(crate) fn encode_standard(input: &[u8]) -> String {
     encode(input, STANDARD, true)
 }
@@ -78,6 +83,8 @@ fn value(ch: char) -> Option<u8> {
 mod tests {
     use super::*;
 
+    // Standard-alphabet encoding only exists under the `e2ee` feature.
+    #[cfg(feature = "e2ee")]
     #[test]
     fn standard_round_trips_with_padding() {
         assert_eq!(encode_standard(b"hello"), "aGVsbG8=");

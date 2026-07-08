@@ -39,6 +39,9 @@ serde = { version = "1", default-features = false }
 # orca-net: the byte-budget NDJSON line splitter (daemon-socket OOM guard) exposed as
 # the NdjsonParser napi class.
 orca-net = { path = "../../rust/crates/orca-net" }
+# orca-dispatch: the aggregate per-module dispatch registry, exposed as the single
+# `orcaDispatch` op so any ported pure module ships via a TS wrapper (no per-module napi).
+orca-dispatch = { path = "../../rust/crates/orca-dispatch" }
 # futures-executor: block_on for the IO-tier "A bridge" — a libuv worker thread
 # awaits the JS git executor's promise while the JS main thread keeps turning.
 futures-executor = { version = "0.3", default-features = false }

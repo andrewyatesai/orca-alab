@@ -112,6 +112,14 @@ export function isNoUpstreamError(message?: string | null): boolean;
 export function normalizeGitErrorMessage(message?: string | null, operation?: string | null): string;
 
 /**
+ * Aggregate pure-module dispatch — the relay/renderer twin of the napi
+ * `orcaDispatch`, running the IDENTICAL registry so output is byte-identical.
+ * `input_json` empty/invalid → JSON null (a no-arg call). Returns the module's
+ * JSON result, or an `__dispatch_error__` object for an unregistered module.
+ */
+export function orcaDispatch(module: string, _function: string, input_json: string): string;
+
+/**
  * Parse an agent's PR-fields JSON reply (TS `parseGeneratedPullRequestFields`) as
  * `{ok:true, fields:{base,title,body,draft}} | {ok:false, error}` JSON. Exported for
  * parity/surface symmetry (the renderer only calls build; parse runs in main via napi).
@@ -213,6 +221,7 @@ export interface InitOutput {
     readonly getWorkspaceIntentName: (a: number, b: number, c: number) => void;
     readonly isNoUpstreamError: (a: number, b: number) => number;
     readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly orcaDispatch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly parseGeneratedPullRequestFields: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly parseGitHistoryLog: (a: number, b: number, c: number) => void;
     readonly parseNumstat: (a: number, b: number, c: number) => void;

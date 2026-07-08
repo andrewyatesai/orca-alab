@@ -625,6 +625,21 @@ name = "orca-core"
 version = "0.0.1"
 
 [[package]]
+name = "orca-dispatch"
+version = "0.0.1"
+dependencies = [
+ "orca-agents",
+ "orca-config",
+ "orca-core",
+ "orca-git",
+ "orca-net",
+ "orca-relay",
+ "orca-ssh",
+ "orca-text",
+ "serde_json",
+]
+
+[[package]]
 name = "orca-git"
 version = "0.0.1"
 dependencies = [
@@ -651,12 +666,21 @@ dependencies = [
  "orca-agents",
  "orca-config",
  "orca-core",
+ "orca-dispatch",
  "orca-git",
  "orca-net",
  "orca-runtime",
  "orca-ssh",
  "orca-terminal",
  "orca-text",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "orca-relay"
+version = "0.0.1"
+dependencies = [
  "serde",
  "serde_json",
 ]

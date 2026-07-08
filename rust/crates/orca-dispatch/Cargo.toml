@@ -1,0 +1,25 @@
+[package]
+name = "orca-dispatch"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shippable per-module dispatch registry: the aggregate `dispatch(module, function, input)` over every ported pure-domain module, delegating to the real domain crates (orca-core/orca-config/orca-agents/orca-text/orca-git/orca-relay/orca-net/orca-ssh). Re-exported by orca-parity (the acceptance gate) and exposed to production via one napi + one wasm export, so any ported module ships through a TS wrapper with no per-module Rust work. Parity-only oracles with no production caller (orchestration-store, nacl-box) stay in orca-parity to keep the shipped artifacts lean."
+
+[dependencies]
+serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
+orca-core = { path = "../orca-core" }
+orca-config = { path = "../orca-config" }
+orca-agents = { path = "../orca-agents" }
+orca-text = { path = "../orca-text" }
+orca-git = { path = "../orca-git" }
+# default-features = false drops the `e2ee` feature (and its orca-crypto stack):
+# the dispatch registry only uses pairing/terminal_stream/browser_screencast,
+# never the encrypted channel, so this keeps crypto out of the relay/renderer wasm.
+orca-relay = { path = "../orca-relay", default-features = false }
+orca-net = { path = "../orca-net" }
+orca-ssh = { path = "../orca-ssh" }
+
+[lints.rust]
+unsafe_code = "forbid"

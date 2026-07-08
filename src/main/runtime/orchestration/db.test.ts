@@ -78,18 +78,9 @@ describe('OrchestrationDb', () => {
       expect(unread).toHaveLength(2)
     })
 
-    it('creates the undelivered inbox index used by push delivery', () => {
-      const d = createDb()
-      const sqlite = (d as unknown as { db: Database.Database }).db
-
-      const indexes = sqlite
-        .prepare(
-          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages' AND name = 'idx_messages_undelivered_inbox'`
-        )
-        .all()
-
-      expect(indexes).toHaveLength(1)
-    })
+    // The undelivered inbox index (`idx_messages_undelivered_inbox`) is asserted
+    // in orca-runtime's user_version_migrations.rs (fresh + v1→v2 rebuild) — the
+    // store owns the schema now, so index existence is verified Rust-side.
 
     it('filters getUndeliveredUnreadMessages by type', () => {
       const d = createDb()
@@ -625,26 +616,11 @@ describe('OrchestrationDb', () => {
       const iso = (ms: number) => new Date(now - ms).toISOString()
 
       // Backdate dispatched_at for a, b, d to long ago so the grace doesn't
-      // shield them. c keeps its default (≈now).
-      const sqlite = (d as unknown as { db: Database.Database }).db
-      sqlite
-        .prepare(
-          'UPDATE dispatch_contexts SET dispatched_at = ?, last_heartbeat_at = ? WHERE id = ?'
-        )
-        .run(iso(60 * 60 * 1000), iso(5 * 60 * 1000), ctxA.id)
-      sqlite
-        .prepare(
-          'UPDATE dispatch_contexts SET dispatched_at = ?, last_heartbeat_at = ? WHERE id = ?'
-        )
-        .run(iso(60 * 60 * 1000), iso(12 * 60 * 1000), ctxB.id)
-      sqlite
-        .prepare('UPDATE dispatch_contexts SET dispatched_at = ? WHERE id = ?')
-        .run(iso(30_000), ctxC.id)
-      sqlite
-        .prepare(
-          'UPDATE dispatch_contexts SET dispatched_at = ?, last_heartbeat_at = ? WHERE id = ?'
-        )
-        .run(iso(60 * 60 * 1000), iso(30 * 60 * 1000), ctxD.id)
+      // shield them. c keeps its default (≈now) — only its dispatched_at moves.
+      d.setDispatchTimestamps(ctxA.id, iso(60 * 60 * 1000), iso(5 * 60 * 1000))
+      d.setDispatchTimestamps(ctxB.id, iso(60 * 60 * 1000), iso(12 * 60 * 1000))
+      d.setDispatchTimestamps(ctxC.id, iso(30_000))
+      d.setDispatchTimestamps(ctxD.id, iso(60 * 60 * 1000), iso(30 * 60 * 1000))
 
       const stale = d.getStaleDispatches(iso(10 * 60 * 1000))
       expect(stale.map((s) => s.id)).toEqual([ctxB.id])
@@ -806,20 +782,11 @@ describe('OrchestrationDb', () => {
       expect(d.getTask(task.id)?.task_title).toBe('work')
       expect(d.getTask(task.id)?.display_name).toBe('work')
 
-      // (c) Indexes still attached to messages post-rebuild.
-      const sqlite = (d as unknown as { db: Database.Database }).db
-      const indexes = sqlite
-        .prepare(
-          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages' AND name NOT LIKE 'sqlite_%'`
-        )
-        .all() as { name: string }[]
-      const names = new Set(indexes.map((r) => r.name))
-      expect(names.has('idx_messages_id')).toBe(true)
-      expect(names.has('idx_inbox')).toBe(true)
-      expect(names.has('idx_messages_undelivered_inbox')).toBe(true)
-      expect(names.has('idx_thread')).toBe(true)
+      // (c) Post-rebuild message indexes (incl. idx_messages_undelivered_inbox)
+      // are asserted against sqlite_master in orca-runtime's
+      // user_version_migrations.rs — the store owns the migration now.
 
-      // v1 data preserved
+      // v1 data preserved across the Rust-driven migration.
       expect(d.getMessageById('msg_v1')?.subject).toBe('pre-migration')
     })
 

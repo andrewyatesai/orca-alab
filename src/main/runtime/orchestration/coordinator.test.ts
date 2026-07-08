@@ -452,13 +452,8 @@ describe('Coordinator', () => {
 
     // Backdate dispatched_at and last_heartbeat_at beyond the 10-min threshold
     // so getStaleDispatches returns this row on the first tick.
-    const sqlite = (
-      db as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } }
-    ).db
     const iso = (ms: number) => new Date(Date.now() - ms).toISOString()
-    sqlite
-      .prepare('UPDATE dispatch_contexts SET dispatched_at = ?, last_heartbeat_at = ? WHERE id = ?')
-      .run(iso(60 * 60 * 1000), iso(30 * 60 * 1000), ctx.id)
+    db.setDispatchTimestamps(ctx.id, iso(60 * 60 * 1000), iso(30 * 60 * 1000))
 
     const logs: string[] = []
     const coordinator = new Coordinator(db, runtime, {

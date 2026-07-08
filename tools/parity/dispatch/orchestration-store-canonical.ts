@@ -6,8 +6,6 @@
 // Mirrors the Rust dumps/projections in modules/orchestration_store.rs.
 
 export type Row = Record<string, unknown>
-type RawStatement = { all: (...params: unknown[]) => Row[] }
-export type RawDb = { prepare: (sql: string) => RawStatement }
 
 // table → canonical id prefix, in the fixed order the id map is built.
 const TABLE_PREFIX: readonly [string, string][] = [
@@ -17,14 +15,6 @@ const TABLE_PREFIX: readonly [string, string][] = [
   ['decision_gates', 'gate'],
   ['coordinator_runs', 'run']
 ]
-
-export function dumpRawTables(db: RawDb): Record<string, Row[]> {
-  const out: Record<string, Row[]> = {}
-  for (const [table] of TABLE_PREFIX) {
-    out[table] = db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()
-  }
-  return out
-}
 
 export function buildIdMap(tables: Record<string, Row[]>): Map<string, string> {
   const map = new Map<string, string>()

@@ -42,6 +42,17 @@ fn opt_str_field(op: &Value, key: &str) -> Option<String> {
     op.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
+/// The completion timestamp the TS shim stamps for terminal states (its
+/// `new Date().toISOString()`). A fixed value here suffices because the harness
+/// normalizes timestamps to "SET" — only null-vs-set matters.
+fn terminal_stamp(status: &str) -> Option<&'static str> {
+    if status == "completed" || status == "failed" {
+        Some("2026-01-01T00:00:00.000Z")
+    } else {
+        None
+    }
+}
+
 fn resolve_ref(value: Option<&Value>, created: &[Option<String>]) -> String {
     let Some(text) = value.and_then(Value::as_str) else {
         return String::new();
@@ -99,9 +110,13 @@ fn run_op_sequence(input: &Value) -> Value {
                 }
                 Pending::Ok(ok)
             }
-            "markRead" => Pending::Ok(db.mark_read(&resolve_ref(op.get("message"), &created)).is_ok()),
+            "markRead" => {
+                let id = resolve_ref(op.get("message"), &created);
+                Pending::Ok(db.mark_as_read(&[&id]).is_ok())
+            }
             "markDelivered" => {
-                Pending::Ok(db.mark_delivered(&resolve_ref(op.get("message"), &created)).is_ok())
+                let id = resolve_ref(op.get("message"), &created);
+                Pending::Ok(db.mark_as_delivered(&[&id]).is_ok())
             }
             "createTask" => {
                 let deps: Vec<String> = op
@@ -113,7 +128,7 @@ fn run_op_sequence(input: &Value) -> Value {
                 let parent = op.get("parentId").map(|v| resolve_ref(Some(v), &created));
                 let created_by = opt_str_field(op, "createdBy");
                 let ok = db
-                    .create_task(&gen, &str_field(op, "spec"), parent.as_deref(), &deps_ref, created_by.as_deref())
+                    .create_task(&gen, &str_field(op, "spec"), parent.as_deref(), &deps_ref, created_by.as_deref(), None, None)
                     .is_ok();
                 if ok {
                     created_id = Some(gen);
@@ -122,9 +137,10 @@ fn run_op_sequence(input: &Value) -> Value {
             }
             "updateTaskStatus" => {
                 let task = resolve_ref(op.get("task"), &created);
+                let status = str_field(op, "status");
                 let result = opt_str_field(op, "result");
                 let updated = db
-                    .update_task_status(&task, &str_field(op, "status"), result.as_deref())
+                    .update_task_status(&task, &status, result.as_deref(), terminal_stamp(&status))
                     .unwrap_or(None);
                 Pending::Ok(updated.is_some())
             }
@@ -185,13 +201,17 @@ fn run_op_sequence(input: &Value) -> Value {
             }
             "updateCoordinatorRun" => {
                 let run = resolve_ref(op.get("run"), &created);
-                let updated = db.update_coordinator_run(&run, &str_field(op, "status")).unwrap_or(None);
+                let status = str_field(op, "status");
+                let updated =
+                    db.update_coordinator_run(&run, &status, terminal_stamp(&status)).unwrap_or(None);
                 Pending::Ok(updated.is_some())
             }
-            "getUnreadMessages" => Pending::Messages(db.inbox(&str_field(op, "handle")).unwrap_or_default()),
-            "getUndeliveredUnread" => {
-                Pending::Messages(db.undelivered_inbox(&str_field(op, "handle")).unwrap_or_default())
+            "getUnreadMessages" => {
+                Pending::Messages(db.get_unread_messages(&str_field(op, "handle"), None).unwrap_or_default())
             }
+            "getUndeliveredUnread" => Pending::Messages(
+                db.get_undelivered_unread_messages(&str_field(op, "handle"), None).unwrap_or_default(),
+            ),
             "listTasks" => {
                 let status = opt_str_field(op, "status");
                 Pending::Tasks(db.list_tasks(status.as_deref()).unwrap_or_default())
@@ -203,7 +223,7 @@ fn run_op_sequence(input: &Value) -> Value {
             "listGates" => {
                 let task = resolve_ref(op.get("task"), &created);
                 let status = opt_str_field(op, "status");
-                Pending::Gates(db.list_gates(&task, status.as_deref()).unwrap_or_default())
+                Pending::Gates(db.list_gates(Some(&task), status.as_deref()).unwrap_or_default())
             }
             "getStaleDispatches" => {
                 Pending::Dispatches(db.get_stale_dispatches(&str_field(op, "threshold")).unwrap_or_default())

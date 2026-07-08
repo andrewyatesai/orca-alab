@@ -27,8 +27,15 @@ orca-config = { path = "../../rust/crates/orca-config" }
 # orca-ssh: the OpenSSH config parser (~/.ssh/config -> hosts) the SSH target
 # import relies on (the shared TS parseSshConfig twin was deleted).
 orca-ssh = { path = "../../rust/crates/orca-ssh" }
+# orca-runtime: the multi-agent orchestration store (messages/tasks/dispatch/
+# gates), exposed as the stateful OrchestrationStore napi class the main-process
+# OrchestrationDb shim delegates to (the TS SQLite twin was deleted).
+orca-runtime = { path = "../../rust/crates/orca-runtime" }
 # serde_json: builds the JSON marshalling for the orca-text summaries.
 serde_json = { version = "1", features = ["preserve_order"] }
+# serde: the Serialize bound for row_json — marshals orca-runtime store rows to
+# the TS Row JSON the OrchestrationStore shim reads.
+serde = { version = "1", default-features = false }
 # orca-net: the byte-budget NDJSON line splitter (daemon-socket OOM guard) exposed as
 # the NdjsonParser napi class.
 orca-net = { path = "../../rust/crates/orca-net" }

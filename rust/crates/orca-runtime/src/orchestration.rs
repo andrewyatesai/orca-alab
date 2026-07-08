@@ -1,12 +1,19 @@
 //! Orchestration coordination store, ported from
 //! `src/main/runtime/orchestration/db.ts`. Schema creation and the
 //! `user_version` migration ladder live in `orchestration_schema`; this module
-//! implements the message + task operations (dispatch contexts, decision
-//! gates, and coordinator runs share the schema and are added next).
+//! is the full store API (messages, tasks, dispatch contexts, decision gates,
+//! coordinator runs) the main-process `OrchestrationStore` napi class exposes.
+//!
+//! Fidelity contract with the deleted TS twin (see the swap audit): row structs
+//! serialize to the exact TS Row JSON; JS-side nondeterminism (generated ids,
+//! `new Date().toISOString()` completion stamps, display strings) is computed by
+//! the caller and passed in, while all other timestamps use SQLite
+//! `datetime('now')` — byte-identical to what the TS store wrote.
 
 use crate::orchestration_schema;
 use orca_store::{Database, OpenOptions, StoreError};
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, params_from_iter, OptionalExtension, Row as SqlRow, ToSql};
+use serde::Serialize;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NewMessage {
@@ -21,37 +28,68 @@ pub struct NewMessage {
     pub payload: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+// Row structs are FULL rows (every column) with field names + `Serialize` output
+// byte-matching the TS `MessageRow`/`TaskRow`/… in orchestration/types.ts, so the
+// napi shim marshals them straight to the shapes production consumers read.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Message {
     pub id: String,
     pub from_handle: String,
     pub to_handle: String,
     pub subject: String,
     pub body: String,
+    #[serde(rename = "type")]
     pub message_type: String,
     pub priority: String,
+    pub thread_id: Option<String>,
+    pub payload: Option<String>,
+    pub read: i64,
+    pub sequence: i64,
+    pub created_at: String,
+    pub delivered_at: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct Task {
     pub id: String,
     pub parent_id: Option<String>,
+    pub created_by_terminal_handle: Option<String>,
+    pub task_title: Option<String>,
+    pub display_name: Option<String>,
     pub spec: String,
     pub status: String,
     pub deps: String,
     pub result: Option<String>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A task row plus its active dispatch (LEFT JOIN), for `list_tasks_with_dispatch`.
+/// `#[serde(flatten)]` inlines the task columns, then adds the two join columns —
+/// matching the TS `TaskRow & { assignee_handle; dispatch_id }`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct TaskWithDispatch {
+    #[serde(flatten)]
+    pub task: Task,
+    pub assignee_handle: Option<String>,
+    pub dispatch_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DispatchContext {
     pub id: String,
     pub task_id: String,
     pub assignee_handle: Option<String>,
     pub status: String,
     pub failure_count: i64,
+    pub last_failure: Option<String>,
+    pub dispatched_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub created_at: String,
+    pub last_heartbeat_at: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DecisionGate {
     pub id: String,
     pub task_id: String,
@@ -59,16 +97,32 @@ pub struct DecisionGate {
     pub options: String,
     pub status: String,
     pub resolution: Option<String>,
+    pub created_at: String,
+    pub resolved_at: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct CoordinatorRun {
     pub id: String,
     pub spec: String,
     pub status: String,
     pub coordinator_handle: String,
     pub poll_interval_ms: i64,
+    pub created_at: String,
+    pub completed_at: Option<String>,
 }
+
+// Column lists keep every SELECT and its row_to_* reader in lock-step order.
+const MESSAGE_COLUMNS: &str =
+    "id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, read, sequence, created_at, delivered_at";
+const TASK_COLUMNS: &str =
+    "id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps, result, created_at, completed_at";
+const DISPATCH_COLUMNS: &str =
+    "id, task_id, assignee_handle, status, failure_count, last_failure, dispatched_at, completed_at, created_at, last_heartbeat_at";
+const GATE_COLUMNS: &str =
+    "id, task_id, question, options, status, resolution, created_at, resolved_at";
+const RUN_COLUMNS: &str =
+    "id, spec, status, coordinator_handle, poll_interval_ms, created_at, completed_at";
 
 pub struct OrchestrationDb {
     db: Database,
@@ -101,7 +155,12 @@ impl OrchestrationDb {
         Ok(Self { db })
     }
 
-    pub fn send_message(&self, message: &NewMessage) -> Result<(), StoreError> {
+    // ---- messages ----
+
+    /// Insert a message, returning the persisted row (TS `insertMessage`). The
+    /// caller supplies `message.id` (the TS shim's `generateId('msg')`), keeping
+    /// the `msg_<hex>` id shape stable.
+    pub fn send_message(&self, message: &NewMessage) -> Result<Message, StoreError> {
         self.db.connection().execute(
             "INSERT INTO messages (id, from_handle, to_handle, subject, body, type, priority, thread_id, payload)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -110,80 +169,142 @@ impl OrchestrationDb {
                 message.message_type, message.priority, message.thread_id, message.payload,
             ],
         )?;
+        self.get_message_by_id(&message.id)?
+            .ok_or_else(|| StoreError::Message("message vanished after insert".into()))
+    }
+
+    pub fn get_message_by_id(&self, id: &str) -> Result<Option<Message>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(&format!("SELECT {MESSAGE_COLUMNS} FROM messages WHERE id = ?1"))?;
+        Ok(stmt.query_row([id], row_to_message).optional()?)
+    }
+
+    /// Unread messages for `handle`, oldest first (TS `getUnreadMessages`);
+    /// `types` optionally restricts by message type.
+    pub fn get_unread_messages(&self, handle: &str, types: Option<&[String]>) -> Result<Vec<Message>, StoreError> {
+        self.query_messages("read = 0", "ORDER BY sequence", handle, types, None)
+    }
+
+    /// Unread AND undelivered messages for `handle`, oldest first — the
+    /// push-on-idle replay guard (TS `getUndeliveredUnreadMessages`).
+    pub fn get_undelivered_unread_messages(
+        &self,
+        handle: &str,
+        types: Option<&[String]>,
+    ) -> Result<Vec<Message>, StoreError> {
+        self.query_messages("read = 0 AND delivered_at IS NULL", "ORDER BY sequence", handle, types, None)
+    }
+
+    /// Most-recent messages for `handle` (TS `getAllMessages`), newest first.
+    pub fn get_all_messages(&self, handle: &str, limit: i64) -> Result<Vec<Message>, StoreError> {
+        self.query_messages("1 = 1", "ORDER BY sequence DESC", handle, None, Some(limit))
+    }
+
+    /// Every message for `handle`, newest first, never touching the read bit
+    /// (TS `getAllMessagesForHandle`); optional type filter.
+    pub fn get_all_messages_for_handle(
+        &self,
+        handle: &str,
+        limit: i64,
+        types: Option<&[String]>,
+    ) -> Result<Vec<Message>, StoreError> {
+        self.query_messages("1 = 1", "ORDER BY sequence DESC", handle, types, Some(limit))
+    }
+
+    /// All messages regardless of recipient, newest first (TS `getInbox`).
+    pub fn get_inbox(&self, limit: i64) -> Result<Vec<Message>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt =
+            conn.prepare(&format!("SELECT {MESSAGE_COLUMNS} FROM messages ORDER BY sequence DESC LIMIT ?1"))?;
+        let rows = stmt.query_map([limit], row_to_message)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Thread-scoped replies addressed to `to_handle`, oldest first (TS
+    /// `getThreadMessagesFor`); `after_sequence` resumes past an already-seen marker.
+    pub fn get_thread_messages_for(
+        &self,
+        thread_id: &str,
+        to_handle: &str,
+        after_sequence: Option<i64>,
+    ) -> Result<Vec<Message>, StoreError> {
+        let conn = self.db.connection();
+        match after_sequence {
+            Some(seq) => {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {MESSAGE_COLUMNS} FROM messages WHERE thread_id = ?1 AND to_handle = ?2 AND sequence > ?3 ORDER BY sequence ASC"
+                ))?;
+                let rows = stmt.query_map(params![thread_id, to_handle, seq], row_to_message)?;
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            }
+            None => {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {MESSAGE_COLUMNS} FROM messages WHERE thread_id = ?1 AND to_handle = ?2 ORDER BY sequence ASC"
+                ))?;
+                let rows = stmt.query_map(params![thread_id, to_handle], row_to_message)?;
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+            }
+        }
+    }
+
+    /// Mark messages read by id (TS `markAsRead`). Empty `ids` is a no-op.
+    pub fn mark_as_read(&self, ids: &[&str]) -> Result<(), StoreError> {
+        self.update_messages_by_ids("read = 1", ids)
+    }
+
+    /// Stamp `delivered_at = datetime('now')` on messages by id (TS
+    /// `markAsDelivered`) — the push-on-idle delivery marker.
+    pub fn mark_as_delivered(&self, ids: &[&str]) -> Result<(), StoreError> {
+        self.update_messages_by_ids("delivered_at = datetime('now')", ids)
+    }
+
+    fn update_messages_by_ids(&self, set_clause: &str, ids: &[&str]) -> Result<(), StoreError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let placeholders = placeholders(ids.len());
+        let sql = format!("UPDATE messages SET {set_clause} WHERE id IN ({placeholders})");
+        let params: Vec<&dyn ToSql> = ids.iter().map(|id| id as &dyn ToSql).collect();
+        self.db.connection().execute(&sql, params_from_iter(params))?;
         Ok(())
     }
 
-    /// Unread messages addressed to `handle`, oldest first.
-    pub fn inbox(&self, handle: &str) -> Result<Vec<Message>, StoreError> {
+    fn query_messages(
+        &self,
+        base_where: &str,
+        order: &str,
+        handle: &str,
+        types: Option<&[String]>,
+        limit: Option<i64>,
+    ) -> Result<Vec<Message>, StoreError> {
         let conn = self.db.connection();
-        let mut stmt = conn.prepare(
-            "SELECT id, from_handle, to_handle, subject, body, type, priority
-             FROM messages WHERE to_handle = ?1 AND read = 0 ORDER BY sequence",
-        )?;
-        let mut rows = stmt.query([handle])?;
-        let mut messages = Vec::new();
-        while let Some(row) = rows.next()? {
-            messages.push(Message {
-                id: row.get(0)?,
-                from_handle: row.get(1)?,
-                to_handle: row.get(2)?,
-                subject: row.get(3)?,
-                body: row.get(4)?,
-                message_type: row.get(5)?,
-                priority: row.get(6)?,
-            });
+        let mut sql = format!("SELECT {MESSAGE_COLUMNS} FROM messages WHERE to_handle = ? AND {base_where}");
+        let mut binds: Vec<&dyn ToSql> = vec![&handle];
+        let types = types.filter(|t| !t.is_empty());
+        if let Some(types) = types {
+            sql.push_str(&format!(" AND type IN ({})", placeholders(types.len())));
+            for t in types {
+                binds.push(t as &dyn ToSql);
+            }
         }
-        Ok(messages)
-    }
-
-    /// Mark a message read by id; returns the number of rows updated.
-    pub fn mark_read(&self, id: &str) -> Result<usize, StoreError> {
-        Ok(self
-            .db
-            .connection()
-            .execute("UPDATE messages SET read = 1 WHERE id = ?1", params![id])?)
-    }
-
-    /// Stamp `delivered_at` (db.ts `markAsDelivered`): a push-on-idle delivery
-    /// marker, distinct from the `read` bit, so a queued row is auto-pushed at
-    /// most once. Uses `datetime('now')` for format-consistency with the other
-    /// SQL-default timestamps.
-    pub fn mark_delivered(&self, id: &str) -> Result<usize, StoreError> {
-        Ok(self.db.connection().execute(
-            "UPDATE messages SET delivered_at = datetime('now') WHERE id = ?1",
-            params![id],
-        )?)
-    }
-
-    /// Unread AND undelivered messages for a handle, oldest first — the
-    /// push-on-idle replay guard (db.ts `getUndeliveredUnreadMessages`): a
-    /// delivered-but-unread row is filtered out so it is not re-injected.
-    pub fn undelivered_inbox(&self, handle: &str) -> Result<Vec<Message>, StoreError> {
-        let conn = self.db.connection();
-        let mut stmt = conn.prepare(
-            "SELECT id, from_handle, to_handle, subject, body, type, priority
-             FROM messages WHERE to_handle = ?1 AND read = 0 AND delivered_at IS NULL ORDER BY sequence",
-        )?;
-        let mut rows = stmt.query([handle])?;
-        let mut messages = Vec::new();
-        while let Some(row) = rows.next()? {
-            messages.push(Message {
-                id: row.get(0)?,
-                from_handle: row.get(1)?,
-                to_handle: row.get(2)?,
-                subject: row.get(3)?,
-                body: row.get(4)?,
-                message_type: row.get(5)?,
-                priority: row.get(6)?,
-            });
+        sql.push(' ');
+        sql.push_str(order);
+        if let Some(limit) = &limit {
+            sql.push_str(" LIMIT ?");
+            binds.push(limit as &dyn ToSql);
         }
-        Ok(messages)
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(binds), row_to_message)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
-    /// Insert a task. Mirrors db.ts `createTask`: an empty dep set makes the
-    /// task immediately `ready`; any deps hold it `pending` until they all
-    /// complete (see `promote_ready_tasks`). `deps` is serialized to a JSON
-    /// string array byte-identical to the TS `JSON.stringify(deps)`.
+    // ---- tasks ----
+
+    /// Insert a task (TS `createTask`): empty deps → `ready`, else `pending`.
+    /// `deps` is serialized to a JSON string array byte-identical to
+    /// `JSON.stringify(deps)`; `task_title`/`display_name` are the shim's
+    /// pre-resolved display strings (empty → NULL, done caller-side).
+    #[allow(clippy::too_many_arguments)]
     pub fn create_task(
         &self,
         id: &str,
@@ -191,61 +312,97 @@ impl OrchestrationDb {
         parent_id: Option<&str>,
         deps: &[&str],
         created_by: Option<&str>,
-    ) -> Result<(), StoreError> {
+        task_title: Option<&str>,
+        display_name: Option<&str>,
+    ) -> Result<Task, StoreError> {
         let deps_json = serde_json::to_string(deps).unwrap_or_else(|_| "[]".to_string());
         let status = if deps.is_empty() { "ready" } else { "pending" };
         self.db.connection().execute(
-            "INSERT INTO tasks (id, parent_id, created_by_terminal_handle, spec, status, deps)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, parent_id, created_by, spec, status, deps_json],
+            "INSERT INTO tasks (id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, parent_id, created_by, task_title, display_name, spec, status, deps_json],
         )?;
-        Ok(())
+        self.get_task(id)?
+            .ok_or_else(|| StoreError::Message("task vanished after insert".into()))
     }
 
-    /// Tasks, optionally filtered by status, oldest first.
+    pub fn get_task(&self, id: &str) -> Result<Option<Task>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(&format!("SELECT {TASK_COLUMNS} FROM tasks WHERE id = ?1"))?;
+        Ok(stmt.query_row([id], row_to_task).optional()?)
+    }
+
+    /// Tasks, optionally filtered by status, oldest first (TS `listTasks`; the
+    /// shim maps its `ready` filter to `status = 'ready'`).
     pub fn list_tasks(&self, status: Option<&str>) -> Result<Vec<Task>, StoreError> {
         let conn = self.db.connection();
-        let select = "SELECT id, parent_id, spec, status, deps, result FROM tasks";
-        let mut tasks = Vec::new();
-        if let Some(status) = status {
-            let mut stmt = conn.prepare(&format!("{select} WHERE status = ?1 ORDER BY created_at"))?;
-            let mut rows = stmt.query([status])?;
-            while let Some(row) = rows.next()? {
-                tasks.push(row_to_task(row)?);
+        match status {
+            Some(status) => {
+                let mut stmt = conn.prepare(&format!(
+                    "SELECT {TASK_COLUMNS} FROM tasks WHERE status = ?1 ORDER BY created_at"
+                ))?;
+                let rows = stmt.query_map([status], row_to_task)?;
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
             }
-        } else {
-            let mut stmt = conn.prepare(&format!("{select} ORDER BY created_at"))?;
-            let mut rows = stmt.query([])?;
-            while let Some(row) = rows.next()? {
-                tasks.push(row_to_task(row)?);
+            None => {
+                let mut stmt = conn.prepare(&format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY created_at"))?;
+                let rows = stmt.query_map([], row_to_task)?;
+                Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
             }
         }
-        Ok(tasks)
     }
 
-    /// Update a task's status. Mirrors db.ts `updateTaskStatus`: terminal states
-    /// (`completed`/`failed`) stamp `completed_at`; `result` is COALESCE'd so a
-    /// `None` preserves any prior result. Completing a task runs the DAG
-    /// promotion (`promote_ready_tasks`) and closes its active dispatch, both in
-    /// this writer so there is no half-resolved window.
+    /// Tasks with their active dispatch's assignee + id (TS `listTasksWithDispatch`).
+    /// The inner subquery picks the newest active dispatch per task; non-dispatched
+    /// tasks keep NULL join columns.
+    pub fn list_tasks_with_dispatch(&self, status: Option<&str>) -> Result<Vec<TaskWithDispatch>, StoreError> {
+        let conn = self.db.connection();
+        let where_clause = if status.is_some() { "WHERE t.status = ?1" } else { "" };
+        let sql = format!(
+            "SELECT {}, d.assignee_handle AS j_assignee, d.id AS j_dispatch
+             FROM tasks t
+             LEFT JOIN (
+               SELECT dc.* FROM dispatch_contexts dc
+               INNER JOIN (
+                 SELECT task_id, MAX(rowid) AS max_rowid FROM dispatch_contexts
+                 WHERE status IN ('pending', 'dispatched') GROUP BY task_id
+               ) latest ON latest.task_id = dc.task_id AND latest.max_rowid = dc.rowid
+             ) d ON d.task_id = t.id
+             {where_clause}
+             ORDER BY t.created_at",
+            TASK_COLUMNS.split(", ").map(|c| format!("t.{c}")).collect::<Vec<_>>().join(", ")
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let map = |row: &SqlRow<'_>| {
+            Ok(TaskWithDispatch {
+                task: row_to_task(row)?,
+                assignee_handle: row.get("j_assignee")?,
+                dispatch_id: row.get("j_dispatch")?,
+            })
+        };
+        let rows = if let Some(status) = status {
+            stmt.query_map([status], map)?.collect::<rusqlite::Result<Vec<_>>>()?
+        } else {
+            stmt.query_map([], map)?.collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        Ok(rows)
+    }
+
+    /// Update a task's status (TS `updateTaskStatus`). `result` and `completed_at`
+    /// are COALESCE'd (a `None` preserves the prior value); the caller passes the
+    /// `new Date().toISOString()` stamp for terminal states. Completing a task runs
+    /// DAG promotion + closes its active dispatch in this writer.
     pub fn update_task_status(
         &self,
         id: &str,
         status: &str,
         result: Option<&str>,
+        completed_at: Option<&str>,
     ) -> Result<Option<Task>, StoreError> {
-        let conn = self.db.connection();
-        if status == "completed" || status == "failed" {
-            conn.execute(
-                "UPDATE tasks SET status = ?2, result = COALESCE(?3, result), completed_at = datetime('now') WHERE id = ?1",
-                params![id, status, result],
-            )?;
-        } else {
-            conn.execute(
-                "UPDATE tasks SET status = ?2, result = COALESCE(?3, result) WHERE id = ?1",
-                params![id, status, result],
-            )?;
-        }
+        self.db.connection().execute(
+            "UPDATE tasks SET status = ?2, result = COALESCE(?3, result), completed_at = COALESCE(?4, completed_at) WHERE id = ?1",
+            params![id, status, result, completed_at],
+        )?;
         if status == "completed" {
             self.promote_ready_tasks(id)?;
             self.complete_active_dispatch_for_task(id)?;
@@ -253,30 +410,17 @@ impl OrchestrationDb {
         self.get_task(id)
     }
 
-    pub fn get_task(&self, id: &str) -> Result<Option<Task>, StoreError> {
-        let conn = self.db.connection();
-        let mut stmt = conn.prepare("SELECT id, parent_id, spec, status, deps, result FROM tasks WHERE id = ?1")?;
-        let mut rows = stmt.query([id])?;
-        match rows.next()? {
-            Some(row) => Ok(Some(row_to_task(row)?)),
-            None => Ok(None),
-        }
-    }
-
     fn task_status(&self, id: &str) -> Result<Option<String>, StoreError> {
         Ok(self
             .db
             .connection()
-            .query_row("SELECT status FROM tasks WHERE id = ?1", params![id], |r| {
-                r.get::<_, String>(0)
-            })
+            .query_row("SELECT status FROM tasks WHERE id = ?1", params![id], |r| r.get::<_, String>(0))
             .optional()?)
     }
 
     // Why: when a task completes, promote any `pending` task whose full dep set
-    // is now satisfied to `ready`. Runs in the same writer as the status update
-    // (db.ts `promoteReadyTasks`) so there is no window where a task is
-    // completable but its children have not been promoted.
+    // is now satisfied to `ready`, in the same writer as the status update (TS
+    // `promoteReadyTasks`) so there is no half-resolved window.
     fn promote_ready_tasks(&self, completed_task_id: &str) -> Result<(), StoreError> {
         let candidates: Vec<(String, String)> = {
             let conn = self.db.connection();
@@ -305,29 +449,11 @@ impl OrchestrationDb {
         Ok(())
     }
 
-    // db.ts `completeActiveDispatchForTask`: close the newest still-open dispatch
-    // for a task (used when the task completes or is gated).
-    fn complete_active_dispatch_for_task(&self, task_id: &str) -> Result<(), StoreError> {
-        let active: Option<String> = self
-            .db
-            .connection()
-            .query_row(
-                "SELECT id FROM dispatch_contexts WHERE task_id = ?1 AND status IN ('pending','dispatched') ORDER BY rowid DESC LIMIT 1",
-                params![task_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(id) = active {
-            self.complete_dispatch(&id)?;
-        }
-        Ok(())
-    }
-
     // ---- dispatch contexts ----
 
-    /// Dispatch `task_id` (which must be `ready`) to `assignee_handle`. Refuses
-    /// if the assignee already has an active dispatch; carries the failure count
-    /// forward (circuit breaker); marks the task `dispatched`.
+    /// Dispatch `task_id` (which must be `ready`) to `assignee_handle` (TS
+    /// `createDispatchContext`). Refuses if the assignee already has an active
+    /// dispatch; carries the failure count forward; marks the task `dispatched`.
     pub fn create_dispatch_context(
         &self,
         task_id: &str,
@@ -344,16 +470,16 @@ impl OrchestrationDb {
             )));
         }
         let conn = self.db.connection();
-        let active: Option<String> = conn
+        let active: Option<(String, String)> = conn
             .query_row(
-                "SELECT id FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ('pending','dispatched')",
+                "SELECT id, task_id FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ('pending','dispatched')",
                 [assignee_handle],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        if let Some(existing) = active {
+        if let Some((existing_id, existing_task)) = active {
             return Err(StoreError::Message(format!(
-                "Terminal {assignee_handle} already has an active dispatch ({existing})"
+                "Terminal {assignee_handle} already has an active dispatch ({existing_id} for task {existing_task})"
             )));
         }
         let prior_failures: i64 = conn.query_row(
@@ -373,14 +499,35 @@ impl OrchestrationDb {
 
     pub fn dispatch_context_by_id(&self, id: &str) -> Result<Option<DispatchContext>, StoreError> {
         let conn = self.db.connection();
-        let mut stmt = conn.prepare(
-            "SELECT id, task_id, assignee_handle, status, failure_count FROM dispatch_contexts WHERE id = ?1",
-        )?;
-        let mut rows = stmt.query([id])?;
-        match rows.next()? {
-            Some(row) => Ok(Some(row_to_dispatch(row)?)),
-            None => Ok(None),
-        }
+        let mut stmt = conn.prepare(&format!("SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts WHERE id = ?1"))?;
+        Ok(stmt.query_row([id], row_to_dispatch).optional()?)
+    }
+
+    /// The newest dispatch for a task (TS `getDispatchContext`, rowid DESC).
+    pub fn get_dispatch_context(&self, task_id: &str) -> Result<Option<DispatchContext>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts WHERE task_id = ?1 ORDER BY rowid DESC LIMIT 1"
+        ))?;
+        Ok(stmt.query_row([task_id], row_to_dispatch).optional()?)
+    }
+
+    /// The active (pending/dispatched) dispatch for a terminal (TS `getActiveDispatchForTerminal`).
+    pub fn get_active_dispatch_for_terminal(&self, handle: &str) -> Result<Option<DispatchContext>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ('pending','dispatched') LIMIT 1"
+        ))?;
+        Ok(stmt.query_row([handle], row_to_dispatch).optional()?)
+    }
+
+    /// The newest dispatch for a terminal regardless of status (TS `getLatestDispatchForTerminal`).
+    pub fn get_latest_dispatch_for_terminal(&self, handle: &str) -> Result<Option<DispatchContext>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts WHERE assignee_handle = ?1 ORDER BY rowid DESC LIMIT 1"
+        ))?;
+        Ok(stmt.query_row([handle], row_to_dispatch).optional()?)
     }
 
     pub fn complete_dispatch(&self, id: &str) -> Result<usize, StoreError> {
@@ -390,11 +537,44 @@ impl OrchestrationDb {
         )?)
     }
 
-    /// Record a dispatch failure. Mirrors db.ts `failDispatch`: bumps
-    /// `failure_count`; the third failure trips the circuit breaker
-    /// (`circuit_broken` + task `failed`), otherwise the dispatch is `failed`
-    /// and the task returns to `ready` so the coordinator can re-dispatch it
-    /// (its deps are already satisfied, so `ready` — not `pending`).
+    // db.ts `completeActiveDispatchForTask`: close the newest still-open dispatch
+    // for a task (used when the task completes or is gated).
+    pub fn complete_active_dispatch_for_task(&self, task_id: &str) -> Result<(), StoreError> {
+        let active: Option<String> = self
+            .db
+            .connection()
+            .query_row(
+                "SELECT id FROM dispatch_contexts WHERE task_id = ?1 AND status IN ('pending','dispatched') ORDER BY rowid DESC LIMIT 1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(id) = active {
+            self.complete_dispatch(&id)?;
+        }
+        Ok(())
+    }
+
+    /// Fail the newest active dispatch for a task, if any (TS `failActiveDispatchForTask`).
+    pub fn fail_active_dispatch_for_task(&self, task_id: &str, error: &str) -> Result<Option<DispatchContext>, StoreError> {
+        let active: Option<String> = self
+            .db
+            .connection()
+            .query_row(
+                "SELECT id FROM dispatch_contexts WHERE task_id = ?1 AND status IN ('pending','dispatched') ORDER BY rowid DESC LIMIT 1",
+                params![task_id],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match active {
+            Some(id) => self.fail_dispatch(&id, error),
+            None => Ok(None),
+        }
+    }
+
+    /// Record a dispatch failure (TS `failDispatch`): bumps `failure_count`; the
+    /// third failure trips the circuit breaker (`circuit_broken` + task `failed`),
+    /// otherwise the dispatch is `failed` and the task returns to `ready`.
     pub fn fail_dispatch(&self, id: &str, error: &str) -> Result<Option<DispatchContext>, StoreError> {
         let conn = self.db.connection();
         let existing: Option<(String, i64)> = conn
@@ -418,10 +598,9 @@ impl OrchestrationDb {
         self.dispatch_context_by_id(id)
     }
 
-    /// Stamp a liveness heartbeat, but only on a still-`dispatched` context.
-    /// Mirrors db.ts `recordHeartbeat`: a straggler heartbeat from an already
-    /// completed/failed/circuit_broken dispatch must not revive it, or the
-    /// stale-dispatch detector would miss a hung retry. Returns rows updated.
+    /// Stamp a liveness heartbeat, but only on a still-`dispatched` context (TS
+    /// `recordHeartbeat`): a straggler heartbeat from a completed dispatch must
+    /// not revive it. `at` is stored verbatim. Returns rows updated.
     pub fn record_heartbeat(&self, id: &str, at: &str) -> Result<usize, StoreError> {
         Ok(self.db.connection().execute(
             "UPDATE dispatch_contexts SET last_heartbeat_at = ?2 WHERE id = ?1 AND status = 'dispatched'",
@@ -429,31 +608,41 @@ impl OrchestrationDb {
         )?)
     }
 
-    /// Dispatched contexts past the heartbeat/dispatch-age threshold. Mirrors
-    /// db.ts `getStaleDispatches`; the caller passes an ISO threshold so
-    /// SQLite's lexicographic string compare orders correctly in time.
+    /// Dispatched contexts past the heartbeat/dispatch-age threshold (TS
+    /// `getStaleDispatches`); the caller passes an ISO threshold so SQLite's
+    /// lexicographic string compare orders correctly in time.
     pub fn get_stale_dispatches(&self, threshold_iso: &str) -> Result<Vec<DispatchContext>, StoreError> {
         let conn = self.db.connection();
-        let mut stmt = conn.prepare(
-            "SELECT id, task_id, assignee_handle, status, failure_count FROM dispatch_contexts
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts
              WHERE status = 'dispatched'
                AND dispatched_at IS NOT NULL
                AND dispatched_at < ?1
-               AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?1)",
-        )?;
-        let mut rows = stmt.query([threshold_iso])?;
-        let mut out = Vec::new();
-        while let Some(row) = rows.next()? {
-            out.push(row_to_dispatch(row)?);
-        }
-        Ok(out)
+               AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?1)"
+        ))?;
+        let rows = stmt.query_map([threshold_iso], row_to_dispatch)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Set a dispatch's `dispatched_at` / `last_heartbeat_at` directly (COALESCE:
+    /// a `None` leaves the column unchanged). A low-level seam used by tests to
+    /// backdate timestamps deterministically; not on the production path.
+    pub fn set_dispatch_timestamps(
+        &self,
+        id: &str,
+        dispatched_at: Option<&str>,
+        last_heartbeat_at: Option<&str>,
+    ) -> Result<usize, StoreError> {
+        Ok(self.db.connection().execute(
+            "UPDATE dispatch_contexts SET dispatched_at = COALESCE(?2, dispatched_at), last_heartbeat_at = COALESCE(?3, last_heartbeat_at) WHERE id = ?1",
+            params![id, dispatched_at, last_heartbeat_at],
+        )?)
     }
 
     // ---- decision gates ----
 
-    /// Open a decision gate on a task. Mirrors db.ts `createGate`: closes the
-    /// task's active dispatch and moves the task to `blocked` until the gate is
-    /// resolved (both side-effects inside this writer).
+    /// Open a decision gate on a task (TS `createGate`): closes the task's active
+    /// dispatch and moves the task to `blocked`.
     pub fn create_gate(
         &self,
         id: &str,
@@ -473,10 +662,8 @@ impl OrchestrationDb {
             .ok_or_else(|| StoreError::Message("gate vanished after insert".into()))
     }
 
-    /// Resolve a gate and unblock its task. Mirrors db.ts `resolveGate`: a
-    /// missing gate is a no-op (returns `None`); otherwise the gate is
-    /// `resolved` and the task returns to `ready` so the coordinator re-engages
-    /// the worker with the decision outcome.
+    /// Resolve a gate and unblock its task (TS `resolveGate`): a missing gate is a
+    /// no-op (`None`); otherwise the gate is `resolved` and the task returns to `ready`.
     pub fn resolve_gate(&self, id: &str, resolution: &str) -> Result<Option<DecisionGate>, StoreError> {
         let Some(gate) = self.gate_by_id(id)? else {
             return Ok(None);
@@ -490,8 +677,8 @@ impl OrchestrationDb {
         self.gate_by_id(id)
     }
 
-    /// Time a gate out (no resolution). Mirrors db.ts `timeoutGate`: marks the
-    /// gate `timeout` and stamps `resolved_at`, leaving the task blocked.
+    /// Time a gate out (TS `timeoutGate`): marks it `timeout` + stamps `resolved_at`,
+    /// leaving the task blocked.
     pub fn timeout_gate(&self, id: &str) -> Result<Option<DecisionGate>, StoreError> {
         self.db.connection().execute(
             "UPDATE decision_gates SET status = 'timeout', resolved_at = datetime('now') WHERE id = ?1",
@@ -502,35 +689,32 @@ impl OrchestrationDb {
 
     pub fn gate_by_id(&self, id: &str) -> Result<Option<DecisionGate>, StoreError> {
         let conn = self.db.connection();
-        let mut stmt = conn.prepare(
-            "SELECT id, task_id, question, options, status, resolution FROM decision_gates WHERE id = ?1",
-        )?;
-        let mut rows = stmt.query([id])?;
-        match rows.next()? {
-            Some(row) => Ok(Some(row_to_gate(row)?)),
-            None => Ok(None),
-        }
+        let mut stmt = conn.prepare(&format!("SELECT {GATE_COLUMNS} FROM decision_gates WHERE id = ?1"))?;
+        Ok(stmt.query_row([id], row_to_gate).optional()?)
     }
 
-    /// Gates for `task_id`, optionally filtered by status, oldest first.
-    pub fn list_gates(&self, task_id: &str, status: Option<&str>) -> Result<Vec<DecisionGate>, StoreError> {
+    /// Gates filtered by task and/or status, oldest first (TS `listGates`).
+    pub fn list_gates(&self, task_id: Option<&str>, status: Option<&str>) -> Result<Vec<DecisionGate>, StoreError> {
         let conn = self.db.connection();
-        let select = "SELECT id, task_id, question, options, status, resolution FROM decision_gates";
-        let mut gates = Vec::new();
-        if let Some(status) = status {
-            let mut stmt = conn.prepare(&format!("{select} WHERE task_id = ?1 AND status = ?2 ORDER BY created_at"))?;
-            let mut rows = stmt.query(params![task_id, status])?;
-            while let Some(row) = rows.next()? {
-                gates.push(row_to_gate(row)?);
-            }
-        } else {
-            let mut stmt = conn.prepare(&format!("{select} WHERE task_id = ?1 ORDER BY created_at"))?;
-            let mut rows = stmt.query([task_id])?;
-            while let Some(row) = rows.next()? {
-                gates.push(row_to_gate(row)?);
-            }
+        let mut sql = format!("SELECT {GATE_COLUMNS} FROM decision_gates");
+        let mut binds: Vec<&dyn ToSql> = Vec::new();
+        let mut clauses: Vec<&str> = Vec::new();
+        if let Some(task_id) = &task_id {
+            clauses.push("task_id = ?");
+            binds.push(task_id as &dyn ToSql);
         }
-        Ok(gates)
+        if let Some(status) = &status {
+            clauses.push("status = ?");
+            binds.push(status as &dyn ToSql);
+        }
+        if !clauses.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&clauses.join(" AND "));
+        }
+        sql.push_str(" ORDER BY created_at");
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(binds), row_to_gate)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     // ---- coordinator runs ----
@@ -553,66 +737,165 @@ impl OrchestrationDb {
 
     pub fn coordinator_run_by_id(&self, id: &str) -> Result<Option<CoordinatorRun>, StoreError> {
         let conn = self.db.connection();
-        let mut stmt = conn.prepare(
-            "SELECT id, spec, status, coordinator_handle, poll_interval_ms FROM coordinator_runs WHERE id = ?1",
-        )?;
-        let mut rows = stmt.query([id])?;
-        match rows.next()? {
-            Some(row) => Ok(Some(row_to_coordinator(row)?)),
-            None => Ok(None),
-        }
+        let mut stmt = conn.prepare(&format!("SELECT {RUN_COLUMNS} FROM coordinator_runs WHERE id = ?1"))?;
+        Ok(stmt.query_row([id], row_to_coordinator).optional()?)
     }
 
-    /// Update status; terminal states (`completed`/`failed`) stamp `completed_at`.
-    pub fn update_coordinator_run(&self, id: &str, status: &str) -> Result<Option<CoordinatorRun>, StoreError> {
-        let conn = self.db.connection();
-        if status == "completed" || status == "failed" {
-            conn.execute(
-                "UPDATE coordinator_runs SET status = ?2, completed_at = datetime('now') WHERE id = ?1",
-                params![id, status],
-            )?;
-        } else {
-            conn.execute("UPDATE coordinator_runs SET status = ?2 WHERE id = ?1", params![id, status])?;
-        }
+    /// Update status (TS `updateCoordinatorRun`); the caller passes the
+    /// `new Date().toISOString()` stamp for terminal states, COALESCE'd so a
+    /// non-terminal transition preserves any prior `completed_at`.
+    pub fn update_coordinator_run(
+        &self,
+        id: &str,
+        status: &str,
+        completed_at: Option<&str>,
+    ) -> Result<Option<CoordinatorRun>, StoreError> {
+        self.db.connection().execute(
+            "UPDATE coordinator_runs SET status = ?2, completed_at = COALESCE(?3, completed_at) WHERE id = ?1",
+            params![id, status, completed_at],
+        )?;
         self.coordinator_run_by_id(id)
     }
 
-    /// The most recent still-running coordinator, if any.
+    /// The most recent still-running coordinator, if any (TS `getActiveCoordinatorRun`).
     pub fn active_coordinator_run(&self) -> Result<Option<CoordinatorRun>, StoreError> {
         let conn = self.db.connection();
-        let mut stmt = conn.prepare(
-            "SELECT id, spec, status, coordinator_handle, poll_interval_ms FROM coordinator_runs
-             WHERE status = 'running' ORDER BY created_at DESC LIMIT 1",
-        )?;
-        let mut rows = stmt.query([])?;
-        match rows.next()? {
-            Some(row) => Ok(Some(row_to_coordinator(row)?)),
-            None => Ok(None),
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {RUN_COLUMNS} FROM coordinator_runs WHERE status = 'running' ORDER BY created_at DESC LIMIT 1"
+        ))?;
+        Ok(stmt.query_row([], row_to_coordinator).optional()?)
+    }
+
+    // ---- queries + lifecycle ----
+
+    /// Terminal handles seen in message history that have no active dispatch (TS
+    /// `getIdleTerminals`), excluding `exclude_handles`.
+    pub fn get_idle_terminals(&self, exclude_handles: &[&str]) -> Result<Vec<String>, StoreError> {
+        let conn = self.db.connection();
+        let mut busy: std::collections::HashSet<String> = {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT assignee_handle FROM dispatch_contexts WHERE status IN ('pending','dispatched') AND assignee_handle IS NOT NULL",
+            )?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            let collected: rusqlite::Result<std::collections::HashSet<String>> = rows.collect();
+            collected?
+        };
+        for h in exclude_handles {
+            busy.insert((*h).to_string());
         }
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT to_handle FROM messages UNION SELECT DISTINCT from_handle FROM messages")?;
+        let all: Vec<String> = stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<_>>()?;
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut out = Vec::new();
+        for handle in all {
+            if !busy.contains(&handle) && seen.insert(handle.clone()) {
+                out.push(handle);
+            }
+        }
+        Ok(out)
+    }
+
+    pub fn reset_all(&self) -> Result<(), StoreError> {
+        self.db.exec(
+            "DELETE FROM coordinator_runs; DELETE FROM decision_gates; DELETE FROM dispatch_contexts; DELETE FROM tasks; DELETE FROM messages;",
+        )
+    }
+
+    pub fn reset_tasks(&self) -> Result<(), StoreError> {
+        self.db.exec(
+            "DELETE FROM coordinator_runs; DELETE FROM decision_gates; DELETE FROM dispatch_contexts; DELETE FROM tasks;",
+        )
+    }
+
+    pub fn reset_messages(&self) -> Result<(), StoreError> {
+        self.db.exec("DELETE FROM messages")
+    }
+
+    // ---- introspection (tests + parity state dump) ----
+
+    fn all<T>(&self, sql: &str, f: fn(&SqlRow<'_>) -> rusqlite::Result<T>) -> Result<Vec<T>, StoreError> {
+        let conn = self.db.connection();
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map([], f)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Every row of every table (raw full rows, insertion order) as JSON — the
+    /// state-dump seam the parity harness canonicalizes. Not a production path.
+    pub fn dump_all_rows(&self) -> Result<serde_json::Value, StoreError> {
+        let messages = self.all(&format!("SELECT {MESSAGE_COLUMNS} FROM messages ORDER BY rowid"), row_to_message)?;
+        let tasks = self.all(&format!("SELECT {TASK_COLUMNS} FROM tasks ORDER BY rowid"), row_to_task)?;
+        let dispatch_contexts =
+            self.all(&format!("SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts ORDER BY rowid"), row_to_dispatch)?;
+        let decision_gates =
+            self.all(&format!("SELECT {GATE_COLUMNS} FROM decision_gates ORDER BY rowid"), row_to_gate)?;
+        let coordinator_runs =
+            self.all(&format!("SELECT {RUN_COLUMNS} FROM coordinator_runs ORDER BY rowid"), row_to_coordinator)?;
+        Ok(serde_json::json!({
+            "messages": messages,
+            "tasks": tasks,
+            "dispatch_contexts": dispatch_contexts,
+            "decision_gates": decision_gates,
+            "coordinator_runs": coordinator_runs,
+        }))
     }
 }
 
-fn row_to_coordinator(row: &rusqlite::Row<'_>) -> rusqlite::Result<CoordinatorRun> {
-    Ok(CoordinatorRun {
+fn placeholders(n: usize) -> String {
+    std::iter::repeat_n("?", n).collect::<Vec<_>>().join(",")
+}
+
+fn row_to_message(row: &SqlRow<'_>) -> rusqlite::Result<Message> {
+    Ok(Message {
         id: row.get(0)?,
-        spec: row.get(1)?,
-        status: row.get(2)?,
-        coordinator_handle: row.get(3)?,
-        poll_interval_ms: row.get(4)?,
+        from_handle: row.get(1)?,
+        to_handle: row.get(2)?,
+        subject: row.get(3)?,
+        body: row.get(4)?,
+        message_type: row.get(5)?,
+        priority: row.get(6)?,
+        thread_id: row.get(7)?,
+        payload: row.get(8)?,
+        read: row.get(9)?,
+        sequence: row.get(10)?,
+        created_at: row.get(11)?,
+        delivered_at: row.get(12)?,
     })
 }
 
-fn row_to_dispatch(row: &rusqlite::Row<'_>) -> rusqlite::Result<DispatchContext> {
+fn row_to_task(row: &SqlRow<'_>) -> rusqlite::Result<Task> {
+    Ok(Task {
+        id: row.get(0)?,
+        parent_id: row.get(1)?,
+        created_by_terminal_handle: row.get(2)?,
+        task_title: row.get(3)?,
+        display_name: row.get(4)?,
+        spec: row.get(5)?,
+        status: row.get(6)?,
+        deps: row.get(7)?,
+        result: row.get(8)?,
+        created_at: row.get(9)?,
+        completed_at: row.get(10)?,
+    })
+}
+
+fn row_to_dispatch(row: &SqlRow<'_>) -> rusqlite::Result<DispatchContext> {
     Ok(DispatchContext {
         id: row.get(0)?,
         task_id: row.get(1)?,
         assignee_handle: row.get(2)?,
         status: row.get(3)?,
         failure_count: row.get(4)?,
+        last_failure: row.get(5)?,
+        dispatched_at: row.get(6)?,
+        completed_at: row.get(7)?,
+        created_at: row.get(8)?,
+        last_heartbeat_at: row.get(9)?,
     })
 }
 
-fn row_to_gate(row: &rusqlite::Row<'_>) -> rusqlite::Result<DecisionGate> {
+fn row_to_gate(row: &SqlRow<'_>) -> rusqlite::Result<DecisionGate> {
     Ok(DecisionGate {
         id: row.get(0)?,
         task_id: row.get(1)?,
@@ -620,274 +903,28 @@ fn row_to_gate(row: &rusqlite::Row<'_>) -> rusqlite::Result<DecisionGate> {
         options: row.get(3)?,
         status: row.get(4)?,
         resolution: row.get(5)?,
+        created_at: row.get(6)?,
+        resolved_at: row.get(7)?,
     })
 }
 
-/// Encode `["a","b"]` for the gate `options` column (no serde dependency).
-fn json_string_array(items: &[&str]) -> String {
-    let mut out = String::from("[");
-    for (i, item) in items.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push('"');
-        for ch in item.chars() {
-            match ch {
-                '"' => out.push_str("\\\""),
-                '\\' => out.push_str("\\\\"),
-                '\n' => out.push_str("\\n"),
-                _ => out.push(ch),
-            }
-        }
-        out.push('"');
-    }
-    out.push(']');
-    out
-}
-
-fn row_to_task(row: &rusqlite::Row<'_>) -> rusqlite::Result<Task> {
-    Ok(Task {
+fn row_to_coordinator(row: &SqlRow<'_>) -> rusqlite::Result<CoordinatorRun> {
+    Ok(CoordinatorRun {
         id: row.get(0)?,
-        parent_id: row.get(1)?,
-        spec: row.get(2)?,
-        status: row.get(3)?,
-        deps: row.get(4)?,
-        result: row.get(5)?,
+        spec: row.get(1)?,
+        status: row.get(2)?,
+        coordinator_handle: row.get(3)?,
+        poll_interval_ms: row.get(4)?,
+        created_at: row.get(5)?,
+        completed_at: row.get(6)?,
     })
+}
+
+/// Encode `["a","b"]` for the gate `options` column (byte-identical to the TS
+/// `JSON.stringify(options)`).
+fn json_string_array(items: &[&str]) -> String {
+    serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn msg(id: &str, to: &str, subject: &str) -> NewMessage {
-        NewMessage {
-            id: id.to_string(),
-            from_handle: "coordinator".to_string(),
-            to_handle: to.to_string(),
-            subject: subject.to_string(),
-            body: String::new(),
-            message_type: "status".to_string(),
-            priority: "normal".to_string(),
-            thread_id: None,
-            payload: None,
-        }
-    }
-
-    #[test]
-    fn creates_schema_on_open() {
-        // No panic / error means the full schema + indexes applied cleanly.
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        assert!(db.inbox("nobody").unwrap().is_empty());
-    }
-
-    #[test]
-    fn sends_and_reads_inbox_then_marks_read() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        db.send_message(&msg("m1", "worker-a", "do the thing")).unwrap();
-        db.send_message(&msg("m2", "worker-b", "other thing")).unwrap();
-
-        let inbox = db.inbox("worker-a").unwrap();
-        assert_eq!(inbox.len(), 1);
-        assert_eq!(inbox[0].id, "m1");
-        assert_eq!(inbox[0].subject, "do the thing");
-        assert_eq!(inbox[0].from_handle, "coordinator");
-
-        assert_eq!(db.mark_read("m1").unwrap(), 1);
-        assert!(db.inbox("worker-a").unwrap().is_empty());
-        assert_eq!(db.inbox("worker-b").unwrap().len(), 1);
-    }
-
-    #[test]
-    fn message_type_check_constraint_rejects_invalid_type() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        let mut bad = msg("m1", "worker-a", "x");
-        bad.message_type = "not-a-real-type".to_string();
-        assert!(db.send_message(&bad).is_err());
-    }
-
-    fn status_of(db: &OrchestrationDb, id: &str) -> String {
-        db.get_task(id).unwrap().unwrap().status
-    }
-
-    #[test]
-    fn create_task_deps_drive_initial_status() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        db.create_task("t1", "build the parser", None, &[], Some("term-1")).unwrap();
-        db.create_task("t2", "write tests", Some("t1"), &["t1"], None).unwrap();
-
-        let all = db.list_tasks(None).unwrap();
-        assert_eq!(all.len(), 2);
-        // No deps → immediately ready; a dep holds the task pending.
-        assert_eq!(all[0].id, "t1");
-        assert_eq!(all[0].status, "ready");
-        assert_eq!(all[1].parent_id.as_deref(), Some("t1"));
-        assert_eq!(all[1].status, "pending");
-        assert_eq!(all[1].deps, "[\"t1\"]");
-    }
-
-    #[test]
-    fn completing_a_task_promotes_ready_dependents_and_stamps_result() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        db.create_task("t1", "a", None, &[], None).unwrap();
-        db.create_task("t2", "b", None, &["t1"], None).unwrap();
-        db.create_task("t3", "c", None, &["t1", "t2"], None).unwrap();
-
-        // Completing t1 promotes t2 (its only dep), but not t3 (t2 still open).
-        db.update_task_status("t1", "completed", Some("done")).unwrap();
-        assert_eq!(status_of(&db, "t2"), "ready");
-        assert_eq!(status_of(&db, "t3"), "pending");
-        let t1 = db.get_task("t1").unwrap().unwrap();
-        assert_eq!(t1.result.as_deref(), Some("done"));
-
-        // A later status update without a result preserves it (COALESCE) — keep
-        // t1 completed so it still satisfies t3's dep below.
-        db.update_task_status("t1", "completed", None).unwrap();
-        assert_eq!(db.get_task("t1").unwrap().unwrap().result.as_deref(), Some("done"));
-
-        // Completing t2 now satisfies all of t3's deps → t3 becomes ready.
-        db.update_task_status("t2", "completed", None).unwrap();
-        assert_eq!(status_of(&db, "t3"), "ready");
-    }
-
-    #[test]
-    fn decision_gate_blocks_task_and_resolution_unblocks_it() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        db.create_task("t1", "spec", None, &[], None).unwrap();
-        let ctx = db.create_dispatch_context("t1", "worker-1", "ctx1").unwrap();
-        assert_eq!(ctx.status, "dispatched");
-
-        // Opening a gate closes the active dispatch and blocks the task.
-        let gate = db.create_gate("g1", "t1", "Proceed?", &["yes", "no"]).unwrap();
-        assert_eq!(gate.status, "pending");
-        assert_eq!(gate.options, "[\"yes\",\"no\"]");
-        assert_eq!(status_of(&db, "t1"), "blocked");
-        assert_eq!(db.dispatch_context_by_id("ctx1").unwrap().unwrap().status, "completed");
-
-        // Resolving the gate unblocks the task back to ready.
-        let resolved = db.resolve_gate("g1", "yes").unwrap().unwrap();
-        assert_eq!(resolved.status, "resolved");
-        assert_eq!(resolved.resolution.as_deref(), Some("yes"));
-        assert_eq!(status_of(&db, "t1"), "ready");
-        assert!(db.list_gates("t1", Some("pending")).unwrap().is_empty());
-
-        // Timing out a fresh gate marks it timeout and leaves the task as-is.
-        db.create_gate("g2", "t1", "Again?", &["ok"]).unwrap();
-        assert_eq!(status_of(&db, "t1"), "blocked");
-        let timed = db.timeout_gate("g2").unwrap().unwrap();
-        assert_eq!(timed.status, "timeout");
-        assert_eq!(status_of(&db, "t1"), "blocked");
-    }
-
-    #[test]
-    fn dispatch_requires_ready_task_and_one_active_per_assignee() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        db.create_task("dep", "dep", None, &[], None).unwrap();
-        db.create_task("t1", "spec1", None, &["dep"], None).unwrap(); // pending (dep open)
-        db.create_task("t2", "spec2", None, &[], None).unwrap(); // ready
-
-        // Pending task cannot be dispatched.
-        assert!(db.create_dispatch_context("t1", "worker-1", "ctx0").is_err());
-        // Unknown task.
-        assert!(db.create_dispatch_context("nope", "worker-1", "ctxX").is_err());
-
-        // Completing the dep promotes t1 to ready.
-        db.update_task_status("dep", "completed", None).unwrap();
-        assert_eq!(status_of(&db, "t1"), "ready");
-
-        let ctx = db.create_dispatch_context("t1", "worker-1", "ctx1").unwrap();
-        assert_eq!(ctx.status, "dispatched");
-        assert_eq!(ctx.failure_count, 0);
-        assert_eq!(status_of(&db, "t1"), "dispatched");
-
-        // worker-1 already has an active dispatch → second (on ready t2) refused.
-        let err = db.create_dispatch_context("t2", "worker-1", "ctx2").unwrap_err();
-        assert!(err.to_string().contains("already has an active dispatch"), "{err}");
-
-        // After completing ctx1, worker-1 is free again.
-        assert_eq!(db.complete_dispatch("ctx1").unwrap(), 1);
-        let ctx3 = db.create_dispatch_context("t2", "worker-1", "ctx3").unwrap();
-        assert_eq!(ctx3.task_id, "t2");
-    }
-
-    #[test]
-    fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        db.create_task("t1", "spec", None, &[], None).unwrap();
-
-        // Failure 1 and 2: dispatch fails, task returns to ready, count carries.
-        for (attempt, ctx_id, expected_count) in [("ctx1", "ctx1", 1), ("ctx2", "ctx2", 2)] {
-            let _ = attempt;
-            let ctx = db.create_dispatch_context("t1", "worker-1", ctx_id).unwrap();
-            assert_eq!(ctx.failure_count, expected_count - 1); // carried forward
-            let failed = db.fail_dispatch(ctx_id, "boom").unwrap().unwrap();
-            assert_eq!(failed.status, "failed");
-            assert_eq!(failed.failure_count, expected_count);
-            assert_eq!(status_of(&db, "t1"), "ready");
-        }
-
-        // Failure 3 trips the breaker: dispatch circuit_broken, task failed.
-        let ctx3 = db.create_dispatch_context("t1", "worker-1", "ctx3").unwrap();
-        assert_eq!(ctx3.failure_count, 2);
-        let broken = db.fail_dispatch("ctx3", "boom").unwrap().unwrap();
-        assert_eq!(broken.status, "circuit_broken");
-        assert_eq!(broken.failure_count, 3);
-        assert_eq!(status_of(&db, "t1"), "failed");
-
-        // Failing an unknown context is a no-op (None).
-        assert!(db.fail_dispatch("nope", "boom").unwrap().is_none());
-    }
-
-    #[test]
-    fn heartbeat_only_touches_dispatched_and_stale_detector_respects_threshold() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        db.create_task("t1", "spec", None, &[], None).unwrap();
-        db.create_dispatch_context("t1", "worker-1", "ctx1").unwrap();
-
-        // Fresh dispatch with no heartbeat is stale against a future threshold.
-        let future = "2999-01-01 00:00:00";
-        assert_eq!(db.get_stale_dispatches(future).unwrap().len(), 1);
-
-        // A heartbeat newer than the threshold clears staleness.
-        assert_eq!(db.record_heartbeat("ctx1", "2999-06-01 00:00:00").unwrap(), 1);
-        assert!(db.get_stale_dispatches(future).unwrap().is_empty());
-
-        // Nothing is stale against a past threshold (dispatched_at grace).
-        assert!(db.get_stale_dispatches("2000-01-01 00:00:00").unwrap().is_empty());
-
-        // Zombie-heartbeat guard: once completed, a heartbeat updates 0 rows.
-        db.complete_dispatch("ctx1").unwrap();
-        assert_eq!(db.record_heartbeat("ctx1", "2999-06-02 00:00:00").unwrap(), 0);
-    }
-
-    #[test]
-    fn delivered_marker_is_distinct_from_read_replay_guard() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        db.send_message(&msg("m1", "worker-a", "hello")).unwrap();
-
-        // Undelivered + unread → eligible for auto-push.
-        assert_eq!(db.undelivered_inbox("worker-a").unwrap().len(), 1);
-
-        // Marking delivered removes it from the push queue but not the inbox.
-        assert_eq!(db.mark_delivered("m1").unwrap(), 1);
-        assert!(db.undelivered_inbox("worker-a").unwrap().is_empty());
-        assert_eq!(db.inbox("worker-a").unwrap().len(), 1); // still unread
-    }
-
-    #[test]
-    fn coordinator_run_lifecycle() {
-        let db = OrchestrationDb::open_in_memory().unwrap();
-        let run = db.create_coordinator_run("run1", "ship it", "coordinator-a", None).unwrap();
-        assert_eq!(run.status, "running");
-        assert_eq!(run.poll_interval_ms, 2000); // default
-
-        assert_eq!(db.active_coordinator_run().unwrap().unwrap().id, "run1");
-
-        let done = db.update_coordinator_run("run1", "completed").unwrap().unwrap();
-        assert_eq!(done.status, "completed");
-        assert!(db.active_coordinator_run().unwrap().is_none()); // no longer running
-
-        let custom = db.create_coordinator_run("run2", "spec", "coordinator-b", Some(500)).unwrap();
-        assert_eq!(custom.poll_interval_ms, 500);
-    }
-}
+mod tests;

@@ -550,6 +550,334 @@ pub fn git_engine() -> &'static str {
     "orca-git"
 }
 
+// --- orca-runtime: the multi-agent orchestration store, exposed as a stateful
+// class the main-process TS OrchestrationDb shim delegates to (the node:sqlite
+// twin was deleted). JS-side nondeterminism (generated ids, ISO completion
+// stamps, display strings) is passed IN by the shim; every other timestamp uses
+// SQLite datetime('now') — byte-identical to what the deleted TS store wrote.
+// Row methods marshal via the TS Row JSON (serde output matches types.ts). ---
+
+use orca_runtime::orchestration::{NewMessage, OrchestrationDb};
+
+fn napi_err<E: std::fmt::Display>(err: E) -> napi::Error {
+    napi::Error::from_reason(err.to_string())
+}
+
+fn row_json<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "null".to_string())
+}
+
+#[napi(js_name = "OrchestrationStore")]
+pub struct JsOrchestrationStore {
+    // Option so close() can drop the connection deterministically (WAL lock
+    // release matters on Windows); calls after close() throw.
+    inner: Option<OrchestrationDb>,
+}
+
+impl JsOrchestrationStore {
+    fn store(&self) -> napi::Result<&OrchestrationDb> {
+        self.inner
+            .as_ref()
+            .ok_or_else(|| napi::Error::from_reason("OrchestrationStore is closed"))
+    }
+}
+
+#[napi]
+impl JsOrchestrationStore {
+    #[napi(constructor, catch_unwind)]
+    pub fn new(path: String) -> napi::Result<Self> {
+        let inner = if path == ":memory:" {
+            OrchestrationDb::open_in_memory()
+        } else {
+            OrchestrationDb::open(&path)
+        }
+        .map_err(napi_err)?;
+        Ok(Self { inner: Some(inner) })
+    }
+
+    // ---- messages ----
+
+    #[napi(catch_unwind)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_message(
+        &self,
+        id: String,
+        from_handle: String,
+        to_handle: String,
+        subject: String,
+        body: String,
+        message_type: String,
+        priority: String,
+        thread_id: Option<String>,
+        payload: Option<String>,
+    ) -> napi::Result<String> {
+        let message = NewMessage { id, from_handle, to_handle, subject, body, message_type, priority, thread_id, payload };
+        self.store()?.send_message(&message).map(|m| row_json(&m)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_message_by_id(&self, id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.get_message_by_id(&id).map_err(napi_err)?.map(|m| row_json(&m)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_unread_messages(&self, handle: String, types: Option<Vec<String>>) -> napi::Result<String> {
+        self.store()?.get_unread_messages(&handle, types.as_deref()).map(|m| row_json(&m)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_undelivered_unread_messages(&self, handle: String, types: Option<Vec<String>>) -> napi::Result<String> {
+        self.store()?
+            .get_undelivered_unread_messages(&handle, types.as_deref())
+            .map(|m| row_json(&m))
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_all_messages(&self, handle: String, limit: f64) -> napi::Result<String> {
+        self.store()?.get_all_messages(&handle, limit as i64).map(|m| row_json(&m)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_all_messages_for_handle(&self, handle: String, limit: f64, types: Option<Vec<String>>) -> napi::Result<String> {
+        self.store()?
+            .get_all_messages_for_handle(&handle, limit as i64, types.as_deref())
+            .map(|m| row_json(&m))
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_inbox(&self, limit: f64) -> napi::Result<String> {
+        self.store()?.get_inbox(limit as i64).map(|m| row_json(&m)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_thread_messages_for(&self, thread_id: String, to_handle: String, after_sequence: Option<f64>) -> napi::Result<String> {
+        self.store()?
+            .get_thread_messages_for(&thread_id, &to_handle, after_sequence.map(|n| n as i64))
+            .map(|m| row_json(&m))
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn mark_as_read(&self, ids: Vec<String>) -> napi::Result<()> {
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        self.store()?.mark_as_read(&refs).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn mark_as_delivered(&self, ids: Vec<String>) -> napi::Result<()> {
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        self.store()?.mark_as_delivered(&refs).map_err(napi_err)
+    }
+
+    // ---- tasks ----
+
+    #[napi(catch_unwind)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_task(
+        &self,
+        id: String,
+        spec: String,
+        parent_id: Option<String>,
+        deps: Vec<String>,
+        created_by: Option<String>,
+        task_title: Option<String>,
+        display_name: Option<String>,
+    ) -> napi::Result<String> {
+        let deps: Vec<&str> = deps.iter().map(String::as_str).collect();
+        self.store()?
+            .create_task(&id, &spec, parent_id.as_deref(), &deps, created_by.as_deref(), task_title.as_deref(), display_name.as_deref())
+            .map(|t| row_json(&t))
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_task(&self, id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.get_task(&id).map_err(napi_err)?.map(|t| row_json(&t)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn list_tasks(&self, status: Option<String>) -> napi::Result<String> {
+        self.store()?.list_tasks(status.as_deref()).map(|t| row_json(&t)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn list_tasks_with_dispatch(&self, status: Option<String>) -> napi::Result<String> {
+        self.store()?.list_tasks_with_dispatch(status.as_deref()).map(|t| row_json(&t)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn update_task_status(
+        &self,
+        id: String,
+        status: String,
+        result: Option<String>,
+        completed_at: Option<String>,
+    ) -> napi::Result<Option<String>> {
+        Ok(self
+            .store()?
+            .update_task_status(&id, &status, result.as_deref(), completed_at.as_deref())
+            .map_err(napi_err)?
+            .map(|t| row_json(&t)))
+    }
+
+    // ---- dispatch contexts ----
+
+    #[napi(catch_unwind)]
+    pub fn create_dispatch_context(&self, task_id: String, assignee_handle: String, id: String) -> napi::Result<String> {
+        self.store()?
+            .create_dispatch_context(&task_id, &assignee_handle, &id)
+            .map(|d| row_json(&d))
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_dispatch_context(&self, task_id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.get_dispatch_context(&task_id).map_err(napi_err)?.map(|d| row_json(&d)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_dispatch_context_by_id(&self, id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.dispatch_context_by_id(&id).map_err(napi_err)?.map(|d| row_json(&d)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_active_dispatch_for_terminal(&self, handle: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.get_active_dispatch_for_terminal(&handle).map_err(napi_err)?.map(|d| row_json(&d)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_latest_dispatch_for_terminal(&self, handle: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.get_latest_dispatch_for_terminal(&handle).map_err(napi_err)?.map(|d| row_json(&d)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn complete_dispatch(&self, id: String) -> napi::Result<()> {
+        self.store()?.complete_dispatch(&id).map(|_| ()).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn complete_active_dispatch_for_task(&self, task_id: String) -> napi::Result<()> {
+        self.store()?.complete_active_dispatch_for_task(&task_id).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn fail_active_dispatch_for_task(&self, task_id: String, error: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.fail_active_dispatch_for_task(&task_id, &error).map_err(napi_err)?.map(|d| row_json(&d)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn fail_dispatch(&self, id: String, error: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.fail_dispatch(&id, &error).map_err(napi_err)?.map(|d| row_json(&d)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn record_heartbeat(&self, id: String, at: String) -> napi::Result<()> {
+        self.store()?.record_heartbeat(&id, &at).map(|_| ()).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_stale_dispatches(&self, threshold_iso: String) -> napi::Result<String> {
+        self.store()?.get_stale_dispatches(&threshold_iso).map(|d| row_json(&d)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn set_dispatch_timestamps(&self, id: String, dispatched_at: Option<String>, last_heartbeat_at: Option<String>) -> napi::Result<()> {
+        self.store()?
+            .set_dispatch_timestamps(&id, dispatched_at.as_deref(), last_heartbeat_at.as_deref())
+            .map(|_| ())
+            .map_err(napi_err)
+    }
+
+    // ---- decision gates ----
+
+    #[napi(catch_unwind)]
+    pub fn create_gate(&self, id: String, task_id: String, question: String, options: Vec<String>) -> napi::Result<String> {
+        let options: Vec<&str> = options.iter().map(String::as_str).collect();
+        self.store()?.create_gate(&id, &task_id, &question, &options).map(|g| row_json(&g)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn resolve_gate(&self, id: String, resolution: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.resolve_gate(&id, &resolution).map_err(napi_err)?.map(|g| row_json(&g)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn timeout_gate(&self, id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.timeout_gate(&id).map_err(napi_err)?.map(|g| row_json(&g)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn list_gates(&self, task_id: Option<String>, status: Option<String>) -> napi::Result<String> {
+        self.store()?.list_gates(task_id.as_deref(), status.as_deref()).map(|g| row_json(&g)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_gate(&self, id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.gate_by_id(&id).map_err(napi_err)?.map(|g| row_json(&g)))
+    }
+
+    // ---- coordinator runs ----
+
+    #[napi(catch_unwind)]
+    pub fn create_coordinator_run(&self, id: String, spec: String, coordinator_handle: String, poll_interval_ms: Option<f64>) -> napi::Result<String> {
+        self.store()?
+            .create_coordinator_run(&id, &spec, &coordinator_handle, poll_interval_ms.map(|n| n as i64))
+            .map(|r| row_json(&r))
+            .map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_coordinator_run(&self, id: String) -> napi::Result<Option<String>> {
+        Ok(self.store()?.coordinator_run_by_id(&id).map_err(napi_err)?.map(|r| row_json(&r)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn update_coordinator_run(&self, id: String, status: String, completed_at: Option<String>) -> napi::Result<Option<String>> {
+        Ok(self.store()?.update_coordinator_run(&id, &status, completed_at.as_deref()).map_err(napi_err)?.map(|r| row_json(&r)))
+    }
+
+    #[napi(catch_unwind)]
+    pub fn get_active_coordinator_run(&self) -> napi::Result<Option<String>> {
+        Ok(self.store()?.active_coordinator_run().map_err(napi_err)?.map(|r| row_json(&r)))
+    }
+
+    // ---- queries + lifecycle ----
+
+    #[napi(catch_unwind)]
+    pub fn get_idle_terminals(&self, exclude_handles: Vec<String>) -> napi::Result<String> {
+        let refs: Vec<&str> = exclude_handles.iter().map(String::as_str).collect();
+        self.store()?.get_idle_terminals(&refs).map(|h| row_json(&h)).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn reset_all(&self) -> napi::Result<()> {
+        self.store()?.reset_all().map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn reset_tasks(&self) -> napi::Result<()> {
+        self.store()?.reset_tasks().map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn reset_messages(&self) -> napi::Result<()> {
+        self.store()?.reset_messages().map_err(napi_err)
+    }
+
+    /// Raw all-tables dump (real ids/timestamps) for the parity state harness.
+    #[napi(catch_unwind)]
+    pub fn dump_tables_json(&self) -> napi::Result<String> {
+        self.store()?.dump_all_rows().map(|v| v.to_string()).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn close(&mut self) {
+        self.inner = None;
+    }
+}
+
 /// Result of feeding a chunk to [`NdjsonParser`]: the complete lines to JSON-parse
 /// (in order) plus the observed byte sizes of any oversized lines that were dropped.
 #[napi(object)]

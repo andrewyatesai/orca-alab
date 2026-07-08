@@ -11,23 +11,26 @@
 // id at replay; the canonical output erases the store's random ids + SQL
 // timestamps so TS and Rust are comparable despite each generating its own.
 import { OrchestrationDb } from '../../../src/main/runtime/orchestration/db'
+import type { RustOrchestrationStoreHandle } from '../../../src/main/daemon/rust-git-addon'
 import {
   buildIdMap,
   byOrdinal,
-  dumpRawTables,
   projectState,
   readDispatch,
   readGate,
   readMessage,
   readRun,
   readTask,
-  type RawDb
+  type Row
 } from './orchestration-store-canonical'
 
-// The store's connection is `private`; reach it for the raw state dump (there is
-// no public "list all dispatch contexts"). Contained to this test harness.
-function rawDb(store: OrchestrationDb): RawDb {
-  return (store as unknown as { db: RawDb }).db
+// The shim delegates to a `private` napi store; reach it for the raw all-tables
+// dump (there is no public "list all dispatch contexts"). Contained to this
+// test harness. The Rust `dumpTablesJson` serializes each full row to its TS Row
+// shape, ORDER BY rowid — the same shape+order the old `SELECT *` dump produced.
+function dumpRawTables(store: OrchestrationDb): Record<string, Row[]> {
+  const handle = (store as unknown as { store: RustOrchestrationStoreHandle }).store
+  return JSON.parse(handle.dumpTablesJson()) as Record<string, Row[]>
 }
 
 type Op = Record<string, unknown>
@@ -196,7 +199,7 @@ function runOpSequence(input: { ops: Op[] }): unknown {
       pending.push(result)
     }
 
-    const rawTables = dumpRawTables(rawDb(store))
+    const rawTables = dumpRawTables(store)
     const idMap = buildIdMap(rawTables)
     const ops = pending.map((entry) => ('finalize' in entry ? entry.finalize(idMap) : entry))
     return { ops, state: projectState(idMap, rawTables) }

@@ -15,6 +15,9 @@ rusqlite = { version = "0.31", default-features = false, features = ["bundled"] 
 # Deps are stored/read as JSON string arrays (byte-identical to the TS
 # `JSON.stringify`), and DAG promotion parses them back.
 serde_json = { version = "1", default-features = false, features = ["std"] }
+# Row structs derive Serialize so the napi shim can marshal them to the exact
+# TS Row JSON (snake_case columns; `type` via serde rename).
+serde = { version = "1", default-features = false, features = ["std", "derive"] }
 
 [lints.rust]
 unsafe_code = "forbid"

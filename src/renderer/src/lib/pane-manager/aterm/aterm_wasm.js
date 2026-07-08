@@ -817,7 +817,7 @@ export class AtermTerminal {
      * pane. Layout: SGR reset, then the capped recent history (text + CRLF), then
      * `CSI H`, then each visible row placed with absolute CUP + erase-line (so a
      * full-width row can't autowrap on replay) emitted via the engine's
-     * `row_ansi_text` (minimal change-based SGR, wide-char aware), then the cursor
+     * `row_ansi_text_screen` (minimal change-based SGR, wide-char aware), then the cursor
      * restored. `scrollback_rows` = `None` prepends ALL history, `Some(n)` the last
      * `n`, `Some(0)` viewport-only. Ported from the daemon's proven `serialize_ansi`
      * (orca-terminal headless) so the output stays byte-compatible with the existing

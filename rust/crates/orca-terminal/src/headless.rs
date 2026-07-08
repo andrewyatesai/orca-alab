@@ -319,7 +319,7 @@ impl HeadlessTerminal {
     /// Replayable ANSI for the snapshot: scrollback history (as flowing text)
     /// then each visible row placed with absolute CUP + erase-line so a
     /// full-width row can't autowrap on replay, then the cursor restored. The
-    /// visible grid is emitted via aterm's `Grid::row_ansi_text` — which handles
+    /// visible grid is emitted via aterm's `Grid::row_ansi_text_screen` — which handles
     /// wide-char (CJK/emoji) continuation correctly and emits minimal,
     /// change-based SGR (vs a full reset+colour per cell). Scrollback is
     /// text-only (the headless scrollback-text-only mode drops history colour).
@@ -470,7 +470,10 @@ impl HeadlessTerminal {
         let grid = self.inner.grid();
         for r in 0..self.inner.rows() {
             out.push_str(&format!("\x1b[{};1H\x1b[K", r + 1));
-            if let Some(row_ansi) = grid.row_ansi_text(r) {
+            // Read the LIVE screen row (offset-independent): serialize captures state,
+            // not the user's scroll view, so a scrolled-back emoji/RGB row is not
+            // re-emitted from history with mismatched extras.
+            if let Some(row_ansi) = grid.row_ansi_text_screen(r) {
                 out.push_str(&row_ansi);
             }
             out.push_str("\x1b[0m");
@@ -717,7 +720,7 @@ mod tests {
     fn serialize_ansi_preserves_wide_chars() {
         // Regression: the old per-cell loop indexed physical columns by logical
         // char count, so a CJK row "日本X" (3 chars / 5 cols) replayed as "日 本".
-        // Delegating to Grid::row_ansi_text handles wide-continuation correctly.
+        // Delegating to Grid::row_ansi_text_screen handles wide-continuation correctly.
         let mut term = HeadlessTerminal::new(2, 20);
         term.process_str("日本X");
         let ansi = term.serialize_ansi(None);

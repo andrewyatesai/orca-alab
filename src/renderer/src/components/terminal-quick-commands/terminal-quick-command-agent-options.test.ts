@@ -1,7 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { AGENT_CATALOG } from '@/lib/agent-catalog'
-import { supportsTerminalAgentQuickCommand } from '../../../../shared/terminal-quick-commands'
+import { supportsTerminalAgentQuickCommand } from '@/lib/git-wasm/terminal-quick-commands'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
 import { getTerminalQuickCommandAgentOptions } from './terminal-quick-command-agent-options'
+
+// supportsTerminalAgentQuickCommand runs through the git wasm — init it so the
+// ordering assertions see real support flags (not the pre-ready `false` default).
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 describe('terminal quick command agent options', () => {
   it('does not inherit OpenClaude as the second quick-command agent option', () => {

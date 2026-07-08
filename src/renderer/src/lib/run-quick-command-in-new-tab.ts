@@ -5,7 +5,7 @@ import {
   flattenTerminalQuickCommand,
   isTerminalAgentQuickCommand,
   supportsTerminalAgentQuickCommand
-} from '../../../shared/terminal-quick-commands'
+} from '@/lib/git-wasm/terminal-quick-commands'
 import type { TerminalQuickCommand } from '../../../shared/types'
 
 export type RunQuickCommandInNewTabArgs = {

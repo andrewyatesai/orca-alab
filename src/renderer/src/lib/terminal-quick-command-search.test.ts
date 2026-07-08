@@ -1,11 +1,20 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   getTerminalQuickCommandPickerValue,
   isTerminalQuickCommandSearchQueryTooLarge,
   TERMINAL_QUICK_COMMAND_SEARCH_QUERY_MAX_BYTES,
   searchTerminalQuickCommands
 } from './terminal-quick-command-search'
+import { initGitWasmForTestFromBytes } from './git-wasm/git-line-stats'
 import type { TerminalQuickCommand } from '../../../shared/types'
+
+// Search reads command bodies through the git wasm (getTerminalQuickCommandBody).
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 const commands: TerminalQuickCommand[] = [
   {

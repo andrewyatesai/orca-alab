@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { GlobalSettings, TerminalQuickCommand } from '../../../../shared/types'
-import { getTerminalQuickCommandScope } from '../../../../shared/terminal-quick-commands'
+import { getTerminalQuickCommandScope } from '@/lib/git-wasm/terminal-quick-commands'
 import {
   createTerminalQuickCommandDraft,
   TerminalQuickCommandDialog

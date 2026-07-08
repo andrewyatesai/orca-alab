@@ -3,7 +3,7 @@ import type { TerminalQuickCommand, TuiAgent } from '../../../../shared/types'
 import {
   isTerminalAgentQuickCommand,
   supportsTerminalAgentQuickCommand
-} from '../../../../shared/terminal-quick-commands'
+} from '@/lib/git-wasm/terminal-quick-commands'
 import { Label } from '@/components/ui/label'
 import {
   Select,

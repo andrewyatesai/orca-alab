@@ -167,6 +167,13 @@ export function slugifyForWorkspaceName(input: string): string;
 export function stripCredentialsFromMessage(message: string): string;
 
 /**
+ * Run one terminal quick-command helper by name over its JSON input, returning
+ * JSON (TS `terminal-quick-commands.ts`). The renderer drives normalize + the
+ * typed-object accessors through this — see `orca_agents::terminal_quick_command_json`.
+ */
+export function terminalQuickCommandOp(_function: string, input_json: string): string;
+
+/**
  * True when `git cherry <upstream> HEAD`-style mark output shows at least one
  * commit and every commit is patch-equivalent (`=`). The relay's
  * behind-commits-are-patch-equivalent probe.
@@ -212,6 +219,7 @@ export interface InitOutput {
     readonly quickopenindex_rank: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly slugifyForWorkspaceName: (a: number, b: number, c: number) => void;
     readonly stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
+    readonly terminalQuickCommandOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;

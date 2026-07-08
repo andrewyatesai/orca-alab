@@ -9,7 +9,7 @@ import {
 } from '@/runtime/runtime-rpc-client'
 import { assertRuntimeStatusCompatible } from '@/runtime/runtime-protocol-compat'
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
-import { normalizeTerminalQuickCommands } from '../../../../shared/terminal-quick-commands'
+import { normalizeTerminalQuickCommands } from '@/lib/git-wasm/terminal-quick-commands'
 import { normalizeTerminalCustomThemes } from '../../../../shared/terminal-custom-themes'
 import { normalizeTaskProviderSettings } from '../../../../shared/task-providers'
 import { normalizeOpenInApplications } from '../../../../shared/open-in-applications'

@@ -506,6 +506,15 @@ pub fn parse_generated_pull_request_fields(raw: String, fallback_json: String) -
     }
 }
 
+/// Run one terminal quick-command helper by name over its JSON input, returning
+/// JSON (TS `terminal-quick-commands.ts`). One entry covers normalize + the
+/// typed-object accessors — see `orca_agents::terminal_quick_command_json`.
+#[napi(catch_unwind)]
+pub fn terminal_quick_command_op(function: String, input_json: String) -> String {
+    let input = serde_json::from_str::<serde_json::Value>(&input_json).unwrap_or(serde_json::Value::Null);
+    orca_agents::terminal_quick_command_json::dispatch(&function, &input).to_string()
+}
+
 /// Build a `PullRequestDraftContext` from its camelCase JSON (string fields default
 /// to "", `branch` nullable → `None`); shared by prompt-build + reply-parse.
 fn parse_pull_request_context(context_json: &str) -> orca_agents::PullRequestDraftContext {

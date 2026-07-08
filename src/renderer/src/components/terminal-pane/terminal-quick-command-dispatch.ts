@@ -3,7 +3,7 @@ import {
   buildTerminalQuickCommandInput,
   flattenTerminalQuickCommand,
   isTerminalAgentQuickCommand
-} from '../../../../shared/terminal-quick-commands'
+} from '@/lib/git-wasm/terminal-quick-commands'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
 
 type QuickCommandPane = {

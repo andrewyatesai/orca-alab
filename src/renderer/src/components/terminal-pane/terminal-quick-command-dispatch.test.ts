@@ -1,4 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
+
+// The dispatch classifies commands through the git wasm (isTerminalAgentQuickCommand,
+// flatten) — init it so agent commands are recognised, not treated as shell input.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 const mocks = vi.hoisted(() => ({
   recordTerminalUserInputForLeaf: vi.fn()

@@ -125,7 +125,7 @@ import {
   getTerminalQuickCommandScope,
   isTerminalQuickCommandComplete,
   terminalQuickCommandMatchesRepo
-} from '../../../../shared/terminal-quick-commands'
+} from '@/lib/git-wasm/terminal-quick-commands'
 import {
   createTerminalQuickCommandDraft,
   TerminalQuickCommandDialog

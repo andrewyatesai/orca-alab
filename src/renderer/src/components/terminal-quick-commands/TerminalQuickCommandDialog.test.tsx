@@ -1,10 +1,21 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { TerminalQuickCommand } from '../../../../shared/types'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
 import { TerminalQuickCommandDialog } from './TerminalQuickCommandDialog'
+
+// The dialog classifies/validates commands through the git wasm. happy-dom makes
+// import.meta.url a non-file URL, so read the bytes via __dirname.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(join(__dirname, '../../lib/git-wasm/orca_git_wasm_bg.wasm'))
+  )
+})
 
 const mountedRoots: Root[] = []
 

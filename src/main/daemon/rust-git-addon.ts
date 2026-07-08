@@ -242,6 +242,9 @@ export type RustGitBinding = {
    *  `{ok:true, fields:{base,title,body,draft}} | {ok:false, error}` JSON;
    *  `fallbackJson` supplies the current fields for missing/blank values. */
   parseGeneratedPullRequestFields(raw: string, fallbackJson: string): string
+  /** Run one terminal quick-command helper by name over its JSON input, returning
+   *  JSON (TS `terminal-quick-commands.ts` — normalize + typed-object accessors). */
+  terminalQuickCommandOp(functionName: string, inputJson: string): string
   /** Validate raw session JSON as a `WorkspaceSessionState`, returning the
    *  `ParsedWorkspaceSession` union (`{ok:true, value} | {ok:false, error}`) JSON. */
   parseWorkspaceSession(rawJson: string): string

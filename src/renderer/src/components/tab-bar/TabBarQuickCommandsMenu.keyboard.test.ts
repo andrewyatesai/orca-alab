@@ -75,7 +75,7 @@ vi.mock('@/lib/terminal-quick-command-search', () => ({
   getTerminalQuickCommandPickerValue: () => null
 }))
 
-vi.mock('../../../../shared/terminal-quick-commands', () => ({
+vi.mock('@/lib/git-wasm/terminal-quick-commands', () => ({
   isTerminalAgentQuickCommand: () => false,
   getTerminalQuickCommandBody: () => ''
 }))

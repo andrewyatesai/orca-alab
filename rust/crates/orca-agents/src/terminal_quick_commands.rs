@@ -14,7 +14,11 @@ use serde_json::Value;
 const MAX_QUICK_COMMANDS: usize = 40;
 const MAX_QUICK_COMMAND_LABEL_LENGTH: usize = 80;
 const MAX_QUICK_COMMAND_REPO_ID_LENGTH: usize = 200;
-const MAX_QUICK_COMMAND_TEXT_LENGTH: usize = 4000;
+const MAX_QUICK_COMMAND_TERMINAL_TEXT_LENGTH: usize = 4000;
+// Why: agent-prompt quick commands still launch through startup commands for
+// argv/flag agents, so this stays within Orca's Windows shell safety cap — a
+// wider budget than shell commands (TS `MAX_QUICK_COMMAND_AGENT_PROMPT_LENGTH`).
+const MAX_QUICK_COMMAND_AGENT_PROMPT_LENGTH: usize = 6000;
 const REMOVED_PRESET_IDS: [&str; 2] = ["default-pwd", "default-git-status"];
 
 /// Where a quick command is available.
@@ -88,6 +92,25 @@ fn slice_utf16(value: &str, max_len: usize) -> String {
     String::from_utf16_lossy(&units[..max_len])
 }
 
+/// Chars stripped by JS `String.prototype.trim` — the ECMAScript WhiteSpace +
+/// LineTerminator set. This differs from Rust `char::is_whitespace` (Unicode
+/// White_Space) on exactly two code points: JS strips U+FEFF (BOM/ZWNBSP) which
+/// Unicode does not, and Unicode strips U+0085 (NEL) which JS does not. Matching
+/// JS keeps this sanitizer byte-identical to the former TS on every input.
+fn is_js_trim_ws(c: char) -> bool {
+    c == '\u{FEFF}' || (c != '\u{0085}' && c.is_whitespace())
+}
+
+/// JS `String.prototype.trim` equivalent.
+fn trim_js(value: &str) -> &str {
+    value.trim_matches(is_js_trim_ws)
+}
+
+/// JS `String.prototype.trimEnd` equivalent.
+fn trim_end_js(value: &str) -> &str {
+    value.trim_end_matches(is_js_trim_ws)
+}
+
 /// There are no built-in defaults; the list starts empty.
 pub fn get_default_terminal_quick_commands() -> Vec<TerminalQuickCommand> {
     Vec::new()
@@ -106,7 +129,7 @@ pub fn normalize_terminal_quick_command_scope(input: Option<&Value>) -> Terminal
     let repo_id = record
         .get("repoId")
         .and_then(Value::as_str)
-        .map(str::trim)
+        .map(trim_js)
         .unwrap_or("");
     if repo_id.is_empty() {
         return TerminalQuickCommandScope::Global;
@@ -170,8 +193,8 @@ pub fn get_terminal_quick_command_body(command: &TerminalQuickCommand) -> &str {
 
 /// True when both the label and the body have non-whitespace content.
 pub fn is_terminal_quick_command_complete(command: &TerminalQuickCommand) -> bool {
-    !command.label().trim().is_empty()
-        && !get_terminal_quick_command_body(command).trim().is_empty()
+    !trim_js(command.label()).is_empty()
+        && !trim_js(get_terminal_quick_command_body(command)).is_empty()
 }
 
 /// Sanitize the persisted (untrusted) quick-command list. Non-array input
@@ -195,7 +218,7 @@ pub fn normalize_terminal_quick_commands(input: &Value) -> Vec<TerminalQuickComm
         let raw_id = record
             .get("id")
             .and_then(Value::as_str)
-            .map(str::trim)
+            .map(trim_js)
             .unwrap_or("");
         if REMOVED_PRESET_IDS.contains(&raw_id) {
             continue;
@@ -217,12 +240,7 @@ pub fn normalize_terminal_quick_commands(input: &Value) -> Vec<TerminalQuickComm
             continue;
         }
         let label = if has_label {
-            record
-                .get("label")
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_string()
+            trim_js(record.get("label").and_then(Value::as_str).unwrap_or("")).to_string()
         } else {
             String::new()
         };
@@ -252,12 +270,7 @@ pub fn normalize_terminal_quick_commands(input: &Value) -> Vec<TerminalQuickComm
                 continue;
             };
             let prompt = if has_prompt {
-                record
-                    .get("prompt")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .trim_end()
-                    .to_string()
+                trim_end_js(record.get("prompt").and_then(Value::as_str).unwrap_or("")).to_string()
             } else {
                 String::new()
             };
@@ -266,15 +279,11 @@ pub fn normalize_terminal_quick_commands(input: &Value) -> Vec<TerminalQuickComm
                 label,
                 scope,
                 agent: agent_id.to_string(),
-                prompt: slice_utf16(&prompt, MAX_QUICK_COMMAND_TEXT_LENGTH),
+                prompt: slice_utf16(&prompt, MAX_QUICK_COMMAND_AGENT_PROMPT_LENGTH),
             }));
         } else {
             let command = if has_command {
-                record
-                    .get("command")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .trim_end()
+                trim_end_js(record.get("command").and_then(Value::as_str).unwrap_or(""))
                     .to_string()
             } else {
                 String::new()
@@ -284,7 +293,7 @@ pub fn normalize_terminal_quick_commands(input: &Value) -> Vec<TerminalQuickComm
                 id,
                 label,
                 scope,
-                command: slice_utf16(&command, MAX_QUICK_COMMAND_TEXT_LENGTH),
+                command: slice_utf16(&command, MAX_QUICK_COMMAND_TERMINAL_TEXT_LENGTH),
                 append_enter,
             }));
         }
@@ -347,7 +356,7 @@ pub fn flatten_terminal_quick_command(
     }
     let flattened = split_line_breaks(&command.command)
         .into_iter()
-        .map(str::trim)
+        .map(trim_js)
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("; ");
@@ -462,6 +471,51 @@ mod tests {
                 agent: "codex".to_string(),
                 prompt: "  Review this diff".to_string(),
             })]
+        );
+    }
+
+    #[test]
+    fn caps_agent_prompts_at_6000_and_shell_commands_at_4000() {
+        // Agent prompts get a wider budget than shell commands (they still route
+        // through launch commands for argv agents) — 6000 vs 4000 UTF-16 units.
+        let input = json!([
+            { "id": "p", "label": "P", "action": "agent-prompt", "agent": "codex", "prompt": "a".repeat(6001) },
+            { "id": "c", "label": "C", "action": "terminal-command", "command": "b".repeat(4001) }
+        ]);
+        let normalized = normalize_terminal_quick_commands(&input);
+        match &normalized[0] {
+            TerminalQuickCommand::Agent(a) => assert_eq!(a.prompt.encode_utf16().count(), 6000),
+            other => panic!("expected agent, got {other:?}"),
+        }
+        match &normalized[1] {
+            TerminalQuickCommand::Command(c) => assert_eq!(c.command.encode_utf16().count(), 4000),
+            other => panic!("expected command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn trims_the_js_whitespace_set_not_the_unicode_one() {
+        // JS `.trim()` strips U+FEFF (BOM) but not U+0085 (NEL); Rust's native
+        // `str::trim` does the opposite. The sanitizer must follow JS so it stays
+        // byte-identical to the former TS. Label uses `.trim()`, command `.trimEnd()`.
+        let input = json!([
+            {
+                "id": "\u{FEFF}bom-id\u{0085}",
+                "label": "\u{FEFF}Label\u{0085}",
+                "command": "echo hi\u{0085}\u{FEFF}"
+            }
+        ]);
+        assert_eq!(
+            normalize_terminal_quick_commands(&input),
+            // id: leading BOM stripped, trailing NEL kept (both ends, JS trim).
+            // label: same. command: trailing BOM stripped, NEL kept (JS trimEnd).
+            vec![command_qc(
+                "bom-id\u{0085}",
+                "Label\u{0085}",
+                "echo hi\u{0085}",
+                true,
+                TerminalQuickCommandScope::Global
+            )]
         );
     }
 

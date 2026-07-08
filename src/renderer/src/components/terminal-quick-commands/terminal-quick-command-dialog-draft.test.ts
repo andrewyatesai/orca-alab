@@ -1,10 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { TerminalQuickCommand } from '../../../../shared/types'
+import { initGitWasmForTestFromBytes } from '@/lib/git-wasm/git-line-stats'
 import {
   createTerminalQuickCommandDialogDraftMemory,
   switchTerminalQuickCommandDialogAction
 } from './terminal-quick-command-dialog-draft'
 import { getQuickCommandProjectScopeRepoId } from './TerminalQuickCommandScopeField'
+
+// Draft transitions read command bodies/actions through the git wasm — init it.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 describe('terminal quick command dialog draft transitions', () => {
   it('keeps agent prompt blank when switching from a terminal command for the first time', () => {

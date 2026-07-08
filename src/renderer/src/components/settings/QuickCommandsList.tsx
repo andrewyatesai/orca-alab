@@ -8,7 +8,7 @@ import {
   getTerminalQuickCommandBody,
   getTerminalQuickCommandScope,
   isTerminalAgentQuickCommand
-} from '../../../../shared/terminal-quick-commands'
+} from '@/lib/git-wasm/terminal-quick-commands'
 import { AgentIcon, getAgentLabel } from '@/lib/agent-catalog'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'

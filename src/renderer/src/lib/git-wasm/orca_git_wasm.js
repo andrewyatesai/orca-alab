@@ -650,6 +650,35 @@ export function stripCredentialsFromMessage(message) {
 }
 
 /**
+ * Run one terminal quick-command helper by name over its JSON input, returning
+ * JSON (TS `terminal-quick-commands.ts`). The renderer drives normalize + the
+ * typed-object accessors through this — see `orca_agents::terminal_quick_command_json`.
+ * @param {string} _function
+ * @param {string} input_json
+ * @returns {string}
+ */
+export function terminalQuickCommandOp(_function, input_json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(_function, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(input_json, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.terminalQuickCommandOp(retptr, ptr0, len0, ptr1, len1);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred3_0 = r0;
+        deferred3_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * True when `git cherry <upstream> HEAD`-style mark output shows at least one
  * commit and every commit is patch-equivalent (`=`). The relay's
  * behind-commits-are-patch-equivalent probe.

@@ -1,5 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { initGitWasmForTestFromBytes } from './git-wasm/git-line-stats'
 import { runQuickCommandInNewTab } from './run-quick-command-in-new-tab'
+
+// runQuickCommandInNewTab classifies agent vs terminal commands through the git
+// wasm — init it so agent prompts aren't misrouted to the shell-command branch.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('./git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 type MockStoreState = {
   createTab: ReturnType<typeof vi.fn>

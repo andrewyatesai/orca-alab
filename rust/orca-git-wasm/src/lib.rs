@@ -380,6 +380,15 @@ pub fn parse_generated_pull_request_fields_json(raw: &str, fallback_json: &str) 
     }
 }
 
+/// Run one terminal quick-command helper by name over its JSON input, returning
+/// JSON (TS `terminal-quick-commands.ts`). The renderer drives normalize + the
+/// typed-object accessors through this — see `orca_agents::terminal_quick_command_json`.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(js_name = "terminalQuickCommandOp"))]
+pub fn terminal_quick_command_op_json(function: &str, input_json: &str) -> String {
+    let input = serde_json::from_str::<serde_json::Value>(input_json).unwrap_or(serde_json::Value::Null);
+    orca_agents::terminal_quick_command_json::dispatch(function, &input).to_string()
+}
+
 fn parse_pull_request_context(context_json: &str) -> orca_agents::PullRequestDraftContext {
     let value = serde_json::from_str::<serde_json::Value>(context_json).unwrap_or(serde_json::Value::Null);
     let str_field = |key: &str| value.get(key).and_then(|v| v.as_str()).unwrap_or_default().to_string();

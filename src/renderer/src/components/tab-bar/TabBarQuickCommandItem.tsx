@@ -1,6 +1,6 @@
 import { Pencil, Play, Trash2 } from 'lucide-react'
 import { CommandItem } from '@/components/ui/command'
-import { isTerminalAgentQuickCommand } from '../../../../shared/terminal-quick-commands'
+import { isTerminalAgentQuickCommand } from '@/lib/git-wasm/terminal-quick-commands'
 import type { TerminalQuickCommand } from '../../../../shared/types'
 import { AgentIcon, getAgentLabel } from '@/lib/agent-catalog'
 import { translate } from '@/i18n/i18n'

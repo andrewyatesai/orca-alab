@@ -17,7 +17,7 @@ import { ShortcutKeyCombo } from '@/components/ShortcutKeyCombo'
 import {
   getTerminalQuickCommandBody,
   isTerminalAgentQuickCommand
-} from '../../../../shared/terminal-quick-commands'
+} from '@/lib/git-wasm/terminal-quick-commands'
 import type { TerminalQuickCommand } from '../../../../shared/types'
 import { getAgentLabel } from '@/lib/agent-catalog'
 import { TabBarQuickCommandItem } from './TabBarQuickCommandItem'

@@ -58,6 +58,7 @@ pub use tui_agent_selection::{
 pub mod tui_agent_config;
 pub mod tui_agent_startup;
 pub mod tui_agent_startup_shell;
+pub mod terminal_quick_command_json;
 pub mod terminal_quick_commands;
 
 pub use tui_agent_config::{

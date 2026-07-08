@@ -9,7 +9,7 @@ import {
   getTerminalQuickCommandScope,
   isTerminalAgentQuickCommand,
   supportsTerminalAgentQuickCommand
-} from '../../../../shared/terminal-quick-commands'
+} from '@/lib/git-wasm/terminal-quick-commands'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import {
   Dialog,

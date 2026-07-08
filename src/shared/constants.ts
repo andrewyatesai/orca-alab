@@ -12,7 +12,6 @@ import type {
 } from './types'
 import { DEFAULT_STATUS_BAR_ITEMS } from './status-bar-defaults'
 import { DEFAULT_TERMINAL_FONT_WEIGHT } from './terminal-fonts'
-import { getDefaultTerminalQuickCommands } from './terminal-quick-commands'
 import type { VoiceSettings } from './speech-types'
 import { cloneDefaultWorkspaceStatuses } from './workspace-statuses'
 import { TASK_PROVIDERS } from './task-providers'
@@ -283,7 +282,9 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     // is installed, with a safe fallback to the inbox Windows PowerShell.
     terminalWindowsPowerShellImplementation: 'auto',
     terminalMouseHideWhileTyping: false,
-    terminalQuickCommands: getDefaultTerminalQuickCommands(),
+    // No built-in quick commands (the orca-agents default is an empty list);
+    // this shared default can't reach the napi/wasm normalizer, so inline it.
+    terminalQuickCommands: [],
     // Default false: opt-in only (matches Ghostty's default). Existing users
     // on upgrade inherit this default via persistence.ts's
     // { ...defaults.settings, ...parsed.settings } merge, so enabling

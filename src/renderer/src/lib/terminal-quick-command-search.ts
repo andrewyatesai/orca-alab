@@ -1,7 +1,7 @@
 import {
   getTerminalQuickCommandBody,
   isTerminalAgentQuickCommand
-} from '../../../shared/terminal-quick-commands'
+} from '@/lib/git-wasm/terminal-quick-commands'
 import { isClipboardTextByteLengthOverLimit } from '../../../shared/clipboard-text'
 import type { TerminalQuickCommand } from '../../../shared/types'
 

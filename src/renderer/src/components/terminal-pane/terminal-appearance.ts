@@ -3,7 +3,7 @@ import { atermThemeColorsFromITheme } from '@/lib/pane-manager/aterm/aterm-theme
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { GlobalSettings } from '../../../../shared/types'
 import { mode2031SequenceFor } from '../../../../shared/terminal-color-scheme-protocol'
-import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
+import { resolveTerminalFontWeights } from '../../lib/git-wasm/terminal-fonts'
 import {
   getBuiltinTheme,
   resolvePaneStyleOptions,

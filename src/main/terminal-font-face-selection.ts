@@ -1,4 +1,4 @@
-import { resolveTerminalFontWeights } from '../shared/terminal-fonts'
+import { resolveTerminalFontWeights } from './rust-terminal-fonts'
 
 // Pure face selection for the aterm engine's set_primary_font / set_bold_font:
 // given the named styles a family actually ships on the host, pick the face

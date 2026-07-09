@@ -76,11 +76,14 @@ function renderApp(): void {
   recordRendererCrashBreadcrumb('renderer_bootstrap_rendered')
 }
 
-// Render once the git wasm is ready so the agent-startup builders never hit
-// their pre-ready null fallback. The wasm is a local bundled asset (~tens of ms
-// to compile); the timeout is a safety valve so a stalled/failed compile still
-// renders the shell — line stats then degrade to numstat until it recovers.
+// Render once the git wasm is ready so synchronous renderer helpers (agent
+// startup builders, task-query parsing, etc.) never hit their pre-ready null
+// fallback and then stay stuck on it (a useMemo won't recompute when readiness
+// flips). A genuine compile FAILURE rejects and is caught immediately, so this
+// waits for the local bundled wasm to settle; the long timeout is only an
+// anti-hang backstop for a promise that never resolves (near-impossible for a
+// local asset), not a routine "render without wasm" valve.
 void Promise.race([
   gitWasmReady.catch(() => undefined),
-  new Promise<void>((resolve) => setTimeout(resolve, 2000))
+  new Promise<void>((resolve) => setTimeout(resolve, 10000))
 ]).then(renderApp)

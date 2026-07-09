@@ -105,10 +105,11 @@ function renderWebApp(): void {
   )
 }
 
-// Render once the git wasm is ready so the renderer Rust helpers never hit their
-// pre-ready null fallback. The 2s timeout is a safety valve so a stalled/failed
-// compile still renders the shell (helpers then degrade until it recovers).
+// Render once the git wasm is ready so synchronous renderer helpers never hit
+// their pre-ready null fallback and stay stuck on it. A compile FAILURE rejects
+// and is caught immediately; the long timeout is only an anti-hang backstop for
+// a promise that never settles, not a routine "render without wasm" valve.
 void Promise.race([
   gitWasmReady.catch(() => undefined),
-  new Promise<void>((resolve) => setTimeout(resolve, 2000))
+  new Promise<void>((resolve) => setTimeout(resolve, 10000))
 ]).then(renderWebApp)

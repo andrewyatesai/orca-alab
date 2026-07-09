@@ -3,9 +3,9 @@ import {
   DEFAULT_TERMINAL_FONT_WEIGHT,
   TERMINAL_FONT_WEIGHT_MAX,
   TERMINAL_FONT_WEIGHT_MIN,
-  TERMINAL_FONT_WEIGHT_STEP,
-  normalizeTerminalFontWeight
+  TERMINAL_FONT_WEIGHT_STEP
 } from '../../../../shared/terminal-fonts'
+import { normalizeTerminalFontWeight } from '../../lib/git-wasm/terminal-fonts'
 import { resolveTerminalLigaturesEnabled } from '../../../../shared/terminal-ligatures'
 import { Input } from '../ui/input'
 import {

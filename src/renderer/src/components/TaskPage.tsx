@@ -126,7 +126,7 @@ import {
   getLinearStateMarkerStyle,
   getLinearStatePillStyle
 } from '@/components/linear-state-pill-style'
-import { parseTaskQuery, stripRepoQualifiers, withQualifier } from '../../../shared/task-query'
+import { parseTaskQuery, stripRepoQualifiers, withQualifier } from '../lib/git-wasm/task-query'
 import {
   buildLinearTeamUrl,
   getLinearOrganizationUrlKeyFromIssueUrl

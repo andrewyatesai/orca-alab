@@ -29,7 +29,8 @@ import {
 } from '../../shared/hosted-review-refs'
 import { normalizeGitHubPRMergeMethodSettings } from '../../shared/github-pr-merge-methods'
 import { isGitHubWorkItemsQueryTooLarge } from '../../shared/github-work-items-query-bounds'
-import { parseTaskQuery, type ParsedTaskQuery } from '../../shared/task-query'
+import { parseTaskQuery } from '../rust-task-query'
+import type { ParsedTaskQuery } from '../../shared/task-query'
 import {
   GITHUB_WORK_ITEMS_SSH_REMOTE_REQUIRED_MESSAGE,
   sortWorkItemsByUpdatedAt

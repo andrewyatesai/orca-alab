@@ -46,7 +46,7 @@ import type { TerminalPaneSplitSource } from '../../../../shared/feature-educati
 import type { EventProps } from '../../../../shared/telemetry-events'
 import type { StartupCommandDelivery } from '../../../../shared/codex-startup-delivery'
 import type { SleepingAgentLaunchConfig } from '../../../../shared/agent-session-resume'
-import { resolveTerminalFontWeights } from '../../../../shared/terminal-fonts'
+import { resolveTerminalFontWeights } from '../../lib/git-wasm/terminal-fonts'
 import {
   buildFontFamily,
   normalizeTerminalLayoutSnapshot,

@@ -1,36 +1,11 @@
-// TS dispatch for the task-query parity module: maps the shared vector function
-// names to the real `src/shared/task-query.ts` exports so the harness compares
-// the live TS reference against the Rust port.
-
-import {
-  parseTaskQuery,
-  serializeTaskQuery,
-  stripRepoQualifiers,
-  tokenizeSearchQuery,
-  withQualifier,
-  type ParsedTaskQuery,
-  type TaskQueryFilterKey
-} from '../../../src/shared/task-query'
+// TS dispatch for the task-query parity module. The shared TS impl was DELETED
+// (the Rust orca-core task_query port is the sole impl — napi in main, wasm in
+// the renderer), so this adapter drives the SAME wasm: the vectors' recorded
+// goldens now pin that surface absolutely, and the harness's TS-vs-Rust diff
+// degenerates to wasm-vs-binary (drift between the two Rust entry points would
+// still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'tokenizeSearchQuery':
-      return tokenizeSearchQuery(input as string)
-    case 'parseTaskQuery':
-      return parseTaskQuery(input as string)
-    case 'serializeTaskQuery':
-      return serializeTaskQuery(input as ParsedTaskQuery)
-    case 'withQualifier': {
-      const { rawQuery, key, value } = input as {
-        rawQuery: string
-        key: TaskQueryFilterKey
-        value: string | string[] | null
-      }
-      return withQualifier(rawQuery, key, value)
-    }
-    case 'stripRepoQualifiers':
-      return stripRepoQualifiers(input as string)
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(gitWasmOracle().orcaDispatch('task-query', fn, JSON.stringify(input ?? null)))
 }

@@ -1,27 +1,14 @@
-// TS dispatch for the open-in-applications parity module: maps the shared
-// vector function names to the real `src/shared/open-in-applications.ts`
-// exports so the harness compares the live TS reference against the Rust port.
-
-import { normalizeOpenInApplications } from '../../../src/shared/open-in-applications'
+// TS dispatch for the open-in-applications parity module: the shared TS body was
+// DELETED (the Rust orca-config core is the sole impl), so this adapter drives
+// the SAME wasm the renderer runs via orcaDispatch — the vectors' recorded
+// goldens keep pinning that surface, and the harness's TS-vs-Rust diff
+// degenerates to wasm-vs-binary (drift between the two Rust entry points would
+// still surface here). The vector input already carries `value`/`seedDefaults`/
+// `createIds`, which the Rust dispatch reifies internally.
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'normalizeOpenInApplications': {
-      const { value, seedDefaults, createIds } = input as {
-        value?: unknown
-        seedDefaults?: boolean
-        createIds?: string[]
-      }
-      // `createIds` reifies the optional id generator as plain JSON: each blank
-      // id pops the next entry (empty string once exhausted == falls back to a
-      // positional id), so the closure is reproducible in both adapters.
-      let index = 0
-      const createId = Array.isArray(createIds)
-        ? (): string => createIds[index++] ?? ''
-        : undefined
-      return normalizeOpenInApplications(value, { seedDefaults, createId })
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('open-in-applications', fn, JSON.stringify(input ?? null))
+  )
 }

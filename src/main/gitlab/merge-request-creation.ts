@@ -4,7 +4,7 @@ import type { CreateHostedReviewInput, CreateHostedReviewResult } from '../../sh
 import {
   normalizeHostedReviewBaseRef,
   normalizeHostedReviewHeadRef
-} from '../../shared/hosted-review-refs'
+} from '../rust-hosted-review-refs'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import { joinWorktreeRelativePath } from '../runtime/runtime-relative-paths'
 import {

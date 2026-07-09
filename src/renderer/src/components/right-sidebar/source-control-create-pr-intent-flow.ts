@@ -3,7 +3,7 @@ import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-
 import {
   normalizeHostedReviewBaseRef,
   normalizeHostedReviewHeadRef
-} from '../../../../shared/hosted-review-refs'
+} from '@/lib/git-wasm/hosted-review-refs'
 import type { GitStatusEntry, GitUpstreamStatus } from '../../../../shared/types'
 import { summarizeCommitFailure } from './commit-failure-summary'
 import { getStageAllPaths } from './discard-all-sequence'

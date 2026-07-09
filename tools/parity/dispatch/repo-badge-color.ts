@@ -1,20 +1,13 @@
-// TS dispatch for the repo-badge-color parity module: maps the shared vector
-// function names to the real `src/shared/repo-badge-color.ts` exports so the
-// harness compares the live TS reference against the Rust port.
-
-import {
-  normalizeRepoBadgeColor,
-  resolveRepoBadgeColor
-} from '../../../src/shared/repo-badge-color'
+// TS dispatch for the repo-badge-color parity module. The shared TS impl was
+// gutted to types/data (the Rust repo-badge-color core is the sole impl — main
+// drives it via napi, the renderer via wasm), so this adapter drives the SAME
+// wasm: the vectors' recorded goldens pin that surface, and the harness's
+// TS-vs-Rust diff degenerates to wasm-vs-binary (drift between the two Rust
+// entry points would still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  const { value } = input as { value: unknown }
-  switch (fn) {
-    case 'normalizeRepoBadgeColor':
-      return normalizeRepoBadgeColor(value)
-    case 'resolveRepoBadgeColor':
-      return resolveRepoBadgeColor(value)
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('repo-badge-color', fn, JSON.stringify(input ?? null))
+  )
 }

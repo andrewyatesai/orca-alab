@@ -186,7 +186,7 @@ import { stripBaseRef, useCreatePullRequestDialogFields } from './useCreatePullR
 import { resolveCreateReviewDraftTitle } from './create-review-draft-title'
 import { GitHistoryPanel, type GitHistoryPanelState } from './GitHistoryPanel'
 import { useGitHistoryCommitActions } from './useGitHistoryCommitActions'
-import { normalizeHostedReviewHeadRef } from '../../../../shared/hosted-review-refs'
+import { normalizeHostedReviewHeadRef } from '@/lib/git-wasm/hosted-review-refs'
 import { shouldForcePushWithLeaseForUpstream } from '../../../../shared/git-upstream-status'
 import type {
   DiffComment,

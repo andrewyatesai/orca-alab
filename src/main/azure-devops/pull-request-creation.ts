@@ -3,7 +3,7 @@ import type { CreateHostedReviewInput, CreateHostedReviewResult } from '../../sh
 import {
   normalizeHostedReviewBaseRef,
   normalizeHostedReviewHeadRef
-} from '../../shared/hosted-review-refs'
+} from '../rust-hosted-review-refs'
 import {
   HostedReviewApiRequestError,
   requestHostedReviewJson

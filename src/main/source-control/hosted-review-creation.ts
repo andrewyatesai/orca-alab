@@ -11,7 +11,7 @@ import type {
 import {
   normalizeHostedReviewBaseRef,
   normalizeHostedReviewHeadRef
-} from '../../shared/hosted-review-refs'
+} from '../rust-hosted-review-refs'
 import {
   supportsHostedReviewCreation,
   type HostedReviewCreationProvider

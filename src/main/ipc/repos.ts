@@ -30,8 +30,8 @@ import type {
 import type { FolderWorkspacePathStatusRequest } from '../../shared/folder-workspace-path-status'
 import { isFolderRepo } from '../../shared/repo-kind'
 import { DEFAULT_REPO_BADGE_COLOR } from '../../shared/constants'
-import { normalizeRepoBadgeColor } from '../../shared/repo-badge-color'
-import { sanitizeRepoIcon } from '../../shared/repo-icon'
+import { normalizeRepoBadgeColor } from '../rust-repo-badge-color'
+import { sanitizeRepoIcon } from '../rust-repo-icon'
 import { normalizeRepoSourceControlAiOverrides } from '../../shared/source-control-ai'
 import {
   isRuntimePathAbsolute,

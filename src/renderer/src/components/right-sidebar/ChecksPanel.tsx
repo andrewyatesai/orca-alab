@@ -82,7 +82,7 @@ import type {
   HostedReviewProvider
 } from '../../../../shared/hosted-review'
 import { resolveHostedReviewCreationProvider } from '../../../../shared/hosted-review-creation-providers'
-import { normalizeHostedReviewHeadRef } from '../../../../shared/hosted-review-refs'
+import { normalizeHostedReviewHeadRef } from '@/lib/git-wasm/hosted-review-refs'
 import { getHostedReviewCacheKey, refreshHostedReviewCard } from '@/store/slices/hosted-review'
 import { toast } from 'sonner'
 import { useConfirmationDialog } from '@/components/confirmation-dialog'

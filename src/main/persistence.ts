@@ -169,8 +169,8 @@ import {
 } from '../shared/workspace-statuses'
 import { clampMarkdownTocPanelWidth } from '../shared/markdown-toc-panel-width'
 import { isLegacyRepoForExternalWorktreeVisibility } from '../shared/worktree-ownership'
-import { sanitizeRepoIcon } from '../shared/repo-icon'
-import { normalizeRepoBadgeColor } from '../shared/repo-badge-color'
+import { sanitizeRepoIcon } from './rust-repo-icon'
+import { normalizeRepoBadgeColor } from './rust-repo-badge-color'
 import {
   clearMissingProjectGroupMemberships,
   createProjectGroup,

@@ -234,10 +234,8 @@ import {
 import { deriveTaskPagePRCheckSummary } from '@/components/task-page-pr-check-summary'
 import { presentGitHubPRMergeState } from '@/components/github-pr-merge-state'
 import { buildJiraCreateTextAdf } from '@/components/jira-create-adf'
-import {
-  GITHUB_PR_MERGE_METHOD_LABELS,
-  resolveGitHubPRMergeMethods
-} from '../../../shared/github-pr-merge-methods'
+import { GITHUB_PR_MERGE_METHOD_LABELS } from '../../../shared/github-pr-merge-methods'
+import { resolveGitHubPRMergeMethods } from '@/lib/git-wasm/github-pr-merge-methods'
 import type {
   GitHubOwnerRepo,
   GitHubAssignableUser,

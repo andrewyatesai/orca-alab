@@ -26,8 +26,8 @@ import type { CreateHostedReviewInput, CreateHostedReviewResult } from '../../sh
 import {
   normalizeHostedReviewBaseRef,
   normalizeHostedReviewHeadRef
-} from '../../shared/hosted-review-refs'
-import { normalizeGitHubPRMergeMethodSettings } from '../../shared/github-pr-merge-methods'
+} from '../rust-hosted-review-refs'
+import { normalizeGitHubPRMergeMethodSettings } from '../rust-github-pr-merge-methods'
 import { isGitHubWorkItemsQueryTooLarge } from '../../shared/github-work-items-query-bounds'
 import { parseTaskQuery } from '../rust-task-query'
 import type { ParsedTaskQuery } from '../../shared/task-query'

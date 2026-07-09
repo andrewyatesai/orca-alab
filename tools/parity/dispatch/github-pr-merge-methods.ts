@@ -1,36 +1,12 @@
-// TS dispatch for the github-pr-merge-methods parity module: maps the shared
-// vector function names to the real `src/shared/github-pr-merge-methods.ts`
-// exports so the harness compares the live TS reference against the Rust port.
-
-import {
-  mapGitHubDefaultMergeMethod,
-  normalizeGitHubPRMergeMethodSettings,
-  resolveGitHubPRMergeMethods
-} from '../../../src/shared/github-pr-merge-methods'
-import type { GitHubPRMergeMethodSettings } from '../../../src/shared/types'
+// TS dispatch for the github-pr-merge-methods parity module. The shared TS impl
+// was gutted to types + label data (the Rust github-pr-merge-methods core is the
+// sole impl — main drives it via napi, the renderer via wasm), so this adapter
+// drives the SAME wasm: the vectors' recorded goldens now pin that surface, and
+// the harness's TS-vs-Rust diff degenerates to wasm-vs-binary.
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'mapGitHubDefaultMergeMethod':
-      return mapGitHubDefaultMergeMethod(input)
-    case 'normalizeGitHubPRMergeMethodSettings': {
-      const { defaultMethod, mergeCommitAllowed, rebaseMergeAllowed, squashMergeAllowed } =
-        input as {
-          defaultMethod: unknown
-          mergeCommitAllowed: unknown
-          rebaseMergeAllowed: unknown
-          squashMergeAllowed: unknown
-        }
-      return normalizeGitHubPRMergeMethodSettings({
-        defaultMethod,
-        mergeCommitAllowed,
-        rebaseMergeAllowed,
-        squashMergeAllowed
-      })
-    }
-    case 'resolveGitHubPRMergeMethods':
-      return resolveGitHubPRMergeMethods(input as GitHubPRMergeMethodSettings | null | undefined)
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('github-pr-merge-methods', fn, JSON.stringify(input ?? null))
+  )
 }

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { OptionalFiniteNumber, OptionalString } from '../schemas'
-import { sanitizeRepoIcon } from '../../../../shared/repo-icon'
-import { normalizeRepoBadgeColor } from '../../../../shared/repo-badge-color'
+import { sanitizeRepoIcon } from '../../../rust-repo-icon'
+import { normalizeRepoBadgeColor } from '../../../rust-repo-badge-color'
 import { normalizeRepoSourceControlAiOverrides } from '../../../../shared/source-control-ai'
 
 export const RepoSourceControlAiOverrides = z

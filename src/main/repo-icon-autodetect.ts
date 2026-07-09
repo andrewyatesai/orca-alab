@@ -1,11 +1,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import type { GitHubRepositoryIdentity, RepoKind } from '../shared/types'
-import {
-  faviconUrlFromWebsite,
-  githubAvatarIcon,
-  MAX_REPO_ICON_UPLOAD_BYTES,
-  type RepoIcon
-} from '../shared/repo-icon'
+import { faviconUrlFromWebsite, githubAvatarIcon } from './rust-repo-icon'
+import { MAX_REPO_ICON_UPLOAD_BYTES, type RepoIcon } from '../shared/repo-icon'
 import { getRepoSlug, getRepoUpstream } from './github/client'
 import { getSshFilesystemProvider } from './providers/ssh-filesystem-dispatch'
 import type { IFilesystemProvider } from './providers/types'

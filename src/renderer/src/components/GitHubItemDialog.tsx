@@ -181,10 +181,8 @@ import {
 } from '@/components/github/github-pr-reviewer-candidate-filter'
 import { githubAvatarUrl } from '@/components/github/github-issue-comment-helpers'
 import { presentGitHubPRMergeState } from '@/components/github-pr-merge-state'
-import {
-  GITHUB_PR_MERGE_METHOD_LABELS,
-  resolveGitHubPRMergeMethods
-} from '../../../shared/github-pr-merge-methods'
+import { GITHUB_PR_MERGE_METHOD_LABELS } from '../../../shared/github-pr-merge-methods'
+import { resolveGitHubPRMergeMethods } from '@/lib/git-wasm/github-pr-merge-methods'
 import {
   findGithubIssueWorkspaceAttachment,
   getGithubWorkItemWorkspaceAttachmentLabel

@@ -41,8 +41,8 @@ import {
   type FolderWorkspacePathStatusRequest
 } from '../../../../shared/folder-workspace-path-status'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
-import { sanitizeRepoIcon } from '../../../../shared/repo-icon'
-import { normalizeRepoBadgeColor } from '../../../../shared/repo-badge-color'
+import { sanitizeRepoIcon } from '@/lib/git-wasm/repo-icon'
+import { normalizeRepoBadgeColor } from '@/lib/git-wasm/repo-badge-color'
 import { getProjectGroupSubtreeIds } from '../../../../shared/project-groups'
 import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path'
 import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id'

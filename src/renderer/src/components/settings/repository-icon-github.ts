@@ -1,5 +1,6 @@
 import type { GitHubRepositoryIdentity, Repo } from '../../../../shared/types'
-import { githubAvatarIcon, type RepoIcon } from '../../../../shared/repo-icon'
+import { githubAvatarIcon } from '@/lib/git-wasm/repo-icon'
+import type { RepoIcon } from '../../../../shared/repo-icon'
 import { callRuntimeRpc, type getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 
 type RuntimeTarget = ReturnType<typeof getActiveRuntimeTarget>

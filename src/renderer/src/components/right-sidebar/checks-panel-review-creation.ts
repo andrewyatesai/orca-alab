@@ -1,5 +1,5 @@
 import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-review'
-import { normalizeHostedReviewBaseRef } from '../../../../shared/hosted-review-refs'
+import { normalizeHostedReviewBaseRef } from '@/lib/git-wasm/hosted-review-refs'
 
 export function resolveChecksPanelHostedReviewBaseRef(input: {
   worktreeBaseRef?: string | null

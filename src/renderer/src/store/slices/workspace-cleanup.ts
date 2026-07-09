@@ -9,11 +9,6 @@ import {
 } from '../../../../shared/agent-status-types'
 import {
   WORKSPACE_CLEANUP_CLASSIFIER_VERSION,
-  applyWorkspaceCleanupPolicy,
-  canQueueWorkspaceCleanupCandidate,
-  canSelectWorkspaceCleanupCandidate,
-  shouldForceWorkspaceCleanupRemoval,
-  shouldHideWorkspaceCleanupCandidate,
   type WorkspaceCleanupBlocker,
   type WorkspaceCleanupCandidate,
   type WorkspaceCleanupDismissal,
@@ -21,6 +16,13 @@ import {
   type WorkspaceCleanupScanProgress,
   type WorkspaceCleanupScanResult
 } from '../../../../shared/workspace-cleanup'
+import {
+  applyWorkspaceCleanupPolicy,
+  canQueueWorkspaceCleanupCandidate,
+  canSelectWorkspaceCleanupCandidate,
+  shouldForceWorkspaceCleanupRemoval,
+  shouldHideWorkspaceCleanupCandidate
+} from '@/lib/git-wasm/workspace-cleanup'
 import { detectAgentStatusFromTitle, isExplicitAgentStatusFresh } from '@/lib/agent-status'
 import { translate } from '@/i18n/i18n'
 

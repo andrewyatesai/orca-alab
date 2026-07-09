@@ -1,51 +1,13 @@
-// TS dispatch for the task-providers parity module: maps the shared vector
-// function names to the real `src/shared/task-providers.ts` exports so the
-// harness compares the live TS reference against the Rust port.
-
-import {
-  filterAvailableTaskProviders,
-  isTaskProvider,
-  normalizeTaskProviderSettings,
-  normalizeVisibleTaskProviders,
-  resolveVisibleTaskProvider,
-  restoreAvailableDefaultTaskProvider,
-  type TaskProvider,
-  type TaskProviderAvailability
-} from '../../../src/shared/task-providers'
+// TS dispatch for the task-providers parity module. The shared TS impl was
+// gutted to types + data (the Rust task-providers core is the sole impl — main
+// drives it via napi, the renderer via wasm), so this adapter drives the SAME
+// wasm: the vectors' recorded goldens now pin that surface, and the harness's
+// TS-vs-Rust diff degenerates to wasm-vs-binary (drift between the two Rust
+// entry points would still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'isTaskProvider':
-      return isTaskProvider(input)
-    case 'normalizeVisibleTaskProviders':
-      return normalizeVisibleTaskProviders(input)
-    case 'normalizeTaskProviderSettings':
-      return normalizeTaskProviderSettings(
-        input as { visibleTaskProviders: unknown; defaultTaskSource: unknown }
-      )
-    case 'filterAvailableTaskProviders': {
-      const { visibleProviders, availability } = input as {
-        visibleProviders: TaskProvider[]
-        availability: TaskProviderAvailability
-      }
-      return filterAvailableTaskProviders(visibleProviders, availability)
-    }
-    case 'restoreAvailableDefaultTaskProvider': {
-      const { visibleProviders, availability, preferredProvider } = input as {
-        visibleProviders: TaskProvider[]
-        availability: TaskProviderAvailability
-        preferredProvider: unknown
-      }
-      return restoreAvailableDefaultTaskProvider(visibleProviders, availability, preferredProvider)
-    }
-    case 'resolveVisibleTaskProvider': {
-      const { preferred, visibleProviders } = input as {
-        preferred: TaskProvider | null | undefined
-        visibleProviders: TaskProvider[]
-      }
-      return resolveVisibleTaskProvider(preferred, visibleProviders)
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('task-providers', fn, JSON.stringify(input ?? null))
+  )
 }

@@ -1,61 +1,13 @@
-// TS dispatch for the workspace-cleanup parity module: maps the shared vector
-// function names to the real `src/shared/workspace-cleanup.ts` exports so the
-// harness compares the live TS reference against the Rust port.
-
-import {
-  applyWorkspaceCleanupPolicy,
-  canQueueWorkspaceCleanupCandidate,
-  canSelectWorkspaceCleanupCandidate,
-  createWorkspaceCleanupFingerprint,
-  getWorkspaceCleanupInactivityReasons,
-  isWorkspaceCleanupHardBlocker,
-  isWorkspaceOldForCleanup,
-  shouldForceWorkspaceCleanupRemoval,
-  shouldHideWorkspaceCleanupCandidate,
-  type WorkspaceCleanupBlocker,
-  type WorkspaceCleanupCandidate,
-  type WorkspaceCleanupDismissal,
-  type WorkspaceCleanupInactivityInput
-} from '../../../src/shared/workspace-cleanup'
+// TS dispatch for the workspace-cleanup parity module. The shared TS impl was
+// gutted to types + data (the Rust workspace-cleanup core is the sole impl —
+// main drives it via napi, the renderer via wasm), so this adapter drives the
+// SAME wasm: the vectors' recorded goldens now pin that surface, and the
+// harness's TS-vs-Rust diff degenerates to wasm-vs-binary (drift between the two
+// Rust entry points would still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'isWorkspaceCleanupHardBlocker':
-      return isWorkspaceCleanupHardBlocker(input as WorkspaceCleanupBlocker)
-    case 'canQueueWorkspaceCleanupCandidate':
-      return canQueueWorkspaceCleanupCandidate(input as WorkspaceCleanupCandidate)
-    case 'shouldForceWorkspaceCleanupRemoval':
-      return shouldForceWorkspaceCleanupRemoval(input as WorkspaceCleanupCandidate)
-    case 'canSelectWorkspaceCleanupCandidate':
-      return canSelectWorkspaceCleanupCandidate(input as WorkspaceCleanupCandidate)
-    case 'applyWorkspaceCleanupPolicy':
-      return applyWorkspaceCleanupPolicy(input as WorkspaceCleanupCandidate)
-    case 'createWorkspaceCleanupFingerprint':
-      return createWorkspaceCleanupFingerprint(
-        input as Parameters<typeof createWorkspaceCleanupFingerprint>[0]
-      )
-    case 'getWorkspaceCleanupInactivityReasons': {
-      const { workspace, scannedAt } = input as {
-        workspace: WorkspaceCleanupInactivityInput
-        scannedAt: number
-      }
-      return getWorkspaceCleanupInactivityReasons(workspace, scannedAt)
-    }
-    case 'isWorkspaceOldForCleanup': {
-      const { workspace, scannedAt } = input as {
-        workspace: WorkspaceCleanupInactivityInput
-        scannedAt: number
-      }
-      return isWorkspaceOldForCleanup(workspace, scannedAt)
-    }
-    case 'shouldHideWorkspaceCleanupCandidate': {
-      const { candidate, dismissal } = input as {
-        candidate: WorkspaceCleanupCandidate
-        dismissal: WorkspaceCleanupDismissal | null | undefined
-      }
-      return shouldHideWorkspaceCleanupCandidate(candidate, dismissal ?? undefined)
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('workspace-cleanup', fn, JSON.stringify(input ?? null))
+  )
 }

@@ -1,3 +1,6 @@
+// Init the orca-git wasm so task-provider normalizers return real Rust results
+// instead of the pre-ready pass-through fallback (this is a node-env test).
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { createTestStore, makeWorktree } from './store-test-helpers'
 import type { AppState } from '../types'

@@ -1,27 +1,13 @@
-// TS dispatch for the hook-command-source-policy parity module: maps the shared
-// vector function names to the real `src/shared/hook-command-source-policy.ts`
-// exports so the harness compares the live TS reference against the Rust port.
-
-import {
-  normalizeHookCommandSourcePolicy,
-  resolveHookCommandSourcePolicy
-} from '../../../src/shared/hook-command-source-policy'
+// TS dispatch for the hook-command-source-policy parity module. The shared TS
+// impl was DELETED (the Rust orca-core is the sole impl — main drives it via
+// napi, the renderer via wasm), so this adapter drives the SAME wasm: the
+// vectors' recorded goldens now pin that surface, and the harness's TS-vs-Rust
+// diff degenerates to wasm-vs-binary (drift between the two Rust entry points
+// would still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'normalizeHookCommandSourcePolicy':
-      // Single-arg pure function: `input` is the raw `policy` value.
-      return normalizeHookCommandSourcePolicy(input)
-    case 'resolveHookCommandSourcePolicy': {
-      const { policy, hasLocalScript } = input as { policy?: unknown; hasLocalScript: boolean }
-      // Tri-state: JSON has no `undefined`, so both an absent key and a literal
-      // null must map to `undefined` to take the absent-setting branch (which
-      // can default to local-only). A present invalid string stays a string, so
-      // it never enables local-only — matching the Rust port's `None` vs
-      // `Some(invalid)` distinction.
-      return resolveHookCommandSourcePolicy(policy ?? undefined, { hasLocalScript })
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('hook-command-source-policy', fn, JSON.stringify(input ?? null))
+  )
 }

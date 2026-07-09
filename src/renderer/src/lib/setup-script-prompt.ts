@@ -1,5 +1,5 @@
 import { getDefaultRepoHookSettings } from '../../../shared/constants'
-import { resolveHookCommandSourcePolicy } from '../../../shared/hook-command-source-policy'
+import { resolveHookCommandSourcePolicy } from '@/lib/git-wasm/hook-command-source-policy'
 import type { SetupScriptImportCandidate } from '../../../shared/setup-script-imports'
 import type { Repo, RepoHookSettings } from '../../../shared/types'
 import type { HookCheckResult } from '@/runtime/runtime-hooks-client'

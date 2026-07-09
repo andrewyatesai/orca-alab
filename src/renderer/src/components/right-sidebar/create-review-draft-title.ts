@@ -1,4 +1,4 @@
-import { humanizeBranchSlug } from '../../../../shared/branch-name-from-work'
+import { humanizeBranchSlug } from '@/lib/git-wasm/branch-name-from-work'
 import { normalizeHostedReviewHeadRef } from '@/lib/git-wasm/hosted-review-refs'
 
 export function resolveCreateReviewDraftTitle({

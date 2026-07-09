@@ -1,5 +1,8 @@
 /* eslint-disable max-lines -- Why: cleanup store tests share a Zustand store
    harness and mocked window API; splitting would obscure the state transitions. */
+// Init the orca-git wasm so cleanup classifiers return real Rust results instead
+// of the pre-ready `false`/pass-through fallback (this is a node-env test).
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { create } from 'zustand'
 import { describe, expect, it, vi } from 'vitest'
 import type { AppState } from '../types'

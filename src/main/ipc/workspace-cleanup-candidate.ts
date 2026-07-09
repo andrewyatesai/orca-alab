@@ -5,10 +5,12 @@ import {
   applyWorkspaceCleanupPolicy,
   createWorkspaceCleanupFingerprint,
   getWorkspaceCleanupInactivityReasons,
-  isWorkspaceOldForCleanup,
-  type WorkspaceCleanupBlocker,
-  type WorkspaceCleanupCandidate,
-  type WorkspaceCleanupReason
+  isWorkspaceOldForCleanup
+} from '../rust-workspace-cleanup'
+import type {
+  WorkspaceCleanupBlocker,
+  WorkspaceCleanupCandidate,
+  WorkspaceCleanupReason
 } from '../../shared/workspace-cleanup'
 import {
   createEmptyWorkspaceCleanupGitEvidence,

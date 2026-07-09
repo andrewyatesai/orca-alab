@@ -62,7 +62,7 @@ import {
   type SmartNameMode,
   type SmartWorkspaceSourceRow
 } from './smart-workspace-source-results'
-import { filterAvailableTaskProviders } from '../../../../shared/task-providers'
+import { filterAvailableTaskProviders } from '@/lib/git-wasm/task-providers'
 import type {
   BaseRefSearchResult,
   GitHubWorkItem,

@@ -25,9 +25,9 @@ import {
 } from '../../shared/commit-message-prompt'
 import {
   buildBranchNamePrompt,
-  sanitizeBranchSlug,
   type BranchNameWorkContext
 } from '../../shared/branch-name-from-work'
+import { sanitizeBranchSlug } from '../rust-branch-name-from-work'
 import {
   getCommitMessageAgentSpec,
   type CommitMessageAgentCapability,

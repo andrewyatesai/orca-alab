@@ -139,7 +139,7 @@ import {
   normalizeRuntimePathForComparison
 } from '../shared/cross-platform-path'
 import { normalizeTerminalQuickCommands } from './rust-terminal-quick-commands'
-import { normalizeTaskProviderSettings } from '../shared/task-providers'
+import { normalizeTaskProviderSettings } from './rust-task-providers'
 import { normalizeAutoRenameBranchFromWorkDefaultOn } from '../shared/auto-rename-branch-from-work-settings'
 import { normalizeOpenInApplications } from './rust-open-in-applications'
 import { normalizeTerminalShortcutPolicy } from '../shared/keybindings'

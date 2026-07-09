@@ -11,7 +11,7 @@ import { assertRuntimeStatusCompatible } from '@/runtime/runtime-protocol-compat
 import type { RuntimeStatus } from '../../../../shared/runtime-types'
 import { normalizeTerminalQuickCommands } from '@/lib/git-wasm/terminal-quick-commands'
 import { normalizeTerminalCustomThemes } from '../../../../shared/terminal-custom-themes'
-import { normalizeTaskProviderSettings } from '../../../../shared/task-providers'
+import { normalizeTaskProviderSettings } from '@/lib/git-wasm/task-providers'
 import { normalizeOpenInApplications } from '@/lib/git-wasm/open-in-applications'
 import { createSettingsSearchState, type SettingsSearchState } from './settings-search-state'
 import { normalizeDisabledTuiAgents } from '../../../../shared/tui-agent-selection'

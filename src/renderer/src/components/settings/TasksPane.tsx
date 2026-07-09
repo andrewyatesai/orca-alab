@@ -1,10 +1,10 @@
 import { Check, Github, Gitlab } from 'lucide-react'
 import type { GlobalSettings, TaskProvider } from '../../../../shared/types'
+import { TASK_PROVIDERS } from '../../../../shared/task-providers'
 import {
-  TASK_PROVIDERS,
   normalizeVisibleTaskProviders,
   resolveVisibleTaskProvider
-} from '../../../../shared/task-providers'
+} from '@/lib/git-wasm/task-providers'
 import { cn } from '@/lib/utils'
 import { JiraIcon } from '@/components/icons/JiraIcon'
 import { LinearIcon } from '@/components/icons/LinearIcon'

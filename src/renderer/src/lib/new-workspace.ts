@@ -13,7 +13,7 @@ import {
   resolveAgentStartupTabId
 } from '@/lib/agent-startup-delayed-delivery'
 import type { FolderWorkspaceLinkedTask, OrcaHooks, TaskViewPresetId } from '../../../shared/types'
-import { resolveHookCommandSourcePolicy } from '../../../shared/hook-command-source-policy'
+import { resolveHookCommandSourcePolicy } from '@/lib/git-wasm/hook-command-source-policy'
 import { slugifyForWorkspaceName } from '@/lib/git-wasm/workspace-name'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 export {

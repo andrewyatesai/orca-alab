@@ -46,12 +46,12 @@ import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
-import {
-  canQueueWorkspaceCleanupCandidate,
-  type WorkspaceCleanupBlocker,
-  type WorkspaceCleanupCandidate,
-  type WorkspaceCleanupScanError,
-  type WorkspaceCleanupScanProgress
+import { canQueueWorkspaceCleanupCandidate } from '@/lib/git-wasm/workspace-cleanup'
+import type {
+  WorkspaceCleanupBlocker,
+  WorkspaceCleanupCandidate,
+  WorkspaceCleanupScanError,
+  WorkspaceCleanupScanProgress
 } from '../../../../shared/workspace-cleanup'
 import {
   filterWorkspaceCleanupCandidates,

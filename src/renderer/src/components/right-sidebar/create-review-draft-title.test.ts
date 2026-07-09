@@ -1,3 +1,6 @@
+// Init the orca-git wasm so humanizeBranchSlug returns real Rust results instead
+// of the pre-ready pass-through fallback (this is a node-env test).
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it } from 'vitest'
 import { resolveCreateReviewDraftTitle } from './create-review-draft-title'
 

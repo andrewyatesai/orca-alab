@@ -1,6 +1,6 @@
 import type { AppState } from '@/store/types'
 import type { OrcaHooks } from '../../../shared/types'
-import { resolveHookCommandSourcePolicy } from '../../../shared/hook-command-source-policy'
+import { resolveHookCommandSourcePolicy } from '@/lib/git-wasm/hook-command-source-policy'
 import { hashOrcaHookScript, type OrcaHookScriptKind } from './orca-hook-trust'
 import { checkRuntimeHooks, readRuntimeIssueCommand } from '@/runtime/runtime-hooks-client'
 import { getRuntimeEnvironmentIdForRepo } from './repo-runtime-owner'

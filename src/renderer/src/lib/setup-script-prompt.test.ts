@@ -1,3 +1,6 @@
+// Init the orca-git wasm so resolveHookCommandSourcePolicy returns real Rust
+// results instead of the pre-ready 'shared-only' fallback (this is a node-env test).
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it, vi } from 'vitest'
 import type { SetupScriptImportCandidate } from '../../../shared/setup-script-imports'
 import type { Repo } from '../../../shared/types'

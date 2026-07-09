@@ -3,9 +3,9 @@ import type { Store } from '../persistence'
 import type { Repo, WorktreeMeta } from '../../shared/types'
 import {
   applyWorkspaceCleanupPolicy,
-  createWorkspaceCleanupFingerprint,
-  type WorkspaceCleanupCandidate
-} from '../../shared/workspace-cleanup'
+  createWorkspaceCleanupFingerprint
+} from '../rust-workspace-cleanup'
+import type { WorkspaceCleanupCandidate } from '../../shared/workspace-cleanup'
 import { splitWorktreeId } from '../../shared/worktree-id'
 import {
   getNewestWorkspaceCleanupDiffCommentAt,

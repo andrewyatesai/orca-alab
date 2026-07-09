@@ -296,7 +296,7 @@ import {
   normalizeVisibleTaskProviders,
   restoreAvailableDefaultTaskProvider,
   resolveVisibleTaskProvider
-} from '../../../shared/task-providers'
+} from '@/lib/git-wasm/task-providers'
 import { translate } from '@/i18n/i18n'
 import {
   getGitHubModeButtons,

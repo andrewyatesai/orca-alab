@@ -83,9 +83,15 @@
     },
     {
       "function": "resolveHookCommandSourcePolicy",
-      "note": "null policy is normalized to undefined (absent branch), so a local script yields local-only [computed: tri-state null==absent]",
+      "note": "present null policy is NOT undefined, so even with a local script it resolves to shared-only (only an absent key enables local-only) [computed: tri-state present-null]",
       "input": { "policy": null, "hasLocalScript": true },
-      "expected": "local-only"
+      "expected": "shared-only"
+    },
+    {
+      "function": "resolveHookCommandSourcePolicy",
+      "note": "present non-string policy (number) is not undefined, so a local script still yields shared-only [computed: tri-state present-non-string]",
+      "input": { "policy": 42, "hasLocalScript": true },
+      "expected": "shared-only"
     }
   ]
 }

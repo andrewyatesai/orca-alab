@@ -16,15 +16,19 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             Value::String(policy.as_wire().to_string())
         }
         "resolveHookCommandSourcePolicy" => {
-            // Tri-state: both an absent key and JSON `null` decode to `None` (the
-            // absent-setting branch that can default to local-only when a local
-            // script exists); a present but invalid string stays `Some(str)`, so
-            // it parses to None yet does NOT take that branch — mirroring the TS
-            // `policy === undefined` check where only undefined enables local-only.
-            let policy = input.get("policy").and_then(Value::as_str);
+            // Match the TS `policy === undefined` gate exactly: ONLY an absent key
+            // (JS `undefined`, which JSON.stringify omits) enables the local-only
+            // default. A present `null`/non-string is not `undefined`, so it must
+            // resolve to shared-only — map it to an invalid string so the core's
+            // `is_none()` (absent) branch is skipped and it falls through.
+            let policy: Option<String> = match input.get("policy") {
+                None => None,
+                Some(Value::String(s)) => Some(s.clone()),
+                Some(_) => Some(String::new()),
+            };
             let has_local_script =
                 input.get("hasLocalScript").and_then(Value::as_bool).unwrap_or(false);
-            let resolved = resolve_hook_command_source_policy(policy, has_local_script);
+            let resolved = resolve_hook_command_source_policy(policy.as_deref(), has_local_script);
             Value::String(resolved.as_wire().to_string())
         }
         other => json!({ "__parity_error__": format!("unknown function {other}") }),

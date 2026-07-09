@@ -44,6 +44,48 @@
       "note": "null (the persisted JSON form of an absent/undefined value) falls back to shared-only",
       "input": null,
       "expected": "shared-only"
+    },
+    {
+      "function": "resolveHookCommandSourcePolicy",
+      "note": "absent policy (undefined) + a local script defaults to local-only [test-transcribed]",
+      "input": { "hasLocalScript": true },
+      "expected": "local-only"
+    },
+    {
+      "function": "resolveHookCommandSourcePolicy",
+      "note": "absent policy (undefined) + no local script defaults to shared-only [test-transcribed]",
+      "input": { "hasLocalScript": false },
+      "expected": "shared-only"
+    },
+    {
+      "function": "resolveHookCommandSourcePolicy",
+      "note": "explicit shared-only is preserved even with a local script [test-transcribed]",
+      "input": { "policy": "shared-only", "hasLocalScript": true },
+      "expected": "shared-only"
+    },
+    {
+      "function": "resolveHookCommandSourcePolicy",
+      "note": "explicit run-both is preserved [test-transcribed]",
+      "input": { "policy": "run-both", "hasLocalScript": true },
+      "expected": "run-both"
+    },
+    {
+      "function": "resolveHookCommandSourcePolicy",
+      "note": "explicit local-only is preserved [computed: valid value returned verbatim]",
+      "input": { "policy": "local-only", "hasLocalScript": false },
+      "expected": "local-only"
+    },
+    {
+      "function": "resolveHookCommandSourcePolicy",
+      "note": "present-but-invalid string never enables local-only even with a local script; only undefined does [computed: tri-state boundary]",
+      "input": { "policy": "shared-first", "hasLocalScript": true },
+      "expected": "shared-only"
+    },
+    {
+      "function": "resolveHookCommandSourcePolicy",
+      "note": "null policy is normalized to undefined (absent branch), so a local script yields local-only [computed: tri-state null==absent]",
+      "input": { "policy": null, "hasLocalScript": true },
+      "expected": "local-only"
     }
   ]
 }

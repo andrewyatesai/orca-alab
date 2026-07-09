@@ -95,6 +95,51 @@
       "note": "non-string is not a provider",
       "input": 42,
       "expected": false
+    },
+    {
+      "function": "filterAvailableTaskProviders",
+      "note": "filters runtime-unavailable providers (gitlab not installed) [test-transcribed]",
+      "input": {
+        "visibleProviders": ["github", "gitlab", "linear"],
+        "availability": { "gitlabInstalled": false, "linearConnected": true }
+      },
+      "expected": ["github", "linear"]
+    },
+    {
+      "function": "filterAvailableTaskProviders",
+      "note": "falls back to github when every preferred provider is unavailable [test-transcribed]",
+      "input": {
+        "visibleProviders": ["gitlab", "linear"],
+        "availability": { "gitlabInstalled": false, "linearConnected": false }
+      },
+      "expected": ["github"]
+    },
+    {
+      "function": "filterAvailableTaskProviders",
+      "note": "all providers available keeps the full list in order [computed]",
+      "input": {
+        "visibleProviders": ["github", "gitlab", "linear", "jira"],
+        "availability": { "gitlabInstalled": true, "linearConnected": true }
+      },
+      "expected": ["github", "gitlab", "linear", "jira"]
+    },
+    {
+      "function": "filterAvailableTaskProviders",
+      "note": "jira stays available even when disconnected (self-service setup entry point) [computed]",
+      "input": {
+        "visibleProviders": ["jira"],
+        "availability": { "gitlabInstalled": false, "linearConnected": false }
+      },
+      "expected": ["jira"]
+    },
+    {
+      "function": "filterAvailableTaskProviders",
+      "note": "empty visible list falls back to github [computed]",
+      "input": {
+        "visibleProviders": [],
+        "availability": { "gitlabInstalled": true, "linearConnected": true }
+      },
+      "expected": ["github"]
     }
   ]
 }

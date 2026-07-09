@@ -89,6 +89,54 @@
       "note": "WSL UNC with wsl$ host and only a distro (no trailing path) falls back to /",
       "input": { "runnerScriptPath": "\\\\wsl$\\Ubuntu", "platform": "windows" },
       "expected": "bash /"
+    },
+    {
+      "function": "getSetupRunnerCommandPlatformForPath",
+      "note": "absolute POSIX runner path resolves to posix even from a windows client",
+      "input": { "runnerScriptPath": "/remote/repo/.git/orca/setup-runner.sh", "fallbackPlatform": "windows" },
+      "expected": "posix"
+    },
+    {
+      "function": "getSetupRunnerCommandPlatformForPath",
+      "note": "native windows drive path resolves to windows even from a posix client",
+      "input": { "runnerScriptPath": "C:\\repo\\.git\\orca\\setup-runner.cmd", "fallbackPlatform": "posix" },
+      "expected": "windows"
+    },
+    {
+      "function": "getSetupRunnerCommandPlatformForPath",
+      "note": "backslash WSL UNC path stays on the windows resolver so it can be converted",
+      "input": {
+        "runnerScriptPath": "\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\.git\\orca\\setup-runner.sh",
+        "fallbackPlatform": "posix"
+      },
+      "expected": "windows"
+    },
+    {
+      "function": "getSetupRunnerCommandPlatformForPath",
+      "note": "forward-slash WSL UNC path stays on the windows resolver",
+      "input": {
+        "runnerScriptPath": "//wsl.localhost/Ubuntu/home/jin/repo/.git/orca/setup-runner.sh",
+        "fallbackPlatform": "posix"
+      },
+      "expected": "windows"
+    },
+    {
+      "function": "getSetupRunnerCommandPlatformForPath",
+      "note": "forward-slash non-WSL UNC path is windows-absolute-like -> windows",
+      "input": { "runnerScriptPath": "//server/share/repo/.git/orca/setup-runner.cmd", "fallbackPlatform": "posix" },
+      "expected": "windows"
+    },
+    {
+      "function": "getSetupRunnerCommandPlatformForPath",
+      "note": "relative/ambiguous path returns the windows fallback",
+      "input": { "runnerScriptPath": "orca/setup-runner.sh", "fallbackPlatform": "windows" },
+      "expected": "windows"
+    },
+    {
+      "function": "getSetupRunnerCommandPlatformForPath",
+      "note": "dot-relative path returns the posix fallback (not absolute, not windows-like)",
+      "input": { "runnerScriptPath": "./scripts/setup-runner.sh", "fallbackPlatform": "posix" },
+      "expected": "posix"
     }
   ]
 }

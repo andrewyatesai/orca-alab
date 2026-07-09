@@ -7,7 +7,8 @@
 //! rather than emitting `null`.
 
 use orca_agents::{
-    parse_codex_models, parse_cursor_models, parse_line_models, parse_pi_models, CommitMessageModel,
+    parse_antigravity_models, parse_codex_models, parse_cursor_models, parse_line_models,
+    parse_pi_models, CommitMessageModel,
 };
 use serde_json::{json, Map, Value};
 
@@ -19,6 +20,9 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
         "parseLineModels" => models_to_json(&parse_line_models(stdout)),
         "parsePiModels" => models_to_json(&parse_pi_models(stdout)),
         "parseCursorModels" => models_to_json(&parse_cursor_models(stdout)),
+        // Antigravity ids carry no thinking effort, so `model_to_json` omits both
+        // thinkingLevels and defaultThinkingLevel (None => absent key).
+        "parseAntigravityModels" => models_to_json(&parse_antigravity_models(stdout)),
         other => json!({ "__parity_error__": format!("unknown function {other}") }),
     }
 }

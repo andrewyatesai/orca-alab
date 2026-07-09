@@ -5,10 +5,10 @@ use orca_core::workspace_cleanup::{
     apply_workspace_cleanup_policy, can_queue_workspace_cleanup_candidate,
     can_select_workspace_cleanup_candidate, create_workspace_cleanup_fingerprint,
     get_workspace_cleanup_inactivity_reasons, is_workspace_cleanup_hard_blocker,
-    should_force_workspace_cleanup_removal, should_hide_workspace_cleanup_candidate,
-    WorkspaceCleanupBlocker, WorkspaceCleanupCandidate, WorkspaceCleanupDismissal,
-    WorkspaceCleanupGit, WorkspaceCleanupInactivityInput, WorkspaceCleanupReason,
-    WorkspaceCleanupTier,
+    is_workspace_old_for_cleanup, should_force_workspace_cleanup_removal,
+    should_hide_workspace_cleanup_candidate, WorkspaceCleanupBlocker, WorkspaceCleanupCandidate,
+    WorkspaceCleanupDismissal, WorkspaceCleanupGit, WorkspaceCleanupInactivityInput,
+    WorkspaceCleanupReason, WorkspaceCleanupTier,
 };
 use serde_json::{json, Value};
 
@@ -31,6 +31,7 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
         "applyWorkspaceCleanupPolicy" => apply_policy_to_json(input),
         "createWorkspaceCleanupFingerprint" => fingerprint_to_json(input),
         "getWorkspaceCleanupInactivityReasons" => inactivity_reasons_to_json(input),
+        "isWorkspaceOldForCleanup" => is_workspace_old_to_json(input),
         "shouldHideWorkspaceCleanupCandidate" => should_hide_to_json(input),
         other => json!({ "__parity_error__": format!("unknown function {other}") }),
     }
@@ -84,6 +85,25 @@ fn inactivity_reasons_to_json(input: &Value) -> Value {
             .map(|reason| Value::String(reason_id(reason).to_string()))
             .collect(),
     )
+}
+
+/// Same `{ workspace, scannedAt }` decoding as the reasons dispatch; the TS
+/// predicate is just `reasons.length > 0`, so the port returns a bare boolean.
+fn is_workspace_old_to_json(input: &Value) -> Value {
+    let workspace = input.get("workspace");
+    let is_archived = workspace
+        .and_then(|w| w.get("isArchived"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let last_activity_at = workspace
+        .and_then(|w| w.get("lastActivityAt"))
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let scanned_at = input.get("scannedAt").and_then(Value::as_i64).unwrap_or(0);
+    Value::Bool(is_workspace_old_for_cleanup(
+        WorkspaceCleanupInactivityInput { is_archived, last_activity_at },
+        scanned_at,
+    ))
 }
 
 fn should_hide_to_json(input: &Value) -> Value {

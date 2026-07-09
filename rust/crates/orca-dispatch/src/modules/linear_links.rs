@@ -4,8 +4,9 @@
 use orca_core::linear_links::{
     build_linear_personal_api_key_settings_url, build_linear_team_url,
     build_linear_workspace_api_settings_url, get_linear_organization_url_key_from_issue_url,
+    parse_linear_issue_input,
 };
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 pub fn dispatch(function: &str, input: &Value) -> Value {
     match function {
@@ -26,6 +27,19 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
         "getLinearOrganizationUrlKeyFromIssueUrl" => {
             optional_string(get_linear_organization_url_key_from_issue_url(input.as_str()))
         }
+        // Input is the raw string arg. Returns `{ identifier, organizationUrlKey? }`
+        // (org key omitted when absent) or `null`, matching `JSON.stringify`.
+        "parseLinearIssueInput" => match parse_linear_issue_input(input.as_str().unwrap_or("")) {
+            Some(parsed) => {
+                let mut obj = Map::new();
+                obj.insert("identifier".to_string(), Value::String(parsed.identifier));
+                if let Some(key) = parsed.organization_url_key {
+                    obj.insert("organizationUrlKey".to_string(), Value::String(key));
+                }
+                Value::Object(obj)
+            }
+            None => Value::Null,
+        },
         other => json!({ "__parity_error__": format!("unknown function {other}") }),
     }
 }

@@ -124,6 +124,72 @@
       "expected": "Fix auth"
     },
     {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "strips a leaked username prefix the model folded into the slug",
+      "input": { "slug": "tmchow-worktree-creation-spinner", "prefix": "tmchow" },
+      "expected": "worktree-creation-spinner"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "strips a multi-token custom prefix",
+      "input": { "slug": "my-team-add-logout", "prefix": "my-team" },
+      "expected": "add-logout"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "normalizes the prefix the same way the slug was normalized",
+      "input": { "slug": "jane-doe-fix-auth", "prefix": "Jane.Doe" },
+      "expected": "fix-auth"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "prefix is lowercased before matching so a case-mismatch still strips",
+      "input": { "slug": "tmchow-fix-auth", "prefix": "TMCHOW" },
+      "expected": "fix-auth"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "leaves a work-derived name that merely starts with a real word",
+      "input": { "slug": "add-logout-button", "prefix": "tmchow" },
+      "expected": "add-logout-button"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "null prefix leaves the slug untouched",
+      "input": { "slug": "tmchow-fix-auth", "prefix": null },
+      "expected": "tmchow-fix-auth"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "absent (undefined) prefix leaves the slug untouched",
+      "input": { "slug": "tmchow-fix-auth" },
+      "expected": "tmchow-fix-auth"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "empty-string prefix is falsy and leaves the slug untouched",
+      "input": { "slug": "tmchow-fix-auth", "prefix": "" },
+      "expected": "tmchow-fix-auth"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "prefix that normalizes to empty (all punctuation) leaves the slug untouched",
+      "input": { "slug": "fix-auth", "prefix": "---" },
+      "expected": "fix-auth"
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "prefix-only output yields empty so the caller skips the rename",
+      "input": { "slug": "tmchow", "prefix": "tmchow" },
+      "expected": ""
+    },
+    {
+      "function": "stripConfiguredBranchPrefix",
+      "note": "exact equality after normalization (case/punct) yields empty",
+      "input": { "slug": "my-team", "prefix": "My.Team" },
+      "expected": ""
+    },
+    {
       "function": "buildBranchNamePrompt",
       "note": "includes the user prompt and omits the assistant section when absent",
       "input": { "context": { "firstPrompt": "Add a logout button" } },

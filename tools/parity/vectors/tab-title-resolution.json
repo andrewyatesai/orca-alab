@@ -54,10 +54,100 @@
       "expected": "Untitled"
     },
     {
+      "function": "resolveTerminalTabTitle",
+      "note": "quick command label sits between manual and generated titles (no custom title)",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "quickCommandLabel": "Run tests",
+          "generatedTitle": "Refactor auth",
+          "title": "pnpm test"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Run tests"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "manual custom title still wins over the quick command label",
+      "input": {
+        "tab": {
+          "customTitle": "Manual label",
+          "quickCommandLabel": "Run tests",
+          "generatedTitle": "Refactor auth",
+          "title": "pnpm test"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Manual label"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "whitespace-only quick command label is blank and falls through to the generated title",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "quickCommandLabel": "   ",
+          "generatedTitle": "Refactor auth",
+          "title": "pnpm test"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor auth"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "empty quick command label falls through; generated disabled uses the live title",
+      "input": {
+        "tab": {
+          "customTitle": null,
+          "quickCommandLabel": "",
+          "generatedTitle": "Refactor auth",
+          "title": "pnpm test"
+        },
+        "generatedTitlesEnabled": false,
+        "fallback": ""
+      },
+      "expected": "pnpm test"
+    },
+    {
       "function": "resolveUnifiedTabLabel",
       "note": "unified labels use the same manual -> generated -> live priority when enabled",
       "input": {
         "tab": { "customLabel": null, "generatedLabel": "Fix flaky tests", "label": "Codex working" },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Fix flaky tests"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "unified labels use the quick command label before the generated label",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "quickCommandLabel": "Run build",
+          "generatedLabel": "Fix flaky tests",
+          "label": "Codex working"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Run build"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "whitespace-only unified quick command label falls through to the generated label",
+      "input": {
+        "tab": {
+          "customLabel": null,
+          "quickCommandLabel": "  ",
+          "generatedLabel": "Fix flaky tests",
+          "label": "Codex working"
+        },
         "generatedTitlesEnabled": true,
         "fallback": ""
       },

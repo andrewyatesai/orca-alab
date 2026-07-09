@@ -13,6 +13,7 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             let tab = input.get("tab");
             let parts = TerminalTabTitleParts {
                 custom_title: str_field(tab, "customTitle"),
+                quick_command_label: str_field(tab, "quickCommandLabel"),
                 generated_title: str_field(tab, "generatedTitle"),
                 title: str_field(tab, "title"),
             };
@@ -28,6 +29,7 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
             // short-circuits) maps to `None`.
             let parts = tab.filter(|t| !t.is_null()).map(|t| UnifiedTabLabelParts {
                 custom_label: str_field(Some(t), "customLabel"),
+                quick_command_label: str_field(Some(t), "quickCommandLabel"),
                 generated_label: str_field(Some(t), "generatedLabel"),
                 label: str_field(Some(t), "label"),
             });

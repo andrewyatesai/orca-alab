@@ -4,6 +4,7 @@
 
 import {
   buildSetupRunnerCommand,
+  getSetupRunnerCommandPlatformForPath,
   type SetupRunnerCommandPlatform
 } from '../../../src/shared/setup-runner-command'
 
@@ -15,6 +16,13 @@ export function dispatch(fn: string, input: unknown): unknown {
         platform: SetupRunnerCommandPlatform
       }
       return buildSetupRunnerCommand(runnerScriptPath, platform)
+    }
+    case 'getSetupRunnerCommandPlatformForPath': {
+      const { runnerScriptPath, fallbackPlatform } = input as {
+        runnerScriptPath: string
+        fallbackPlatform: SetupRunnerCommandPlatform
+      }
+      return getSetupRunnerCommandPlatformForPath(runnerScriptPath, fallbackPlatform)
     }
     default:
       throw new Error(`unknown function ${fn}`)

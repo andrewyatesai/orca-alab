@@ -346,6 +346,42 @@
         "dismissal": null
       },
       "expected": false
+    },
+    {
+      "function": "isWorkspaceOldForCleanup",
+      "note": "archived past the 7d archived-idle threshold is old (archived reason) [computed]",
+      "input": {
+        "workspace": { "isArchived": true, "lastActivityAt": 0 },
+        "scannedAt": 604800000
+      },
+      "expected": true
+    },
+    {
+      "function": "isWorkspaceOldForCleanup",
+      "note": "recently active workspace is not old (no reasons) [test-transcribed]",
+      "input": {
+        "workspace": { "isArchived": false, "lastActivityAt": 0 },
+        "scannedAt": 0
+      },
+      "expected": false
+    },
+    {
+      "function": "isWorkspaceOldForCleanup",
+      "note": "at the 30d idle threshold (not archived) is old (idle-clean reason) [test-transcribed]",
+      "input": {
+        "workspace": { "isArchived": false, "lastActivityAt": 0 },
+        "scannedAt": 2592000000
+      },
+      "expected": true
+    },
+    {
+      "function": "isWorkspaceOldForCleanup",
+      "note": "one ms below the 30d idle threshold (not archived) is not old [computed: boundary]",
+      "input": {
+        "workspace": { "isArchived": false, "lastActivityAt": 1 },
+        "scannedAt": 2592000000
+      },
+      "expected": false
     }
   ]
 }

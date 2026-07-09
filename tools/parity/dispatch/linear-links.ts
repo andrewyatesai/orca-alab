@@ -6,7 +6,8 @@ import {
   buildLinearPersonalApiKeySettingsUrl,
   buildLinearTeamUrl,
   buildLinearWorkspaceApiSettingsUrl,
-  getLinearOrganizationUrlKeyFromIssueUrl
+  getLinearOrganizationUrlKeyFromIssueUrl,
+  parseLinearIssueInput
 } from '../../../src/shared/linear-links'
 
 export function dispatch(fn: string, input: unknown): unknown {
@@ -24,6 +25,8 @@ export function dispatch(fn: string, input: unknown): unknown {
       return buildLinearWorkspaceApiSettingsUrl(input as string | null | undefined)
     case 'getLinearOrganizationUrlKeyFromIssueUrl':
       return getLinearOrganizationUrlKeyFromIssueUrl(input as string | null | undefined)
+    case 'parseLinearIssueInput':
+      return parseLinearIssueInput(input as string)
     default:
       throw new Error(`unknown function ${fn}`)
   }

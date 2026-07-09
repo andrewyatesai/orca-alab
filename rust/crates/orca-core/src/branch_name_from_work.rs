@@ -50,6 +50,32 @@ pub fn sanitize_branch_slug_default(raw: &str) -> String {
     sanitize_branch_slug(raw, MAX_BRANCH_NAME_WORDS)
 }
 
+/// Drop a leading prefix segment the model prepended despite the "no prefixes"
+/// rule. Strips only when the leading segment matches the *configured* prefix
+/// (normalised like the slug, but uncapped), so a work-derived name that merely
+/// starts with a real word survives. Prefix-only output yields `""` so the caller
+/// skips the rename instead of double-prefixing (`tmchow/tmchow`).
+pub fn strip_configured_branch_prefix(slug: &str, prefix: Option<&str>) -> String {
+    // Falsy prefix (None / empty string) leaves the slug untouched, like `!prefix`.
+    let prefix = match prefix {
+        Some(p) if !p.is_empty() => p,
+        _ => return slug.to_string(),
+    };
+    // Same normalisation the slug went through, uncapped so a multi-word prefix
+    // isn't truncated before the comparison.
+    let prefix_slug = sanitize_branch_slug(prefix, usize::MAX);
+    if prefix_slug.is_empty() {
+        return slug.to_string();
+    }
+    if slug == prefix_slug {
+        return String::new();
+    }
+    match slug.strip_prefix(&format!("{prefix_slug}-")) {
+        Some(rest) => rest.to_string(),
+        None => slug.to_string(),
+    }
+}
+
 /// Turn a branch slug into a readable label: `supported-models-list` →
 /// `Supported models list`.
 pub fn humanize_branch_slug(slug: &str) -> String {
@@ -156,6 +182,38 @@ mod tests {
         assert!(!is_auto_generated_creature_branch_name("fix-auth-bug"));
         assert!(!is_auto_generated_creature_branch_name("my-feature"));
         assert!(!is_auto_generated_creature_branch_name(""));
+    }
+
+    #[test]
+    fn strip_prefix_removes_a_leaked_configured_prefix() {
+        assert_eq!(
+            strip_configured_branch_prefix("tmchow-worktree-creation-spinner", Some("tmchow")),
+            "worktree-creation-spinner"
+        );
+        assert_eq!(
+            strip_configured_branch_prefix("my-team-add-logout", Some("my-team")),
+            "add-logout"
+        );
+        assert_eq!(
+            strip_configured_branch_prefix("jane-doe-fix-auth", Some("Jane.Doe")),
+            "fix-auth"
+        );
+    }
+
+    #[test]
+    fn strip_prefix_leaves_content_and_absent_prefixes_untouched() {
+        assert_eq!(
+            strip_configured_branch_prefix("add-logout-button", Some("tmchow")),
+            "add-logout-button"
+        );
+        assert_eq!(strip_configured_branch_prefix("tmchow-fix-auth", None), "tmchow-fix-auth");
+        assert_eq!(strip_configured_branch_prefix("tmchow-fix-auth", Some("")), "tmchow-fix-auth");
+    }
+
+    #[test]
+    fn strip_prefix_returns_empty_for_prefix_only_output() {
+        assert_eq!(strip_configured_branch_prefix("tmchow", Some("tmchow")), "");
+        assert_eq!(strip_configured_branch_prefix("tmchow-fix-auth", Some("tmchow")), "fix-auth");
     }
 
     #[test]

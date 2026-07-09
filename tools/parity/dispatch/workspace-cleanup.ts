@@ -9,6 +9,7 @@ import {
   createWorkspaceCleanupFingerprint,
   getWorkspaceCleanupInactivityReasons,
   isWorkspaceCleanupHardBlocker,
+  isWorkspaceOldForCleanup,
   shouldForceWorkspaceCleanupRemoval,
   shouldHideWorkspaceCleanupCandidate,
   type WorkspaceCleanupBlocker,
@@ -39,6 +40,13 @@ export function dispatch(fn: string, input: unknown): unknown {
         scannedAt: number
       }
       return getWorkspaceCleanupInactivityReasons(workspace, scannedAt)
+    }
+    case 'isWorkspaceOldForCleanup': {
+      const { workspace, scannedAt } = input as {
+        workspace: WorkspaceCleanupInactivityInput
+        scannedAt: number
+      }
+      return isWorkspaceOldForCleanup(workspace, scannedAt)
     }
     case 'shouldHideWorkspaceCleanupCandidate': {
       const { candidate, dismissal } = input as {

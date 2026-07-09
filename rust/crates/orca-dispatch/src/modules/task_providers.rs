@@ -2,9 +2,9 @@
 //! `src/shared/task-providers.ts`.
 
 use orca_core::task_providers::{
-    normalize_task_provider_settings, normalize_visible_task_providers,
-    resolve_visible_task_provider, restore_available_default_task_provider, TaskProvider,
-    TaskProviderAvailability,
+    filter_available_task_providers, normalize_task_provider_settings,
+    normalize_visible_task_providers, resolve_visible_task_provider,
+    restore_available_default_task_provider, TaskProvider, TaskProviderAvailability,
 };
 use serde_json::{json, Value};
 
@@ -26,6 +26,11 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
                 "visibleTaskProviders": providers_to_json(&result.visible_task_providers),
                 "defaultTaskSource": result.default_task_source.as_id(),
             })
+        }
+        "filterAvailableTaskProviders" => {
+            let visible = providers_from_json(input.get("visibleProviders"));
+            let availability = availability_from_json(input.get("availability"));
+            providers_to_json(&filter_available_task_providers(&visible, &availability))
         }
         "restoreAvailableDefaultTaskProvider" => {
             let visible = providers_from_json(input.get("visibleProviders"));

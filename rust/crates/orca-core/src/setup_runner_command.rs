@@ -15,6 +15,23 @@ pub enum SetupRunnerCommandPlatform {
     Posix,
 }
 
+/// Pick the shell flavour to build the runner command for, from the script path
+/// alone: Windows-absolute-like paths win (so WSL UNC paths reach the converter),
+/// then POSIX-absolute paths, else the caller's fallback for ambiguous/relative
+/// paths.
+pub fn get_setup_runner_command_platform_for_path(
+    runner_script_path: &str,
+    fallback_platform: SetupRunnerCommandPlatform,
+) -> SetupRunnerCommandPlatform {
+    if is_windows_absolute_path_like(runner_script_path) {
+        return SetupRunnerCommandPlatform::Windows;
+    }
+    if runner_script_path.starts_with('/') {
+        return SetupRunnerCommandPlatform::Posix;
+    }
+    fallback_platform
+}
+
 pub fn build_setup_runner_command(runner_script_path: &str, platform: SetupRunnerCommandPlatform) -> String {
     if platform == SetupRunnerCommandPlatform::Windows {
         // Why (#6298): WSL UNC must win before the POSIX-style branch so
@@ -124,6 +141,41 @@ mod tests {
         );
         assert_eq!(build_setup_runner_command("//WSL$/Ubuntu/home/x.sh", Windows), "bash /home/x.sh");
         assert_eq!(build_setup_runner_command("//wsl$/Ubuntu", Windows), "bash /");
+    }
+
+    #[test]
+    fn platform_for_path_prefers_absolute_flavour_then_fallback() {
+        // Absolute POSIX path wins POSIX even from a Windows client.
+        assert_eq!(
+            get_setup_runner_command_platform_for_path("/remote/repo/.git/orca/setup-runner.sh", Windows),
+            Posix
+        );
+        // Native Windows drive path wins Windows even from a POSIX client.
+        assert_eq!(
+            get_setup_runner_command_platform_for_path(r"C:\repo\.git\orca\setup-runner.cmd", Posix),
+            Windows
+        );
+        // WSL UNC (both slash styles) stays Windows so it can be converted.
+        assert_eq!(
+            get_setup_runner_command_platform_for_path(
+                r"\\wsl.localhost\Ubuntu\home\jin\repo\.git\orca\setup-runner.sh",
+                Posix,
+            ),
+            Windows
+        );
+        assert_eq!(
+            get_setup_runner_command_platform_for_path("//server/share/repo/x.cmd", Posix),
+            Windows
+        );
+        // Relative/ambiguous paths fall back to the caller's platform.
+        assert_eq!(
+            get_setup_runner_command_platform_for_path("orca/setup-runner.sh", Windows),
+            Windows
+        );
+        assert_eq!(
+            get_setup_runner_command_platform_for_path("./scripts/setup-runner.sh", Posix),
+            Posix
+        );
     }
 
     #[test]

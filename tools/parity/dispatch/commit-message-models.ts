@@ -4,6 +4,7 @@
 // reference against the Rust `orca-agents::commit_message_models` port.
 
 import {
+  parseAntigravityModels,
   parseCodexModels,
   parseCursorModels,
   parseLineModels,
@@ -22,6 +23,8 @@ export function dispatch(fn: string, input: unknown): unknown {
       return parsePiModels(stdout)
     case 'parseCursorModels':
       return parseCursorModels(stdout)
+    case 'parseAntigravityModels':
+      return parseAntigravityModels(stdout)
     default:
       throw new Error(`unknown function ${fn}`)
   }

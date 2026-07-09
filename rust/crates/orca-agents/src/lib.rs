@@ -29,9 +29,10 @@ pub use agent_status_types::{
 pub use commit_message_agent_spec::{
     get_commit_message_agent_capability, get_commit_message_agent_spec, get_commit_message_model,
     get_commit_message_model_capability, is_custom_agent_id, list_commit_message_agent_capabilities,
-    list_commit_message_agent_ids, resolve_commit_message_agent_choice, BuildArgsParams,
-    CommitMessageAgentCapability, CommitMessageAgentSpec, CommitMessageModelCapability, ModelSource,
-    PromptDelivery, CUSTOM_AGENT_ID, DEFAULT_COMMIT_MESSAGE_AGENT_ID,
+    list_commit_message_agent_ids, parse_antigravity_models, resolve_commit_message_agent_choice,
+    BuildArgsParams, CommitMessageAgentCapability, CommitMessageAgentSpec,
+    CommitMessageModelCapability, ModelSource, PromptDelivery, CUSTOM_AGENT_ID,
+    DEFAULT_COMMIT_MESSAGE_AGENT_ID,
 };
 pub use commit_message_generation::{
     build_commit_message_prompt, split_generated_commit_message, CommitMessageDraftContext,

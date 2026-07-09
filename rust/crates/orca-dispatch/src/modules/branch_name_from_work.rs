@@ -3,7 +3,8 @@
 
 use orca_core::branch_name_from_work::{
     build_branch_name_prompt, humanize_branch_slug, is_auto_generated_creature_branch_name,
-    sanitize_branch_slug, sanitize_branch_slug_default, BranchNameWorkContext,
+    sanitize_branch_slug, sanitize_branch_slug_default, strip_configured_branch_prefix,
+    BranchNameWorkContext,
 };
 use serde_json::{json, Value};
 
@@ -25,6 +26,13 @@ pub fn dispatch(function: &str, input: &Value) -> Value {
         "humanizeBranchSlug" => {
             let slug = input.as_str().unwrap_or("");
             Value::String(humanize_branch_slug(slug))
+        }
+        "stripConfiguredBranchPrefix" => {
+            let slug = input.get("slug").and_then(Value::as_str).unwrap_or("");
+            // null/absent prefix reads as None; empty-string is handled as falsy
+            // inside the port, matching the TS `!prefix`.
+            let prefix = input.get("prefix").and_then(Value::as_str);
+            Value::String(strip_configured_branch_prefix(slug, prefix))
         }
         "buildBranchNamePrompt" => {
             let context = input.get("context");

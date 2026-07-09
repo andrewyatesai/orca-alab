@@ -192,7 +192,7 @@ fn antigravity_build_args(params: &BuildArgsParams) -> Vec<String> {
 // Why: parseAntigravityModels lives alongside the spec in the live TS file, so it
 // stays in this module. One model id per line, label == id, empties skipped,
 // deduped by id (matching TS trim + uniqueModels).
-fn parse_antigravity_models(stdout: &str) -> Vec<CommitMessageModel> {
+pub fn parse_antigravity_models(stdout: &str) -> Vec<CommitMessageModel> {
     let mut models: Vec<CommitMessageModel> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for raw_line in stdout.split(['\n', '\r']) {

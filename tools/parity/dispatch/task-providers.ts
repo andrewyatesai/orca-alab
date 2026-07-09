@@ -3,6 +3,7 @@
 // harness compares the live TS reference against the Rust port.
 
 import {
+  filterAvailableTaskProviders,
   isTaskProvider,
   normalizeTaskProviderSettings,
   normalizeVisibleTaskProviders,
@@ -22,6 +23,13 @@ export function dispatch(fn: string, input: unknown): unknown {
       return normalizeTaskProviderSettings(
         input as { visibleTaskProviders: unknown; defaultTaskSource: unknown }
       )
+    case 'filterAvailableTaskProviders': {
+      const { visibleProviders, availability } = input as {
+        visibleProviders: TaskProvider[]
+        availability: TaskProviderAvailability
+      }
+      return filterAvailableTaskProviders(visibleProviders, availability)
+    }
     case 'restoreAvailableDefaultTaskProvider': {
       const { visibleProviders, availability, preferredProvider } = input as {
         visibleProviders: TaskProvider[]

@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { dispatchTerminalNotification } from './use-notification-dispatch'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import type { TerminalLayoutSnapshot } from '../../../../shared/types'
-import { buildAgentNotificationId } from '../../../../shared/agent-notification-id'
+// Init the orca-git wasm so the wasm-backed buildAgentNotificationId (used by
+// both the dispatcher under test and the expected-id computation below) returns
+// real ids instead of its pre-ready null.
+import '../../lib/git-wasm/init-git-wasm-for-test'
+import { buildAgentNotificationId } from '../../lib/git-wasm/agent-notification-id'
 
 type MockState = {
   activeWorktreeId: string | null

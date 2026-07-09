@@ -1,64 +1,9 @@
-import type { GitLabPipelineJob } from './gitlab-types'
-import type { PRCheckDetail } from './types'
-
-export function mapGitLabPipelineJobStatusToCheckStatus(status: string): PRCheckDetail['status'] {
-  const s = status.toLowerCase()
-  if (
-    s === 'created' ||
-    s === 'pending' ||
-    s === 'scheduled' ||
-    s === 'waiting_for_callback' ||
-    s === 'waiting_for_resource' ||
-    s === 'preparing'
-  ) {
-    return 'queued'
-  }
-  if (s === 'running') {
-    return 'in_progress'
-  }
-  return 'completed'
-}
-
-export function mapGitLabPipelineJobStatusToConclusion(
-  status: string
-): PRCheckDetail['conclusion'] {
-  const s = status.toLowerCase()
-  if (s === 'success') {
-    return 'success'
-  }
-  if (s === 'failed') {
-    return 'failure'
-  }
-  if (s === 'canceled' || s === 'canceling') {
-    return 'cancelled'
-  }
-  if (s === 'skipped') {
-    return 'skipped'
-  }
-  // Why: manual GitLab jobs are intentionally waiting for a human trigger;
-  // treating them as pending would make the Checks tab look stuck forever.
-  if (s === 'manual') {
-    return 'neutral'
-  }
-  if (
-    s === 'created' ||
-    s === 'pending' ||
-    s === 'running' ||
-    s === 'waiting_for_callback' ||
-    s === 'waiting_for_resource' ||
-    s === 'preparing' ||
-    s === 'scheduled'
-  ) {
-    return 'pending'
-  }
-  return null
-}
-
-export function gitLabPipelineJobsToPRChecks(jobs: GitLabPipelineJob[]): PRCheckDetail[] {
-  return jobs.map((job) => ({
-    name: job.stage ? `${job.stage}: ${job.name}` : job.name,
-    status: mapGitLabPipelineJobStatusToCheckStatus(job.status),
-    conclusion: mapGitLabPipelineJobStatusToConclusion(job.status),
-    url: job.webUrl || null
-  }))
-}
+// Impl DELETED — the Rust orca-core `gitlab_pipeline_checks` port is the sole
+// implementation. Main drives the status mappers via napi
+// (src/main/rust-gitlab-pipeline-checks.ts) and the renderer drives the
+// job → check-row mapping via the orca-git wasm
+// (src/renderer/src/lib/git-wasm/gitlab-pipeline-checks.ts); parity pins that
+// surface. Only the boundary types remain, re-exported so consumers keyed off
+// this module path keep resolving without a napi/wasm import in src/shared.
+export type { GitLabPipelineJob } from './gitlab-types'
+export type { PRCheckDetail } from './types'

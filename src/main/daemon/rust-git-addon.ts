@@ -254,6 +254,10 @@ export type RustGitBinding = {
   /** Parse an OpenSSH config file into `SshConfigHost[]` JSON. `home` is the
    *  `~`-expansion base (the caller's `os.homedir()`). */
   parseSshConfig(content: string, home: string): string
+  /** Aggregate per-module dispatch (orca-dispatch crate): run `<module>.<function>`
+   *  over its JSON input, returning the result as JSON. The single entry point every
+   *  ported pure module ships through — main-process (napi) half of `orcaDispatch`. */
+  orcaDispatch(module: string, functionName: string, inputJson: string): string
   gitEngine(): string
 }
 

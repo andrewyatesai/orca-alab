@@ -1,25 +1,14 @@
-// TS dispatch for the gitlab-projects parity module: maps the shared vector
-// function names to the real `src/shared/gitlab-projects.ts` exports so the
-// harness compares the live TS reference against the Rust port.
-
-import { computeNextGitLabRecents } from '../../../src/shared/gitlab-projects'
-import type { GitLabProjectSettings } from '../../../src/shared/types'
+// TS dispatch for the gitlab-projects parity module. The shared TS twin
+// (computeNextGitLabRecents) was DELETED (the Rust orca-core gitlab_projects
+// core is the sole impl — napi in main, the only process that persists the
+// recents list), so this adapter drives the napi binding's aggregate
+// orcaDispatch: the vectors' recorded goldens now pin that surface absolutely,
+// and the harness's TS-vs-Rust diff degenerates to napi-vs-binary. Requires the
+// built addon, like the napi-parity suite.
+import { requireRustGitBinding } from '../../../src/main/daemon/rust-git-addon'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'computeNextGitLabRecents': {
-      // nowIso is the persisted ISO string; rehydrate the Date the TS signature
-      // expects so the function's own toISOString() round-trips it identically.
-      const { existing, host, path, nowIso, max } = input as {
-        existing: GitLabProjectSettings['recent']
-        host: string
-        path: string
-        nowIso: string
-        max: number
-      }
-      return computeNextGitLabRecents(existing, host, path, new Date(nowIso), max)
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    requireRustGitBinding().orcaDispatch('gitlab-projects', fn, JSON.stringify(input ?? null))
+  )
 }

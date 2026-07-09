@@ -106,7 +106,7 @@ import {
   deriveRunningAgentSendTargets,
   resolveRunningAgentSendTarget
 } from '../../lib/running-agent-targets'
-import { buildAgentNotificationId } from '../../../../shared/agent-notification-id'
+import { buildAgentNotificationId } from '../../lib/git-wasm/agent-notification-id'
 import { parsePaneKey } from '../../../../shared/stable-pane-id'
 import { translate } from '@/i18n/i18n'
 

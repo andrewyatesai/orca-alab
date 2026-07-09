@@ -1,6 +1,6 @@
 import { track } from '@/lib/telemetry'
 import type { SetupScriptPromptInspection } from '@/lib/setup-script-prompt'
-import { buildSetupScriptPromptTelemetry } from '../../../../shared/setup-script-telemetry'
+import { buildSetupScriptPromptTelemetry } from '@/lib/git-wasm/setup-script-telemetry'
 
 export function trackSetupScriptPromptExposure(input: {
   repoId: string
@@ -20,6 +20,11 @@ export function trackSetupScriptPromptExposure(input: {
     candidate: promptState.candidate,
     hasSharedHooks: promptState.hasSharedHooks
   })
+  // Drop the exposure event if the wasm builder isn't ready yet; a later render
+  // re-fires it (the key is only recorded once the payload actually emits).
+  if (!telemetry) {
+    return
+  }
   // Why: React may re-render the sidebar often; this event should represent
   // a distinct prompt exposure for this repo/source, not render churn.
   const promptKey = [

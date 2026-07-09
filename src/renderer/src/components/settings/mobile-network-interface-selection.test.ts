@@ -1,3 +1,4 @@
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, it, expect } from 'vitest'
 import {
   selectRefreshedNetworkAddress,

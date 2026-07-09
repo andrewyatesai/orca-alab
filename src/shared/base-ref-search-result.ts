@@ -1,21 +1,5 @@
-import type { BaseRefSearchResult } from './types'
-
-const LEGACY_REMOTE_REF_PREFIXES = ['origin/', 'upstream/']
-
-export function deriveLegacyLocalBranchName(refName: string): string {
-  // Why: mixed-version runtimes only return display refs. Keep common remote
-  // refs from reintroducing `origin/feature/foo` as the local branch name.
-  for (const prefix of LEGACY_REMOTE_REF_PREFIXES) {
-    if (refName.startsWith(prefix) && refName.length > prefix.length) {
-      return refName.slice(prefix.length)
-    }
-  }
-  return refName
-}
-
-export function legacyBaseRefSearchResult(refName: string): BaseRefSearchResult {
-  return {
-    refName,
-    localBranchName: deriveLegacyLocalBranchName(refName)
-  }
-}
+// Impl DELETED — the Rust orca-core `base_ref_search_result` port is the sole
+// implementation (the renderer drives it via the orca-git wasm; parity pins
+// that surface). Only the result type remains, re-exported so consumers keyed
+// off this module path keep resolving without a napi/wasm import in src/shared.
+export type { BaseRefSearchResult } from './types'

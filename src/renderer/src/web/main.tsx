@@ -19,6 +19,17 @@ import {
 import { installWebPreloadApi } from './web-preload-api'
 import { I18nProvider } from '../i18n/I18nProvider'
 import { translate } from '../i18n/i18n'
+import { startGitWasm } from '../lib/git-wasm/git-line-stats'
+import { startCryptoWasm } from '../lib/crypto-wasm/browser-crypto-wasm'
+
+// Compile the wasm cores eagerly, same as the desktop entry: the git wasm backs
+// every renderer Rust helper (line stats, workspace-name, the ported pure
+// modules) and the crypto wasm backs the E2EE handshake. The web entry omitted
+// these, leaving those helpers permanently null and crypto unready in the web
+// client — gate first paint on the git wasm so synchronous callers never see the
+// pre-ready fallback.
+const gitWasmReady = startGitWasm()
+void startCryptoWasm()
 
 const App = lazy(() => import('../App'))
 
@@ -85,8 +96,19 @@ function WebRootBoundary(): React.JSX.Element {
   )
 }
 
-ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
-  <I18nProvider>
-    <WebRootBoundary />
-  </I18nProvider>
-)
+const webRootElement = document.getElementById('root') as HTMLElement
+function renderWebApp(): void {
+  ReactDOM.createRoot(webRootElement).render(
+    <I18nProvider>
+      <WebRootBoundary />
+    </I18nProvider>
+  )
+}
+
+// Render once the git wasm is ready so the renderer Rust helpers never hit their
+// pre-ready null fallback. The 2s timeout is a safety valve so a stalled/failed
+// compile still renders the shell (helpers then degrade until it recovers).
+void Promise.race([
+  gitWasmReady.catch(() => undefined),
+  new Promise<void>((resolve) => setTimeout(resolve, 2000))
+]).then(renderWebApp)

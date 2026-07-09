@@ -8,7 +8,7 @@ import type {
 import {
   mapGitLabPipelineJobStatusToCheckStatus,
   mapGitLabPipelineJobStatusToConclusion
-} from '../../shared/gitlab-pipeline-checks'
+} from '../rust-gitlab-pipeline-checks'
 
 // ── Pipeline job mapping (GitLab REST `/pipelines/:id/jobs`) ────────
 // Why: GitLab pipeline jobs roughly map to GitHub check-runs, but use a

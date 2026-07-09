@@ -126,7 +126,7 @@ import {
 import { installWindowVisibilityInterval } from '@/lib/window-visibility-interval'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { callRuntimeRpc, getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
-import { gitLabPipelineJobsToPRChecks } from '../../../../shared/gitlab-pipeline-checks'
+import { gitLabPipelineJobsToPRChecks } from '@/lib/git-wasm/gitlab-pipeline-checks'
 import { getWorktreeGitIdentityDisplay } from '@/lib/worktree-git-identity-display'
 import { SourceControlAgentActionDialog } from './SourceControlAgentActionDialog'
 import { readSourceControlLaunchRecipeAgentId } from '@/lib/source-control-launch-agent-selection'
@@ -1655,14 +1655,21 @@ export default function ChecksPanel(): React.JSX.Element {
           return
         }
         const result = gitLabPipelineJobsToPRChecks(details?.pipelineJobs ?? [])
-        setChecks(result)
         setComments(gitLabMRCommentsToPRComments(details?.comments))
-        const signature = JSON.stringify(result.map((c) => `${c.name}:${c.status}:${c.conclusion}`))
-        pollIntervalRef.current =
-          signature === prevChecksRef.current
-            ? Math.min(pollIntervalRef.current * 2, 120_000)
-            : 30_000
-        prevChecksRef.current = signature
+        // Why: the Rust wasm core returns null during its ~tens-of-ms boot
+        // window; skip this poll's check update (the next poll repopulates)
+        // rather than clobbering the panel with an empty list.
+        if (result) {
+          setChecks(result)
+          const signature = JSON.stringify(
+            result.map((c) => `${c.name}:${c.status}:${c.conclusion}`)
+          )
+          pollIntervalRef.current =
+            signature === prevChecksRef.current
+              ? Math.min(pollIntervalRef.current * 2, 120_000)
+              : 30_000
+          prevChecksRef.current = signature
+        }
       } catch (err) {
         if (!isCurrentAsyncResult(requestKey)) {
           return

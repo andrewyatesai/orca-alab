@@ -1,5 +1,5 @@
 import type { BaseRefSearchResult, GlobalSettings } from '../../../shared/types'
-import { legacyBaseRefSearchResult } from '../../../shared/base-ref-search-result'
+import { legacyBaseRefSearchResult } from '../lib/git-wasm/base-ref-search-result'
 import { callRuntimeRpc, getActiveRuntimeTarget } from './runtime-rpc-client'
 import { isRuntimeRepoRefSearchQueryWithinLimit } from './runtime-repo-search-bounds'
 

@@ -3,7 +3,7 @@ import { useAppStore } from '@/store'
 import { resolveExplicitTerminalTitleAgentType } from '../../../../shared/terminal-title-agent-type'
 import { getRepoMapFromState, getWorktreeMapFromState } from '@/store/selectors'
 import { playDesktopNotificationSound } from '@/lib/desktop-notification-sound'
-import { buildAgentNotificationId } from '../../../../shared/agent-notification-id'
+import { buildAgentNotificationId } from '../../lib/git-wasm/agent-notification-id'
 import { isSupersededAgentCompletionSnapshot } from './agent-completion-snapshot-staleness'
 import type { AgentCompletionStatusSnapshot } from './agent-completion-coordinator-types'
 import {

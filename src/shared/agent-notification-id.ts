@@ -1,25 +1,10 @@
+// The agent OS-notification id derivation (buildAgentNotificationId) moved to
+// the Rust orca-core: the renderer drives it through the orca-git wasm
+// (src/renderer/src/lib/git-wasm/agent-notification-id.ts). This shared module
+// keeps only the arg type those boundaries and the parity dispatch reference.
+
 export type BuildAgentNotificationIdArgs = {
   worktreeId?: string | null
   paneKey?: string | null
   stateStartedAt?: number | null
-}
-
-export function buildAgentNotificationId({
-  worktreeId,
-  paneKey,
-  stateStartedAt
-}: BuildAgentNotificationIdArgs): string | null {
-  if (!worktreeId || !paneKey || typeof stateStartedAt !== 'number') {
-    return null
-  }
-  if (!Number.isFinite(stateStartedAt)) {
-    return null
-  }
-
-  return [
-    'agent',
-    encodeURIComponent(worktreeId),
-    encodeURIComponent(paneKey),
-    String(Math.trunc(stateStartedAt))
-  ].join(':')
 }

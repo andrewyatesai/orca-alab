@@ -15,7 +15,7 @@ import {
 import { checkRuntimeHooks, inspectRuntimeSetupScriptImports } from '@/runtime/runtime-hooks-client'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import type { SetupScriptImportCandidate } from '../../../../shared/setup-script-imports'
-import { buildSetupScriptPromptActionTelemetry } from '../../../../shared/setup-script-telemetry'
+import { buildSetupScriptPromptActionTelemetry } from '@/lib/git-wasm/setup-script-telemetry'
 import { SetupScriptPromptCardShell } from './SetupScriptPromptCardShell'
 import { showSavedInProjectSettingsToast } from './SetupScriptPromptToast'
 import { openSetupScriptSettings } from './open-setup-script-settings'
@@ -29,6 +29,17 @@ import {
 import { translate } from '@/i18n/i18n'
 
 type PromptState = SetupScriptPromptInspection
+
+// The wasm-backed builder returns null until the orca-git wasm is ready (a
+// dropped payload during boot); guard so track() is never handed a null.
+function trackSetupScriptPromptAction(
+  args: Parameters<typeof buildSetupScriptPromptActionTelemetry>[0]
+): void {
+  const telemetry = buildSetupScriptPromptActionTelemetry(args)
+  if (telemetry) {
+    track('setup_script_prompt_action', telemetry)
+  }
+}
 
 function SetupScriptPromptCard(): React.JSX.Element | null {
   const sidebarOpen = useAppStore((s) => s.sidebarOpen)
@@ -142,14 +153,11 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
       promptState.status === 'ok' &&
       !promptState.hasEffectiveSetup
     ) {
-      track(
-        'setup_script_prompt_action',
-        buildSetupScriptPromptActionTelemetry({
-          action: 'configure_clicked',
-          candidate: promptState.candidate,
-          hasSharedHooks: promptState.hasSharedHooks
-        })
-      )
+      trackSetupScriptPromptAction({
+        action: 'configure_clicked',
+        candidate: promptState.candidate,
+        hasSharedHooks: promptState.hasSharedHooks
+      })
     }
     openLocalCommandSettings(activeRepo.id)
   }, [activeRepo, openLocalCommandSettings, promptState])
@@ -161,14 +169,11 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
         promptState.status === 'ok' &&
         !promptState.hasEffectiveSetup
       ) {
-        track(
-          'setup_script_prompt_action',
-          buildSetupScriptPromptActionTelemetry({
-            action: 'dismissed',
-            candidate: promptState.candidate,
-            hasSharedHooks: promptState.hasSharedHooks
-          })
-        )
+        trackSetupScriptPromptAction({
+          action: 'dismissed',
+          candidate: promptState.candidate,
+          hasSharedHooks: promptState.hasSharedHooks
+        })
       }
       dismissSetupScriptPrompt(activeRepo.id)
     }
@@ -191,18 +196,15 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
         const nextSettings = buildImportedHookSettings(activeRepo, candidate, hasSharedHooks)
         const didUpdate = await updateRepo(activeRepo.id, { hookSettings: nextSettings })
         if (!didUpdate) {
-          track(
-            'setup_script_prompt_action',
-            buildSetupScriptPromptActionTelemetry({
-              action:
-                actionPrefix === 'save_detected_setup'
-                  ? 'save_detected_setup_failed'
-                  : 'import_failed',
-              candidate,
-              hasSharedHooks,
-              editedBeforeSave
-            })
-          )
+          trackSetupScriptPromptAction({
+            action:
+              actionPrefix === 'save_detected_setup'
+                ? 'save_detected_setup_failed'
+                : 'import_failed',
+            candidate,
+            hasSharedHooks,
+            editedBeforeSave
+          })
           if (mountedRef.current) {
             toast.error(
               translate(
@@ -213,18 +215,15 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
           }
           return
         }
-        track(
-          'setup_script_prompt_action',
-          buildSetupScriptPromptActionTelemetry({
-            action:
-              actionPrefix === 'save_detected_setup'
-                ? 'save_detected_setup_completed'
-                : 'import_completed',
-            candidate,
-            hasSharedHooks,
-            editedBeforeSave
-          })
-        )
+        trackSetupScriptPromptAction({
+          action:
+            actionPrefix === 'save_detected_setup'
+              ? 'save_detected_setup_completed'
+              : 'import_completed',
+          candidate,
+          hasSharedHooks,
+          editedBeforeSave
+        })
         if (actionPrefix === 'save_detected_setup') {
           if (mountedRef.current) {
             setPromptState((current) =>
@@ -258,18 +257,15 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
           })
         }
       } catch (error) {
-        track(
-          'setup_script_prompt_action',
-          buildSetupScriptPromptActionTelemetry({
-            action:
-              actionPrefix === 'save_detected_setup'
-                ? 'save_detected_setup_failed'
-                : 'import_failed',
-            candidate,
-            hasSharedHooks,
-            editedBeforeSave
-          })
-        )
+        trackSetupScriptPromptAction({
+          action:
+            actionPrefix === 'save_detected_setup'
+              ? 'save_detected_setup_failed'
+              : 'import_failed',
+          candidate,
+          hasSharedHooks,
+          editedBeforeSave
+        })
         console.warn('[setup-script-prompt] Failed to save setup script:', error)
         if (mountedRef.current) {
           toast.error(
@@ -312,15 +308,12 @@ function SetupScriptPromptCard(): React.JSX.Element | null {
       return
     }
     if (actionPrefix === 'save_detected_setup') {
-      track(
-        'setup_script_prompt_action',
-        buildSetupScriptPromptActionTelemetry({
-          action: 'save_detected_setup_clicked',
-          candidate,
-          hasSharedHooks: promptState.hasSharedHooks,
-          editedBeforeSave
-        })
-      )
+      trackSetupScriptPromptAction({
+        action: 'save_detected_setup_clicked',
+        candidate,
+        hasSharedHooks: promptState.hasSharedHooks,
+        editedBeforeSave
+      })
     }
     await saveSetupCandidate({
       candidate,

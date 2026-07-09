@@ -44,7 +44,7 @@ import {
   normalizeWorktreeCardProperties,
   ONBOARDING_FLOW_VERSION
 } from '../../../shared/constants'
-import { legacyBaseRefSearchResult } from '../../../shared/base-ref-search-result'
+import { legacyBaseRefSearchResult } from '../lib/git-wasm/base-ref-search-result'
 import { createE2EConfig } from '../../../shared/e2e-config'
 import { relativePathInsideRoot } from '../../../shared/cross-platform-path'
 import { LOCAL_EXECUTION_HOST_ID, normalizeExecutionHostId } from '../../../shared/execution-host'

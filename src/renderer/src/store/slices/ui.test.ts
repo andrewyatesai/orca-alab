@@ -18,7 +18,11 @@ import type { AppState } from '../types'
 import type { ContextualTourId } from '../../../../shared/contextual-tours'
 import type { FeatureInteractionState } from '../../../../shared/feature-interactions'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
-import { buildAgentNotificationId } from '../../../../shared/agent-notification-id'
+// Init the orca-git wasm so the wasm-backed buildAgentNotificationId (used by
+// both the slice under test and the expected-id computation below) returns real
+// ids instead of its pre-ready null.
+import '../../lib/git-wasm/init-git-wasm-for-test'
+import { buildAgentNotificationId } from '../../lib/git-wasm/agent-notification-id'
 import type { AgentStatusEntry } from '../../../../shared/agent-status-types'
 import type { TaskSourceContext } from '../../../../shared/task-source-context'
 

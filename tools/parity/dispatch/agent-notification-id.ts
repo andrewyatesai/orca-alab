@@ -1,19 +1,13 @@
-// TS dispatch for the agent-notification-id parity module: maps the shared
-// vector function names to the real `src/shared/agent-notification-id.ts`
-// exports so the harness compares the live TS reference against the Rust port.
-
-import {
-  buildAgentNotificationId,
-  type BuildAgentNotificationIdArgs
-} from '../../../src/shared/agent-notification-id'
+// TS dispatch for the agent-notification-id parity module. The shared TS
+// derivation was DELETED (the Rust orca-core is the sole impl — the renderer
+// drives it via wasm), so this adapter drives the SAME wasm: the vectors'
+// recorded goldens now pin that surface absolutely, and the harness's TS-vs-Rust
+// diff degenerates to wasm-vs-binary (drift between the two Rust entry points
+// would still surface here). `null` (no id) round-trips through JSON.parse.
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'buildAgentNotificationId': {
-      const { worktreeId, paneKey, stateStartedAt } = input as BuildAgentNotificationIdArgs
-      return buildAgentNotificationId({ worktreeId, paneKey, stateStartedAt })
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('agent-notification-id', fn, JSON.stringify(input ?? null))
+  )
 }

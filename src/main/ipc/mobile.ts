@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { networkInterfaces } from 'node:os'
 import QRCode from 'qrcode'
 import type { RuntimeAccessGrant } from '../../shared/runtime-access-grants'
-import { isTailnetIPv4Address } from '../../shared/tailnet-address'
+import { isTailnetIPv4Address } from '../rust-tailnet-address'
 import type { DeviceEntry } from '../runtime/device-registry'
 import type { OrcaRuntimeRpcServer } from '../runtime/runtime-rpc'
 

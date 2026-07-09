@@ -2,7 +2,8 @@
 driving, parser, timers, and teardown in one state machine; splitting it would
 make the lifecycle harder to audit. */
 import type { ProviderRateLimits, RateLimitWindow } from '../../shared/rate-limit-types'
-import { buildConfiguredProxyEnv, type NetworkProxySettings } from '../../shared/network-proxy'
+import { buildConfiguredProxyEnv } from '../rust-network-proxy'
+import type { NetworkProxySettings } from '../../shared/network-proxy'
 import { resolveClaudeCommand } from '../codex-cli/command'
 import type { ClaudeRuntimeAuthPreparation } from '../claude-accounts/runtime-auth-service'
 import { applyClaudeEnvPatch } from '../claude-accounts/environment'

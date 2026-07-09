@@ -3,9 +3,9 @@ import {
   getProxyBypassRulesFromEnvironment,
   getProxyUrlFromEnvironment,
   normalizeProxyBypassRules,
-  normalizeProxyUrl,
-  type NetworkProxySettings
-} from '../../shared/network-proxy'
+  normalizeProxyUrl
+} from '../rust-network-proxy'
+import type { NetworkProxySettings } from '../../shared/network-proxy'
 
 type ProxySession = {
   resolveProxy(url: string): Promise<string>

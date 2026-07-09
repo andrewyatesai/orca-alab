@@ -1,20 +1,13 @@
-// TS dispatch for the feature-education-telemetry parity module: maps the
-// shared vector function names to the real
-// `src/shared/feature-education-telemetry.ts` exports so the harness compares
-// the live TS reference against the Rust port.
-
-import {
-  normalizeFeatureEducationSource,
-  normalizeSetupGuideSource
-} from '../../../src/shared/feature-education-telemetry'
+// TS dispatch for the feature-education-telemetry parity module. The shared TS
+// normalizers were DELETED (the Rust orca-config core is the sole impl — the
+// renderer drives them via the orca-git wasm), so this adapter drives the SAME
+// wasm: the vectors' recorded goldens now pin that surface, and the harness's
+// TS-vs-Rust diff degenerates to wasm-vs-binary (drift between the two Rust
+// entry points would still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'normalizeFeatureEducationSource':
-      return normalizeFeatureEducationSource(input as string | null | undefined)
-    case 'normalizeSetupGuideSource':
-      return normalizeSetupGuideSource(input as string | null | undefined)
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('feature-education-telemetry', fn, JSON.stringify(input ?? null))
+  )
 }

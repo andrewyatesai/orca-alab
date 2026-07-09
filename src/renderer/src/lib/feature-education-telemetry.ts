@@ -2,11 +2,13 @@ import type { ContextualTourId } from '../../../shared/contextual-tours'
 import type { EventName, EventProps } from '../../../shared/telemetry-events'
 import {
   normalizeFeatureEducationSource,
-  normalizeSetupGuideSource,
-  type ContextualTourOutcome,
-  type SetupGuideCloseOutcome,
-  type SetupGuideSource,
-  type TerminalPaneSplitSource
+  normalizeSetupGuideSource
+} from './git-wasm/feature-education-telemetry'
+import type {
+  ContextualTourOutcome,
+  SetupGuideCloseOutcome,
+  SetupGuideSource,
+  TerminalPaneSplitSource
 } from '../../../shared/feature-education-telemetry'
 import {
   getFeatureWallSetupSectionId,

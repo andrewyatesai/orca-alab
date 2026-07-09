@@ -15,7 +15,7 @@ import type { SourceControlTextActionId } from '../../../../shared/source-contro
 import type { GlobalSettings, Repo } from '../../../../shared/types'
 import type { SourceControlAiWriteTarget } from '../../../../shared/source-control-ai-recipe-save'
 import { buildBranchNamePrompt } from '../../../../shared/branch-name-from-work'
-import { buildCommitMessagePrompt } from '../../../../shared/commit-message-generation'
+import { buildCommitMessagePrompt } from '@/lib/git-wasm/commit-message-generation'
 import { buildPullRequestFieldsPrompt } from '@/lib/git-wasm/pull-request-generation'
 import { isGitWasmReady, subscribeGitWasmReady } from '@/lib/git-wasm/git-line-stats'
 import {
@@ -49,13 +49,17 @@ type SourceControlTextGenerationDialogProps = SourceControlTextGenerationBaseDia
 function buildBasePromptPreview(actionId: SourceControlTextActionId): string {
   switch (actionId) {
     case 'commitMessage':
-      return buildCommitMessagePrompt(
-        {
-          branch: 'feature/example',
-          stagedSummary: 'M src/example.ts',
-          stagedPatch: 'diff --git a/src/example.ts b/src/example.ts\n+addSourceControlAiPreview()'
-        },
-        ''
+      // Rust/wasm builder — null until the wasm initialises; the preview shows
+      // nothing during that (eager-init) window rather than throwing.
+      return (
+        buildCommitMessagePrompt(
+          {
+            branch: 'feature/example',
+            stagedSummary: 'M src/example.ts',
+            stagedPatch: 'diff --git a/src/example.ts b/src/example.ts\n+addSourceControlAiPreview()'
+          },
+          ''
+        ) ?? ''
       )
     case 'pullRequest':
       // Rust/wasm builder — null until the wasm initialises; the preview shows

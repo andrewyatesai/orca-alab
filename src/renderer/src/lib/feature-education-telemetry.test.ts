@@ -1,3 +1,4 @@
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getSetupGuideStepSection,

@@ -1,3 +1,4 @@
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentStatusEntry, AgentStatusState } from '../../../../shared/agent-status-types'

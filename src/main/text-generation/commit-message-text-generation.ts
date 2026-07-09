@@ -3,12 +3,14 @@
    prevents those paths from drifting. */
 import { exec, spawn, type ChildProcess } from 'node:child_process'
 import type { GlobalSettings, Repo, TuiAgent } from '../../shared/types'
+import type {
+  CommitMessageDraftContext,
+  GeneratedCommitMessage
+} from '../../shared/commit-message-generation'
 import {
   buildCommitMessagePrompt,
-  splitGeneratedCommitMessage,
-  type CommitMessageDraftContext,
-  type GeneratedCommitMessage
-} from '../../shared/commit-message-generation'
+  splitGeneratedCommitMessage
+} from '../rust-commit-message-generation'
 import type {
   GeneratedPullRequestFields,
   PullRequestDraftContext

@@ -1,23 +1,11 @@
-// TS dispatch for the agent-kind parity module: maps the shared vector
-// function names to the real `src/shared/agent-kind.ts` exports so the harness
-// compares the live TS reference against the Rust port.
-
-import { agentKindToTuiAgent, tuiAgentToAgentKind } from '../../../src/shared/agent-kind'
-import type { AgentKind } from '../../../src/shared/telemetry-events'
-import type { TuiAgent } from '../../../src/shared/types'
+// TS dispatch for the agent-kind parity module. The shared TS maps were DELETED
+// (the Rust `orca_core::agent_kind` core is the sole impl — the renderer drives
+// it via wasm), so this adapter drives that same wasm: the vectors' recorded
+// goldens now pin that surface absolutely, and the harness's TS-vs-Rust diff
+// degenerates to wasm-vs-binary (drift between the two Rust entry points would
+// still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'tuiAgentToAgentKind': {
-      const { agent } = input as { agent: TuiAgent }
-      return tuiAgentToAgentKind(agent)
-    }
-    case 'agentKindToTuiAgent': {
-      // A missing `kind` key models the TS `undefined` arg (JSON can't encode it).
-      const { kind } = input as { kind?: AgentKind | null }
-      return agentKindToTuiAgent(kind)
-    }
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(gitWasmOracle().orcaDispatch('agent-kind', fn, JSON.stringify(input ?? null)))
 }

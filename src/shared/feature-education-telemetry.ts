@@ -47,16 +47,8 @@ export type SetupGuideSource = (typeof SETUP_GUIDE_SOURCES)[number]
 export type SetupGuideCloseOutcome = (typeof SETUP_GUIDE_CLOSE_OUTCOMES)[number]
 export type TerminalPaneSplitSource = (typeof TERMINAL_PANE_SPLIT_SOURCES)[number]
 
-export function normalizeFeatureEducationSource(
-  value: string | null | undefined
-): FeatureEducationSource {
-  return FEATURE_EDUCATION_SOURCES.includes(value as FeatureEducationSource)
-    ? (value as FeatureEducationSource)
-    : 'unknown'
-}
-
-export function normalizeSetupGuideSource(value: string | null | undefined): SetupGuideSource {
-  return SETUP_GUIDE_SOURCES.includes(value as SetupGuideSource)
-    ? (value as SetupGuideSource)
-    : 'unknown'
-}
+// normalizeFeatureEducationSource / normalizeSetupGuideSource were cut over to
+// the Rust orca-config core: the renderer drives them via the orca-git wasm
+// wrapper in src/renderer/src/lib/git-wasm/feature-education-telemetry.ts. The
+// enum DATA consts + types above stay here (imported as z.enum by main
+// terminal.ts and shared telemetry-events.ts) with NO napi/wasm dependency.

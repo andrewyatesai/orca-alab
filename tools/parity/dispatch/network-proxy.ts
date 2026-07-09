@@ -1,26 +1,13 @@
-// TS dispatch for the network-proxy parity module: maps the shared vector
-// function names to the real `src/shared/network-proxy.ts` exports so the
-// harness compares the live TS reference against the Rust port.
-
-import {
-  buildConfiguredProxyEnv,
-  normalizeProxyBypassRules,
-  normalizeProxyUrl,
-  redactProxyUrl,
-  type NetworkProxySettings
-} from '../../../src/shared/network-proxy'
+// TS dispatch for the network-proxy parity module. The shared TS impl was
+// DELETED (the Rust orca-net core is the sole impl — main drives it via napi,
+// the renderer via wasm), so this adapter drives the SAME wasm: the vectors'
+// recorded goldens now pin that surface, and the harness's TS-vs-Rust diff
+// degenerates to wasm-vs-binary (drift between the two Rust entry points would
+// still surface here).
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'normalizeProxyUrl':
-      return normalizeProxyUrl(input)
-    case 'normalizeProxyBypassRules':
-      return normalizeProxyBypassRules(input)
-    case 'buildConfiguredProxyEnv':
-      return buildConfiguredProxyEnv(input as NetworkProxySettings | null)
-    case 'redactProxyUrl':
-      return redactProxyUrl(input as string)
-    default:
-      throw new Error(`unknown function ${fn}`)
-  }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('network-proxy', fn, JSON.stringify(input ?? null))
+  )
 }

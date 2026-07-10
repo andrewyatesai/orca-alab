@@ -1,5 +1,10 @@
 import { useAppStore } from '@/store'
 import type { TerminalCursorGlowStyle } from '../../../../../shared/types'
+import type { AtermMatrixRainTarget } from './aterm-matrix-rain-types'
+import {
+  setAtermCursorGlowActivity,
+  setAtermMatrixRainActivity
+} from './aterm-effects-activity-gate'
 
 // The aterm effects settings surface: one host-side config snapshot (read live from
 // the store, like the other engine-settings readers) and one applier that maps it
@@ -8,7 +13,7 @@ import type { TerminalCursorGlowStyle } from '../../../../../shared/types'
 // term facade, which posts the equivalent commands across the seam.
 
 /** The engine effects setters both wasm bindings (and the worker facade) expose. */
-export type AtermEffectsTarget = {
+export type AtermEffectsTarget = AtermMatrixRainTarget & {
   set_sparkle_words_enabled: (on: boolean) => void
   set_sparkle_classes: (
     profanity: boolean,
@@ -37,6 +42,8 @@ export type AtermEffectsConfig = {
   sparkleFeline: boolean
   sparkleOrca: boolean
   sparkleEmphasis: boolean
+  /** Literal, output-derived PHOSPHOR rain; default false. */
+  matrixRain: boolean
   /** Cursor aurora (terminalEffectsCursorGlow); default false. */
   cursorGlow: boolean
   cursorGlowStyle: TerminalCursorGlowStyle
@@ -56,6 +63,28 @@ export const ATERM_CURSOR_GLOW_DEFAULTS = {
   ring: true
 } as const
 
+/** Orca's single rain profile. Bounds mirror aterm's native defaults; the
+ *  literal material bank is intentional: rain is made from supported codepoints
+ *  in the authoritative aterm grid, never a decorative substitute alphabet. */
+export const ATERM_MATRIX_RAIN_DEFAULTS = {
+  fps: 30,
+  density: 6,
+  speed: 5,
+  trail: 5,
+  alpha: undefined,
+  headAlpha: undefined,
+  hue: 'theme',
+  hueColor: undefined,
+  mutationMs: 133,
+  idleSecs: 8,
+  suppressInAltScreen: false,
+  turnWave: true,
+  // Orca's independent bell detector is not yet bridged into this engine seam.
+  bellAlert: false,
+  outputMaterial: true,
+  seed: 0n
+} as const
+
 /** Live OS reduce-motion preference (no listener — re-read on every apply). */
 export function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -72,6 +101,7 @@ export function readAtermEffectsConfig(): AtermEffectsConfig {
     sparkleFeline: settings?.terminalEffectsSparkleFeline ?? true,
     sparkleOrca: settings?.terminalEffectsSparkleOrca ?? true,
     sparkleEmphasis: settings?.terminalEffectsSparkleEmphasis ?? true,
+    matrixRain: settings?.terminalMatrixRainEnabled ?? false,
     cursorGlow: settings?.terminalEffectsCursorGlow ?? false,
     // 'water' is Orca's native trail: a self-contained ORCA_PALETTE ocean ramp
     // that reads on any theme, unlike 'lumen' additive white (white-on-white on
@@ -99,7 +129,40 @@ export function applyAtermEffectsConfig(
   // (its flash-limiter floors always apply); the glow is pure motion, so the host
   // gates it fully off under the OS preference.
   term.set_sparkle_reduced_motion(cfg.reducedMotion)
+  applyAtermMatrixRainConfig(term, cfg)
   applyAtermCursorGlowConfig(term, cfg, cursorColor)
+}
+
+/** Apply PHOSPHOR's retained config before the master switch. This keeps OFF
+ *  zero-cost while ensuring the first enabled frame is already literal/theme-aware. */
+export function applyAtermMatrixRainConfig(
+  term: Pick<
+    AtermEffectsTarget,
+    'set_matrix_rain' | 'set_matrix_rain_enabled' | 'set_matrix_rain_reduced_motion'
+  >,
+  cfg: AtermEffectsConfig
+): void {
+  const d = ATERM_MATRIX_RAIN_DEFAULTS
+  term.set_matrix_rain(
+    d.fps,
+    d.density,
+    d.speed,
+    d.trail,
+    d.alpha,
+    d.headAlpha,
+    d.hue,
+    d.hueColor,
+    d.mutationMs,
+    d.idleSecs,
+    d.suppressInAltScreen,
+    d.turnWave,
+    d.bellAlert,
+    d.outputMaterial,
+    d.seed
+  )
+  term.set_matrix_rain_reduced_motion(cfg.reducedMotion)
+  term.set_matrix_rain_enabled(cfg.matrixRain)
+  setAtermMatrixRainActivity(term, cfg.matrixRain && !cfg.reducedMotion)
 }
 
 /** Apply ONLY the cursor-glow config: `cursorColor` is the live OSC 12 override
@@ -111,8 +174,9 @@ export function applyAtermCursorGlowConfig(
   cursorColor?: number
 ): void {
   const d = ATERM_CURSOR_GLOW_DEFAULTS
+  const enabled = cfg.cursorGlow && !cfg.reducedMotion
   term.set_cursor_glow(
-    cfg.cursorGlow && !cfg.reducedMotion,
+    enabled,
     cfg.cursorGlowStyle,
     cursorColor ?? undefined,
     undefined,
@@ -122,4 +186,5 @@ export function applyAtermCursorGlowConfig(
     d.radiusCells,
     d.ring
   )
+  setAtermCursorGlowActivity(term, enabled)
 }

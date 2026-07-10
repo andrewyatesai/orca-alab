@@ -162,6 +162,15 @@ export class AtermGpuTerminal {
      */
     note_keystroke(): void;
     /**
+     * Feed wheel/PgUp activity from an alternate-screen TUI so rain pauses
+     * while the user reads its transcript.
+     */
+    note_matrix_rain_alt_scroll(): void;
+    /**
+     * Feed a terminal visual bell into PHOSPHOR's bounded alert tint.
+     */
+    note_matrix_rain_bell(): void;
+    /**
      * Feed raw PTY output bytes into the engine.
      */
     process(bytes: Uint8Array): void;
@@ -402,6 +411,11 @@ export class AtermGpuTerminal {
      */
     set_effects_focused(focused: boolean): void;
     /**
+     * Tri-state pane visibility for bounded rain draining:
+     * `focused|visible_unfocused|hidden`.
+     */
+    set_effects_visibility(state: string): void;
+    /**
      * Inject a colour-emoji (sbix) face from font bytes, driving the existing
      * ColorEmoji colour path. Same wiring as [`set_fallback_font`]. No-throw
      * (the `String` Err surfaces as a catchable JS exception).
@@ -456,6 +470,23 @@ export class AtermGpuTerminal {
      * re-applies it. The host re-reads cell_height + resizes the grid after.
      */
     set_line_height(scale: number): void;
+    /**
+     * Configure PHOSPHOR using the native bounds. `hue` is
+     * `matrix|theme|custom`; `hue_color` is used only for `custom`.
+     * `output_material` opts into supported literal screen codepoints; hosts
+     * that cannot protect their current composer can leave it false.
+     */
+    set_matrix_rain(fps: number, density: number, speed: number, trail: number, alpha: number | null | undefined, head_alpha: number | null | undefined, hue: string, hue_color: number | null | undefined, mutation_ms: number, idle_secs: number, suppress_in_alt_screen: boolean, turn_wave: boolean, bell_alert: boolean, output_material: boolean, seed: bigint): void;
+    /**
+     * Enable PHOSPHOR matrix rain. With output material opted in, the shared
+     * pipeline samples supported literal codepoints outside the current
+     * cursor/composer protection band and emits only into empty default-bg cells.
+     */
+    set_matrix_rain_enabled(on: boolean): void;
+    /**
+     * Accessibility motion gate for PHOSPHOR.
+     */
+    set_matrix_rain_reduced_motion(on: boolean): void;
     /**
      * Set the per-cell minimum contrast ratio (xterm's `minimumContrastRatio`,
      * 1..=21; `ratio <= 1.0` = off, the default — xterm treats 1 as "do
@@ -768,6 +799,10 @@ export class AtermGpuTerminal {
      */
     readonly keyboard_mode_bits: number;
     /**
+     * Whether PHOSPHOR matrix rain is enabled.
+     */
+    readonly matrix_rain_enabled: boolean;
+    /**
      * True for AnyEvent (1003): report motion even with NO button pressed.
      */
     readonly mouse_wants_any_motion: boolean;
@@ -942,11 +977,14 @@ export interface InitOutput {
     readonly atermgputerminal_is_mouse_tracking: (a: number) => number;
     readonly atermgputerminal_keyboard_mode_bits: (a: number) => number;
     readonly atermgputerminal_link_at: (a: number, b: number, c: number) => number;
+    readonly atermgputerminal_matrix_rain_enabled: (a: number) => number;
     readonly atermgputerminal_mouse_wants_any_motion: (a: number) => number;
     readonly atermgputerminal_mouse_wants_motion: (a: number) => number;
     readonly atermgputerminal_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly atermgputerminal_new_registered: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly atermgputerminal_note_keystroke: (a: number) => void;
+    readonly atermgputerminal_note_matrix_rain_alt_scroll: (a: number) => void;
+    readonly atermgputerminal_note_matrix_rain_bell: (a: number) => void;
     readonly atermgputerminal_process: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_render: (a: number) => [number, number];
     readonly atermgputerminal_render_offscreen: (a: number) => [number, number];
@@ -990,6 +1028,7 @@ export interface InitOutput {
     readonly atermgputerminal_set_default_cursor_style: (a: number, b: number) => void;
     readonly atermgputerminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
     readonly atermgputerminal_set_effects_focused: (a: number, b: number) => void;
+    readonly atermgputerminal_set_effects_visibility: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_emoji_font_registered: (a: number, b: number) => [number, number];
     readonly atermgputerminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
@@ -998,6 +1037,9 @@ export interface InitOutput {
     readonly atermgputerminal_set_kitty_keyboard_enabled: (a: number, b: number) => void;
     readonly atermgputerminal_set_ligatures: (a: number, b: number) => void;
     readonly atermgputerminal_set_line_height: (a: number, b: number) => void;
+    readonly atermgputerminal_set_matrix_rain: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: bigint) => void;
+    readonly atermgputerminal_set_matrix_rain_enabled: (a: number, b: number) => void;
+    readonly atermgputerminal_set_matrix_rain_reduced_motion: (a: number, b: number) => void;
     readonly atermgputerminal_set_minimum_contrast: (a: number, b: number) => void;
     readonly atermgputerminal_set_palette_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_primary_font: (a: number, b: number, c: number) => [number, number];
@@ -1039,9 +1081,9 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly wasm_bindgen__closure__destroy__h1a0100ca1d7e7abb: (a: number, b: number) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598: (a: number, b: number, c: any, d: any) => void;
-    readonly wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da: (a: number, b: number, c: any) => void;
+    readonly wasm_bindgen__closure__destroy__h72add29b690f7b49: (a: number, b: number) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__ha85feb40cf0a14ba: (a: number, b: number, c: any, d: any) => void;
+    readonly wasm_bindgen__convert__closures_____invoke__hcfa87cb5c71350c9: (a: number, b: number, c: any) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;

@@ -255,6 +255,9 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     // vanishes into a light terminal background (the white-on-white bug).
     terminalEffectsCursorGlow: true,
     terminalEffectsCursorGlowStyle: 'water',
+    // Literal Matrix Rain is opt-in. When enabled, its glyphs come from the
+    // pane's live terminal output rather than a decorative character set.
+    terminalMatrixRainEnabled: false,
     // One-time upgrade stamp: existing profiles persisted the old lumen glow,
     // which {...defaults, ...parsed} would otherwise preserve forever. The
     // persistence migration flips the inherited lumen default to water once.

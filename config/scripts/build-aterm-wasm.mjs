@@ -14,7 +14,16 @@
 //
 // Usage: node config/scripts/build-aterm-wasm.mjs [--cpu] [--gpu]  (default: both)
 import { execFileSync } from 'node:child_process'
-import { existsSync, copyFileSync, statSync, mkdirSync, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import {
+  existsSync,
+  copyFileSync,
+  readFileSync,
+  statSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { join, delimiter } from 'node:path'
 
 const ROOT = join(import.meta.dirname, '..', '..')
@@ -23,6 +32,7 @@ const WASM_TARGET_DIR = join(ROOT, 'rust/aterm/target/wasm32-unknown-unknown/rel
 const GLUE_OUT = join(ROOT, 'rust/aterm/target/aterm-web-glue')
 const WB_VERSION = '0.2.108'
 const WB_DIR = join(ROOT, 'config/.tooling', `wasm-bindgen-${WB_VERSION}`)
+const ARTIFACT_PIN = 'aterm_wasm_artifact_pin.json'
 // wasm-opt rejects the module unless the features it uses are enabled explicitly.
 const WASM_OPT_FEATURES = [
   '--enable-bulk-memory',
@@ -36,6 +46,12 @@ const CRATES = {
   cpu: { dir: 'rust/aterm/crates/aterm-wasm', stem: 'aterm_wasm' },
   gpu: { dir: 'rust/aterm/crates/aterm-gpu-web', stem: 'aterm_gpu_web' }
 }
+const ARTIFACTS = Object.values(CRATES).flatMap(({ stem }) => [
+  `${stem}.js`,
+  `${stem}.d.ts`,
+  `${stem}_bg.wasm`,
+  `${stem}_bg.wasm.d.ts`
+])
 
 function run(cmd, args, opts = {}) {
   execFileSync(cmd, args, { cwd: ROOT, stdio: 'inherit', ...opts })
@@ -146,6 +162,33 @@ function buildCrate(key, wasmBindgen) {
   console.log(`[aterm-wasm] copied ${stem} glue → src/renderer/.../aterm/`)
 }
 
+function writeArtifactPin() {
+  const sourceCommit = execFileSync('git', ['-C', join(ROOT, 'rust/aterm'), 'rev-parse', 'HEAD'], {
+    encoding: 'utf8'
+  }).trim()
+  const artifacts = {}
+  for (const file of ARTIFACTS) {
+    const bytes = readFileSync(join(DEST, file))
+    artifacts[file] = {
+      bytes: bytes.byteLength,
+      sha256: createHash('sha256').update(bytes).digest('hex')
+    }
+  }
+  writeFileSync(
+    join(DEST, ARTIFACT_PIN),
+    `${JSON.stringify({ schema: 1, sourceCommit, artifacts }, null, 2)}\n`
+  )
+  console.log(`[aterm-wasm] pinned ${ARTIFACTS.length} artifacts to ${sourceCommit}`)
+}
+
+function atermSourceIsClean() {
+  return (
+    execFileSync('git', ['-C', join(ROOT, 'rust/aterm'), 'status', '--porcelain'], {
+      encoding: 'utf8'
+    }).trim().length === 0
+  )
+}
+
 if (!which('wasm-opt')) {
   const install =
     process.platform === 'darwin'
@@ -165,5 +208,12 @@ for (const k of keys) {
     process.exit(1)
   }
   buildCrate(k, wasmBindgen)
+}
+if (Object.keys(CRATES).every((key) => keys.includes(key)) && atermSourceIsClean()) {
+  writeArtifactPin()
+} else if (Object.keys(CRATES).every((key) => keys.includes(key))) {
+  console.log(`[aterm-wasm] dirty aterm source: ${ARTIFACT_PIN} intentionally left unchanged`)
+} else {
+  console.log(`[aterm-wasm] partial build: ${ARTIFACT_PIN} intentionally left unchanged`)
 }
 console.log('\n[aterm-wasm] done.')

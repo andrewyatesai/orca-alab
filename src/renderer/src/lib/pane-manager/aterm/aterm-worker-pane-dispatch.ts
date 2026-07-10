@@ -6,6 +6,10 @@
 import type { StoredInit, WorkerEngine } from './aterm-worker-engine-build'
 import type { WorkerTerminal } from './aterm-worker-terminal'
 import type { WorkerFrameScheduler } from './aterm-worker-frame-scheduler'
+import {
+  dispatchAtermWorkerRainCommand,
+  type AtermWorkerRainTarget
+} from './aterm-worker-rain-dispatch'
 import type {
   AtermWorkerPaneEvent,
   AtermWorkerPaneRuntimeCommand
@@ -14,7 +18,7 @@ import type {
 // Both engine bindings ship these (aterm_wasm/aterm_gpu_web), but the WorkerEngine
 // Pick + worker terminal predate them — cast here, surgically, until the planned
 // worker refactor folds them into aterm-worker-terminal.
-export type EngineSettingSetters = {
+export type EngineSettingSetters = AtermWorkerRainTarget & {
   set_minimum_contrast: (ratio: number) => void
   set_word_separators: (separators?: string | null) => void
   set_background_opacity: (opacity: number) => void
@@ -71,6 +75,11 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
   const term = pane.term
   const scheduleDraw = pane.frameScheduler.schedule
   switch (msg.type) {
+    case 'setMatrixRain':
+    case 'setEffectsVisibility':
+    case 'effectActivity':
+      dispatchAtermWorkerRainCommand(pane.engineSetters, scheduleDraw, msg)
+      return
     case 'process': {
       if (!term) {
         return

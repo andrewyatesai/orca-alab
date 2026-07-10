@@ -3,6 +3,10 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { attachAtermTextareaInput } from './aterm-textarea-input'
+import {
+  setAtermCursorGlowActivity,
+  setAtermMatrixRainActivity
+} from './aterm-effects-activity-gate'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -17,6 +21,8 @@ type FakeTermOverrides = {
   encodeKey?: ReturnType<typeof vi.fn>
   isAltScreen?: boolean
   keyboardModeBits?: number
+  matrixRainEnabled?: boolean
+  cursorGlowEnabled?: boolean
 }
 
 // Minimal engine stand-in: the keydown path reads encode_key / keyboard_mode_bits /
@@ -24,17 +30,23 @@ type FakeTermOverrides = {
 function fakeTerm(overrides: FakeTermOverrides = {}): {
   term: AtermTerminal
   scrollLines: ReturnType<typeof vi.fn>
+  noteKeystroke: ReturnType<typeof vi.fn>
+  noteAltScroll: ReturnType<typeof vi.fn>
 } {
   const scrollLines = vi.fn()
+  const noteKeystroke = vi.fn()
+  const noteAltScroll = vi.fn()
   const term = {
     ...(overrides.encodeKey ? { encode_key: overrides.encodeKey } : {}),
     is_alt_screen: overrides.isAltScreen ?? false,
     keyboard_mode_bits: overrides.keyboardModeBits ?? 0,
     scroll_lines: scrollLines,
+    note_keystroke: noteKeystroke,
+    note_matrix_rain_alt_scroll: noteAltScroll,
     cursor_x: 4,
     cursor_y: 2
   } as unknown as AtermTerminal
-  return { term, scrollLines }
+  return { term, scrollLines, noteKeystroke, noteAltScroll }
 }
 
 type Harness = {
@@ -44,6 +56,8 @@ type Harness = {
   copySelection: ReturnType<typeof vi.fn>
   redraw: ReturnType<typeof vi.fn>
   scrollLines: ReturnType<typeof vi.fn>
+  noteKeystroke: ReturnType<typeof vi.fn>
+  noteAltScroll: ReturnType<typeof vi.fn>
   dispose: () => void
 }
 
@@ -68,7 +82,9 @@ function mount(
   const pasteSink = vi.fn()
   const copySelection = vi.fn(() => false)
   const redraw = vi.fn()
-  const { term, scrollLines } = fakeTerm(termOverrides)
+  const { term, scrollLines, noteKeystroke, noteAltScroll } = fakeTerm(termOverrides)
+  setAtermMatrixRainActivity(term, termOverrides.matrixRainEnabled ?? true)
+  setAtermCursorGlowActivity(term, termOverrides.cursorGlowEnabled ?? false)
   const { dispose } = attachAtermTextareaInput({
     textarea,
     term,
@@ -83,7 +99,17 @@ function mount(
     getMacOptionIsMeta,
     getCustomKeyEventHandler
   })
-  return { textarea, inputSink, pasteSink, copySelection, redraw, scrollLines, dispose }
+  return {
+    textarea,
+    inputSink,
+    pasteSink,
+    copySelection,
+    redraw,
+    scrollLines,
+    noteKeystroke,
+    noteAltScroll,
+    dispose
+  }
 }
 
 type FireKeyModifiers = Partial<
@@ -146,8 +172,24 @@ describe('attachAtermTextareaInput', () => {
     const h = mount()
     fireInput(h.textarea, 'x', 'insertText')
     expect(h.inputSink).toHaveBeenCalledWith('x')
+    expect(h.noteKeystroke).toHaveBeenCalledTimes(1)
     expect(h.pasteSink).not.toHaveBeenCalled() // typing must NOT go through paste
     expect(h.textarea.value).toBe('') // cleared so it never accumulates
+    h.dispose()
+  })
+
+  it('does not cross the effects seam for typing while matrix rain is off', () => {
+    const h = mount({ matrixRainEnabled: false })
+    fireInput(h.textarea, 'x', 'insertText')
+    expect(h.inputSink).toHaveBeenCalledWith('x')
+    expect(h.noteKeystroke).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('keeps cursor momentum live when glow is on and matrix rain is off', () => {
+    const h = mount({ matrixRainEnabled: false, cursorGlowEnabled: true })
+    fireInput(h.textarea, 'x', 'insertText')
+    expect(h.noteKeystroke).toHaveBeenCalledTimes(1)
     h.dispose()
   })
 
@@ -158,10 +200,12 @@ describe('attachAtermTextareaInput', () => {
     fireInput(h.textarea, 'PASTED', 'insertFromPaste')
     expect(h.pasteSink).toHaveBeenCalledWith('PASTED')
     expect(h.inputSink).not.toHaveBeenCalled()
+    expect(h.noteKeystroke).not.toHaveBeenCalled()
     // A typed character goes the other way: input sink, not the paste sink.
     fireInput(h.textarea, 'y', 'insertText')
     expect(h.inputSink).toHaveBeenCalledWith('y')
     expect(h.pasteSink).toHaveBeenCalledTimes(1)
+    expect(h.noteKeystroke).toHaveBeenCalledTimes(1)
     h.dispose()
   })
 
@@ -338,6 +382,8 @@ describe('attachAtermTextareaInput', () => {
     expect(h.scrollLines).not.toHaveBeenCalled()
     expect(encodeKey).toHaveBeenCalledWith('PageUp', 1, 0, undefined)
     expect(h.inputSink).toHaveBeenCalledWith('\x1b[5;2~')
+    expect(h.noteAltScroll).toHaveBeenCalledTimes(1)
+    expect(h.noteKeystroke).toHaveBeenCalledTimes(1)
     h.dispose()
   })
 

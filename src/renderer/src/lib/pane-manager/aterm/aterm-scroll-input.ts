@@ -2,6 +2,7 @@ import type { AtermTerminal } from './aterm_wasm.js'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import { shouldForwardMouse } from './aterm-mouse-input'
 import type { AtermMetrics } from './aterm-grid-reflow'
+import { shouldNoteAtermMatrixRainActivity } from './aterm-effects-activity-gate'
 import {
   accumulateWheelLines,
   resolveScrollbackWheelSensitivity,
@@ -43,6 +44,9 @@ export type AtermScrollInput = {
 export function attachAtermScrollInput(deps: AtermScrollDeps): AtermScrollInput {
   const { canvas, term, metrics, getRows, redraw, isDisposed, inputSink } = deps
   let remainder = 0
+  const effectsTerm = term as AtermTerminal & {
+    note_matrix_rain_alt_scroll?: () => void
+  }
 
   // The worker-backed term has no engine instance on this thread: encode via
   // the module-level encoder with the snapshot's keyboard-mode bits (one frame
@@ -66,12 +70,17 @@ export function attachAtermScrollInput(deps: AtermScrollDeps): AtermScrollInput 
     if (isDisposed()) {
       return
     }
+    const altScreen = term.is_alt_screen
+    if (altScreen && event.deltaY !== 0 && shouldNoteAtermMatrixRainActivity(effectsTerm)) {
+      // The engine owns the bounded quiet window. Notify even when mouse tracking
+      // forwards the wheel to the TUI, because that is still active reading.
+      effectsTerm.note_matrix_rain_alt_scroll?.()
+    }
     // When a TUI tracks the mouse (no Shift), the forwarder sends wheel reports
     // to the app instead of moving scrollback; defer so we don't double-handle.
     if (shouldForwardMouse(term, event)) {
       return
     }
-    const altScreen = term.is_alt_screen
     // Options are read live per event: the options bag mutates on settings change.
     const sensitivity = altScreen
       ? resolveTuiWheelMultiplier(event, deps.getTuiScrollMultiplier?.() ?? 1)

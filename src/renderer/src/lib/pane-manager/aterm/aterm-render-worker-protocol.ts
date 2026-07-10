@@ -17,6 +17,7 @@
 // contract without importing each other's runtime.
 
 import type { AtermThemeColors } from './aterm-theme-colors'
+import type { AtermWorkerRainCommand } from './aterm-worker-rain-protocol'
 
 // ── Worker-scoped requests (main → worker, no paneId) ─────────────────────────────
 
@@ -287,6 +288,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetSparkleWordsEnabled
   | AtermWorkerSetSparkleClasses
   | AtermWorkerSetSparkleReducedMotion
+  | AtermWorkerRainCommand
   | AtermWorkerSetCursorGlow
   | AtermWorkerSetEffectsFocused
   | AtermWorkerScrollLines

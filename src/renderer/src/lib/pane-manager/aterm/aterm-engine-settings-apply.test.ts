@@ -3,6 +3,11 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { applyAtermEngineSettings } from './aterm-engine-settings-apply'
+import type { AtermEffectsTarget } from './aterm-effects-settings'
+import {
+  shouldNoteAtermKeystroke,
+  shouldNoteAtermMatrixRainActivity
+} from './aterm-effects-activity-gate'
 import {
   createAtermControllerOptionReaders,
   normalizeTerminalOpacity,
@@ -42,6 +47,9 @@ type RecordingTerm = {
   sparkleMasters: boolean[]
   sparkleClasses: [boolean, boolean, boolean, boolean][]
   reducedMotions: boolean[]
+  matrixRainMasters: boolean[]
+  matrixRainProfiles: { hue: string; outputMaterial: boolean; seed: bigint }[]
+  matrixRainReducedMotions: boolean[]
   glows: { enabled: boolean; style: string; color: number | undefined }[]
 }
 
@@ -61,6 +69,9 @@ function makeTerm(): RecordingTerm & {
     sparkleMasters: [],
     sparkleClasses: [],
     reducedMotions: [],
+    matrixRainMasters: [],
+    matrixRainProfiles: [],
+    matrixRainReducedMotions: [],
     glows: []
   }
   const term = {
@@ -74,6 +85,14 @@ function makeTerm(): RecordingTerm & {
     set_sparkle_classes: (profanity: boolean, feline: boolean, orca: boolean, emphasis: boolean) =>
       calls.sparkleClasses.push([profanity, feline, orca, emphasis]),
     set_sparkle_reduced_motion: (on: boolean) => calls.reducedMotions.push(on),
+    set_matrix_rain_enabled: (on: boolean) => calls.matrixRainMasters.push(on),
+    set_matrix_rain: (...args: Parameters<AtermEffectsTarget['set_matrix_rain']>) =>
+      calls.matrixRainProfiles.push({
+        hue: args[6],
+        outputMaterial: args[13],
+        seed: args[14]
+      }),
+    set_matrix_rain_reduced_motion: (on: boolean) => calls.matrixRainReducedMotions.push(on),
     set_cursor_glow: (enabled: boolean, style: string, color: number | null | undefined) =>
       calls.glows.push({ enabled, style, color: color ?? undefined }),
     set_ligatures: (on: boolean) => calls.ligatures.push(on),
@@ -112,6 +131,7 @@ function makeReaders(
       sparkleFeline: true,
       sparkleOrca: true,
       sparkleEmphasis: true,
+      matrixRain: false,
       cursorGlow: false,
       cursorGlowStyle: 'lumen' as const,
       reducedMotion: false
@@ -208,6 +228,7 @@ describe('applyAtermEngineSettings', () => {
       sparkleFeline: true,
       sparkleOrca: true,
       sparkleEmphasis: true,
+      matrixRain: false,
       cursorGlow: false,
       cursorGlowStyle: 'lumen',
       reducedMotion: false
@@ -222,7 +243,11 @@ describe('applyAtermEngineSettings', () => {
     })
     // Everything-off construction: master off, glow off (engine byte-identical default).
     expect(term.sparkleMasters).toEqual([false])
+    expect(term.matrixRainMasters).toEqual([false])
+    expect(term.matrixRainProfiles).toEqual([{ hue: 'theme', outputMaterial: true, seed: 0n }])
     expect(term.glows).toEqual([{ enabled: false, style: 'lumen', color: undefined }])
+    expect(shouldNoteAtermMatrixRainActivity(term)).toBe(false)
+    expect(shouldNoteAtermKeystroke(term)).toBe(false)
     // Live enable: sparkle master + orca-only classes + rainbow glow.
     cfg = {
       ...cfg,
@@ -230,19 +255,26 @@ describe('applyAtermEngineSettings', () => {
       sparkleProfanity: false,
       sparkleFeline: false,
       sparkleEmphasis: false,
+      matrixRain: true,
       cursorGlow: true,
       cursorGlowStyle: 'rainbow'
     }
     reapply()
     expect(term.sparkleMasters).toEqual([false, true])
+    expect(term.matrixRainMasters).toEqual([false, true])
     expect(term.sparkleClasses.at(-1)).toEqual([false, false, true, false])
     expect(term.glows.at(-1)).toEqual({ enabled: true, style: 'rainbow', color: undefined })
+    expect(shouldNoteAtermMatrixRainActivity(term)).toBe(true)
+    expect(shouldNoteAtermKeystroke(term)).toBe(true)
     // OS reduce-motion: sparkle goes static in-engine; the pure-motion glow is
     // host-gated fully off.
     cfg = { ...cfg, reducedMotion: true }
     reapply()
     expect(term.reducedMotions.at(-1)).toBe(true)
+    expect(term.matrixRainReducedMotions.at(-1)).toBe(true)
     expect(term.glows.at(-1)).toEqual({ enabled: false, style: 'rainbow', color: undefined })
+    expect(shouldNoteAtermMatrixRainActivity(term)).toBe(false)
+    expect(shouldNoteAtermKeystroke(term)).toBe(false)
   })
 
   it('folds the live OSC 12 cursor colour into the glow on apply and follows changes via syncCursorColor', () => {
@@ -254,6 +286,7 @@ describe('applyAtermEngineSettings', () => {
       sparkleFeline: true,
       sparkleOrca: true,
       sparkleEmphasis: true,
+      matrixRain: false,
       cursorGlow: true,
       cursorGlowStyle: 'lumen' as const,
       reducedMotion: false

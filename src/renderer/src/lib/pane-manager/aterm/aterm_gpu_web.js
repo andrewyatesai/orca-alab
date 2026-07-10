@@ -487,6 +487,14 @@ export class AtermGpuTerminal {
         return ret === 0 ? undefined : LinkHit.__wrap(ret);
     }
     /**
+     * Whether PHOSPHOR matrix rain is enabled.
+     * @returns {boolean}
+     */
+    get matrix_rain_enabled() {
+        const ret = wasm.atermgputerminal_matrix_rain_enabled(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * True for AnyEvent (1003): report motion even with NO button pressed.
      * @returns {boolean}
      */
@@ -557,6 +565,19 @@ export class AtermGpuTerminal {
      */
     note_keystroke() {
         wasm.atermgputerminal_note_keystroke(this.__wbg_ptr);
+    }
+    /**
+     * Feed wheel/PgUp activity from an alternate-screen TUI so rain pauses
+     * while the user reads its transcript.
+     */
+    note_matrix_rain_alt_scroll() {
+        wasm.atermgputerminal_note_matrix_rain_alt_scroll(this.__wbg_ptr);
+    }
+    /**
+     * Feed a terminal visual bell into PHOSPHOR's bounded alert tint.
+     */
+    note_matrix_rain_bell() {
+        wasm.atermgputerminal_note_matrix_rain_bell(this.__wbg_ptr);
     }
     /**
      * Feed raw PTY output bytes into the engine.
@@ -1047,6 +1068,16 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_set_effects_focused(this.__wbg_ptr, focused);
     }
     /**
+     * Tri-state pane visibility for bounded rain draining:
+     * `focused|visible_unfocused|hidden`.
+     * @param {string} state
+     */
+    set_effects_visibility(state) {
+        const ptr0 = passStringToWasm0(state, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermgputerminal_set_effects_visibility(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * Inject a colour-emoji (sbix) face from font bytes, driving the existing
      * ColorEmoji colour path. Same wiring as [`set_fallback_font`]. No-throw
      * (the `String` Err surfaces as a catchable JS exception).
@@ -1142,6 +1173,48 @@ export class AtermGpuTerminal {
      */
     set_line_height(scale) {
         wasm.atermgputerminal_set_line_height(this.__wbg_ptr, scale);
+    }
+    /**
+     * Configure PHOSPHOR using the native bounds. `hue` is
+     * `matrix|theme|custom`; `hue_color` is used only for `custom`.
+     * `output_material` opts into supported literal screen codepoints; hosts
+     * that cannot protect their current composer can leave it false.
+     * @param {number} fps
+     * @param {number} density
+     * @param {number} speed
+     * @param {number} trail
+     * @param {number | null | undefined} alpha
+     * @param {number | null | undefined} head_alpha
+     * @param {string} hue
+     * @param {number | null | undefined} hue_color
+     * @param {number} mutation_ms
+     * @param {number} idle_secs
+     * @param {boolean} suppress_in_alt_screen
+     * @param {boolean} turn_wave
+     * @param {boolean} bell_alert
+     * @param {boolean} output_material
+     * @param {bigint} seed
+     */
+    set_matrix_rain(fps, density, speed, trail, alpha, head_alpha, hue, hue_color, mutation_ms, idle_secs, suppress_in_alt_screen, turn_wave, bell_alert, output_material, seed) {
+        const ptr0 = passStringToWasm0(hue, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermgputerminal_set_matrix_rain(this.__wbg_ptr, fps, density, speed, trail, isLikeNone(alpha) ? 0x100000001 : (alpha) >>> 0, isLikeNone(head_alpha) ? 0x100000001 : (head_alpha) >>> 0, ptr0, len0, isLikeNone(hue_color) ? 0x100000001 : (hue_color) >>> 0, mutation_ms, idle_secs, suppress_in_alt_screen, turn_wave, bell_alert, output_material, seed);
+    }
+    /**
+     * Enable PHOSPHOR matrix rain. With output material opted in, the shared
+     * pipeline samples supported literal codepoints outside the current
+     * cursor/composer protection band and emits only into empty default-bg cells.
+     * @param {boolean} on
+     */
+    set_matrix_rain_enabled(on) {
+        wasm.atermgputerminal_set_matrix_rain_enabled(this.__wbg_ptr, on);
+    }
+    /**
+     * Accessibility motion gate for PHOSPHOR.
+     * @param {boolean} on
+     */
+    set_matrix_rain_reduced_motion(on) {
+        wasm.atermgputerminal_set_matrix_rain_reduced_motion(this.__wbg_ptr, on);
     }
     /**
      * Set the per-cell minimum contrast ratio (xterm's `minimumContrastRatio`,
@@ -2370,7 +2443,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598(a, state0.b, arg0, arg1);
+                        return wasm_bindgen__convert__closures_____invoke__ha85feb40cf0a14ba(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -2747,7 +2820,7 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 35, function: Function { arguments: [Externref], shim_idx: 36, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h1a0100ca1d7e7abb, wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da);
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h72add29b690f7b49, wasm_bindgen__convert__closures_____invoke__hcfa87cb5c71350c9);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -2811,12 +2884,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures_____invoke__hcfa87cb5c71350c9(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures_____invoke__hcfa87cb5c71350c9(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598(arg0, arg1, arg2, arg3);
+function wasm_bindgen__convert__closures_____invoke__ha85feb40cf0a14ba(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen__convert__closures_____invoke__ha85feb40cf0a14ba(arg0, arg1, arg2, arg3);
 }
 
 const AtermGpuTerminalFinalization = (typeof FinalizationRegistry === 'undefined')

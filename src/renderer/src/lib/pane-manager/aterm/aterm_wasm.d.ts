@@ -143,6 +143,15 @@ export class AtermTerminal {
      */
     note_keystroke(): void;
     /**
+     * Feed wheel/PgUp activity from an alternate-screen TUI so rain pauses
+     * while the user reads its transcript.
+     */
+    note_matrix_rain_alt_scroll(): void;
+    /**
+     * Feed a terminal visual bell into PHOSPHOR's bounded alert tint.
+     */
+    note_matrix_rain_bell(): void;
+    /**
      * Feed raw PTY output bytes into the engine.
      */
     process(bytes: Uint8Array): void;
@@ -398,6 +407,11 @@ export class AtermTerminal {
      */
     set_effects_focused(focused: boolean): void;
     /**
+     * Tri-state pane visibility for bounded rain draining:
+     * `focused|visible_unfocused|hidden`.
+     */
+    set_effects_visibility(state: string): void;
+    /**
      * Inject a colour-emoji (sbix) face from font bytes, driving the existing
      * ColorEmoji colour path. Same rationale as [`set_fallback_font`]: the host
      * supplies the OS emoji font. No-throw (the `String` Err surfaces as a
@@ -448,6 +462,23 @@ export class AtermTerminal {
      * cell_height + recomputes the grid after.
      */
     set_line_height(scale: number): void;
+    /**
+     * Configure PHOSPHOR using the native bounds. `hue` is
+     * `matrix|theme|custom`; `hue_color` is used only for `custom`.
+     * `output_material` opts into supported literal screen codepoints; hosts
+     * that cannot protect their current composer can leave it false.
+     */
+    set_matrix_rain(fps: number, density: number, speed: number, trail: number, alpha: number | null | undefined, head_alpha: number | null | undefined, hue: string, hue_color: number | null | undefined, mutation_ms: number, idle_secs: number, suppress_in_alt_screen: boolean, turn_wave: boolean, bell_alert: boolean, output_material: boolean, seed: bigint): void;
+    /**
+     * Enable PHOSPHOR matrix rain. With output material opted in, the shared
+     * pipeline samples supported literal codepoints outside the current
+     * cursor/composer protection band and emits only into empty default-bg cells.
+     */
+    set_matrix_rain_enabled(on: boolean): void;
+    /**
+     * Accessibility motion gate for PHOSPHOR.
+     */
+    set_matrix_rain_reduced_motion(on: boolean): void;
     /**
      * Set the per-cell minimum contrast ratio (xterm's `minimumContrastRatio`,
      * 1..=21): every glyph fg is floored against its OWN cell bg — the classic
@@ -758,6 +789,10 @@ export class AtermTerminal {
      */
     readonly keyboard_mode_bits: number;
     /**
+     * Whether PHOSPHOR matrix rain is enabled.
+     */
+    readonly matrix_rain_enabled: boolean;
+    /**
      * True for AnyEvent (1003): report motion even with NO button pressed.
      * 1002 only reports motion while a button is held; the host uses this to
      * decide whether a button-less `mousemove` should be forwarded.
@@ -931,11 +966,14 @@ export interface InitOutput {
     readonly atermterminal_is_mouse_tracking: (a: number) => number;
     readonly atermterminal_keyboard_mode_bits: (a: number) => number;
     readonly atermterminal_link_at: (a: number, b: number, c: number) => number;
+    readonly atermterminal_matrix_rain_enabled: (a: number) => number;
     readonly atermterminal_mouse_wants_any_motion: (a: number) => number;
     readonly atermterminal_mouse_wants_motion: (a: number) => number;
     readonly atermterminal_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly atermterminal_new_registered: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly atermterminal_note_keystroke: (a: number) => void;
+    readonly atermterminal_note_matrix_rain_alt_scroll: (a: number) => void;
+    readonly atermterminal_note_matrix_rain_bell: (a: number) => void;
     readonly atermterminal_process: (a: number, b: number, c: number) => void;
     readonly atermterminal_process_str: (a: number, b: number, c: number) => void;
     readonly atermterminal_render: (a: number) => void;
@@ -980,6 +1018,7 @@ export interface InitOutput {
     readonly atermterminal_set_default_cursor_style: (a: number, b: number) => void;
     readonly atermterminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;
     readonly atermterminal_set_effects_focused: (a: number, b: number) => void;
+    readonly atermterminal_set_effects_visibility: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_emoji_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_emoji_font_registered: (a: number, b: number) => [number, number];
     readonly atermterminal_set_fallback_font: (a: number, b: number, c: number) => [number, number];
@@ -988,6 +1027,9 @@ export interface InitOutput {
     readonly atermterminal_set_kitty_keyboard_enabled: (a: number, b: number) => void;
     readonly atermterminal_set_ligatures: (a: number, b: number) => void;
     readonly atermterminal_set_line_height: (a: number, b: number) => void;
+    readonly atermterminal_set_matrix_rain: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number, o: number, p: number, q: bigint) => void;
+    readonly atermterminal_set_matrix_rain_enabled: (a: number, b: number) => void;
+    readonly atermterminal_set_matrix_rain_reduced_motion: (a: number, b: number) => void;
     readonly atermterminal_set_minimum_contrast: (a: number, b: number) => void;
     readonly atermterminal_set_palette_color: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_primary_font: (a: number, b: number, c: number) => [number, number];

@@ -13,7 +13,7 @@ import { translate } from '@/i18n/i18n'
 
 // Live effects preview: a REAL aterm CPU engine instance (same pattern as
 // TerminalSettingsPreview's embedded engine) typing a small script on a loop so
-// the enabled effects — cursor glow, sparkle words — animate exactly as they
+// the enabled effects — cursor glow, sparkle words, Matrix Rain — animate exactly as they
 // would in a live pane, and settle to zero work when done.
 
 // Fixed demo grid: wide enough for the longest script line + splash headroom,
@@ -97,7 +97,8 @@ export function TerminalEngineEffectsDemo({
     settings.terminalEffectsSparkleOrca,
     settings.terminalEffectsSparkleEmphasis,
     settings.terminalEffectsCursorGlow,
-    settings.terminalEffectsCursorGlowStyle
+    settings.terminalEffectsCursorGlowStyle,
+    settings.terminalMatrixRainEnabled
   ])
 
   useEffect(() => {

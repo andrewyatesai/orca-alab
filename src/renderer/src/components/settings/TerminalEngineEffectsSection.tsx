@@ -77,7 +77,7 @@ export function TerminalEngineEffectsSection({
         <p className="text-xs text-muted-foreground">
           {translate(
             'auto.components.settings.TerminalEnginePane.effects.reducedMotionNote',
-            'Your system prefers reduced motion: sparkle decorations render statically and cursor glow stays off. The engine’s flash-safety limiter always applies.'
+            'Your system prefers reduced motion: sparkle decorations render statically, while cursor glow and Matrix Rain stay off. The engine’s flash-safety limiter always applies.'
           )}
         </p>
       ) : null}
@@ -165,6 +165,35 @@ export function TerminalEngineEffectsSection({
               )
             )}
           </div>
+        </SearchableSetting>
+
+        <SearchableSetting
+          title={translate(
+            'auto.components.settings.TerminalEnginePane.effects.matrixRain.title',
+            'Matrix Rain'
+          )}
+          description={translate(
+            'auto.components.settings.TerminalEnginePane.effects.matrixRain.description',
+            "Cascade glyphs sampled from this pane's live terminal output."
+          )}
+          keywords={['terminal', 'effects', 'matrix', 'rain', 'live output', 'codex', 'claude']}
+        >
+          <SettingsSwitchRow
+            label={translate(
+              'auto.components.settings.TerminalEnginePane.effects.matrixRain.title',
+              'Matrix Rain'
+            )}
+            description={translate(
+              'auto.components.settings.TerminalEnginePane.effects.matrixRain.switchDescription',
+              'Uses real glyphs from live Codex, Claude, and shell output instead of decorative placeholder characters.'
+            )}
+            checked={settings.terminalMatrixRainEnabled ?? false}
+            onChange={() =>
+              updateSettings({
+                terminalMatrixRainEnabled: !(settings.terminalMatrixRainEnabled ?? false)
+              })
+            }
+          />
         </SearchableSetting>
 
         <SearchableSetting

@@ -299,7 +299,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     textarea,
     redraw: scheduleDraw,
     isDisposed: () => disposed,
-    getCursorBlink: controllerOptions?.getCursorBlink
+    getCursorBlink: controllerOptions?.getCursorBlink,
+    isDrawSuspended: drawScheduler.isSuspended
   })
 
   // Focus the helper textarea on canvas click (the canvas isn't focusable).
@@ -419,6 +420,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     setDrawSuspended: (suspended: boolean) => {
       strategy.setDrawSuspended?.(suspended)
       drawScheduler.setSuspended(suspended)
+      cursorBlink.refreshEffectsVisibility()
     },
     ...replySurface,
     dispose: teardown

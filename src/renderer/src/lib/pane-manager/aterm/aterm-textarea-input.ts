@@ -4,6 +4,10 @@ import {
   type AtermEngineKeyEncoder
 } from './aterm-key-encoding'
 import { createAtermCompositionView } from './aterm-composition-view'
+import {
+  shouldNoteAtermKeystroke,
+  shouldNoteAtermMatrixRainActivity
+} from './aterm-effects-activity-gate'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -110,6 +114,15 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
   const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
   let composing = false
+  const effectsTerm = term as AtermTerminal & {
+    note_keystroke?: () => void
+    note_matrix_rain_alt_scroll?: () => void
+  }
+  const noteEffectsKeystroke = (): void => {
+    if (shouldNoteAtermKeystroke(effectsTerm)) {
+      effectsTerm.note_keystroke?.()
+    }
+  }
 
   // Worker-backed terms expose no encode_key (no engine on this thread); they
   // encode through the free function + snapshot mode bits (see the JSDoc above).
@@ -197,6 +210,11 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       event.preventDefault()
       return
     }
+    if (term.is_alt_screen && (event.key === 'PageUp' || event.key === 'PageDown')) {
+      if (shouldNoteAtermMatrixRainActivity(effectsTerm)) {
+        effectsTerm.note_matrix_rain_alt_scroll?.()
+      }
+    }
     const bytes = encodeKeyEventToBytes(event, encodeWithEngine, {
       isMac,
       // Read per press so a live settings toggle applies without a pane rebuild.
@@ -212,6 +230,7 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       return
     }
     event.preventDefault()
+    noteEffectsKeystroke()
     inputSink(bytes)
     // Clear so the sink-bound textarea never accumulates the typed characters.
     textarea.value = ''
@@ -277,6 +296,7 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       if (isPasteInsert) {
         pasteSink(data)
       } else {
+        noteEffectsKeystroke()
         inputSink(data)
       }
     }
@@ -300,6 +320,7 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     composing = false
     // Committed text sends exactly once, here (a cancel delivers empty data).
     if (event.data) {
+      noteEffectsKeystroke()
       inputSink(event.data)
     }
     textarea.value = ''

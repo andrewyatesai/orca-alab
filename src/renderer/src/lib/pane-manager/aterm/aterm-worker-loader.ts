@@ -9,6 +9,7 @@ import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer-config'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
+import { attachAtermWorkerRainFacade } from './aterm-worker-rain-facade'
 
 // Per-pane client of the SHARED render worker (aterm-shared-render-worker): acquires
 // a paneId slot, transfers the pane's OffscreenCanvas, awaits the pane's first STATE,
@@ -283,6 +284,7 @@ export async function loadAtermWorkerEngine(
   ): void => post({ type: 'setSparkleClasses', profanity, feline, orca, emphasis })
   backed.term.set_sparkle_reduced_motion = (on: boolean): void =>
     post({ type: 'setSparkleReducedMotion', on })
+  const rainFacade = attachAtermWorkerRainFacade(backed.term, post)
   backed.term.set_cursor_glow = (
     enabled: boolean,
     style: string,
@@ -293,7 +295,8 @@ export async function loadAtermWorkerEngine(
     intensity: number,
     radius: number,
     ring: boolean
-  ): void =>
+  ): void => {
+    rainFacade.setCursorGlowEnabled(enabled)
     post({
       type: 'setCursorGlow',
       enabled,
@@ -306,6 +309,7 @@ export async function loadAtermWorkerEngine(
       radius,
       ring
     })
+  }
   backed.term.set_effects_focused = (focused: boolean): void =>
     post({ type: 'setEffectsFocused', focused })
   // The worker owns the pane canvas, so search highlights + the link underline paint on

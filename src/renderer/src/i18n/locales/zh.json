@@ -8383,6 +8383,8 @@
           },
           "engine": {
             "search": {
+              "matrixRain": "矩阵雨",
+              "matrixRainDescription": "使用从 Codex、Claude 和 shell 实时输出中采样的真实字形生成雨幕。",
               "sparkle": "闪耀词",
               "sparkleDescription": "为终端输出中的词典词语（虎鲸水花、猫、超新星）添加动画。",
               "glow": "光标辉光",
@@ -8390,6 +8392,9 @@
               "engine": "终端引擎",
               "engineDescription": "aterm 引擎：特效、渲染、文本整形、Scrollback、输入与剪贴板安全。",
               "kwEffects": "特效",
+              "kwMatrix": "矩阵",
+              "kwRain": "雨幕",
+              "kwLiveOutput": "实时输出",
               "kwSparkle": "闪耀",
               "kwAnimation": "动画",
               "kwCursor": "光标",
@@ -8869,7 +8874,7 @@
           "effects": {
             "title": "特效",
             "description": "引擎的动画特效。全部默认关闭；关闭时终端渲染逐字节一致。",
-            "reducedMotionNote": "你的系统偏好减弱动态效果：闪耀装饰将静态显示，光标辉光保持关闭。引擎的防闪烁限制器始终生效。",
+            "reducedMotionNote": "你的系统偏好减弱动态效果：闪耀装饰将静态显示，光标辉光和 Matrix Rain 保持关闭。引擎的防闪烁限制器始终生效。",
             "sparkle": {
               "title": "闪耀词",
               "description": "当引擎词典中的词语出现在终端输出中时进行装饰。",
@@ -8894,6 +8899,11 @@
             "classEmphasis": {
               "title": "强调墨迹",
               "description": "为强调词语添加动画墨迹渐变。内置词典尚未包含强调词，因此仅影响自定义词典。"
+            },
+            "matrixRain": {
+              "title": "矩阵雨",
+              "description": "让从此终端窗格实时输出中采样的字形如雨般落下。",
+              "switchDescription": "使用 Codex、Claude 和 shell 实时输出中的真实字形，而非装饰性占位字符。"
             },
             "cursorGlow": {
               "title": "光标辉光",

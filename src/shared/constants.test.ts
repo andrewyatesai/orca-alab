@@ -35,6 +35,10 @@ describe('getDefaultSettings', () => {
     expect(getDefaultSettings('/tmp').terminalCursorStyleDefaultedToBlock).toBe(true)
   })
 
+  it('keeps literal Matrix Rain opt-in', () => {
+    expect(getDefaultSettings('/tmp').terminalMatrixRainEnabled).toBe(false)
+  })
+
   it('enables separate light terminal theme by default', () => {
     expect(getDefaultSettings('/tmp').terminalUseSeparateLightTheme).toBe(true)
   })

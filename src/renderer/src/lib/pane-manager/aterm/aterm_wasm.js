@@ -437,6 +437,14 @@ export class AtermTerminal {
         return ret === 0 ? undefined : LinkHit.__wrap(ret);
     }
     /**
+     * Whether PHOSPHOR matrix rain is enabled.
+     * @returns {boolean}
+     */
+    get matrix_rain_enabled() {
+        const ret = wasm.atermterminal_matrix_rain_enabled(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
      * True for AnyEvent (1003): report motion even with NO button pressed.
      * 1002 only reports motion while a button is held; the host uses this to
      * decide whether a button-less `mousemove` should be forwarded.
@@ -511,6 +519,19 @@ export class AtermTerminal {
      */
     note_keystroke() {
         wasm.atermterminal_note_keystroke(this.__wbg_ptr);
+    }
+    /**
+     * Feed wheel/PgUp activity from an alternate-screen TUI so rain pauses
+     * while the user reads its transcript.
+     */
+    note_matrix_rain_alt_scroll() {
+        wasm.atermterminal_note_matrix_rain_alt_scroll(this.__wbg_ptr);
+    }
+    /**
+     * Feed a terminal visual bell into PHOSPHOR's bounded alert tint.
+     */
+    note_matrix_rain_bell() {
+        wasm.atermterminal_note_matrix_rain_bell(this.__wbg_ptr);
     }
     /**
      * Feed raw PTY output bytes into the engine.
@@ -1019,6 +1040,16 @@ export class AtermTerminal {
         wasm.atermterminal_set_effects_focused(this.__wbg_ptr, focused);
     }
     /**
+     * Tri-state pane visibility for bounded rain draining:
+     * `focused|visible_unfocused|hidden`.
+     * @param {string} state
+     */
+    set_effects_visibility(state) {
+        const ptr0 = passStringToWasm0(state, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_effects_visibility(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
      * Inject a colour-emoji (sbix) face from font bytes, driving the existing
      * ColorEmoji colour path. Same rationale as [`set_fallback_font`]: the host
      * supplies the OS emoji font. No-throw (the `String` Err surfaces as a
@@ -1110,6 +1141,48 @@ export class AtermTerminal {
      */
     set_line_height(scale) {
         wasm.atermterminal_set_line_height(this.__wbg_ptr, scale);
+    }
+    /**
+     * Configure PHOSPHOR using the native bounds. `hue` is
+     * `matrix|theme|custom`; `hue_color` is used only for `custom`.
+     * `output_material` opts into supported literal screen codepoints; hosts
+     * that cannot protect their current composer can leave it false.
+     * @param {number} fps
+     * @param {number} density
+     * @param {number} speed
+     * @param {number} trail
+     * @param {number | null | undefined} alpha
+     * @param {number | null | undefined} head_alpha
+     * @param {string} hue
+     * @param {number | null | undefined} hue_color
+     * @param {number} mutation_ms
+     * @param {number} idle_secs
+     * @param {boolean} suppress_in_alt_screen
+     * @param {boolean} turn_wave
+     * @param {boolean} bell_alert
+     * @param {boolean} output_material
+     * @param {bigint} seed
+     */
+    set_matrix_rain(fps, density, speed, trail, alpha, head_alpha, hue, hue_color, mutation_ms, idle_secs, suppress_in_alt_screen, turn_wave, bell_alert, output_material, seed) {
+        const ptr0 = passStringToWasm0(hue, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermterminal_set_matrix_rain(this.__wbg_ptr, fps, density, speed, trail, isLikeNone(alpha) ? 0x100000001 : (alpha) >>> 0, isLikeNone(head_alpha) ? 0x100000001 : (head_alpha) >>> 0, ptr0, len0, isLikeNone(hue_color) ? 0x100000001 : (hue_color) >>> 0, mutation_ms, idle_secs, suppress_in_alt_screen, turn_wave, bell_alert, output_material, seed);
+    }
+    /**
+     * Enable PHOSPHOR matrix rain. With output material opted in, the shared
+     * pipeline samples supported literal codepoints outside the current
+     * cursor/composer protection band and emits only into empty default-bg cells.
+     * @param {boolean} on
+     */
+    set_matrix_rain_enabled(on) {
+        wasm.atermterminal_set_matrix_rain_enabled(this.__wbg_ptr, on);
+    }
+    /**
+     * Accessibility motion gate for PHOSPHOR.
+     * @param {boolean} on
+     */
+    set_matrix_rain_reduced_motion(on) {
+        wasm.atermterminal_set_matrix_rain_reduced_motion(this.__wbg_ptr, on);
     }
     /**
      * Set the per-cell minimum contrast ratio (xterm's `minimumContrastRatio`,

@@ -2567,6 +2567,9 @@ export type GlobalSettings = {
   terminalEffectsSparkleEmphasis?: boolean
   terminalEffectsCursorGlow?: boolean
   terminalEffectsCursorGlowStyle?: TerminalCursorGlowStyle
+  /** Literal Matrix Rain effect. Glyphs are sampled from live terminal output;
+   *  default false so an unset profile does not load or render the effect. */
+  terminalMatrixRainEnabled?: boolean
   /** One-time stamp: the persistence loader flipped the inherited lumen/sparkle-on
    *  defaults to the native-Orca water trail / sparkle-off once. Guards re-running. */
   terminalEffectsNativeOrcaMigrated?: boolean

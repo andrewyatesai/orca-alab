@@ -9,6 +9,29 @@ import { createLocalizedCatalog } from '@/i18n/localized-catalog'
 
 const getTerminalEngineSearchEntryCatalog = createLocalizedCatalog((): SettingsSearchEntry[] => [
   {
+    title: translate('auto.components.settings.terminal.engine.search.matrixRain', 'Matrix Rain'),
+    description: translate(
+      'auto.components.settings.terminal.engine.search.matrixRainDescription',
+      'Rain made from real glyphs sampled from live Codex, Claude, and shell output.'
+    ),
+    keywords: [
+      ...translateSearchKeyword('auto.components.settings.terminal.search.f66a7cf715', 'terminal'),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.engine.search.kwEffects',
+        'effects'
+      ),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.engine.search.kwMatrix',
+        'matrix'
+      ),
+      ...translateSearchKeyword('auto.components.settings.terminal.engine.search.kwRain', 'rain'),
+      ...translateSearchKeyword(
+        'auto.components.settings.terminal.engine.search.kwLiveOutput',
+        'live output'
+      )
+    ]
+  },
+  {
     title: translate('auto.components.settings.terminal.engine.search.sparkle', 'Sparkle Words'),
     description: translate(
       'auto.components.settings.terminal.engine.search.sparkleDescription',

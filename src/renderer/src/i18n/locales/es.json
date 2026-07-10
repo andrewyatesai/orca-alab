@@ -8383,6 +8383,8 @@
           },
           "engine": {
             "search": {
+              "matrixRain": "Lluvia de Matrix",
+              "matrixRainDescription": "Lluvia formada por glifos reales tomados de la salida en directo de Codex, Claude y el shell.",
               "sparkle": "Palabras brillantes",
               "sparkleDescription": "Anima palabras del léxico (salpicaduras de orca, gatos, supernovas) en la salida del terminal.",
               "glow": "Brillo del cursor",
@@ -8390,6 +8392,9 @@
               "engine": "Motor de terminal",
               "engineDescription": "El motor aterm: efectos, renderizado, tipografía, scrollback, entrada y seguridad del portapapeles.",
               "kwEffects": "efectos",
+              "kwMatrix": "matrix",
+              "kwRain": "lluvia",
+              "kwLiveOutput": "salida en directo",
               "kwSparkle": "brillo",
               "kwAnimation": "animación",
               "kwCursor": "cursor",
@@ -8869,7 +8874,7 @@
           "effects": {
             "title": "Efectos",
             "description": "Efectos animados del motor. Todos desactivados por defecto; desactivados, el renderizado del terminal es idéntico byte a byte.",
-            "reducedMotionNote": "Tu sistema prefiere el movimiento reducido: las decoraciones brillantes se muestran estáticas y el brillo del cursor permanece desactivado. El limitador de destellos del motor se aplica siempre.",
+            "reducedMotionNote": "Tu sistema prefiere el movimiento reducido: las decoraciones brillantes se muestran estáticas, mientras que el brillo del cursor y Matrix Rain permanecen desactivados. El limitador de destellos del motor se aplica siempre.",
             "sparkle": {
               "title": "Palabras brillantes",
               "description": "Decora palabras del léxico del motor cuando aparecen en la salida del terminal.",
@@ -8894,6 +8899,11 @@
             "classEmphasis": {
               "title": "Tinta de énfasis",
               "description": "Gradiente de tinta animado en palabras de énfasis. El léxico integrado aún no incluye palabras de énfasis, así que solo afecta a léxicos personalizados."
+            },
+            "matrixRain": {
+              "title": "Lluvia de Matrix",
+              "description": "Hace caer glifos tomados de la salida en directo de este panel de terminal.",
+              "switchDescription": "Usa glifos reales de la salida en directo de Codex, Claude y el shell, en lugar de caracteres decorativos de relleno."
             },
             "cursorGlow": {
               "title": "Brillo del cursor",

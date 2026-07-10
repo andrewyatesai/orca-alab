@@ -8383,6 +8383,8 @@
           },
           "engine": {
             "search": {
+              "matrixRain": "매트릭스 레인",
+              "matrixRainDescription": "Codex, Claude 및 셸의 실시간 출력에서 가져온 실제 글리프로 만드는 레인 효과입니다.",
               "sparkle": "스파클 단어",
               "sparkleDescription": "터미널 출력의 사전 단어(범고래 물튀김, 고양이, 초신성)에 애니메이션을 적용합니다.",
               "glow": "커서 글로우",
@@ -8390,6 +8392,9 @@
               "engine": "터미널 엔진",
               "engineDescription": "aterm 엔진: 효과, 렌더링, 텍스트 셰이핑, Scrollback, 입력 및 클립보드 보안.",
               "kwEffects": "효과",
+              "kwMatrix": "매트릭스",
+              "kwRain": "레인",
+              "kwLiveOutput": "실시간 출력",
               "kwSparkle": "스파클",
               "kwAnimation": "애니메이션",
               "kwCursor": "커서",
@@ -8869,7 +8874,7 @@
           "effects": {
             "title": "효과",
             "description": "엔진의 애니메이션 효과입니다. 모두 기본적으로 꺼져 있으며, 꺼진 동안 터미널 렌더링은 바이트 단위로 동일합니다.",
-            "reducedMotionNote": "시스템이 동작 줄이기를 선호합니다. 스파클 장식은 정적으로 표시되고 커서 글로우는 꺼진 상태로 유지됩니다. 엔진의 플래시 안전 제한기는 항상 적용됩니다.",
+            "reducedMotionNote": "시스템이 동작 줄이기를 선호합니다. 스파클 장식은 정적으로 표시되고 커서 글로우와 Matrix Rain은 꺼진 상태로 유지됩니다. 엔진의 플래시 안전 제한기는 항상 적용됩니다.",
             "sparkle": {
               "title": "스파클 단어",
               "description": "터미널 출력에 나타나는 엔진 사전 단어를 장식합니다.",
@@ -8894,6 +8899,11 @@
             "classEmphasis": {
               "title": "강조 잉크",
               "description": "강조 단어에 애니메이션 잉크 그라데이션을 적용합니다. 내장 사전에는 아직 강조 단어가 없으므로 사용자 지정 사전에만 영향을 줍니다."
+            },
+            "matrixRain": {
+              "title": "매트릭스 레인",
+              "description": "이 터미널 창의 실시간 출력에서 가져온 글리프가 비처럼 내립니다.",
+              "switchDescription": "장식용 대체 문자 대신 Codex, Claude 및 셸의 실시간 출력에 있는 실제 글리프를 사용합니다."
             },
             "cursorGlow": {
               "title": "커서 글로우",

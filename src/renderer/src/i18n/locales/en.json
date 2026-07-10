@@ -8383,6 +8383,8 @@
           },
           "engine": {
             "search": {
+              "matrixRain": "Matrix Rain",
+              "matrixRainDescription": "Rain made from real glyphs sampled from live Codex, Claude, and shell output.",
               "sparkle": "Sparkle Words",
               "sparkleDescription": "Animate lexicon words (orca splashes, cats, supernovas) in terminal output.",
               "glow": "Cursor Glow",
@@ -8390,6 +8392,9 @@
               "engine": "Terminal Engine",
               "engineDescription": "The aterm engine: effects, rendering, text shaping, scrollback, input, and clipboard security.",
               "kwEffects": "effects",
+              "kwMatrix": "matrix",
+              "kwRain": "rain",
+              "kwLiveOutput": "live output",
               "kwSparkle": "sparkle",
               "kwAnimation": "animation",
               "kwCursor": "cursor",
@@ -8869,7 +8874,7 @@
           "effects": {
             "title": "Effects",
             "description": "Animated engine effects. All default off; when off, terminal rendering is byte-identical.",
-            "reducedMotionNote": "Your system prefers reduced motion: sparkle decorations render statically and cursor glow stays off. The engine’s flash-safety limiter always applies.",
+            "reducedMotionNote": "Your system prefers reduced motion: sparkle decorations render statically, while cursor glow and Matrix Rain stay off. The engine’s flash-safety limiter always applies.",
             "sparkle": {
               "title": "Sparkle Words",
               "description": "Decorate words from the engine lexicon as they appear in terminal output.",
@@ -8894,6 +8899,11 @@
             "classEmphasis": {
               "title": "Emphasis ink",
               "description": "Animated ink gradient on emphasis words. The built-in lexicon ships no emphasis words yet, so this only affects custom lexicon overrides."
+            },
+            "matrixRain": {
+              "title": "Matrix Rain",
+              "description": "Cascade glyphs sampled from this pane's live terminal output.",
+              "switchDescription": "Uses real glyphs from live Codex, Claude, and shell output instead of decorative placeholder characters."
             },
             "cursorGlow": {
               "title": "Cursor Glow",

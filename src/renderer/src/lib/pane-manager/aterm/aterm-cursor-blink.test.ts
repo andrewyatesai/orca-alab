@@ -12,6 +12,7 @@ type RecordingTerm = AtermCursorTarget & {
   hollow: boolean[]
   inactive: boolean[]
   phases: boolean[]
+  visibilities: ('focused' | 'visible_unfocused' | 'hidden')[]
 }
 
 function makeTerm(): RecordingTerm {
@@ -19,6 +20,7 @@ function makeTerm(): RecordingTerm {
     hollow: [],
     inactive: [],
     phases: [],
+    visibilities: [],
     set_cursor_blink_phase: (on: boolean) => {
       term.phases.push(on)
     },
@@ -27,6 +29,9 @@ function makeTerm(): RecordingTerm {
     },
     set_selection_inactive: (i: boolean) => {
       term.inactive.push(i)
+    },
+    set_effects_visibility: (state) => {
+      term.visibilities.push(state)
     }
   }
   return term
@@ -55,6 +60,7 @@ describe('attachAtermCursorBlink — inactive-selection focus wiring', () => {
     // Unfocused seed: hollow cursor AND inactive selection both turned on.
     expect(term.hollow.at(-1)).toBe(true)
     expect(term.inactive.at(-1)).toBe(true)
+    expect(term.visibilities.at(-1)).toBe('visible_unfocused')
     blink.dispose()
   })
 
@@ -75,17 +81,45 @@ describe('attachAtermCursorBlink — inactive-selection focus wiring', () => {
     // Focused seed → selection active (inactive=false), cursor solid (hollow=false).
     expect(term.inactive.at(-1)).toBe(false)
     expect(term.hollow.at(-1)).toBe(false)
+    expect(term.visibilities.at(-1)).toBe('focused')
 
     // Blur → selection dims (inactive=true), cursor hollow.
     textarea.dispatchEvent(new FocusEvent('blur'))
     expect(term.inactive.at(-1)).toBe(true)
     expect(term.hollow.at(-1)).toBe(true)
+    expect(term.visibilities.at(-1)).toBe('visible_unfocused')
 
     // Re-focus → selection active again (inactive=false), cursor solid.
     textarea.dispatchEvent(new FocusEvent('focus'))
     expect(term.inactive.at(-1)).toBe(false)
     expect(term.hollow.at(-1)).toBe(false)
+    expect(term.visibilities.at(-1)).toBe('focused')
 
+    blink.dispose()
+  })
+
+  it('reports hidden while drawing is suspended, regardless of DOM focus', () => {
+    const term = makeTerm()
+    const textarea = document.createElement('textarea')
+    document.body.appendChild(textarea)
+    textarea.focus()
+    let suspended = false
+    const blink = attachAtermCursorBlink({
+      term,
+      textarea,
+      redraw: () => undefined,
+      isDisposed: () => false,
+      getCursorBlink: () => false,
+      isDrawSuspended: () => suspended
+    })
+
+    expect(term.visibilities.at(-1)).toBe('focused')
+    suspended = true
+    blink.refreshEffectsVisibility()
+    expect(term.visibilities.at(-1)).toBe('hidden')
+    suspended = false
+    blink.refreshEffectsVisibility()
+    expect(term.visibilities.at(-1)).toBe('focused')
     blink.dispose()
   })
 

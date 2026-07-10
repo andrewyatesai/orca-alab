@@ -8873,7 +8873,7 @@
           },
           "effects": {
             "title": "Effects",
-            "description": "Animated engine effects. All default off; when off, terminal rendering is byte-identical.",
+            "description": "Word art and the water cursor trail are on by default; Matrix Rain remains opt-in. Disabled effects add no rendering work.",
             "reducedMotionNote": "Your system prefers reduced motion: sparkle decorations render statically, while cursor glow and Matrix Rain stay off. The engine’s flash-safety limiter always applies.",
             "sparkle": {
               "title": "Sparkle Words",

@@ -8873,7 +8873,7 @@
           },
           "effects": {
             "title": "Efectos",
-            "description": "Efectos animados del motor. Todos desactivados por defecto; desactivados, el renderizado del terminal es idéntico byte a byte.",
+            "description": "El arte de palabras y la estela de agua del cursor están activados de forma predeterminada; Matrix Rain sigue siendo opcional. Los efectos desactivados no añaden trabajo de renderizado.",
             "reducedMotionNote": "Tu sistema prefiere el movimiento reducido: las decoraciones brillantes se muestran estáticas, mientras que el brillo del cursor y Matrix Rain permanecen desactivados. El limitador de destellos del motor se aplica siempre.",
             "sparkle": {
               "title": "Palabras brillantes",

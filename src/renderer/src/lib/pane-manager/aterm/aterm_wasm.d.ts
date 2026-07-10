@@ -62,10 +62,8 @@ export class AtermTerminal {
      */
     drain_bell(): boolean;
     /**
-     * Milliseconds until the next scheduled idle one-shot (settled-cat blink /
-     * ear-twitch), or `undefined` when none is armed. These arm while
-     * `is_effects_active()` is `false`; a host that wants idle cat life
-     * schedules one timer for this and resumes its frame loop there.
+     * Milliseconds until the next rain engine tick, or `undefined` when
+     * active frame-rate motion needs rAF (and when every effect is idle).
      */
     effects_next_deadline_ms(): number | undefined;
     /**
@@ -110,9 +108,9 @@ export class AtermTerminal {
      */
     encode_mouse_wheel(col: number, row: number, up: boolean, mods: number): Uint8Array | undefined;
     /**
-     * `true` while any effect is animating — keep the rAF loop running (call
-     * `advance_effects` + `render`) only while this holds, then return to 0%
-     * idle. Effects self-terminate to a stable state, so this always settles.
+     * `true` while any effect is animating. Consult
+     * [`Self::effects_next_deadline_ms`] first: rain is active at 12/30 Hz and
+     * must not drive a 60/120 Hz display-rAF loop.
      */
     is_effects_active(): boolean;
     /**
@@ -139,7 +137,9 @@ export class AtermTerminal {
      * sparse/slow calls keep it gentle. The cadence reads the effects clock,
      * so the host must `advance_effects` between keystrokes for it to reflect
      * real time. Call this from the SAME JS keydown handler that feeds
-     * `encode_key`; without it the comet stays dormant on web hosts.
+     * `encode_key`; without it the comet stays dormant on web hosts. It also
+     * freezes literal-rain sampling while a draft is unsent; on submit call
+     * `note_matrix_rain_signal(10, 4)` after this method.
      */
     note_keystroke(): void;
     /**
@@ -151,6 +151,13 @@ export class AtermTerminal {
      * Feed a terminal visual bell into PHOSPHOR's bounded alert tint.
      */
     note_matrix_rain_bell(): void;
+    /**
+     * Payload-free observable-work pulse. Codes are `0 assistant, 1 inspect,
+     * 2 modify, 3 execute, 4 network, 5 branch, 6 waiting, 7 success,
+     * 8 failure, 9 interrupted, 10 turn-start`; weight clamps to `1..=8`.
+     * Turn-start also releases the unsent-composer material gate.
+     */
+    note_matrix_rain_signal(code: number, weight: number): void;
     /**
      * Feed raw PTY output bytes into the engine.
      */
@@ -974,6 +981,7 @@ export interface InitOutput {
     readonly atermterminal_note_keystroke: (a: number) => void;
     readonly atermterminal_note_matrix_rain_alt_scroll: (a: number) => void;
     readonly atermterminal_note_matrix_rain_bell: (a: number) => void;
+    readonly atermterminal_note_matrix_rain_signal: (a: number, b: number, c: number) => void;
     readonly atermterminal_process: (a: number, b: number, c: number) => void;
     readonly atermterminal_process_str: (a: number, b: number, c: number) => void;
     readonly atermterminal_render: (a: number) => void;

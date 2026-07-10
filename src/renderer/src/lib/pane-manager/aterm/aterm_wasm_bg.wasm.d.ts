@@ -46,6 +46,7 @@ export const atermterminal_new_registered: (a: number, b: number, c: number, d: 
 export const atermterminal_note_keystroke: (a: number) => void;
 export const atermterminal_note_matrix_rain_alt_scroll: (a: number) => void;
 export const atermterminal_note_matrix_rain_bell: (a: number) => void;
+export const atermterminal_note_matrix_rain_signal: (a: number, b: number, c: number) => void;
 export const atermterminal_process: (a: number, b: number, c: number) => void;
 export const atermterminal_process_str: (a: number, b: number, c: number) => void;
 export const atermterminal_render: (a: number) => void;

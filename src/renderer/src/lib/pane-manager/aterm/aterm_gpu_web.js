@@ -231,10 +231,8 @@ export class AtermGpuTerminal {
         return ret !== 0;
     }
     /**
-     * Milliseconds until the next scheduled idle one-shot (settled-cat blink /
-     * ear-twitch), or `undefined` when none is armed. These arm while
-     * `is_effects_active()` is `false`; a host that wants idle cat life
-     * schedules one timer for this and resumes its frame loop there.
+     * Milliseconds until the next rain engine tick, or `undefined` when
+     * active frame-rate motion needs rAF (and when every effect is idle).
      * @returns {number | undefined}
      */
     effects_next_deadline_ms() {
@@ -432,9 +430,9 @@ export class AtermGpuTerminal {
         return ret !== 0;
     }
     /**
-     * `true` while any effect is animating — keep the rAF loop running (call
-     * `advance_effects` + `render`) only while this holds, then return to 0%
-     * idle. Effects self-terminate to a stable state, so this always settles.
+     * `true` while any effect is animating. Consult
+     * [`Self::effects_next_deadline_ms`] first: rain is active at 12/30 Hz and
+     * must not drive a 60/120 Hz display-rAF loop.
      * @returns {boolean}
      */
     is_effects_active() {
@@ -561,7 +559,9 @@ export class AtermGpuTerminal {
      * sparse/slow calls keep it gentle. The cadence reads the effects clock,
      * so the host must `advance_effects` between keystrokes for it to reflect
      * real time. Call this from the SAME JS keydown handler that feeds
-     * `encode_key`; without it the comet stays dormant on web hosts.
+     * `encode_key`; without it the comet stays dormant on web hosts. It also
+     * freezes literal-rain sampling while a draft is unsent; on submit call
+     * `note_matrix_rain_signal(10, 4)` after this method.
      */
     note_keystroke() {
         wasm.atermgputerminal_note_keystroke(this.__wbg_ptr);
@@ -578,6 +578,17 @@ export class AtermGpuTerminal {
      */
     note_matrix_rain_bell() {
         wasm.atermgputerminal_note_matrix_rain_bell(this.__wbg_ptr);
+    }
+    /**
+     * Payload-free observable-work pulse. Codes are `0 assistant, 1 inspect,
+     * 2 modify, 3 execute, 4 network, 5 branch, 6 waiting, 7 success,
+     * 8 failure, 9 interrupted, 10 turn-start`; weight clamps to `1..=8`.
+     * Turn-start also releases the unsent-composer material gate.
+     * @param {number} code
+     * @param {number} weight
+     */
+    note_matrix_rain_signal(code, weight) {
+        wasm.atermgputerminal_note_matrix_rain_signal(this.__wbg_ptr, code, weight);
     }
     /**
      * Feed raw PTY output bytes into the engine.
@@ -2443,7 +2454,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return wasm_bindgen__convert__closures_____invoke__ha85feb40cf0a14ba(a, state0.b, arg0, arg1);
+                        return wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -2820,7 +2831,7 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 35, function: Function { arguments: [Externref], shim_idx: 36, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h72add29b690f7b49, wasm_bindgen__convert__closures_____invoke__hcfa87cb5c71350c9);
+            const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen_2fd77d7f9fb91949___closure__destroy___dyn_core_7d5f0a2ba6a62c33___ops__function__FnMut__wasm_bindgen_2fd77d7f9fb91949___JsValue____Output_______, wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0) {
@@ -2884,12 +2895,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen__convert__closures_____invoke__hcfa87cb5c71350c9(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures_____invoke__hcfa87cb5c71350c9(arg0, arg1, arg2);
+function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2) {
+    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2);
 }
 
-function wasm_bindgen__convert__closures_____invoke__ha85feb40cf0a14ba(arg0, arg1, arg2, arg3) {
-    wasm.wasm_bindgen__convert__closures_____invoke__ha85feb40cf0a14ba(arg0, arg1, arg2, arg3);
+function wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3) {
+    wasm.wasm_bindgen_2fd77d7f9fb91949___convert__closures_____invoke___wasm_bindgen_2fd77d7f9fb91949___JsValue__wasm_bindgen_2fd77d7f9fb91949___JsValue_____(arg0, arg1, arg2, arg3);
 }
 
 const AtermGpuTerminalFinalization = (typeof FinalizationRegistry === 'undefined')

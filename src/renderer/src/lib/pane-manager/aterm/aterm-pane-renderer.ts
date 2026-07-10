@@ -2,6 +2,7 @@ import { resolveAtermThemeColors } from './aterm-theme-colors'
 import { buildAtermInputDom } from './aterm-input-dom'
 import { loadAtermStrategy, type AtermPendingStrategy } from './aterm-strategy-select'
 import { loadAtermCpuDrawer } from './aterm-cpu-drawer'
+import { createStableAtermPaneController } from './aterm-pane-stable-controller'
 import {
   wireAtermPane,
   type AtermSharedLateBindings,
@@ -16,6 +17,13 @@ import type {
   AtermPanePasteSink,
   AtermPaneResizeSink
 } from './aterm-pane-controller-types'
+import {
+  EMPTY_ATERM_RAIN_PULSE_BUFFER,
+  bufferAtermRainPulse,
+  resumeAtermRainPulses,
+  type AtermRainPulse,
+  type AtermRainPulseBuffer
+} from '../../../../../shared/aterm-rain-signal'
 
 export type { AtermLinkContext } from './aterm-url-link-routing'
 export type {
@@ -63,6 +71,57 @@ function releaseGlContext(c: HTMLCanvasElement): void {
     c.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext()
   } catch {
     /* ignore */
+  }
+}
+
+const SWAP_BUFFER_CAP = 8_000_000
+
+/** Bounded live data retained only while a lost GPU drawer is replaced. Output
+ * stays ordered; semantic rain keeps the engine's strongest-pulse + turn latch. */
+function createAtermRendererSwapGap(): {
+  begin: () => void
+  bufferOutput: (data: string) => boolean
+  bufferRainPulse: (pulse: AtermRainPulse) => boolean
+  drain: () => { output: string[]; rainPulses: AtermRainPulse[] }
+  clear: () => void
+} {
+  let output: string[] | null = null
+  let outputBytes = 0
+  let rain: AtermRainPulseBuffer = EMPTY_ATERM_RAIN_PULSE_BUFFER
+  const clear = (): void => {
+    output = null
+    outputBytes = 0
+    rain = EMPTY_ATERM_RAIN_PULSE_BUFFER
+  }
+  return {
+    begin: () => {
+      output = []
+      outputBytes = 0
+      rain = EMPTY_ATERM_RAIN_PULSE_BUFFER
+    },
+    bufferOutput: (data) => {
+      if (!output) {
+        return false
+      }
+      if (outputBytes < SWAP_BUFFER_CAP) {
+        output.push(data)
+        outputBytes += data.length
+      }
+      return true
+    },
+    bufferRainPulse: (pulse) => {
+      if (!output) {
+        return false
+      }
+      rain = bufferAtermRainPulse(rain, pulse)
+      return true
+    },
+    drain: () => {
+      const buffered = { output: output ?? [], rainPulses: resumeAtermRainPulses(rain) }
+      clear()
+      return buffered
+    },
+    clear
   }
 }
 
@@ -179,19 +238,13 @@ export async function createAtermPaneController(
   // the new wiring resolves a tick later). While non-null the stable controller
   // buffers output here instead of dropping it on the torn-down wiring; the new
   // engine replays it in order once ready, so no live output is lost mid-swap.
-  let swapBuffer: string[] | null = null
-  let swapBufferBytes = 0
-  // Bound the buffer: a normal swap drains in ms, so anything past this means the
-  // CPU-drawer load hung (rejection is handled separately). Past the cap we stop
-  // buffering — bytes are then dropped, but bounded, not an unbounded heap leak.
-  const SWAP_BUFFER_CAP = 8_000_000
+  const swapGap = createAtermRendererSwapGap()
   const swapToCpu = (seedAnsi?: string): void => {
     if (swapping || controllerDisposed) {
       return
     }
     swapping = true
-    swapBuffer = []
-    swapBufferBytes = 0
+    swapGap.begin()
     console.warn('[aterm] draw path lost; swapping pane to the in-process CPU renderer')
     wired.teardown()
     if (e2eConfig.exposeStore) {
@@ -218,7 +271,7 @@ export async function createAtermPaneController(
             /* ignore */
           }
           freshCanvas.remove()
-          swapBuffer = null // pane gone; drop the buffered gap output
+          swapGap.clear()
           return
         }
         const nextPending: AtermPendingStrategy = {
@@ -253,10 +306,12 @@ export async function createAtermPaneController(
         }
         // Flush PTY output that arrived during the swap into the fresh engine, in
         // arrival order, BEFORE clearing the buffer so subsequent live bytes follow.
-        const buffered = swapBuffer ?? []
-        swapBuffer = null
-        for (const chunk of buffered) {
+        const buffered = swapGap.drain()
+        for (const chunk of buffered.output) {
           wired.controller.process(chunk)
+        }
+        for (const pulse of buffered.rainPulses) {
+          wired.controller.noteMatrixRainPulse(pulse)
         }
         // We deliberately do NOT replay the xterm shim's SerializeAddon buffer into
         // the fresh engine — its reconstructed output isn't guaranteed compatible with
@@ -275,8 +330,7 @@ export async function createAtermPaneController(
         // can't recover here, but it must not grow the heap. swapping stays true so a
         // repeat context-loss event doesn't re-enter a known-broken load.
         console.error('[aterm] CPU renderer load failed after context loss', err)
-        swapBuffer = null
-        swapBufferBytes = 0
+        swapGap.clear()
       })
   }
 
@@ -300,118 +354,41 @@ export async function createAtermPaneController(
 
   // Stable controller: every method delegates to the CURRENT wiring so a
   // context-loss swap is invisible to the caller (which holds this object).
-  return {
+  return createStableAtermPaneController({
     // Buffer output during a GPU→CPU swap (the old wiring is torn down and the new
     // one resolves a tick later); the new engine replays it. Else delegate live.
     process: (data) => {
       if (controllerDisposed) {
         return
       }
-      if (swapBuffer) {
-        // Stop appending past the cap (a hung load) so the buffer can't grow without
-        // bound; bytes past it are dropped but the heap stays bounded.
-        if (swapBufferBytes < SWAP_BUFFER_CAP) {
-          swapBuffer.push(data)
-          swapBufferBytes += data.length
-        }
+      if (swapGap.bufferOutput(data)) {
         return
       }
       wired.controller.process(data)
     },
-    displayOffset: () => wired.controller.displayOffset(),
-    scrollLines: (delta) => wired.controller.scrollLines(delta),
-    scrollToBottom: () => wired.controller.scrollToBottom(),
-    scrollToTop: () => wired.controller.scrollToTop(),
-    scrollToLine: (line) => wired.controller.scrollToLine(line),
-    selectionText: () => wired.controller.selectionText(),
-    clearSelection: () => wired.controller.clearSelection(),
-    selectionRange: () => wired.controller.selectionRange(),
-    linkAt: (row, col) => wired.controller.linkAt(row, col),
-    findMatches: (query, caseSensitive, isRegex) =>
-      wired.controller.findMatches(query, caseSensitive, isRegex),
-    findNextMatch: () => wired.controller.findNextMatch(),
-    findPreviousMatch: () => wired.controller.findPreviousMatch(),
-    clearSearch: () => wired.controller.clearSearch(),
-    searchMatchCount: () => wired.controller.searchMatchCount(),
-    searchActiveMatchIndex: () => wired.controller.searchActiveMatchIndex(),
-    onSearchStateChange: (handler) => wired.controller.onSearchStateChange(handler),
-    searchActiveMatchRect: () => wired.controller.searchActiveMatchRect(),
-    setFileLinkOpener: (fn) => wired.controller.setFileLinkOpener(fn),
-    setUrlLinkContext: (context) => wired.controller.setUrlLinkContext(context),
-    // Stored in `shared`, so a context-loss rebuild keeps the providers bound.
-    setLinkProviderSource: (source) => wired.controller.setLinkProviderSource(source),
+    noteMatrixRainPulse: (pulse) => {
+      if (controllerDisposed) {
+        return
+      }
+      if (swapping && swapGap.bufferRainPulse(pulse)) {
+        return
+      }
+      wired.controller.noteMatrixRainPulse(pulse)
+    },
     onSelectionMutation: (handler) => void selectionMutationListeners.add(handler),
-    updateTheme: (colors) => wired.controller.updateTheme(colors),
-    setSelectionInactive: (inactive) => wired.controller.setSelectionInactive(inactive),
-    setSelectionInactiveBg: (bg) => wired.controller.setSelectionInactiveBg(bg),
-    reapplyEngineSettings: () => wired.controller.reapplyEngineSettings(),
-    scheduleDraw: () => wired.controller.scheduleDraw(),
-    onEngineSideChannel: (handler) => wired.controller.onEngineSideChannel?.(handler),
-    settle: () => wired.controller.settle(),
-    keyboardModeBits: () => wired.controller.keyboardModeBits(),
-    encodeKeyForHost: (key, mods) => wired.controller.encodeKeyForHost(key, mods),
-    // Read the CURRENT wiring's kind/adapter so a GPU→CPU swap is reflected (the
-    // swap replaces `wired`, so this delegates to whichever path is live now).
-    rendererKind: () => wired.controller.rendererKind(),
-    adapterInfo: () => wired.controller.adapterInfo(),
-    setDrawSuspended: (suspended) => wired.controller.setDrawSuspended(suspended),
-    lastMouseReport: () => wired.controller.lastMouseReport(),
-    serialize: (scrollbackRows) => wired.controller.serialize(scrollbackRows),
-    serializeScrollback: (maxRows) => wired.controller.serializeScrollback(maxRows),
-    serializeAsync: (scrollbackRows) => wired.controller.serializeAsync(scrollbackRows),
-    serializeScrollbackAsync: (maxRows) => wired.controller.serializeScrollbackAsync(maxRows),
-    title: () => wired.controller.title(),
-    onTitleChange: (handler) => wired.controller.onTitleChange(handler),
-    gridSize: () => wired.controller.gridSize(),
-    resize: (cols, rows) => wired.controller.resize(cols, rows),
-    fitToContainer: () => wired.controller.fitToContainer(),
-    isAltScreen: () => wired.controller.isAltScreen(),
-    bracketedPasteMode: () => wired.controller.bracketedPasteMode(),
-    setClipboardWriteAuthorized: (allowed) => wired.controller.setClipboardWriteAuthorized(allowed),
-    setNotificationsAuthorized: (allowed) => wired.controller.setNotificationsAuthorized(allowed),
-    // Stable DOM nodes: the wrapper/textarea persist across a GPU→CPU swap (only
-    // the canvas inside the screen is replaced), so the facade can hold them.
+    current: () => wired.controller,
     element: inputDom.wrapper,
     textarea: inputDom.textarea,
-    isFocusEventMode: () => wired.controller.isFocusEventMode(),
-    isMouseTracking: () => wired.controller.isMouseTracking(),
-    isColorSchemeUpdatesMode: () => wired.controller.isColorSchemeUpdatesMode(),
-    isAppCursorMode: () => wired.controller.isAppCursorMode(),
-    cursorX: () => wired.controller.cursorX(),
-    cursorY: () => wired.controller.cursorY(),
-    cursorStyle: () => wired.controller.cursorStyle(),
-    cursorHidden: () => wired.controller.cursorHidden(),
-    cellSizeCss: () => wired.controller.cellSizeCss(),
-    isReady: () => wired.controller.isReady(),
-    baseY: () => wired.controller.baseY(),
-    displayOriginAbsolute: () => wired.controller.displayOriginAbsolute(),
-    rowIsWrapped: (row) => wired.controller.rowIsWrapped(row),
-    rowLen: (row) => wired.controller.rowLen(row),
-    rowText: (row) => wired.controller.rowText(row),
-    cellText: (row, col) => wired.controller.cellText(row, col),
-    cellIsWide: (row, col) => wired.controller.cellIsWide(row, col),
-    drainBell: () => wired.controller.drainBell(),
-    takeOscEvents: () => wired.controller.takeOscEvents(),
-    takeNotifications: () => wired.controller.takeNotifications(),
-    pixelSize: () => wired.controller.pixelSize(),
-    themeColors: () => wired.controller.themeColors(),
-    ...(wired.controller.benchmarkRender
-      ? {
-          benchmarkRender: (cols, rows, frames) =>
-            wired.controller.benchmarkRender!(cols, rows, frames)
-        }
-      : {}),
     dispose: () => {
       controllerDisposed = true
       // Release any output buffered mid-swap so a pane disposed during a GPU→CPU
       // swap doesn't retain it (the process() gate above also drops once disposed).
-      swapBuffer = null
-      swapBufferBytes = 0
+      swapGap.clear()
       inputDom.wrapper.remove()
       wired.teardown()
       // Release the live canvas's WebGL2 context (no-op on the CPU path) so closing
       // panes don't accumulate against the browser's GL-context budget.
       releaseGlContext(canvas)
     }
-  }
+  })
 }

@@ -16,4 +16,14 @@ type EffectActivity = {
   kind: 'keystroke' | 'matrixRainAltScroll'
 }
 
-export type AtermWorkerRainCommand = SetMatrixRain | SetEffectsVisibility | EffectActivity
+type MatrixRainPulse = {
+  type: 'matrixRainPulse'
+  code: number
+  weight: number
+}
+
+export type AtermWorkerRainCommand =
+  | SetMatrixRain
+  | SetEffectsVisibility
+  | EffectActivity
+  | MatrixRainPulse

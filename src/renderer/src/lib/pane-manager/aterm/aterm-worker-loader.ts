@@ -284,6 +284,10 @@ export async function loadAtermWorkerEngine(
   ): void => post({ type: 'setSparkleClasses', profanity, feline, orca, emphasis })
   backed.term.set_sparkle_reduced_motion = (on: boolean): void =>
     post({ type: 'setSparkleReducedMotion', on })
+  // `firstState` resolved above only after startTerminal installed the engine.
+  // Therefore this facade cannot emit a matrixRainPulse during normal engine
+  // construction; the worker dispatcher still guards synthetic/version-skewed
+  // early commands and schedules no empty frame for them.
   const rainFacade = attachAtermWorkerRainFacade(backed.term, post)
   backed.term.set_cursor_glow = (
     enabled: boolean,

@@ -130,7 +130,10 @@ export type WorkerEngine = Pick<
   | 'encode_mouse_motion'
   | 'encode_mouse_wheel'
   | 'free'
->
+> & {
+  /** Optional while Orca and aterm generated artifacts roll independently. */
+  note_matrix_rain_signal?: (code: number, weight: number) => void
+}
 
 /** The per-pane engine + the normalized hot-path ops the worker terminal drives. */
 export type EngineHandle = {

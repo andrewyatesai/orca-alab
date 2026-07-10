@@ -126,6 +126,7 @@ import { renameWorktreeFolderOnFirstWork } from './agent-hooks/first-work-folder
 import { moveWorktree } from './git/worktree'
 import { getRepoIdFromWorktreeId } from '../shared/worktree-id'
 import { parseWorkspaceKey } from '../shared/workspace-scope'
+import { classifyAtermRainPulse } from '../shared/aterm-rain-signal'
 import { setMigrationUnsupportedPtyListener } from './agent-hooks/migration-unsupported-pty-state'
 import {
   clearProviderPtyState,
@@ -985,6 +986,7 @@ function openMainWindow(): BrowserWindow {
       stateStartedAt,
       launchToken,
       providerSession,
+      hookEventName,
       isReplay
     }) => {
       if (mainWindow?.isDestroyed()) {
@@ -993,6 +995,14 @@ function openMainWindow(): BrowserWindow {
       maybeAutoRenameBranchOnFirstWorkFromHook({ paneKey, tabId, worktreeId, payload, isReplay })
       const orchestration = runtime?.getAgentStatusOrchestrationContextForPaneKey(paneKey)
       const terminalHandle = runtime?.getAgentStatusTerminalHandleForPaneKey(paneKey)
+      const rainPulse = isReplay
+        ? undefined
+        : classifyAtermRainPulse({
+            state: payload.state,
+            hookEventName,
+            toolName: payload.toolName,
+            interrupted: payload.interrupted
+          })
       mainWindow?.webContents.send('agentStatus:set', {
         ...payload,
         paneKey,
@@ -1003,6 +1013,7 @@ function openMainWindow(): BrowserWindow {
         connectionId,
         receivedAt,
         stateStartedAt,
+        ...(rainPulse ? { rainPulse } : {}),
         ...(providerSession ? { providerSession } : {}),
         ...(orchestration ? { orchestration } : {})
       })

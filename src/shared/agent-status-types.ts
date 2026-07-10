@@ -6,6 +6,7 @@
 // terminal titles anywhere in the data flow.
 
 import type { AgentProviderSessionMetadata } from './agent-session-resume'
+import type { AtermRainPulse } from './aterm-rain-signal'
 
 export const AGENT_STATUS_STATES = ['working', 'blocked', 'waiting', 'done'] as const
 export type AgentStatusState = (typeof AGENT_STATUS_STATES)[number]
@@ -193,6 +194,8 @@ export type AgentStatusIpcPayload = ParsedAgentStatusPayload & {
   stateStartedAt: number
   orchestration?: AgentStatusOrchestrationContext
   providerSession?: AgentProviderSessionMetadata
+  /** Payload-free observable-work choreography for aterm Matrix Rain. */
+  rainPulse?: AtermRainPulse
 }
 
 /** Maximum character length for the prompt field. Truncated on parse. */

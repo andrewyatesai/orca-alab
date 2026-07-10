@@ -37,7 +37,7 @@ export function TerminalEngineEffectsSection({
   updateSettings,
   systemPrefersDark
 }: TerminalEngineEffectsSectionProps): React.JSX.Element {
-  const sparkleOn = settings.terminalEffectsSparkleWords ?? false
+  const sparkleOn = settings.terminalEffectsSparkleWords ?? true
   const reducedMotion = prefersReducedMotion()
 
   // Class gates only take effect while the master is on — mirror that with a
@@ -67,7 +67,7 @@ export function TerminalEngineEffectsSection({
         title={translate('auto.components.settings.TerminalEnginePane.effects.title', 'Effects')}
         description={translate(
           'auto.components.settings.TerminalEnginePane.effects.description',
-          'Animated engine effects. All default off; when off, terminal rendering is byte-identical.'
+          'Word art and the water cursor trail are on by default; Matrix Rain remains opt-in. Disabled effects add no rendering work.'
         )}
       />
 
@@ -216,10 +216,10 @@ export function TerminalEngineEffectsSection({
               'auto.components.settings.TerminalEnginePane.effects.cursorGlow.switchDescription',
               'Additive light follows the cursor; it fades and settles when the cursor rests.'
             )}
-            checked={settings.terminalEffectsCursorGlow ?? false}
+            checked={settings.terminalEffectsCursorGlow ?? true}
             onChange={() =>
               updateSettings({
-                terminalEffectsCursorGlow: !(settings.terminalEffectsCursorGlow ?? false)
+                terminalEffectsCursorGlow: !(settings.terminalEffectsCursorGlow ?? true)
               })
             }
           />
@@ -238,7 +238,7 @@ export function TerminalEngineEffectsSection({
                   'auto.components.settings.TerminalEnginePane.effects.glowStyle.title',
                   'Glow Style'
                 )}
-                value={settings.terminalEffectsCursorGlowStyle ?? 'lumen'}
+                value={settings.terminalEffectsCursorGlowStyle ?? 'water'}
                 onChange={(style) => updateSettings({ terminalEffectsCursorGlowStyle: style })}
                 options={GLOW_STYLES.map((style) => ({ value: style, label: style }))}
               />

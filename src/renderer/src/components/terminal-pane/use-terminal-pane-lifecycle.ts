@@ -8,6 +8,10 @@ import {
   type PaneExternalDropHandler,
   type PaneExternalDropResolver
 } from '@/lib/pane-manager/pane-manager'
+import {
+  registerTabPaneManager,
+  unregisterTabPaneManager
+} from '@/lib/pane-manager/pane-manager-registry'
 import { consumePendingWebRuntimeSplitMirrorTelemetry } from '@/runtime/web-runtime-session'
 import {
   normalizeTerminalFastScrollSensitivity,
@@ -1638,6 +1642,7 @@ export function useTerminalPaneLifecycle({
     })
 
     managerRef.current = manager
+    registerTabPaneManager(tabId, manager)
     // Why: E2E tests need to read terminal buffer content, but xterm.js renders
     // to canvas and the accessibility addon is not loaded. Exposing the manager
     // lets tests call serializeAddon.serialize() to read the buffer reliably.
@@ -1936,6 +1941,7 @@ export function useTerminalPaneLifecycle({
       }
       panePtyBindings.clear()
       paneTransports.clear()
+      unregisterTabPaneManager(tabId, manager)
       manager.destroy()
       releaseWebviewDragPassthrough?.()
       releaseWebviewDragPassthrough = null

@@ -8,6 +8,7 @@ import {
   shouldNoteAtermKeystroke,
   shouldNoteAtermMatrixRainActivity
 } from './aterm-effects-activity-gate'
+import { ATERM_RAIN_SIGNAL_CODES } from '../../../../../shared/aterm-rain-signal'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -117,10 +118,16 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
   const effectsTerm = term as AtermTerminal & {
     note_keystroke?: () => void
     note_matrix_rain_alt_scroll?: () => void
+    note_matrix_rain_signal?: (code: number, weight: number) => void
   }
-  const noteEffectsKeystroke = (): void => {
+  const noteEffectsKeystroke = (turnStart = false): void => {
     if (shouldNoteAtermKeystroke(effectsTerm)) {
       effectsTerm.note_keystroke?.()
+    }
+    if (turnStart && shouldNoteAtermMatrixRainActivity(effectsTerm)) {
+      // Submit is an observable boundary, not content: it lets the engine
+      // distinguish a same-present first response from an editor repaint.
+      effectsTerm.note_matrix_rain_signal?.(ATERM_RAIN_SIGNAL_CODES.turn_start, 4)
     }
   }
 
@@ -230,7 +237,9 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       return
     }
     event.preventDefault()
-    noteEffectsKeystroke()
+    const isUnmodifiedSubmit =
+      event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
+    noteEffectsKeystroke(isUnmodifiedSubmit)
     inputSink(bytes)
     // Clear so the sink-bound textarea never accumulates the typed characters.
     textarea.value = ''

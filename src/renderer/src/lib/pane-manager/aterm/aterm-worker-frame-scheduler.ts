@@ -1,5 +1,11 @@
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
 
+const MAX_EFFECTS_TIMER_ELAPSED_MS = 250
+
+function boundedTimerElapsedMs(now: number, previous: number): number {
+  return Math.min(Math.max(0, now - previous), MAX_EFFECTS_TIMER_ELAPSED_MS)
+}
+
 // Coalesces the render worker's draws onto one rAF frame and decides when to post a STATE
 // snapshot. Extracted from the worker entry to keep it under the line cap.
 //
@@ -17,7 +23,7 @@ type SchedulerTerminal = {
   /** Advance the effects clock pre-render; true while still animating (keep rAF
    *  cadence), false once settled (the engine's idle-to-zero contract). */
   tickEffects: () => boolean
-  /** Ms until the next idle one-shot (settled-cat blink), or undefined. */
+  /** Ms until the next scheduled engine wake, or undefined when active effects need rAF. */
   effectsIdleDeadlineMs: () => number | undefined
   /** Cross an armed idle deadline on the injected clock (timer-fired frames). */
   advanceEffectsBy: (dtMs: number) => void
@@ -74,7 +80,7 @@ export function createWorkerFrameScheduler(deps: {
   postNow: () => void
   /** Set the hidden/suspended flag; resuming (false) schedules a post of the latest state. */
   setSuspended: (suspended: boolean) => void
-  /** Cancel the armed effects idle one-shot timer (pane dispose). */
+  /** Cancel the armed effects deadline timer (pane dispose). */
   dispose: () => void
   /** Interactive echo fast path: paint SYNCHRONOUSLY now (coalesced to one eager
    *  paint per frame) instead of waiting for this pane's shared-rAF tick. */
@@ -90,14 +96,16 @@ export function createWorkerFrameScheduler(deps: {
   let lastRows = -1
   let lastCellW = -1
   let lastCellH = -1
-  // The single armed timer for the engine's next idle one-shot while effects are
-  // settled (never a spinning loop; cleared on re-arm/animating/dispose).
-  let effectsIdleTimer: ReturnType<typeof setTimeout> | null = null
+  let requestedDraw = 0
+  let renderedDraw = 0
+  // One timer covers rain cadence and sparse idle one-shots. Real state changes
+  // preempt it, while rAF-only effects receive no finite engine deadline.
+  let effectsTimer: ReturnType<typeof setTimeout> | null = null
 
-  const clearEffectsIdleTimer = (): void => {
-    if (effectsIdleTimer !== null) {
-      clearTimeout(effectsIdleTimer)
-      effectsIdleTimer = null
+  const clearEffectsTimer = (): void => {
+    if (effectsTimer !== null) {
+      clearTimeout(effectsTimer)
+      effectsTimer = null
     }
   }
 
@@ -111,6 +119,7 @@ export function createWorkerFrameScheduler(deps: {
   }
 
   const drawNow = (): void => {
+    const targetDraw = requestedDraw
     const term = deps.getTerm()
     if (!term) {
       return
@@ -130,38 +139,44 @@ export function createWorkerFrameScheduler(deps: {
       }
       return
     }
+    clearEffectsTimer()
     // Advance the effects clock before the paint so this frame shows the advanced
     // state; while an effect is still animating, book a render-only follow-up frame
     // (rAF cadence). Once settled the engine reports inactive → zero rAF work, with
     // at most ONE timer armed for its next idle one-shot.
     const effectsAnimating = term.tickEffects()
+    // This is the wall-clock anchor at which tickEffects advanced the injected
+    // engine clock. Include render + timer lateness in the next timer charge.
+    const effectsAdvancedAtMs = performance.now()
     term.render()
     if (needStatePost) {
       needStatePost = false
       postState(term)
     }
-    if (effectsAnimating) {
-      clearEffectsIdleTimer()
-      schedule(false)
-      return
-    }
-    clearEffectsIdleTimer()
+    // Consume only the requests visible at draw entry. A synchronous render can
+    // enqueue newer work; that later generation must survive for the queued rAF.
+    renderedDraw = Math.max(renderedDraw, targetDraw)
     const deadline = term.effectsIdleDeadlineMs()
     if (deadline !== undefined && Number.isFinite(deadline)) {
-      effectsIdleTimer = setTimeout(
+      effectsTimer = setTimeout(
         () => {
-          effectsIdleTimer = null
+          effectsTimer = null
           const liveTerm = deps.getTerm()
           if (!liveTerm || suspended) {
             return
           }
-          // The injected clock advanced 0 while idle: cross the armed deadline, then
-          // resume the frame loop there (render-only — nothing state-visible changes).
-          liveTerm.advanceEffectsBy(deadline)
+          // Timer throttling can fire well after the requested deadline. Charge
+          // the real bounded wall interval since tickEffects, then advanceBy
+          // rebases its clock so the queued frame charges only its rAF delay.
+          liveTerm.advanceEffectsBy(boundedTimerElapsedMs(performance.now(), effectsAdvancedAtMs))
           schedule(false)
         },
         Math.max(0, deadline)
       )
+      return
+    }
+    if (effectsAnimating) {
+      schedule(false)
     }
   }
 
@@ -170,14 +185,19 @@ export function createWorkerFrameScheduler(deps: {
     // onto a pending render-only (blink) frame still posts a STATE.
     if (postState_) {
       needStatePost = true
+      // PTY/input state is authoritative and must not queue behind a rain timer.
+      clearEffectsTimer()
     }
+    requestedDraw++
     if (drawScheduled || !deps.getTerm()) {
       return
     }
     drawScheduled = true
     const run = (): void => {
       drawScheduled = false
-      drawNow()
+      if (renderedDraw < requestedDraw) {
+        drawNow()
+      }
     }
     if (deps.raf) {
       deps.raf(run)
@@ -207,6 +227,7 @@ export function createWorkerFrameScheduler(deps: {
     // Preserve the STATE post the old 'draw'→schedule(true) carried so the main-thread
     // mirror still updates on this frame.
     needStatePost = true
+    requestedDraw++
     eagerPresentedThisFrame = true
     drawNow()
     // Re-open the eager gate at the next frame boundary (a harmless one-shot even when
@@ -224,18 +245,19 @@ export function createWorkerFrameScheduler(deps: {
     schedule,
     postNow: () => {
       needStatePost = true
+      requestedDraw++
       drawNow()
     },
     setSuspended: (next) => {
       suspended = next
       if (next) {
         // A hidden pane paints nothing; drop the armed one-shot (resume re-arms).
-        clearEffectsIdleTimer()
+        clearEffectsTimer()
         return
       }
       schedule()
     },
     presentNow,
-    dispose: clearEffectsIdleTimer
+    dispose: clearEffectsTimer
   }
 }

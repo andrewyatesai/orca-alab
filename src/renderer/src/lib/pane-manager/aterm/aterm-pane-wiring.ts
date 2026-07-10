@@ -31,6 +31,7 @@ import type {
   AtermPaneControllerOptions
 } from './aterm-pane-controller-types'
 import { createAtermControllerOptionReaders } from './aterm-controller-option-readers'
+import { driveAtermRainPulse } from './aterm-rain-pulse'
 
 /** Everything the wiring needs to turn a loaded strategy into a live pane. */
 export type AtermPaneWiringConfig = {
@@ -360,9 +361,12 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     searchOverlay?.dispose()
     strategy.dispose()
   }
+  const rainPulseDraw = strategy.setDrawSuspended ? undefined : scheduleDraw
 
   const controller: AtermPaneController = {
     process,
+    // Worker commands schedule internally; only in-process engines receive a host draw.
+    noteMatrixRainPulse: (pulse) => void driveAtermRainPulse(term, pulse, rainPulseDraw),
     displayOffset: () => term.display_offset,
     // Buffer/grid reads (incl. cellSizeCss + linkAt) + scroll/selection commands (live
     // engine state); extracted to keep this file focused.

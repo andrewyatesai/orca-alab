@@ -32,10 +32,12 @@ function fakeTerm(overrides: FakeTermOverrides = {}): {
   scrollLines: ReturnType<typeof vi.fn>
   noteKeystroke: ReturnType<typeof vi.fn>
   noteAltScroll: ReturnType<typeof vi.fn>
+  noteRainSignal: ReturnType<typeof vi.fn>
 } {
   const scrollLines = vi.fn()
   const noteKeystroke = vi.fn()
   const noteAltScroll = vi.fn()
+  const noteRainSignal = vi.fn()
   const term = {
     ...(overrides.encodeKey ? { encode_key: overrides.encodeKey } : {}),
     is_alt_screen: overrides.isAltScreen ?? false,
@@ -43,10 +45,11 @@ function fakeTerm(overrides: FakeTermOverrides = {}): {
     scroll_lines: scrollLines,
     note_keystroke: noteKeystroke,
     note_matrix_rain_alt_scroll: noteAltScroll,
+    note_matrix_rain_signal: noteRainSignal,
     cursor_x: 4,
     cursor_y: 2
   } as unknown as AtermTerminal
-  return { term, scrollLines, noteKeystroke, noteAltScroll }
+  return { term, scrollLines, noteKeystroke, noteAltScroll, noteRainSignal }
 }
 
 type Harness = {
@@ -58,6 +61,7 @@ type Harness = {
   scrollLines: ReturnType<typeof vi.fn>
   noteKeystroke: ReturnType<typeof vi.fn>
   noteAltScroll: ReturnType<typeof vi.fn>
+  noteRainSignal: ReturnType<typeof vi.fn>
   dispose: () => void
 }
 
@@ -82,7 +86,8 @@ function mount(
   const pasteSink = vi.fn()
   const copySelection = vi.fn(() => false)
   const redraw = vi.fn()
-  const { term, scrollLines, noteKeystroke, noteAltScroll } = fakeTerm(termOverrides)
+  const { term, scrollLines, noteKeystroke, noteAltScroll, noteRainSignal } =
+    fakeTerm(termOverrides)
   setAtermMatrixRainActivity(term, termOverrides.matrixRainEnabled ?? true)
   setAtermCursorGlowActivity(term, termOverrides.cursorGlowEnabled ?? false)
   const { dispose } = attachAtermTextareaInput({
@@ -108,6 +113,7 @@ function mount(
     scrollLines,
     noteKeystroke,
     noteAltScroll,
+    noteRainSignal,
     dispose
   }
 }
@@ -326,7 +332,38 @@ describe('attachAtermTextareaInput', () => {
     const keydown = fireKeydown(h.textarea, 'Enter')
     expect(encodeKey).toHaveBeenCalledWith('Enter', 0, 0, undefined)
     expect(h.inputSink).toHaveBeenCalledWith('\r')
+    expect(h.noteRainSignal).toHaveBeenCalledWith(10, 4)
     expect(keydown.defaultPrevented).toBe(true)
+    h.dispose()
+  })
+
+  it('does not send a turn boundary while Matrix Rain is disabled', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x0d]))
+    const h = mount({ encodeKey, matrixRainEnabled: false })
+    fireKeydown(h.textarea, 'Enter')
+    expect(h.inputSink).toHaveBeenCalledWith('\r')
+    expect(h.noteRainSignal).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it('treats Shift+Enter as input, not an agent turn boundary', () => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x0d]))
+    const h = mount({ encodeKey })
+    fireKeydown(h.textarea, 'Enter', { shiftKey: true })
+    expect(h.inputSink).toHaveBeenCalledWith('\r')
+    expect(h.noteRainSignal).not.toHaveBeenCalled()
+    h.dispose()
+  })
+
+  it.each([
+    ['Alt', { altKey: true }],
+    ['Ctrl', { ctrlKey: true }],
+    ['Meta', { metaKey: true }]
+  ] as const)('does not treat %s+Enter as an agent turn boundary', (_name, modifiers) => {
+    const encodeKey = vi.fn(() => new Uint8Array([0x0d]))
+    const h = mount({ encodeKey })
+    fireKeydown(h.textarea, 'Enter', modifiers)
+    expect(h.noteRainSignal).not.toHaveBeenCalled()
     h.dispose()
   })
 

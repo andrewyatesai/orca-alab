@@ -36,7 +36,7 @@ export type AtermEffectsTarget = AtermMatrixRainTarget & {
 }
 
 export type AtermEffectsConfig = {
-  /** Master sparkle-words switch (terminalEffectsSparkleWords); default false. */
+  /** Master sparkle-words switch (terminalEffectsSparkleWords); default true. */
   sparkleWords: boolean
   sparkleProfanity: boolean
   sparkleFeline: boolean
@@ -92,17 +92,18 @@ export function prefersReducedMotion(): boolean {
     : false
 }
 
-/** Read the live effects config from the settings store (defaults = engine OFF). */
+/** Read the live effects config from the settings store. Missing keys represent
+ *  pre-feature profiles and must inherit the same defaults as new profiles. */
 export function readAtermEffectsConfig(): AtermEffectsConfig {
   const settings = useAppStore.getState().settings
   return {
-    sparkleWords: settings?.terminalEffectsSparkleWords ?? false,
+    sparkleWords: settings?.terminalEffectsSparkleWords ?? true,
     sparkleProfanity: settings?.terminalEffectsSparkleProfanity ?? true,
     sparkleFeline: settings?.terminalEffectsSparkleFeline ?? true,
     sparkleOrca: settings?.terminalEffectsSparkleOrca ?? true,
     sparkleEmphasis: settings?.terminalEffectsSparkleEmphasis ?? true,
     matrixRain: settings?.terminalMatrixRainEnabled ?? false,
-    cursorGlow: settings?.terminalEffectsCursorGlow ?? false,
+    cursorGlow: settings?.terminalEffectsCursorGlow ?? true,
     // 'water' is Orca's native trail: a self-contained ORCA_PALETTE ocean ramp
     // that reads on any theme, unlike 'lumen' additive white (white-on-white on
     // light backgrounds). Only fires when settings are wholly unloaded.

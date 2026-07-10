@@ -10,6 +10,7 @@ import { normalizeDesktopTerminalScrollbackRows } from '../../../../../shared/te
 import { resolveCursorAgentImeAnchor } from '../terminal-ime-anchor'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
+import { flushPendingAtermRainPulsesAtControllerAttach } from './aterm-rain-pulse-delivery'
 
 /** Build the aterm canvas controller over the pane's xterm container and bind it
  *  into the pane's facade terminal. Creation is async (wasm + font load); a pane
@@ -142,6 +143,9 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
         element: controller.element,
         textarea: controller.textarea
       })
+      // Hook IPC can beat the async wasm/font build. Flush its bounded,
+      // payload-free latch at the exact point this pane becomes drivable.
+      flushPendingAtermRainPulsesAtControllerAttach(pane.leafId, controller)
     })
     .catch((err) => {
       // Async wasm/font failure: there is no xterm fallback renderer anymore, so

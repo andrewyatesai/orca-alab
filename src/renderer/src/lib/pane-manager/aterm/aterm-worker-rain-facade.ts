@@ -2,12 +2,19 @@ import type { AtermTerminal } from './aterm_wasm.js'
 import type { AtermMatrixRainArgs, AtermMatrixRainWireConfig } from './aterm-matrix-rain-types'
 import type { AtermWorkerPaneCommand } from './aterm-render-worker-protocol'
 
+type AtermWorkerRainFacadeTerm = AtermTerminal & {
+  note_matrix_rain_signal: (code: number, weight: number) => void
+}
+
 /** Add the local retained state needed to collapse the binding's three setters
  *  into one atomic worker command and keep disabled input at zero IPC. */
 export function attachAtermWorkerRainFacade(
   term: AtermTerminal,
   post: (command: AtermWorkerPaneCommand) => void
 ): { setCursorGlowEnabled: (enabled: boolean) => void } {
+  // Keep the source compatible with the previous generated binding while aterm
+  // and Orca artifacts roll forward independently.
+  const rainTerm = term as AtermWorkerRainFacadeTerm
   let config: AtermMatrixRainWireConfig | null = null
   let reducedMotion = false
   let enabled = false
@@ -57,6 +64,11 @@ export function attachAtermWorkerRainFacade(
   term.note_matrix_rain_alt_scroll = (): void => {
     if (enabled && !reducedMotion) {
       post({ type: 'effectActivity', kind: 'matrixRainAltScroll' })
+    }
+  }
+  rainTerm.note_matrix_rain_signal = (code: number, weight: number): void => {
+    if (enabled && !reducedMotion) {
+      post({ type: 'matrixRainPulse', code, weight })
     }
   }
   return {

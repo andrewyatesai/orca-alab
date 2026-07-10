@@ -2,6 +2,7 @@ import type { AtermFileLinkOpener, AtermLinkProviderSource } from './aterm-link-
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import type { AtermThemeColors } from './aterm-theme-colors'
+import type { AtermRainPulse } from '../../../../../shared/aterm-rain-signal'
 
 /** Base cell font size in CSS px; scaled by devicePixelRatio for device-px
  *  rendering. Shared home so the wiring (dpr re-rasterize) and the pane renderer
@@ -18,6 +19,8 @@ export type AtermPanePasteSink = (data: string) => void
 export type AtermPaneController = AtermRendererReplySurface & {
   /** Feed PTY/replay output bytes; coalesces draws into one rAF frame. */
   process: (data: string) => void
+  /** Shape literal Matrix Rain from one payload-free observable agent/tool event. */
+  noteMatrixRainPulse: (pulse: AtermRainPulse) => void
   /** Lines the viewport is scrolled up from the live bottom (0 = at bottom). */
   displayOffset: () => number
   /** Scroll scrollback (positive = older); redraws. Mirrors the wheel path. */

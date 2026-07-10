@@ -8873,7 +8873,7 @@
           },
           "effects": {
             "title": "特效",
-            "description": "引擎的动画特效。全部默认关闭；关闭时终端渲染逐字节一致。",
+            "description": "文字艺术和水波光标拖尾默认开启；Matrix Rain 仍需主动启用。已禁用的特效不会增加渲染开销。",
             "reducedMotionNote": "你的系统偏好减弱动态效果：闪耀装饰将静态显示，光标辉光和 Matrix Rain 保持关闭。引擎的防闪烁限制器始终生效。",
             "sparkle": {
               "title": "闪耀词",

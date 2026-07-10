@@ -5,6 +5,7 @@ export type AtermWorkerRainTarget = AtermMatrixRainTarget & {
   set_effects_visibility: (state: string) => void
   note_keystroke: () => void
   note_matrix_rain_alt_scroll: () => void
+  note_matrix_rain_signal?: (code: number, weight: number) => void
 }
 
 /** Handle the compact rain/activity subset outside the already-large pane dispatcher. */
@@ -45,6 +46,15 @@ export function dispatchAtermWorkerRainCommand(
         target?.note_keystroke()
       } else {
         target?.note_matrix_rain_alt_scroll()
+        scheduleDraw(false)
+      }
+      return
+    case 'matrixRainPulse':
+      // The facade is attached only after the worker's first STATE, so normal
+      // construction cannot post this command. Still fail closed under version
+      // skew or a synthetic early command: no engine call means no empty draw.
+      if (target?.note_matrix_rain_signal) {
+        target.note_matrix_rain_signal(msg.code, msg.weight)
         scheduleDraw(false)
       }
   }

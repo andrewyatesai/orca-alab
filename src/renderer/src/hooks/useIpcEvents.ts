@@ -86,6 +86,7 @@ import { createRuntimeProjectRefreshScheduler } from './runtime-project-refresh-
 import { createRuntimeClientEventsSync } from './runtime-client-events-sync'
 import { detectLanguage } from '@/lib/language-detect'
 import { makePaneKey, parsePaneKey } from '../../../shared/stable-pane-id'
+import { deliverAtermRainPulse } from '@/lib/pane-manager/aterm/aterm-rain-pulse-delivery'
 import { collectLeafIdsInOrder } from '@/components/terminal-pane/layout-serialization'
 import { track } from '@/lib/telemetry'
 import { singlePaneLayoutSnapshot } from '@/store/slices/terminal-helpers'
@@ -2990,6 +2991,9 @@ export function useIpcEvents(): void {
           : undefined
       )
       applyResolvedAgentTerminalTitleToTab(store, data.paneKey, title, terminalTitle)
+      if (options?.replay !== true && data.rainPulse) {
+        deliverAtermRainPulse(data.paneKey, data.rainPulse)
+      }
       if (options?.replay !== true && statusWorktreeId) {
         // Why: local Codex/Claude hooks arrive through this main-process IPC
         // path, not the PTY OSC fallback, so task-complete notifications must

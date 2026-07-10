@@ -78,6 +78,7 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
     case 'setMatrixRain':
     case 'setEffectsVisibility':
     case 'effectActivity':
+    case 'matrixRainPulse':
       dispatchAtermWorkerRainCommand(pane.engineSetters, scheduleDraw, msg)
       return
     case 'process': {

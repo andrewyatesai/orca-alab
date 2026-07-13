@@ -116,6 +116,41 @@
       "note": "identifier with a second dash is invalid and not a URL",
       "input": "ENG-1-2",
       "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "malformed %-escape in the org url-key makes TS decodeURIComponent throw -> caught -> null (guards fail-closed try_decode)",
+      "input": "https://linear.app/50%off/issue/ENG-1",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "leading BOM (U+FEFF) is stripped by JS trim, so a BOM-prefixed bare identifier still parses (guards trim_js vs str::trim)",
+      "input": "\uFEFFeng-1",
+      "expected": {
+        "identifier": "ENG-1"
+      }
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "trailing U+0085 (NEL) is NOT stripped by JS trim, so a NEL-suffixed identifier is invalid",
+      "input": "eng-1\u0085",
+      "expected": null
+    },
+    {
+      "function": "parseLinearIssueInput",
+      "note": "WHATWG normalizes backslashes to slashes for http(s), so a backslash issue URL parses like the slash form",
+      "input": "https://linear.app\\acme\\issue\\ENG-1",
+      "expected": {
+        "identifier": "ENG-1",
+        "organizationUrlKey": "acme"
+      }
+    },
+    {
+      "function": "getLinearOrganizationUrlKeyFromIssueUrl",
+      "note": "backslash issue URL: WHATWG special-scheme normalization still extracts the org key",
+      "input": "https://linear.app\\acme\\issue\\ENG-1",
+      "expected": "acme"
     }
   ]
 }

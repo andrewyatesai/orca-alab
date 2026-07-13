@@ -4,9 +4,11 @@
 //! the feature is on) → live title → fallback, each trimmed and treated as
 //! absent when blank.
 
-/// Trimmed value, or `None` when missing or blank.
+use crate::js_string::trim_js;
+
+/// Trimmed (JS-`.trim()`-equivalent) value, or `None` when missing or blank.
 fn first_nonblank(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|t| !t.is_empty())
+    value.map(trim_js).filter(|t| !t.is_empty())
 }
 
 pub struct TerminalTabTitleParts<'a> {

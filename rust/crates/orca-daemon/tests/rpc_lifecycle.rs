@@ -306,6 +306,113 @@ fn create_write_snapshot_lifecycle_windows() {
     );
 }
 
+/// createOrAttach with a `historySeed` reseeds the fresh engine and reports
+/// `historySeeded:true`, so the adapter re-anchors checkpointing (canReanchorHistory)
+/// instead of suspending it — parity with the Node daemon's writeSync(historySeed)
+/// path (session.ts / terminal-host.ts). The seed is fed to the engine grid, so a
+/// later getSnapshot serializes the pre-crash history the adapter would otherwise
+/// have lost. Cross-platform: the seed is fed into the engine directly (not through
+/// the PTY), so its scrollback placement is deterministic regardless of the shell.
+#[test]
+fn create_with_history_seed_reseeds_engine_and_reports_seeded() {
+    let reg = Arc::new(Registry::new());
+    let client = "test-client";
+
+    // Marker at the top, then enough newlines to scroll it out of the 24-row visible
+    // grid and into scrollback — the live shell's startup output lands in the visible
+    // grid and won't touch scrollback, so the assertion stays deterministic.
+    let seed = format!("HISTORY_SEED_MARKER\r\n{}", "\r\n".repeat(30));
+    let created = dispatch(
+        &reg,
+        client,
+        json!({
+            "id": "c1", "type": "createOrAttach",
+            "payload": { "sessionId": "seed1", "cols": 80, "rows": 24, "historySeed": seed }
+        }),
+    );
+    assert_eq!(created["ok"], json!(true), "create ok");
+    assert_eq!(created["payload"]["isNew"], json!(true), "isNew");
+    assert_eq!(
+        created["payload"]["historySeeded"],
+        json!(true),
+        "a non-empty historySeed reports historySeeded:true so the client re-anchors"
+    );
+
+    // The seed was fed synchronously before the reply, so the engine already carries
+    // it: the recovered marker is in scrollback (what a full checkpoint serializes).
+    let snap = dispatch(
+        &reg,
+        client,
+        json!({ "id": "g", "type": "getSnapshot", "payload": { "sessionId": "seed1" } }),
+    );
+    let snapshot = &snap["payload"]["snapshot"];
+    assert!(
+        snapshot["scrollbackAnsi"]
+            .as_str()
+            .unwrap()
+            .contains("HISTORY_SEED_MARKER"),
+        "the seeded history survives into the serialized scrollback"
+    );
+
+    dispatch(
+        &reg,
+        client,
+        json!({ "id": "k", "type": "kill", "payload": { "sessionId": "seed1" } }),
+    );
+}
+
+/// Without a `historySeed`, createOrAttach omits `historySeeded` entirely (undefined
+/// on the wire, exactly as before) — preserving the adapter's suspend-fallback path
+/// for the genuinely-unseedable case. An empty seed behaves the same as absent.
+#[test]
+fn create_without_history_seed_omits_seeded_flag() {
+    let reg = Arc::new(Registry::new());
+    let client = "test-client";
+
+    let created = dispatch(
+        &reg,
+        client,
+        json!({
+            "id": "c1", "type": "createOrAttach",
+            "payload": { "sessionId": "noseed1", "cols": 80, "rows": 24 }
+        }),
+    );
+    assert_eq!(created["ok"], json!(true), "create ok");
+    assert_eq!(created["payload"]["isNew"], json!(true), "isNew");
+    assert!(
+        !created["payload"]
+            .as_object()
+            .unwrap()
+            .contains_key("historySeeded"),
+        "no seed → historySeeded key is omitted (undefined), not false"
+    );
+
+    // An explicit empty seed is treated as no seed: still omitted.
+    let empty = dispatch(
+        &reg,
+        client,
+        json!({
+            "id": "c2", "type": "createOrAttach",
+            "payload": { "sessionId": "noseed2", "cols": 80, "rows": 24, "historySeed": "" }
+        }),
+    );
+    assert!(
+        !empty["payload"]
+            .as_object()
+            .unwrap()
+            .contains_key("historySeeded"),
+        "empty seed → historySeeded key omitted, same as absent"
+    );
+
+    for sid in ["noseed1", "noseed2"] {
+        dispatch(
+            &reg,
+            client,
+            json!({ "id": "k", "type": "kill", "payload": { "sessionId": sid } }),
+        );
+    }
+}
+
 #[test]
 fn ping_and_unknown_session_error() {
     let reg = Arc::new(Registry::new());

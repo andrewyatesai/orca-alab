@@ -48,8 +48,37 @@ export async function driveDaemon(client) {
     isNew: created.payload?.isNew ?? null,
     pidType: typeTag(created.payload?.pid),
     hasSnapshot: (created.payload?.snapshot ?? null) !== null,
-    shellStateType: typeTag(created.payload?.shellState)
+    shellStateType: typeTag(created.payload?.shellState),
+    // No historySeed was sent, so BOTH daemons must OMIT `historySeeded` (undefined),
+    // not emit false — the client keys off === true / === false.
+    historySeededAbsent: !('historySeeded' in (created.payload ?? {}))
   })
+
+  // 2b. A createOrAttach carrying a `historySeed` (the adapter's unclean-shutdown
+  //     cold-restore path) must reseed the fresh engine and report
+  //     historySeeded:true, so the client re-anchors checkpointing (canReanchorHistory)
+  //     instead of suspending it — and a later getSnapshot serializes the recovered
+  //     history. Both daemons must agree on the wire field. The marker is seeded above
+  //     the fold (30 trailing newlines) so it deterministically lands in scrollback,
+  //     independent of the live shell's startup output or the daemon's VT engine.
+  const SID_SEED = 's-parity-seed'
+  const SEED = `${MARKER}\r\n${'\r\n'.repeat(30)}`
+  const seeded = await client.rpc('createOrAttach', {
+    sessionId: SID_SEED,
+    cols: 80,
+    rows: 24,
+    historySeed: SEED
+  })
+  const seededSnap = await client.rpc('getSnapshot', { sessionId: SID_SEED })
+  record('createOrAttach:historySeed', {
+    ok: seeded.ok,
+    isNew: seeded.payload?.isNew ?? null,
+    historySeeded: seeded.payload?.historySeeded ?? null,
+    seedInScrollback:
+      typeof seededSnap.payload?.snapshot?.scrollbackAnsi === 'string' &&
+      seededSnap.payload.snapshot.scrollbackAnsi.includes(MARKER)
+  })
+  await client.rpc('kill', { sessionId: SID_SEED })
 
   // 3. Drive the shell: OSC-7 cwd + a marker, both parsed by the engine.
   const write1 = await client.rpc('write', { sessionId: SID, data: DRIVE_LINE })

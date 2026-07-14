@@ -357,6 +357,27 @@ fn create_or_attach(
         ),
         pending: PendingOutput::default(),
     }));
+    // Cold-restore reseed — parity with session.ts (writeSync(historySeed) in the
+    // Session ctor, before the subprocess listener subscribes). After an unclean
+    // shutdown the adapter re-sends the recovered scrollback as `historySeed`; feed
+    // it into the engine grid ONLY, not the checkpoint record log, so getSnapshot
+    // and the re-anchor full checkpoint serialize the pre-crash history while
+    // takePendingOutput does not re-emit the seed into the fresh recovery log.
+    // Reporting historySeeded:true is what lets the adapter re-anchor checkpointing
+    // (canReanchorHistory) instead of suspending it — without it a second unclean
+    // shutdown loses everything produced after the restore. No seed (absent/empty)
+    // omits the key, exactly as before, leaving the adapter's suspend-fallback for
+    // the genuinely-unseedable case untouched. Fed before registration so the seed
+    // is in the grid ahead of the pump's first live bytes.
+    let history_seed = field_str(payload, "historySeed");
+    let history_seeded = !history_seed.is_empty();
+    if history_seeded {
+        engine
+            .lock()
+            .unwrap()
+            .terminal
+            .process(history_seed.as_bytes());
+    }
     // The shell-ready barrier (session.ts): while pending, stdin writes queue and
     // the pump scans output for the wrapper's OSC 777 marker. Bounded by the
     // client's shellReadyTimeoutMs (Codex markerless: 300ms) or the 15s default.
@@ -423,10 +444,14 @@ fn create_or_attach(
         };
         let _ = session_write(registry, &session_id, &payload);
     }
-    rpc_ok(
-        id,
-        json!({ "isNew": true, "snapshot": Value::Null, "pid": pid, "shellState": shell_state }),
-    )
+    let mut response =
+        json!({ "isNew": true, "snapshot": Value::Null, "pid": pid, "shellState": shell_state });
+    // Only include `historySeeded` when a seed was applied — the Node daemon OMITS
+    // the key otherwise (undefined), and the client keys off === true / === false.
+    if history_seeded {
+        response["historySeeded"] = json!(true);
+    }
+    rpc_ok(id, response)
 }
 
 /// A resolved spawn: the PTY command plus the startup command to deliver via

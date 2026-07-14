@@ -678,16 +678,21 @@ impl OrchestrationDb {
     }
 
     /// Dispatched contexts past the heartbeat/dispatch-age threshold (TS
-    /// `getStaleDispatches`); the caller passes an ISO threshold so SQLite's
-    /// lexicographic string compare orders correctly in time.
+    /// `getStaleDispatches`). The stored columns are written by `datetime('now')`
+    /// (space-separated, `'2026-07-13 16:59:00'`) while the caller passes an ISO
+    /// `T` threshold (`'…T16:50:00.000Z'`). A raw string `<` is byte-lexicographic
+    /// and space (0x20) < `T` (0x54), so every same-day timestamp would sort
+    /// before any threshold regardless of real time — flagging healthy workers as
+    /// stale. Canonicalize BOTH operands with `datetime()` so the compare is by
+    /// actual time across either format.
     pub fn get_stale_dispatches(&self, threshold_iso: &str) -> Result<Vec<DispatchContext>, StoreError> {
         let conn = self.db.connection();
         let mut stmt = conn.prepare(&format!(
             "SELECT {DISPATCH_COLUMNS} FROM dispatch_contexts
              WHERE status = 'dispatched'
                AND dispatched_at IS NOT NULL
-               AND dispatched_at < ?1
-               AND (last_heartbeat_at IS NULL OR last_heartbeat_at < ?1)"
+               AND datetime(dispatched_at) < datetime(?1)
+               AND (last_heartbeat_at IS NULL OR datetime(last_heartbeat_at) < datetime(?1))"
         ))?;
         let rows = stmt.query_map([threshold_iso], row_to_dispatch)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)

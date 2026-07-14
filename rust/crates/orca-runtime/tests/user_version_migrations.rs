@@ -160,7 +160,8 @@ const MESSAGES_FRESH_SQL: &str = r#"CREATE TABLE messages (
         read          INTEGER NOT NULL DEFAULT 0,
         sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        delivered_at  TEXT
+        delivered_at  TEXT,
+        sender_pane_key TEXT
       )"#;
 
 const TASKS_FRESH_SQL: &str = r#"CREATE TABLE tasks (
@@ -185,6 +186,7 @@ const DISPATCH_FRESH_SQL: &str = r#"CREATE TABLE dispatch_contexts (
         id                  TEXT PRIMARY KEY,
         task_id             TEXT NOT NULL,
         assignee_handle     TEXT,
+        assignee_pane_key   TEXT,
         status              TEXT NOT NULL DEFAULT 'pending'
           CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')),
         failure_count       INTEGER NOT NULL DEFAULT 0,
@@ -231,7 +233,7 @@ const MESSAGES_MIGRATED_SQL: &str = r#"CREATE TABLE "messages" (
               sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
               created_at    TEXT NOT NULL DEFAULT (datetime('now')),
               delivered_at  TEXT
-            )"#;
+            , sender_pane_key TEXT)"#;
 
 // ALTER TABLE ADD COLUMN appends `, <col> ...` before the closing paren.
 const TASKS_MIGRATED_SQL: &str = r#"CREATE TABLE tasks (
@@ -260,7 +262,7 @@ const DISPATCH_MIGRATED_SQL: &str = r#"CREATE TABLE dispatch_contexts (
         dispatched_at   TEXT,
         completed_at    TEXT,
         created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-      , last_heartbeat_at TEXT)"#;
+      , last_heartbeat_at TEXT, assignee_pane_key TEXT)"#;
 
 type MasterEntry = (&'static str, &'static str, Option<&'static str>);
 
@@ -374,7 +376,7 @@ fn fresh_open_matches_ts_fresh_database() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 5, "fresh DB lands on SCHEMA_VERSION");
+    assert_eq!(user_version(&conn), 6, "fresh DB lands on SCHEMA_VERSION");
     let journal: String = conn.query_row("PRAGMA journal_mode", [], |row| row.get(0)).unwrap();
     assert_eq!(journal, "wal", "journal_mode=WAL persists in the DB file");
     assert_master_matches(&dump_master(&conn), &expected_fresh_master());
@@ -396,15 +398,15 @@ fn v1_database_migrates_to_current_preserving_data() {
     drop(open_orchestration(&path).unwrap());
 
     let conn = Connection::open(&path).unwrap();
-    assert_eq!(user_version(&conn), 5);
+    assert_eq!(user_version(&conn), 6);
     assert_master_matches(&dump_master(&conn), &expected_migrated_v1_master());
 
     // Row-level goldens from the TS-migrated fixture.
     assert_eq!(
         dump_rows(&conn, "messages", "sequence"),
         vec![
-            r#"id=msg_a1|from_handle=coordinator|to_handle=worker-1|subject=first|body=body one|type=dispatch|priority=high|thread_id=thread-1|payload={"k":1}|read=1|sequence=1|created_at=2025-01-02 03:04:05|delivered_at=NULL"#,
-            "id=msg_a2|from_handle=worker-1|to_handle=coordinator|subject=second|body=|type=status|priority=normal|thread_id=NULL|payload=NULL|read=0|sequence=2|created_at=2025-01-02 03:04:06|delivered_at=NULL",
+            r#"id=msg_a1|from_handle=coordinator|to_handle=worker-1|subject=first|body=body one|type=dispatch|priority=high|thread_id=thread-1|payload={"k":1}|read=1|sequence=1|created_at=2025-01-02 03:04:05|delivered_at=NULL|sender_pane_key=NULL"#,
+            "id=msg_a2|from_handle=worker-1|to_handle=coordinator|subject=second|body=|type=status|priority=normal|thread_id=NULL|payload=NULL|read=0|sequence=2|created_at=2025-01-02 03:04:06|delivered_at=NULL|sender_pane_key=NULL",
         ]
     );
     assert_eq!(
@@ -417,7 +419,7 @@ fn v1_database_migrates_to_current_preserving_data() {
     assert_eq!(
         dump_rows(&conn, "dispatch_contexts", "id"),
         vec![
-            "id=ctx_a1|task_id=task_a1|assignee_handle=worker-1|status=completed|failure_count=1|last_failure=flaky once|dispatched_at=2025-01-02 03:10:00|completed_at=2025-01-02 04:00:00|created_at=2025-01-02 03:10:00|last_heartbeat_at=NULL",
+            "id=ctx_a1|task_id=task_a1|assignee_handle=worker-1|status=completed|failure_count=1|last_failure=flaky once|dispatched_at=2025-01-02 03:10:00|completed_at=2025-01-02 04:00:00|created_at=2025-01-02 03:10:00|last_heartbeat_at=NULL|assignee_pane_key=NULL",
         ]
     );
     assert_eq!(
@@ -447,6 +449,7 @@ fn v1_database_migrates_to_current_preserving_data() {
         priority: "normal".to_string(),
         thread_id: None,
         payload: None,
+        sender_pane_key: None,
     })
     .unwrap();
 }
@@ -464,7 +467,7 @@ fn already_current_open_is_a_noop() {
         let conn = Connection::open(&path).unwrap();
         (user_version(&conn), dump_master(&conn), dump_rows(&conn, "tasks", "id"))
     };
-    assert_eq!(version_before, 5);
+    assert_eq!(version_before, 6);
 
     drop(open_orchestration(&path).unwrap());
 

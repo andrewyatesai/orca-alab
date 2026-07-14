@@ -257,7 +257,8 @@ fn heartbeat_only_touches_dispatched_and_stale_detector_respects_threshold() {
     assert_eq!(db.get_stale_dispatches(future).unwrap().len(), 1);
 
     // A heartbeat newer than the threshold clears staleness; injected value is
-    // stored verbatim (lexicographic ISO/space compare orders in time).
+    // stored verbatim. The compare is by `datetime()`, not raw bytes (see the
+    // mixed-format test below for why that matters in production).
     assert_eq!(db.record_heartbeat("ctx1", "2999-06-01 00:00:00").unwrap(), 1);
     assert_eq!(
         db.dispatch_context_by_id("ctx1").unwrap().unwrap().last_heartbeat_at.as_deref(),
@@ -275,6 +276,32 @@ fn heartbeat_only_touches_dispatched_and_stale_detector_respects_threshold() {
     // Zombie-heartbeat guard: once completed, a heartbeat updates 0 rows.
     db.complete_dispatch("ctx1").unwrap();
     assert_eq!(db.record_heartbeat("ctx1", "2999-06-02 00:00:00").unwrap(), 0);
+}
+
+#[test]
+fn stale_detector_compares_by_time_across_space_and_iso_t_formats() {
+    // Production feeds MIXED formats: columns are written by `datetime('now')`
+    // (space-separated) while the caller passes `new Date().toISOString()`
+    // (`…T…Z`). A raw byte `<` mis-orders these — space (0x20) < 'T' (0x54) at
+    // index 10 — flagging fresh workers as stale. `datetime()`-wrapping both
+    // operands makes the compare time-correct.
+    let db = OrchestrationDb::open_in_memory().unwrap();
+    new_task(&db, "t1", "spec", &[]);
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
+    db.set_dispatch_timestamps("ctx1", Some("2026-07-14 10:00:00"), None).unwrap();
+
+    // ISO-T threshold 5 min AFTER dispatched_at → genuinely stale.
+    assert_eq!(db.get_stale_dispatches("2026-07-14T10:05:00.000Z").unwrap().len(), 1);
+
+    // ISO-T threshold 5 min BEFORE dispatched_at → NOT stale. This is the case a
+    // raw byte compare gets wrong (it would return the row as stale).
+    assert!(db.get_stale_dispatches("2026-07-14T09:55:00.000Z").unwrap().is_empty());
+
+    // A fresh heartbeat (space-format) newer than an ISO-T threshold clears
+    // staleness even when dispatched_at is old.
+    db.set_dispatch_timestamps("ctx1", Some("2020-01-01 00:00:00"), None).unwrap();
+    db.record_heartbeat("ctx1", "2026-07-14 10:00:00").unwrap();
+    assert!(db.get_stale_dispatches("2026-07-14T09:55:00.000Z").unwrap().is_empty());
 }
 
 #[test]

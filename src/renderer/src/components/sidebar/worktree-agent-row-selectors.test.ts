@@ -247,6 +247,74 @@ describe('selectRuntimeAgentOrchestrationForWorktree', () => {
       [childPaneKey]: state.runtimeAgentOrchestrationByPaneKey[childPaneKey]
     })
   })
+
+  it('builds the worktree index once and reuses it across cards and repeated writes', () => {
+    const state = {
+      tabsByWorktree: {
+        'wt-1': [makeTab('tab-1')],
+        'wt-2': [makeTab('tab-2')]
+      },
+      agentStatusByPaneKey: {},
+      retainedAgentsByPaneKey: {},
+      runtimeAgentOrchestrationByPaneKey: {
+        [PANE_KEY_1]: { taskId: 'task-1', dispatchId: 'ctx-1' },
+        [PANE_KEY_2]: { taskId: 'task-2', dispatchId: 'ctx-2' }
+      }
+    }
+
+    // Why: WorktreeCard mounts one selector per visible card and re-runs it on
+    // every store write. Without a slice-identity cache the pre-cache selector
+    // returned a fresh object each call — the reference below would differ,
+    // proving O(cards × entries) recomputation. A single shared index makes
+    // repeated calls with the same store state referentially identical.
+    const firstWt1 = selectRuntimeAgentOrchestrationForWorktree(state, 'wt-1')
+    const firstWt2 = selectRuntimeAgentOrchestrationForWorktree(state, 'wt-2')
+    const secondWt1 = selectRuntimeAgentOrchestrationForWorktree(state, 'wt-1')
+    const secondWt2 = selectRuntimeAgentOrchestrationForWorktree(state, 'wt-2')
+
+    expect(secondWt1).toBe(firstWt1)
+    expect(secondWt2).toBe(firstWt2)
+    expect(firstWt1).toEqual({ [PANE_KEY_1]: state.runtimeAgentOrchestrationByPaneKey[PANE_KEY_1] })
+    expect(firstWt2).toEqual({ [PANE_KEY_2]: state.runtimeAgentOrchestrationByPaneKey[PANE_KEY_2] })
+  })
+
+  it('reuses the unaffected worktree record and recomputes only the changed worktree', () => {
+    const wt1Orchestration = { taskId: 'task-1', dispatchId: 'ctx-1' }
+    const wt2Orchestration = { taskId: 'task-2', dispatchId: 'ctx-2' }
+    const state = {
+      tabsByWorktree: {
+        'wt-1': [makeTab('tab-1')],
+        'wt-2': [makeTab('tab-2')]
+      },
+      agentStatusByPaneKey: {},
+      retainedAgentsByPaneKey: {},
+      runtimeAgentOrchestrationByPaneKey: {
+        [PANE_KEY_1]: wt1Orchestration,
+        [PANE_KEY_2]: wt2Orchestration
+      }
+    }
+
+    const firstWt1 = selectRuntimeAgentOrchestrationForWorktree(state, 'wt-1')
+    const firstWt2 = selectRuntimeAgentOrchestrationForWorktree(state, 'wt-2')
+
+    // A store write that immutably replaces the orchestration map (as
+    // setAgentStatus does per ping) invalidates the index, but wt-1's entry is
+    // byte-identical, so reuseRecordIfEqual keeps its reference — only wt-2 pays.
+    const nextState = {
+      ...state,
+      runtimeAgentOrchestrationByPaneKey: {
+        [PANE_KEY_1]: wt1Orchestration,
+        [PANE_KEY_2]: { taskId: 'task-2', dispatchId: 'ctx-2-updated' }
+      }
+    }
+
+    const secondWt1 = selectRuntimeAgentOrchestrationForWorktree(nextState, 'wt-1')
+    const secondWt2 = selectRuntimeAgentOrchestrationForWorktree(nextState, 'wt-2')
+
+    expect(secondWt1).toBe(firstWt1)
+    expect(secondWt2).not.toBe(firstWt2)
+    expect(secondWt2[PANE_KEY_2]?.dispatchId).toBe('ctx-2-updated')
+  })
 })
 
 describe('selectRetainedAgentEntriesForWorktree', () => {

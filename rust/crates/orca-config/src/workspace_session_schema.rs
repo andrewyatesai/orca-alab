@@ -1540,7 +1540,12 @@ mod tests {
                 "case #{index} function"
             );
             let input = case.get("input").expect("input");
-            let expected = case.get("expected").expect("expected");
+            // Expected is optional: some vectors (e.g. browserUrlHistory URL
+            // normalization) only assert TS==Rust in the harness and carry no
+            // golden value — mirror that tolerance instead of hard-requiring it.
+            let Some(expected) = case.get("expected") else {
+                continue;
+            };
             // Mirror the parity adapter's marshalling of the discriminated union.
             let output = match parse_workspace_session(input) {
                 ParsedWorkspaceSession::Ok(value) => json!({ "ok": true, "value": value }),

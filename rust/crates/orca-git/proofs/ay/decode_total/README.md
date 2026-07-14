@@ -3,6 +3,18 @@
 
 # decode_total — the C-quote octal escape decode is total (discharged by `ay`)
 
+> **SUPERSEDED — pending re-derivation.** The octal arm was rewritten (2026-07-13)
+> to fix a real bug: git C-quotes non-ASCII as a run of adjacent `\NNN` UTF-8
+> BYTES, so the decoder now accumulates the whole run into a `Vec<u8>` and decodes
+> it with `String::from_utf8_lossy`, instead of turning each `\NNN` into its own
+> `char` (which corrupted `café` → `cafÃ©`). The `.smt2` obligations below still
+> model the OLD per-codepoint arm — and their `decode_octal_catches_u8_truncation`
+> obligation actually argued *for* the buggy per-codepoint path. They must be
+> re-authored for the new design; until then this bundle is stale. The new arm's
+> totality is by construction: `u32::from_str_radix(_, 8)` is total, `& 0xFF` is a
+> total u8 cast, and `String::from_utf8_lossy` never panics (invalid bytes → U+FFFD),
+> so the run is always emitted and nothing is dropped.
+
 Re-checkable certificate that the octal arm of git's C-quoted-path decoder — the
 one variable-valued arm — never panics and never silently drops an escape: every
 octal value it can produce is a valid Unicode scalar, so `char::from_u32` is

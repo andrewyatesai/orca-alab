@@ -39,17 +39,33 @@ pub fn decode_git_cquoted_path(value: &str) -> String {
             'v' => decoded.push('\u{000B}'),
             '\\' | '"' => decoded.push(escaped),
             c if ('0'..='7').contains(&c) => {
-                let mut octal = String::new();
-                octal.push(c);
-                while index + 1 < n - 1 && octal.len() < 3 && chars[index + 1].is_digit(8) {
-                    index += 1;
+                // Git C-quotes non-ASCII text as a run of adjacent `\NNN` octal
+                // BYTES (UTF-8). Accumulate the whole run and decode it as one
+                // unit — decoding each byte to its own char (the old behavior)
+                // corrupts localized text, e.g. `\303\251` → "Ã©" instead of "é".
+                let mut bytes: Vec<u8> = Vec::new();
+                loop {
+                    let mut octal = String::new();
                     octal.push(chars[index]);
+                    while index + 1 < n - 1 && octal.len() < 3 && chars[index + 1].is_digit(8) {
+                        index += 1;
+                        octal.push(chars[index]);
+                    }
+                    if let Ok(value) = u32::from_str_radix(&octal, 8) {
+                        // `\777` (511) wraps to a u8 the same way Uint8Array does.
+                        bytes.push((value & 0xFF) as u8);
+                    }
+                    // Continue only if another `\NNN` escape follows immediately.
+                    if index + 2 < n
+                        && chars[index + 1] == '\\'
+                        && chars[index + 2].is_digit(8)
+                    {
+                        index += 2; // step onto the next byte's first octal digit
+                    } else {
+                        break;
+                    }
                 }
-                if let Some(decoded_ch) =
-                    u32::from_str_radix(&octal, 8).ok().and_then(char::from_u32)
-                {
-                    decoded.push(decoded_ch);
-                }
+                decoded.push_str(&String::from_utf8_lossy(&bytes));
             }
             other => decoded.push(other),
         }
@@ -84,12 +100,12 @@ mod tests {
 
     #[test]
     fn decodes_octal_escapes() {
-        // git quotes a UTF-8 "é" (0xC3 0xA9) as \303\251.
-        assert_eq!(
-            decode_git_cquoted_path("\"caf\\303\\251.txt\""),
-            "caf\u{00c3}\u{00a9}.txt"
-        );
-        // A single octal byte.
+        // git quotes a UTF-8 "é" (0xC3 0xA9) as \303\251 — the adjacent octal
+        // byte run must UTF-8-decode to the single codepoint, not two chars.
+        assert_eq!(decode_git_cquoted_path("\"caf\\303\\251.txt\""), "café.txt");
+        // A single octal byte (ASCII).
         assert_eq!(decode_git_cquoted_path("\"\\101\""), "A");
+        // A three-byte codepoint (€ = 0xE2 0x82 0xAC = \342\202\254).
+        assert_eq!(decode_git_cquoted_path("\"\\342\\202\\254\""), "€");
     }
 }

@@ -337,10 +337,9 @@ mod tests {
         // Pins the decode_git_cquoted_path wiring on the `? `/`! ` branches: even
         // under core.quotePath=false git C-quotes names containing `"`, `\`, tab,
         // or newline. The deleted TS parity oracle used to pin this wiring.
-        // Octal escapes decode per-byte to code points (TS fromCharCode-faithful),
-        // so UTF-8 bytes \303\251 become "\u{c3}\u{a9}", not "é".
+        // Adjacent octal escapes decode as one UTF-8 byte run, so \303\251 → "é".
         let r = parse_status_porcelain(b"? \"\\303\\251.txt\"\n! \"tab\\tname.log\"\n", 0);
-        assert_eq!(r.entries, vec![untracked("\u{c3}\u{a9}.txt")]);
+        assert_eq!(r.entries, vec![untracked("é.txt")]);
         assert_eq!(r.ignored_paths, vec!["tab\tname.log".to_string()]);
     }
 

@@ -233,9 +233,10 @@ mod tests {
 
     #[test]
     fn decodes_cquoted_utf8_paths() {
-        // git c-quotes a UTF-8 "é" (0xC3 0xA9) as \303\251 when quotePath is on.
+        // git c-quotes a UTF-8 "é" (0xC3 0xA9) as \303\251 when quotePath is on;
+        // the adjacent octal byte run decodes to the single codepoint.
         let out = "1 .M N... 100644 100644 100644 aaa bbb \"caf\\303\\251.txt\"\n";
         let parsed = parse_porcelain_v2_status(out, &no_files);
-        assert_eq!(parsed.entries[0].path, "caf\u{00c3}\u{00a9}.txt");
+        assert_eq!(parsed.entries[0].path, "café.txt");
     }
 }

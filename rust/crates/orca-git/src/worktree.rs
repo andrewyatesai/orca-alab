@@ -13,6 +13,11 @@ pub struct GitWorktreeInfo {
     pub is_sparse: bool,
     /// True for the repo's main working tree (the first entry git emits).
     pub is_main_worktree: bool,
+    /// Set when git reports the worktree as locked (`git worktree lock`).
+    pub locked: bool,
+    /// The lock reason (may be empty even when locked). Non-`-z` output is
+    /// C-quote-decoded so a non-ASCII reason round-trips.
+    pub lock_reason: String,
 }
 
 fn split_line_worktree_list(output: &str) -> Vec<Vec<String>> {
@@ -72,6 +77,16 @@ pub fn parse_worktree_list(output: &str, nul_delimited: bool) -> Vec<GitWorktree
                 info.is_bare = true;
             } else if line == "sparse" {
                 info.is_sparse = true;
+            } else if line == "locked" || line.starts_with("locked ") {
+                info.locked = true;
+                let raw_reason = line["locked".len()..].trim();
+                // The `-z` form emits the reason literally; the line form
+                // C-quotes an "unusual" reason, so decode it to match the TS port.
+                info.lock_reason = if nul_delimited {
+                    raw_reason.to_string()
+                } else {
+                    orca_core::git_cquoted_path::decode_git_cquoted_path(raw_reason)
+                };
             }
         }
         if !info.path.is_empty() {
@@ -96,6 +111,14 @@ fn worktree_to_json(info: &GitWorktreeInfo) -> Value {
         map.insert("isSparse".to_string(), Value::Bool(true));
     }
     map.insert("isMainWorktree".to_string(), Value::Bool(info.is_main_worktree));
+    // Spread conditionally, matching the TS `...(locked ? { locked: true } : {})`
+    // / `...(lockReason ? { lockReason } : {})` shape.
+    if info.locked {
+        map.insert("locked".to_string(), Value::Bool(true));
+    }
+    if !info.lock_reason.is_empty() {
+        map.insert("lockReason".to_string(), Value::String(info.lock_reason.clone()));
+    }
     Value::Object(map)
 }
 
@@ -116,9 +139,27 @@ mod tests {
             head: head.to_string(),
             branch: branch.to_string(),
             is_bare,
-            is_sparse: false,
             is_main_worktree: is_main,
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn parses_locked_worktrees_with_decoded_reason() {
+        // Bare `locked`, a plain reason, and a C-quoted non-ASCII reason.
+        // git C-quotes an unusual reason (here non-ASCII), emits a plain one bare.
+        let output = "\nworktree /a\nHEAD a1\nbranch refs/heads/main\n\nworktree /b\nHEAD b2\nbranch refs/heads/wip\nlocked\n\nworktree /c\nHEAD c3\nbranch refs/heads/x\nlocked active session\n\nworktree /d\nHEAD d4\nbranch refs/heads/y\nlocked \"caf\\303\\251\"\n";
+        let got = parse_worktree_list(output, false);
+        assert!(!got[0].locked);
+        assert!(got[1].locked && got[1].lock_reason.is_empty());
+        assert_eq!(got[2].lock_reason, "active session");
+        assert_eq!(got[3].lock_reason, "café");
+        // JSON spreads locked/lockReason only when present.
+        let json = worktree_to_json(&got[0]);
+        assert!(json.get("locked").is_none() && json.get("lockReason").is_none());
+        let json_c = worktree_to_json(&got[2]);
+        assert_eq!(json_c.get("locked"), Some(&Value::Bool(true)));
+        assert_eq!(json_c.get("lockReason"), Some(&Value::String("active session".to_string())));
     }
 
     #[test]

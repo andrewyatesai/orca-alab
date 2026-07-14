@@ -55,3 +55,9 @@ our rust pieces" work). Tracked here; to be landed incrementally.
 ## Environmental (not code regressions)
 - `daemon-init` (4) "Rust daemon failed to spawn" — needs `pnpm build:rust-daemon` in the test env.
 - `run-electron-vite-dev` (1), `git-binary-compatibility-workflow` (1, no-CI ENOENT).
+
+## Proof-carrying reconciliation (from F1)
+- `rust/crates/orca-git/proofs/ay/decode_total/*.smt2` model the OLD per-codepoint
+  octal arm and must be re-authored for the byte-accumulation + `from_utf8_lossy`
+  decoder (the `catches_u8_truncation` obligation argued *for* the fixed bug).
+  README marked SUPERSEDED. Re-derive with the Trust `ay` solver.

@@ -4,7 +4,7 @@ import type {
   FolderWorkspacePathStatus,
   FolderWorkspacePathStatusRequest
 } from '../../shared/folder-workspace-path-status'
-import { getProjectGroupSubtreeIds } from '../../shared/project-groups'
+import { getProjectGroupSubtreeIds } from '../rust-project-groups'
 import type { FolderWorkspace, ProjectGroup, Repo } from '../../shared/types'
 import type { IFilesystemProvider } from '../providers/types'
 

@@ -108,36 +108,13 @@ export function clearMissingProjectGroupMemberships(repos: Repo[], groups: Proje
   )
 }
 
-export function getProjectGroupSubtreeIds(
-  groups: readonly Pick<ProjectGroup, 'id' | 'parentGroupId'>[],
-  rootGroupId: string
-): Set<string> {
-  const childGroupsByParentId = new Map<string, string[]>()
-  for (const group of groups) {
-    if (!group.parentGroupId) {
-      continue
-    }
-    const children = childGroupsByParentId.get(group.parentGroupId) ?? []
-    children.push(group.id)
-    childGroupsByParentId.set(group.parentGroupId, children)
-  }
-
-  const subtreeIds = new Set<string>()
-  const pending = [rootGroupId]
-  while (pending.length > 0) {
-    const groupId = pending.pop()!
-    if (subtreeIds.has(groupId)) {
-      continue
-    }
-    subtreeIds.add(groupId)
-    // Why: imported project-group trees can be very wide; `push(...children)`
-    // can exceed V8's argument limit while collecting descendants.
-    for (const childGroupId of childGroupsByParentId.get(groupId) ?? []) {
-      pending.push(childGroupId)
-    }
-  }
-  return subtreeIds
-}
+// getProjectGroupSubtreeIds + getNextProjectGroupOrder were cut over to the Rust
+// project-groups core (orca-config::project_groups) — main drives it via napi
+// (src/main/rust-project-groups.ts), the renderer via wasm
+// (src/renderer/src/lib/git-wasm/project-groups.ts). The rest stay in TS: they
+// preserve full ProjectGroup/Repo shapes (connectionId/executionHostId and the
+// wider Repo record) that the lean Rust structs don't model, or depend on
+// locale-aware sort / JS-only sentinels the port can't reproduce zero-dep.
 
 /** Manual rank for a project inside a group bucket. Explicit
  *  `projectGroupOrder` wins; otherwise fall back to global repo order so drag
@@ -162,18 +139,4 @@ export function getEffectiveProjectGroupManualRank(
     return siblingFallbackIndex * 1000
   }
   return Number.POSITIVE_INFINITY
-}
-
-export function getNextProjectGroupOrder(repos: readonly Repo[], groupId: string | null): number {
-  let max = -1
-  for (const repo of repos) {
-    if ((repo.projectGroupId ?? null) !== groupId) {
-      continue
-    }
-    const order = repo.projectGroupOrder
-    if (typeof order === 'number' && Number.isFinite(order)) {
-      max = Math.max(max, order)
-    }
-  }
-  return max + 1
 }

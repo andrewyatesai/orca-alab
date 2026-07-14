@@ -1,3 +1,7 @@
+// Project-group subtree deletion now collects the subtree through the Rust
+// project-groups core (wasm); init it so the store routes real subtrees instead
+// of the wrapper's pre-ready root-only fallback.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTestStore } from './store-test-helpers'
 import type { FolderWorkspace, ProjectGroup, Repo } from '../../../../shared/types'

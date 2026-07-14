@@ -189,11 +189,10 @@ import { normalizeRepoBadgeColor } from './rust-repo-badge-color'
 import {
   clearMissingProjectGroupMemberships,
   createProjectGroup,
-  getNextProjectGroupOrder,
-  getProjectGroupSubtreeIds,
   normalizeProjectGroupName,
   normalizeProjectGroups
 } from '../shared/project-groups'
+import { getNextProjectGroupOrder, getProjectGroupSubtreeIds } from './rust-project-groups'
 import { createNestedProjectGroupResolver } from './project-groups/nested-repo-import'
 import {
   mergeLegacyCommitMessageAiIntoSourceControlAi,

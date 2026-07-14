@@ -89,6 +89,123 @@
         "groupId": "g"
       },
       "expected": 3
+    },
+    {
+      "function": "getProjectGroupSubtreeIds",
+      "note": "collects the root plus all transitive descendants (returned sorted; the TS Set is membership-only at every call site)",
+      "input": {
+        "groups": [
+          {
+            "id": "root",
+            "parentGroupId": null
+          },
+          {
+            "id": "child",
+            "parentGroupId": "root"
+          },
+          {
+            "id": "grandchild",
+            "parentGroupId": "child"
+          },
+          {
+            "id": "sibling",
+            "parentGroupId": null
+          }
+        ],
+        "rootGroupId": "root"
+      },
+      "expected": [
+        "child",
+        "grandchild",
+        "root"
+      ]
+    },
+    {
+      "function": "getProjectGroupSubtreeIds",
+      "note": "multiple branches under the root are all collected",
+      "input": {
+        "groups": [
+          {
+            "id": "root",
+            "parentGroupId": null
+          },
+          {
+            "id": "a",
+            "parentGroupId": "root"
+          },
+          {
+            "id": "b",
+            "parentGroupId": "root"
+          },
+          {
+            "id": "a1",
+            "parentGroupId": "a"
+          }
+        ],
+        "rootGroupId": "root"
+      },
+      "expected": [
+        "a",
+        "a1",
+        "b",
+        "root"
+      ]
+    },
+    {
+      "function": "getProjectGroupSubtreeIds",
+      "note": "a self-parent cycle terminates and yields just that id (no infinite loop)",
+      "input": {
+        "groups": [
+          {
+            "id": "a",
+            "parentGroupId": "a"
+          }
+        ],
+        "rootGroupId": "a"
+      },
+      "expected": [
+        "a"
+      ]
+    },
+    {
+      "function": "getProjectGroupSubtreeIds",
+      "note": "a root absent from the group list still yields itself (the traversal seeds it regardless)",
+      "input": {
+        "groups": [
+          {
+            "id": "a",
+            "parentGroupId": null
+          }
+        ],
+        "rootGroupId": "zzz"
+      },
+      "expected": [
+        "zzz"
+      ]
+    },
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "leading BOM (U+FEFF) is stripped by JS trim, so the name keeps its content (guards trim_js vs str::trim)",
+      "input": {
+        "name": "\uFEFFPlatform"
+      },
+      "expected": "Platform"
+    },
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "trailing U+0085 (NEL) is NOT stripped by JS trim, so it stays in the name",
+      "input": {
+        "name": "Platform\u0085"
+      },
+      "expected": "Platform\u0085"
+    },
+    {
+      "function": "normalizeProjectGroupName",
+      "note": "a bare-BOM name is blank after JS trim, so it falls back to the default",
+      "input": {
+        "name": "\uFEFF"
+      },
+      "expected": "Untitled group"
     }
   ]
 }

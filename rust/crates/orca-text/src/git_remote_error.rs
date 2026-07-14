@@ -134,6 +134,81 @@ pub enum GitRemoteOperation {
 }
 
 /// `message` is `None` when the failure was not an `Error` (TS `instanceof`).
+// --- pre-push hook failure detection (port of isPushHookFailure in
+// src/shared/source-control-push-failure.ts) -------------------------------
+
+const PUSH_FAILURE_SCAN_LIMIT: usize = 64 * 1024;
+
+fn ansi_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"[\u{001b}\u{009b}][\[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u{0007})|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))",
+        )
+        .unwrap()
+    })
+}
+
+fn control_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(r"[\u{0000}-\u{0008}\u{000b}\u{000c}\u{000e}-\u{001f}\u{007f}-\u{009f}]").unwrap()
+    })
+}
+
+fn push_hook_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(?:pre-push|prepush)\b").unwrap())
+}
+
+fn push_hook_runner_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(?:husky|lint-staged|lefthook)\b").unwrap())
+}
+
+fn push_context_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(?:failed to push|hook declined to push|git push)\b").unwrap())
+}
+
+fn lint_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\b(?:eslint|oxlint|lint-staged|lint)\b").unwrap())
+}
+
+fn remote_push_exclusion_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| {
+        Regex::new(
+            r"(?i)authentication failed|repository not found|not a git repository|does not appear to be a git repository|permission denied|protected branch|pre-receive hook declined|non-fast-forward|fetch first|updates were rejected|stale info|submodule|failed to push all needed submodules|unable to push submodule|unable to access|could not resolve host|network is unreachable|connection timed out|failed to connect|rpc failed|remote end hung up",
+        )
+        .unwrap()
+    })
+}
+
+fn normalize_push_failure(raw: &str) -> String {
+    let sliced: String = raw.chars().take(PUSH_FAILURE_SCAN_LIMIT).collect();
+    let no_ansi = ansi_re().replace_all(&sliced, "");
+    let lf = no_ansi.replace("\r\n", "\n").replace('\r', "\n");
+    let no_ctrl = control_re().replace_all(&lf, "");
+    no_ctrl.trim().to_string()
+}
+
+/// Whether a push failure is a LOCAL pre-push hook / lint failure (as opposed to
+/// a remote rejection) — its stderr carries the actionable hook output, so the
+/// normalizer must surface it verbatim rather than the generic tail line.
+fn is_push_hook_failure(raw: &str) -> bool {
+    let normalized = normalize_push_failure(raw);
+    if normalized.is_empty() || remote_push_exclusion_re().is_match(&normalized) {
+        return false;
+    }
+    if normalized.to_lowercase().contains("hook declined to push") || push_hook_re().is_match(&normalized) {
+        return true;
+    }
+    let has_context = push_context_re().is_match(&normalized);
+    has_context && (push_hook_runner_re().is_match(&normalized) || lint_re().is_match(&normalized))
+}
+
 pub fn normalize_git_error_message(
     message: Option<&str>,
     operation: Option<GitRemoteOperation>,
@@ -158,6 +233,11 @@ pub fn normalize_git_error_message(
         && (raw.contains("non-fast-forward") || raw.contains("fetch first"))
     {
         return "Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first.".to_string();
+    }
+    // A LOCAL pre-push hook / lint failure carries the actionable hook output —
+    // surface the (scrubbed) stderr verbatim instead of git's generic tail line.
+    if operation == Some(GitRemoteOperation::Push) && is_push_hook_failure(&raw) {
+        return raw.trim().to_string();
     }
     if raw.contains("could not read Username") || raw.contains("Authentication failed") {
         return "Authentication failed. Check your remote credentials.".to_string();
@@ -242,6 +322,28 @@ mod tests {
             "fatal: something specific went wrong"
         );
         assert_eq!(normalize_git_error_message(None, None), "Git remote operation failed.");
+    }
+
+    #[test]
+    fn preserves_local_pre_push_hook_output() {
+        // A local pre-push hook / lint failure: surface the hook output verbatim
+        // (scrubbed), not git's generic "failed to push some refs" tail line.
+        let stderr = "husky - pre-push hook failed (add --no-verify to bypass)\neslint found 2 errors\nerror: failed to push some refs to 'https://ghp_secret@github.com/acme/repo.git'";
+        let out = normalize_git_error_message(Some(stderr), Some(GitRemoteOperation::Push));
+        assert!(out.contains("husky - pre-push hook failed"));
+        assert!(out.contains("eslint found 2 errors"));
+        assert!(!out.contains("ghp_secret")); // credential scrubbed
+    }
+
+    #[test]
+    fn does_not_treat_remote_pre_receive_as_local_push_hook() {
+        // A remote pre-receive rejection is NOT a local push-hook failure — it
+        // falls through to the normal tail-line handling (excluded predicate).
+        let stderr = "remote: pre-receive hook declined\nremote: eslint failed in hosted checks\nerror: failed to push some refs to 'origin'";
+        assert_eq!(
+            normalize_git_error_message(Some(stderr), Some(GitRemoteOperation::Push)),
+            "error: failed to push some refs to 'origin'"
+        );
     }
 
     #[test]

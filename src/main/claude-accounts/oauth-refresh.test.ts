@@ -17,7 +17,7 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../network/proxy-settings', () => ({
-  ensureElectronProxyFromEnvironment: vi.fn().mockResolvedValue({ source: 'none' })
+  ensureElectronProxyForRequest: vi.fn().mockResolvedValue({ source: 'none' })
 }))
 
 const NOW = 1_700_000_000_000

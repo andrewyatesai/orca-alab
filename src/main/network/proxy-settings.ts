@@ -26,6 +26,35 @@ const PROXY_PROBE_URL = 'https://api.anthropic.com/'
 
 let lastAppliedProxyConfig: Extract<ProxyApplyResult, { source: 'settings' | 'env' }> | null = null
 
+// Why: startup applies the persisted/settings proxy asynchronously — it can
+// block on WPAD/PAC discovery for hundreds of ms on enterprise auto-detect
+// networks — so app-owned fetchers await this gate before their first request.
+// Without it, a request could race ahead of an explicit settings proxy and go
+// out on the wrong route. Defaults resolved so paths that never run startup
+// application (tests, headless serve before it settles) never block.
+let proxyReady: Promise<void> = Promise.resolve()
+
+/**
+ * Arm the one-time startup proxy-readiness gate and return a resolver to call
+ * once the initial `applyElectronProxySettings` settles (success or failure).
+ * Call synchronously before kicking off that initial application.
+ */
+export function beginInitialProxyApplication(): () => void {
+  let resolve!: () => void
+  proxyReady = new Promise<void>((r) => {
+    resolve = r
+  })
+  return resolve
+}
+
+/**
+ * Await the one-time startup proxy application before the first app-owned
+ * network request. Resolves immediately when startup application never ran.
+ */
+export function whenProxyReady(): Promise<void> {
+  return proxyReady
+}
+
 async function setSessionProxy(
   proxySession: ProxySession,
   config: Parameters<ProxySession['setProxy']>[0]
@@ -36,6 +65,28 @@ async function setSessionProxy(
 
 export function resetProxyApplicationForTests(): void {
   lastAppliedProxyConfig = null
+  proxyReady = Promise.resolve()
+}
+
+/**
+ * Ensure the network proxy is applied before an app-owned request.
+ *
+ * Why: waits for the one-time startup proxy application (which may block on
+ * WPAD/PAC) before probing/bridging env proxy, so an explicit settings proxy
+ * is applied before this request selects its route. Delegates to the env
+ * bridge, which memoizes the applied config so this stays a cheap no-op once
+ * the session proxy is settled.
+ */
+export async function ensureElectronProxyForRequest(
+  options: {
+    proxySession?: ProxySession
+    env?: Record<string, string | undefined>
+    force?: boolean
+    probeUrl?: string
+  } = {}
+): Promise<ProxyApplyResult> {
+  await proxyReady
+  return ensureElectronProxyFromEnvironment(options)
 }
 
 export async function ensureElectronProxyFromEnvironment(

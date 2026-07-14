@@ -11,7 +11,7 @@ import {
   credentialFileHasContent,
   readStoredCredentialToken
 } from '../integration-credential-file'
-import { ensureElectronProxyFromEnvironment } from '../network/proxy-settings'
+import { ensureElectronProxyForRequest } from '../network/proxy-settings'
 import { withSpan } from '../observability/tracer'
 import type {
   JiraConnectArgs,
@@ -328,7 +328,7 @@ async function jiraFetch(url: string, init: RequestInit): Promise<Response> {
     'jira.request',
     async (span) => {
       span.setAttribute('jira.siteUrl', new URL(url).origin)
-      await ensureElectronProxyFromEnvironment({
+      await ensureElectronProxyForRequest({
         proxySession: session.defaultSession,
         probeUrl: url
       }).catch((error) => {

@@ -15,8 +15,11 @@ vi.mock('electron', () => ({
 
 import {
   applyElectronProxySettings,
+  beginInitialProxyApplication,
+  ensureElectronProxyForRequest,
   ensureElectronProxyFromEnvironment,
-  resetProxyApplicationForTests
+  resetProxyApplicationForTests,
+  whenProxyReady
 } from './proxy-settings'
 
 function createProxySession(resolveProxy = 'DIRECT') {
@@ -131,5 +134,45 @@ describe('Electron proxy settings', () => {
     })
 
     expect(proxySession.setProxy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('startup proxy readiness gate', () => {
+  beforeEach(() => {
+    resetProxyApplicationForTests()
+  })
+
+  it('resolves immediately when no startup application is in flight', async () => {
+    await expect(whenProxyReady()).resolves.toBeUndefined()
+  })
+
+  it('holds until the initial application settles, then resolves', async () => {
+    const resolveProxyReady = beginInitialProxyApplication()
+    let settled = false
+    void whenProxyReady().then(() => {
+      settled = true
+    })
+
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    resolveProxyReady()
+    await whenProxyReady()
+    expect(settled).toBe(true)
+  })
+
+  it('makes a first request wait for the initial application before probing proxy', async () => {
+    const proxySession = createProxySession('DIRECT')
+    const resolveProxyReady = beginInitialProxyApplication()
+
+    const inflight = ensureElectronProxyForRequest({ proxySession, env: {} })
+    // Flush microtasks: the request must not touch the network stack yet.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(proxySession.resolveProxy).not.toHaveBeenCalled()
+
+    resolveProxyReady()
+    await inflight
+    expect(proxySession.resolveProxy).toHaveBeenCalledTimes(1)
   })
 })

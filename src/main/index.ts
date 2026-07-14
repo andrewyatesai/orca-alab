@@ -188,7 +188,7 @@ import type { AgentStatusState } from '../shared/agent-status-types'
 import { resolveTuiAgentPermissionMode } from '../shared/tui-agent-permissions'
 import type { TerminalSideEffectBatch } from '../shared/terminal-side-effect-facts'
 import { KeybindingService } from './keybindings/keybinding-service'
-import { applyElectronProxySettings } from './network/proxy-settings'
+import { applyElectronProxySettings, beginInitialProxyApplication } from './network/proxy-settings'
 import { preserveAgentAuthBeforeRestart } from './agent-auth-restart-preservation'
 import { CliInstaller } from './cli/cli-installer'
 import { installLinuxBareOrcaDispatcher } from './cli/linux-bare-orca-dispatcher'
@@ -1680,13 +1680,16 @@ app.whenReady().then(async () => {
   if (shouldSuppressDevEducation({ isDev: is.dev })) {
     suppressDevEducationForStore(store)
   }
-  try {
-    // Why: Dock/Launchpad launches do not inherit shell proxy env vars, so the
-    // persisted proxy must be applied before any app-owned network fetchers run.
-    await applyElectronProxySettings(store.getSettings())
-  } catch {
-    console.warn('[proxy] Failed to apply network proxy settings')
-  }
+  // Why: Dock/Launchpad launches do not inherit shell proxy env vars, so the
+  // persisted proxy must be applied before any app-owned network fetcher runs.
+  // Background it — applying can block on WPAD/PAC discovery for hundreds of ms
+  // on enterprise auto-detect networks — so window creation + daemon fork
+  // proceed. Fetchers await ensureElectronProxyForRequest → proxyReady before
+  // their first request, so the "apply before fetch" ordering still holds.
+  const resolveProxyReady = beginInitialProxyApplication()
+  void applyElectronProxySettings(store.getSettings())
+    .catch(() => console.warn('[proxy] Failed to apply network proxy settings'))
+    .finally(resolveProxyReady)
   // Why: browser sessions are used by desktop webviews and runtime profile
   // commands, so initialize them at app startup instead of a renderer IPC path.
   initializeBrowserSessionsForApp({

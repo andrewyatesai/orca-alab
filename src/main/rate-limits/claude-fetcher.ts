@@ -36,7 +36,7 @@ import {
 } from '../claude-accounts/oauth-refresh'
 import { createOAuthUsageError, OAuthUsageError } from './claude-oauth-usage-error'
 import { withMacTailscaleDnsHint } from '../network/macos-tailscale-dns-diagnostic'
-import { ensureElectronProxyFromEnvironment } from '../network/proxy-settings'
+import { ensureElectronProxyForRequest } from '../network/proxy-settings'
 import { resolveClaudeUsageRefreshPlan } from './claude-usage-refresh-plan'
 import {
   classifyClaudeCredentialAbsence,
@@ -62,7 +62,7 @@ const LIVE_CLAUDE_REFRESH_DEFERRED_MESSAGE =
  * Anthropic from an unexpected IP, risking rate-limit signals on the account.
  */
 async function ensureProxyFromEnv(): Promise<void> {
-  await ensureElectronProxyFromEnvironment({
+  await ensureElectronProxyForRequest({
     proxySession: session.defaultSession,
     probeUrl: OAUTH_USAGE_URL
   }).catch(() => {})

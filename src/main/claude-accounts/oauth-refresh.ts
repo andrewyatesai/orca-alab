@@ -1,5 +1,5 @@
 import { net, session } from 'electron'
-import { ensureElectronProxyFromEnvironment } from '../network/proxy-settings'
+import { ensureElectronProxyForRequest } from '../network/proxy-settings'
 
 // Why: the OAuth client id and token endpoint are the public Claude Code
 // values, verified against the installed `claude` binary (2.1.177) and the
@@ -130,7 +130,7 @@ export async function refreshClaudeOauthCredentials(
     return null
   }
 
-  await ensureElectronProxyFromEnvironment({
+  await ensureElectronProxyForRequest({
     proxySession: session.defaultSession,
     probeUrl: OAUTH_TOKEN_URL
   }).catch(() => {})

@@ -7,7 +7,7 @@ import { orcaDispatch } from './orca_git_wasm.js'
 import type { BuildAgentNotificationIdArgs } from '../../../../shared/agent-notification-id'
 
 function op(fn: string, input: unknown): unknown | null {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('agent-notification-id', fn, JSON.stringify(input ?? null)))
 }
 

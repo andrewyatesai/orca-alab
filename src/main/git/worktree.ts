@@ -10,11 +10,18 @@ import type {
   LocalBaseRefUpdateSuggestion,
   RemoveWorktreeResult
 } from '../../shared/types'
+import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
 import { parseWslUncPath } from '../../shared/wsl-paths'
+import {
+  hasUnsupportedRevParsePathFormatEcho,
+  isUnsupportedRevParsePathFormatError,
+  isUnsupportedWorktreeListZError
+} from '../../shared/git-worktree-command-capabilities'
+import { getLocalGitCapabilityCache } from './git-capability-state'
 import { gitExecFileAsync, translateWslOutputPaths } from './runner'
 import { requireRustGitBinding } from '../daemon/rust-git-addon'
-import { resolveGitDir } from './status'
+import { resolveGitDir, runWithGitReadCacheInvalidation } from './status'
 import { hasWorktreeBaseCommitRef } from './worktree-base-ref-probe'
 
 export type AddWorktreeResult = {
@@ -44,7 +51,7 @@ export type AddWorktreeOptions = GitWorktreeExecOptions & {
 export type RemoveWorktreeOptions = GitWorktreeExecOptions & {
   deleteBranch?: boolean
   forceBranchDelete?: boolean
-  knownRemovedWorktree?: Pick<GitWorktreeInfo, 'branch' | 'head'>
+  knownRemovedWorktree?: Pick<GitWorktreeInfo, 'branch' | 'head' | 'locked' | 'lockReason'>
 }
 
 type LocalBaseRefRefreshability =
@@ -107,22 +114,6 @@ function isNotGitRepositoryError(error: unknown): boolean {
   return /not a git repository/i.test(getErrorText(error))
 }
 
-function isUnsupportedWorktreeListZError(error: unknown): boolean {
-  // `-z` is this command's only flag older Git (<2.36) lacks, so its usage
-  // exit 129 signals the rejection in any locale; stderr match is a fallback.
-  if (getErrorCode(error) === '129') {
-    return true
-  }
-
-  return /(?:unknown|invalid|unrecognized) (?:switch|option).*`?-?z'?/i.test(getErrorText(error))
-}
-
-function isUnsupportedRevParsePathFormatError(error: unknown): boolean {
-  return /(?:unknown|invalid|unrecognized).*(?:--path-format|path-format)/i.test(
-    getErrorText(error)
-  )
-}
-
 function isBranchCheckedOutInWorktreeError(error: unknown): boolean {
   return /cannot delete branch .*(?:used by worktree|checked out)|branch .*is checked out/i.test(
     getErrorText(error)
@@ -178,7 +169,8 @@ async function evaluateLocalBaseRefRefreshability(
   baseBranch: string,
   remoteTrackingRef: string,
   remoteTrackingBase?: AddWorktreeOptions['remoteTrackingBase'],
-  options: GitWorktreeExecOptions = {}
+  options: GitWorktreeExecOptions = {},
+  shouldInspectOwner: (behind: number) => boolean = () => true
 ): Promise<LocalBaseRefRefreshability | undefined> {
   const parsed = parseRemoteTrackingLocalBaseRef(baseBranch, remoteTrackingRef, remoteTrackingBase)
   if (!parsed) {
@@ -201,6 +193,11 @@ async function evaluateLocalBaseRefRefreshability(
     const parsedDrift = parseRevListDrift(stdout)
     if (!parsedDrift || parsedDrift.ahead !== 0) {
       return { refreshable: false, result: { ...resultBase, status: 'skipped_not_fast_forward' } }
+    }
+    if (!shouldInspectOwner(parsedDrift.behind)) {
+      // Why: a current local ref cannot produce an update suggestion, so the
+      // advisory path need not resolve OIDs or inspect its owner worktree.
+      return undefined
     }
     const { stdout: localOidOutput } = await gitExecFileAsync(
       ['rev-parse', '--verify', `${parsed.fullRef}^{commit}`],
@@ -295,7 +292,8 @@ async function getLocalBaseRefUpdateSuggestionForWorktreeCreate(
     baseBranch,
     remoteTrackingRef,
     remoteTrackingBase,
-    options
+    options,
+    (behind) => behind > 0
   )
   if (!evaluation?.refreshable || evaluation.behind <= 0) {
     return undefined
@@ -406,24 +404,34 @@ async function readRepoLocation(
   resolveBasePath: string,
   options: GitWorktreeExecOptions = {}
 ): Promise<RepoLocation | undefined> {
+  const capabilities = getLocalGitCapabilityCache({
+    cwd: repoPath,
+    wslDistro: options.wslDistro
+  })
   try {
-    const { stdout } = await gitExecFileAsync(
-      ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'],
-      gitExecOptions(repoPath, options)
+    return await capabilities.runWithFallback(
+      'rev-parse-path-format',
+      async () => {
+        const { stdout } = await gitExecFileAsync(
+          ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'],
+          gitExecOptions(repoPath, options)
+        )
+        if (hasUnsupportedRevParsePathFormatEcho(stdout)) {
+          // Why: some old Git versions echo the unknown option and exit zero;
+          // remember that compatibility signal even though parsing can recover.
+          capabilities.rememberUnsupported('rev-parse-path-format')
+        }
+        return parseRepoLocation(resolveBasePath, stdout)
+      },
+      async () => {
+        const { stdout } = await gitExecFileAsync(
+          ['rev-parse', '--show-toplevel', '--git-common-dir'],
+          gitExecOptions(repoPath, options)
+        )
+        return parseRepoLocation(resolveBasePath, stdout)
+      },
+      isUnsupportedRevParsePathFormatError
     )
-    return parseRepoLocation(resolveBasePath, stdout)
-  } catch (error) {
-    if (!isUnsupportedRevParsePathFormatError(error)) {
-      return undefined
-    }
-  }
-
-  try {
-    const { stdout } = await gitExecFileAsync(
-      ['rev-parse', '--show-toplevel', '--git-common-dir'],
-      gitExecOptions(repoPath, options)
-    )
-    return parseRepoLocation(resolveBasePath, stdout)
   } catch {
     return undefined
   }
@@ -485,29 +493,34 @@ async function readWorktreeList(
   repoPath: string,
   options: GitWorktreeExecOptions = {}
 ): Promise<GitWorktreeInfo[]> {
-  try {
-    const { stdout } = await gitExecFileAsync(['worktree', 'list', '--porcelain', '-z'], {
-      cwd: repoPath,
-      ...options
-    })
-    return normalizeMainWorktreePath(
-      repoPath,
-      parseWorktreeList(stdout, { nulDelimited: true }),
-      options
-    )
-  } catch (error) {
-    if (!isUnsupportedWorktreeListZError(error)) {
-      throw error
-    }
-  }
-
-  // Why: `-z` is required to preserve worktree paths containing newlines, but
-  // Git <2.36 rejects it. Keep the old parser as a compatibility fallback.
-  const { stdout } = await gitExecFileAsync(['worktree', 'list', '--porcelain'], {
+  const capabilities = getLocalGitCapabilityCache({
     cwd: repoPath,
-    ...options
+    wslDistro: options.wslDistro
   })
-  return normalizeMainWorktreePath(repoPath, parseWorktreeList(stdout), options)
+  return capabilities.runWithFallback(
+    'worktree-list-z',
+    async () => {
+      const { stdout } = await gitExecFileAsync(['worktree', 'list', '--porcelain', '-z'], {
+        cwd: repoPath,
+        ...options
+      })
+      return normalizeMainWorktreePath(
+        repoPath,
+        parseWorktreeList(stdout, { nulDelimited: true }),
+        options
+      )
+    },
+    async () => {
+      // Why: `-z` is required to preserve worktree paths containing newlines,
+      // but Git <2.36 rejects it. Keep the line parser as the fallback.
+      const { stdout } = await gitExecFileAsync(['worktree', 'list', '--porcelain'], {
+        cwd: repoPath,
+        ...options
+      })
+      return normalizeMainWorktreePath(repoPath, parseWorktreeList(stdout), options)
+    },
+    isUnsupportedWorktreeListZError
+  )
 }
 
 async function readTranslatedWorktreeGraph(
@@ -558,8 +571,46 @@ const inFlightWorktreeScans = new Map<string, Promise<GitWorktreeInfo[]>>()
 // settle for their original callers).
 const worktreeScanGenerations = new Map<string, number>()
 
+function hasInFlightWorktreeScanForRepo(repoPath: string): boolean {
+  const keyPrefix = `${repoPath}\0`
+  for (const key of inFlightWorktreeScans.keys()) {
+    if (key.startsWith(keyPrefix)) {
+      return true
+    }
+  }
+  return false
+}
+
 function bumpWorktreeScanGeneration(repoPath: string): void {
+  // Why: generations only prevent joining a pre-mutation scan. Without an
+  // active scan, retaining the repo path just leaks completed mutation keys.
+  if (!hasInFlightWorktreeScanForRepo(repoPath)) {
+    return
+  }
   worktreeScanGenerations.set(repoPath, (worktreeScanGenerations.get(repoPath) ?? 0) + 1)
+}
+
+function pruneWorktreeScanGeneration(repoPath: string): void {
+  // Why: ordinary scan settlement should stay O(1); only repos invalidated
+  // during an active scan need the cross-generation in-flight check.
+  if (!worktreeScanGenerations.has(repoPath)) {
+    return
+  }
+  if (!hasInFlightWorktreeScanForRepo(repoPath)) {
+    worktreeScanGenerations.delete(repoPath)
+  }
+}
+
+export function _getWorktreeScanCacheSizesForTests(): { inFlight: number; generations: number } {
+  return {
+    inFlight: inFlightWorktreeScans.size,
+    generations: worktreeScanGenerations.size
+  }
+}
+
+export function _resetWorktreeScanCacheForTests(): void {
+  inFlightWorktreeScans.clear()
+  worktreeScanGenerations.clear()
 }
 
 /**
@@ -584,6 +635,7 @@ export function listWorktrees(
     if (inFlightWorktreeScans.get(key) === scan) {
       inFlightWorktreeScans.delete(key)
     }
+    pruneWorktreeScanGeneration(repoPath)
   })
   inFlightWorktreeScans.set(key, scan)
   return scan
@@ -746,14 +798,16 @@ export async function addWorktree(
   options: AddWorktreeOptions = {}
 ): Promise<AddWorktreeResult> {
   try {
-    return await performAddWorktree(
-      repoPath,
-      worktreePath,
-      branch,
-      baseBranch,
-      refreshLocalBaseRef,
-      noCheckout,
-      options
+    return await runWithGitReadCacheInvalidation(() =>
+      performAddWorktree(
+        repoPath,
+        worktreePath,
+        branch,
+        baseBranch,
+        refreshLocalBaseRef,
+        noCheckout,
+        options
+      )
     )
   } finally {
     bumpWorktreeScanGeneration(repoPath)
@@ -964,7 +1018,9 @@ export async function moveWorktree(
   newPath: string
 ): Promise<void> {
   try {
-    await gitExecFileAsync(['worktree', 'move', oldPath, newPath], { cwd: repoPath })
+    await runWithGitReadCacheInvalidation(() =>
+      gitExecFileAsync(['worktree', 'move', oldPath, newPath], { cwd: repoPath })
+    )
   } finally {
     bumpWorktreeScanGeneration(repoPath)
   }
@@ -984,7 +1040,9 @@ export async function removeWorktree(
   options: RemoveWorktreeOptions = {}
 ): Promise<RemoveWorktreeResult> {
   try {
-    return await performRemoveWorktree(repoPath, worktreePath, force, options)
+    return await runWithGitReadCacheInvalidation(() =>
+      performRemoveWorktree(repoPath, worktreePath, force, options)
+    )
   } finally {
     bumpWorktreeScanGeneration(repoPath)
   }
@@ -1003,6 +1061,10 @@ async function performRemoveWorktree(
     )
   const branchName = normalizeLocalBranchRef(removedWorktree?.branch ?? '')
   const branchHead = removedWorktree?.head ?? ''
+
+  // Why: callers outside the IPC/runtime preflight must not bypass Git's lock
+  // contract or depend on localized stderr to discover it after side effects.
+  assertWorktreeUnlockedForRemoval(removedWorktree)
 
   const args = ['worktree', 'remove']
   if (force) {

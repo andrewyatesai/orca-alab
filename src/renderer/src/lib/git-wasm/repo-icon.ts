@@ -15,16 +15,16 @@ function dispatch(fn: string, input: unknown): unknown {
 export function sanitizeRepoIcon(value: unknown): RepoIcon | null | undefined {
   // On a wasm-load failure pass the icon through unchanged so the sync
   // sanitizeRepoUpdate reducer can't silently delete the user's saved icon.
-  if (!isGitWasmReady()) return value as RepoIcon | null | undefined
+  if (!isGitWasmReady()) {return value as RepoIcon | null | undefined}
   // `undefined` means "leave as-is"; it isn't JSON-representable, so short-circuit.
-  if (value === undefined) return undefined
+  if (value === undefined) {return undefined}
   const result = dispatch('sanitizeRepoIcon', value)
   return result === SANITIZE_UNDEFINED ? undefined : (result as RepoIcon | null)
 }
 
 export function faviconUrlFromWebsite(rawUrl: string): string | null {
   // The original legitimately returns null, so null is a valid not-ready fallback.
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return dispatch('faviconUrlFromWebsite', rawUrl) as string | null
 }
 

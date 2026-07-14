@@ -12,7 +12,7 @@ import {
 } from '../../../../shared/task-providers'
 
 function op(fn: string, input: unknown): unknown | null {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('task-providers', fn, JSON.stringify(input ?? null)))
 }
 
@@ -28,7 +28,7 @@ export function normalizeTaskProviderSettings(value: {
 
 export function normalizeVisibleTaskProviders(value: unknown): TaskProvider[] {
   const r = op('normalizeVisibleTaskProviders', value) as TaskProvider[] | null
-  if (r) return r
+  if (r) {return r}
   return Array.isArray(value) ? (value as TaskProvider[]) : [...TASK_PROVIDERS]
 }
 
@@ -39,7 +39,7 @@ export function filterAvailableTaskProviders(
   const r = op('filterAvailableTaskProviders', { visibleProviders, availability }) as
     | TaskProvider[]
     | null
-  if (r) return r
+  if (r) {return r}
   return Array.isArray(visibleProviders) ? [...visibleProviders] : ['github']
 }
 

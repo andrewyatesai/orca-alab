@@ -186,3 +186,7 @@ rust/aterm/.cargo/
 
 # Cached pinned build tooling (wasm-bindgen-cli, etc.)
 config/.tooling/
+
+prod-release-scan-*.md
+/.bench-fixtures/
+tools/benchmarks/results/terminal-pipeline-*.json

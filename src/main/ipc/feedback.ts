@@ -20,7 +20,11 @@ declare const ORCA_FEEDBACK_ENDPOINT: string | null
 export const FEEDBACK_ENDPOINT_NOT_CONFIGURED = 'endpoint-not-configured'
 
 const FEEDBACK_REQUEST_TIMEOUT_MS = 10_000
+const FEEDBACK_ATTACHMENT_REQUEST_TIMEOUT_MS = 60_000
 const DIAGNOSTIC_BUNDLE_CONTENT_TYPE = 'application/x-ndjson'
+// Why: corporate filters can reject multipart with 403 while allowing the
+// small JSON report, so content-shaped failures should shed the attachment.
+const DIAGNOSTIC_BUNDLE_JSON_RETRY_STATUSES = new Set([400, 403, 408, 413, 415, 422])
 
 function resolveBuildFeedbackEndpoint(): string | null {
   // The `globalThis` dance mirrors telemetry/client.ts: compile-time
@@ -77,13 +81,21 @@ type FeedbackSubmitBody = {
   diagnosticBundle?: FeedbackDiagnosticBundleAttachment
 }
 
+export type FeedbackRequestFailure = {
+  status: number | null
+  error: string
+}
+
 export type FeedbackSubmitResult =
-  | { ok: true }
-  | { ok: false; status: number | null; error: string }
+  | { ok: true; diagnosticBundleFailure?: FeedbackRequestFailure }
+  | ({ ok: false } & FeedbackRequestFailure & {
+        diagnosticBundleFailure?: FeedbackRequestFailure
+      })
 
 type InternalFeedbackSubmitArgs = FeedbackSubmitArgs & {
   submissionType?: FeedbackSubmissionType
   diagnosticBundle?: FeedbackDiagnosticBundleAttachment
+  feedbackWithoutDiagnosticBundle?: string
 }
 
 // Why: the notification and any follow-up investigation need to know which
@@ -112,11 +124,16 @@ function buildSubmitBody(args: InternalFeedbackSubmitArgs): FeedbackSubmitBody {
   }
 }
 
-async function postFeedback(url: string, body: FeedbackSubmitBody): Promise<Response> {
+async function postFeedback(
+  url: string,
+  body: FeedbackSubmitBody,
+  timeoutMs = FEEDBACK_REQUEST_TIMEOUT_MS
+): Promise<Response> {
   const controller = new AbortController()
   // Why: a silent feedback endpoint should not leave IPC or crash-report
-  // submission flows pending forever.
-  const timeout = setTimeout(() => controller.abort(), FEEDBACK_REQUEST_TIMEOUT_MS)
+  // submission flows pending forever. Diagnostic attachments pass a longer
+  // budget than the small JSON report path.
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const init: RequestInit = {
       method: 'POST',
@@ -178,6 +195,65 @@ function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+function responseFailure(response: Response): FeedbackRequestFailure {
+  return { status: response.status, error: `status ${response.status}` }
+}
+
+function errorFailure(error: unknown): FeedbackRequestFailure {
+  return { status: null, error: messageFromError(error) }
+}
+
+function shouldRetryDiagnosticBundleAsJson(status: number): boolean {
+  // Why: content-shaped rejections (filtered/oversized multipart) and server
+  // errors both point at the attachment, not the report — so shed the bundle
+  // and retry the small JSON report. Unlike upstream there is no vendor
+  // fallback host; every retry targets the same configured endpoint.
+  return DIAGNOSTIC_BUNDLE_JSON_RETRY_STATUSES.has(status) || status === 404 || status >= 500
+}
+
+async function submitFeedbackWithoutDiagnosticBundle(
+  endpoint: string,
+  body: FeedbackSubmitBody,
+  diagnosticBundleFailure: FeedbackRequestFailure
+): Promise<FeedbackSubmitResult> {
+  try {
+    const response = await postFeedback(endpoint, body)
+    if (response.ok) {
+      return { ok: true, diagnosticBundleFailure }
+    }
+    return { ok: false, ...responseFailure(response), diagnosticBundleFailure }
+  } catch (error) {
+    return { ok: false, ...errorFailure(error), diagnosticBundleFailure }
+  }
+}
+
+async function submitFeedbackWithDiagnosticBundle(
+  endpoint: string,
+  body: FeedbackSubmitBody,
+  bodyWithoutDiagnosticBundle: FeedbackSubmitBody | null
+): Promise<FeedbackSubmitResult> {
+  try {
+    // Why: diagnostic bundles can approach 4 MiB and need more upload time than
+    // the small JSON report-only path, especially on constrained connections.
+    const response = await postFeedback(endpoint, body, FEEDBACK_ATTACHMENT_REQUEST_TIMEOUT_MS)
+    if (response.ok) {
+      return { ok: true }
+    }
+    const failure = responseFailure(response)
+    if (bodyWithoutDiagnosticBundle && shouldRetryDiagnosticBundleAsJson(response.status)) {
+      return submitFeedbackWithoutDiagnosticBundle(endpoint, bodyWithoutDiagnosticBundle, failure)
+    }
+    return { ok: false, ...failure }
+  } catch (error) {
+    // Why: an attachment upload can time out or drop on constrained links; retry
+    // report-only so the crash text still lands at the same configured endpoint.
+    const failure = errorFailure(error)
+    return bodyWithoutDiagnosticBundle
+      ? submitFeedbackWithoutDiagnosticBundle(endpoint, bodyWithoutDiagnosticBundle, failure)
+      : { ok: false, ...failure }
+  }
+}
+
 export async function submitFeedback(
   args: InternalFeedbackSubmitArgs
 ): Promise<FeedbackSubmitResult> {
@@ -188,6 +264,17 @@ export async function submitFeedback(
     return { ok: false, status: null, error: FEEDBACK_ENDPOINT_NOT_CONFIGURED }
   }
   const body = buildSubmitBody(args)
+  if (body.diagnosticBundle) {
+    const bodyWithoutDiagnosticBundle =
+      args.feedbackWithoutDiagnosticBundle !== undefined
+        ? buildSubmitBody({
+            ...args,
+            feedback: args.feedbackWithoutDiagnosticBundle,
+            diagnosticBundle: undefined
+          })
+        : null
+    return submitFeedbackWithDiagnosticBundle(endpoint, body, bodyWithoutDiagnosticBundle)
+  }
   try {
     const res = await postFeedback(endpoint, body)
     if (res.ok) {

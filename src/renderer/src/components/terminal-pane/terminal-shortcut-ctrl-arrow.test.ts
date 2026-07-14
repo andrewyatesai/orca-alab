@@ -40,7 +40,7 @@ describe('non-mac Ctrl+Left/Right word-nav', () => {
   // Ctrl+←/→ to word-nav and self-insert a stray "b"/"f" when fed \eb/\ef
   // (Escape→RevertLine + self-insert), so the policy must stand down and let
   // the engine emit its native \e[1;5D / \e[1;5C there. Signalled via the
-  // isLocalWindowsConptyPane getter (8th arg).
+  // isLocalWindowsConptyPane getter (7th arg).
   it('does NOT translate Ctrl+←/→ for a local Windows ConPTY pane', () => {
     expect(
       resolveTerminalShortcutAction(
@@ -50,7 +50,6 @@ describe('non-mac Ctrl+Left/Right word-nav', () => {
         undefined,
         true,
         undefined,
-        false,
         () => true
       )
     ).toBeNull()
@@ -62,7 +61,6 @@ describe('non-mac Ctrl+Left/Right word-nav', () => {
         undefined,
         true,
         undefined,
-        false,
         () => true
       )
     ).toBeNull()
@@ -80,7 +78,6 @@ describe('non-mac Ctrl+Left/Right word-nav', () => {
         undefined,
         true,
         undefined,
-        false,
         () => false
       )
     ).toEqual({ type: 'sendInput', data: '\x1bb' })
@@ -92,7 +89,6 @@ describe('non-mac Ctrl+Left/Right word-nav', () => {
         undefined,
         true,
         undefined,
-        false,
         () => false
       )
     ).toEqual({ type: 'sendInput', data: '\x1bf' })
@@ -149,7 +145,8 @@ describe('non-mac Ctrl+Left/Right word-nav', () => {
         0,
         false,
         undefined,
-        true
+        undefined,
+        () => true
       )
     ).toBeNull()
   })

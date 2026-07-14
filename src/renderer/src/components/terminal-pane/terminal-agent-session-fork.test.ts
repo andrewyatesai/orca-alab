@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- Why: fork flow tests share a mocked store and launch harness. */
 import { readFileSync } from 'node:fs'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ManagedPane } from '@/lib/pane-manager/pane-manager'

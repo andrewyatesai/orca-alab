@@ -23,7 +23,7 @@ function emptyParsedTaskQuery(): ParsedTaskQuery {
 }
 
 function op(fn: string, input: unknown): unknown {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('task-query', fn, JSON.stringify(input ?? null)))
 }
 

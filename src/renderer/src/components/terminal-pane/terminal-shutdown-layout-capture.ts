@@ -70,6 +70,10 @@ export function captureTerminalShutdownLayout({
         flushTerminalOutput(pane.terminal)
         const leafId = pane.leafId
         const scrollback = pane.terminal.options.scrollback ?? 10_000
+        // Why serializePaneBuffer (not serializeWithAbsoluteCursor): the aterm-native
+        // serialize already ends the snapshot with an absolute CUP from the engine's
+        // authoritative cursor, so it does not suffer xterm SerializeAddon's relative
+        // wrap-pending off-by-one that the wrapper was compensating for.
         let serialized = serializePaneBuffer(pane, scrollback)
         // Why: SSH sleep keeps this string in session JSON; cap by UTF-8
         // bytes so non-ASCII scrollback cannot bypass the intended bound.

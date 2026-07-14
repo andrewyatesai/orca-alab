@@ -9,7 +9,7 @@ import { orcaDispatch } from './orca_git_wasm.js'
 import type { BaseRefSearchResult } from '../../../../shared/types'
 
 function op(fn: string, input: unknown): unknown | null {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('base-ref-search-result', fn, JSON.stringify(input ?? null)))
 }
 

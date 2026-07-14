@@ -14,6 +14,7 @@ import {
 } from 'node:fs'
 import { getHistorySessionDirName } from './history-paths'
 import { HISTORY_DIR_MODE, HISTORY_FILE_MODE } from './history-store-layout'
+import { readSessionMetaFromDir, updateSessionMeta } from './session-meta-store'
 import {
   decodeLogHeader,
   encodeLogBatch,
@@ -138,6 +139,31 @@ export class HistoryManager {
     })
   }
 
+  // Why: wake after sleep re-spawns a session whose history was closed by the
+  // sleep-time kill. Re-register the writer without deleting checkpoint.json
+  // (still the only recovery data until the next tick) and clear endedAt so
+  // the next sleep can cold-restore this session again.
+  reopenSession(sessionId: string): void {
+    this.disabledSessions.delete(sessionId)
+    this.registerWriter(sessionId)
+    const writer = this.writers.get(sessionId)
+    if (!writer) {
+      return
+    }
+    try {
+      updateSessionMeta(writer.dir, { endedAt: null, exitCode: null })
+    } catch (err) {
+      this.handleWriteError(sessionId, err)
+    }
+  }
+
+  suspendSession(sessionId: string): void {
+    // Why: if a fresh daemon cannot accept recovered scrollback, leaving its
+    // writer active would let the next checkpoint overwrite the only good copy.
+    this.writers.delete(sessionId)
+    this.disabledSessions.delete(sessionId)
+  }
+
   /** Appends one take batch to the incremental log. Returns 'needs-checkpoint'
    *  when the log is at capacity — the caller must take a full snapshot, which
    *  subsumes the un-appended records (they were already applied to the live
@@ -200,7 +226,7 @@ export class HistoryManager {
       // so the revived shell inherits the original working directory.
       let effectiveCwd = snapshot.cwd
       if (effectiveCwd === null) {
-        const meta = this.readMetaFromDir(writer.dir)
+        const meta = readSessionMetaFromDir(writer.dir)
         effectiveCwd = meta?.cwd ?? null
       }
 
@@ -300,7 +326,7 @@ export class HistoryManager {
     // disabledSessions forever (sessionIds are fresh per PTY, never reused).
     this.disabledSessions.delete(sessionId)
     try {
-      this.updateMeta(writer.dir, { endedAt: new Date().toISOString(), exitCode })
+      updateSessionMeta(writer.dir, { endedAt: new Date().toISOString(), exitCode })
     } catch (err) {
       // Why: if endedAt can't be written, the session looks like an unclean
       // shutdown and triggers a false cold restore on next launch. Disable
@@ -355,7 +381,7 @@ export class HistoryManager {
     // false cold-restores on next launch.
     for (const [sessionId, writer] of this.writers) {
       try {
-        this.updateMeta(writer.dir, { endedAt: new Date().toISOString(), exitCode: null })
+        updateSessionMeta(writer.dir, { endedAt: new Date().toISOString(), exitCode: null })
       } catch {
         this.disabledSessions.add(sessionId)
       }
@@ -369,26 +395,5 @@ export class HistoryManager {
   private handleWriteError(sessionId: string, err: unknown): void {
     this.disabledSessions.add(sessionId)
     this.onWriteError?.(sessionId, err as Error)
-  }
-
-  private readMetaFromDir(dir: string): SessionMeta | null {
-    const metaPath = join(dir, 'meta.json')
-    try {
-      return JSON.parse(readFileSync(metaPath, 'utf-8'))
-    } catch {
-      return null
-    }
-  }
-
-  private updateMeta(dir: string, updates: Partial<SessionMeta>): void {
-    const metaPath = join(dir, 'meta.json')
-    let meta: SessionMeta
-    try {
-      meta = JSON.parse(readFileSync(metaPath, 'utf-8'))
-    } catch {
-      return
-    }
-    Object.assign(meta, updates)
-    writeFileSync(metaPath, JSON.stringify(meta, null, 2))
   }
 }

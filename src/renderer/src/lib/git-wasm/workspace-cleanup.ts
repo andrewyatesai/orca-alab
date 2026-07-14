@@ -13,7 +13,7 @@ import type {
 } from '../../../../shared/workspace-cleanup'
 
 function op(fn: string, input: unknown): unknown | null {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('workspace-cleanup', fn, JSON.stringify(input ?? null)))
 }
 

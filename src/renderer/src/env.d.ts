@@ -8,6 +8,7 @@ import type { AtermLatencyBenchResult } from '@/lib/pane-manager/aterm/aterm-lat
 import type { AtermMemoryBenchResult } from '@/lib/pane-manager/aterm/aterm-memory-bench'
 import type { AtermWorkerState } from '@/lib/pane-manager/aterm/aterm-render-worker-protocol'
 import type { languages } from 'monaco-editor'
+import type { MonacoE2EProbe } from './components/editor/monaco-e2e-probe'
 
 declare module 'monaco-editor/esm/vs/basic-languages/python/python.js' {
   export const conf: languages.LanguageConfiguration
@@ -140,6 +141,11 @@ declare global {
     // e2e only: resolves the configured terminal theme bg through the real
     // pipeline (independent of what the renderer painted) for theme assertions.
     __resolveAtermThemeBg?: () => [number, number, number]
+    __terminalParkingDebug?: {
+      parkDelayMs: number
+      parkedTabIds: () => string[]
+    }
+    __monacoEditorE2E?: MonacoE2EProbe
   }
 }
 

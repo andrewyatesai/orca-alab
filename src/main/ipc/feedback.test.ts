@@ -238,6 +238,10 @@ describe('submitFeedback', () => {
     expect(JSON.parse(String(feedbackInit?.body))).not.toHaveProperty('diagnosticBundle')
   })
 
+  // Note: upstream's diagnostic-bundle report-only retry and www→api.onorca.dev
+  // host-fallback tests are intentionally absent — the fork posts once to a
+  // single configured endpoint and fails closed with no vendor fallback.
+
   it('forces renderer IPC submissions onto the feedback lane', async () => {
     registerFeedbackHandlers()
     await handlers.get('feedback:submit')?.(null, {

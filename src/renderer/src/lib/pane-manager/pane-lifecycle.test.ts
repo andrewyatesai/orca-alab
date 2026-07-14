@@ -86,6 +86,25 @@ describe('buildDefaultTerminalOptions', () => {
     expect(merged.vtExtensions?.kittyKeyboard).toBe(false)
   })
 
+  it('keeps kitty keyboard when a local Windows ConPTY pane is launching Grok', () => {
+    // Why: Grok needs KKP for Ctrl+Enter interject / Shift+Enter newline; the
+    // ConPTY withhold must not win when launchAgent (or tuiAgent) is grok.
+    const merged = {
+      ...buildDefaultTerminalOptions(),
+      ...buildTerminalKeyboardProtocolOptions({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        osRelease: '10.0.26100',
+        connectionId: null,
+        cwd: 'C:\\repo',
+        shellOverride: 'powershell.exe',
+        executionHostId: 'local',
+        tuiAgent: 'grok'
+      })
+    }
+
+    expect(merged.vtExtensions?.kittyKeyboard).toBe(true)
+  })
+
   it('keeps the advertised kitty keyboard default for SSH and macOS/Linux panes', () => {
     for (const context of [
       {
@@ -119,4 +138,9 @@ describe('buildDefaultTerminalOptions', () => {
 // Unicode-11-activation ordering test went the same way — aterm bakes Unicode 11
 // width tables into the engine. Upstream #7221's pane-corner tooltip placement
 // assertions went with it too: aterm's hover tooltip is a pane-local overlay
-// with its own placement (see aterm-link-tooltip.test.ts).
+// with its own placement (see aterm-link-tooltip.test.ts). Upstream's
+// openTerminal addon/character-joiner wiring block dropped for the same reason —
+// openTerminal delegates to openAtermPane, so there is no xterm
+// loadAddon / activateOrcaTerminalUnicodeProvider / registerCharacterJoiner path
+// to assert; RTL/Arabic shaping is handled natively by aterm-bidi in the engine,
+// so there is no renderer-side character-joiner to cover.

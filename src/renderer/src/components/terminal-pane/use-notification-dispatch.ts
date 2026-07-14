@@ -1,11 +1,21 @@
 import { useCallback } from 'react'
 import { useAppStore } from '@/store'
-import { resolveExplicitTerminalTitleAgentType } from '../../../../shared/terminal-title-agent-type'
+import { resolveCommittedTitleAgentType } from '@/lib/pane-agent-evidence'
 import { getRepoMapFromState, getWorktreeMapFromState } from '@/store/selectors'
 import { playDesktopNotificationSound } from '@/lib/desktop-notification-sound'
+import { showBlockedNotificationFallbackToast } from '@/lib/blocked-notification-fallback'
+// buildAgentNotificationId derivation moved to the Rust orca-core (orca-git wasm).
 import { buildAgentNotificationId } from '../../lib/git-wasm/agent-notification-id'
+import { resolveCompatibleAgentTypeForOwner } from '../../../../shared/agent-title-owner'
+import {
+  isFreshNonDoneAgentStatus,
+  type AgentStatusEntry
+} from '../../../../shared/agent-status-types'
 import { isSupersededAgentCompletionSnapshot } from './agent-completion-snapshot-staleness'
-import type { AgentCompletionStatusSnapshot } from './agent-completion-coordinator-types'
+import type {
+  AgentCompletionDispatchMeta,
+  AgentCompletionStatusSnapshot
+} from './agent-completion-coordinator-types'
 import {
   countReposNeedingNotificationDisambiguation,
   getPaneKeyTabId,
@@ -27,6 +37,22 @@ function agentSnapshotMatchesExplicitTitle(
   return !snapshot || !explicitTitleAgentType || snapshot.agentType === explicitTitleAgentType
 }
 
+function hasFreshActiveHookStatus(
+  snapshot: Pick<AgentStatusEntry, 'state' | 'updatedAt' | 'agentType'> | undefined,
+  explicitTitleAgentType: string | null
+): boolean {
+  const activeHookAgentForTitle = resolveCompatibleAgentTypeForOwner(
+    snapshot?.agentType,
+    explicitTitleAgentType
+  )
+  const titleNamesDifferentKnownAgent =
+    explicitTitleAgentType &&
+    snapshot?.agentType &&
+    snapshot.agentType !== 'unknown' &&
+    activeHookAgentForTitle !== explicitTitleAgentType
+  return Boolean(isFreshNonDoneAgentStatus(snapshot) && !titleNamesDifferentKnownAgent)
+}
+
 export type TerminalNotificationEvent = {
   source:
     | 'terminal-bell'
@@ -36,6 +62,7 @@ export type TerminalNotificationEvent = {
   terminalTitle?: string
   paneKey?: string
   agentStatusSnapshot?: AgentCompletionStatusSnapshot
+  agentCompletionSource?: AgentCompletionDispatchMeta['source']
   suppressOsNotification?: boolean
   /** long-command-complete: runtime + OSC 133;D exit code for the body text. */
   commandDurationMs?: number
@@ -63,7 +90,7 @@ export function dispatchTerminalNotification(
   // not lend its prompt/agentType or timing id to this notification.
   const explicitTitleAgentType =
     event.source === 'agent-task-complete' && event.terminalTitle
-      ? resolveExplicitTerminalTitleAgentType(event.terminalTitle)
+      ? resolveCommittedTitleAgentType(event.terminalTitle)
       : null
   const storedAgentStatus =
     event.source === 'agent-task-complete' && event.paneKey
@@ -80,9 +107,24 @@ export function dispatchTerminalNotification(
     agentSnapshotMatchesExplicitTitle(storedAgentStatus, explicitTitleAgentType)
       ? storedAgentStatus
       : undefined
+  if (
+    event.source === 'agent-task-complete' &&
+    event.agentCompletionSource !== 'process-exit' &&
+    !eventAgentStatusSnapshot &&
+    hasFreshActiveHookStatus(storedAgentStatus, explicitTitleAgentType)
+  ) {
+    // Why: a title-only idle signal can race behind active hook state; a
+    // confirmed process exit is independent authority that the turn ended.
+    return
+  }
+  // Why: a process can die before its hook emits done; do not label the
+  // resulting completion notification with that stale active state or prompt.
   const agentStatus =
     event.source === 'agent-task-complete'
-      ? (eventAgentStatusSnapshot ?? freshStoredAgentStatus)
+      ? (eventAgentStatusSnapshot ??
+        (event.agentCompletionSource === 'process-exit' && freshStoredAgentStatus?.state !== 'done'
+          ? undefined
+          : freshStoredAgentStatus))
       : undefined
   if (
     event.source === 'agent-task-complete' &&
@@ -213,6 +255,13 @@ export function dispatchTerminalNotification(
     .then((result) => {
       if (result.delivered) {
         void playDesktopNotificationSound(customSoundId, customSoundVolume)
+        return
+      }
+      // Why: macOS is silently swallowing notifications (permission off or
+      // prompt unanswered) — surface an in-app pointer at the fix instead of
+      // letting the alert vanish without a trace.
+      if (result.reason === 'blocked-by-system') {
+        showBlockedNotificationFallbackToast()
       }
     })
     .catch((err) => {

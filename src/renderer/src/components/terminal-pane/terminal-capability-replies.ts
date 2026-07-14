@@ -1,5 +1,6 @@
 import type { IDisposable, IParser, Terminal } from '../../lib/pane-manager/aterm/terminal-types'
 import { sendTerminalOscColorQueryReplies as sendTerminalOscColorQueryRepliesForColors } from '../../../../shared/terminal-osc-color-reply'
+import { guardParserHandler } from './terminal-parser-handler-guard'
 
 export const DEFAULT_DA1_RESPONSE = '\x1b[?1;2c'
 export const CONPTY_DA1_RESPONSE = '\x1b[?61;4c'
@@ -192,41 +193,50 @@ export function createTerminalOscColorQueryResponder(
 export function installTerminalCapabilityReplyHandlers(
   deps: TerminalCapabilityRepliesDeps
 ): IDisposable {
+  // Each handler is wrapped in guardParserHandler so a synchronous throw is
+  // reported + degraded to "not handled" instead of wedging the parser's write
+  // pipeline (upstream crash-safety fix; see terminal-parser-handler-guard.ts).
   const disposables = [
-    deps.parser.registerCsiHandler({ final: 'c' }, (params) => {
-      if (!isPrimaryDeviceAttributesQuery(params)) {
-        return false
-      }
-      // Why: restored scrollback may contain old DA1 queries; answering those
-      // into the fresh shell recreates the stray-input leak this handler fixes.
-      // Consume the query either way so the xterm shim never auto-replies; only
-      // ANSWER here when aterm isn't the owner (else aterm drains its own DA1).
-      if (!deps.isReplaying() && !deps.isAtermReplyOwned?.()) {
-        const da1 = typeof deps.da1Response === 'function' ? deps.da1Response() : deps.da1Response
-        deps.sendInput(da1 ?? DEFAULT_DA1_RESPONSE)
-      }
-      return true
-    }),
+    deps.parser.registerCsiHandler(
+      { final: 'c' },
+      guardParserHandler('csi-da1', (params) => {
+        if (!isPrimaryDeviceAttributesQuery(params)) {
+          return false
+        }
+        // Why: restored scrollback may contain old DA1 queries; answering those
+        // into the fresh shell recreates the stray-input leak this handler fixes.
+        // Consume the query either way so the xterm shim never auto-replies; only
+        // ANSWER here when aterm isn't the owner (else aterm drains its own DA1).
+        if (!deps.isReplaying() && !deps.isAtermReplyOwned?.()) {
+          const da1 = typeof deps.da1Response === 'function' ? deps.da1Response() : deps.da1Response
+          deps.sendInput(da1 ?? DEFAULT_DA1_RESPONSE)
+        }
+        return true
+      })
+    ),
     // For aterm panes the engine drains + forwards its own DA2 / DSR-CPR / DECRQM
     // replies, so CONSUME those queries here (return true) to stop the xterm shim
     // double-answering them via onData. For the xterm fallback (not aterm-owned)
     // return false so xterm answers as before. Pure queries with no state effect, so
     // consuming is safe. (DA1 is handled above; OSC colour + CSI 14t/16t pixel-size
     // are drained by aterm and skipped renderer-side in pty-connection.)
-    deps.parser.registerCsiHandler({ final: 'n' }, () => deps.isAtermReplyOwned?.() ?? false),
+    deps.parser.registerCsiHandler(
+      { final: 'n' },
+      guardParserHandler('csi-dsr', () => deps.isAtermReplyOwned?.() ?? false)
+    ),
     deps.parser.registerCsiHandler(
       { prefix: '?', final: 'n' },
-      () => deps.isAtermReplyOwned?.() ?? false
+      guardParserHandler('csi-dsr-private', () => deps.isAtermReplyOwned?.() ?? false)
     ),
     // DECRQM — BOTH the private (CSI ? Ps $ p) and ANSI (CSI Ps $ p) variants; xterm
     // and aterm each answer both, so suppress both on aterm panes.
     deps.parser.registerCsiHandler(
       { prefix: '?', intermediates: '$', final: 'p' },
-      () => deps.isAtermReplyOwned?.() ?? false
+      guardParserHandler('csi-decrqm-private', () => deps.isAtermReplyOwned?.() ?? false)
     ),
     deps.parser.registerCsiHandler(
       { intermediates: '$', final: 'p' },
-      () => deps.isAtermReplyOwned?.() ?? false
+      guardParserHandler('csi-decrqm-ansi', () => deps.isAtermReplyOwned?.() ?? false)
     ),
     // DA2 (CSI > c) and XTVERSION (CSI > q) — the xterm shim auto-answers both, and
     // so does aterm; without suppression XTVERSION leaks a second "xterm.js(...)"
@@ -234,11 +244,11 @@ export function installTerminalCapabilityReplyHandlers(
     // this `>`-prefixed q handler doesn't touch it.)
     deps.parser.registerCsiHandler(
       { prefix: '>', final: 'c' },
-      () => deps.isAtermReplyOwned?.() ?? false
+      guardParserHandler('csi-da2', () => deps.isAtermReplyOwned?.() ?? false)
     ),
     deps.parser.registerCsiHandler(
       { prefix: '>', final: 'q' },
-      () => deps.isAtermReplyOwned?.() ?? false
+      guardParserHandler('csi-xtversion', () => deps.isAtermReplyOwned?.() ?? false)
     ),
     // Kitty keyboard QUERY (CSI ? u): aterm answers it (current progressive-
     // enhancement flags) and xterm answers it too when vtExtensions.kittyKeyboard
@@ -247,7 +257,7 @@ export function installTerminalCapabilityReplyHandlers(
     // xterm so its input encoder tracks the same flags.
     deps.parser.registerCsiHandler(
       { prefix: '?', final: 'u' },
-      () => deps.isAtermReplyOwned?.() ?? false
+      guardParserHandler('csi-kitty-keyboard-query', () => deps.isAtermReplyOwned?.() ?? false)
     ),
     // DECRQSS (DCS $ q ... ST): aterm drains its OWN status-string reply for
     // DECSCUSR/SGR/DECSTBM/DECSCL/DECSCA queries, and xterm answers the identical
@@ -256,7 +266,7 @@ export function installTerminalCapabilityReplyHandlers(
     // callback returning true stops xterm's built-in requestStatusString.
     deps.parser.registerDcsHandler(
       { intermediates: '$', final: 'q' },
-      () => deps.isAtermReplyOwned?.() ?? false
+      guardParserHandler('dcs-decrqss', () => deps.isAtermReplyOwned?.() ?? false)
     )
     // NOTE: upstream also registers OSC 10/11 parser handlers answering from
     // options.theme. On aterm panes the engine drains + answers live OSC color

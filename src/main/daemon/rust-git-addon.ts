@@ -54,9 +54,12 @@ export type RustOrchestrationStoreHandle = {
     messageType: string,
     priority: string,
     threadId: string | null,
-    payload: string | null
+    payload: string | null,
+    senderPaneKey: string | null
   ): string
   getMessageById(id: string): string | null
+  /** Rewrite a superseded worker_done/heartbeat into an audit-only rejection. */
+  convertLifecycleMessageToRejection(id: string, reason: string): string | null
   getUnreadMessages(handle: string, types: string[] | undefined): string
   getUndeliveredUnreadMessages(handle: string, types: string[] | undefined): string
   getAllMessages(handle: string, limit: number): string
@@ -65,6 +68,7 @@ export type RustOrchestrationStoreHandle = {
   getThreadMessagesFor(threadId: string, toHandle: string, afterSequence: number | undefined): string
   markAsRead(ids: string[]): void
   markAsDelivered(ids: string[]): void
+  markAsReadAndDelivered(ids: string[]): void
   // tasks
   createTask(
     id: string,
@@ -80,7 +84,12 @@ export type RustOrchestrationStoreHandle = {
   listTasksWithDispatch(status: string | undefined): string
   updateTaskStatus(id: string, status: string, result: string | null, completedAt: string | null): string | null
   // dispatch contexts
-  createDispatchContext(taskId: string, assigneeHandle: string, id: string): string
+  createDispatchContext(
+    taskId: string,
+    assigneeHandle: string,
+    id: string,
+    assigneePaneKey: string | null
+  ): string
   getDispatchContext(taskId: string): string | null
   getDispatchContextById(id: string): string | null
   getActiveDispatchForTerminal(handle: string): string | null

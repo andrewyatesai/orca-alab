@@ -3,25 +3,40 @@ import {
   rustTerminalLoadFailures,
   type RustHeadlessTerminalHandle
 } from './rust-terminal-addon'
-import { extractLastOscTitle } from '../../shared/agent-detection'
-import { extractOscScanTail, scanOsc7Uris } from './osc7-uri-extraction'
-import { parseFileUriPath } from './osc7-file-uri'
 import { createPrivateModeScanner } from './private-mode-scan'
+import { advancePartialEscapeTail } from '../../shared/terminal-partial-escape-tail'
+import { buildRehydrateSequences } from './terminal-mode-rehydrate-sequences'
+import { mergeRestoredOscLinks } from './terminal-osc-link-merge'
+import { TerminalOscCwdTitleScanner } from './terminal-osc-cwd-title-scanner'
+import {
+  createTerminalModelQueryResponder,
+  type TerminalModelQueryResponder
+} from './terminal-model-query-responder'
 import type { TerminalSnapshot, TerminalModes } from './types'
+import type { TerminalViewAttributes } from '../../shared/terminal-view-attributes'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 
 export type HeadlessEmulatorOptions = {
   cols: number
   rows: number
   scrollback?: number
+  /** Query-authority reply sink (terminal-query-authority.md). When set, this
+   *  emulator answers terminal queries (DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/
+   *  kitty/OSC-color) for chunks flagged `forwardQueryReplies`. The daemon
+   *  Session emulator MUST NOT pass this — it stays write-only. */
+  onQueryReply?: (reply: string) => void
   pathFlavor?: 'posix' | 'win32'
   remotePosixFileUriAuthority?: boolean
 }
 
-const DEFAULT_SCROLLBACK = 5000
-const OSC_SCAN_TAIL_LIMIT = 4096
+export type HeadlessEmulatorWriteOptions = {
+  /** Reply ownership captured at ingestion for this exact chunk. Default false
+   *  is the main-side replay guard: seed/hydration/snapshot writes never
+   *  forward replies (a query embedded in replayed bytes answers no one). */
+  forwardQueryReplies?: boolean
+}
 
-const linkKey = (r: TerminalOscLinkRange): string => `${r.row}:${r.startCol}:${r.endCol}:${r.uri}`
+const DEFAULT_SCROLLBACK = 5000
 
 /**
  * Server-side terminal-state emulator (snapshots, cwd, mode flags, OSC-8 links)
@@ -33,31 +48,45 @@ const linkKey = (r: TerminalOscLinkRange): string => `${r.row}:${r.startCol}:${r
  * Windows-path normalisation, 8-bit C1 handling, and split-sequence tolerance
  * are preserved exactly.
  *
- * Why no query replies: this exists purely for state tracking and MUST NOT
- * answer DA/DSR/OSC-color queries — the renderer's aterm engine is the
- * authoritative responder. aterm's headless engine emits no replies.
+ * Query authority (terminal-query-authority.md): when constructed with an
+ * `onQueryReply` sink, this emulator ALSO answers terminal queries for
+ * chunks flagged `forwardQueryReplies` — the renderer pushes its view
+ * attributes and the emulator scans the byte stream for DA/DSR/CPR/DECRQM/
+ * DECRQSS/XTVERSION/kitty/OSC-color queries, answering from aterm engine
+ * state + the pushed attributes. This is strictly more capable than the old
+ * "renderer is the only responder" stance: it answers for parked/hidden/SSH/
+ * cold panes with no live renderer attached. The daemon Session emulator
+ * passes no sink and stays write-only (it must never race the renderer's
+ * reply). aterm's headless engine emits no replies of its own, so the reply
+ * grammar lives in TerminalModelQueryResponder, not the native addon.
  */
 export class HeadlessEmulator {
   private term: RustHeadlessTerminalHandle
   private cols: number
   private rows: number
-  private cwd: string | null = null
-  private lastTitle: string | null = null
-  private oscScanTail = ''
+  // OSC-7 cwd + OSC 0/2 title scanning, engine-independent so Windows-path
+  // normalisation and split-sequence tolerance are preserved. Path flavor must
+  // be the PTY host's, not this process's (an SSH/remote PTY differs, #7134).
+  private readonly oscText: TerminalOscCwdTitleScanner
   // DECSET mouse-mode tracking scans the raw stream (engine-independent) so
   // 8-bit C1 CSI + split sequences match the former emulator exactly.
   private privateModes = createPrivateModeScanner()
+  // Why: a chunk ending mid-escape leaves the sequence in the parser, not the
+  // grid, so serialize() drops it and the next chunk's continuation renders
+  // literal after a restore (Bug E / #7329). Tracked engine-independently at
+  // the ingest boundary and shipped out-of-band as pendingEscapeTailAnsi.
+  private partialEscapeTail = ''
   private restoredOscLinks: TerminalOscLinkRange[] = []
   private disposed = false
-  // OSC-7 cwd parsing must use the PTY host's path flavor, not this process's:
-  // an SSH/remote PTY can be a different OS than the app (upstream #7134).
-  private readonly pathFlavor?: 'posix' | 'win32'
-  private readonly remotePosixFileUriAuthority: boolean
   // Set when a native engine call threw (a Rust panic surfaced as a JS exception
   // via catch_unwind). The engine state is untrustworthy after a panic, so every
   // later engine call is skipped — this session degrades to scan-only state and
   // empty snapshots instead of the panic killing the whole daemon.
   private failed = false
+  // Query-authority (terminal-query-authority.md). onQueryReply is read at
+  // reply time so disableQueryReplyForwarding can mute a respawn-reused id.
+  private onQueryReply: ((reply: string) => void) | null
+  private queryResponder: TerminalModelQueryResponder | null = null
 
   constructor(opts: HeadlessEmulatorOptions) {
     const binding = loadRustTerminalBinding()
@@ -71,14 +100,47 @@ export class HeadlessEmulator {
           `Candidates: ${rustTerminalLoadFailures().join('; ') || 'none probed'}`
       )
     }
-    this.pathFlavor = opts.pathFlavor
-    this.remotePosixFileUriAuthority = opts.remotePosixFileUriAuthority === true
+    this.oscText = new TerminalOscCwdTitleScanner({
+      pathFlavor: opts.pathFlavor,
+      remotePosixAuthority: opts.remotePosixFileUriAuthority === true
+    })
     this.cols = opts.cols
     this.rows = opts.rows
     this.term = new binding.HeadlessTerminal(
       opts.cols,
       opts.rows,
       opts.scrollback ?? DEFAULT_SCROLLBACK
+    )
+    this.onQueryReply = opts.onQueryReply ?? null
+    // Only the runtime per-PTY emulators pass a sink; the daemon Session
+    // emulator omits it and never builds a responder (stays write-only).
+    if (this.onQueryReply) {
+      this.ensureQueryResponder()
+    }
+  }
+
+  /** Build the query responder lazily so the daemon Session emulator (no
+   *  onQueryReply, no view-attr responder, no ConPTY override) never carries
+   *  one. Wired to read onQueryReply + engine state at reply time. */
+  private ensureQueryResponder(): TerminalModelQueryResponder {
+    if (!this.queryResponder) {
+      this.queryResponder = createTerminalModelQueryResponder({
+        emitReply: (reply) => this.onQueryReply?.(reply),
+        getCursor: () => this.readCursor(),
+        getRows: () => this.rows
+      })
+    }
+    return this.queryResponder
+  }
+
+  private readCursor(): [number, number] {
+    return this.engineCall(
+      'cursor',
+      () => {
+        const [row, col] = this.term.cursor()
+        return [row, col] as [number, number]
+      },
+      () => [0, 0]
     )
   }
 
@@ -103,28 +165,29 @@ export class HeadlessEmulator {
     }
   }
 
-  write(data: string): Promise<void> {
+  write(data: string, opts: HeadlessEmulatorWriteOptions = {}): Promise<void> {
     if (!this.disposed) {
-      this.writeBytes(data)
+      this.writeBytes(data, opts.forwardQueryReplies === true)
     }
     return Promise.resolve()
   }
 
   /** Synchronous write for cold-restore log replay. aterm parses bytes
    *  synchronously; false only when the bytes could not be applied
-   *  (disposed, or the engine poisoned itself on this/an earlier write). */
+   *  (disposed, or the engine poisoned itself on this/an earlier write).
+   *  Never forwards query replies — it is a seed/replay path. */
   writeSync(data: string): boolean {
     if (this.disposed) {
       return false
     }
-    this.writeBytes(data)
+    this.writeBytes(data, false)
     return !this.failed
   }
 
-  private writeBytes(data: string): void {
+  private writeBytes(data: string, forwardQueryReplies: boolean): void {
     // The OSC/mode scans are engine-independent — keep them current even after a
     // poison so the degraded snapshot still reports honest cwd/title/modes.
-    this.scanInputForOscState(data)
+    this.oscText.scan(data)
     // aterm's parser consumes bytes; re-encode the daemon's decoded string.
     // Valid UTF-8 round-trips exactly. aterm writes synchronously.
     this.engineCall(
@@ -133,6 +196,54 @@ export class HeadlessEmulator {
       () => undefined
     )
     this.privateModes.scan(data)
+    // Advance after the parse so the tracked tail reflects the same bytes the
+    // grid does; only the trailing unparsed partial sequence is retained.
+    this.partialEscapeTail = advancePartialEscapeTail(this.partialEscapeTail, data)
+    // After the engine parse so CPR reads the post-write cursor; state tracking
+    // (OSC SET overrides, mode flags) runs even when replies are gated off.
+    this.queryResponder?.ingest(data, forwardQueryReplies)
+  }
+
+  /** Query-authority reply sink for chunks flagged `forwardQueryReplies`.
+   *  When set, DA/DSR/CPR/DECRQM/DECRQSS/XTVERSION/kitty/OSC-color queries are
+   *  answered; the OSC-color + ?996n family also needs a view-attribute
+   *  responder installed (colors stay silent until the first renderer push). */
+  installViewAttributeResponder(getter: () => TerminalViewAttributes | null): void {
+    this.ensureQueryResponder().setViewAttributesGetter(getter)
+  }
+
+  /** Store the latest renderer view-attribute push: cursor style/blink feed
+   *  DECRQSS DECSCUSR / DECRQM ?12, and the per-PTY OSC color overrides reset
+   *  (a theme apply overwrites mutated colors on visible panes too). */
+  applyPushedViewAttributes(attributes: TerminalViewAttributes): void {
+    if (this.disposed) {
+      return
+    }
+    this.queryResponder?.applyPushedViewAttributes(attributes)
+  }
+
+  /** ConPTY 1.22+ blocks at spawn on DA1 and answers it itself with a
+   *  different identity; override the DA1 reply to `CSI ?61;4c`. Idempotent. */
+  installConptyPrimaryDeviceAttributesOverride(): void {
+    this.ensureQueryResponder().enableConptyDa1Override()
+  }
+
+  /** Re-seed persisted kitty-keyboard flags via the same `CSI = flags ; 1 u`
+   *  parse a live push uses, so hidden `CSI ? u` reports them instead of ?0u.
+   *  Routed as an UNFLAGGED write — outside any forwarding window it answers
+   *  no one — mirroring the snapshot replay guard. */
+  applyKittyKeyboardFlags(flags: number): Promise<void> {
+    if (!Number.isInteger(flags) || flags <= 0) {
+      return Promise.resolve()
+    }
+    return this.write(`\x1b[=${flags};1u`)
+  }
+
+  /** Permanently mute the reply sink at PTY teardown: queued writeChain links
+   *  may still parse after dispose, and daemon respawns reuse session ids — a
+   *  late reply must never reach a successor PTY under this id. */
+  disableQueryReplyForwarding(): void {
+    this.onQueryReply = null
   }
 
   resize(cols: number, rows: number): void {
@@ -142,6 +253,9 @@ export class HeadlessEmulator {
     this.cols = cols
     this.rows = rows
     this.restoredOscLinks = []
+    // A resize resets the scroll region to the full viewport (DECSTBM), so the
+    // query responder's margin cache must follow.
+    this.queryResponder?.onResize()
     this.engineCall(
       'resize',
       () => this.term.resize(cols, rows),
@@ -162,6 +276,11 @@ export class HeadlessEmulator {
   getSnapshot(opts: { scrollbackRows?: number } = {}): TerminalSnapshot {
     const modes = this.getModes()
     const scrollbackRows = opts.scrollbackRows
+    // Why: written LAST by the restorer (after any reset) so the next live chunk
+    // completes this dangling sequence instead of rendering it literally
+    // (Bug E / #7329). Its bytes are already counted by the snapshot seq.
+    const pendingEscapeTail =
+      this.partialEscapeTail.length > 0 ? { pendingEscapeTailAnsi: this.partialEscapeTail } : {}
     return this.engineCall(
       'serialize',
       () => ({
@@ -172,27 +291,30 @@ export class HeadlessEmulator {
         // pre-TUI history is only recoverable here.
         scrollbackAnsi: this.term.serializeScrollbackAnsi(),
         oscLinks: this.collectOscLinks(scrollbackRows),
-        rehydrateSequences: this.buildRehydrateSequences(modes),
-        cwd: this.cwd,
+        rehydrateSequences: buildRehydrateSequences(modes),
+        cwd: this.oscText.cwd,
         modes,
         cols: this.cols,
         rows: this.rows,
         scrollbackLines: this.term.scrollbackLen(),
-        lastTitle: this.lastTitle ?? undefined
+        lastTitle: this.oscText.lastTitle ?? undefined,
+        ...pendingEscapeTail
       }),
       // Poisoned engine: no replayable buffer to offer, but the scanned state
-      // (cwd/modes/title) is still honest, so reconnect/rehydrate keep working.
+      // (cwd/modes/title/partial-tail) is still honest, so reconnect/rehydrate
+      // keep working.
       () => ({
         snapshotAnsi: '',
         scrollbackAnsi: '',
         oscLinks: this.restoredOscLinks.slice(),
-        rehydrateSequences: this.buildRehydrateSequences(modes),
-        cwd: this.cwd,
+        rehydrateSequences: buildRehydrateSequences(modes),
+        cwd: this.oscText.cwd,
         modes,
         cols: this.cols,
         rows: this.rows,
         scrollbackLines: 0,
-        lastTitle: this.lastTitle ?? undefined
+        lastTitle: this.oscText.lastTitle ?? undefined,
+        ...pendingEscapeTail
       })
     )
   }
@@ -203,6 +325,15 @@ export class HeadlessEmulator {
       () => this.term.isAlternateScreen(),
       () => false
     )
+  }
+
+  /** The dangling incomplete escape at the current stream position (empty
+   *  when none). Scan-authority handoffs seed the other side's fact scanners
+   *  with it so a sequence split across the handoff neither mints a phantom
+   *  bell (unseen OSC terminator) nor loses its fact. Contains no complete
+   *  sequence by construction, so seeding can never double-fire. */
+  get partialEscapeTailAnsi(): string {
+    return this.partialEscapeTail
   }
 
   /** Why: PSReadLine's Ctrl+L repaint is only safe at an empty prompt — with
@@ -236,15 +367,15 @@ export class HeadlessEmulator {
   }
 
   getCwd(): string | null {
-    return this.cwd
+    return this.oscText.cwd
   }
 
   setCwd(cwd: string | null): void {
-    this.cwd = cwd
+    this.oscText.cwd = cwd
   }
 
   setLastTitle(title: string): void {
-    this.lastTitle = title
+    this.oscText.lastTitle = title
   }
 
   setRestoredOscLinks(links: TerminalOscLinkRange[] | undefined): void {
@@ -286,28 +417,13 @@ export class HeadlessEmulator {
 
   private collectOscLinks(scrollbackRows?: number): TerminalOscLinkRange[] {
     // Live links come from aterm — both the visible grid and scrollback history
-    // (aterm retains hyperlink spans on scroll).
-    const live = this.term.oscLinkRanges(scrollbackRows)
-    if (this.restoredOscLinks.length === 0) {
-      return live
-    }
-    // Merge checkpoint-restored links with live ones, clamped to the current
-    // width and de-duplicated, so a restored buffer keeps clickable links.
-    const merged = [...live]
-    const seen = new Set(live.map(linkKey))
-    for (const link of this.restoredOscLinks) {
-      const clamped: TerminalOscLinkRange = {
-        ...link,
-        startCol: Math.min(link.startCol, this.cols),
-        endCol: Math.min(link.endCol, this.cols)
-      }
-      const key = linkKey(clamped)
-      if (!seen.has(key)) {
-        seen.add(key)
-        merged.push(clamped)
-      }
-    }
-    return merged
+    // (aterm retains hyperlink spans on scroll) — merged with checkpoint-
+    // restored links so a restored buffer keeps clickable links.
+    return mergeRestoredOscLinks(
+      this.term.oscLinkRanges(scrollbackRows),
+      this.restoredOscLinks,
+      this.cols
+    )
   }
 
   private getModes(): TerminalModes {
@@ -333,62 +449,4 @@ export class HeadlessEmulator {
     }
   }
 
-  private scanInputForOscState(data: string): void {
-    const oscInput = this.oscScanTail + data
-    this.oscScanTail = extractOscScanTail(oscInput, OSC_SCAN_TAIL_LIMIT)
-    scanOsc7Uris(oscInput, (uri) => this.parseOsc7Uri(uri))
-    const lastTitle = extractLastOscTitle(oscInput)
-    if (lastTitle !== null) {
-      this.lastTitle = lastTitle
-    }
-  }
-
-  private parseOsc7Uri(uri: string): void {
-    const parsed = parseFileUriPath(uri, {
-      pathFlavor: this.pathFlavor,
-      remotePosixAuthority: this.remotePosixFileUriAuthority
-    })
-    if (parsed) {
-      this.cwd = parsed
-    }
-  }
-
-  private buildRehydrateSequences(modes: TerminalModes): string {
-    const seqs: string[] = []
-    // Restore screen/input modes on reconnect so a replay re-enters the
-    // alternate screen and re-arms paste / app-cursor / mouse reporting.
-    if (modes.alternateScreen) {
-      seqs.push('\x1b[?1049h')
-    }
-    if (modes.bracketedPaste) {
-      seqs.push('\x1b[?2004h')
-    }
-    if (modes.applicationCursor) {
-      seqs.push('\x1b[?1h')
-    }
-    switch (modes.mouseTracking ? (modes.mouseTrackingMode ?? 'vt200') : 'none') {
-      case 'x10':
-        seqs.push('\x1b[?9h')
-        break
-      case 'vt200':
-        seqs.push('\x1b[?1000h')
-        break
-      case 'drag':
-        seqs.push('\x1b[?1002h')
-        break
-      case 'any':
-        seqs.push('\x1b[?1003h')
-        break
-      case 'none':
-        break
-    }
-    // xterm tracks the mouse protocol and SGR encoding independently, so a
-    // snapshot must preserve the encoding even when reporting is off.
-    if (modes.sgrMousePixelsMode) {
-      seqs.push('\x1b[?1016h')
-    } else if (modes.sgrMouseMode) {
-      seqs.push('\x1b[?1006h')
-    }
-    return seqs.join('')
-  }
 }

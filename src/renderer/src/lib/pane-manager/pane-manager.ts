@@ -280,6 +280,13 @@ export class PaneManager {
     this.panes.get(paneId)?.atermController?.scheduleDraw()
   }
 
+  /** True when this pane paints on the aterm GPU draw path — the honest aterm
+   *  equivalent of the removed xterm WebGL-addon check. Callers gate synchronous
+   *  refresh on it: GPU panes present async, so no forced sync repaint is needed. */
+  hasWebglRenderer(paneId: number): boolean {
+    return this.panes.get(paneId)?.atermController?.rendererKind() === 'gpu'
+  }
+
   getLeafId(numericPaneId: number): TerminalLeafId | null {
     return this.identities.getLeafId(numericPaneId)
   }

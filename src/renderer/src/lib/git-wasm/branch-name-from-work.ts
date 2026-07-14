@@ -10,7 +10,7 @@ import { isGitWasmReady } from './git-line-stats'
 import { orcaDispatch } from './orca_git_wasm.js'
 
 function op(fn: string, input: unknown): unknown | null {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('branch-name-from-work', fn, JSON.stringify(input ?? null)))
 }
 

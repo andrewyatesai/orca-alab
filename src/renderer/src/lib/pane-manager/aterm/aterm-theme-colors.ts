@@ -155,19 +155,19 @@ export function cssColorToU32(value: string | undefined): number | null {
             .join('')
         : hex
     if (expanded.length === 6 && /^[0-9a-fA-F]{6}$/.test(expanded)) {
-      return parseInt(expanded, 16)
+      return Number.parseInt(expanded, 16)
     }
     // #rrggbbaa — keep the rgb triplet, drop alpha.
     if (expanded.length === 8 && /^[0-9a-fA-F]{8}$/.test(expanded)) {
-      return parseInt(expanded.slice(0, 6), 16)
+      return Number.parseInt(expanded.slice(0, 6), 16)
     }
     return null
   }
   const rgb = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i)
   if (rgb) {
-    const r = Math.min(255, parseInt(rgb[1], 10))
-    const g = Math.min(255, parseInt(rgb[2], 10))
-    const b = Math.min(255, parseInt(rgb[3], 10))
+    const r = Math.min(255, Number.parseInt(rgb[1], 10))
+    const g = Math.min(255, Number.parseInt(rgb[2], 10))
+    const b = Math.min(255, Number.parseInt(rgb[3], 10))
     return (r << 16) | (g << 8) | b
   }
   return null

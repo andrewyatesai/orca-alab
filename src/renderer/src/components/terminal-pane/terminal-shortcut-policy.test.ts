@@ -1,7 +1,4 @@
-/* eslint-disable max-lines -- Why: terminal keyboard policy covers platform
- * readline compatibility, pane management, and Option-as-Alt translation in
- * one pure function; the cases need to stay adjacent. */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   resolveTerminalShortcutAction,
   type TerminalShortcutEvent
@@ -69,7 +66,13 @@ describe('resolveTerminalShortcutAction', () => {
     ).toEqual({ type: 'focusPane', direction: 'next' })
   })
 
-  it('keeps delete helpers explicit', () => {
+  it('keeps inactive shift-enter and delete helpers explicit', () => {
+    expect(
+      resolveTerminalShortcutAction(event({ key: 'Enter', code: 'Enter', shiftKey: true }), true)
+    ).toEqual({
+      type: 'sendInput',
+      data: '\x1b\r'
+    })
     expect(resolveTerminalShortcutAction(event({ key: 'Backspace', ctrlKey: true }), true)).toEqual(
       { type: 'sendInput', data: '\x17' }
     )
@@ -86,9 +89,193 @@ describe('resolveTerminalShortcutAction', () => {
     })
   })
 
+  // The Windows Shift+Enter cases exercise the upstream host/agent byte routing.
+  // The positional callbacks are isLocalWindowsConptyPane (7),
+  // isKittyKeyboardActivePane (8), layoutBaseCharacterForCode (9),
+  // getWindowsShiftEnterEncoding (10), and isWindowsTerminalHost (11).
+  it('uses the Codex-compatible Shift+Enter sequence on Windows win32-input-mode panes', () => {
+    // Default and explicit legacy encodings both keep Codex-on-PowerShell
+    // newlining instead of ignoring the chord.
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        false,
+        'false',
+        0,
+        true
+      )
+    ).toEqual({
+      type: 'sendInput',
+      data: '\x1b\r'
+    })
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => 'alt-enter'
+      )
+    ).toEqual({ type: 'sendInput', data: '\x1b\r' })
+  })
+
+  it('sends CSI-u Shift+Enter to Windows panes whose active agent requires it (#7620)', () => {
+    // Why: droid parses CSI-u directly and treats the Alt+Enter byte as a plain
+    // Enter that submits, so its pane capability must produce `\x1b[13;2u`.
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => 'csi-u'
+      )
+    ).toEqual({ type: 'sendInput', data: '\x1b[13;2u' })
+  })
+
+  it('uses CSI-u for a non-Windows PTY reached from Windows only while Kitty is active', () => {
+    const getWindowsShiftEnterEncoding = vi.fn(() => 'csi-u' as const)
+    const resolve = (kittyActive: boolean) =>
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        undefined,
+        () => kittyActive,
+        undefined,
+        getWindowsShiftEnterEncoding,
+        () => false
+      )
+    expect(resolve(true)).toEqual({ type: 'sendInput', data: '\x1b[13;2u' })
+    expect(resolve(false)).toEqual({ type: 'sendInput', data: '\x1b\r' })
+    expect(getWindowsShiftEnterEncoding).not.toHaveBeenCalled()
+  })
+
+  it('uses CSI-u Shift+Enter off Windows only while Kitty keyboard is active', () => {
+    for (const encoding of [() => 'csi-u' as const, () => 'alt-enter' as const, undefined]) {
+      const resolve = (kittyActive: boolean) =>
+        resolveTerminalShortcutAction(
+          event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+          false,
+          'false',
+          0,
+          false,
+          undefined,
+          undefined,
+          () => kittyActive,
+          undefined,
+          encoding
+        )
+      expect(resolve(true)).toEqual({ type: 'sendInput', data: '\x1b[13;2u' })
+      expect(resolve(false)).toEqual({ type: 'sendInput', data: '\x1b\r' })
+    }
+  })
+
+  it('keeps host and agent lookups off unrelated keystrokes', () => {
+    const isLocalWindowsConptyPane = vi.fn(() => true)
+    const isKittyKeyboardActivePane = vi.fn(() => true)
+    const getWindowsShiftEnterEncoding = vi.fn(() => 'csi-u' as const)
+    const isWindowsTerminalHost = vi.fn(() => true)
+
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'a', code: 'KeyA' }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        isLocalWindowsConptyPane,
+        isKittyKeyboardActivePane,
+        undefined,
+        getWindowsShiftEnterEncoding,
+        isWindowsTerminalHost
+      )
+    ).toBeNull()
+    expect(isLocalWindowsConptyPane).not.toHaveBeenCalled()
+    expect(getWindowsShiftEnterEncoding).not.toHaveBeenCalled()
+    expect(isWindowsTerminalHost).not.toHaveBeenCalled()
+    expect(isKittyKeyboardActivePane).not.toHaveBeenCalled()
+
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        isLocalWindowsConptyPane,
+        isKittyKeyboardActivePane,
+        undefined,
+        getWindowsShiftEnterEncoding,
+        isWindowsTerminalHost
+      )
+    ).toEqual({ type: 'sendInput', data: '\x1b[13;2u' })
+    expect(isLocalWindowsConptyPane).not.toHaveBeenCalled()
+    expect(getWindowsShiftEnterEncoding).toHaveBeenCalledTimes(1)
+    expect(isWindowsTerminalHost).toHaveBeenCalledTimes(1)
+    expect(isKittyKeyboardActivePane).not.toHaveBeenCalled()
+
+    isWindowsTerminalHost.mockReturnValue(false)
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        isLocalWindowsConptyPane,
+        isKittyKeyboardActivePane,
+        undefined,
+        getWindowsShiftEnterEncoding,
+        isWindowsTerminalHost
+      )
+    ).toEqual({ type: 'sendInput', data: '\x1b[13;2u' })
+    expect(isLocalWindowsConptyPane).not.toHaveBeenCalled()
+    expect(getWindowsShiftEnterEncoding).toHaveBeenCalledTimes(1)
+    expect(isWindowsTerminalHost).toHaveBeenCalledTimes(2)
+    expect(isKittyKeyboardActivePane).toHaveBeenCalledTimes(1)
+  })
+
+  it('honors Kitty negotiation for a Windows PTY reached from macOS', () => {
+    const getWindowsShiftEnterEncoding = vi.fn(() => 'alt-enter' as const)
+    const resolve = (kittyActive: boolean) =>
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        true,
+        'false',
+        0,
+        false,
+        undefined,
+        undefined,
+        () => kittyActive,
+        undefined,
+        getWindowsShiftEnterEncoding,
+        () => true
+      )
+    expect(resolve(true)).toEqual({ type: 'sendInput', data: '\x1b[13;2u' })
+    expect(resolve(false)).toEqual({ type: 'sendInput', data: '\x1b\r' })
+    expect(getWindowsShiftEnterEncoding).toHaveBeenCalledTimes(2)
+  })
+
   describe('kitty/modifyOtherKeys negotiated (kittyKeyboardActive)', () => {
     // Signature: (event, isMac, macOptionAsAlt, optionKeyLocation, isWindows,
-    // keybindings, kittyKeyboardActive, isLocalWindowsConptyPane).
+    // keybindings, isLocalWindowsConptyPane, isKittyKeyboardActivePane).
     const resolveNegotiated = (
       e: TerminalShortcutEvent,
       isMac: boolean,
@@ -102,7 +289,8 @@ describe('resolveTerminalShortcutAction', () => {
         optionKeyLocation,
         false,
         undefined,
-        true
+        undefined,
+        () => true
       )
 
     it('stands the Ctrl+Backspace readline rewrite down (engine emits \\x1b[127;5u)', () => {
@@ -201,23 +389,6 @@ describe('resolveTerminalShortcutAction', () => {
     })
   })
 
-  it('lets Shift+Enter fall through to the engine encoder (LF legacy, CSI-u kitty)', () => {
-    // The engine imposes a usable Shift+Enter in every keyboard mode
-    // (keyboard_mode.rs e2e tests), so the policy must not rewrite it.
-    expect(
-      resolveTerminalShortcutAction(event({ key: 'Enter', code: 'Enter', shiftKey: true }), true)
-    ).toBeNull()
-    expect(
-      resolveTerminalShortcutAction(
-        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
-        false,
-        'false',
-        0,
-        true
-      )
-    ).toBeNull()
-  })
-
   it('forwards Ctrl+Enter as the kitty CSI-u chord so TUIs can cue instead of send', () => {
     // Why: legacy encoding collapses Ctrl+Enter to a bare CR; intercept upstream
     // and emit the kitty sequence (modifier code 5 = Ctrl) so probing TUIs
@@ -264,7 +435,8 @@ describe('resolveTerminalShortcutAction', () => {
         0,
         false,
         undefined,
-        true
+        undefined,
+        () => true
       )
     ).toBeNull()
   })
@@ -489,7 +661,7 @@ describe('resolveTerminalShortcutAction', () => {
     ).toEqual({ type: 'sendInput', data: '\x1bf' })
 
     // alt+shift+arrow is a different chord (select-word in some shells) — don't
-    // intercept, let xterm.js / the shell handle it.
+    // intercept, let the shell handle it.
     expect(
       resolveTerminalShortcutAction(
         event({ key: 'ArrowLeft', code: 'ArrowLeft', altKey: true, shiftKey: true }),
@@ -528,14 +700,15 @@ describe('resolveTerminalShortcutAction', () => {
         0,
         false,
         undefined,
-        true
+        undefined,
+        () => true
       )
     ).toBeNull()
   })
 
   it('translates macOS Option+B/F/D to readline escape sequences in compose mode', () => {
-    // With macOptionAsAlt='false' (compose), xterm.js doesn't translate these.
-    // Matches on event.code because macOS composition replaces event.key.
+    // With macOptionAsAlt='false' (compose), the legacy path doesn't translate
+    // these. Matches on event.code because macOS composition replaces event.key.
     expect(
       resolveTerminalShortcutAction(event({ key: '∫', code: 'KeyB', altKey: true }), true, 'false')
     ).toEqual({ type: 'sendInput', data: '\x1bb' })

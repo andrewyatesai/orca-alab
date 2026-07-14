@@ -4,7 +4,7 @@
  * worktree when a worker starts without one (or the persisted path went bad).
  */
 
-import { existsSync, mkdtempSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import os from 'node:os'

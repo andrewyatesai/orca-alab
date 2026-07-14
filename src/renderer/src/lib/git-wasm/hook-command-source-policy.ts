@@ -10,7 +10,7 @@ import { orcaDispatch } from './orca_git_wasm.js'
 import type { HookCommandSourcePolicy } from '../../../../shared/hook-command-source-policy'
 
 function op(fn: string, input: unknown): unknown | null {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('hook-command-source-policy', fn, JSON.stringify(input ?? null)))
 }
 

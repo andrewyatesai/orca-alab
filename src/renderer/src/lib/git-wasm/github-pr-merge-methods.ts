@@ -13,7 +13,7 @@ import {
 import type { GitHubPRMergeMethodSettings } from '../../../../shared/types'
 
 function op(fn: string, input: unknown): unknown | null {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('github-pr-merge-methods', fn, JSON.stringify(input ?? null)))
 }
 

@@ -77,7 +77,10 @@ export class OrchestrationDb {
     priority?: MessagePriority
     threadId?: string
     payload?: string
+    senderPaneKey?: string
   }): MessageRow {
+    // senderPaneKey is the remint-stable pane identity persisted with the row so
+    // worker_done/heartbeat lifecycle authority survives handle remints (v6 col).
     return OrchestrationDb.row<MessageRow>(
       this.store.insertMessage(
         generateId('msg'),
@@ -88,7 +91,8 @@ export class OrchestrationDb {
         msg.type ?? 'status',
         msg.priority ?? 'normal',
         msg.threadId ?? null,
-        msg.payload ?? null
+        msg.payload ?? null,
+        msg.senderPaneKey ?? null
       )
     )
   }
@@ -96,6 +100,16 @@ export class OrchestrationDb {
   getUnreadMessages(toHandle: string, types?: MessageType[]): MessageRow[] {
     return OrchestrationDb.list<MessageRow>(
       this.store.getUnreadMessages(toHandle, types && types.length > 0 ? types : undefined)
+    )
+  }
+
+  // Why: rewrites a superseded worker_done/heartbeat into a high-priority
+  // rejection (subject/body/payload marker) so it stays auditable but is never
+  // read back as an actionable completion/liveness signal. The marker
+  // construction is deterministic, so it lives in the Rust store, not here.
+  convertLifecycleMessageToRejection(messageId: string, reason: string): MessageRow | undefined {
+    return OrchestrationDb.optRow<MessageRow>(
+      this.store.convertLifecycleMessageToRejection(messageId, reason)
     )
   }
 
@@ -125,6 +139,16 @@ export class OrchestrationDb {
       return
     }
     this.store.markAsDelivered(ids)
+  }
+
+  // Why: superseded lifecycle messages stay queryable through history but must
+  // not be consumed or injected after their dispatch has finished. The store
+  // preserves an existing delivered_at (COALESCE) rather than restamping it.
+  markAsReadAndDelivered(ids: string[]): void {
+    if (ids.length === 0) {
+      return
+    }
+    this.store.markAsReadAndDelivered(ids)
   }
 
   getInbox(limit = 20): MessageRow[] {
@@ -204,12 +228,19 @@ export class OrchestrationDb {
 
   // ── Dispatch Contexts ──
 
-  createDispatchContext(taskId: string, assigneeHandle: string): DispatchContextRow {
+  createDispatchContext(
+    taskId: string,
+    assigneeHandle: string,
+    // Why: the pane key is the remint-stable identity behind the handle;
+    // recording it at dispatch time lets the store lock out a reminted handle
+    // reopening a second concurrent dispatch on the same pane (v6 col).
+    assigneePaneKey?: string
+  ): DispatchContextRow {
     // The store throws the same guard-path messages the TS twin did
     // (`Task not found: …`, `… is <status>; only ready …`, `Terminal … already
     // has an active dispatch (… for task …)`) — consumers match on `.message`.
     return OrchestrationDb.row<DispatchContextRow>(
-      this.store.createDispatchContext(taskId, assigneeHandle, generateId('ctx'))
+      this.store.createDispatchContext(taskId, assigneeHandle, generateId('ctx'), assigneePaneKey ?? null)
     )
   }
 

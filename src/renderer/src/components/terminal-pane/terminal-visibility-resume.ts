@@ -14,7 +14,7 @@ import {
   enforceTerminalCurrentScrollIntent
 } from '@/lib/pane-manager/terminal-scroll-intent'
 import { fitAndFocusPanes, fitPanes, focusActivePane } from './pane-helpers'
-import { scheduleTerminalWebglAtlasRecovery } from './terminal-webgl-atlas-recovery'
+import { scheduleTabRevealWebglAtlasRecovery } from './terminal-webgl-atlas-recovery'
 
 // Re-anchor schedule after a resume: two rAFs + an 80ms backstop, matching
 // restoreScrollStateAfterLayout / syncTerminalScrollIntentSoon, so the durable pin is
@@ -52,6 +52,7 @@ type HideTerminalVisibilityResult = {
 type RecoverVisibleTerminalWindowWakeArgs = {
   manager: PaneManager
   isActive: boolean
+  clearGlyphAtlases: boolean
 }
 
 export function resumeTerminalVisibility({
@@ -88,7 +89,10 @@ export function resumeTerminalVisibility({
       // hidden-output recovery: agent TUIs can suppress hidden bytes until the
       // pane is foregrounded.
       requestLightTabBacklogRecovery(manager)
-      scheduleTerminalWebglAtlasRecovery()
+      // Why: reveal recovery must be immediate, not the terminal-output debounce
+      // — a background agent streaming in another pane must not defer this tab's
+      // atlas rebuild.
+      scheduleTabRevealWebglAtlasRecovery()
       if (isActive) {
         focusActivePane(manager)
       }
@@ -163,7 +167,8 @@ export function hideTerminalVisibility({
 
 export function recoverVisibleTerminalWindowWake({
   manager,
-  isActive
+  isActive,
+  clearGlyphAtlases
 }: RecoverVisibleTerminalWindowWakeArgs): void {
   // Why: macOS screensaver/display wake can leave xterm visible but with a
   // stale renderer/input surface; Orca's own hidden-state resume never runs.
@@ -178,7 +183,16 @@ export function recoverVisibleTerminalWindowWake({
     fitPanes(manager)
   }
   enforceTerminalViewportIntents(manager)
-  resetAndRefreshAllTerminalWebglAtlases()
+  if (clearGlyphAtlases) {
+    // Why: only a genuine display wake takes the heavy path — reset AND refresh
+    // every pane's aterm grid, since a real wake can corrupt the GPU surface.
+    // Plain refocus (alt-tab) is frequent and must not pay this cross-manager cost.
+    resetAndRefreshAllTerminalWebglAtlases()
+  } else {
+    // Why: a plain refocus just re-presents the current aterm frame — the
+    // atlas-preserving equivalent that avoids re-arming the heavy refresh churn.
+    resetAllTerminalWebglAtlases()
+  }
 }
 
 function requestLightTabBacklogRecovery(manager: PaneManager): void {

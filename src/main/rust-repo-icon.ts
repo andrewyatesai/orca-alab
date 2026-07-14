@@ -16,7 +16,7 @@ function dispatch(fn: string, input: unknown): unknown {
 export function sanitizeRepoIcon(value: unknown): RepoIcon | null | undefined {
   // `undefined` means "leave as-is"; it isn't JSON-representable, so short-
   // circuit rather than let it collapse to null (which Rust reads as reset).
-  if (value === undefined) return undefined
+  if (value === undefined) {return undefined}
   const result = dispatch('sanitizeRepoIcon', value)
   return result === SANITIZE_UNDEFINED ? undefined : (result as RepoIcon | null)
 }

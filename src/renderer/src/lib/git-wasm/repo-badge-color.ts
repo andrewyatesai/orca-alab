@@ -14,11 +14,11 @@ function dispatch(fn: string, input: unknown): unknown {
 export function normalizeRepoBadgeColor(value: unknown): string | null {
   // Only the wasm-not-ready path defaults; a ready null is a legitimate
   // "invalid color" that sync consumers (e.g. the picker) rely on.
-  if (!isGitWasmReady()) return DEFAULT_REPO_BADGE_COLOR
+  if (!isGitWasmReady()) {return DEFAULT_REPO_BADGE_COLOR}
   return dispatch('normalizeRepoBadgeColor', { value }) as string | null
 }
 
 export function resolveRepoBadgeColor(value: unknown): string {
-  if (!isGitWasmReady()) return DEFAULT_REPO_BADGE_COLOR
+  if (!isGitWasmReady()) {return DEFAULT_REPO_BADGE_COLOR}
   return dispatch('resolveRepoBadgeColor', { value }) as string
 }

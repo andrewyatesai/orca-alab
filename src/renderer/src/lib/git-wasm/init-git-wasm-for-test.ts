@@ -17,7 +17,7 @@ import { initGitWasmForTestFromBytes, isGitWasmReady } from './git-line-stats'
 // checked-in path (vitest cwd is the repo root) to stay env-agnostic.
 function resolveWasmPath(): string {
   const url = new URL('./orca_git_wasm_bg.wasm', import.meta.url)
-  if (url.protocol === 'file:') return fileURLToPath(url)
+  if (url.protocol === 'file:') {return fileURLToPath(url)}
   return resolve(process.cwd(), 'src/renderer/src/lib/git-wasm/orca_git_wasm_bg.wasm')
 }
 

@@ -21,6 +21,7 @@ import {
   buildSubmoduleInnerCommitRangeDiff,
   computeSubmodulePointerDiff,
   computeSubmoduleRangeEntries,
+  clearSubmodulePathsCache,
   createSubmodulePathsCache,
   findContainingSubmodule,
   listSubmodulePathsCached,
@@ -38,7 +39,9 @@ import {
 } from './git-handler-worktree-ops'
 import { forceDeletePreservedRelayBranch } from './git-handler-branch-cleanup'
 import { refreshLocalBaseRefForWorktreeCreateOp } from './git-handler-local-base-ref-refresh'
-import { checkIgnoredPathsOp, detectConflictOperation, getStatusOp } from './git-handler-status-ops'
+import { gitExecMutatesRepository } from '../shared/git-exec-mutation'
+import { detectConflictOperation, getStatusOp } from './git-handler-status-ops'
+import { checkIgnoredPathsOp } from './git-handler-check-ignore'
 import { resolveRelayPushTarget } from './git-handler-push-target'
 // Rust-via-wasm (see git-wasm.ts): the same parsers/normaliser the main process
 // runs, instead of the shared/relay-local TS copies — one source of truth.
@@ -49,7 +52,9 @@ import {
   parseNumstat,
   parseGitHistoryLog
 } from './git-wasm'
-
+// Pull-retry control flow with no git-text parsing, so it stays shared TS while
+// git-wasm owns the error predicates/normaliser it wraps.
+import { runPullWithDivergenceFallback } from '../shared/git-remote-error'
 import { assertGitPushTargetShape } from '../shared/git-push-target-validation'
 import { getPublishTargetStatus, type GitCommandRunner } from '../shared/git-publish-target-status'
 import { resolveGitRemoteRebaseSource } from '../shared/git-rebase-source'
@@ -59,7 +64,7 @@ import {
   resolveEffectiveGitUpstream
 } from '../shared/git-effective-upstream'
 import { loadGitHistoryFromExecutor } from '../shared/git-history'
-import { buildRelayCommandEnv } from './relay-command-env'
+import { buildRelayGitEnv } from './relay-command-env'
 import {
   removeSafeUntrackedDiscardTarget,
   removeSafeUntrackedDiscardTargets
@@ -67,6 +72,15 @@ import {
 import { getGitCloneFailureMessage } from '../shared/git-clone-failure-message'
 import { syncForkDefaultBranch, validateGitForkSyncExpectedUpstream } from '../shared/git-fork-sync'
 import { InFlightPromiseDedupe, stableInFlightKey } from '../shared/in-flight-promise-dedupe'
+import { GIT_FETCH_SKIP_AUTO_MAINTENANCE_CONFIG_ARGS } from '../shared/git-fetch-auto-maintenance'
+import { GitCapabilityCache } from '../shared/git-capability-cache'
+import {
+  hasUnsupportedRevParsePathFormatEcho,
+  isUnsupportedRevParsePathFormatError
+} from '../shared/git-worktree-command-capabilities'
+import { GitResponseStreamRegistry } from './git-response-stream'
+import { GIT_RESPONSE_STREAM_THRESHOLD } from './protocol'
+import { endSubprocessStdin } from '../shared/subprocess-stdin-write'
 
 const execFileAsync = promisify(execFile)
 const MAX_GIT_BUFFER = 10 * 1024 * 1024
@@ -79,26 +93,6 @@ function resolveSubmoduleStatusArea(
     return params.area
   }
   return 'unstaged'
-}
-
-function getErrorText(error: unknown): string {
-  if (typeof error === 'object' && error !== null) {
-    const parts: string[] = []
-    if ('message' in error && typeof error.message === 'string') {
-      parts.push(error.message)
-    }
-    if ('stderr' in error && typeof error.stderr === 'string') {
-      parts.push(error.stderr)
-    }
-    return parts.join('\n')
-  }
-  return String(error)
-}
-
-function isUnsupportedRevParsePathFormatError(error: unknown): boolean {
-  return /(?:unknown|invalid|unrecognized).*(?:--path-format|path-format)/i.test(
-    getErrorText(error)
-  )
 }
 
 function isWindowsAbsolutePath(value: string): boolean {
@@ -170,13 +164,17 @@ function execFileWithStdin(
       finish(null, stdout, stderr)
     })
     child.once('error', (error) => finish(error))
-    child.stdin?.end(stdin)
+    endSubprocessStdin(child.stdin, stdin)
   })
 }
 
 export class GitHandler {
   private dispatcher: RelayDispatcher
   private readonly gitDiffReadDedupe = new InFlightPromiseDedupe<unknown>()
+  private readonly gitCapabilities = new GitCapabilityCache()
+  // Why: large diff/exec responses are chunked onto the bulk lane so they do
+  // not head-of-line-block interactive pty.data echo on the shared SSH channel.
+  private readonly responseStreams = new GitResponseStreamRegistry()
 
   // Why: configured submodule paths change rarely; an instance-level TTL cache
   // avoids re-reading `.gitmodules` on every diff click over SSH, and being
@@ -188,6 +186,14 @@ export class GitHandler {
   constructor(dispatcher: RelayDispatcher, _context: RelayContext) {
     this.dispatcher = dispatcher
     this.registerHandlers()
+    // Why: a detached client's git.responseAck frames will never arrive; wake
+    // any pump parked on the ack window so it re-checks staleness and exits.
+    this.dispatcher.onClientDetached?.(() => this.responseStreams.wakeAll())
+  }
+
+  dispose(): void {
+    this.responseStreams.disposeAll()
+    this.clearGitMutationReadCaches()
   }
 
   private registerHandlers(): void {
@@ -196,7 +202,7 @@ export class GitHandler {
     this.dispatcher.onRequest('git.checkIgnored', (p) => this.checkIgnored(p))
     this.dispatcher.onRequest('git.history', (p) => this.history(p))
     this.dispatcher.onRequest('git.commit', (p) => this.commit(p))
-    this.dispatcher.onRequest('git.diff', (p) => this.getDiff(p))
+    this.dispatcher.onRequest('git.diff', (p, context) => this.getDiff(p, context))
     this.dispatcher.onRequest('git.stage', (p) => this.stage(p))
     this.dispatcher.onRequest('git.unstage', (p) => this.unstage(p))
     this.dispatcher.onRequest('git.bulkStage', (p) => this.bulkStage(p))
@@ -221,9 +227,9 @@ export class GitHandler {
     this.dispatcher.onRequest('git.pull', (p) => this.pull(p))
     this.dispatcher.onRequest('git.fastForward', (p) => this.fastForward(p))
     this.dispatcher.onRequest('git.rebaseFromBase', (p) => this.rebaseFromBase(p))
-    this.dispatcher.onRequest('git.branchDiff', (p) => this.branchDiff(p))
-    this.dispatcher.onRequest('git.commitDiff', (p) => this.commitDiff(p))
-    this.dispatcher.onRequest('git.listWorktrees', (p) => this.listWorktrees(p))
+    this.dispatcher.onRequest('git.branchDiff', (p, context) => this.branchDiff(p, context))
+    this.dispatcher.onRequest('git.commitDiff', (p, context) => this.commitDiff(p, context))
+    this.dispatcher.onRequest('git.listWorktrees', (p, context) => this.listWorktrees(p, context))
     this.dispatcher.onRequest('git.addWorktree', (p) => this.addWorktree(p))
     this.dispatcher.onRequest('git.removeWorktree', (p) => this.removeWorktree(p))
     this.dispatcher.onRequest('git.worktreeIsClean', (p) => this.worktreeIsClean(p))
@@ -237,16 +243,60 @@ export class GitHandler {
     this.dispatcher.onRequest('git.exec', (p, context) => this.exec(p, context))
     this.dispatcher.onRequest('git.clone', (p, context) => this.clone(p, context))
     this.dispatcher.onRequest('git.isGitRepo', (p) => this.isGitRepo(p))
+    this.dispatcher.onNotification('git.responseAck', (p, context) => this.responseAck(p, context))
+    this.dispatcher.onNotification('git.cancelResponseStream', (p, context) =>
+      this.cancelResponseStream(p, context)
+    )
   }
 
-  private async runWithDiffDedupeClear<T>(run: () => Promise<T>): Promise<T> {
-    // Why: git mutations can stale both existing and concurrently-started diff reads.
-    // Clear before and after so later reads never join pre-mutation work.
+  private responseAck(params: Record<string, unknown>, context: RequestContext): void {
+    const streamId = params.streamId
+    const seq = params.seq
+    if (typeof streamId === 'number' && typeof seq === 'number') {
+      this.responseStreams.recordAck(streamId, seq, context.clientId)
+    }
+  }
+
+  private cancelResponseStream(params: Record<string, unknown>, context: RequestContext): void {
+    const streamId = params.streamId
+    if (typeof streamId === 'number') {
+      this.responseStreams.abort(streamId, context.clientId)
+    }
+  }
+
+  // Why: when the client opted into response streaming and the serialized result
+  // exceeds the threshold, chunk it onto the bulk lane and return a small
+  // sentinel as the RPC result. Old clients omit the flag (single-frame, as
+  // today); old relays never call this, so a new client falls back to the plain
+  // result they return.
+  private maybeStreamResponse(
+    result: unknown,
+    params: Record<string, unknown>,
+    context: RequestContext | undefined
+  ): unknown {
+    if (params.__streamResponse !== true || !context) {
+      return result
+    }
+    const payload = Buffer.from(JSON.stringify(result ?? null), 'utf-8')
+    if (payload.length <= GIT_RESPONSE_STREAM_THRESHOLD) {
+      return result
+    }
+    return this.responseStreams.startStream(payload, this.dispatcher, context)
+  }
+
+  private clearGitMutationReadCaches(): void {
     this.gitDiffReadDedupe.clear()
+    clearSubmodulePathsCache(this.submodulePathsCache)
+  }
+
+  private async runWithGitReadCacheClear<T>(run: () => Promise<T>): Promise<T> {
+    // Why: git mutations can stale existing and concurrently-started diff and
+    // .gitmodules reads. Clear before and after so later reads cannot join them.
+    this.clearGitMutationReadCaches()
     try {
       return await run()
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
@@ -259,9 +309,10 @@ export class GitHandler {
       signal?: AbortSignal
       nonInteractive?: boolean
       stdin?: string
+      timeout?: number
     }
   ): Promise<{ stdout: string; stderr: string }> {
-    const env = buildRelayCommandEnv()
+    const env = buildRelayGitEnv()
     if (opts?.disableOptionalLocks) {
       env.GIT_OPTIONAL_LOCKS = '0'
     }
@@ -276,6 +327,7 @@ export class GitHandler {
       env,
       encoding: 'utf-8',
       maxBuffer: opts?.maxBuffer ?? MAX_GIT_BUFFER,
+      timeout: opts?.timeout,
       signal: opts?.signal
     } satisfies ExecFileOptions
     if (opts?.stdin !== undefined) {
@@ -288,7 +340,7 @@ export class GitHandler {
   private async gitBuffer(args: string[], cwd: string): Promise<Buffer> {
     const { stdout } = (await execFileAsync('git', args, {
       cwd,
-      env: buildRelayCommandEnv(),
+      env: buildRelayGitEnv(),
       encoding: 'buffer',
       maxBuffer: MAX_GIT_BUFFER
     })) as { stdout: Buffer }
@@ -365,7 +417,7 @@ export class GitHandler {
     )
   }
 
-  private async getDiff(params: Record<string, unknown>) {
+  private async getDiff(params: Record<string, unknown>, context?: RequestContext) {
     const worktreePath = params.worktreePath as string
     const filePath = params.filePath as string
     // Why: filePath is relative to worktreePath and used in readWorkingFile via
@@ -379,7 +431,7 @@ export class GitHandler {
     const compareAgainstHead = params.compareAgainstHead as boolean | undefined
     // Why: register the in-flight dedupe synchronously (before any await) so
     // concurrent identical reads coalesce; submodule routing happens inside.
-    return this.gitDiffReadDedupe.run(
+    const result = await this.gitDiffReadDedupe.run(
       stableInFlightKey(['diff', worktreePath, filePath, staged, compareAgainstHead]),
       async () => {
         // Why: gitlink paths can't be read as blobs and submodule working dirs
@@ -444,93 +496,100 @@ export class GitHandler {
         )
       }
     )
+    return this.maybeStreamResponse(result, params, context)
   }
 
   private async stage(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const filePath = params.filePath as string
     try {
-      await this.git(['add', '--', filePath], worktreePath)
+      await this.git(['add', '--', this.literalPathspec(filePath)], worktreePath)
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async commit(
     params: Record<string, unknown>
   ): Promise<{ success: boolean; error?: string }> {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const message = params.message as string
     try {
       return await commitChangesRelay(this.git.bind(this), worktreePath, message)
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async unstage(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const filePath = params.filePath as string
     try {
-      await this.git(['restore', '--staged', '--', filePath], worktreePath)
+      await this.git(['restore', '--staged', '--', this.literalPathspec(filePath)], worktreePath)
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async bulkStage(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const filePaths = params.filePaths as string[]
     try {
       for (let i = 0; i < filePaths.length; i += BULK_CHUNK_SIZE) {
         const chunk = filePaths.slice(i, i + BULK_CHUNK_SIZE)
-        await this.git(['add', '--', ...chunk], worktreePath)
+        await this.git(
+          ['add', '--', ...chunk.map((filePath) => this.literalPathspec(filePath))],
+          worktreePath
+        )
       }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async bulkUnstage(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const filePaths = params.filePaths as string[]
     try {
       for (let i = 0; i < filePaths.length; i += BULK_CHUNK_SIZE) {
         const chunk = filePaths.slice(i, i + BULK_CHUNK_SIZE)
-        await this.git(['restore', '--staged', '--', ...chunk], worktreePath)
+        await this.git(
+          ['restore', '--staged', '--', ...chunk.map((filePath) => this.literalPathspec(filePath))],
+          worktreePath
+        )
       }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async abortMerge(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     try {
       await this.git(['merge', '--abort'], worktreePath)
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async abortRebase(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     try {
       await this.git(['rebase', '--abort'], worktreePath)
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async checkout(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const branch = params.branch as string
     // Defense-in-depth: reject option-like branch tokens (the RPC schema also
@@ -544,7 +603,7 @@ export class GitHandler {
       await this.git(['checkout', branch, '--'], worktreePath)
       return { ok: true as const, branch }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
@@ -603,7 +662,7 @@ export class GitHandler {
   }
 
   private async discard(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const filePath = params.filePath as string
     try {
@@ -632,12 +691,12 @@ export class GitHandler {
         this.cleanUntrackedPaths(worktreePath, [targetPath])
       )
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async bulkDiscard(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const filePaths = params.filePaths as string[]
     if (filePaths.length === 0) {
@@ -691,7 +750,7 @@ export class GitHandler {
         }
       )
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
@@ -798,7 +857,7 @@ export class GitHandler {
   }
 
   private async fetch(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     try {
       try {
@@ -817,12 +876,12 @@ export class GitHandler {
         throw new Error(normalizeGitErrorMessage(error, 'fetch'))
       }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async forkSync(params: Record<string, unknown>, context?: RequestContext) {
-    return this.runWithDiffDedupeClear(async () => {
+    return this.runWithGitReadCacheClear(async () => {
       const worktreePath = params.worktreePath as string
       const expectedUpstream = validateGitForkSyncExpectedUpstream(params.expectedUpstream, {
         required: true
@@ -854,14 +913,18 @@ export class GitHandler {
   }
 
   private async fetchRemoteTrackingRef(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const remote = params.remote
     const branch = params.branch
     const ref = params.ref
+    const skipAutoMaintenance = params.skipAutoMaintenance
     try {
       if (typeof remote !== 'string' || typeof branch !== 'string' || typeof ref !== 'string') {
         throw new Error('Invalid remote-tracking fetch request.')
+      }
+      if (skipAutoMaintenance !== undefined && typeof skipAutoMaintenance !== 'boolean') {
+        throw new Error('Invalid remote-tracking fetch maintenance option.')
       }
       if (remote.startsWith('-') || branch.startsWith('-')) {
         throw new Error('Remote-tracking fetch inputs must not start with "-".')
@@ -881,7 +944,16 @@ export class GitHandler {
         }
         await this.git(['check-ref-format', `refs/heads/${branch}`], worktreePath)
         await this.git(['check-ref-format', ref], worktreePath)
-        await this.git(['fetch', '--no-tags', remote, `+refs/heads/${branch}:${ref}`], worktreePath)
+        await this.git(
+          [
+            ...(skipAutoMaintenance ? GIT_FETCH_SKIP_AUTO_MAINTENANCE_CONFIG_ARGS : []),
+            'fetch',
+            '--no-tags',
+            remote,
+            `+refs/heads/${branch}:${ref}`
+          ],
+          worktreePath
+        )
       } catch (error) {
         // Why: create-worktree needs a write-capable fetch, but generic git.exec
         // intentionally rejects fetch. This narrow RPC keeps the relay allowlist
@@ -889,12 +961,12 @@ export class GitHandler {
         throw new Error(normalizeGitErrorMessage(error, 'fetch'))
       }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async fetchGitLabMergeRequestHead(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const remote = params.remote
     const mrIid = params.mrIid
@@ -929,12 +1001,12 @@ export class GitHandler {
         throw new Error(normalizeGitErrorMessage(error, 'fetch'))
       }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async push(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     // Why: mirror src/main/git/remote.ts. Push to a configured upstream when
     // present so SSH worktrees with non-origin targets do not get repointed.
@@ -959,46 +1031,50 @@ export class GitHandler {
         throw new Error(normalizeGitErrorMessage(error, 'push'))
       }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
   private async pullWithArgs(params: Record<string, unknown>, pullArgs: string[]) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
+    const runPull = async (effectiveArgs: string[]): Promise<void> => {
+      if (params.pushTarget !== undefined) {
+        assertGitPushTargetShape(params.pushTarget)
+        const pushTarget = params.pushTarget as GitPushTarget
+        await this.git(['check-ref-format', '--branch', pushTarget.branchName], worktreePath)
+        await this.git(
+          ['pull', ...effectiveArgs, pushTarget.remoteName, pushTarget.branchName],
+          worktreePath
+        )
+        return
+      }
+      const upstream = await resolveEffectiveGitUpstream(
+        (args) => this.git(args, worktreePath),
+        isNoUpstreamError
+      )
+      if (upstream && !upstream.isConfiguredUpstream) {
+        // Why: legacy Orca branches may still track origin/main while pushes
+        // target origin/<branch>. Pull the same effective branch the UI reports.
+        await this.git(
+          ['pull', ...effectiveArgs, upstream.remoteName, upstream.branchName],
+          worktreePath
+        )
+        return
+      }
+      await this.git(['pull', ...effectiveArgs], worktreePath)
+    }
+
     try {
       try {
-        if (params.pushTarget !== undefined) {
-          assertGitPushTargetShape(params.pushTarget)
-          const pushTarget = params.pushTarget as GitPushTarget
-          await this.git(['check-ref-format', '--branch', pushTarget.branchName], worktreePath)
-          await this.git(
-            ['pull', ...pullArgs, pushTarget.remoteName, pushTarget.branchName],
-            worktreePath
-          )
-          return
-        }
-        const upstream = await resolveEffectiveGitUpstream(
-          (args) => this.git(args, worktreePath),
-          isNoUpstreamError
-        )
-        if (upstream && !upstream.isConfiguredUpstream) {
-          // Why: legacy Orca branches may still track origin/main while pushes
-          // target origin/<branch>. Pull the same effective branch the UI reports.
-          await this.git(
-            ['pull', ...pullArgs, upstream.remoteName, upstream.branchName],
-            worktreePath
-          )
-          return
-        }
-        await this.git(['pull', ...pullArgs], worktreePath)
+        await runPullWithDivergenceFallback(pullArgs, runPull)
       } catch (error) {
         // Why: mirror the local gitPull normalization so SSH users see the same
         // actionable messages instead of raw git stderr.
         throw new Error(normalizeGitErrorMessage(error, 'pull'))
       }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
@@ -1013,7 +1089,7 @@ export class GitHandler {
   }
 
   private async rebaseFromBase(params: Record<string, unknown>) {
-    this.gitDiffReadDedupe.clear()
+    this.clearGitMutationReadCaches()
     const worktreePath = params.worktreePath as string
     const baseRef = params.baseRef as string
     try {
@@ -1027,11 +1103,11 @@ export class GitHandler {
         throw new Error(normalizeGitErrorMessage(error, 'pull'))
       }
     } finally {
-      this.gitDiffReadDedupe.clear()
+      this.clearGitMutationReadCaches()
     }
   }
 
-  private async branchDiff(params: Record<string, unknown>) {
+  private async branchDiff(params: Record<string, unknown>, context?: RequestContext) {
     const worktreePath = params.worktreePath as string
     const baseRef = params.baseRef as string
     if (baseRef.startsWith('-')) {
@@ -1042,7 +1118,7 @@ export class GitHandler {
       filePath: params.filePath as string | undefined,
       oldPath: params.oldPath as string | undefined
     }
-    return this.gitDiffReadDedupe.run(
+    const result = await this.gitDiffReadDedupe.run(
       stableInFlightKey([
         'branchDiff',
         worktreePath,
@@ -1060,9 +1136,10 @@ export class GitHandler {
           options
         )
     )
+    return this.maybeStreamResponse(result, params, context)
   }
 
-  private async commitDiff(params: Record<string, unknown>) {
+  private async commitDiff(params: Record<string, unknown>, context?: RequestContext) {
     const worktreePath = params.worktreePath as string
     const args = {
       commitOid: params.commitOid as string,
@@ -1070,7 +1147,7 @@ export class GitHandler {
       filePath: params.filePath as string,
       oldPath: params.oldPath as string | undefined
     }
-    return this.gitDiffReadDedupe.run(
+    const result = await this.gitDiffReadDedupe.run(
       stableInFlightKey([
         'commitDiff',
         worktreePath,
@@ -1081,6 +1158,7 @@ export class GitHandler {
       ]),
       () => commitDiffEntry(this.gitBuffer.bind(this), worktreePath, args)
     )
+    return this.maybeStreamResponse(result, params, context)
   }
 
   private async exec(params: Record<string, unknown>, context?: RequestContext) {
@@ -1088,8 +1166,11 @@ export class GitHandler {
     const cwd = params.cwd as string
 
     validateGitExecArgs(args)
-    const { stdout, stderr } = await this.git(args, cwd, { signal: context?.signal })
-    return { stdout, stderr }
+    const run = () => this.git(args, cwd, { signal: context?.signal })
+    const { stdout, stderr } = gitExecMutatesRepository(args)
+      ? await this.runWithGitReadCacheClear(run)
+      : await run()
+    return this.maybeStreamResponse({ stdout, stderr }, params, context)
   }
 
   private async clone(params: Record<string, unknown>, context?: RequestContext) {
@@ -1103,7 +1184,9 @@ export class GitHandler {
     if (args[0] !== 'clone') {
       throw new Error('git.clone only supports clone commands.')
     }
-    return await this.spawnClone(args, cwd, progressId, context)
+    return await this.runWithGitReadCacheClear(() =>
+      this.spawnClone(args, cwd, progressId, context)
+    )
   }
 
   private async spawnClone(
@@ -1115,7 +1198,7 @@ export class GitHandler {
     return await new Promise((resolve, reject) => {
       const child = spawn('git', args, {
         cwd: expandTilde(cwd),
-        env: buildRelayCommandEnv(),
+        env: buildRelayGitEnv(),
         stdio: ['ignore', 'pipe', 'pipe']
       })
       let stdout = ''
@@ -1140,7 +1223,7 @@ export class GitHandler {
             this.dispatcher.notify('git.cloneProgress', {
               progressId,
               phase: match[1].trim(),
-              percent: parseInt(match[2], 10)
+              percent: Number.parseInt(match[2], 10)
             })
           }
         }
@@ -1173,7 +1256,7 @@ export class GitHandler {
   }
 
   private async renameCurrentBranch(params: Record<string, unknown>) {
-    return this.runWithDiffDedupeClear(async () => {
+    return this.runWithGitReadCacheClear(async () => {
       const worktreePath = params.worktreePath
       const newBranch = params.newBranch
       if (typeof worktreePath !== 'string' || typeof newBranch !== 'string') {
@@ -1210,7 +1293,7 @@ export class GitHandler {
     if (!repoPath || repoPath.includes('\0') || expectedHead.includes('\0')) {
       throw new Error('Invalid preserved branch force-delete request.')
     }
-    return this.runWithDiffDedupeClear(() =>
+    return this.runWithGitReadCacheClear(() =>
       forceDeletePreservedRelayBranch(this.git.bind(this), repoPath, branchName, expectedHead)
     )
   }
@@ -1227,23 +1310,29 @@ export class GitHandler {
 
   private async readRepoLocation(repoPath: string): Promise<RelayRepoLocation | undefined> {
     try {
-      const { stdout } = await this.git(
-        ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'],
-        repoPath
+      return await this.gitCapabilities.runWithFallback(
+        'rev-parse-path-format',
+        async () => {
+          const { stdout } = await this.git(
+            ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'],
+            repoPath
+          )
+          if (hasUnsupportedRevParsePathFormatEcho(stdout)) {
+            // Why: some old Git versions echo the unknown option and exit zero;
+            // remember that signal even though the trailing paths remain usable.
+            this.gitCapabilities.rememberUnsupported('rev-parse-path-format')
+          }
+          return parseRelayRepoLocation(repoPath, stdout)
+        },
+        async () => {
+          const { stdout } = await this.git(
+            ['rev-parse', '--show-toplevel', '--git-common-dir'],
+            repoPath
+          )
+          return parseRelayRepoLocation(repoPath, stdout)
+        },
+        isUnsupportedRevParsePathFormatError
       )
-      return parseRelayRepoLocation(repoPath, stdout)
-    } catch (error) {
-      if (!isUnsupportedRevParsePathFormatError(error)) {
-        return undefined
-      }
-    }
-
-    try {
-      const { stdout } = await this.git(
-        ['rev-parse', '--show-toplevel', '--git-common-dir'],
-        repoPath
-      )
-      return parseRelayRepoLocation(repoPath, stdout)
     } catch {
       return undefined
     }
@@ -1281,36 +1370,45 @@ export class GitHandler {
     return normalized
   }
 
-  private async listWorktrees(params: Record<string, unknown>) {
+  private async listWorktrees(params: Record<string, unknown>, context?: RequestContext) {
     const repoPath = params.repoPath as string
-    try {
-      const { stdout } = await this.git(['worktree', 'list', '--porcelain', '-z'], repoPath)
-      return this.normalizeMainWorktreePath(
-        repoPath,
-        parseWorktreeList(stdout, { nulDelimited: true })
+    return this.gitCapabilities
+      .runWithFallback(
+        'worktree-list-z',
+        async () => {
+          const { stdout } = await this.git(['worktree', 'list', '--porcelain', '-z'], repoPath, {
+            signal: context?.signal
+          })
+          return this.normalizeMainWorktreePath(
+            repoPath,
+            parseWorktreeList(stdout, { nulDelimited: true })
+          )
+        },
+        async () => {
+          // Why: `-z` keeps newline-containing SSH worktree paths intact, but
+          // Git <2.36 requires the line-block parser.
+          try {
+            const { stdout } = await this.git(['worktree', 'list', '--porcelain'], repoPath, {
+              signal: context?.signal
+            })
+            return this.normalizeMainWorktreePath(repoPath, parseWorktreeList(stdout))
+          } catch {
+            return []
+          }
+        },
+        isUnsupportedWorktreeListZError
       )
-    } catch (error) {
-      if (!isUnsupportedWorktreeListZError(error)) {
-        return []
-      }
-    }
-
-    // Why: `-z` keeps newline-containing SSH worktree paths intact, but older
-    // Git rejects it. Fall back to the original line-block parser there.
-    try {
-      const { stdout } = await this.git(['worktree', 'list', '--porcelain'], repoPath)
-      return this.normalizeMainWorktreePath(repoPath, parseWorktreeList(stdout))
-    } catch {
-      return []
-    }
+      .catch(() => [])
   }
 
   private async addWorktree(params: Record<string, unknown>) {
-    return this.runWithDiffDedupeClear(() => addWorktreeOp(this.git.bind(this), params))
+    return this.runWithGitReadCacheClear(() => addWorktreeOp(this.git.bind(this), params))
   }
 
   private async removeWorktree(params: Record<string, unknown>) {
-    return this.runWithDiffDedupeClear(() => removeWorktreeOp(this.git.bind(this), params))
+    return this.runWithGitReadCacheClear(() =>
+      removeWorktreeOp(this.git.bind(this), params, this.gitCapabilities)
+    )
   }
 
   private async worktreeIsClean(params: Record<string, unknown>) {
@@ -1318,8 +1416,8 @@ export class GitHandler {
   }
 
   private async refreshLocalBaseRefForWorktreeCreate(params: Record<string, unknown>) {
-    return this.runWithDiffDedupeClear(() =>
-      refreshLocalBaseRefForWorktreeCreateOp(this.git.bind(this), params)
+    return this.runWithGitReadCacheClear(() =>
+      refreshLocalBaseRefForWorktreeCreateOp(this.git.bind(this), params, this.gitCapabilities)
     )
   }
 }

@@ -194,7 +194,7 @@ export function createAtermScrollbarOverlay(
     }
     dragging = true
     dragStartY = event.clientY
-    dragStartThumbTop = parseFloat(thumb.style.top) || 0
+    dragStartThumbTop = Number.parseFloat(thumb.style.top) || 0
     predictedOffset = term.display_offset
     window.addEventListener('mousemove', onDragMove)
     window.addEventListener('mouseup', onDragEnd)

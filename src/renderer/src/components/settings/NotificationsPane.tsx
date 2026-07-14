@@ -10,6 +10,10 @@ import { Label } from '../ui/label'
 import { Separator } from '../ui/separator'
 import { BellRing, Bot, Megaphone, Siren, Timer } from 'lucide-react'
 import { useAppStore } from '@/store'
+import {
+  MacNotificationPermissionCard,
+  useMacNotificationPermissionState
+} from '@/components/notifications/mac-notification-permission-card'
 import { NotificationSettingToggle } from './NotificationSettingToggle'
 import { NotificationSoundSection } from './NotificationSoundSection'
 import {
@@ -36,6 +40,9 @@ export function NotificationsPane({
 }: NotificationsPaneProps): React.JSX.Element {
   const notificationSettings = settings.notifications
   const notificationSettingsRef = useRef(notificationSettings)
+  const [macPermissionState, setMacPermissionState] = useMacNotificationPermissionState(
+    notificationSettings.enabled
+  )
 
   const updateNotificationSettings = async (
     updates: Partial<GlobalSettings['notifications']>
@@ -107,11 +114,31 @@ export function NotificationsPane({
 
   const handleSendTestNotification = async (): Promise<void> => {
     useAppStore.getState().recordFeatureInteraction('notifications')
-    await sendNotificationSettingsTestNotification(notificationSettings, volumeDraft)
+    const showsMacPermissionCard = macPermissionState !== null
+    const outcome = await sendNotificationSettingsTestNotification(
+      notificationSettings,
+      volumeDraft,
+      // Why: the card renders delivery state inline, so the ambiguous darwin
+      // "check if a banner appeared" toasts would contradict it.
+      showsMacPermissionCard ? { suppressSystemPermissionToasts: true } : undefined
+    )
+    if (!showsMacPermissionCard) {
+      return
+    }
+    if (outcome === 'delivered') {
+      setMacPermissionState('enabled')
+    } else if (outcome === 'not-displayed') {
+      setMacPermissionState('blocked')
+    }
   }
 
   return (
     <div className="space-y-1">
+      {macPermissionState !== null ? (
+        <div className="pb-3">
+          <MacNotificationPermissionCard state={macPermissionState} />
+        </div>
+      ) : null}
       <NotificationSettingToggle
         label={translate(
           'auto.components.settings.NotificationsPane.841c8c549f',

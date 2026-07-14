@@ -19,3 +19,9 @@ export function isNoUpstreamError(error: unknown): boolean {
     error instanceof Error ? error.message : undefined
   )
 }
+
+/** Scrub credentials embedded in a git URL within `message` — the same Rust
+ *  core the relay runs via wasm. */
+export function stripCredentialsFromMessage(message: string): string {
+  return requireRustGitBinding().stripCredentialsFromMessage(message)
+}

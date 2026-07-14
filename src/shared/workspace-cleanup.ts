@@ -132,3 +132,23 @@ export const WORKSPACE_CLEANUP_HARD_BLOCKERS: ReadonlySet<WorkspaceCleanupBlocke
 
 export const WORKSPACE_CLEANUP_FORCE_REMOVE_BLOCKERS: ReadonlySet<WorkspaceCleanupBlocker> =
   new Set(['dirty-files', 'unpushed-commits', 'unknown-base', 'git-status-error'])
+
+// Blockers that make a candidate unselectable in the cleanup UI (distinct from
+// hard/force-remove blockers): structural cases the user can never queue.
+const WORKSPACE_CLEANUP_QUEUE_BLOCKERS: ReadonlySet<WorkspaceCleanupBlocker> = new Set([
+  'main-worktree',
+  'folder-repo',
+  'dismissed'
+])
+
+// UI-selectability predicate: a candidate can be queued for cleanup when it has
+// at least one reason and no queue-blocking condition. Pure renderer-side helper
+// (the classifier itself lives in the Rust workspace-cleanup core).
+export function canQueueWorkspaceCleanupCandidate(
+  candidate: Pick<WorkspaceCleanupCandidate, 'blockers' | 'reasons'>
+): boolean {
+  return (
+    candidate.reasons.length > 0 &&
+    !candidate.blockers.some((blocker) => WORKSPACE_CLEANUP_QUEUE_BLOCKERS.has(blocker))
+  )
+}

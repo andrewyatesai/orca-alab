@@ -9,7 +9,7 @@ import { orcaDispatch } from './orca_git_wasm.js'
 import type { ProxyUrlValidationResult } from '../../../../shared/network-proxy'
 
 function op(fn: string, input: unknown): unknown | null {
-  if (!isGitWasmReady()) return null
+  if (!isGitWasmReady()) {return null}
   return JSON.parse(orcaDispatch('network-proxy', fn, JSON.stringify(input ?? null)))
 }
 

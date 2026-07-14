@@ -1,11 +1,13 @@
 /* eslint-disable max-lines -- Why: these hook tests share a mocked React lifecycle harness with global event cases. */
 import type * as ReactModule from 'react'
+import type * as StoreModule from '@/store'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PASTE_TERMINAL_TEXT_EVENT, SYNC_FIT_PANES_EVENT } from '@/constants/terminal'
 import {
   registerLivePaneManager,
   unregisterLivePaneManager
 } from '@/lib/pane-manager/pane-manager-registry'
+import { useAppStore } from '@/store'
 import { useTerminalPaneGlobalEffects } from './use-terminal-pane-global-effects'
 import { TERMINAL_PASTE_DIRECT_MAX_BYTES } from './terminal-paste-coordinator'
 
@@ -109,6 +111,20 @@ vi.mock('./terminal-input-activity', () => ({
   recordTerminalUserInputForLeaf: mocks.recordTerminalUserInputForLeaf
 }))
 
+// Why: this suite invokes the hook outside a real React render (the react mock
+// above runs effects synchronously and manages refs by hand), so a reactive
+// useAppStore(selector) call would throw an "Invalid hook call". Read the
+// current snapshot synchronously instead; getState/setState stay real so tests
+// can seed terminalLayoutsByTabId.
+vi.mock('@/store', async (importOriginal) => {
+  const actual = await importOriginal<typeof StoreModule>()
+  const realHook = actual.useAppStore
+  const testHook = ((selector?: (state: ReturnType<typeof realHook.getState>) => unknown) =>
+    selector ? selector(realHook.getState()) : realHook.getState()) as typeof realHook
+  Object.assign(testHook, realHook)
+  return { ...actual, useAppStore: testHook }
+})
+
 class MockResizeObserver {
   observe = vi.fn()
   disconnect = vi.fn()
@@ -198,6 +214,7 @@ describe('useTerminalPaneGlobalEffects', () => {
   beforeEach(() => {
     resetHookRefs()
     vi.clearAllMocks()
+    useAppStore.setState({ terminalLayoutsByTabId: {} })
     ;(globalThis as unknown as { window: unknown }).window = {
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
@@ -570,15 +587,38 @@ describe('useTerminalPaneGlobalEffects', () => {
     expect(mocks.resetAllTerminalWebglAtlases).toHaveBeenCalledTimes(1)
   })
 
-  it('reports the active local PTY to the main output scheduler', () => {
-    const manager = {
+  function seedActiveLeafPty(tabId: string, activeLeafId: string, ptyId: string): void {
+    useAppStore.setState({
+      terminalLayoutsByTabId: {
+        [tabId]: {
+          root: null,
+          activeLeafId,
+          expandedLeafId: null,
+          ptyIdsByLeafId: { [activeLeafId]: ptyId }
+        }
+      }
+    })
+  }
+
+  function makeActivePtyManager(): {
+    getPanes: ReturnType<typeof vi.fn>
+    resumeRendering: ReturnType<typeof vi.fn>
+    resetWebglTextureAtlases: ReturnType<typeof vi.fn>
+    suspendRendering: ReturnType<typeof vi.fn>
+    getActivePane: ReturnType<typeof vi.fn>
+  } {
+    return {
       getPanes: vi.fn(() => [{ id: 1, terminal: { name: 'terminal-a' } }]),
       resumeRendering: vi.fn(),
+      resetWebglTextureAtlases: vi.fn(),
       suspendRendering: vi.fn(),
       getActivePane: vi.fn(() => ({ id: 1, terminal: { name: 'terminal-a' } }))
     }
-    const transport = { getPtyId: vi.fn(() => 'pty-active') }
-    const paneTransports = new Map([[1, transport]])
+  }
+
+  it('reports the active local PTY to the main output scheduler', () => {
+    const manager = makeActivePtyManager()
+    seedActiveLeafPty('tab-1', 'leaf-1', 'pty-active')
 
     beginHookRender()
     useTerminalPaneGlobalEffects({
@@ -590,13 +630,69 @@ describe('useTerminalPaneGlobalEffects', () => {
       paneCount: 1,
       managerRef: { current: manager as never },
       containerRef: { current: null },
-      paneTransportsRef: { current: paneTransports as never },
+      paneTransportsRef: { current: new Map() },
       isActiveRef: { current: false },
       isVisibleRef: { current: false },
       toggleExpandPane: vi.fn()
     })
 
     expect(window.api.pty.setActiveRendererPty).toHaveBeenCalledWith('pty-active', true)
+  })
+
+  it('re-reports the active PTY when the active leaf rebinds to a new PTY without visibility changing', () => {
+    const manager = makeActivePtyManager()
+    const mountArgs = {
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      isActive: true,
+      isVisible: true,
+      isWorktreeActive: true,
+      isSyncFitEnabled: true,
+      paneCount: 1,
+      managerRef: { current: manager as never },
+      containerRef: { current: null },
+      paneTransportsRef: { current: new Map() },
+      isActiveRef: { current: false },
+      isVisibleRef: { current: false },
+      toggleExpandPane: vi.fn()
+    }
+
+    seedActiveLeafPty('tab-1', 'leaf-1', 'pty-old')
+    beginHookRender()
+    useTerminalPaneGlobalEffects(mountArgs)
+    expect(window.api.pty.setActiveRendererPty).toHaveBeenCalledWith('pty-old', true)
+
+    // Deferred reattach rebinds the active leaf to a new PTY; isActive/isVisible/
+    // isWorktreeActive never flip, so only the reactive leaf→PTY binding changes.
+    seedActiveLeafPty('tab-1', 'leaf-1', 'pty-new')
+    beginHookRender()
+    useTerminalPaneGlobalEffects(mountArgs)
+
+    expect(window.api.pty.setActiveRendererPty).toHaveBeenCalledWith('pty-new', true)
+  })
+
+  it('does not report a backgrounded tab active even when its active leaf has a live PTY', () => {
+    const manager = makeActivePtyManager()
+    seedActiveLeafPty('tab-1', 'leaf-1', 'pty-active')
+
+    beginHookRender()
+    useTerminalPaneGlobalEffects({
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      isActive: false,
+      isVisible: false,
+      isWorktreeActive: false,
+      isSyncFitEnabled: false,
+      paneCount: 1,
+      managerRef: { current: manager as never },
+      containerRef: { current: null },
+      paneTransportsRef: { current: new Map() },
+      isActiveRef: { current: false },
+      isVisibleRef: { current: false },
+      toggleExpandPane: vi.fn()
+    })
+
+    expect(window.api.pty.setActiveRendererPty).not.toHaveBeenCalled()
   })
 
   it('enforces scroll intent after hidden layout changes the viewport', () => {
@@ -656,17 +752,21 @@ describe('useTerminalPaneGlobalEffects', () => {
     expect(mocks.enforceTerminalCurrentScrollIntent).toHaveBeenLastCalledWith(terminalA)
   })
 
-  it('clears WebGL texture atlases when the active visible terminal regains focus', () => {
+  it('keeps the shared glyph atlas warm on plain window refocus', () => {
     const manager = {
       getPanes: vi.fn(() => []),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
+      refreshAllPanes: vi.fn(),
       suspendRendering: vi.fn(),
       getActivePane: vi.fn(() => null)
     }
 
-    // Why: focus recovery resets every registered manager (shared glyph
-    // atlas), so the fake manager observes the reset through the registry.
+    // Why: deliberate reversal of the #6354 focus-clear. The heavy reset+refresh
+    // (resetAndRefreshAllTerminalWebglAtlases) re-rasterizes every registered
+    // pane at once; a plain refocus must instead take the atlas-preserving
+    // aterm re-present (resetAllTerminalWebglAtlases) and never touch the heavy
+    // reset+refresh path, so a streaming agent's panes are not wiped mid-frame.
     registerManagerForReset(manager)
     beginHookRender()
     useTerminalPaneGlobalEffects({
@@ -694,9 +794,18 @@ describe('useTerminalPaneGlobalEffects', () => {
       throw new Error('expected focus listener')
     }
     manager.resetWebglTextureAtlases.mockClear()
+    manager.refreshAllPanes.mockClear()
+    mocks.resetAllTerminalWebglAtlases.mockClear()
+    listener(new Event('focus'))
+    listener(new Event('focus'))
     listener(new Event('focus'))
 
-    expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
+    // Count proof: repeated refocus performs zero heavy reset+refresh wipes
+    // (no registered manager's atlas reset or repaint runs); each routes to the
+    // atlas-preserving re-present (resetAllTerminalWebglAtlases).
+    expect(manager.resetWebglTextureAtlases).not.toHaveBeenCalled()
+    expect(manager.refreshAllPanes).not.toHaveBeenCalled()
+    expect(mocks.resetAllTerminalWebglAtlases).toHaveBeenCalledTimes(3)
   })
 
   it('recovers visible terminal rendering and input when the window regains focus', () => {
@@ -739,6 +848,9 @@ describe('useTerminalPaneGlobalEffects', () => {
     manager.resumeRendering.mockClear()
     manager.resetWebglTextureAtlases.mockClear()
     manager.refreshAllPanes.mockClear()
+    // Clear the mount-time re-present spy so the assertions measure only the
+    // focus event, not the initial visibility resume.
+    mocks.resetAllTerminalWebglAtlases.mockClear()
     mocks.fitAndFocusPanes.mockClear()
     mocks.flushTerminalOutput.mockClear()
     mocks.requestTerminalBacklogRecovery.mockClear()
@@ -749,6 +861,56 @@ describe('useTerminalPaneGlobalEffects', () => {
     expect(mocks.flushTerminalOutput).toHaveBeenCalledWith(terminal, { maxChars: 64 * 1024 })
     expect(manager.resumeRendering).toHaveBeenCalledTimes(1)
     expect(mocks.fitAndFocusPanes).toHaveBeenCalledWith(manager)
+    // Why: refocus recovery is atlas-preserving — the light aterm re-present
+    // runs (resetAllTerminalWebglAtlases), never the heavy reset+refresh that
+    // wipes and repaints every registered pane's grid.
+    expect(manager.resetWebglTextureAtlases).not.toHaveBeenCalled()
+    expect(manager.refreshAllPanes).not.toHaveBeenCalled()
+    expect(mocks.resetAllTerminalWebglAtlases).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears WebGL texture atlases when the OS resumes', () => {
+    const manager = {
+      getPanes: vi.fn(() => []),
+      resumeRendering: vi.fn(),
+      resetWebglTextureAtlases: vi.fn(),
+      refreshAllPanes: vi.fn(),
+      suspendRendering: vi.fn(),
+      getActivePane: vi.fn(() => null)
+    }
+    const captured: { onSystemResumed: (() => void) | null } = { onSystemResumed: null }
+    const unsubscribeSystemResumed = vi.fn()
+    ;(
+      window.api.ui as unknown as { onSystemResumed: (callback: () => void) => () => void }
+    ).onSystemResumed = vi.fn((callback: () => void) => {
+      captured.onSystemResumed = callback
+      return unsubscribeSystemResumed
+    })
+
+    registerManagerForReset(manager)
+    beginHookRender()
+    useTerminalPaneGlobalEffects({
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      isActive: true,
+      isVisible: true,
+      isSyncFitEnabled: true,
+      paneCount: 0,
+      managerRef: { current: manager as never },
+      containerRef: { current: null },
+      paneTransportsRef: { current: new Map() },
+      isActiveRef: { current: false },
+      isVisibleRef: { current: false },
+      toggleExpandPane: vi.fn()
+    })
+
+    expect(captured.onSystemResumed).toBeTypeOf('function')
+    manager.resetWebglTextureAtlases.mockClear()
+    manager.refreshAllPanes.mockClear()
+    captured.onSystemResumed?.()
+
+    // Why: OS resume is a genuine wake — GPU state may be stale without a
+    // context-loss event, so the shared-atlas clear and full repaint still run.
     expect(manager.resetWebglTextureAtlases).toHaveBeenCalledTimes(1)
     expect(manager.refreshAllPanes).toHaveBeenCalledTimes(1)
   })

@@ -16,7 +16,12 @@ export default defineConfig({
   test: {
     environment: 'node',
     // Ensure DOM tests have a working Web Storage API on Node 26 (see the setup).
-    setupFiles: [resolve('config/vitest-dom-storage-polyfill.ts')],
+    // The seam setup binds the Rust dispatch core so cut-over src/shared modules
+    // work without each surface's production bootstrap.
+    setupFiles: [
+      resolve('config/vitest-dom-storage-polyfill.ts'),
+      resolve('config/vitest-orca-dispatch-seam.ts')
+    ],
     include: [
       'src/**/*.test.ts',
       'src/**/*.test.tsx',

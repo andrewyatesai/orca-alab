@@ -17,9 +17,11 @@ import {
   parseWorktreeList as wasmParseWorktreeList,
   parseGitHistoryLog as wasmParseGitHistoryLog,
   detectPiAgentKindFromCommand as wasmDetectPiAgentKindFromCommand,
-  upstreamOnlyCommitsArePatchEquivalent as wasmUpstreamOnlyCommitsArePatchEquivalent
+  upstreamOnlyCommitsArePatchEquivalent as wasmUpstreamOnlyCommitsArePatchEquivalent,
+  orcaDispatch as wasmOrcaDispatch
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
+import { setOrcaDispatchBinding } from '../shared/orca-dispatch-seam'
 import type { GitRemoteOperation } from '../shared/git-remote-error'
 import type { GitStatusEntry } from '../shared/types'
 import type { GitLineStats } from '../shared/git-uncommitted-line-stats'
@@ -35,6 +37,15 @@ function ensureGitWasm(): void {
   // only — the relay never runs in a browser.
   initSync({ module: Buffer.from(ORCA_GIT_WASM_BASE64, 'base64') })
   inited = true
+}
+
+/** Bind the relay's wasm orcaDispatch into the shared dispatch seam, so
+ *  src/shared modules cut over to Rust reach the core on the relay host. Called
+ *  once at relay startup; initSync is synchronous, so the seam is ready before
+ *  any handler runs. */
+export function bindRelayOrcaDispatch(): void {
+  ensureGitWasm()
+  setOrcaDispatchBinding((module, fn, inputJson) => wasmOrcaDispatch(module, fn, inputJson))
 }
 
 /**

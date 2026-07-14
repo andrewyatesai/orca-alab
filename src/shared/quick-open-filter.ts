@@ -12,6 +12,24 @@
  * Centralizing the policy prevents future drift.
  */
 import { posix, win32 } from 'node:path'
+import { requireOrcaDispatch } from './orca-dispatch-seam'
+
+// buildGitLsFilesArgsForQuickOpen is cut over to the Rust quick-open-filter core
+// through the dispatch seam (main via napi, relay via wasm — both always-ready,
+// so requireOrcaDispatch never falls back). What stays in TS and why:
+//   - the hot per-file predicates (shouldIncludeQuickOpenPath,
+//     shouldExcludeQuickOpenRelPath, normalizeQuickOpenRgLine — called once per
+//     listed file across ~100k files): a per-file JSON round-trip is the wrong
+//     boundary;
+//   - the blocklist-coupled rg builders (buildHiddenDirExcludeGlobs,
+//     buildRgArgsForQuickOpen): splitting HIDDEN_DIR_BLOCKLIST across TS + Rust
+//     would risk drift;
+//   - buildExcludePathPrefixes: it leans on node:path's OS-aware, case-insensitive
+//     win32/UNC `relative()` semantics that the zero-dep Rust port can't
+//     faithfully reproduce (a mixed-case UNC root diverges).
+function dispatch(fn: string, input: unknown): unknown {
+  return requireOrcaDispatch('quick-open-filter', fn, input)
+}
 
 // ─── Hidden-dir blocklist ────────────────────────────────────────────
 
@@ -359,46 +377,13 @@ export type GitLsFilesArgs = {
 }
 
 /**
- * Build the two `git ls-files` arg arrays for Quick Open. Exclude prefixes
- * are encoded as `:(exclude,glob)` pathspecs; a positive `.` pathspec is
- * prepended so exclude-only pathspecs do not depend on git's edge-case
- * defaults.
- *
- * The ignored pass asks git for ignored untracked files. Non-git roots keep
- * their existing non-git fallback limits in the callers.
+ * Build the two `git ls-files` arg arrays for Quick Open (dispatched to the Rust
+ * core). Exclude prefixes are encoded as `:(exclude,glob)` pathspecs with a
+ * positive `.` pathspec prepended; the ignored pass asks git for ignored
+ * untracked files. Non-git roots keep their non-git fallback limits in callers.
  */
 export function buildGitLsFilesArgsForQuickOpen(
   excludePathPrefixes: readonly string[] = []
 ): GitLsFilesArgs {
-  const excludeSpecs: string[] = []
-  for (const prefix of excludePathPrefixes) {
-    excludeSpecs.push(`:(exclude,glob)${escapeGlobPath(prefix)}`)
-    excludeSpecs.push(`:(exclude,glob)${escapeGlobPath(prefix)}/**`)
-  }
-  const trailingPathspecs = excludeSpecs.length > 0 ? ['--', '.', ...excludeSpecs] : []
-  // Why: collapse untracked trees before Git traverses them; callers expand
-  // only allowed directory placeholders with the shared bounded walker.
-  const directoryCollapseArgs = ['--directory', '--no-empty-directory']
-
-  // Why: NUL preserves real Git paths; stage mode identifies gitlinks without
-  // lstat probes for ordinary tracked files.
-  const primary = [
-    '-z',
-    '-s',
-    '--cached',
-    '--others',
-    '--exclude-standard',
-    ...directoryCollapseArgs,
-    ...trailingPathspecs
-  ]
-  const ignoredPass = [
-    '-z',
-    '-s',
-    '--others',
-    '--ignored',
-    '--exclude-standard',
-    ...directoryCollapseArgs,
-    ...trailingPathspecs
-  ]
-  return { primary, ignoredPass }
+  return dispatch('buildGitLsFilesArgsForQuickOpen', { excludePathPrefixes }) as GitLsFilesArgs
 }

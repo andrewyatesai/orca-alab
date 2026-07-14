@@ -4,8 +4,13 @@
 // no napi access (sandbox: true), so it loads the wasm via vite's `?url` asset
 // + async init exactly like the aterm engine (no sync-compile on the Chromium
 // main thread, no base64 bundle bloat).
-import initGitWasm, { computeLineStats as wasmComputeLineStats, initSync } from './orca_git_wasm.js'
+import initGitWasm, {
+  computeLineStats as wasmComputeLineStats,
+  initSync,
+  orcaDispatch as wasmOrcaDispatch
+} from './orca_git_wasm.js'
 import wasmUrl from './orca_git_wasm_bg.wasm?url'
+import { setOrcaDispatchBinding } from '../../../../shared/orca-dispatch-seam'
 
 export type DiffLineStats = { added: number; removed: number }
 
@@ -15,6 +20,11 @@ const readyListeners = new Set<() => void>()
 
 function markReady(): void {
   ready = true
+  // Bind the shared dispatch seam now that wasm is initialised, so src/shared
+  // modules cut over to Rust reach the core. Before this, tryOrcaDispatch returns
+  // null and shared callers use their safe fallback. Fires in production
+  // (startGitWasm) and tests (initGitWasmForTestFromBytes).
+  setOrcaDispatchBinding((module, fn, inputJson) => wasmOrcaDispatch(module, fn, inputJson))
   for (const listener of readyListeners) {
     listener()
   }

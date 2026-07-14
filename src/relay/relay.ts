@@ -35,6 +35,7 @@ import {
 import { readLaunchVersion, runConnectHandshake, setupDaemonHandshake } from './relay-handshake'
 import { RelayDispatcher } from './dispatcher'
 import { RelayContext } from './context'
+import { bindRelayOrcaDispatch } from './git-wasm'
 import { PtyHandler } from './pty-handler'
 import { FsHandler } from './fs-handler'
 import { installRelayLogRotation } from './rotating-log-writer'
@@ -329,9 +330,14 @@ async function main(): Promise<void> {
   )
 
   if (connectMode) {
+    // --connect is a lightweight stdio bridge to an existing relay; it runs no
+    // handlers, so it doesn't need the dispatch seam (kept out of the fast path).
     runConnectMode(sockPath)
     return
   }
+  // Bind the wasm orcaDispatch into the shared seam before any handler or CLI
+  // command runs, so src/shared modules cut over to Rust work on the relay host.
+  bindRelayOrcaDispatch()
   if (cliMode) {
     const marker = process.argv.indexOf('--orca-cli')
     await runOrcaCliMode(sockPath, marker >= 0 ? process.argv.slice(marker + 1) : [])

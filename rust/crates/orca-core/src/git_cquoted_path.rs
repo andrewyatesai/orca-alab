@@ -4,8 +4,10 @@
 //! When `core.quotePath` is on, git wraps paths containing "unusual" bytes in
 //! double quotes and escapes them (`\n`, `\t`, octal `\NNN`, …). Orca parses
 //! porcelain output that may contain these, so the decode must match the TS
-//! implementation exactly — including its byte/charcode treatment of octal
-//! escapes (`char::from_u32`, mirroring `String.fromCharCode`).
+//! implementation exactly — including accumulating a run of adjacent `\NNN`
+//! octal escapes into UTF-8 bytes before decoding (git C-quotes non-ASCII as a
+//! byte run), mirroring the TS `Uint8Array` + `TextDecoder` path. The octal
+//! arm's totality is proof-carried in `orca-git/proofs/ay/decode_total`.
 
 pub fn decode_git_cquoted_path(value: &str) -> String {
     let chars: Vec<char> = value.chars().collect();

@@ -3,16 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Re-checkable certificate for the C-quote octal-escape decode TOTALITY (see
-# rust/PROOF_CARRYING_PERFORMANCE.md): char::from_u32(v) is always Some for every
-# 1-3 digit octal value v in 0..=511, so the decoder never panics and never drops
-# an octal escape. Discharged by `ay` (the Trust SAT/SMT solver) — Trust, NOT kani.
-# Run: `bash verify.sh`. Exits 0 iff every obligation gets its verdict (or ay is
-# absent, in which case the bundle is SKIPPED, not failed).
+# rust/PROOF_CARRYING_PERFORMANCE.md) under the byte-accumulation arm: every 1-3
+# digit octal escape yields exactly one u8 (parse can't overflow, `(v & 0xFF) as
+# u8` fits), so the decoder never panics and never drops an escape; and the mask
+# reproduces the TS Uint8Array wrap byte-for-byte. Discharged by `ay` (the Trust
+# SAT/SMT solver) — Trust, NOT kani. Run: `bash verify.sh`. Exits 0 iff every
+# obligation gets its verdict (or ay is absent, in which case SKIPPED, not failed).
 #
 # OBLIGATIONS:
-#   decode_octal_total                   unsat  di<=7 => v<=511 AND v<0xD800 (from_u32 Some)
-#   decode_octal_nonvacuity_sat          sat    v=511 (\777) reachable (max value is real)
-#   decode_octal_catches_u8_truncation_sat sat  v>255 reachable (the `octal as u8` trap is real)
+#   decode_octal_total              unsat  di<=7 => v<=511 AND (v&0xFF)<=255 (total, no drop)
+#   decode_octal_mask_matches_uint8 unsat  (v&0xFF) == (v mod 256) (byte-identical to the TS)
+#   decode_octal_wrap_reachable_sat sat    v>255 reachable & the mask wraps (non-vacuity)
 set -u
 AY=""
 for c in \
@@ -34,7 +35,7 @@ expect() { # <file> <sat|unsat>
 echo "decode_total — octal escape decode is total (ay):"
 rc=0
 expect decode_octal_total.smt2                    unsat || rc=1
-expect decode_octal_nonvacuity_sat.smt2           sat   || rc=1
-expect decode_octal_catches_u8_truncation_sat.smt2 sat  || rc=1
+expect decode_octal_mask_matches_uint8.smt2       unsat || rc=1
+expect decode_octal_wrap_reachable_sat.smt2       sat   || rc=1
 if [ "$rc" = 0 ]; then echo "decode_total: ALL OBLIGATIONS DISCHARGED ✓"; else echo "decode_total: FAILED ✗"; fi
 exit "$rc"

@@ -170,7 +170,7 @@
     },
     {
       "function": "encodeTerminalStreamFrame",
-      "note": "opcode 11 (SnapshotRequest) is a live renderer\u2192host op; empty payload round-trips its header",
+      "note": "opcode 11 (SnapshotRequest) is a live renderer→host op; empty payload round-trips its header",
       "input": {
         "opcode": 11,
         "streamId": 12,
@@ -398,9 +398,9 @@
     },
     {
       "function": "encodeTerminalStreamText",
-      "note": "UTF-8 encodes multibyte characters (\u00e9 = 2 bytes, \ud83d\ude00 = 4 bytes)",
+      "note": "UTF-8 encodes multibyte characters (é = 2 bytes, 😀 = 4 bytes)",
       "input": {
-        "value": "caf\u00e9 \ud83d\ude00"
+        "value": "café 😀"
       },
       "expected": [
         99,
@@ -428,7 +428,7 @@
           164
         ]
       },
-      "expected": "hi \u2764"
+      "expected": "hi ❤"
     },
     {
       "function": "decodeTerminalStreamText",
@@ -438,11 +438,11 @@
           255
         ]
       },
-      "expected": "\ufffd"
+      "expected": "�"
     },
     {
       "function": "encodeTerminalStreamFrame",
-      "note": "Metadata frame (opcode 12, added to TS after the original port \u2014 the resync pin)",
+      "note": "Metadata frame (opcode 12, added to TS after the original port — the resync pin)",
       "input": {
         "opcode": 12,
         "streamId": 7,
@@ -634,7 +634,24 @@
       "function": "decodeTerminalStreamFrame",
       "note": "opcode 14 (ClaimViewport) decodes to a valid frame — the second opcode added after the original port",
       "input": {
-        "bytes": [116, 1, 14, 0, 7, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]
+        "bytes": [
+          116,
+          1,
+          14,
+          0,
+          7,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          0,
+          0
+        ]
       },
       "expected": {
         "opcode": 14,
@@ -647,13 +664,30 @@
       "function": "decodeTerminalStreamFrame",
       "note": "opcode 15 is the first unknown value beyond ClaimViewport=14, so it decodes to null",
       "input": {
-        "bytes": [116, 1, 15, 0, 7, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]
+        "bytes": [
+          116,
+          1,
+          15,
+          0,
+          7,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          3,
+          0,
+          0,
+          0
+        ]
       },
       "expected": null
     },
     {
       "function": "encodeTerminalStreamFrame",
-      "note": "seq at Number.MAX_SAFE_INTEGER (2^53-1): hi/lo split identical in TS float math and Rust u64 (vectors stay <= 2^53 \u2014 the only seq domain TS can produce)",
+      "note": "seq at Number.MAX_SAFE_INTEGER (2^53-1): hi/lo split identical in TS float math and Rust u64 (vectors stay <= 2^53 — the only seq domain TS can produce)",
       "input": {
         "opcode": 1,
         "streamId": 1,
@@ -677,6 +711,62 @@
         255,
         255,
         255
+      ]
+    },
+    {
+      "function": "encodeTerminalStreamFrame",
+      "note": "Ack (opcode 13) encodes — the canonical enum from_u8 is now shared, so the previously-stale dispatch table maps it (round-trip inverse of the decode-13 vector)",
+      "input": {
+        "opcode": 13,
+        "streamId": 7,
+        "seq": 3,
+        "payload": []
+      },
+      "expected": [
+        116,
+        1,
+        13,
+        0,
+        7,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "function": "encodeTerminalStreamFrame",
+      "note": "ClaimViewport (opcode 14) encodes — round-trip inverse of the decode-14 vector",
+      "input": {
+        "opcode": 14,
+        "streamId": 7,
+        "seq": 3,
+        "payload": []
+      },
+      "expected": [
+        116,
+        1,
+        14,
+        0,
+        7,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3,
+        0,
+        0,
+        0
       ]
     },
     {

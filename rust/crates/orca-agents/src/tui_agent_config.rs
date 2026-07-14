@@ -55,6 +55,9 @@ pub struct TuiAgentConfig {
     pub launch_cmd_by_platform: &'static [(&'static str, &'static str)],
     pub expected_process: &'static str,
     pub prompt_injection_mode: AgentPromptInjectionMode,
+    /// Separator inserted before the argv prompt (Grok's `--`) so a flag- or
+    /// subcommand-shaped prompt is treated as literal text, not CLI syntax.
+    pub argv_prompt_separator: Option<&'static str>,
     /// Flag that launches the TUI with the given text already in the input box
     /// but NOT submitted (e.g. Claude's `--prefill <text>`).
     pub draft_prompt_flag: Option<&'static str>,
@@ -84,6 +87,7 @@ const fn agent(
         launch_cmd_by_platform: &[],
         expected_process,
         prompt_injection_mode,
+        argv_prompt_separator: None,
         draft_prompt_flag: None,
         draft_prompt_env_var: None,
         preflight_trust: None,
@@ -105,6 +109,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "claude",
             prompt_injection_mode: Argv,
+            argv_prompt_separator: None,
             // `claude --prefill <text>` lands the TUI with `<text>` in the
             // input box, nothing submitted — strictly better than the
             // paste-after-ready fallback.
@@ -123,6 +128,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "openclaude",
             prompt_injection_mode: Argv,
+            argv_prompt_separator: None,
             draft_prompt_flag: Some("--prefill"),
             draft_prompt_env_var: None,
             preflight_trust: None,
@@ -138,6 +144,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "codex",
             prompt_injection_mode: Argv,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             draft_prompt_env_var: None,
             // Codex's positional prompt auto-submits the first turn, so Orca
@@ -156,6 +163,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "opencode",
             prompt_injection_mode: FlagPrompt,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             draft_prompt_env_var: None,
             preflight_trust: None,
@@ -172,6 +180,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "pi",
             prompt_injection_mode: Argv,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             // pi has no `--prefill`; Orca's overlay `orca-prefill` extension
             // reads this env var on session_start.
@@ -189,6 +198,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "omp",
             prompt_injection_mode: Argv,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             // OMP is a Pi fork with its own binary/overlay/prefill env var.
             draft_prompt_env_var: Some("ORCA_OMP_PREFILL"),
@@ -215,6 +225,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "kiro-cli",
             prompt_injection_mode: StdinAfterStart,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             draft_prompt_env_var: None,
             preflight_trust: None,
@@ -244,6 +255,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "cursor-agent",
             prompt_injection_mode: Argv,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             draft_prompt_env_var: None,
             // Pre-writing the `.workspace-trusted` marker skips cursor-agent's
@@ -264,6 +276,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "vibe",
             prompt_injection_mode: StdinAfterStart,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             draft_prompt_env_var: None,
             preflight_trust: None,
@@ -287,13 +300,22 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             // `copilot --prompt` runs non-interactively and exits; `-i` starts
             // an interactive session with the prompt pre-executed.
             prompt_injection_mode: FlagInteractive,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             draft_prompt_env_var: None,
             preflight_trust: Some(PreflightTrust::Copilot),
             draft_paste_ready_signal: None,
         },
     ),
-    ("grok", agent("grok", "grok", "grok", StdinAfterStart)),
+    // Grok takes the initial prompt as a positional argv, with a `--` separator
+    // so a prompt like `help`/`--version` is literal text, not Grok CLI syntax.
+    (
+        "grok",
+        TuiAgentConfig {
+            argv_prompt_separator: Some("--"),
+            ..agent("grok", "grok", "grok", Argv)
+        },
+    ),
     (
         "claude-agent-teams",
         TuiAgentConfig {
@@ -312,6 +334,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             ],
             expected_process: "claude",
             prompt_injection_mode: StdinAfterStart,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             draft_prompt_env_var: None,
             preflight_trust: None,
@@ -333,6 +356,7 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
             launch_cmd_by_platform: &[],
             expected_process: "mimo",
             prompt_injection_mode: FlagPrompt,
+            argv_prompt_separator: None,
             draft_prompt_flag: None,
             draft_prompt_env_var: None,
             preflight_trust: None,

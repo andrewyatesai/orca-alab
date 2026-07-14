@@ -291,9 +291,14 @@ pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStar
     let quoted_prompt = quote_startup_arg(trimmed_prompt, shell);
     let launch_command = match config.prompt_injection_mode {
         AgentPromptInjectionMode::Argv => {
+            // Grok's `--` separator keeps a flag/subcommand-shaped prompt literal.
+            let separator = config
+                .argv_prompt_separator
+                .map(|s| format!(" {s}"))
+                .unwrap_or_default();
             return Some(AgentStartupPlan {
                 agent: args.agent.to_string(),
-                launch_command: format!("{base_command} {quoted_prompt}"),
+                launch_command: format!("{base_command}{separator} {quoted_prompt}"),
                 expected_process: config.expected_process.to_string(),
                 followup_prompt: None,
                 launch_config,

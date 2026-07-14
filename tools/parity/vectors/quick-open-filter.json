@@ -596,8 +596,8 @@
       "note": "no exclude prefixes (key omitted) gives plain NUL pathspec passes",
       "input": {},
       "expected": {
-        "primary": ["-z", "-s", "--cached", "--others", "--exclude-standard"],
-        "ignoredPass": ["-z", "-s", "--others", "--ignored", "--exclude-standard"]
+        "primary": ["-z", "-s", "--cached", "--others", "--exclude-standard", "--directory", "--no-empty-directory"],
+        "ignoredPass": ["-z", "-s", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory"]
       }
     },
     {
@@ -611,6 +611,8 @@
           "--cached",
           "--others",
           "--exclude-standard",
+          "--directory",
+          "--no-empty-directory",
           "--",
           ".",
           ":(exclude,glob)packages/app",
@@ -622,6 +624,8 @@
           "--others",
           "--ignored",
           "--exclude-standard",
+          "--directory",
+          "--no-empty-directory",
           "--",
           ".",
           ":(exclude,glob)packages/app",
@@ -640,6 +644,8 @@
           "--cached",
           "--others",
           "--exclude-standard",
+          "--directory",
+          "--no-empty-directory",
           "--",
           ".",
           ":(exclude,glob)packages/app",
@@ -653,6 +659,8 @@
           "--others",
           "--ignored",
           "--exclude-standard",
+          "--directory",
+          "--no-empty-directory",
           "--",
           ".",
           ":(exclude,glob)packages/app",

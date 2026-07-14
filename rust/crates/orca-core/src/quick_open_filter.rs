@@ -331,6 +331,10 @@ pub fn build_git_ls_files_args_for_quick_open(exclude_path_prefixes: &[&str]) ->
     }
     let with = |head: &[&str]| {
         let mut args: Vec<String> = head.iter().map(|s| s.to_string()).collect();
+        // Why: collapse untracked trees before Git traverses them; callers expand
+        // only allowed directory placeholders with the shared bounded walker.
+        args.push("--directory".to_string());
+        args.push("--no-empty-directory".to_string());
         args.extend(trailing.iter().cloned());
         args
     };
@@ -557,7 +561,13 @@ mod tests {
     #[test]
     fn git_ls_files_args() {
         let GitLsFilesArgs { primary, ignored_pass } = build_git_ls_files_args_for_quick_open(&[]);
-        assert_eq!(primary, vec!["-z", "-s", "--cached", "--others", "--exclude-standard"]);
-        assert_eq!(ignored_pass, vec!["-z", "-s", "--others", "--ignored", "--exclude-standard"]);
+        assert_eq!(
+            primary,
+            vec!["-z", "-s", "--cached", "--others", "--exclude-standard", "--directory", "--no-empty-directory"]
+        );
+        assert_eq!(
+            ignored_pass,
+            vec!["-z", "-s", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory"]
+        );
     }
 }

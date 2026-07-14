@@ -144,7 +144,9 @@ export function createWorkerTerminal(handle: EngineHandle): {
       const keyboardModeBitsBefore = e.keyboard_mode_bits
       handle.process(data)
       followBottomAfter(wasAtBottom)
-      search.refresh()
+      // Mark dirty, don't re-index: WorkerSearch coalesces the full-scrollback
+      // re-index to the first read per frame (buildState), not once per PTY chunk.
+      search.markDirty()
       const keyboardModeBitsAfter = e.keyboard_mode_bits
       return {
         reply: decodeReply(e.take_response()),

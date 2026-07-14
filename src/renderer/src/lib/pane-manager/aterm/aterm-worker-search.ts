@@ -22,7 +22,12 @@ export type WorkerSearch = {
   next: () => void
   prev: () => void
   clear: () => void
-  /** Re-run the active query against changed output, preserving the active index. */
+  /** Flag the index stale after output changed, WITHOUT re-indexing (a full
+   *  O(scrollback) rebuild). The next read/nav re-indexes once — so streaming
+   *  many chunks between frames costs one rebuild, not one per chunk. */
+  markDirty: () => void
+  /** Re-run the active query NOW, preserving the active index (the rare resize
+   *  path forces this; streaming uses markDirty + lazy re-index instead). */
   refresh: () => void
   count: () => number
   /** 1-based active match index, or 0 when there are none. */
@@ -41,9 +46,25 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
   let query = ''
   let caseSensitive = false
   let isRegex = false
+  let dirty = false
 
   const run = (): void => {
     matches = query ? decodeMatches(handle.search(query, caseSensitive, isRegex)) : []
+  }
+  const reindexPreservingActive = (): void => {
+    if (!query) {
+      return
+    }
+    run()
+    active = matches.length === 0 ? -1 : Math.min(Math.max(active, 0), matches.length - 1)
+  }
+  // Re-index at most once since the last markDirty — called before every read/nav
+  // so the coalesced rebuild lands on the first access per frame.
+  const ensureFresh = (): void => {
+    if (dirty) {
+      reindexPreservingActive()
+      dirty = false
+    }
   }
 
   return {
@@ -51,6 +72,7 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
       query = q
       caseSensitive = cs
       isRegex = regex
+      dirty = false
       if (!q) {
         matches = []
         active = -1
@@ -64,12 +86,14 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
       }
     },
     next: () => {
+      ensureFresh()
       if (matches.length > 0) {
         active = (active + 1 + matches.length) % matches.length
         e.scroll_search_line_into_view(matches[active].line)
       }
     },
     prev: () => {
+      ensureFresh()
       if (matches.length > 0) {
         active = (active - 1 + matches.length) % matches.length
         e.scroll_search_line_into_view(matches[active].line)
@@ -81,18 +105,29 @@ export function createWorkerSearch(handle: EngineHandle, getRows: () => number):
       query = ''
       caseSensitive = false
       isRegex = false
+      dirty = false
+    },
+    markDirty: () => {
+      dirty = true
     },
     refresh: () => {
-      if (!query) {
-        return
-      }
-      run()
-      active = matches.length === 0 ? -1 : Math.min(Math.max(active, 0), matches.length - 1)
+      reindexPreservingActive()
+      dirty = false
     },
-    count: () => matches.length,
-    activeIndex: () => (active >= 0 ? active + 1 : 0),
-    activeRect: () => (active >= 0 ? rectFor(matches[active]) : null),
+    count: () => {
+      ensureFresh()
+      return matches.length
+    },
+    activeIndex: () => {
+      ensureFresh()
+      return active >= 0 ? active + 1 : 0
+    },
+    activeRect: () => {
+      ensureFresh()
+      return active >= 0 ? rectFor(matches[active]) : null
+    },
     visibleRects: () => {
+      ensureFresh()
       const rects: NonNullable<AtermWorkerState['searchMatchRects']> = []
       for (let i = 0; i < matches.length; i++) {
         const rect = rectFor(matches[i])

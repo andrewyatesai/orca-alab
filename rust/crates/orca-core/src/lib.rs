@@ -23,6 +23,7 @@ pub mod branch_name_from_work;
 pub mod browser_search;
 pub mod commit_message_host_key;
 pub mod cross_platform_path;
+pub mod execution_host;
 pub mod feature_wall_tour_depth;
 pub mod git_cquoted_path;
 pub mod git_push_target;

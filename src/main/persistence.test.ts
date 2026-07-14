@@ -8998,6 +8998,69 @@ describe('Store', () => {
     expect(session.terminalLayoutsByTabId.tab1.ptyIdsByLeafId).toEqual({})
   })
 
+  it('marks SSH remote PTY leases in memory with flush: false and persists them in one flush', async () => {
+    // Why (SSH reconnect perf): reattach marks one lease per open remote PTY.
+    // { flush: false } must mutate in memory only so N blocking full-state disk
+    // writes collapse into a single flush after the loop.
+    const store = await createStore()
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'pty-1', state: 'detached' })
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'pty-2', state: 'detached' })
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'pty-3', state: 'detached' })
+
+    const flushSpy = vi.spyOn(store, 'flush')
+
+    const changed = [
+      store.markSshRemotePtyLease('ssh-1', 'pty-1', 'attached', { flush: false }),
+      store.markSshRemotePtyLease('ssh-1', 'pty-2', 'attached', { flush: false }),
+      store.markSshRemotePtyLease('ssh-1', 'pty-3', 'expired', { flush: false })
+    ]
+
+    // Every mark reports a durable change, yet none writes to disk on its own.
+    expect(changed).toEqual([true, true, true])
+    expect(flushSpy).not.toHaveBeenCalled()
+    const beforeFlush = (readDataFile() as PersistedState).sshRemotePtyLeases ?? []
+    expect(beforeFlush.map((lease) => lease.state)).toEqual(['detached', 'detached', 'detached'])
+
+    store.flush()
+
+    // One flush persists all three batched lease changes; final state matches
+    // what three per-lease flushes would have produced.
+    expect(flushSpy).toHaveBeenCalledTimes(1)
+    expect(store.getSshRemotePtyLeases('ssh-1')).toEqual([
+      expect.objectContaining({ ptyId: 'pty-1', state: 'attached' }),
+      expect.objectContaining({ ptyId: 'pty-2', state: 'attached' }),
+      expect.objectContaining({ ptyId: 'pty-3', state: 'expired' })
+    ])
+    const afterFlush = (readDataFile() as PersistedState).sshRemotePtyLeases ?? []
+    expect(afterFlush.map((lease) => ({ ptyId: lease.ptyId, state: lease.state }))).toEqual([
+      { ptyId: 'pty-1', state: 'attached' },
+      { ptyId: 'pty-2', state: 'attached' },
+      { ptyId: 'pty-3', state: 'expired' }
+    ])
+  })
+
+  it('expires every SSH remote PTY lease for a target in a single flush', async () => {
+    // Why (SSH reset perf): relay reset expires every active lease; the bulk
+    // primitive must do one flush regardless of how many leases exist.
+    const store = await createStore()
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'pty-1', state: 'detached' })
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'pty-2', state: 'attached' })
+    store.upsertSshRemotePtyLease({ targetId: 'ssh-1', ptyId: 'pty-3', state: 'detached' })
+
+    const flushSpy = vi.spyOn(store, 'flush')
+
+    store.markSshRemotePtyLeases('ssh-1', 'expired')
+
+    expect(flushSpy).toHaveBeenCalledTimes(1)
+    expect(store.getSshRemotePtyLeases('ssh-1')).toEqual([
+      expect.objectContaining({ ptyId: 'pty-1', state: 'expired' }),
+      expect.objectContaining({ ptyId: 'pty-2', state: 'expired' }),
+      expect.objectContaining({ ptyId: 'pty-3', state: 'expired' })
+    ])
+    const persisted = (readDataFile() as PersistedState).sshRemotePtyLeases ?? []
+    expect(persisted.every((lease) => lease.state === 'expired')).toBe(true)
+  })
+
   it('removes SSH remote PTY leases when callers pass scoped app ids', async () => {
     const store = await createStore()
     store.upsertSshRemotePtyLease({

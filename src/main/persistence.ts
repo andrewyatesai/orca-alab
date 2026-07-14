@@ -6432,20 +6432,34 @@ export class Store {
     }
   }
 
-  markSshRemotePtyLease(targetId: string, ptyId: string, state: SshRemotePtyLease['state']): void {
+  // Why (SSH reconnect perf): a hot loop that marks one lease per open remote
+  // PTY (relay reattach, reset) can pass { flush: false } to mutate in memory
+  // only and flush once at the end, collapsing N blocking full-state disk
+  // writes into one. Returns whether a durable change occurred so the caller
+  // knows a trailing flush is needed.
+  markSshRemotePtyLease(
+    targetId: string,
+    ptyId: string,
+    state: SshRemotePtyLease['state'],
+    options: { flush?: boolean } = {}
+  ): boolean {
+    const shouldFlush = options.flush ?? true
     const relayPtyId = this.getRelayPtyIdForSshLeaseStorage(targetId, ptyId)
     const lease = this.state.sshRemotePtyLeases?.find(
       (entry) => entry.targetId === targetId && entry.ptyId === relayPtyId
     )
     if (!lease) {
-      return
+      return false
     }
     const shouldClearBindings = state === 'terminated' || state === 'expired'
     if (lease.state === state) {
       if (shouldClearBindings && this.clearSshRemotePtyBindingsForLeases(targetId, [lease])) {
-        this.flush()
+        if (shouldFlush) {
+          this.flush()
+        }
+        return true
       }
-      return
+      return false
     }
     const now = Date.now()
     lease.state = state
@@ -6458,7 +6472,10 @@ export class Store {
     if (shouldClearBindings) {
       this.clearSshRemotePtyBindingsForLeases(targetId, [lease])
     }
-    this.flush()
+    if (shouldFlush) {
+      this.flush()
+    }
+    return true
   }
 
   removeSshRemotePtyLease(targetId: string, ptyId: string): void {

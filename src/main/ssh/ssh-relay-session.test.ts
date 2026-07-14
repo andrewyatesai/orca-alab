@@ -553,7 +553,11 @@ describe('SshRelaySession', () => {
 
     expect(mockAttach).toHaveBeenCalledWith('pty-1')
     expect(setPtyOwnership).toHaveBeenCalledWith('ssh:target-1@@pty-1', 'target-1')
-    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('target-1', 'pty-1', 'attached')
+    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('target-1', 'pty-1', 'attached', {
+      flush: false
+    })
+    // Why (SSH reconnect perf): every reattached lease coalesces into one flush.
+    expect(mockStore.flush).toHaveBeenCalledTimes(1)
   })
 
   it('establish re-attaches durable leases after app restart', async () => {
@@ -577,7 +581,8 @@ describe('SshRelaySession', () => {
     expect(mockAttach).toHaveBeenCalledWith('pty-live')
     expect(mockAttach).not.toHaveBeenCalledWith('pty-expired')
     expect(setPtyOwnership).toHaveBeenCalledWith('ssh:target-1@@pty-live', 'target-1')
-    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('target-1', 'pty-live', 'attached')
+    // The { flush: false } batch-mark contract is asserted in the owned-PTY test.
+    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalled()
   })
 
   it('forwards a lease tab identity to reattach so a reset relay cannot cross-wire it', async () => {
@@ -687,11 +692,9 @@ describe('SshRelaySession', () => {
 
     await expect(establish).rejects.toThrow('Session disposed during establish')
     expect(setPtyOwnership).not.toHaveBeenCalledWith('pty-1', 'target-1')
-    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalledWith(
-      'target-1',
-      'pty-1',
-      'attached'
-    )
+    // Detach short-circuits reattach before any mark, so no lease flush either.
+    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalled()
+    expect(mockStore.flush).not.toHaveBeenCalled()
   })
 
   it('does not mark PTYs attached if detach wins while reattach is in flight', async () => {
@@ -721,11 +724,8 @@ describe('SshRelaySession', () => {
     await reconnect
 
     expect(setPtyOwnership).not.toHaveBeenCalledWith('pty-1', 'target-1')
-    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalledWith(
-      'target-1',
-      'pty-1',
-      'attached'
-    )
+    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalled()
+    expect(mockStore.flush).not.toHaveBeenCalled()
   })
 
   it('invalidates and broadcasts remote PTYs that cannot reattach after relay reconnect', async () => {
@@ -756,6 +756,11 @@ describe('SshRelaySession', () => {
       id: 'ssh:target-1@@pty-stale',
       code: -1
     })
+    // Why (SSH reconnect perf): two distinct lease transitions (one attach, one
+    // expire) are marked in memory and collapse into a single flush instead of
+    // one blocking disk write per lease.
+    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledTimes(2)
+    expect(mockStore.flush).toHaveBeenCalledTimes(1)
   })
 
   it('routes transient reattach failures through relay-lost retry handling', async () => {
@@ -779,11 +784,10 @@ describe('SshRelaySession', () => {
 
     expect(mockAttach).toHaveBeenCalledWith('pty-live')
     expect(onRelayLost).toHaveBeenCalledWith('target-1')
-    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalledWith(
-      'target-1',
-      'pty-live',
-      'expired'
-    )
+    // A transient (non-not-found) failure rethrows before any lease mark, so the
+    // trailing perf flush must not fire.
+    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalled()
+    expect(mockStore.flush).not.toHaveBeenCalled()
   })
 
   it('dispose transitions to disposed and unregisters providers', async () => {

@@ -1259,12 +1259,10 @@ describe('SSH IPC handlers', () => {
 
     expect(mockConnectionManager.connect).toHaveBeenCalledWith(target)
     expect(mockForceStopRelayForTarget).toHaveBeenCalledWith(conn, 'ssh-1')
-    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'pty-1', 'expired')
-    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalledWith(
-      'ssh-1',
-      'pty-expired',
-      'expired'
-    )
+    // Why (SSH reset perf): all tracked leases expire in one bulk flush; the
+    // per-lease variant (one blocking disk write each) is no longer used.
+    expect(mockStore.markSshRemotePtyLeases).toHaveBeenCalledWith('ssh-1', 'expired')
+    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalled()
     expect(mockConnectionManager.disconnect).toHaveBeenCalledWith('ssh-1')
   })
 
@@ -1287,7 +1285,10 @@ describe('SSH IPC handlers', () => {
 
     await handlers.get('ssh:resetRelay')!(null, { targetId: 'ssh-1' })
 
-    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'pty-lease', 'expired')
+    // Why (SSH reset perf): leases expire in one bulk flush while raw + scoped
+    // live PTY handles are still cleared per id (that collection is unchanged).
+    expect(mockStore.markSshRemotePtyLeases).toHaveBeenCalledWith('ssh-1', 'expired')
+    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalled()
     expect(clearProviderPtyState).toHaveBeenCalledWith('ssh:ssh-1@@pty-live')
     expect(clearProviderPtyState).toHaveBeenCalledWith('ssh:ssh-1@@pty-lease')
     expect(deletePtyOwnership).toHaveBeenCalledWith('ssh:ssh-1@@pty-live')
@@ -1594,7 +1595,9 @@ describe('SSH IPC handlers', () => {
 
     expect(mockStore.markSshRemotePtyLeases).not.toHaveBeenCalledWith('ssh-1', 'terminated')
     expect(mockStore.markSshRemotePtyLeases).toHaveBeenCalledWith('ssh-1', 'detached')
-    expect(mockStore.markSshRemotePtyLease).toHaveBeenCalledWith('ssh-1', 'pty-1', 'expired')
+    // Why (SSH reset perf): active leases expire via the single-flush bulk path.
+    expect(mockStore.markSshRemotePtyLeases).toHaveBeenCalledWith('ssh-1', 'expired')
+    expect(mockStore.markSshRemotePtyLease).not.toHaveBeenCalled()
     expect(mockForceStopRelayForTarget).toHaveBeenCalledWith(conn, 'ssh-1')
   })
 

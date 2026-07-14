@@ -1050,9 +1050,14 @@ export function registerSshHandlers(
       for (const lease of persistedStore!.getSshRemotePtyLeases(targetId)) {
         if (lease.state !== 'terminated' && lease.state !== 'expired') {
           ptyIds.add(lease.ptyId)
-          persistedStore!.markSshRemotePtyLease(targetId, lease.ptyId, 'expired')
         }
       }
+      // Why (SSH reset perf): expire every tracked lease and clear its bindings
+      // in a single flush. The per-lease variant did one blocking full-state
+      // disk write each, stalling the main thread once per open remote terminal
+      // on the routine relay reset — and session.detach() above already marked
+      // these leases once, so per-lease flushing was O(N+1) writes.
+      persistedStore!.markSshRemotePtyLeases(targetId, 'expired')
       // Why: reset force-kills the remote relay daemon, so every local PTY
       // handle owned by that relay is stale even if the reset command failed
       // after the remote process accepted SIGTERM.

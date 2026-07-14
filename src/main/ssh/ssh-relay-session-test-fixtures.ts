@@ -18,8 +18,11 @@ export function createMockDeps(): SshRelaySessionTestDeps {
   const mockStore = {
     getRepos: vi.fn().mockReturnValue([]),
     getSshRemotePtyLeases: vi.fn().mockReturnValue([]),
-    markSshRemotePtyLease: vi.fn(),
-    markSshRemotePtyLeases: vi.fn()
+    // Why: the real markSshRemotePtyLease returns whether a durable change
+    // occurred; reattach uses that to decide on the single trailing flush.
+    markSshRemotePtyLease: vi.fn().mockReturnValue(true),
+    markSshRemotePtyLeases: vi.fn(),
+    flush: vi.fn()
   } as unknown as Store
   const mockPortForward = {
     removeAllForwards: vi.fn()

@@ -1214,52 +1214,72 @@ export class SshRelaySession {
     if (!ptyProvider) {
       return
     }
-    for (const ptyId of ptyIds) {
-      if (!shouldContinue()) {
-        return
-      }
-      try {
-        const expectedIdentity = expectedIdentityByPtyId.get(ptyId)
-        const attachResult =
-          (expectedIdentity
-            ? await ptyProvider.attachForReconnect(ptyId, expectedIdentity)
-            : await ptyProvider.attachForReconnect(ptyId)) ?? {}
+    // Why (SSH reconnect perf): mark every reattached lease in memory and flush
+    // once at the end. Per-lease flushes each did two full-state JSON.stringify
+    // passes plus a blocking writeFileSync, stalling the main thread once per
+    // open remote terminal on the routine wifi-flap / wake / relay-backoff
+    // reconnect this reattach exists for. The finally flush persists whatever
+    // was marked even when the loop returns early or rethrows, so the durable
+    // outcome matches the old per-lease flushes exactly.
+    let leaseChanged = false
+    try {
+      for (const ptyId of ptyIds) {
         if (!shouldContinue()) {
           return
         }
-        const appPtyId = toAppSshPtyId(this.targetId, ptyId)
-        setPtyOwnership(appPtyId, this.targetId)
-        this.store.markSshRemotePtyLease(this.targetId, ptyId, 'attached')
-        this.forwardReattachReplay(appPtyId, attachResult.replay ?? '')
-      } catch (err) {
-        if (!isSshPtyNotFoundError(err)) {
-          throw err
-        }
-        const appPtyId = toAppSshPtyId(this.targetId, ptyId)
-        if (isSshPtyIdentityMismatchError(err)) {
+        try {
+          const expectedIdentity = expectedIdentityByPtyId.get(ptyId)
+          const attachResult =
+            (expectedIdentity
+              ? await ptyProvider.attachForReconnect(ptyId, expectedIdentity)
+              : await ptyProvider.attachForReconnect(ptyId)) ?? {}
+          if (!shouldContinue()) {
+            return
+          }
+          const appPtyId = toAppSshPtyId(this.targetId, ptyId)
+          setPtyOwnership(appPtyId, this.targetId)
+          if (
+            this.store.markSshRemotePtyLease(this.targetId, ptyId, 'attached', { flush: false })
+          ) {
+            leaseChanged = true
+          }
+          this.forwardReattachReplay(appPtyId, attachResult.replay ?? '')
+        } catch (err) {
+          if (!isSshPtyNotFoundError(err)) {
+            throw err
+          }
+          const appPtyId = toAppSshPtyId(this.targetId, ptyId)
+          if (isSshPtyIdentityMismatchError(err)) {
+            console.warn(
+              `[ssh-relay-session] Ignoring stale PTY ${ptyId} for ${this.targetId} after relay identity mismatch: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            )
+            continue
+          }
           console.warn(
-            `[ssh-relay-session] Ignoring stale PTY ${ptyId} for ${this.targetId} after relay identity mismatch: ${
+            `[ssh-relay-session] Dropping stale PTY ${ptyId} for ${this.targetId} after relay reattach failed: ${
               err instanceof Error ? err.message : String(err)
             }`
           )
-          continue
+          clearProviderPtyState(appPtyId)
+          deletePtyOwnership(appPtyId)
+          this.forwardedReattachReplayByPty.delete(appPtyId)
+          if (this.store.markSshRemotePtyLease(this.targetId, ptyId, 'expired', { flush: false })) {
+            leaseChanged = true
+          }
+          // Why: if the new relay cannot reattach this id, the remote backing
+          // process is gone. Tell the renderer so it clears stale pane bindings
+          // instead of keeping a cursor-only terminal.
+          const win = this.getMainWindow()
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('pty:exit', { id: appPtyId, code: -1 })
+          }
         }
-        console.warn(
-          `[ssh-relay-session] Dropping stale PTY ${ptyId} for ${this.targetId} after relay reattach failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`
-        )
-        clearProviderPtyState(appPtyId)
-        deletePtyOwnership(appPtyId)
-        this.forwardedReattachReplayByPty.delete(appPtyId)
-        this.store.markSshRemotePtyLease(this.targetId, ptyId, 'expired')
-        // Why: if the new relay cannot reattach this id, the remote backing
-        // process is gone. Tell the renderer so it clears stale pane bindings
-        // instead of keeping a cursor-only terminal.
-        const win = this.getMainWindow()
-        if (win && !win.isDestroyed()) {
-          win.webContents.send('pty:exit', { id: appPtyId, code: -1 })
-        }
+      }
+    } finally {
+      if (leaseChanged) {
+        this.store.flush()
       }
     }
   }

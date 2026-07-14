@@ -549,11 +549,46 @@ function normalizeMultiplexSnapshotScrollbackRows(value: number | undefined): nu
   return Math.max(0, Math.min(50_000, Math.floor(value)))
 }
 
-function requestedSnapshotScrollbackCandidates(requestedRows: number | undefined): number[] {
-  const candidates = [requestedRows ?? 0, 1000, 500, 250, 100, 25, 0]
-    .filter((rows): rows is number => typeof rows === 'number')
-    .map((rows) => Math.max(0, Math.min(50_000, Math.floor(rows))))
-  return [...new Set(candidates)]
+// Why: mobile/requested snapshots carry recent scrollback as CRLF-terminated
+// history lines. Keep the most-recent lines within an intended row cap and a hard
+// transport byte budget, cutting on a line boundary so the client receives
+// contiguous recent history. truncatedByByteBudget is set ONLY when the byte
+// budget (not the row cap) forced history to be dropped, so the flag stays honest.
+function boundScrollbackAnsi(
+  scrollbackAnsi: string,
+  opts: { maxRows?: number; maxBytes: number }
+): { scrollbackAnsi: string; rows: number; truncatedByByteBudget: boolean } {
+  if (scrollbackAnsi.length === 0 || opts.maxRows === 0) {
+    return { scrollbackAnsi: '', rows: 0, truncatedByByteBudget: false }
+  }
+  if (opts.maxBytes <= 0) {
+    // The visible grid alone already spends the whole budget; drop all history.
+    return { scrollbackAnsi: '', rows: 0, truncatedByByteBudget: true }
+  }
+  let tailStart = scrollbackAnsi.length
+  let usedBytes = 0
+  let rows = 0
+  let truncatedByByteBudget = false
+  while (tailStart > 0) {
+    if (opts.maxRows !== undefined && rows >= opts.maxRows) {
+      break
+    }
+    // The trailing CRLF belongs to the line ending at tailStart; search before it
+    // for the previous line's terminator (−1 → this is the oldest line at index 0).
+    const searchFrom = tailStart - 3
+    const prevBreak = searchFrom >= 0 ? scrollbackAnsi.lastIndexOf('\r\n', searchFrom) : -1
+    const lineStart = prevBreak === -1 ? 0 : prevBreak + 2
+    const lineBytes = terminalStreamByteLength(scrollbackAnsi.slice(lineStart, tailStart))
+    // Always keep the newest line; only a later (older) line can trip the budget.
+    if (rows > 0 && usedBytes + lineBytes > opts.maxBytes) {
+      truncatedByByteBudget = true
+      break
+    }
+    usedBytes += lineBytes
+    tailStart = lineStart
+    rows += 1
+  }
+  return { scrollbackAnsi: scrollbackAnsi.slice(tailStart), rows, truncatedByByteBudget }
 }
 
 async function serializeBudgetedRequestedSnapshot(
@@ -561,24 +596,26 @@ async function serializeBudgetedRequestedSnapshot(
   ptyId: string,
   scrollbackRows: number | undefined
 ): Promise<SerializedSnapshot> {
-  const requestedRows = scrollbackRows ?? 0
-  for (const rows of requestedSnapshotScrollbackCandidates(scrollbackRows)) {
-    const serialized = await runtime.serializeTerminalBuffer(ptyId, { scrollbackRows: rows })
-    if (!serialized) {
-      return null
-    }
-    const data = (serialized.scrollbackAnsi ?? '') + serialized.data
-    const overByteBudget = terminalStreamByteLengthExceeds(data, REQUESTED_SNAPSHOT_BYTE_BUDGET)
-    if (!overByteBudget || rows === 0) {
-      return {
-        ...serialized,
-        data,
-        scrollbackRows: rows,
-        truncatedByByteBudget: rows < requestedRows || overByteBudget
-      }
-    }
+  // Why: request the VISIBLE grid only (scrollbackRows:0) so history is not also
+  // prepended into snapshotAnsi — scrollbackAnsi is the sole history source. This
+  // stops the recent rows appearing twice (once in scrollbackAnsi, once prepended
+  // into data). History is then bounded to the client's requested rows and the
+  // transport byte budget, cut on a line boundary.
+  const serialized = await runtime.serializeTerminalBuffer(ptyId, { scrollbackRows: 0 })
+  if (!serialized) {
+    return null
   }
-  return null
+  const snapshotBytes = terminalStreamByteLength(serialized.data)
+  const bounded = boundScrollbackAnsi(serialized.scrollbackAnsi ?? '', {
+    maxRows: scrollbackRows && scrollbackRows > 0 ? scrollbackRows : undefined,
+    maxBytes: REQUESTED_SNAPSHOT_BYTE_BUDGET - snapshotBytes
+  })
+  return {
+    ...serialized,
+    data: bounded.scrollbackAnsi + serialized.data,
+    scrollbackRows: bounded.rows,
+    truncatedByByteBudget: bounded.truncatedByByteBudget
+  }
 }
 
 function sendSnapshotFrames(
@@ -630,24 +667,25 @@ async function serializeBudgetedMobileSnapshot(
         }
       : null
   }
-  const candidates = [MOBILE_SUBSCRIBE_SCROLLBACK_ROWS, 500, 250, 100, 25, 0]
-  for (const rows of candidates) {
-    const serialized = await runtime.serializeTerminalBuffer(ptyId, { scrollbackRows: rows })
-    if (!serialized) {
-      return null
-    }
-    const data = (serialized.scrollbackAnsi ?? '') + serialized.data
-    const overByteBudget = terminalStreamByteLengthExceeds(data, MOBILE_SNAPSHOT_BYTE_BUDGET)
-    if (!overByteBudget || rows === 0) {
-      return {
-        ...serialized,
-        data,
-        scrollbackRows: rows,
-        truncatedByByteBudget: rows < MOBILE_SUBSCRIBE_SCROLLBACK_ROWS || overByteBudget
-      }
-    }
+  // Why: request the VISIBLE grid only (scrollbackRows:0) so history is not also
+  // prepended into snapshotAnsi — scrollbackAnsi is the sole history source, which
+  // stops the recent rows appearing twice. History is bounded to the mobile row
+  // cap and the mobile transport byte budget so a large scrollback stays small.
+  const serialized = await runtime.serializeTerminalBuffer(ptyId, { scrollbackRows: 0 })
+  if (!serialized) {
+    return null
   }
-  return null
+  const snapshotBytes = terminalStreamByteLength(serialized.data)
+  const bounded = boundScrollbackAnsi(serialized.scrollbackAnsi ?? '', {
+    maxRows: MOBILE_SUBSCRIBE_SCROLLBACK_ROWS,
+    maxBytes: MOBILE_SNAPSHOT_BYTE_BUDGET - snapshotBytes
+  })
+  return {
+    ...serialized,
+    data: bounded.scrollbackAnsi + serialized.data,
+    scrollbackRows: bounded.rows,
+    truncatedByByteBudget: bounded.truncatedByByteBudget
+  }
 }
 
 // Why: mobile xterm can only re-wrap SOFT-wrapped lines on a client-side

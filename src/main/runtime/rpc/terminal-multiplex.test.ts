@@ -40,6 +40,34 @@ function makeRequest(method: string, params?: unknown): RpcRequest {
   return { id: 'req-1', authToken: 'tok', method, params }
 }
 
+// Faithful model of the headless emulator's SPLIT serialize (headless-emulator.ts
+// getSnapshot): scrollbackAnsi is ALWAYS the full history, while serializeAnsi
+// (scrollbackRows) PREPENDS the last min(rows, history) history lines into the
+// viewport payload. This reproduces the exact shape that DOUBLED recent scrollback
+// when a builder kept full scrollbackAnsi AND prepended history into data.
+function splitSerializeStub(historyLines: string[], viewport: string) {
+  const fullScrollbackAnsi = historyLines.map((line) => `${line}\r\n`).join('')
+  return vi.fn(async (_ptyId: string, opts?: { scrollbackRows?: number }) => {
+    const prependCount = Math.min(Math.max(0, opts?.scrollbackRows ?? 0), historyLines.length)
+    const prepended = historyLines
+      .slice(historyLines.length - prependCount)
+      .map((line) => `${line}\r\n`)
+      .join('')
+    return {
+      data: prepended + viewport,
+      scrollbackAnsi: fullScrollbackAnsi,
+      cols: 80,
+      rows: 24,
+      seq: 100,
+      source: 'headless' as const
+    }
+  })
+}
+
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1
+}
+
 describe('terminal multiplex RPC', () => {
   it('multiplexes terminal streams and routes desktop resize to the source PTY', async () => {
     vi.useFakeTimers()
@@ -352,8 +380,10 @@ describe('terminal multiplex RPC', () => {
       ).toMatchObject({
         requestId: 7
       })
+      // The requested snapshot serializes the VISIBLE grid only (scrollbackRows:0);
+      // history is supplied once via scrollbackAnsi, never prepended into data.
       expect(runtime.serializeTerminalBuffer).toHaveBeenLastCalledWith('pty-1', {
-        scrollbackRows: 5000
+        scrollbackRows: 0
       })
       expect(
         requestedSnapshotFrames
@@ -1758,7 +1788,12 @@ describe('terminal multiplex RPC', () => {
     await dispatchPromise
   })
 
-  it('falls back to smaller requested snapshots when serialized data exceeds the send budget', async () => {
+  it('bounds an over-budget requested snapshot to the most-recent scrollback tail', async () => {
+    // Why: the requested builder now serializes the visible grid once
+    // (scrollbackRows:0) and bounds history by truncating scrollbackAnsi to the
+    // byte budget — keeping the newest lines, cut on a line boundary — instead of
+    // re-serializing at descending candidate row counts (which never bounded the
+    // payload because scrollbackAnsi was always full history).
     const messages: string[] = []
     const binaryFrames: Uint8Array<ArrayBufferLike>[] = []
     const handlers = new Map<
@@ -1766,19 +1801,22 @@ describe('terminal multiplex RPC', () => {
       (frame: NonNullable<ReturnType<typeof decodeTerminalStreamFrame>>) => void
     >()
     const cleanups = new Map<string, () => void>()
+    // 600 history lines × ~4KB = ~2.4MB > the 2MB requested-snapshot budget.
+    const historyLines = Array.from({ length: 600 }, (_, i) =>
+      `line-${String(i).padStart(3, '0')}`.padEnd(4096, 'y')
+    )
+    const fullScrollbackAnsi = historyLines.map((line) => `${line}\r\n`).join('')
     const runtime = stubRuntime({
       resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
       readTerminal: vi.fn().mockResolvedValue({ tail: [], truncated: false }),
       serializeTerminalBuffer: vi
         .fn()
-        .mockResolvedValueOnce({ data: 'initial', cols: 120, rows: 40 })
+        // Subscribe snapshot: no history so the desktop subscribe stays small.
+        .mockResolvedValueOnce({ data: 'initial', scrollbackAnsi: '', cols: 120, rows: 40 })
+        // Requested snapshot: visible grid + oversized full history.
         .mockResolvedValueOnce({
-          data: 'x'.repeat(2 * 1024 * 1024 + 1),
-          cols: 120,
-          rows: 40
-        })
-        .mockResolvedValueOnce({
-          data: 'budgeted snapshot',
+          data: 'visible',
+          scrollbackAnsi: fullScrollbackAnsi,
           cols: 120,
           rows: 40
         }),
@@ -1854,7 +1892,16 @@ describe('terminal multiplex RPC', () => {
         })
       )!
     )
-    await vi.waitFor(() => expect(runtime.serializeTerminalBuffer).toHaveBeenCalledTimes(3))
+    await vi.waitFor(() =>
+      expect(
+        binaryFrames
+          .slice(frameCountBeforeSnapshotRequest)
+          .map((frame) => decodeTerminalStreamFrame(frame))
+          .some((frame) => frame?.opcode === TerminalStreamOpcode.SnapshotEnd)
+      ).toBe(true)
+    )
+    // A single serialize (visible grid) covers the request — no candidate loop.
+    expect(runtime.serializeTerminalBuffer).toHaveBeenCalledTimes(2)
 
     const requestedFrames = binaryFrames
       .slice(frameCountBeforeSnapshotRequest)
@@ -1867,19 +1914,233 @@ describe('terminal multiplex RPC', () => {
       truncatedByByteBudget: true
     })
     expect(runtime.serializeTerminalBuffer).toHaveBeenNthCalledWith(2, 'pty-1', {
-      scrollbackRows: 5000
+      scrollbackRows: 0
     })
-    expect(runtime.serializeTerminalBuffer).toHaveBeenNthCalledWith(3, 'pty-1', {
-      scrollbackRows: 1000
-    })
-    expect(
-      requestedFrames
-        .filter((frame) => frame?.opcode === TerminalStreamOpcode.SnapshotChunk)
-        .map((frame) => (frame ? decodeTerminalStreamText(frame.payload) : ''))
-        .join('')
-    ).toBe('budgeted snapshot')
+    const requestedData = requestedFrames
+      .filter((frame) => frame?.opcode === TerminalStreamOpcode.SnapshotChunk)
+      .map((frame) => (frame ? decodeTerminalStreamText(frame.payload) : ''))
+      .join('')
+    // Visible grid attaches after history; history is the newest tail, cut on a
+    // line boundary (starts at a full line), with the oldest lines dropped.
+    expect(requestedData.endsWith('visible')).toBe(true)
+    const retainedHistory = requestedData.slice(0, requestedData.length - 'visible'.length)
+    expect(retainedHistory.startsWith('line-')).toBe(true)
+    expect(retainedHistory.endsWith('\r\n')).toBe(true)
+    expect(fullScrollbackAnsi.endsWith(retainedHistory)).toBe(true)
+    expect(requestedData).toContain('line-599')
+    expect(requestedData).not.toContain('line-000')
 
     cleanups.get('terminal-multiplex:conn-budgeted-request')?.()
+    await dispatchPromise
+  })
+
+  it('mobile subscribe includes each scrolled history line exactly once (no doubling)', async () => {
+    // Regression: a NORMAL-screen session with scrolled history (history > viewport)
+    // must not replay the recent scrollback twice (once via full scrollbackAnsi and
+    // once via history prepended into snapshotAnsi). See serializeBudgetedMobileSnapshot.
+    const messages: string[] = []
+    const binaryFrames: Uint8Array<ArrayBufferLike>[] = []
+    const handlers = new Map<
+      number,
+      (frame: NonNullable<ReturnType<typeof decodeTerminalStreamFrame>>) => void
+    >()
+    const cleanups = new Map<string, () => void>()
+    const historyLines = Array.from({ length: 8 }, (_, i) => `history-${i}`)
+    const viewport = 'PROMPT$ '
+    const runtime = stubRuntime({
+      resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
+      readTerminal: vi.fn().mockResolvedValue({ tail: [], truncated: false }),
+      serializeTerminalBuffer: splitSerializeStub(historyLines, viewport),
+      getTerminalSize: vi.fn().mockReturnValue({ cols: 80, rows: 24 }),
+      getMobileDisplayMode: vi.fn().mockReturnValue('auto'),
+      getLayout: vi.fn().mockReturnValue({ seq: 1 }),
+      subscribeToTerminalData: vi.fn().mockReturnValue(vi.fn()),
+      subscribeToTerminalResize: vi.fn().mockReturnValue(vi.fn()),
+      handleMobileSubscribe: vi.fn().mockResolvedValue(true),
+      handleMobileUnsubscribe: vi.fn(),
+      registerSubscriptionCleanup: vi.fn((id: string, cleanup: () => void) => {
+        cleanups.set(id, cleanup)
+      }),
+      waitForTerminal: vi.fn(() => new Promise<RuntimeTerminalWait>(() => {}))
+    })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
+
+    const dispatchPromise = dispatcher.dispatchStreaming(
+      makeRequest('terminal.multiplex', {}),
+      (msg) => messages.push(msg),
+      {
+        connectionId: 'conn-mobile-nodup',
+        sendBinary: (bytes) => {
+          binaryFrames.push(bytes)
+        },
+        registerBinaryStreamHandler: (streamId, handler) => {
+          handlers.set(streamId, handler)
+          return () => handlers.delete(streamId)
+        }
+      }
+    )
+
+    await vi.waitFor(() =>
+      expect(messages.some((msg) => JSON.parse(msg).result?.type === 'ready')).toBe(true)
+    )
+    handlers.get(0)?.(
+      decodeTerminalStreamFrame(
+        encodeTerminalStreamFrame({
+          opcode: TerminalStreamOpcode.Subscribe,
+          streamId: 0,
+          seq: 1,
+          payload: encodeTerminalStreamJson({
+            streamId: 7,
+            terminal: 'terminal-1',
+            client: { id: 'phone-1', type: 'mobile' }
+          })
+        })
+      )!
+    )
+    await vi.waitFor(() =>
+      expect(messages.some((msg) => JSON.parse(msg).result?.type === 'subscribed')).toBe(true)
+    )
+
+    const decoded = binaryFrames.map((frame) => decodeTerminalStreamFrame(frame))
+    const snapshotStart = decoded.find(
+      (frame) => frame?.opcode === TerminalStreamOpcode.SnapshotStart
+    )
+    expect(snapshotStart && decodeTerminalStreamJson(snapshotStart.payload)).toMatchObject({
+      truncatedByByteBudget: false
+    })
+    const snapshotData = decoded
+      .filter((frame) => frame?.opcode === TerminalStreamOpcode.SnapshotChunk)
+      .map((frame) => (frame ? decodeTerminalStreamText(frame.payload) : ''))
+      .join('')
+    // Each history line appears exactly once, followed by the visible grid.
+    expect(snapshotData).toBe(historyLines.map((line) => `${line}\r\n`).join('') + viewport)
+    for (const line of historyLines) {
+      expect(countOccurrences(snapshotData, line)).toBe(1)
+    }
+    // The visible grid is serialized alone; history is supplied only by scrollbackAnsi.
+    expect(runtime.serializeTerminalBuffer).toHaveBeenNthCalledWith(1, 'pty-1', {
+      scrollbackRows: 0
+    })
+
+    cleanups.get('terminal-multiplex:conn-mobile-nodup')?.()
+    await dispatchPromise
+  })
+
+  it('requested snapshot includes each scrolled history line exactly once (no doubling)', async () => {
+    const messages: string[] = []
+    const binaryFrames: Uint8Array<ArrayBufferLike>[] = []
+    const handlers = new Map<
+      number,
+      (frame: NonNullable<ReturnType<typeof decodeTerminalStreamFrame>>) => void
+    >()
+    const cleanups = new Map<string, () => void>()
+    const historyLines = Array.from({ length: 8 }, (_, i) => `history-${i}`)
+    const viewport = 'GRID '
+    const runtime = stubRuntime({
+      resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
+      readTerminal: vi.fn().mockResolvedValue({ tail: [], truncated: false }),
+      serializeTerminalBuffer: splitSerializeStub(historyLines, viewport),
+      getTerminalSize: vi.fn().mockReturnValue({ cols: 80, rows: 24 }),
+      getMobileDisplayMode: vi.fn().mockReturnValue('auto'),
+      getLayout: vi.fn().mockReturnValue({ seq: 1 }),
+      subscribeToTerminalData: vi.fn().mockReturnValue(vi.fn()),
+      subscribeToTerminalResize: vi.fn().mockReturnValue(vi.fn()),
+      subscribeToFitOverrideChanges: vi.fn().mockReturnValue(vi.fn()),
+      subscribeToDriverChanges: vi.fn().mockReturnValue(vi.fn()),
+      getTerminalFitOverride: vi.fn().mockReturnValue(null),
+      getDriver: vi.fn().mockReturnValue({ kind: 'idle' }),
+      registerSubscriptionCleanup: vi.fn((id: string, cleanup: () => void) => {
+        cleanups.set(id, cleanup)
+      }),
+      waitForTerminal: vi.fn(() => new Promise<RuntimeTerminalWait>(() => {})),
+      updateDesktopViewport: vi.fn().mockResolvedValue(true)
+    })
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
+
+    const dispatchPromise = dispatcher.dispatchStreaming(
+      makeRequest('terminal.multiplex', {}),
+      (msg) => messages.push(msg),
+      {
+        connectionId: 'conn-requested-nodup',
+        sendBinary: (bytes) => {
+          binaryFrames.push(bytes)
+        },
+        registerBinaryStreamHandler: (streamId, handler) => {
+          handlers.set(streamId, handler)
+          return () => handlers.delete(streamId)
+        }
+      }
+    )
+
+    await vi.waitFor(() =>
+      expect(messages.some((msg) => JSON.parse(msg).result?.type === 'ready')).toBe(true)
+    )
+    handlers.get(0)?.(
+      decodeTerminalStreamFrame(
+        encodeTerminalStreamFrame({
+          opcode: TerminalStreamOpcode.Subscribe,
+          streamId: 0,
+          seq: 1,
+          payload: encodeTerminalStreamJson({
+            streamId: 14,
+            terminal: 'terminal-1',
+            client: { id: 'desktop-1', type: 'desktop' },
+            viewport: { cols: 80, rows: 24 }
+          })
+        })
+      )!
+    )
+    await vi.waitFor(() =>
+      expect(messages.some((msg) => JSON.parse(msg).result?.type === 'subscribed')).toBe(true)
+    )
+    const frameCountBeforeSnapshotRequest = binaryFrames.length
+
+    handlers.get(14)?.(
+      decodeTerminalStreamFrame(
+        encodeTerminalStreamFrame({
+          opcode: TerminalStreamOpcode.SnapshotRequest,
+          streamId: 14,
+          seq: 2,
+          payload: encodeTerminalStreamJson({
+            requestId: 77,
+            scrollbackRows: 5000
+          })
+        })
+      )!
+    )
+    await vi.waitFor(() =>
+      expect(
+        binaryFrames
+          .slice(frameCountBeforeSnapshotRequest)
+          .map((frame) => decodeTerminalStreamFrame(frame))
+          .some((frame) => frame?.opcode === TerminalStreamOpcode.SnapshotEnd)
+      ).toBe(true)
+    )
+    expect(runtime.serializeTerminalBuffer).toHaveBeenCalledTimes(2)
+
+    const requestedFrames = binaryFrames
+      .slice(frameCountBeforeSnapshotRequest)
+      .map((frame) => decodeTerminalStreamFrame(frame))
+    const requestedStart = requestedFrames.find(
+      (frame) => frame?.opcode === TerminalStreamOpcode.SnapshotStart
+    )
+    expect(requestedStart && decodeTerminalStreamJson(requestedStart.payload)).toMatchObject({
+      requestId: 77,
+      truncatedByByteBudget: false
+    })
+    const requestedData = requestedFrames
+      .filter((frame) => frame?.opcode === TerminalStreamOpcode.SnapshotChunk)
+      .map((frame) => (frame ? decodeTerminalStreamText(frame.payload) : ''))
+      .join('')
+    expect(requestedData).toBe(historyLines.map((line) => `${line}\r\n`).join('') + viewport)
+    for (const line of historyLines) {
+      expect(countOccurrences(requestedData, line)).toBe(1)
+    }
+    expect(runtime.serializeTerminalBuffer).toHaveBeenNthCalledWith(2, 'pty-1', {
+      scrollbackRows: 0
+    })
+
+    cleanups.get('terminal-multiplex:conn-requested-nodup')?.()
     await dispatchPromise
   })
 

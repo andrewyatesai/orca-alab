@@ -30,11 +30,13 @@ our rust pieces" work). Tracked here; to be landed incrementally.
    classifier tiers the fork's Rust workspace-cleanup core doesn't emit (`'ready'` vs `'protected'`).
    Port to the Rust classifier.
 
-5. **Daemon kitty-keyboard snapshot + serialize parity** (~12: `headless-emulator`,
-   `reattach-snapshot`, `terminal-history-incremental-restore`, `terminal-replay-cursor-state`).
-   The write-only daemon emulator needs `modes.kittyKeyboardFlags` tracking in
-   `getModes`/`buildRehydrateSequences` for snapshot re-seed parity (finding **G4**), plus one
-   alt-screen serialize case. Engine-independent byte scanner on the aterm-backed emulator.
+5. **Daemon alt-screen serialize parity** (~5 remaining: `headless-emulator` "preserves the
+   normal buffer behind an alternate-screen snapshot", `reattach-snapshot`,
+   `terminal-history-incremental-restore`, `terminal-replay-cursor-state`). aterm's
+   `serializeScrollbackAnsi()` returns empty while in the alt screen — it must preserve the
+   NORMAL buffer's scrollback so a TUI snapshot keeps the pre-TUI shell history. Aterm-engine
+   serialize behavior (napi), not TS. NOTE: **G4 kitty-keyboard flags DONE** (commit below) —
+   the daemon emulator now tracks `modes.kittyKeyboardFlags` via TerminalKittyKeyboardModeTracker.
 
 6. **Git parse/normalize gaps** (~13: `remote`, `worktree`, `remove-worktree`, `worktree-list-paths`,
    `git-handler-utils`, `git-handler-worktree-ops`, `git-uncommitted-line-stats`).

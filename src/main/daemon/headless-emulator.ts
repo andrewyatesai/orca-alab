@@ -4,6 +4,7 @@ import {
   type RustHeadlessTerminalHandle
 } from './rust-terminal-addon'
 import { createPrivateModeScanner } from './private-mode-scan'
+import { TerminalKittyKeyboardModeTracker } from '../../shared/terminal-kitty-keyboard-mode-tracker'
 import { advancePartialEscapeTail } from '../../shared/terminal-partial-escape-tail'
 import { buildRehydrateSequences } from './terminal-mode-rehydrate-sequences'
 import { mergeRestoredOscLinks } from './terminal-osc-link-merge'
@@ -71,6 +72,11 @@ export class HeadlessEmulator {
   // DECSET mouse-mode tracking scans the raw stream (engine-independent) so
   // 8-bit C1 CSI + split sequences match the former emulator exactly.
   private privateModes = createPrivateModeScanner()
+  // Kitty keyboard flags are tracked engine-independently from the raw stream:
+  // aterm's headless napi doesn't expose them, and they must survive into
+  // snapshots (serialize doesn't carry kitty state) for the query responder's
+  // re-seed. Alt-screen keeps its own flag set (the tracker mirrors that).
+  private kittyKeyboard = new TerminalKittyKeyboardModeTracker()
   // Why: a chunk ending mid-escape leaves the sequence in the parser, not the
   // grid, so serialize() drops it and the next chunk's continuation renders
   // literal after a restore (Bug E / #7329). Tracked engine-independently at
@@ -196,6 +202,7 @@ export class HeadlessEmulator {
       () => undefined
     )
     this.privateModes.scan(data)
+    this.kittyKeyboard.scan(data)
     // Advance after the parse so the tracked tail reflects the same bytes the
     // grid does; only the trailing unparsed partial sequence is retained.
     this.partialEscapeTail = advancePartialEscapeTail(this.partialEscapeTail, data)
@@ -445,7 +452,11 @@ export class HeadlessEmulator {
       mouseTracking: mouseTrackingMode !== 'none',
       mouseTrackingMode,
       sgrMouseMode: this.privateModes.sgrMouseMode(),
-      sgrMousePixelsMode: this.privateModes.sgrMousePixelsMode()
+      sgrMousePixelsMode: this.privateModes.sgrMousePixelsMode(),
+      // Engine-independent (aterm napi doesn't expose kitty flags); the query
+      // responder re-seeds from this. Deliberately NOT added to rehydrate — the
+      // renderer re-negotiates the protocol on reconnect.
+      kittyKeyboardFlags: this.kittyKeyboard.flags
     }
   }
 

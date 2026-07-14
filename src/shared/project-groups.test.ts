@@ -3,11 +3,11 @@ import {
   clearMissingProjectGroupMemberships,
   createProjectGroup,
   getEffectiveProjectGroupManualRank,
-  getNextProjectGroupOrder,
-  getProjectGroupSubtreeIds,
   normalizeProjectGroupName,
   normalizeProjectGroups
 } from './project-groups'
+// getNextProjectGroupOrder + getProjectGroupSubtreeIds moved to the Rust core;
+// their cases live in the Rust twin's #[cfg(test)] + tools/parity/vectors/project-groups.json.
 import type { Repo } from './types'
 
 function repo(overrides: Partial<Repo>): Repo {
@@ -110,49 +110,5 @@ describe('project-groups', () => {
     expect(getEffectiveProjectGroupManualRank(repo({ id: 'a' }), repoOrder)).toBe(0)
     expect(getEffectiveProjectGroupManualRank(repo({ id: 'b' }), repoOrder)).toBe(2000)
     expect(getEffectiveProjectGroupManualRank(repo({ id: 'c' }), repoOrder, 1)).toBe(1000)
-  })
-
-  it('computes the next order inside a group independently from ungrouped repos', () => {
-    expect(
-      getNextProjectGroupOrder(
-        [
-          repo({ id: 'a', projectGroupId: 'g', projectGroupOrder: 2 }),
-          repo({ id: 'b', projectGroupId: null, projectGroupOrder: 9 })
-        ],
-        'g'
-      )
-    ).toBe(3)
-  })
-
-  it('collects descendant group ids for subtree deletion', () => {
-    expect(
-      [
-        ...getProjectGroupSubtreeIds(
-          [
-            { id: 'root', parentGroupId: null },
-            { id: 'child', parentGroupId: 'root' },
-            { id: 'grandchild', parentGroupId: 'child' },
-            { id: 'sibling', parentGroupId: null }
-          ],
-          'root'
-        )
-      ].sort()
-    ).toEqual(['child', 'grandchild', 'root'])
-  })
-
-  it('collects wide descendant groups without overflowing argument limits', () => {
-    const groups = [
-      { id: 'root', parentGroupId: null },
-      ...Array.from({ length: 130_000 }, (_, index) => ({
-        id: `child-${index}`,
-        parentGroupId: 'root'
-      }))
-    ]
-
-    const subtreeIds = getProjectGroupSubtreeIds(groups, 'root')
-
-    expect(subtreeIds.size).toBe(130_001)
-    expect(subtreeIds.has('root')).toBe(true)
-    expect(subtreeIds.has('child-129999')).toBe(true)
   })
 })

@@ -5,6 +5,7 @@
 //! timestamps are injected (the IO edge owns the RNG/clock); persisted-value
 //! normalization reads `unknown` JSON via vendored `serde_json`.
 
+use orca_core::js_string::trim_js;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -47,7 +48,9 @@ pub struct ProjectGroupNode {
 }
 
 pub fn normalize_project_group_name(name: &str, fallback: &str) -> String {
-    let trimmed = name.trim();
+    // Why: JS `.trim()` (ECMAScript WhiteSpace) trims U+FEFF but keeps U+0085,
+    // unlike Rust `str::trim` — mirror it so the twin is faithful.
+    let trimmed = trim_js(name);
     if trimmed.is_empty() {
         fallback.to_string()
     } else {
@@ -205,6 +208,14 @@ mod tests {
     #[test]
     fn trims_empty_group_names_to_a_fallback() {
         assert_eq!(normalize_project_group_name("   ", "Existing"), "Existing");
+    }
+
+    #[test]
+    fn trims_js_whitespace_not_rust_whitespace() {
+        // JS `.trim()` strips U+FEFF (BOM) but keeps U+0085 (NEL); mirror it.
+        assert_eq!(normalize_project_group_name("\u{FEFF}Platform", "x"), "Platform");
+        assert_eq!(normalize_project_group_name("Platform\u{0085}", "x"), "Platform\u{0085}");
+        assert_eq!(normalize_project_group_name("\u{FEFF}", "Untitled group"), "Untitled group");
     }
 
     #[test]

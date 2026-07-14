@@ -1,5 +1,5 @@
 import type { ProjectGroup, Repo } from '../../../../shared/types'
-import { getProjectGroupSubtreeIds } from '../../../../shared/project-groups'
+import { getProjectGroupSubtreeIds } from '../../lib/git-wasm/project-groups'
 
 export type ProjectGroupRemovalTargets = {
   groupExists: boolean

@@ -12,7 +12,7 @@ import {
   toSshExecutionHostId,
   type ExecutionHostId
 } from '../../../../shared/execution-host'
-import { getProjectGroupSubtreeIds } from '../../../../shared/project-groups'
+import { getProjectGroupSubtreeIds } from '../../lib/git-wasm/project-groups'
 import { isGitRepoKind } from '../../../../shared/repo-kind'
 import type {
   FolderWorkspace,

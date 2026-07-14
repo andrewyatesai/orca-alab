@@ -1,3 +1,7 @@
+// selectProjectGroupRemovalTargets now collects the subtree through the Rust
+// project-groups core (wasm); init it so the helper returns the real subtree
+// instead of its pre-ready root-only fallback.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it } from 'vitest'
 import type { ProjectGroup, Repo } from '../../../../shared/types'
 import { selectProjectGroupRemovalTargets } from './project-group-removal-targets'

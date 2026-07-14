@@ -1,6 +1,5 @@
-import { inspectCodexEnvironmentConfig } from './setup-script-import-codex-environment'
-import { inspectPackageManagerSetupCandidate } from './setup-script-package-manager-suggestion'
 import type { SetupScriptImportProvider } from './setup-script-import-providers'
+import { requireOrcaDispatch } from './orca-dispatch-seam'
 
 export type SetupScriptImportCandidate = {
   provider: SetupScriptImportProvider
@@ -14,279 +13,64 @@ export type SetupScriptImportCandidate = {
 export type SetupScriptImportFileRead = (relativePath: string) => Promise<string | null>
 export type SetupScriptImportFileExists = (relativePath: string) => Promise<boolean>
 
-const SUPERSET_CONFIG_PATH = '.superset/config.json'
-const SUPERSET_LOCAL_CONFIG_PATH = '.superset/config.local.json'
-const CONDUCTOR_CONFIG_PATH = 'conductor.json'
-const CMUX_CONFIG_PATHS = ['.cmux/cmux.json', 'cmux.json'] as const
+// The config files whose CONTENT the Rust core parses. These path strings must
+// stay in lockstep with `orca-config::setup_script_imports` (the core looks each
+// up in the contentsByPath map the IO edge supplies below).
+const SETUP_SCRIPT_CONTENT_PATHS = [
+  '.superset/config.json',
+  '.superset/config.local.json',
+  'conductor.json',
+  '.codex/environments/environment.toml',
+  '.cmux/cmux.json',
+  'cmux.json',
+  'package.json'
+] as const
 
+// Lockfiles whose EXISTENCE the package-manager provider checks. With an injected
+// fileExists (stat-based) they cross as `existingPaths`; without one the core
+// falls back to read-based existence, so they're read into the map instead.
+const PACKAGE_MANAGER_LOCKFILE_PATHS = [
+  'pnpm-lock.yaml',
+  'bun.lock',
+  'bun.lockb',
+  'yarn.lock',
+  'package-lock.json',
+  'npm-shrinkwrap.json'
+] as const
+
+// Setup-script-import inspection is cut over to the Rust orca-config core via the
+// orcaDispatch aggregate (main/runtime readers only). The IO edge — reading the
+// candidate files (local fs or SSH) — stays in TS and crosses as a content map;
+// the pure JSON/TOML parsing + provider derivation runs in Rust. The reader
+// contract is preserved so callers (orca-runtime.ts / worktrees.ts) don't change.
 export async function inspectSetupScriptImportCandidates(
   readFile: SetupScriptImportFileRead,
   options?: { fileExists?: SetupScriptImportFileExists }
 ): Promise<SetupScriptImportCandidate[]> {
-  const candidates = await Promise.all([
-    inspectSupersetConfig(readFile),
-    inspectConductorConfig(readFile),
-    inspectCodexEnvironmentConfig(readFile),
-    inspectCmuxConfig(readFile),
-    inspectPackageManagerSetupCandidate(readFile, options?.fileExists)
-  ])
-  return candidates.filter(
-    (candidate): candidate is SetupScriptImportCandidate => candidate != null
+  const fileExists = options?.fileExists
+  // Without an injected existence check the core falls back to read-based
+  // lockfile existence, so read the lockfiles into the map in that case.
+  const readPaths = fileExists
+    ? SETUP_SCRIPT_CONTENT_PATHS
+    : [...SETUP_SCRIPT_CONTENT_PATHS, ...PACKAGE_MANAGER_LOCKFILE_PATHS]
+  const contentEntries = await Promise.all(
+    readPaths.map(async (path) => [path, await readFile(path)] as const)
   )
-}
+  const contentsByPath: Record<string, string | null> = Object.fromEntries(contentEntries)
 
-async function inspectSupersetConfig(
-  readFile: SetupScriptImportFileRead
-): Promise<SetupScriptImportCandidate | null> {
-  const config = parseJsonObject(await readFile(SUPERSET_CONFIG_PATH))
-  if (!config) {
-    return null
+  const input: { contentsByPath: Record<string, string | null>; existingPaths?: string[] } = {
+    contentsByPath
   }
-
-  const localConfig = parseJsonObject(await readFile(SUPERSET_LOCAL_CONFIG_PATH))
-  const unsupportedFields = collectUnsupportedFields(config, ['run', 'cwd'])
-  const files = localConfig
-    ? [SUPERSET_CONFIG_PATH, SUPERSET_LOCAL_CONFIG_PATH]
-    : [SUPERSET_CONFIG_PATH]
-  if (localConfig) {
-    unsupportedFields.push(
-      ...collectUnsupportedFields(localConfig, ['run', 'cwd']).map(
-        (field) => `config.local.${field}`
-      )
+  if (fileExists) {
+    const existence = await Promise.all(
+      PACKAGE_MANAGER_LOCKFILE_PATHS.map(async (path) => [path, await fileExists(path)] as const)
     )
+    input.existingPaths = existence.filter(([, exists]) => exists).map(([path]) => path)
   }
 
-  const setup = resolveSupersetScriptValue(
-    config.setup,
-    localConfig?.setup,
-    'setup',
-    unsupportedFields
-  )
-  if (!setup) {
-    return null
-  }
-
-  collectUnsupportedScriptObjectFields(config.setup, 'setup', unsupportedFields)
-  collectUnsupportedScriptObjectFields(config.teardown, 'teardown', unsupportedFields)
-
-  return {
-    provider: 'superset',
-    label: 'Superset',
-    files,
-    setup,
-    archive:
-      resolveSupersetScriptValue(
-        config.teardown,
-        localConfig?.teardown,
-        'teardown',
-        unsupportedFields
-      ) || undefined,
-    unsupportedFields
-  }
-}
-
-async function inspectConductorConfig(
-  readFile: SetupScriptImportFileRead
-): Promise<SetupScriptImportCandidate | null> {
-  const config = parseJsonObject(await readFile(CONDUCTOR_CONFIG_PATH))
-  const scripts = asRecord(config?.scripts)
-  if (!config || !scripts) {
-    return null
-  }
-
-  const setup = normalizeCommandValue(scripts.setup)
-  if (!setup) {
-    return null
-  }
-
-  const unsupportedFields = collectUnsupportedFields(config, [
-    'enterpriseDataPrivacy',
-    'runScriptMode'
-  ])
-  for (const field of ['run', 'teardown'] as const) {
-    if (normalizeCommandValue(scripts[field])) {
-      unsupportedFields.push(`scripts.${field}`)
-    }
-  }
-
-  return {
-    provider: 'conductor',
-    label: 'Conductor',
-    files: [CONDUCTOR_CONFIG_PATH],
-    setup,
-    archive: normalizeCommandValue(scripts.archive) || undefined,
-    unsupportedFields
-  }
-}
-
-async function inspectCmuxConfig(
-  readFile: SetupScriptImportFileRead
-): Promise<SetupScriptImportCandidate | null> {
-  for (const configPath of CMUX_CONFIG_PATHS) {
-    const config = parseJsonObject(await readFile(configPath))
-    const candidate = config ? buildCmuxSetupCandidate(configPath, config) : null
-    if (candidate) {
-      return candidate
-    }
-  }
-  return null
-}
-
-function parseJsonObject(content: string | null): Record<string, unknown> | null {
-  if (!content) {
-    return null
-  }
-  try {
-    return asRecord(JSON.parse(content))
-  } catch {
-    return null
-  }
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
-function normalizeCommandValue(value: unknown): string {
-  if (typeof value === 'string') {
-    return value.trim()
-  }
-  if (!Array.isArray(value)) {
-    return ''
-  }
-  const commands = value
-    .map((item) => (typeof item === 'string' ? item.trim() : ''))
-    .filter(Boolean)
-  return commands.join('\n')
-}
-
-function resolveSupersetScriptValue(
-  baseValue: unknown,
-  localValue: unknown,
-  key: 'setup' | 'teardown',
-  unsupportedFields: string[]
-): string {
-  const baseCommand = normalizeCommandValue(baseValue)
-  if (localValue === undefined) {
-    return baseCommand
-  }
-  if (typeof localValue === 'string' || Array.isArray(localValue)) {
-    return normalizeCommandValue(localValue)
-  }
-
-  const localRecord = asRecord(localValue)
-  if (!localRecord) {
-    unsupportedFields.push(`config.local.${key}`)
-    return baseCommand
-  }
-
-  for (const field of Object.keys(localRecord)) {
-    if (field !== 'before' && field !== 'after') {
-      unsupportedFields.push(`config.local.${key}.${field}`)
-    }
-  }
-
-  const beforeCommand = normalizeCommandValue(localRecord.before)
-  const afterCommand = normalizeCommandValue(localRecord.after)
-  return [beforeCommand, baseCommand, afterCommand].filter(Boolean).join('\n')
-}
-
-function buildCmuxSetupCandidate(
-  configPath: string,
-  config: Record<string, unknown>
-): SetupScriptImportCandidate | null {
-  const commands = Array.isArray(config.commands) ? config.commands : []
-  for (let index = 0; index < commands.length; index++) {
-    const command = asRecord(commands[index])
-    if (!command || !isCmuxSetupCommand(command)) {
-      continue
-    }
-
-    const setup = normalizeCommandValue(command.command)
-    if (!setup) {
-      continue
-    }
-
-    return {
-      provider: 'cmux',
-      label: 'cmux',
-      files: [configPath],
-      setup,
-      unsupportedFields: collectUnsupportedCmuxCommandFields(command, index)
-    }
-  }
-  return null
-}
-
-function isCmuxSetupCommand(command: Record<string, unknown>): boolean {
-  if (typeof command.command !== 'string' || !command.command.trim()) {
-    return false
-  }
-
-  const name = normalizeMatchText(command.name)
-  const title = normalizeMatchText(command.title)
-  const labels = [name, title].filter(Boolean)
-  if (
-    labels.some((label) =>
-      ['setup', 'project setup', 'workspace setup', 'repository setup'].includes(label)
-    )
-  ) {
-    return true
-  }
-
-  const keywords = getStringArray(command.keywords).map(normalizeMatchText)
-  const hasSetupKeyword = keywords.some((keyword) =>
-    ['setup', 'init', 'initialize', 'install'].includes(keyword)
-  )
-  if (!hasSetupKeyword) {
-    return false
-  }
-
-  const commandText = normalizeMatchText(command.command)
-  return labels.some((label) => label.includes('setup')) || /\bsetup\b/.test(commandText)
-}
-
-function normalizeMatchText(value: unknown): string {
-  return typeof value === 'string' ? value.trim().toLowerCase().replace(/\s+/g, ' ') : ''
-}
-
-function getStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : []
-}
-
-function collectUnsupportedCmuxCommandFields(
-  command: Record<string, unknown>,
-  commandIndex: number
-): string[] {
-  const supportedFields = new Set(['name', 'title', 'description', 'keywords', 'command'])
-  return Object.keys(command)
-    .filter((field) => !supportedFields.has(field))
-    .map((field) => `commands.${commandIndex}.${field}`)
-}
-
-function collectUnsupportedFields(
-  source: Record<string, unknown>,
-  fieldNames: readonly string[]
-): string[] {
-  return fieldNames.filter((field) => source[field] !== undefined)
-}
-
-function collectUnsupportedScriptObjectFields(
-  value: unknown,
-  prefix: string,
-  unsupportedFields: string[]
-): void {
-  const record = asRecord(value)
-  if (!record) {
-    return
-  }
-  for (const field of ['before', 'after'] as const) {
-    if (record[field] !== undefined) {
-      unsupportedFields.push(`${prefix}.${field}`)
-    }
-  }
+  return requireOrcaDispatch(
+    'setup-script-imports',
+    'inspectSetupScriptImportCandidates',
+    input
+  ) as SetupScriptImportCandidate[]
 }

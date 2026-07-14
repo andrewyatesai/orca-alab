@@ -1411,6 +1411,9 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   })
 
   it('captures daemon startup stderr into the failure error', async () => {
+    // Windows-only Node launcher: startup stderr capture (stdio 'pipe') is
+    // fork-path behavior; the Rust path uses stdio 'ignore' + a health poll.
+    restorePlatform = stubPlatform('win32')
     const mod = await importFresh()
     checkDaemonHealthMock.mockResolvedValue('unreachable')
     await mod.initDaemonPtyProvider()
@@ -1481,6 +1484,9 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   })
 
   it('destroys the daemon stderr pipe once the daemon signals ready', async () => {
+    // Windows-only Node launcher: the stderr-pipe teardown on the IPC ready
+    // handshake is fork-path behavior; the Rust path never pipes stderr.
+    restorePlatform = stubPlatform('win32')
     const mod = await importFresh()
     checkDaemonHealthMock.mockResolvedValue('unreachable')
     await mod.initDaemonPtyProvider()
@@ -1680,6 +1686,9 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     // Why: 'rejected' means the daemon answered and refused the handshake —
     // it can never be adopted, so keeping it alive would strand the app with
     // no terminals forever. Replacement stays the only recovery.
+    // Windows-only Node launcher: fork-based replacement is the fork path; the
+    // Rust path replaces via spawn (asserted by the sibling spawn tests).
+    restorePlatform = stubPlatform('win32')
     const mod = await importFresh()
     await mod.initDaemonPtyProvider()
 
@@ -1747,6 +1756,9 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
   it('writes the daemon self-reported start time to the pid file when the OS query returns null', async () => {
     // Why: getProcessStartedAtMs has no cheap Windows implementation, so the
     // pid file's pid-recycling guard depends on the ready-message fallback.
+    // That fallback + the daemon-entry pid file are Windows-only Node-launcher
+    // behavior; the Rust path has no IPC ready message, so force the fork path.
+    restorePlatform = stubPlatform('win32')
     const mod = await importFresh()
     await mod.initDaemonPtyProvider()
 

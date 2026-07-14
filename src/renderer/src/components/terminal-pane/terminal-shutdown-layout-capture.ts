@@ -8,6 +8,7 @@ import { mergeCapturedLeafState } from './merge-captured-leaf-state'
 import { resolveTerminalLayoutActiveLeafId } from './terminal-layout-leaf-ids'
 import { TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT } from '../../../../shared/terminal-scrollback-limits'
 import { clampUtf8TextTail, measureUtf8ByteLength } from '../../../../shared/utf8-byte-limits'
+import { serializeWithAbsoluteCursor } from '../../../../shared/terminal-serialize-absolute-cursor'
 
 const MAX_BUFFER_BYTES = TERMINAL_SCROLLBACK_SESSION_BUFFER_BYTE_LIMIT
 
@@ -49,6 +50,20 @@ function fitsSessionScrollbackByteLimit(serialized: string): boolean {
   return !measureUtf8ByteLength(serialized, { stopAfterBytes: MAX_BUFFER_BYTES }).exceededLimit
 }
 
+function serializeShutdownPaneBuffer(pane: ShutdownPane, scrollbackRows: number): string {
+  // Why the aterm path is passed through unwrapped: the engine's native serialize
+  // already ends the snapshot with an absolute CUP from its authoritative cursor.
+  // The legacy xterm SerializeAddon restores with relative moves that land a column
+  // short after a wrap-pending final row, so wrap only that path to append the source
+  // terminal's absolute cursor restore (terminal-serialize-absolute-cursor.ts).
+  if (pane.atermController) {
+    return serializePaneBuffer(pane, scrollbackRows)
+  }
+  return serializeWithAbsoluteCursor<{ scrollback?: number }>(pane.serializeAddon, pane.terminal, {
+    scrollback: scrollbackRows
+  })
+}
+
 export function captureTerminalShutdownLayout({
   manager,
   container,
@@ -70,11 +85,7 @@ export function captureTerminalShutdownLayout({
         flushTerminalOutput(pane.terminal)
         const leafId = pane.leafId
         const scrollback = pane.terminal.options.scrollback ?? 10_000
-        // Why serializePaneBuffer (not serializeWithAbsoluteCursor): the aterm-native
-        // serialize already ends the snapshot with an absolute CUP from the engine's
-        // authoritative cursor, so it does not suffer xterm SerializeAddon's relative
-        // wrap-pending off-by-one that the wrapper was compensating for.
-        let serialized = serializePaneBuffer(pane, scrollback)
+        let serialized = serializeShutdownPaneBuffer(pane, scrollback)
         // Why: SSH sleep keeps this string in session JSON; cap by UTF-8
         // bytes so non-ASCII scrollback cannot bypass the intended bound.
         if (!fitsSessionScrollbackByteLimit(serialized) && scrollback > 1) {
@@ -83,7 +94,7 @@ export function captureTerminalShutdownLayout({
           let best = ''
           while (lo <= hi) {
             const mid = Math.floor((lo + hi) / 2)
-            const attempt = serializePaneBuffer(pane, mid)
+            const attempt = serializeShutdownPaneBuffer(pane, mid)
             if (fitsSessionScrollbackByteLimit(attempt)) {
               best = attempt
               lo = mid + 1

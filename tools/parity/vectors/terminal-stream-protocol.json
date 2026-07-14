@@ -602,7 +602,7 @@
     },
     {
       "function": "decodeTerminalStreamFrame",
-      "note": "unknown opcode 13 still decodes to null (Metadata=12 is the current max)",
+      "note": "opcode 13 (Ack) decodes to a valid frame — added to the TS enum after the original port (Ack=13, ClaimViewport=14)",
       "input": {
         "bytes": [
           116,
@@ -622,6 +622,32 @@
           0,
           0
         ]
+      },
+      "expected": {
+        "opcode": 13,
+        "streamId": 7,
+        "seq": 3,
+        "payload": []
+      }
+    },
+    {
+      "function": "decodeTerminalStreamFrame",
+      "note": "opcode 14 (ClaimViewport) decodes to a valid frame — the second opcode added after the original port",
+      "input": {
+        "bytes": [116, 1, 14, 0, 7, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]
+      },
+      "expected": {
+        "opcode": 14,
+        "streamId": 7,
+        "seq": 3,
+        "payload": []
+      }
+    },
+    {
+      "function": "decodeTerminalStreamFrame",
+      "note": "opcode 15 is the first unknown value beyond ClaimViewport=14, so it decodes to null",
+      "input": {
+        "bytes": [116, 1, 15, 0, 7, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0]
       },
       "expected": null
     },

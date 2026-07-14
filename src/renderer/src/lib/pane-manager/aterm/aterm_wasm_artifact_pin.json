@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceCommit": "70b76fcc052df5fc73047afeb729bd419dda7153",
+  "sourceCommit": "b0486b97c3f0628cf4a839e4ad65397d7cf66a8a",
   "artifacts": {
     "aterm_wasm.js": {
       "bytes": 86323,
@@ -11,28 +11,28 @@
       "sha256": "469d19e0e3f67c6595b5fa1c4de3648232c79270ac4caa6fd996319fbb8e7f99"
     },
     "aterm_wasm_bg.wasm": {
-      "bytes": 3351073,
-      "sha256": "55e92af913ced0f0d7c9abc05a91f3f77d4fc3c6abb0c9adb10289eebf975296"
+      "bytes": 3391313,
+      "sha256": "07e9a44801f9b0a0cd2122586c221b0855ca32546bcdc558dbaa5d2aae155409"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 12748,
       "sha256": "0699e7f86843eaf6ec1f7d3b450836ab2e1df2fe9d94882d4395537ab1a16744"
     },
     "aterm_gpu_web.js": {
-      "bytes": 145097,
-      "sha256": "0bfe79aa2e2545e1e9d191900c82471413c0373b974adf5fbd6b9b1d60629492"
+      "bytes": 144590,
+      "sha256": "0fed868a1df6156c2d2fad0acb148cade471fa30e1f0071ee0aaa30d0dcc2503"
     },
     "aterm_gpu_web.d.ts": {
-      "bytes": 60365,
-      "sha256": "41916c925925dcedd3a3561fef3cca1cb8a2f1281d99b3188831d1f10d8b5625"
+      "bytes": 60124,
+      "sha256": "29716cd5f9e368952bea9375bf076a365e1c39778e9762ff6a64be5337d9b218"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 5832035,
-      "sha256": "1137f198b33772779d749b8aaa41600047cfa1078e93d74c1e25b0a16d2cc5e1"
+      "bytes": 5882654,
+      "sha256": "a111e5178f1fb682e6e01b20192b374ef6437f2d60ef793660d00d1f6174609e"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
-      "bytes": 13941,
-      "sha256": "86fef7489fc4fedc1ca002d7ac599fd801dc174e23d8a5a9664b0330425e383d"
+      "bytes": 13700,
+      "sha256": "586863815ba60894d5e1df2970ea96aac75d2c2a66894d73dd812e662dd91965"
     }
   }
 }

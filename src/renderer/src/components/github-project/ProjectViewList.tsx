@@ -1,49 +1,28 @@
-import React, { useCallback, useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, ArrowUpDown, Columns3 } from 'lucide-react'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { cn } from '@/lib/utils'
-import ColumnResizeHandle from './ColumnResizeHandle'
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import ProjectGroupHeader from './ProjectGroupHeader'
+import ProjectHeaderRow from './ProjectHeaderRow'
 import ProjectRow from './ProjectRow'
 import { groupRows, sortRows } from '../../../../shared/github-project-group-sort'
 import { getAvailableColumns, loadHiddenColumns, saveHiddenColumns } from './columns'
+import { loadColumnWidths, MIN_COLUMN_WIDTH, saveColumnWidths } from './column-widths'
 import {
-  ACTION_COLUMN_WIDTH,
-  loadColumnWidths,
-  MIN_COLUMN_WIDTH,
-  resolveWidth,
-  saveColumnWidths
-} from './column-widths'
+  buildProjectGridTemplate,
+  flattenProjectGroups,
+  PROJECT_GROUP_HEADER_ESTIMATED_HEIGHT,
+  PROJECT_ROW_ESTIMATED_HEIGHT,
+  PROJECT_ROW_OVERSCAN,
+  type ProjectListItem,
+  type SortOverride
+} from './project-view-list-rows'
 import type {
   GitHubIssueType,
-  GitHubProjectField,
   GitHubProjectFieldMutationValue,
   GitHubProjectRow,
-  GitHubProjectSortDirection,
   GitHubProjectTable
 } from '../../../../shared/github-project-types'
 import type { GlobalSettings } from '../../../../shared/types'
 import { translate } from '@/i18n/i18n'
-
-type SortOverride = { fieldId: string; direction: GitHubProjectSortDirection }
-
-const PROJECT_FROZEN_COLUMN_HEADER_SURFACE_CLASS =
-  '[background:color-mix(in_srgb,var(--background)_95%,var(--muted))]'
-
-function buildProjectGridTemplate(
-  fields: GitHubProjectField[],
-  widths: Readonly<Record<string, number>>
-): string {
-  // Why: the first two columns are frozen during horizontal scroll, so their
-  // actual widths must be deterministic for the second sticky offset.
-  const cols = fields.map((field, index) =>
-    index < 2
-      ? `${resolveWidth(field, widths)}px`
-      : `minmax(${MIN_COLUMN_WIDTH}px, ${resolveWidth(field, widths)}fr)`
-  )
-  cols.push(`${ACTION_COLUMN_WIDTH}px`)
-  return cols.join(' ')
-}
 
 type Props = {
   table: GitHubProjectTable
@@ -103,6 +82,9 @@ export default function ProjectViewList({
   >({})
   const widths = widthsByScope[scopeKey] ?? persistedWidths
 
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const headerRef = useRef<HTMLDivElement | null>(null)
+
   const setColumnPair = useCallback(
     (fieldId: string, width: number, nextFieldId: string, nextWidth: number): void => {
       setWidthsByScope((prev) => {
@@ -121,13 +103,45 @@ export default function ProjectViewList({
 
   const gridTemplate = useMemo(() => buildProjectGridTemplate(fields, widths), [fields, widths])
 
+  // Why: drive the live resize width through a CSS variable during the drag —
+  // mutating the grid template repaints the header + every row via the cascade
+  // with zero React renders. Only mouse-up (setColumnPair) touches state.
+  const previewColumnPair = useCallback(
+    (fieldId: string, width: number, nextFieldId: string, nextWidth: number): void => {
+      const previewWidths = {
+        ...widths,
+        [fieldId]: Math.max(MIN_COLUMN_WIDTH, Math.round(width)),
+        [nextFieldId]: Math.max(MIN_COLUMN_WIDTH, Math.round(nextWidth))
+      }
+      scrollRef.current?.style.setProperty(
+        '--project-grid-template',
+        buildProjectGridTemplate(fields, previewWidths)
+      )
+    },
+    [fields, widths]
+  )
+
   const handleListScroll = useCallback((event: React.UIEvent<HTMLDivElement>): void => {
     // Why: frozen columns need the horizontal offset, but piping every scroll
-    // tick through React state rerenders the entire project row set.
+    // tick through React state rerenders the entire project row set. Set it
+    // imperatively (not via an inline style prop) so virtualizer re-renders
+    // during vertical scroll don't reset the horizontal offset to 0.
     event.currentTarget.style.setProperty(
       '--project-scroll-left',
       `${event.currentTarget.scrollLeft}px`
     )
+  }, [])
+
+  const toggleGroup = useCallback((key: string): void => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
   }, [])
 
   const toggleColumn = (fieldId: string): void => {
@@ -168,6 +182,51 @@ export default function ProjectViewList({
     return groupRows(effectiveTable, sorted)
   }, [effectiveTable])
 
+  // Why: only render a group-header row when the view actually groups. Without
+  // a group-by field, groupRows returns a single synthetic 'all' bucket that
+  // must not surface a header — matching the pre-virtualization layout.
+  const hasGroupBy = Boolean(table.selectedView.groupByFields[0])
+
+  const listItems = useMemo<ProjectListItem[]>(
+    () => flattenProjectGroups(groups, collapsed, hasGroupBy),
+    [groups, collapsed, hasGroupBy]
+  )
+
+  // Why: the sticky column header sits above the virtual list in normal flow,
+  // so the virtualizer must offset its range math (scrollMargin) by the
+  // header's height. Measure it rather than hardcode, since header height can
+  // shift with theme/zoom; a ResizeObserver keeps it current.
+  const [headerHeight, setHeaderHeight] = useState(0)
+  useLayoutEffect(() => {
+    const el = headerRef.current
+    if (!el) {
+      return
+    }
+    const measure = (): void => setHeaderHeight(el.offsetHeight)
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  const rowVirtualizer = useVirtualizer({
+    count: listItems.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) =>
+      listItems[index]?.kind === 'group-header'
+        ? PROJECT_GROUP_HEADER_ESTIMATED_HEIGHT
+        : PROJECT_ROW_ESTIMATED_HEIGHT,
+    overscan: PROJECT_ROW_OVERSCAN,
+    scrollMargin: headerHeight,
+    getItemKey: (index) => {
+      const item = listItems[index]
+      if (!item) {
+        return `missing:${index}`
+      }
+      return item.kind === 'group-header' ? `group:${item.group.key}` : `row:${item.row.id}`
+    }
+  })
+
   const handleSortClick = (fieldId: string): void => {
     setSortOverride((prev) => {
       if (!prev || prev.fieldId !== fieldId) {
@@ -205,11 +264,19 @@ export default function ProjectViewList({
 
   return (
     <div
+      ref={scrollRef}
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto scrollbar-sleek"
-      style={{ '--project-scroll-left': '0px' } as React.CSSProperties}
+      // Why: publish the committed grid template as a CSS variable so the header
+      // + every row read it via the cascade — a column resize then repaints the
+      // whole table without re-rendering any row. It lives in an inline style
+      // (not a layout effect) so it is present before rows first measure, and
+      // React's per-property style diff leaves the imperatively-set drag preview
+      // untouched (the committed value is unchanged mid-drag).
+      style={{ '--project-grid-template': gridTemplate } as React.CSSProperties}
       onScroll={handleListScroll}
     >
       <ProjectHeaderRow
+        headerRef={headerRef}
         fields={fields}
         availableFields={availableFields}
         hidden={hidden}
@@ -217,192 +284,53 @@ export default function ProjectViewList({
         activeSort={activeSort}
         onSortClick={handleSortClick}
         widths={widths}
-        gridTemplate={gridTemplate}
-        onResizeColumn={setColumnPair}
+        onPreviewColumn={previewColumnPair}
+        onCommitColumn={setColumnPair}
       />
-      {groups.map((g) => {
-        const expanded = !collapsed.has(g.key)
-        return (
-          <div key={g.key}>
-            {table.selectedView.groupByFields[0] ? (
-              <ProjectGroupHeader
-                group={g}
-                expanded={expanded}
-                onToggle={() => {
-                  setCollapsed((prev) => {
-                    const next = new Set(prev)
-                    if (next.has(g.key)) {
-                      next.delete(g.key)
-                    } else {
-                      next.add(g.key)
-                    }
-                    return next
-                  })
-                }}
-              />
-            ) : null}
-            {expanded
-              ? g.rows.map((row) => (
-                  <ProjectRow
-                    key={row.id}
-                    row={row}
-                    fields={fields}
-                    gridTemplate={gridTemplate}
-                    widths={widths}
-                    onResizeColumn={setColumnPair}
-                    editable
-                    onOpenDialog={() => onOpenDialog?.(row)}
-                    onEditField={(fieldId, value) => onEditField?.(row, fieldId, value)}
-                    onEditAssignees={(add, remove) => onEditAssignees?.(row, add, remove)}
-                    onEditLabels={(add, remove) => onEditLabels?.(row, add, remove)}
-                    onEditIssueType={(issueType) => onEditIssueType?.(row, issueType)}
-                    onStartWork={() => onStartWork?.(row)}
-                    onOpenInBrowser={() => onOpenInBrowser?.(row)}
-                    sourceSettings={sourceSettings}
-                  />
-                ))
-              : null}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function ProjectHeaderRow({
-  fields,
-  availableFields,
-  hidden,
-  onToggleColumn,
-  activeSort,
-  onSortClick,
-  widths,
-  gridTemplate,
-  onResizeColumn
-}: {
-  fields: GitHubProjectField[]
-  availableFields: GitHubProjectField[]
-  hidden: ReadonlySet<string>
-  onToggleColumn: (fieldId: string) => void
-  activeSort: SortOverride | null
-  onSortClick: (fieldId: string) => void
-  widths: Readonly<Record<string, number>>
-  gridTemplate: string
-  onResizeColumn: (fieldId: string, width: number, nextFieldId: string, nextWidth: number) => void
-}): React.JSX.Element {
-  // Why: matches GitHub Projects' fixed column header — sticky so it stays
-  // pinned while scrolling the rows beneath it. The trailing slot mirrors the
-  // hover-action column in ProjectRow so columns line up exactly.
-  return (
-    <div
-      className="sticky top-0 z-10 grid items-center gap-3 border-b border-border/60 bg-background/95 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground backdrop-blur"
-      style={{ gridTemplateColumns: gridTemplate }}
-    >
-      {fields.map((f, idx) => {
-        const isActive = activeSort?.fieldId === f.id
-        const Icon = isActive ? (activeSort.direction === 'ASC' ? ArrowUp : ArrowDown) : ArrowUpDown
-        // Why: only render a resize handle when there is a neighbor to
-        // borrow width from. The trailing field has no field neighbor on
-        // its right (the action column is fixed and not part of the
-        // user-resizable pair set), so omit its handle to keep the total
-        // table width invariant.
-        const next = fields[idx + 1]
-        const frozen = idx < 2
-        return (
-          <div
-            key={f.id}
-            className={cn(
-              'flex min-w-0 items-center',
-              !frozen && 'relative',
-              frozen &&
-                cn(
-                  'relative z-20 backdrop-blur before:absolute before:-left-3 before:top-0 before:bottom-0 before:w-3 before:bg-inherit',
-                  PROJECT_FROZEN_COLUMN_HEADER_SURFACE_CLASS
-                ),
-              idx === 1 && 'border-r border-border/50'
-            )}
-            style={
-              frozen ? { transform: 'translateX(var(--project-scroll-left, 0px))' } : undefined
-            }
-          >
-            <button
-              type="button"
-              onClick={() => onSortClick(f.id)}
-              className={cn(
-                'group flex min-w-0 flex-1 items-center gap-1 truncate text-left uppercase tracking-wide hover:text-foreground',
-                isActive && 'text-foreground'
-              )}
-              aria-label={translate(
-                'auto.components.github.project.ProjectViewList.eddfc7a794',
-                'Sort by {{value0}}',
-                { value0: f.name }
-              )}
+      {/* Why: only on-screen rows mount. The spacer reserves the full scroll
+          height; each virtual row is absolutely positioned via translateY,
+          offset by the sticky header height (scrollMargin). */}
+      <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+        {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+          const item = listItems[virtualItem.index]
+          if (!item) {
+            return null
+          }
+          return (
+            <div
+              key={virtualItem.key}
+              data-index={virtualItem.index}
+              ref={rowVirtualizer.measureElement}
+              className="absolute left-0 top-0 w-full"
+              style={{ transform: `translateY(${virtualItem.start - headerHeight}px)` }}
             >
-              <span className="truncate">{f.name}</span>
-              <Icon
-                className={cn(
-                  'size-3 shrink-0 transition-opacity',
-                  isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-60'
-                )}
-              />
-            </button>
-            {next ? (
-              <ColumnResizeHandle
-                fieldId={f.id}
-                nextFieldId={next.id}
-                currentWidth={resolveWidth(f, widths)}
-                nextWidth={resolveWidth(next, widths)}
-                onResize={onResizeColumn}
-              />
-            ) : null}
-          </div>
-        )
-      })}
-      <div className="flex items-center justify-end">
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              aria-label={translate(
-                'auto.components.github.project.ProjectViewList.f949f5b2b7',
-                'Configure columns'
+              {item.kind === 'group-header' ? (
+                <ProjectGroupHeader
+                  group={item.group}
+                  expanded={!collapsed.has(item.group.key)}
+                  onToggle={() => toggleGroup(item.group.key)}
+                />
+              ) : (
+                <ProjectRow
+                  row={item.row}
+                  fields={fields}
+                  widths={widths}
+                  onPreviewResize={previewColumnPair}
+                  onCommitResize={setColumnPair}
+                  editable
+                  onOpenDialog={onOpenDialog}
+                  onEditField={onEditField}
+                  onEditAssignees={onEditAssignees}
+                  onEditLabels={onEditLabels}
+                  onEditIssueType={onEditIssueType}
+                  onStartWork={onStartWork}
+                  onOpenInBrowser={onOpenInBrowser}
+                  sourceSettings={sourceSettings}
+                />
               )}
-              className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-            >
-              <Columns3 className="size-3.5" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-56 p-1">
-            <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-              {translate('auto.components.github.project.ProjectViewList.989f81dc2a', 'Columns')}
             </div>
-            {availableFields.map((f) => {
-              // Why: TITLE is the only column that anchors the row's identity
-              // and click target — disallow hiding it so users can't end up
-              // with a row of metadata they can't open.
-              const locked = f.dataType === 'TITLE'
-              const visible = !hidden.has(f.id)
-              return (
-                <label
-                  key={f.id}
-                  className={cn(
-                    'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted/50',
-                    locked && 'cursor-not-allowed opacity-60'
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={visible}
-                    disabled={locked}
-                    onChange={() => onToggleColumn(f.id)}
-                    className="size-3.5"
-                  />
-                  <span className="truncate">{f.name}</span>
-                </label>
-              )
-            })}
-          </PopoverContent>
-        </Popover>
+          )
+        })}
       </div>
     </div>
   )

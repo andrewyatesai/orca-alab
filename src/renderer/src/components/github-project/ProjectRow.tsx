@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useCallback } from 'react'
 import { ExternalLink, Play } from 'lucide-react'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -23,26 +23,34 @@ const PROJECT_FROZEN_COLUMN_HOVER_SURFACE_CLASS =
 type Props = {
   row: GitHubProjectRowType
   fields: GitHubProjectField[]
-  gridTemplate: string
   widths: Readonly<Record<string, number>>
-  onResizeColumn: (fieldId: string, width: number, nextFieldId: string, nextWidth: number) => void
+  onPreviewResize: (fieldId: string, width: number, nextFieldId: string, nextWidth: number) => void
+  onCommitResize: (fieldId: string, width: number, nextFieldId: string, nextWidth: number) => void
   editable: boolean
-  onOpenDialog?: () => void
-  onEditField?: (fieldId: string, value: GitHubProjectFieldMutationValue | null) => void
-  onEditAssignees?: (add: string[], remove: string[]) => void
-  onEditLabels?: (add: string[], remove: string[]) => void
-  onEditIssueType?: (issueType: GitHubIssueType | null) => void
-  onStartWork?: () => void
-  onOpenInBrowser?: () => void
+  // Why: the row-level callbacks take the row so ProjectViewList can pass one
+  // stable function identity to every row (instead of allocating a fresh inline
+  // arrow per row per render). Binding the row happens here, memoized, so a
+  // memoized ProjectRow stays skippable when its parent re-renders on scroll.
+  onOpenDialog?: (row: GitHubProjectRowType) => void
+  onEditField?: (
+    row: GitHubProjectRowType,
+    fieldId: string,
+    value: GitHubProjectFieldMutationValue | null
+  ) => void
+  onEditAssignees?: (row: GitHubProjectRowType, add: string[], remove: string[]) => void
+  onEditLabels?: (row: GitHubProjectRowType, add: string[], remove: string[]) => void
+  onEditIssueType?: (row: GitHubProjectRowType, issueType: GitHubIssueType | null) => void
+  onStartWork?: (row: GitHubProjectRowType) => void
+  onOpenInBrowser?: (row: GitHubProjectRowType) => void
   sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 }
 
-export default function ProjectRow({
+function ProjectRow({
   row,
   fields,
-  gridTemplate,
   widths,
-  onResizeColumn,
+  onPreviewResize,
+  onCommitResize,
   editable,
   onOpenDialog,
   onEditField,
@@ -54,6 +62,29 @@ export default function ProjectRow({
   sourceSettings
 }: Props): React.JSX.Element {
   const disabled = row.itemType === 'REDACTED'
+  // Why: bind `row` into stable per-row callbacks so the heavy ProjectCell
+  // subtree (each memoized) is never reconciled just because a fresh arrow was
+  // handed down. Identity only changes when the parent callback or row changes.
+  const handleOpenDialog = useCallback(() => onOpenDialog?.(row), [onOpenDialog, row])
+  const handleEditField = useCallback(
+    (fieldId: string, value: GitHubProjectFieldMutationValue | null) =>
+      onEditField?.(row, fieldId, value),
+    [onEditField, row]
+  )
+  const handleEditAssignees = useCallback(
+    (add: string[], remove: string[]) => onEditAssignees?.(row, add, remove),
+    [onEditAssignees, row]
+  )
+  const handleEditLabels = useCallback(
+    (add: string[], remove: string[]) => onEditLabels?.(row, add, remove),
+    [onEditLabels, row]
+  )
+  const handleEditIssueType = useCallback(
+    (issueType: GitHubIssueType | null) => onEditIssueType?.(row, issueType),
+    [onEditIssueType, row]
+  )
+  const handleStartWork = useCallback(() => onStartWork?.(row), [onStartWork, row])
+  const handleOpenInBrowser = useCallback(() => onOpenInBrowser?.(row), [onOpenInBrowser, row])
   // Why: design doc §Row actions — draft-issue rows have no URL or number, so
   // the title is non-interactive. Surface the draft body in a hover card so
   // the user can still read context without round-tripping to GitHub.
@@ -67,7 +98,10 @@ export default function ProjectRow({
         'group group/project-row grid min-h-10 items-stretch gap-3 border-b border-border/30 px-3 hover:bg-accent/60',
         disabled && 'opacity-60'
       )}
-      style={{ gridTemplateColumns: gridTemplate }}
+      // Why: read the shared grid template from a CSS variable set on the
+      // scroll container so a column resize repaints every row via the CSS
+      // cascade — without re-rendering (or even re-reconciling) any row.
+      style={{ gridTemplateColumns: 'var(--project-grid-template)' }}
     >
       {fields.map((f, idx) => {
         const next = fields[idx + 1]
@@ -95,11 +129,11 @@ export default function ProjectRow({
                 row={row}
                 field={f}
                 editable={editable}
-                onEditField={onEditField}
-                onEditAssignees={onEditAssignees}
-                onEditLabels={onEditLabels}
-                onEditIssueType={onEditIssueType}
-                onOpenDialog={f.dataType === 'TITLE' ? onOpenDialog : undefined}
+                onEditField={handleEditField}
+                onEditAssignees={handleEditAssignees}
+                onEditLabels={handleEditLabels}
+                onEditIssueType={handleEditIssueType}
+                onOpenDialog={f.dataType === 'TITLE' ? handleOpenDialog : undefined}
                 sourceSettings={sourceSettings}
               />
             </div>
@@ -109,7 +143,8 @@ export default function ProjectRow({
                 nextFieldId={next.id}
                 currentWidth={resolveWidth(f, widths)}
                 nextWidth={resolveWidth(next, widths)}
-                onResize={onResizeColumn}
+                onPreview={onPreviewResize}
+                onCommit={onCommitResize}
               />
             ) : null}
           </div>
@@ -121,7 +156,7 @@ export default function ProjectRow({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={onOpenInBrowser}
+                onClick={handleOpenInBrowser}
                 aria-label={translate(
                   'auto.components.github.project.ProjectRow.e12be8b4d4',
                   'Open in GitHub'
@@ -141,7 +176,7 @@ export default function ProjectRow({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={onStartWork}
+                onClick={handleStartWork}
                 aria-label={translate(
                   'auto.components.github.project.ProjectRow.75b5d816e3',
                   'Start work'
@@ -176,3 +211,9 @@ export default function ProjectRow({
   }
   return rowInner
 }
+
+// Why: ~500 rows each mount a heavy per-cell tree; memoizing means a parent
+// re-render (e.g. every virtualizer scroll tick) skips rows whose props are
+// unchanged. The parent hands stable row-keyed callbacks + a memoized fields
+// list so this comparison actually holds.
+export default React.memo(ProjectRow)

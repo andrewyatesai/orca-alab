@@ -7,7 +7,11 @@ type Props = {
   nextFieldId: string
   currentWidth: number
   nextWidth: number
-  onResize: (fieldId: string, width: number, nextFieldId: string, nextWidth: number) => void
+  /** Live drag feedback — mutate the grid template via a CSS variable without
+   *  a React state write. Fires at most once per animation frame. */
+  onPreview: (fieldId: string, width: number, nextFieldId: string, nextWidth: number) => void
+  /** Commit the final widths to state + localStorage. Fires once on mouse-up. */
+  onCommit: (fieldId: string, width: number, nextFieldId: string, nextWidth: number) => void
 }
 
 // Why: stored widths are `fr` weights, not pixels — that's what keeps the
@@ -17,12 +21,19 @@ type Props = {
 // back to fr weights with the pair's total weight held constant. Net effect:
 // dragging redistributes width between the pair without changing the grid's
 // total — the table never grows.
+//
+// Why the preview/commit split + rAF: routing every raw mousemove through
+// React state re-rendered the whole project row set per pointer frame (and
+// re-read/wrote localStorage each tick). Instead we drive the live width via a
+// CSS variable during the drag (coalesced to one update per frame) and only
+// commit to state once, on mouse-up.
 export default function ColumnResizeHandle({
   fieldId,
   nextFieldId,
   currentWidth,
   nextWidth,
-  onResize
+  onPreview,
+  onCommit
 }: Props): React.JSX.Element {
   const [dragging, setDragging] = useState(false)
   const handleRef = useRef<HTMLDivElement | null>(null)
@@ -32,6 +43,10 @@ export default function ColumnResizeHandle({
     startPxB: number
     totalFr: number
   } | null>(null)
+  // Why: the latest computed fr split, held so mouse-up commits the final value
+  // even though the last preview may still be pending in a queued frame.
+  const latestRef = useRef<{ width: number; nextWidth: number } | null>(null)
+  const frameRef = useRef<number | null>(null)
 
   useEffect(() => {
     if (!dragging) {
@@ -50,11 +65,30 @@ export default function ColumnResizeHandle({
       const newPxA = Math.max(MIN_COLUMN_WIDTH, Math.min(totalPx - MIN_COLUMN_WIDTH, proposedPxA))
       const newFrA = (drag.totalFr * newPxA) / totalPx
       const newFrB = drag.totalFr - newFrA
-      onResize(fieldId, newFrA, nextFieldId, newFrB)
+      latestRef.current = { width: newFrA, nextWidth: newFrB }
+      if (frameRef.current !== null) {
+        return
+      }
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null
+        const latest = latestRef.current
+        if (latest) {
+          onPreview(fieldId, latest.width, nextFieldId, latest.nextWidth)
+        }
+      })
     }
     const onUp = (): void => {
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
+      const latest = latestRef.current
       dragRef.current = null
+      latestRef.current = null
       setDragging(false)
+      if (latest) {
+        onCommit(fieldId, latest.width, nextFieldId, latest.nextWidth)
+      }
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
@@ -65,10 +99,14 @@ export default function ColumnResizeHandle({
     return () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current)
+        frameRef.current = null
+      }
       document.body.style.cursor = prevCursor
       document.body.style.userSelect = prevSelect
     }
-  }, [dragging, fieldId, nextFieldId, onResize])
+  }, [dragging, fieldId, nextFieldId, onPreview, onCommit])
 
   return (
     <div
@@ -96,6 +134,7 @@ export default function ColumnResizeHandle({
           startPxB: nextCell.offsetWidth,
           totalFr: currentWidth + nextWidth
         }
+        latestRef.current = null
         setDragging(true)
       }}
       onClick={(e) => e.stopPropagation()}

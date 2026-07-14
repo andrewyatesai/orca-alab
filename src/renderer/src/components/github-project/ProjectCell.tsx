@@ -46,7 +46,7 @@ type Props = {
   sourceSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
 }
 
-export default function ProjectCell({
+function ProjectCell({
   row,
   field,
   editable,
@@ -212,6 +212,11 @@ export default function ProjectCell({
   }
   return <span />
 }
+
+// Why: with the row memoized, a row still re-renders when its column widths
+// change (resize commit). Memoizing the cell keeps that from re-rendering every
+// field's editor tree, since row/field/handlers are all stable across that.
+export default React.memo(ProjectCell)
 
 function TitleCell({
   row,

@@ -1,91 +1,13 @@
+import { requireOrcaDispatch } from './orca-dispatch-seam'
+
 /** Strips noise around the agent's output: surrounding whitespace, a single
- *  enclosing fenced code block, and lone "Generating…" preamble lines some
- *  CLIs print before the real answer. */
+ *  enclosing fenced code block, and lone "Generating…"/"Thinking" preamble lines
+ *  some CLIs print before the real answer. Cut over to the Rust core (dispatch
+ *  module 'commit-message-prompt'); the sole caller is main
+ *  (commit-message-text-generation), an always-ready napi surface, so an unbound
+ *  seam is a bootstrap bug — requireOrcaDispatch throws rather than degrading. */
 export function cleanGeneratedCommitMessage(raw: string): string {
-  // Why: agent output can include very large generated bodies; normalize and
-  // unwrap by scanning boundaries instead of building newline-sized arrays.
-  let text = normalizeGeneratedCommitMessageLineFeeds(raw).trim()
-
-  // Why: real commit messages never start with an ellipsis or the word
-  // "Generating"/"Thinking" — those leak from CLIs that print a status line
-  // before the actual response.
-  const firstNewline = text.indexOf('\n')
-  if (firstNewline !== -1) {
-    const firstLine = text.slice(0, firstNewline)
-    if (/^(generating|thinking)\b/i.test(firstLine) || /^[.…]+$/.test(firstLine.trim())) {
-      text = text.slice(firstNewline + 1).trim()
-    }
-  }
-
-  const fenced = findEnclosingCommitMessageFenceBody(text)
-  if (fenced !== null) {
-    text = fenced.trim()
-  }
-
-  // Why: some CLIs format a one-shot answer as a list item even when the
-  // prompt asks for raw text; a Git subject should not carry that marker.
-  text = text.replace(/^(\s*)(?:[-*•●]\s+|\d+[.)]\s+)/, '$1').trim()
-
-  return text
-}
-
-function normalizeGeneratedCommitMessageLineFeeds(value: string): string {
-  let crlfStart = value.indexOf('\r\n')
-  if (crlfStart === -1) {
-    return value
-  }
-
-  let normalized = value.slice(0, crlfStart)
-  let chunkStart = crlfStart + 2
-  normalized += '\n'
-  crlfStart = value.indexOf('\r\n', chunkStart)
-
-  while (crlfStart !== -1) {
-    normalized += value.slice(chunkStart, crlfStart)
-    normalized += '\n'
-    chunkStart = crlfStart + 2
-    crlfStart = value.indexOf('\r\n', chunkStart)
-  }
-
-  return `${normalized}${value.slice(chunkStart)}`
-}
-
-function findEnclosingCommitMessageFenceBody(text: string): string | null {
-  if (!text.startsWith('```')) {
-    return null
-  }
-
-  let headerEnd = 3
-  while (headerEnd < text.length && text.charCodeAt(headerEnd) !== 10) {
-    if (!isCommitFenceInfoCharacter(text.charCodeAt(headerEnd))) {
-      return null
-    }
-    headerEnd++
-  }
-
-  if (headerEnd >= text.length) {
-    return null
-  }
-
-  const closingFenceStart = text.length - 3
-  if (closingFenceStart <= headerEnd || !text.endsWith('```')) {
-    return null
-  }
-  if (text.charCodeAt(closingFenceStart - 1) !== 10) {
-    return null
-  }
-
-  return text.slice(headerEnd + 1, closingFenceStart - 1)
-}
-
-function isCommitFenceInfoCharacter(code: number): boolean {
-  return (
-    (code >= 48 && code <= 57) ||
-    (code >= 65 && code <= 90) ||
-    (code >= 97 && code <= 122) ||
-    code === 45 ||
-    code === 95
-  )
+  return requireOrcaDispatch('commit-message-prompt', 'cleanGeneratedCommitMessage', raw) as string
 }
 
 export function stripAnsiControlSequences(value: string): string {

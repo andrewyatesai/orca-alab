@@ -570,7 +570,7 @@ function itemContentSelection(includeParent: boolean): string {
       state
       stateReason
       repository { nameWithOwner }
-      assignees(first:5) { nodes { login name avatarUrl } }
+      assignees(first:5) { nodes { login name avatarUrl(size: 48) } }
       labels(first:10) { nodes { name color } }
       issueType { id name color description }
       ${parentFrag}
@@ -583,7 +583,7 @@ function itemContentSelection(includeParent: boolean): string {
       state
       isDraft
       repository { nameWithOwner }
-      assignees(first:5) { nodes { login name avatarUrl } }
+      assignees(first:5) { nodes { login name avatarUrl(size: 48) } }
       labels(first:10) { nodes { name color } }
     }
     ... on DraftIssue { id title body }
@@ -601,7 +601,7 @@ const FIELD_VALUES_SELECTION = `
       ... on ProjectV2ItemFieldNumberValue       { field { ...FieldConfig } number }
       ... on ProjectV2ItemFieldDateValue         { field { ...FieldConfig } date }
       ... on ProjectV2ItemFieldLabelValue        { field { ...FieldConfig } labels(first:10) { nodes { name color } } }
-      ... on ProjectV2ItemFieldUserValue         { field { ...FieldConfig } users(first:5) { nodes { login name avatarUrl } } }
+      ... on ProjectV2ItemFieldUserValue         { field { ...FieldConfig } users(first:5) { nodes { login name avatarUrl(size: 48) } } }
     }
   }
 `

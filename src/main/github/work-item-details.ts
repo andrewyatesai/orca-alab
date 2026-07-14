@@ -206,11 +206,21 @@ function mapTimelineTarget(
   }
 }
 
+// GitHub REST avatar_url returns the ~460px original; these render into 20px
+// <img> slots, so request 48px (20px @ 2x DPR), matching this file's GraphQL
+// avatarUrl(size: 48) paths. Respects the existing ?v=4 query string.
+function sizeGitHubAvatarUrl(url: string, size = 48): string {
+  if (!url) {
+    return url
+  }
+  return url.includes('?') ? `${url}&s=${size}` : `${url}?s=${size}`
+}
+
 function getTimelineActor(event: RestTimelineEvent): { login: string; avatarUrl: string } {
   const actor = event.actor ?? event.user
   return {
     login: actor?.login ?? 'ghost',
-    avatarUrl: actor?.avatar_url ?? ''
+    avatarUrl: sizeGitHubAvatarUrl(actor?.avatar_url ?? '')
   }
 }
 
@@ -724,7 +734,7 @@ async function getIssueBodyAndComments(
         (c): PRComment => ({
           id: c.id,
           author: c.user?.login ?? 'ghost',
-          authorAvatarUrl: c.user?.avatar_url ?? '',
+          authorAvatarUrl: sizeGitHubAvatarUrl(c.user?.avatar_url ?? ''),
           body: c.body ?? '',
           createdAt: c.created_at,
           url: c.html_url,

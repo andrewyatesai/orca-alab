@@ -135,6 +135,11 @@ const WorkItemDetails = RepoSelector.extend({
   projectRef: GitLabProjectRef
 })
 
+const MRChecks = RepoSelector.extend({
+  iid: z.number().int().positive(),
+  projectRef: GitLabProjectRef
+})
+
 const WorkItemByPath = RepoSelector.extend({
   host: requiredString('Missing GitLab host'),
   path: requiredString('Missing GitLab project path'),
@@ -288,6 +293,12 @@ export const GITLAB_METHODS: RpcMethod[] = [
     params: WorkItemDetails,
     handler: async (params, { runtime }) =>
       runtime.getGitLabRepoWorkItemDetails(params.repo, params.iid, params.type, params.projectRef)
+  }),
+  defineMethod({
+    name: 'gitlab.mrChecks',
+    params: MRChecks,
+    handler: async (params, { runtime }) =>
+      runtime.getGitLabRepoMRChecks(params.repo, params.iid, params.projectRef)
   }),
   defineMethod({
     name: 'gitlab.workItemByPath',

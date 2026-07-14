@@ -1842,6 +1842,7 @@ export type {
   GitLabTodoTargetType,
   GitLabViewer,
   GitLabWorkItem,
+  GitLabMRChecks,
   GitLabWorkItemDetails,
   GetGitLabRateLimitResult,
   ListMergeRequestsResult,

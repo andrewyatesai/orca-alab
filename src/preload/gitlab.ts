@@ -96,6 +96,9 @@ export const glApi = {
     }
   ): Promise<unknown> => ipcRenderer.invoke('gitlab:workItemDetails', args),
 
+  mrChecks: (args: GitLabRepoSelectorArgs & { iid: number }): Promise<unknown> =>
+    ipcRenderer.invoke('gitlab:mrChecks', args),
+
   closeMR: (
     args: GitLabRepoSelectorArgs & {
       iid: number

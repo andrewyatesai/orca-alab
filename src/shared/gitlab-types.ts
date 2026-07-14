@@ -290,6 +290,19 @@ export type GitLabPipelineJob = {
   duration: number | null
 }
 
+// Why: lightweight MR checks payload for the ChecksPanel poll. Unlike the
+// aggregated GitLabWorkItemDetails, this fetches ONLY what the panel renders
+// (pipeline jobs + conversation) so a 30s poll never re-downloads MR diffs,
+// reviewers, or approval state. Shape is a strict subset of
+// GitLabWorkItemDetails so the panel reads the same fields.
+export type GitLabMRChecks = {
+  comments: MRComment[]
+  /** MR-only — populated when the MR's head_pipeline exists. */
+  pipelineJobs?: GitLabPipelineJob[]
+  /** MR head SHA, used by the client cache to scope entries to a commit. */
+  headSha?: string
+}
+
 // Why: aggregated detail payload for GitLabItemDialog. Parallel to
 // GitHubWorkItemDetails. Flattens discussion notes into a single comments
 // list — inline review-comment positioning is v1.5 work; this surface is

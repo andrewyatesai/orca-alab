@@ -339,6 +339,7 @@ type WebGitLabRouteKey =
   | 'listLabels'
   | 'todos'
   | 'workItemDetails'
+  | 'mrChecks'
   | 'closeMR'
   | 'reopenMR'
   | 'mergeMR'
@@ -362,6 +363,7 @@ type WebGitLabRuntimeMethod =
   | 'gitlab.listLabels'
   | 'gitlab.todos'
   | 'gitlab.workItemDetails'
+  | 'gitlab.mrChecks'
   | 'gitlab.updateMRState'
   | 'gitlab.mergeMR'
   | 'gitlab.updateMR'
@@ -440,6 +442,7 @@ export const GITLAB_WEB_RPC_METHODS = {
   listLabels: 'gitlab.listLabels',
   todos: 'gitlab.todos',
   workItemDetails: 'gitlab.workItemDetails',
+  mrChecks: 'gitlab.mrChecks',
   closeMR: 'gitlab.updateMRState',
   reopenMR: 'gitlab.updateMRState',
   mergeMR: 'gitlab.mergeMR',
@@ -2144,6 +2147,8 @@ function createGitLabApi(): WebGitLabApi {
     todos: (args) => route<WebGitLabResult<'todos'>>(GITLAB_WEB_RPC_METHODS.todos, args),
     workItemDetails: (args) =>
       route<WebGitLabResult<'workItemDetails'>>(GITLAB_WEB_RPC_METHODS.workItemDetails, args),
+    mrChecks: (args) =>
+      route<WebGitLabResult<'mrChecks'>>(GITLAB_WEB_RPC_METHODS.mrChecks, args),
     closeMR: (args) =>
       route<WebGitLabResult<'closeMR'>>(GITLAB_WEB_RPC_METHODS.closeMR, {
         ...args,

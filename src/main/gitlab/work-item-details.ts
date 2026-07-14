@@ -6,6 +6,7 @@
 import type {
   GitLabAssignableUser,
   GitLabMRApprovalState,
+  GitLabMRChecks,
   GitLabMRFile,
   GitLabPipelineJob,
   GitLabWorkItem,
@@ -479,5 +480,90 @@ async function fetchMRDetails(
     ...(pipelineJobs !== undefined ? { pipelineJobs } : {}),
     reviewers,
     ...(approvalState ? { approvalState } : {})
+  }
+}
+
+/**
+ * Lightweight variant of getWorkItemDetails for the ChecksPanel poll: fetches
+ * ONLY what the panel renders — head_pipeline jobs + flattened discussions.
+ *
+ * Why: the panel polls every 30–120s but consumes only pipelineJobs +
+ * comments. Routing that poll through the full MR dialog bundle re-downloads
+ * MR diffs (per_page=100), reviewers, and approval state every cycle — a
+ * ~2.3x glab rate-limit waste. This path issues at most 3 glab calls
+ * (MR detail for head_pipeline.id + sha, discussions, pipeline jobs) and
+ * never touches diffs/reviewers/approvals.
+ *
+ * Returns null when the project ref can't be resolved or the MR can't load.
+ */
+export async function getMRChecks(
+  repoPath: string,
+  iid: number,
+  preference?: IssueSourcePreference,
+  connectionId?: string | null,
+  projectRefOverride?: ProjectRef | null,
+  localGitOptions: LocalGitExecOptions = {}
+): Promise<GitLabMRChecks | null> {
+  const projectRef =
+    projectRefOverride ??
+    (
+      await resolveIssueSource(
+        repoPath,
+        preference,
+        await getGlabKnownHosts(connectionId),
+        connectionId,
+        localGitOptions
+      )
+    ).source
+  if (!projectRef) {
+    return null
+  }
+  await acquire()
+  try {
+    return await fetchMRChecks(repoPath, projectRef, iid, connectionId, localGitOptions)
+  } catch {
+    return null
+  } finally {
+    release()
+  }
+}
+
+async function fetchMRChecks(
+  repoPath: string,
+  projectRef: ProjectRef,
+  iid: number,
+  connectionId?: string | null,
+  localGitOptions: LocalGitExecOptions = {}
+): Promise<GitLabMRChecks> {
+  // Why: MR detail (for head_pipeline.id + sha) + discussions in parallel;
+  // the pipeline jobs fetch depends on head_pipeline.id so it follows. No
+  // diffs/reviewers/approvals — those are dialog-only and unused by checks.
+  const [mrRes, discussions] = await Promise.all([
+    glabExecFileAsync(
+      [
+        'api',
+        ...glabHostnameArgs(projectRef, connectionId),
+        `projects/${encodedProject(projectRef.path)}/merge_requests/${iid}`
+      ],
+      glabRepoExecOptions(repoPath, connectionId, localGitOptions)
+    ),
+    fetchDiscussions(repoPath, projectRef, 'mr', iid, connectionId, localGitOptions)
+  ])
+  const mrRaw = JSON.parse(mrRes.stdout) as GitLabRawMR
+  const pipelineId = mrRaw.head_pipeline?.id
+  const pipelineJobs =
+    typeof pipelineId === 'number'
+      ? await fetchPipelineJobs(
+          repoPath,
+          projectRef,
+          pipelineId,
+          connectionId,
+          localGitOptions
+        ).catch(() => [])
+      : undefined
+  return {
+    comments: flattenDiscussions(discussions),
+    ...(typeof mrRaw.sha === 'string' ? { headSha: mrRaw.sha } : {}),
+    ...(pipelineJobs !== undefined ? { pipelineJobs } : {})
   }
 }

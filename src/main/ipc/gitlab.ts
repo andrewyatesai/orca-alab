@@ -50,7 +50,7 @@ import {
   updateMR,
   updateMRReviewers
 } from '../gitlab/client'
-import { getWorkItemDetails } from '../gitlab/work-item-details'
+import { getMRChecks, getWorkItemDetails } from '../gitlab/work-item-details'
 import type { ProjectRef } from '../gitlab/gl-utils'
 import type { LocalGitExecOptions } from '../gitlab/gitlab-project-ref-resolution'
 import { getLocalProjectWorktreeGitOptions } from '../project-runtime-git-options'
@@ -355,6 +355,23 @@ export function registerGitLabHandlers(store: Store): void {
         repo.path,
         args.iid,
         args.type,
+        repo.issueSourcePreference,
+        repoConnectionId(repo),
+        undefined,
+        ...localGitOptionArgs(store, repo)
+      )
+    }
+  )
+
+  // Why: lightweight checks-poll path — only head_pipeline jobs + discussions,
+  // never the MR diffs/reviewers/approvals the full dialog bundle fetches.
+  ipcMain.handle(
+    'gitlab:mrChecks',
+    async (_event, args: GitLabRepoSelectorArgs & { iid: number }) => {
+      const repo = assertRegisteredRepo(args, store)
+      return getMRChecks(
+        repo.path,
+        args.iid,
         repo.issueSourcePreference,
         repoConnectionId(repo),
         undefined,

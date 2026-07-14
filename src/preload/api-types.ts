@@ -106,6 +106,7 @@ import type {
   GitLabIssueInfo,
   GitLabIssueUpdate,
   GitLabJobTraceResult,
+  GitLabMRChecks,
   GitLabMRInlineCommentInput,
   GitLabMRReviewersUpdateResult,
   GitLabMRUpdate,
@@ -1816,6 +1817,12 @@ export type PreloadApi = {
         type: 'issue' | 'mr'
       }
     ) => Promise<GitLabWorkItemDetails | null>
+    /** Lightweight checks-poll payload — head_pipeline jobs + discussions only. */
+    mrChecks: (
+      args: GitLabRepoSelectorArgs & {
+        iid: number
+      }
+    ) => Promise<GitLabMRChecks | null>
     closeMR: (
       args: GitLabRepoSelectorArgs & {
         iid: number

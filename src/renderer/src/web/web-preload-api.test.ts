@@ -2926,6 +2926,12 @@ describe('web GitLab preload API', () => {
         expectedParams: { repoPath, repo: repoPath, iid: 8, type: 'mr' }
       },
       {
+        key: 'mrChecks',
+        invoke: (gl) => gl.mrChecks({ repoPath, iid: 8 }),
+        expectedMethod: 'gitlab.mrChecks',
+        expectedParams: { repoPath, repo: repoPath, iid: 8 }
+      },
+      {
         key: 'closeMR',
         invoke: (gl) => gl.closeMR({ repoPath, iid: 8 }),
         expectedMethod: 'gitlab.updateMRState',

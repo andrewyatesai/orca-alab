@@ -32,7 +32,7 @@ vi.mock('./gl-utils', () => ({
   glabRepoExecOptions: glabRepoExecOptionsMock
 }))
 
-import { getWorkItemDetails } from './work-item-details'
+import { getMRChecks, getWorkItemDetails } from './work-item-details'
 
 describe('getWorkItemDetails', () => {
   beforeEach(() => {
@@ -201,5 +201,111 @@ describe('getWorkItemDetails', () => {
     expect(glabExecFileAsyncMock.mock.calls.every((call) => call[1]?.wslDistro === 'Ubuntu')).toBe(
       true
     )
+  })
+})
+
+describe('getMRChecks', () => {
+  beforeEach(() => {
+    glabExecFileAsyncMock.mockReset()
+    getGlabKnownHostsMock.mockReset()
+    resolveIssueSourceMock.mockReset()
+    glabRepoExecOptionsMock.mockClear()
+    acquireMock.mockReset()
+    releaseMock.mockReset()
+    acquireMock.mockResolvedValue(undefined)
+    getGlabKnownHostsMock.mockResolvedValue(['gitlab.com'])
+    resolveIssueSourceMock.mockResolvedValue({
+      source: { host: 'gitlab.com', path: 'g/p' },
+      fellBack: false
+    })
+  })
+
+  it('fetches ONLY pipeline jobs + discussions — never diffs, reviewers, or approvals', async () => {
+    glabExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      const endpoint = args.at(-1)
+      if (endpoint === 'projects/g%2Fp/merge_requests/12') {
+        return {
+          stdout: JSON.stringify({
+            id: 120,
+            iid: 12,
+            sha: 'head-sha',
+            head_pipeline: { id: 99 }
+          })
+        }
+      }
+      if (endpoint === 'projects/g%2Fp/merge_requests/12/discussions?per_page=100') {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 'discussion-1',
+              notes: [
+                {
+                  id: 1,
+                  body: 'Review note',
+                  created_at: '2026-05-31T12:01:00Z',
+                  author: { username: 'alice', avatar_url: 'https://example.com/a.png' }
+                }
+              ]
+            }
+          ])
+        }
+      }
+      if (endpoint === 'projects/g%2Fp/pipelines/99/jobs?per_page=100') {
+        return {
+          stdout: JSON.stringify([
+            {
+              id: 10,
+              name: 'verify',
+              stage: 'test',
+              status: 'success',
+              web_url: 'https://gitlab.com/g/p/-/jobs/10',
+              duration: 12
+            }
+          ])
+        }
+      }
+      throw new Error(`unexpected glab call: ${args.join(' ')}`)
+    })
+
+    const checks = await getMRChecks('/repo', 12)
+
+    expect(checks?.comments).toHaveLength(1)
+    expect(checks?.pipelineJobs).toHaveLength(1)
+    expect(checks?.headSha).toBe('head-sha')
+
+    const endpoints = glabExecFileAsyncMock.mock.calls.map(([args]) => args.at(-1))
+    expect(endpoints).toEqual(
+      expect.arrayContaining([
+        'projects/g%2Fp/merge_requests/12',
+        'projects/g%2Fp/merge_requests/12/discussions?per_page=100',
+        'projects/g%2Fp/pipelines/99/jobs?per_page=100'
+      ])
+    )
+    // The wasteful dialog-bundle calls must NOT run on the checks poll.
+    expect(endpoints).not.toContain('projects/g%2Fp/merge_requests/12/diffs?per_page=100')
+    expect(endpoints).not.toContain('projects/g%2Fp/merge_requests/12/reviewers')
+    expect(endpoints).not.toContain('projects/g%2Fp/merge_requests/12/approvals')
+    expect(endpoints).not.toContain('projects/g%2Fp/merge_requests/12/approval_state')
+    // At most 3 glab subprocess spawns (vs ~7 for the full dialog bundle).
+    expect(glabExecFileAsyncMock.mock.calls).toHaveLength(3)
+  })
+
+  it('omits pipelineJobs when the MR has no head pipeline', async () => {
+    glabExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      const endpoint = args.at(-1)
+      if (endpoint === 'projects/g%2Fp/merge_requests/7') {
+        return { stdout: JSON.stringify({ id: 70, iid: 7, sha: 'sha-7', head_pipeline: null }) }
+      }
+      if (endpoint === 'projects/g%2Fp/merge_requests/7/discussions?per_page=100') {
+        return { stdout: '[]' }
+      }
+      throw new Error(`unexpected glab call: ${args.join(' ')}`)
+    })
+
+    const checks = await getMRChecks('/repo', 7)
+
+    expect(checks).toEqual({ comments: [], headSha: 'sha-7' })
+    // No pipeline → no jobs fetch: exactly the MR detail + discussions calls.
+    expect(glabExecFileAsyncMock.mock.calls).toHaveLength(2)
   })
 })

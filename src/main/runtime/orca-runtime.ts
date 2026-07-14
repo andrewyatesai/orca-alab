@@ -430,7 +430,10 @@ import {
   updateIssue as updateGitLabIssue
 } from '../gitlab/client'
 import { getGlabKnownHosts } from '../gitlab/gl-utils'
-import { getWorkItemDetails as getGitLabWorkItemDetails } from '../gitlab/work-item-details'
+import {
+  getWorkItemDetails as getGitLabWorkItemDetails,
+  getMRChecks as getGitLabMRChecks
+} from '../gitlab/work-item-details'
 import {
   normalizeGitLabIssueListArgs,
   normalizeGitLabMRListState,
@@ -13185,6 +13188,22 @@ export class OrcaRuntimeService {
       repo.path,
       iid,
       type,
+      repo.issueSourcePreference,
+      repo.connectionId ?? null,
+      projectRef,
+      ...this.getLocalGitExecutionOptionArgs(repo)
+    )
+  }
+
+  async getGitLabRepoMRChecks(
+    repoSelector: string,
+    iid: number,
+    projectRef?: GitLabProjectRef | null
+  ): Promise<Awaited<ReturnType<typeof getGitLabMRChecks>>> {
+    const repo = await this.resolveRepoSelector(repoSelector)
+    return getGitLabMRChecks(
+      repo.path,
+      iid,
       repo.issueSourcePreference,
       repo.connectionId ?? null,
       projectRef,

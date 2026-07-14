@@ -7,6 +7,7 @@ import TabDragPreview from '../tab-bar/TabDragPreview'
 import { TabDragProvider } from './tab-drag-context'
 import TabPaneColumnSplitDragOverlay from './TabPaneColumnSplitDragOverlay'
 import { type HoveredTabInsertion, useTabDragSplit } from './useTabDragSplit'
+import { beginSplitResizeDrag, type SplitResizeDragCleanup } from './tab-group-split-resize-drag'
 
 const MIN_RATIO = 0.15
 const MAX_RATIO = 0.85
@@ -22,11 +23,11 @@ function ResizeHandle({
 }): React.JSX.Element {
   const isHorizontal = direction === 'horizontal'
   const [dragging, setDragging] = useState(false)
-  const activeResizeCleanupRef = useRef<((updateDragging?: boolean) => void) | null>(null)
+  const activeResizeCleanupRef = useRef<SplitResizeDragCleanup | null>(null)
 
   useEffect(
     () => () => {
-      activeResizeCleanupRef.current?.(false)
+      activeResizeCleanupRef.current?.({ commit: false, silent: true })
     },
     []
   )
@@ -34,68 +35,26 @@ function ResizeHandle({
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault()
-      const handle = event.currentTarget
-      const container = handle.parentElement
-      if (!container) {
-        return
-      }
-      activeResizeCleanupRef.current?.()
-      onResizeStart()
-      setDragging(true)
-      handle.setPointerCapture(event.pointerId)
+      // Tear down any stale gesture before starting a fresh one.
+      activeResizeCleanupRef.current?.({ commit: false })
 
-      const onPointerMove = (moveEvent: PointerEvent): void => {
-        if (!handle.hasPointerCapture(event.pointerId)) {
-          return
-        }
-        const rect = container.getBoundingClientRect()
-        const ratio = isHorizontal
-          ? (moveEvent.clientX - rect.left) / rect.width
-          : (moveEvent.clientY - rect.top) / rect.height
-        onRatioChange(Math.min(MAX_RATIO, Math.max(MIN_RATIO, ratio)))
-      }
-
-      let cleaned = false
-      const cleanup = (updateDragging = true): void => {
-        if (cleaned) {
-          return
-        }
-        cleaned = true
-        if (updateDragging) {
+      const cleanup = beginSplitResizeDrag({
+        handle: event.currentTarget,
+        pointerId: event.pointerId,
+        isHorizontal,
+        minRatio: MIN_RATIO,
+        maxRatio: MAX_RATIO,
+        onRatioChange,
+        onEnd: () => {
           setDragging(false)
-        }
-        try {
-          if (handle.hasPointerCapture(event.pointerId)) {
-            handle.releasePointerCapture(event.pointerId)
-          }
-        } catch {
-          // Best effort: unmount cleanup can run after Chromium has already dropped capture.
-        }
-        handle.removeEventListener('pointermove', onPointerMove)
-        handle.removeEventListener('pointerup', onPointerUp)
-        handle.removeEventListener('pointercancel', onPointerCancel)
-        handle.removeEventListener('lostpointercapture', onLostPointerCapture)
-        if (activeResizeCleanupRef.current === cleanup) {
           activeResizeCleanupRef.current = null
         }
+      })
+      if (!cleanup) {
+        return
       }
-
-      const onPointerUp = (): void => {
-        cleanup()
-      }
-
-      const onPointerCancel = (): void => {
-        cleanup()
-      }
-
-      const onLostPointerCapture = (): void => {
-        cleanup()
-      }
-
-      handle.addEventListener('pointermove', onPointerMove)
-      handle.addEventListener('pointerup', onPointerUp)
-      handle.addEventListener('pointercancel', onPointerCancel)
-      handle.addEventListener('lostpointercapture', onLostPointerCapture)
+      onResizeStart()
+      setDragging(true)
       activeResizeCleanupRef.current = cleanup
     },
     [isHorizontal, onRatioChange, onResizeStart]

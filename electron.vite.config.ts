@@ -262,6 +262,13 @@ export default defineConfig({
     define: {
       ORCA_BUILD_INFO: ORCA_BUILD_INFO_LITERAL
     },
+    // electron-vite defaults renderer minify to false; the 7 MB eager entry is
+    // read + V8-parsed before first paint on every cold start. esbuild-minify
+    // ~halves it (measured 52%). Safe: no constructor.name/function.name
+    // reflection in the renderer — every `.name` compare is on a data field.
+    build: {
+      minify: 'esbuild'
+    },
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src'),

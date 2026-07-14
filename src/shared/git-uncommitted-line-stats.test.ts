@@ -112,11 +112,15 @@ describe('collectUntrackedAdditions', () => {
     // second pass must be stat-only.
     lstatMock.mockResolvedValue(mockFileStat(5, 7))
     readFileMock.mockResolvedValue(Buffer.from('a\nb\nc'))
+    countAdditions.mockReturnValue(3)
     const paths = Array.from({ length: 10_000 }, (_, i) => `poll-scale/file-${i}.ts`)
 
-    await collectUntrackedAdditions('/repo', paths)
+    // The fork gates counting on an explicit counter (the relay passes none);
+    // supply one so the scan reads + caches, then verify the cache survives a
+    // full status-limit scan (no re-read on the second poll).
+    await collectUntrackedAdditions('/repo', paths, countAdditions)
     const firstPassReads = readFileMock.mock.calls.length
-    await collectUntrackedAdditions('/repo', paths)
+    await collectUntrackedAdditions('/repo', paths, countAdditions)
 
     expect(firstPassReads).toBe(paths.length)
     expect(readFileMock).toHaveBeenCalledTimes(paths.length)

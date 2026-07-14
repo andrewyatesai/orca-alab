@@ -5524,6 +5524,12 @@ describe('connectPanePty', () => {
     })
     transportFactoryQueue.push(transport)
     const pane = createPane(2)
+    // fitIsLayoutBacked reads clientWidth/clientHeight (duck-typed); give the
+    // mock container real dims so the reattach narrow-resize gate fires. Set
+    // locally — other tests rely on the shared container being layout-unbacked.
+    const paneContainer = pane.container as { clientWidth: number; clientHeight: number }
+    paneContainer.clientWidth = 200
+    paneContainer.clientHeight = 200
     pane.terminal.cols = 133
     pane.terminal.rows = 63
     let proposedGrid = { cols: 133, rows: 63 }
@@ -9189,7 +9195,7 @@ describe('connectPanePty', () => {
       vi.advanceTimersByTime(50)
 
       expect(transport.sendInput).not.toHaveBeenCalled()
-      expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[?2031h')
+      expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[?2031h', expect.any(Function))
     } finally {
       vi.useRealTimers()
     }
@@ -16222,7 +16228,9 @@ describe('connectPanePty', () => {
       RESET_TERMINAL_CURSOR_STYLE,
       expect.any(Function)
     )
-    expect(storeSubscribers).toHaveLength(1)
+    // The fork registers two store subscribers on this path: the agent
+    // task-complete tracking settings watcher and the status/dispatch watcher.
+    expect(storeSubscribers).toHaveLength(2)
   })
 
   it('applies accepted hook side effects when every completion alert consumer is disabled', async () => {

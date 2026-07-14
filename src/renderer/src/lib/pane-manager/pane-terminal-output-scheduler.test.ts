@@ -557,10 +557,13 @@ describe('pane terminal output scheduler', () => {
     vi.advanceTimersByTime(50)
 
     expect(writes.map((data) => data.length)).toEqual([16 * 1024, 4 * 1024])
-    expect(parseCallbacks).toHaveLength(1)
+    // The aterm scheduler attaches a scroll-intent/draw completion callback to
+    // every slice (upstream xterm only the last); onParsed composes into the
+    // FINAL slice's callback, so fire the last one.
+    expect(parseCallbacks).toHaveLength(2)
     expect(onParsed).not.toHaveBeenCalled()
 
-    parseCallbacks[0]?.()
+    parseCallbacks.at(-1)?.()
 
     expect(onParsed).toHaveBeenCalledTimes(1)
   })
@@ -1014,7 +1017,7 @@ describe('pane terminal output scheduler', () => {
     vi.advanceTimersByTime(50)
 
     expect(beforeWrite).toHaveBeenCalledWith('مرحبا fallback notice')
-    expect(terminal.write).toHaveBeenCalledWith('مرحبا fallback notice')
+    expect(terminal.write).toHaveBeenCalledWith('مرحبا fallback notice', expect.any(Function))
   })
 
   it('ignores unforced chunks when resolving a coalesced forced refresh', async () => {

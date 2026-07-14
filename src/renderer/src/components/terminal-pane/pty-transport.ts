@@ -1048,6 +1048,9 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
 
     resize(cols: number, rows: number, meta): boolean {
       if (!connected || !ptyId) {
+        // Buffer the spawn-window resize (like claimViewport) so the bind-time
+        // flush replays the last requested dims instead of dropping them.
+        pendingPreConnectResize = { cols, rows }
         return false
       }
       if (meta?.claim) {

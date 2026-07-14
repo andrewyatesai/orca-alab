@@ -3811,7 +3811,11 @@ export function connectPanePty(
   // moment connectPanePty runs (it's the .pane element). Both report the
   // same layout signal — when the outer pane resizes, the inner xterm
   // container resizes too — so this is the safe element to observe.
-  if (geometryReportObserver && pane.container instanceof Element) {
+  if (
+    geometryReportObserver &&
+    typeof Element !== 'undefined' &&
+    pane.container instanceof Element
+  ) {
     geometryReportObserver.observe(pane.container)
   }
 
@@ -6870,10 +6874,14 @@ export function connectPanePty(
         // 80x24 pre-layout grid, and pushing that placeholder onto the live PTY
         // kernel-SIGWINCHes TUIs into a bogus relayout. The ResizeObserver
         // forwards the real dims as soon as layout lands.
+        // Duck-typed rather than `instanceof Element`: this only reads the
+        // layout dims, and `Element` is undefined in the node (headless) env.
+        const container = pane.container as HTMLElement | null
         const fitIsLayoutBacked =
-          pane.container instanceof Element &&
-          pane.container.clientWidth > 0 &&
-          pane.container.clientHeight > 0
+          typeof container?.clientWidth === 'number' &&
+          container.clientWidth > 0 &&
+          typeof container.clientHeight === 'number' &&
+          container.clientHeight > 0
         if (reattachCols > 0 && reattachRows > 0 && fitIsLayoutBacked) {
           transport.resize(reattachCols, reattachRows)
         }

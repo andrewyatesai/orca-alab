@@ -1,26 +1,25 @@
-// TS dispatch for the project-groups parity module. getNextProjectGroupOrder +
-// getProjectGroupSubtreeIds were cut over to the Rust core (main via napi, the
-// renderer via wasm), so this adapter drives the SAME wasm for them — the
-// harness's TS-vs-Rust diff degenerates to wasm-vs-binary and the vectors'
-// recorded goldens pin correctness. normalizeProjectGroupName stays live TS
-// (still the production impl; create/normalize/clear-membership stay in TS too).
-import { normalizeProjectGroupName } from '../../../src/shared/project-groups'
+// TS dispatch for the project-groups parity module. Every function here was cut
+// over to the Rust core (main via napi), so this adapter drives the SAME wasm
+// for all of them — the harness's TS-vs-Rust diff degenerates to wasm-vs-binary
+// and the vectors' recorded goldens pin correctness.
+// getEffectiveProjectGroupManualRank + UNGROUPED_PROJECT_GROUP_KEY are the only
+// survivors in TS and aren't parity functions (render-hot comparator / const).
 import { gitWasmOracle } from './orca-git-wasm-oracle'
 
+const WASM_FUNCTIONS = new Set([
+  'normalizeProjectGroupName',
+  'createProjectGroup',
+  'normalizeProjectGroups',
+  'clearMissingProjectGroupMemberships',
+  'getNextProjectGroupOrder',
+  'getProjectGroupSubtreeIds'
+])
+
 export function dispatch(fn: string, input: unknown): unknown {
-  switch (fn) {
-    case 'normalizeProjectGroupName': {
-      // Absent `fallback` is passed as `undefined`, so the TS default param applies.
-      const { name, fallback } = input as { name: string; fallback?: string }
-      return normalizeProjectGroupName(name, fallback)
-    }
-    case 'getNextProjectGroupOrder':
-    case 'getProjectGroupSubtreeIds':
-      // getProjectGroupSubtreeIds already returns a sorted array from Rust.
-      return JSON.parse(
-        gitWasmOracle().orcaDispatch('project-groups', fn, JSON.stringify(input ?? null))
-      )
-    default:
-      throw new Error(`unknown function ${fn}`)
+  if (!WASM_FUNCTIONS.has(fn)) {
+    throw new Error(`unknown function ${fn}`)
   }
+  return JSON.parse(
+    gitWasmOracle().orcaDispatch('project-groups', fn, JSON.stringify(input ?? null))
+  )
 }

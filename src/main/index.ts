@@ -5,6 +5,9 @@
 import { existsSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import os from 'node:os'
+// Side effect: bind the napi orcaDispatch into the shared seam before any
+// runtime code runs, so src/shared modules cut over to Rust work in main.
+import './orca-dispatch-binding'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
 import * as QRCode from 'qrcode'

@@ -6,37 +6,51 @@
     {
       "function": "normalizeProjectGroupName",
       "note": "trims surrounding whitespace, keeps content (default fallback unused)",
-      "input": { "name": "  Platform  " },
+      "input": {
+        "name": "  Platform  "
+      },
       "expected": "Platform"
     },
     {
       "function": "normalizeProjectGroupName",
       "note": "blank name falls back to the provided fallback",
-      "input": { "name": "   ", "fallback": "Existing" },
+      "input": {
+        "name": "   ",
+        "fallback": "Existing"
+      },
       "expected": "Existing"
     },
     {
       "function": "normalizeProjectGroupName",
       "note": "blank name with no fallback uses the default 'Untitled group'",
-      "input": { "name": "" },
+      "input": {
+        "name": ""
+      },
       "expected": "Untitled group"
     },
     {
       "function": "normalizeProjectGroupName",
       "note": "tabs/newlines-only name is blank after trim, uses fallback",
-      "input": { "name": "\t\n ", "fallback": "Custom" },
+      "input": {
+        "name": "\t\n ",
+        "fallback": "Custom"
+      },
       "expected": "Custom"
     },
     {
       "function": "normalizeProjectGroupName",
       "note": "already-clean name returned unchanged",
-      "input": { "name": "Backend Services" },
+      "input": {
+        "name": "Backend Services"
+      },
       "expected": "Backend Services"
     },
     {
       "function": "normalizeProjectGroupName",
       "note": "internal whitespace preserved, only the edges are trimmed",
-      "input": { "name": "  My   Group  " },
+      "input": {
+        "name": "  My   Group  "
+      },
       "expected": "My   Group"
     },
     {
@@ -44,8 +58,16 @@
       "note": "next order inside a group ignores ungrouped repos",
       "input": {
         "repos": [
-          { "id": "a", "projectGroupId": "g", "projectGroupOrder": 2 },
-          { "id": "b", "projectGroupId": null, "projectGroupOrder": 9 }
+          {
+            "id": "a",
+            "projectGroupId": "g",
+            "projectGroupOrder": 2
+          },
+          {
+            "id": "b",
+            "projectGroupId": null,
+            "projectGroupOrder": 9
+          }
         ],
         "groupId": "g"
       },
@@ -54,7 +76,10 @@
     {
       "function": "getNextProjectGroupOrder",
       "note": "empty repo list yields 0",
-      "input": { "repos": [], "groupId": null },
+      "input": {
+        "repos": [],
+        "groupId": null
+      },
       "expected": 0
     },
     {
@@ -62,8 +87,16 @@
       "note": "null group computes from null-group repos only",
       "input": {
         "repos": [
-          { "id": "a", "projectGroupId": null, "projectGroupOrder": 4 },
-          { "id": "b", "projectGroupId": "g", "projectGroupOrder": 10 }
+          {
+            "id": "a",
+            "projectGroupId": null,
+            "projectGroupOrder": 4
+          },
+          {
+            "id": "b",
+            "projectGroupId": "g",
+            "projectGroupOrder": 10
+          }
         ],
         "groupId": null
       },
@@ -73,7 +106,13 @@
       "function": "getNextProjectGroupOrder",
       "note": "no repos in the target group yields 0",
       "input": {
-        "repos": [{ "id": "a", "projectGroupId": "other", "projectGroupOrder": 7 }],
+        "repos": [
+          {
+            "id": "a",
+            "projectGroupId": "other",
+            "projectGroupOrder": 7
+          }
+        ],
         "groupId": "g"
       },
       "expected": 0
@@ -83,8 +122,16 @@
       "note": "non-finite order (NaN/Infinity persist as null) is ignored; max of finite orders + 1",
       "input": {
         "repos": [
-          { "id": "a", "projectGroupId": "g", "projectGroupOrder": null },
-          { "id": "b", "projectGroupId": "g", "projectGroupOrder": 2 }
+          {
+            "id": "a",
+            "projectGroupId": "g",
+            "projectGroupOrder": null
+          },
+          {
+            "id": "b",
+            "projectGroupId": "g",
+            "projectGroupOrder": 2
+          }
         ],
         "groupId": "g"
       },
@@ -187,7 +234,7 @@
       "function": "normalizeProjectGroupName",
       "note": "leading BOM (U+FEFF) is stripped by JS trim, so the name keeps its content (guards trim_js vs str::trim)",
       "input": {
-        "name": "\uFEFFPlatform"
+        "name": "﻿Platform"
       },
       "expected": "Platform"
     },
@@ -195,17 +242,318 @@
       "function": "normalizeProjectGroupName",
       "note": "trailing U+0085 (NEL) is NOT stripped by JS trim, so it stays in the name",
       "input": {
-        "name": "Platform\u0085"
+        "name": "Platform"
       },
-      "expected": "Platform\u0085"
+      "expected": "Platform"
     },
     {
       "function": "normalizeProjectGroupName",
       "note": "a bare-BOM name is blank after JS trim, so it falls back to the default",
       "input": {
-        "name": "\uFEFF"
+        "name": "﻿"
       },
       "expected": "Untitled group"
+    },
+    {
+      "function": "createProjectGroup",
+      "note": "assembles a durable group with normalized name + injected id/clock; no executionHostId (the factory never sets it)",
+      "input": {
+        "id": "grp-1",
+        "name": "  Platform  ",
+        "parentPath": "/srv/platform",
+        "connectionId": null,
+        "parentGroupId": null,
+        "createdFrom": "folder-scan",
+        "tabOrder": 3,
+        "now": 100
+      },
+      "expected": {
+        "id": "grp-1",
+        "name": "Platform",
+        "parentPath": "/srv/platform",
+        "connectionId": null,
+        "parentGroupId": null,
+        "createdFrom": "folder-scan",
+        "tabOrder": 3,
+        "isCollapsed": false,
+        "color": null,
+        "createdAt": 100,
+        "updatedAt": 100
+      }
+    },
+    {
+      "function": "createProjectGroup",
+      "note": "carries connectionId + parentGroupId; a blank name falls back to Untitled group",
+      "input": {
+        "id": "grp-2",
+        "name": "   ",
+        "parentPath": null,
+        "connectionId": "conn-1",
+        "parentGroupId": "grp-1",
+        "createdFrom": "manual",
+        "tabOrder": 0,
+        "now": 50
+      },
+      "expected": {
+        "id": "grp-2",
+        "name": "Untitled group",
+        "parentPath": null,
+        "connectionId": "conn-1",
+        "parentGroupId": "grp-1",
+        "createdFrom": "manual",
+        "tabOrder": 0,
+        "isCollapsed": false,
+        "color": null,
+        "createdAt": 50,
+        "updatedAt": 50
+      }
+    },
+    {
+      "function": "normalizeProjectGroups",
+      "note": "dedupes by id, drops entries without a string id, sorts by tabOrder, and nulls a dangling parentGroupId",
+      "input": {
+        "value": [
+          {
+            "id": "b",
+            "name": "B",
+            "tabOrder": 2
+          },
+          {
+            "id": "a",
+            "name": "A",
+            "tabOrder": 1,
+            "parentGroupId": "missing",
+            "createdFrom": "folder-scan",
+            "isCollapsed": true
+          },
+          {
+            "id": "a",
+            "name": "duplicate"
+          },
+          {
+            "name": "missing id"
+          }
+        ],
+        "now": 0
+      },
+      "expected": [
+        {
+          "id": "a",
+          "name": "A",
+          "parentPath": null,
+          "connectionId": null,
+          "parentGroupId": null,
+          "createdFrom": "folder-scan",
+          "tabOrder": 1,
+          "isCollapsed": true,
+          "color": null,
+          "createdAt": 0,
+          "updatedAt": 0
+        },
+        {
+          "id": "b",
+          "name": "B",
+          "parentPath": null,
+          "connectionId": null,
+          "parentGroupId": null,
+          "createdFrom": "manual",
+          "tabOrder": 2,
+          "isCollapsed": false,
+          "color": null,
+          "createdAt": 0,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "function": "normalizeProjectGroups",
+      "note": "preserves a string connectionId and normalizes executionHostId; a non-string connectionId becomes null and a malformed ssh host is dropped",
+      "input": {
+        "value": [
+          {
+            "id": "remote",
+            "name": "Remote",
+            "tabOrder": 1,
+            "connectionId": "conn-9",
+            "executionHostId": "ssh:host%20a"
+          },
+          {
+            "id": "bad",
+            "name": "Bad",
+            "tabOrder": 2,
+            "connectionId": 42,
+            "executionHostId": "ssh:"
+          },
+          {
+            "id": "loc",
+            "name": "Local",
+            "tabOrder": 3,
+            "executionHostId": "local"
+          }
+        ],
+        "now": 0
+      },
+      "expected": [
+        {
+          "id": "remote",
+          "name": "Remote",
+          "parentPath": null,
+          "connectionId": "conn-9",
+          "parentGroupId": null,
+          "createdFrom": "manual",
+          "tabOrder": 1,
+          "isCollapsed": false,
+          "color": null,
+          "createdAt": 0,
+          "updatedAt": 0,
+          "executionHostId": "ssh:host%20a"
+        },
+        {
+          "id": "bad",
+          "name": "Bad",
+          "parentPath": null,
+          "connectionId": null,
+          "parentGroupId": null,
+          "createdFrom": "manual",
+          "tabOrder": 2,
+          "isCollapsed": false,
+          "color": null,
+          "createdAt": 0,
+          "updatedAt": 0
+        },
+        {
+          "id": "loc",
+          "name": "Local",
+          "parentPath": null,
+          "connectionId": null,
+          "parentGroupId": null,
+          "createdFrom": "manual",
+          "tabOrder": 3,
+          "isCollapsed": false,
+          "color": null,
+          "createdAt": 0,
+          "updatedAt": 0,
+          "executionHostId": "local"
+        }
+      ]
+    },
+    {
+      "function": "normalizeProjectGroups",
+      "note": "equal tabOrder breaks ties case-insensitively (localeCompare best-effort): apple sorts before Banana",
+      "input": {
+        "value": [
+          {
+            "id": "b",
+            "name": "Banana",
+            "tabOrder": 0
+          },
+          {
+            "id": "a",
+            "name": "apple",
+            "tabOrder": 0
+          }
+        ],
+        "now": 0
+      },
+      "expected": [
+        {
+          "id": "a",
+          "name": "apple",
+          "parentPath": null,
+          "connectionId": null,
+          "parentGroupId": null,
+          "createdFrom": "manual",
+          "tabOrder": 0,
+          "isCollapsed": false,
+          "color": null,
+          "createdAt": 0,
+          "updatedAt": 0
+        },
+        {
+          "id": "b",
+          "name": "Banana",
+          "parentPath": null,
+          "connectionId": null,
+          "parentGroupId": null,
+          "createdFrom": "manual",
+          "tabOrder": 0,
+          "isCollapsed": false,
+          "color": null,
+          "createdAt": 0,
+          "updatedAt": 0
+        }
+      ]
+    },
+    {
+      "function": "clearMissingProjectGroupMemberships",
+      "note": "nulls a dead projectGroupId while preserving every other repo field verbatim; live + null memberships pass through unchanged",
+      "input": {
+        "repos": [
+          {
+            "id": "known",
+            "path": "/known",
+            "displayName": "known",
+            "badgeColor": "#999",
+            "addedAt": 1,
+            "kind": "git",
+            "projectGroupId": "g1"
+          },
+          {
+            "id": "orphan",
+            "path": "/orphan",
+            "displayName": "orphan",
+            "badgeColor": "#888",
+            "addedAt": 2,
+            "kind": "git",
+            "projectGroupId": "gone",
+            "connectionId": "c1"
+          },
+          {
+            "id": "free",
+            "path": "/free",
+            "displayName": "free",
+            "badgeColor": "#777",
+            "addedAt": 3,
+            "kind": "git",
+            "projectGroupId": null
+          }
+        ],
+        "groups": [
+          {
+            "id": "g1"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "id": "known",
+          "path": "/known",
+          "displayName": "known",
+          "badgeColor": "#999",
+          "addedAt": 1,
+          "kind": "git",
+          "projectGroupId": "g1"
+        },
+        {
+          "id": "orphan",
+          "path": "/orphan",
+          "displayName": "orphan",
+          "badgeColor": "#888",
+          "addedAt": 2,
+          "kind": "git",
+          "projectGroupId": null,
+          "connectionId": "c1"
+        },
+        {
+          "id": "free",
+          "path": "/free",
+          "displayName": "free",
+          "badgeColor": "#777",
+          "addedAt": 3,
+          "kind": "git",
+          "projectGroupId": null
+        }
+      ]
     }
   ]
 }

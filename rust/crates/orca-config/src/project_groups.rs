@@ -5,9 +5,22 @@
 //! timestamps are injected (the IO edge owns the RNG/clock); persisted-value
 //! normalization reads `unknown` JSON via vendored `serde_json`.
 
+use orca_core::execution_host::normalize_execution_host_id;
 use orca_core::js_string::trim_js;
 use serde_json::Value;
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+
+/// Best-effort stand-in for JS `String.prototype.localeCompare` (default
+/// locale/ICU) used only as the equal-`tabOrder` sort tiebreaker. Compares
+/// case-insensitively first (so `apple` sorts before `Banana`, unlike raw
+/// scalar order which puts uppercase first), then falls back to scalar order to
+/// stay a deterministic total order. Not full ICU collation — accent adjacency
+/// and non-Latin script ordering can still differ; that only surfaces on genuine
+/// tabOrder ties between such names, a documented cosmetic divergence.
+fn locale_compare_names(left: &str, right: &str) -> Ordering {
+    left.to_lowercase().cmp(&right.to_lowercase()).then_with(|| left.cmp(right))
+}
 
 pub const UNGROUPED_PROJECT_GROUP_KEY: &str = "project-group:ungrouped";
 
@@ -23,6 +36,12 @@ pub struct ProjectGroup {
     pub id: String,
     pub name: String,
     pub parent_path: Option<String>,
+    // Why: an SSH group's connection id and the runtime-owned host id must
+    // survive normalization — otherwise a persisted remote group looks local on
+    // reload. `execution_host_id` is emitted only when present (the TS spreads
+    // `...(executionHostId ? { executionHostId } : {})`); `create_project_group`
+    // never sets it, matching the TS factory.
+    pub connection_id: Option<String>,
     pub parent_group_id: Option<String>,
     pub created_from: ProjectGroupCreatedFrom,
     pub tab_order: f64,
@@ -30,6 +49,7 @@ pub struct ProjectGroup {
     pub color: Option<String>,
     pub created_at: f64,
     pub updated_at: f64,
+    pub execution_host_id: Option<String>,
 }
 
 /// The repo fields the membership/order helpers read.
@@ -58,10 +78,12 @@ pub fn normalize_project_group_name(name: &str, fallback: &str) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn create_project_group(
     id: &str,
     name: &str,
     parent_path: Option<&str>,
+    connection_id: Option<&str>,
     parent_group_id: Option<&str>,
     created_from: ProjectGroupCreatedFrom,
     tab_order: f64,
@@ -71,6 +93,7 @@ pub fn create_project_group(
         id: id.to_string(),
         name: normalize_project_group_name(name, "Untitled group"),
         parent_path: parent_path.map(str::to_string),
+        connection_id: connection_id.map(str::to_string),
         parent_group_id: parent_group_id.map(str::to_string),
         created_from,
         tab_order,
@@ -78,6 +101,8 @@ pub fn create_project_group(
         color: None,
         created_at: now,
         updated_at: now,
+        // The TS factory never sets executionHostId.
+        execution_host_id: None,
     }
 }
 
@@ -105,6 +130,8 @@ pub fn normalize_project_groups(value: &Value, now: f64) -> Vec<ProjectGroup> {
             id: id.to_string(),
             name: normalize_project_group_name(object.get("name").and_then(Value::as_str).unwrap_or(""), "Untitled group"),
             parent_path: object.get("parentPath").and_then(Value::as_str).map(str::to_string),
+            // `typeof raw.connectionId === 'string' ? raw.connectionId : null`.
+            connection_id: object.get("connectionId").and_then(Value::as_str).map(str::to_string),
             parent_group_id: object.get("parentGroupId").and_then(Value::as_str).map(str::to_string),
             created_from: match object.get("createdFrom").and_then(Value::as_str) {
                 Some("folder-scan") => ProjectGroupCreatedFrom::FolderScan,
@@ -116,6 +143,11 @@ pub fn normalize_project_groups(value: &Value, now: f64) -> Vec<ProjectGroup> {
             color: object.get("color").and_then(Value::as_str).map(str::to_string),
             created_at: finite_or(object.get("createdAt"), now),
             updated_at: finite_or(object.get("updatedAt"), now),
+            // Only carried when it normalizes; the dispatch serializer omits None.
+            execution_host_id: object
+                .get("executionHostId")
+                .and_then(Value::as_str)
+                .and_then(normalize_execution_host_id),
         });
     }
 
@@ -123,7 +155,7 @@ pub fn normalize_project_groups(value: &Value, now: f64) -> Vec<ProjectGroup> {
         left.tab_order
             .partial_cmp(&right.tab_order)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| locale_compare_names(&left.name, &right.name))
     });
 
     let group_ids: HashSet<String> = groups.iter().map(|group| group.id.clone()).collect();
@@ -137,16 +169,10 @@ pub fn normalize_project_groups(value: &Value, now: f64) -> Vec<ProjectGroup> {
     groups
 }
 
-pub fn clear_missing_project_group_memberships(repos: &[Repo], groups: &[ProjectGroup]) -> Vec<Repo> {
-    let group_ids: HashSet<&str> = groups.iter().map(|group| group.id.as_str()).collect();
-    repos
-        .iter()
-        .map(|repo| match &repo.project_group_id {
-            Some(group_id) if !group_ids.contains(group_id.as_str()) => Repo { project_group_id: None, ..repo.clone() },
-            _ => repo.clone(),
-        })
-        .collect()
-}
+// clearMissingProjectGroupMemberships is not modeled here: it must preserve every
+// Repo field verbatim (only nulling a dead projectGroupId), which the lean `Repo`
+// struct can't express. Its single production impl is a serde_json::Value
+// passthrough in orca-dispatch (modules::project_groups), the JSON layer.
 
 pub fn get_project_group_subtree_ids(groups: &[ProjectGroupNode], root_group_id: &str) -> HashSet<String> {
     let mut children_by_parent: HashMap<&str, Vec<&str>> = HashMap::new();
@@ -185,7 +211,7 @@ pub fn get_next_project_group_order(repos: &[Repo], group_id: Option<&str>) -> f
 mod tests {
     use super::*;
     use serde_json::json;
-    use ProjectGroupCreatedFrom::{FolderScan, Manual};
+    use ProjectGroupCreatedFrom::FolderScan;
 
     fn repo(id: &str, project_group_id: Option<&str>, project_group_order: Option<f64>) -> Repo {
         Repo { id: id.to_string(), project_group_id: project_group_id.map(str::to_string), project_group_order }
@@ -193,9 +219,10 @@ mod tests {
 
     #[test]
     fn creates_a_durable_project_group_with_normalized_defaults() {
-        let group = create_project_group("g1", "  Platform  ", Some("/srv/platform"), None, FolderScan, 3.0, 100.0);
+        let group = create_project_group("g1", "  Platform  ", Some("/srv/platform"), Some("conn-1"), None, FolderScan, 3.0, 100.0);
         assert_eq!(group.name, "Platform");
         assert_eq!(group.parent_path.as_deref(), Some("/srv/platform"));
+        assert_eq!(group.connection_id.as_deref(), Some("conn-1"));
         assert_eq!(group.parent_group_id, None);
         assert_eq!(group.created_from, FolderScan);
         assert_eq!(group.tab_order, 3.0);
@@ -203,6 +230,8 @@ mod tests {
         assert_eq!(group.color, None);
         assert_eq!(group.created_at, 100.0);
         assert_eq!(group.updated_at, 100.0);
+        // The factory never sets executionHostId.
+        assert_eq!(group.execution_host_id, None);
     }
 
     #[test]
@@ -236,14 +265,36 @@ mod tests {
     }
 
     #[test]
-    fn clears_repo_memberships_whose_group_no_longer_exists() {
-        let groups = vec![create_project_group("known-group", "Known", None, None, Manual, 0.0, 0.0)];
-        let repos = clear_missing_project_group_memberships(
-            &[repo("known", Some("known-group"), None), repo("missing", Some("x"), None)],
-            &groups,
+    fn preserves_connection_id_and_normalizes_execution_host_id() {
+        let groups = normalize_project_groups(
+            &json!([
+                { "id": "remote", "name": "Remote", "connectionId": "conn-9", "executionHostId": "ssh:host%20a" },
+                { "id": "bad-host", "name": "Bad", "connectionId": 42, "executionHostId": "ssh:" },
+                { "id": "local", "name": "Local", "executionHostId": "local" }
+            ]),
+            0.0,
         );
-        assert_eq!(repos.iter().find(|r| r.id == "known").unwrap().project_group_id.as_deref(), Some("known-group"));
-        assert_eq!(repos.iter().find(|r| r.id == "missing").unwrap().project_group_id, None);
+        let remote = groups.iter().find(|g| g.id == "remote").unwrap();
+        assert_eq!(remote.connection_id.as_deref(), Some("conn-9"));
+        assert_eq!(remote.execution_host_id.as_deref(), Some("ssh:host%20a"));
+        let bad = groups.iter().find(|g| g.id == "bad-host").unwrap();
+        // Non-string connectionId → null; malformed ssh: host → dropped.
+        assert_eq!(bad.connection_id, None);
+        assert_eq!(bad.execution_host_id, None);
+        assert_eq!(groups.iter().find(|g| g.id == "local").unwrap().execution_host_id.as_deref(), Some("local"));
+    }
+
+    #[test]
+    fn orders_equal_tab_order_names_case_insensitively() {
+        let groups = normalize_project_groups(
+            &json!([
+                { "id": "b", "name": "Banana", "tabOrder": 0 },
+                { "id": "a", "name": "apple", "tabOrder": 0 }
+            ]),
+            0.0,
+        );
+        // localeCompare puts `apple` before `Banana`; raw scalar order would not.
+        assert_eq!(groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(), ["apple", "Banana"]);
     }
 
     #[test]

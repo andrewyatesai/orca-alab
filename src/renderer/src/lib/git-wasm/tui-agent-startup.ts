@@ -11,7 +11,11 @@
 import { tuiAgentStartupOp } from './orca_git_wasm.js'
 import { isGitWasmReady } from './git-line-stats'
 import type { AgentDraftLaunchPlan, AgentStartupPlan } from '../../../../shared/tui-agent-startup'
-import type { AgentStartupShell } from '../../../../shared/tui-agent-startup-shell'
+import {
+  resolveStartupShell,
+  type AgentStartupShell
+} from '../../../../shared/tui-agent-startup-shell'
+import { planHermesStartupQuery } from '../../../../shared/hermes-startup-query'
 import type {
   AgentProviderSessionMetadata,
   ResumableTuiAgent
@@ -36,7 +40,38 @@ export function buildAgentStartupPlan(args: {
   agentEnv?: Record<string, string> | null
   isRemote?: boolean
 }): AgentStartupPlan | null {
-  return op<AgentStartupPlan>('buildAgentStartupPlan', args)
+  const plan = op<AgentStartupPlan>('buildAgentStartupPlan', args)
+  // Hermes owns readiness/submission via `chat --query` + a startup-query env
+  // var, not stdin-after-start. The Rust core resolves the base command +
+  // launchConfig; rebuild the launch here through the tested TS query builder
+  // (the single source, also used by the main-process pty providers).
+  if (plan && args.agent === 'hermes' && args.prompt.trim()) {
+    // planHermesStartupQuery needs the base command and the configured args
+    // SEPARATELY (it reorders them around the `chat` subcommand), so re-resolve
+    // the base (the Rust core folds the arg suffix into its base command). A
+    // present-but-empty override is falsy and falls through to the launch cmd.
+    const baseCommand = args.cmdOverrides.hermes?.trim() || 'hermes --tui'
+    const queryPlan = planHermesStartupQuery({
+      baseCommand,
+      agentArgs: args.agentArgs,
+      prompt: args.prompt.trim(),
+      agentEnv: args.agentEnv,
+      platform: args.platform,
+      shell: resolveStartupShell(args.platform, args.shell),
+      isRemote: args.isRemote
+    })
+    if (!queryPlan) {
+      return null
+    }
+    return {
+      ...plan,
+      launchCommand: queryPlan.command,
+      followupPrompt: null,
+      env: queryPlan.env,
+      launchConfig: { ...plan.launchConfig, agentCommand: baseCommand }
+    }
+  }
+  return plan
 }
 
 export function buildAgentResumeStartupPlan(args: {

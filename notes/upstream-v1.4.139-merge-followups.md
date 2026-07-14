@@ -25,10 +25,12 @@ our rust pieces" work). Tracked here; to be landed incrementally.
    flow-control/output-scheduler behavior against the fork's aterm write path (adopt ack-credit /
    delivery-interest where it fits aterm; drop xterm-write-path specifics that have no aterm analog).
 
-4. **Workspace-cleanup classifier** (~16: `workspace-cleanup-removal-preflight`,
-   `workspace-cleanup`, `workspace-cleanup-scan-progress`). Upstream added removal-preflight +
-   classifier tiers the fork's Rust workspace-cleanup core doesn't emit (`'ready'` vs `'protected'`).
-   Port to the Rust classifier.
+4. **Workspace-cleanup** (DONE except 1). The Rust classifier already had the right
+   HARD_BLOCKERS; the upstream-new preflight test just didn't init the fork's git-wasm shim
+   (added), and 3 stale `removeWorktree` assertions missed the (correct) `suppressPreservedBranchToast`
+   arg (fixed). REMAINING (1): `workspace-cleanup-scan-progress` "does not let an in-flight broad
+   scan revive removed cleanup rows" expects `scan` x3, gets x2 — a scanWorkspaceCleanup dedup
+   behavior the fork's store slice differs on; reconcile the fork's scan-join vs upstream's.
 
 5. **Daemon alt-screen serialize parity** (~5 remaining: `headless-emulator` "preserves the
    normal buffer behind an alternate-screen snapshot", `reattach-snapshot`,

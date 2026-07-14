@@ -445,7 +445,7 @@ describe('workspace cleanup viewed rows', () => {
       'repo-a::/repo/parent',
       'repo-c::/other'
     ])
-    expect(removeWorktree).toHaveBeenCalledWith('repo-c::/other', true)
+    expect(removeWorktree).toHaveBeenCalledWith('repo-c::/other', true, { suppressPreservedBranchToast: true })
     expect(store.getState().workspaceCleanupScan?.candidates).toEqual([])
   })
 
@@ -558,7 +558,7 @@ describe('workspace cleanup viewed rows', () => {
       removedIds: [WORKTREE_ID],
       failures: []
     })
-    expect(removeWorktree).toHaveBeenCalledWith(WORKTREE_ID, false)
+    expect(removeWorktree).toHaveBeenCalledWith(WORKTREE_ID, false, { suppressPreservedBranchToast: true })
   })
 
   it('defers git checks for locally active workspaces on initial scans', async () => {
@@ -664,7 +664,7 @@ describe('workspace cleanup viewed rows', () => {
         failures: []
       }
     )
-    expect(removeWorktree).toHaveBeenCalledWith(WORKTREE_ID, false)
+    expect(removeWorktree).toHaveBeenCalledWith(WORKTREE_ID, false, { suppressPreservedBranchToast: true })
   })
 
   it('protects old workspaces when an agent process is still foregrounded', async () => {

@@ -1,3 +1,6 @@
+// Init the orca-git wasm so the cleanup classifier returns real Rust tiers
+// instead of the pre-ready pass-through fallback (this runs in a node-env test).
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { describe, expect, it, vi } from 'vitest'
 import type { AppState } from '../types'
 import type { WorkspaceCleanupScanResult } from '../../../../shared/workspace-cleanup'

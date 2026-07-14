@@ -5,12 +5,13 @@
 //! `crate::uri_component`, and a minimal host/first-path-segment parse in place
 //! of `new URL`.
 
-use crate::uri_component::{decode_uri_component, encode_uri_component};
+use crate::js_string::trim_js;
+use crate::uri_component::{encode_uri_component, try_decode_uri_component};
 
 /// `https://linear.app/<org>/team/<team>/all`, or `None` if either key is blank.
 pub fn build_linear_team_url(organization_url_key: Option<&str>, team_key: Option<&str>) -> Option<String> {
-    let organization_url_key = organization_url_key.map(str::trim).filter(|key| !key.is_empty())?;
-    let team_key = team_key.map(str::trim).filter(|key| !key.is_empty())?;
+    let organization_url_key = organization_url_key.map(trim_js).filter(|key| !key.is_empty())?;
+    let team_key = team_key.map(trim_js).filter(|key| !key.is_empty())?;
     Some(format!(
         "https://linear.app/{}/team/{}/all",
         encode_uri_component(organization_url_key),
@@ -19,14 +20,14 @@ pub fn build_linear_team_url(organization_url_key: Option<&str>, team_key: Optio
 }
 
 pub fn build_linear_personal_api_key_settings_url(organization_url_key: Option<&str>) -> String {
-    match organization_url_key.map(str::trim).filter(|key| !key.is_empty()) {
+    match organization_url_key.map(trim_js).filter(|key| !key.is_empty()) {
         Some(key) => format!("https://linear.app/{}/settings/account/security", encode_uri_component(key)),
         None => "https://linear.app/settings/account/security".to_string(),
     }
 }
 
 pub fn build_linear_workspace_api_settings_url(organization_url_key: Option<&str>) -> String {
-    match organization_url_key.map(str::trim).filter(|key| !key.is_empty()) {
+    match organization_url_key.map(trim_js).filter(|key| !key.is_empty()) {
         Some(key) => format!("https://linear.app/{}/settings/api", encode_uri_component(key)),
         None => "https://linear.app/settings/api".to_string(),
     }
@@ -35,20 +36,11 @@ pub fn build_linear_workspace_api_settings_url(organization_url_key: Option<&str
 /// The workspace url-key (first path segment) from a `linear.app` issue URL, or
 /// `None` for a non-Linear host or an unparseable URL.
 pub fn get_linear_organization_url_key_from_issue_url(issue_url: Option<&str>) -> Option<String> {
-    let (scheme, rest) = issue_url?.split_once("://")?;
-    if scheme.is_empty() {
-        return None;
-    }
-    let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
-    let host = authority.rsplit('@').next().unwrap_or(authority);
-    let hostname = host.split(':').next().unwrap_or(host);
+    let (hostname, segments) = parse_absolute_url(issue_url?)?;
     if !hostname.eq_ignore_ascii_case("linear.app") {
         return None;
     }
-    let after_authority = &rest[authority_end..];
-    let path_end = after_authority.find(['?', '#']).unwrap_or(after_authority.len());
-    after_authority[..path_end].split('/').find(|segment| !segment.is_empty()).map(str::to_string)
+    segments.into_iter().next()
 }
 
 /// Parsed Linear issue input: the canonical identifier plus the workspace
@@ -81,11 +73,24 @@ fn matches_linear_identifier_pattern(value: &str) -> bool {
 /// Minimal `new URL` stand-in: the (case-insensitive) hostname and the non-empty
 /// path segments, or `None` when the input isn't an absolute URL (the TS
 /// `new URL` throw path). Query/hash are excluded, matching `URL.pathname`.
+/// The WHATWG "special" schemes, for which `new URL` normalizes `\` to `/`.
+fn is_special_scheme(scheme: &str) -> bool {
+    matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https" | "ws" | "wss" | "ftp" | "file")
+}
+
 fn parse_absolute_url(input: &str) -> Option<(String, Vec<String>)> {
     let (scheme, rest) = input.split_once("://")?;
     if scheme.is_empty() {
         return None;
     }
+    // WHATWG special schemes treat `\` as `/` throughout the authority + path, so
+    // `new URL` parses `https://host\a\b` as host + `/a/b`; mirror that.
+    let normalized: std::borrow::Cow<str> = if is_special_scheme(scheme) {
+        std::borrow::Cow::Owned(rest.replace('\\', "/"))
+    } else {
+        std::borrow::Cow::Borrowed(rest)
+    };
+    let rest: &str = normalized.as_ref();
     let authority_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
     let authority = &rest[..authority_end];
     let host = authority.rsplit('@').next().unwrap_or(authority);
@@ -104,7 +109,7 @@ fn parse_absolute_url(input: &str) -> Option<(String, Vec<String>)> {
 /// canonical (uppercased) identifier plus, for URLs, the workspace url-key.
 /// Returns `None` for blank/invalid input or a non-Linear URL.
 pub fn parse_linear_issue_input(input: &str) -> Option<ParsedLinearIssueInput> {
-    let trimmed = input.trim();
+    let trimmed = trim_js(input);
     if trimmed.is_empty() {
         return None;
     }
@@ -123,15 +128,17 @@ pub fn parse_linear_issue_input(input: &str) -> Option<ParsedLinearIssueInput> {
         .iter()
         .position(|segment| segment.as_str() == "issue")
         .and_then(|issue_index| segments.get(issue_index + 1))?;
-    // Decode then take up to the first `/ ? #`, matching `split(/[/?#]/)[0]`.
-    let decoded = decode_uri_component(raw_identifier);
+    // Decode then take up to the first `/ ? #`, matching `split(/[/?#]/)[0]`. Both
+    // decodes fail CLOSED (`?` -> None) to mirror the TS `decodeURIComponent` throw
+    // being caught by the surrounding try/catch (-> null on a malformed %-escape).
+    let decoded = try_decode_uri_component(raw_identifier)?;
     let identifier = decoded.split(['/', '?', '#']).next().unwrap_or("");
     if !matches_linear_identifier_pattern(identifier) {
         return None;
     }
     Some(ParsedLinearIssueInput {
         identifier: identifier.to_uppercase(),
-        organization_url_key: Some(decode_uri_component(organization_url_key)),
+        organization_url_key: Some(try_decode_uri_component(organization_url_key)?),
     })
 }
 

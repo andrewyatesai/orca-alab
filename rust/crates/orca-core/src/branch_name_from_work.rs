@@ -5,6 +5,7 @@
 //! Orca itself picked), humanises a slug for the sidebar label, and builds the
 //! identical generation prompt used by both local and SSH targets.
 
+use crate::js_string::trim_js;
 use crate::marine_creatures::MARINE_CREATURES;
 
 /// Two-to-four words is the sweet spot the feature targets.
@@ -25,7 +26,7 @@ fn strip_collision_suffix(s: &str) -> &str {
 /// True when `branch_leaf` is an Orca auto-generated creature name, e.g.
 /// `Nautilus` or `Octopus-2`.
 pub fn is_auto_generated_creature_branch_name(branch_leaf: &str) -> bool {
-    let normalized = branch_leaf.trim().to_lowercase();
+    let normalized = trim_js(branch_leaf).to_lowercase();
     if normalized.is_empty() {
         return false;
     }
@@ -113,17 +114,17 @@ pub fn build_branch_name_prompt(context: &BranchNameWorkContext, custom_prompt: 
         "- Output ONLY the branch name on a single line, nothing else.".to_string(),
         String::new(),
         "User request:".to_string(),
-        context.first_prompt.trim().to_string(),
+        trim_js(&context.first_prompt).to_string(),
     ];
     if let Some(assistant) = context.assistant_message.as_deref() {
-        let assistant = assistant.trim();
+        let assistant = trim_js(assistant);
         if !assistant.is_empty() {
             sections.push(String::new());
             sections.push("Agent's initial response:".to_string());
             sections.push(assistant.to_string());
         }
     }
-    let prompt = custom_prompt.trim();
+    let prompt = trim_js(custom_prompt);
     if !prompt.is_empty() {
         sections.push(String::new());
         sections.push("Additional user prompt:".to_string());

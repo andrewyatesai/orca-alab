@@ -162,6 +162,62 @@
         "fallback": "New tab"
       },
       "expected": "New tab"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a bare-BOM customTitle is blank under JS trim, so it falls through to the generated title",
+      "input": {
+        "tab": {
+          "customTitle": "\uFEFF",
+          "generatedTitle": "Refactor",
+          "title": "Claude working"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Refactor"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a BOM-prefixed customTitle is JS-trimmed to its content",
+      "input": {
+        "tab": {
+          "customTitle": "\uFEFFPayments",
+          "generatedTitle": "Refactor",
+          "title": "x"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Payments"
+    },
+    {
+      "function": "resolveTerminalTabTitle",
+      "note": "a trailing U+0085 (NEL) is NOT JS-trimmed, so it stays in the title",
+      "input": {
+        "tab": {
+          "customTitle": "Payments\u0085",
+          "generatedTitle": "Refactor",
+          "title": "x"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Payments\u0085"
+    },
+    {
+      "function": "resolveUnifiedTabLabel",
+      "note": "unified label: a bare-BOM customLabel falls through to the generated label",
+      "input": {
+        "tab": {
+          "customLabel": "\uFEFF",
+          "generatedLabel": "Fix tests",
+          "label": "Codex"
+        },
+        "generatedTitlesEnabled": true,
+        "fallback": ""
+      },
+      "expected": "Fix tests"
     }
   ]
 }

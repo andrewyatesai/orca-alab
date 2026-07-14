@@ -32,6 +32,7 @@ pub mod git_upstream_status;
 pub mod hook_command_source_policy;
 pub mod hosted_remote_url;
 pub mod hosted_review_refs;
+pub mod js_string;
 pub mod linear_links;
 pub mod github_pr_merge_methods;
 pub mod marine_creatures;

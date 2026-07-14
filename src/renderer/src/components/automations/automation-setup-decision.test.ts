@@ -1,10 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { beforeAll, describe, expect, it } from 'vitest'
 import type { ProjectHostSetup, Repo } from '../../../../shared/types'
 import {
   getAutomationSetupDecisionDraftValue,
   getVisibleAutomationSetupDecision,
   resolveAutomationSetupDecisionForSave
 } from './automation-setup-decision'
+import { initGitWasmForTestFromBytes } from '../../lib/git-wasm/git-line-stats'
+
+// getSetupConfig resolves the hook command-source policy through the Rust
+// orca-core via wasm; without it, the absent-policy default falls back to the
+// safe shared-only value and drops the repo's local setup script. Init it
+// synchronously from the committed bytes so the setup-decision defaults resolve.
+beforeAll(() => {
+  initGitWasmForTestFromBytes(
+    readFileSync(new URL('../../lib/git-wasm/orca_git_wasm_bg.wasm', import.meta.url))
+  )
+})
 
 const repo: Repo = {
   id: 'repo-1',

@@ -1,3 +1,7 @@
+// The resume launch path builds its startup plan through the Rust-backed
+// git-wasm op, which returns null until the wasm is initialised; init it
+// synchronously so launches produce a real plan instead of the pre-ready null.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SleepingAgentSessionRecord } from '../../../shared/agent-session-resume'
 import { useAppStore } from '@/store'

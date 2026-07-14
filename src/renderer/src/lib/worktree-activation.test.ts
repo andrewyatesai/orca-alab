@@ -1,4 +1,7 @@
 /* eslint-disable max-lines -- Why: these activation cases share one mock store and assert ordering across startup, setup, issue commands, and default tabs. */
+// Boot the orca-git wasm so the telemetry→agent mapping (agentKindToTuiAgent)
+// returns real results instead of its pre-ready null fallback.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SetupScriptLaunchMode } from '../../../shared/types'
 import { activateAndRevealWorktree, ensureWorktreeHasInitialTerminal } from './worktree-activation'

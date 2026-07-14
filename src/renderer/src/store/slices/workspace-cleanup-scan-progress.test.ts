@@ -1,4 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
+// Boot the orca-git wasm so the Rust-backed workspace-cleanup classifiers
+// (canQueueWorkspaceCleanupCandidate/shouldForceWorkspaceCleanupRemoval) return
+// real results; without it they fail-safe to `false`, so the removal preflight
+// rejects every candidate and the invalidate-on-remove path never runs.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import type { AppState } from '../types'
 import type {
   WorkspaceCleanupScanProgress,

@@ -1,3 +1,6 @@
+// Boot the orca-git wasm so sanitizeRepoIcon runs the real Rust sanitizer
+// instead of its pre-ready pass-through fallback.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createTestStore } from './store-test-helpers'
 import type { Repo } from '../../../../shared/types'

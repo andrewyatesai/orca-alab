@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest'
+// Why: `agent_kind` now resolves through the Rust `orca_core::agent_kind` core
+// via git-wasm; without booting it the mapper degrades to the `other` fallback
+// and `claude`→`claude-code` / `codex`→`codex` never resolve.
+import '@/lib/git-wasm/init-git-wasm-for-test'
 import { buildAgentPickedPayload } from './agent-picked-payload'
 
 // Why: this test guards the renderer-end attachment of `path_source` and

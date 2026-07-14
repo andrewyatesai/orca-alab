@@ -1,12 +1,10 @@
-// TS dispatch for the commit-message-prompt parity module: maps the shared
-// vector function names to the real `src/shared/commit-message-prompt.ts`
-// exports so the harness compares the live TS reference against the Rust port.
-// Only the pure transforms are covered here.
-
-import {
-  buildCommitPrompt,
-  cleanGeneratedCommitMessage
-} from '../../../src/shared/commit-message-prompt'
+// TS dispatch for the commit-message-prompt parity module. cleanGeneratedCommitMessage
+// was cut over to the Rust core (main via napi through the dispatch seam), so this
+// adapter drives the SAME wasm for it — the diff degenerates to wasm-vs-binary and
+// the goldens pin correctness. buildCommitPrompt stays live TS (dead in production
+// but retained as the parity reference).
+import { buildCommitPrompt } from '../../../src/shared/commit-message-prompt'
+import { gitWasmOracle } from './orca-git-wasm-oracle'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
@@ -15,7 +13,9 @@ export function dispatch(fn: string, input: unknown): unknown {
       return buildCommitPrompt(diff, suffix)
     }
     case 'cleanGeneratedCommitMessage':
-      return cleanGeneratedCommitMessage(input as string)
+      return JSON.parse(
+        gitWasmOracle().orcaDispatch('commit-message-prompt', fn, JSON.stringify(input ?? null))
+      )
     default:
       throw new Error(`unknown function ${fn}`)
   }

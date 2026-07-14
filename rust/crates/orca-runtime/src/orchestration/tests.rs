@@ -11,6 +11,7 @@ fn msg(id: &str, to: &str, subject: &str) -> NewMessage {
         priority: "normal".to_string(),
         thread_id: None,
         payload: None,
+        sender_pane_key: None,
     }
 }
 
@@ -141,7 +142,7 @@ fn list_tasks_with_dispatch_surfaces_only_active_assignee() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "ready", "ready task", &[]);
     new_task(&db, "active", "active task", &[]);
-    db.create_dispatch_context("active", "term-worker", "ctx1").unwrap();
+    db.create_dispatch_context("active", "term-worker", "ctx1", None).unwrap();
 
     let rows = db.list_tasks_with_dispatch(None).unwrap();
     let ready_row = rows.iter().find(|r| r.task.id == "ready").unwrap();
@@ -163,7 +164,7 @@ fn list_tasks_with_dispatch_surfaces_only_active_assignee() {
 fn decision_gate_blocks_task_and_resolution_unblocks_it() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1").unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
 
     let gate = db.create_gate("g1", "t1", "Proceed?", &["yes", "no"]).unwrap();
     assert_eq!(gate.status, "pending");
@@ -195,20 +196,20 @@ fn dispatch_requires_ready_task_and_one_active_per_assignee() {
     new_task(&db, "t1", "spec1", &["dep"]); // pending
     new_task(&db, "t2", "spec2", &[]); // ready
 
-    assert!(db.create_dispatch_context("t1", "worker-1", "ctx0").is_err());
-    let err = db.create_dispatch_context("nope", "worker-1", "ctxX").unwrap_err();
+    assert!(db.create_dispatch_context("t1", "worker-1", "ctx0", None).is_err());
+    let err = db.create_dispatch_context("nope", "worker-1", "ctxX", None).unwrap_err();
     assert!(err.to_string().contains("Task not found: nope"), "{err}");
 
     db.update_task_status("dep", "completed", None, Some("2026-01-01T00:00:00.000Z")).unwrap();
     assert_eq!(status_of(&db, "t1"), "ready");
 
-    let ctx = db.create_dispatch_context("t1", "worker-1", "ctx1").unwrap();
+    let ctx = db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
     assert_eq!(ctx.status, "dispatched");
     assert_eq!(status_of(&db, "t1"), "dispatched");
     assert_eq!(db.get_active_dispatch_for_terminal("worker-1").unwrap().unwrap().id, "ctx1");
 
     // The exact "for task" error text is load-bearing for CLI UX.
-    let err = db.create_dispatch_context("t2", "worker-1", "ctx2").unwrap_err();
+    let err = db.create_dispatch_context("t2", "worker-1", "ctx2", None).unwrap_err();
     assert_eq!(
         err.to_string(),
         "Terminal worker-1 already has an active dispatch (ctx1 for task t1)"
@@ -216,7 +217,7 @@ fn dispatch_requires_ready_task_and_one_active_per_assignee() {
 
     assert_eq!(db.complete_dispatch("ctx1").unwrap(), 1);
     assert!(db.get_active_dispatch_for_terminal("worker-1").unwrap().is_none());
-    let ctx3 = db.create_dispatch_context("t2", "worker-1", "ctx3").unwrap();
+    let ctx3 = db.create_dispatch_context("t2", "worker-1", "ctx3", None).unwrap();
     assert_eq!(ctx3.task_id, "t2");
     assert_eq!(db.get_latest_dispatch_for_terminal("worker-1").unwrap().unwrap().id, "ctx3");
 }
@@ -227,7 +228,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
     new_task(&db, "t1", "spec", &[]);
 
     for (ctx_id, expected_count) in [("ctx1", 1_i64), ("ctx2", 2)] {
-        let ctx = db.create_dispatch_context("t1", "worker-1", ctx_id).unwrap();
+        let ctx = db.create_dispatch_context("t1", "worker-1", ctx_id, None).unwrap();
         assert_eq!(ctx.failure_count, expected_count - 1); // carried forward
         let failed = db.fail_dispatch(ctx_id, "boom").unwrap().unwrap();
         assert_eq!(failed.status, "failed");
@@ -236,7 +237,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
         assert_eq!(status_of(&db, "t1"), "ready");
     }
 
-    db.create_dispatch_context("t1", "worker-1", "ctx3").unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx3", None).unwrap();
     let broken = db.fail_dispatch("ctx3", "boom").unwrap().unwrap();
     assert_eq!(broken.status, "circuit_broken");
     assert_eq!(broken.failure_count, 3);
@@ -249,7 +250,7 @@ fn fail_dispatch_carries_failures_and_trips_circuit_breaker_at_three() {
 fn heartbeat_only_touches_dispatched_and_stale_detector_respects_threshold() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1").unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
 
     // Fresh dispatch, no heartbeat, is stale against a future threshold.
     let future = "2999-01-01 00:00:00";
@@ -280,7 +281,7 @@ fn heartbeat_only_touches_dispatched_and_stale_detector_respects_threshold() {
 fn set_dispatch_timestamps_backdates_for_the_grace_window() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1").unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
 
     // With dispatched_at ≈ now (2026) and no heartbeat, a mid-2026 threshold does
     // not make it stale (dispatched_at not < threshold — the grace shields it).
@@ -313,7 +314,7 @@ fn coordinator_run_lifecycle_and_idle_terminals() {
     db.send_message(&msg("m1", "worker-a", "hi")).unwrap();
     db.send_message(&msg("m2", "worker-b", "hi")).unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-a", "ctx1").unwrap();
+    db.create_dispatch_context("t1", "worker-a", "ctx1", None).unwrap();
     let idle = db.get_idle_terminals(&["coordinator"]).unwrap();
     assert!(idle.contains(&"worker-b".to_string()));
     assert!(!idle.contains(&"worker-a".to_string())); // busy
@@ -325,7 +326,7 @@ fn reset_helpers_clear_the_right_tables() {
     let db = OrchestrationDb::open_in_memory().unwrap();
     db.send_message(&msg("m1", "a", "hi")).unwrap();
     new_task(&db, "t1", "spec", &[]);
-    db.create_dispatch_context("t1", "worker-1", "ctx1").unwrap();
+    db.create_dispatch_context("t1", "worker-1", "ctx1", None).unwrap();
 
     db.reset_tasks().unwrap();
     assert_eq!(db.get_inbox(10).unwrap().len(), 1);

@@ -686,8 +686,9 @@ impl JsOrchestrationStore {
         priority: String,
         thread_id: Option<String>,
         payload: Option<String>,
+        sender_pane_key: Option<String>,
     ) -> napi::Result<String> {
-        let message = NewMessage { id, from_handle, to_handle, subject, body, message_type, priority, thread_id, payload };
+        let message = NewMessage { id, from_handle, to_handle, subject, body, message_type, priority, thread_id, payload, sender_pane_key };
         self.store()?.send_message(&message).map(|m| row_json(&m)).map_err(napi_err)
     }
 
@@ -739,6 +740,21 @@ impl JsOrchestrationStore {
     pub fn mark_as_read(&self, ids: Vec<String>) -> napi::Result<()> {
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
         self.store()?.mark_as_read(&refs).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn mark_as_read_and_delivered(&self, ids: Vec<String>) -> napi::Result<()> {
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        self.store()?.mark_as_read_and_delivered(&refs).map_err(napi_err)
+    }
+
+    #[napi(catch_unwind)]
+    pub fn convert_lifecycle_message_to_rejection(&self, message_id: String, reason: String) -> napi::Result<Option<String>> {
+        Ok(self
+            .store()?
+            .convert_lifecycle_message_to_rejection(&message_id, &reason)
+            .map_err(napi_err)?
+            .map(|m| row_json(&m)))
     }
 
     #[napi(catch_unwind)]
@@ -801,9 +817,9 @@ impl JsOrchestrationStore {
     // ---- dispatch contexts ----
 
     #[napi(catch_unwind)]
-    pub fn create_dispatch_context(&self, task_id: String, assignee_handle: String, id: String) -> napi::Result<String> {
+    pub fn create_dispatch_context(&self, task_id: String, assignee_handle: String, id: String, assignee_pane_key: Option<String>) -> napi::Result<String> {
         self.store()?
-            .create_dispatch_context(&task_id, &assignee_handle, &id)
+            .create_dispatch_context(&task_id, &assignee_handle, &id, assignee_pane_key.as_deref())
             .map(|d| row_json(&d))
             .map_err(napi_err)
     }

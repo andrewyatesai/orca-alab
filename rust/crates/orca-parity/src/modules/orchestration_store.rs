@@ -103,6 +103,7 @@ fn run_op_sequence(input: &Value) -> Value {
                     priority: opt_str_field(op, "priority").unwrap_or_else(|| "normal".into()),
                     thread_id: opt_str_field(op, "threadId"),
                     payload: opt_str_field(op, "payload"),
+                    sender_pane_key: opt_str_field(op, "senderPaneKey"),
                 };
                 let ok = db.send_message(&message).is_ok();
                 if ok {
@@ -146,7 +147,12 @@ fn run_op_sequence(input: &Value) -> Value {
             }
             "createDispatch" => {
                 let task = resolve_ref(op.get("task"), &created);
-                match db.create_dispatch_context(&task, &str_field(op, "assignee"), &gen) {
+                match db.create_dispatch_context(
+                    &task,
+                    &str_field(op, "assignee"),
+                    &gen,
+                    opt_str_field(op, "assigneePaneKey").as_deref(),
+                ) {
                     Ok(_) => {
                         created_id = Some(gen);
                         Pending::Ok(true)

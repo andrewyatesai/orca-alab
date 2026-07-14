@@ -26,6 +26,7 @@ pub struct NewMessage {
     pub priority: String,
     pub thread_id: Option<String>,
     pub payload: Option<String>,
+    pub sender_pane_key: Option<String>,
 }
 
 // Row structs are FULL rows (every column) with field names + `Serialize` output
@@ -47,6 +48,7 @@ pub struct Message {
     pub sequence: i64,
     pub created_at: String,
     pub delivered_at: Option<String>,
+    pub sender_pane_key: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -80,6 +82,7 @@ pub struct DispatchContext {
     pub id: String,
     pub task_id: String,
     pub assignee_handle: Option<String>,
+    pub assignee_pane_key: Option<String>,
     pub status: String,
     pub failure_count: i64,
     pub last_failure: Option<String>,
@@ -114,11 +117,11 @@ pub struct CoordinatorRun {
 
 // Column lists keep every SELECT and its row_to_* reader in lock-step order.
 const MESSAGE_COLUMNS: &str =
-    "id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, read, sequence, created_at, delivered_at";
+    "id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, read, sequence, created_at, delivered_at, sender_pane_key";
 const TASK_COLUMNS: &str =
     "id, parent_id, created_by_terminal_handle, task_title, display_name, spec, status, deps, result, created_at, completed_at";
 const DISPATCH_COLUMNS: &str =
-    "id, task_id, assignee_handle, status, failure_count, last_failure, dispatched_at, completed_at, created_at, last_heartbeat_at";
+    "id, task_id, assignee_handle, assignee_pane_key, status, failure_count, last_failure, dispatched_at, completed_at, created_at, last_heartbeat_at";
 const GATE_COLUMNS: &str =
     "id, task_id, question, options, status, resolution, created_at, resolved_at";
 const RUN_COLUMNS: &str =
@@ -162,11 +165,12 @@ impl OrchestrationDb {
     /// the `msg_<hex>` id shape stable.
     pub fn send_message(&self, message: &NewMessage) -> Result<Message, StoreError> {
         self.db.connection().execute(
-            "INSERT INTO messages (id, from_handle, to_handle, subject, body, type, priority, thread_id, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO messages (id, from_handle, to_handle, subject, body, type, priority, thread_id, payload, sender_pane_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 message.id, message.from_handle, message.to_handle, message.subject, message.body,
                 message.message_type, message.priority, message.thread_id, message.payload,
+                message.sender_pane_key,
             ],
         )?;
         self.get_message_by_id(&message.id)?
@@ -256,6 +260,49 @@ impl OrchestrationDb {
     /// `markAsDelivered`) — the push-on-idle delivery marker.
     pub fn mark_as_delivered(&self, ids: &[&str]) -> Result<(), StoreError> {
         self.update_messages_by_ids("delivered_at = datetime('now')", ids)
+    }
+
+    /// Mark messages both read and delivered (TS `markAsReadAndDelivered`) —
+    /// superseded lifecycle messages stay queryable but must not be re-consumed
+    /// or re-injected. `delivered_at` is only stamped if not already set.
+    pub fn mark_as_read_and_delivered(&self, ids: &[&str]) -> Result<(), StoreError> {
+        self.update_messages_by_ids(
+            "read = 1, delivered_at = COALESCE(delivered_at, datetime('now'))",
+            ids,
+        )
+    }
+
+    /// Rewrite a `worker_done`/`heartbeat` message into an audited rejection (TS
+    /// `convertLifecycleMessageToRejection`): keeps the row queryable but stops it
+    /// reaching later read paths as an actionable completion/liveness event. A
+    /// non-lifecycle or missing message is returned unchanged.
+    pub fn convert_lifecycle_message_to_rejection(
+        &self,
+        message_id: &str,
+        reason: &str,
+    ) -> Result<Option<Message>, StoreError> {
+        let Some(message) = self.get_message_by_id(message_id)? else {
+            return Ok(None);
+        };
+        if message.message_type != "worker_done" && message.message_type != "heartbeat" {
+            return Ok(Some(message));
+        }
+        let original_body = if message.body.is_empty() {
+            String::new()
+        } else {
+            format!("\n\nOriginal body:\n{}", message.body)
+        };
+        let body = format!(
+            "Orca rejected this {}: {reason}{original_body}",
+            message.message_type
+        );
+        let payload = add_lifecycle_rejection_marker(message.payload.as_deref(), reason);
+        let subject = format!("Rejected {}: {}", message.message_type, message.subject);
+        self.db.connection().execute(
+            "UPDATE messages SET priority = 'high', subject = ?1, body = ?2, payload = ?3 WHERE id = ?4",
+            params![subject, body, payload, message_id],
+        )?;
+        self.get_message_by_id(message_id)
     }
 
     fn update_messages_by_ids(&self, set_clause: &str, ids: &[&str]) -> Result<(), StoreError> {
@@ -459,6 +506,7 @@ impl OrchestrationDb {
         task_id: &str,
         assignee_handle: &str,
         id: &str,
+        assignee_pane_key: Option<&str>,
     ) -> Result<DispatchContext, StoreError> {
         let task = self
             .get_task(task_id)?
@@ -470,14 +518,35 @@ impl OrchestrationDb {
             )));
         }
         let conn = self.db.connection();
-        let active: Option<(String, String)> = conn
+        // Handle match covers legacy rows without pane keys.
+        let mut conflict: Option<(String, String)> = conn
             .query_row(
-                "SELECT id, task_id FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ('pending','dispatched')",
+                "SELECT id, task_id FROM dispatch_contexts WHERE assignee_handle = ?1 AND status IN ('pending','dispatched') LIMIT 1",
                 [assignee_handle],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        if let Some((existing_id, existing_task)) = active {
+        // Pane-identity match: when both the new assignee and an active row carry
+        // usable pane keys, also lock on equivalent pane identity (remint-stable
+        // leaf) so a reminted handle can't open a second dispatch on the same pane.
+        if conflict.is_none() {
+            if let Some(pane_key) = assignee_pane_key {
+                let mut stmt = conn.prepare(
+                    "SELECT id, task_id, assignee_pane_key FROM dispatch_contexts WHERE assignee_pane_key IS NOT NULL AND status IN ('pending','dispatched')",
+                )?;
+                let rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?))
+                })?;
+                for row in rows {
+                    let (id, tid, existing_key) = row?;
+                    if existing_key.as_deref().is_some_and(|k| is_equivalent_pane_key(k, pane_key)) {
+                        conflict = Some((id, tid));
+                        break;
+                    }
+                }
+            }
+        }
+        if let Some((existing_id, existing_task)) = conflict {
             return Err(StoreError::Message(format!(
                 "Terminal {assignee_handle} already has an active dispatch ({existing_id} for task {existing_task})"
             )));
@@ -488,9 +557,9 @@ impl OrchestrationDb {
             |row| row.get(0),
         )?;
         conn.execute(
-            "INSERT INTO dispatch_contexts (id, task_id, assignee_handle, status, failure_count, dispatched_at)
-             VALUES (?1, ?2, ?3, 'dispatched', ?4, datetime('now'))",
-            params![id, task_id, assignee_handle, prior_failures],
+            "INSERT INTO dispatch_contexts (id, task_id, assignee_handle, assignee_pane_key, status, failure_count, dispatched_at)
+             VALUES (?1, ?2, ?3, ?4, 'dispatched', ?5, datetime('now'))",
+            params![id, task_id, assignee_handle, assignee_pane_key, prior_failures],
         )?;
         conn.execute("UPDATE tasks SET status = 'dispatched' WHERE id = ?1", params![task_id])?;
         self.dispatch_context_by_id(id)?
@@ -846,6 +915,52 @@ fn placeholders(n: usize) -> String {
     std::iter::repeat_n("?", n).collect::<Vec<_>>().join(",")
 }
 
+/// Port of `addLifecycleRejectionMarker`: merge the audit marker into the
+/// message payload object (or a fresh object when the payload is absent or not a
+/// JSON object), mirroring `JSON.stringify({ ...parsed, _orcaLifecycleRejection })`.
+fn add_lifecycle_rejection_marker(payload: Option<&str>, reason: &str) -> String {
+    let mut obj = match payload.and_then(|p| serde_json::from_str::<serde_json::Value>(p).ok()) {
+        Some(serde_json::Value::Object(map)) => map,
+        _ => serde_json::Map::new(),
+    };
+    obj.insert(
+        "_orcaLifecycleRejection".to_string(),
+        serde_json::json!({ "code": "sender_not_assignee", "reason": reason }),
+    );
+    serde_json::Value::Object(obj).to_string()
+}
+
+/// Port of `parsePaneKey().leafId`: a pane key is `<tabId>:<leafId>` with a
+/// single `:` and a stable-pane-id (v1-5 UUID) leaf; returns the leaf or None.
+fn pane_key_leaf(key: &str) -> Option<&str> {
+    let idx = key.find(':')?;
+    if idx == 0 || key.rfind(':') != Some(idx) || idx + 1 >= key.len() {
+        return None;
+    }
+    let leaf = &key[idx + 1..];
+    is_stable_pane_id(leaf).then_some(leaf)
+}
+
+/// Port of `isStablePaneId` UUID_RE:
+/// `[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}`.
+fn is_stable_pane_id(v: &str) -> bool {
+    let b = v.as_bytes();
+    if b.len() != 36 {
+        return false;
+    }
+    b.iter().enumerate().all(|(i, &c)| match i {
+        8 | 13 | 18 | 23 => c == b'-',
+        14 => c.is_ascii_digit() && (b'1'..=b'5').contains(&c),
+        19 => matches!(c, b'8' | b'9' | b'a' | b'b'),
+        _ => matches!(c, b'0'..=b'9' | b'a'..=b'f'),
+    })
+}
+
+/// Port of `isEquivalentPaneKey`: identical keys, or the same stable leaf.
+fn is_equivalent_pane_key(a: &str, b: &str) -> bool {
+    a == b || matches!((pane_key_leaf(a), pane_key_leaf(b)), (Some(la), Some(lb)) if la == lb)
+}
+
 fn row_to_message(row: &SqlRow<'_>) -> rusqlite::Result<Message> {
     Ok(Message {
         id: row.get(0)?,
@@ -861,6 +976,7 @@ fn row_to_message(row: &SqlRow<'_>) -> rusqlite::Result<Message> {
         sequence: row.get(10)?,
         created_at: row.get(11)?,
         delivered_at: row.get(12)?,
+        sender_pane_key: row.get(13)?,
     })
 }
 
@@ -885,13 +1001,14 @@ fn row_to_dispatch(row: &SqlRow<'_>) -> rusqlite::Result<DispatchContext> {
         id: row.get(0)?,
         task_id: row.get(1)?,
         assignee_handle: row.get(2)?,
-        status: row.get(3)?,
-        failure_count: row.get(4)?,
-        last_failure: row.get(5)?,
-        dispatched_at: row.get(6)?,
-        completed_at: row.get(7)?,
-        created_at: row.get(8)?,
-        last_heartbeat_at: row.get(9)?,
+        assignee_pane_key: row.get(3)?,
+        status: row.get(4)?,
+        failure_count: row.get(5)?,
+        last_failure: row.get(6)?,
+        dispatched_at: row.get(7)?,
+        completed_at: row.get(8)?,
+        created_at: row.get(9)?,
+        last_heartbeat_at: row.get(10)?,
     })
 }
 

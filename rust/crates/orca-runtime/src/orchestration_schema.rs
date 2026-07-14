@@ -9,8 +9,10 @@ use rusqlite::OptionalExtension;
 
 // Why: v1 → v2 added 'heartbeat' to messages.type CHECK + last_heartbeat_at;
 // v2 → v3 added messages.delivered_at; v3 → v4 tasks.created_by_terminal_handle;
-// v4 → v5 tasks.task_title/display_name. Mirrors SCHEMA_VERSION in db.ts.
-pub(crate) const SCHEMA_VERSION: i64 = 5;
+// v4 → v5 tasks.task_title/display_name; v5 → v6 pane-identity columns
+// (dispatch_contexts.assignee_pane_key, messages.sender_pane_key) so
+// worker_done ownership survives a terminal handle remint. Mirrors db.ts.
+pub(crate) const SCHEMA_VERSION: i64 = 6;
 
 /// Byte-copy of the db.ts `createTables` exec template.
 const CREATE_TABLES_SQL: &str = r#"
@@ -32,7 +34,8 @@ const CREATE_TABLES_SQL: &str = r#"
         read          INTEGER NOT NULL DEFAULT 0,
         sequence      INTEGER PRIMARY KEY AUTOINCREMENT,
         created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-        delivered_at  TEXT
+        delivered_at  TEXT,
+        sender_pane_key TEXT
       );
 
       CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_id ON messages(id);
@@ -64,6 +67,7 @@ const CREATE_TABLES_SQL: &str = r#"
         id                  TEXT PRIMARY KEY,
         task_id             TEXT NOT NULL,
         assignee_handle     TEXT,
+        assignee_pane_key   TEXT,
         status              TEXT NOT NULL DEFAULT 'pending'
           CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')),
         failure_count       INTEGER NOT NULL DEFAULT 0,
@@ -209,6 +213,15 @@ fn apply_version_ladder(db: &Database, current: i64) -> Result<(), StoreError> {
         }
         if !has_column(db, "tasks", "display_name")? {
             db.exec("ALTER TABLE tasks ADD COLUMN display_name TEXT")?;
+        }
+    }
+    // v5 → v6: pane-identity columns for remint-stable ownership.
+    if current < 6 {
+        if !has_column(db, "dispatch_contexts", "assignee_pane_key")? {
+            db.exec("ALTER TABLE dispatch_contexts ADD COLUMN assignee_pane_key TEXT")?;
+        }
+        if !has_column(db, "messages", "sender_pane_key")? {
+            db.exec("ALTER TABLE messages ADD COLUMN sender_pane_key TEXT")?;
         }
     }
     create_undelivered_inbox_index_if_possible(db)?;

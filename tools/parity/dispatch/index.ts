@@ -55,6 +55,7 @@ import { dispatch as setupScriptTelemetry } from './setup-script-telemetry'
 import { dispatch as skillMetadata } from './skill-metadata'
 import { dispatch as sourceControlAi } from './source-control-ai'
 import { dispatch as sshConfigParser } from './ssh-config-parser'
+import { dispatch as sshGConfig } from './ssh-g-config'
 import { dispatch as stablePaneId } from './stable-pane-id'
 import { dispatch as syntheticAgentTitle } from './synthetic-agent-title'
 import { dispatch as tabTitleResolution } from './tab-title-resolution'
@@ -137,6 +138,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'skill-metadata': skillMetadata,
   'source-control-ai': sourceControlAi,
   'ssh-config-parser': sshConfigParser,
+  'ssh-g-config': sshGConfig,
   'stable-pane-id': stablePaneId,
   'synthetic-agent-title': syntheticAgentTitle,
   'tab-title-resolution': tabTitleResolution,

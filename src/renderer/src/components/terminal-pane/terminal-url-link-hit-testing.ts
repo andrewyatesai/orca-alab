@@ -54,8 +54,14 @@ export function extractTerminalHttpLinks(lineText: string): ParsedTerminalHttpLi
   return links
 }
 
-function isDesktopHttpLinkFallbackActivation(event: MouseEvent): boolean {
+export function isDesktopHttpLinkFallbackActivation(event: MouseEvent): boolean {
   if (event.defaultPrevented || event.button !== 0) {
+    return false
+  }
+  // Why: aterm forwards Alt-modified mouse gestures to the child PTY (a TUI may
+  // bind Alt+click for its own selection/mouse reporting), so an Alt-modified
+  // gesture must be left to the TUI even when Cmd/Ctrl is also held.
+  if (event.altKey) {
     return false
   }
   // Why: desktop terminal links require an intentional Cmd/Ctrl gesture so

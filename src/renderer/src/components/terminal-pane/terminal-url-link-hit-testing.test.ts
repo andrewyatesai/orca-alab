@@ -1,11 +1,39 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   extractTerminalHttpLinks,
+  isDesktopHttpLinkFallbackActivation,
   TERMINAL_HTTP_URL_MAX_LENGTH
 } from './terminal-url-link-hit-testing'
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
+
+describe('isDesktopHttpLinkFallbackActivation', () => {
+  function mouse(overrides: Partial<MouseEvent>): MouseEvent {
+    return { defaultPrevented: false, button: 0, ...overrides } as MouseEvent
+  }
+
+  it('activates on a Cmd gesture but leaves Alt+Cmd to the child TUI on macOS', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Macintosh' })
+    expect(isDesktopHttpLinkFallbackActivation(mouse({ metaKey: true }))).toBe(true)
+    expect(isDesktopHttpLinkFallbackActivation(mouse({ metaKey: true, altKey: true }))).toBe(false)
+  })
+
+  it('activates on a Ctrl gesture but leaves Alt+Ctrl to the child TUI on other platforms', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Windows' })
+    expect(isDesktopHttpLinkFallbackActivation(mouse({ ctrlKey: true }))).toBe(true)
+    expect(isDesktopHttpLinkFallbackActivation(mouse({ ctrlKey: true, altKey: true }))).toBe(false)
+  })
+
+  it('ignores non-primary buttons and already-handled events', () => {
+    vi.stubGlobal('navigator', { userAgent: 'Macintosh' })
+    expect(isDesktopHttpLinkFallbackActivation(mouse({ metaKey: true, button: 1 }))).toBe(false)
+    expect(
+      isDesktopHttpLinkFallbackActivation(mouse({ metaKey: true, defaultPrevented: true }))
+    ).toBe(false)
+  })
 })
 
 describe('extractTerminalHttpLinks', () => {

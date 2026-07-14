@@ -42,6 +42,14 @@ const SHALLOW_SOCKET_WRITE_GATE_BYTES =
 // can grow to megabytes; writing it whole would re-deepen the socket past the
 // gate in one call.
 const BULK_WRITE_SLICE_CHARS = 64 * 1024
+// Why cap coalescing: same-session enqueues coalesce via `+=` into a V8
+// ConsString. Left unbounded, a held flooding session's entry grows to MBs and
+// every drain cycle's `slice()` re-flattens the whole remainder — O(n²) to
+// drain one entry, causing ~0.5–5ms event-loop stalls. Starting a fresh queue
+// entry past a write-slice worth of coalescing makes the queue a head-indexed
+// chunk list, so each entry is flattened at most once. No framing benefit is
+// lost — the flush slices at BULK_WRITE_SLICE_CHARS regardless.
+const MAX_COALESCED_ENTRY_CHARS = BULK_WRITE_SLICE_CHARS
 // Safety valve: if held bulk ever exceeds this, write through to the socket
 // (exactly the pre-gate behavior) — bounded daemon memory beats bounded echo
 // latency in the extreme. Must sit FAR above the pacer's pause watermark plus
@@ -105,9 +113,14 @@ export class DaemonStreamDataBatcher {
 
     const batch = this.getOrCreateBatch(clientId)
     const last = batch.queue.at(-1)
-    // Never coalesce across a control entry — it marks a position in the
-    // session's byte order.
-    if (last?.sessionId === sessionId && !last.control) {
+    // Never coalesce across a control entry (it marks a position in the
+    // session's byte order), and cap coalesced size so a flooding session never
+    // builds a multi-MB ConsString that each drain would re-flatten (O(n²)).
+    if (
+      last?.sessionId === sessionId &&
+      !last.control &&
+      last.data.length < MAX_COALESCED_ENTRY_CHARS
+    ) {
       last.data += data
     } else {
       batch.queue.push({ sessionId, data })

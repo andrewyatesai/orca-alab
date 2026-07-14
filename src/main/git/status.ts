@@ -496,11 +496,45 @@ async function computeSubmoduleRangeEntries(
   return entries
 }
 
+// Why: the status entries already name every changed path, so scope the numstat
+// scan to them instead of rescanning the whole worktree on every status poll
+// (issue #7983: a large monorepo paid for a full-tree diff each SCM refresh). A
+// rename shows up as old→new, and `-M` needs BOTH sides in the pathspec or it
+// mis-reports the new path as a plain add — so include oldPath for renamed/copied
+// entries. Returns null (= full scan) if a rename is missing its old side, so a
+// rename's counts are never silently wrong.
+export function collectNumstatPathspecs(
+  entries: GitStatusEntry[],
+  area: 'staged' | 'unstaged'
+): string[] | null {
+  const paths = new Set<string>()
+  for (const entry of entries) {
+    if (entry.area !== area) {
+      continue
+    }
+    if (entry.status === 'renamed' && !entry.oldPath) {
+      return null
+    }
+    paths.add(entry.path)
+    if (entry.oldPath) {
+      paths.add(entry.oldPath)
+    }
+  }
+  return [...paths]
+}
+
 async function runNumstat(
   worktreePath: string,
   cached: boolean,
+  // null → scan the whole worktree (rename-fallback); otherwise the exact set of
+  // changed paths (both rename sides) that scopes the scan.
+  pathspecs: string[] | null,
   options: GitRuntimeOptions = {}
 ): Promise<Map<string, GitLineStats>> {
+  // No changed paths of this kind: nothing to scan.
+  if (pathspecs && pathspecs.length === 0) {
+    return new Map()
+  }
   try {
     const { stdout } = await gitExecFileAsync(
       [
@@ -510,7 +544,14 @@ async function runNumstat(
         '-z',
         ...(cached ? ['--cached'] : []),
         '--numstat',
-        '-M'
+        '-M',
+        // Why: scope the scan to the known changed paths (both rename sides) so a
+        // large monorepo's status poll doesn't rescan the whole worktree.
+        // :(literal) keeps paths with glob/rename-marker chars exact. null → full
+        // scan (rename fallback), preserving the original unscoped behavior.
+        ...(pathspecs
+          ? ['--', ...pathspecs.map((filePath) => literalPathspec(filePath, options))]
+          : [])
       ],
       { ...gitOptionsForWorktree(worktreePath, options), env: gitOptionalLocksDisabledEnv() }
     )
@@ -540,8 +581,12 @@ async function attachLineStats(
   // — the per-file byte loop is no longer in TS. If the native addon isn't loadable (e.g. an
   // unbuilt dev tree), collectUntrackedAdditions omits the count rather than reimplement it.
   const [stagedStats, unstagedStats, untrackedStats] = await Promise.all([
-    hasStaged ? runNumstat(worktreePath, true, options) : Promise.resolve(emptyStats),
-    hasUnstaged ? runNumstat(worktreePath, false, options) : Promise.resolve(emptyStats),
+    hasStaged
+      ? runNumstat(worktreePath, true, collectNumstatPathspecs(entries, 'staged'), options)
+      : Promise.resolve(emptyStats),
+    hasUnstaged
+      ? runNumstat(worktreePath, false, collectNumstatPathspecs(entries, 'unstaged'), options)
+      : Promise.resolve(emptyStats),
     collectUntrackedAdditions(worktreePath, untrackedPaths, untrackedAdditionsCounter())
   ])
   for (const entry of entries) {

@@ -10,7 +10,8 @@ vi.mock('fs/promises', () => ({ lstat: lstatMock, readFile: readFileMock }))
 import {
   applyLineStats,
   collectUntrackedAdditions,
-  MAX_UNTRACKED_LINE_COUNT_BYTES
+  MAX_UNTRACKED_LINE_COUNT_BYTES,
+  MAX_UNTRACKED_LINE_COUNT_FILES
 } from './git-uncommitted-line-stats'
 
 function mockFileStat(size: number, mtimeMs = 1) {
@@ -105,25 +106,55 @@ describe('collectUntrackedAdditions', () => {
     expect(lstatMock).not.toHaveBeenCalled()
   })
 
-  it('keeps the cache effective across polls for a status-limit-sized change set', async () => {
-    // Why: git status caps at DEFAULT_GIT_STATUS_LIMIT (10,000) entries. A
-    // cache smaller than one scan FIFO-evicts every entry mid-scan, so the
-    // next poll re-reads every file (#8013). Scan the full limit twice; the
-    // second pass must be stat-only.
+  it('keeps the cache effective across polls for a max-counted change set', async () => {
+    // Why: a cache smaller than one counted scan FIFO-evicts every entry
+    // mid-scan, so the next poll re-reads every file (#8013). The counted set is
+    // now capped at MAX_UNTRACKED_LINE_COUNT_FILES per poll; scan a full capped
+    // set twice — the second pass must be stat-only.
     lstatMock.mockResolvedValue(mockFileStat(5, 7))
     readFileMock.mockResolvedValue(Buffer.from('a\nb\nc'))
     countAdditions.mockReturnValue(3)
-    const paths = Array.from({ length: 10_000 }, (_, i) => `poll-scale/file-${i}.ts`)
+    const paths = Array.from(
+      { length: MAX_UNTRACKED_LINE_COUNT_FILES },
+      (_, i) => `poll-scale/file-${i}.ts`
+    )
 
     // The fork gates counting on an explicit counter (the relay passes none);
     // supply one so the scan reads + caches, then verify the cache survives a
-    // full status-limit scan (no re-read on the second poll).
+    // full capped scan (no re-read on the second poll).
     await collectUntrackedAdditions('/repo', paths, countAdditions)
     const firstPassReads = readFileMock.mock.calls.length
     await collectUntrackedAdditions('/repo', paths, countAdditions)
 
     expect(firstPassReads).toBe(paths.length)
     expect(readFileMock).toHaveBeenCalledTimes(paths.length)
+  })
+
+  it('counts every untracked file at the file-count cap boundary', async () => {
+    lstatMock.mockResolvedValue(mockFileStat(5, 9))
+    readFileMock.mockResolvedValue(Buffer.from('a\nb\nc'))
+    countAdditions.mockReturnValue(3)
+    const paths = Array.from(
+      { length: MAX_UNTRACKED_LINE_COUNT_FILES },
+      (_, i) => `at-cap/file-${i}.ts`
+    )
+    const stats = await collectUntrackedAdditions('/repo', paths, countAdditions)
+    expect(stats.size).toBe(MAX_UNTRACKED_LINE_COUNT_FILES)
+    expect(countAdditions).toHaveBeenCalledTimes(MAX_UNTRACKED_LINE_COUNT_FILES)
+  })
+
+  it('skips untracked counting above the file-count cap without any lstat or read', async () => {
+    // Why: the middle-band (100-9,999 untracked files) generated/dependency dir
+    // must not lstat/read every file each poll; over the cap we skip entirely.
+    const paths = Array.from(
+      { length: MAX_UNTRACKED_LINE_COUNT_FILES + 1 },
+      (_, i) => `over-cap/file-${i}.ts`
+    )
+    const stats = await collectUntrackedAdditions('/repo', paths, countAdditions)
+    expect(stats.size).toBe(0)
+    expect(lstatMock).not.toHaveBeenCalled()
+    expect(readFileMock).not.toHaveBeenCalled()
+    expect(countAdditions).not.toHaveBeenCalled()
   })
 })
 

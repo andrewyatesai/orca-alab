@@ -229,6 +229,80 @@ describe('DaemonStreamDataBatcher', () => {
     }
   })
 
+  it('caps coalescing so a flooding session holds a chunk list, not one re-flattened giant', () => {
+    vi.useFakeTimers()
+    try {
+      const { batcher, streamSocket } = createBatcher()
+      // Deep socket: the flood coalesces into the held queue without draining.
+      streamSocket.writableLength = 128 * 1024
+      const chunk = 'q'.repeat(8 * 1024)
+      const chunkCount = 64 // 512KB across many small same-session appends
+      for (let i = 0; i < chunkCount; i++) {
+        batcher.enqueue('client-1', 'session-flood', chunk)
+      }
+
+      // Representation: appends land in a head-indexed chunk list (each entry
+      // bounded to a write slice), NOT one coalesced ConsString that every
+      // drain cycle would re-flatten. The queue holds many entries, none large.
+      const queue = (
+        batcher as unknown as { pendingByClient: Map<string, { queue: { data: string }[] }> }
+      ).pendingByClient.get('client-1')?.queue
+      expect(queue).toBeDefined()
+      expect((queue?.length ?? 0) > 1).toBe(true)
+      for (const entry of queue ?? []) {
+        // No single entry exceeds a write slice worth of coalescing.
+        expect(entry.data.length).toBeLessThanOrEqual(64 * 1024)
+      }
+
+      // Byte-identity: the full flood still drains in order once the socket clears.
+      streamSocket.writableLength = 0
+      batcher.flush('client-1')
+      expect(writtenData(streamSocket)).toBe(chunk.repeat(chunkCount))
+      expect(batcher.queuedCharsForClient('client-1')).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('drains a large coalesced flood across many held cycles, byte-identical and in order', () => {
+    vi.useFakeTimers()
+    try {
+      const { batcher, streamSocket } = createBatcher()
+      const chunk = 'w'.repeat(4 * 1024)
+      const count = 128
+      const expected = Array.from({ length: count }, (_, i) => `[${i}]${chunk}`).join('')
+
+      // Each real data write re-deepens the socket, so every flush emits one
+      // slice then holds the remainder — the multi-cycle re-entry that the
+      // pre-fix code re-flattened the whole remainder for on every pass.
+      streamSocket.write.mockImplementation((line: string) => {
+        const parsed = JSON.parse(String(line)) as { event: string; payload?: { data?: string } }
+        if (parsed.event === 'data' && (parsed.payload?.data ?? '') !== '') {
+          streamSocket.writableLength = 200 * 1024
+        }
+        return false
+      })
+
+      // Deep socket during ingest so the flood coalesces into the held queue.
+      streamSocket.writableLength = 128 * 1024
+      for (let i = 0; i < count; i++) {
+        batcher.enqueue('client-1', 'session-flood', `[${i}]${chunk}`)
+      }
+      vi.advanceTimersByTime(2)
+
+      let guard = 0
+      while (batcher.queuedCharsForClient('client-1') > 0 && guard++ < 100000) {
+        streamSocket.writableLength = 0
+        batcher.flush('client-1')
+      }
+      expect(guard).toBeGreaterThan(1) // proves multiple drain cycles occurred
+      expect(writtenData(streamSocket)).toBe(expected)
+      expect(batcher.queuedCharsForClient('client-1')).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('slices oversized held entries so one write cannot re-deepen the socket unboundedly', () => {
     vi.useFakeTimers()
     try {

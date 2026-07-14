@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- Why: git status/discard/chunking behavior is verified together here to keep the command contract readable in one place. */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as NodeFs from 'node:fs'
+import type { GitStatusEntry } from '../../shared/types'
 import path from 'node:path'
 import {
   MAX_RENDERED_DIFF_COMBINED_CHARACTERS,
@@ -110,6 +111,7 @@ import {
   bulkDiscardChanges,
   bulkUnstageFiles,
   clearEffectiveUpstreamStatusCacheForTests,
+  collectNumstatPathspecs,
   clearSubmodulePathsCacheForTests,
   detectConflictOperation,
   getBranchDiff,
@@ -1472,8 +1474,20 @@ describe('getStatus', () => {
 
     const result = await getStatus('/repo')
 
+    // Why: the scan is scoped to the known changed path, and a filename that
+    // literally contains ` => ` is passed via :(literal) so git can't mistake it
+    // for a rename marker or a glob.
     expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
-      ['-c', 'core.quotePath=false', 'diff', '-z', '--numstat', '-M'],
+      [
+        '-c',
+        'core.quotePath=false',
+        'diff',
+        '-z',
+        '--numstat',
+        '-M',
+        '--',
+        ':(literal)docs/a => b.txt'
+      ],
       { cwd: '/repo', env: expect.objectContaining({ GIT_OPTIONAL_LOCKS: '0' }) }
     )
     expect(result.entries).toEqual([
@@ -1498,6 +1512,23 @@ describe('getStatus', () => {
 
     const result = await getStatus('/repo')
 
+    // Why: -M rename detection needs BOTH sides in the pathspec, or the new path
+    // is mis-reported as a plain add — so the staged scan must scope to old + new.
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+      [
+        '-c',
+        'core.quotePath=false',
+        'diff',
+        '-z',
+        '--cached',
+        '--numstat',
+        '-M',
+        '--',
+        ':(literal)src/new name.ts',
+        ':(literal)src/old name.ts'
+      ],
+      { cwd: '/repo', env: expect.objectContaining({ GIT_OPTIONAL_LOCKS: '0' }) }
+    )
     expect(result.entries).toEqual([
       {
         path: 'src/new name.ts',
@@ -1507,6 +1538,57 @@ describe('getStatus', () => {
         added: 2,
         removed: 1
       }
+    ])
+  })
+
+  it('scopes staged and unstaged numstat scans to each area’s changed paths', async () => {
+    readFileMock.mockResolvedValue('gitdir: /repo/.git/worktrees/feature\n')
+    existsSyncMock.mockReturnValue(false)
+    const numstatCalls: string[][] = []
+    gitExecFileAsyncMock.mockImplementation((args: string[]) => {
+      if (args.includes('status')) {
+        return Promise.resolve({
+          stdout:
+            '1 M. N... 100644 100644 100644 aaaa aaaa src/staged.ts\n' +
+            '1 .M N... 100644 100644 100644 bbbb bbbb src/unstaged.ts\n'
+        })
+      }
+      if (args.includes('--numstat')) {
+        numstatCalls.push(args)
+        return Promise.resolve({
+          stdout: args.includes('--cached') ? '10\t0\tsrc/staged.ts\0' : '3\t4\tsrc/unstaged.ts\0'
+        })
+      }
+      return Promise.resolve({ stdout: '' })
+    })
+
+    const result = await getStatus('/repo')
+
+    // Each area scans only its own path — no full-worktree rescan.
+    expect(numstatCalls).toContainEqual([
+      '-c',
+      'core.quotePath=false',
+      'diff',
+      '-z',
+      '--cached',
+      '--numstat',
+      '-M',
+      '--',
+      ':(literal)src/staged.ts'
+    ])
+    expect(numstatCalls).toContainEqual([
+      '-c',
+      'core.quotePath=false',
+      'diff',
+      '-z',
+      '--numstat',
+      '-M',
+      '--',
+      ':(literal)src/unstaged.ts'
+    ])
+    expect(result.entries).toEqual([
+      { path: 'src/staged.ts', status: 'modified', area: 'staged', added: 10, removed: 0 },
+      { path: 'src/unstaged.ts', status: 'modified', area: 'unstaged', added: 3, removed: 4 }
     ])
   })
 
@@ -1596,6 +1678,54 @@ describe('getStatus', () => {
 
     expect(result.didHitLimit).toBeUndefined()
     expect(result.entries.length).toBe(2)
+  })
+})
+
+describe('collectNumstatPathspecs', () => {
+  it('scopes to a single area and excludes other areas', () => {
+    const entries: GitStatusEntry[] = [
+      { path: 'src/staged.ts', status: 'modified', area: 'staged' },
+      { path: 'src/unstaged.ts', status: 'modified', area: 'unstaged' },
+      { path: 'src/new.ts', status: 'added', area: 'untracked' }
+    ]
+
+    expect(collectNumstatPathspecs(entries, 'staged')).toEqual(['src/staged.ts'])
+    expect(collectNumstatPathspecs(entries, 'unstaged')).toEqual(['src/unstaged.ts'])
+  })
+
+  it('includes both the old and new sides of a rename', () => {
+    const entries: GitStatusEntry[] = [
+      { path: 'src/new.ts', oldPath: 'src/old.ts', status: 'renamed', area: 'staged' }
+    ]
+
+    expect(collectNumstatPathspecs(entries, 'staged')).toEqual(['src/new.ts', 'src/old.ts'])
+  })
+
+  it('includes the copy source so a scoped scan matches the full scan', () => {
+    const entries: GitStatusEntry[] = [
+      { path: 'src/copy.ts', oldPath: 'src/source.ts', status: 'copied', area: 'staged' }
+    ]
+
+    expect(collectNumstatPathspecs(entries, 'staged')).toEqual(['src/copy.ts', 'src/source.ts'])
+  })
+
+  it('falls back to a full scan (null) when a rename is missing its old side', () => {
+    // Why: without the old path, -M would mis-report the new path as a plain add,
+    // so returning null tells runNumstat to run the unscoped scan for that area.
+    const entries: GitStatusEntry[] = [
+      { path: 'src/new.ts', status: 'renamed', area: 'staged' },
+      { path: 'src/other.ts', status: 'modified', area: 'staged' }
+    ]
+
+    expect(collectNumstatPathspecs(entries, 'staged')).toBeNull()
+  })
+
+  it('returns an empty list for an area with no entries', () => {
+    const entries: GitStatusEntry[] = [
+      { path: 'src/unstaged.ts', status: 'modified', area: 'unstaged' }
+    ]
+
+    expect(collectNumstatPathspecs(entries, 'staged')).toEqual([])
   })
 })
 

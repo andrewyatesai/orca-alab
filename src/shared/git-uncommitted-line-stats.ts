@@ -16,6 +16,16 @@ const UNTRACKED_READ_CONCURRENCY = 8
 // Keep status polling cheap: large untracked files are commonly generated
 // assets, and reading them every poll can stall the source-control sidebar.
 export const MAX_UNTRACKED_LINE_COUNT_BYTES = 2 * 1024 * 1024
+// Why: cap how many untracked files get line-counted per poll. Only the
+// 100-9,999-file band reaches this counting path — DEFAULT_GIT_STATUS_LIMIT
+// (10,000) truncates huge repos before line-stats run — so a large un-gitignored
+// generated/dependency dir in that middle band would otherwise lstat (and, on
+// change, read) every file each poll, lagging the source-control sidebar and
+// spiking main-process CPU during active builds. Above this many untracked
+// files, skip counting for the poll: rows still render, just without a +N,
+// exactly as the huge-repo didHitLimit path already does. A few hundred is well
+// above any hand-authored new-file set, which is the case the count serves.
+export const MAX_UNTRACKED_LINE_COUNT_FILES = 500
 // Why: the cache must hold at least one full status scan's untracked set
 // (capped at DEFAULT_GIT_STATUS_LIMIT entries). A smaller cache is worse than
 // none: a sequential scan over more files than the cap evicts every entry
@@ -124,6 +134,11 @@ export async function collectUntrackedAdditions(
   // the only thing affected; staged/unstaged numstat still flow. The relay uses its own
   // git-numstat collector instead of this path.
   if (!count) {
+    return result
+  }
+  // Over the cap: skip untracked line-counting for this poll before any lstat/
+  // read (see MAX_UNTRACKED_LINE_COUNT_FILES). Leaves those rows without a +N.
+  if (untrackedPaths.length > MAX_UNTRACKED_LINE_COUNT_FILES) {
     return result
   }
   for (let i = 0; i < untrackedPaths.length; i += UNTRACKED_READ_CONCURRENCY) {

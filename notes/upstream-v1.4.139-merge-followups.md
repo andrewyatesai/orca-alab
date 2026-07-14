@@ -14,10 +14,14 @@ our rust pieces" work). Tracked here; to be landed incrementally.
    dispatch creation) that the Rust `orca-store`/runtime doesn't implement yet — they throw
    "is not a function" at runtime. Port to the Rust store. (This is finding **F4**.)
 
-2. **Agent CLI startup — Grok / Hermes** (~34: `git-wasm/tui-agent-startup`, `agent-tab-title`,
-   `tui-agent-startup`). Upstream added Grok option-terminator + Hermes multiline/child-expansion
-   startup handling; the fork cut agent-startup to the Rust `orca-agents` core, which lacks the
-   new agents. Port the Grok/Hermes plan-builders to `orca-agents`.
+2. **Agent CLI startup — Hermes** (~19 remaining; Grok DONE). Grok `argv_prompt_separator` ported
+   to orca-agents (commit). HERMES: needs a new `HermesQuery` AgentPromptInjectionMode + a Rust port
+   of the 203-line `src/shared/hermes-startup-query.ts` (`planHermesStartupQuery`: wrapper-token
+   detection, chat-subcommand insertion, command-override flag reordering, multiline child-only
+   `sh -c` expansion, POSIX/powershell/cmd hosts). ARCHITECTURE QUESTION first: the fork already
+   keeps a TS `hermes-startup-query.ts` (used by local-pty-provider/pty-subprocess) — decide whether
+   the wasm `build_agent_startup_plan` should produce the hermes command in Rust or delegate. Then
+   also `agent-tab-title` (6) — grok/hermes tab titles.
 
 3. **PTY flow-control / output-scheduler** (~44: `pty-connection`, `pane-terminal-output-scheduler`,
    `pty-transport`). Upstream's "terminal performance initiative" (pipeline fixes + PTY flow

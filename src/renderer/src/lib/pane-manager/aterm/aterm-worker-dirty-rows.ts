@@ -16,6 +16,11 @@ export function createAtermDirtyRowTracker(e: DirtyRowEngine): {
   let lastText: string[] = []
   let lastWrapped: boolean[] = []
   let lastLen: number[] = []
+  // Cached all-'1' width string for ASCII rows, rebuilt only on a cols change,
+  // so the fast path allocates nothing per frame. Per-tracker (per pane) to
+  // avoid thrash when the worker hosts panes of different widths.
+  let asciiWidthsCols = -1
+  let asciiWidths = ''
 
   return {
     build: (rows, cols) => {
@@ -37,9 +42,31 @@ export function createAtermDirtyRowTracker(e: DirtyRowEngine): {
         lastWrapped[y] = wrapped
         lastLen[y] = len
         // Per-column width digit ('2' wide lead, '1' normal); only for changed rows.
-        let widths = ''
-        for (let x = 0; x < cols; x++) {
-          widths += e.cell_is_wide(y, x) === true ? '2' : '1'
+        // ASCII fast-path: an all-ASCII row can hold no wide cells, so skip the
+        // per-cell cell_is_wide walk (cols wasm-boundary calls/row — the dominant
+        // per-frame cost while scrolling varied content) and reuse the cached
+        // all-'1' string. Mirrors aterm-facade-buffer's proven fast path; output
+        // is byte-identical (all width-1 ⇒ 1:1 column mapping).
+        let widths: string
+        let allAscii = true
+        for (let i = 0; i < text.length; i++) {
+          if (text.charCodeAt(i) > 0x7f) {
+            allAscii = false
+            break
+          }
+        }
+        if (allAscii) {
+          if (asciiWidthsCols !== cols) {
+            asciiWidthsCols = cols
+            asciiWidths = '1'.repeat(cols)
+          }
+          widths = asciiWidths
+        } else {
+          let w = ''
+          for (let x = 0; x < cols; x++) {
+            w += e.cell_is_wide(y, x) === true ? '2' : '1'
+          }
+          widths = w
         }
         dirty.push({ y, text, wrapped, len, widths })
       }

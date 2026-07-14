@@ -4,6 +4,7 @@ import { useAppStore } from '@/store'
 import { useAllWorktrees, useRepoMap } from '@/store/selectors'
 import { isRemoteRuntimePtyId } from '@/runtime/runtime-terminal-inspection'
 import { parseAppSshPtyId } from '../../../../shared/ssh-pty-id'
+import { installWindowVisibilityInterval } from '@/lib/window-visibility-interval'
 import { getRepoExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
 import type { Worktree } from '../../../../shared/types'
 import {
@@ -123,11 +124,21 @@ export function useChecksPanelTerminalWorktree(args: {
       }
     }
 
-    void refresh()
-    const interval = window.setInterval(refresh, TERMINAL_CWD_POLL_MS)
+    // Gate on WINDOW visibility, not just panel visibility: getCwd is a process
+    // query (an `lsof` spawn on macOS) whose 4s cadence beats its 1.5s per-pid
+    // cache TTL, so every hidden-window tick was a guaranteed fresh lsof — and
+    // darwin disables background timer throttling, so nothing else clamps it.
+    // Pausing while hidden and re-resolving once on resume follows a cwd nobody
+    // can see without the spawn churn.
+    const stop = installWindowVisibilityInterval({
+      run: () => {
+        void refresh()
+      },
+      intervalMs: TERMINAL_CWD_POLL_MS
+    })
     return () => {
       disposed = true
-      window.clearInterval(interval)
+      stop()
     }
   }, [activeTerminalPtyId, shouldPollCwd])
 

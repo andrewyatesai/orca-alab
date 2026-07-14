@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ExternalLink, FolderPlus, GitBranchPlus, Star, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { installWindowVisibilityInterval } from '../lib/window-visibility-interval'
 import { useAppStore } from '../store'
 import { isGitRepoKind } from '../../../shared/repo-kind'
 import type { Repo } from '../../../shared/types'
@@ -280,21 +281,30 @@ export default function Landing(): React.JSX.Element {
 
     let cancelled = false
     // Why: some users complete `gh auth login` without ever leaving the Orca
-    // window. Poll only while a warning is visible so the banner self-clears.
-    const intervalId = window.setInterval(() => {
-      void window.api.preflight.check({ force: true }).then((status) => {
-        if (cancelled) {
-          return
-        }
-        setPreflightIssues(
-          getLandingPreflightIssues(status, { hasGitHubBackedProject: hasGitHubProject })
-        )
-      })
-    }, 30000)
+    // window. Poll only while a warning is visible so the banner self-clears —
+    // and only while the WINDOW is visible, so a backgrounded Landing screen
+    // stops spawning gh/glab auth-status probes every 30s (a `force` check that
+    // bypasses the cache). handleWindowActive above force-refreshes on re-show,
+    // so pausing while hidden loses nothing.
+    const stop = installWindowVisibilityInterval({
+      run: () => {
+        void window.api.preflight.check({ force: true }).then((status) => {
+          if (cancelled) {
+            return
+          }
+          setPreflightIssues(
+            getLandingPreflightIssues(status, { hasGitHubBackedProject: hasGitHubProject })
+          )
+        })
+      },
+      // The sibling visibilitychange/focus effect already refreshes on re-show.
+      runOnVisible: () => {},
+      intervalMs: 30000
+    })
 
     return () => {
       cancelled = true
-      window.clearInterval(intervalId)
+      stop()
     }
   }, [hasGitHubProject, preflightIssues.length])
 

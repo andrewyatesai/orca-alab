@@ -69,10 +69,15 @@ function which(bin) {
   return false
 }
 
-// Absolute path to a rustup-managed STABLE tool (Homebrew's cargo/rustc on PATH
-// shadow rustup and lack the wasm32 target).
+// Which rustup toolchain builds the wasm. Defaults to STABLE (the proven,
+// wasm32-capable path); ORCA_RUST_TOOLCHAIN=trust rebuilds with the Trust-verified
+// compiler (`pnpm bump:aterm` honors it too).
+const RUST_TOOLCHAIN = process.env.ORCA_RUST_TOOLCHAIN || 'stable'
+
+// Absolute path to a rustup-managed tool (Homebrew's cargo/rustc on PATH shadow
+// rustup and lack the wasm32 target).
 function rustupStableBin(bin) {
-  return execFileSync('rustup', ['which', bin, '--toolchain', 'stable'], {
+  return execFileSync('rustup', ['which', bin, '--toolchain', RUST_TOOLCHAIN], {
     encoding: 'utf8'
   }).trim()
 }

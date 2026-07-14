@@ -54,8 +54,12 @@ function cargoEnv() {
   return { ...process.env, PATH: path }
 }
 
+// Defaults to STABLE (the proven addon-build toolchain); ORCA_RUST_TOOLCHAIN=trust
+// rebuilds the napi addon with the Trust-verified compiler.
+const RUST_TOOLCHAIN = process.env.ORCA_RUST_TOOLCHAIN || 'stable'
+
 function rustupStableBin(tool) {
-  const r = spawnSync('rustup', ['which', tool, '--toolchain', 'stable'], { encoding: 'utf8' })
+  const r = spawnSync('rustup', ['which', tool, '--toolchain', RUST_TOOLCHAIN], { encoding: 'utf8' })
   return r.status === 0 ? r.stdout.trim() : null
 }
 

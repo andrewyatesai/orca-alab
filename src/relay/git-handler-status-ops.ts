@@ -176,14 +176,66 @@ export async function getStatusOp(
   }
 }
 
+// Why: the status entries already name every changed path, so scope the numstat
+// scan to them instead of rescanning the whole worktree on every status poll
+// (issue #7983: a large monorepo over SSH paid for a full-tree diff each SCM
+// refresh). A rename shows up as old→new, and `-M` needs BOTH sides in the
+// pathspec or it mis-reports the new path as a plain add — so include oldPath for
+// renamed/copied entries. Returns null (= full scan) if a rename is missing its
+// old side, so a rename's counts are never silently wrong.
+export function collectNumstatPathspecs(
+  entries: Record<string, unknown>[],
+  area: 'staged' | 'unstaged'
+): string[] | null {
+  const paths = new Set<string>()
+  for (const entry of entries) {
+    if (entry.area !== area) {
+      continue
+    }
+    const oldPath = entry.oldPath as string | undefined
+    if (entry.status === 'renamed' && !oldPath) {
+      return null
+    }
+    paths.add(entry.path as string)
+    if (oldPath) {
+      paths.add(oldPath)
+    }
+  }
+  return [...paths]
+}
+
+// Why: source-control selections are concrete paths, not user-authored Git globs;
+// :(literal) matches them exactly (mirrors the git-handler relay pathspec helper).
+function literalPathspec(filePath: string): string {
+  return `:(literal)${filePath}`
+}
+
 async function runNumstat(
   git: GitExec,
   worktreePath: string,
-  cached: boolean
+  cached: boolean,
+  // null → scan the whole worktree (rename-fallback); otherwise the exact set of
+  // changed paths (both rename sides) that scopes the scan.
+  pathspecs: string[] | null
 ): Promise<Map<string, GitLineStats>> {
+  // No changed paths of this kind: nothing to scan.
+  if (pathspecs && pathspecs.length === 0) {
+    return new Map()
+  }
   try {
     const { stdout } = await git(
-      ['-c', 'core.quotePath=false', 'diff', ...(cached ? ['--cached'] : []), '--numstat', '-M'],
+      [
+        '-c',
+        'core.quotePath=false',
+        'diff',
+        ...(cached ? ['--cached'] : []),
+        '--numstat',
+        '-M',
+        // Scope the scan to the known changed paths (both rename sides) so a large
+        // monorepo's status poll doesn't rescan the whole worktree; :(literal)
+        // keeps glob/rename-marker chars exact. null → full scan (rename fallback).
+        ...(pathspecs ? ['--', ...pathspecs.map(literalPathspec)] : [])
+      ],
       worktreePath,
       { disableOptionalLocks: true }
     )
@@ -210,8 +262,12 @@ async function attachLineStats(
     .map((entry) => entry.path as string)
   const emptyStats = new Map<string, GitLineStats>()
   const [stagedStats, unstagedStats, untrackedStats] = await Promise.all([
-    hasStaged ? runNumstat(git, worktreePath, true) : Promise.resolve(emptyStats),
-    hasUnstaged ? runNumstat(git, worktreePath, false) : Promise.resolve(emptyStats),
+    hasStaged
+      ? runNumstat(git, worktreePath, true, collectNumstatPathspecs(entries, 'staged'))
+      : Promise.resolve(emptyStats),
+    hasUnstaged
+      ? runNumstat(git, worktreePath, false, collectNumstatPathspecs(entries, 'unstaged'))
+      : Promise.resolve(emptyStats),
     // No native addon ships to the relay host, so untracked counts come from git
     // itself (diff --no-index vs /dev/null) instead of the Rust counter.
     collectUntrackedAdditionsViaGitNumstat(git, worktreePath, untrackedPaths)

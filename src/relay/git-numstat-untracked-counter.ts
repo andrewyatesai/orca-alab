@@ -10,6 +10,7 @@ import * as path from 'node:path'
 import type { GitExec } from './git-handler-ops'
 import {
   countUntrackedFileWithCache,
+  MAX_UNTRACKED_LINE_COUNT_FILES,
   type GitLineStats
 } from '../shared/git-uncommitted-line-stats'
 import { parseNumstat } from './git-wasm'
@@ -57,6 +58,12 @@ export async function collectUntrackedAdditionsViaGitNumstat(
   untrackedPaths: readonly string[]
 ): Promise<Map<string, GitLineStats>> {
   const result = new Map<string, GitLineStats>()
+  // Over the cap: skip untracked line-counting for this poll before any lstat or
+  // per-file `git diff --no-index` spawn (see MAX_UNTRACKED_LINE_COUNT_FILES).
+  // Matches the shared/local counter — those rows render without a +N badge.
+  if (untrackedPaths.length > MAX_UNTRACKED_LINE_COUNT_FILES) {
+    return result
+  }
   for (let i = 0; i < untrackedPaths.length; i += GIT_NUMSTAT_CONCURRENCY) {
     const chunk = untrackedPaths.slice(i, i + GIT_NUMSTAT_CONCURRENCY)
     await Promise.all(

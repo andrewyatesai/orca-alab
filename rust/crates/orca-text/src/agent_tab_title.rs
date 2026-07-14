@@ -56,10 +56,13 @@ fn truncate_at_word_boundary(value: &str, max_length: usize) -> String {
 
 pub fn derive_generated_tab_title(prompt: &str) -> Option<String> {
     let prompt_preview = utf16_prefix(prompt, GENERATED_TAB_TITLE_SOURCE_SCAN_LIMIT);
-    let stripped_markup = markup_re().replace_all(prompt_preview.trim(), " ");
+    // Strip URLs BEFORE markdown punctuation: a GitLab URL like `/merge_requests/42`
+    // contains `_`, and folding that to a space first would split the URL and leak
+    // fragments ("requests") into the title.
+    let without_links = url_re().replace_all(prompt_preview.trim(), " ");
+    let stripped_markup = markup_re().replace_all(&without_links, " ");
     let without_prefix = issue_prefix_re().replace(&stripped_markup, "");
-    let without_links = url_re().replace_all(&without_prefix, " ");
-    let first_clause = without_links
+    let first_clause = without_prefix
         .split(['.', '!', '?', ';', '\n', '\r', '\u{2028}', '\u{2029}'])
         .next()
         .unwrap_or("")
@@ -103,7 +106,9 @@ fn issue_prefix_re() -> &'static Regex {
 
 fn url_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?i)\bhttps?://\S+").unwrap())
+    // No `\b` anchor: a URL wrapped in markdown emphasis (`_https://…_`) is
+    // preceded by a word char, where `\bhttps` fails to match and leaks the URL.
+    RE.get_or_init(|| Regex::new(r"(?i)https?://\S+").unwrap())
 }
 
 fn non_text_re() -> &'static Regex {

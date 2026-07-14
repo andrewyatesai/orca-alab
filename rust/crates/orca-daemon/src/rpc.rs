@@ -844,6 +844,7 @@ pub(crate) fn build_snapshot(term: &mut HeadlessTerminal) -> Value {
         "cwd": cwd,
         "modes": {
             "bracketedPaste": bracketed,
+            "kittyKeyboardFlags": term.kitty_keyboard_flags(),
             "mouseTracking": mouse_on,
             "mouseTrackingMode": mouse_mode,
             "sgrMouseMode": sgr_mouse,

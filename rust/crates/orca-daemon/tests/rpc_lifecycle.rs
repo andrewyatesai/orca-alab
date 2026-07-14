@@ -98,6 +98,9 @@ fn create_write_snapshot_cwd_lifecycle() {
     assert_eq!(snapshot["rows"], json!(26));
     assert_eq!(snapshot["cwd"], json!("/tmp/dtest"));
     assert!(snapshot["modes"]["applicationCursor"].is_boolean());
+    // Kitty keyboard flags ride the snapshot modes so a reattach re-anchors CSI-u
+    // state — parity with the Node daemon's TerminalKittyKeyboardModeTracker.
+    assert!(snapshot["modes"]["kittyKeyboardFlags"].is_number());
 
     // getSize returns the session grid.
     let size = dispatch(

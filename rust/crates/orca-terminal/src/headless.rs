@@ -306,6 +306,13 @@ impl HeadlessTerminal {
         self.inner.is_alternate_screen()
     }
 
+    /// Current Kitty keyboard enhancement flags (0 = protocol inactive). The
+    /// daemon carries this in the snapshot modes so a reattach re-anchors CSI-u
+    /// keyboard state, matching the Node daemon's TerminalKittyKeyboardModeTracker.
+    pub fn kitty_keyboard_flags(&self) -> u8 {
+        self.inner.kitty_keyboard_flags().bits()
+    }
+
     /// Whether bracketed-paste mode (DECSET 2004) is on.
     pub fn bracketed_paste(&self) -> bool {
         self.inner.modes().bracketed_paste()

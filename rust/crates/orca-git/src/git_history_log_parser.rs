@@ -174,7 +174,16 @@ pub fn compare_git_history_item_refs_by_category(
     }
 
     match order(ref1).cmp(&order(ref2)) {
-        Ordering::Equal => ref1.name.cmp(&ref2.name),
+        // Case-insensitive first (matches the deleted TS `localeCompare`, so
+        // `apple` sorts before `Banana` in the badge row), then raw bytes as a
+        // stable final tie-break. `to_lowercase` is Unicode-defined — unlike a
+        // no-locale `localeCompare` it is deterministic across the three hosts
+        // this parser runs on (main Node, relay Node, renderer wasm).
+        Ordering::Equal => ref1
+            .name
+            .to_lowercase()
+            .cmp(&ref2.name.to_lowercase())
+            .then_with(|| ref1.name.cmp(&ref2.name)),
         other => other,
     }
 }

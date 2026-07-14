@@ -154,7 +154,12 @@ export class HistoryReader {
       if (checkpoint) {
         if (
           !emulator.writeSync(
-            (checkpoint.scrollbackAnsi ?? '') +
+            // Only prefix scrollback on the alt screen: there snapshotAnsi is the
+            // alt buffer and scrollbackAnsi carries the separate main-buffer
+            // history. On a normal screen serialize_ansi ALREADY prepends the
+            // history into snapshotAnsi, so adding scrollbackAnsi doubles the
+            // whole scrollback on cold restore. Matches buildColdRestorePayload.
+            (checkpoint.modes?.alternateScreen ? (checkpoint.scrollbackAnsi ?? '') : '') +
               checkpoint.rehydrateSequences +
               checkpoint.snapshotAnsi
           )

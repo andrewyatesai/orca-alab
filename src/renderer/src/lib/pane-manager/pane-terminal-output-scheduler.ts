@@ -1064,7 +1064,18 @@ export function writeTerminalOutput(
   // terminal has a registered controller). Done up front so the canvas sees
   // bytes in order regardless of how the scheduler later queues/drains them;
   // xterm still receives the bytes too, keeping buffer/serialize populated.
-  mirrorOutputToAterm(terminal, data)
+  // Guarded: the ACK credit is already claimed at the call site, and the mirror
+  // drains engine side-channels (OSC 8/52/133, bell, title, selection listeners)
+  // that can throw. An unguarded throw here would return before the credit is
+  // registered, permanently orphaning it and cumulatively wedging backpressure.
+  try {
+    mirrorOutputToAterm(terminal, data)
+  } catch {
+    // Swallow: the bytes were already fed to the engine before a side-channel
+    // listener threw, and the throwing listener is a separate bug. Rethrowing
+    // would strand the already-claimed ACK credit and cumulatively wedge
+    // backpressure — the exact failure the ack scheme exists to prevent.
+  }
 
   if (options.foreground) {
     const entry = queuedByTerminal.get(terminal)

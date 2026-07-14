@@ -72,6 +72,26 @@ describe('incremental terminal history restore', () => {
     expect(restore!.scrollbackAnsi).toContain('from tail after checkpoint')
   })
 
+  it('does not duplicate normal-screen scrollback across an incremental cold restore', async () => {
+    // Write more lines than the 24-row viewport so history scrolls off on a
+    // NORMAL screen. snapshotAnsi already prepends that history, so also
+    // prefixing scrollbackAnsi (the old bug) seeded the scratch emulator with
+    // every scrolled line twice — the user saw a doubled scrollback on restore.
+    const lines = Array.from({ length: 40 }, (_, i) =>
+      i === 5 ? 'UNIQUEMARKER\r\n' : `filler-${i}\r\n`
+    )
+    await manager.checkpoint(SESSION_ID, snapshotOf(lines))
+    // A non-empty log routes through restoreFromIncrementalLog (the buggy seam),
+    // not the checkpoint-only path.
+    await manager.appendIncrements(SESSION_ID, 1, [{ kind: 'output', data: 'tail-marker\r\n' }])
+
+    const restore = reader.detectColdRestore(SESSION_ID)
+    expect(restore).not.toBeNull()
+    // The scrolled-off marker must appear exactly once (it doubled before the fix).
+    const markerCount = restore!.scrollbackAnsi.split('UNIQUEMARKER').length - 1
+    expect(markerCount).toBe(1)
+  })
+
   it('preserves checkpoint OSC link ranges while replaying the log tail', async () => {
     await manager.checkpoint(
       SESSION_ID,

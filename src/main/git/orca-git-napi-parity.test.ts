@@ -175,14 +175,16 @@ const streamingFixtures: { name: string; bytes: Buffer; limit: number; chunkSize
 ]
 
 // Absolute goldens (the shared TS decoder was deleted; main runs the napi
-// decode, the relay the same core via wasm). Octal escapes decode PER-BYTE
-// (fromCharCode-faithful), so \303\251 → 'Ã©'.
+// decode, the relay the same core via wasm). Adjacent octal escapes accumulate
+// into one UTF-8 byte run before decoding, so \303\251 → 'é' (not per-byte 'Ã©')
+// and the 3-byte \342\202\254 → '€'.
 const decodeFixtures: { value: string; expected: string }[] = [
   { value: 'plain/path.ts', expected: 'plain/path.ts' },
   { value: '"quoted/path.ts"', expected: 'quoted/path.ts' },
   { value: '"tab\\tfile.txt"', expected: 'tab\tfile.txt' },
   { value: '"new\\nline.txt"', expected: 'new\nline.txt' },
-  { value: '"\\303\\251.txt"', expected: 'Ã©.txt' },
+  { value: '"\\303\\251.txt"', expected: 'é.txt' },
+  { value: '"\\342\\202\\254.txt"', expected: '€.txt' },
   { value: '"a\\142c.txt"', expected: 'abc.txt' },
   { value: '"\\"quoted\\".txt"', expected: '"quoted".txt' },
   { value: 'old.ts => new.ts', expected: 'old.ts => new.ts' }
@@ -244,12 +246,12 @@ suite('orca-git napi surface', () => {
     // Guards the decode_git_cquoted_path wiring in the `? `/`! ` record branches
     // with fixed expected paths — the streaming↔one-shot self-consistency check
     // above cannot catch a decode dropped from BOTH legs (they share parse_line).
-    // Octal escapes decode per-byte (fromCharCode semantics, matching the live
-    // shared TS decoder), so \303\251 pins to 'Ã©', not 'é'.
+    // Adjacent octal escapes accumulate into one UTF-8 byte run, so \303\251
+    // decodes to 'é' (not per-byte 'Ã©').
     const napi = JSON.parse(
       git.parseStatusPorcelain(Buffer.from('? "\\303\\251.txt"\n! "tab\\tname.log"\n'), 0)
     ) as { entries: { path: string }[]; ignoredPaths: string[] }
-    expect(napi.entries.map((entry) => entry.path)).toEqual(['Ã©.txt'])
+    expect(napi.entries.map((entry) => entry.path)).toEqual(['é.txt'])
     expect(napi.ignoredPaths).toEqual(['tab\tname.log'])
   })
 

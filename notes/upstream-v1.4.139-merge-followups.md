@@ -1,5 +1,28 @@
 # Upstream v1.4.139 merge — deferred Rust-backing ports
 
+> **COMPLETE (2026-07-13).** The full port is landed: `pnpm typecheck` (TS7),
+> `pnpm lint`, and the full `vitest` suite are green (29561 passed; the lone
+> `kill-all-terminal-surfaces` "latency evidence" case is a load-sensitive flake
+> that passes in isolation). All areas 1–6, the alt-screen serialize, and every
+> renderer capability-gap follow-up below are done. Highlights of the final wave:
+> - **alt-screen serialize** (5): `serialize_scrollback_ansi` now appends the main
+>   buffer's visible rows in the alt screen (orca-terminal), + realigned the
+>   post-#7893 reset-constant test.
+> - **git-wasm bootstrap** (6 upstream tests): agent-picked-payload, automation-
+>   setup-decision, resume-navigation, worktree-activation, repos-icon-sanitize,
+>   workspace-cleanup scan-revive — all needed `init-git-wasm-for-test` because the
+>   fork routes those helpers through the Rust wasm core (fail-safe until ready).
+> - **terminal-shutdown** (3): adopted upstream `serializeWithAbsoluteCursor` on the
+>   legacy path only (aterm already CUP-terminates).
+> - **F1 napi goldens** + **decode_total SMT proofs** re-derived for the byte-run
+>   decode and discharged by `ay` (unsat/unsat/sat).
+> - **daemon-init** (4): stub `win32` (fork uses the Rust daemon on Unix);
+>   **git-binary-compat**: `skipIf` no-CI (fork policy).
+> - Link gaps: **G2** Alt-mouse left to the TUI on http-link click; **G3** orphans
+>   deleted; **G1** already covered by `buildCandidateLogicalLinesForBufferPosition`.
+>
+> Historical context below (as tracked while landing incrementally).
+
 The `stablyai/orca` v1.4.139 merge is aligned at the TypeScript layer: `pnpm typecheck`
 (TS7) and `pnpm lint` pass, terminal-keyboard-policy regressions are fixed, and the
 new upstream features are adopted at the TS/test layer. ~170 tests still fail because

@@ -5,6 +5,7 @@ import {
   POST_REPLAY_MODE_RESET,
   POST_REPLAY_REATTACH_RESET,
   RESET_KITTY_KEYBOARD_PROTOCOL,
+  RESET_MOUSE_REPORTING,
   RESET_TERMINAL_CURSOR_STYLE
 } from './layout-serialization'
 
@@ -30,23 +31,25 @@ describe('terminal replay state reset constants', () => {
 
   it('clears mouse / focus / bracketed-paste modes in the cold-restore bundle', () => {
     // Cold restore lands a fresh shell, so every interactive mode bit is reset:
-    // cursor style + Kitty + DECTCEM `?25h` + mouse 1000/1002/1003/1006 + focus
+    // cursor style + Kitty + DECTCEM `?25h` + the full mouse set (#7893) + focus
     // 1004 + bracketed-paste 2004.
     expect(POST_REPLAY_MODE_RESET).toBe(
-      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?2004l`
+      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l\x1b[?2004l`
     )
     expect(POST_REPLAY_MODE_RESET).toContain(RESET_KITTY_KEYBOARD_PROTOCOL)
   })
 
-  it('resets only cursor + Kitty + focus on reattach (preserves live TUI modes)', () => {
-    // Daemon reattach keeps mouse/bracketed-paste for a still-running TUI; only
-    // the four safe bits are reset (cursor style, Kitty keyboard, DECTCEM, 1004).
+  it('clears leaked mouse modes on reattach (#7893), keeping bracketed paste', () => {
+    // A snapshot's rehydrate re-arms whatever mouse mode a possibly-uncleanly
+    // killed TUI left on, so a plain shell would echo motion reports as literal
+    // input; reattach clears the full mouse set for that reason (#7893). Live
+    // agents keep mouse via POST_REPLAY_LIVE_AGENT_REATTACH_RESET.
     expect(POST_REPLAY_REATTACH_RESET).toBe(
-      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h\x1b[?1004l`
+      `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}\x1b[?25h${RESET_MOUSE_REPORTING}\x1b[?1004l`
     )
     expect(POST_REPLAY_REATTACH_RESET).toContain(RESET_KITTY_KEYBOARD_PROTOCOL)
-    // Reattach must NOT clear mouse / bracketed-paste the live TUI may rely on.
-    expect(POST_REPLAY_REATTACH_RESET).not.toContain('\x1b[?1000l')
+    expect(POST_REPLAY_REATTACH_RESET).toContain('\x1b[?1000l')
+    // Bracketed paste (2004) stays armed on reattach — only the cold restore clears it.
     expect(POST_REPLAY_REATTACH_RESET).not.toContain('\x1b[?2004l')
   })
 

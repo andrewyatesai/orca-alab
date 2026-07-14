@@ -353,17 +353,47 @@ impl HeadlessTerminal {
     pub fn serialize_scrollback_ansi(&self, max_rows: Option<usize>) -> String {
         let grid = self.inner.main_grid();
         let history = grid.scrollback_lines();
-        if history == 0 {
+
+        // In the alternate screen the main buffer's VISIBLE rows are recoverable
+        // history too: on `?1049l` exit the user returns to them, yet they never
+        // scrolled into `scrollback_lines()` (a short pre-TUI shell screen has
+        // nothing off-viewport). Capture them (trailing blanks trimmed) so an
+        // in-alt-screen cold-restore recovers the whole pre-TUI screen, not just
+        // the lines that happened to scroll away. Outside the alt screen the
+        // visible grid IS the live snapshot (`serialize_ansi` frames it), so
+        // scrollback stays history-only.
+        let mut visible: Vec<String> = Vec::new();
+        if self.inner.is_alternate_screen() {
+            visible = (0..self.inner.rows())
+                .map(|r| grid.row_text(r).unwrap_or_default().trim_end().to_string())
+                .collect();
+            while visible.last().is_some_and(|l| l.is_empty()) {
+                visible.pop();
+            }
+        }
+
+        if history == 0 && visible.is_empty() {
             return String::new();
         }
-        let take = max_rows.map_or(history, |n| n.min(history));
-        let start = history - take;
+
+        // `max_rows` bounds the COMBINED payload (history + preserved visible
+        // rows), keeping the most recent lines. Read only the tail of history so
+        // a large scrollback isn't fully materialized.
+        let total = history + visible.len();
+        let take = max_rows.map_or(total, |n| n.min(total));
+        let hist_take = take.saturating_sub(visible.len()).min(history);
+        let vis_skip = visible.len().saturating_sub(take);
+
         let mut out = String::new();
-        for i in start..history {
+        for i in (history - hist_take)..history {
             let line = grid
                 .get_history_line(i)
                 .and_then(|l| l.as_str().map(|s| s.trim_end().to_string()))
                 .unwrap_or_default();
+            out.push_str(&line);
+            out.push_str("\r\n");
+        }
+        for line in visible.into_iter().skip(vis_skip) {
             out.push_str(&line);
             out.push_str("\r\n");
         }
@@ -759,6 +789,23 @@ mod tests {
         let mut restored = HeadlessTerminal::new(4, 20);
         restored.process_str(&b);
         assert_eq!(restored.row_text(0), "helloX");
+    }
+
+    #[test]
+    fn serialize_scrollback_ansi_preserves_main_visible_rows_in_alt_screen() {
+        // A short pre-TUI shell screen (2 lines, 6-row grid) has NO off-screen
+        // scrollback, so history-only serialization loses it when a TUI enters
+        // the alt screen. The main buffer's visible rows must be preserved.
+        let mut term = HeadlessTerminal::new(6, 40);
+        term.process_str("shell history one\r\nshell history two");
+        term.process_str("\x1b[?1049h\x1b[2J\x1b[HTUI frame");
+        assert!(term.is_alternate_screen());
+        let sb = term.serialize_scrollback_ansi(None);
+        assert!(sb.contains("shell history one"), "sb={sb:?}");
+        assert!(sb.contains("shell history two"), "sb={sb:?}");
+        // Trailing blank main rows are trimmed and the alt content is excluded.
+        assert!(!sb.contains("TUI frame"), "alt content must not leak: {sb:?}");
+        assert_eq!(sb, "shell history one\r\nshell history two\r\n", "sb={sb:?}");
     }
 
     #[test]

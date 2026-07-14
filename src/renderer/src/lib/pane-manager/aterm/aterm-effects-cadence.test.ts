@@ -208,3 +208,36 @@ describe('worker effects cadence', () => {
     expect(h.render).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('worker hover STATE-only post', () => {
+  it('posts the hover STATE without rendering the engine framebuffer', () => {
+    const h = workerHarness(false, undefined)
+    h.scheduler.scheduleStatePost()
+    flushRaf(h.raf)
+    // The hover underline + cursor are main-thread overlays, so the frame posts STATE but the
+    // engine framebuffer is byte-identical — render() would be pure waste during a mouse sweep.
+    expect(h.post).toHaveBeenCalledTimes(1)
+    expect(h.render).not.toHaveBeenCalled()
+  })
+
+  it('lets an already-queued draw carry the hover post instead of double-posting', () => {
+    const h = workerHarness(false, undefined)
+    h.scheduler.schedule() // real content draw queued for this frame (renders + posts)
+    h.scheduler.scheduleStatePost() // hover arrives the same frame → defer to that draw
+    flushRaf(h.raf)
+    expect(h.render).toHaveBeenCalledTimes(1)
+    expect(h.post).toHaveBeenCalledTimes(1)
+  })
+
+  it('still renders when a real draw follows a render-free hover post', () => {
+    const h = workerHarness(false, undefined)
+    h.scheduler.scheduleStatePost()
+    flushRaf(h.raf)
+    expect(h.render).not.toHaveBeenCalled()
+
+    h.scheduler.schedule() // genuine content change → must render, not just post
+    flushRaf(h.raf)
+    expect(h.render).toHaveBeenCalledTimes(1)
+    expect(h.post).toHaveBeenCalledTimes(2)
+  })
+})

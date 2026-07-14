@@ -12,6 +12,7 @@ import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
 import { decodeMouseReport, decodeReply } from './aterm-worker-reply-decode'
 import type { AtermWorkerState, AtermWorkerThemeSet } from './aterm-render-worker-protocol'
+import { hoverLinkOutcomeEqual } from './aterm-worker-hover-outcome'
 
 /** One pane's engine-side terminal (the shared worker hosts one per live pane). */
 export type WorkerTerminal = ReturnType<typeof createWorkerTerminal>
@@ -81,7 +82,9 @@ export function createWorkerTerminal(handle: EngineHandle): {
   setSelectionInactiveBg: (bg: number | null) => void
   setClipboardWriteAuthorized: (allowed: boolean) => void
   setNotificationsAuthorized: (allowed: boolean) => void
-  setHover: (pos: { row: number; col: number } | null) => void
+  /** Update the hover link/cursor; returns whether the OUTCOME (STATE hoverLink/hoverCursor)
+   *  changed, so the caller can post a render-free STATE only when it did. */
+  setHover: (pos: { row: number; col: number } | null) => boolean
   searchFind: (query: string, caseSensitive: boolean, isRegex: boolean) => void
   searchNext: () => void
   searchPrev: () => void
@@ -271,22 +274,28 @@ export function createWorkerTerminal(handle: EngineHandle): {
       allowed ? e.authorize_clipboard_write() : e.revoke_clipboard_write(),
     setNotificationsAuthorized: (allowed) => e.authorize_notifications(allowed),
     setHover: (pos) => {
+      const prevLink = hoverLink
+      const prevCursor = hoverCursor
       if (!pos) {
         hoverLink = null
         hoverCursor = ''
-        return
+      } else {
+        const hit = e.link_at(pos.row, pos.col)
+        hoverLink = hit
+          ? {
+              row: pos.row,
+              startCol: hit.start_col,
+              endCol: hit.end_col,
+              url: hit.url,
+              kind: hit.kind
+            }
+          : null
+        hoverCursor = hit ? 'pointer' : ''
       }
-      const hit = e.link_at(pos.row, pos.col)
-      hoverLink = hit
-        ? {
-            row: pos.row,
-            startCol: hit.start_col,
-            endCol: hit.end_col,
-            url: hit.url,
-            kind: hit.kind
-          }
-        : null
-      hoverCursor = hit ? 'pointer' : ''
+      // link_at is a pure read: hover mutates no engine render state (the underline + cursor
+      // are main-thread overlays), so a crossed cell needs a render-free STATE only when the
+      // link/cursor actually changed — a sweep through the same link/blank posts nothing.
+      return hoverCursor !== prevCursor || !hoverLinkOutcomeEqual(prevLink, hoverLink)
     },
     searchFind: (q, cs, regex) => search.find(q, cs, regex),
     searchNext: () => search.next(),

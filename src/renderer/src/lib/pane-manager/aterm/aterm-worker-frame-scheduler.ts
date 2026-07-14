@@ -76,6 +76,11 @@ export function createWorkerFrameScheduler(deps: {
   /** Schedule a coalesced draw. `postState` (default true) marks that this frame must post
    *  a STATE; blink/hollow pass false for a render-only frame. */
   schedule: (postState?: boolean) => void
+  /** Post a coalesced STATE snapshot WITHOUT rendering the engine — for hover, whose
+   *  underline + cursor are main-thread overlays, so the framebuffer stays byte-identical
+   *  and a full render() would be pure waste. Never route a draw that changes engine
+   *  render state through here. */
+  scheduleStatePost: () => void
   /** Force a STATE post now — the first frame, which the loader awaits for cell metrics. */
   postNow: () => void
   /** Set the hidden/suspended flag; resuming (false) schedules a post of the latest state. */
@@ -89,6 +94,8 @@ export function createWorkerFrameScheduler(deps: {
   let suspended = false
   let drawScheduled = false
   let needStatePost = false
+  // A render-free hover STATE post is queued for this frame (see scheduleStatePost).
+  let hoverPostScheduled = false
   // True once an eager present painted THIS frame, so multiple interactive nudges in
   // one frame coalesce to a single synchronous paint (reset at the next frame).
   let eagerPresentedThisFrame = false
@@ -206,6 +213,48 @@ export function createWorkerFrameScheduler(deps: {
     }
   }
 
+  // Hover STATE-only path: setHover changed the link/cursor OUTCOME but no engine render
+  // state, so post the fresh snapshot WITHOUT term.render()/tickEffects/arming an effects
+  // timer (the framebuffer is byte-identical; the underline + cursor are main-thread
+  // overlays). This is the ONLY caller that skips render — content/effect draws must use
+  // schedule(). A real draw already queued this frame supersedes the post-only frame (its
+  // STATE carries the same fresh hover), so defer to it instead of double-posting.
+  const scheduleStatePost = (): void => {
+    if (suspended) {
+      // Hidden pane posts nothing (nothing reads its visible mirror; resume re-posts), and a
+      // hover carries no dimension change — mirror drawNow's suspended path.
+      return
+    }
+    if (drawScheduled) {
+      // A draw is already queued this frame: make it post the fresh hover after it renders,
+      // rather than booking a redundant post-only frame.
+      needStatePost = true
+      return
+    }
+    if (hoverPostScheduled) {
+      return
+    }
+    hoverPostScheduled = true
+    const run = (): void => {
+      hoverPostScheduled = false
+      const term = deps.getTerm()
+      if (!term || suspended) {
+        return
+      }
+      if (drawScheduled) {
+        // A real draw got queued after us — let it carry the post (with its render).
+        needStatePost = true
+        return
+      }
+      postState(term)
+    }
+    if (deps.raf) {
+      deps.raf(run)
+    } else {
+      run()
+    }
+  }
+
   // Interactive echo fast path (the main-thread presentNow nudge): render NOW in the
   // worker so the glyph catches the current compositor frame, instead of waiting a
   // full shared-rAF tick (~16.7ms@60Hz) behind the sibling 'process' schedule that
@@ -243,6 +292,7 @@ export function createWorkerFrameScheduler(deps: {
 
   return {
     schedule,
+    scheduleStatePost,
     postNow: () => {
       needStatePost = true
       requestedDraw++

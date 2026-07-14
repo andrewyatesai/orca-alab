@@ -276,10 +276,16 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
       term?.setCursorHollow(msg.hollow)
       scheduleDraw(false)
       return
-    case 'setHover':
-      term?.setHover('clear' in msg ? null : { row: msg.row, col: msg.col })
-      scheduleDraw()
+    case 'setHover': {
+      // Hover only drives the main-thread underline overlay + cursor (STATE fields), not the
+      // engine framebuffer — so post a render-free STATE, and only when the OUTCOME changed,
+      // so sweeping the mouse across cells does no render() and often no post at all.
+      const hoverChanged = term?.setHover('clear' in msg ? null : { row: msg.row, col: msg.col })
+      if (hoverChanged) {
+        pane.frameScheduler.scheduleStatePost()
+      }
       return
+    }
     case 'searchFind':
       term?.searchFind(msg.query, msg.caseSensitive, msg.isRegex)
       scheduleDraw()

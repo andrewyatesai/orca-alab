@@ -139,6 +139,41 @@ describe('aterm worker buildState selectionText gating (per-frame clone avoidanc
   })
 })
 
+// ── R7: hover posts a render-free STATE only when the link/cursor OUTCOME changes ──
+describe('aterm worker setHover (render-free hover outcome gating)', () => {
+  type Hit = { url: string; kind: number; start_col: number; end_col: number }
+  function makeTerm(linkAt: (row: number, col: number) => Hit | undefined) {
+    const engine = { link_at: vi.fn(linkAt) }
+    return createWorkerTerminal({ kind: 'cpu', engine } as unknown as EngineHandle)
+  }
+
+  it('reports change only on entering + leaving a link, not while sweeping within it', () => {
+    const hit: Hit = { url: 'u', kind: 1, start_col: 2, end_col: 6 }
+    const term = makeTerm((_row, col) => (col >= 2 && col <= 6 ? hit : undefined))
+    expect(term.setHover({ row: 0, col: 3 })).toBe(true) // entered the link → post
+    expect(term.setHover({ row: 0, col: 4 })).toBe(false) // same link span → no post
+    expect(term.setHover({ row: 0, col: 5 })).toBe(false) // still same span → no post
+    expect(term.setHover({ row: 0, col: 9 })).toBe(true) // left the link → post (clear)
+    expect(term.setHover({ row: 0, col: 10 })).toBe(false) // still link-free → no post
+    expect(term.setHover(null)).toBe(false) // already cleared → no post
+  })
+
+  it('reports change when crossing from one link to a different one', () => {
+    const linkA: Hit = { url: 'a', kind: 1, start_col: 0, end_col: 2 }
+    const linkB: Hit = { url: 'b', kind: 2, start_col: 4, end_col: 6 }
+    const term = makeTerm((_row, col) => (col <= 2 ? linkA : col >= 4 ? linkB : undefined))
+    expect(term.setHover({ row: 0, col: 1 })).toBe(true) // link A
+    expect(term.setHover({ row: 0, col: 5 })).toBe(true) // link B (different url/kind/span)
+  })
+
+  it('sweeping only link-free cells never reports a change (posts nothing)', () => {
+    const term = makeTerm(() => undefined)
+    expect(term.setHover({ row: 0, col: 0 })).toBe(false) // matches the initial no-hover state
+    expect(term.setHover({ row: 0, col: 1 })).toBe(false)
+    expect(term.setHover({ row: 5, col: 9 })).toBe(false)
+  })
+})
+
 // ── Shared DOM harness for the input handlers ──
 function makeCanvas(): HTMLCanvasElement {
   const canvas = document.createElement('canvas')

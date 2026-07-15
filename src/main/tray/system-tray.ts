@@ -25,6 +25,11 @@ let baseTrayImage: NativeImage | null = null
 // freshly created tray reflects it immediately.
 let attentionActive = false
 
+// Why: i18n init is backgrounded off the cold-start path, so the tray can be
+// built with English fallbacks before the locale catalog resolves. Keep the
+// last opts so refreshTrayContextMenu() can re-apply localized labels.
+let lastTrayOpts: SystemTrayOptions | null = null
+
 // Why: on Windows the notification area expects a 16px icon; the app icon PNG
 // is larger, so downscale to avoid a cropped/blurry tray glyph.
 const TRAY_ICON_SIZE = 16
@@ -55,19 +60,41 @@ export function createSystemTray(opts: SystemTrayOptions): Tray | null {
     height: TRAY_ICON_SIZE
   })
   tray = new Tray(baseTrayImage)
+  lastTrayOpts = opts
   // Why: reflect any attention event that fired before the tray existed.
   applyTrayImage()
   tray.setToolTip('Orca')
+  applyTrayContextMenu(opts)
+  // Why: a left-click on the tray icon is the conventional Windows gesture to
+  // restore a minimized-to-tray app.
+  tray.on('click', () => opts.onOpen())
+  return tray
+}
+
+// Why: build + apply the tray context menu from current translations. Split out
+// so refreshTrayContextMenu() can rebuild it once the backgrounded i18n catalog
+// loads, without recreating the tray icon.
+function applyTrayContextMenu(opts: SystemTrayOptions): void {
+  if (!tray || tray.isDestroyed()) {
+    return
+  }
   const menu = Menu.buildFromTemplate([
     { label: translateMain('tray.openOrca', 'Open Orca'), click: () => opts.onOpen() },
     { type: 'separator' },
     { label: translateMain('tray.quit', 'Quit'), click: () => opts.onQuit() }
   ])
   tray.setContextMenu(menu)
-  // Why: a left-click on the tray icon is the conventional Windows gesture to
-  // restore a minimized-to-tray app.
-  tray.on('click', () => opts.onOpen())
-  return tray
+}
+
+/**
+ * Rebuilds the tray context menu with current translations. Called after the
+ * backgrounded main i18n catalog resolves so non-English Windows users see
+ * localized tray labels. No-op on macOS/Linux or before the tray is created.
+ */
+export function refreshTrayContextMenu(): void {
+  if (tray && !tray.isDestroyed() && lastTrayOpts) {
+    applyTrayContextMenu(lastTrayOpts)
+  }
 }
 
 /**
@@ -92,4 +119,5 @@ export function destroySystemTray(): void {
   tray = null
   baseTrayImage = null
   attentionActive = false
+  lastTrayOpts = null
 }

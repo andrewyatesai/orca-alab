@@ -115,7 +115,12 @@ import {
   ensureAutoUpdaterConfigured
 } from './window/attach-main-window-services'
 import { createMainWindow, loadMainWindow } from './window/createMainWindow'
-import { createSystemTray, destroySystemTray, setTrayAttention } from './tray/system-tray'
+import {
+  createSystemTray,
+  destroySystemTray,
+  refreshTrayContextMenu,
+  setTrayAttention
+} from './tray/system-tray'
 import { focusExistingMainWindow } from './window/focus-existing-window'
 import { notifyMainWindowBecameVisible } from './window/main-window-visibility'
 import { CodexAccountService } from './codex-accounts/service'
@@ -1958,13 +1963,24 @@ app.whenReady().then(async () => {
   })
   nativeTheme.themeSource = store.getSettings().theme ?? 'system'
   if (shouldInstallManagedHooks(is.dev)) {
-    // Why: the persisted off switch must run before any auto-install path so
-    // users who removed Orca-managed hooks do not see them silently reappear on launch.
-    if (isAgentStatusHooksEnabled(store.getSettings())) {
-      runManagedHookInstallers(MANAGED_AGENT_HOOK_INSTALLERS)
-    } else {
-      removeManagedAgentHooks()
-    }
+    // Why: managed-hook reconciliation does ~14 synchronous readFileSync+writeFileSync
+    // passes across ~/.claude, ~/.codex, etc. On the desktop path there is no await
+    // between here and openMainWindow(), so running it inline directly delays window
+    // creation. Defer it one tick (past window construction) — an agent launch, which
+    // is what consumes these hook configs, is user-initiated and always later. The
+    // persisted off switch still runs before any auto-install path (nothing installs
+    // hooks within this single tick), so removed hooks never silently reappear.
+    setImmediate(() => {
+      // Why: store can be torn down before this deferred tick during a fast quit.
+      if (!store) {
+        return
+      }
+      if (isAgentStatusHooksEnabled(store.getSettings())) {
+        runManagedHookInstallers(MANAGED_AGENT_HOOK_INSTALLERS)
+      } else {
+        removeManagedAgentHooks()
+      }
+    })
   }
 
   app.on('child-process-gone', (_event, details) => {
@@ -1985,9 +2001,23 @@ app.whenReady().then(async () => {
   })
 
   logStartupMilestone('services-initialized')
-  await ensureMainI18n()
-  await setMainUiLanguage(store.getSettings().uiLanguage)
-  logStartupMilestone('i18n-ready')
+  // Why: i18n init is off the cold-start critical path. translateMain() already
+  // returns English fallbacks before init resolves, so the menu (and Windows
+  // tray) can build immediately; we rebuild both once the selected locale's
+  // catalog loads. Only non-English users pay, and only with a brief English
+  // menu/tray flash — never a delayed window.
+  const uiLanguage = store.getSettings().uiLanguage
+  const i18nReady = ensureMainI18n()
+    .then(() => setMainUiLanguage(uiLanguage))
+    .then(() => {
+      logStartupMilestone('i18n-ready')
+      rebuildAppMenu()
+      refreshTrayContextMenu()
+    })
+    .catch((error) => {
+      console.error('[i18n] Failed to initialize main i18n:', error)
+    })
+  void i18nReady
 
   registerAppMenu({
     onCheckForUpdates: (options) => {

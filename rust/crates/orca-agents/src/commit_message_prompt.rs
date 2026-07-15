@@ -183,6 +183,14 @@ pub fn clean_generated_commit_message(raw: &str) -> String {
 /// Tokens from a custom command template. POSIX-style grouping only (single +
 /// double quotes, backslash escapes inside double quotes); no variable/glob
 /// expansion — the user's intent is "spawn this exact CLI".
+/// JS `\s` / trim whitespace set (WhiteSpace + LineTerminator). Rust's
+/// `char::is_whitespace` diverges on exactly U+FEFF (JS trims, Rust doesn't) and
+/// U+0085/NEL (Rust trims, JS doesn't); the shell/command tokenizers here mirror
+/// TS `/\s/` splits, so they MUST use this to match byte-for-byte.
+pub(crate) fn is_js_trim_ws(c: char) -> bool {
+    c == '\u{FEFF}' || (c != '\u{0085}' && c.is_whitespace())
+}
+
 pub fn tokenize_custom_command_template(template: &str) -> Result<Vec<String>, String> {
     let chars: Vec<char> = template.chars().collect();
     let mut tokens: Vec<String> = Vec::new();
@@ -223,7 +231,7 @@ pub fn tokenize_custom_command_template(template: &str) -> Result<Vec<String>, S
             i += 2;
             continue;
         }
-        if ch.is_whitespace() {
+        if is_js_trim_ws(ch) {
             if in_token {
                 tokens.push(std::mem::take(&mut current));
                 in_token = false;
@@ -652,6 +660,20 @@ mod tests {
     #[test]
     fn returns_an_empty_token_list_for_whitespace_only_input() {
         assert_eq!(tokenize_custom_command_template("   \t  "), Ok(Vec::new()));
+    }
+
+    #[test]
+    fn splits_tokens_on_the_js_whitespace_set_not_rust_is_whitespace() {
+        // U+FEFF is a token separator under JS `/\s/` (Rust is_whitespace is not).
+        assert_eq!(
+            tokenize_custom_command_template("a\u{FEFF}b"),
+            Ok(vec!["a".to_string(), "b".to_string()])
+        );
+        // U+0085/NEL is NOT JS whitespace (Rust is_whitespace would wrongly split).
+        assert_eq!(
+            tokenize_custom_command_template("a\u{0085}b"),
+            Ok(vec!["a\u{0085}b".to_string()])
+        );
     }
 
     // --- planCustomCommand ---

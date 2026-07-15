@@ -215,6 +215,54 @@
       "note": "explicit posix flavor: bare relative name",
       "input": { "value": "notabs", "pathFlavor": "posix" },
       "expected": false
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "WSL wsl$ alias folds to //wsl and lowercases the distro but keeps the Linux tail case",
+      "input": { "value": "\\\\wsl$\\Ubuntu\\home\\Alice\\repo" },
+      "expected": "//wsl/ubuntu/home/Alice/repo"
+    },
+    {
+      "function": "normalizeRuntimePathForComparison",
+      "note": "WSL wsl.localhost alias folds to the same key as wsl$",
+      "input": { "value": "\\\\wsl.localhost\\Ubuntu\\home\\Alice\\repo" },
+      "expected": "//wsl/ubuntu/home/Alice/repo"
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "WSL aliases + distro case fold: candidate under the other alias is inside",
+      "input": {
+        "rootPath": "\\\\wsl$\\Ubuntu\\home\\Alice\\repo",
+        "candidatePath": "\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\src"
+      },
+      "expected": true
+    },
+    {
+      "function": "isPathInsideOrEqual",
+      "note": "WSL Linux tail is case-sensitive: alice != Alice is NOT inside",
+      "input": {
+        "rootPath": "\\\\wsl$\\Ubuntu\\home\\Alice\\repo",
+        "candidatePath": "\\\\wsl.localhost\\ubuntu\\home\\alice\\repo\\src"
+      },
+      "expected": false
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "WSL relative suffix preserves the Linux tail case (Src)",
+      "input": {
+        "rootPath": "\\\\wsl$\\Ubuntu\\home\\Alice\\repo",
+        "candidatePath": "\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\Src"
+      },
+      "expected": "Src"
+    },
+    {
+      "function": "relativePathInsideRoot",
+      "note": "WSL Linux-tail case mismatch is not contained (null)",
+      "input": {
+        "rootPath": "\\\\wsl$\\Ubuntu\\home\\Alice\\repo",
+        "candidatePath": "\\\\wsl.localhost\\ubuntu\\home\\alice\\repo\\src"
+      },
+      "expected": null
     }
   ]
 }

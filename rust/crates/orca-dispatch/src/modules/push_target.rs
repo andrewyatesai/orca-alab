@@ -4,18 +4,13 @@
 //! Only the pure target-naming helpers are covered; `getPublishTargetStatus`
 //! (TS) / `validate_git_push_target` (Rust) are io-injected and out of scope.
 
-use orca_git::push_target::{
-    publish_target_display_name, publish_target_remote_ref, GitPushTarget,
-};
+use orca_git::push_target::{publish_target_display_name, GitPushTarget};
 use serde_json::{json, Value};
 
 pub fn dispatch(function: &str, input: &Value) -> Value {
     match function {
         "getPublishTargetDisplayName" => {
             Value::String(publish_target_display_name(&target_from_json(input)))
-        }
-        "getPublishTargetRemoteRef" => {
-            Value::String(publish_target_remote_ref(&target_from_json(input)))
         }
         other => json!({ "__parity_error__": format!("unknown function {other}") }),
     }

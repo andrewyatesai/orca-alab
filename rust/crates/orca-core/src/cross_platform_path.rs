@@ -66,8 +66,46 @@ fn trim_runtime_path_trailing_slash(value: &str) -> String {
     }
 }
 
+/// Case-insensitive ASCII prefix strip. Panic-free: compares bytes (a non-ASCII
+/// byte can never match an ASCII prefix byte), and only slices at `prefix.len()`
+/// once the ASCII bytes matched — which guarantees a UTF-8 char boundary there.
+fn strip_prefix_ci<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let vb = value.as_bytes();
+    let pb = prefix.as_bytes();
+    if vb.len() >= pb.len() && vb[..pb.len()].eq_ignore_ascii_case(pb) {
+        Some(&value[pb.len()..])
+    } else {
+        None
+    }
+}
+
+/// Matches the TS `/^\/\/(?:wsl\.localhost|wsl\$)\/([^/]+)(\/[\s\S]*)?$/i` against
+/// an already-separator-normalized path, returning `(distro, tail)` where `tail`
+/// keeps its leading `/` (or is empty). The server alias is case-insensitive;
+/// the distro and tail are returned verbatim for the caller to fold/preserve.
+fn split_wsl_unc_comparison(normalized: &str) -> Option<(&str, &str)> {
+    let rest = normalized.strip_prefix("//")?;
+    let after_server =
+        strip_prefix_ci(rest, "wsl.localhost/").or_else(|| strip_prefix_ci(rest, "wsl$/"))?;
+    // distro = [^/]+ (at least one non-slash char); `/` is ASCII so the split is
+    // always on a char boundary.
+    let distro_len = after_server.find('/').unwrap_or(after_server.len());
+    if distro_len == 0 {
+        return None;
+    }
+    Some((&after_server[..distro_len], &after_server[distro_len..]))
+}
+
 pub fn normalize_runtime_path_for_comparison(value: &str) -> String {
     let normalized = trim_runtime_path_trailing_slash(&normalize_runtime_path_separators(value));
+    // Why: Windows exposes the same case-sensitive WSL filesystem through two UNC
+    // aliases (`//wsl.localhost/<distro>` and `//wsl$/<distro>`). Fold both to one
+    // key with the distro lowercased (server portion is case-insensitive) but the
+    // Linux tail's case preserved. Must match cross-platform-path.ts so the TS
+    // renderer and this core agree on WSL worktree containment.
+    if let Some((distro, tail)) = split_wsl_unc_comparison(&normalized) {
+        return format!("//wsl/{}{}", distro.to_lowercase(), tail);
+    }
     if is_windows_absolute_path_like(value) {
         normalized.to_lowercase()
     } else {
@@ -141,21 +179,10 @@ pub fn is_path_inside_or_equal(root_path: &str, candidate_path: &str) -> bool {
 /// Returns the path of `candidate_path` relative to `root_path`, or `None` if it
 /// is not contained. An exact match returns `Some("")`.
 pub fn relative_path_inside_root(root_path: &str, candidate_path: &str) -> Option<String> {
-    let normalized_root =
-        trim_runtime_path_trailing_slash(&normalize_runtime_path_separators(root_path));
     let normalized_candidate =
         trim_runtime_path_trailing_slash(&normalize_runtime_path_separators(candidate_path));
-    let windows = is_windows_absolute_path_like(root_path);
-    let comparison_root = if windows {
-        normalized_root.to_lowercase()
-    } else {
-        normalized_root.clone()
-    };
-    let comparison_candidate = if windows {
-        normalized_candidate.to_lowercase()
-    } else {
-        normalized_candidate.clone()
-    };
+    let comparison_root = normalize_runtime_path_for_comparison(root_path);
+    let comparison_candidate = normalize_runtime_path_for_comparison(candidate_path);
     if comparison_candidate == comparison_root {
         return Some(String::new());
     }
@@ -168,11 +195,18 @@ pub fn relative_path_inside_root(root_path: &str, candidate_path: &str) -> Optio
     if !comparison_candidate.starts_with(&comparison_prefix) {
         return None;
     }
-    // Slice the original-cased candidate by the prefix length. Path prefixes are
-    // ASCII separators/drives here, so char-count slicing matches the TS
-    // UTF-16-unit `.slice` for the cases we support.
-    let skip = comparison_prefix.chars().count();
-    Some(normalized_candidate.chars().skip(skip).collect())
+    // WSL comparison keys fold the UNC alias but keep the Linux tail's case, so
+    // the suffix is aligned across aliases — slice the comparison key directly.
+    // Other roots are lowercased only for comparison, so slice the original-cased
+    // candidate by the prefix length (ASCII prefix → char-count == TS UTF-16 slice).
+    if comparison_root.starts_with("//wsl/") {
+        comparison_candidate
+            .strip_prefix(&comparison_prefix)
+            .map(str::to_string)
+    } else {
+        let skip = comparison_prefix.chars().count();
+        Some(normalized_candidate.chars().skip(skip).collect())
+    }
 }
 
 fn normalize_runtime_path_dots(value: &str, flavor: PathFlavor) -> String {
@@ -290,6 +324,38 @@ mod tests {
             "\\\\Server\\Share\\Repo",
             "\\\\server\\share\\repo2"
         ));
+    }
+
+    #[test]
+    fn treats_wsl_unc_aliases_as_the_same_case_sensitive_filesystem() {
+        // Ported verbatim from cross-platform-path.test.ts: the two UNC aliases
+        // (wsl$ / wsl.localhost) + distro case fold to one root; the Linux tail
+        // stays case-sensitive.
+        let root = "\\\\wsl$\\Ubuntu\\home\\Alice\\repo";
+        assert!(is_path_inside_or_equal(
+            root,
+            "\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\src"
+        ));
+        assert_eq!(
+            relative_path_inside_root(root, "\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\Src"),
+            Some("Src".to_string())
+        );
+        // Linux tail casing differs (alice != Alice) → not contained.
+        assert!(!is_path_inside_or_equal(
+            root,
+            "\\\\wsl.localhost\\ubuntu\\home\\alice\\repo\\src"
+        ));
+        assert_eq!(
+            relative_path_inside_root(root, "\\\\wsl.localhost\\ubuntu\\home\\alice\\repo\\src"),
+            None
+        );
+        assert_eq!(
+            relative_path_inside_root(
+                root,
+                "\\\\wsl.localhost\\ubuntu\\home\\Alice\\repo\\line\nbreak"
+            ),
+            Some("line\nbreak".to_string())
+        );
     }
 
     #[test]

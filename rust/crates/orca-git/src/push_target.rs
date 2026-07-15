@@ -50,3 +50,51 @@ pub fn publish_target_display_name(target: &GitPushTarget) -> String {
 pub fn publish_target_remote_ref(target: &GitPushTarget) -> String {
     format!("refs/remotes/{}/{}", target.remote_name, target.branch_name)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Golden pins for the pure target-naming helpers. These used to live in the
+    // TS↔Rust parity corpus, but the TS `getPublishTargetRemoteRef` twin was
+    // retired when publish-target status moved fully to Rust — so this is now the
+    // sole home for the golden (co-located with the code it pins).
+    fn target(remote: &str, branch: &str, url: Option<&str>) -> GitPushTarget {
+        GitPushTarget {
+            remote_name: remote.to_string(),
+            branch_name: branch.to_string(),
+            remote_url: url.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn display_name_joins_remote_and_branch_with_a_slash() {
+        assert_eq!(publish_target_display_name(&target("origin", "main", None)), "origin/main");
+        // Slashed branch is preserved verbatim; remote_url is ignored.
+        assert_eq!(
+            publish_target_display_name(&target(
+                "upstream",
+                "feature/foo",
+                Some("git@github.com:me/repo.git"),
+            )),
+            "upstream/feature/foo",
+        );
+    }
+
+    #[test]
+    fn remote_ref_qualifies_the_target_under_refs_remotes() {
+        assert_eq!(
+            publish_target_remote_ref(&target("origin", "main", None)),
+            "refs/remotes/origin/main",
+        );
+        // Slashed branch + present remote_url does not affect the ref.
+        assert_eq!(
+            publish_target_remote_ref(&target(
+                "fork",
+                "wip/x",
+                Some("https://example.com/me/repo.git"),
+            )),
+            "refs/remotes/fork/wip/x",
+        );
+    }
+}

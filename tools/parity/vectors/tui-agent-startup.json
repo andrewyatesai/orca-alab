@@ -572,7 +572,7 @@
     },
     {
       "function": "buildAgentDraftLaunchPlan",
-      "note": "mimo-code draft uses opencode-style flag-prompt with no native draft flag \u2192 null",
+      "note": "mimo-code draft uses opencode-style flag-prompt with no native draft flag → null",
       "input": {
         "agent": "mimo-code",
         "draft": "do a thing",
@@ -1265,9 +1265,9 @@
       },
       "expected": {
         "agent": "grok",
-        "launchCommand": "grok",
+        "launchCommand": "grok -- 'do the thing'",
         "expectedProcess": "grok",
-        "followupPrompt": "do the thing",
+        "followupPrompt": null,
         "launchConfig": {
           "agentCommand": "grok",
           "agentArgs": "",

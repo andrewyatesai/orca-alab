@@ -170,6 +170,40 @@ export class AtermTerminal {
      */
     process_str(s: string): void;
     /**
+     * Advance a deferred width-change scrollback rewrap (stashed by
+     * [`Self::resize`]) by ONE BOUNDED step — at most the configured budget
+     * of history lines ([`Self::pump_reflow_budget`], default
+     * `REFLOW_STEP_BUDGET_LINES`) — re-attaching the rewrapped history when
+     * the step completes the job. Returns `true` while work REMAINS (the
+     * host should schedule another pump — a `setTimeout(0)` chain or
+     * `requestIdleCallback`); `false` once nothing is pending (the job just
+     * completed and re-attached — re-attach marks full damage, so the next
+     * `render` repaints — or there was nothing to do).
+     *
+     * COST: O(budget × cols) per call (`PendingScrollbackReflow::reflow_step`;
+     * a logical line is never split, so a soft-wrapped run longer than the
+     * budget is rewrapped whole by the step that completes it). Any pump
+     * schedule yields history content IDENTICAL to a one-shot rewrap —
+     * aterm-grid's `reflow_step_any_schedule_matches_one_shot` property.
+     *
+     * NEVER-PUMPED SAFETY: a host that never calls this still completes the
+     * rewrap — `render` pumps one step per frame once
+     * `REFLOW_PUMP_GRACE_RENDERS` frames have passed, `process` pumps one
+     * step per call while the detach-window backlog exceeds
+     * `REFLOW_BACKLOG_MAX_LINES` — and a torn-down module drops the job WITH
+     * the engine. There is no host behavior that leaves the store detached
+     * while the module keeps operating unboundedly.
+     */
+    pump_reflow(): boolean;
+    /**
+     * Tune the per-pump rewrap budget (INPUT history lines per
+     * [`Self::pump_reflow`] step). `0` restores the default
+     * (`REFLOW_STEP_BUDGET_LINES`, 2_000 ≈ ~3ms native — see the constant's
+     * sizing note). Hosts with generous idle windows can raise it to finish
+     * deep histories in fewer tasks; latency-sensitive hosts can lower it.
+     */
+    pump_reflow_budget(max_lines: number): void;
+    /**
      * Rasterize the current grid into the internal RGBA8 framebuffer via the
      * damage-tracked path: only rows that changed since the last frame are
      * re-rendered (the rest reuse the persistent cache), so streaming output and
@@ -178,6 +212,18 @@ export class AtermTerminal {
     render(): void;
     /**
      * Resize the grid (after the host recomputes cols/rows for the canvas).
+     *
+     * The visible grid and the bounded in-memory ring resize SYNCHRONOUSLY
+     * (O(viewport + ring)). A width change with a deep tiered history does
+     * NOT rewrap that history here: it is detached in O(1)
+     * (`resize_offloading_scrollback`, the same audited boundary the native
+     * app uses) and rewrapped in LATER, budget-bounded host tasks — see
+     * [`Self::pump_reflow`].
+     * Small histories (≤ `INLINE_REFLOW_MAX_LINES`) rewrap inline: bounded,
+     * imperceptible, mirroring the native inline bound. This keeps the
+     * synchronous cost of a resize independent of session history — the
+     * browser-tab analog of the native L0 whole-Mac-freeze fix, on a loop
+     * with no worker thread to offload to.
      */
     resize(rows: number, cols: number): void;
     /**
@@ -812,6 +858,13 @@ export class AtermTerminal {
      */
     readonly mouse_wants_motion: boolean;
     /**
+     * True while a deferred scrollback rewrap is stashed (deep history is
+     * temporarily detached: only the ring is visible/searchable; a partly
+     * stepped job holds its progress here between pumps). The host should
+     * keep scheduling [`Self::pump_reflow`] while this is set.
+     */
+    readonly reflow_pending: boolean;
+    /**
      * The SIGNED device-px band shift the next `render()` presents for the
      * banked residual (negative = band shifted DOWN, toward older). Exposed
      * so hosts/harnesses can assert the CPU and GPU bundles present the same
@@ -984,6 +1037,9 @@ export interface InitOutput {
     readonly atermterminal_note_matrix_rain_signal: (a: number, b: number, c: number) => void;
     readonly atermterminal_process: (a: number, b: number, c: number) => void;
     readonly atermterminal_process_str: (a: number, b: number, c: number) => void;
+    readonly atermterminal_pump_reflow: (a: number) => number;
+    readonly atermterminal_pump_reflow_budget: (a: number, b: number) => void;
+    readonly atermterminal_reflow_pending: (a: number) => number;
     readonly atermterminal_render: (a: number) => void;
     readonly atermterminal_resize: (a: number, b: number, c: number) => void;
     readonly atermterminal_revoke_clipboard_write: (a: number) => void;

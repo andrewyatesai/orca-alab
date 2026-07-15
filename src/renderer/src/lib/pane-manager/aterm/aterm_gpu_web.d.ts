@@ -182,6 +182,39 @@ export class AtermGpuTerminal {
      */
     process(bytes: Uint8Array): void;
     /**
+     * Advance a deferred width-change scrollback rewrap (stashed by
+     * [`Self::resize`]) by ONE BOUNDED step — at most the configured budget
+     * of history lines ([`Self::pump_reflow_budget`], default
+     * `REFLOW_STEP_BUDGET_LINES`) — re-attaching the rewrapped history when
+     * the step completes the job. Returns `true` while work REMAINS (the
+     * host should schedule another pump — a `setTimeout(0)` chain or
+     * `requestIdleCallback`); `false` once nothing is pending (the job just
+     * completed and re-attached — re-attach marks full damage, so the next
+     * render repaints — or there was nothing to do).
+     *
+     * COST: O(budget × cols) per call (`PendingScrollbackReflow::reflow_step`;
+     * a logical line is never split, so a soft-wrapped run longer than the
+     * budget is rewrapped whole by the step that completes it). Any pump
+     * schedule yields history content IDENTICAL to a one-shot rewrap —
+     * aterm-grid's `reflow_step_any_schedule_matches_one_shot` property.
+     *
+     * NEVER-PUMPED SAFETY: hosts that never call this still complete —
+     * `render`/`render_offscreen` pump one step per frame after
+     * `REFLOW_PUMP_GRACE_RENDERS` frames, `process` pumps one step per call
+     * past `REFLOW_BACKLOG_MAX_LINES` of staged backlog, and teardown drops
+     * the job with the engine. The store can never stay detached while the
+     * module keeps operating unboundedly.
+     */
+    pump_reflow(): boolean;
+    /**
+     * Tune the per-pump rewrap budget (INPUT history lines per
+     * [`Self::pump_reflow`] step). `0` restores the default
+     * (`REFLOW_STEP_BUDGET_LINES`, 2_000 ≈ ~3ms native — see the constant's
+     * sizing note). Hosts with generous idle windows can raise it to finish
+     * deep histories in fewer tasks; latency-sensitive hosts can lower it.
+     */
+    pump_reflow_budget(max_lines: number): void;
+    /**
      * Present one frame on the GPU canvas. Errors (returned as JS strings) if
      * WebGL was not initialized.
      *
@@ -206,6 +239,15 @@ export class AtermGpuTerminal {
     /**
      * Resize the grid AND, if the GPU is live, the swapchain to match the new
      * pixel extent (host recomputes cols/rows for the canvas first).
+     *
+     * The visible grid, the bounded ring and the swapchain resize
+     * SYNCHRONOUSLY. A width change with a deep tiered history does NOT
+     * rewrap that history here: it is detached in O(1)
+     * (`resize_offloading_scrollback`) and rewrapped in LATER, budget-bounded
+     * host tasks — see [`Self::pump_reflow`]; small histories
+     * (≤ `INLINE_REFLOW_MAX_LINES`) rewrap inline. Mirrors aterm-wasm's
+     * `resize` (the cooperative wasm L0-freeze fix — see that crate for the
+     * full design notes).
      */
     resize(rows: number, cols: number): void;
     /**
@@ -818,6 +860,13 @@ export class AtermGpuTerminal {
      */
     readonly mouse_wants_motion: boolean;
     /**
+     * True while a deferred scrollback rewrap is stashed (deep history is
+     * temporarily detached: only the ring is visible/searchable; a partly
+     * stepped job holds its progress here between pumps). The host should
+     * keep scheduling [`Self::pump_reflow`] while this is set.
+     */
+    readonly reflow_pending: boolean;
+    /**
      * The SIGNED device-px band shift the next `render()` presents for the
      * banked residual (negative = band shifted DOWN, toward older). Exposed
      * so hosts/harnesses can assert the CPU and GPU bundles present the same
@@ -994,6 +1043,9 @@ export interface InitOutput {
     readonly atermgputerminal_note_matrix_rain_bell: (a: number) => void;
     readonly atermgputerminal_note_matrix_rain_signal: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_process: (a: number, b: number, c: number) => void;
+    readonly atermgputerminal_pump_reflow: (a: number) => number;
+    readonly atermgputerminal_pump_reflow_budget: (a: number, b: number) => void;
+    readonly atermgputerminal_reflow_pending: (a: number) => number;
     readonly atermgputerminal_render: (a: number) => [number, number];
     readonly atermgputerminal_render_offscreen: (a: number) => [number, number];
     readonly atermgputerminal_resize: (a: number, b: number, c: number) => void;

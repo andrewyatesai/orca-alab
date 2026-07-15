@@ -164,6 +164,17 @@ export function planAgentBinary(default_binary: string, command_override?: strin
 export function planCommitMessageGeneration(plan_input_json: string, prompt: string): string;
 
 /**
+ * Relay twin of the napi `resolve_git_remote_rebase_source_via_executor`: drive
+ * orca-git's read-only rebase-source resolver (`git remote` → longest matching
+ * remote → `check-ref-format`) over the relay's async JS git executor. Resolves
+ * `{remoteName, branchName, displayName}` JSON; rejects with the RAW resolver
+ * message (the resolver never normalizes — the TS caller keeps its outer
+ * `normalizeGitErrorMessage(err, 'pull')`), preserved as a JS `Error` so
+ * `error.message` reads it.
+ */
+export function resolveGitRemoteRebaseSourceViaExecutor(executor: Function, base_ref: string): Promise<string>;
+
+/**
  * Slugify free text into a git-ref-safe workspace seed.
  */
 export function slugifyForWorkspaceName(input: string): string;
@@ -233,16 +244,21 @@ export interface InitOutput {
     readonly quickopenindex_fileCount: (a: number) => number;
     readonly quickopenindex_new: (a: number, b: number) => number;
     readonly quickopenindex_rank: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly resolveGitRemoteRebaseSourceViaExecutor: (a: number, b: number, c: number) => number;
     readonly slugifyForWorkspaceName: (a: number, b: number, c: number) => void;
     readonly stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
     readonly terminalQuickCommandOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+    readonly __wasm_bindgen_func_elem_1485: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1574: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1499: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_export3: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_export3: (a: number) => void;
+    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
+    readonly __wbindgen_export4: (a: number, b: number, c: number) => void;
 }
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

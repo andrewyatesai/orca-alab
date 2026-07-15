@@ -3,7 +3,7 @@
 //! `refs/remotes/...`) to the `remote`/`branch` pair `git pull --rebase` needs,
 //! choosing the longest matching configured remote.
 
-use crate::runner::{GitError, GitRunner};
+use crate::runner::{AsyncGitRunner, GitError, GitRunner};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GitRemoteRebaseSource {
@@ -30,41 +30,86 @@ fn normalize_base_ref(base_ref: &str) -> Result<String, GitError> {
     Ok(trimmed.to_string())
 }
 
+/// Pure: pick the longest configured remote that prefixes the normalized base
+/// ref and split off its branch. Shared by the sync + async resolvers so the two
+/// are byte-identical — only the git-call sequencing differs between them.
+fn choose_rebase_remote(
+    remote_stdout: &str,
+    normalized: &str,
+) -> Result<(String, String), GitError> {
+    let mut remotes: Vec<&str> =
+        remote_stdout.split('\n').map(str::trim).filter(|l| !l.is_empty()).collect();
+    remotes.sort_by_key(|s| std::cmp::Reverse(s.len()));
+
+    let remote_name = remotes
+        .iter()
+        .copied()
+        .find(|remote| normalized != *remote && normalized.starts_with(&format!("{remote}/")))
+        .ok_or_else(choose_remote_base)?;
+    let branch_name = normalized[remote_name.len() + 1..].to_string();
+    Ok((remote_name.to_string(), branch_name))
+}
+
+fn rebase_source(remote_name: String, branch_name: String) -> GitRemoteRebaseSource {
+    let display_name = format!("{remote_name}/{branch_name}");
+    GitRemoteRebaseSource { remote_name, branch_name, display_name }
+}
+
 pub fn resolve_git_remote_rebase_source<R: GitRunner>(
     runner: &R,
     base_ref: &str,
 ) -> Result<GitRemoteRebaseSource, GitError> {
     let normalized = normalize_base_ref(base_ref)?;
     let out = runner.run(&["remote"])?;
-    let mut remotes: Vec<&str> =
-        out.stdout.split('\n').map(str::trim).filter(|l| !l.is_empty()).collect();
-    remotes.sort_by_key(|s| std::cmp::Reverse(s.len()));
-
-    let remote_name = remotes
-        .iter()
-        .copied()
-        .find(|remote| normalized != *remote && normalized.starts_with(&format!("{remote}/")));
-    let Some(remote_name) = remote_name else {
-        return Err(choose_remote_base());
-    };
-
-    let branch_name = normalized[remote_name.len() + 1..].to_string();
+    let (remote_name, branch_name) = choose_rebase_remote(&out.stdout, &normalized)?;
     runner.run(&["check-ref-format", "--branch", &branch_name])?;
+    Ok(rebase_source(remote_name, branch_name))
+}
 
-    Ok(GitRemoteRebaseSource {
-        remote_name: remote_name.to_string(),
-        branch_name: branch_name.clone(),
-        display_name: format!("{remote_name}/{branch_name}"),
-    })
+/// Async twin of [`resolve_git_remote_rebase_source`] for the wasm relay: same
+/// pure decision (`choose_rebase_remote`), same two git calls, awaited through
+/// an [`AsyncGitRunner`] instead of a blocking one.
+pub async fn resolve_git_remote_rebase_source_async<R: AsyncGitRunner>(
+    runner: &R,
+    base_ref: &str,
+) -> Result<GitRemoteRebaseSource, GitError> {
+    let normalized = normalize_base_ref(base_ref)?;
+    let out = runner.run(&["remote"], None).await?;
+    let (remote_name, branch_name) = choose_rebase_remote(&out.stdout, &normalized)?;
+    runner.run(&["check-ref-format", "--branch", &branch_name], None).await?;
+    Ok(rebase_source(remote_name, branch_name))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::runner::GitOutput;
+    use std::future::Future;
 
     fn ok(stdout: &str) -> Result<GitOutput, GitError> {
         Ok(GitOutput { stdout: stdout.to_string(), stderr: String::new() })
+    }
+
+    /// Drive an immediately-ready future to completion without an executor dep —
+    /// the mock async runner below never actually suspends, so a no-op waker is
+    /// enough (and keeps this crate's `forbid(unsafe_code)` intact).
+    fn block_on_ready<F: Future>(fut: F) -> F::Output {
+        use std::pin::pin;
+        use std::task::{Context, Poll, Waker};
+        let mut cx = Context::from_waker(Waker::noop());
+        let mut fut = pin!(fut);
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("mock future should be immediately ready"),
+        }
+    }
+
+    /// A mock [`AsyncGitRunner`] backed by a sync closure (resolves instantly).
+    struct MockAsyncRunner<F>(F);
+    impl<F: Fn(&[&str]) -> Result<GitOutput, GitError>> AsyncGitRunner for MockAsyncRunner<F> {
+        async fn run(&self, args: &[&str], _stdin: Option<&str>) -> Result<GitOutput, GitError> {
+            (self.0)(args)
+        }
     }
 
     #[test]
@@ -98,5 +143,35 @@ mod tests {
                 display_name: "upstream/main".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn async_resolver_matches_the_sync_resolver() {
+        // The relay drives the SAME decision through the async trait; prove the two
+        // paths agree on both the happy path and the "no matching remote" error.
+        let runner = MockAsyncRunner(|args: &[&str]| {
+            if args[0] == "remote" {
+                ok("origin\nupstream\n")
+            } else {
+                ok("")
+            }
+        });
+        let source = block_on_ready(resolve_git_remote_rebase_source_async(
+            &runner,
+            "refs/remotes/upstream/main",
+        ))
+        .unwrap();
+        assert_eq!(
+            source,
+            GitRemoteRebaseSource {
+                remote_name: "upstream".to_string(),
+                branch_name: "main".to_string(),
+                display_name: "upstream/main".to_string(),
+            }
+        );
+
+        let no_match = MockAsyncRunner(|_: &[&str]| ok("origin\n"));
+        assert!(block_on_ready(resolve_git_remote_rebase_source_async(&no_match, "local-branch"))
+            .is_err());
     }
 }

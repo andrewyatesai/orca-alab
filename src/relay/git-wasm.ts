@@ -18,6 +18,7 @@ import {
   parseGitHistoryLog as wasmParseGitHistoryLog,
   detectPiAgentKindFromCommand as wasmDetectPiAgentKindFromCommand,
   upstreamOnlyCommitsArePatchEquivalent as wasmUpstreamOnlyCommitsArePatchEquivalent,
+  resolveGitRemoteRebaseSourceViaExecutor as wasmResolveGitRemoteRebaseSourceViaExecutor,
   orcaDispatch as wasmOrcaDispatch
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
@@ -26,6 +27,7 @@ import type { GitRemoteOperation } from '../shared/git-remote-error'
 import type { GitStatusEntry } from '../shared/types'
 import type { GitLineStats } from '../shared/git-uncommitted-line-stats'
 import type { GitHistoryItem } from '../shared/git-history-types'
+import type { GitRemoteRebaseSource } from '../shared/git-rebase-source'
 import type { PiAgentKind } from '../shared/pi-agent-kind'
 
 let inited = false
@@ -170,4 +172,72 @@ export function detectPiAgentKindFromCommand(command: string | undefined): PiAge
 export function upstreamOnlyCommitsArePatchEquivalent(cherryMarkOutput: string): boolean {
   ensureGitWasm()
   return wasmUpstreamOnlyCommitsArePatchEquivalent(cherryMarkOutput)
+}
+
+/** A relay git runner: runs git (optionally piping `stdin`) and RESOLVES its
+ *  captured output, or REJECTS (non-zero exit or spawn failure) like the relay's
+ *  execFileAsync-backed `git()`. */
+export type RelayRunGit = (
+  args: string[],
+  stdin: string | null
+) => Promise<{ stdout: string; stderr: string }>
+
+/**
+ * Adapt a relay `runGit` into the executor the async wasm "A bridge" calls back
+ * into — the SSH-safe seam: Rust drives the multi-round git logic, but git is
+ * still spawned here (all WSL/SSH/env routing intact). Mirrors the main process's
+ * `makeRustGitExecutor`: a git that spawned and exited must RESOLVE carrying its
+ * exit code (default 1) + stderr, so the Rust runner classifies it — the bridge
+ * output must never reject for a git that ran. A true spawn failure (a STRING
+ * errno like `ENOENT`) is re-thrown so the bridge reports a spawn error.
+ */
+function makeRelayGitExecutor(
+  runGit: RelayRunGit
+): (args: string[], stdin: string | null) => Promise<{
+  stdout: string
+  stderr: string
+  exitCode: number
+}> {
+  return async (args, stdin) => {
+    try {
+      const { stdout, stderr } = await runGit(args, stdin)
+      return { stdout: stdout ?? '', stderr: stderr ?? '', exitCode: 0 }
+    } catch (error) {
+      const err = error as { code?: unknown; stdout?: unknown; stderr?: unknown; message?: unknown }
+      if (typeof err.code === 'string') {
+        throw error
+      }
+      const stderr =
+        typeof err.stderr === 'string'
+          ? err.stderr
+          : typeof err.message === 'string'
+            ? err.message
+            : ''
+      return {
+        stdout: typeof err.stdout === 'string' ? err.stdout : '',
+        stderr,
+        exitCode: typeof err.code === 'number' ? err.code : 1
+      }
+    }
+  }
+}
+
+/**
+ * Resolve a base ref to the `{remoteName, branchName, displayName}` that
+ * `git pull --rebase` needs, driving orca-git's read-only rebase-source resolver
+ * in Rust (via wasm) over the relay's git executor — the SAME code the main
+ * process runs through the napi "A bridge". Rejects with the RAW resolver message
+ * (e.g. "Choose a remote base branch to rebase from."), preserved as an `Error`
+ * so the caller's outer `normalizeGitErrorMessage(err, 'pull')` still tails it.
+ */
+export async function resolveGitRemoteRebaseSource(
+  runGit: RelayRunGit,
+  baseRef: string
+): Promise<GitRemoteRebaseSource> {
+  ensureGitWasm()
+  const json = await wasmResolveGitRemoteRebaseSourceViaExecutor(
+    makeRelayGitExecutor(runGit),
+    baseRef
+  )
+  return JSON.parse(json) as GitRemoteRebaseSource
 }

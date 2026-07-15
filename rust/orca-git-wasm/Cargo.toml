@@ -38,6 +38,12 @@ console_error_panic_hook = "0.1"
 # Some transitive dep may pull getrandom; on wasm32 it needs the JS backend.
 # Harmless if unused. Mirrors aterm-wasm.
 getrandom = { version = "0.2", features = ["js"] }
+# The async relay git-executor bridge: drive orca-git's multi-round ops through a
+# JS git executor by awaiting its Promise (wasm is single-threaded — it can't
+# block_on like the napi "A bridge"). Versions pinned to the set that pairs with
+# wasm-bindgen 0.2.108 (from aterm's lock).
+js-sys = "=0.3.85"
+wasm-bindgen-futures = "=0.4.58"
 
 # Own workspace root -> profiles live here. Ships in the relay bundle to remote
 # hosts, so optimise for size (the parsers are not on a throughput hot path).

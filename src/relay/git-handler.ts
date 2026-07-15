@@ -50,14 +50,14 @@ import {
   upstreamOnlyCommitsArePatchEquivalent,
   normalizeGitErrorMessage,
   parseNumstat,
-  parseGitHistoryLog
+  parseGitHistoryLog,
+  resolveGitRemoteRebaseSource
 } from './git-wasm'
 // Pull-retry control flow with no git-text parsing, so it stays shared TS while
 // git-wasm owns the error predicates/normaliser it wraps.
 import { runPullWithDivergenceFallback } from '../shared/git-remote-error'
 import { assertGitPushTargetShape } from '../shared/git-push-target-validation'
 import { getPublishTargetStatus, type GitCommandRunner } from '../shared/git-publish-target-status'
-import { resolveGitRemoteRebaseSource } from '../shared/git-rebase-source'
 import type { GitPushTarget } from '../shared/types'
 import {
   getEffectiveGitUpstreamStatus,
@@ -1095,7 +1095,8 @@ export class GitHandler {
     try {
       try {
         const source = await resolveGitRemoteRebaseSource(
-          ((args) => this.git(args, worktreePath)) as GitCommandRunner,
+          (args, stdin) =>
+            this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
           baseRef
         )
         await this.git(['pull', '--rebase', source.remoteName, source.branchName], worktreePath)

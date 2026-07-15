@@ -66,6 +66,20 @@ where
     }
 }
 
+/// The async twin of [`GitRunner`], for single-threaded wasm (the SSH relay).
+///
+/// The napi "A bridge" runs a sync [`GitRunner`] on a worker thread and
+/// `block_on`s the JS executor's promise — impossible in wasm, which is
+/// single-threaded (blocking would deadlock the event loop that resolves the
+/// promise). Multi-round ops therefore have an `_async` variant generic over
+/// this trait, so the relay drives the SAME Rust logic the main process runs,
+/// awaiting its JS git executor through `wasm_bindgen_futures` instead. `stdin`
+/// is `Some` for the piped ops (e.g. `git patch-id --stable`).
+#[allow(async_fn_in_trait)]
+pub trait AsyncGitRunner {
+    async fn run(&self, args: &[&str], stdin: Option<&str>) -> Result<GitOutput, GitError>;
+}
+
 /// The real runner: spawns the user's `git` with `cwd` set.
 pub struct ProcessGitRunner {
     pub cwd: PathBuf,

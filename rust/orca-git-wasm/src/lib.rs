@@ -7,12 +7,14 @@
 //! `orca-core` / `orca-text` functions to `wasm32-unknown-unknown`, so the relay
 //! parses git output through the identical code — one source of truth.
 //!
-//! Scope is deliberately the PURE parsers/validators (git output in -> data out),
-//! which need no git runner. Multi-round operations that must actually run git
-//! (effective-upstream resolution, rebase-source, branch-cleanup) stay as async
-//! orchestration in the relay's JS — wasm is single-threaded and cannot block a
-//! synchronous Rust runner on the relay's async git executor — and they call
-//! these parsers underneath.
+//! Most exports are the PURE parsers/validators (git output in -> data out),
+//! which need no git runner. Multi-round operations that must actually RUN git
+//! (rebase-source, upstream status, branch-cleanup, push) are also driven in Rust
+//! here, through the async `AsyncGitRunner` bridge at the bottom of this file: it
+//! awaits the relay's JS git executor via `wasm_bindgen_futures` instead of
+//! `block_on`-ing it (wasm is single-threaded — the napi "A bridge" runs a sync
+//! runner on a worker thread and blocks, which would deadlock the wasm event
+//! loop). Same orca-git logic, same classification, driven asynchronously.
 //!
 //! Each export mirrors the matching `native/orca-node` napi function body so the
 //! relay's output is byte-identical to the main process.
@@ -428,5 +430,119 @@ fn parse_pull_request_context(context_json: &str) -> orca_agents::PullRequestDra
         commit_summary: str_field("commitSummary"),
         change_summary: str_field("changeSummary"),
         patch: str_field("patch"),
+    }
+}
+
+// --- async relay git-executor bridge (wasm only) --------------------------
+// The relay's multi-round git ops run the SAME orca-git logic the main process
+// runs, but the main process uses the napi "A bridge" (block_on a JS promise on
+// a libuv worker thread) — impossible in single-threaded wasm, where blocking
+// would deadlock the event loop that must resolve the promise. Here the logic is
+// driven through `AsyncGitRunner`, awaiting the relay's JS git executor via
+// wasm_bindgen_futures. The result/error classification MUST match the napi
+// bridge (native/orca-node/src/git_executor_bridge.rs `run_impl`) so relay
+// output — including error messages — is byte-identical to the main process.
+#[cfg(target_arch = "wasm32")]
+mod async_bridge {
+    use orca_git::runner::{AsyncGitRunner, GitError, GitOutput};
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen_futures::JsFuture;
+
+    /// Wraps the relay's JS git executor,
+    /// `(args: string[], stdin: string | null) => Promise<{stdout, stderr, exitCode}>`.
+    /// The executor MUST resolve (never reject) for a git process that spawned and
+    /// exited — carrying its `exitCode` — so a non-zero exit classifies exactly
+    /// like the native `ProcessGitRunner` (some callers read a non-zero code as
+    /// data). A promise rejection (or a synchronous throw) means the spawn failed.
+    pub struct WasmGitExecutor {
+        pub callback: js_sys::Function,
+    }
+
+    impl AsyncGitRunner for WasmGitExecutor {
+        async fn run(&self, args: &[&str], stdin: Option<&str>) -> Result<GitOutput, GitError> {
+            let args_array = js_sys::Array::new();
+            for arg in args {
+                args_array.push(&JsValue::from_str(arg));
+            }
+            let stdin_value = match stdin {
+                Some(text) => JsValue::from_str(text),
+                None => JsValue::NULL,
+            };
+            // A synchronous throw (before a promise is returned) is a spawn failure.
+            let returned = self
+                .callback
+                .call2(&JsValue::NULL, &args_array, &stdin_value)
+                .map_err(spawn_failure)?;
+            match JsFuture::from(js_sys::Promise::from(returned)).await {
+                Ok(output) => classify_bridge_output(&output),
+                // A promise rejection is also a spawn failure (git never exited).
+                Err(err) => Err(spawn_failure(err)),
+            }
+        }
+    }
+
+    /// `{stdout, stderr, exitCode}` → `GitOutput` / `GitError`, matching the napi
+    /// bridge's `run_impl` classification exactly.
+    fn classify_bridge_output(output: &JsValue) -> Result<GitOutput, GitError> {
+        let stdout = string_field(output, "stdout");
+        let stderr = string_field(output, "stderr");
+        let exit_code = js_sys::Reflect::get(output, &JsValue::from_str("exitCode"))
+            .ok()
+            .and_then(|value| value.as_f64())
+            .unwrap_or(0.0) as i32;
+        if exit_code == 0 {
+            return Ok(GitOutput { stdout, stderr });
+        }
+        // Carry git's stderr in `message` so orca-git's classifiers/normalizers
+        // (which read GitError.message) see the real diagnostic; fall back to the
+        // exit-code form only when stderr is empty (the napi bridge's fallback,
+        // also the missing-tracking-ref signal classified by code, not message).
+        let message = if stderr.trim().is_empty() {
+            format!("git exited with {:?}", Some(exit_code))
+        } else {
+            stderr.clone()
+        };
+        Err(GitError { code: Some(exit_code), message, stdout, stderr })
+    }
+
+    fn string_field(object: &JsValue, key: &str) -> String {
+        js_sys::Reflect::get(object, &JsValue::from_str(key))
+            .ok()
+            .and_then(|value| value.as_string())
+            .unwrap_or_default()
+    }
+
+    /// A spawn failure (synchronous throw or promise rejection): mirror the napi
+    /// bridge's `failed to spawn git: {err}` message (code `None`) so downstream
+    /// error handling is identical.
+    fn spawn_failure(err: JsValue) -> GitError {
+        let detail = err
+            .dyn_ref::<js_sys::Error>()
+            .map(|error| String::from(error.message()))
+            .or_else(|| err.as_string())
+            .unwrap_or_else(|| format!("{err:?}"));
+        GitError::from_message(format!("failed to spawn git: {detail}"))
+    }
+}
+
+/// Relay twin of the napi `resolve_git_remote_rebase_source_via_executor`: drive
+/// orca-git's read-only rebase-source resolver (`git remote` → longest matching
+/// remote → `check-ref-format`) over the relay's async JS git executor. Resolves
+/// `{remoteName, branchName, displayName}` JSON; rejects with the RAW resolver
+/// message (the resolver never normalizes — the TS caller keeps its outer
+/// `normalizeGitErrorMessage(err, 'pull')`), preserved as a JS `Error` so
+/// `error.message` reads it.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = "resolveGitRemoteRebaseSourceViaExecutor")]
+pub async fn resolve_git_remote_rebase_source_via_executor(
+    executor: js_sys::Function,
+    base_ref: String,
+) -> Result<String, JsValue> {
+    let runner = async_bridge::WasmGitExecutor { callback: executor };
+    match orca_git::rebase_source::resolve_git_remote_rebase_source_async(&runner, &base_ref).await {
+        Ok(source) => {
+            Ok(orca_git::status_result::git_remote_rebase_source_to_json(&source).to_string())
+        }
+        Err(err) => Err(js_sys::Error::new(&err.message).into()),
     }
 }

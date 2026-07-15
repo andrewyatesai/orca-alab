@@ -8,6 +8,8 @@
 //! (`(?<![\w./\\-])…`), which Rust's `regex` crate does not support, so the
 //! boundary guard is hand-rolled here.
 
+use crate::js_string::trim_js;
+
 /// Agent names matched in OSC terminal titles. Intentionally narrower than the
 /// full launchable set (short names like `amp` would mis-classify shell titles).
 pub const AGENT_NAMES: &[&str] = &[
@@ -38,8 +40,13 @@ fn is_boundary_char(c: char) -> bool {
 /// `allow_exe_suffix`, an optional `.exe`/`.cmd`/`.bat`/`.ps1` may follow the
 /// name before the right boundary (Windows launcher process names).
 pub fn title_has_token(title: &str, name: &str, allow_exe_suffix: bool) -> bool {
-    let haystack: Vec<char> = title.to_lowercase().chars().collect();
-    let needle: Vec<char> = name.to_lowercase().chars().collect();
+    // The TS twin (`buildAgentNameRe`) matches with a case-insensitive REGEX
+    // ('i' flag = ECMAScript simple case fold), NOT `.toLowerCase()`. Rust's
+    // full `to_lowercase()` would fold e.g. U+212A KELVIN→'k' (and length-change
+    // U+0130→"i̇"), which the JS regex does not — so use ASCII folding to match
+    // the regex for these ASCII agent tokens.
+    let haystack: Vec<char> = title.to_ascii_lowercase().chars().collect();
+    let needle: Vec<char> = name.to_ascii_lowercase().chars().collect();
     if needle.is_empty() || needle.len() > haystack.len() {
         return false;
     }
@@ -106,7 +113,9 @@ const PROCESS_EXTENSIONS: &[&str] = &[".exe", ".cmd", ".bat", ".ps1"];
 /// basename, lowercase, strip a trailing executable extension.
 pub fn normalize_process_name(process_name: Option<&str>) -> String {
     let raw = match process_name {
-        Some(name) => name.trim(),
+        // Twins TS `normalizeProcessName`'s `.trim()` — JS trim set, not Rust's
+        // `str::trim` (they differ on U+FEFF / U+0085; see js_string).
+        Some(name) => trim_js(name),
         None => return String::new(),
     };
     if raw.is_empty() {
@@ -199,5 +208,25 @@ mod tests {
         assert!(is_expected_agent_process(Some("/usr/local/bin/claude"), "claude"));
         assert!(!is_expected_agent_process(Some("powershell.exe"), "claude"));
         assert!(!is_expected_agent_process(Some("/usr/local/bin/openclaude"), "claude"));
+    }
+
+    #[test]
+    fn token_match_uses_ascii_fold_like_the_js_regex_i_flag() {
+        // ASCII case folding still works.
+        assert!(title_has_token("GROK ready", "grok", false));
+        // The TS twin matches via a case-insensitive regex ('i' = simple fold),
+        // which does NOT fold U+212A KELVIN SIGN to 'k' — so neither must Rust,
+        // or a title ending in the Kelvin sign would spuriously match `grok`.
+        assert!(!title_has_token("gro\u{212A}", "grok", false));
+    }
+
+    #[test]
+    fn normalize_process_name_trims_the_js_whitespace_set() {
+        // JS `.trim()` strips U+FEFF (BOM) but NOT U+0085 (NEL); Rust `str::trim`
+        // does the opposite. normalize_process_name twins the TS `.trim()`.
+        assert_eq!(normalize_process_name(Some("\u{FEFF}claude")), "claude");
+        assert!(is_expected_agent_process(Some("\u{FEFF}claude"), "claude"));
+        // NEL is not in the JS trim set, so it is retained (matching JS).
+        assert_eq!(normalize_process_name(Some("\u{85}claude")), "\u{85}claude");
     }
 }

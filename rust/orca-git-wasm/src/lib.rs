@@ -600,3 +600,21 @@ pub async fn git_push_via_executor(
         .await
         .map_err(|err| js_sys::Error::new(&err.message).into())
 }
+
+/// Relay twin of the napi `branch_is_safe_to_delete_via_executor`: gather candidate
+/// base refs, refresh the relevant remotes (`fetch --prune`, the one mutation),
+/// then decide whether the branch has any unmerged changes (tree-equal merge,
+/// patch-equivalent commits, or a squash match — which pipes patch text to
+/// `git patch-id --stable` via the executor's stdin), all over the relay's async
+/// JS git executor. Resolves the boolean; the destructive `branch -d/-D` stays in
+/// the relay's TS, gated on this. The decision only ever moves toward *preserve*,
+/// so it can never over-delete (and never rejects — git errors degrade to safe).
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = "branchIsSafeToDeleteViaExecutor")]
+pub async fn branch_is_safe_to_delete_via_executor(
+    executor: js_sys::Function,
+    branch_name: String,
+) -> bool {
+    let runner = async_bridge::WasmGitExecutor { callback: executor };
+    orca_git::branch_cleanup::branch_is_safe_to_delete_async(&runner, &branch_name).await
+}

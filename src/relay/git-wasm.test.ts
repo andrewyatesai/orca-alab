@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  branchIsSafeToDelete,
   detectPiAgentKindFromCommand,
   getUpstreamStatus,
   gitPush,
@@ -183,5 +184,46 @@ describe('gitPush (orca-git wasm A-bridge)', () => {
     await expect(gitPush(runGit, undefined, false)).rejects.toThrow(
       'Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first.'
     )
+  })
+})
+
+// Branch-cleanup safety decision through the async A-bridge: Rust gathers base
+// refs, fetch --prunes, and runs the no-op-merge proof (with git patch-id stdin).
+describe('branchIsSafeToDelete (orca-git wasm A-bridge)', () => {
+  it('is safe to delete when the branch merges tree-equal into a base', async () => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'config') return { stdout: 'refs/remotes/origin/main\n', stderr: '' }
+      if (args[0] === 'symbolic-ref') throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+      if (args[0] === 'remote') return { stdout: 'origin\n', stderr: '' }
+      if (args[0] === 'fetch') return { stdout: '', stderr: '' }
+      if (args[0] === 'rev-parse' && args.at(-1)?.endsWith('^{commit}'))
+        return { stdout: 'TOID\n', stderr: '' }
+      if (args[0] === 'merge-tree') return { stdout: 'SAME\n', stderr: '' }
+      if (args[0] === 'rev-parse' && args.at(-1) === 'TOID^{tree}')
+        return { stdout: 'SAME\n', stderr: '' }
+      return { stdout: '', stderr: '' }
+    }
+    expect(await branchIsSafeToDelete(runGit, 'feature')).toBe(true)
+    // The one mutation — fetch --prune of the base's remote — ran.
+    expect(calls).toContainEqual(['fetch', '--prune', 'origin'])
+  })
+
+  it('preserves a branch with distinct, non-equivalent commits', async () => {
+    const runGit = async (args: string[]) => {
+      if (args[0] === 'config') return { stdout: 'refs/remotes/origin/main\n', stderr: '' }
+      if (args[0] === 'symbolic-ref') throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+      if (args[0] === 'remote') return { stdout: 'origin\n', stderr: '' }
+      if (args[0] === 'rev-parse' && args.at(-1)?.endsWith('^{commit}'))
+        return { stdout: 'TOID\n', stderr: '' }
+      if (args[0] === 'merge-tree') return { stdout: 'DIFFERENT\n', stderr: '' }
+      if (args[0] === 'rev-parse' && args.at(-1) === 'TOID^{tree}')
+        return { stdout: 'TTREE\n', stderr: '' }
+      if (args[0] === 'rev-list') return { stdout: '0\n', stderr: '' } // no merge-only commits
+      if (args[0] === 'cherry') return { stdout: '+ abc new work\n', stderr: '' } // non-equivalent
+      return { stdout: '', stderr: '' }
+    }
+    expect(await branchIsSafeToDelete(runGit, 'feature')).toBe(false)
   })
 })

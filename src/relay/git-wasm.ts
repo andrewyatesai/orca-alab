@@ -21,6 +21,7 @@ import {
   resolveGitRemoteRebaseSourceViaExecutor as wasmResolveGitRemoteRebaseSourceViaExecutor,
   getUpstreamStatusViaExecutor as wasmGetUpstreamStatusViaExecutor,
   gitPushViaExecutor as wasmGitPushViaExecutor,
+  branchIsSafeToDeleteViaExecutor as wasmBranchIsSafeToDeleteViaExecutor,
   orcaDispatch as wasmOrcaDispatch
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
@@ -291,4 +292,24 @@ export async function gitPush(
     pushTarget?.remoteUrl ?? null,
     forceWithLease
   )
+}
+
+/**
+ * Whether a local branch is safe to delete on worktree removal, driven in Rust
+ * (via wasm) over the relay's git executor — the SAME `branch_is_safe_to_delete`
+ * the main process runs through the napi "A bridge". Rust gathers candidate base
+ * refs, refreshes the relevant remotes (`fetch --prune`), and decides whether the
+ * branch has any unmerged changes (tree-equal merge, patch-equivalent commits, or
+ * a squash match via `git patch-id --stable` piped through the executor's stdin).
+ * The decision only ever moves toward *preserve*, so it can't over-delete; the
+ * destructive `git branch -d/-D` stays in the caller, gated on this result. A
+ * missing `merge-tree --write-tree` on git <2.38 degrades to the cherry checks —
+ * identical to the old TS capability fallback.
+ */
+export async function branchIsSafeToDelete(
+  runGit: RelayRunGit,
+  branchName: string
+): Promise<boolean> {
+  ensureGitWasm()
+  return wasmBranchIsSafeToDeleteViaExecutor(makeRelayGitExecutor(runGit), branchName)
 }

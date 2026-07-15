@@ -90,6 +90,26 @@ export class QuickOpenIndex {
 if (Symbol.dispose) QuickOpenIndex.prototype[Symbol.dispose] = QuickOpenIndex.prototype.free;
 
 /**
+ * Relay twin of the napi `branch_is_safe_to_delete_via_executor`: gather candidate
+ * base refs, refresh the relevant remotes (`fetch --prune`, the one mutation),
+ * then decide whether the branch has any unmerged changes (tree-equal merge,
+ * patch-equivalent commits, or a squash match — which pipes patch text to
+ * `git patch-id --stable` via the executor's stdin), all over the relay's async
+ * JS git executor. Resolves the boolean; the destructive `branch -d/-D` stays in
+ * the relay's TS, gated on this. The decision only ever moves toward *preserve*,
+ * so it can never over-delete (and never rejects — git errors degrade to safe).
+ * @param {Function} executor
+ * @param {string} branch_name
+ * @returns {Promise<boolean>}
+ */
+export function branchIsSafeToDeleteViaExecutor(executor, branch_name) {
+    const ptr0 = passStringToWasm0(branch_name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.branchIsSafeToDeleteViaExecutor(addHeapObject(executor), ptr0, len0);
+    return takeObject(ret);
+}
+
+/**
  * Build the PR-fields generation prompt (TS `buildPullRequestFieldsPrompt`); the
  * renderer's dry-run preview dialog runs this. `context_json` is the
  * `PullRequestDraftContext` object; returns the prompt string.
@@ -943,7 +963,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1625(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1682(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -998,8 +1018,8 @@ function __wbg_get_imports() {
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 63, function: Function { arguments: [Externref], shim_idx: 64, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1536, __wasm_bindgen_func_elem_1550);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 67, function: Function { arguments: [Externref], shim_idx: 68, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1593, __wasm_bindgen_func_elem_1607);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
@@ -1021,12 +1041,12 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_1550(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1550(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1607(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1607(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1625(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1625(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1682(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1682(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const QuickOpenIndexFinalization = (typeof FinalizationRegistry === 'undefined')

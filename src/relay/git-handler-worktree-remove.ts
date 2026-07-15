@@ -188,8 +188,7 @@ export async function removeWorktreeOp(
             git,
             repoPath,
             branchName,
-            branchHead,
-            capabilities
+            branchHead
           )
         ) {
           return {}

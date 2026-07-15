@@ -27,6 +27,18 @@ export class QuickOpenIndex {
 }
 
 /**
+ * Relay twin of the napi `branch_is_safe_to_delete_via_executor`: gather candidate
+ * base refs, refresh the relevant remotes (`fetch --prune`, the one mutation),
+ * then decide whether the branch has any unmerged changes (tree-equal merge,
+ * patch-equivalent commits, or a squash match — which pipes patch text to
+ * `git patch-id --stable` via the executor's stdin), all over the relay's async
+ * JS git executor. Resolves the boolean; the destructive `branch -d/-D` stays in
+ * the relay's TS, gated on this. The decision only ever moves toward *preserve*,
+ * so it can never over-delete (and never rejects — git errors degrade to safe).
+ */
+export function branchIsSafeToDeleteViaExecutor(executor: Function, branch_name: string): Promise<boolean>;
+
+/**
  * Build the PR-fields generation prompt (TS `buildPullRequestFieldsPrompt`); the
  * renderer's dry-run preview dialog runs this. `context_json` is the
  * `PullRequestDraftContext` object; returns the prompt string.
@@ -244,6 +256,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_quickopenindex_free: (a: number, b: number) => void;
+    readonly branchIsSafeToDeleteViaExecutor: (a: number, b: number, c: number) => number;
     readonly buildPullRequestFieldsPrompt: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly computeLineStats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
     readonly countAdditionsInBuffer: (a: number, b: number) => number;
@@ -278,9 +291,9 @@ export interface InitOutput {
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wasm_bindgen_func_elem_1536: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1625: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1550: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1593: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1682: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1607: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

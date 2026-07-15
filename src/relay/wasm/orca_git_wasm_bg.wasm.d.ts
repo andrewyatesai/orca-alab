@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_quickopenindex_free: (a: number, b: number) => void;
+export const branchIsSafeToDeleteViaExecutor: (a: number, b: number, c: number) => number;
 export const buildPullRequestFieldsPrompt: (a: number, b: number, c: number, d: number, e: number) => void;
 export const computeLineStats: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
 export const countAdditionsInBuffer: (a: number, b: number) => number;
@@ -36,9 +37,9 @@ export const terminalQuickCommandOp: (a: number, b: number, c: number, d: number
 export const tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
 export const upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
 export const validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-export const __wasm_bindgen_func_elem_1536: (a: number, b: number) => void;
-export const __wasm_bindgen_func_elem_1625: (a: number, b: number, c: number, d: number) => void;
-export const __wasm_bindgen_func_elem_1550: (a: number, b: number, c: number) => void;
+export const __wasm_bindgen_func_elem_1593: (a: number, b: number) => void;
+export const __wasm_bindgen_func_elem_1682: (a: number, b: number, c: number, d: number) => void;
+export const __wasm_bindgen_func_elem_1607: (a: number, b: number, c: number) => void;
 export const __wbindgen_export: (a: number, b: number) => number;
 export const __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_export3: (a: number) => void;

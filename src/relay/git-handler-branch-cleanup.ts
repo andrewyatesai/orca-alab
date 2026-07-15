@@ -1,9 +1,4 @@
-import {
-  branchHasNoUnmergedChangesOnAnyTarget,
-  getBranchCleanupTargetRefs,
-  refreshBranchCleanupTargetRefs
-} from '../shared/git-branch-cleanup'
-import type { GitCapabilityCache } from '../shared/git-capability-cache'
+import { branchIsSafeToDelete } from './git-wasm'
 import type { GitExec } from './git-handler-ops'
 import { parseWorktreeList } from './git-handler-utils'
 
@@ -11,19 +6,17 @@ export async function deleteAlreadyMergedRelayBranchAfterSafeDeleteFailure(
   git: GitExec,
   repoPath: string,
   branchName: string,
-  branchHead: string,
-  capabilities: GitCapabilityCache
+  branchHead: string
 ): Promise<boolean> {
-  const runGit = (args: string[], options?: { stdin?: string }) =>
-    options ? git(args, repoPath, options) : git(args, repoPath)
-  const targetRefs = await getBranchCleanupTargetRefs(runGit, branchName)
-  await refreshBranchCleanupTargetRefs(runGit, targetRefs)
-  // Why: SSH worktrees hit the same squash-merge shape as local worktrees.
-  // Git's no-op merge proof lets us clean up only branches whose changes
-  // already exist on the saved base ref.
-  if (
-    !(await branchHasNoUnmergedChangesOnAnyTarget(runGit, branchName, targetRefs, capabilities))
-  ) {
+  // Omit the options arg entirely when there's no stdin, so plain git calls keep
+  // their two-arg shape (only the `git patch-id --stable` squash probe pipes stdin).
+  const runGit = (args: string[], stdin: string | null) =>
+    stdin !== null ? git(args, repoPath, { stdin }) : git(args, repoPath)
+  // Why: SSH worktrees hit the same squash-merge shape as local worktrees. Rust
+  // gathers the base refs, fetch --prunes the relevant remotes, and runs the
+  // tree/patch/squash no-op-merge proof (the same code main runs via napi), so we
+  // clean up only branches whose changes already exist on the saved base ref.
+  if (!(await branchIsSafeToDelete(runGit, branchName))) {
     return false
   }
   await deleteRelayBranchAtExpectedHead(git, repoPath, branchName, branchHead)

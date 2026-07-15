@@ -7,10 +7,13 @@ import { spawn } from 'node:child_process'
 // because most specs assert via in-process canvas/GPU internals).
 //
 // CURATED (assert user-visible behavior, valid on both render paths):
-//   - aterm-clipboard      — bracketed-paste bytes + OSC-52 via main-process spies
-//   - aterm-query-replies  — CPR/DA1/OSC-11/14t/16t round-trip to the PTY
-//   - aterm-a11y           — ARIA live region mirrors rendered output
-//   - aterm-selection      — double/triple-click selection text (polled reads)
+//   - aterm-clipboard          — bracketed-paste bytes + OSC-52 via main-process spies
+//   - aterm-query-replies      — CPR/DA1/OSC-11/14t/16t round-trip to the PTY
+//   - aterm-a11y               — ARIA live region mirrors rendered output
+//   - aterm-selection          — double/triple-click selection text (polled reads)
+//   - terminal-tui-wheel-reports — wheel→arrow/SGR-mouse escapes to pty:write (input
+//                                seam is main-thread, so render-path-independent)
+//   - terminal-osc-color-queries — OSC 10/11/4 color-query round-trip via pty:write spy
 // EXCLUDED (in-process-only assertion surfaces — the worker owns the transferred
 // canvas, so main-thread getContext/toDataURL throw; do not add back without a
 // worker-compatible assertion path):
@@ -18,6 +21,11 @@ import { spawn } from 'node:child_process'
 //   - aterm-retheme         — reads the repaint from the grid canvas's own 2d pixels
 //   - aterm-search          — asserts findMatches' synchronous count + overlay pixel
 //                             diffs; worker-path search is covered by aterm-worker-search
+//   - aterm-color-scheme-mode — part 1 pokes the MAIN-THREAD controller's synchronous
+//                             isColorSchemeUpdatesMode() getter after ctrl.process(); under
+//                             worker-ON the parser lives in the worker so the main-thread
+//                             mirror never flips. (The part-2 DSR ?996n round-trip IS
+//                             worker-safe; a worker-ON variant would need to drop part 1.)
 // The 3 dedicated worker specs run too, so this mode can't go green while they regress.
 
 const CURATED_SPECS = [
@@ -25,6 +33,8 @@ const CURATED_SPECS = [
   'tests/e2e/aterm-query-replies.spec.ts',
   'tests/e2e/aterm-a11y.spec.ts',
   'tests/e2e/aterm-selection.spec.ts',
+  'tests/e2e/terminal-tui-wheel-reports.spec.ts',
+  'tests/e2e/terminal-osc-color-queries.spec.ts',
   'tests/e2e/aterm-worker-render.spec.ts',
   'tests/e2e/aterm-worker-gpu-render.spec.ts',
   'tests/e2e/aterm-worker-search.spec.ts'

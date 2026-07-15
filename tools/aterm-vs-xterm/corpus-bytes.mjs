@@ -12,3 +12,28 @@ export function loadCorpus(path) {
     return { ...c, bytes: Buffer.from(c.bytes_b64, 'base64') }
   })
 }
+
+// Loader for the spec-cited differential corpus (tools/conformance/cases.jsonl):
+// one JSON object per line with hex payloads and per-case grid dimensions. These
+// carry an xterm oracle (goldens.jsonl, regenerated from @xterm/headless) so they
+// slot straight into the aterm-vs-xterm differential. `feature` becomes the
+// divergence comment; `cols`/`rows` size the grid (many cases are intentionally
+// small, e.g. 20x6, to exercise wrap/clamp at edges).
+export function loadJsonlCorpus(path) {
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line) => {
+      const c = JSON.parse(line)
+      if (typeof c.bytesHex !== 'string') {
+        throw new Error(`jsonl corpus case "${c.id}" has no bytesHex — encode raw bytes as hex`)
+      }
+      return {
+        name: c.id,
+        bytes: Buffer.from(c.bytesHex, 'hex'),
+        cols: c.cols,
+        rows: c.rows,
+        comment: c.feature
+      }
+    })
+}

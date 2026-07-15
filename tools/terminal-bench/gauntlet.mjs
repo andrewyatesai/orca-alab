@@ -24,7 +24,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { loadCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
+import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 
 const here = import.meta.dirname
 const repo = resolve(here, '..', '..')
@@ -33,6 +33,7 @@ const require = createRequire(import.meta.url)
 const ADDON = join(repo, 'native', 'orca-node', 'orca_node.node')
 const XTERM = join(here, 'node_modules', '@xterm', 'headless', 'lib-headless', 'xterm-headless.js')
 const CONF_CORPUS = join(repo, 'tools', 'aterm-vs-xterm', 'corpus.json')
+const CONF_JSONL = join(repo, 'tools', 'conformance', 'cases.jsonl')
 const BENCH_DIR = join(tmpdir(), 'orca-bench')
 const PERF_CORPUS = join(BENCH_DIR, 'corpus.bin')
 const REPORT = join(here, '.gauntlet-report.json')
@@ -132,17 +133,31 @@ async function conformance() {
   }
   const { HeadlessTerminal } = require(ADDON)
   const { Terminal } = require(XTERM)
-  const cases = loadCorpus(CONF_CORPUS)
-  const ROWS = 24
-  const COLS = 80
+  // Base corpus (80x24, base64) + the spec-cited differential corpus (per-case
+  // dims, hex, xterm goldens) folded in — both feed the same aterm-vs-xterm text
+  // differential. The jsonl cases carry `cols`/`rows`; the base cases default to
+  // 80x24 (many base cases depend on the col-80 wrap boundary).
+  const cases = [
+    ...loadCorpus(CONF_CORPUS),
+    ...(existsSync(CONF_JSONL) ? loadJsonlCorpus(CONF_JSONL) : [])
+  ]
   let parity = 0
   const diverge = []
   const expectedDivergences = []
-  for (const { name, bytes: buf, comment, expected_divergence: expected } of cases) {
-    const rt = new HeadlessTerminal(COLS, ROWS, 1000)
+  for (const {
+    name,
+    bytes: buf,
+    comment,
+    cols,
+    rows: caseRows,
+    expected_divergence: expected
+  } of cases) {
+    const nCols = cols ?? 80
+    const nRows = caseRows ?? 24
+    const rt = new HeadlessTerminal(nCols, nRows, 1000)
     rt.write(buf)
     const a = rt.snapshot().map(rstrip)
-    const xt = new Terminal({ rows: ROWS, cols: COLS, allowProposedApi: true })
+    const xt = new Terminal({ rows: nRows, cols: nCols, allowProposedApi: true })
     xt.write(buf)
     await new Promise((r) => xt.write('', r)) // xterm flush
     const x = []
@@ -150,7 +165,7 @@ async function conformance() {
     // is the visible viewport — offset by viewportY or any case that scrolls
     // misreports a divergence.
     const viewportY = xt.buffer.active.viewportY
-    for (let r = 0; r < ROWS; r++) {
+    for (let r = 0; r < nRows; r++) {
       x.push(rstrip(xt.buffer.active.getLine(viewportY + r)?.translateToString(true) ?? ''))
     }
     if (a.join('\n') === x.join('\n')) {
@@ -166,7 +181,7 @@ async function conformance() {
       }
     } else {
       const rows = []
-      for (let r = 0; r < ROWS && rows.length < 4; r++) {
+      for (let r = 0; r < nRows && rows.length < 4; r++) {
         if (a[r] !== x[r]) {
           rows.push({ row: r, aterm: (a[r] ?? '').slice(0, 60), xterm: (x[r] ?? '').slice(0, 60) })
         }

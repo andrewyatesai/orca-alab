@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
-import { resolveSshConfigHomePath } from './ssh-config-path-expansion'
+import { homedir } from 'node:os'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
 
 export type SshResolvedConfig = {
   hostname: string
@@ -59,58 +60,16 @@ export function resolveWithSshG(host: string): Promise<SshResolvedConfig | null>
   })
 }
 
+// Parsing is cut over to the Rust orca-ssh core via the orcaDispatch aggregate
+// (main-only reader); `home` (~-expansion base) is injected here from
+// os.homedir() so the core stays pure. Running `ssh -G` above is the IO edge and
+// stays in TS.
 export function parseSshGOutput(stdout: string): SshResolvedConfig {
-  const map = new Map<string, string>()
-  const identityFiles: string[] = []
-
-  for (const line of stdout.split('\n')) {
-    const spaceIdx = line.indexOf(' ')
-    if (spaceIdx === -1) {
-      continue
-    }
-    const key = line.substring(0, spaceIdx).toLowerCase()
-    const value = line.substring(spaceIdx + 1).trim()
-    if (key === 'identityfile') {
-      identityFiles.push(resolveSshConfigHomePath(value))
-    } else {
-      map.set(key, value)
-    }
-  }
-
-  return buildSshResolvedConfig(map, identityFiles)
-}
-
-function buildSshResolvedConfig(
-  map: Map<string, string>,
-  identityFiles: string[]
-): SshResolvedConfig {
-  // Why: `ssh -G` outputs `proxycommand none` / `proxyjump none` when no
-  // proxy is configured. Treating "none" as real would spawn bad commands.
-  const rawProxy = map.get('proxycommand')
-  const proxyCommand = rawProxy && rawProxy !== 'none' ? rawProxy : undefined
-  const rawJump = map.get('proxyjump')
-  const proxyJump = rawJump && rawJump !== 'none' ? rawJump : undefined
-  const rawIdentityAgent = map.get('identityagent')
-  const identityAgent = rawIdentityAgent ? resolveSshConfigHomePath(rawIdentityAgent) : undefined
-  const rawControlPath = map.get('controlpath')
-  const controlPath =
-    rawControlPath && rawControlPath !== 'none'
-      ? resolveSshConfigHomePath(rawControlPath)
-      : undefined
-
-  return {
-    hostname: map.get('hostname') ?? '',
-    user: map.get('user') || undefined,
-    port: Number.parseInt(map.get('port') ?? '22', 10),
-    identityFile: identityFiles,
-    identityAgent,
-    identitiesOnly: map.get('identitiesonly') === 'yes',
-    forwardAgent: map.get('forwardagent') === 'yes',
-    proxyCommand,
-    proxyUseFdpass: map.get('proxyusefdpass') === 'yes',
-    proxyJump,
-    controlMaster: map.get('controlmaster') ?? 'no',
-    controlPath,
-    controlPersist: map.get('controlpersist') ?? 'no'
-  }
+  return JSON.parse(
+    requireRustGitBinding().orcaDispatch(
+      'ssh-g-config',
+      'parseSshGOutput',
+      JSON.stringify({ stdout, home: homedir() })
+    )
+  ) as SshResolvedConfig
 }

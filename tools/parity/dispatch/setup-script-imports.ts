@@ -1,35 +1,22 @@
-// TS dispatch for the setup-script-imports parity module: maps the shared
-// vector function name to the real `src/shared/setup-script-imports.ts` entry
-// so the harness compares the live TS reference against the Rust port
-// (`orca-config::setup_script_imports` + codex-environment + package-manager).
-//
-// The entry takes async file readers, so this dispatcher returns a Promise;
-// the parity driver awaits dispatcher results.
-
-import { inspectSetupScriptImportCandidates } from '../../../src/shared/setup-script-imports'
-
-type SetupScriptImportsInput = {
-  contentsByPath?: Record<string, string | null>
-  existingPaths?: string[]
-}
+// TS dispatch for the setup-script-imports parity module. The shared TS twin
+// (`inspectSetupScriptImportCandidates`) is cut over to the Rust orca-config core
+// via the orcaDispatch aggregate (main/runtime readers only), so this adapter
+// drives that same napi binding: the vectors carry the pre-read `contentsByPath`
+// (+ optional `existingPaths`) the IO edge would supply, and the harness's
+// TS-vs-Rust diff degenerates to napi-vs-binary with the TS-derived goldens as
+// the absolute pin. Requires the built addon, like the napi-parity suite.
+import { requireRustGitBinding } from '../../../src/main/daemon/rust-git-addon'
 
 export function dispatch(fn: string, input: unknown): unknown {
   switch (fn) {
     case 'inspectSetupScriptImportCandidates': {
-      const { contentsByPath = {}, existingPaths } = input as SetupScriptImportsInput
-      // Why: real readers (orca-runtime.ts / worktrees.ts inspectSetupScriptImports)
-      // resolve null for missing/unreadable files and never throw.
-      const readFile = async (relativePath: string): Promise<string | null> =>
-        contentsByPath[relativePath] ?? null
-      // Why: worktrees.ts passes a stat-based fileExists while orca-runtime.ts
-      // omits it; an absent existingPaths exercises the read-fallback caller shape.
-      const options = existingPaths
-        ? {
-            fileExists: async (relativePath: string): Promise<boolean> =>
-              existingPaths.includes(relativePath)
-          }
-        : undefined
-      return inspectSetupScriptImportCandidates(readFile, options)
+      return JSON.parse(
+        requireRustGitBinding().orcaDispatch(
+          'setup-script-imports',
+          'inspectSetupScriptImportCandidates',
+          JSON.stringify(input)
+        )
+      )
     }
     default:
       throw new Error(`unknown function ${fn}`)

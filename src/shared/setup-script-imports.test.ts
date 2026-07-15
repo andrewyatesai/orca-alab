@@ -205,6 +205,59 @@ command = "pnpm test"
     ])
   })
 
+  it('aggregates candidates from every provider in provider order', async () => {
+    const candidates = await inspectSetupScriptImportCandidates(
+      makeReader({
+        '.superset/config.json': JSON.stringify({ setup: './setup.sh' }),
+        'conductor.json': JSON.stringify({ scripts: { setup: 'pnpm install' } }),
+        '.codex/environments/environment.toml': '[setup]\nscript = "make dev"\n',
+        '.cmux/cmux.json': JSON.stringify({
+          commands: [{ name: 'Setup', command: './scripts/setup.sh' }]
+        }),
+        'package.json': JSON.stringify({ name: 'app' })
+      }),
+      { fileExists: async (relativePath) => relativePath === 'pnpm-lock.yaml' }
+    )
+
+    expect(candidates).toEqual([
+      {
+        provider: 'superset',
+        label: 'Superset',
+        files: ['.superset/config.json'],
+        setup: './setup.sh',
+        unsupportedFields: []
+      },
+      {
+        provider: 'conductor',
+        label: 'Conductor',
+        files: ['conductor.json'],
+        setup: 'pnpm install',
+        unsupportedFields: []
+      },
+      {
+        provider: 'codex',
+        label: 'Codex environment',
+        files: ['.codex/environments/environment.toml'],
+        setup: 'make dev',
+        unsupportedFields: []
+      },
+      {
+        provider: 'cmux',
+        label: 'cmux',
+        files: ['.cmux/cmux.json'],
+        setup: './scripts/setup.sh',
+        unsupportedFields: []
+      },
+      {
+        provider: 'package-manager',
+        label: 'package manager',
+        files: ['pnpm-lock.yaml'],
+        setup: 'pnpm install',
+        unsupportedFields: []
+      }
+    ])
+  })
+
   it('ignores malformed or setup-less configs', async () => {
     const candidates = await inspectSetupScriptImportCandidates(
       makeReader({

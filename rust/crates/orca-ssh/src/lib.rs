@@ -6,5 +6,7 @@
 //! top; the parsing here is what populates connection targets either way.
 
 pub mod config_parser;
+pub mod resolved_config;
 
 pub use config_parser::{parse_ssh_config, SshConfigHost};
+pub use resolved_config::{parse_ssh_g_output, SshResolvedConfig};

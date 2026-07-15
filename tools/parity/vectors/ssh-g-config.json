@@ -1,0 +1,458 @@
+{
+  "module": "ssh-g-config",
+  "cases": [
+    {
+      "function": "parseSshGOutput",
+      "note": "typical full resolved config",
+      "input": {
+        "stdout": "host myserver\nhostname 192.168.1.100\nuser deploy\nport 2222\nidentityfile ~/.ssh/id_ed25519\nidentitiesonly yes\nforwardagent no\nproxycommand none\nproxyjump none\ncontrolmaster auto\ncontrolpath ~/.ssh/cm-%r@%h:%p\ncontrolpersist 600\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "192.168.1.100",
+        "user": "deploy",
+        "port": 2222,
+        "identityFile": [
+          "/home/testuser/.ssh/id_ed25519"
+        ],
+        "identitiesOnly": true,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "auto",
+        "controlPath": "/home/testuser/.ssh/cm-%r@%h:%p",
+        "controlPersist": "600"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "empty stdout -> all defaults",
+      "input": {
+        "stdout": "",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "multiple identityfile lines preserve order",
+      "input": {
+        "stdout": "identityfile ~/.ssh/a\nidentityfile /etc/ssh/b\nidentityfile ~/nested/c\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "",
+        "port": 22,
+        "identityFile": [
+          "/home/testuser/.ssh/a",
+          "/etc/ssh/b",
+          "/home/testuser/nested/c"
+        ],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "proxycommand/proxyjump none are dropped",
+      "input": {
+        "stdout": "hostname h\nproxycommand none\nproxyjump none\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "real proxycommand (with spaces) and proxyjump are kept, proxycommand not expanded",
+      "input": {
+        "stdout": "hostname h\nproxycommand ssh -W %h:%p ~/bastion\nproxyjump jump.example.com\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyCommand": "ssh -W %h:%p ~/bastion",
+        "proxyUseFdpass": false,
+        "proxyJump": "jump.example.com",
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "controlpath none dropped",
+      "input": {
+        "stdout": "hostname h\ncontrolpath none\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "controlpath real is home-expanded",
+      "input": {
+        "stdout": "hostname h\ncontrolpath ~/.ssh/cm\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPath": "/home/testuser/.ssh/cm",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "identityagent ~-path expanded",
+      "input": {
+        "stdout": "hostname h\nidentityagent ~/.ssh/agent.sock\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identityAgent": "/home/testuser/.ssh/agent.sock",
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "empty user is dropped",
+      "input": {
+        "stdout": "hostname h\nuser \n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "non-numeric port -> null (NaN)",
+      "input": {
+        "stdout": "hostname h\nport abc\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": null,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "missing port -> default 22",
+      "input": {
+        "stdout": "hostname h\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "lines without a space are skipped",
+      "input": {
+        "stdout": "hostname h\nblanklinewithoutspace\nuser root\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "user": "root",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "mixed-case keys are lowercased",
+      "input": {
+        "stdout": "HostName Example.Com\nUser Root\nPort 22\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "Example.Com",
+        "user": "Root",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "flags yes/no exact match",
+      "input": {
+        "stdout": "hostname h\nidentitiesonly yes\nforwardagent yes\nproxyusefdpass yes\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": true,
+        "forwardAgent": true,
+        "proxyUseFdpass": true,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "flags non-yes are false",
+      "input": {
+        "stdout": "hostname h\nidentitiesonly YES\nforwardagent true\nproxyusefdpass 1\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "duplicate keys last-wins",
+      "input": {
+        "stdout": "hostname first\nhostname second\nuser a\nuser b\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "second",
+        "user": "b",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "tilde alone as identityfile -> home",
+      "input": {
+        "stdout": "hostname h\nidentityfile ~\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [
+          "/home/testuser"
+        ],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "tilde-backslash identityfile normalized",
+      "input": {
+        "stdout": "hostname h\nidentityfile ~\\\\keys\\\\id\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [
+          "/home/testuser/keys/id"
+        ],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "port with plus sign parses",
+      "input": {
+        "stdout": "hostname h\nport +2222\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 2222,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "port with trailing text -> parseInt prefix",
+      "input": {
+        "stdout": "hostname h\nport 22abc\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "controlmaster/controlpersist explicit values",
+      "input": {
+        "stdout": "hostname h\ncontrolmaster ask\ncontrolpersist yes\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "ask",
+        "controlPersist": "yes"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "value with leading/trailing spaces is trimmed",
+      "input": {
+        "stdout": "hostname   spaced.example.com   \n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "spaced.example.com",
+        "port": 22,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "identityfile relative (no tilde) kept as-is",
+      "input": {
+        "stdout": "hostname h\nidentityfile relative/key\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 22,
+        "identityFile": [
+          "relative/key"
+        ],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    },
+    {
+      "function": "parseSshGOutput",
+      "note": "port zero is kept (parseInt 0, not defaulted here)",
+      "input": {
+        "stdout": "hostname h\nport 0\n",
+        "home": "/home/testuser"
+      },
+      "expected": {
+        "hostname": "h",
+        "port": 0,
+        "identityFile": [],
+        "identitiesOnly": false,
+        "forwardAgent": false,
+        "proxyUseFdpass": false,
+        "controlMaster": "no",
+        "controlPersist": "no"
+      }
+    }
+  ]
+}

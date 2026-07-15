@@ -62,7 +62,7 @@ describe('package manager setup script suggestions', () => {
     ])
   })
 
-  it('does not check lockfiles when packageManager declares the setup command', async () => {
+  it('honors packageManager over lockfiles (existence is pre-checked at the IO edge)', async () => {
     const fileExistsCalls: string[] = []
     const candidates = await inspectSetupScriptImportCandidates(
       makeReader({
@@ -76,7 +76,10 @@ describe('package manager setup script suggestions', () => {
       }
     )
 
-    expect(fileExistsCalls).toEqual([])
+    // Parsing now lives in the Rust core, so the IO edge pre-checks lockfile
+    // existence up front rather than lazily; the result still honors the
+    // declared packageManager (the core ignores the existence map in that case).
+    expect(fileExistsCalls).toContain('pnpm-lock.yaml')
     expect(candidates).toEqual([
       {
         provider: 'package-manager',

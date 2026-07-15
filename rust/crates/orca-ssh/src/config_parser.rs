@@ -163,7 +163,7 @@ fn split_openssh_arguments(input: &str) -> Vec<String> {
 /// JS `parseInt(s, 10)`: skip leading whitespace, take an optional sign then
 /// base-10 digits, stopping at the first non-digit (trailing junk and the
 /// fractional part are ignored). `None` models `NaN` (no digits).
-fn js_parse_int_base10(s: &str) -> Option<i64> {
+pub(crate) fn js_parse_int_base10(s: &str) -> Option<i64> {
     let s = s.trim_start();
     let bytes = s.as_bytes();
     let mut i = 0;
@@ -197,7 +197,7 @@ fn js_parse_int_base10(s: &str) -> Option<i64> {
 /// separators and resolves `.`/`..` segments. Emits `/`-separated paths (OpenSSH
 /// accepts them on every platform, matching the prior Rust behaviour + the
 /// posix-generated goldens).
-fn resolve_ssh_config_home_path(value: &str, home: &str) -> String {
+pub(crate) fn resolve_ssh_config_home_path(value: &str, home: &str) -> String {
     let bytes = value.as_bytes();
     let tilde_path =
         bytes.first() == Some(&b'~') && (value.len() == 1 || matches!(bytes[1], b'/' | b'\\'));

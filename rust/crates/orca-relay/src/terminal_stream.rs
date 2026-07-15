@@ -41,7 +41,7 @@ pub enum TerminalStreamOpcode {
 }
 
 impl TerminalStreamOpcode {
-    fn from_u8(value: u8) -> Option<Self> {
+    pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             1 => Some(Self::Output),
             2 => Some(Self::SnapshotStart),

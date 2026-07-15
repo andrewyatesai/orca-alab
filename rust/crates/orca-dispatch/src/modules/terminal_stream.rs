@@ -60,31 +60,13 @@ fn frame_to_json(frame: &TerminalStreamFrame) -> Value {
 }
 
 fn frame_from_json(input: &Value) -> Option<TerminalStreamFrame> {
-    let opcode = opcode_from_u8(input.get("opcode")?.as_u64()? as u8)?;
+    // Delegate to the canonical enum mapping (now `pub`) instead of a local copy:
+    // a duplicated table drifted stale here (missing Ack=13/ClaimViewport=14).
+    let opcode = TerminalStreamOpcode::from_u8(input.get("opcode")?.as_u64()? as u8)?;
     let stream_id = input.get("streamId")?.as_u64()? as u32;
     let seq = input.get("seq")?.as_u64()?;
     let payload = bytes_from_json(input.get("payload"));
     Some(TerminalStreamFrame { opcode, stream_id, seq, payload })
-}
-
-/// `TerminalStreamOpcode::from_u8` is private to the relay crate, so the dispatch
-/// reproduces the numeric-id → variant mapping from the public enum.
-fn opcode_from_u8(value: u8) -> Option<TerminalStreamOpcode> {
-    match value {
-        1 => Some(TerminalStreamOpcode::Output),
-        2 => Some(TerminalStreamOpcode::SnapshotStart),
-        3 => Some(TerminalStreamOpcode::SnapshotChunk),
-        4 => Some(TerminalStreamOpcode::SnapshotEnd),
-        5 => Some(TerminalStreamOpcode::Resized),
-        6 => Some(TerminalStreamOpcode::Error),
-        7 => Some(TerminalStreamOpcode::Input),
-        8 => Some(TerminalStreamOpcode::Resize),
-        9 => Some(TerminalStreamOpcode::Subscribe),
-        10 => Some(TerminalStreamOpcode::Unsubscribe),
-        11 => Some(TerminalStreamOpcode::SnapshotRequest),
-        12 => Some(TerminalStreamOpcode::Metadata),
-        _ => None,
-    }
 }
 
 fn bytes_to_json(bytes: &[u8]) -> Value {

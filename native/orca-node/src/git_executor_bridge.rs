@@ -31,10 +31,9 @@ use orca_git::branch_cleanup::{
     refresh_branch_cleanup_target_refs,
 };
 use orca_git::push_target::{validate_git_push_target, GitPushTarget};
-use orca_git::rebase_source::resolve_git_remote_rebase_source;
-use orca_git::remote::{git_fetch, git_push};
+use orca_git::remote::{git_fetch, git_pull_rebase_from_base, git_push};
 use orca_git::runner::{GitError, GitOutput, GitRunner};
-use orca_git::status_result::{git_remote_rebase_source_to_json, git_upstream_status_to_json};
+use orca_git::status_result::git_upstream_status_to_json;
 use orca_git::upstream::get_upstream_status;
 
 /// One git call's captured result, marshalled from the JS executor. The executor
@@ -271,43 +270,43 @@ impl Task for EffectiveUpstreamStatusTask {
     }
 }
 
-/// Drive orca-git's rebase-source RESOLVER (read-only) over the JS executor:
-/// `git remote` → pick the longest matching remote → `check-ref-format` the
-/// branch. Resolves `{remoteName, branchName, displayName}` JSON, or REJECTS with
-/// the RAW resolver message (e.g. "Choose a remote base branch to rebase from.")
-/// — the resolver does NOT normalize; the TS caller keeps its outer
-/// normalizeGitErrorMessage(err, 'pull'). The mutating `git pull --rebase` runs
-/// afterward in TS, never through this bridge.
-#[napi(ts_return_type = "Promise<string>")]
-pub fn resolve_git_remote_rebase_source_via_executor(
+/// Drive orca-git's `git_pull_rebase_from_base` over the JS executor: resolve the
+/// rebase source (read-only `git remote` → longest match → `check-ref-format`),
+/// then run the mutating `pull --rebase <remote> <branch>` — one call, collapsing
+/// the old resolve-in-Rust / pull-in-TS split. `git_pull_rebase_from_base`
+/// normalizes as `pull` internally (the raw "Choose a remote base branch…"
+/// resolver message tails identically), so the Task rejects with the already-
+/// normalized message.
+#[napi(ts_return_type = "Promise<void>")]
+pub fn git_pull_rebase_from_base_via_executor(
     base_ref: String,
     executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>,
-) -> Result<AsyncTask<ResolveRebaseSourceTask>> {
+) -> Result<AsyncTask<PullRebaseFromBaseTask>> {
     let tsfn = build_bridge_tsfn(executor)?;
-    Ok(AsyncTask::new(ResolveRebaseSourceTask { base_ref, tsfn }))
+    Ok(AsyncTask::new(PullRebaseFromBaseTask { base_ref, tsfn }))
 }
 
-pub struct ResolveRebaseSourceTask {
+pub struct PullRebaseFromBaseTask {
     base_ref: String,
     tsfn: BridgeTsfn,
 }
 
-impl Task for ResolveRebaseSourceTask {
-    type Output = std::result::Result<String, String>;
-    type JsValue = String;
+impl Task for PullRebaseFromBaseTask {
+    type Output = std::result::Result<(), String>;
+    type JsValue = ();
 
     fn compute(&mut self) -> Result<Self::Output> {
         let runner = JsExecutorGitRunner { tsfn: &self.tsfn };
-        match resolve_git_remote_rebase_source(&runner, &self.base_ref) {
-            Ok(source) => Ok(Ok(git_remote_rebase_source_to_json(&source).to_string())),
-            // RAW message — the resolver never normalizes; the TS caller does.
+        match git_pull_rebase_from_base(&runner, &self.base_ref) {
+            Ok(()) => Ok(Ok(())),
+            // Already normalized (as 'pull') by git_pull_rebase_from_base.
             Err(err) => Ok(Err(err.message)),
         }
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
         match output {
-            Ok(json) => Ok(json),
+            Ok(()) => Ok(()),
             Err(message) => Err(napi::Error::from_reason(message)),
         }
     }

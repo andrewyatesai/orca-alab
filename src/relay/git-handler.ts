@@ -50,7 +50,7 @@ import {
   normalizeGitErrorMessage,
   parseNumstat,
   parseGitHistoryLog,
-  resolveGitRemoteRebaseSource,
+  gitPullRebaseFromBase,
   gitFetch,
   getUpstreamStatus,
   gitPush
@@ -1097,12 +1097,13 @@ export class GitHandler {
     const baseRef = params.baseRef as string
     try {
       try {
-        const source = await resolveGitRemoteRebaseSource(
-          (args, stdin) =>
-            this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
+        // Rust drives the whole rebase-from-base — resolve the base's remote/branch
+        // (read-only) AND run the mutating `pull --rebase` — in one call; git stays
+        // in the relay (SSH-safe).
+        await gitPullRebaseFromBase(
+          (args, stdin) => this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
           baseRef
         )
-        await this.git(['pull', '--rebase', source.remoteName, source.branchName], worktreePath)
       } catch (error) {
         throw new Error(normalizeGitErrorMessage(error, 'pull'))
       }

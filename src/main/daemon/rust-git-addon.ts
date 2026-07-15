@@ -185,14 +185,13 @@ export type RustGitBinding = {
    *  normalization in-process. Resolves the `GitUpstreamStatus` JSON string, or rejects
    *  with the normalized error message. */
   getEffectiveUpstreamStatusViaExecutor(executor: RustGitExecutor): Promise<string>
-  /** IO-tier "A bridge" cutover: Rust drives the read-only rebase-source resolver
-   *  (`git remote` → longest match → `check-ref-format`) over the JS `executor`.
-   *  Resolves `{remoteName, branchName, displayName}` JSON, or rejects with the RAW
-   *  resolver message (the caller normalizes). `git pull --rebase` stays in TS. */
-  resolveGitRemoteRebaseSourceViaExecutor(
-    baseRef: string,
-    executor: RustGitExecutor
-  ): Promise<string>
+  /** IO-tier "A bridge" cutover: Rust drives the whole rebase-from-base — resolve
+   *  the base's remote/branch (read-only `git remote` → longest match →
+   *  `check-ref-format`) AND run the mutating `pull --rebase <remote> <branch>` —
+   *  over the JS `executor`, in one call. Resolves void, or rejects with the error
+   *  already normalized as 'pull' (the raw "Choose a remote base branch…" message
+   *  tails identically). */
+  gitPullRebaseFromBaseViaExecutor(baseRef: string, executor: RustGitExecutor): Promise<void>
   /** IO-tier "A bridge" cutover: Rust drives the branch-cleanup safe-to-delete
    *  DECISION (gather base refs → non-fatal fetch → tree/merge/patch/squash checks,
    *  the squash path piping patch text to `git patch-id --stable` via executor stdin)

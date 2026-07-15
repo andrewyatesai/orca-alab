@@ -440,6 +440,25 @@ export function gitFetchViaExecutor(executor, remote_name, branch_name, remote_u
 }
 
 /**
+ * Relay twin of the napi `git_pull_rebase_from_base_via_executor`: resolve the
+ * rebase source (read-only `git remote` → longest match → `check-ref-format`),
+ * then run the mutating `pull --rebase <remote> <branch>` over the relay's async
+ * JS git executor — one call, collapsing the old resolve-in-Rust / pull-in-TS
+ * split. `git_pull_rebase_from_base_async` normalizes as `pull` internally (the
+ * raw "Choose a remote base branch…" resolver message tails identically), so this
+ * rejects with the already-normalized message (preserved as a JS `Error`).
+ * @param {Function} executor
+ * @param {string} base_ref
+ * @returns {Promise<void>}
+ */
+export function gitPullRebaseFromBaseViaExecutor(executor, base_ref) {
+    const ptr0 = passStringToWasm0(base_ref, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.gitPullRebaseFromBaseViaExecutor(addHeapObject(executor), ptr0, len0);
+    return takeObject(ret);
+}
+
+/**
  * Relay twin of the napi `git_push_via_executor` — the one destructive IO-tier op:
  * validate an explicit target, resolve the refspec (explicit; else the branch's
  * configured push remote so a fork-tracking worktree doesn't send review commits
@@ -732,25 +751,6 @@ export function planCommitMessageGeneration(plan_input_json, prompt) {
 }
 
 /**
- * Relay twin of the napi `resolve_git_remote_rebase_source_via_executor`: drive
- * orca-git's read-only rebase-source resolver (`git remote` → longest matching
- * remote → `check-ref-format`) over the relay's async JS git executor. Resolves
- * `{remoteName, branchName, displayName}` JSON; rejects with the RAW resolver
- * message (the resolver never normalizes — the TS caller keeps its outer
- * `normalizeGitErrorMessage(err, 'pull')`), preserved as a JS `Error` so
- * `error.message` reads it.
- * @param {Function} executor
- * @param {string} base_ref
- * @returns {Promise<string>}
- */
-export function resolveGitRemoteRebaseSourceViaExecutor(executor, base_ref) {
-    const ptr0 = passStringToWasm0(base_ref, wasm.__wbindgen_export, wasm.__wbindgen_export2);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.resolveGitRemoteRebaseSourceViaExecutor(addHeapObject(executor), ptr0, len0);
-    return takeObject(ret);
-}
-
-/**
  * Slugify free text into a git-ref-safe workspace seed.
  * @param {string} input
  * @returns {string}
@@ -987,7 +987,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1695(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1698(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -1043,7 +1043,7 @@ function __wbg_get_imports() {
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { dtor_idx: 71, function: Function { arguments: [Externref], shim_idx: 72, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1606, __wasm_bindgen_func_elem_1620);
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1609, __wasm_bindgen_func_elem_1623);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
@@ -1065,12 +1065,12 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_1620(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1620(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1623(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1623(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1695(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1695(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1698(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1698(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const QuickOpenIndexFinalization = (typeof FinalizationRegistry === 'undefined')

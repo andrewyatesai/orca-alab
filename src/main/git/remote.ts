@@ -1,7 +1,7 @@
 import { isNoUpstreamError, normalizeGitErrorMessage } from './rust-git-remote-error'
 import { runPullWithDivergenceFallback } from '../../shared/git-remote-error'
 import { resolveEffectiveGitUpstream } from '../../shared/git-effective-upstream'
-import { resolveGitRemoteRebaseSourceNative } from './rust-rebase-source'
+import { gitPullRebaseFromBaseNative } from './rust-pull-rebase'
 import { gitPushNative } from './rust-push'
 import { gitFetchNative } from './rust-fetch'
 import type { GitPushTarget } from '../../shared/types'
@@ -102,15 +102,13 @@ export async function gitPullRebaseFromBase(
 ): Promise<void> {
   await runWithGitReadCacheInvalidation(async () => {
     try {
-      // Rust resolves the remote/branch (read-only: git remote + check-ref-format);
-      // runner.ts still executes the mutating `git pull --rebase` below.
-      const source = await resolveGitRemoteRebaseSourceNative(
+      // Why: Rust drives the whole rebase-from-base — resolve the base's
+      // remote/branch (read-only: git remote + check-ref-format) AND run the
+      // mutating `pull --rebase` — in one call; runner.ts still executes git, so
+      // SSH/WSL/env routing is preserved.
+      await gitPullRebaseFromBaseNative(
         (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
         baseRef
-      )
-      await gitExecFileAsync(
-        ['pull', '--rebase', source.remoteName, source.branchName],
-        gitOptionsForWorktree(worktreePath, options)
       )
     } catch (error) {
       throw new Error(normalizeGitErrorMessage(error, 'pull'))

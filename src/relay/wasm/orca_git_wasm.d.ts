@@ -132,6 +132,17 @@ export function getWorkspaceIntentName(args_json: string): string | undefined;
 export function gitFetchViaExecutor(executor: Function, remote_name?: string | null, branch_name?: string | null, remote_url?: string | null): Promise<void>;
 
 /**
+ * Relay twin of the napi `git_pull_rebase_from_base_via_executor`: resolve the
+ * rebase source (read-only `git remote` → longest match → `check-ref-format`),
+ * then run the mutating `pull --rebase <remote> <branch>` over the relay's async
+ * JS git executor — one call, collapsing the old resolve-in-Rust / pull-in-TS
+ * split. `git_pull_rebase_from_base_async` normalizes as `pull` internally (the
+ * raw "Choose a remote base branch…" resolver message tails identically), so this
+ * rejects with the already-normalized message (preserved as a JS `Error`).
+ */
+export function gitPullRebaseFromBaseViaExecutor(executor: Function, base_ref: string): Promise<void>;
+
+/**
  * Relay twin of the napi `git_push_via_executor` — the one destructive IO-tier op:
  * validate an explicit target, resolve the refspec (explicit; else the branch's
  * configured push remote so a fork-tracking worktree doesn't send review commits
@@ -211,17 +222,6 @@ export function planAgentBinary(default_binary: string, command_override?: strin
 export function planCommitMessageGeneration(plan_input_json: string, prompt: string): string;
 
 /**
- * Relay twin of the napi `resolve_git_remote_rebase_source_via_executor`: drive
- * orca-git's read-only rebase-source resolver (`git remote` → longest matching
- * remote → `check-ref-format`) over the relay's async JS git executor. Resolves
- * `{remoteName, branchName, displayName}` JSON; rejects with the RAW resolver
- * message (the resolver never normalizes — the TS caller keeps its outer
- * `normalizeGitErrorMessage(err, 'pull')`), preserved as a JS `Error` so
- * `error.message` reads it.
- */
-export function resolveGitRemoteRebaseSourceViaExecutor(executor: Function, base_ref: string): Promise<string>;
-
-/**
  * Slugify free text into a git-ref-safe workspace seed.
  */
 export function slugifyForWorkspaceName(input: string): string;
@@ -280,6 +280,7 @@ export interface InitOutput {
     readonly getUpstreamStatusViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly getWorkspaceIntentName: (a: number, b: number, c: number) => void;
     readonly gitFetchViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+    readonly gitPullRebaseFromBaseViaExecutor: (a: number, b: number, c: number) => number;
     readonly gitPushViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly isNoUpstreamError: (a: number, b: number) => number;
     readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
@@ -295,16 +296,15 @@ export interface InitOutput {
     readonly quickopenindex_fileCount: (a: number) => number;
     readonly quickopenindex_new: (a: number, b: number) => number;
     readonly quickopenindex_rank: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly resolveGitRemoteRebaseSourceViaExecutor: (a: number, b: number, c: number) => number;
     readonly slugifyForWorkspaceName: (a: number, b: number, c: number) => void;
     readonly stripCredentialsFromMessage: (a: number, b: number, c: number) => void;
     readonly terminalQuickCommandOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wasm_bindgen_func_elem_1606: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1695: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1620: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1609: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1698: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1623: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

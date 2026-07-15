@@ -3,6 +3,7 @@ import {
   branchIsSafeToDelete,
   detectPiAgentKindFromCommand,
   getUpstreamStatus,
+  gitFetch,
   gitPush,
   resolveGitRemoteRebaseSource,
   upstreamOnlyCommitsArePatchEquivalent
@@ -183,6 +184,46 @@ describe('gitPush (orca-git wasm A-bridge)', () => {
     }
     await expect(gitPush(runGit, undefined, false)).rejects.toThrow(
       'Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first.'
+    )
+  })
+})
+
+// Fetch through the async A-bridge: Rust validates an explicit target, then runs
+// the mutating `fetch --prune [<remote>]`; git stays in the relay. No
+// effective-upstream resolution, unlike fast-forward/pull.
+describe('gitFetch (orca-git wasm A-bridge)', () => {
+  it('runs a plain prune-fetch when no target is given', async () => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      return { stdout: '', stderr: '' }
+    }
+    await gitFetch(runGit, undefined)
+    expect(calls).toEqual([['fetch', '--prune']])
+  })
+
+  it('validates then fetches an explicit publish target', async () => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      return { stdout: '', stderr: '' }
+    }
+    await gitFetch(runGit, { remoteName: 'fork', branchName: 'feature/fix' })
+    expect(calls).toEqual([
+      ['check-ref-format', '--branch', 'feature/fix'],
+      ['fetch', '--prune', 'fork']
+    ])
+  })
+
+  it('normalizes a fetch authentication failure', async () => {
+    const runGit = async () => {
+      throw Object.assign(new Error('Authentication failed'), {
+        code: 1,
+        stderr: 'Authentication failed'
+      })
+    }
+    await expect(gitFetch(runGit, undefined)).rejects.toThrow(
+      'Authentication failed. Check your remote credentials.'
     )
   })
 })

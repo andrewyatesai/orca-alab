@@ -122,6 +122,16 @@ export function getUpstreamStatusViaExecutor(executor: Function, remote_name: st
 export function getWorkspaceIntentName(args_json: string): string | undefined;
 
 /**
+ * Relay twin of the napi `git_fetch_via_executor`: validate an explicit target
+ * (`check-ref-format`) then `fetch --prune [<remote>]` over the relay's async JS
+ * git executor. An explicit target needs BOTH remote+branch; otherwise a plain
+ * prune-fetch. `git_fetch` normalizes errors internally, so this rejects with
+ * the already-normalized message (preserved as a JS `Error`). The JS-boundary
+ * shape guard stays in the caller.
+ */
+export function gitFetchViaExecutor(executor: Function, remote_name?: string | null, branch_name?: string | null, remote_url?: string | null): Promise<void>;
+
+/**
  * Relay twin of the napi `git_push_via_executor` — the one destructive IO-tier op:
  * validate an explicit target, resolve the refspec (explicit; else the branch's
  * configured push remote so a fork-tracking worktree doesn't send review commits
@@ -269,6 +279,7 @@ export interface InitOutput {
     readonly getLinkedWorkItemWorkspaceName: (a: number, b: number, c: number) => void;
     readonly getUpstreamStatusViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly getWorkspaceIntentName: (a: number, b: number, c: number) => void;
+    readonly gitFetchViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly gitPushViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly isNoUpstreamError: (a: number, b: number) => number;
     readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
@@ -291,9 +302,9 @@ export interface InitOutput {
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wasm_bindgen_func_elem_1593: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1682: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1607: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1606: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1695: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1620: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

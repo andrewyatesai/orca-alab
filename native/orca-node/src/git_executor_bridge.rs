@@ -32,7 +32,7 @@ use orca_git::branch_cleanup::{
 };
 use orca_git::push_target::{validate_git_push_target, GitPushTarget};
 use orca_git::rebase_source::resolve_git_remote_rebase_source;
-use orca_git::remote::git_push;
+use orca_git::remote::{git_fetch, git_push};
 use orca_git::runner::{GitError, GitOutput, GitRunner};
 use orca_git::status_result::{git_remote_rebase_source_to_json, git_upstream_status_to_json};
 use orca_git::upstream::get_upstream_status;
@@ -398,6 +398,55 @@ impl Task for PushTask {
         match git_push(&runner, self.target.as_ref(), self.force_with_lease) {
             Ok(()) => Ok(Ok(())),
             // Already normalized by git_push.
+            Err(err) => Ok(Err(err.message)),
+        }
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        match output {
+            Ok(()) => Ok(()),
+            Err(message) => Err(napi::Error::from_reason(message)),
+        }
+    }
+}
+
+/// Drive orca-git's `git_fetch` over the JS executor: validate an explicit target
+/// (`check-ref-format`) then `fetch --prune [<remote>]`. An explicit target
+/// requires both remote+branch; otherwise a plain prune-fetch. `git_fetch`
+/// normalizes errors internally, so the Task rejects with the already-normalized
+/// message. No effective-upstream resolution, so — unlike fast-forward/pull —
+/// this needs no upstream driver.
+#[napi(ts_return_type = "Promise<void>")]
+pub fn git_fetch_via_executor(
+    remote_name: Option<String>,
+    branch_name: Option<String>,
+    remote_url: Option<String>,
+    executor: Function<FnArgs<(Vec<String>, Option<String>)>, Promise<BridgeGitOutput>>,
+) -> Result<AsyncTask<FetchTask>> {
+    let tsfn = build_bridge_tsfn(executor)?;
+    let target = match (remote_name, branch_name) {
+        (Some(remote_name), Some(branch_name)) => {
+            Some(GitPushTarget { remote_name, branch_name, remote_url })
+        }
+        _ => None,
+    };
+    Ok(AsyncTask::new(FetchTask { target, tsfn }))
+}
+
+pub struct FetchTask {
+    target: Option<GitPushTarget>,
+    tsfn: BridgeTsfn,
+}
+
+impl Task for FetchTask {
+    type Output = std::result::Result<(), String>;
+    type JsValue = ();
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let runner = JsExecutorGitRunner { tsfn: &self.tsfn };
+        match git_fetch(&runner, self.target.as_ref()) {
+            Ok(()) => Ok(Ok(())),
+            // Already normalized by git_fetch.
             Err(err) => Ok(Err(err.message)),
         }
     }

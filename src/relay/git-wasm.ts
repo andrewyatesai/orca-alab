@@ -21,6 +21,7 @@ import {
   resolveGitRemoteRebaseSourceViaExecutor as wasmResolveGitRemoteRebaseSourceViaExecutor,
   getUpstreamStatusViaExecutor as wasmGetUpstreamStatusViaExecutor,
   gitPushViaExecutor as wasmGitPushViaExecutor,
+  gitFetchViaExecutor as wasmGitFetchViaExecutor,
   branchIsSafeToDeleteViaExecutor as wasmBranchIsSafeToDeleteViaExecutor,
   orcaDispatch as wasmOrcaDispatch
 } from './wasm/orca_git_wasm.js'
@@ -291,6 +292,28 @@ export async function gitPush(
     pushTarget?.branchName ?? null,
     pushTarget?.remoteUrl ?? null,
     forceWithLease
+  )
+}
+
+/**
+ * Fetch (prune), driven in Rust (via wasm) over the relay's git executor — the
+ * SAME `git_fetch` the main process runs through the napi "A bridge". Rust
+ * validates an explicit target (`check-ref-format`), runs `fetch --prune
+ * [<remote>]`, and normalizes errors internally — rejecting with the
+ * already-normalized message. No effective-upstream resolution, unlike
+ * fast-forward/pull. The JS-boundary "Invalid PR push target …" shape guard stays
+ * in the caller.
+ */
+export async function gitFetch(
+  runGit: RelayRunGit,
+  pushTarget: GitPushTarget | undefined
+): Promise<void> {
+  ensureGitWasm()
+  await wasmGitFetchViaExecutor(
+    makeRelayGitExecutor(runGit),
+    pushTarget?.remoteName ?? null,
+    pushTarget?.branchName ?? null,
+    pushTarget?.remoteUrl ?? null
   )
 }
 

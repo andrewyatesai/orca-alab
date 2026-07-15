@@ -3,6 +3,7 @@ import { runPullWithDivergenceFallback } from '../../shared/git-remote-error'
 import { resolveEffectiveGitUpstream } from '../../shared/git-effective-upstream'
 import { resolveGitRemoteRebaseSourceNative } from './rust-rebase-source'
 import { gitPushNative } from './rust-push'
+import { gitFetchNative } from './rust-fetch'
 import type { GitPushTarget } from '../../shared/types'
 import type { GitRuntimeOptions } from './git-runtime-options'
 import { gitOptionsForWorktree } from './git-runtime-options'
@@ -123,15 +124,13 @@ export async function gitFetch(
   options: GitRuntimeOptions = {}
 ): Promise<void> {
   try {
-    if (pushTarget) {
-      const target = await validateGitPushTarget(worktreePath, pushTarget, options)
-      await gitExecFileAsync(
-        ['fetch', '--prune', target.remoteName],
-        gitOptionsForWorktree(worktreePath, options)
-      )
-      return
-    }
-    await gitExecFileAsync(['fetch', '--prune'], gitOptionsForWorktree(worktreePath, options))
+    // Why: Rust drives the whole fetch — validate an explicit target, then run
+    // `fetch --prune [<remote>]` — normalizing errors internally; runner.ts still
+    // executes the mutating fetch, so SSH/WSL/env routing is preserved.
+    await gitFetchNative(
+      (args) => gitExecFileAsync(args, gitOptionsForWorktree(worktreePath, options)),
+      pushTarget
+    )
   } catch (error) {
     throw new Error(normalizeGitErrorMessage(error, 'fetch'))
   }

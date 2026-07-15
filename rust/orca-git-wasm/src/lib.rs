@@ -601,6 +601,32 @@ pub async fn git_push_via_executor(
         .map_err(|err| js_sys::Error::new(&err.message).into())
 }
 
+/// Relay twin of the napi `git_fetch_via_executor`: validate an explicit target
+/// (`check-ref-format`) then `fetch --prune [<remote>]` over the relay's async JS
+/// git executor. An explicit target needs BOTH remote+branch; otherwise a plain
+/// prune-fetch. `git_fetch` normalizes errors internally, so this rejects with
+/// the already-normalized message (preserved as a JS `Error`). The JS-boundary
+/// shape guard stays in the caller.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = "gitFetchViaExecutor")]
+pub async fn git_fetch_via_executor(
+    executor: js_sys::Function,
+    remote_name: Option<String>,
+    branch_name: Option<String>,
+    remote_url: Option<String>,
+) -> Result<(), JsValue> {
+    let runner = async_bridge::WasmGitExecutor { callback: executor };
+    let target = match (remote_name, branch_name) {
+        (Some(remote_name), Some(branch_name)) => {
+            Some(orca_git::push_target::GitPushTarget { remote_name, branch_name, remote_url })
+        }
+        _ => None,
+    };
+    orca_git::remote::git_fetch_async(&runner, target.as_ref())
+        .await
+        .map_err(|err| js_sys::Error::new(&err.message).into())
+}
+
 /// Relay twin of the napi `branch_is_safe_to_delete_via_executor`: gather candidate
 /// base refs, refresh the relevant remotes (`fetch --prune`, the one mutation),
 /// then decide whether the branch has any unmerged changes (tree-equal merge,

@@ -212,6 +212,17 @@ export type RustGitBinding = {
     forceWithLease: boolean,
     executor: RustGitExecutor
   ): Promise<void>
+  /** IO-tier "A bridge" cutover: Rust drives `git fetch` — validate an explicit
+   *  target (`check-ref-format`), then `fetch --prune [<remote>]` — over the JS
+   *  `executor`. An explicit target needs both remoteName+branchName (else a plain
+   *  prune-fetch). Resolves void, or rejects with the already-normalized error
+   *  message. No effective-upstream resolution, unlike fast-forward/pull. */
+  gitFetchViaExecutor(
+    remoteName: string | null,
+    branchName: string | null,
+    remoteUrl: string | null,
+    executor: RustGitExecutor
+  ): Promise<void>
   /** Approximate added/removed line counts JSON, or null for the large guard. */
   computeLineStats(original: string, modified: string, status: string): string | null
   /** Decode a git C-quoted (octal-escaped) path. */

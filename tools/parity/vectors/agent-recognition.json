@@ -52,6 +52,30 @@
       "expected": false
     },
     {
+      "function": "titleHasAgentName",
+      "note": "mimo is an AGENT_NAMES entry (guards the Rust roster from dropping it)",
+      "input": { "title": "mimo ready", "name": "mimo" },
+      "expected": true
+    },
+    {
+      "function": "titleHasAgentName",
+      "note": "devin is an AGENT_NAMES entry (guards the Rust roster from dropping it)",
+      "input": { "title": "devin working", "name": "devin" },
+      "expected": true
+    },
+    {
+      "function": "titleHasAnyLegacyAgentName",
+      "note": "mimo token in the title is detected via the full AGENT_NAMES roster",
+      "input": { "title": "mimo • ~/repo" },
+      "expected": true
+    },
+    {
+      "function": "titleHasAnyLegacyAgentName",
+      "note": "devin token in the title is detected via the full AGENT_NAMES roster",
+      "input": { "title": "devin ready" },
+      "expected": true
+    },
+    {
       "function": "titleHasAnyLegacyAgentName",
       "note": "any AGENT_NAMES token in the title is detected",
       "input": { "title": "codex • ~/repo" },

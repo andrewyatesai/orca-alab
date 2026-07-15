@@ -178,6 +178,12 @@
       "expected": false
     },
     {
+      "function": "supportsTerminalAgentQuickCommand",
+      "note": "hermes-query is a launch-time prompt (not stdin-after-start), so it IS supported — guards the enum from collapsing hermes back to StdinAfterStart",
+      "input": "hermes",
+      "expected": true
+    },
+    {
       "function": "getTerminalQuickCommandScope",
       "note": "repo scope is normalized (trimmed) off an already-typed command",
       "input": { "id": "s", "label": "S", "action": "terminal-command", "command": "x", "scope": { "type": "repo", "repoId": "  repo-1  " } },

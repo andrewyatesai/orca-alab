@@ -311,7 +311,12 @@ pub fn build_agent_startup_plan(args: &AgentStartupPlanArgs) -> Option<AgentStar
             format!("{base_command} --prompt-interactive {quoted_prompt}")
         }
         AgentPromptInjectionMode::FlagInteractive => format!("{base_command} -i {quoted_prompt}"),
-        AgentPromptInjectionMode::StdinAfterStart => {
+        // HermesQuery produces the same BASE plan as StdinAfterStart; the TS
+        // wrapper (`git-wasm/tui-agent-startup.ts`, keyed on agent === 'hermes')
+        // rebuilds the launch command through `planHermesStartupQuery` for a
+        // non-empty prompt. Sharing the arm keeps the base plan byte-identical to
+        // what shipped when hermes mapped to StdinAfterStart.
+        AgentPromptInjectionMode::StdinAfterStart | AgentPromptInjectionMode::HermesQuery => {
             return Some(AgentStartupPlan {
                 agent: args.agent.to_string(),
                 launch_command: base_command,

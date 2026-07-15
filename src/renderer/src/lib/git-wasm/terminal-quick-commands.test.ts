@@ -128,6 +128,10 @@ describe('terminal quick commands (orca-agents wasm)', () => {
   it('only allows agent prompt quick commands for launch-time prompt agents', () => {
     expect(supportsTerminalAgentQuickCommand('claude')).toBe(true)
     expect(supportsTerminalAgentQuickCommand('gemini')).toBe(true)
+    // hermes delivers its prompt via the `chat --query` startup contract (a
+    // launch-time prompt), so it IS supported — the Rust enum collapsing it to
+    // stdin-after-start silently dropped hermes agent-prompt quick commands.
+    expect(supportsTerminalAgentQuickCommand('hermes')).toBe(true)
     expect(supportsTerminalAgentQuickCommand('aider')).toBe(false)
     expect(supportsTerminalAgentQuickCommand('not-real')).toBe(false)
   })

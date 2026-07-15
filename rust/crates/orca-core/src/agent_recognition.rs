@@ -19,9 +19,11 @@ pub const AGENT_NAMES: &[&str] = &[
     "gemini",
     "antigravity",
     "opencode",
+    "mimo",
     "openclaw",
     "aider",
     "grok",
+    "devin",
 ];
 
 const WINDOWS_EXE_SUFFIXES: &[&str] = &[".exe", ".cmd", ".bat", ".ps1"];

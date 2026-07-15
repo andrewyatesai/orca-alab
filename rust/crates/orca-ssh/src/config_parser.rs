@@ -13,6 +13,7 @@ pub struct SshConfigHost {
     pub identity_file: Option<String>,
     pub identity_agent: Option<String>,
     pub identities_only: Option<bool>,
+    pub gssapi_authentication: Option<bool>,
     pub proxy_command: Option<String>,
     pub proxy_use_fdpass: Option<bool>,
     pub proxy_jump: Option<String>,
@@ -79,6 +80,16 @@ pub fn parse_ssh_config(content: &str, home: &str) -> Vec<SshConfigHost> {
             "identitiesonly" => {
                 let yes = value.eq_ignore_ascii_case("yes");
                 set_all(&mut current, |h| h.identities_only = Some(yes));
+            }
+            "gssapiauthentication" => {
+                // Mirrors upstream's `host.gssapiAuthentication ??= …`: OpenSSH
+                // keeps the FIRST obtained value, so only set when still unset.
+                let yes = value.eq_ignore_ascii_case("yes");
+                set_all(&mut current, |h| {
+                    if h.gssapi_authentication.is_none() {
+                        h.gssapi_authentication = Some(yes);
+                    }
+                });
             }
             // OpenSSH preserves the rest of the line for ProxyCommand (a shell snippet).
             "proxycommand" => {
@@ -246,6 +257,20 @@ mod tests {
                 ..Default::default()
             }]
         );
+    }
+
+    #[test]
+    fn parses_gssapi_authentication_first_value_wins() {
+        // GSSAPIAuthentication yes → Some(true); OpenSSH keeps the FIRST value,
+        // so a later `no` in the same block must not override it (mirrors `??=`).
+        let yes = parse_ssh_config("Host kerb\n  GSSAPIAuthentication yes\n", HOME);
+        assert_eq!(yes[0].gssapi_authentication, Some(true));
+        let first_wins =
+            parse_ssh_config("Host kerb\n  GSSAPIAuthentication yes\n  GSSAPIAuthentication no\n", HOME);
+        assert_eq!(first_wins[0].gssapi_authentication, Some(true));
+        // Absent key stays None (JSON.stringify drops undefined).
+        let absent = parse_ssh_config("Host plain\n  User deploy\n", HOME);
+        assert_eq!(absent[0].gssapi_authentication, None);
     }
 
     #[test]

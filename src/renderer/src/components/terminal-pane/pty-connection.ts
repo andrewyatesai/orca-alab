@@ -291,6 +291,7 @@ const SYNCHRONIZED_OUTPUT_MARKER_TAIL_CHARS = SYNCHRONIZED_OUTPUT_START_SEQUENCE
 const CURSOR_SHOW_SEQUENCE = '\x1b[?25h'
 const CURSOR_HIDE_SEQUENCE = '\x1b[?25l'
 const TERMINAL_FOCUS_IN_SEQUENCE = '\x1b[I'
+const TERMINAL_FOCUS_OUT_SEQUENCE = '\x1b[O'
 const FOCUS_REPORTING_DISABLE_SEQUENCE = '\x1b[?1004l'
 const REATTACH_IDLE_AGENT_CURSOR_RESET_DELAY_MS = 250
 const SHIFT_ENTER_RECONFIRM_IDLE_MS = 350
@@ -1013,6 +1014,18 @@ export function connectPanePty(
   // panes append their kitty clear to it after transport setup); the
   // agent-done subscription passes an explicit kitty-inclusive reset instead.
   let idleAgentTerminalModeReset = RESET_TERMINAL_CURSOR_STYLE
+  let suppressNativeWindowsIdleCodexFocusReports = false
+  const setFocusReportSuppressionForAgentCompletion = (
+    title: string | undefined,
+    agentType: AgentType | undefined
+  ): void => {
+    const titleAgentType = resolveCommittedTitleAgentType(title ?? '')
+    suppressNativeWindowsIdleCodexFocusReports =
+      agentType && agentType !== 'unknown' ? agentType === 'codex' : titleAgentType === 'codex'
+  }
+  // `reset` (fork): the agent-done subscription below passes an explicit
+  // kitty-inclusive reset for aterm panes; callers with no arg use the pane's
+  // idle reset default.
   let queueAgentIdleTerminalModeReset = (reset?: string): void => {
     if (disposed) {
       return
@@ -1410,6 +1423,7 @@ export function connectPanePty(
     ) {
       deps.setCacheTimerStartedAt(cacheKey, Date.now())
     }
+    setFocusReportSuppressionForAgentCompletion(title, agentType)
     queueAgentIdleTerminalModeReset()
   }
   const preserveSuppressedTitleSideEffects = (
@@ -1421,6 +1435,7 @@ export function connectPanePty(
       agentType: activeHookStatus.agentType
     }
     if (activeHookStatus.state === 'waiting' || activeHookStatus.state === 'blocked') {
+      suppressNativeWindowsIdleCodexFocusReports = false
       queueAgentIdleTerminalModeReset()
     }
   }
@@ -1449,6 +1464,7 @@ export function connectPanePty(
       return
     }
     if (payload.state === 'waiting' || payload.state === 'blocked') {
+      suppressNativeWindowsIdleCodexFocusReports = false
       queueAgentIdleTerminalModeReset()
     }
   }
@@ -2270,6 +2286,10 @@ export function connectPanePty(
       if (meta?.terminalIdleConfirmed === true) {
         // Why: an agent can crash before its done hook; confirmed process death
         // must still restore cursor and native Windows Kitty keyboard modes.
+        const currentAgentStatus = useAppStore.getState().agentStatusByPaneKey[cacheKey]
+        if (!isFreshNonDoneAgentStatus(currentAgentStatus)) {
+          setFocusReportSuppressionForAgentCompletion(title, meta.agentStatus?.agentType)
+        }
         queueAgentIdleTerminalModeReset()
       }
       scheduleAgentTaskCompleteNotification(title, {
@@ -3040,6 +3060,9 @@ export function connectPanePty(
     if (isClaudeAgent(title) && (settings === null || settings.promptCacheTimerEnabled)) {
       deps.setCacheTimerStartedAt(cacheKey, Date.now())
     }
+    if (detectAgentStatusFromTitle(title) === 'idle') {
+      setFocusReportSuppressionForAgentCompletion(title, activeHookStatus?.agentType)
+    }
     if (syncAgentTaskCompleteTrackingEnabled()) {
       agentCompletionCoordinator.observeClassifiedTitleCompletion(title)
     }
@@ -3048,6 +3071,7 @@ export function connectPanePty(
     queueAgentIdleTerminalModeReset()
   }
   const onAgentBecameWorking = (): void => {
+    suppressNativeWindowsIdleCodexFocusReports = false
     clearSuppressedTitleSideEffects()
     if (syncAgentTaskCompleteTrackingEnabled()) {
       requiresFreshWorkingForAgentTaskCompleteNotification = false
@@ -3125,8 +3149,8 @@ export function connectPanePty(
     executionHostId
   })
   if (isNativeWindowsConpty) {
-    // Why: completed Windows ConPTY agent turns can leave xterm's renderer-side
-    // Kitty encoder enabled; clearing it restores plain Backspace/Enter input.
+    // Why: Windows ConPTY agent turns can leave renderer keyboard modes armed
+    // after completion, corrupting plain input with encoded bytes.
     idleAgentTerminalModeReset = `${RESET_TERMINAL_CURSOR_STYLE}${RESET_KITTY_KEYBOARD_PROTOCOL}`
   }
   const shouldApplyNativeWindowsRewriteRefresh = isNativeWindowsConpty
@@ -3142,18 +3166,32 @@ export function connectPanePty(
   // use-terminal-pane-lifecycle.ts, which fired on EVERY interrupt and
   // desynced apps that survive Ctrl+C (Claude Code keeps running — and now
   // keeps its negotiated flags). ConPTY panes keep their historical behavior:
-  // their idle reset already carries the kitty clear (see above).
+  // their idle reset already carries the kitty clear (see above). On native
+  // Windows ConPTY this ALSO drives Codex focus-report suppression (#8842):
+  // arm it on a completed turn, disarm on any non-done transition.
+  if (isNativeWindowsConpty) {
+    const initialAgentStatus = state.agentStatusByPaneKey[cacheKey]
+    if (initialAgentStatus?.state === 'done') {
+      setFocusReportSuppressionForAgentCompletion(undefined, initialAgentStatus.agentType)
+    }
+  }
   let unsubscribeAgentDoneTerminalModeReset: (() => void) | null = null
   unsubscribeAgentDoneTerminalModeReset = useAppStore.subscribe((nextState) => {
-    const nextAgentStatusState = nextState.agentStatusByPaneKey[cacheKey]?.state
-    if (lastAgentStatusState !== 'done' && nextAgentStatusState === 'done') {
+    const nextAgentStatus = nextState.agentStatusByPaneKey[cacheKey]
+    const nextAgentStatusState = nextAgentStatus?.state
+    if (nextAgentStatusState === 'done') {
       if (isNativeWindowsConpty) {
-        queueAgentIdleTerminalModeReset()
-      } else if (pane.atermController) {
+        setFocusReportSuppressionForAgentCompletion(undefined, nextAgentStatus.agentType)
+        if (lastAgentStatusState !== 'done') {
+          queueAgentIdleTerminalModeReset()
+        }
+      } else if (lastAgentStatusState !== 'done' && pane.atermController) {
         queueAgentIdleTerminalModeReset(
           `${idleAgentTerminalModeReset}${RESET_KITTY_KEYBOARD_PROTOCOL}`
         )
       }
+    } else if (isNativeWindowsConpty && nextAgentStatusState) {
+      suppressNativeWindowsIdleCodexFocusReports = false
     }
     lastAgentStatusState = nextAgentStatusState
   })
@@ -3573,6 +3611,15 @@ export function connectPanePty(
     // explicit Take back action owns restoring desktop input and dimensions.
     if (currentPtyId && isPtyLocked(currentPtyId)) {
       clearPendingTerminalInputIntent()
+      return
+    }
+    if (
+      isNativeWindowsConpty &&
+      suppressNativeWindowsIdleCodexFocusReports &&
+      (data === TERMINAL_FOCUS_IN_SEQUENCE || data === TERMINAL_FOCUS_OUT_SEQUENCE)
+    ) {
+      // Why: Codex can leave focus reporting armed after a Windows turn, but
+      // disabling the mode would permanently silence focus events on resume.
       return
     }
     // Why: xterm answers CPR/DSR/DA queries natively through this same onData

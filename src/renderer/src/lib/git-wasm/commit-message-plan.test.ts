@@ -121,7 +121,9 @@ describe('planCommitMessageGeneration (orca-agents wasm)', () => {
     })
   })
 
-  it('appends per-action CLI arguments after the built-in model args for stdin agents', () => {
+  it('overrides the built-in codex --model with a per-action --model and appends the rest', () => {
+    // Codex #8773: a per-action `--model` splices OVER the recipe's built-in
+    // `--model` (one `--model` in the result, not two); other agentArgs append.
     expect(
       planCommitMessageGeneration(
         { agentId: 'codex', model: 'gpt-5.4-mini', agentArgs: '--model gpt-5.5 --sandbox read-only' },
@@ -130,7 +132,7 @@ describe('planCommitMessageGeneration (orca-agents wasm)', () => {
     ).toMatchObject({
       ok: true,
       plan: {
-        args: ['exec', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only', '--model', 'gpt-5.4-mini', '--model', 'gpt-5.5', '--sandbox', 'read-only'],
+        args: ['exec', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only', '--model', 'gpt-5.5', '--sandbox', 'read-only'],
         stdinPayload: 'PROMPT'
       }
     })

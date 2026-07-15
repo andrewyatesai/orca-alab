@@ -18,6 +18,7 @@ pub struct SshResolvedConfig {
     pub identity_agent: Option<String>,
     pub identities_only: bool,
     pub forward_agent: bool,
+    pub gssapi_authentication: bool,
     pub proxy_command: Option<String>,
     pub proxy_use_fdpass: bool,
     pub proxy_jump: Option<String>,
@@ -77,6 +78,7 @@ fn build_ssh_resolved_config(
             .map(|value| resolve_ssh_config_home_path(value, home)),
         identities_only: map.get("identitiesonly").map(String::as_str) == Some("yes"),
         forward_agent: map.get("forwardagent").map(String::as_str) == Some("yes"),
+        gssapi_authentication: map.get("gssapiauthentication").map(String::as_str) == Some("yes"),
         proxy_command: non_none("proxycommand"),
         proxy_use_fdpass: map.get("proxyusefdpass").map(String::as_str) == Some("yes"),
         proxy_jump: non_none("proxyjump"),
@@ -111,6 +113,15 @@ mod tests {
         assert_eq!(config.control_master, "auto");
         assert_eq!(config.control_path.as_deref(), Some("/home/testuser/.ssh/cm-%r@%h:%p"));
         assert_eq!(config.control_persist, "600");
+    }
+
+    #[test]
+    fn parses_gssapi_authentication_flag() {
+        // `ssh -G` prints `gssapiauthentication yes|no`; mirrors `=== 'yes'`.
+        assert!(parse("gssapiauthentication yes\n").gssapi_authentication);
+        assert!(!parse("gssapiauthentication no\n").gssapi_authentication);
+        // Absent → false (TS `map.get(...) === 'yes'` is false for undefined).
+        assert!(!parse("hostname h\n").gssapi_authentication);
     }
 
     #[test]

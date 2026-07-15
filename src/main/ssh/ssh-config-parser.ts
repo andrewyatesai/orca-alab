@@ -14,6 +14,7 @@ export type SshConfigHost = {
   identityFile?: string
   identityAgent?: string
   identitiesOnly?: boolean
+  gssapiAuthentication?: boolean
   proxyCommand?: string
   proxyUseFdpass?: boolean
   proxyJump?: string
@@ -77,6 +78,7 @@ export function sshConfigHostsToTargets(
       identityFile: entry.identityFile,
       identityAgent: entry.identityAgent,
       identitiesOnly: entry.identitiesOnly,
+      gssapiAuthentication: entry.gssapiAuthentication,
       proxyCommand: entry.proxyCommand,
       jumpHost: entry.proxyJump
     })

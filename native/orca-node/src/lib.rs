@@ -574,6 +574,9 @@ fn ssh_config_host_to_json(host: &orca_ssh::SshConfigHost) -> serde_json::Value 
     if let Some(v) = host.identities_only {
         map.insert("identitiesOnly".into(), serde_json::Value::from(v));
     }
+    if let Some(v) = host.gssapi_authentication {
+        map.insert("gssapiAuthentication".into(), serde_json::Value::from(v));
+    }
     if let Some(v) = &host.proxy_command {
         map.insert("proxyCommand".into(), serde_json::Value::from(v.clone()));
     }

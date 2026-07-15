@@ -41,6 +41,9 @@ fn host_to_json(host: &SshConfigHost) -> Value {
     if let Some(v) = host.identities_only {
         map.insert("identitiesOnly".into(), Value::from(v));
     }
+    if let Some(v) = host.gssapi_authentication {
+        map.insert("gssapiAuthentication".into(), Value::from(v));
+    }
     if let Some(v) = &host.proxy_command {
         map.insert("proxyCommand".into(), Value::from(v.clone()));
     }

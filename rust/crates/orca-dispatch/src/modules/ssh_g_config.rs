@@ -36,6 +36,7 @@ fn resolved_config_to_json(config: &SshResolvedConfig) -> Value {
     }
     map.insert("identitiesOnly".into(), Value::from(config.identities_only));
     map.insert("forwardAgent".into(), Value::from(config.forward_agent));
+    map.insert("gssapiAuthentication".into(), Value::from(config.gssapi_authentication));
     if let Some(v) = &config.proxy_command {
         map.insert("proxyCommand".into(), Value::from(v.clone()));
     }

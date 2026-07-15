@@ -10,6 +10,8 @@ export type SshResolvedConfig = {
   identityAgent?: string
   identitiesOnly: boolean
   forwardAgent: boolean
+  /** Effective GSSAPIAuthentication, including distro-wide /etc/ssh defaults. */
+  gssapiAuthentication?: boolean
   proxyCommand?: string
   proxyUseFdpass: boolean
   proxyJump?: string

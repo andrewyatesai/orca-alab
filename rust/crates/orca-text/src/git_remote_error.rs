@@ -9,15 +9,24 @@
 use regex::Regex;
 use std::sync::OnceLock;
 
+// The credential character classes use an EXPLICIT ASCII-whitespace set
+// (` \t\r\n\f\v`) rather than `\s`. `\s` differs between Rust's regex (Unicode:
+// includes U+0085 NEL, excludes U+FEFF BOM) and JS's (includes U+FEFF, excludes
+// U+0085), so a credential containing a raw BOM/NEL byte would scrub on one path
+// and LEAK on the other. Bounding on the real ASCII delimiters keeps any exotic
+// whitespace INSIDE the credential span so it always reaches the `@` anchor and
+// is always redacted — max-scrub, and byte-identical to the TS twin.
 fn userpass_url_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    // `([a-z][a-z0-9+.-]*://)[^\s/@:]+:[^\s/@]+@` (case-insensitive)
-    RE.get_or_init(|| Regex::new(r"(?i)([a-z][a-z0-9+.\-]*://)[^\s/@:]+:[^\s/@]+@").unwrap())
+    // `([a-z][a-z0-9+.-]*://)[^ \t\r\n\f\v/@:]+:[^ \t\r\n\f\v/@]+@` (case-insensitive)
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)([a-z][a-z0-9+.\-]*://)[^ \t\r\n\f\v/@:]+:[^ \t\r\n\f\v/@]+@").unwrap()
+    })
 }
 
 fn https_token_url_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?i)(https?://)[^\s/@:]+@").unwrap())
+    RE.get_or_init(|| Regex::new(r"(?i)(https?://)[^ \t\r\n\f\v/@:]+@").unwrap())
 }
 
 fn no_upstream_phrase_re() -> &'static Regex {
@@ -304,6 +313,27 @@ mod tests {
         assert_eq!(
             strip_credentials_from_message("https://ghp_token@github.com/o/r.git"),
             "https://github.com/o/r.git"
+        );
+    }
+
+    #[test]
+    fn scrubs_credentials_containing_exotic_whitespace_bytes() {
+        // A raw U+FEFF (BOM) or U+0085 (NEL) inside the credential must NOT act
+        // as a token boundary (the `\s` classes did, and disagreed with JS on
+        // exactly these bytes) — the credential stays one span and is redacted.
+        assert_eq!(
+            strip_credentials_from_message("https://user:ghp_\u{FEFF}secret@github.com/o/r.git"),
+            "https://github.com/o/r.git"
+        );
+        assert_eq!(
+            strip_credentials_from_message("https://ghp_\u{85}token@github.com/o/r.git"),
+            "https://github.com/o/r.git"
+        );
+        // Real ASCII whitespace still bounds the credential (a space means the
+        // `user:pass@` structure isn't a contiguous URL — leave it untouched).
+        assert_eq!(
+            strip_credentials_from_message("https://user:pass @github.com/o/r.git"),
+            "https://user:pass @github.com/o/r.git"
         );
     }
 

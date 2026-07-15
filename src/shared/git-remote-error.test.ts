@@ -3,7 +3,8 @@ import {
   isDivergentPullReconciliationError,
   MERGE_RECONCILIATION_PULL_ARGS,
   pullArgsSpecifyReconciliation,
-  runPullWithDivergenceFallback
+  runPullWithDivergenceFallback,
+  stripCredentialsFromMessage
 } from './git-remote-error'
 
 // The text-normalization helpers (normalizeGitErrorMessage,
@@ -14,6 +15,35 @@ import {
 
 afterEach(() => {
   vi.restoreAllMocks()
+})
+
+describe('stripCredentialsFromMessage', () => {
+  it('scrubs userpass and token credentials on https', () => {
+    expect(stripCredentialsFromMessage('remote: https://user:ghp_secret@github.com/o/r.git')).toBe(
+      'remote: https://github.com/o/r.git'
+    )
+    expect(stripCredentialsFromMessage('https://ghp_token@github.com/o/r.git')).toBe(
+      'https://github.com/o/r.git'
+    )
+  })
+
+  it('keeps a raw BOM/NEL inside the credential span so it still redacts', () => {
+    // The credential class bounds on ASCII whitespace, not `\s` — so a U+FEFF
+    // (BOM) or U+0085 (NEL) byte stays in the credential and is scrubbed,
+    // byte-identically to the Rust core (guards the JS-vs-Rust `\s` drift).
+    expect(stripCredentialsFromMessage('https://user:ghp_\uFEFFsecret@github.com/o/r.git')).toBe(
+      'https://github.com/o/r.git'
+    )
+    expect(stripCredentialsFromMessage('https://ghp_\u0085token@github.com/o/r.git')).toBe(
+      'https://github.com/o/r.git'
+    )
+  })
+
+  it('leaves a non-contiguous pseudo-credential (real whitespace bound) untouched', () => {
+    expect(stripCredentialsFromMessage('https://user:pass @github.com/o/r.git')).toBe(
+      'https://user:pass @github.com/o/r.git'
+    )
+  })
 })
 
 describe('isDivergentPullReconciliationError', () => {

@@ -26,8 +26,14 @@ export const MERGE_RECONCILIATION_PULL_ARGS = ['--no-rebase']
 // git-clone-failure-message, which runs in main, relay, and renderer) can still
 // redact `https://user:token@host` before surfacing a clone error. Keep the two
 // patterns in sync with the Rust core.
-const USERPASS_URL_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi
-const HTTPS_TOKEN_URL_PATTERN = /(https?:\/\/)[^\s/@:]+@/gi
+// The credential character class bounds on an EXPLICIT ASCII-whitespace set
+// (` \t\r\n\f\v`) rather than `\s`: JS `\s` and Rust `\s` disagree on U+FEFF
+// (BOM) and U+0085 (NEL), so `\s` would let a raw BOM/NEL byte in a credential
+// leak on one path and scrub on the other. Bounding on the real delimiters keeps
+// exotic whitespace inside the credential span so it always redacts, identically
+// to the Rust core.
+const USERPASS_URL_PATTERN = /([a-z][a-z0-9+.-]*:\/\/)[^ \t\r\n\f\v/@:]+:[^ \t\r\n\f\v/@]+@/gi
+const HTTPS_TOKEN_URL_PATTERN = /(https?:\/\/)[^ \t\r\n\f\v/@:]+@/gi
 
 export function stripCredentialsFromMessage(message: string): string {
   return message.replace(USERPASS_URL_PATTERN, '$1').replace(HTTPS_TOKEN_URL_PATTERN, '$1')

@@ -1,5 +1,8 @@
 import { randomBytes } from 'node:crypto'
-import { requireRustGitBinding, type RustOrchestrationStoreHandle } from '../../daemon/rust-git-addon'
+import {
+  requireRustGitBinding,
+  type RustOrchestrationStoreHandle
+} from '../../daemon/rust-git-addon'
 import type {
   MessageType,
   MessagePriority,
@@ -28,6 +31,10 @@ export type {
   DecisionGateRow,
   CoordinatorRun
 }
+
+// The join shape returned by listTasksWithDispatch: a task row plus the active
+// dispatch's assignee/id (or null when the task has no live dispatch).
+type TaskWithDispatchRow = TaskRow & { assignee_handle: string | null; dispatch_id: string | null }
 
 // Ids stay `<prefix>_<hex>` (the shim owns generation, not Rust): orca-runtime.ts
 // extracts task ids with `/task_[A-Za-z0-9]+/`, so the format is a contract.
@@ -115,7 +122,10 @@ export class OrchestrationDb {
 
   getUndeliveredUnreadMessages(toHandle: string, types?: MessageType[]): MessageRow[] {
     return OrchestrationDb.list<MessageRow>(
-      this.store.getUndeliveredUnreadMessages(toHandle, types && types.length > 0 ? types : undefined)
+      this.store.getUndeliveredUnreadMessages(
+        toHandle,
+        types && types.length > 0 ? types : undefined
+      )
     )
   }
 
@@ -157,7 +167,11 @@ export class OrchestrationDb {
 
   getAllMessagesForHandle(toHandle: string, limit = 100, types?: MessageType[]): MessageRow[] {
     return OrchestrationDb.list<MessageRow>(
-      this.store.getAllMessagesForHandle(toHandle, limit, types && types.length > 0 ? types : undefined)
+      this.store.getAllMessagesForHandle(
+        toHandle,
+        limit,
+        types && types.length > 0 ? types : undefined
+      )
     )
   }
 
@@ -206,14 +220,9 @@ export class OrchestrationDb {
     return OrchestrationDb.list<TaskRow>(this.store.listTasks(status))
   }
 
-  listTasksWithDispatch(filter?: { status?: TaskStatus; ready?: boolean }): (TaskRow & {
-    assignee_handle: string | null
-    dispatch_id: string | null
-  })[] {
+  listTasksWithDispatch(filter?: { status?: TaskStatus; ready?: boolean }): TaskWithDispatchRow[] {
     const status = filter?.ready ? 'ready' : filter?.status
-    return OrchestrationDb.list<TaskRow & { assignee_handle: string | null; dispatch_id: string | null }>(
-      this.store.listTasksWithDispatch(status)
-    )
+    return OrchestrationDb.list<TaskWithDispatchRow>(this.store.listTasksWithDispatch(status))
   }
 
   updateTaskStatus(id: string, status: TaskStatus, result?: string): TaskRow | undefined {
@@ -240,7 +249,12 @@ export class OrchestrationDb {
     // (`Task not found: …`, `… is <status>; only ready …`, `Terminal … already
     // has an active dispatch (… for task …)`) — consumers match on `.message`.
     return OrchestrationDb.row<DispatchContextRow>(
-      this.store.createDispatchContext(taskId, assigneeHandle, generateId('ctx'), assigneePaneKey ?? null)
+      this.store.createDispatchContext(
+        taskId,
+        assigneeHandle,
+        generateId('ctx'),
+        assigneePaneKey ?? null
+      )
     )
   }
 
@@ -253,11 +267,15 @@ export class OrchestrationDb {
   }
 
   getActiveDispatchForTerminal(handle: string): DispatchContextRow | undefined {
-    return OrchestrationDb.optRow<DispatchContextRow>(this.store.getActiveDispatchForTerminal(handle))
+    return OrchestrationDb.optRow<DispatchContextRow>(
+      this.store.getActiveDispatchForTerminal(handle)
+    )
   }
 
   getLatestDispatchForTerminal(handle: string): DispatchContextRow | undefined {
-    return OrchestrationDb.optRow<DispatchContextRow>(this.store.getLatestDispatchForTerminal(handle))
+    return OrchestrationDb.optRow<DispatchContextRow>(
+      this.store.getLatestDispatchForTerminal(handle)
+    )
   }
 
   completeDispatch(ctxId: string): void {
@@ -279,6 +297,11 @@ export class OrchestrationDb {
   }
 
   getStaleDispatches(thresholdIso: string): DispatchContextRow[] {
+    // Why: delegates to the Rust orca-runtime store, whose get_stale_dispatches
+    // already carries the full #8452/#8514 fix (status='dispatched' + dispatched_at
+    // grace + datetime()-wrapped comparison so space-format columns and ISO-Z
+    // thresholds compare correctly). Upstream's TS julianday() reimplementation is
+    // superseded by that Rust query.
     return OrchestrationDb.list<DispatchContextRow>(this.store.getStaleDispatches(thresholdIso))
   }
 
@@ -313,7 +336,9 @@ export class OrchestrationDb {
   }
 
   listGates(filter?: { taskId?: string; status?: GateStatus }): DecisionGateRow[] {
-    return OrchestrationDb.list<DecisionGateRow>(this.store.listGates(filter?.taskId, filter?.status))
+    return OrchestrationDb.list<DecisionGateRow>(
+      this.store.listGates(filter?.taskId, filter?.status)
+    )
   }
 
   getGate(id: string): DecisionGateRow | undefined {

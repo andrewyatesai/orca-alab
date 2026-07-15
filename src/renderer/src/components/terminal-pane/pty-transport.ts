@@ -22,7 +22,14 @@ import {
   ensurePtyDispatcher,
   getEagerPtyBufferHandle
 } from './pty-dispatcher'
-import { drainPreHandlerPtyData, drainPreHandlerPtyExit } from './pty-pre-handler-buffer'
+import {
+  clearConsumedPreHandlerPtyExit,
+  drainPreHandlerPtyData,
+  drainPreHandlerPtyExit,
+  hasPreHandlerPtyData,
+  hasPreHandlerPtyExit,
+  isPreHandlerPtyStateDiscarded
+} from './pty-pre-handler-buffer'
 import { createPtyInputWriteQueue } from './pty-input-write-queue'
 import type { PtyDataMeta } from './pty-dispatcher'
 import type { IpcPtyTransportOptions, PtyConnectResult, PtyTransport } from './pty-transport-types'
@@ -654,7 +661,12 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     }
   }
 
-  function registerPtyExitHandler(id: string, drainBuffered = true): void {
+  // Returns whether a pre-handler exit was already buffered for `id`. With
+  // drainBuffered=false the drain is deferred by the caller (reattach-snapshot
+  // race: paint the daemon snapshot before the exit lands) — the return value
+  // still reports the buffered exit so connect can resolve exitedBeforeAttach.
+  function registerPtyExitHandler(id: string, drainBuffered = true): boolean {
+    const hadBufferedExit = hasPreHandlerPtyExit(id)
     const exitHandler = (code: number): void => {
       if (ptyId !== null && ptyId !== id) {
         // Why: a preserved sleep/reconnect session can report its old exit
@@ -680,8 +692,18 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
     // is removed but before the exit event arrives.
     ptyTeardownHandlers.set(id, clearAccumulatedState)
     if (drainBuffered) {
-      drainPreHandlerPtyExit(id, exitHandler)
+      try {
+        drainPreHandlerPtyExit(id, exitHandler)
+      } catch (error) {
+        if (!hadBufferedExit) {
+          throw error
+        }
+        // Why: a cleanup-callback failure must not turn an already-delivered
+        // pre-attach exit into a generic connect rejection and fallback spawn.
+        console.error('[pty] buffered pre-attach exit cleanup failed', error)
+      }
     }
+    return hadBufferedExit
   }
 
   return {
@@ -693,12 +715,43 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
         return
       }
 
+      // Why gate on buffered DATA too: a fully-captured dead parked session (its
+      // final output already buffered pre-handler) gains nothing from a respawn —
+      // deliver the buffered frame/exit and skip spawn so the dead incarnation
+      // cannot disconnect and orphan a fresh shell. But a BARE buffered exit that
+      // raced an in-flight reattach has no local final frame; the daemon still
+      // holds the authoritative snapshot, so we must spawn/reattach and let the
+      // post-spawn deferred-drain paint that snapshot before the exit lands.
+      if (
+        options.sessionId &&
+        hasPreHandlerPtyExit(options.sessionId) &&
+        hasPreHandlerPtyData(options.sessionId)
+      ) {
+        ptyId = options.sessionId
+        connected = true
+        registerPtyDataHandler(options.sessionId)
+        registerPtyExitHandler(options.sessionId)
+        return { id: options.sessionId, exitedBeforeAttach: true } satisfies PtyConnectResult
+      }
+
+      const admittedSessionId =
+        options.sessionId && !isPreHandlerPtyStateDiscarded(options.sessionId)
+          ? options.sessionId
+          : undefined
+
+      // Why: reconnecting may intentionally reuse a session id whose prior
+      // exit was consumed. Re-admit exits without clearing bytes already
+      // buffered for a still-live session before its pane registered.
+      if (admittedSessionId) {
+        clearConsumedPreHandlerPtyExit(admittedSessionId)
+      }
+
       try {
         // Why: missing-cwd recovery is only valid for fresh local spawns —
         // reattach must keep the session's exact cwd and SSH-tagged transports
         // resolve cwd on the remote host.
         const shouldSendLocalCwdFallback =
-          cwdFallback === 'worktree' && !connectionId && !options.sessionId
+          cwdFallback === 'worktree' && !connectionId && !admittedSessionId
         const result = await window.api.pty.spawn({
           cols: options.cols ?? 80,
           rows: options.rows ?? 24,
@@ -719,7 +772,7 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
             ? { startupCommandDelivery: options.startupCommandDelivery ?? startupCommandDelivery }
             : {}),
           ...(connectionId ? { connectionId } : {}),
-          ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+          ...(admittedSessionId ? { sessionId: admittedSessionId } : {}),
           // Why: hidden-at-spawn mark must land in main before the PTY's
           // first byte, so it rides the spawn IPC instead of the pane's
           // first visibility sync (terminal-query-authority.md).
@@ -737,9 +790,16 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
           ? spawnResult.launchAgent
           : undefined
 
-        // If destroyed while spawn was in flight, kill the new pty and bail
+        // If destroyed while the connect was in flight, bail — and kill only
+        // what this connect CREATED. A fresh spawn is ours to reap, but a
+        // reattach (sessionId) resolves to a pre-existing session owned by the
+        // tab lifecycle: tab close kills it by id through its own path, and
+        // killing it here turns a remount racing a slow reattach into the loss
+        // of a live shell — the exact failure pane recovery exists to prevent.
         if (destroyed) {
-          window.api.pty.kill(spawnResult.id)
+          if (!options.sessionId) {
+            window.api.pty.kill(spawnResult.id)
+          }
           return
         }
 
@@ -766,7 +826,15 @@ export function createIpcPtyTransport(opts: IpcPtyTransportOptions = {}): PtyTra
           spawnResult.replay ||
           spawnResult.coldRestore
         )
-        registerPtyExitHandler(spawnResult.id, !hasReattachSnapshot)
+        const hadBufferedExit = registerPtyExitHandler(spawnResult.id, !hasReattachSnapshot)
+        // Why: a buffered exit with NO snapshot to paint means the session died
+        // pre-attach and the drain above already delivered its exit — resolve
+        // exitedBeforeAttach so the caller doesn't treat a dead session as live.
+        // With a snapshot, the drain was deferred (below), so we keep going and
+        // return the snapshot first.
+        if (hadBufferedExit && !hasReattachSnapshot) {
+          return { id: spawnResult.id, exitedBeforeAttach: true } satisfies PtyConnectResult
+        }
         if (!connected || ptyId !== spawnResult.id) {
           return undefined
         }

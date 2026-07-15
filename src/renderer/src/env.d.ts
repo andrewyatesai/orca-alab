@@ -146,6 +146,7 @@ declare global {
       parkedTabIds: () => string[]
     }
     __monacoEditorE2E?: MonacoE2EProbe
+    __e2ePtyAppliedSizeReadDelayMs?: number
   }
 }
 

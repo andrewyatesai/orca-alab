@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { attachTerminalScrollIntentTracking } from './terminal-scroll-intent-dom-tracking'
 import {
-  attachTerminalScrollIntentTracking,
-  beginSuppressScrollIntentWrites,
   captureTerminalWriteScrollIntent,
-  endSuppressScrollIntentWrites,
   enforceTerminalCurrentScrollIntent,
   enforceTerminalWriteScrollIntent,
   getTerminalScrollIntentKind,
@@ -396,50 +394,118 @@ describe('terminal scroll intent', () => {
     expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1)
   })
 
-  it('carries the stored ABSOLUTE line for a pin, not the live snapshot, when capturing', () => {
-    // captureTerminalWriteScrollIntent must report the durable absolute line so the
-    // per-write enforce can't walk the pin off its content during a replay where the
-    // live viewport has drifted relative to a regrown bottom.
-    const terminal = createTerminal({ viewportY: 121, baseY: 127 })
-    markTerminalPinnedViewport(terminal)
+  it('reverts a wheel pin to followOutput when the viewport never leaves the bottom', async () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback)
+      return frameCallbacks.length
+    })
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    vi.stubGlobal('Element', TestElement)
+    const terminal = createTerminal({ viewportY: 100, baseY: 100 })
+    const host = new TestElement() as unknown as HTMLElement
+    const disposable = attachTerminalScrollIntentTracking(terminal, host)
 
-    // Buffer regrew; the LIVE viewport drifted to baseY-6 of the new bottom.
-    terminal.buffer.active.baseY = 231
-    terminal.buffer.active.viewportY = 225
+    // A sub-row trackpad delta or a wheel consumed by a mouse-reporting TUI:
+    // the wheel event fires but xterm's viewport never moves.
+    const wheelUp = new Event('wheel') as WheelEvent
+    Object.defineProperty(wheelUp, 'deltaY', { value: -2 })
+    host.dispatchEvent(wheelUp)
+    expect(getTerminalScrollIntentKind(terminal)).toBe('pinnedViewport')
 
-    expect(captureTerminalWriteScrollIntent(terminal)?.viewportY).toBe(121)
+    await Promise.resolve()
+    while (frameCallbacks.length) {
+      frameCallbacks.shift()?.(16)
+    }
+    vi.advanceTimersByTime(80)
+
+    expect(getTerminalScrollIntentKind(terminal)).toBe('followOutput')
+    disposable.dispose()
   })
 
-  it('FREEZES the absolute pin across a clear+regrow resume window (worktree-switch jump)', () => {
-    // The worktree-switch scroll jump: the cold-restore replay clears + regrows the
-    // buffer; transient empty/regrowing snapshots + the syncSoon timers would overwrite
-    // the durable absolute pin (121) with a position relative to the rebuilt bottom
-    // (225 = baseY-6). With writes frozen during the resume window, the pin is held and
-    // the resume re-anchors to the ORIGINAL line, not the drifted one.
-    const terminal = createTerminal({ viewportY: 121, baseY: 127 })
-    markTerminalPinnedViewport(terminal)
-    expect(getTerminalScrollIntentKind(terminal)).toBe('pinnedViewport')
+  it('keeps a wheel pin when the viewport leaves the bottom before settle', async () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback)
+      return frameCallbacks.length
+    })
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    vi.stubGlobal('Element', TestElement)
+    const terminal = createTerminal({ viewportY: 100, baseY: 100 })
+    const host = new TestElement() as unknown as HTMLElement
+    const disposable = attachTerminalScrollIntentTracking(terminal, host)
 
-    beginSuppressScrollIntentWrites()
-    // 1) the buffer is cleared (empty) — would infer followOutput(0,0) if not frozen.
+    const wheelUp = new Event('wheel') as WheelEvent
+    Object.defineProperty(wheelUp, 'deltaY', { value: -10 })
+    host.dispatchEvent(wheelUp)
+
+    terminal.buffer.active.viewportY = 60
+    await Promise.resolve()
+    while (frameCallbacks.length) {
+      frameCallbacks.shift()?.(16)
+    }
+    vi.advanceTimersByTime(80)
+
+    expect(getTerminalScrollIntentKind(terminal)).toBe('pinnedViewport')
     terminal.buffer.active.viewportY = 0
-    terminal.buffer.active.baseY = 0
-    syncTerminalScrollIntentFromViewport(terminal)
-    markTerminalFollowOutput(terminal)
-    // 2) it regrows PAST the original baseY — would re-pin at baseY-6 if not frozen.
-    terminal.buffer.active.baseY = 231
-    terminal.buffer.active.viewportY = 225
-    syncTerminalScrollIntentFromViewport(terminal)
-    const cap = captureTerminalWriteScrollIntent(terminal)
-    enforceTerminalWriteScrollIntent(terminal, cap)
-    // The durable absolute pin is preserved throughout the frozen window.
-    expect(getTerminalScrollIntentKind(terminal)).toBe('pinnedViewport')
-    expect(captureTerminalWriteScrollIntent(terminal)?.viewportY).toBe(121)
-    endSuppressScrollIntentWrites()
-
-    // After the window the resume re-anchors to the ORIGINAL absolute line (121),
-    // not the drifted relative position (225) the live snapshot still reads.
     enforceTerminalCurrentScrollIntent(terminal)
-    expect(terminal.scrollToLine).toHaveBeenLastCalledWith(121)
+    expect(terminal.scrollToLine).toHaveBeenLastCalledWith(60)
+    disposable.dispose()
+  })
+
+  it('does not freeze the viewport when a pinned intent is latched at the bottom', () => {
+    const terminal = createTerminal({ viewportY: 100, baseY: 100 })
+    // Phantom pin: a wheel/PageUp the viewport never followed latched
+    // pinnedViewport while the terminal was still at the bottom.
+    markTerminalPinnedViewport(terminal)
+
+    for (let batch = 1; batch <= 2; batch += 1) {
+      const snapshot = captureTerminalWriteScrollIntent(terminal)
+      // xterm follows output during the write because the viewport was at bottom.
+      terminal.buffer.active.baseY += 25
+      terminal.buffer.active.viewportY = terminal.buffer.active.baseY
+      enforceTerminalWriteScrollIntent(terminal, snapshot)
+      expect(terminal.buffer.active.viewportY).toBe(terminal.buffer.active.baseY)
+    }
+    expect(getTerminalScrollIntentKind(terminal)).toBe('followOutput')
+  })
+
+  it('resumes following on visibility enforce when the stored pin was recorded at the bottom', () => {
+    const terminal = createTerminal({ viewportY: 100, baseY: 100 })
+    markTerminalPinnedViewport(terminal)
+
+    terminal.buffer.active.baseY = 400
+    terminal.buffer.active.viewportY = 100
+    enforceTerminalCurrentScrollIntent(terminal)
+
+    expect(terminal.scrollToBottom).toHaveBeenCalled()
+    expect(terminal.buffer.active.viewportY).toBe(400)
+    expect(getTerminalScrollIntentKind(terminal)).toBe('followOutput')
+  })
+
+  it('restores a pinned viewport by bottom offset after a rebuild shrinks the scrollback', () => {
+    const terminal = createTerminal({ viewportY: 550, baseY: 600 })
+    markTerminalPinnedViewport(terminal)
+
+    // Snapshot replay rebuilds a shorter, renumbered buffer.
+    terminal.buffer.active.baseY = 200
+    terminal.buffer.active.viewportY = 200
+    enforceTerminalCurrentScrollIntent(terminal)
+
+    expect(terminal.scrollToLine).toHaveBeenLastCalledWith(150)
+    expect(terminal.buffer.active.viewportY).toBe(150)
+  })
+
+  it('supports bottom-offset restore for buffer-rebuild write paths', () => {
+    const terminal = createTerminal({ viewportY: 550, baseY: 600 })
+    markTerminalPinnedViewport(terminal)
+    const snapshot = captureTerminalWriteScrollIntent(terminal)
+
+    terminal.buffer.active.baseY = 80
+    terminal.buffer.active.viewportY = 80
+    enforceTerminalWriteScrollIntent(terminal, snapshot, { restoreBy: 'bottomOffset' })
+
+    expect(terminal.scrollToLine).toHaveBeenLastCalledWith(30)
+    expect(terminal.buffer.active.viewportY).toBe(30)
   })
 })

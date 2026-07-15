@@ -9,3 +9,6 @@
 # Vendored cargo sources are verified byte-for-byte against .cargo-checksum.json;
 # EOL conversion (core.autocrlf on Windows) corrupts the checksums and breaks the offline build.
 /rust/vendor/** -text
+/skill-guides/*.md text eol=lf
+/skills/*/SKILL.md text eol=lf
+/src/cli/bundled-skill-guides.ts text eol=lf

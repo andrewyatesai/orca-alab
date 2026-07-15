@@ -75,6 +75,11 @@ export type AtermTerminalFacade = {
    *  from the engine's fail-closed, host-authorized queue. */
   onTerminalAppNotification(handler: (notification: AtermAppNotification) => void): IDisposable
   dispose(): void
+  /** True once dispose() ran. Unlike xterm (which silently drops write
+   *  completion callbacks after dispose), the facade still fires them — so this
+   *  flag, not callback loss, is how restore/instrumentation detects a dead
+   *  target and skips a wasted replay-guard cycle. */
+  readonly isDisposed: boolean
   /** Internal: bind the async-attached controller + its DOM and flush buffered
    *  process() bytes. Called by openAtermPane once the controller resolves. */
   __attachController(

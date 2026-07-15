@@ -245,10 +245,11 @@ describe('pty:management IPC handlers', () => {
     async function runKillAllWithPolls(
       handler: (event: unknown, args?: unknown) => unknown,
       pollCount: number = 65
-    ): Promise<{ killedCount: number; remainingCount: number }> {
+    ): Promise<{ killedCount: number; remainingCount: number; killedSessionIds: string[] }> {
       const resultPromise = handler({}) as Promise<{
         killedCount: number
         remainingCount: number
+        killedSessionIds: string[]
       }>
       // Why: advance the loop's sleeps one at a time. Between each sleep the
       // handler awaits collectSessions (a microtask), so we need to flush
@@ -294,7 +295,11 @@ describe('pty:management IPC handlers', () => {
       const handlers = buildHandlerMap()
       const result = await runKillAllWithPolls(handlers['pty:management:killAll'])
 
-      expect(result).toEqual({ killedCount: 3, remainingCount: 0 })
+      expect(result).toEqual({
+        killedCount: 3,
+        remainingCount: 0,
+        killedSessionIds: ['new-1', 'new-2', 'old-1']
+      })
       // Each initial session receives exactly one shutdown — no retries.
       expect(current.shutdown).toHaveBeenCalledTimes(2)
       expect(current.shutdown).toHaveBeenCalledWith('new-1', { immediate: true })
@@ -321,7 +326,7 @@ describe('pty:management IPC handlers', () => {
       const handlers = buildHandlerMap()
       const result = await runKillAllWithPolls(handlers['pty:management:killAll'])
 
-      expect(result).toEqual({ killedCount: 0, remainingCount: 1 })
+      expect(result).toEqual({ killedCount: 0, remainingCount: 1, killedSessionIds: [] })
       // One shutdown fired — no per-session retry. Initial-snapshot
       // accounting means the stuck session is counted once.
       expect(current.shutdown).toHaveBeenCalledTimes(1)
@@ -355,7 +360,11 @@ describe('pty:management IPC handlers', () => {
       const handlers = buildHandlerMap()
       const result = await runKillAllWithPolls(handlers['pty:management:killAll'])
 
-      expect(result).toEqual({ killedCount: 2, remainingCount: 0 })
+      expect(result).toEqual({
+        killedCount: 2,
+        remainingCount: 0,
+        killedSessionIds: ['a', 'b']
+      })
     })
 
     it('swallows per-session shutdown rejections without stopping the batch', async () => {
@@ -389,7 +398,11 @@ describe('pty:management IPC handlers', () => {
       expect(current.shutdown).toHaveBeenCalledWith('a', { immediate: true })
       expect(current.shutdown).toHaveBeenCalledWith('b', { immediate: true })
       // 'a' rejected and is still alive → counts as remaining; 'b' reaped.
-      expect(result).toEqual({ killedCount: 1, remainingCount: 1 })
+      expect(result).toEqual({
+        killedCount: 1,
+        remainingCount: 1,
+        killedSessionIds: ['b']
+      })
     })
   })
 

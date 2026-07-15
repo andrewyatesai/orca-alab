@@ -24,7 +24,9 @@ describe('aterm-worker-search dirty coalescing', () => {
     expect(search).toHaveBeenCalledTimes(1) // find indexes once
 
     // Simulate many PTY chunks: mark dirty repeatedly, NO re-index yet.
-    for (let i = 0; i < 10; i++) s.markDirty()
+    for (let i = 0; i < 10; i++) {
+      s.markDirty()
+    }
     expect(search).toHaveBeenCalledTimes(1)
 
     // The first read of the frame coalesces all 10 into ONE re-index...

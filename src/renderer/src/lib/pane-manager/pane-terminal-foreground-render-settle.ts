@@ -27,6 +27,7 @@ type ForegroundTerminalWriteOptions = {
   followupViewportRefresh?: boolean
   shouldRefreshViewportSynchronously?: () => boolean
   onParsed?: () => void
+  onWriteFailure?: () => void
 }
 
 const pendingViewportSettleRefreshByTerminal = new WeakMap<
@@ -145,7 +146,7 @@ export function writeForegroundTerminalChunk(
   terminal: ForegroundTerminalOutputTarget,
   data: string,
   options: ForegroundTerminalWriteOptions = {}
-): void {
+): boolean {
   const beforeWriteViewport = options.forceViewportRefresh
     ? captureViewportSnapshot(terminal)
     : null
@@ -171,8 +172,14 @@ export function writeForegroundTerminalChunk(
     // __schedulerWrite is callback-only (no engine feed, no draw), so paint the
     // engine's already-mirrored state to the canvas. Coalesced — no draw storm.
     terminal.__scheduleAtermDraw?.()
+    return true
   } catch {
-    runCompletionSteps()
+    // Why separate from parse completion: cleanup/recovery must run, but a
+    // synchronous write failure is not parser liveness evidence.
+    if (options.onWriteFailure) {
+      runGuardedWriteCompletionStep('foreground-on-write-failure', options.onWriteFailure)
+    }
+    return false
   }
 }
 

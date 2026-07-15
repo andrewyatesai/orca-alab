@@ -16,6 +16,10 @@ import type {
   WorkspaceIntentName,
   WorkspaceIntentWorkItem
 } from '../../../../shared/workspace-name'
+import {
+  getWorkspaceSourceProvider,
+  type WorkspaceSourceItemLike
+} from '../../../../shared/new-workspace/workspace-source'
 
 export function slugifyForWorkspaceName(input: string): string {
   if (!isGitWasmReady()) {
@@ -58,4 +62,23 @@ export function getWorkspaceIntentName(args: {
   }
   const json = wasmIntentName(JSON.stringify(args))
   return json === undefined ? null : (JSON.parse(json) as WorkspaceIntentName)
+}
+
+// Why here (renderer wasm) and not in the shared workspace-source module: the
+// seed/display derivation runs through the Rust orca-text core via wasm, which is
+// renderer-only. The shared module keeps the pure source policy; this preview
+// helper composes the linked-item name from the wasm-backed derivations.
+export function getWorkspaceSourceName(item: WorkspaceSourceItemLike): {
+  seedName: string
+  displayName: string
+} {
+  const normalized: WorkspaceIntentWorkItem = {
+    ...item,
+    provider: getWorkspaceSourceProvider(item)
+  }
+  const resolved = getLinkedWorkItemWorkspaceName(normalized)
+  return {
+    seedName: resolved?.seedName ?? getLinkedWorkItemSuggestedName(normalized),
+    displayName: resolved?.displayName ?? item.title.trim()
+  }
 }

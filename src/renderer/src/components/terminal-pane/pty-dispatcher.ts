@@ -15,11 +15,11 @@ import {
 import { clampUtf8Tail, type EagerBufferChunk } from './pty-eager-buffer-clamp'
 import {
   bufferPreHandlerPtyData,
-  bufferPreHandlerPtyExit,
   clearPreHandlerPtyState,
   drainPreHandlerPtyData,
   drainPreHandlerPtyExit
 } from './pty-pre-handler-buffer'
+import { deliverPtyExitToHandlers } from './pty-exit-delivery'
 import {
   clearReceivedPtyCharTotal,
   isPtyPushDeliveryBlackholed,
@@ -28,7 +28,7 @@ import {
 } from './terminal-delivery-watchdog'
 import { recordTerminalFreezeBreadcrumb } from './terminal-freeze-breadcrumbs'
 import { installTerminalFreezeReport } from './terminal-freeze-report'
-import { getRecentPtyExit, recordRecentPtyExit } from './pty-recent-exit-tracker'
+import { getRecentPtyExit } from './pty-recent-exit-tracker'
 
 // ── Singleton PTY event dispatcher ───────────────────────────────────
 // One global IPC listener per channel, routes events to transports by
@@ -58,7 +58,10 @@ export const ptyDataSidecars = new Map<string, Set<(data: string) => void>>()
  *  guard and suppress xterm auto-replies during replay. */
 export const ptyReplayHandlers = new Map<string, (data: string) => void>()
 export const ptyExitHandlers = new Map<string, (code: number) => void>()
-const ptyExitSidecars = new Map<string, Set<(code: number) => void>>()
+const ptyExitSidecars = new Map<
+  string,
+  Set<(code: number, context: { hadPrimary: boolean }) => void>
+>()
 /** Per-PTY teardown callbacks registered by each transport to clear closure
  *  state (stale-title timer, agent tracker) that would otherwise fire after
  *  the data handler is removed. */
@@ -232,25 +235,25 @@ function attachPtySecondaryPushListeners(unsubscribes: (() => void)[]): void {
       // cumulative totals too so a reused id restarts at zero on both sides.
       clearProcessedPtyCharTotal(payload.id)
       clearReceivedPtyCharTotal(payload.id)
-      const handler = ptyExitHandlers.get(payload.id)
-      if (handler) {
-        clearPreHandlerPtyState(payload.id)
-        handler(payload.code)
-      } else {
-        bufferPreHandlerPtyExit(payload.id, payload.code)
-      }
-      // Record BEFORE the sidecar fanout so a watcher subscribing in the same tick
-      // (or later) can be replayed even though the primary handler cleared the
-      // pre-handler buffer above.
-      recordRecentPtyExit(payload.id, payload.code)
       const sidecars = ptyExitSidecars.get(payload.id)
-      if (sidecars && sidecars.size > 0) {
-        const snapshot = Array.from(sidecars)
+      if (sidecars) {
         ptyExitSidecars.delete(payload.id)
-        for (const sidecar of snapshot) {
-          sidecar(payload.code)
-        }
       }
+      const primary = ptyExitHandlers.get(payload.id)
+      if (primary) {
+        // Why: exit handlers are one-shot owners. Remove before invocation so a
+        // throwing callback cannot stay registered for a duplicate exit.
+        ptyExitHandlers.delete(payload.id)
+      }
+      // deliverPtyExitToHandlers runs every sidecar even if the primary throws,
+      // records the recent exit for late subscribers, then rethrows the first
+      // error (see pty-exit-delivery.ts).
+      deliverPtyExitToHandlers({
+        ptyId: payload.id,
+        code: payload.code,
+        ...(primary ? { primary } : {}),
+        sidecars: sidecars ? Array.from(sidecars) : []
+      })
     })
   )
   // Why: main probes when delivery looks stuck on lost ACKs (data arriving
@@ -272,14 +275,17 @@ function attachPtySecondaryPushListeners(unsubscribes: (() => void)[]): void {
   window.api.pty.rendererDispatcherReady?.()
 }
 
-export function subscribeToPtyExit(ptyId: string, watcher: (code: number) => void): () => void {
+export function subscribeToPtyExit(
+  ptyId: string,
+  watcher: (code: number, context: { hadPrimary: boolean }) => void
+): () => void {
   ensurePtyDispatcher()
   // Replay-on-subscribe: if this PTY already exited (the exit fired before this
   // subscription — e.g. during the automation paste→submit gap), notify now. The
   // exit event will never come again, so a plain future-only sidecar would hang.
   const alreadyExited = getRecentPtyExit(ptyId)
   if (alreadyExited !== undefined) {
-    watcher(alreadyExited)
+    watcher(alreadyExited.code, { hadPrimary: alreadyExited.hadPrimary })
     return () => {}
   }
   let set = ptyExitSidecars.get(ptyId)

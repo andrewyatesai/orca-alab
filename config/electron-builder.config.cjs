@@ -139,6 +139,9 @@ module.exports = {
     // local cargo run) into app.asar, bloating the bundle ~20x (11GB vs ~150MB).
     '!rust{,/**/*}',
     '!skills{,/**/*}',
+    // Why: authoritative guide markdown is compiled into out/cli; shipping the
+    // authoring sources too would duplicate content without a runtime consumer.
+    '!skill-guides{,/**/*}',
     '!tests{,/**/*}',
     '!Casks{,/**/*}',
     '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,THIRD-PARTY-NOTICES.md,bundle-size-progress.md}',

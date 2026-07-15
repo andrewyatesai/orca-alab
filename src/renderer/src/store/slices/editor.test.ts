@@ -466,7 +466,7 @@ describe('createEditorSlice openDiff', () => {
     expect(store.getState().openFiles).toEqual([
       expect.objectContaining({
         id: 'wt-1::diff::unstaged::file.ts',
-        runtimeEnvironmentId: undefined
+        runtimeEnvironmentId: null
       }),
       expect.objectContaining({
         id: 'editor-diff:wt-1:env-1:unstaged:file.ts',
@@ -505,6 +505,66 @@ describe('createEditorSlice openDiff', () => {
         id: 'editor-diff:repo-1%3A%3A%2Fsrv%2Frepo%2Fworktree:env-1:unstaged:src%2Ffile.ts',
         runtimeEnvironmentId: 'env-1'
       })
+    )
+  })
+
+  it('keeps a diff for an owner-less worktree off the focused global runtime', () => {
+    const store = createEditorStore()
+    // A remote runtime is globally focused, but wt-1's repo names no explicit
+    // owner. The diff must stamp null (not undefined): null forces a LOCAL read
+    // in settingsForRuntimeOwner, while undefined would inherit 'focused-env'.
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'focused-env' } as AppState['settings']
+    })
+
+    store.getState().openDiff('wt-1', '/repo/file.ts', 'file.ts', 'typescript', false)
+
+    expect(store.getState().openFiles[0]).toEqual(
+      expect.objectContaining({
+        id: 'wt-1::diff::unstaged::file.ts',
+        runtimeEnvironmentId: null
+      })
+    )
+  })
+
+  it('routes an explicitly runtime-owned worktree diff to its owner over the focused runtime', () => {
+    const store = createEditorStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'focused-env' } as AppState['settings'],
+      repos: [
+        { id: 'repo-1', executionHostId: 'runtime:owner-env' }
+      ] as unknown as AppState['repos'],
+      worktreesByRepo: {
+        'repo-1': [{ id: 'repo-1::/srv/wt', repoId: 'repo-1', hostId: 'runtime:owner-env' }]
+      } as unknown as AppState['worktreesByRepo']
+    })
+
+    store.getState().openDiff('repo-1::/srv/wt', '/srv/wt/file.ts', 'file.ts', 'typescript', false)
+
+    expect(store.getState().openFiles[0]).toEqual(
+      expect.objectContaining({ runtimeEnvironmentId: 'owner-env' })
+    )
+  })
+
+  it('keeps an SSH-owned worktree diff off the focused runtime so it routes via its connection', () => {
+    const store = createEditorStore()
+    // An SSH worktree is owned by its connection, not the focused runtime. Its
+    // diff stamps null (not the focused env), so the read targets local IPC and
+    // flows over connectionId rather than the focused runtime's RPC.
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'focused-env' } as AppState['settings'],
+      repos: [{ id: 'repo-ssh', connectionId: 'conn-1' }] as unknown as AppState['repos'],
+      worktreesByRepo: {
+        'repo-ssh': [{ id: 'repo-ssh::/srv/wt', repoId: 'repo-ssh', hostId: 'ssh:conn-1' }]
+      } as unknown as AppState['worktreesByRepo']
+    })
+
+    store
+      .getState()
+      .openDiff('repo-ssh::/srv/wt', '/srv/wt/file.ts', 'file.ts', 'typescript', false)
+
+    expect(store.getState().openFiles[0]).toEqual(
+      expect.objectContaining({ runtimeEnvironmentId: null })
     )
   })
 
@@ -1492,7 +1552,7 @@ describe('createEditorSlice markdown view state', () => {
       },
       { preview: true }
     )
-    store.getState().setMarkdownFrontmatterVisible('/repo/docs/README.md', true)
+    store.getState().setMarkdownFrontmatterVisible('/repo/docs/README.md', false)
     store.getState().setMarkdownTableOfContentsVisible('/repo/docs/README.md', true)
 
     store.getState().openDiff('wt-1', '/repo/docs/guide.md', 'docs/guide.md', 'markdown', false, {
@@ -1522,7 +1582,7 @@ describe('createEditorSlice markdown view state', () => {
       worktreeId: 'wt-1',
       language: 'markdown'
     })
-    store.getState().setMarkdownFrontmatterVisible('/repo/docs/README.md', true)
+    store.getState().setMarkdownFrontmatterVisible('/repo/docs/README.md', false)
     store.getState().setMarkdownTableOfContentsVisible('/repo/docs/README.md', true)
 
     store.getState().openDiff('wt-1', '/repo/docs/guide.md', 'docs/guide.md', 'markdown', false, {
@@ -1530,7 +1590,7 @@ describe('createEditorSlice markdown view state', () => {
     })
 
     expect(store.getState().markdownFrontmatterVisible).toEqual({
-      '/repo/docs/README.md': true
+      '/repo/docs/README.md': false
     })
     expect(store.getState().markdownTableOfContentsVisible).toEqual({
       '/repo/docs/README.md': true
@@ -1583,28 +1643,28 @@ describe('createEditorSlice editor view mode', () => {
 })
 
 describe('createEditorSlice markdown frontmatter visibility (#4468)', () => {
-  it('stores visible=true as an explicit entry keyed by fileId', () => {
+  it('stores hidden=false as an explicit entry keyed by fileId', () => {
     const store = createEditorStore()
-
-    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', true)
-
-    expect(store.getState().markdownFrontmatterVisible).toEqual({ '/repo/notes.md': true })
-  })
-
-  it('deletes the entry when visibility resets to hidden', () => {
-    const store = createEditorStore()
-    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', true)
 
     store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', false)
+
+    expect(store.getState().markdownFrontmatterVisible).toEqual({ '/repo/notes.md': false })
+  })
+
+  it('deletes the entry when visibility resets to visible', () => {
+    const store = createEditorStore()
+    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', false)
+
+    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', true)
 
     expect(store.getState().markdownFrontmatterVisible).toEqual({})
   })
 
-  it('is a no-op when hiding a file that was never shown', () => {
+  it('is a no-op when showing a file that was never hidden', () => {
     const store = createEditorStore()
     const before = store.getState().markdownFrontmatterVisible
 
-    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', false)
+    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', true)
 
     expect(store.getState().markdownFrontmatterVisible).toBe(before)
   })
@@ -1618,7 +1678,7 @@ describe('createEditorSlice markdown frontmatter visibility (#4468)', () => {
       language: 'markdown',
       mode: 'edit'
     })
-    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', true)
+    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', false)
 
     store.getState().closeFile('/repo/notes.md')
 
@@ -1640,11 +1700,11 @@ describe('createEditorSlice markdown frontmatter visibility (#4468)', () => {
       worktreeId: 'wt-1',
       language: 'markdown'
     })
-    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', true)
+    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', false)
 
     store.getState().closeFile('/repo/notes.md')
 
-    expect(store.getState().markdownFrontmatterVisible).toEqual({ '/repo/notes.md': true })
+    expect(store.getState().markdownFrontmatterVisible).toEqual({ '/repo/notes.md': false })
 
     store.getState().closeFile('markdown-preview::/repo/notes.md')
 
@@ -1672,7 +1732,7 @@ describe('createEditorSlice markdown frontmatter visibility (#4468)', () => {
       },
       { sourceFileId: '/repo/notes.md' }
     )
-    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', true)
+    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', false)
 
     store.getState().openFile(
       {
@@ -1685,7 +1745,7 @@ describe('createEditorSlice markdown frontmatter visibility (#4468)', () => {
       { preview: true }
     )
 
-    expect(store.getState().markdownFrontmatterVisible).toEqual({ '/repo/notes.md': true })
+    expect(store.getState().markdownFrontmatterVisible).toEqual({ '/repo/notes.md': false })
   })
 
   it('drops the visibility flag when all files are closed', () => {
@@ -1697,7 +1757,7 @@ describe('createEditorSlice markdown frontmatter visibility (#4468)', () => {
       language: 'markdown',
       mode: 'edit'
     })
-    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', true)
+    store.getState().setMarkdownFrontmatterVisible('/repo/notes.md', false)
 
     store.getState().closeAllFiles()
 

@@ -91,6 +91,71 @@ fn insert_additional_agent_args(
     result
 }
 
+/// Model-flag aliases Codex accepts. Codex rejects a repeated singleton model
+/// flag, so a recipe's model arg must REPLACE Orca's generated one (#8773).
+const CODEX_MODEL_OPTION_ALIASES: [&str; 2] = ["--model", "-m"];
+
+/// A located option: its token index and how many tokens it spans (1 for a
+/// `--flag=value` / bare short-glued form, 2 when it consumes the next token).
+struct OptionOccurrence {
+    index: usize,
+    consumed: usize,
+}
+
+/// Mirror of the TS `matchesOption`: exact alias, `alias=` prefix, or a glued
+/// short form like `-mgpt` for a single-dash alias.
+fn matches_option(token: &str, aliases: &[&str]) -> bool {
+    aliases.iter().any(|&alias| {
+        token == alias
+            || token.starts_with(&format!("{alias}="))
+            || (alias.starts_with('-')
+                && !alias.starts_with("--")
+                && token.starts_with(alias)
+                && token.len() > alias.len())
+    })
+}
+
+/// Find the first option matching `aliases`. `stop_at_terminator` halts the scan
+/// at a `--` argv terminator (recipe args only). A bare alias that exactly equals
+/// a known alias consumes the following non-dash token as its value.
+fn find_option_occurrence(tokens: &[String], aliases: &[&str], stop_at_terminator: bool) -> Option<OptionOccurrence> {
+    for (index, token) in tokens.iter().enumerate() {
+        if stop_at_terminator && token == "--" {
+            break;
+        }
+        if !matches_option(token, aliases) {
+            continue;
+        }
+        let consumes_next =
+            aliases.contains(&token.as_str()) && tokens.get(index + 1).is_some_and(|next| !next.starts_with('-'));
+        return Some(OptionOccurrence { index, consumed: if consumes_next { 2 } else { 1 } });
+    }
+    None
+}
+
+/// When both the generated argv and the recipe args carry the same option,
+/// splice the recipe's option tokens over the generated ones and drop them from
+/// the recipe list so they are not appended a second time (the Codex #8773 fix).
+fn apply_recipe_option_override(
+    generated_args: Vec<String>,
+    recipe_args: Vec<String>,
+    aliases: &[&str],
+) -> (Vec<String>, Vec<String>) {
+    let (Some(recipe_option), Some(generated_option)) = (
+        find_option_occurrence(&recipe_args, aliases, true),
+        find_option_occurrence(&generated_args, aliases, false),
+    ) else {
+        return (generated_args, recipe_args);
+    };
+    let override_tokens = recipe_args[recipe_option.index..recipe_option.index + recipe_option.consumed].to_vec();
+    let mut new_generated = generated_args[..generated_option.index].to_vec();
+    new_generated.extend(override_tokens);
+    new_generated.extend_from_slice(&generated_args[generated_option.index + generated_option.consumed..]);
+    let mut new_recipe = recipe_args[..recipe_option.index].to_vec();
+    new_recipe.extend_from_slice(&recipe_args[recipe_option.index + recipe_option.consumed..]);
+    (new_generated, new_recipe)
+}
+
 pub fn plan_commit_message_generation(input: &CommitMessagePlanInput, prompt: &str) -> Result<CommitMessagePlan, String> {
     if is_custom_agent_id(Some(input.agent_id)) {
         let Some(command) = input.custom_agent_command.map(str::trim).filter(|c| !c.is_empty()) else {
@@ -130,6 +195,13 @@ pub fn plan_commit_message_generation(input: &CommitMessagePlanInput, prompt: &s
     let argv_prompt = if spec.prompt_delivery == PromptDelivery::Argv { prompt } else { "" };
     let base_args = (spec.build_args)(&BuildArgsParams { prompt: argv_prompt, model: input.model, thinking_level: input.thinking_level });
     let agent_args = plan_additional_agent_args(input.agent_args)?;
+    // Why: Codex rejects repeated singleton model flags, so a recipe's model arg
+    // replaces Orca's generated model rather than being appended alongside it (#8773).
+    let (base_args, agent_args) = if input.agent_id == "codex" {
+        apply_recipe_option_override(base_args, agent_args, &CODEX_MODEL_OPTION_ALIASES)
+    } else {
+        (base_args, agent_args)
+    };
     let args = insert_additional_agent_args(base_args, &agent_args, spec.prompt_delivery, argv_prompt);
     let (binary, mut full_args) = plan_agent_binary(spec.binary, input.agent_command_override)?;
     full_args.extend(args);
@@ -238,6 +310,46 @@ mod tests {
             strs(&["codex", "exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--model", "gpt-5.4-mini"])
         );
         assert_eq!(result.stdin_payload.as_deref(), Some("PROMPT"));
+    }
+
+    #[test]
+    fn codex_recipe_model_arg_overrides_the_generated_model_flag() {
+        // #8773: Codex rejects a repeated singleton --model, so a recipe's model
+        // arg must REPLACE the generated one in place, not be appended alongside.
+        let result = plan_commit_message_generation(
+            &CommitMessagePlanInput {
+                agent_id: "codex",
+                model: "gpt-5.4-mini",
+                thinking_level: Some("medium"),
+                agent_args: Some("--model gpt-5.4"),
+                ..Default::default()
+            },
+            "PROMPT",
+        )
+        .unwrap();
+        assert_eq!(
+            result.args,
+            strs(&["exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--model", "gpt-5.4", "-c", "model_reasoning_effort=medium"])
+        );
+        assert_eq!(result.args.iter().filter(|a| a.as_str() == "--model").count(), 1);
+    }
+
+    #[test]
+    fn codex_recipe_non_model_arg_is_still_appended() {
+        // The override only rewrites the model flag; other recipe args append normally.
+        let result = plan_commit_message_generation(
+            &CommitMessagePlanInput {
+                agent_id: "codex",
+                model: "gpt-5.4-mini",
+                thinking_level: Some("medium"),
+                agent_args: Some("--reasoning high"),
+                ..Default::default()
+            },
+            "PROMPT",
+        )
+        .unwrap();
+        assert_eq!(&result.args[result.args.len() - 2..], &strs(&["--reasoning", "high"])[..]);
+        assert!(result.args.iter().any(|a| a == "gpt-5.4-mini"), "generated model untouched");
     }
 
     #[test]

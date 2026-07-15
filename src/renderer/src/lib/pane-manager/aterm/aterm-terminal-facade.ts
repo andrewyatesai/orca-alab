@@ -110,6 +110,9 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
   }
 
   const facade: AtermTerminalFacade = {
+    get isDisposed() {
+      return disposed
+    },
     get cols() {
       return controller?.gridSize().cols ?? 0
     },

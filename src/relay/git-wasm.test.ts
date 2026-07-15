@@ -87,9 +87,13 @@ describe('getUpstreamStatus (orca-git wasm A-bridge, explicit target)', () => {
     const calls: string[][] = []
     const runGit = async (args: string[]) => {
       calls.push(args)
-      if (args[0] === 'rev-list') return { stdout: '1\t2\n', stderr: '' }
+      if (args[0] === 'rev-list') {
+        return { stdout: '1\t2\n', stderr: '' }
+      }
       // Diverged but not rebased → cherry-mark shows a non-'=' commit.
-      if (args[0] === 'log') return { stdout: '+ def456 remote work\n', stderr: '' }
+      if (args[0] === 'log') {
+        return { stdout: '+ def456 remote work\n', stderr: '' }
+      }
       return { stdout: '', stderr: '' } // check-ref-format, rev-parse
     }
     const status = await getUpstreamStatus(runGit, target)
@@ -135,13 +139,19 @@ describe('gitPush (orca-git wasm A-bridge)', () => {
     const calls: string[][] = []
     const runGit = async (args: string[]) => {
       calls.push(args)
-      if (args[0] === 'symbolic-ref') return { stdout: 'feature\n', stderr: '' }
+      if (args[0] === 'symbolic-ref') {
+        return { stdout: 'feature\n', stderr: '' }
+      }
       if (args[0] === 'config' && args[1] === '--get') {
         const value = config[args[2]]
-        if (value === undefined) throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+        if (value === undefined) {
+          throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+        }
         return { stdout: `${value}\n`, stderr: '' }
       }
-      if (args[0] === 'push') return { stdout: '', stderr: '' }
+      if (args[0] === 'push') {
+        return { stdout: '', stderr: '' }
+      }
       throw Object.assign(new Error('unexpected'), { code: 1, stderr: '' })
     }
     return { runGit, calls }
@@ -194,15 +204,27 @@ describe('branchIsSafeToDelete (orca-git wasm A-bridge)', () => {
     const calls: string[][] = []
     const runGit = async (args: string[]) => {
       calls.push(args)
-      if (args[0] === 'config') return { stdout: 'refs/remotes/origin/main\n', stderr: '' }
-      if (args[0] === 'symbolic-ref') throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
-      if (args[0] === 'remote') return { stdout: 'origin\n', stderr: '' }
-      if (args[0] === 'fetch') return { stdout: '', stderr: '' }
-      if (args[0] === 'rev-parse' && args.at(-1)?.endsWith('^{commit}'))
+      if (args[0] === 'config') {
+        return { stdout: 'refs/remotes/origin/main\n', stderr: '' }
+      }
+      if (args[0] === 'symbolic-ref') {
+        throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+      }
+      if (args[0] === 'remote') {
+        return { stdout: 'origin\n', stderr: '' }
+      }
+      if (args[0] === 'fetch') {
+        return { stdout: '', stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args.at(-1)?.endsWith('^{commit}')) {
         return { stdout: 'TOID\n', stderr: '' }
-      if (args[0] === 'merge-tree') return { stdout: 'SAME\n', stderr: '' }
-      if (args[0] === 'rev-parse' && args.at(-1) === 'TOID^{tree}')
+      }
+      if (args[0] === 'merge-tree') {
         return { stdout: 'SAME\n', stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args.at(-1) === 'TOID^{tree}') {
+        return { stdout: 'SAME\n', stderr: '' }
+      }
       return { stdout: '', stderr: '' }
     }
     expect(await branchIsSafeToDelete(runGit, 'feature')).toBe(true)
@@ -212,16 +234,30 @@ describe('branchIsSafeToDelete (orca-git wasm A-bridge)', () => {
 
   it('preserves a branch with distinct, non-equivalent commits', async () => {
     const runGit = async (args: string[]) => {
-      if (args[0] === 'config') return { stdout: 'refs/remotes/origin/main\n', stderr: '' }
-      if (args[0] === 'symbolic-ref') throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
-      if (args[0] === 'remote') return { stdout: 'origin\n', stderr: '' }
-      if (args[0] === 'rev-parse' && args.at(-1)?.endsWith('^{commit}'))
+      if (args[0] === 'config') {
+        return { stdout: 'refs/remotes/origin/main\n', stderr: '' }
+      }
+      if (args[0] === 'symbolic-ref') {
+        throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+      }
+      if (args[0] === 'remote') {
+        return { stdout: 'origin\n', stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args.at(-1)?.endsWith('^{commit}')) {
         return { stdout: 'TOID\n', stderr: '' }
-      if (args[0] === 'merge-tree') return { stdout: 'DIFFERENT\n', stderr: '' }
-      if (args[0] === 'rev-parse' && args.at(-1) === 'TOID^{tree}')
+      }
+      if (args[0] === 'merge-tree') {
+        return { stdout: 'DIFFERENT\n', stderr: '' }
+      }
+      if (args[0] === 'rev-parse' && args.at(-1) === 'TOID^{tree}') {
         return { stdout: 'TTREE\n', stderr: '' }
-      if (args[0] === 'rev-list') return { stdout: '0\n', stderr: '' } // no merge-only commits
-      if (args[0] === 'cherry') return { stdout: '+ abc new work\n', stderr: '' } // non-equivalent
+      }
+      if (args[0] === 'rev-list') {
+        return { stdout: '0\n', stderr: '' }
+      } // no merge-only commits
+      if (args[0] === 'cherry') {
+        return { stdout: '+ abc new work\n', stderr: '' }
+      } // non-equivalent
       return { stdout: '', stderr: '' }
     }
     expect(await branchIsSafeToDelete(runGit, 'feature')).toBe(false)

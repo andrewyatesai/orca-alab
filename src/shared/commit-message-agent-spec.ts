@@ -670,10 +670,11 @@ export const COMMIT_MESSAGE_AGENT_SPECS: Partial<Record<TuiAgent, CommitMessageA
 export const DEFAULT_COMMIT_MESSAGE_AGENT_ID: TuiAgent = 'claude'
 
 // Why: the "custom" choice is not a TuiAgent — it lets the user point Orca
-// at any CLI by typing a command template (see customAgentCommand setting +
-// planCustomCommand in commit-message-prompt.ts). Keeping it as its own
-// sentinel avoids polluting TuiAgent (which is shared with PTY launch /
-// new-workspace flows that have nothing to do with this feature).
+// at any CLI by typing a command template (see the customAgentCommand setting;
+// the template is planned into a spawn command by the Rust commit-message plan,
+// via planCommitMessageGeneration). Keeping it as its own sentinel avoids
+// polluting TuiAgent (shared with PTY launch / new-workspace flows that have
+// nothing to do with this feature).
 export const CUSTOM_AGENT_ID = 'custom' as const
 export type CustomAgentId = typeof CUSTOM_AGENT_ID
 export type CommitMessageAgentChoice = TuiAgent | CustomAgentId

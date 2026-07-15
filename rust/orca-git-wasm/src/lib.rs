@@ -525,26 +525,23 @@ mod async_bridge {
     }
 }
 
-/// Relay twin of the napi `resolve_git_remote_rebase_source_via_executor`: drive
-/// orca-git's read-only rebase-source resolver (`git remote` → longest matching
-/// remote → `check-ref-format`) over the relay's async JS git executor. Resolves
-/// `{remoteName, branchName, displayName}` JSON; rejects with the RAW resolver
-/// message (the resolver never normalizes — the TS caller keeps its outer
-/// `normalizeGitErrorMessage(err, 'pull')`), preserved as a JS `Error` so
-/// `error.message` reads it.
+/// Relay twin of the napi `git_pull_rebase_from_base_via_executor`: resolve the
+/// rebase source (read-only `git remote` → longest match → `check-ref-format`),
+/// then run the mutating `pull --rebase <remote> <branch>` over the relay's async
+/// JS git executor — one call, collapsing the old resolve-in-Rust / pull-in-TS
+/// split. `git_pull_rebase_from_base_async` normalizes as `pull` internally (the
+/// raw "Choose a remote base branch…" resolver message tails identically), so this
+/// rejects with the already-normalized message (preserved as a JS `Error`).
 #[cfg(target_arch = "wasm32")]
-#[wasm_bindgen(js_name = "resolveGitRemoteRebaseSourceViaExecutor")]
-pub async fn resolve_git_remote_rebase_source_via_executor(
+#[wasm_bindgen(js_name = "gitPullRebaseFromBaseViaExecutor")]
+pub async fn git_pull_rebase_from_base_via_executor(
     executor: js_sys::Function,
     base_ref: String,
-) -> Result<String, JsValue> {
+) -> Result<(), JsValue> {
     let runner = async_bridge::WasmGitExecutor { callback: executor };
-    match orca_git::rebase_source::resolve_git_remote_rebase_source_async(&runner, &base_ref).await {
-        Ok(source) => {
-            Ok(orca_git::status_result::git_remote_rebase_source_to_json(&source).to_string())
-        }
-        Err(err) => Err(js_sys::Error::new(&err.message).into()),
-    }
+    orca_git::remote::git_pull_rebase_from_base_async(&runner, &base_ref)
+        .await
+        .map_err(|err| js_sys::Error::new(&err.message).into())
 }
 
 /// Relay twin of the napi `get_upstream_status_via_executor` (EXPLICIT publish
@@ -597,6 +594,32 @@ pub async fn git_push_via_executor(
         _ => None,
     };
     orca_git::remote::git_push_async(&runner, target.as_ref(), force_with_lease)
+        .await
+        .map_err(|err| js_sys::Error::new(&err.message).into())
+}
+
+/// Relay twin of the napi `git_fetch_via_executor`: validate an explicit target
+/// (`check-ref-format`) then `fetch --prune [<remote>]` over the relay's async JS
+/// git executor. An explicit target needs BOTH remote+branch; otherwise a plain
+/// prune-fetch. `git_fetch` normalizes errors internally, so this rejects with
+/// the already-normalized message (preserved as a JS `Error`). The JS-boundary
+/// shape guard stays in the caller.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = "gitFetchViaExecutor")]
+pub async fn git_fetch_via_executor(
+    executor: js_sys::Function,
+    remote_name: Option<String>,
+    branch_name: Option<String>,
+    remote_url: Option<String>,
+) -> Result<(), JsValue> {
+    let runner = async_bridge::WasmGitExecutor { callback: executor };
+    let target = match (remote_name, branch_name) {
+        (Some(remote_name), Some(branch_name)) => {
+            Some(orca_git::push_target::GitPushTarget { remote_name, branch_name, remote_url })
+        }
+        _ => None,
+    };
+    orca_git::remote::git_fetch_async(&runner, target.as_ref())
         .await
         .map_err(|err| js_sys::Error::new(&err.message).into())
 }

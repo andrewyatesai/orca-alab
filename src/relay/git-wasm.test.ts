@@ -3,8 +3,9 @@ import {
   branchIsSafeToDelete,
   detectPiAgentKindFromCommand,
   getUpstreamStatus,
+  gitFetch,
+  gitPullRebaseFromBase,
   gitPush,
-  resolveGitRemoteRebaseSource,
   upstreamOnlyCommitsArePatchEquivalent
 } from './git-wasm'
 
@@ -39,39 +40,39 @@ describe('detectPiAgentKindFromCommand (orca-git wasm)', () => {
   })
 })
 
-// The async "A bridge": orca-git's rebase-source resolver drives the (mock) git
-// executor through wasm_bindgen_futures — the SAME two-call sequence the main
-// process runs via napi, awaited instead of block_on'd.
-describe('resolveGitRemoteRebaseSource (orca-git wasm A-bridge)', () => {
-  it('picks the longest matching remote and strips the refs/remotes prefix', async () => {
+// The async "A bridge": orca-git's git_pull_rebase_from_base drives the (mock) git
+// executor through wasm_bindgen_futures — resolve the source (list remotes →
+// check-ref-format) AND run the mutating pull --rebase in one call, the SAME
+// sequence the main process runs via napi, awaited instead of block_on'd.
+describe('gitPullRebaseFromBase (orca-git wasm A-bridge)', () => {
+  it('resolves the longest matching remote then pulls --rebase', async () => {
     const calls: string[][] = []
     const runGit = async (args: string[]) => {
       calls.push(args)
       return { stdout: args[0] === 'remote' ? 'origin\nupstream\n' : '', stderr: '' }
     }
-    const source = await resolveGitRemoteRebaseSource(runGit, 'refs/remotes/upstream/main')
-    expect(source).toEqual({
-      remoteName: 'upstream',
-      branchName: 'main',
-      displayName: 'upstream/main'
-    })
-    // Exactly the two read-only calls, in order: list remotes, then validate branch.
-    expect(calls).toEqual([['remote'], ['check-ref-format', '--branch', 'main']])
+    await gitPullRebaseFromBase(runGit, 'refs/remotes/upstream/main')
+    // List remotes, validate branch, then the mutating rebase — one collapsed call.
+    expect(calls).toEqual([
+      ['remote'],
+      ['check-ref-format', '--branch', 'main'],
+      ['pull', '--rebase', 'upstream', 'main']
+    ])
   })
 
-  it('rejects with the RAW resolver message when no remote matches', async () => {
+  it('rejects with the resolver message (normalized as pull) when no remote matches', async () => {
     const runGit = async () => ({ stdout: 'origin\n', stderr: '' })
-    await expect(resolveGitRemoteRebaseSource(runGit, 'local-branch')).rejects.toThrow(
+    await expect(gitPullRebaseFromBase(runGit, 'local-branch')).rejects.toThrow(
       'Choose a remote base branch to rebase from.'
     )
   })
 
-  it('rejects empty/flag-like base refs without running git', async () => {
+  it('rejects empty/flag-like base refs without running the mutating pull', async () => {
     const runGit = async () => ({ stdout: 'origin\n', stderr: '' })
-    await expect(resolveGitRemoteRebaseSource(runGit, '   ')).rejects.toThrow(
+    await expect(gitPullRebaseFromBase(runGit, '   ')).rejects.toThrow(
       'Choose a remote base branch to rebase from.'
     )
-    await expect(resolveGitRemoteRebaseSource(runGit, '-rf')).rejects.toThrow(
+    await expect(gitPullRebaseFromBase(runGit, '-rf')).rejects.toThrow(
       'Choose a remote base branch to rebase from.'
     )
   })
@@ -193,6 +194,46 @@ describe('gitPush (orca-git wasm A-bridge)', () => {
     }
     await expect(gitPush(runGit, undefined, false)).rejects.toThrow(
       'Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first.'
+    )
+  })
+})
+
+// Fetch through the async A-bridge: Rust validates an explicit target, then runs
+// the mutating `fetch --prune [<remote>]`; git stays in the relay. No
+// effective-upstream resolution, unlike fast-forward/pull.
+describe('gitFetch (orca-git wasm A-bridge)', () => {
+  it('runs a plain prune-fetch when no target is given', async () => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      return { stdout: '', stderr: '' }
+    }
+    await gitFetch(runGit, undefined)
+    expect(calls).toEqual([['fetch', '--prune']])
+  })
+
+  it('validates then fetches an explicit publish target', async () => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      return { stdout: '', stderr: '' }
+    }
+    await gitFetch(runGit, { remoteName: 'fork', branchName: 'feature/fix' })
+    expect(calls).toEqual([
+      ['check-ref-format', '--branch', 'feature/fix'],
+      ['fetch', '--prune', 'fork']
+    ])
+  })
+
+  it('normalizes a fetch authentication failure', async () => {
+    const runGit = async () => {
+      throw Object.assign(new Error('Authentication failed'), {
+        code: 1,
+        stderr: 'Authentication failed'
+      })
+    }
+    await expect(gitFetch(runGit, undefined)).rejects.toThrow(
+      'Authentication failed. Check your remote credentials.'
     )
   })
 })

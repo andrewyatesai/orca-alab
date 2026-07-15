@@ -65,7 +65,11 @@ export type RustOrchestrationStoreHandle = {
   getAllMessages(handle: string, limit: number): string
   getAllMessagesForHandle(handle: string, limit: number, types: string[] | undefined): string
   getInbox(limit: number): string
-  getThreadMessagesFor(threadId: string, toHandle: string, afterSequence: number | undefined): string
+  getThreadMessagesFor(
+    threadId: string,
+    toHandle: string,
+    afterSequence: number | undefined
+  ): string
   markAsRead(ids: string[]): void
   markAsDelivered(ids: string[]): void
   markAsReadAndDelivered(ids: string[]): void
@@ -82,7 +86,12 @@ export type RustOrchestrationStoreHandle = {
   getTask(id: string): string | null
   listTasks(status: string | undefined): string
   listTasksWithDispatch(status: string | undefined): string
-  updateTaskStatus(id: string, status: string, result: string | null, completedAt: string | null): string | null
+  updateTaskStatus(
+    id: string,
+    status: string,
+    result: string | null,
+    completedAt: string | null
+  ): string | null
   // dispatch contexts
   createDispatchContext(
     taskId: string,
@@ -100,7 +109,11 @@ export type RustOrchestrationStoreHandle = {
   failDispatch(id: string, error: string): string | null
   recordHeartbeat(id: string, at: string): void
   getStaleDispatches(thresholdIso: string): string
-  setDispatchTimestamps(id: string, dispatchedAt: string | null, lastHeartbeatAt: string | null): void
+  setDispatchTimestamps(
+    id: string,
+    dispatchedAt: string | null,
+    lastHeartbeatAt: string | null
+  ): void
   // decision gates
   createGate(id: string, taskId: string, question: string, options: string[]): string
   resolveGate(id: string, resolution: string): string | null
@@ -108,7 +121,12 @@ export type RustOrchestrationStoreHandle = {
   listGates(taskId: string | undefined, status: string | undefined): string
   getGate(id: string): string | null
   // coordinator runs
-  createCoordinatorRun(id: string, spec: string, coordinatorHandle: string, pollIntervalMs: number | undefined): string
+  createCoordinatorRun(
+    id: string,
+    spec: string,
+    coordinatorHandle: string,
+    pollIntervalMs: number | undefined
+  ): string
   getCoordinatorRun(id: string): string | null
   updateCoordinatorRun(id: string, status: string, completedAt: string | null): string | null
   getActiveCoordinatorRun(): string | null
@@ -185,14 +203,13 @@ export type RustGitBinding = {
    *  normalization in-process. Resolves the `GitUpstreamStatus` JSON string, or rejects
    *  with the normalized error message. */
   getEffectiveUpstreamStatusViaExecutor(executor: RustGitExecutor): Promise<string>
-  /** IO-tier "A bridge" cutover: Rust drives the read-only rebase-source resolver
-   *  (`git remote` → longest match → `check-ref-format`) over the JS `executor`.
-   *  Resolves `{remoteName, branchName, displayName}` JSON, or rejects with the RAW
-   *  resolver message (the caller normalizes). `git pull --rebase` stays in TS. */
-  resolveGitRemoteRebaseSourceViaExecutor(
-    baseRef: string,
-    executor: RustGitExecutor
-  ): Promise<string>
+  /** IO-tier "A bridge" cutover: Rust drives the whole rebase-from-base — resolve
+   *  the base's remote/branch (read-only `git remote` → longest match →
+   *  `check-ref-format`) AND run the mutating `pull --rebase <remote> <branch>` —
+   *  over the JS `executor`, in one call. Resolves void, or rejects with the error
+   *  already normalized as 'pull' (the raw "Choose a remote base branch…" message
+   *  tails identically). */
+  gitPullRebaseFromBaseViaExecutor(baseRef: string, executor: RustGitExecutor): Promise<void>
   /** IO-tier "A bridge" cutover: Rust drives the branch-cleanup safe-to-delete
    *  DECISION (gather base refs → non-fatal fetch → tree/merge/patch/squash checks,
    *  the squash path piping patch text to `git patch-id --stable` via executor stdin)
@@ -210,6 +227,17 @@ export type RustGitBinding = {
     branchName: string | null,
     remoteUrl: string | null,
     forceWithLease: boolean,
+    executor: RustGitExecutor
+  ): Promise<void>
+  /** IO-tier "A bridge" cutover: Rust drives `git fetch` — validate an explicit
+   *  target (`check-ref-format`), then `fetch --prune [<remote>]` — over the JS
+   *  `executor`. An explicit target needs both remoteName+branchName (else a plain
+   *  prune-fetch). Resolves void, or rejects with the already-normalized error
+   *  message. No effective-upstream resolution, unlike fast-forward/pull. */
+  gitFetchViaExecutor(
+    remoteName: string | null,
+    branchName: string | null,
+    remoteUrl: string | null,
     executor: RustGitExecutor
   ): Promise<void>
   /** Approximate added/removed line counts JSON, or null for the large guard. */

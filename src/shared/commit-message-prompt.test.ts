@@ -3,7 +3,6 @@ import {
   buildCommitPrompt,
   cleanGeneratedCommitMessage,
   excerptAgentFailureOutput,
-  planCustomCommand,
   STAGED_DIFF_BYTE_BUDGET,
   tokenizeCustomCommandTemplate,
   truncateDiffForPrompt
@@ -284,46 +283,5 @@ describe('tokenizeCustomCommandTemplate', () => {
   it('returns an empty token list for whitespace-only input', () => {
     const r = tokenizeCustomCommandTemplate('   \t  ')
     expect(r).toEqual({ ok: true, tokens: [] })
-  })
-})
-
-describe('planCustomCommand', () => {
-  it('routes prompt via stdin when {prompt} is absent', () => {
-    const r = planCustomCommand('claude -p', 'COMMIT MSG')
-    expect(r).toEqual({ ok: true, binary: 'claude', args: ['-p'], stdinPayload: 'COMMIT MSG' })
-  })
-
-  it('substitutes {prompt} as a whole token via argv', () => {
-    const r = planCustomCommand('codex exec {prompt}', 'PROMPT')
-    expect(r).toEqual({ ok: true, binary: 'codex', args: ['exec', 'PROMPT'], stdinPayload: null })
-  })
-
-  it('treats "{prompt}" identically to bare {prompt} (no shell, no double-quoting)', () => {
-    const a = planCustomCommand('codex exec {prompt}', 'PROMPT')
-    const b = planCustomCommand('codex exec "{prompt}"', 'PROMPT')
-    expect(a).toEqual(b)
-  })
-
-  it('substitutes {prompt} embedded inside a token', () => {
-    const r = planCustomCommand('agent --msg={prompt}', 'PROMPT')
-    expect(r).toEqual({
-      ok: true,
-      binary: 'agent',
-      args: ['--msg=PROMPT'],
-      stdinPayload: null
-    })
-  })
-
-  it('errors on empty templates', () => {
-    const r = planCustomCommand('   ', 'PROMPT')
-    expect(r.ok).toBe(false)
-  })
-
-  it('propagates tokenizer errors', () => {
-    const r = planCustomCommand('agent "unclosed', 'PROMPT')
-    expect(r.ok).toBe(false)
-    if (!r.ok) {
-      expect(r.error).toMatch(/unclosed/i)
-    }
   })
 })

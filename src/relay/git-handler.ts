@@ -50,7 +50,8 @@ import {
   normalizeGitErrorMessage,
   parseNumstat,
   parseGitHistoryLog,
-  resolveGitRemoteRebaseSource,
+  gitPullRebaseFromBase,
+  gitFetch,
   getUpstreamStatus,
   gitPush
 } from './git-wasm'
@@ -856,14 +857,16 @@ export class GitHandler {
     const worktreePath = params.worktreePath as string
     try {
       try {
+        // JS-boundary shape guard stays here (Rust's typed driver can't produce the
+        // "Invalid PR push target …" messages); Rust then drives the whole fetch —
+        // validate an explicit target (check-ref-format), then fetch --prune [<remote>].
         if (params.pushTarget !== undefined) {
           assertGitPushTargetShape(params.pushTarget)
-          const pushTarget = params.pushTarget as GitPushTarget
-          await this.git(['check-ref-format', '--branch', pushTarget.branchName], worktreePath)
-          await this.git(['fetch', '--prune', pushTarget.remoteName], worktreePath)
-          return
         }
-        await this.git(['fetch', '--prune'], worktreePath)
+        await gitFetch(
+          (args, stdin) => this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
+          params.pushTarget as GitPushTarget | undefined
+        )
       } catch (error) {
         // Why: mirror the local gitFetch normalization so SSH users see the same
         // actionable messages instead of raw git stderr (which varies across
@@ -1088,11 +1091,13 @@ export class GitHandler {
     const baseRef = params.baseRef as string
     try {
       try {
-        const source = await resolveGitRemoteRebaseSource(
+        // Rust drives the whole rebase-from-base — resolve the base's remote/branch
+        // (read-only) AND run the mutating `pull --rebase` — in one call; git stays
+        // in the relay (SSH-safe).
+        await gitPullRebaseFromBase(
           (args, stdin) => this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
           baseRef
         )
-        await this.git(['pull', '--rebase', source.remoteName, source.branchName], worktreePath)
       } catch (error) {
         throw new Error(normalizeGitErrorMessage(error, 'pull'))
       }

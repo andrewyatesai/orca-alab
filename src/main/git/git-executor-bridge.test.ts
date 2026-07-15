@@ -21,7 +21,11 @@ function mockExecutor(): { executor: RustGitExecutor; calls: string[][] } {
     const branch = args[2] // ['check-ref-format', '--branch', <name>]
     // git check-ref-format rejects '..' and other malformed refs with code 128.
     const ok = typeof branch === 'string' && !branch.includes('..') && branch.length > 0
-    return Promise.resolve({ stdout: '', stderr: ok ? '' : 'fatal: bad ref', exitCode: ok ? 0 : 128 })
+    return Promise.resolve({
+      stdout: '',
+      stderr: ok ? '' : 'fatal: bad ref',
+      exitCode: ok ? 0 : 128
+    })
   }
   return { executor, calls }
 }
@@ -141,9 +145,9 @@ suite('get upstream status via bridge (multi-round A bridge)', () => {
       }
       return { exitCode: 0 }
     })
-    expect((status as { behindCommitsArePatchEquivalent?: boolean }).behindCommitsArePatchEquivalent).toBe(
-      true
-    )
+    expect(
+      (status as { behindCommitsArePatchEquivalent?: boolean }).behindCommitsArePatchEquivalent
+    ).toBe(true)
   })
 
   it('skips the cherry-mark log when not both ahead AND behind', async () => {
@@ -221,15 +225,15 @@ suite('get upstream status via bridge (multi-round A bridge)', () => {
   })
 })
 
-suite('resolve rebase source via bridge (read-only resolver)', () => {
+suite('pull-rebase from base via bridge (resolve + mutating pull, collapsed)', () => {
   const drive = async (
     baseRef: string,
     responder: (args: string[]) => { stdout?: string; stderr?: string; exitCode: number }
-  ): Promise<{ source?: unknown; error?: string; calls: string[][] }> => {
+  ): Promise<{ ok?: boolean; error?: string; calls: string[][] }> => {
     const { executor, calls } = respondingExecutor(responder)
     try {
-      const json = await git.resolveGitRemoteRebaseSourceViaExecutor(baseRef, executor)
-      return { source: JSON.parse(json), calls }
+      await git.gitPullRebaseFromBaseViaExecutor(baseRef, executor)
+      return { ok: true, calls }
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e), calls }
     }
@@ -238,28 +242,30 @@ suite('resolve rebase source via bridge (read-only resolver)', () => {
     if (a[0] === 'remote') {
       return { stdout, exitCode: 0 }
     }
-    return { exitCode: 0 } // check-ref-format ok
+    return { exitCode: 0 } // check-ref-format + pull ok
   }
 
-  it('resolves a refs/remotes/ base ref via git remote + check-ref-format', async () => {
-    const { source, calls } = await drive('refs/remotes/origin/main', listRemotes('origin\n'))
-    expect(source).toEqual({ remoteName: 'origin', branchName: 'main', displayName: 'origin/main' })
-    expect(calls.map((c) => c[0])).toEqual(['remote', 'check-ref-format'])
+  it('resolves a refs/remotes/ base ref then runs the mutating pull --rebase', async () => {
+    const { ok, calls } = await drive('refs/remotes/origin/main', listRemotes('origin\n'))
+    expect(ok).toBe(true)
+    // One collapsed call: list remotes, validate branch, then pull --rebase.
+    expect(calls).toEqual([
+      ['remote'],
+      ['check-ref-format', '--branch', 'main'],
+      ['pull', '--rebase', 'origin', 'main']
+    ])
   })
 
-  it('picks the LONGEST matching remote name', async () => {
-    const { source } = await drive(
+  it('picks the LONGEST matching remote name for the pull', async () => {
+    const { ok, calls } = await drive(
       'refs/remotes/origin-fork/feature/x',
       listRemotes('origin\norigin-fork\n')
     )
-    expect(source).toEqual({
-      remoteName: 'origin-fork',
-      branchName: 'feature/x',
-      displayName: 'origin-fork/feature/x'
-    })
+    expect(ok).toBe(true)
+    expect(calls.at(-1)).toEqual(['pull', '--rebase', 'origin-fork', 'feature/x'])
   })
 
-  it('rejects empty/flag-like base refs with the raw message and ZERO git calls', async () => {
+  it('rejects empty/flag-like base refs (normalized) with ZERO git calls', async () => {
     for (const bad of ['', '   ', '-rf']) {
       const { error, calls } = await drive(bad, listRemotes('origin\n'))
       expect(error).toBe('Choose a remote base branch to rebase from.')
@@ -267,20 +273,23 @@ suite('resolve rebase source via bridge (read-only resolver)', () => {
     }
   })
 
-  it('rejects when no configured remote matches (after listing remotes)', async () => {
+  it('rejects when no configured remote matches (after listing remotes, before pull)', async () => {
     const { error, calls } = await drive('main', listRemotes('origin\n'))
     expect(error).toBe('Choose a remote base branch to rebase from.')
     expect(calls.map((c) => c[0])).toEqual(['remote'])
   })
 
-  it('surfaces the RAW check-ref-format stderr for a malformed branch (not normalized)', async () => {
-    const { error } = await drive('refs/remotes/origin/bad..name', (a) => {
+  it('surfaces the check-ref-format failure for a malformed branch and skips the pull', async () => {
+    const { error, calls } = await drive('refs/remotes/origin/bad..name', (a) => {
       if (a[0] === 'remote') {
         return { stdout: 'origin\n', exitCode: 0 }
       }
       return { stderr: "fatal: 'bad..name' is not a valid branch name", exitCode: 128 }
     })
+    // Single-line git diagnostic survives normalize(Pull) via the tail-line rule.
     expect(error).toBe("fatal: 'bad..name' is not a valid branch name")
+    // The mutating pull never ran — branch validation failed first.
+    expect(calls.map((c) => c[0])).toEqual(['remote', 'check-ref-format'])
   })
 })
 
@@ -311,7 +320,12 @@ suite('branch cleanup decision via bridge (stdin: git patch-id)', () => {
       }
       if (args[0] === 'patch-id') {
         stdinSeen.push(stdin)
-        stdout = stdin === 'BRANCH_PATCH_TEXT' ? branchPatchId : stdin === 'SQUASH_PATCH_TEXT' ? squashPatchId : ''
+        stdout =
+          stdin === 'BRANCH_PATCH_TEXT'
+            ? branchPatchId
+            : stdin === 'SQUASH_PATCH_TEXT'
+              ? squashPatchId
+              : ''
       }
       const found = stdout !== undefined
       return Promise.resolve({ stdout: found ? stdout : '', stderr: '', exitCode: found ? 0 : 1 })

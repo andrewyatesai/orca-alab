@@ -10,7 +10,7 @@ use crate::effective_upstream::{
     resolve_effective_git_upstream,
 };
 use crate::push_target::{validate_git_push_target, validate_git_push_target_async, GitPushTarget};
-use crate::rebase_source::resolve_git_remote_rebase_source;
+use crate::rebase_source::{resolve_git_remote_rebase_source, resolve_git_remote_rebase_source_async};
 use crate::runner::{AsyncGitRunner, GitError, GitRunner};
 use orca_text::git_remote_error::{normalize_git_error_message, GitRemoteOperation};
 
@@ -317,6 +317,54 @@ pub fn git_fetch<R: GitRunner>(runner: &R, push_target: Option<&GitPushTarget>) 
         runner.run(&["fetch", "--prune"]).map(|_| ())
     };
     inner().map_err(|e| normalize(e, GitRemoteOperation::Fetch))
+}
+
+/// Async twin of [`git_fetch`] for the wasm relay: validate an explicit target
+/// (`check-ref-format`) then `fetch --prune [<remote>]`, awaited. No
+/// effective-upstream resolution, so — unlike pull/fast-forward — it needs no
+/// async upstream resolver. Errors normalise identically.
+pub async fn git_fetch_async<R: AsyncGitRunner>(
+    runner: &R,
+    push_target: Option<&GitPushTarget>,
+) -> Result<(), GitError> {
+    let result = git_fetch_inner_async(runner, push_target).await;
+    result.map_err(|e| normalize(e, GitRemoteOperation::Fetch))
+}
+
+async fn git_fetch_inner_async<R: AsyncGitRunner>(
+    runner: &R,
+    push_target: Option<&GitPushTarget>,
+) -> Result<(), GitError> {
+    if let Some(target) = push_target {
+        validate_git_push_target_async(runner, target).await?;
+        return runner.run(&["fetch", "--prune", &target.remote_name], None).await.map(|_| ());
+    }
+    runner.run(&["fetch", "--prune"], None).await.map(|_| ())
+}
+
+/// Async twin of [`git_pull_rebase_from_base`] for the wasm relay: resolve the
+/// rebase source (read-only `git remote` + `check-ref-format`), then run the
+/// mutating `pull --rebase <remote> <branch>`, awaited. Collapses the
+/// resolve-in-Rust / pull-in-TS split into one call; errors normalise as `Pull`,
+/// so the raw "Choose a remote base branch…" resolver message tails identically.
+pub async fn git_pull_rebase_from_base_async<R: AsyncGitRunner>(
+    runner: &R,
+    base_ref: &str,
+) -> Result<(), GitError> {
+    git_pull_rebase_from_base_inner_async(runner, base_ref)
+        .await
+        .map_err(|e| normalize(e, GitRemoteOperation::Pull))
+}
+
+async fn git_pull_rebase_from_base_inner_async<R: AsyncGitRunner>(
+    runner: &R,
+    base_ref: &str,
+) -> Result<(), GitError> {
+    let source = resolve_git_remote_rebase_source_async(runner, base_ref).await?;
+    runner
+        .run(&["pull", "--rebase", &source.remote_name, &source.branch_name], None)
+        .await
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -660,5 +708,48 @@ mod tests {
                 vec!["fetch", "--prune", "fork"],
             ]
         );
+    }
+
+    #[test]
+    fn async_fetch_matches_sync_for_both_target_shapes() {
+        // The relay drives the SAME fetch through the async twin; prove identical
+        // argv + call order for the no-target and explicit-target shapes.
+        let no_target = SeqRunner::new(vec![ok("")]);
+        block_on_ready(git_fetch_async(&no_target, None)).unwrap();
+        assert_eq!(no_target.calls(), vec![vec!["fetch", "--prune"]]);
+
+        let explicit = SeqRunner::new(vec![ok(""), ok("")]);
+        block_on_ready(git_fetch_async(&explicit, Some(&target("fork", "feature/fix")))).unwrap();
+        assert_eq!(
+            explicit.calls(),
+            vec![
+                vec!["check-ref-format", "--branch", "feature/fix"],
+                vec!["fetch", "--prune", "fork"],
+            ]
+        );
+    }
+
+    #[test]
+    fn async_pull_rebase_resolves_then_pulls_and_normalizes_no_remote() {
+        // Happy path: resolve the base's remote (git remote → check-ref-format),
+        // then run the mutating `pull --rebase <remote> <branch>` — one call, no
+        // TS split. Argv + order match the sync git_pull_rebase_from_base.
+        let r = SeqRunner::new(vec![ok("origin\nupstream\n"), ok(""), ok("")]);
+        block_on_ready(git_pull_rebase_from_base_async(&r, "refs/remotes/upstream/main")).unwrap();
+        assert_eq!(
+            r.calls(),
+            vec![
+                vec!["remote"],
+                vec!["check-ref-format", "--branch", "main"],
+                vec!["pull", "--rebase", "upstream", "main"],
+            ]
+        );
+
+        // No matching remote → the raw resolver message survives normalize(Pull),
+        // exactly as the milestone-1 split (resolver rejects, caller normalizes 'pull').
+        let no_match = SeqRunner::new(vec![ok("origin\n")]);
+        let error = block_on_ready(git_pull_rebase_from_base_async(&no_match, "local-branch"))
+            .unwrap_err();
+        assert!(error.message.contains("Choose a remote base branch to rebase from."));
     }
 }

@@ -23,6 +23,11 @@ pub enum AgentPromptInjectionMode {
     FlagInteractive,
     /// Typed into the interactive session after the TUI starts.
     StdinAfterStart,
+    /// Delivered through Hermes's own `chat --query` startup-query contract
+    /// (a launch-time prompt, NOT stdin-after-start — the launch command is
+    /// rebuilt by the TS `planHermesStartupQuery` at the wrapper edge). Distinct
+    /// so quick-command support (`!= StdinAfterStart`) resolves correctly.
+    HermesQuery,
 }
 
 /// Stronger-than-quiet-timer paste-readiness signal a TUI can expose.
@@ -70,7 +75,7 @@ pub struct TuiAgentConfig {
 }
 
 use AgentPromptInjectionMode::{
-    Argv, FlagInteractive, FlagPrompt, FlagPromptInteractive, StdinAfterStart,
+    Argv, FlagInteractive, FlagPrompt, FlagPromptInteractive, HermesQuery, StdinAfterStart,
 };
 
 /// Build a config with no draft/trust/signal extras — the common case.
@@ -286,8 +291,11 @@ pub const TUI_AGENT_CONFIG: &[(&str, TuiAgentConfig)] = &[
     // The upstream package is QwenLM/qwen-code but its installed binary is `qwen`.
     ("qwen-code", agent("qwen", "qwen", "qwen", StdinAfterStart)),
     ("rovo", agent("rovo", "rovo", "rovo", StdinAfterStart)),
-    // Bare `hermes` opens the classic REPL; `--tui` starts the agent UI.
-    ("hermes", agent("hermes", "hermes --tui", "hermes", StdinAfterStart)),
+    // Bare `hermes` opens the classic REPL; `--tui` starts the agent UI. Hermes
+    // owns prompt delivery via its `chat --query` startup-query contract, so it is
+    // HermesQuery (a launch-time prompt), NOT StdinAfterStart — this is what makes
+    // hermes eligible for agent-prompt quick commands (matches the TS config).
+    ("hermes", agent("hermes", "hermes --tui", "hermes", HermesQuery)),
     ("openclaw", agent("openclaw", "openclaw", "openclaw", StdinAfterStart)),
     (
         "copilot",

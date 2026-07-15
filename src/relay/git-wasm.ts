@@ -18,9 +18,10 @@ import {
   parseGitHistoryLog as wasmParseGitHistoryLog,
   detectPiAgentKindFromCommand as wasmDetectPiAgentKindFromCommand,
   upstreamOnlyCommitsArePatchEquivalent as wasmUpstreamOnlyCommitsArePatchEquivalent,
-  resolveGitRemoteRebaseSourceViaExecutor as wasmResolveGitRemoteRebaseSourceViaExecutor,
+  gitPullRebaseFromBaseViaExecutor as wasmGitPullRebaseFromBaseViaExecutor,
   getUpstreamStatusViaExecutor as wasmGetUpstreamStatusViaExecutor,
   gitPushViaExecutor as wasmGitPushViaExecutor,
+  gitFetchViaExecutor as wasmGitFetchViaExecutor,
   branchIsSafeToDeleteViaExecutor as wasmBranchIsSafeToDeleteViaExecutor,
   orcaDispatch as wasmOrcaDispatch
 } from './wasm/orca_git_wasm.js'
@@ -30,7 +31,6 @@ import type { GitRemoteOperation } from '../shared/git-remote-error'
 import type { GitStatusEntry, GitPushTarget } from '../shared/types'
 import type { GitLineStats } from '../shared/git-uncommitted-line-stats'
 import type { GitHistoryItem } from '../shared/git-history-types'
-import type { GitRemoteRebaseSource } from '../shared/git-rebase-source'
 import type { GitUpstreamStatus } from '../shared/git-status-types'
 import type { PiAgentKind } from '../shared/pi-agent-kind'
 
@@ -195,9 +195,10 @@ export type RelayRunGit = (
  * output must never reject for a git that ran. A true spawn failure (a STRING
  * errno like `ENOENT`) is re-thrown so the bridge reports a spawn error.
  */
-function makeRelayGitExecutor(
-  runGit: RelayRunGit
-): (args: string[], stdin: string | null) => Promise<{
+function makeRelayGitExecutor(runGit: RelayRunGit): (
+  args: string[],
+  stdin: string | null
+) => Promise<{
   stdout: string
   stderr: string
   exitCode: number
@@ -227,23 +228,17 @@ function makeRelayGitExecutor(
 }
 
 /**
- * Resolve a base ref to the `{remoteName, branchName, displayName}` that
- * `git pull --rebase` needs, driving orca-git's read-only rebase-source resolver
- * in Rust (via wasm) over the relay's git executor — the SAME code the main
- * process runs through the napi "A bridge". Rejects with the RAW resolver message
- * (e.g. "Choose a remote base branch to rebase from."), preserved as an `Error`
- * so the caller's outer `normalizeGitErrorMessage(err, 'pull')` still tails it.
+ * Pull-rebase the current branch onto a base ref, driving orca-git's
+ * `git_pull_rebase_from_base` in Rust (via wasm) over the relay's git executor —
+ * the SAME code the main process runs through the napi "A bridge". Rust resolves
+ * the base's remote/branch (read-only `git remote` → `check-ref-format`) AND runs
+ * the mutating `pull --rebase <remote> <branch>` in one call, normalizing errors
+ * as 'pull' internally (the raw "Choose a remote base branch…" message tails
+ * identically) — rejecting with the already-normalized message.
  */
-export async function resolveGitRemoteRebaseSource(
-  runGit: RelayRunGit,
-  baseRef: string
-): Promise<GitRemoteRebaseSource> {
+export async function gitPullRebaseFromBase(runGit: RelayRunGit, baseRef: string): Promise<void> {
   ensureGitWasm()
-  const json = await wasmResolveGitRemoteRebaseSourceViaExecutor(
-    makeRelayGitExecutor(runGit),
-    baseRef
-  )
-  return JSON.parse(json) as GitRemoteRebaseSource
+  await wasmGitPullRebaseFromBaseViaExecutor(makeRelayGitExecutor(runGit), baseRef)
 }
 
 /**
@@ -291,6 +286,28 @@ export async function gitPush(
     pushTarget?.branchName ?? null,
     pushTarget?.remoteUrl ?? null,
     forceWithLease
+  )
+}
+
+/**
+ * Fetch (prune), driven in Rust (via wasm) over the relay's git executor — the
+ * SAME `git_fetch` the main process runs through the napi "A bridge". Rust
+ * validates an explicit target (`check-ref-format`), runs `fetch --prune
+ * [<remote>]`, and normalizes errors internally — rejecting with the
+ * already-normalized message. No effective-upstream resolution, unlike
+ * fast-forward/pull. The JS-boundary "Invalid PR push target …" shape guard stays
+ * in the caller.
+ */
+export async function gitFetch(
+  runGit: RelayRunGit,
+  pushTarget: GitPushTarget | undefined
+): Promise<void> {
+  ensureGitWasm()
+  await wasmGitFetchViaExecutor(
+    makeRelayGitExecutor(runGit),
+    pushTarget?.remoteName ?? null,
+    pushTarget?.branchName ?? null,
+    pushTarget?.remoteUrl ?? null
   )
 }
 

@@ -40,18 +40,124 @@ pub fn build_commit_prompt(diff: &str, custom_suffix: &str) -> String {
     }
 }
 
-/// Truncate a diff over `budget` bytes, appending a marker so the agent knows
-/// the input was clipped. Truncation floors to a char boundary (panic-free).
+/// Truncate a diff that exceeds `budget` bytes. Splits the budget FAIRLY across
+/// files (water-fill) and clips each section on a line boundary, so a single
+/// oversized (e.g. generated) file can't crowd out the human-authored changes and
+/// the agent never receives a half-written diff line. Byte-faithful to the TS
+/// `truncateDiffForPrompt` for the ASCII git-diff structure; offsets are byte-based
+/// (like the rest of this module), so a >budget section whose clip point falls
+/// inside a multi-byte char lands a few bytes earlier than JS UTF-16 would — an
+/// accepted, content-preserving divergence on non-ASCII diff bodies only.
 pub fn truncate_diff_for_prompt(diff: &str, budget: usize) -> String {
     if diff.len() <= budget {
         return diff.to_string();
     }
-    let omitted = diff.len() - budget;
-    let mut end = budget;
-    while end > 0 && !diff.is_char_boundary(end) {
-        end -= 1;
+    let sections = split_diff_into_file_sections(diff);
+    if sections.len() <= 1 {
+        return clip_section_on_line_boundary(diff, budget);
     }
-    format!("{}\n...(diff truncated, {omitted} bytes omitted)", &diff[..end])
+    let sizes: Vec<usize> = sections.iter().map(|s| s.len()).collect();
+    let allocations = allocate_budget_fairly(&sizes, budget);
+    sections
+        .iter()
+        .zip(&allocations)
+        .map(|(section, &limit)| clip_section_on_line_boundary(section, limit))
+        .collect()
+}
+
+/// Split a unified diff into one section per file, keyed on the `diff --git`
+/// header. Each section keeps the leading newline that preceded its header so
+/// concatenating the sections reproduces the original byte-for-byte.
+fn split_diff_into_file_sections(diff: &str) -> Vec<&str> {
+    let boundary = "\ndiff --git ";
+    let mut sections = Vec::new();
+    let mut start = 0;
+    // Mirror the TS scan: the boundary newline stays with the CURRENT section
+    // (slice end `next + 1`), and the next section starts at the `diff --git` header.
+    while let Some(rel) = diff[start..].find(boundary) {
+        let next = start + rel;
+        sections.push(&diff[start..next + 1]);
+        start = next + 1;
+    }
+    sections.push(&diff[start..]);
+    sections
+}
+
+/// Distribute `budget` across `sizes` by water-filling: everyone starts with an
+/// equal share and the slack from files that fit is handed back to the files that
+/// don't, so one huge file can't starve the rest.
+fn allocate_budget_fairly(sizes: &[usize], budget: usize) -> Vec<usize> {
+    let mut alloc = vec![0usize; sizes.len()];
+    let mut active: Vec<usize> = (0..sizes.len()).collect();
+    let mut remaining = budget;
+    while !active.is_empty() && remaining > 0 {
+        let share = remaining / active.len();
+        if share == 0 {
+            break;
+        }
+        let mut still_active = Vec::new();
+        for &i in &active {
+            let need = sizes[i] - alloc[i];
+            let grant = need.min(share);
+            alloc[i] += grant;
+            remaining -= grant;
+            if grant < need {
+                still_active.push(i);
+            }
+        }
+        active = still_active;
+    }
+    alloc
+}
+
+/// Clip one section to `limit` bytes on a line boundary so the agent never sees a
+/// half-written diff line, recording how many bytes were dropped.
+fn clip_section_on_line_boundary(section: &str, limit: usize) -> String {
+    if section.len() <= limit {
+        return section.to_string();
+    }
+    if limit == 0 {
+        return String::new();
+    }
+    let marker_for = |omitted: usize| format!("\n...(diff truncated, {omitted} bytes omitted)\n");
+    let marker = marker_for(section.len());
+    if marker.len() >= limit {
+        // JS marker.slice(0, limit); floor to a char boundary for panic-safety.
+        return marker[..floor_char_boundary(&marker, limit)].to_string();
+    }
+    // Reserve headroom for the marker, then back up to the previous newline unless
+    // that would discard most of the budget (one very long line).
+    let target = limit - marker.len();
+    let line_break = last_newline_at_or_before(section, target);
+    // `line_break > target / 2` matches TS: for an integer index the float `target/2`
+    // and the floored `target/2` yield the same comparison.
+    let cut = match line_break {
+        Some(lb) if lb > target / 2 => lb,
+        _ => target,
+    };
+    let omitted = section.len() - cut;
+    let marker = marker_for(omitted);
+    let slice_end = cut.min(limit.saturating_sub(marker.len()));
+    format!("{}{marker}", &section[..floor_char_boundary(section, slice_end)])
+}
+
+/// Byte index of the last `\n` at or before `at` (JS `lastIndexOf('\n', at)`), or
+/// None. `\n` is ASCII so the result is always a char boundary.
+fn last_newline_at_or_before(section: &str, at: usize) -> Option<usize> {
+    let end = at.min(section.len().saturating_sub(1));
+    section.as_bytes()[..=end].iter().rposition(|&b| b == b'\n')
+}
+
+/// Largest char boundary <= `index` (mirrors the panic-free clamp used across this
+/// module; a no-op for the ASCII diff structure).
+fn floor_char_boundary(s: &str, mut index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    while index > 0 && !s.is_char_boundary(index) {
+        index -= 1;
+    }
+    index
 }
 
 /// Strip noise around an agent's output: surrounding whitespace, a single
@@ -326,18 +432,42 @@ mod tests {
     }
 
     #[test]
-    fn truncates_and_appends_a_marker_when_over_budget() {
-        let oversized = "A".repeat(STAGED_DIFF_BYTE_BUDGET + 100);
-        let result = truncate_diff_for_prompt(&oversized, STAGED_DIFF_BYTE_BUDGET);
-        assert!(result.len() < oversized.len());
-        assert!(result.contains("diff truncated, 100 bytes omitted"));
+    fn clips_a_single_over_budget_section_on_a_line_boundary() {
+        // One file (no `\ndiff --git ` boundary) -> clip on the last newline that
+        // fits, then a trailing-newline marker naming the omitted bytes.
+        let diff = "diff --git a/f b/f\n--- a/f\n+++ b/f\n".to_string()
+            + &"+some added line\n".repeat(20);
+        let out = truncate_diff_for_prompt(&diff, 60);
+        assert!(out.len() < diff.len());
+        assert!(out.ends_with(" bytes omitted)\n"));
+        let kept = out.split("\n...(diff truncated,").next().unwrap();
+        // Line-boundary clip: the kept text is a real prefix of the diff ending
+        // exactly where a newline followed — never a half-written diff line.
+        assert!(diff.starts_with(kept));
+        assert_eq!(diff.as_bytes()[kept.len()], b'\n');
     }
 
     #[test]
-    fn honors_a_custom_budget() {
-        let result = truncate_diff_for_prompt("abcdefghij", 5);
-        assert!(result.starts_with("abcde"));
-        assert!(result.contains("diff truncated, 5 bytes omitted"));
+    fn water_fills_so_a_huge_file_cannot_starve_a_small_one() {
+        // Small file A + huge file B, over budget. Fair water-fill keeps A whole
+        // and clips B; the old naive tail-cut would have dropped A entirely.
+        let file = |name: &str, lines: usize| {
+            format!("diff --git a/{name} b/{name}\n--- a/{name}\n+++ b/{name}\n")
+                + &(0..lines).map(|i| format!("+line {i} of {name}\n")).collect::<String>()
+        };
+        let diff = file("a.txt", 2) + &file("b.txt", 40);
+        let out = truncate_diff_for_prompt(&diff, 200);
+        assert!(out.contains("+line 0 of a.txt"));
+        assert!(out.contains("+line 1 of a.txt"));
+        assert!(out.contains("diff --git a/b.txt b/b.txt"));
+        assert!(out.contains("...(diff truncated,"));
+    }
+
+    #[test]
+    fn returns_a_marker_prefix_when_the_budget_is_below_the_marker_length() {
+        // Budget smaller than the marker itself -> the section reduces to the
+        // marker's leading bytes (JS marker.slice(0, limit)).
+        assert_eq!(truncate_diff_for_prompt("abcdefghij", 5), "\n...(");
     }
 
     // --- cleanGeneratedCommitMessage ---

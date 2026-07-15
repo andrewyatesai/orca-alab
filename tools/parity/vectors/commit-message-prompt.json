@@ -245,6 +245,60 @@
       "note": "edge: empty fenced block yields empty string",
       "input": "```\n\n```",
       "expected": ""
+    },
+    {
+      "function": "truncateDiffForPrompt",
+      "note": "truncate: under budget: returned unchanged",
+      "input": {
+        "diff": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n+line 0 of a.txt\n+line 1 of a.txt\n",
+        "budget": 100000
+      },
+      "expected": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n+line 0 of a.txt\n+line 1 of a.txt\n"
+    },
+    {
+      "function": "truncateDiffForPrompt",
+      "note": "truncate: single file over budget: line-boundary clip + trailing-newline marker",
+      "input": {
+        "diff": "diff --git a/solo.txt b/solo.txt\n--- a/solo.txt\n+++ b/solo.txt\n+line 0 of solo.txt\n+line 1 of solo.txt\n+line 2 of solo.txt\n+line 3 of solo.txt\n+line 4 of solo.txt\n+line 5 of solo.txt\n+line 6 of solo.txt\n+line 7 of solo.txt\n+line 8 of solo.txt\n+line 9 of solo.txt\n+line 10 of solo.txt\n+line 11 of solo.txt\n+line 12 of solo.txt\n+line 13 of solo.txt\n+line 14 of solo.txt\n+line 15 of solo.txt\n+line 16 of solo.txt\n+line 17 of solo.txt\n+line 18 of solo.txt\n+line 19 of solo.txt\n+line 20 of solo.txt\n+line 21 of solo.txt\n+line 22 of solo.txt\n+line 23 of solo.txt\n+line 24 of solo.txt\n+line 25 of solo.txt\n+line 26 of solo.txt\n+line 27 of solo.txt\n+line 28 of solo.txt\n+line 29 of solo.txt\n",
+        "budget": 120
+      },
+      "expected": "diff --git a/solo.txt b/solo.txt\n--- a/solo.txt\n+++ b/solo.txt\n...(diff truncated, 621 bytes omitted)\n"
+    },
+    {
+      "function": "truncateDiffForPrompt",
+      "note": "truncate: two files, huge second: water-fill keeps the small file whole (regression guard)",
+      "input": {
+        "diff": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n+line 0 of a.txt\n+line 1 of a.txt\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n+line 0 of b.txt\n+line 1 of b.txt\n+line 2 of b.txt\n+line 3 of b.txt\n+line 4 of b.txt\n+line 5 of b.txt\n+line 6 of b.txt\n+line 7 of b.txt\n+line 8 of b.txt\n+line 9 of b.txt\n+line 10 of b.txt\n+line 11 of b.txt\n+line 12 of b.txt\n+line 13 of b.txt\n+line 14 of b.txt\n+line 15 of b.txt\n+line 16 of b.txt\n+line 17 of b.txt\n+line 18 of b.txt\n+line 19 of b.txt\n+line 20 of b.txt\n+line 21 of b.txt\n+line 22 of b.txt\n+line 23 of b.txt\n+line 24 of b.txt\n+line 25 of b.txt\n+line 26 of b.txt\n+line 27 of b.txt\n+line 28 of b.txt\n+line 29 of b.txt\n+line 30 of b.txt\n+line 31 of b.txt\n+line 32 of b.txt\n+line 33 of b.txt\n+line 34 of b.txt\n+line 35 of b.txt\n+line 36 of b.txt\n+line 37 of b.txt\n+line 38 of b.txt\n+line 39 of b.txt\n",
+        "budget": 200
+      },
+      "expected": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n+line 0 of a.txt\n+line 1 of a.txt\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n+line 0 of b.txt\n...(diff truncated, 694 bytes omitted)\n"
+    },
+    {
+      "function": "truncateDiffForPrompt",
+      "note": "truncate: two files both over fair share: each clipped on a line boundary",
+      "input": {
+        "diff": "diff --git a/x.txt b/x.txt\n--- a/x.txt\n+++ b/x.txt\n+line 0 of x.txt\n+line 1 of x.txt\n+line 2 of x.txt\n+line 3 of x.txt\n+line 4 of x.txt\n+line 5 of x.txt\n+line 6 of x.txt\n+line 7 of x.txt\n+line 8 of x.txt\n+line 9 of x.txt\n+line 10 of x.txt\n+line 11 of x.txt\n+line 12 of x.txt\n+line 13 of x.txt\n+line 14 of x.txt\n+line 15 of x.txt\n+line 16 of x.txt\n+line 17 of x.txt\n+line 18 of x.txt\n+line 19 of x.txt\ndiff --git a/y.txt b/y.txt\n--- a/y.txt\n+++ b/y.txt\n+line 0 of y.txt\n+line 1 of y.txt\n+line 2 of y.txt\n+line 3 of y.txt\n+line 4 of y.txt\n+line 5 of y.txt\n+line 6 of y.txt\n+line 7 of y.txt\n+line 8 of y.txt\n+line 9 of y.txt\n+line 10 of y.txt\n+line 11 of y.txt\n+line 12 of y.txt\n+line 13 of y.txt\n+line 14 of y.txt\n+line 15 of y.txt\n+line 16 of y.txt\n+line 17 of y.txt\n+line 18 of y.txt\n+line 19 of y.txt\n",
+        "budget": 160
+      },
+      "expected": "diff --git a/x.txt b/x.txt\n--- a/x.txt\n...(diff truncated, 363 bytes omitted)\ndiff --git a/y.txt b/y.txt\n--- a/y.txt\n...(diff truncated, 363 bytes omitted)\n"
+    },
+    {
+      "function": "truncateDiffForPrompt",
+      "note": "truncate: tiny budget where the marker itself exceeds a section share",
+      "input": {
+        "diff": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n+line 0 of a.txt\n+line 1 of a.txt\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n+line 0 of b.txt\n+line 1 of b.txt\n+line 2 of b.txt\n+line 3 of b.txt\n+line 4 of b.txt\n+line 5 of b.txt\n+line 6 of b.txt\n+line 7 of b.txt\n+line 8 of b.txt\n+line 9 of b.txt\n+line 10 of b.txt\n+line 11 of b.txt\n+line 12 of b.txt\n+line 13 of b.txt\n+line 14 of b.txt\n+line 15 of b.txt\n+line 16 of b.txt\n+line 17 of b.txt\n+line 18 of b.txt\n+line 19 of b.txt\n+line 20 of b.txt\n+line 21 of b.txt\n+line 22 of b.txt\n+line 23 of b.txt\n+line 24 of b.txt\n+line 25 of b.txt\n+line 26 of b.txt\n+line 27 of b.txt\n+line 28 of b.txt\n+line 29 of b.txt\n+line 30 of b.txt\n+line 31 of b.txt\n+line 32 of b.txt\n+line 33 of b.txt\n+line 34 of b.txt\n+line 35 of b.txt\n+line 36 of b.txt\n+line 37 of b.txt\n+line 38 of b.txt\n+line 39 of b.txt\n",
+        "budget": 40
+      },
+      "expected": "\n...(diff truncated,\n...(diff truncated,"
+    },
+    {
+      "function": "truncateDiffForPrompt",
+      "note": "truncate: budget below one section share floor (section allocated 0 -> dropped)",
+      "input": {
+        "diff": "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n+line 0 of a.txt\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n+line 0 of b.txt\ndiff --git a/c.txt b/c.txt\n--- a/c.txt\n+++ b/c.txt\n+line 0 of c.txt\n+line 1 of c.txt\n+line 2 of c.txt\n+line 3 of c.txt\n+line 4 of c.txt\n+line 5 of c.txt\n+line 6 of c.txt\n+line 7 of c.txt\n+line 8 of c.txt\n+line 9 of c.txt\n+line 10 of c.txt\n+line 11 of c.txt\n+line 12 of c.txt\n+line 13 of c.txt\n+line 14 of c.txt\n+line 15 of c.txt\n+line 16 of c.txt\n+line 17 of c.txt\n+line 18 of c.txt\n+line 19 of c.txt\n+line 20 of c.txt\n+line 21 of c.txt\n+line 22 of c.txt\n+line 23 of c.txt\n+line 24 of c.txt\n+line 25 of c.txt\n+line 26 of c.txt\n+line 27 of c.txt\n+line 28 of c.txt\n+line 29 of c.txt\n+line 30 of c.txt\n+line 31 of c.txt\n+line 32 of c.txt\n+line 33 of c.txt\n+line 34 of c.txt\n+line 35 of c.txt\n+line 36 of c.txt\n+line 37 of c.txt\n+line 38 of c.txt\n+line 39 of c.txt\n+line 40 of c.txt\n+line 41 of c.txt\n+line 42 of c.txt\n+line 43 of c.txt\n+line 44 of c.txt\n+line 45 of c.txt\n+line 46 of c.txt\n+line 47 of c.txt\n+line 48 of c.txt\n+line 49 of c.txt\n+line 50 of c.txt\n+line 51 of c.txt\n+line 52 of c.txt\n+line 53 of c.txt\n+line 54 of c.txt\n+line 55 of c.txt\n+line 56 of c.txt\n+line 57 of c.txt\n+line 58 of c.txt\n+line 59 of c.txt\n",
+        "budget": 30
+      },
+      "expected": "\n...(diff \n...(diff \n...(diff "
     }
   ]
 }

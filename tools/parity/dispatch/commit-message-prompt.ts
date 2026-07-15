@@ -13,6 +13,10 @@ export function dispatch(fn: string, input: unknown): unknown {
       return buildCommitPrompt(diff, suffix)
     }
     case 'cleanGeneratedCommitMessage':
+    case 'truncateDiffForPrompt':
+      // truncateDiffForPrompt was cut over to the Rust core (production's
+      // build_commit_message_prompt calls it directly); the TS twin is deleted, so
+      // the wasm oracle drives it and the recorded goldens pin the water-fill.
       return JSON.parse(
         gitWasmOracle().orcaDispatch('commit-message-prompt', fn, JSON.stringify(input ?? null))
       )

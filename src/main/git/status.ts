@@ -2011,8 +2011,9 @@ export async function getStagedCommitContext(
       throw error
     }
     // Why: a very large staged diff overflows maxBuffer (ENOBUFS). The patch is
-    // optional context that gets truncated to STAGED_DIFF_BYTE_BUDGET anyway, so
-    // degrade to the file-name summary instead of failing commit-message generation.
+    // optional context that the Rust prompt builder truncates to its staged-diff
+    // byte budget anyway, so degrade to the file-name summary instead of failing
+    // commit-message generation.
     console.warn(
       '[git] Staged patch too large to read; using file summary only:',
       describeMaxBufferOverflowError(error)

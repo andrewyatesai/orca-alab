@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   detectPiAgentKindFromCommand,
+  getUpstreamStatus,
   resolveGitRemoteRebaseSource,
   upstreamOnlyCommitsArePatchEquivalent
 } from './git-wasm'
@@ -71,5 +72,55 @@ describe('resolveGitRemoteRebaseSource (orca-git wasm A-bridge)', () => {
     await expect(resolveGitRemoteRebaseSource(runGit, '-rf')).rejects.toThrow(
       'Choose a remote base branch to rebase from.'
     )
+  })
+})
+
+// Explicit publish-target upstream status through the async A-bridge: Rust does
+// check-ref-format → rev-parse → rev-list → cherry-mark, exactly as main's napi.
+describe('getUpstreamStatus (orca-git wasm A-bridge, explicit target)', () => {
+  const target = { remoteName: 'fork', branchName: 'feature/fix' }
+  const remoteRef = 'refs/remotes/fork/feature/fix'
+
+  it('runs the full sequence and reports ahead/behind + patch-equivalence', async () => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'rev-list') return { stdout: '1\t2\n', stderr: '' }
+      // Diverged but not rebased → cherry-mark shows a non-'=' commit.
+      if (args[0] === 'log') return { stdout: '+ def456 remote work\n', stderr: '' }
+      return { stdout: '', stderr: '' } // check-ref-format, rev-parse
+    }
+    const status = await getUpstreamStatus(runGit, target)
+    expect(status).toEqual({
+      hasUpstream: true,
+      upstreamName: 'fork/feature/fix',
+      ahead: 1,
+      behind: 2,
+      behindCommitsArePatchEquivalent: false
+    })
+    expect(calls).toEqual([
+      ['check-ref-format', '--branch', 'feature/fix'],
+      ['rev-parse', '--verify', '--quiet', remoteRef],
+      ['rev-list', '--left-right', '--count', `HEAD...${remoteRef}`],
+      ['log', '--oneline', '--cherry-mark', '--right-only', `HEAD...${remoteRef}`, '--']
+    ])
+  })
+
+  it('treats a bare "exited 1" rev-parse as an unfetched publishable target', async () => {
+    const runGit = async (args: string[]) => {
+      if (args[0] === 'rev-parse') {
+        // execFileAsync's rejection shape for a non-zero exit with no stderr.
+        throw Object.assign(new Error('Command failed'), { code: 1, stdout: '', stderr: '' })
+      }
+      return { stdout: '', stderr: '' }
+    }
+    const status = await getUpstreamStatus(runGit, target)
+    expect(status).toEqual({
+      hasUpstream: false,
+      upstreamName: 'fork/feature/fix',
+      ahead: 0,
+      behind: 0,
+      hasConfiguredPushTarget: true
+    })
   })
 })

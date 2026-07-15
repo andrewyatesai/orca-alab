@@ -19,15 +19,17 @@ import {
   detectPiAgentKindFromCommand as wasmDetectPiAgentKindFromCommand,
   upstreamOnlyCommitsArePatchEquivalent as wasmUpstreamOnlyCommitsArePatchEquivalent,
   resolveGitRemoteRebaseSourceViaExecutor as wasmResolveGitRemoteRebaseSourceViaExecutor,
+  getUpstreamStatusViaExecutor as wasmGetUpstreamStatusViaExecutor,
   orcaDispatch as wasmOrcaDispatch
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
 import { setOrcaDispatchBinding } from '../shared/orca-dispatch-seam'
 import type { GitRemoteOperation } from '../shared/git-remote-error'
-import type { GitStatusEntry } from '../shared/types'
+import type { GitStatusEntry, GitPushTarget } from '../shared/types'
 import type { GitLineStats } from '../shared/git-uncommitted-line-stats'
 import type { GitHistoryItem } from '../shared/git-history-types'
 import type { GitRemoteRebaseSource } from '../shared/git-rebase-source'
+import type { GitUpstreamStatus } from '../shared/git-status-types'
 import type { PiAgentKind } from '../shared/pi-agent-kind'
 
 let inited = false
@@ -240,4 +242,27 @@ export async function resolveGitRemoteRebaseSource(
     baseRef
   )
   return JSON.parse(json) as GitRemoteRebaseSource
+}
+
+/**
+ * Explicit publish-target upstream/ahead-behind status, driving orca-git's
+ * multi-round resolver in Rust (via wasm) over the relay's git executor — the
+ * SAME code the main process runs through the napi "A bridge". Rust does the
+ * `check-ref-format`, `rev-parse`/`rev-list`, cherry-mark patch-equivalence, and
+ * the no-upstream swallow + error normalization; it resolves the
+ * `GitUpstreamStatus` or rejects with the already-normalized message. The
+ * JS-boundary "Invalid PR push target …" shape guard stays in the caller.
+ */
+export async function getUpstreamStatus(
+  runGit: RelayRunGit,
+  pushTarget: GitPushTarget
+): Promise<GitUpstreamStatus> {
+  ensureGitWasm()
+  const json = await wasmGetUpstreamStatusViaExecutor(
+    makeRelayGitExecutor(runGit),
+    pushTarget.remoteName,
+    pushTarget.branchName,
+    pushTarget.remoteUrl ?? null
+  )
+  return JSON.parse(json) as GitUpstreamStatus
 }

@@ -92,6 +92,18 @@ export function getLinkedWorkItemSuggestedName(title: string): string;
 export function getLinkedWorkItemWorkspaceName(item_json: string): string | undefined;
 
 /**
+ * Relay twin of the napi `get_upstream_status_via_executor` (EXPLICIT publish
+ * target): drive orca-git's upstream/ahead-behind status — `check-ref-format` →
+ * `rev-parse` verify → (conditional) `rev-list` → (conditional) cherry-mark
+ * `log` — over the relay's async JS git executor, with the data-dependent
+ * decisions and the no-upstream swallow + error normalization owned by Rust.
+ * Resolves the `GitUpstreamStatus` JSON (exact TS shape); rejects with the
+ * already-normalized message (preserved as a JS `Error`). The JS-boundary
+ * "Invalid PR push target …" shape guard stays in the relay's TS caller.
+ */
+export function getUpstreamStatusViaExecutor(executor: Function, remote_name: string, branch_name: string, remote_url?: string | null): Promise<string>;
+
+/**
  * First-create intent display+seed as `{displayName, seedName}` JSON, or
  * `undefined`. Input is `{sourceText?, workItem?, fallbackName?}` JSON.
  */
@@ -229,6 +241,7 @@ export interface InitOutput {
     readonly getLinearIssueWorkspaceName: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly getLinkedWorkItemSuggestedName: (a: number, b: number, c: number) => void;
     readonly getLinkedWorkItemWorkspaceName: (a: number, b: number, c: number) => void;
+    readonly getUpstreamStatusViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly getWorkspaceIntentName: (a: number, b: number, c: number) => void;
     readonly isNoUpstreamError: (a: number, b: number) => number;
     readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
@@ -251,9 +264,9 @@ export interface InitOutput {
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wasm_bindgen_func_elem_1485: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1574: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1499: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1505: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1594: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1519: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

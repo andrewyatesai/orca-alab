@@ -12,6 +12,7 @@ export const formatSubmodulePushFailureDetail: (a: number, b: number, c: number)
 export const getLinearIssueWorkspaceName: (a: number, b: number, c: number, d: number, e: number) => void;
 export const getLinkedWorkItemSuggestedName: (a: number, b: number, c: number) => void;
 export const getLinkedWorkItemWorkspaceName: (a: number, b: number, c: number) => void;
+export const getUpstreamStatusViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
 export const getWorkspaceIntentName: (a: number, b: number, c: number) => void;
 export const isNoUpstreamError: (a: number, b: number) => number;
 export const normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
@@ -34,9 +35,9 @@ export const terminalQuickCommandOp: (a: number, b: number, c: number, d: number
 export const tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
 export const upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
 export const validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-export const __wasm_bindgen_func_elem_1485: (a: number, b: number) => void;
-export const __wasm_bindgen_func_elem_1574: (a: number, b: number, c: number, d: number) => void;
-export const __wasm_bindgen_func_elem_1499: (a: number, b: number, c: number) => void;
+export const __wasm_bindgen_func_elem_1505: (a: number, b: number) => void;
+export const __wasm_bindgen_func_elem_1594: (a: number, b: number, c: number, d: number) => void;
+export const __wasm_bindgen_func_elem_1519: (a: number, b: number, c: number) => void;
 export const __wbindgen_export: (a: number, b: number) => number;
 export const __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_export3: (a: number) => void;

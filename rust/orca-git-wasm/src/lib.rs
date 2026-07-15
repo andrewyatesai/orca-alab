@@ -546,3 +546,27 @@ pub async fn resolve_git_remote_rebase_source_via_executor(
         Err(err) => Err(js_sys::Error::new(&err.message).into()),
     }
 }
+
+/// Relay twin of the napi `get_upstream_status_via_executor` (EXPLICIT publish
+/// target): drive orca-git's upstream/ahead-behind status — `check-ref-format` →
+/// `rev-parse` verify → (conditional) `rev-list` → (conditional) cherry-mark
+/// `log` — over the relay's async JS git executor, with the data-dependent
+/// decisions and the no-upstream swallow + error normalization owned by Rust.
+/// Resolves the `GitUpstreamStatus` JSON (exact TS shape); rejects with the
+/// already-normalized message (preserved as a JS `Error`). The JS-boundary
+/// "Invalid PR push target …" shape guard stays in the relay's TS caller.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = "getUpstreamStatusViaExecutor")]
+pub async fn get_upstream_status_via_executor(
+    executor: js_sys::Function,
+    remote_name: String,
+    branch_name: String,
+    remote_url: Option<String>,
+) -> Result<String, JsValue> {
+    let runner = async_bridge::WasmGitExecutor { callback: executor };
+    let target = orca_git::push_target::GitPushTarget { remote_name, branch_name, remote_url };
+    match orca_git::upstream::get_publish_target_upstream_status_async(&runner, &target).await {
+        Ok(status) => Ok(orca_git::status_result::git_upstream_status_to_json(&status).to_string()),
+        Err(err) => Err(js_sys::Error::new(&err.message).into()),
+    }
+}

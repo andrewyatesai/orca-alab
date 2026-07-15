@@ -51,13 +51,13 @@ import {
   normalizeGitErrorMessage,
   parseNumstat,
   parseGitHistoryLog,
-  resolveGitRemoteRebaseSource
+  resolveGitRemoteRebaseSource,
+  getUpstreamStatus
 } from './git-wasm'
 // Pull-retry control flow with no git-text parsing, so it stays shared TS while
 // git-wasm owns the error predicates/normaliser it wraps.
 import { runPullWithDivergenceFallback } from '../shared/git-remote-error'
 import { assertGitPushTargetShape } from '../shared/git-push-target-validation'
-import { getPublishTargetStatus, type GitCommandRunner } from '../shared/git-publish-target-status'
 import type { GitPushTarget } from '../shared/types'
 import {
   getEffectiveGitUpstreamStatus,
@@ -812,13 +812,14 @@ export class GitHandler {
 
     try {
       if (params.pushTarget !== undefined) {
+        // JS-boundary shape guard stays here (Rust's typed driver can't produce the
+        // "Invalid PR push target …" messages); Rust then drives check-ref-format +
+        // rev-parse/rev-list + cherry-mark patch-equivalence and swallows no-upstream.
         assertGitPushTargetShape(params.pushTarget)
         const pushTarget = params.pushTarget as GitPushTarget
-        await this.git(['check-ref-format', '--branch', pushTarget.branchName], worktreePath)
-        return await getPublishTargetStatus(
-          ((args) => this.git(args, worktreePath)) as GitCommandRunner,
-          pushTarget,
-          (upstreamName) => this.getBehindCommitsArePatchEquivalent(worktreePath, upstreamName)
+        return await getUpstreamStatus(
+          (args, stdin) => this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
+          pushTarget
         )
       }
       return await getEffectiveGitUpstreamStatus(

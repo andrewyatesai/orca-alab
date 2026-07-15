@@ -4,9 +4,9 @@
 //! patch-equivalence probing, and the no-upstream/error normalisation policy.
 
 use crate::effective_upstream::effective_git_upstream_status;
-use crate::publish_target_status::get_publish_target_status;
-use crate::push_target::{validate_git_push_target, GitPushTarget};
-use crate::runner::{GitError, GitRunner};
+use crate::publish_target_status::{get_publish_target_status, get_publish_target_status_async};
+use crate::push_target::{validate_git_push_target, validate_git_push_target_async, GitPushTarget};
+use crate::runner::{AsyncGitRunner, GitError, GitRunner};
 use orca_core::git_upstream_status::{upstream_only_commits_are_patch_equivalent, GitUpstreamStatus};
 use orca_text::git_remote_error::{
     is_no_upstream_error, normalize_git_error_message, GitRemoteOperation,
@@ -41,6 +41,32 @@ pub fn get_upstream_status<R: GitRunner>(
         None => effective_git_upstream_status(runner, Some(behind_ref)),
     };
 
+    finalize_upstream_status(result)
+}
+
+/// Async twin of [`get_upstream_status`] for the EXPLICIT publish-target path
+/// (the relay's `upstreamStatus` with a `pushTarget`): validate the target
+/// (`check-ref-format`), resolve its publish-target status, then apply the SAME
+/// no-upstream swallow + error normalization. The effective (no-target) path
+/// stays sync-only for now — its async twin lands with a later milestone.
+pub async fn get_publish_target_upstream_status_async<R: AsyncGitRunner>(
+    runner: &R,
+    target: &GitPushTarget,
+) -> Result<GitUpstreamStatus, GitError> {
+    let result = async {
+        validate_git_push_target_async(runner, target).await?;
+        get_publish_target_status_async(runner, target).await
+    }
+    .await;
+
+    finalize_upstream_status(result)
+}
+
+/// The shared no-upstream/normalize policy tail, run identically by the sync and
+/// async resolvers so their error handling can't drift.
+fn finalize_upstream_status(
+    result: Result<GitUpstreamStatus, GitError>,
+) -> Result<GitUpstreamStatus, GitError> {
     match result {
         Ok(status) => Ok(status),
         // Only swallow clearly-no-upstream signals — an expected state. Other
@@ -80,6 +106,30 @@ mod tests {
         fn run(&self, args: &[&str]) -> Result<GitOutput, GitError> {
             self.calls.borrow_mut().push(args.iter().map(|s| s.to_string()).collect());
             self.queue.borrow_mut().pop_front().expect("unexpected extra git call")
+        }
+    }
+    // The same queued runner as an AsyncGitRunner, so the async twin can be driven
+    // by the identical response scripts (it never suspends — the queue is ready).
+    impl AsyncGitRunner for SeqRunner {
+        async fn run(
+            &self,
+            args: &[&str],
+            _stdin: Option<&str>,
+        ) -> Result<GitOutput, GitError> {
+            self.calls.borrow_mut().push(args.iter().map(|s| s.to_string()).collect());
+            self.queue.borrow_mut().pop_front().expect("unexpected extra git call")
+        }
+    }
+    /// Poll an immediately-ready future to completion (the async SeqRunner never
+    /// pends). No executor dep, and keeps the crate's `forbid(unsafe_code)` intact.
+    fn block_on_ready<F: std::future::Future>(fut: F) -> F::Output {
+        use std::pin::pin;
+        use std::task::{Context, Poll, Waker};
+        let mut cx = Context::from_waker(Waker::noop());
+        let mut fut = pin!(fut);
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("mock future should be immediately ready"),
         }
     }
     fn ok(stdout: &str) -> Result<GitOutput, GitError> {
@@ -201,6 +251,44 @@ mod tests {
                 vec!["rev-list", "--left-right", "--count", "HEAD...refs/remotes/fork/feature/fix"],
                 vec!["log", "--oneline", "--cherry-mark", "--right-only", "HEAD...refs/remotes/fork/feature/fix", "--"],
             ]
+        );
+    }
+
+    #[test]
+    fn async_explicit_target_matches_sync_including_call_order() {
+        // The relay drives the SAME explicit-target sequence through the async
+        // twin; prove it agrees with the sync path on both result and call order.
+        let responses =
+            || vec![ok(""), ok("abc123\n"), ok("1\t2\n"), ok("+ def456 remote work\n")];
+        let target =
+            GitPushTarget { remote_name: "fork".into(), branch_name: "feature/fix".into(), remote_url: None };
+
+        let sync_runner = SeqRunner::new(responses());
+        let sync = get_upstream_status(&sync_runner, Some(&target)).unwrap();
+
+        let async_runner = SeqRunner::new(responses());
+        let asynced =
+            block_on_ready(get_publish_target_upstream_status_async(&async_runner, &target)).unwrap();
+
+        assert_eq!(asynced, sync);
+        assert_eq!(asynced, status(true, Some("fork/feature/fix"), 1, 2, Some(false)));
+        assert_eq!(*async_runner.calls.borrow(), *sync_runner.calls.borrow());
+    }
+
+    #[test]
+    fn async_explicit_target_swallows_missing_tracking_ref() {
+        // The not-fetched (bare "git exited with 1", empty stderr) case must
+        // resolve to the publishable no-upstream status, not reject — matching sync.
+        let target =
+            GitPushTarget { remote_name: "fork".into(), branch_name: "feature/fix".into(), remote_url: None };
+        let runner = SeqRunner::new(vec![ok(""), err_full(None, "", "git exited with 1.")]);
+        let status = block_on_ready(get_publish_target_upstream_status_async(&runner, &target)).unwrap();
+        assert_eq!(
+            status,
+            GitUpstreamStatus {
+                has_configured_push_target: Some(true),
+                ..self::status(false, Some("fork/feature/fix"), 0, 0, None)
+            }
         );
     }
 

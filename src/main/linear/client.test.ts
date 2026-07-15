@@ -363,7 +363,7 @@ describe('Linear client workspace storage', () => {
       }
     })
 
-    const clients = linear.getClients('all')
+    const clients = await linear.getClients('all')
     expect(clients.map((client) => client.workspace.id)).toEqual(['good'])
     expect(linear.getStatus().credentialError).toContain('Could not decrypt')
   })
@@ -383,6 +383,6 @@ describe('Linear client workspace storage', () => {
       }
     })
 
-    expect(() => linear.getClients('bad')).toThrow('Could not decrypt')
+    await expect(linear.getClients('bad')).rejects.toThrow('Could not decrypt')
   })
 })

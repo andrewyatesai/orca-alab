@@ -2,7 +2,7 @@
    selection share one module so keychain-safe status reads and token mutation
    stay in one consistency boundary. */
 import { safeStorage } from 'electron'
-import { LinearClient, AuthenticationLinearError } from '@linear/sdk'
+import type { LinearClient } from '@linear/sdk'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +17,24 @@ import type {
   LinearWorkspace,
   LinearWorkspaceSelection
 } from '../../shared/types'
+
+// ── Lazy @linear/sdk ─────────────────────────────────────────────────
+// Why: the Linear SDK is ~1 MB and only needed to build a client for real API
+// calls (never at startup — initLinearToken warms plaintext metadata only). It
+// is dynamically imported on first client construction so it stays OUT of the
+// every-launch main-bundle parse. The loaded module is cached module-wide;
+// isAuthError reads the cached class (it only runs after an op already loaded it).
+// The module type is derived from the dynamic-import expression (not an
+// `import()` type annotation, which consistent-type-imports forbids).
+const loadLinearSdk = () => import('@linear/sdk')
+type LinearSdk = Awaited<ReturnType<typeof loadLinearSdk>>
+let sdkPromise: Promise<LinearSdk> | null = null
+let sdk: LinearSdk | null = null
+export async function ensureLinearSdk(): Promise<LinearSdk> {
+  const loaded = await (sdkPromise ??= loadLinearSdk())
+  sdk = loaded
+  return loaded
+}
 
 // ── Concurrency limiter — max 4 parallel Linear API calls ────────────
 const MAX_CONCURRENT = 4
@@ -507,7 +525,7 @@ function resolveWorkspaceId(workspaceId?: string | null): string | null {
 // ── Client factory ───────────────────────────────────────────────────
 // Why: issues/teams modules call this for real Linear actions — at that point
 // decrypting the token and surfacing a keychain prompt is expected.
-export function getClient(workspaceId?: string | null): LinearClient | null {
+export async function getClient(workspaceId?: string | null): Promise<LinearClient | null> {
   const token = loadToken({
     force: true,
     workspaceId: resolveWorkspaceId(workspaceId) ?? undefined
@@ -515,12 +533,14 @@ export function getClient(workspaceId?: string | null): LinearClient | null {
   if (!token) {
     return null
   }
+  const { LinearClient } = await ensureLinearSdk()
   return new LinearClient({ apiKey: token })
 }
 
-export function getClients(
+export async function getClients(
   workspaceId?: LinearWorkspaceSelection | null
-): LinearClientForWorkspace[] {
+): Promise<LinearClientForWorkspace[]> {
+  const { LinearClient } = await ensureLinearSdk()
   const state = getWorkspaceState()
   const isAllSelection = workspaceId === 'all'
   const selectedWorkspaces = isAllSelection
@@ -551,7 +571,10 @@ export function getClients(
   return clients
 }
 
-export function getPublicFileUrlClient(entry: LinearClientForWorkspace): LinearClient {
+export async function getPublicFileUrlClient(
+  entry: LinearClientForWorkspace
+): Promise<LinearClient> {
+  const { LinearClient } = await ensureLinearSdk()
   return new LinearClient({
     apiKey: entry.apiKey,
     headers: {
@@ -565,7 +588,10 @@ export function getPublicFileUrlClient(entry: LinearClientForWorkspace): LinearC
 // renderer. All other errors are swallowed with console.warn to match GitHub
 // client's graceful degradation.
 export function isAuthError(error: unknown): boolean {
-  return error instanceof AuthenticationLinearError
+  // Reads the cached SDK class: isAuthError only runs inside a catch AFTER an
+  // API op already loaded the SDK, so `sdk` is set. Before any op it is null
+  // (no client was ever built, so no AuthenticationLinearError can exist).
+  return sdk != null && error instanceof sdk.AuthenticationLinearError
 }
 
 // ── Connect / disconnect / status ────────────────────────────────────
@@ -575,6 +601,7 @@ export async function connect(
   { ok: true; viewer: LinearViewer; workspace: LinearWorkspace } | { ok: false; error: string }
 > {
   try {
+    const { LinearClient } = await ensureLinearSdk()
     const client = new LinearClient({ apiKey })
     const me = await client.viewer
     const org = await me.organization
@@ -670,6 +697,7 @@ export async function testConnection(
   }
 
   try {
+    const { LinearClient } = await ensureLinearSdk()
     const client = new LinearClient({ apiKey: token })
     const me = await client.viewer
     const org = await me.organization

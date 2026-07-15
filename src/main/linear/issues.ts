@@ -9,7 +9,7 @@ import type {
   LinearWorkspaceError,
   LinearWorkspaceSelection
 } from '../../shared/types'
-import { LinearClient } from '@linear/sdk'
+import type { LinearClient } from '@linear/sdk'
 import {
   LINEAR_ISSUE_API_PAGE_SIZE_MAX,
   clampLinearIssueListLimit
@@ -24,6 +24,7 @@ import {
   getClients,
   isAuthError,
   clearToken,
+  ensureLinearSdk,
   type LinearClientForWorkspace
 } from './client'
 import { buildLinearListIssueFilter } from './issue-list-filter'
@@ -599,7 +600,9 @@ async function runLinearWrite<T>(
 ): Promise<T> {
   await acquire()
   try {
-    const client = signal ? new LinearClient({ apiKey: entry.apiKey, signal }) : entry.client
+    const client = signal
+      ? new (await ensureLinearSdk()).LinearClient({ apiKey: entry.apiKey, signal })
+      : entry.client
     return await write(client)
   } catch (error) {
     if (error instanceof LinearWriteFailure) {
@@ -705,7 +708,7 @@ export async function getIssue(
   id: string,
   workspaceId?: LinearWorkspaceSelection | null
 ): Promise<LinearIssue | null> {
-  const entries = getClients(workspaceId)
+  const entries = await getClients(workspaceId)
   if (entries.length === 0) {
     return null
   }
@@ -738,7 +741,7 @@ export async function getIssueByUuidForAgent(
   id: string,
   workspaceId?: string | null
 ): Promise<LinearIssueWriteRecord | null> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     return null
   }
@@ -757,7 +760,7 @@ export async function getCommentByUuidForAgent(
   id: string,
   workspaceId?: string | null
 ): Promise<LinearCommentWriteRecord | null> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     return null
   }
@@ -776,7 +779,7 @@ export async function getAttachmentByUuidForAgent(
   id: string,
   workspaceId?: string | null
 ): Promise<LinearAttachmentWriteRecord | null> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     return null
   }
@@ -808,7 +811,7 @@ export async function searchIssues(
   limit = 20,
   workspaceId?: LinearWorkspaceSelection | null
 ): Promise<LinearIssue[]> {
-  const entries = getClients(workspaceId)
+  const entries = await getClients(workspaceId)
   if (entries.length === 0) {
     return []
   }
@@ -1070,7 +1073,7 @@ export async function listIssues(
       'Linear attribute filters require a concrete workspace; "all" workspaces is not supported.'
     )
   }
-  const entries = getClients(workspaceId)
+  const entries = await getClients(workspaceId)
   if (entries.length === 0) {
     return { items: [] }
   }
@@ -1102,7 +1105,7 @@ export async function createIssue(
   | { ok: true; id: string; identifier: string; title: string; url: string }
   | { ok: false; error: string }
 > {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     return { ok: false, error: 'Not connected to Linear' }
   }
@@ -1167,7 +1170,7 @@ export async function createIssueForAgent(
     signal?: AbortSignal
   }
 ): Promise<LinearIssueWriteRecord> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     throw new LinearWriteFailure('failed', 'Not connected to Linear')
   }
@@ -1223,7 +1226,7 @@ export async function updateIssue(
   updates: LinearIssueUpdate,
   workspaceId?: string | null
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     return { ok: false, error: 'Not connected to Linear' }
   }
@@ -1291,7 +1294,7 @@ export async function updateIssueForAgent(
   workspaceId: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<LinearIssueWriteRecord> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     throw new LinearWriteFailure('failed', 'Not connected to Linear')
   }
@@ -1335,7 +1338,7 @@ export async function addIssueComment(
   | { ok: true; id: string; url?: string | null; parentId?: string | null }
   | { ok: false; error: string }
 > {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     return { ok: false, error: 'Not connected to Linear' }
   }
@@ -1376,7 +1379,7 @@ export async function addIssueCommentForAgent(
   workspaceId: string,
   options: { id: string; parentId?: string | null; signal?: AbortSignal }
 ): Promise<LinearCommentWriteRecord> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     throw new LinearWriteFailure('failed', 'Not connected to Linear')
   }
@@ -1414,7 +1417,7 @@ export async function createIssueAttachment(
   workspaceId: string,
   options: { signal?: AbortSignal } = {}
 ): Promise<LinearAttachmentWriteRecord> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     throw new LinearWriteFailure('failed', 'Not connected to Linear')
   }
@@ -1481,7 +1484,7 @@ export async function getIssueComments(
   issueId: string,
   workspaceId?: string | null
 ): Promise<LinearComment[]> {
-  const entry = getClients(workspaceId)[0]
+  const entry = (await getClients(workspaceId))[0]
   if (!entry) {
     return []
   }

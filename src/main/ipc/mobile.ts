@@ -1,6 +1,5 @@
 import { app, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { networkInterfaces } from 'node:os'
-import QRCode from 'qrcode'
 import type { RuntimeAccessGrant } from '../../shared/runtime-access-grants'
 import { isTailnetIPv4Address } from '../rust-tailnet-address'
 import type { MobilePairingConnectionMode } from '../../shared/mobile-pairing-connection-mode'
@@ -114,6 +113,8 @@ export function registerMobileHandlers(
         return { available: false as const }
       }
 
+      // Lazy: qrcode (+ pngjs) parses only when a pairing QR is requested.
+      const QRCode = (await import('qrcode')).default
       const qrDataUrl = await QRCode.toDataURL(offer.pairingUrl, {
         errorCorrectionLevel: 'M',
         margin: 2,

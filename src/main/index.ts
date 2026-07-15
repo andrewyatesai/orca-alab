@@ -10,7 +10,6 @@ import os from 'node:os'
 import './orca-dispatch-binding'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 import { electronApp, is } from '@electron-toolkit/utils'
-import * as QRCode from 'qrcode'
 import {
   Store,
   initDataPath,
@@ -1380,6 +1379,9 @@ function getBundledWebClientRoot(): string | undefined {
 }
 
 async function renderTerminalPairingQr(pairingUrl: string): Promise<string | null> {
+  // Lazy: qrcode (+ its pngjs dep, ~140 KB) parses only when a pairing QR is
+  // actually rendered, keeping it out of the every-launch main-bundle parse.
+  const QRCode = await import('qrcode')
   try {
     return await QRCode.toString(pairingUrl, { type: 'terminal', small: true })
   } catch {

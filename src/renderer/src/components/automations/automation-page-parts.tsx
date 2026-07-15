@@ -3,16 +3,20 @@ import type { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import type { AutomationRun } from '../../../../shared/automations-types'
 
+// Module singleton: Intl formatter construction loads locale data, so building
+// one per automation-run row was wasteful.
+const AUTOMATION_DATE_TIME_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit'
+})
+
 export function formatAutomationDateTime(value: number | null | undefined): string {
   if (!value) {
     return 'Never'
   }
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  }).format(value)
+  return AUTOMATION_DATE_TIME_FORMAT.format(value)
 }
 
 export function formatAutomationRelativeTime(

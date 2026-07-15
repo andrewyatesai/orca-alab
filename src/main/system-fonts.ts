@@ -144,14 +144,27 @@ async function readFontFileBytes(path: string): Promise<Uint8Array | null> {
   }
 }
 
+// A family's faces (file paths + styles) don't change during a session, but
+// resolveTerminalFontFaceBytes is invoked per terminal font-load / fallback-class
+// / settings read — each of which otherwise re-spawns fc-list (Linux) or
+// PowerShell (Windows). Cache the enumeration per family (the promise, so
+// concurrent resolves dedup); mac already has its own built-once index. Only the
+// small path/style list is held — font bytes are still read fresh, not retained.
+const familyFacesCache = new Map<string, Promise<FontFaceCandidate[]>>()
+
 function listFamilyFaces(family: string): Promise<FontFaceCandidate[]> {
-  if (process.platform === 'darwin') {
-    return listMacFamilyFaces(family)
+  const key = family.toLowerCase()
+  let faces = familyFacesCache.get(key)
+  if (!faces) {
+    faces =
+      process.platform === 'darwin'
+        ? listMacFamilyFaces(family)
+        : process.platform === 'win32'
+          ? listWindowsFamilyFaces(family)
+          : listLinuxFamilyFaces(family)
+    familyFacesCache.set(key, faces)
   }
-  if (process.platform === 'win32') {
-    return listWindowsFamilyFaces(family)
-  }
-  return listLinuxFamilyFaces(family)
+  return faces
 }
 
 async function listMacFamilyFaces(family: string): Promise<FontFaceCandidate[]> {

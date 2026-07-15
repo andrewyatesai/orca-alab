@@ -323,6 +323,10 @@ type PullRequestPageProps = {
   projectOrigin?: PullRequestPageProjectOrigin
 }
 
+// Module singleton: Intl formatter construction loads locale data, so building
+// one per PR comment (formatRelativeTime runs per timeline item) was wasteful.
+const RELATIVE_TIME_FORMAT = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
 function formatRelativeTime(input: string): string {
   const date = new Date(input)
   if (Number.isNaN(date.getTime())) {
@@ -330,7 +334,7 @@ function formatRelativeTime(input: string): string {
   }
   const diffMs = date.getTime() - Date.now()
   const diffMinutes = Math.round(diffMs / 60_000)
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+  const formatter = RELATIVE_TIME_FORMAT
   if (Math.abs(diffMinutes) < 60) {
     return formatter.format(diffMinutes, 'minute')
   }

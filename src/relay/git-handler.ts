@@ -42,7 +42,6 @@ import { refreshLocalBaseRefForWorktreeCreateOp } from './git-handler-local-base
 import { gitExecMutatesRepository } from '../shared/git-exec-mutation'
 import { detectConflictOperation, getStatusOp } from './git-handler-status-ops'
 import { checkIgnoredPathsOp } from './git-handler-check-ignore'
-import { resolveRelayPushTarget } from './git-handler-push-target'
 // Rust-via-wasm (see git-wasm.ts): the same parsers/normaliser the main process
 // runs, instead of the shared/relay-local TS copies — one source of truth.
 import {
@@ -52,7 +51,8 @@ import {
   parseNumstat,
   parseGitHistoryLog,
   resolveGitRemoteRebaseSource,
-  getUpstreamStatus
+  getUpstreamStatus,
+  gitPush
 } from './git-wasm'
 // Pull-retry control flow with no git-text parsing, so it stays shared TS while
 // git-wasm owns the error predicates/normaliser it wraps.
@@ -1014,18 +1014,17 @@ export class GitHandler {
     void params.publish
     try {
       try {
-        const target = await resolveRelayPushTarget(
-          this.git.bind(this),
-          worktreePath,
-          params.pushTarget
+        // JS-boundary shape guard stays here (Rust's typed driver can't produce the
+        // "Invalid PR push target …" messages); Rust then drives the whole push —
+        // validate, resolve the refspec (configured push remote / origin HEAD), push.
+        if (params.pushTarget !== undefined) {
+          assertGitPushTargetShape(params.pushTarget)
+        }
+        await gitPush(
+          (args, stdin) => this.git(args, worktreePath, stdin !== null ? { stdin } : undefined),
+          params.pushTarget as GitPushTarget | undefined,
+          params.forceWithLease === true
         )
-        const args = [
-          'push',
-          ...(params.forceWithLease === true ? ['--force-with-lease'] : []),
-          '--set-upstream',
-          ...(target ? [target.remote, target.refspec] : ['origin', 'HEAD'])
-        ]
-        await this.git(args, worktreePath)
       } catch (error) {
         // Why: mirror the local gitPush normalization so SSH users see the same
         // "non-fast-forward / pull first" guidance instead of raw git stderr.

@@ -20,6 +20,7 @@ import {
   upstreamOnlyCommitsArePatchEquivalent as wasmUpstreamOnlyCommitsArePatchEquivalent,
   resolveGitRemoteRebaseSourceViaExecutor as wasmResolveGitRemoteRebaseSourceViaExecutor,
   getUpstreamStatusViaExecutor as wasmGetUpstreamStatusViaExecutor,
+  gitPushViaExecutor as wasmGitPushViaExecutor,
   orcaDispatch as wasmOrcaDispatch
 } from './wasm/orca_git_wasm.js'
 import { ORCA_GIT_WASM_BASE64 } from './wasm/orca_git_wasm_bg.wasm.base64'
@@ -265,4 +266,29 @@ export async function getUpstreamStatus(
     pushTarget.remoteUrl ?? null
   )
   return JSON.parse(json) as GitUpstreamStatus
+}
+
+/**
+ * Push the current branch, driven in Rust (via wasm) over the relay's git
+ * executor — the SAME `git_push` the main process runs through the napi "A
+ * bridge". Rust validates an explicit target, resolves the refspec
+ * (explicit; else the branch's configured push remote so a fork-tracking worktree
+ * doesn't send review commits upstream; else first-publish `origin HEAD`), runs
+ * the mutating push, and normalizes errors internally — rejecting with the
+ * already-normalized message. The JS-boundary "Invalid PR push target …" shape
+ * guard stays in the caller.
+ */
+export async function gitPush(
+  runGit: RelayRunGit,
+  pushTarget: GitPushTarget | undefined,
+  forceWithLease: boolean
+): Promise<void> {
+  ensureGitWasm()
+  await wasmGitPushViaExecutor(
+    makeRelayGitExecutor(runGit),
+    pushTarget?.remoteName ?? null,
+    pushTarget?.branchName ?? null,
+    pushTarget?.remoteUrl ?? null,
+    forceWithLease
+  )
 }

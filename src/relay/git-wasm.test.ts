@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   detectPiAgentKindFromCommand,
   getUpstreamStatus,
+  gitPush,
   resolveGitRemoteRebaseSource,
   upstreamOnlyCommitsArePatchEquivalent
 } from './git-wasm'
@@ -122,5 +123,65 @@ describe('getUpstreamStatus (orca-git wasm A-bridge, explicit target)', () => {
       behind: 0,
       hasConfiguredPushTarget: true
     })
+  })
+})
+
+// The one destructive op through the async A-bridge: Rust resolves the push target
+// (config-driven or explicit) and runs the mutating push; git stays in the relay.
+describe('gitPush (orca-git wasm A-bridge)', () => {
+  // A config-value runner: resolves listed keys, rejects the rest like git's exit 1.
+  const configRunner = (config: Record<string, string>) => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'symbolic-ref') return { stdout: 'feature\n', stderr: '' }
+      if (args[0] === 'config' && args[1] === '--get') {
+        const value = config[args[2]]
+        if (value === undefined) throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+        return { stdout: `${value}\n`, stderr: '' }
+      }
+      if (args[0] === 'push') return { stdout: '', stderr: '' }
+      throw Object.assign(new Error('unexpected'), { code: 1, stderr: '' })
+    }
+    return { runGit, calls }
+  }
+
+  it('pushes to the configured pushRemote over branch.remote', async () => {
+    const { runGit, calls } = configRunner({
+      'branch.feature.remote': 'origin',
+      'branch.feature.pushRemote': 'myfork', // wins
+      'branch.feature.merge': 'refs/heads/feature'
+    })
+    await gitPush(runGit, undefined, false)
+    expect(calls.at(-1)).toEqual(['push', '--set-upstream', 'myfork', 'HEAD:feature'])
+  })
+
+  it('pushes an explicit target with --force-with-lease', async () => {
+    const calls: string[][] = []
+    const runGit = async (args: string[]) => {
+      calls.push(args)
+      return { stdout: '', stderr: '' }
+    }
+    await gitPush(runGit, { remoteName: 'origin', branchName: 'contributor/fix' }, true)
+    expect(calls).toEqual([
+      ['check-ref-format', '--branch', 'contributor/fix'],
+      ['push', '--force-with-lease', '--set-upstream', 'origin', 'HEAD:contributor/fix']
+    ])
+  })
+
+  it('falls back to origin HEAD and normalizes a non-fast-forward rejection', async () => {
+    const runGit = async (args: string[]) => {
+      if (args[0] === 'push') {
+        throw Object.assign(new Error('remote rejected: non-fast-forward'), {
+          code: 1,
+          stderr: 'remote rejected: non-fast-forward'
+        })
+      }
+      // No branch / no config → configured-target resolution yields null.
+      throw Object.assign(new Error('miss'), { code: 1, stderr: '' })
+    }
+    await expect(gitPush(runGit, undefined, false)).rejects.toThrow(
+      'Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first.'
+    )
   })
 })

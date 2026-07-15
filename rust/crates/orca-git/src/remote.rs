@@ -5,12 +5,13 @@
 //! matching the TS IPC-boundary contract.
 
 use crate::effective_upstream::{
-    find_remote_name_for_url, git_config_value, git_ref_targets_branch_on_remote,
-    is_url_valued_remote, resolve_effective_git_upstream,
+    find_remote_name_for_url, find_remote_name_for_url_async, git_config_value,
+    git_config_value_async, git_ref_targets_branch_on_remote, is_url_valued_remote,
+    resolve_effective_git_upstream,
 };
-use crate::push_target::{validate_git_push_target, GitPushTarget};
+use crate::push_target::{validate_git_push_target, validate_git_push_target_async, GitPushTarget};
 use crate::rebase_source::resolve_git_remote_rebase_source;
-use crate::runner::{GitError, GitRunner};
+use crate::runner::{AsyncGitRunner, GitError, GitRunner};
 use orca_text::git_remote_error::{normalize_git_error_message, GitRemoteOperation};
 
 fn normalize(error: GitError, op: GitRemoteOperation) -> GitError {
@@ -31,6 +32,14 @@ fn normalize_push_remote<R: GitRunner>(runner: &R, remote: &str) -> String {
     find_remote_name_for_url(runner, remote).unwrap_or_else(|| remote.to_string())
 }
 
+/// Async twin of [`normalize_push_remote`].
+async fn normalize_push_remote_async<R: AsyncGitRunner>(runner: &R, remote: &str) -> String {
+    if !is_url_valued_remote(remote) {
+        return remote.to_string();
+    }
+    find_remote_name_for_url_async(runner, remote).await.unwrap_or_else(|| remote.to_string())
+}
+
 /// Port of `getConfiguredPushRemote`: `branch.<b>.pushRemote ?? remote.pushDefault
 /// ?? branch.<b>.remote`, with URL-valued remotes resolved to names.
 fn get_configured_push_remote<R: GitRunner>(runner: &R, branch: &str) -> Option<ConfiguredPushRemote> {
@@ -44,6 +53,29 @@ fn get_configured_push_remote<R: GitRunner>(runner: &R, branch: &str) -> Option<
     })
 }
 
+/// Async twin of [`get_configured_push_remote`]. Preserves the sync call order +
+/// laziness: `branch.<b>.remote`, then `branch.<b>.pushRemote`, then
+/// `remote.pushDefault` ONLY when pushRemote is absent.
+async fn get_configured_push_remote_async<R: AsyncGitRunner>(
+    runner: &R,
+    branch: &str,
+) -> Option<ConfiguredPushRemote> {
+    let branch_remote = git_config_value_async(runner, &format!("branch.{branch}.remote")).await;
+    let mut remote = git_config_value_async(runner, &format!("branch.{branch}.pushRemote")).await;
+    if remote.is_none() {
+        remote = git_config_value_async(runner, "remote.pushDefault").await;
+    }
+    let remote = remote.or_else(|| branch_remote.clone())?;
+    // Normalise `remote` BEFORE `branch_remote` to match the sync struct-literal
+    // evaluation order (both may issue `git remote` + `get-url` when URL-valued).
+    let remote_name = normalize_push_remote_async(runner, &remote).await;
+    let branch_remote_name = match branch_remote.as_deref() {
+        Some(br) => Some(normalize_push_remote_async(runner, br).await),
+        None => None,
+    };
+    Some(ConfiguredPushRemote { remote: remote_name, branch_remote: branch_remote_name })
+}
+
 /// Port of `branchMergeTargetsConfiguredBase`: does `branch.<b>.base` point at the
 /// merge branch on the push remote (a fork-review base pinned to origin)?
 fn branch_merge_targets_configured_base<R: GitRunner>(
@@ -54,6 +86,20 @@ fn branch_merge_targets_configured_base<R: GitRunner>(
 ) -> bool {
     git_ref_targets_branch_on_remote(
         git_config_value(runner, &format!("branch.{branch}.base")).as_deref(),
+        remote,
+        branch_ref,
+    )
+}
+
+/// Async twin of [`branch_merge_targets_configured_base`].
+async fn branch_merge_targets_configured_base_async<R: AsyncGitRunner>(
+    runner: &R,
+    branch: &str,
+    remote: &str,
+    branch_ref: &str,
+) -> bool {
+    git_ref_targets_branch_on_remote(
+        git_config_value_async(runner, &format!("branch.{branch}.base")).await.as_deref(),
         remote,
         branch_ref,
     )
@@ -99,8 +145,68 @@ fn get_configured_push_target<R: GitRunner>(runner: &R) -> Option<(String, Strin
     Some((remote, format!("HEAD:{branch_ref}")))
 }
 
+/// Async twin of [`get_configured_push_target`]: same call sequence
+/// (`symbolic-ref` → push-remote config → `branch.<b>.merge` → base guard), same
+/// fork/merge-base rejections, awaited. Swallows git errors to `None`.
+async fn get_configured_push_target_async<R: AsyncGitRunner>(
+    runner: &R,
+) -> Option<(String, String)> {
+    let branch = runner
+        .run(&["symbolic-ref", "--quiet", "--short", "HEAD"], None)
+        .await
+        .ok()?
+        .stdout
+        .trim()
+        .to_string();
+    if branch.is_empty() {
+        return None;
+    }
+    let push_remote = get_configured_push_remote_async(runner, &branch).await?;
+    let merge_ref = runner
+        .run(&["config", "--get", &format!("branch.{branch}.merge")], None)
+        .await
+        .ok()?
+        .stdout
+        .trim()
+        .to_string();
+    let branch_ref = merge_ref.strip_prefix("refs/heads/").unwrap_or(&merge_ref).to_string();
+    let remote = push_remote.remote.clone();
+    if branch_ref.is_empty() || remote == "." || branch_ref == merge_ref {
+        return None;
+    }
+    if branch_merge_targets_configured_base_async(runner, &branch, &remote, &branch_ref).await {
+        return None;
+    }
+    if !can_push_configured_merge_branch(&push_remote, &branch, &branch_ref) {
+        return None;
+    }
+    Some((remote, format!("HEAD:{branch_ref}")))
+}
+
 fn explicit_push_target(target: &GitPushTarget) -> (String, String) {
     (target.remote_name.clone(), format!("HEAD:{}", target.branch_name))
+}
+
+/// Build `git push [--force-with-lease] --set-upstream <remote> <refspec>`, falling
+/// back to first-publish `origin HEAD` when no target resolves. Pure, so the sync
+/// + async pushers emit byte-identical argv.
+fn build_push_args(target: &Option<(String, String)>, force_with_lease: bool) -> Vec<String> {
+    let mut args: Vec<String> = vec!["push".to_string()];
+    if force_with_lease {
+        args.push("--force-with-lease".to_string());
+    }
+    args.push("--set-upstream".to_string());
+    match target {
+        Some((remote, refspec)) => {
+            args.push(remote.clone());
+            args.push(refspec.clone());
+        }
+        None => {
+            args.push("origin".to_string());
+            args.push("HEAD".to_string());
+        }
+    }
+    args
 }
 
 pub fn git_push<R: GitRunner>(
@@ -116,25 +222,41 @@ pub fn git_push<R: GitRunner>(
             Some(t) => Some(explicit_push_target(t)),
             None => get_configured_push_target(runner),
         };
-        let mut args: Vec<String> = vec!["push".to_string()];
-        if force_with_lease {
-            args.push("--force-with-lease".to_string());
-        }
-        args.push("--set-upstream".to_string());
-        match &target {
-            Some((remote, refspec)) => {
-                args.push(remote.clone());
-                args.push(refspec.clone());
-            }
-            None => {
-                args.push("origin".to_string());
-                args.push("HEAD".to_string());
-            }
-        }
+        let args = build_push_args(&target, force_with_lease);
         let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
         runner.run(&arg_refs).map(|_| ())
     };
     inner().map_err(|e| normalize(e, GitRemoteOperation::Push))
+}
+
+/// Async twin of [`git_push`] for the wasm relay: validate an explicit target,
+/// resolve the refspec (explicit; else the branch's configured push remote; else
+/// first-publish `origin HEAD`), then run the mutating push — the SAME resolution
+/// the sync path runs, awaited. Errors normalise identically.
+pub async fn git_push_async<R: AsyncGitRunner>(
+    runner: &R,
+    push_target: Option<&GitPushTarget>,
+    force_with_lease: bool,
+) -> Result<(), GitError> {
+    let result = git_push_inner_async(runner, push_target, force_with_lease).await;
+    result.map_err(|e| normalize(e, GitRemoteOperation::Push))
+}
+
+async fn git_push_inner_async<R: AsyncGitRunner>(
+    runner: &R,
+    push_target: Option<&GitPushTarget>,
+    force_with_lease: bool,
+) -> Result<(), GitError> {
+    if let Some(target) = push_target {
+        validate_git_push_target_async(runner, target).await?;
+    }
+    let target = match push_target {
+        Some(t) => Some(explicit_push_target(t)),
+        None => get_configured_push_target_async(runner).await,
+    };
+    let args = build_push_args(&target, force_with_lease);
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    runner.run(&arg_refs, None).await.map(|_| ())
 }
 
 fn git_pull_with_args<R: GitRunner>(
@@ -220,6 +342,26 @@ mod tests {
         fn run(&self, args: &[&str]) -> Result<GitOutput, GitError> {
             self.calls.borrow_mut().push(args.iter().map(|s| s.to_string()).collect());
             self.queue.borrow_mut().pop_front().expect("unexpected extra git call")
+        }
+    }
+    // The same queued runner as an AsyncGitRunner, so the async push twin is driven
+    // by the identical response scripts (it never suspends — the queue is ready).
+    impl AsyncGitRunner for SeqRunner {
+        async fn run(&self, args: &[&str], _stdin: Option<&str>) -> Result<GitOutput, GitError> {
+            self.calls.borrow_mut().push(args.iter().map(|s| s.to_string()).collect());
+            self.queue.borrow_mut().pop_front().expect("unexpected extra git call")
+        }
+    }
+    /// Poll an immediately-ready future (the async SeqRunner never pends). No
+    /// executor dep, keeps the crate's `forbid(unsafe_code)` intact.
+    fn block_on_ready<F: std::future::Future>(fut: F) -> F::Output {
+        use std::pin::pin;
+        use std::task::{Context, Poll, Waker};
+        let mut cx = Context::from_waker(Waker::noop());
+        let mut fut = pin!(fut);
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("mock future should be immediately ready"),
         }
     }
     fn ok(stdout: &str) -> Result<GitOutput, GitError> {
@@ -342,6 +484,60 @@ mod tests {
         assert_eq!(
             error.message,
             "Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first."
+        );
+    }
+
+    #[test]
+    fn async_push_matches_sync_for_configured_push_remote_over_branch_remote() {
+        // branch.pushRemote overrides branch.remote — the async twin must resolve the
+        // same configured target and emit the same argv + call order as the sync path.
+        let responses = || {
+            vec![
+                ok("feature\n"),            // symbolic-ref
+                ok("origin\n"),             // branch.feature.remote
+                ok("myfork\n"),             // branch.feature.pushRemote <- wins
+                ok("refs/heads/feature\n"), // branch.feature.merge
+                err("no base"),             // branch.feature.base
+                ok(""),                     // push
+            ]
+        };
+        let sync_runner = SeqRunner::new(responses());
+        git_push(&sync_runner, None, false).unwrap();
+
+        let async_runner = SeqRunner::new(responses());
+        block_on_ready(git_push_async(&async_runner, None, false)).unwrap();
+
+        assert_eq!(async_runner.calls(), sync_runner.calls());
+        assert_eq!(
+            async_runner.calls().last().unwrap(),
+            &vec!["push", "--set-upstream", "myfork", "HEAD:feature"]
+        );
+    }
+
+    #[test]
+    fn async_push_uses_explicit_target_and_force_with_lease() {
+        let r = SeqRunner::new(vec![ok(""), ok("")]);
+        block_on_ready(git_push_async(&r, Some(&target("origin", "contributor/fix")), true)).unwrap();
+        assert_eq!(
+            r.calls(),
+            vec![
+                vec!["check-ref-format", "--branch", "contributor/fix"],
+                vec!["push", "--force-with-lease", "--set-upstream", "origin", "HEAD:contributor/fix"],
+            ]
+        );
+    }
+
+    #[test]
+    fn async_push_falls_back_to_origin_head_and_normalizes_errors() {
+        let r = SeqRunner::new(vec![err("no branch"), err("remote rejected: non-fast-forward")]);
+        let error = block_on_ready(git_push_async(&r, None, false)).unwrap_err();
+        assert_eq!(
+            error.message,
+            "Push rejected: remote has newer commits (non-fast-forward). Please pull or sync first."
+        );
+        assert_eq!(
+            r.calls().last().unwrap(),
+            &vec!["push", "--set-upstream", "origin", "HEAD"]
         );
     }
 

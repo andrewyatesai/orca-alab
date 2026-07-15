@@ -570,3 +570,33 @@ pub async fn get_upstream_status_via_executor(
         Err(err) => Err(js_sys::Error::new(&err.message).into()),
     }
 }
+
+/// Relay twin of the napi `git_push_via_executor` — the one destructive IO-tier op:
+/// validate an explicit target, resolve the refspec (explicit; else the branch's
+/// configured push remote so a fork-tracking worktree doesn't send review commits
+/// upstream; else first-publish `origin HEAD`), then run
+/// `git push [--force-with-lease] --set-upstream …` over the relay's async JS git
+/// executor. An explicit target needs BOTH remote+branch; otherwise the configured
+/// path. `git_push` normalizes errors internally, so this rejects with the
+/// already-normalized message (preserved as a JS `Error` for the caller's
+/// non-fast-forward classifier). The JS-boundary shape guard stays in the caller.
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(js_name = "gitPushViaExecutor")]
+pub async fn git_push_via_executor(
+    executor: js_sys::Function,
+    remote_name: Option<String>,
+    branch_name: Option<String>,
+    remote_url: Option<String>,
+    force_with_lease: bool,
+) -> Result<(), JsValue> {
+    let runner = async_bridge::WasmGitExecutor { callback: executor };
+    let target = match (remote_name, branch_name) {
+        (Some(remote_name), Some(branch_name)) => {
+            Some(orca_git::push_target::GitPushTarget { remote_name, branch_name, remote_url })
+        }
+        _ => None,
+    };
+    orca_git::remote::git_push_async(&runner, target.as_ref(), force_with_lease)
+        .await
+        .map_err(|err| js_sys::Error::new(&err.message).into())
+}

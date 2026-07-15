@@ -110,6 +110,19 @@ export function getUpstreamStatusViaExecutor(executor: Function, remote_name: st
 export function getWorkspaceIntentName(args_json: string): string | undefined;
 
 /**
+ * Relay twin of the napi `git_push_via_executor` — the one destructive IO-tier op:
+ * validate an explicit target, resolve the refspec (explicit; else the branch's
+ * configured push remote so a fork-tracking worktree doesn't send review commits
+ * upstream; else first-publish `origin HEAD`), then run
+ * `git push [--force-with-lease] --set-upstream …` over the relay's async JS git
+ * executor. An explicit target needs BOTH remote+branch; otherwise the configured
+ * path. `git_push` normalizes errors internally, so this rejects with the
+ * already-normalized message (preserved as a JS `Error` for the caller's
+ * non-fast-forward classifier). The JS-boundary shape guard stays in the caller.
+ */
+export function gitPushViaExecutor(executor: Function, remote_name: string | null | undefined, branch_name: string | null | undefined, remote_url: string | null | undefined, force_with_lease: boolean): Promise<void>;
+
+/**
  * True only for clearly-no-upstream signals (an expected state, gated on a
  * `fatal:` prefix). `undefined` message -> false (a non-Error throw in TS).
  */
@@ -243,6 +256,7 @@ export interface InitOutput {
     readonly getLinkedWorkItemWorkspaceName: (a: number, b: number, c: number) => void;
     readonly getUpstreamStatusViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
     readonly getWorkspaceIntentName: (a: number, b: number, c: number) => void;
+    readonly gitPushViaExecutor: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => number;
     readonly isNoUpstreamError: (a: number, b: number) => number;
     readonly normalizeGitErrorMessage: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly orcaDispatch: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
@@ -264,9 +278,9 @@ export interface InitOutput {
     readonly tuiAgentStartupOp: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly upstreamOnlyCommitsArePatchEquivalent: (a: number, b: number) => number;
     readonly validateGitPushTargetRules: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => void;
-    readonly __wasm_bindgen_func_elem_1505: (a: number, b: number) => void;
-    readonly __wasm_bindgen_func_elem_1594: (a: number, b: number, c: number, d: number) => void;
-    readonly __wasm_bindgen_func_elem_1519: (a: number, b: number, c: number) => void;
+    readonly __wasm_bindgen_func_elem_1536: (a: number, b: number) => void;
+    readonly __wasm_bindgen_func_elem_1625: (a: number, b: number, c: number, d: number) => void;
+    readonly __wasm_bindgen_func_elem_1550: (a: number, b: number, c: number) => void;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_export3: (a: number) => void;

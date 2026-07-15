@@ -396,6 +396,34 @@ export function getWorkspaceIntentName(args_json) {
 }
 
 /**
+ * Relay twin of the napi `git_push_via_executor` — the one destructive IO-tier op:
+ * validate an explicit target, resolve the refspec (explicit; else the branch's
+ * configured push remote so a fork-tracking worktree doesn't send review commits
+ * upstream; else first-publish `origin HEAD`), then run
+ * `git push [--force-with-lease] --set-upstream …` over the relay's async JS git
+ * executor. An explicit target needs BOTH remote+branch; otherwise the configured
+ * path. `git_push` normalizes errors internally, so this rejects with the
+ * already-normalized message (preserved as a JS `Error` for the caller's
+ * non-fast-forward classifier). The JS-boundary shape guard stays in the caller.
+ * @param {Function} executor
+ * @param {string | null | undefined} remote_name
+ * @param {string | null | undefined} branch_name
+ * @param {string | null | undefined} remote_url
+ * @param {boolean} force_with_lease
+ * @returns {Promise<void>}
+ */
+export function gitPushViaExecutor(executor, remote_name, branch_name, remote_url, force_with_lease) {
+    var ptr0 = isLikeNone(remote_name) ? 0 : passStringToWasm0(remote_name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+    var len0 = WASM_VECTOR_LEN;
+    var ptr1 = isLikeNone(branch_name) ? 0 : passStringToWasm0(branch_name, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+    var len1 = WASM_VECTOR_LEN;
+    var ptr2 = isLikeNone(remote_url) ? 0 : passStringToWasm0(remote_url, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+    var len2 = WASM_VECTOR_LEN;
+    const ret = wasm.gitPushViaExecutor(addHeapObject(executor), ptr0, len0, ptr1, len1, ptr2, len2, force_with_lease);
+    return takeObject(ret);
+}
+
+/**
  * True only for clearly-no-upstream signals (an expected state, gated on a
  * `fatal:` prefix). `undefined` message -> false (a non-Error throw in TS).
  * @param {string | null} [message]
@@ -915,7 +943,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_1594(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_1625(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -970,8 +998,8 @@ function __wbg_get_imports() {
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 59, function: Function { arguments: [Externref], shim_idx: 60, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1505, __wasm_bindgen_func_elem_1519);
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 63, function: Function { arguments: [Externref], shim_idx: 64, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm.__wasm_bindgen_func_elem_1536, __wasm_bindgen_func_elem_1550);
             return addHeapObject(ret);
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
@@ -993,12 +1021,12 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_1519(arg0, arg1, arg2) {
-    wasm.__wasm_bindgen_func_elem_1519(arg0, arg1, addHeapObject(arg2));
+function __wasm_bindgen_func_elem_1550(arg0, arg1, arg2) {
+    wasm.__wasm_bindgen_func_elem_1550(arg0, arg1, addHeapObject(arg2));
 }
 
-function __wasm_bindgen_func_elem_1594(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_1594(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_1625(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_1625(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
 const QuickOpenIndexFinalization = (typeof FinalizationRegistry === 'undefined')

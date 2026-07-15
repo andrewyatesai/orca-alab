@@ -3,7 +3,7 @@
 //! pull/sync should follow: the configured `@{u}`, with a legacy fix-up for old
 //! worktrees that inherited `origin/<base>` while pushing `origin/<branch>`.
 
-use crate::runner::{GitError, GitRunner};
+use crate::runner::{AsyncGitRunner, GitError, GitRunner};
 use orca_core::git_upstream_status::GitUpstreamStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -127,6 +127,20 @@ pub(crate) fn git_config_value<R: GitRunner>(runner: &R, key: &str) -> Option<St
     }
 }
 
+/// Async twin of [`git_config_value`] for the wasm relay.
+pub(crate) async fn git_config_value_async<R: AsyncGitRunner>(
+    runner: &R,
+    key: &str,
+) -> Option<String> {
+    let out = runner.run(&["config", "--get", key], None).await.ok()?;
+    let value = out.stdout.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
 /// Port of `isUrlValuedRemote`: a scheme URL (`scheme://…`) or scp-like SSH
 /// (`user@host:path`). Mirrors `^[A-Za-z][A-Za-z0-9+.-]*://` and `^[^@/:]+@[^:]+:.+`.
 pub(crate) fn is_url_valued_remote(remote: &str) -> bool {
@@ -167,6 +181,26 @@ pub(crate) fn find_remote_name_for_url<R: GitRunner>(runner: &R, remote_url: &st
         if let Ok(url_out) = runner.run(&["remote", "get-url", remote_name]) {
             if url_out.stdout.trim() == remote_url {
                 return Some(remote_name.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Async twin of [`find_remote_name_for_url`] for the wasm relay. The remote names
+/// are collected into owned strings first, since the `git remote` stdout can't be
+/// borrowed across the awaited `get-url` calls.
+pub(crate) async fn find_remote_name_for_url_async<R: AsyncGitRunner>(
+    runner: &R,
+    remote_url: &str,
+) -> Option<String> {
+    let out = runner.run(&["remote"], None).await.ok()?;
+    let remote_names: Vec<String> =
+        out.stdout.split(['\r', '\n']).map(str::trim).filter(|l| !l.is_empty()).map(str::to_string).collect();
+    for remote_name in remote_names {
+        if let Ok(url_out) = runner.run(&["remote", "get-url", &remote_name], None).await {
+            if url_out.stdout.trim() == remote_url {
+                return Some(remote_name);
             }
         }
     }

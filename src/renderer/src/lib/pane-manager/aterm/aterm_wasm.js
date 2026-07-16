@@ -1530,6 +1530,18 @@ export class AtermTerminal {
         wasm.atermterminal_set_sparkle_words_enabled(this.__wbg_ptr, on);
     }
     /**
+     * Include `HaloMode::Over` VEILS (light-theme smoke/steam) in the spill
+     * band (default `true`, keeping the seam-continuity law universal).
+     * `false` scopes the spill to additive light + fire ink — the policy
+     * escape if veils over neighbouring panes read badly; the band then
+     * intentionally diverges from the in-frame veil pixels at the clip line.
+     * Applies from the next `render()`.
+     * @param {boolean} on
+     */
+    set_spill_include_veils(on) {
+        wasm.atermterminal_set_spill_include_veils(this.__wbg_ptr, on);
+    }
+    /**
      * Inject a broad-coverage SYMBOL fallback face from font bytes, so symbol
      * glyphs the primary + fallback faces lack render real shapes instead of
      * tofu. The byte-injection sibling of the config `symbol_font` path: the host
@@ -1612,6 +1624,63 @@ export class AtermTerminal {
     get sparkle_words_enabled() {
         const ret = wasm.atermterminal_sparkle_words_enabled(this.__wbg_ptr);
         return ret !== 0;
+    }
+    /**
+     * Byte length of the spill buffer (`0` at 0/0 chrome — the identity law:
+     * no band, no bytes, no per-frame cost).
+     * @returns {number}
+     */
+    spill_len() {
+        const ret = wasm.atermterminal_spill_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Byte offset (in wasm linear memory) of the straight-alpha RGBA spill
+     * buffer: four packed row-major strips — **top** `(0, 0, width,
+     * pad+head)`, **bottom** `(0, height−pad, width, pad)`, **left** `(0,
+     * pad+head, pad, gridH)`, **right** `(width−pad, pad+head, pad, gridH)`
+     * with `gridH = height − 2·pad − head` — in that order. The pointer is
+     * STABLE across frames (the buffer re-rasters in place); it moves only
+     * when chrome or the grid size changes, so a host may hold its view
+     * between frames of one geometry (wasm memory GROWTH still detaches JS
+     * views — rebuild per read, the `rgba_ptr` rule).
+     * @returns {number}
+     */
+    spill_ptr() {
+        const ret = wasm.atermterminal_spill_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Number of dirty rects from the LAST `render()` (0 on a no-change
+     * frame). Read together with [`spill_rects_ptr`](Self::spill_rects_ptr).
+     * @returns {number}
+     */
+    spill_rect_count() {
+        const ret = wasm.atermterminal_spill_rect_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Byte offset (in wasm linear memory) of the packed dirty-rect array:
+     * `spill_rect_count()` rects of 4 `i32`s — `x, y, w, h`, FRAME-ABSOLUTE
+     * device px. Same read discipline as [`rgba_ptr`](Self::rgba_ptr):
+     * consume synchronously after `render()`, never cache the JS view.
+     * @returns {number}
+     */
+    spill_rects_ptr() {
+        const ret = wasm.atermterminal_spill_rects_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Monotone revision of the spill-band content: advances ONLY when the
+     * exported bytes changed. Typing-only frames with a settled (or
+     * grid-interior) glow, idle re-renders, and 0/0 chrome keep it still —
+     * an unchanged value is the engine's word that the host may skip its
+     * blit without reading a single spill byte.
+     * @returns {number}
+     */
+    spill_rev() {
+        const ret = wasm.atermterminal_spill_rev(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * Drain the missing-font CLASS bits (1 = text/mono fallback, 2 = colour

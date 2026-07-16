@@ -1560,6 +1560,17 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_set_sparkle_words_enabled(this.__wbg_ptr, on);
     }
     /**
+     * Include `HaloMode::Over` VEILS (light-theme smoke/steam) in the spill
+     * band (default `true`, keeping the seam-continuity law universal).
+     * `false` scopes the spill to additive light + fire ink — the policy
+     * escape if veils over neighbouring panes read badly. Applies from the
+     * next render.
+     * @param {boolean} on
+     */
+    set_spill_include_veils(on) {
+        wasm.atermgputerminal_set_spill_include_veils(this.__wbg_ptr, on);
+    }
+    /**
      * Inject a broad-coverage SYMBOL fallback face from font bytes (the
      * byte-injection sibling of the config `symbol_font` path). Applies to the
      * CPU face and the live GPU face if `init` already ran; remembered so `init`
@@ -1641,6 +1652,62 @@ export class AtermGpuTerminal {
     get sparkle_words_enabled() {
         const ret = wasm.atermgputerminal_sparkle_words_enabled(this.__wbg_ptr);
         return ret !== 0;
+    }
+    /**
+     * Byte length of the spill buffer (`0` at 0/0 chrome — the identity law:
+     * no band, no bytes, no per-frame cost).
+     * @returns {number}
+     */
+    spill_len() {
+        const ret = wasm.atermgputerminal_spill_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Byte offset (in wasm linear memory) of the straight-alpha RGBA spill
+     * buffer: four packed row-major strips — **top** `(0, 0, frameW,
+     * pad+head)`, **bottom** `(0, frameH−pad, frameW, pad)`, **left** `(0,
+     * pad+head, pad, gridH)`, **right** `(frameW−pad, pad+head, pad, gridH)`
+     * with `gridH = frameH − 2·pad − head` (frame dims per `frame_size`, the
+     * swapchain size). The pointer is STABLE across frames (the buffer
+     * re-rasters in place); it moves only when chrome or the grid size
+     * changes — wasm memory GROWTH still detaches JS views (rebuild per
+     * read, the `aterm-wasm` `rgba_ptr` rule).
+     * @returns {number}
+     */
+    spill_ptr() {
+        const ret = wasm.atermgputerminal_spill_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Number of dirty rects from the LAST `render`/`render_offscreen` (0 on
+     * a no-change frame). Read with [`spill_rects_ptr`](Self::spill_rects_ptr).
+     * @returns {number}
+     */
+    spill_rect_count() {
+        const ret = wasm.atermgputerminal_spill_rect_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Byte offset (in wasm linear memory) of the packed dirty-rect array:
+     * `spill_rect_count()` rects of 4 `i32`s — `x, y, w, h`, FRAME-ABSOLUTE
+     * device px. Consume synchronously after a render; never cache the view.
+     * @returns {number}
+     */
+    spill_rects_ptr() {
+        const ret = wasm.atermgputerminal_spill_rects_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Monotone revision of the spill-band content: advances ONLY when the
+     * exported bytes changed. Typing-only frames with a settled (or
+     * grid-interior) glow, idle re-renders, and 0/0 chrome keep it still —
+     * an unchanged value is the engine's word that the host may skip its
+     * blit without reading a single spill byte.
+     * @returns {number}
+     */
+    spill_rev() {
+        const ret = wasm.atermgputerminal_spill_rev(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * Drain the missing-font CLASS bits (1 = text/mono fallback, 2 = colour

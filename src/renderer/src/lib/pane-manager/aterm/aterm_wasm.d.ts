@@ -686,6 +686,15 @@ export class AtermTerminal {
      */
     set_sparkle_words_enabled(on: boolean): void;
     /**
+     * Include `HaloMode::Over` VEILS (light-theme smoke/steam) in the spill
+     * band (default `true`, keeping the seam-continuity law universal).
+     * `false` scopes the spill to additive light + fire ink — the policy
+     * escape if veils over neighbouring panes read badly; the band then
+     * intentionally diverges from the in-frame veil pixels at the clip line.
+     * Applies from the next `render()`.
+     */
+    set_spill_include_veils(on: boolean): void;
+    /**
      * Inject a broad-coverage SYMBOL fallback face from font bytes, so symbol
      * glyphs the primary + fallback faces lack render real shapes instead of
      * tofu. The byte-injection sibling of the config `symbol_font` path: the host
@@ -714,6 +723,43 @@ export class AtermTerminal {
      * shape the plain-word fallback.
      */
     set_word_separators(separators?: string | null): void;
+    /**
+     * Byte length of the spill buffer (`0` at 0/0 chrome — the identity law:
+     * no band, no bytes, no per-frame cost).
+     */
+    spill_len(): number;
+    /**
+     * Byte offset (in wasm linear memory) of the straight-alpha RGBA spill
+     * buffer: four packed row-major strips — **top** `(0, 0, width,
+     * pad+head)`, **bottom** `(0, height−pad, width, pad)`, **left** `(0,
+     * pad+head, pad, gridH)`, **right** `(width−pad, pad+head, pad, gridH)`
+     * with `gridH = height − 2·pad − head` — in that order. The pointer is
+     * STABLE across frames (the buffer re-rasters in place); it moves only
+     * when chrome or the grid size changes, so a host may hold its view
+     * between frames of one geometry (wasm memory GROWTH still detaches JS
+     * views — rebuild per read, the `rgba_ptr` rule).
+     */
+    spill_ptr(): number;
+    /**
+     * Number of dirty rects from the LAST `render()` (0 on a no-change
+     * frame). Read together with [`spill_rects_ptr`](Self::spill_rects_ptr).
+     */
+    spill_rect_count(): number;
+    /**
+     * Byte offset (in wasm linear memory) of the packed dirty-rect array:
+     * `spill_rect_count()` rects of 4 `i32`s — `x, y, w, h`, FRAME-ABSOLUTE
+     * device px. Same read discipline as [`rgba_ptr`](Self::rgba_ptr):
+     * consume synchronously after `render()`, never cache the JS view.
+     */
+    spill_rects_ptr(): number;
+    /**
+     * Monotone revision of the spill-band content: advances ONLY when the
+     * exported bytes changed. Typing-only frames with a settled (or
+     * grid-interior) glow, idle re-renders, and 0/0 chrome keep it still —
+     * an unchanged value is the engine's word that the host may skip its
+     * blit without reading a single spill byte.
+     */
+    spill_rev(): number;
     /**
      * Drain the missing-font CLASS bits (1 = text/mono fallback, 2 = colour
      * emoji) accumulated by renders since the last call. The host polls this
@@ -1137,12 +1183,18 @@ export interface InitOutput {
     readonly atermterminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
     readonly atermterminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
     readonly atermterminal_set_sparkle_words_enabled: (a: number, b: number) => void;
+    readonly atermterminal_set_spill_include_veils: (a: number, b: number) => void;
     readonly atermterminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_symbol_font_registered: (a: number, b: number) => [number, number];
     readonly atermterminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermterminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermterminal_sparkle_lexicon_warnings: (a: number) => [number, number];
     readonly atermterminal_sparkle_words_enabled: (a: number) => number;
+    readonly atermterminal_spill_len: (a: number) => number;
+    readonly atermterminal_spill_ptr: (a: number) => number;
+    readonly atermterminal_spill_rect_count: (a: number) => number;
+    readonly atermterminal_spill_rects_ptr: (a: number) => number;
+    readonly atermterminal_spill_rev: (a: number) => number;
     readonly atermterminal_take_missing_font_classes: (a: number) => number;
     readonly atermterminal_take_notifications: (a: number) => [number, number];
     readonly atermterminal_take_osc_events: (a: number) => [number, number];

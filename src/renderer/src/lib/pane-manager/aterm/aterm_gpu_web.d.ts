@@ -691,6 +691,14 @@ export class AtermGpuTerminal {
      */
     set_sparkle_words_enabled(on: boolean): void;
     /**
+     * Include `HaloMode::Over` VEILS (light-theme smoke/steam) in the spill
+     * band (default `true`, keeping the seam-continuity law universal).
+     * `false` scopes the spill to additive light + fire ink — the policy
+     * escape if veils over neighbouring panes read badly. Applies from the
+     * next render.
+     */
+    set_spill_include_veils(on: boolean): void;
+    /**
      * Inject a broad-coverage SYMBOL fallback face from font bytes (the
      * byte-injection sibling of the config `symbol_font` path). Applies to the
      * CPU face and the live GPU face if `init` already ran; remembered so `init`
@@ -718,6 +726,42 @@ export class AtermGpuTerminal {
      * shape the plain-word fallback. Mirrors aterm-wasm.
      */
     set_word_separators(separators?: string | null): void;
+    /**
+     * Byte length of the spill buffer (`0` at 0/0 chrome — the identity law:
+     * no band, no bytes, no per-frame cost).
+     */
+    spill_len(): number;
+    /**
+     * Byte offset (in wasm linear memory) of the straight-alpha RGBA spill
+     * buffer: four packed row-major strips — **top** `(0, 0, frameW,
+     * pad+head)`, **bottom** `(0, frameH−pad, frameW, pad)`, **left** `(0,
+     * pad+head, pad, gridH)`, **right** `(frameW−pad, pad+head, pad, gridH)`
+     * with `gridH = frameH − 2·pad − head` (frame dims per `frame_size`, the
+     * swapchain size). The pointer is STABLE across frames (the buffer
+     * re-rasters in place); it moves only when chrome or the grid size
+     * changes — wasm memory GROWTH still detaches JS views (rebuild per
+     * read, the `aterm-wasm` `rgba_ptr` rule).
+     */
+    spill_ptr(): number;
+    /**
+     * Number of dirty rects from the LAST `render`/`render_offscreen` (0 on
+     * a no-change frame). Read with [`spill_rects_ptr`](Self::spill_rects_ptr).
+     */
+    spill_rect_count(): number;
+    /**
+     * Byte offset (in wasm linear memory) of the packed dirty-rect array:
+     * `spill_rect_count()` rects of 4 `i32`s — `x, y, w, h`, FRAME-ABSOLUTE
+     * device px. Consume synchronously after a render; never cache the view.
+     */
+    spill_rects_ptr(): number;
+    /**
+     * Monotone revision of the spill-band content: advances ONLY when the
+     * exported bytes changed. Typing-only frames with a settled (or
+     * grid-interior) glow, idle re-renders, and 0/0 chrome keep it still —
+     * an unchanged value is the engine's word that the host may skip its
+     * blit without reading a single spill byte.
+     */
+    spill_rev(): number;
     /**
      * Drain the missing-font CLASS bits (1 = text/mono fallback, 2 = colour
      * emoji) accumulated by renders since the last call — see the aterm-wasm
@@ -1143,12 +1187,18 @@ export interface InitOutput {
     readonly atermgputerminal_set_sparkle_profanity: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => void;
     readonly atermgputerminal_set_sparkle_reduced_motion: (a: number, b: number) => void;
     readonly atermgputerminal_set_sparkle_words_enabled: (a: number, b: number) => void;
+    readonly atermgputerminal_set_spill_include_veils: (a: number, b: number) => void;
     readonly atermgputerminal_set_symbol_font: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_symbol_font_registered: (a: number, b: number) => [number, number];
     readonly atermgputerminal_set_theme: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly atermgputerminal_set_word_separators: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_sparkle_lexicon_warnings: (a: number) => [number, number];
     readonly atermgputerminal_sparkle_words_enabled: (a: number) => number;
+    readonly atermgputerminal_spill_len: (a: number) => number;
+    readonly atermgputerminal_spill_ptr: (a: number) => number;
+    readonly atermgputerminal_spill_rect_count: (a: number) => number;
+    readonly atermgputerminal_spill_rects_ptr: (a: number) => number;
+    readonly atermgputerminal_spill_rev: (a: number) => number;
     readonly atermgputerminal_take_missing_font_classes: (a: number) => number;
     readonly atermgputerminal_take_notifications: (a: number) => [number, number];
     readonly atermgputerminal_take_osc_events: (a: number) => [number, number];

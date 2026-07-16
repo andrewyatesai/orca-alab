@@ -268,7 +268,9 @@ export class DaemonProtocolClient {
     // BYTE level so binary residual reaches the frame reader uncorrupted.
     let granted = false
     let greeted = false
-    let helloBuffer = new Uint8Array(0)
+    // Why the annotation: concatBytes() returns Uint8Array<ArrayBufferLike>, which
+    // the narrower Uint8Array<ArrayBuffer> the constructor infers cannot re-hold.
+    let helloBuffer: Uint8Array = new Uint8Array(0)
     const feedBody = (bytes: Uint8Array): void => {
       if (bytes.length === 0) {
         return

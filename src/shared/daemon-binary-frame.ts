@@ -44,7 +44,9 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
 export function createBinaryFrameReader(
   onFrame: (frame: DecodedStreamFrame) => void
 ): BinaryFrameReader {
-  let buffer = new Uint8Array(0)
+  // Why the annotation: concat() returns Uint8Array<ArrayBufferLike>, which the
+  // narrower Uint8Array<ArrayBuffer> the constructor infers cannot re-hold.
+  let buffer: Uint8Array = new Uint8Array(0)
   return {
     feed(chunk) {
       buffer = concat(buffer, chunk)

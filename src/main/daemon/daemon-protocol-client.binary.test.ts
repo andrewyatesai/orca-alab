@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { DaemonProtocolClient, type DaemonStreamEvent } from './daemon-protocol-client'
-import { encodeDataFrame, encodeEventFrame } from '../main/daemon/daemon-binary-stream-protocol'
+import { DaemonProtocolClient, type DaemonStreamEvent } from '../../shared/daemon-protocol-client'
+// Lives in src/main (not beside the shared client): the cli/web composite
+// tsconfigs glob src/shared and must not pull this main-only encoder module in.
+import { encodeDataFrame, encodeEventFrame } from './daemon-binary-stream-protocol'
 
 // A scripted byte transport: it auto-answers the client's hello (via `replyFor`,
 // which sees the parsed hello so it can grant/deny binary and coalesce a first

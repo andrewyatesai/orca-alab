@@ -107,9 +107,10 @@ function openTunnelSocket(socketId: number): void {
       protocolVersion: PROTOCOL_VERSION
     })
   })
-  socket.on('data', (chunk) => {
+  socket.on('data', (chunk: Buffer) => {
     // Relay RAW BYTES (structured-cloned across IPC), not a utf8 string: the
     // stream socket may carry v1020 binary frames a decode would corrupt.
+    // Chunk is always a Buffer — no setEncoding() call on this socket.
     sendTunnelEvent({ op: 'data', socketId, data: chunk })
   })
   socket.once('error', (error) => {

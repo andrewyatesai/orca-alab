@@ -34,7 +34,8 @@ function socketByteTransport(socket: Socket): DaemonByteTransport {
     onData: (listener) => {
       // Raw bytes, NOT utf8-decoded: the stream socket may carry v1020 binary
       // frames, which a decode would corrupt; the client decodes per format.
-      socket.on('data', (chunk) => listener(chunk))
+      // Chunk is always a Buffer — no setEncoding() call on this socket.
+      socket.on('data', (chunk: Buffer) => listener(chunk))
     },
     onClose: (listener) => {
       socket.once('close', listener)

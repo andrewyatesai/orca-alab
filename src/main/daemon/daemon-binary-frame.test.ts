@@ -5,10 +5,12 @@ import {
   STREAM_FORMAT_BINARY,
   BINARY_STREAM_PROTOCOL_VERSION,
   type DecodedStreamFrame
-} from './daemon-binary-frame'
+} from '../../shared/daemon-binary-frame'
 // The node/Rust-mirroring encoders: proving the browser-safe reader decodes what
 // they emit is a cross-implementation parity check against the daemon wire.
-import { encodeDataFrame, encodeEventFrame } from '../main/daemon/daemon-binary-stream-protocol'
+// Lives in src/main (not beside the shared reader): the cli/web composite
+// tsconfigs glob src/shared and must not pull this main-only encoder module in.
+import { encodeDataFrame, encodeEventFrame } from './daemon-binary-stream-protocol'
 
 const collect = (): {
   frames: DecodedStreamFrame[]

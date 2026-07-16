@@ -106,6 +106,25 @@ describe('collectUntrackedAdditions', () => {
     expect(lstatMock).not.toHaveBeenCalled()
   })
 
+  it('rejects when the status request is aborted instead of returning partial counts', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      collectUntrackedAdditions('/repo', ['a.ts'], countAdditions, controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(lstatMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects on abort even when no counter is provided', async () => {
+    // Why: a cancelled scan must never look like a completed (empty) result,
+    // counter or not — the caller treats resolution as an authoritative status.
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      collectUntrackedAdditions('/repo', ['a.ts'], undefined, controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' })
+  })
+
   it('keeps the cache effective across polls for a max-counted change set', async () => {
     // Why: a cache smaller than one counted scan FIFO-evicts every entry
     // mid-scan, so the next poll re-reads every file (#8013). The counted set is

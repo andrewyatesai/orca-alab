@@ -8,10 +8,6 @@ import {
   type ForegroundTerminalOutputTarget
 } from './pane-terminal-foreground-render-settle'
 import { mirrorOutputToAterm } from './aterm/aterm-output-mirror'
-import {
-  captureTerminalWriteScrollIntent,
-  enforceTerminalWriteScrollIntent
-} from './terminal-scroll-intent'
 import { runGuardedWriteCompletionStep } from './xterm-write-callback-guard'
 import { recordRendererCrashBreadcrumb } from '@/lib/crash-breadcrumb-recorder'
 import {
@@ -834,6 +830,9 @@ function hasDrainableBacklog(): boolean {
   return false
 }
 
+// Why no per-write scroll enforcement: xterm's BufferService.isUserScrolling
+// natively owns live follow/pin semantics. App-side intent enforcement is
+// limited to structural operations xterm cannot identify, such as replay.
 function writeBackgroundTerminalChunk(
   terminal: TerminalOutputTarget,
   data: string,
@@ -849,16 +848,13 @@ function writeBackgroundTerminalChunk(
   const runOnWriteFailure = onWriteFailure
     ? (): void => runGuardedWriteCompletionStep('background-on-write-failure', onWriteFailure)
     : undefined
-  // Capture scroll intent so a background drain can't yank a pinned viewport to
-  // the bottom, then re-pin it after the write parses.
-  const scrollIntent = captureTerminalWriteScrollIntent(terminal)
   try {
     // Background drain: the mirror already fed the engine up front, so use the
-    // callback-only scheduler path to avoid re-parsing these bytes.
+    // callback-only scheduler path to avoid re-parsing these bytes. No per-write
+    // scroll enforcement here (see the module comment above): the aterm engine
+    // natively owns live follow/pin semantics, mirroring xterm's
+    // BufferService.isUserScrolling contract upstream relies on.
     ;(terminal.__schedulerWrite ?? terminal.write).call(terminal, data, () => {
-      runGuardedWriteCompletionStep('background-scroll-intent', () =>
-        enforceTerminalWriteScrollIntent(terminal, scrollIntent)
-      )
       runOnParsed?.()
     })
     // __schedulerWrite paints nothing (callback-only), so flush the engine's
@@ -871,32 +867,6 @@ function writeBackgroundTerminalChunk(
     runOnWriteFailure?.()
     return false
   }
-}
-
-function writeForegroundTerminalChunkWithIntent(
-  terminal: TerminalOutputTarget,
-  data: string,
-  options: {
-    forceViewportRefresh: boolean
-    followupViewportRefresh: boolean
-    shouldRefreshViewportSynchronously: ForegroundRefreshSyncResolver
-    onParsed?: TerminalOutputParsedCallback
-    onWriteFailure?: () => void
-  }
-): boolean {
-  const scrollIntent = captureTerminalWriteScrollIntent(terminal)
-  return writeForegroundTerminalChunk(terminal, data, {
-    forceViewportRefresh: options.forceViewportRefresh,
-    followupViewportRefresh: options.followupViewportRefresh,
-    shouldRefreshViewportSynchronously: options.shouldRefreshViewportSynchronously,
-    onParsed: () => {
-      // Why: recovery must repaint from the scrolled buffer state that xterm
-      // will keep, not from a pre-intent-restored viewport snapshot.
-      enforceTerminalWriteScrollIntent(terminal, scrollIntent)
-      options.onParsed?.()
-    },
-    onWriteFailure: options.onWriteFailure
-  })
 }
 
 function takeNextDrainableEntry(): QueueEntry | null {
@@ -1010,7 +980,7 @@ function writeQueuedChunk(entry: QueueEntry): 'foreground' | 'background' | null
   try {
     queuedWrite.beforeWrite?.(queuedWrite.data)
     const writeAccepted = queuedWrite.foreground
-      ? writeForegroundTerminalChunkWithIntent(
+      ? writeForegroundTerminalChunk(
           entry.terminal,
           queuedWrite.stripTransientCursorShows
             ? removeTransientCursorShowSequences(queuedWrite.data)
@@ -1047,8 +1017,8 @@ function writeQueuedChunk(entry: QueueEntry): 'foreground' | 'background' | null
       return null
     }
   } catch {
-    // Why: beforeWrite or pre-write viewport capture can fail before xterm owns
-    // the bytes. Cancel the armed watch without claiming parser failure.
+    // Why: beforeWrite or write setup can fail before xterm owns the bytes.
+    // Cancel the armed watch without claiming parser failure.
     cancelTerminalWriteStallWatch(entry.terminal)
     ackCreditsParsed?.()
     fireQueuedAckCredits(entry)
@@ -1317,7 +1287,7 @@ export function writeTerminalOutput(
     })
     try {
       options.beforeWrite?.(data)
-      writeForegroundTerminalChunkWithIntent(
+      writeForegroundTerminalChunk(
         terminal,
         options.stripTransientCursorShows ? removeTransientCursorShowSequences(data) : data,
         {
@@ -1411,7 +1381,7 @@ export function flushTerminalOutput(
     try {
       queuedWrite.beforeWrite?.(queuedWrite.data)
       const writeAccepted = queuedWrite.foreground
-        ? writeForegroundTerminalChunkWithIntent(
+        ? writeForegroundTerminalChunk(
             terminal,
             queuedWrite.stripTransientCursorShows
               ? removeTransientCursorShowSequences(queuedWrite.data)
@@ -1443,7 +1413,7 @@ export function flushTerminalOutput(
         return
       }
     } catch {
-      // Why: pre-write hooks/capture failed before xterm owned these bytes.
+      // Why: pre-write hooks/setup failed before xterm owned these bytes.
       // Cancel the watch; consumed + abandoned chunks still credit delivery.
       cancelTerminalWriteStallWatch(terminal)
       ackCreditsParsed?.()

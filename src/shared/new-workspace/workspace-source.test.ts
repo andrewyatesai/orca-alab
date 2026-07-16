@@ -12,7 +12,8 @@ describe('workspace source policy', () => {
     identifier: 'ENG-42',
     title: 'Ship mobile parity',
     url: 'https://linear.app/acme/issue/ENG-42/ship-mobile-parity',
-    workspaceId: 'workspace-1'
+    workspaceId: 'workspace-1',
+    branchName: '  team/eng-42-ship-mobile-parity  '
   })
 
   it('builds one Linear identity for desktop and mobile create flows', () => {
@@ -21,7 +22,8 @@ describe('workspace source policy', () => {
       number: 0,
       linearIdentifier: 'ENG-42',
       linearWorkspaceId: 'workspace-1',
-      linearOrganizationUrlKey: 'acme'
+      linearOrganizationUrlKey: 'acme',
+      linearBranchName: 'team/eng-42-ship-mobile-parity'
     })
   })
 

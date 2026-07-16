@@ -153,6 +153,12 @@ export type ScrollState = {
   viewportY: number
   baseY: number
   firstVisibleLineMarker?: IMarker
+  firstVisibleLogicalLineMarker?: IMarker
+  firstVisibleLogicalCellOffset?: number
+  // Why: aterm renumbers absolute buffer lines when a width change rewraps
+  // scrollback (new indices continue from the pre-resize baseY), so restores
+  // shift captured marker lines by the observed oldest-line delta.
+  capturedOldestLine?: number
 }
 
 export type ManagedPaneInternal = {

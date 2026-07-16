@@ -1,14 +1,36 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { IMarker } from './aterm/terminal-types'
 import {
   captureScrollState,
   getTerminalOutputEpoch,
   recordTerminalOutput,
   restoreScrollState,
+  restoreScrollStateAfterFit,
   restoreScrollStateAfterLayout
 } from './pane-scroll'
 import type { ScrollState } from './pane-manager-types'
 import type { AtermTerminalFacade as Terminal } from './aterm/aterm-terminal-facade'
+import { initSync, AtermTerminal } from './aterm/aterm_wasm.js'
+import { buildAtermEngineReads } from './aterm/aterm-engine-reads'
+import {
+  createAtermFacadeBuffer,
+  type AtermBufferSource,
+  type AtermFacadeBuffer
+} from './aterm/aterm-facade-buffer'
+import { ATERM_RENDERER_FONT_PX } from './aterm/aterm-pane-controller-types'
+
+const ATERM_DIR = new URL('./aterm/', import.meta.url)
+const FONT_URL = new URL('../../assets/fonts/jetbrains-mono.ttf', import.meta.url)
+
+let engineFontBytes: Uint8Array
+
+beforeAll(() => {
+  // Real engine, loaded headlessly: initSync + on-disk bytes replaces the
+  // browser fetch path (load-aterm.ts) that node tests can't use.
+  initSync({ module: readFileSync(new URL('aterm_wasm_bg.wasm', ATERM_DIR)) })
+  engineFontBytes = new Uint8Array(readFileSync(FONT_URL))
+})
 
 function createTerminal(args: {
   viewportY: number
@@ -58,6 +80,97 @@ function createMarker(line: number): IMarker {
 function setMarkerLine(marker: IMarker, line: number): void {
   const mutableMarker = marker as unknown as { line: number }
   mutableMarker.line = line
+}
+
+type EngineTerminalOptions = {
+  cols: number
+  rows: number
+  scrollback: number
+  windowsPty?: { backend: 'conpty'; buildNumber?: number }
+}
+
+/** Upstream's @xterm/headless stand-in: the REAL wasm engine wired through the
+ *  production reads + facade-buffer seam (the terminal-alternate-screen-parse
+ *  harness convention), plus the facade's xterm-shaped scroll adapters. */
+type EngineBackedTerminal = {
+  buffer: AtermFacadeBuffer
+  registerMarker: (cursorYOffset: number) => IMarker | undefined
+  options: { windowsPty?: { backend: 'conpty'; buildNumber?: number } }
+  readonly cols: number
+  scrollToBottom: () => void
+  scrollToLine: (line: number) => void
+  scrollLines: (amount: number) => void
+  write: (data: string) => void
+  resize: (cols: number, rows: number) => void
+  search: (text: string) => Uint32Array
+  dispose: () => void
+}
+
+function createEngineTerminal(options: EngineTerminalOptions): EngineBackedTerminal {
+  const grid = { cols: options.cols, rows: options.rows }
+  const term = new AtermTerminal(
+    grid.rows,
+    grid.cols,
+    engineFontBytes,
+    ATERM_RENDERER_FONT_PX,
+    0xffffff,
+    0x000000,
+    0xffffff,
+    0x334455
+  )
+  term.set_scrollback_limit(options.scrollback)
+  const reads = buildAtermEngineReads(
+    term,
+    { dpr: 1, cellWidth: 0, cellHeight: 0 },
+    () => undefined,
+    () => false
+  )
+  const source: AtermBufferSource = { ...reads, gridSize: () => ({ ...grid }) }
+  const { buffer, registerMarker } = createAtermFacadeBuffer(() => source)
+  return {
+    buffer,
+    registerMarker,
+    options: { windowsPty: options.windowsPty },
+    get cols() {
+      return grid.cols
+    },
+    scrollToBottom: () => reads.scrollToBottom(),
+    scrollToLine: (line: number) => reads.scrollToLine(line),
+    // Mirror the facade's sign adapter (aterm-terminal-facade scrollLines):
+    // xterm-positive scrolls toward newer; engine-positive reveals older.
+    scrollLines: (amount: number) => reads.scrollLines(-amount),
+    write: (data: string) => term.process_str(data),
+    resize: (cols: number, rows: number) => {
+      // Engine argument order is (rows, cols); drain any deferred scrollback
+      // rewrap so the reflow completes like xterm's synchronous resize.
+      term.resize(rows, cols)
+      while (term.pump_reflow()) {
+        // deferred-rewrap pump
+      }
+      grid.cols = cols
+      grid.rows = rows
+    },
+    search: (text: string) => term.search(text, true, false),
+    dispose: () => term.free()
+  }
+}
+
+function writeHeadless(terminal: EngineBackedTerminal, data: string): Promise<void> {
+  // aterm parses synchronously; upstream awaited xterm's async write queue.
+  terminal.write(data)
+  return Promise.resolve()
+}
+
+function findBufferLineContaining(terminal: EngineBackedTerminal, text: string): number {
+  // Fork: the facade's buffer reads are viewport-scoped, so locate the line
+  // with the engine's real full-buffer search instead of a per-line scan.
+  const matches = terminal.search(text)
+  return matches.length >= 3 ? matches[0] : -1
+}
+
+function makeHeadlessRestorable(terminal: EngineBackedTerminal): Terminal {
+  Object.defineProperty(terminal, 'element', { configurable: true, value: {} })
+  return terminal as unknown as Terminal
 }
 
 describe('scroll state', () => {
@@ -287,6 +400,61 @@ describe('scroll state', () => {
     expect(terminal.buffer.active.viewportY).toBe(30)
   })
 
+  it('releases fit markers when restoration throws an unexpected error', () => {
+    const terminal = createTerminal({ viewportY: 10, baseY: 100 })
+    const marker = createMarker(42)
+    vi.mocked(terminal.scrollToLine).mockImplementation(() => {
+      throw new Error('unexpected renderer failure')
+    })
+    const state: ScrollState = {
+      bufferType: 'normal',
+      wasAtBottom: false,
+      viewportY: 42,
+      baseY: 100,
+      firstVisibleLineMarker: marker
+    }
+
+    expect(() =>
+      restoreScrollStateAfterFit(terminal, state, {
+        onRestored: vi.fn(),
+        shouldRestore: () => true
+      })
+    ).toThrow('unexpected renderer failure')
+    expect(marker.isDisposed).toBe(true)
+  })
+
+  it('releases fit markers when an asynchronous retry throws', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      frameCallbacks.push(callback)
+      return frameCallbacks.length
+    })
+    const terminal = createTerminal({ viewportY: 10, baseY: 100 })
+    const marker = createMarker(42)
+    vi.mocked(terminal.scrollToLine)
+      .mockImplementationOnce(() => {
+        throw new TypeError("Cannot read properties of undefined (reading 'dimensions')")
+      })
+      .mockImplementationOnce(() => {
+        throw new Error('unexpected asynchronous renderer failure')
+      })
+
+    restoreScrollStateAfterFit(
+      terminal,
+      {
+        bufferType: 'normal',
+        wasAtBottom: false,
+        viewportY: 42,
+        baseY: 100,
+        firstVisibleLineMarker: marker
+      },
+      { onRestored: vi.fn(), shouldRestore: () => true }
+    )
+
+    expect(() => frameCallbacks.shift()?.(0)).toThrow('unexpected asynchronous renderer failure')
+    expect(marker.isDisposed).toBe(true)
+  })
+
   it('scrolls to the current bottom when the pane was previously at bottom', () => {
     const terminal = createTerminal({ viewportY: 10, baseY: 250 })
     const state: ScrollState = {
@@ -316,5 +484,138 @@ describe('scroll state', () => {
 
     expect(terminal.scrollToLine).not.toHaveBeenCalled()
     expect(terminal.buffer.active.viewportY).toBe(10)
+  })
+
+  it.each([
+    {
+      fromCols: 10,
+      toCols: 20,
+      pinnedText: 'abcdefghij',
+      expectedTop: 'ABCDEFGHIJabcdefghij'
+    },
+    { fromCols: 20, toCols: 7, pinnedText: 'KLMNOPQRSTuvwxyz', expectedTop: 'efghijK' }
+  ])(
+    'restores the same logical cells through real aterm reflow ($fromCols->$toCols)',
+    async ({ fromCols, toCols, pinnedText, expectedTop }) => {
+      const headless = createEngineTerminal({
+        cols: fromCols,
+        rows: 5,
+        scrollback: 1000
+      })
+      try {
+        await writeHeadless(headless, 'prefix\r\n')
+        await writeHeadless(headless, 'ABCDEFGHIJabcdefghijKLMNOPQRSTuvwxyz\r\n')
+        for (let index = 0; index < 10; index += 1) {
+          await writeHeadless(headless, `tail-${index}\r\n`)
+        }
+        const pinnedLine = findBufferLineContaining(headless, pinnedText)
+        expect(pinnedLine).toBeGreaterThan(0)
+        headless.scrollToLine(pinnedLine)
+        const terminal = makeHeadlessRestorable(headless)
+        const state = captureScrollState(terminal)
+
+        headless.resize(toCols, 5)
+        expect(state.firstVisibleLogicalLineMarker?.isDisposed).toBe(false)
+        expect(restoreScrollState(terminal, state)).toBe(true)
+
+        expect(
+          headless.buffer.active.getLine(headless.buffer.active.viewportY)?.translateToString(true)
+        ).toBe(expectedTop)
+      } finally {
+        headless.dispose()
+      }
+    }
+  )
+
+  it('uses a logical marker for backend-only ConPTY compatibility', async () => {
+    const headless = createEngineTerminal({
+      cols: 10,
+      rows: 5,
+      scrollback: 1000,
+      windowsPty: { backend: 'conpty' }
+    })
+    try {
+      await writeHeadless(headless, 'prefix\r\n')
+      await writeHeadless(headless, 'ABCDEFGHIJabcdefghijKLMNOPQRSTuvwxyz\r\n')
+      for (let index = 0; index < 10; index += 1) {
+        await writeHeadless(headless, `tail-${index}\r\n`)
+      }
+      const pinnedLine = findBufferLineContaining(headless, 'abcdefghij')
+      headless.scrollToLine(pinnedLine)
+      const terminal = makeHeadlessRestorable(headless)
+      const state = captureScrollState(terminal)
+
+      expect(state.firstVisibleLogicalLineMarker).toBeDefined()
+      headless.resize(20, 5)
+      expect(restoreScrollState(terminal, state)).toBe(true)
+      expect(
+        headless.buffer.active.getLine(headless.buffer.active.viewportY)?.translateToString(true)
+      ).toBe('ABCDEFGHIJabcdefghij')
+    } finally {
+      headless.dispose()
+    }
+  })
+
+  it('keeps a physical marker for the default non-reflowing cursor line', async () => {
+    const headless = createEngineTerminal({
+      cols: 10,
+      rows: 3,
+      scrollback: 100
+    })
+    try {
+      await writeHeadless(headless, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+      const terminal = makeHeadlessRestorable(headless)
+      headless.scrollLines(-1)
+      const state = captureScrollState(terminal)
+
+      expect(state.firstVisibleLineMarker).toBeDefined()
+      expect(state.firstVisibleLogicalLineMarker).toBeUndefined()
+      headless.resize(20, 3)
+      expect(restoreScrollState(terminal, state)).toBe(true)
+    } finally {
+      headless.dispose()
+    }
+  })
+
+  it('uses physical markers for legacy ConPTY and logical markers for modern ConPTY', async () => {
+    const captureForBuild = async (buildNumber: number): Promise<ScrollState> => {
+      const headless = createEngineTerminal({
+        cols: 10,
+        rows: 3,
+        scrollback: 100,
+        windowsPty: { backend: 'conpty', buildNumber }
+      })
+      await writeHeadless(headless, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789\r\n')
+      await writeHeadless(headless, 'tail-1\r\ntail-2\r\ntail-3\r\n')
+      const pinnedLine = findBufferLineContaining(headless, 'KLMNOPQRST')
+      headless.scrollToLine(pinnedLine)
+      const state = captureScrollState(makeHeadlessRestorable(headless))
+      headless.dispose()
+      return state
+    }
+
+    const legacy = await captureForBuild(19045)
+    const modern = await captureForBuild(26100)
+
+    expect(legacy.firstVisibleLogicalLineMarker).toBeUndefined()
+    expect(modern.firstVisibleLogicalLineMarker).toBeDefined()
+  })
+
+  it('counts a wide glyph wrap placeholder as zero logical cells', async () => {
+    const headless = createEngineTerminal({
+      cols: 10,
+      rows: 3,
+      scrollback: 100
+    })
+    try {
+      await writeHeadless(headless, '123456789界abcdefghij\r\ntail-1\r\ntail-2\r\ntail-3\r\n')
+      const pinnedLine = findBufferLineContaining(headless, '界')
+      headless.scrollToLine(pinnedLine)
+      const state = captureScrollState(makeHeadlessRestorable(headless))
+
+      expect(state.firstVisibleLogicalCellOffset).toBe(9)
+    } finally {
+      headless.dispose()
+    }
   })
 })

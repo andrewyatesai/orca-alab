@@ -70,7 +70,12 @@ export async function streamGitStatus(
       didHitLimit: stoppedEarly,
       succeeded: true
     }
-  } catch {
+  } catch (error) {
+    // Why: an aborted scan must reject, not resolve — swallowing here would let
+    // a cancelled request be mistaken for a completed (empty) status result.
+    if (options.signal?.aborted) {
+      throw error
+    }
     // Not a git repo / git unavailable — an empty, non-succeeded status.
     return {
       entries: [],

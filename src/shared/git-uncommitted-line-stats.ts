@@ -123,11 +123,23 @@ function rememberUntrackedStats(
 
 // Untracked files have no git-tracked baseline, so `git diff` ignores them.
 // We count their contents directly to show an additions magnitude.
+function createGitLineStatsAbortError(): Error {
+  const error = new Error('The operation was aborted.')
+  error.name = 'AbortError'
+  return error
+}
+
 export async function collectUntrackedAdditions(
   worktreePath: string,
   untrackedPaths: readonly string[],
-  count?: UntrackedAdditionsCounter
+  count?: UntrackedAdditionsCounter,
+  signal?: AbortSignal
 ): Promise<Map<string, GitLineStats>> {
+  // Why: an aborted refresh must reject (not resolve an empty map) even on the
+  // no-counter path, so a cancelled scan cannot look like a completed result.
+  if (signal?.aborted) {
+    throw createGitLineStatsAbortError()
+  }
   const result = new Map<string, GitLineStats>()
   // No counter (an unbuilt dev tree where the native addon isn't loadable) → skip
   // untracked line counting rather than reimplement the byte loop in JS. The count is
@@ -142,6 +154,12 @@ export async function collectUntrackedAdditions(
     return result
   }
   for (let i = 0; i < untrackedPaths.length; i += UNTRACKED_READ_CONCURRENCY) {
+    // Why: an aborted refresh must reject (not resolve partial counts) so a
+    // cancelled scan cannot look like a completed status result, and so we
+    // stop burning (possibly remote-host) file I/O after cancellation.
+    if (signal?.aborted) {
+      throw createGitLineStatsAbortError()
+    }
     const chunk = untrackedPaths.slice(i, i + UNTRACKED_READ_CONCURRENCY)
     await Promise.all(
       chunk.map(async (relativePath) => {
@@ -151,6 +169,9 @@ export async function collectUntrackedAdditions(
         )
       })
     )
+  }
+  if (signal?.aborted) {
+    throw createGitLineStatsAbortError()
   }
   return result
 }

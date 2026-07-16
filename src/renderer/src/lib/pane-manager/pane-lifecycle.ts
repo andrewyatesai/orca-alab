@@ -5,6 +5,7 @@ import type { DragReorderCallbacks } from './pane-drag-reorder'
 import { attachPaneDrag } from './pane-drag-pointer'
 import { detachPaneFitResizeObserver } from './pane-fit-resize-observer'
 import { clearPendingSplitScrollRestore } from './pane-split-scroll'
+import { cancelDeferredScrollRestore } from './pane-scroll'
 import { shouldFocusTerminalFromPanePointerDown } from './pane-pointer-focus'
 import { openAtermPane } from './aterm/aterm-pane-open'
 import { createAtermTerminalFacade } from './aterm/aterm-terminal-facade'
@@ -154,6 +155,13 @@ export function disposePane(
   pane.paneDragCleanup = null
   try {
     clearPendingSplitScrollRestore(pane)
+  } catch {
+    /* ignore */
+  }
+  try {
+    // Why: fit retries own xterm markers and frame callbacks independently of
+    // split restoration; both must be released before terminal disposal.
+    cancelDeferredScrollRestore(pane.terminal)
   } catch {
     /* ignore */
   }

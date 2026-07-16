@@ -52,11 +52,24 @@ async function countFileViaGitNumstat(
   return added === undefined ? {} : { added }
 }
 
+function createUntrackedNumstatAbortError(): Error {
+  const error = new Error('The operation was aborted.')
+  error.name = 'AbortError'
+  return error
+}
+
 export async function collectUntrackedAdditionsViaGitNumstat(
   git: GitExec,
   worktreePath: string,
-  untrackedPaths: readonly string[]
+  untrackedPaths: readonly string[],
+  signal?: AbortSignal
 ): Promise<Map<string, GitLineStats>> {
+  // Why: an aborted refresh must reject (not resolve partial counts) so a
+  // cancelled scan cannot look like a completed status result, and so we stop
+  // spawning per-file git processes on the SSH host after cancellation.
+  if (signal?.aborted) {
+    throw createUntrackedNumstatAbortError()
+  }
   const result = new Map<string, GitLineStats>()
   // Over the cap: skip untracked line-counting for this poll before any lstat or
   // per-file `git diff --no-index` spawn (see MAX_UNTRACKED_LINE_COUNT_FILES).
@@ -65,6 +78,9 @@ export async function collectUntrackedAdditionsViaGitNumstat(
     return result
   }
   for (let i = 0; i < untrackedPaths.length; i += GIT_NUMSTAT_CONCURRENCY) {
+    if (signal?.aborted) {
+      throw createUntrackedNumstatAbortError()
+    }
     const chunk = untrackedPaths.slice(i, i + GIT_NUMSTAT_CONCURRENCY)
     await Promise.all(
       chunk.map(async (relativePath) => {
@@ -79,6 +95,9 @@ export async function collectUntrackedAdditionsViaGitNumstat(
         )
       })
     )
+  }
+  if (signal?.aborted) {
+    throw createUntrackedNumstatAbortError()
   }
   return result
 }

@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   getTerminalOutputEpoch: vi.fn(() => 0),
   handleTerminalFileDrop: vi.fn(),
   enforceTerminalCurrentScrollIntent: vi.fn(),
+  syncTerminalScrollIntentFromViewport: vi.fn(),
   pasteTerminalText: vi.fn(),
   recordTerminalUserInputForLeaf: vi.fn(),
   requestTerminalBacklogRecovery: vi.fn(),
@@ -82,7 +83,8 @@ vi.mock('@/lib/pane-manager/pane-scroll', () => ({
 vi.mock('@/lib/pane-manager/terminal-scroll-intent', () => ({
   enforceTerminalCurrentScrollIntent: mocks.enforceTerminalCurrentScrollIntent,
   beginSuppressScrollIntentWrites: vi.fn(),
-  endSuppressScrollIntentWrites: vi.fn()
+  endSuppressScrollIntentWrites: vi.fn(),
+  syncTerminalScrollIntentFromViewport: mocks.syncTerminalScrollIntentFromViewport
 }))
 
 // Why: heavy resume resets atlases through the registry-level helper (spied
@@ -317,6 +319,45 @@ describe('useTerminalPaneGlobalEffects', () => {
     expect(mocks.fitPanes).not.toHaveBeenCalled()
     expect(isActiveRef.current).toBe(true)
     expect(isVisibleRef.current).toBe(true)
+  })
+
+  // Adapted from upstream's terminal-visibility-resume.test.ts (deleted here as
+  // xterm-era): native scrollback trimming moves a pinned viewport, so resume
+  // must capture the live position BEFORE enforcing viewport intent.
+  it('captures native trim movement before enforcing viewport intent on resume', () => {
+    const terminal = { name: 'trimmed-terminal' }
+    const manager = {
+      getPanes: vi.fn(() => [{ id: 1, terminal }]),
+      resumeRendering: vi.fn(),
+      resetWebglTextureAtlases: vi.fn(),
+      refreshAllPanes: vi.fn(),
+      suspendRendering: vi.fn(),
+      fitAllPanes: vi.fn(),
+      getActivePane: vi.fn(() => null),
+      setActivePane: vi.fn()
+    }
+
+    beginHookRender()
+    useTerminalPaneGlobalEffects({
+      tabId: 'tab-1',
+      worktreeId: 'wt-1',
+      isActive: true,
+      isVisible: true,
+      isSyncFitEnabled: true,
+      paneCount: 1,
+      managerRef: { current: manager as never },
+      containerRef: { current: null },
+      paneTransportsRef: { current: new Map() },
+      isActiveRef: { current: false },
+      isVisibleRef: { current: false },
+      toggleExpandPane: vi.fn()
+    })
+
+    expect(mocks.syncTerminalScrollIntentFromViewport).toHaveBeenCalledWith(terminal)
+    expect(mocks.syncTerminalScrollIntentFromViewport.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.enforceTerminalCurrentScrollIntent.mock.invocationCallOrder[0] ??
+        Number.POSITIVE_INFINITY
+    )
   })
 
   it('uses a light resume for tab switches while the worktree stays active', () => {

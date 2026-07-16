@@ -361,7 +361,11 @@ was a verified fail-OPEN). The dropped hypotheses are exactly the **division rel
 the SAME gap. Fixing it is NOT a rewrite and NOT a check_sat patch (both verified dead-ends): it needs the
 two research-level capabilities that would make those hypotheses lowerable — **nonlinear/division theory**
 and **loop-invariant synthesis**. That is the true Goal A ceiling: the 54 TRUSTED are the straight-line
-linear no-loop kernels; the 165 are dominated by loops/division awaiting those capabilities. Outputs sit
+linear no-loop kernels; the 165 are dominated by loops/division awaiting those capabilities.
+**QUANTIFIED (reliable loop-detection over comment/string-stripped source): 104 of the 165 (~63%) contain
+a loop/iterator → LOOP-INVARIANT SYNTHESIS is the single highest-ROI trustc investment; the other 61 are
+straight-line (string/char index-bounds + nonlinear/division).** So the capability spend is rank-ordered:
+invariant synthesis first (unblocks ~104), then nonlinear/bounds theory (~61). Outputs sit
 in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
   decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from

@@ -147,6 +147,23 @@ export class AtermTerminal {
         return ret >>> 0;
     }
     /**
+     * The chrome top head band set via [`Self::set_chrome`] (px; 0 = none).
+     * @returns {number}
+     */
+    get chrome_head() {
+        const ret = wasm.atermterminal_chrome_head(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * The chrome interior padding set via [`Self::set_chrome`] (px; 0 = exact fit).
+     * Hosts read these back so canvas offsets and pointer math share one truth.
+     * @returns {number}
+     */
+    get chrome_pad() {
+        const ret = wasm.atermterminal_chrome_pad(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * The LIVE application cursor colour (OSC 12) as packed `0x00RRGGBB`, or
      * `undefined` while unset / after an OSC 112 reset — i.e. the host/theme
      * default applies. Read per frame so glow/trail colour derivation can

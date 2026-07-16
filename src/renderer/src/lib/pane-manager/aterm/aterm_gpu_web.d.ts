@@ -776,6 +776,16 @@ export class AtermGpuTerminal {
      */
     readonly cell_width: number;
     /**
+     * The chrome top head band set via [`Self::set_chrome`] (px; 0 = none).
+     */
+    readonly chrome_head: number;
+    /**
+     * The chrome interior padding set via [`Self::set_chrome`] (px; 0 = exact
+     * fit). Read from the CPU face — set_chrome keeps it and the live GPU
+     * renderer in lockstep.
+     */
+    readonly chrome_pad: number;
+    /**
      * The LIVE application cursor colour (OSC 12) as packed `0x00RRGGBB`, or
      * `undefined` while unset / after an OSC 112 reset — i.e. the host/theme
      * default applies. Read per frame so glow/trail colour derivation can
@@ -1018,6 +1028,8 @@ export interface InitOutput {
     readonly atermgputerminal_cell_is_wide: (a: number, b: number, c: number) => number;
     readonly atermgputerminal_cell_text: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_cell_width: (a: number) => number;
+    readonly atermgputerminal_chrome_head: (a: number) => number;
+    readonly atermgputerminal_chrome_pad: (a: number) => number;
     readonly atermgputerminal_cursor_color: (a: number) => number;
     readonly atermgputerminal_cursor_style: (a: number) => number;
     readonly atermgputerminal_cursor_x: (a: number) => number;

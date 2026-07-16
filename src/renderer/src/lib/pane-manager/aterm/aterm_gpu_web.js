@@ -167,6 +167,24 @@ export class AtermGpuTerminal {
         return ret >>> 0;
     }
     /**
+     * The chrome top head band set via [`Self::set_chrome`] (px; 0 = none).
+     * @returns {number}
+     */
+    get chrome_head() {
+        const ret = wasm.atermgputerminal_chrome_head(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * The chrome interior padding set via [`Self::set_chrome`] (px; 0 = exact
+     * fit). Read from the CPU face — set_chrome keeps it and the live GPU
+     * renderer in lockstep.
+     * @returns {number}
+     */
+    get chrome_pad() {
+        const ret = wasm.atermgputerminal_chrome_pad(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * The LIVE application cursor colour (OSC 12) as packed `0x00RRGGBB`, or
      * `undefined` while unset / after an OSC 112 reset — i.e. the host/theme
      * default applies. Read per frame so glow/trail colour derivation can

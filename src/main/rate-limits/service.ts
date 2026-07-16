@@ -12,6 +12,7 @@ import type {
 import { fetchClaudeRateLimits, fetchManagedAccountUsage } from './claude-fetcher'
 import type { InactiveClaudeAccountInfo } from './claude-fetcher'
 import { consumeCodexRateLimitResetCredit, fetchCodexRateLimits } from './codex-fetcher'
+import { activeFailureRefetchThrottleMs } from './active-failure-backoff'
 import type { ClaudeRuntimeAuthPreparation } from '../claude-accounts/runtime-auth-service'
 import type { NetworkProxySettings } from '../../shared/network-proxy'
 import {
@@ -799,9 +800,9 @@ export class RateLimitService {
       if (limits.status === 'error') {
         const lastRetryAt = this.lastActiveFailureRetryAtByProvider[provider]
         const throttleMs = INDIVIDUALLY_REFRESHABLE_PROVIDERS.has(provider)
-          ? Math.min(
-              ACTIVE_FAILURE_REFETCH_MS *
-                2 ** Math.max(0, this.activeFailureStreakByProvider[provider] - 1),
+          ? activeFailureRefetchThrottleMs(
+              this.activeFailureStreakByProvider[provider],
+              ACTIVE_FAILURE_REFETCH_MS,
               MAX_ACTIVE_FAILURE_REFETCH_MS
             )
           : MIN_REFETCH_MS

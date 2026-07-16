@@ -410,6 +410,20 @@ never shipped. The factory = fuse them.
   BOTH sides (Rust `matches_shared_parity_corpus` + TS `daemon-stream-keep-tail-drop.test.ts`). 19 Rust +
   11 TS green. Two shipped units now carry the full certificate+parity pair; the recipe scales to any
   scalar-decision port.
+  **✅ 3rd E1 unit LANDED 2026-07-16** (`orca-provider-backoff`) — the recipe applied across a THIRD
+  production subsystem (rate-limits, not PTY), and it adds a NEW invariant class the flow-control units
+  didn't: a *saturating exponential*. Ports the inline refetch throttle from
+  `src/main/rate-limits/service.ts` — `min(30s·2^max(0,streak-1), 15min)` — extracted to a pure TS module
+  `active-failure-backoff.ts` (service now calls it) with a Rust twin. Certificate `proofs/ay/bo1..bo3`
+  (UNSAT) prove `throttle∈[30s,15min]`, monotone-in-streak, and exact saturation at the ceiling — the
+  exponential `2^max(0,streak-1)` abstracted as a free `p≥1` so `30000·p` is *linear* in QF_LIA; `bo_c1/
+  bo_c2` (SAT) prove non-vacuity + a tight floor. `verify.sh` 5/5. A DISTINCT second obligation —
+  overflow-safety of the finite-width Rust `1u64<<exp` for any `u32` streak — is separated out and
+  discharged by the crate tests (called at `u32::MAX`), with bo3 supplying the soundness (past p=30 only
+  `≥30` matters, so clamping a huge shift to `u64::MAX` yields the same MAX). Parity `parity-corpus.txt`
+  one oracle, Rust + TS. 5 Rust + 2 TS parity green, 311 rate-limits service tests unchanged. THREE
+  shipped units, two subsystems, three invariant families (hysteresis, linear clamp, saturating
+  exponential) — the E1 factory is real, not a one-off.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

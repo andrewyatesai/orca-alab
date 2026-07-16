@@ -1,0 +1,24 @@
+# Provider rate-limit refetch-backoff TS↔Rust differential parity corpus (E1 unit).
+#
+# ONE shared oracle, run by BOTH implementations:
+#   - Rust: orca-provider-backoff::active_failure_refetch_throttle_ms (include_str! this file)
+#   - TS:   activeFailureRefetchThrottleMs (src/main/rate-limits/active-failure-backoff.ts)
+# throttle(streak) = min(30000 * 2^max(0, streak-1), 900000).
+#
+# Rows 0..8 are the caller's real streak domain (clamped at MAX_ACTIVE_FAILURE_STREAK=8);
+# the large rows document that both sides saturate identically far past the cap
+# (Rust via saturating shift/mul, TS via 2**big overflowing to a value still >= MAX).
+#
+# Format: `<streak> => <throttleMs>`
+0    => 30000
+1    => 30000
+2    => 60000
+3    => 120000
+4    => 240000
+5    => 480000
+6    => 900000
+7    => 900000
+8    => 900000
+20   => 900000
+63   => 900000
+1000 => 900000

@@ -1,0 +1,3 @@
+# ay writes proof traces next to each .smt2 on solve; they are regenerated per
+# run and must not be committed.
+*.alethe

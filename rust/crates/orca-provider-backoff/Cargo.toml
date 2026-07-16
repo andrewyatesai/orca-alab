@@ -1,0 +1,16 @@
+[package]
+name = "orca-provider-backoff"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Provider rate-limit refetch backoff decision core (pure capped-exponential-backoff sizing ported from src/main/rate-limits/service.ts)."
+
+# Deliberately zero-dependency: a pure scalar decision core (failure streak ->
+# refetch throttle ms), kept free of IO/service state so it stays trivially
+# testable and machine-checkable. Same E1 pair as orca-flow-control: proven
+# equivalent to the TS by a shared parity corpus, proven correct by proofs/ay.
+
+[lints.rust]
+unsafe_code = "forbid"

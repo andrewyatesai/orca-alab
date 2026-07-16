@@ -24,6 +24,7 @@ members = [
     "crates/orca-git",
     "crates/orca-net",
     "crates/orca-parity",
+    "crates/orca-provider-backoff",
     "crates/orca-pty",
     "crates/orca-relay",
     "crates/orca-runtime",

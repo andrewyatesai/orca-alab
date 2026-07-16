@@ -116,6 +116,12 @@ export function useRuntimeFileListForWorktree({
     kind: 'unresolved'
   })
   const lastRequestKeyRef = useRef('')
+  // The requestKey + operation owner of the last COMPLETED list (null after an
+  // error), so a same-key reopen can show the retained list instantly — with
+  // the owner it was listed under — and revalidate quietly instead of covering
+  // it with the loading state.
+  const lastResultKeyRef = useRef<string | null>(null)
+  const lastResultOwnerRef = useRef<FileExplorerOperationOwner>({ kind: 'unresolved' })
 
   const target = useMemo(
     () => getRuntimeFileListTarget(worktreeId, worktreePath, repoWorktrees),
@@ -180,7 +186,20 @@ export function useRuntimeFileListForWorktree({
     }
     lastRequestKeyRef.current = requestKey
     setLoadError(null)
-    setLoading(true)
+    // Stale-while-revalidate: a same-key reopen already shows the retained
+    // list — rescan in the background without flipping the palette to
+    // "Loading files...". Every open still revalidates; only the covering
+    // spinner is skipped. Matters most over SSH, where the full-tree rescan
+    // used to blank the palette on every Cmd+P.
+    const revalidatingSameKey = !requestKeyChanged && lastResultKeyRef.current === requestKey
+    if (revalidatingSameKey) {
+      // Re-pair the retained files with the owner they were listed under (the
+      // disable path resets it to 'unresolved'); file operations on the shown
+      // rows keep routing correctly during the quiet rescan.
+      setListedOperationOwner(lastResultOwnerRef.current)
+    } else {
+      setLoading(true)
+    }
 
     const excludePaths = excludeRequest.paths.length > 0 ? excludeRequest.paths : undefined
     const requestToken = createBrowserUuid()
@@ -201,12 +220,17 @@ export function useRuntimeFileListForWorktree({
         if (!cancelled) {
           setFiles(result)
           setListedOperationOwner(requestOperationOwner)
+          lastResultKeyRef.current = requestKey
+          lastResultOwnerRef.current = requestOperationOwner
         }
       })
       .catch((error) => {
         if (!cancelled) {
           setFiles([])
           setLoadError(cleanRuntimeFileListError(error))
+          // A failed rescan invalidates the retained result: the next open
+          // must show its real loading state, not a stale list.
+          lastResultKeyRef.current = null
         }
       })
       .finally(() => {

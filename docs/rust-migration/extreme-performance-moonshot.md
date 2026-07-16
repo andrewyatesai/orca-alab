@@ -471,6 +471,11 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
     that define their API directly in `lib.rs`, the shape of every small E1 core, so future promotions
     resolve cleanly); F2 corpus ratchet 1510→1521. This is the end-to-end proof the promote leg works;
     the remaining `[L]` is the *unattended* classify→port→verify→promote automation, not the seam.
+  - **Generalized by a second promotion 2026-07-16 (f2e83a4c6):** `orca-flow-control::keep_tail` — a u64
+    **division+clamp** core (`clamp(BUDGET / max(1,n), [MIN,MAX])`) + a `keepTail*2` drop cap, 2
+    functions — went through the seam the same way (parity 1431 / golden 1424, corpus 1521→1535). So the
+    promote leg now holds across two crates, three functions, and two distinct kernel classes
+    (shift/saturate + division/clamp) — evidence the pattern is general, not fitted to one lucky kernel.
 - **Port targets by measured heat:** P1 the onPtyData chunk-ingest core as one Rust scan pass
   (**UTF-16 code-unit seam mandatory** — napi string conversion replaces lone surrogates and PTY chunks
   split astral pairs; re-baseline heat on current main first). P2 — **re-scoped by measurement

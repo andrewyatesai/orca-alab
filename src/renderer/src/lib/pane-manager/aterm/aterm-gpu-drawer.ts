@@ -2,6 +2,7 @@ import { loadAtermGpu } from './load-aterm-gpu'
 import { createLazyFallbackFontInjector } from './inject-terminal-fallback-fonts'
 import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
+import { chromeCssMargins } from './aterm-chrome-box'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer-config'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -145,8 +146,9 @@ export async function loadAtermGpuDrawer(
             canvas.style.width = `${cssW}px`
             canvas.style.height = `${cssH}px`
             // Written explicitly both ways so toggling chrome off restores 0px.
-            canvas.style.marginLeft = `${-(chromePad / dpr)}px`
-            canvas.style.marginTop = `${-((chromePad + chromeHead) / dpr)}px`
+            const margins = chromeCssMargins(chromePad, chromeHead, dpr)
+            canvas.style.marginLeft = margins.marginLeft
+            canvas.style.marginTop = margins.marginTop
             lastCssW = cssW
             lastCssH = cssH
             lastChromePad = chromePad

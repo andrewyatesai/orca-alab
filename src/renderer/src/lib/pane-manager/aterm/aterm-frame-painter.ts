@@ -1,5 +1,6 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
 import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
+import { chromeCssMargins } from './aterm-chrome-box'
 import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
 import type { AtermDrawScheduler } from './aterm-draw-scheduler'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -83,8 +84,9 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
       canvas.style.width = `${cssW}px`
       canvas.style.height = `${cssH}px`
       // Written explicitly both ways so toggling chrome off restores 0px.
-      canvas.style.marginLeft = `${-(chromePad / dpr)}px`
-      canvas.style.marginTop = `${-((chromePad + chromeHead) / dpr)}px`
+      const margins = chromeCssMargins(chromePad, chromeHead, dpr)
+      canvas.style.marginLeft = margins.marginLeft
+      canvas.style.marginTop = margins.marginTop
       lastCssW = cssW
       lastCssH = cssH
       lastChromePad = chromePad

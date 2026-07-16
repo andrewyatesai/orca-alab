@@ -10,6 +10,7 @@ import type { AtermDrawerBuildConfig, AtermPainterBinding } from './aterm-drawer
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
 import { attachAtermWorkerRainFacade } from './aterm-worker-rain-facade'
+import { chromeCssMargins } from './aterm-chrome-box'
 
 // Per-pane client of the SHARED render worker (aterm-shared-render-worker): acquires
 // a paneId slot, transfers the pane's OffscreenCanvas, awaits the pane's first STATE,
@@ -111,8 +112,9 @@ export async function loadAtermWorkerEngine(
     // Window-space chrome grows the frame AROUND the grid; pull the box up-left by
     // the grid's offset so the grid stays put and only the chrome overhangs.
     // Written explicitly both ways so toggling chrome off restores 0px.
-    canvas.style.marginLeft = `${-(s.chromePadPx / dpr)}px`
-    canvas.style.marginTop = `${-((s.chromePadPx + s.chromeHeadPx) / dpr)}px`
+    const margins = chromeCssMargins(s.chromePadPx, s.chromeHeadPx, dpr)
+    canvas.style.marginLeft = margins.marginLeft
+    canvas.style.marginTop = margins.marginTop
     lastCanvasCssW = cssW
     lastCanvasCssH = cssH
     lastChromePad = s.chromePadPx

@@ -54,10 +54,10 @@ headless emulator, main headless emulator, worker wasm), **~6 UTF-8⇄UTF-16 tra
 copies, 4 independent batching queues, 4 distinct backpressure systems**. The daemon→client leg no
 longer rides NDJSON JSON strings when both ends are the fork's own daemon (v1020 binary stream plane,
 landed 2026-07-16 — the in-tree `src/main/daemon/binary-frame.ts` codec is now wired via
-`daemon-binary-stream-protocol.ts`). The remaining NDJSON leg is the coordinator SUBSCRIBER path
-(`src/shared/daemon-protocol-client.ts` — its byte transport is string-typed, so binary there needs a
-string→byte migration across the coordinator IPC tunnel; scoped, lower priority than the active
-terminal). The Rust daemon already owns PTYs by default on macOS/Linux
+`daemon-binary-stream-protocol.ts`). This now covers BOTH client stacks: the main app's
+`DaemonClient` AND the coordinator SUBSCRIBER path (`src/shared/daemon-protocol-client.ts` + the
+browser-safe `src/shared/daemon-binary-frame.ts` reader, over a byte-migrated coordinator IPC tunnel
+— landed 2026-07-16). The Rust daemon already owns PTYs by default on macOS/Linux
 (`src/main/daemon/daemon-init.ts:282-291`).
 
 Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The engine is already there.

@@ -117,7 +117,9 @@
     "gauntlet:provenance": "node tools/terminal-bench/gauntlet.mjs provenance",
     "gauntlet:certificates": "node tools/terminal-bench/gauntlet.mjs certificates",
     "gauntlet:bootstrap": "node tools/terminal-bench/gauntlet.mjs bootstrap",
-    "corpus:metrics": "node tools/parity-corpus-metrics.mjs"
+    "gauntlet:corpus": "node tools/terminal-bench/gauntlet.mjs corpus",
+    "corpus:metrics": "node tools/parity-corpus-metrics.mjs",
+    "corpus:check": "node tools/parity-corpus-metrics.mjs --check"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

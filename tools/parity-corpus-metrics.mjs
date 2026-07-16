@@ -27,6 +27,9 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { join, relative, resolve } from 'node:path'
 
 const repo = resolve(import.meta.dirname, '..')
+// The ratchet baseline: parity coverage may only GROW. A drop means a corpus was
+// deleted/shrunk (a regression in the machine-checked equivalence net) and fails.
+const BASELINE = join(repo, 'tools', 'terminal-bench', 'parity-corpus-baseline.json')
 
 // A corpus line that carries a case: not blank, not a `#` comment.
 const isCaseLine = (line) => {
@@ -123,9 +126,62 @@ function printSummary(m) {
   }
 }
 
+// The three totals the ratchet guards. Kept flat so the baseline file is a trivial
+// {key: number} map, like the census ratchet.
+const ratchetCounts = (m) => ({
+  totalCases: m.total.cases,
+  dispatchParityCases: m.dispatchParity.cases,
+  e1SharedCases: m.e1Shared.cases
+})
+
+// --check: fail (exit 2) if any guarded count dropped below the committed baseline;
+// growth is fine (exit 0). No baseline yet → exit 3 (generate it). --json prints the
+// structured comparison for a gate wrapper.
+function checkRatchet(m, wantJson) {
+  const current = ratchetCounts(m)
+  if (!existsSync(BASELINE)) {
+    console.log(
+      `no baseline at ${relative(repo, BASELINE)} — write it: node tools/parity-corpus-metrics.mjs --write-baseline`
+    )
+    return 3
+  }
+  const baseline = JSON.parse(readFileSync(BASELINE, 'utf8'))
+  const shrank = []
+  const grew = []
+  for (const [k, base] of Object.entries(baseline)) {
+    const cur = current[k]
+    if (typeof cur !== 'number') {
+      shrank.push(`${k}: missing from current metrics`)
+    } else if (cur < base) {
+      shrank.push(`${k}: ${cur} < baseline ${base}`)
+    } else if (cur > base) {
+      grew.push(`${k}: ${cur} > ${base}`)
+    }
+  }
+  const report = { status: shrank.length ? 'FAIL' : 'PASS', current, shrank, grew }
+  if (wantJson) {
+    console.log(JSON.stringify(report, null, 2))
+  } else if (shrank.length) {
+    console.log(`corpus ratchet FAIL — parity coverage shrank:\n  ${shrank.join('\n  ')}`)
+  } else {
+    console.log(
+      `corpus ratchet PASS — ${current.totalCases} cases${grew.length ? ` (grew: ${grew.join(', ')} — bump the baseline)` : ''}`
+    )
+  }
+  return shrank.length ? 2 : 0
+}
+
 function main() {
   const args = process.argv.slice(2)
   const m = collectMetrics()
+  if (args.includes('--write-baseline')) {
+    writeFileSync(BASELINE, `${JSON.stringify(ratchetCounts(m), null, 2)}\n`)
+    console.log(`wrote ${relative(repo, BASELINE)}: ${JSON.stringify(ratchetCounts(m))}`)
+    return 0
+  }
+  if (args.includes('--check')) {
+    return checkRatchet(m, args.includes('--json'))
+  }
   const outArg = args.find((a) => a.endsWith('.json') && a !== '--json')
   if (outArg) {
     writeFileSync(resolve(outArg), `${JSON.stringify(m, null, 2)}\n`)

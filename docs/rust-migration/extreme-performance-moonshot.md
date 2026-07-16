@@ -406,9 +406,11 @@ count of individually-verified kernels touched, below.)
   + E1 shared `*parity-corpus.txt` — the ad-hoc globs it replaces silently missed the plain
   `parity-corpus.txt` names) and publishes the Cedar-style headline: **1,510 machine-checked
   (input→expected-output) behavioral parity cases across 87 modules** (1,406 dispatch-parity / 79 modules
-  + 104 E1 / 8 corpora / 6 crates), each re-run every gauntlet pass. Remaining F2 half: auto-*record*
-  (input,output) pairs at the orca_dispatch seam + from vitest runs to GROW the corpora unattended
-  (a ratchet on this count, like the census axis, is the natural next gate).
+  + 104 E1 / 8 corpora / 6 crates), each re-run every gauntlet pass. **And GATED** (`gauntlet-corpus.mjs`,
+  new `corpus` axis in `all`, `pnpm gauntlet:corpus` / `corpus:check`): the count may only GROW —
+  `parity-corpus-baseline.json` ratchets it, a drop FAILs (a deleted/shrunk corpus is a regression in the
+  equivalence net). Remaining F2 half: auto-*record* (input,output) pairs at the orca_dispatch seam +
+  from vitest runs to GROW the corpora unattended.
 - **F3 Real TS front-end** [L]: vendor swc/oxc — inferred argspecs, auto-extracted oracles, generated
   Rust skeletons; agents only fill `todo!()` bodies. Target: an order-of-magnitude drop in
   agent-minutes-per-TRUSTED-pair.

@@ -21,8 +21,11 @@
 //   • certificates — the moonshot E1 pair, ENFORCED: discharge every decision-core crate's
 //                   ay certificate (rust/crates/*/proofs/ay/verify.sh) AND run its Rust parity
 //                   corpus. Auto-discovering; skipped (proves nothing) when ay is absent.
+//   • corpus      — the parity-corpus ratchet (moonshot F2): the machine-checked behavioral
+//                   parity case count (tools/parity-corpus-metrics.mjs vs parity-corpus-baseline.json)
+//                   may only GROW; a drop FAILs (a corpus was deleted/shrunk).
 //
-// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|certificates|all>
+// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|certificates|corpus|all>
 // Exit 0 = every gate green · 1 = a real FAIL · 2 = REVIEW (divergence to triage).
 // For `all`, a SKIP is NOT a pass: any skipped gate exits 2 so an environment that
 // can't run an axis never reads as green. A single-gate invocation may exit 0 on
@@ -36,6 +39,7 @@ import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 import { certificatesGate } from './gauntlet-certificates.mjs'
+import { corpusGate } from './gauntlet-corpus.mjs'
 
 const here = import.meta.dirname
 const repo = resolve(here, '..', '..')
@@ -586,6 +590,9 @@ function provenance() {
 // --- certificates: the moonshot E1 pair, enforced (extracted module) -------------
 const certificates = () => certificatesGate({ repo, sh, skip, rustupStable })
 
+// --- corpus: the parity-corpus ratchet (moonshot F2, extracted module) -----------
+const corpus = () => corpusGate({ repo, sh })
+
 // --- driver ----------------------------------------------------------------------
 const GATES = {
   bootstrap,
@@ -595,7 +602,8 @@ const GATES = {
   autoformalize,
   census,
   provenance,
-  certificates
+  certificates,
+  corpus
 }
 const mark = (s) =>
   ({
@@ -614,6 +622,7 @@ async function main() {
           'census',
           'provenance',
           'certificates',
+          'corpus',
           'conformance',
           'perf',
           'safety',

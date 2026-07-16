@@ -1,5 +1,6 @@
 import type { Repo } from '../shared/types'
 import { resolveLocalGitUsernameDetailed } from './git/git-username'
+import { mapWithConcurrency } from '../shared/map-with-concurrency'
 
 type RepoUsernameStore = {
   getRepos(): Repo[]
@@ -33,8 +34,10 @@ async function enrichRepoGitUsernamesInBackground(
       !repo.connectionId &&
       !attemptedLocations.has(getRepoLocationKey(repo))
   )
-  let changed = false
-  for (const repo of candidates) {
+  // Bounded fan-out (was one repo at a time): each probe is an independent
+  // local git spawn, and a serial chain made the usernames-settle window scale
+  // with fleet size.
+  const results = await mapWithConcurrency(candidates, 4, async (repo) => {
     attemptedLocations.add(getRepoLocationKey(repo))
     const { username, authoritative } = await resolveLocalGitUsernameDetailed(repo.path)
     // Why: a non-authoritative '' means a probe timed out and says nothing
@@ -42,13 +45,11 @@ async function enrichRepoGitUsernamesInBackground(
     // (including '') is the current truth: it must also CLEAR a stale
     // persisted username after the user removes github.user or logs out.
     if (!authoritative && !username) {
-      continue
+      return false
     }
-    if (store.setResolvedRepoGitUsername(repo.id, username)) {
-      changed = true
-    }
-  }
-  if (changed) {
+    return store.setResolvedRepoGitUsername(repo.id, username)
+  })
+  if (results.some(Boolean)) {
     options.onChanged?.()
   }
 }

@@ -1,5 +1,6 @@
 import type { Repo } from '../shared/types'
 import { detectGitRemoteIdentity } from './repo-git-remote-identity'
+import { mapWithConcurrency } from '../shared/map-with-concurrency'
 
 const NO_IDENTITY_RETRY_TTL_MS = 5 * 60 * 1000
 
@@ -75,30 +76,38 @@ async function enrichMissingRepoGitRemoteIdentitiesInBackground(
   const candidates = store
     .getRepos()
     .filter((repo) => repo.kind !== 'folder' && !repo.gitRemoteIdentity)
-  let changed = false
-  for (const repo of candidates) {
+  // Bounded fan-out instead of one-at-a-time: with a large repo fleet the
+  // serial probe chain stretched the identities-settle window by the sum of
+  // every git spawn. Per-location results stay guarded by the in-flight map.
+  const results = await mapWithConcurrency(candidates, 4, (repo) =>
     // Why: enrichment runs later; capture the location we probed so a mutable
     // store cannot make the stale-write guard compare against changed fields.
-    if (await enrichRepoGitRemoteIdentity(store, { ...repo })) {
-      changed = true
-    }
-  }
-  if (changed) {
+    enrichRepoGitRemoteIdentity(store, { ...repo })
+  )
+  if (results.some(Boolean)) {
     options.onChanged?.()
   }
 }
+
+let lastEnrichmentRunForTests: Promise<void> | null = null
 
 export function enrichMissingRepoGitRemoteIdentities(
   store: RepoIdentityStore,
   options: EnrichmentOptions = {}
 ): void {
-  void enrichMissingRepoGitRemoteIdentitiesInBackground(store, options).catch((error: unknown) => {
+  lastEnrichmentRunForTests = enrichMissingRepoGitRemoteIdentitiesInBackground(
+    store,
+    options
+  ).catch((error: unknown) => {
     console.error('[repo-identity] Failed to enrich git remote identities:', error)
   })
 }
 
 export async function flushRepoGitRemoteIdentityEnrichmentForTests(): Promise<void> {
   await Promise.all(inFlightProbesByLocation.values())
+  // The whole background run, not just the probes: onChanged fires after the
+  // bounded fan-out settles, several microtasks past probe resolution.
+  await lastEnrichmentRunForTests
 }
 
 export function resetRepoGitRemoteIdentityEnrichmentForTests(): void {

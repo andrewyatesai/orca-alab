@@ -9139,7 +9139,7 @@
             "scenes": {
               "title": "场景",
               "description": "氛围化的动画窗格背景。",
-              "unavailable": "引擎已包含场景框架，但内置场景素材正在重写，目前尚无可用场景。就绪后此处会显示选择器。"
+              "noPicker": "此引擎构建包含场景（{{names}}），但 Orca 尚未提供选择器。"
             }
           },
           "rendering": {
@@ -9147,6 +9147,22 @@
             "description": "引擎如何栅格化并呈现终端帧。",
             "gpuDescription": "WebGL2 GPU 呈现，并自动回退到 CPU 画布。",
             "gpuRowDescription": "“自动”在受支持时使用 GPU，否则回退到 CPU 渲染器。也可在“终端”设置中调整。",
+            "rendererStatus": {
+              "title": "渲染器",
+              "description": "新终端窗格当前采用的绘制路径。",
+              "valueGpu": "GPU (WebGL2)",
+              "valueCpu": "CPU",
+              "presentationWorker": "渲染 Worker",
+              "presentationInProcess": "进程内",
+              "newPanesNote": "适用于新窗格；GPU 初始化失败或丢失上下文的窗格会回退到 CPU 栅格化器。",
+              "reasonForcedOn": "测试覆盖强制启用 GPU 路径。",
+              "reasonForcedOff": "测试覆盖强制使用 CPU 路径。",
+              "reasonSettingOn": "GPU 加速已设为“开”。",
+              "reasonSettingOff": "GPU 加速已设为“关”。",
+              "reasonAutoAllowed": "自动：此 GPU 已通过渲染器安全检查。",
+              "reasonNoWebgl2": "无法创建 WebGL2 上下文，因此窗格使用 CPU 栅格化器。",
+              "reasonUnsafeRenderer": "自动：检测到软件渲染或无法识别的 GPU，因此窗格使用 CPU 栅格化器。"
+            },
             "backgroundOpacity": {
               "title": "背景不透明度",
               "description": "终端默认背景的不透明度；低于 1 时窗格背景可透视。"

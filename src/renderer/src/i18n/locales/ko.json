@@ -9139,7 +9139,7 @@
             "scenes": {
               "title": "장면",
               "description": "분위기 있는 애니메이션 창 배경입니다.",
-              "unavailable": "엔진에 장면 프레임워크가 포함되어 있지만 내장 장면 아트는 재작성 중이라 아직 사용할 수 있는 장면이 없습니다. 완성되면 여기에 선택기가 표시됩니다."
+              "noPicker": "이 엔진 빌드에는 장면({{names}})이 포함되어 있지만 Orca에는 아직 선택기가 없습니다."
             }
           },
           "rendering": {
@@ -9147,6 +9147,22 @@
             "description": "엔진이 터미널 프레임을 래스터화하고 표시하는 방식입니다.",
             "gpuDescription": "WebGL2 GPU 표시, CPU 캔버스로 자동 대체됩니다.",
             "gpuRowDescription": "자동은 지원되는 곳에서 GPU를 사용하고 그 외에는 CPU 렌더러로 대체합니다. 터미널 설정에서도 변경할 수 있습니다.",
+            "rendererStatus": {
+              "title": "렌더러",
+              "description": "새 터미널 창이 사용하는 현재 그리기 경로입니다.",
+              "valueGpu": "GPU (WebGL2)",
+              "valueCpu": "CPU",
+              "presentationWorker": "렌더 워커",
+              "presentationInProcess": "인프로세스",
+              "newPanesNote": "새 창에 적용됩니다. GPU 초기화에 실패하거나 컨텍스트를 잃은 창은 CPU 래스터라이저로 대체됩니다.",
+              "reasonForcedOn": "테스트 오버라이드가 GPU 경로를 강제로 켭니다.",
+              "reasonForcedOff": "테스트 오버라이드가 CPU 경로를 강제합니다.",
+              "reasonSettingOn": "GPU 가속이 '켜짐'으로 설정되어 있습니다.",
+              "reasonSettingOff": "GPU 가속이 '끄기'로 설정되어 있습니다.",
+              "reasonAutoAllowed": "자동: 이 GPU는 렌더러 안전 검사를 통과했습니다.",
+              "reasonNoWebgl2": "WebGL2 컨텍스트를 만들 수 없어 창이 CPU 래스터라이저를 사용합니다.",
+              "reasonUnsafeRenderer": "자동: 소프트웨어 GPU 또는 식별되지 않은 GPU가 감지되어 창이 CPU 래스터라이저를 사용합니다."
+            },
             "backgroundOpacity": {
               "title": "배경 불투명도",
               "description": "터미널 기본 배경의 불투명도입니다. 1 미만이면 창이 비쳐 보입니다."

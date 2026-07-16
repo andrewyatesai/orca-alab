@@ -83,6 +83,15 @@ describe('decideAtermGpu precedence', () => {
     expect(decideAtermGpu()).toEqual({ useGpu: true, reason: 'setting-on' })
   })
 
+  it('setting on is the escape hatch past the Wayland NVIDIA-proprietary denylist', () => {
+    // The shared gate's only remaining Wayland block is the NVIDIA proprietary
+    // stack (linux-wayland-nvidia-proprietary); the user setting must beat it.
+    settingsHolder.settings = { terminalGpuAcceleration: 'on' }
+    webglHolder.allowWebgl = false
+    expect(decideAtermGpu()).toEqual({ useGpu: true, reason: 'setting-on' })
+    expect(isAtermGpuEnabled()).toBe(true)
+  })
+
   it('setting on still falls back to CPU when no webgl2 context is creatable', () => {
     settingsHolder.settings = { terminalGpuAcceleration: 'on' }
     probeHolder.available = false

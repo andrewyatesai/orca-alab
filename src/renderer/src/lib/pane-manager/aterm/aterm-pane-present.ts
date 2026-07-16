@@ -1,3 +1,7 @@
+import {
+  markTerminalInteractivePresentStart,
+  measureTerminalFramePresented
+} from '../../../../../shared/terminal-perf-marks'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermDrawScheduler } from './aterm-draw-scheduler'
 import type { AtermEffectsDrive } from './aterm-effects-drive'
@@ -116,7 +120,11 @@ export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPan
     // NOW; the painter consumes (cancelling the armed rAF/backstop), so the eager
     // paint never doubles up with the coalesced one.
     drawScheduler.schedule()
+    // ws-proof perf contract: stamp the interactive fast path so the local perf
+    // gauntlet (and DevTools) can measure keydown→frame-presented without a HUD.
+    markTerminalInteractivePresentStart()
     doPresent()
+    measureTerminalFramePresented()
     presentedThisFrame = true
     // Re-open the gate at the next frame so subsequent keystrokes present eagerly too.
     requestAnimationFrame(() => {

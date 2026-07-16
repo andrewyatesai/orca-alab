@@ -63,9 +63,11 @@ export function decideAtermGpu(): AtermGpuDecision {
     return { useGpu: true, reason: 'setting-on' }
   }
 
-  // auto: reuse the xterm WebGL gate — it allows non-Linux hosts and identifiable
-  // Linux hardware GPUs, and rejects software/unknown renderers (where hardware
-  // corruption can leave WebGL alive but rendering wrong). CPU is the fallback.
+  // auto: reuse the shared WebGL gate — it allows non-Linux hosts and identifiable
+  // Linux hardware GPUs (Wayland included; only the NVIDIA-proprietary-on-Wayland
+  // #5319 config stays denylisted pending a rig re-test), and rejects software/
+  // unknown renderers. CPU is the fallback, and aterm-strategy-select still
+  // downgrades at runtime on GPU-init hang/failure or context loss.
   return getTerminalWebglAutoDecision().allowWebgl
     ? { useGpu: true, reason: 'auto-allowed' }
     : { useGpu: false, reason: 'auto-unsafe-renderer' }

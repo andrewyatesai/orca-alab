@@ -4,7 +4,7 @@ export type TerminalWebglAutoDecision = {
     | 'non-linux-hardware-renderer'
     | 'non-linux-renderer-unknown'
     | 'non-linux-software-renderer'
-    | 'linux-wayland'
+    | 'linux-wayland-nvidia-proprietary'
     | 'linux-hardware-renderer'
     | 'linux-webgl2-unavailable'
     | 'linux-renderer-unavailable'
@@ -22,6 +22,16 @@ let cachedDecision: TerminalWebglAutoDecision | null = null
 // variants; `basic render`/`microsoft basic render` is the Windows WARP driver.
 const SOFTWARE_RENDERER_PATTERN =
   /\b(swiftshader|llvmpipe|softpipe|software|basic render|microsoft basic render driver|virgl|svga3d)\b/i
+
+// Why: the #5319 input wedge (eager GPU-channel setup on Wayland) is fixed at
+// the Chromium layer (configure-process.ts establishes the channel lazily and
+// drops the GPU sandbox there), and aterm guarantees a CPU fallback on GPU-init
+// hang/failure/context loss (aterm-strategy-select.ts). The one config still
+// awaiting a real-rig re-test is the NVIDIA proprietary driver stack on Wayland,
+// so only it stays denylisted. Open Mesa drivers (Intel/AMD radeonsi, nouveau,
+// NVK/zink) identify as "Mesa"/"nouveau"/"NVK" — never "NVIDIA" — so this only
+// matches the proprietary stack (plain GL and ANGLE identity strings alike).
+const WAYLAND_NVIDIA_PROPRIETARY_PATTERN = /\bnvidia\b/i
 
 export function resetTerminalWebglAutoDecision(): void {
   cachedDecision = null
@@ -127,18 +137,6 @@ export function getTerminalWebglAutoDecision(): TerminalWebglAutoDecision {
     return cachedDecision
   }
 
-  if (readRendererDisplayServer() === 'wayland') {
-    // Why: #5319 can wedge terminal input during xterm WebGL context creation
-    // on Linux Wayland before xterm reports a recoverable context-loss event.
-    cachedDecision = {
-      allowWebgl: false,
-      reason: 'linux-wayland',
-      renderer: null,
-      vendor: null
-    }
-    return cachedDecision
-  }
-
   const rendererInfo = readWebglRendererInfo()
   if (!rendererInfo.hasWebgl2) {
     cachedDecision = {
@@ -167,6 +165,22 @@ export function getTerminalWebglAutoDecision(): TerminalWebglAutoDecision {
     cachedDecision = {
       allowWebgl: false,
       reason: 'linux-software-renderer',
+      renderer: rendererInfo.renderer,
+      vendor: rendererInfo.vendor
+    }
+    return cachedDecision
+  }
+
+  // Targeted #5319 remnant (see WAYLAND_NVIDIA_PROPRIETARY_PATTERN). Escape
+  // hatches: terminalGpuAcceleration 'on' bypasses this auto gate entirely, and
+  // ELECTRON_OZONE_PLATFORM_HINT=x11 takes the session off Wayland altogether.
+  if (
+    readRendererDisplayServer() === 'wayland' &&
+    WAYLAND_NVIDIA_PROPRIETARY_PATTERN.test(identity)
+  ) {
+    cachedDecision = {
+      allowWebgl: false,
+      reason: 'linux-wayland-nvidia-proprietary',
       renderer: rendererInfo.renderer,
       vendor: rendererInfo.vendor
     }

@@ -8,6 +8,8 @@ import { clearPendingSplitScrollRestore } from './pane-split-scroll'
 import { cancelDeferredScrollRestore } from './pane-scroll'
 import { shouldFocusTerminalFromPanePointerDown } from './pane-pointer-focus'
 import { openAtermPane } from './aterm/aterm-pane-open'
+import { resolveAtermThemeColors } from './aterm/aterm-theme-colors'
+import { engineColorToCss } from '../terminal-themes/engine-color-css'
 import { createAtermTerminalFacade } from './aterm/aterm-terminal-facade'
 import {
   createAtermFitAddonFacade,
@@ -34,6 +36,12 @@ export function createPaneDOM(
   container.className = 'pane'
   container.dataset.paneId = String(id)
   container.dataset.leafId = leafId
+  // Never-blank first paint: the engine's first frame can be seconds away (wasm
+  // compile + font fetch + GL acquire), so seed the container with the active
+  // theme background NOW — the pane reads as a themed surface the instant it
+  // exists and the engine's identical bg paints over it seamlessly. Kept in
+  // sync on live re-themes by openAtermPane's updateTheme hook.
+  container.style.background = engineColorToCss(resolveAtermThemeColors().bg)
 
   // Create .xterm-container — baseline layout (position, width, height, margin)
   // is CSS-driven (see main.css .xterm-container) so that the data-has-title

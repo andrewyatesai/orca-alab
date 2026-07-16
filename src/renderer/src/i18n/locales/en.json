@@ -9139,7 +9139,7 @@
             "scenes": {
               "title": "Scenes",
               "description": "Ambient animated pane backgrounds.",
-              "unavailable": "The engine ships the scene framework, but its built-in scene art is being rewritten and no scenes are available yet. A picker will appear here when they land."
+              "noPicker": "This engine build ships scenes ({{names}}), but Orca doesn’t expose a picker yet."
             }
           },
           "rendering": {
@@ -9147,6 +9147,22 @@
             "description": "How the engine rasterizes and presents terminal frames.",
             "gpuDescription": "WebGL2 GPU presentation with automatic CPU-canvas fallback.",
             "gpuRowDescription": "Auto uses the GPU where supported and falls back to the CPU renderer. Also set in Terminal settings.",
+            "rendererStatus": {
+              "title": "Renderer",
+              "description": "The live draw path new terminal panes take.",
+              "valueGpu": "GPU (WebGL2)",
+              "valueCpu": "CPU",
+              "presentationWorker": "render worker",
+              "presentationInProcess": "in-process",
+              "newPanesNote": "Applies to new panes; a pane whose GPU init fails or loses its context falls back to the CPU rasterizer.",
+              "reasonForcedOn": "A test override forces the GPU path on.",
+              "reasonForcedOff": "A test override forces the CPU path.",
+              "reasonSettingOn": "GPU acceleration is set to On.",
+              "reasonSettingOff": "GPU acceleration is set to Off.",
+              "reasonAutoAllowed": "Auto: this GPU passed the renderer safety checks.",
+              "reasonNoWebgl2": "No WebGL2 context could be created, so panes use the CPU rasterizer.",
+              "reasonUnsafeRenderer": "Auto: a software or unidentified GPU was detected, so panes use the CPU rasterizer."
+            },
             "backgroundOpacity": {
               "title": "Background Opacity",
               "description": "Opacity of the default terminal background; below 1 the pane shows through."

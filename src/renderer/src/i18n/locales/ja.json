@@ -9139,7 +9139,7 @@
             "scenes": {
               "title": "シーン",
               "description": "環境アニメーションのペイン背景。",
-              "unavailable": "エンジンはシーンのフレームワークを備えていますが、組み込みのシーンアートは作り直し中で、まだ利用できるシーンがありません。完成するとここにピッカーが表示されます。"
+              "noPicker": "このエンジンビルドにはシーン（{{names}}）が含まれていますが、Orca にはまだピッカーがありません。"
             }
           },
           "rendering": {
@@ -9147,6 +9147,22 @@
             "description": "エンジンがターミナルフレームをラスタライズして表示する方法。",
             "gpuDescription": "WebGL2 GPU による表示。CPU キャンバスへの自動フォールバック付き。",
             "gpuRowDescription": "「自動」は対応環境で GPU を使い、非対応時は CPU レンダラーにフォールバックします。ターミナル設定でも変更できます。",
+            "rendererStatus": {
+              "title": "レンダラー",
+              "description": "新しいターミナルペインが使用する現在の描画パス。",
+              "valueGpu": "GPU (WebGL2)",
+              "valueCpu": "CPU",
+              "presentationWorker": "レンダーワーカー",
+              "presentationInProcess": "インプロセス",
+              "newPanesNote": "新しいペインに適用されます。GPU の初期化に失敗したり、コンテキストを失ったペインは CPU ラスタライザーにフォールバックします。",
+              "reasonForcedOn": "テスト用オーバーライドにより GPU パスが強制されています。",
+              "reasonForcedOff": "テスト用オーバーライドにより CPU パスが強制されています。",
+              "reasonSettingOn": "GPU アクセラレーションが「オン」に設定されています。",
+              "reasonSettingOff": "GPU アクセラレーションが「オフ」に設定されています。",
+              "reasonAutoAllowed": "自動: この GPU はレンダラーの安全チェックに合格しました。",
+              "reasonNoWebgl2": "WebGL2 コンテキストを作成できなかったため、ペインは CPU ラスタライザーを使用します。",
+              "reasonUnsafeRenderer": "自動: ソフトウェアまたは不明な GPU が検出されたため、ペインは CPU ラスタライザーを使用します。"
+            },
             "backgroundOpacity": {
               "title": "背景の不透明度",
               "description": "ターミナルの既定背景の不透明度。1 未満ではペインが透けて見えます。"

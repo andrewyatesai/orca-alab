@@ -7,11 +7,56 @@ import {
 } from './SettingsFormControls'
 import { SearchableSetting } from './SearchableSetting'
 import { normalizeTerminalOpacity } from '@/lib/pane-manager/aterm/aterm-controller-option-readers'
+import {
+  readTerminalEngineRendererStatus,
+  type TerminalEngineRendererStatus
+} from './terminal-engine-renderer-status'
 import { translate } from '@/i18n/i18n'
 
 type TerminalEngineRenderingSectionProps = {
   settings: GlobalSettings
   updateSettings: (updates: Partial<GlobalSettings>) => void
+}
+
+/** Localized "why this path" line for the live renderer-status row. */
+function rendererStatusReasonText(status: TerminalEngineRendererStatus): string {
+  switch (status.reason) {
+    case 'forced-on':
+      return translate(
+        'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.reasonForcedOn',
+        'A test override forces the GPU path on.'
+      )
+    case 'forced-off':
+      return translate(
+        'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.reasonForcedOff',
+        'A test override forces the CPU path.'
+      )
+    case 'setting-on':
+      return translate(
+        'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.reasonSettingOn',
+        'GPU acceleration is set to On.'
+      )
+    case 'setting-off':
+      return translate(
+        'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.reasonSettingOff',
+        'GPU acceleration is set to Off.'
+      )
+    case 'auto-allowed':
+      return translate(
+        'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.reasonAutoAllowed',
+        'Auto: this GPU passed the renderer safety checks.'
+      )
+    case 'auto-no-webgl2':
+      return translate(
+        'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.reasonNoWebgl2',
+        'No WebGL2 context could be created, so panes use the CPU rasterizer.'
+      )
+    case 'auto-unsafe-renderer':
+      return translate(
+        'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.reasonUnsafeRenderer',
+        'Auto: a software or unidentified GPU was detected, so panes use the CPU rasterizer.'
+      )
+  }
 }
 
 /** Engine-panel Rendering group. Re-surfaces the SAME store values as the
@@ -20,6 +65,29 @@ export function TerminalEngineRenderingSection({
   settings,
   updateSettings
 }: TerminalEngineRenderingSectionProps): React.JSX.Element {
+  // Computed per render (cheap: cached probe + a store read) so the status row
+  // always agrees with the GPU control above it the moment the setting flips.
+  const rendererStatus = readTerminalEngineRendererStatus()
+  const rendererStatusValue = [
+    rendererStatus.path === 'gpu'
+      ? translate(
+          'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.valueGpu',
+          'GPU (WebGL2)'
+        )
+      : translate(
+          'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.valueCpu',
+          'CPU'
+        ),
+    rendererStatus.workerPresentation
+      ? translate(
+          'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.presentationWorker',
+          'render worker'
+        )
+      : translate(
+          'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.presentationInProcess',
+          'in-process'
+        )
+  ].join(' · ')
   return (
     <section key="engine-rendering" className="space-y-3">
       <SettingsSubsectionHeader
@@ -73,6 +141,40 @@ export function TerminalEngineRenderingSection({
                   }
                 ]}
               />
+            }
+          />
+        </SearchableSetting>
+
+        <SearchableSetting
+          title={translate(
+            'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.title',
+            'Renderer'
+          )}
+          description={translate(
+            'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.description',
+            'The live draw path new terminal panes take.'
+          )}
+          keywords={['renderer', 'gpu', 'cpu', 'webgl', 'status', 'adapter', 'worker', 'angle']}
+        >
+          <SettingsRow
+            label={translate(
+              'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.title',
+              'Renderer'
+            )}
+            description={
+              <>
+                {rendererStatusReasonText(rendererStatus)}{' '}
+                {translate(
+                  'auto.components.settings.TerminalEnginePane.rendering.rendererStatus.newPanesNote',
+                  'Applies to new panes; a pane whose GPU init fails or loses its context falls back to the CPU rasterizer.'
+                )}
+                {rendererStatus.adapter ? (
+                  <span className="block truncate font-mono">{rendererStatus.adapter}</span>
+                ) : null}
+              </>
+            }
+            control={
+              <span className="font-mono text-xs text-muted-foreground">{rendererStatusValue}</span>
             }
           />
         </SearchableSetting>

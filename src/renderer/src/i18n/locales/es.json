@@ -9139,7 +9139,7 @@
             "scenes": {
               "title": "Escenas",
               "description": "Fondos de panel animados y ambientales.",
-              "unavailable": "El motor incluye el marco de escenas, pero su arte integrado se está reescribiendo y aún no hay escenas disponibles. Aquí aparecerá un selector cuando lleguen."
+              "noPicker": "Esta compilación del motor incluye escenas ({{names}}), pero Orca aún no ofrece un selector."
             }
           },
           "rendering": {
@@ -9147,6 +9147,22 @@
             "description": "Cómo el motor rasteriza y presenta los fotogramas del terminal.",
             "gpuDescription": "Presentación por GPU WebGL2 con retorno automático al lienzo por CPU.",
             "gpuRowDescription": "Auto usa la GPU donde es compatible y recurre al renderizador por CPU. También se ajusta en los ajustes de Terminal.",
+            "rendererStatus": {
+              "title": "Renderizador",
+              "description": "La ruta de dibujo activa que toman los paneles de terminal nuevos.",
+              "valueGpu": "GPU (WebGL2)",
+              "valueCpu": "CPU",
+              "presentationWorker": "worker de renderizado",
+              "presentationInProcess": "dentro del proceso",
+              "newPanesNote": "Se aplica a los paneles nuevos; un panel cuya inicialización de GPU falla o que pierde su contexto recurre al rasterizador por CPU.",
+              "reasonForcedOn": "Una anulación de prueba fuerza la ruta de GPU.",
+              "reasonForcedOff": "Una anulación de prueba fuerza la ruta de CPU.",
+              "reasonSettingOn": "La aceleración de GPU está establecida en «Activado».",
+              "reasonSettingOff": "La aceleración de GPU está establecida en «Desactivado».",
+              "reasonAutoAllowed": "Auto: esta GPU superó las comprobaciones de seguridad del renderizador.",
+              "reasonNoWebgl2": "No se pudo crear un contexto WebGL2, así que los paneles usan el rasterizador por CPU.",
+              "reasonUnsafeRenderer": "Auto: se detectó una GPU por software o no identificada, así que los paneles usan el rasterizador por CPU."
+            },
             "backgroundOpacity": {
               "title": "Opacidad del fondo",
               "description": "Opacidad del fondo por defecto del terminal; por debajo de 1 el panel se transparenta."

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { GlobalSettings, TerminalCursorGlowStyle } from '../../../../shared/types'
 import {
   SettingsRow,
@@ -9,6 +10,7 @@ import {
 import { SearchableSetting } from './SearchableSetting'
 import { TerminalEngineEffectsDemo } from './TerminalEngineEffectsDemo'
 import { prefersReducedMotion } from '@/lib/pane-manager/aterm/aterm-effects-settings'
+import { listAtermSceneNames } from './terminal-engine-scene-availability'
 import { translate } from '@/i18n/i18n'
 
 type TerminalEngineEffectsSectionProps = {
@@ -39,6 +41,20 @@ export function TerminalEngineEffectsSection({
 }: TerminalEngineEffectsSectionProps): React.JSX.Element {
   const sparkleOn = settings.terminalEffectsSparkleWords ?? true
   const reducedMotion = prefersReducedMotion()
+  // Scenes only get a row when the vendored engine actually ships scene art —
+  // today the registry is empty, and an always-on "coming soon" row overclaims.
+  const [sceneNames, setSceneNames] = useState<readonly string[]>([])
+  useEffect(() => {
+    let live = true
+    void listAtermSceneNames().then((names) => {
+      if (live) {
+        setSceneNames(names)
+      }
+    })
+    return () => {
+      live = false
+    }
+  }, [])
 
   // Class gates only take effect while the master is on — mirror that with a
   // disabled switch instead of hiding the rows (discoverability).
@@ -246,29 +262,32 @@ export function TerminalEngineEffectsSection({
           />
         </SearchableSetting>
 
-        <SearchableSetting
-          title={translate(
-            'auto.components.settings.TerminalEnginePane.effects.scenes.title',
-            'Scenes'
-          )}
-          description={translate(
-            'auto.components.settings.TerminalEnginePane.effects.scenes.description',
-            'Ambient animated pane backgrounds.'
-          )}
-          keywords={['scene', 'scenes', 'background', 'meadow', 'ambient']}
-        >
-          <SettingsRow
-            label={translate(
+        {sceneNames.length > 0 ? (
+          <SearchableSetting
+            title={translate(
               'auto.components.settings.TerminalEnginePane.effects.scenes.title',
               'Scenes'
             )}
             description={translate(
-              'auto.components.settings.TerminalEnginePane.effects.scenes.unavailable',
-              'The engine ships the scene framework, but its built-in scene art is being rewritten and no scenes are available yet. A picker will appear here when they land.'
+              'auto.components.settings.TerminalEnginePane.effects.scenes.description',
+              'Ambient animated pane backgrounds.'
             )}
-            control={null}
-          />
-        </SearchableSetting>
+            keywords={['scene', 'scenes', 'background', 'ambient']}
+          >
+            <SettingsRow
+              label={translate(
+                'auto.components.settings.TerminalEnginePane.effects.scenes.title',
+                'Scenes'
+              )}
+              description={translate(
+                'auto.components.settings.TerminalEnginePane.effects.scenes.noPicker',
+                'This engine build ships scenes ({{names}}), but Orca doesn’t expose a picker yet.',
+                { names: sceneNames.join(', ') }
+              )}
+              control={null}
+            />
+          </SearchableSetting>
+        ) : null}
       </div>
     </section>
   )

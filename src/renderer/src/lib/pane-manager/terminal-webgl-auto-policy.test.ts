@@ -151,16 +151,107 @@ describe('terminal WebGL auto policy', () => {
     })
   })
 
-  it('keeps Linux auto panes on DOM for Wayland before probing WebGL', () => {
+  // Wayland decision table: the #5319-era unconditional CPU gate is narrowed to
+  // the one config still awaiting a real-rig re-test (NVIDIA proprietary). Open
+  // Mesa drivers ride the GPU path; aterm's init-timeout + CPU fallback is the
+  // runtime safety net.
+  it.each([
+    ['Intel Mesa', 'Mesa Intel(R) UHD Graphics 770 (ADL-S GT1)', 'Intel'],
+    ['AMD radeonsi', 'AMD Radeon RX 7800 XT (radeonsi, navi32, LLVM 17.0.6)', 'AMD'],
+    ['nouveau', 'NV137', 'nouveau'],
+    ['NVK via zink', 'zink Vulkan 1.3 (NVK AD102)', 'Mesa']
+  ])('allows Wayland auto panes on open hardware drivers (%s)', (_label, renderer, vendor) => {
+    stubNavigator('Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64)')
+    stubDisplayServer('wayland')
+    stubWebglRendererInfo({ renderer, vendor })
+
+    expect(getTerminalWebglAutoDecision()).toEqual({
+      allowWebgl: true,
+      reason: 'linux-hardware-renderer',
+      renderer,
+      vendor
+    })
+  })
+
+  it.each([
+    ['NVIDIA GeForce RTX 3080/PCIe/SSE2', 'NVIDIA Corporation'],
+    ['ANGLE (NVIDIA, NVIDIA GeForce RTX 4090, OpenGL 4.5.0 NVIDIA 550.54.14)', 'Google Inc.']
+  ])(
+    'keeps Wayland auto panes on CPU for the NVIDIA proprietary stack (%s)',
+    (renderer, vendor) => {
+      stubNavigator('Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64)')
+      stubDisplayServer('wayland')
+      stubWebglRendererInfo({ renderer, vendor })
+
+      expect(getTerminalWebglAutoDecision()).toEqual({
+        allowWebgl: false,
+        reason: 'linux-wayland-nvidia-proprietary',
+        renderer,
+        vendor
+      })
+    }
+  )
+
+  it('allows NVIDIA proprietary on X11 — the denylist is Wayland-scoped', () => {
+    stubNavigator('Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64)')
+    stubDisplayServer('x11')
+    stubWebglRendererInfo({
+      renderer: 'NVIDIA GeForce RTX 3080/PCIe/SSE2',
+      vendor: 'NVIDIA Corporation'
+    })
+
+    expect(getTerminalWebglAutoDecision()).toMatchObject({
+      allowWebgl: true,
+      reason: 'linux-hardware-renderer'
+    })
+  })
+
+  it('allows NVIDIA proprietary when the display server is unknown', () => {
+    // Only a CONFIRMED Wayland session applies the wedge denylist — an unknown
+    // display server keeps the historical hardware-renderer default.
+    stubNavigator('Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64)')
+    stubDisplayServer(null)
+    stubWebglRendererInfo({
+      renderer: 'NVIDIA GeForce RTX 3080/PCIe/SSE2',
+      vendor: 'NVIDIA Corporation'
+    })
+
+    expect(getTerminalWebglAutoDecision()).toMatchObject({
+      allowWebgl: true,
+      reason: 'linux-hardware-renderer'
+    })
+  })
+
+  it('still blocks software renderers on Wayland ahead of the NVIDIA denylist', () => {
+    stubNavigator('Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64)')
+    stubDisplayServer('wayland')
+    stubWebglRendererInfo({ renderer: 'llvmpipe (LLVM 17.0.6, 256 bits)', vendor: 'Mesa/X.org' })
+
+    expect(getTerminalWebglAutoDecision()).toMatchObject({
+      allowWebgl: false,
+      reason: 'linux-software-renderer'
+    })
+  })
+
+  it('reports webgl2-unavailable on Wayland instead of a blanket wayland block', () => {
     stubNavigator('Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64)')
     stubDisplayServer('wayland')
     stubNoDocument()
 
-    expect(getTerminalWebglAutoDecision()).toEqual({
+    expect(getTerminalWebglAutoDecision()).toMatchObject({
       allowWebgl: false,
-      reason: 'linux-wayland',
-      renderer: null,
-      vendor: null
+      reason: 'linux-webgl2-unavailable'
+    })
+  })
+
+  it('keeps Wayland auto panes on CPU when renderer identity is hidden', () => {
+    stubNavigator('Linux x86_64', 'Mozilla/5.0 (X11; Linux x86_64)')
+    stubDisplayServer('wayland')
+    stubWebglRendererInfo({ hasDebugInfo: false })
+
+    expect(getTerminalWebglAutoDecision()).toMatchObject({
+      allowWebgl: false,
+      reason: 'linux-renderer-unavailable'
     })
   })
 

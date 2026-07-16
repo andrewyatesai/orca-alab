@@ -99,6 +99,8 @@
     "bench:cold-park-reveal": "pnpm run ensure:electron-runtime && node tools/benchmarks/terminal-cold-park-reveal-bench.mjs",
     "bench:cold-park-resource": "pnpm run ensure:electron-runtime && node tools/benchmarks/terminal-cold-park-resource-bench.mjs",
     "bench:compare": "node config/scripts/compare-benchmark-artifacts.mjs",
+    "bench:perf": "pnpm run ensure:electron-runtime && node tools/benchmarks/perf-proof-run.mjs",
+    "bench:check": "node tools/benchmarks/perf-proof-check.mjs",
     "parity": "node config/scripts/run-parity.mjs",
     "parity:daemon": "node tools/daemon-parity/run.mjs",
     "check:aterm-pin": "node config/scripts/check-aterm-artifact-pin.mjs",

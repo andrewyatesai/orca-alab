@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "machine": {
+    "key": "darwin-arm64",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpus": "Apple M5 Max"
+  },
+  "thresholdPct": 15,
+  "runs": [
+    {
+      "capturedAt": "2026-07-05T10:18:06.334Z",
+      "label": "seed",
+      "commit": "0fbda56e0-dirty",
+      "metrics": {
+        "keydown_to_frame_p50_ms": 1.399999976158142,
+        "keydown_to_frame_p95_ms": 2,
+        "render_half_cpu_p50_ms": 6.199999988079071,
+        "render_half_gpu_p50_ms": 0.10000002384185791,
+        "cpu_frame_80x24_sparse_ms": 6.042500000198682,
+        "gpu_frame_80x24_sparse_ms": 0.09500000029802322,
+        "gpu_frame_200x50_full_ms": 0.28166666676600777,
+        "wasm_kb_per_pane": 5920,
+        "startup_did_finish_load_ms": 469.9,
+        "startup_workspace_ready_ms": 567.3,
+        "engine_throughput_ascii_ms": 1.2185,
+        "engine_comparative_aterm_ascii_mibps": 883.61,
+        "engine_throughput_sgr_ms": 2.8168,
+        "engine_comparative_aterm_sgr_mibps": 365.97,
+        "engine_throughput_cjk_ms": 1.8493,
+        "engine_comparative_aterm_cjk_mibps": 576.95
+      }
+    }
+  ]
+}

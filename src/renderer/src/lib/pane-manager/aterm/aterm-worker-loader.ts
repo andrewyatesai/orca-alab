@@ -3,6 +3,7 @@ import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import { createWorkerBackedTerm, type WorkerBackedTerm } from './aterm-worker-term'
 import { createAtermWorkerOverlay, type AtermWorkerOverlay } from './aterm-worker-overlay'
 import { acquireAtermSharedWorkerPane } from './aterm-shared-render-worker'
+import { noteRealAtermWorkerPaneAcquired } from './aterm-worker-prewarm'
 import type { AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
 import { e2eConfig } from '@/lib/e2e-config'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
@@ -43,6 +44,9 @@ export async function loadAtermWorkerEngine(
   // Fallible (font/asset fetch) BEFORE the canvas transfer, so a failure here throws
   // with the canvas still intact and loadAtermStrategy can fall back in-process.
   const pane = await acquireAtermSharedWorkerPane()
+  // A real pane holds the worker alive from here — release the idle prewarm
+  // hold (no-op when none) so demand owns the worker lifecycle again.
+  noteRealAtermWorkerPaneAcquired()
   const post = pane.post
 
   // The WORKER engine takes the GPU path when the policy allows (GPU render + present

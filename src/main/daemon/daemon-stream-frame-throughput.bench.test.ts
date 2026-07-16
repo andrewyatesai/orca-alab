@@ -16,8 +16,12 @@ import type { DaemonEvent } from './daemon-stream-events'
 // delta is the true end-to-end cost — server encode + kernel socket + client
 // parse — and both modes must deliver the SAME decoded PTY bytes (parity).
 //
-// Gated (bench binary needs the fork's Rust toolchain). Build + run with:
-//   ~/.cargo/bin/cargo +trust build -p orca-daemon --bin stream-throughput-bench
+// Gated (needs the built bench binary). Build with the stable 1.96 toolchain the
+// workspace requires — NOT `trust` (that's verify-only and fails L0 on vendored
+// deps), and pin RUSTC so a Homebrew rustc on PATH can't shadow it:
+//   RUSTC="$(rustup which --toolchain stable rustc)" \
+//     "$(rustup which --toolchain stable cargo)" \
+//     build -p orca-daemon --bin stream-throughput-bench --manifest-path rust/Cargo.toml
 //   ORCA_TERMINAL_PERF_BENCH=1 pnpm vitest run \
 //     src/main/daemon/daemon-stream-frame-throughput.bench.test.ts \
 //     --config config/vitest.config.ts

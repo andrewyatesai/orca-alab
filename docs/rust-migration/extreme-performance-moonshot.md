@@ -359,8 +359,19 @@ finds a SPURIOUS counterexample and check_sat *correctly* fails closed to Unknow
 was a verified fail-OPEN). The dropped hypotheses are exactly the **division relation** (`q = d/2`) and the
 **loop-summary invariant** (`n += 1` counters) — so the division kernels AND the counter/loop kernels are
 the SAME gap. Fixing it is NOT a rewrite and NOT a check_sat patch (both verified dead-ends): it needs the
-two research-level capabilities that would make those hypotheses lowerable — **nonlinear/division theory**
-and **loop-invariant synthesis**. That is the true Goal A ceiling: the 54 TRUSTED are the straight-line
+two capabilities that would make those hypotheses lowerable — **nonlinear/division theory** and
+**loop-invariant handling**. **REFINEMENTS 2026-07-16, honest about the mix — the 165 is NOT uniformly a
+"precision gap":** (a) trustc already HAS loop-invariant *checking* syntax (`while cond invariant P
+decreases e`, first-class HIR, verified in `rustc_ast`/`rustc_parse`) — so it is *synthesis* + speed that
+are missing, not the check; BUT loop verification is SLOW — a minimal bounded counter loop TIMED OUT at
+2 min under trustc, so many loop kernels likely hit the driver's 180s cap (a TIMEOUT NOT-TRUSTED, not a
+clean precision-fail). And the `invariant` keyword is a trustc extension that won't parse under the
+stock-rustc W2 build, so using it needs a harness change (W2-via-trustc). (b) Some narrow-int "faithful"
+misses are GENUINE bugs trustc correctly rejects: `countWhitespace -> u32` overflows past 4.29 B chars
+where TS `number` (f64) would not — W2's bounded fuzz can't reach that input, so *W2-equivalent ≠ faithful
+at the extremes*. Net: the reservoir is a MIX of loop-timeouts, real narrowing bugs, and true precision
+gaps — the honest lever is loop-invariant *synthesis + perf* and nonlinear theory, plus auditing the
+narrow-int ports for real overflow. That is the true Goal A ceiling: the 54 TRUSTED are the straight-line
 linear no-loop kernels; the 165 are dominated by loops/division awaiting those capabilities.
 **QUANTIFIED (reliable loop-detection over comment/string-stripped source): 104 of the 165 (~63%) contain
 a loop/iterator → LOOP-INVARIANT SYNTHESIS is the single highest-ROI trustc investment; the other 61 are

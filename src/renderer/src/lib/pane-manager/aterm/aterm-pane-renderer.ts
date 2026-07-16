@@ -151,7 +151,8 @@ export async function createAtermPaneController(
   const shared: AtermSharedLateBindings = {
     fileLinkOpener: null,
     activeLinkContext: linkContext,
-    linkProviderSource: null
+    linkProviderSource: null,
+    spillPaneKey: null
   }
 
   // Choose the strategy: GPU when opted-in + a webgl2 context is creatable, else
@@ -279,6 +280,7 @@ export async function createAtermPaneController(
           term: cpu.term,
           cellWidth: cpu.cellWidth,
           cellHeight: cpu.cellHeight,
+          memory: cpu.memory,
           adapterInfo: null,
           bindPainter: cpu.bindPainter
         }

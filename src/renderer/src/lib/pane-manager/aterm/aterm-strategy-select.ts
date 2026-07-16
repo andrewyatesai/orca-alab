@@ -16,6 +16,10 @@ export type AtermPendingStrategy = {
   term: AtermTerminal
   cellWidth: number
   cellHeight: number
+  /** The engine module's linear memory for IN-PROCESS wasm reads (the spill
+   *  blit). Unset on the worker path — its engine lives in the worker, so the
+   *  cross-pane spill stays dark there until the stage-4 worker compositor. */
+  memory?: WebAssembly.Memory
   /** GPU only: the acquired WebGL adapter/backend string (else null). */
   adapterInfo: string | null
   bindPainter: (binding: AtermPainterBinding) => AtermDrawStrategy
@@ -100,6 +104,7 @@ export async function loadAtermStrategy(
         term: gpu.term,
         cellWidth: gpu.cellWidth,
         cellHeight: gpu.cellHeight,
+        memory: gpu.memory,
         adapterInfo: gpu.adapterInfo,
         bindPainter: gpu.bindPainter
       }
@@ -133,6 +138,7 @@ export async function loadAtermStrategy(
     term: cpu.term,
     cellWidth: cpu.cellWidth,
     cellHeight: cpu.cellHeight,
+    memory: cpu.memory,
     adapterInfo: null,
     bindPainter: cpu.bindPainter
   }

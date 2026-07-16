@@ -16,6 +16,9 @@ export type AtermGpuDrawerPending = {
   term: AtermTerminal
   cellWidth: number
   cellHeight: number
+  /** The GPU wasm module's linear memory — the spill blit reads the engine's
+   *  CPU-face chrome-band export (never the WebGL canvas) through it. */
+  memory: WebAssembly.Memory
   /** The WebGL adapter/backend WebGL handed us (for logging / e2e proof). */
   adapterInfo: string
   bindPainter: (binding: AtermPainterBinding) => AtermDrawStrategy
@@ -35,7 +38,7 @@ export async function loadAtermGpuDrawer(
 ): Promise<AtermGpuDrawerPending> {
   const { canvas, themeColors, fontPx } = config
 
-  const { AtermGpuTerminal: AtermGpuTerminalCtor, fontBytes } = await loadAtermGpu()
+  const { AtermGpuTerminal: AtermGpuTerminalCtor, fontBytes, memory } = await loadAtermGpu()
   const gpuTerm: AtermGpuTerminal = new AtermGpuTerminalCtor(
     MIN_GRID_ROWS,
     MIN_GRID_COLS,
@@ -73,6 +76,7 @@ export async function loadAtermGpuDrawer(
     term,
     cellWidth,
     cellHeight,
+    memory,
     adapterInfo: gpuTerm.adapter_info,
     bindPainter: (binding) => {
       let contextLost = false

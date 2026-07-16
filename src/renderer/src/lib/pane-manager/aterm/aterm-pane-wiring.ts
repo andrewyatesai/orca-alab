@@ -21,63 +21,19 @@ import { applyTerminalPrimaryFontThenReflow } from './inject-terminal-primary-fo
 import { attachAtermCanvasFocus } from './aterm-canvas-focus'
 import { applyAtermEngineSettings } from './aterm-engine-settings-apply'
 import { wireAtermWindowChrome } from './aterm-effects-settings'
-import type { AtermDrawStrategy } from './aterm-draw-strategy'
-import type { AtermPendingStrategy } from './aterm-strategy-select'
-import type { AtermThemeColors } from './aterm-theme-colors'
-import type {
-  AtermPaneController,
-  AtermPaneInputSink,
-  AtermPanePasteSink,
-  AtermPaneResizeSink,
-  AtermPaneControllerOptions
-} from './aterm-pane-controller-types'
+import { wireAtermPaneSpill } from './aterm-pane-spill-wiring'
+import type { AtermPaneWiringConfig, AtermWiredPane } from './aterm-pane-wiring-types'
+import type { AtermPaneController } from './aterm-pane-controller-types'
 import { createAtermControllerOptionReaders } from './aterm-controller-option-readers'
 import { driveAtermRainPulse } from './aterm-rain-pulse'
 
-/** Everything the wiring needs to turn a loaded strategy into a live pane. */
-export type AtermPaneWiringConfig = {
-  pending: AtermPendingStrategy
-  canvas: HTMLCanvasElement
-  container: HTMLElement
-  /** The `.xterm` DOM wrapper (mirrors xterm's element node). */
-  element: HTMLElement
-  textarea: HTMLTextAreaElement
-  /** Off-screen ARIA live region the draw path mirrors grid text into (a11y). */
-  liveRegion: HTMLElement
-  themeColors: AtermThemeColors
-  inputSink: AtermPaneInputSink
-  resizeSink: AtermPaneResizeSink
-  pasteSink: AtermPanePasteSink
-  linkContext?: AtermLinkContext
-  controllerOptions?: AtermPaneControllerOptions
-  /** Late-bound bindings shared across a context-loss rebuild (so the file-path/
-   *  URL openers set on the old controller carry over to the CPU one). */
-  shared: AtermSharedLateBindings
-  /** Invoked when the draw path dies — WebGL2 context lost (GPU) or the render
-   *  worker crashed — so the controller can swap this wiring out for an in-process
-   *  CPU one. A worker crash passes its last serialized state (aterm replayable
-   *  ANSI) so the rebuilt engine repaints instead of starting blank. */
-  onContextLoss: (seedAnsi?: string) => void
-}
-
-/** Late-bound openers that survive a GPU→CPU context-loss rebuild. */
-export type AtermSharedLateBindings = {
-  fileLinkOpener: AtermFileLinkOpener | null
-  activeLinkContext: AtermLinkContext | undefined
-  /** The facade's registered xterm-style link providers (term_/task_ handles,
-   *  cwd-resolved file paths); consulted where the engine reports no link. */
-  linkProviderSource: AtermLinkProviderSource | null
-}
-
-/** A wired, drawing pane: its public controller surface plus a teardown that
- *  drops only THIS wiring (engine + handlers + overlay) — used both by the
- *  controller's dispose and by a context-loss rebuild that swaps strategies. */
-export type AtermWiredPane = {
-  controller: AtermPaneController
-  strategy: AtermDrawStrategy
-  /** Tear down handlers + overlay + the strategy (engine/canvas context). */
-  teardown: () => void
-}
+// The wiring seam types (config in, wired pane out, context-loss-surviving late
+// bindings) live in aterm-pane-wiring-types; re-exported so importers keep one home.
+export type {
+  AtermPaneWiringConfig,
+  AtermSharedLateBindings,
+  AtermWiredPane
+} from './aterm-pane-wiring-types'
 
 /** Wire a loaded strategy into a full pane: scheduler, search, every input
  *  handler, the reply surface, the (GPU-only) search overlay, and the resize/DPI
@@ -131,6 +87,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       drawScheduler.schedule()
     }
   }
+
+  // Cross-pane spill (stage 3, in-process only): flips stage 2's fail-closed
+  // capability seam live + builds the presenter's rev-gated per-paint blit.
+  const spill = wireAtermPaneSpill(term, pending.memory, shared, scheduleDraw, () => disposed)
 
   // Search state (matches/active-index/re-index flag) + controller + API live in
   // their own module; getRows closes over the late-assigned gridSizing.
@@ -261,7 +221,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     isDisposed: () => disposed,
     getSearchMatches: searchState.getSearchMatches,
     getSearchActiveIndex: searchState.getSearchActiveIndex,
-    effectsDrive
+    effectsDrive,
+    spillBlit: spill.spillBlit
   })
   draw = presenter.draw
   presentNow = presenter.presentNow
@@ -360,6 +321,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     linkTooltip.dispose()
     scrollbarOverlay.dispose()
     searchOverlay?.dispose()
+    spill.unregister()
     strategy.dispose()
   }
   const rainPulseDraw = strategy.setDrawSuspended ? undefined : scheduleDraw
@@ -376,6 +338,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     setFileLinkOpener: (fn: AtermFileLinkOpener) => void (shared.fileLinkOpener = fn),
     setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),
     setLinkProviderSource: (src: AtermLinkProviderSource) => void (shared.linkProviderSource = src),
+    bindSpillPaneKey: spill.bindSpillPaneKey,
     onSelectionMutation: (handler: () => void) => void selectionMutationListeners.add(handler),
     resize: (nextCols: number, nextRows: number) => gridSizing.resize(nextCols, nextRows),
     fitToContainer: () => gridSizing.fitToContainer(),

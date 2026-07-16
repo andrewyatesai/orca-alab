@@ -69,6 +69,11 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  term_/task_ handles). Link hit-testing consults them when the engine reports
    *  no link at the hovered/clicked cell. */
   setLinkProviderSource: (source: AtermLinkProviderSource) => void
+  /** Late-bind the pane's durable cross-pane-spill overlay identity (makePaneKey
+   *  tabId:leafId). Resolved at the controller-attach edge — the tab id is not
+   *  knowable earlier — and retained across context-loss rebuilds. No-op unless
+   *  the wiring marked the engine spill-export capable. */
+  bindSpillPaneKey: (paneKey: string) => void
   /** Re-theme the live engine in place (host theme change) without rebuilding the
    *  pane — updates default fg/bg/cursor/selection + ANSI palette + reply defaults
    *  and redraws, preserving scrollback. */

@@ -29,6 +29,12 @@ type AtermPanePresenterDeps = {
   /** In-process effects animation drive (no-op for the worker path, whose engine
    *  ticks effects inside the worker's own frame scheduler). */
   effectsDrive: Pick<AtermEffectsDrive, 'beforeFrame' | 'afterFrame'>
+  /** Cross-pane spill pass (stage 3): blit the engine's just-rendered spill band
+   *  onto the window-space overlay. Runs directly after drawFrame so BOTH the rAF
+   *  draw and the eager presentNow carry their spill in the same paint (no
+   *  one-frame ring lag on keystroke echo). Unset when the engine lacks the
+   *  spill export surface. */
+  spillBlit?: () => void
 }
 
 export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPanePresenter {
@@ -53,6 +59,7 @@ export function createAtermPanePresenter(deps: AtermPanePresenterDeps): AtermPan
     // only while the engine reports an active animation (idle-to-zero contract).
     deps.effectsDrive.beforeFrame()
     strategy.drawFrame()
+    deps.spillBlit?.()
     searchOverlay?.paint(deps.getSearchMatches(), deps.getSearchActiveIndex())
     a11yMirror.schedule()
     deps.effectsDrive.afterFrame()

@@ -13,6 +13,9 @@ export type AtermCpuDrawerPending = {
   term: AtermTerminal
   cellWidth: number
   cellHeight: number
+  /** The engine module's linear memory — the wiring's spill blit reads the
+   *  chrome-band export through it (same instance the frame painter views). */
+  memory: WebAssembly.Memory
   /** Finish the strategy once the controller has built the search controller +
    *  per-frame getters (which depend on the engine created here). */
   bindPainter: (binding: AtermPainterBinding) => AtermDrawStrategy
@@ -63,6 +66,7 @@ export async function loadAtermCpuDrawer(
     term,
     cellWidth,
     cellHeight,
+    memory,
     bindPainter: (binding) => {
       const paintFrame = createAtermFramePainter({
         ctx,

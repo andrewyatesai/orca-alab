@@ -11,6 +11,8 @@ import { resolveCursorAgentImeAnchor } from '../terminal-ime-anchor'
 import { createAtermPaneController, type AtermLinkContext } from './aterm-pane-renderer'
 import { ATERM_RENDERER_FONT_PX } from './aterm-pane-controller-types'
 import { flushPendingAtermRainPulsesAtControllerAttach } from './aterm-rain-pulse-delivery'
+import { makePaneKey } from '../../../../../shared/stable-pane-id'
+import { getRegisteredTabIdsForController } from '../pane-manager-registry'
 
 /** Build the aterm canvas controller over the pane's xterm container and bind it
  *  into the pane's facade terminal. Creation is async (wasm + font load); a pane
@@ -146,6 +148,17 @@ export function openAtermPane(pane: ManagedPaneInternal, linkContext?: AtermLink
       // Hook IPC can beat the async wasm/font build. Flush its bounded,
       // payload-free latch at the exact point this pane becomes drivable.
       flushPendingAtermRainPulsesAtControllerAttach(pane.leafId, controller)
+      // Cross-pane spill identity: the durable tab id is only resolvable at this
+      // attach edge (same registry-identity walk the rain flush uses). makePaneKey
+      // throws on non-UUID leaf ids — such panes simply stay off the overlay.
+      const [spillTabId] = getRegisteredTabIdsForController(pane.leafId, controller)
+      if (spillTabId) {
+        try {
+          controller.bindSpillPaneKey(makePaneKey(spillTabId, pane.leafId))
+        } catch {
+          /* ignore */
+        }
+      }
     })
     .catch((err) => {
       // Async wasm/font failure: there is no xterm fallback renderer anymore, so

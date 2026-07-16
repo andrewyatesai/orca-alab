@@ -348,6 +348,56 @@ assert the streamed grid content.
 | --- | --- | --- |
 | `session` | runtime `pty:spawn` + headless emulator wiring | PTY spawn → reader thread → headless terminal; write/resize/grid access |
 
+## E1 decision-core tier — ay-certified, shared-corpus ports
+
+Pure decision cores lifted out of live TS subsystems and given the full **E1
+pair**: an ay machine-checked safety/invariant certificate (`rust/crates/<crate>/proofs/ay/verify.sh`)
+plus a behavioral parity corpus (`*-parity-corpus.txt`) run byte-identically by
+**both** the Rust core and its TS twin. These crates have no orca-dispatch parity
+adapter, so — like the IO tier — they are pinned here in the ledger; the
+`certificates` and `provenance` gauntlet axes enforce the certificate and the
+source-drift pin respectively. Listing them here is what makes upstream edits to
+the TS twins fail LOUDLY (re-verify the port) instead of silently diverging on
+un-sampled inputs.
+
+## `orca-flow-control` — E1 decision-core (PTY back-pressure, ay-certified)
+
+| Rust module | Source | Notes |
+| --- | --- | --- |
+| `lib` | `ipc/pty-producer-flow-control.ts` | per-PTY hysteresis pause/resume machine (pause past HIGH, resume below LOW, failsafe re-assert); ay proves anti-flap + gated reassert + strict edges |
+| `keep_tail` | `daemon/daemon-stream-keep-tail-drop.ts` | keep-tail byte sizing + drop cap; ay proves the [64K,512K]/[128K,1M] bounds ∀ (division abstracted as a free non-negative) |
+
+## `orca-provider-backoff` — E1 decision-core (rate-limits, ay-certified)
+
+| Rust module | Source | Notes |
+| --- | --- | --- |
+| `lib` | `rate-limits/active-failure-backoff.ts` | saturating-exponential refetch throttle `min(30s·2^(streak-1), 15min)`; ay proves range + monotone + exact ceiling (exponent abstracted linear) |
+
+## `orca-crash-recovery` — E1 decision-core (crash-reporting, ay-certified)
+
+| Rust module | Source | Notes |
+| --- | --- | --- |
+| `renderer_recovery` | `crash-reporting/renderer-recovery-circuit-breaker.ts` | rolling-window renderer-reload rate limiter; ay proves in-window ≤ max (inductive), no-admit-at-cap, reset-reopens liveness |
+| `gpu_fallback` | `crash-reporting/gpu-crash-fallback-decision.ts` | one-shot GPU software-fallback latch; ay proves engages-at-most-once, window-gate no-op, no-engage-below-threshold |
+
+## `orca-renderer-heap` — E1 decision-core (startup, ay-certified)
+
+| Rust module | Source | Notes |
+| --- | --- | --- |
+| `lib` | `startup/renderer-heap-headroom.ts` | renderer `--max-old-space-size` ceiling `clamp(⌊gib·0.4⌋·1024, 3072, 4096)` gated at 7.5 GiB; ay proves the clamp bounds (f64 target abstracted as a bounded free int) |
+
+## `orca-stream-split` — E1 decision-core (daemon, ay-certified)
+
+| Rust module | Source | Notes |
+| --- | --- | --- |
+| `lib` | `daemon/daemon-stream-data-split.ts` | UTF-16 surrogate-safe chunk split point; ay proves the split never lands between a high/low surrogate pair (no lone surrogate emitted) |
+
+## `orca-session-gc` — E1 decision-core (daemon history GC, ay-certified)
+
+| Rust module | Source | Notes |
+| --- | --- | --- |
+| `lib` | `daemon/daemon-session-history-gc-plan.ts` | session-history retention + budget eviction planner; ay proves live/floor exemption, ended→24h / unknown→∞ retention, survivor-byte accounting |
+
 ## Vendoring (done — three dependency modes proven)
 
 All third-party crates are vendored in-tree under `rust/vendor/` (87 crates),

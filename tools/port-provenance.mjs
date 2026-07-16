@@ -194,7 +194,9 @@ function ledgerRows() {
   let crate = null
   for (const line of md.split('\n')) {
     if (line.startsWith('## ')) {
-      crate = line.match(/`(orca-[a-z]+)`/u)?.[1] ?? null
+      // Hyphenated crate names (orca-crash-recovery, orca-session-gc, …) must parse,
+      // not just single-word ones — the E1 decision-core crates are all multi-word.
+      crate = line.match(/`(orca-[a-z0-9-]+)`/u)?.[1] ?? null
       continue
     }
     if (crate === null || !line.startsWith('| `')) {

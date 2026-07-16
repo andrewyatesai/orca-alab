@@ -339,7 +339,7 @@ deepens Goal A — capability bought in Trust pays on every campaign; an externa
 ## 9. Campaign 5 — The Autoformalization Factory (the paper nobody else can write)
 
 **The audit's key discovery:** two tracks exist and have never been fused. Track 1 (shipped): LLM-agent
-hand-ports with verbatim test translation, parity corpora (1,149 cases), ay safety bundles, and a proven
+hand-ports with verbatim test translation, parity corpora (1,406 dispatch-parity cases — measured), ay safety bundles, and a proven
 promotion recipe (parity → napi/wasm via orca-dispatch → shadow cutover → delete the TS twin — orca-git
 landed this way: 137 tests, 10 SMT obligations, TS deleted 2026-07-06). Track 2 (unpromoted): the
 ts2rust two-witness autoformalizer — W1 `trustc` ∀-safety, W2 Node-TS differential fuzzing — TRUSTED on
@@ -357,13 +357,23 @@ count of individually-verified kernels touched, below.)
   (`shouldEngageGpuFallback`, orca-crash-recovery, 0/80), `e1_flowaction` (`producerFlowAction` — the
   flagship PtyProducerFlowController hysteresis decision, orca-flow-control, 0/35), `e1_recoveryallowed`
   (`isRendererRecoveryAllowed`, orca-crash-recovery, 0/83). **FINDING:** a keep-tail kernel is
-  W2-equivalent (0/18) but stays NOT-TRUSTED — trustc emits an undecided
-  `FullVerification::ArithmeticSafety: division by zero` even for `checked_div`; division-safety is an
-  unsupported MIR obligation in the current trustc (a real coverage gap, not an orc bug). So the E1 cores
-  that TRUST today are the compare-only / saturating-total-ops ones; division kernels (keep-tail),
-  f64 (renderer-heap) and `&[u16]` (stream-split) cores wait on a trustc/argspec capability. Concrete
-  recipe to advance the count cheaply: mine the landed E1 pure cores, prefer saturating/checked/compare
-  formulations.
+  W2-equivalent (0/18) but stays NOT-TRUSTED on a division `ArithmeticSafety` obligation.
+  **CHARACTERIZED PRECISELY 2026-07-16** (minimal repro `div_guarded`/`div_checked`/`div_clamped`, all
+  u64): this is NOT "trustc can't verify division" — the **native `trust-mc` full verifier PROVES it**
+  (`requested=2, proved=2, failed=0`). The gap is a *reconciliation/encoding* one: the `ay_chc` SMT path
+  models the division result as an `_undef_` free variable for the div-by-zero case, and
+  `ay-chc::smt::check_sat` returns **Unknown** ("SAT model … missing an assignment for free variable
+  `…_undef_0` in an evaluable theory position; default-value completion … did not strictly verify"), so
+  strict mode takes the worse verdict and rejects the native proof as "lacked exact kernel/native proof
+  authority." It fires on EVERY form — raw-guarded (`if d==0`), `checked_div().unwrap_or`, AND
+  divide-by-`max(1,_)` — so there is **no recipe workaround**; only a fix in
+  `first-party/ay/crates/ay-chc/src/smt/check_sat` (constrain/eliminate the div `_undef_` in the guarded
+  case) or in the native-proof authority reconciliation (`compiler/rustc_mir_transform/src/trust_verify.rs`)
+  unblocks it. Sound fix = deep, slow (stage2 rebuild) — genuinely out-of-session, but now *actionable*
+  (exact crates + mechanism), not vague. So the E1 cores that TRUST today are the compare-only /
+  saturating-total-ops ones; division kernels (keep-tail), f64 (renderer-heap) and `&[u16]` (stream-split)
+  cores wait on that capability. Recipe to advance cheaply meanwhile: mine landed E1 pure cores, prefer
+  saturating/compare/total-ops formulations (NOT `checked_div` — it hits the same wall).
   **✅ Non-E1 kernels 2026-07-16** (`~/trust` `97a1c02e9`, `3060c5edc`, `1d3582c34`): the recipe
   generalizes past the E1 cores — **+5 TRUSTED** mined straight from production orca src with no E1
   backing: `b_tocmaxwidth` (`computeMaxMarkdownTocPanelWidth`, markdown-toc-panel-width.ts — the lone
@@ -391,8 +401,14 @@ count of individually-verified kernels touched, below.)
   section pinned all 8 (103→111 modules, 210→226 files). A `PROVENANCE_ROOT`-overlay drift self-test
   confirms an E1 TS edit now fires the re-port task. E1 units now carry the FULL regression-gated
   contract: ay certificate + parity corpus + source-drift pin.
-- **F2 Trace-derived corpora** [M]: record (input, output) pairs at the orca_dispatch seam and from
-  vitest runs; publish Cedar-style corpus metrics.
+- **F2 Trace-derived corpora** [M] — **metrics half DONE 2026-07-16** (`tools/parity-corpus-metrics.mjs`,
+  `pnpm corpus:metrics`): mechanically discovers BOTH corpus families (dispatch-parity `vectors/*.json`
+  + E1 shared `*parity-corpus.txt` — the ad-hoc globs it replaces silently missed the plain
+  `parity-corpus.txt` names) and publishes the Cedar-style headline: **1,510 machine-checked
+  (input→expected-output) behavioral parity cases across 87 modules** (1,406 dispatch-parity / 79 modules
+  + 104 E1 / 8 corpora / 6 crates), each re-run every gauntlet pass. Remaining F2 half: auto-*record*
+  (input,output) pairs at the orca_dispatch seam + from vitest runs to GROW the corpora unattended
+  (a ratchet on this count, like the census axis, is the natural next gate).
 - **F3 Real TS front-end** [L]: vendor swc/oxc — inferred argspecs, auto-extracted oracles, generated
   Rust skeletons; agents only fill `todo!()` bodies. Target: an order-of-magnitude drop in
   agent-minutes-per-TRUSTED-pair.

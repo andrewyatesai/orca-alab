@@ -116,7 +116,8 @@
     "gauntlet:census": "node tools/terminal-bench/gauntlet.mjs census",
     "gauntlet:provenance": "node tools/terminal-bench/gauntlet.mjs provenance",
     "gauntlet:certificates": "node tools/terminal-bench/gauntlet.mjs certificates",
-    "gauntlet:bootstrap": "node tools/terminal-bench/gauntlet.mjs bootstrap"
+    "gauntlet:bootstrap": "node tools/terminal-bench/gauntlet.mjs bootstrap",
+    "corpus:metrics": "node tools/parity-corpus-metrics.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

@@ -40,7 +40,7 @@ export function clampToSafeSplitIndex(value: string, start: number, end: number)
   return isHighSurrogate(prev) && isLowSurrogate(next) ? end - 1 : end
 }
 
-function nextSafeSplitIndex(value: string, start: number): number {
+export function nextSafeSplitIndex(value: string, start: number): number {
   const next = Math.min(value.length, start + 1)
   if (
     next < value.length &&

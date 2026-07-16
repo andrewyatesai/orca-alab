@@ -1,0 +1,30 @@
+# Surrogate-safe split-index TS↔Rust differential parity corpus (E1 unit).
+#
+# ONE shared oracle, run by BOTH implementations:
+#   - Rust: orca-stream-split::{clamp_to_safe_split_index, next_safe_split_index}
+#   - TS:   {clampToSafeSplitIndex, nextSafeSplitIndex}
+#           (src/main/daemon/daemon-stream-data-split.ts)
+# Operates on UTF-16 code units, exactly as JS charCodeAt — bit-exact parity.
+#
+# Units are comma-separated hex UTF-16 code units (`_` = empty string).
+#   😀 U+1F600 = surrogate pair d83d de00; 0041 = 'A'; 0042 = 'B'.
+# Ops:
+#   clamp <units> <start> <end> => <index>   surrogate-safe clamp of a proposed split
+#   next  <units> <start>       => <index>    next safe split index, >= start+1
+#
+# clamp: a split that cuts the (high,low) pair is pulled back by one; safe splits and
+# the string-edge guards (end<=start, end>=len) pass through unchanged.
+clamp d83d,de00 0 1 => 0
+clamp d83d,de00,0041 0 2 => 2
+clamp 0041,0042 0 1 => 1
+clamp d83d,de00 2 2 => 2
+clamp d83d,de00 0 2 => 2
+clamp 0041,d83d,de00 0 2 => 1
+clamp 0041,d83d,de00,0042 0 3 => 3
+# next: forward progress; a pair beginning at start is skipped whole.
+next d83d,de00,0041 0 => 2
+next 0041,d83d,de00 0 => 1
+next 0041 0 => 1
+next d83d,de00 1 => 2
+next d83d,de00,0041 1 => 2
+next 0041,d83d,de00,0042 1 => 3

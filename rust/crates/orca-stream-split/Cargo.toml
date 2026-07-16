@@ -1,0 +1,16 @@
+[package]
+name = "orca-stream-split"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Surrogate-safe split-index primitives for daemon stream chunking (ported from src/main/daemon/daemon-stream-data-split.ts)."
+
+# Deliberately zero-dependency: pure functions over UTF-16 code units (no NDJSON
+# encoding, no IO), so parity with the TS is bit-exact. The NDJSON-byte-budget
+# binary search that consumes these (splitStreamDataForNdjson) stays in TS — this
+# crate is the safe-boundary core. Same E1 pair as orca-flow-control.
+
+[lints.rust]
+unsafe_code = "forbid"

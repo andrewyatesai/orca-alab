@@ -462,6 +462,20 @@ never shipped. The factory = fuse them.
   5 Rust + 1 TS (13 w/ existing) green. **The certificates gate auto-picked-it-up with ZERO edits: 6
   certificate crates / 45 obligations / 4 parity corpora.** FIVE units, FOUR subsystems (PTY /
   rate-limits / crash-recovery / startup), FIVE invariant families, gated.
+  **✅ 6th E1 unit LANDED 2026-07-16** (`orca-stream-split`) — a FIFTH subsystem (daemon TRANSPORT, the
+  moonshot's own spine) and a qualitatively different core: an ALGORITHM primitive, not a scalar/threshold.
+  Ports the surrogate-safe split-index functions `clampToSafeSplitIndex` + `nextSafeSplitIndex` from
+  `src/main/daemon/daemon-stream-data-split.ts` (the primitive the keep-tail dropper already depends on —
+  thematic closure). These choose stream-chunk boundaries that never cut a UTF-16 surrogate pair. Pure
+  over UTF-16 code units → bit-exact parity (the NDJSON-byte-budget binary search that drives them stays
+  TS). `proofs/ay/cs1..cs2, ns1..ns2` prove: clamp never splits the target pair, clamp stays in
+  [start,end], next always makes forward progress (no stall), a pair at `start` is skipped whole;
+  `cs_c1/ns_c1` (SAT) both fixes fire. **New ay technique: code units modelled as free ints in [0,65535]
+  with the surrogate ranges as LINEAR bounds (high 55296..56319, low 56320..57343)** → pure QF_LIA, no
+  strings/bit-vectors. verify.sh 6/6. Corpus is real surrogate pairs (😀 = d83d de00). One-word prod
+  change (`export nextSafeSplitIndex`). Gate auto-enforced: **7 certificate crates / 51 obligations / 5
+  parity corpora.** SIX units, FIVE subsystems, SIX invariant families — scalar decisions AND a string
+  algorithm, pure functions AND stateful machines, all gated.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

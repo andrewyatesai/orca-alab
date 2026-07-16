@@ -33,6 +33,7 @@ members = [
     "crates/orca-session",
     "crates/orca-ssh",
     "crates/orca-store",
+    "crates/orca-stream-split",
     "crates/orca-terminal",
     "crates/orca-text",
     "crates/orca-winpipe",

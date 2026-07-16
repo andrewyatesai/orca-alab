@@ -438,6 +438,17 @@ never shipped. The factory = fuse them.
   crash-recovery), FIVE invariant families (hysteresis · linear clamp · saturating exponential ·
   rolling-window rate limit · one-shot latch) — pure functions AND stateful machines, table AND trace
   corpora.
+  **✅ E1 now GATED 2026-07-16** — the "regression-**gated**" adjective made real. New gauntlet axis
+  `certificates` (`pnpm gauntlet:certificates`, in `all`; `tools/terminal-bench/gauntlet-certificates.mjs`)
+  AUTO-DISCOVERS every `rust/crates/*/proofs/ay/verify.sh`, discharges each (success = exit 0, tolerant
+  of both banner styles), AND runs the Rust parity corpus (`cargo test`) for every crate that ships a
+  `*-parity-corpus.txt`. First green run: **5 certificate crates, 40 ay obligations discharged, 3
+  decision-core parity corpora** — and it surfaced two PRE-EXISTING ay certificates (`orca-git`,
+  `orca-net` Trust-parser cores) that were never enforced by anything. SKIPs (proves nothing) if ay is
+  absent; REVIEWs if the parity corpora can't run for lack of a stable toolchain — never reads green on
+  half the pair. The TS side of each corpus stays enforced by the vitest suite. Certificates were
+  present-but-manual before; they are now a standing gate, so the E1 claim's "regression-gated" holds by
+  construction and any future E1 unit is enforced with zero gate edits.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

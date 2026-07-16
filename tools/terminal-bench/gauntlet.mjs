@@ -18,8 +18,11 @@
 //   • provenance  — every TS→Rust ported module pinned to its source hashes
 //                   (tools/port-provenance.mjs vs port-provenance.json): upstream TS drift
 //                   is REVIEW with a structured re-port task, not a reactive parity surprise.
+//   • certificates — the moonshot E1 pair, ENFORCED: discharge every decision-core crate's
+//                   ay certificate (rust/crates/*/proofs/ay/verify.sh) AND run its Rust parity
+//                   corpus. Auto-discovering; skipped (proves nothing) when ay is absent.
 //
-// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|all>
+// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|certificates|all>
 // Exit 0 = every gate green · 1 = a real FAIL · 2 = REVIEW (divergence to triage).
 // For `all`, a SKIP is NOT a pass: any skipped gate exits 2 so an environment that
 // can't run an axis never reads as green. A single-gate invocation may exit 0 on
@@ -32,6 +35,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
+import { certificatesGate } from './gauntlet-certificates.mjs'
 
 const here = import.meta.dirname
 const repo = resolve(here, '..', '..')
@@ -567,8 +571,20 @@ function provenance() {
   return { status: 'FAIL', detail: `port-provenance checker broke (exit ${code})` }
 }
 
+// --- certificates: the moonshot E1 pair, enforced (extracted module) -------------
+const certificates = () => certificatesGate({ repo, sh, skip, rustupStable })
+
 // --- driver ----------------------------------------------------------------------
-const GATES = { bootstrap, conformance, perf, safety, autoformalize, census, provenance }
+const GATES = {
+  bootstrap,
+  conformance,
+  perf,
+  safety,
+  autoformalize,
+  census,
+  provenance,
+  certificates
+}
 const mark = (s) =>
   ({
     PASS: `${C.g}✓ PASS${C.x}`,
@@ -581,7 +597,16 @@ async function main() {
   const cmd = process.argv[2] || 'all'
   const names =
     cmd === 'all'
-      ? ['bootstrap', 'census', 'provenance', 'conformance', 'perf', 'safety', 'autoformalize']
+      ? [
+          'bootstrap',
+          'census',
+          'provenance',
+          'certificates',
+          'conformance',
+          'perf',
+          'safety',
+          'autoformalize'
+        ]
       : [cmd]
   if (!names.every((n) => GATES[n])) {
     console.error(`unknown gate "${cmd}". use: ${Object.keys(GATES).join(' | ')} | all`)

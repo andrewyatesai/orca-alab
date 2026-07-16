@@ -115,6 +115,7 @@
     "gauntlet:autoformalize": "node tools/terminal-bench/gauntlet.mjs autoformalize",
     "gauntlet:census": "node tools/terminal-bench/gauntlet.mjs census",
     "gauntlet:provenance": "node tools/terminal-bench/gauntlet.mjs provenance",
+    "gauntlet:certificates": "node tools/terminal-bench/gauntlet.mjs certificates",
     "gauntlet:bootstrap": "node tools/terminal-bench/gauntlet.mjs bootstrap"
   },
   "dependencies": {

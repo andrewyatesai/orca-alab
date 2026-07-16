@@ -10,10 +10,14 @@
 //! This crate owns ONLY the scalar decision. Given `(pending_chars, now_ms)` it
 //! returns [`FlowAction::Pause`] / [`FlowAction::Resume`] / [`FlowAction::None`];
 //! the wall clock and the pause/resume transport stay with the caller. That keeps
-//! the core deterministic and exhaustively testable, and — because flow-control
-//! events fire only at watermark crossings, never per byte — leaves it cheap to
-//! expose across a napi boundary later (Stage 2) without the per-chunk C++ hop
-//! that rules napi out on the data hot path.
+//! the core deterministic and exhaustively testable.
+//!
+//! It is NOT a production cutover: `update` is called on every pending-data change
+//! (per-chunk hot path in `pty.ts`), so a napi hop would regress exactly like the
+//! rejected `pty:data`/napi-string cutovers — the decision is a trivial scalar
+//! comparison, cheapest in-process. Instead this core is the machine-checkable,
+//! ay-provable SPEC, proven equivalent to the TS production controller by the
+//! shared `parity-corpus.txt` both run (P3 stage 2 — see `matches_shared_parity_corpus`).
 
 #![forbid(unsafe_code)]
 

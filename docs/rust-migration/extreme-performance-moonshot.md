@@ -350,10 +350,19 @@ ts2rust two-witness autoformalizer — W1 `trustc` ∀-safety, W2 Node-TS differ
 strict W1∧W2 TRUSTED). Ground truth: **0 soundness-breaks** (no `_bug` kernel passed) and **165
 faithful-misses** — ports that are W2-*equivalent* (0 divergences) but W1-INCOMPLETE. Those 165 are the
 real reservoir: a small pure-predicate slice is recipe-fixable (range-contains → compare-form flipped
-`isEcmaTrimWhitespace` + `isDecorativeTitleWhitespace`), but MOST carry deeper trustc obligations —
-counter-overflow on `n += 1`, string-index bounds, char-boundary, division `_undef_` — that need a trustc
-*capability*, not a rewrite (verified: the compare-form transform did NOT flip the counter/string/parse
-kernels). Outputs sit in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
+`isEcmaTrimWhitespace` + `isDecorativeTitleWhitespace`), but MOST share **ONE upstream root cause, traced
+to the exact code 2026-07-16**. trustc lowers each safety obligation to a typed-CHC by DROPPING
+"un-lowerable hypothesis conjuncts" (`trust_verify.rs:15704-15719` violation-pruning; the free var then
+surfaces as `ay-chc::smt::check_sat`'s unassigned `__fact_`/`_undef_` "in an evaluable theory position").
+`P UNSAT ⇒ original UNSAT` keeps proofs sound, but the pruned `P` is now UNDER-constrained, so DPLL(T)
+finds a SPURIOUS counterexample and check_sat *correctly* fails closed to Unknown → NOT-TRUSTED (accepting
+was a verified fail-OPEN). The dropped hypotheses are exactly the **division relation** (`q = d/2`) and the
+**loop-summary invariant** (`n += 1` counters) — so the division kernels AND the counter/loop kernels are
+the SAME gap. Fixing it is NOT a rewrite and NOT a check_sat patch (both verified dead-ends): it needs the
+two research-level capabilities that would make those hypotheses lowerable — **nonlinear/division theory**
+and **loop-invariant synthesis**. That is the true Goal A ceiling: the 54 TRUSTED are the straight-line
+linear no-loop kernels; the 165 are dominated by loops/division awaiting those capabilities. Outputs sit
+in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
   decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from
   landed E1 units, spanning 4 of the 6 E1 crates — each W1 `trustc` VERIFIED + W2 0 divergences:

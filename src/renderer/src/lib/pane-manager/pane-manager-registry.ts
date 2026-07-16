@@ -12,6 +12,8 @@ type RegisteredPaneManager = {
 type TabPaneManager = RegisteredPaneManager & {
   getPanes: () => {
     leafId: string
+    /** The .pane element; window-level overlays (spill geometry) measure it. */
+    container?: HTMLElement
     atermController?: {
       noteMatrixRainPulse?: (pulse: AtermRainPulse) => void
     } | null
@@ -73,6 +75,13 @@ export function unregisterTabPaneManager(tabId: string, manager: TabPaneManager)
 
 export function getLivePaneManagersForTab(tabId: string): readonly TabPaneManager[] {
   return [...(managersByTabId.get(tabId) ?? [])]
+}
+
+/** Read-only snapshot of every tabId with a live pane manager. Window-level
+ * overlays (the spill geometry tracker) enumerate ALL panes through this plus
+ * getLivePaneManagersForTab; it grants no mutation access to the registry. */
+export function getRegisteredTabPaneManagerTabIds(): readonly string[] {
+  return [...managersByTabId.keys()]
 }
 
 /** Resolve the durable tab identity at the exact async controller-attach edge.

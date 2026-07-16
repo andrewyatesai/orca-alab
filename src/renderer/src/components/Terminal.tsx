@@ -43,6 +43,9 @@ import EmulatorPaneOverlayLayer from './emulator-pane/EmulatorPaneOverlayLayer'
 import { useBrowserAutomationVisibilityForAny } from './browser-pane/browser-automation-visibility'
 import { useBrowserMobileDriverForAny } from '@/lib/pane-manager/browser-mobile-driver-state'
 import TerminalPaneOverlayLayer from './terminal-pane/TerminalPaneOverlayLayer'
+// Why: last child of the terminal-surfaces container — window-space spill
+// pixels composite above every worktree surface (cross-pane effects stage 2).
+import AtermEffectsSpillLayer from './AtermEffectsSpillLayer'
 import {
   collectBrowserWebviewIds,
   destroyRemovedBrowserWebview,
@@ -2286,6 +2289,7 @@ function Terminal(): React.JSX.Element | null {
                 />
               )
             })}
+          <AtermEffectsSpillLayer />
         </div>
       ) : null}
 

@@ -129,6 +129,9 @@
     'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', Menlo, Consolas, 'Liberation Mono',
     monospace;
   --radius: 0.625rem;
+  /* Why: the cross-pane effects spill canvas must sit above pane content
+     (z-auto..2) but below every interactive tier (IME 4, scrollbar 5, ...). */
+  --z-terminal-spill: 3;
   --background: #fff;
   --editor-surface: #ffffff;
   --foreground: #0a0a0a;

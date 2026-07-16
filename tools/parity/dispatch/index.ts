@@ -31,6 +31,7 @@ import { dispatch as gitlabPipelineChecks } from './gitlab-pipeline-checks'
 import { dispatch as gitlabProjects } from './gitlab-projects'
 import { dispatch as hookCommandSourcePolicy } from './hook-command-source-policy'
 import { dispatch as hostedReviewRefs } from './hosted-review-refs'
+import { dispatch as keepTail } from './keep-tail'
 import { dispatch as linearLinks } from './linear-links'
 import { dispatch as mcp } from './mcp'
 import { dispatch as mcpEnv } from './mcp-env'
@@ -115,6 +116,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'gitlab-projects': gitlabProjects,
   'hook-command-source-policy': hookCommandSourcePolicy,
   'hosted-review-refs': hostedReviewRefs,
+  'keep-tail': keepTail,
   'linear-links': linearLinks,
   mcp: mcp,
   'mcp-env': mcpEnv,

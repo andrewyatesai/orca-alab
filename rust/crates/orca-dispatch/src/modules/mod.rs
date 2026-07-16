@@ -38,6 +38,7 @@ pub mod gitlab_pipeline_checks;
 pub mod gitlab_projects;
 pub mod hook_command_source_policy;
 pub mod hosted_review_refs;
+pub mod keep_tail;
 pub mod linear_links;
 pub mod mcp;
 pub mod mcp_env;
@@ -120,6 +121,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "gitlab-projects" => Some(gitlab_projects::dispatch(function, input)),
         "hook-command-source-policy" => Some(hook_command_source_policy::dispatch(function, input)),
         "hosted-review-refs" => Some(hosted_review_refs::dispatch(function, input)),
+        "keep-tail" => Some(keep_tail::dispatch(function, input)),
         "linear-links" => Some(linear_links::dispatch(function, input)),
         "mcp" => Some(mcp::dispatch(function, input)),
         "mcp-env" => Some(mcp_env::dispatch(function, input)),

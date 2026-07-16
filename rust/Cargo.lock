@@ -719,6 +719,7 @@ dependencies = [
  "orca-agents",
  "orca-config",
  "orca-core",
+ "orca-flow-control",
  "orca-git",
  "orca-net",
  "orca-provider-backoff",

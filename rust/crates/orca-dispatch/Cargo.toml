@@ -11,8 +11,9 @@ description = "Shippable per-module dispatch registry: the aggregate `dispatch(m
 serde_json = { version = "1", default-features = false, features = ["std", "preserve_order"] }
 orca-core = { path = "../orca-core" }
 orca-config = { path = "../orca-config" }
-# Zero-dep forbid-unsafe E1 core; wasm-safe. Wired for parity only (no cutover).
+# Zero-dep forbid-unsafe E1 cores; wasm-safe. Wired for parity only (no cutover).
 orca-provider-backoff = { path = "../orca-provider-backoff" }
+orca-flow-control = { path = "../orca-flow-control" }
 orca-agents = { path = "../orca-agents" }
 orca-text = { path = "../orca-text" }
 orca-git = { path = "../orca-git" }

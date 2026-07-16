@@ -1,0 +1,91 @@
+{
+  "module": "keep-tail",
+  "source": "src/main/daemon/daemon-stream-keep-tail-drop.ts",
+  "rustCrate": "orca-flow-control::keep_tail",
+  "cases": [
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "0 sessions: max(1, n) guards div-by-zero; caps at the 512K ceiling",
+      "input": { "droppableSessions": 0 },
+      "expected": 524288
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "1 session gets the full ceiling",
+      "input": { "droppableSessions": 1 },
+      "expected": 524288
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "2 sessions: budget/2 = 1M, still clamped to the ceiling",
+      "input": { "droppableSessions": 2 },
+      "expected": 524288
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "4 sessions: budget/4 = 512K, exactly the ceiling",
+      "input": { "droppableSessions": 4 },
+      "expected": 524288
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "5 sessions: 2097152/5 floors to 419430 (u64 div == Math.floor)",
+      "input": { "droppableSessions": 5 },
+      "expected": 419430
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "8 sessions: budget/8 = 256K, mid-band",
+      "input": { "droppableSessions": 8 },
+      "expected": 262144
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "32 sessions: budget/32 = 64K, exactly the floor",
+      "input": { "droppableSessions": 32 },
+      "expected": 65536
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "33 sessions: below the floor pre-clamp -> held at the 64K floor",
+      "input": { "droppableSessions": 33 },
+      "expected": 65536
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "a huge count stays at the floor (no underflow)",
+      "input": { "droppableSessions": 1000000 },
+      "expected": 65536
+    },
+    {
+      "function": "backgroundSessionKeepTailChars",
+      "note": "a negative count clamps to 0 on both adapters -> the ceiling",
+      "input": { "droppableSessions": -3 },
+      "expected": 524288
+    },
+    {
+      "function": "backgroundSessionDropCapChars",
+      "note": "drop cap is twice the keep-tail: 1 session -> 2 * 512K",
+      "input": { "droppableSessions": 1 },
+      "expected": 1048576
+    },
+    {
+      "function": "backgroundSessionDropCapChars",
+      "note": "5 sessions: 2 * 419430",
+      "input": { "droppableSessions": 5 },
+      "expected": 838860
+    },
+    {
+      "function": "backgroundSessionDropCapChars",
+      "note": "8 sessions: 2 * 256K",
+      "input": { "droppableSessions": 8 },
+      "expected": 524288
+    },
+    {
+      "function": "backgroundSessionDropCapChars",
+      "note": "at the floor: 2 * 64K",
+      "input": { "droppableSessions": 64 },
+      "expected": 131072
+    }
+  ]
+}

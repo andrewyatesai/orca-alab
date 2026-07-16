@@ -767,6 +767,29 @@
       }
     },
     {
+      "id": "keep-tail",
+      "origin": "parity",
+      "label": "rust:[rust/crates/orca-flow-control/src/keep_tail.rs] <- ts:[src/main/daemon/daemon-stream-keep-tail-drop.ts]",
+      "ts": [
+        {
+          "path": "src/main/daemon/daemon-stream-keep-tail-drop.ts",
+          "sha256": "50bc8eac0db39d0c51bfc3543d7f0d8de2752a3d60c39cd34d3ad1894c362fc1"
+        }
+      ],
+      "tsAbsent": [],
+      "rust": [
+        {
+          "path": "rust/crates/orca-flow-control/src/keep_tail.rs",
+          "sha256": "d51d6f3bce71fdfe3aacc0c3e3324dc8c94d7f7ef03421a3d53eeb11d0b50691"
+        }
+      ],
+      "vectors": "tools/parity/vectors/keep-tail.json",
+      "dispatch": {
+        "ts": "tools/parity/dispatch/keep-tail.ts",
+        "rust": "rust/crates/orca-dispatch/src/modules/keep_tail.rs"
+      }
+    },
+    {
       "id": "linear-links",
       "origin": "parity",
       "label": "rust:[rust/crates/orca-core/src/linear_links.rs] <- ts:[src/shared/linear-links.ts, src/main/daemon/rust-git-addon.ts]",
@@ -1139,26 +1162,6 @@
         {
           "path": "rust/crates/orca-crash-recovery/src/renderer_recovery.rs",
           "sha256": "525e81303bd57a4d695aadfc0e79d293491d130418dbcd7a91e1f0d7e28b43cc"
-        }
-      ],
-      "vectors": null,
-      "dispatch": null
-    },
-    {
-      "id": "orca-flow-control::keep_tail",
-      "origin": "ledger",
-      "label": "rust:[rust/crates/orca-flow-control/src/keep_tail.rs] <- ts:[src/main/daemon/daemon-stream-keep-tail-drop.ts]",
-      "ts": [
-        {
-          "path": "src/main/daemon/daemon-stream-keep-tail-drop.ts",
-          "sha256": "50bc8eac0db39d0c51bfc3543d7f0d8de2752a3d60c39cd34d3ad1894c362fc1"
-        }
-      ],
-      "tsAbsent": [],
-      "rust": [
-        {
-          "path": "rust/crates/orca-flow-control/src/keep_tail.rs",
-          "sha256": "d51d6f3bce71fdfe3aacc0c3e3324dc8c94d7f7ef03421a3d53eeb11d0b50691"
         }
       ],
       "vectors": null,

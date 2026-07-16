@@ -28,6 +28,7 @@ members = [
     "crates/orca-provider-backoff",
     "crates/orca-pty",
     "crates/orca-relay",
+    "crates/orca-renderer-heap",
     "crates/orca-runtime",
     "crates/orca-session",
     "crates/orca-ssh",

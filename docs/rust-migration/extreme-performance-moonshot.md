@@ -449,6 +449,19 @@ never shipped. The factory = fuse them.
   half the pair. The TS side of each corpus stays enforced by the vitest suite. Certificates were
   present-but-manual before; they are now a standing gate, so the E1 claim's "regression-gated" holds by
   construction and any future E1 unit is enforced with zero gate edits.
+  **✅ 5th E1 unit LANDED 2026-07-16** (`orca-renderer-heap`) — a FOURTH subsystem (startup), and the
+  first to cross the float boundary. Ports the already-exported pure `computeRendererHeapCeilingMb` from
+  `src/main/startup/renderer-heap-headroom.ts` (zero refactor): total RAM → V8 old-space ceiling MB, or
+  none. The RAM-tier decision is `clamp(floor(totalGiB·0.4)·1024, [3072,4096])` gated at 7.5 GiB, with a
+  resolved env override passed in (the JS-`Number` string parsing stays TS). `proofs/ay/rh1..rh3` abstract
+  the target as a free int → QF_LIA: band bound, monotone-in-RAM, and a genuine finding — rh3 proves the
+  3072 FLOOR is redundant under the gate (`floor(7.5·0.4)·1024 = 3072`, so the target is always ≥ floor;
+  the real clamp is the 4096 cap). `rh_c1/rh_c2` (SAT) prove both band edges reachable. verify.sh 5/5.
+  The float layer (JS `Number` ≡ Rust `f64`, bit-identical `/2^30 · *0.4 · floor · as u32`) is pinned
+  EMPIRICALLY by the parity corpus run against the real TS function (parser included) — not asserted.
+  5 Rust + 1 TS (13 w/ existing) green. **The certificates gate auto-picked-it-up with ZERO edits: 6
+  certificate crates / 45 obligations / 4 parity corpora.** FIVE units, FOUR subsystems (PTY /
+  rate-limits / crash-recovery / startup), FIVE invariant families, gated.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

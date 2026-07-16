@@ -1,0 +1,16 @@
+[package]
+name = "orca-renderer-heap"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Renderer V8 heap-ceiling decision core (pure RAM-tier clamp-band ported from src/main/startup/renderer-heap-headroom.ts)."
+
+# Deliberately zero-dependency: the pure sizing decision (total RAM -> old-space
+# ceiling MB, or none) with the resolved env override passed in. The JS-Number env
+# string parsing stays in TS; this is the numeric core, machine-checkable and
+# TS↔Rust parity-tested. Same E1 pair as orca-flow-control.
+
+[lints.rust]
+unsafe_code = "forbid"

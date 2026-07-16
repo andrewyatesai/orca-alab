@@ -1,0 +1,30 @@
+# Renderer heap-ceiling TS↔Rust differential parity corpus (E1 unit).
+#
+# ONE shared oracle, run by BOTH implementations:
+#   - Rust: orca-renderer-heap::renderer_heap_ceiling_mb (include_str! this file)
+#   - TS:   computeRendererHeapCeilingMb (src/main/startup/renderer-heap-headroom.ts)
+# ceiling = override ? (disable→null, N→N) : totalGiB<7.5 ? null
+#                    : clamp(floor(totalGiB*0.4)*1024, [3072, 4096]).
+# JS Number and Rust f64 are both IEEE-754 doubles, so the division / *0.4 / floor /
+# clamp are bit-identical — this corpus checks that end to end across the RAM tiers.
+#
+# Format: `<totalMemoryBytes> <override> => <ceilingMb|null>`
+#   override = none | disable | <positive int MB>
+#
+# RAM tiers (override = none):
+8589934592 none => 3072
+8053063680 none => 3072
+8266280960 none => 3072
+7516192768 none => null
+6442450944 none => null
+9663676416 none => 3072
+10737418240 none => 4096
+12884901888 none => 4096
+17179869184 none => 4096
+34359738368 none => 4096
+0 none => null
+# Env override (parsed): disable wins, a number is returned verbatim (NOT clamped):
+17179869184 disable => null
+17179869184 3500 => 3500
+8589934592 5000 => 5000
+8589934592 2000 => 2000

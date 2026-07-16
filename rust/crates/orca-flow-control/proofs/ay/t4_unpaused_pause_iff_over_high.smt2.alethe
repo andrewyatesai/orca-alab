@@ -1,0 +1,8 @@
+(assume t0 (and (< 262144 pending) (<= pending 262144)))
+(step t1 (cl (or (not (< 262144 pending)) (not (<= pending 262144))) (< 262144 pending)) :rule and_pos :args (0))
+(step t2 (cl (< 262144 pending)) :rule th_resolution :premises (t1 t0))
+(step t3 (cl (or (not (< 262144 pending)) (not (<= pending 262144))) (<= pending 262144)) :rule and_pos :args (1))
+(step t4 (cl (<= pending 262144)) :rule th_resolution :premises (t3 t0))
+(step t5 (cl (not (< 262144 pending)) (not (<= pending 262144))) :rule la_generic :args (1 1))
+(step t6 (cl (not (<= pending 262144))) :rule th_resolution :premises (t5 t2))
+(step t7 (cl) :rule th_resolution :premises (t6 t4))

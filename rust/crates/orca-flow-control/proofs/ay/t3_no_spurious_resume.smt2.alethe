@@ -1,0 +1,5 @@
+(assume t0 (>= pending 32768))
+(assume t1 (< pending 32768))
+(step t2 (cl (not (>= pending 32768)) (not (< pending 32768))) :rule la_generic :args (1 1))
+(step t3 (cl (not (< pending 32768))) :rule th_resolution :premises (t2 t0))
+(step t4 (cl) :rule th_resolution :premises (t3 t1))

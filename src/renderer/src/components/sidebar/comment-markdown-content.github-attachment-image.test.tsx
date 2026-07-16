@@ -3,7 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import CommentMarkdown from './CommentMarkdown'
+import CommentMarkdown from './comment-markdown-content'
 
 const attachmentUrl =
   'https://github.com/user-attachments/assets/ce11040a-fb66-4289-927f-547b16dfc488'

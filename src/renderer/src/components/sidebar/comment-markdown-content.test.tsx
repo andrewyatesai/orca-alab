@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import CommentMarkdown, { remarkGitHubReferences } from './CommentMarkdown'
+import CommentMarkdown, { remarkGitHubReferences } from './comment-markdown-content'
 
 describe('CommentMarkdown', () => {
   it('autolinks same-repo GitHub issue references when repo context is provided', () => {

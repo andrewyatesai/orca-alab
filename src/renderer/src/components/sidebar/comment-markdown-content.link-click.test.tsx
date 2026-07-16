@@ -3,7 +3,7 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import CommentMarkdown from './CommentMarkdown'
+import CommentMarkdown from './comment-markdown-content'
 
 describe('CommentMarkdown link click handler', () => {
   let root: Root | null = null

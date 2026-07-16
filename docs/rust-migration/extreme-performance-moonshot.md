@@ -61,7 +61,7 @@ Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The en
 
 | Axis | Record to beat | orc position |
 |---|---|---|
-| Ingest throughput | Ghostty nightly ~260 MB/s; kitty 121.8 MB/s ASCII; Casey Muratori's "reasonable floor" 0.5–2 GB/s (termbench/refterm) [external] | engine ~776 native / app 2–15 [recorded] |
+| Ingest throughput | Ghostty nightly ~260 MB/s; kitty 121.8 MB/s ASCII; Casey Muratori's "reasonable floor" 0.5–2 GB/s (termbench/refterm) [external] | engine ~776 native / app 2–15 [recorded] · macOS single-PTY cooked floor ~119 MB/s, pipe ~2.2 GB/s [recorded 2026-07-16] — composite claims gate on min(floor, engine) |
 | Typometer latency | xterm 5.3ms · Alacritty 6.9ms · kitty-tuned 10.7ms · Ghostty ~24ms · **VS Code 31.2ms · Hyper 39.8ms** (the Electron incumbents) [external] | unmeasured — Campaign 0 |
 | Camera key→photon | foot 15.0 · alacritty 16.7 · kitty 18.3 · ghostty 38.3 [external] | Chromium adds 1–2 vsync stages; sub-10ms camera claims are physically implausible at 60Hz — never publish one |
 | Memory | foot 43MB steady [external]; Ghostty 70–90% scrollback compression [external] | engine cell budget 74,020B observed / 96KiB ceiling gate [recorded]; marginal pane 9.1MB [recorded] |
@@ -86,8 +86,14 @@ Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The en
 
 ## 4. Campaign 0 — The Record Book (measure before touching)
 
-- **Kernel PTY floor per OS**: measure `dd > pty` throughput on macOS/Linux/Windows-ConPTY. This is the
-  physical ceiling for every ingest claim; nothing measures it today.
+- **Kernel PTY floor per OS**: measure PTY-drain throughput on macOS/Linux/Windows-ConPTY. This is the
+  physical ceiling for every ingest claim. **First row recorded 2026-07-16**
+  (`tools/benchmarks/pty-floor-bench.mjs`, 5-trial medians): macOS arm64 single-PTY floor
+  **~119 MB/s** (cooked mode, ONLCR; plain-pipe baseline ~2.2 GB/s — the tty layer passes ~5% of pipe
+  throughput) [recorded]. Consequence: on macOS, single-PTY end-to-end ingest can never exceed ~119
+  regardless of engine speed — the ≥260 record attempt needs raw-mode termios, Linux, or multi-stream
+  aggregation, and claim №1 is stated as "saturates the kernel PTY floor" wherever the floor binds.
+  Pending: raw-mode leg, Linux, ConPTY, daemon-read leg.
 - **Key→photon rig, tiered honestly** (per `rust/aterm/docs/FASTER_THAN_GHOSTTY_PLAN.md` tiers):
   typometer on all platforms; 240fps camera ground truth only on the pinned M4 Max session; an
   Electron `contentTracing` input-category gate in the **gauntlet** (this repo has no CI by design).
@@ -410,7 +416,10 @@ window or an agent**. Identity policy:
 
 ## 11. The claims board (what gets announced, in claim-safe wording)
 
-1. **An Electron app that out-ingests Ghostty.** End-to-end ≥260 MB/s local [target], camera on the pipe.
+1. **An Electron app that out-ingests Ghostty.** End-to-end ≥260 MB/s local [target] where the kernel
+   floor allows — measured macOS single-PTY cooked floor is ~119 MB/s [recorded], so the record run
+   uses raw-mode/Linux/multi-stream, or the claim is stated as "saturates the kernel PTY floor";
+   camera on the pipe, floor published alongside.
 2. **The lowest-latency browser-tech app ever measured.** ≤10ms typometer class [target] vs Hyper 39.8 /
    VS Code 31.2 [external]; mid-pack among *native* terminals, stated per-methodology, per-refresh-rate.
 3. **"The parser IS the spec."** 3,584 machine-checked transitions + a delta ledger, gating every build.
@@ -431,8 +440,13 @@ window or an agent**. Identity policy:
 The work is agent-executed; ordering is by prerequisite and gate, never by weeks. Effort tags (S–XL)
 size the work, not its date.
 
-**Wave 1 — unblocked now (S):** SAB flag + flag sweep (rung 1) · package `ay`+`ty` into verify.sh
-(T-A) · SIMD128 build flags · kernel-PTY-floor + typometer instruments · census in the gauntlet.
+**Wave 1 — unblocked now (S):** SAB flag + flag sweep (rung 1) ✅ *landed 2026-07-16 (SharedArrayBuffer
+composed on all paths incl. Linux-E2E; bench-only vsync flags behind `ORCA_BENCH_RUNTIME_FLAGS=1`)* ·
+package `ay`+`ty` into verify.sh (T-A) · SIMD128 build flags ✅ *landed 2026-07-16 (+simd128 target-scoped
++ wasm-opt --enable-simd; blobs rebuilt, 18,704/27,157 vector instructions cpu/gpu vs 0 before,
+behavior-neutral on the 26-case corpus; v128 scanners remain upstream work)* · kernel-PTY-floor ✅
+*landed 2026-07-16 (macOS ~119 MB/s recorded)* + typometer instruments · census in the gauntlet ✅
+*landed 2026-07-16 (`pnpm gauntlet:census`, regret-class ratchet)*.
 
 **Wave 2 — needs Wave 1's instruments (M):** **coordinator v0** (attach → session grid → attention
 queue, wearing Orca's design system — the Goal-2 product starts here, before the records; needs only

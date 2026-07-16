@@ -721,6 +721,7 @@ dependencies = [
  "orca-core",
  "orca-git",
  "orca-net",
+ "orca-provider-backoff",
  "orca-relay",
  "orca-ssh",
  "orca-text",

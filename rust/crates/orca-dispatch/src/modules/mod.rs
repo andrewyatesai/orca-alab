@@ -49,6 +49,7 @@ pub mod pairing;
 pub mod pi_agent_kind;
 pub mod project_groups;
 pub mod protocol_compat;
+pub mod provider_backoff;
 pub mod pull_request_generation;
 pub mod quick_open_filter;
 pub mod quick_open_rank;
@@ -130,6 +131,7 @@ pub fn dispatch(module: &str, function: &str, input: &Value) -> Option<Value> {
         "pi-agent-kind" => Some(pi_agent_kind::dispatch(function, input)),
         "project-groups" => Some(project_groups::dispatch(function, input)),
         "protocol-compat" => Some(protocol_compat::dispatch(function, input)),
+        "provider-backoff" => Some(provider_backoff::dispatch(function, input)),
         "pull-request-generation" => Some(pull_request_generation::dispatch(function, input)),
         "quick-open-filter" => Some(quick_open_filter::dispatch(function, input)),
         "quick-open-rank" => Some(quick_open_rank::dispatch(function, input)),

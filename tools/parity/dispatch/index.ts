@@ -44,6 +44,7 @@ import { dispatch as pairing } from './pairing'
 import { dispatch as piAgentKind } from './pi-agent-kind'
 import { dispatch as projectGroups } from './project-groups'
 import { dispatch as protocolCompat } from './protocol-compat'
+import { dispatch as providerBackoff } from './provider-backoff'
 import { dispatch as pullRequestGeneration } from './pull-request-generation'
 import { dispatch as quickOpenFilter } from './quick-open-filter'
 import { dispatch as quickOpenRank } from './quick-open-rank'
@@ -127,6 +128,7 @@ export const DISPATCH: Record<string, Dispatcher> = {
   'pi-agent-kind': piAgentKind,
   'project-groups': projectGroups,
   'protocol-compat': protocolCompat,
+  'provider-backoff': providerBackoff,
   'pull-request-generation': pullRequestGeneration,
   'quick-open-filter': quickOpenFilter,
   'quick-open-rank': quickOpenRank,

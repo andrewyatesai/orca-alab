@@ -163,10 +163,25 @@ function parityRustTwins(dispatchRsRel, unmapped, moduleId) {
       const { map, stars } = crateReexports(crateDir)
       const mod = map.get(name) ?? (stars.length === 1 ? stars.at(0) : undefined)
       const viaLib = mod === undefined ? undefined : rustModuleFile(crateDir, mod)
-      if (viaLib === undefined) {
-        unmapped.push({ id: moduleId, reason: `unresolved rust import: ${m[1]}::${name}` })
-      } else {
+      if (viaLib !== undefined) {
         twins.add(viaLib)
+        continue
+      }
+      // Single-file crate: the item is defined directly in the crate's lib.rs (no
+      // submodule, no re-export). Pin lib.rs itself — the shape of the small E1
+      // decision-core crates (orca-provider-backoff, orca-flow-control).
+      const libRel = `${crateDir}/src/lib.rs`
+      const libSrc = readRel(libRel)
+      const definedInLib =
+        libSrc !== null &&
+        new RegExp(
+          String.raw`pub (?:fn|const|static|struct|enum|trait|type)\s+${name}\b`,
+          'u'
+        ).test(libSrc)
+      if (definedInLib) {
+        twins.add(libRel)
+      } else {
+        unmapped.push({ id: moduleId, reason: `unresolved rust import: ${m[1]}::${name}` })
       }
     }
   }

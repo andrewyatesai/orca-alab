@@ -1,0 +1,73 @@
+{
+  "module": "provider-backoff",
+  "source": "src/main/rate-limits/active-failure-backoff.ts",
+  "rustCrate": "orca-provider-backoff",
+  "cases": [
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "streak 0 waits the base (max(0, -1) exponent = 0)",
+      "input": { "streak": 0 },
+      "expected": 30000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "streak 1 also waits the base (2^0)",
+      "input": { "streak": 1 },
+      "expected": 30000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "each further failure doubles: streak 2 = 2^1",
+      "input": { "streak": 2 },
+      "expected": 60000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "streak 3 = 2^2",
+      "input": { "streak": 3 },
+      "expected": 120000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "streak 4 = 2^3",
+      "input": { "streak": 4 },
+      "expected": 240000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "streak 5 = 2^4, still below the ceiling",
+      "input": { "streak": 5 },
+      "expected": 480000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "streak 6 would be 960000, clamped to the 15min ceiling",
+      "input": { "streak": 6 },
+      "expected": 900000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "streak 8 is the caller's cap; stays saturated",
+      "input": { "streak": 8 },
+      "expected": 900000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "streak 20 stays saturated (no overflow, no wrap)",
+      "input": { "streak": 20 },
+      "expected": 900000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "a huge streak is overflow-safe both sides (JS Infinity, Rust checked_shl saturate)",
+      "input": { "streak": 1000000 },
+      "expected": 900000
+    },
+    {
+      "function": "activeFailureRefetchThrottleMs",
+      "note": "a negative streak clamps to 0 on both adapters -> base wait",
+      "input": { "streak": -3 },
+      "expected": 30000
+    }
+  ]
+}

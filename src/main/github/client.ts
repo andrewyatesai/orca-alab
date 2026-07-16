@@ -3215,6 +3215,7 @@ export async function getPRForBranchOutcome(
         ...(confirmedContainedHeadOid ? { confirmedContainedHeadOid } : {}),
         ...(headDivergedFromMergedPRAtOid ? { headDivergedFromMergedPRAtOid } : {}),
         ...(data.baseRefName ? { baseRefName: data.baseRefName } : {}),
+        ...(data.headRefName ? { headRefName: data.headRefName } : {}),
         prRepo: dataRepo ?? undefined,
         headRepo: dataHeadRepo ?? undefined,
         conflictSummary

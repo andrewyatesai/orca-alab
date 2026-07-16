@@ -1,5 +1,6 @@
 import { useCallback } from 'react'
 import type React from 'react'
+import { createBrowserUuid } from '@/lib/browser-uuid'
 import type { PendingText } from './useMarkupKeyboardShortcuts'
 import {
   commitShape,
@@ -66,7 +67,7 @@ export function useMarkupPointerHandlers(params: MarkupPointerParams) {
         return
       }
       event.currentTarget.setPointerCapture(event.pointerId)
-      const id = crypto.randomUUID()
+      const id = createBrowserUuid()
       if (tool === 'pen' || tool === 'highlight') {
         setInProgress({ id, kind: tool, color, width, points: [point] })
       } else {

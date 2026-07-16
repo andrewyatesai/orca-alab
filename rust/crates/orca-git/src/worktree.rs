@@ -18,6 +18,13 @@ pub struct GitWorktreeInfo {
     /// The lock reason (may be empty even when locked). Non-`-z` output is
     /// C-quote-decoded so a non-ASCII reason round-trips.
     pub lock_reason: String,
+    /// Set when git (>= 2.36 in `-z` mode, >= 2.31 in line mode) reports the
+    /// registration prunable — its directory is gone; surfacing it as a live
+    /// workspace resurrects stale worktrees (upstream #8389).
+    pub prunable: bool,
+    /// The prunable reason (may be empty). Same C-quote decode rule as
+    /// `lock_reason`.
+    pub prunable_reason: String,
 }
 
 fn split_line_worktree_list(output: &str) -> Vec<Vec<String>> {
@@ -87,6 +94,14 @@ pub fn parse_worktree_list(output: &str, nul_delimited: bool) -> Vec<GitWorktree
                 } else {
                     orca_core::git_cquoted_path::decode_git_cquoted_path(raw_reason)
                 };
+            } else if line == "prunable" || line.starts_with("prunable ") {
+                info.prunable = true;
+                let raw_reason = line["prunable".len()..].trim();
+                info.prunable_reason = if nul_delimited {
+                    raw_reason.to_string()
+                } else {
+                    orca_core::git_cquoted_path::decode_git_cquoted_path(raw_reason)
+                };
             }
         }
         if !info.path.is_empty() {
@@ -118,6 +133,12 @@ fn worktree_to_json(info: &GitWorktreeInfo) -> Value {
     }
     if !info.lock_reason.is_empty() {
         map.insert("lockReason".to_string(), Value::String(info.lock_reason.clone()));
+    }
+    if info.prunable {
+        map.insert("prunable".to_string(), Value::Bool(true));
+    }
+    if !info.prunable_reason.is_empty() {
+        map.insert("prunableReason".to_string(), Value::String(info.prunable_reason.clone()));
     }
     Value::Object(map)
 }
@@ -239,6 +260,27 @@ mod tests {
                 info("/repo", "abc123", "refs/heads/main", false, true),
                 info("/repo/linked\nworktree", "def456", "refs/heads/feature/newline", false, false),
             ]
+        );
+    }
+
+    #[test]
+    fn parses_prunable_worktrees_with_decoded_reason() {
+        // Bare `prunable`, a plain reason, and a C-quoted non-ASCII reason —
+        // the same decode rule as `locked` (upstream #8409).
+        let output = "\nworktree /a\nHEAD a1\nbranch refs/heads/main\n\nworktree /b\nHEAD b2\nbranch refs/heads/wip\nprunable\n\nworktree /c\nHEAD c3\nbranch refs/heads/x\nprunable gitdir file points to non-existent location\n\nworktree /d\nHEAD d4\nbranch refs/heads/y\nprunable \"caf\\303\\251\"\n";
+        let got = parse_worktree_list(output, false);
+        assert!(!got[0].prunable);
+        assert!(got[1].prunable && got[1].prunable_reason.is_empty());
+        assert_eq!(got[2].prunable_reason, "gitdir file points to non-existent location");
+        assert_eq!(got[3].prunable_reason, "café");
+        // JSON spreads prunable/prunableReason only when present.
+        let json = worktree_to_json(&got[0]);
+        assert!(json.get("prunable").is_none() && json.get("prunableReason").is_none());
+        let json_c = worktree_to_json(&got[2]);
+        assert_eq!(json_c.get("prunable"), Some(&Value::Bool(true)));
+        assert_eq!(
+            json_c.get("prunableReason"),
+            Some(&Value::String("gitdir file points to non-existent location".to_string()))
         );
     }
 

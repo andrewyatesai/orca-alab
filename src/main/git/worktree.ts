@@ -11,6 +11,7 @@ import type {
   RemoveWorktreeResult
 } from '../../shared/types'
 import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
+import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import {
@@ -20,7 +21,6 @@ import {
 } from '../../shared/git-worktree-command-capabilities'
 import { getLocalGitCapabilityCache } from './git-capability-state'
 import { gitExecFileAsync, translateWslOutputPaths } from './runner'
-import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import { resolveGitDir, runWithGitReadCacheInvalidation } from './status'
 import { hasWorktreeBaseCommitRef } from './worktree-base-ref-probe'
 
@@ -36,6 +36,11 @@ type SparseWorktreeCreateError = Error & {
 export type GitWorktreeExecOptions = {
   wslDistro?: string
   signal?: AbortSignal
+  timeout?: number
+}
+
+type WorktreeRemovalPreflightOptions = GitWorktreeExecOptions & {
+  ignoredUntrackedPaths?: readonly string[]
 }
 
 export type AddWorktreeOptions = GitWorktreeExecOptions & {
@@ -73,20 +78,24 @@ type LocalBaseRefRefreshability =
 
 const SPARSE_CHECKOUT_DETECTION_CONCURRENCY = 8
 
+const PRUNABLE_EXISTENCE_PROBE_CONCURRENCY = 8
+
 // Why: bound `git worktree add` so a OneDrive cloud-placeholder base path can't
 // stall its checkout writes for minutes (STA-1292) — a stuck create then fails
 // fast instead of spinning forever. Generous enough not to kill a legit large
 // checkout (mirrors the SYNC runner's cloud-placeholder floor, #7225).
 export const WORKTREE_ADD_TIMEOUT_MS = 180_000
+export const WORKTREE_REMOVAL_PREFLIGHT_TIMEOUT_MS = 30_000
 
 function gitExecOptions(
   cwd: string,
   options: GitWorktreeExecOptions = {}
-): { cwd: string; wslDistro?: string; signal?: AbortSignal } {
+): { cwd: string; wslDistro?: string; signal?: AbortSignal; timeout?: number } {
   return {
     cwd,
     ...(options.wslDistro ? { wslDistro: options.wslDistro } : {}),
-    ...(options.signal ? { signal: options.signal } : {})
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.timeout ? { timeout: options.timeout } : {})
   }
 }
 
@@ -517,10 +526,62 @@ async function readWorktreeList(
         cwd: repoPath,
         ...options
       })
-      return normalizeMainWorktreePath(repoPath, parseWorktreeList(stdout), options)
+      const normalized = await normalizeMainWorktreePath(
+        repoPath,
+        parseWorktreeList(stdout),
+        options
+      )
+      // Why: this `-z`-unsupported fallback (Git <2.36) also serves Git <2.31,
+      // which emits no `prunable` annotation; probe each linked worktree path
+      // for existence instead of treating stale registrations as live. On Git
+      // 2.31–2.35 `parseWorktreeList` already set `prunable`, so the probe is a
+      // harmless backstop that skips those entries (issue #8389).
+      return annotatePrunableByExistence(normalized, repoPath, options)
     },
     isUnsupportedWorktreeListZError
   )
+}
+
+async function annotatePrunableByExistence(
+  worktrees: GitWorktreeInfo[],
+  repoPath: string,
+  options: GitWorktreeExecOptions = {}
+): Promise<GitWorktreeInfo[]> {
+  const annotated = [...worktrees]
+  let nextIndex = 0
+
+  async function probeNext(): Promise<void> {
+    while (nextIndex < worktrees.length) {
+      const index = nextIndex
+      nextIndex += 1
+      const worktree = worktrees[index]
+      // Git only marks linked worktrees prunable, and never locked ones (a
+      // lock shields the registration even when the directory is missing). The
+      // `locked` annotation is only parsed on Git >=2.31, so on older Git a
+      // locked+missing worktree cannot be shielded here. A missing main
+      // worktree is handled by the repo-level ENOENT paths.
+      if (
+        !worktree ||
+        worktree.isMainWorktree ||
+        worktree.isBare ||
+        worktree.locked ||
+        worktree.prunable
+      ) {
+        continue
+      }
+      try {
+        await stat(translateWorktreePath(worktree.path, repoPath, options))
+      } catch (err) {
+        if (getErrorCode(err) === 'ENOENT') {
+          annotated[index] = { ...worktree, prunable: true }
+        }
+      }
+    }
+  }
+
+  const workerCount = Math.min(PRUNABLE_EXISTENCE_PROBE_CONCURRENCY, worktrees.length)
+  await Promise.all(Array.from({ length: workerCount }, () => probeNext()))
+  return annotated
 }
 
 async function readTranslatedWorktreeGraph(
@@ -1261,22 +1322,52 @@ async function isLocalBranchCheckedOut(
 export async function assertWorktreeCleanForRemoval(
   worktreePath: string,
   force = false,
-  options: GitWorktreeExecOptions = {}
+  options: WorktreeRemovalPreflightOptions = {}
 ): Promise<void> {
   if (force) {
     return
   }
 
-  const { stdout } = await gitExecFileAsync(['status', '--porcelain', '--untracked-files=all'], {
-    ...gitExecOptions(worktreePath, options)
-  })
-  if (!stdout.trim()) {
+  const { ignoredUntrackedPaths = [], ...gitOptions } = options
+  const useNullTerminatedStatus = ignoredUntrackedPaths.length > 0
+  const { stdout } = await gitExecFileAsync(
+    ['status', '--porcelain', ...(useNullTerminatedStatus ? ['-z'] : []), '--untracked-files=all'],
+    {
+      ...gitExecOptions(worktreePath, gitOptions),
+      timeout: gitOptions.timeout ?? WORKTREE_REMOVAL_PREFLIGHT_TIMEOUT_MS
+    }
+  )
+  if (
+    useNullTerminatedStatus
+      ? hasOnlyIgnoredUntrackedStatus(stdout, ignoredUntrackedPaths)
+      : !stdout.trim()
+  ) {
     return
   }
 
   const error = new Error('Worktree has uncommitted or untracked changes.')
   ;(error as Error & { stdout?: string }).stdout = stdout
   throw error
+}
+
+function hasOnlyIgnoredUntrackedStatus(
+  status: string,
+  ignoredUntrackedPaths: readonly string[]
+): boolean {
+  const ignored = new Set(
+    ignoredUntrackedPaths
+      .map((entry) =>
+        entry
+          .trim()
+          .replace(/^[\\/]+/, '')
+          .replace(/\\/g, '/')
+      )
+      .filter((entry) => entry && !entry.split('/').includes('..'))
+  )
+  return status
+    .split('\0')
+    .filter(Boolean)
+    .every((entry) => entry.startsWith('?? ') && ignored.has(entry.slice(3).replace(/\\/g, '/')))
 }
 
 function translateWorktreePath(

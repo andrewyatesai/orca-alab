@@ -38,6 +38,7 @@ import {
 } from './terminal-link-open-hints'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
 import { isTerminalLinkActivation } from './terminal-link-activation'
+import { getBufferPositionForTerminalMouseEvent } from './terminal-mouse-buffer-position'
 
 export { openDetectedFilePath } from './terminal-file-open-routing'
 export { openFilePathLinkAtBufferPosition } from './terminal-file-link-hit-testing'
@@ -216,63 +217,35 @@ export function createFilePathLinkProvider(
           )
         )
       )
-        .then((resolvedLinks) => {
-          const latestFingerprints = new Set(
-            buildCandidateLogicalLinesForBufferPosition(buffer, bufferLineNumber).map(
-              (logicalLine) => logicalLine.fingerprint
+        .then(
+          (resolvedLinks) => {
+            const latestFingerprints = new Set(
+              buildCandidateLogicalLinesForBufferPosition(buffer, bufferLineNumber).map(
+                (logicalLine) => logicalLine.fingerprint
+              )
             )
-          )
-          const providedLinks = resolvedLinks.filter(
-            (link): link is ProvidedFileLink => link !== null
-          )
-          const links = preferLongestNonOverlappingLinks(providedLinks)
-            .filter(({ logicalLine }) => latestFingerprints.has(logicalLine.fingerprint))
-            .map(({ link }) => link)
-          if (providedLinks.length > 0 && links.length === 0) {
-            return
+            const providedLinks = resolvedLinks.filter(
+              (link): link is ProvidedFileLink => link !== null
+            )
+            const links = preferLongestNonOverlappingLinks(providedLinks)
+              .filter(({ logicalLine }) => latestFingerprints.has(logicalLine.fingerprint))
+              .map(({ link }) => link)
+            if (providedLinks.length > 0 && links.length === 0) {
+              return
+            }
+            callback(links.length > 0 ? links : undefined)
+          },
+          () => {
+            // Why: remote probes reject during SSH teardown; using the rejection
+            // arm avoids treating a consumer callback failure as a probe failure.
+            callback(undefined)
           }
-          callback(links.length > 0 ? links : undefined)
-        })
+        )
         .catch(() => {
-          // Why: remote path-existence probes reject with "Remote connection
-          // dropped/reconnecting" during SSH teardown. Without a catch the
-          // rejected Promise.all is unhandled and the crash-breadcrumb buffer
-          // retains it, growing the renderer heap until it crashes (#8260).
-          callback(undefined)
+          // Link discovery is best-effort; a stale xterm callback must not
+          // recreate the unhandled rejection this path is meant to contain.
         })
     }
-  }
-}
-
-function getTerminalScreenElement(terminal: Terminal): HTMLElement | null {
-  return terminal.element?.querySelector('.xterm-screen') ?? null
-}
-
-function getBufferPositionForTerminalMouseEvent(
-  terminal: Terminal,
-  event: MouseEvent
-): { x: number; y: number } | null {
-  const screenElement = getTerminalScreenElement(terminal)
-  if (!screenElement || terminal.cols <= 0 || terminal.rows <= 0) {
-    return null
-  }
-
-  const rect = screenElement.getBoundingClientRect()
-  const relativeX = event.clientX - rect.left
-  const relativeY = event.clientY - rect.top
-  if (relativeX < 0 || relativeY < 0 || relativeX >= rect.width || relativeY >= rect.height) {
-    return null
-  }
-
-  const cellWidth = rect.width / terminal.cols
-  const cellHeight = rect.height / terminal.rows
-  if (cellWidth <= 0 || cellHeight <= 0) {
-    return null
-  }
-
-  return {
-    x: Math.floor(relativeX / cellWidth) + 1,
-    y: Math.floor(relativeY / cellHeight) + terminal.buffer.active.viewportY + 1
   }
 }
 

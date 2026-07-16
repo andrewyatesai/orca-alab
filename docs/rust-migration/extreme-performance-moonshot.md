@@ -424,6 +424,20 @@ never shipped. The factory = fuse them.
   one oracle, Rust + TS. 5 Rust + 2 TS parity green, 311 rate-limits service tests unchanged. THREE
   shipped units, two subsystems, three invariant families (hysteresis, linear clamp, saturating
   exponential) — the E1 factory is real, not a one-off.
+  **✅ 4th E1 unit LANDED 2026-07-16** (`orca-crash-recovery`) — TWO more invariant families and a THIRD
+  subsystem (crash-recovery), zero production-code touch (both cores were already exported classes; only
+  parity tests added). Two stateful decision cores ported from `src/main/crash-reporting`:
+  (a) `renderer_recovery` — a rolling-window renderer-reload rate limiter: `proofs/ay/rr1..rr3` prove
+  inductive safety (≤ max attempts in any window), no-admit-at-cap, and reset-reopens liveness (no
+  permanent lockout). (b) `gpu_fallback` — a one-shot GPU software-fallback latch: `proofs/ay/gf1..gf3`
+  prove engages-at-most-once, window-gate no-op, and no-engage-below-threshold. Both integer-only → the
+  in-window count is a free int, all QF_LIA; `verify.sh` discharges 10/10 (6 theorem + 4 control incl.
+  inclusive-boundary off-by-one catches). Parity is a replayed OPERATION TRACE (like the producer
+  controller), run by both the Rust core and the TS class. 8 Rust + 2 TS parity green; existing 80
+  crash-reporting tests unchanged. FOUR shipped units, THREE subsystems (PTY / rate-limits /
+  crash-recovery), FIVE invariant families (hysteresis · linear clamp · saturating exponential ·
+  rolling-window rate limit · one-shot latch) — pure functions AND stateful machines, table AND trace
+  corpora.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

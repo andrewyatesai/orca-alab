@@ -688,6 +688,10 @@ name = "orca-core"
 version = "0.0.1"
 
 [[package]]
+name = "orca-crash-recovery"
+version = "0.0.1"
+
+[[package]]
 name = "orca-crypto"
 version = "0.0.1"
 dependencies = [

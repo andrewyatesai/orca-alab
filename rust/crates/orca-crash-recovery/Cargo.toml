@@ -1,0 +1,16 @@
+[package]
+name = "orca-crash-recovery"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Crash-recovery decision cores (rolling-window renderer-reload rate limiter + one-shot GPU software-fallback latch, ported from src/main/crash-reporting)."
+
+# Deliberately zero-dependency: pure stateful decision cores (clock injected as a
+# plain integer, no timers/IO), kept trivially testable and machine-checkable. Same
+# E1 pair as orca-flow-control: proven equivalent to the TS by shared parity
+# corpora, proven correct by proofs/ay.
+
+[lints.rust]
+unsafe_code = "forbid"

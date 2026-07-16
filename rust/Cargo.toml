@@ -16,6 +16,7 @@ members = [
     "crates/orca-aterm-demo",
     "crates/orca-config",
     "crates/orca-core",
+    "crates/orca-crash-recovery",
     "crates/orca-crypto",
     "crates/orca-daemon",
     "crates/orca-dispatch",

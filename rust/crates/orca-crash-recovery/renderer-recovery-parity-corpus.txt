@@ -1,0 +1,32 @@
+# Renderer-recovery circuit-breaker TS↔Rust differential parity corpus (E1 unit).
+#
+# ONE shared operation trace, replayed by BOTH implementations against a fresh
+# breaker configured window=100ms, max=3:
+#   - Rust: orca-crash-recovery::renderer_recovery (include_str! this file)
+#   - TS:   RendererRecoveryCircuitBreaker (src/main/crash-reporting/renderer-recovery-circuit-breaker.ts)
+# Divergence on any step fails one side.
+#
+# Ops:
+#   attempt <now> => <allowed:0|1> <recentRecoveryCount>   register a recovery attempt
+#   count   <now> => <recentRecoveryCount>                 read the in-window count
+#   reset                                                  clear history
+#
+# Trace exercises: fill to the cap, reject over the cap (rejected attempts are not
+# recorded), whole-window age-out, reset, and the STRICT prune boundary (a
+# timestamp exactly at the cutoff ages out; one at cutoff+1 survives).
+attempt 0 => 1 1
+attempt 10 => 1 2
+attempt 20 => 1 3
+attempt 25 => 0 3
+attempt 30 => 0 3
+count 120 => 0
+attempt 121 => 1 1
+attempt 122 => 1 2
+attempt 123 => 1 3
+attempt 124 => 0 3
+reset
+count 124 => 0
+attempt 200 => 1 1
+attempt 224 => 1 2
+attempt 324 => 1 1
+attempt 423 => 1 2

@@ -391,9 +391,16 @@ never shipped. The factory = fuse them.
   deterministic and napi-ready (flow events fire at watermark crossings, never per byte — no per-chunk
   C++ hop, unlike the rejected `pty:data` cutover). 12 cargo tests prove the invariants empirically
   (exact boundaries, once-only edges, no band-flap, reassert-only-after-interval-AND-flooding, per-PTY
-  independence, a full flood→drain→reflood emitting exactly [Pause, Resume, Pause]). Remaining: Stage 2
-  napi binding + wiring at the pause/resume decision points with a TS↔Rust parity test; Stage 3 the ay
-  invariant bundle.
+  independence, a full flood→drain→reflood emitting exactly [Pause, Resume, Pause]).
+  **✅ P3 COMPLETE 2026-07-16** — the FIRST unit to realize the full E1 pair on real ported production
+  code. **Stage 2** (`b08903433`): napi cutover REJECTED by measure-first (`updateProducerFlowControl`
+  fires per-chunk across 8 delivery/ack sites → a napi hop regresses like `pty:data`); instead a
+  cross-language **differential parity certificate** — TS production and the Rust spec run ONE shared
+  `parity-corpus.txt` and must emit identical actions (Rust 13/13, TS 10/10). **Stage 3** (`ee9aa527f`):
+  **ay machine-checked certificate** (`proofs/ay/`, `bash verify.sh` → ALL PROOFS DISCHARGED) — 4
+  theorems proved ∀ (anti-flap, reassert-gated, strict low/high edges) + 2 controls (non-vacuity,
+  catches off-by-one). Spec proved correct (ay) + implementations proved equivalent (parity corpus) =
+  the E1 claim, demonstrated end-to-end on a shipped unit.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

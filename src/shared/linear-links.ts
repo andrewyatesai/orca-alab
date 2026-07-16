@@ -1,3 +1,5 @@
+import { requireOrcaDispatch } from './orca-dispatch-seam'
+
 export function buildLinearTeamUrl(args: {
   organizationUrlKey?: string | null
   teamKey?: string | null
@@ -44,39 +46,15 @@ export type ParsedLinearIssueInput = {
   organizationUrlKey?: string
 }
 
-const LINEAR_IDENTIFIER_PATTERN = /^[A-Za-z][A-Za-z0-9_]*-\d+$/
-
+// Parse a Linear issue identifier ("ENG-123") or issue URL into its identifier +
+// org key. Single-sourced in the Rust core (orca_core::linear_links); this runs
+// on main + the CLI (both bind the napi dispatch seam at bootstrap), so it uses
+// requireOrcaDispatch. Rust mirrors JS `new URL`/decodeURIComponent/trim/toUpperCase
+// via parse_absolute_url + try_decode_uri_component + trim_js.
 export function parseLinearIssueInput(input: string): ParsedLinearIssueInput | null {
-  const trimmed = input.trim()
-  if (!trimmed) {
-    return null
-  }
-
-  if (LINEAR_IDENTIFIER_PATTERN.test(trimmed)) {
-    return { identifier: trimmed.toUpperCase() }
-  }
-
-  try {
-    const parsed = new URL(trimmed)
-    if (parsed.hostname !== 'linear.app') {
-      return null
-    }
-    const parts = parsed.pathname.split('/').filter(Boolean)
-    const issueIndex = parts.indexOf('issue')
-    const organizationUrlKey = parts[0]
-    const rawIdentifier = issueIndex >= 0 ? parts[issueIndex + 1] : undefined
-    if (!organizationUrlKey || !rawIdentifier) {
-      return null
-    }
-    const identifier = decodeURIComponent(rawIdentifier).split(/[/?#]/)[0]
-    if (!LINEAR_IDENTIFIER_PATTERN.test(identifier)) {
-      return null
-    }
-    return {
-      identifier: identifier.toUpperCase(),
-      organizationUrlKey: decodeURIComponent(organizationUrlKey)
-    }
-  } catch {
-    return null
-  }
+  return requireOrcaDispatch(
+    'linear-links',
+    'parseLinearIssueInput',
+    input
+  ) as ParsedLinearIssueInput | null
 }

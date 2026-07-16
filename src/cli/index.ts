@@ -9,6 +9,7 @@ import {
   validateCommandAndFlags
 } from './args'
 import { dispatch } from './dispatch'
+import { bindCliOrcaDispatch } from './orca-dispatch-binding'
 import { reportCliError } from './format'
 import { printHelp } from './help'
 import { RuntimeClient } from './runtime-client'
@@ -42,6 +43,9 @@ export async function main(
   argv = process.argv.slice(2),
   cwd = resolveInvocationCwd()
 ): Promise<void> {
+  // Bind the Rust dispatch seam (napi) before any handler runs, so src/shared
+  // modules cut over to the Rust core work in the CLI exactly as in main.
+  bindCliOrcaDispatch()
   if (argv[0] === 'agent-teams-tmux') {
     await runAgentTeamsTmuxShim(argv.slice(1))
     return

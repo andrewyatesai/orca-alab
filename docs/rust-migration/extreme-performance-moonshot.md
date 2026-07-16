@@ -45,7 +45,7 @@ The full audit of the byte path (PTY → daemon → main → renderer → worker
 | Engine on-glass | **~193 MB/s** [recorded] — already 1.5× Alacritty's 125 [external] |
 | Daemon-leg ingest (aterm headless + pending + fanout) | **161–236 MB/s** [recorded 2026-07-16, `session-ingest-throughput.bench.test.ts`: ascii-log 236, agent-tui 161] — the aterm migration already fixed the OLD 2–15 daemon share; the daemon leg is NOT the bottleneck |
 | Daemon→client stream transport | binary frames **1.8–2.8× over NDJSON** end-to-end [recorded 2026-07-16, LANDED as the v1020 binary stream plane] |
-| App end-to-end ingest | **2–15 MB/s** [recorded] — with the daemon leg now ≥161 MB/s and transport binary, the residual pipe cost is DOWNSTREAM of the daemon: `pty:data` main→renderer IPC + the renderer present path (needs the typometer rig to bench cleanly) |
+| App end-to-end ingest | **"2–15 MB/s" is now STALE** (pre-aterm/old pipeline). Every leg measured 2026-07-16 is far above it — daemon ingest ≥161, transport binary, IPC 1–4 GB/s — so the modern foreground pipe is bounded by the RENDERER OUTPUT SCHEDULER at **~117 MB/s** foreground (`pane-terminal-output-scheduler-throughput.bench`, scheduler overhead only, parse excluded; **1.9 MB/s background** = the deliberate throttle). The transport-bound gap Campaign 1 targeted is substantially CLOSED by aterm + binary frames; the remaining foreground lever is the renderer scheduler + present path (dirty-band present), NOT transport. Needs a true modern end-to-end re-measure (typometer rig). |
 | `pty:data` IPC payload shape | **REJECTED by the real Electron IPC bench** [recorded 2026-07-16, `electron-ipc-bench/` — a real hidden-BrowserWindow round-trip incl. the C++ message hop]: bytes-payload vs string-payload is **0.96–0.97× on typical ASCII (slightly slower)** and only **1.31× (4KB) / 1.42× (64KB) on control-heavy TUI** — nowhere near the Node `v8.serialize` PROXY's 2.3–22× (`ipc-payload-serialize-bench.mjs`), which overstated it because real Electron IPC is already **1–4 GB/s** and the C++ hop dominates both shapes equally. A wide `pty:data`-contract change (all consumers: renderer, SSH relay, tests) for a ≤1.4× burst-only win that's negative on the common case is not worth it. **Program-shaping consequence**: raw IPC is 1–4 GB/s, so the app's 2–15 MB/s ceiling is NOT the IPC serialization — the bottleneck is the RENDERER-side pipeline (worker wasm parse, batching queues, present path). Redirect ingest work there, not at the IPC payload shape. |
 | Current public record (Ghostty nightly) | **~260 MB/s** ingest [external] |
 
@@ -60,7 +60,13 @@ browser-safe `src/shared/daemon-binary-frame.ts` reader, over a byte-migrated co
 — landed 2026-07-16). The Rust daemon already owns PTYs by default on macOS/Linux
 (`src/main/daemon/daemon-init.ts:282-291`).
 
-Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The engine is already there.
+Campaign 1 existed to close the gap between "2–15" and ~300. Update 2026-07-16: that gap was
+transport-bound and is now substantially CLOSED — aterm (ingest ≥161, on-glass ~193) + the v1020
+binary stream plane on both client stacks removed the parse/copy/NDJSON transport tax, and the real
+Electron IPC bench (1–4 GB/s) proved the IPC is not the ceiling. The modern FOREGROUND ceiling is the
+renderer output scheduler (~117 MB/s, parse excluded), so the remaining lever is the renderer
+scheduler + present path (dirty-band present), not transport. The next honest number to get is a true
+modern keystroke/byte→pixel end-to-end (typometer rig), since "2–15" is stale.
 
 ---
 

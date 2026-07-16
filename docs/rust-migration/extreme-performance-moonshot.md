@@ -343,19 +343,23 @@ hand-ports with verbatim test translation, parity corpora (1,149 cases), ay safe
 promotion recipe (parity → napi/wasm via orca-dispatch → shadow cutover → delete the TS twin — orca-git
 landed this way: 137 tests, 10 SMT obligations, TS deleted 2026-07-06). Track 2 (unpromoted): the
 ts2rust two-witness autoformalizer — W1 `trustc` ∀-safety, W2 Node-TS differential fuzzing —
-**143/205 TRUSTED** on real orc code [recorded], outputs sitting in `~/trust/tools/ts2rust/orca`,
+**146/208 TRUSTED** on real orc code [recorded], outputs sitting in `~/trust/tools/ts2rust/orca`,
 never shipped. The factory = fuse them.
-  **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`): this session's E1 decision cores
-  are prime autoformalize candidates. Added **+2 TRUSTED kernels** derived straight from landed E1 units —
-  `e1_expiredir` (`shouldExpireSessionDir`, orca-session-gc: pure comparison/boolean, no arithmetic-safety
-  obligations → W1 VERIFIED + W2 0/26) and `e1_backoff` (`activeFailureRefetchThrottleMs`,
-  orca-provider-backoff: capped exponential in TOTAL ops — saturating_sub/mul, checked_shl().unwrap_or →
-  W1 VERIFIED + W2 0/18). **FINDING:** a keep-tail kernel is W2-equivalent (0/18) but stays NOT-TRUSTED
-  because trustc emits an undecided `FullVerification::ArithmeticSafety: division by zero` even for
-  `checked_div` — division-safety is an unsupported MIR obligation in the current trustc (a real coverage
-  gap, not an orc bug). So the E1 cores that TRUST today are the total-ops/compare-only ones; division
-  kernels wait on a trustc capability. This is the concrete recipe for advancing the count: mine the E1
-  units, prefer saturating/checked/compare formulations.
+  **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
+  decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from
+  landed E1 units, spanning 4 of the 6 E1 crates — each W1 `trustc` VERIFIED + W2 0 divergences:
+  `e1_expiredir` (`shouldExpireSessionDir`, orca-session-gc, 0/26), `e1_backoff`
+  (`activeFailureRefetchThrottleMs`, orca-provider-backoff, 0/18), `e1_gpufallback`
+  (`shouldEngageGpuFallback`, orca-crash-recovery, 0/80), `e1_flowaction` (`producerFlowAction` — the
+  flagship PtyProducerFlowController hysteresis decision, orca-flow-control, 0/35), `e1_recoveryallowed`
+  (`isRendererRecoveryAllowed`, orca-crash-recovery, 0/83). **FINDING:** a keep-tail kernel is
+  W2-equivalent (0/18) but stays NOT-TRUSTED — trustc emits an undecided
+  `FullVerification::ArithmeticSafety: division by zero` even for `checked_div`; division-safety is an
+  unsupported MIR obligation in the current trustc (a real coverage gap, not an orc bug). So the E1 cores
+  that TRUST today are the compare-only / saturating-total-ops ones; division kernels (keep-tail),
+  f64 (renderer-heap) and `&[u16]` (stream-split) cores wait on a trustc/argspec capability. Concrete
+  recipe to advance the count cheaply: mine the landed E1 pure cores, prefer saturating/checked/compare
+  formulations.
 
 - **F1 Provenance gate** [M]: pin every Rust port to its TS source hash; the gauntlet fails with a
   structured re-port task on drift. (Last upstream merge caught 5 shadow-port drifts *reactively*.)
@@ -367,7 +371,7 @@ never shipped. The factory = fuse them.
 - **F4 Close the loop** [L]: unattended classify→port→verify→promote for in-fragment kernels **whose
   signature matches the live export** (the verifier's key restriction — TRUSTED kernels with narrowed
   types can't ship as-is); promotion re-runs autoformalize against the real module source; ships
-  through the existing one-export orca-dispatch seam. Inventory honesty: 143/205 TRUSTED today, not 247.
+  through the existing one-export orca-dispatch seam. Inventory honesty: 146/208 TRUSTED today, not 247.
 - **Port targets by measured heat:** P1 the onPtyData chunk-ingest core as one Rust scan pass
   (**UTF-16 code-unit seam mandatory** — napi string conversion replaces lone surrogates and PTY chunks
   split astral pairs; re-baseline heat on current main first). P2 — **re-scoped by measurement

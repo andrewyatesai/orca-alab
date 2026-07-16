@@ -1,0 +1,7 @@
+{
+  "minTrusted": 54,
+  "measured": "2026-07-16",
+  "total": 218,
+  "faithfulMiss": 165,
+  "note": "pnpm gauntlet:autoformalize; drop = a kernel stopped verifying"
+}

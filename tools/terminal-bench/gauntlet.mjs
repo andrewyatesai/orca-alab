@@ -476,13 +476,23 @@ function autoformalize() {
   // port coming back NOT-TRUSTED = triage (port bug vs. a Trust verifier precision gap).
   const soundnessBreak = rows.some((r) => r.expect === 'NOT-TRUSTED' && r.verdict === 'TRUSTED')
   const faithfulMiss = rows.some((r) => r.expect === 'TRUSTED' && r.verdict === 'NOT-TRUSTED')
+  const trusted = rows.filter((r) => r.verdict === 'TRUSTED').length
+  // Trusted-count ratchet: with ~165 permanent faithful-misses the gate is always
+  // REVIEW, which hides a REGRESSION (a kernel that used to verify silently breaking).
+  // Baseline the count so a DROP fails; growth is fine (bump the baseline knowingly).
+  const ratchetFile = join(here, 'autoformalize-ratchet.json')
+  const minTrusted = existsSync(ratchetFile)
+    ? (JSON.parse(readFileSync(ratchetFile, 'utf8')).minTrusted ?? 0)
+    : null
+  const regressed = minTrusted !== null && trusted < minTrusted
   return {
-    status: soundnessBreak ? 'FAIL' : faithfulMiss ? 'REVIEW' : 'PASS',
-    metrics: {
-      trusted: rows.filter((r) => r.verdict === 'TRUSTED').length,
-      total: rows.length,
-      declined: corpus.length - runnable.length
-    },
+    status: soundnessBreak || regressed ? 'FAIL' : faithfulMiss ? 'REVIEW' : 'PASS',
+    metrics: { trusted, total: rows.length, declined: corpus.length - runnable.length, minTrusted },
+    detail: regressed
+      ? `TRUSTED count regressed: ${trusted} < baseline ${minTrusted} (a kernel stopped verifying)`
+      : minTrusted === null
+        ? `${trusted} TRUSTED — no ratchet baseline (write autoformalize-ratchet.json {"minTrusted":${trusted}})`
+        : `${trusted}/${rows.length} TRUSTED (baseline ${minTrusted})${trusted > minTrusted ? ' — grew, bump baseline' : ''}`,
     rows
   }
 }

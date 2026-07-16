@@ -1,7 +1,0 @@
-(assume t0 (and (> pending 262144) (>= (ite (>= now paused_at) (- now paused_at) 0) 5000)))
-(assume t1 (< (ite (>= now paused_at) (- now paused_at) 0) 5000))
-(step t2 (cl (not (and (> pending 262144) (>= (ite (>= now paused_at) (- now paused_at) 0) 5000))) (>= (ite (>= now paused_at) (- now paused_at) 0) 5000)) :rule and_pos :args (1))
-(step t3 (cl (>= (ite (>= now paused_at) (- now paused_at) 0) 5000)) :rule resolution :premises (t2 t0))
-(step t4 (cl (not (>= (ite (>= now paused_at) (- now paused_at) 0) 5000)) (not (< (ite (>= now paused_at) (- now paused_at) 0) 5000))) :rule la_generic :args (1 1))
-(step t5 (cl (not (< (ite (>= now paused_at) (- now paused_at) 0) 5000))) :rule resolution :premises (t4 t3))
-(step t6 (cl) :rule resolution :premises (t5 t1))

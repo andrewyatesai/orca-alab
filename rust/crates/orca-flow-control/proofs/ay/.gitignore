@@ -1,0 +1,2 @@
+# ay writes Alethe proof traces next to each .smt2 on every run — regenerated, not tracked.
+*.alethe

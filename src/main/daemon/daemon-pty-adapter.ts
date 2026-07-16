@@ -12,6 +12,7 @@ import { mintPtySessionId, parsePtySessionId } from './pty-session-id'
 import { supportsPtyStartupBarrier } from './shell-ready'
 import { CODEX_SHELL_READY_TIMEOUT_MS } from './session'
 import {
+  FORK_DAEMON_PROTOCOL_NAMESPACE_START,
   GIT_CREDENTIAL_GUARD_HOST_PROTOCOL_VERSION,
   PROTOCOL_VERSION,
   type CreateOrAttachResult,
@@ -164,13 +165,16 @@ export class DaemonPtyAdapter implements IPtyProvider {
   private spawnsInFlight = new Map<string, number>()
 
   supportsGitCredentialGuardHost(): boolean {
-    // Why: the fork's own Rust daemon (protocol 1018) spawns env verbatim and does
+    // Why: the fork's own Rust daemon (protocol 10xx) spawns env verbatim and does
     // NOT run the host-side git-config compose (composeGuardedDaemonGitConfigEnv is
     // Node-daemon-only). So it is not a guard HOST — the caller must materialize the
     // full guard in-process and let the daemon pass it through. Only an ATTACHED
     // public Node daemon (v22+, via the legacy adapter) implements the host compose.
+    // Why the namespace bound (not !== PROTOCOL_VERSION): a preserved fork daemon
+    // one rev behind (e.g. 1018 under a 1019 app) also satisfies >= 22 but still
+    // passes env verbatim — it must never be classified as a guard host.
     return (
-      this.protocolVersion !== PROTOCOL_VERSION &&
+      this.protocolVersion < FORK_DAEMON_PROTOCOL_NAMESPACE_START &&
       this.protocolVersion >= GIT_CREDENTIAL_GUARD_HOST_PROTOCOL_VERSION
     )
   }
@@ -297,13 +301,15 @@ export class DaemonPtyAdapter implements IPtyProvider {
     // shell-launch layer (login -l, ZDOTDIR/rcfile wrappers, macOS login(1)
     // TCC wrap) is pre-computed here from the same TS modules the local
     // provider uses. Null on Windows — the Node daemon owns that layer.
-    // Why the fork-protocol gate: a legacy adapter (live public Node daemon
-    // attached via PREVIOUS_DAEMON_PROTOCOL_VERSIONS) ignores shellArgs, so
-    // it would spawn shellOverride — /usr/bin/login on macOS — with its own
-    // args and drop the user at a `login:` password prompt on a sleep/wake
-    // respawn. Legacy keeps the plain opts passthrough.
+    // Why the fork-namespace gate: a legacy adapter for a live PUBLIC Node
+    // daemon (attached via PREVIOUS_DAEMON_PROTOCOL_VERSIONS) ignores
+    // shellArgs, so it would spawn shellOverride — /usr/bin/login on macOS —
+    // with its own args and drop the user at a `login:` password prompt on a
+    // sleep/wake respawn. Public legacy keeps the plain opts passthrough; a
+    // fork daemon at ANY rev (1018+) honors shellArgs, so a preserved
+    // previous-rev fork daemon keeps the full interactive launch.
     const posixLaunch =
-      this.protocolVersion === PROTOCOL_VERSION
+      this.protocolVersion >= FORK_DAEMON_PROTOCOL_NAMESPACE_START
         ? buildPosixDaemonShellLaunch({
             shellOverride: opts.shellOverride,
             env: opts.env,

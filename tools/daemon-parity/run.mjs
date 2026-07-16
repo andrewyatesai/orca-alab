@@ -22,11 +22,20 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import { join, resolve } from 'node:path'
 import { DaemonSocketClient } from './daemon-socket-client.mjs'
-import { driveDaemon, driveDetachReattach, parityConstants } from './request-vectors.mjs'
+import {
+  driveDaemon,
+  driveDetachReattach,
+  driveSubscriberRole,
+  parityConstants
+} from './request-vectors.mjs'
 
-// Must track PROTOCOL_VERSION in src/main/daemon/types.ts (fork namespace:
-// 1000+; both legs reject a hello at any other version).
-const PROTOCOL_VERSION = 1018
+// The shared corpus deliberately drives the fork's MIN version (1018): the Rust
+// daemon (PROTOCOL_VERSION 1019, the additive subscriber rev) must keep a 1018
+// client fully functional — this run IS that back-compat proof. The Rust-only
+// subscriber phase connects at 1019. Must track MIN_SUPPORTED_PROTOCOL_VERSION /
+// PROTOCOL_VERSION in rust/crates/orca-daemon/src/protocol.rs.
+const MIN_PROTOCOL_VERSION = 1018
+const SUBSCRIBER_PROTOCOL_VERSION = 1019
 const repoRoot = resolve(import.meta.dirname, '..', '..')
 const scratch = mkdtempSync(join(os.tmpdir(), 'daemon-parity-'))
 const cleanup = []
@@ -47,7 +56,13 @@ async function connectWithRetry(client, socketPath, tries = 200) {
     try {
       await client.connect(socketPath)
       return
-    } catch {
+    } catch (err) {
+      // A rejected hello (version/token) is deterministic — retrying only
+      // burns 5s before failing anyway. Fail fast so the Node leg's protocol
+      // fallback can move on to the next version.
+      if (`${err?.message ?? err}`.includes('hello rejected')) {
+        throw err
+      }
       await sleep(25)
     }
   }
@@ -71,14 +86,23 @@ async function runRustLeg() {
   cleanup.push(() => child.kill('SIGKILL'))
   await waitFor(() => existsSync(socketPath))
 
-  const connectClient = makeConnectClient(socketPath, 'any-token-rust-accepts')
-  return driveBothPhases(connectClient, 'parity-rust')
+  const token = 'any-token-rust-accepts'
+  const shared = await driveBothPhases(
+    makeConnectClient(socketPath, token, MIN_PROTOCOL_VERSION),
+    'parity-rust'
+  )
+  // Phase 3 (Rust-only, protocol 1019): the read-only subscriber role. Kept out
+  // of `steps` so the Node differential diff below only sees the shared corpus.
+  const subscriber = await driveSubscriberRole(
+    makeConnectClient(socketPath, token, SUBSCRIBER_PROTOCOL_VERSION)
+  )
+  return { steps: shared.steps, subscriberSteps: subscriber.steps }
 }
 
 // A `(clientId) => Promise<connected DaemonSocketClient>` factory for one daemon.
-function makeConnectClient(socketPath, token) {
+function makeConnectClient(socketPath, token, protocolVersion) {
   return async (clientId) => {
-    const client = new DaemonSocketClient({ token, protocolVersion: PROTOCOL_VERSION, clientId })
+    const client = new DaemonSocketClient({ token, protocolVersion, clientId })
     await connectWithRetry(client, socketPath)
     return client
   }
@@ -124,14 +148,24 @@ async function runNodeLeg() {
     return { skipped: `Node daemon did not come up (exit=${exited}). stderr tail:\n${tail}` }
   }
   const token = readFileSync(tokenPath, 'utf8').trim()
-  try {
-    const connectClient = makeConnectClient(socketPath, token)
-    const transcript = await driveBothPhases(connectClient, 'parity-node')
-    return { transcript }
-  } catch (err) {
-    return {
-      skipped: `Node leg drive failed: ${err.message}\nstderr:\n${stderr.split('\n').slice(-8).join('\n')}`
+  // The Node leg speaks whatever version out/main was BUILT with (types.ts at
+  // build time), so negotiate: try the shared-corpus version first, then the
+  // current one — a stale-or-fresh build either way keeps the differential alive.
+  let lastErr = null
+  for (const version of [MIN_PROTOCOL_VERSION, SUBSCRIBER_PROTOCOL_VERSION]) {
+    try {
+      const connectClient = makeConnectClient(socketPath, token, version)
+      const transcript = await driveBothPhases(connectClient, 'parity-node')
+      return { transcript }
+    } catch (err) {
+      lastErr = err
+      if (!`${err?.message ?? err}`.includes('hello rejected')) {
+        break
+      }
     }
+  }
+  return {
+    skipped: `Node leg drive failed: ${lastErr.message}\nstderr:\n${stderr.split('\n').slice(-8).join('\n')}`
   }
 }
 
@@ -177,6 +211,39 @@ function checkInvariants(transcript) {
   return checks.map(([name, pass]) => ({ name, pass }))
 }
 
+// Phase 3 invariants — Rust-only (the Node daemon has no subscriber role), so
+// these gate leg A but are excluded from the leg-B structural diff.
+function checkSubscriberInvariants(steps) {
+  const by = Object.fromEntries(steps.map((s) => [s.step, s.projection]))
+  const checks = [
+    [
+      'subscriber: session created',
+      by['subscriber:create']?.ok === true && by['subscriber:create']?.isNew === true
+    ],
+    [
+      'subscriber: hydration snapshot carries prior output',
+      by['subscriber:hydration']?.ok === true &&
+        by['subscriber:hydration']?.snapshotHasMarker === true
+    ],
+    [
+      'subscriber: live fan-out reaches owner AND follower (no steal)',
+      by['subscriber:fanout']?.bothReceive === true
+    ],
+    [
+      'subscriber: write/resize denied (typed) + owner grid pinned',
+      by['subscriber:readOnly']?.writeDenied === true &&
+        by['subscriber:readOnly']?.resizeDenied === true &&
+        by['subscriber:readOnly']?.gridPinned === true
+    ],
+    [
+      'subscriber: follower detach leaves the owner untouched',
+      by['subscriber:detachHarmless']?.ownerStillStreams === true &&
+        by['subscriber:detachHarmless']?.stillAlive === true
+    ]
+  ]
+  return checks.map(([name, pass]) => ({ name, pass }))
+}
+
 // ── Structural diff between the two fingerprints ─────────────────────────────
 function diffTranscripts(rust, node) {
   const divergences = []
@@ -200,7 +267,7 @@ async function main() {
   let failed = false
   console.log('── Leg A: Rust orca-daemon (hard gate) ──')
   const rust = await runRustLeg()
-  const invariants = checkInvariants(rust)
+  const invariants = [...checkInvariants(rust), ...checkSubscriberInvariants(rust.subscriberSteps)]
   for (const { name, pass } of invariants) {
     console.log(`  ${pass ? '✓' : '✗'} ${name}`)
     if (!pass) {
@@ -209,7 +276,7 @@ async function main() {
   }
   if (failed) {
     console.log('\n  Rust transcript:')
-    for (const s of rust.steps) {
+    for (const s of [...rust.steps, ...rust.subscriberSteps]) {
       console.log(`    ${s.step}: ${fmt(s.projection)}`)
     }
   }

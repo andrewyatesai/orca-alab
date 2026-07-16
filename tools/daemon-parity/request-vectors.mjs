@@ -269,4 +269,83 @@ export async function driveDetachReattach(connectClient) {
   return { steps }
 }
 
+// Phase 3 — the v1019 read-only SUBSCRIBER role, RUST LEG ONLY: the Node daemon
+// has no subscriber role (a fork-daemon feature), so these steps are NOT part of
+// the structural diff — they are asserted as Rust invariants. This covers the
+// socket path the in-process cargo tests (tests/subscriber_role.rs) bypass:
+// hydration + fan-out through a real second client's stream socket, the typed
+// write/resize denial, and follower-detach isolation. The shared corpus above
+// still runs at protocol 1018 on both legs (the back-compat proof); this phase
+// connects at 1019.
+const SID3 = 's-parity-3'
+const MARKER_SUB_PRE = 'MARKER_SUB_PRE'
+const MARKER_SUB_LIVE = 'MARKER_SUB_LIVE'
+const MARKER_SUB_AFTER = 'MARKER_SUB_AFTER'
+
+export async function driveSubscriberRole(connectClient) {
+  const steps = []
+  const record = (step, projection) => steps.push({ step, projection })
+
+  // Owner creates the session and renders a pre-subscribe marker.
+  const owner = await connectClient('parity-sub-owner')
+  const created = await owner.rpc('createOrAttach', { sessionId: SID3, cols: 80, rows: 24 })
+  record('subscriber:create', { ok: created.ok, isNew: created.payload?.isNew ?? null })
+  await owner.rpc('write', { sessionId: SID3, data: `printf '${MARKER_SUB_PRE}\\n'\n` })
+  await waitFor(async () => {
+    const r = await owner.rpc('getSnapshot', { sessionId: SID3 })
+    return (r.payload?.snapshot?.snapshotAnsi ?? '').includes(MARKER_SUB_PRE)
+  })
+
+  // A second client subscribes: hydration snapshot, no ownership rebind.
+  const follower = await connectClient('parity-sub-follower')
+  const sub = await follower.rpc('subscribe', { sessionId: SID3 })
+  record('subscriber:hydration', {
+    ok: sub.ok,
+    snapshotHasMarker: (sub.payload?.snapshot?.snapshotAnsi ?? '').includes(MARKER_SUB_PRE),
+    pidType: typeTag(sub.payload?.pid),
+    shellStateType: typeTag(sub.payload?.shellState)
+  })
+
+  // Live output fans out to BOTH stream sockets — the owner keeps its stream
+  // (the createOrAttach steal must not happen here).
+  await owner.rpc('write', { sessionId: SID3, data: `printf '${MARKER_SUB_LIVE}\\n'\n` })
+  const bothReceive = await waitFor(
+    () =>
+      follower.streamData(SID3).includes(MARKER_SUB_LIVE) &&
+      owner.streamData(SID3).includes(MARKER_SUB_LIVE)
+  )
+  record('subscriber:fanout', {
+    bothReceive,
+    ownerStillReceives: owner.streamData(SID3).includes(MARKER_SUB_LIVE),
+    followerReceives: follower.streamData(SID3).includes(MARKER_SUB_LIVE)
+  })
+
+  // Read-only authority: write and resize are rejected with the typed
+  // subscriber-read-only error, and the grid stays pinned to the owner's dims.
+  const deniedWrite = await follower.rpc('write', { sessionId: SID3, data: 'echo NOPE\n' })
+  const deniedResize = await follower.rpc('resize', { sessionId: SID3, cols: 132, rows: 43 })
+  const size = await owner.rpc('getSize', { sessionId: SID3 })
+  record('subscriber:readOnly', {
+    writeDenied:
+      deniedWrite.ok === false && `${deniedWrite.error}`.startsWith('subscriber-read-only'),
+    resizeDenied:
+      deniedResize.ok === false && `${deniedResize.error}`.startsWith('subscriber-read-only'),
+    gridPinned: size.payload?.size?.cols === 80 && size.payload?.size?.rows === 24
+  })
+
+  // Follower disconnect (both sockets): the owner keeps streaming and the
+  // session stays alive — a dropped mirror never touches the owner.
+  follower.close()
+  await new Promise((r) => setTimeout(r, 150))
+  await owner.rpc('write', { sessionId: SID3, data: `printf '${MARKER_SUB_AFTER}\\n'\n` })
+  const ownerStillStreams = await waitFor(() => owner.streamData(SID3).includes(MARKER_SUB_AFTER))
+  const list = await owner.rpc('listSessions')
+  const info = (list.payload?.sessions ?? []).find((x) => x.sessionId === SID3) ?? null
+  record('subscriber:detachHarmless', { ownerStillStreams, stillAlive: info?.isAlive ?? null })
+
+  await owner.rpc('kill', { sessionId: SID3 })
+  owner.close()
+  return { steps }
+}
+
 export const parityConstants = { SID, SID2, CWD, MARKER, MARKER2 }

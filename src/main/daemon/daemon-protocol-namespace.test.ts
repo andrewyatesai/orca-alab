@@ -8,20 +8,20 @@ import { PREVIOUS_DAEMON_PROTOCOL_VERSIONS, PROTOCOL_VERSION } from './types'
 
 describe('fork daemon protocol namespace', () => {
   it('pins the fork protocol version to the 1000+ namespace', () => {
-    expect(PROTOCOL_VERSION).toBe(1018)
+    expect(PROTOCOL_VERSION).toBe(1019)
   })
 
-  it('embeds v1018 in the default socket/token/pid endpoint names', () => {
+  it('embeds v1019 in the default socket/token/pid endpoint names', () => {
     const runtimeDir = '/fake/daemon'
-    // Why literal 1018 (not the constant): the whole point is that a public
+    // Why literal 1019 (not the constant): the whole point is that a public
     // build's endpoints (daemon-v18.*) can never collide with the fork's. A
     // symbolic assertion would keep passing if the namespace regressed to 18.
-    expect(getDaemonSocketPath(runtimeDir)).toContain('v1018')
+    expect(getDaemonSocketPath(runtimeDir)).toContain('v1019')
     if (process.platform !== 'win32') {
-      expect(getDaemonSocketPath(runtimeDir)).toBe('/fake/daemon/daemon-v1018.sock')
+      expect(getDaemonSocketPath(runtimeDir)).toBe('/fake/daemon/daemon-v1019.sock')
     }
-    expect(getDaemonTokenPath(runtimeDir).endsWith('daemon-v1018.token')).toBe(true)
-    expect(getDaemonPidPath(runtimeDir).endsWith('daemon-v1018.pid')).toBe(true)
+    expect(getDaemonTokenPath(runtimeDir).endsWith('daemon-v1019.token')).toBe(true)
+    expect(getDaemonPidPath(runtimeDir).endsWith('daemon-v1019.pid')).toBe(true)
   })
 
   it('is disjoint from the public endpoint namespace', () => {
@@ -34,6 +34,13 @@ describe('fork daemon protocol namespace', () => {
     // Why: a live public daemon with running agent sessions must be attached
     // through the legacy-adapter path, not killed or impersonated.
     expect(PREVIOUS_DAEMON_PROTOCOL_VERSIONS).toContain(18)
+  })
+
+  it('lists the previous fork version 1018 as a previous version', () => {
+    // Why: a fork daemon preserved across the 1019 (subscriber-role) app
+    // update lives at daemon-v1018.* and must keep its sessions via the same
+    // legacy-adapter path — the TS side must not require 1019.
+    expect(PREVIOUS_DAEMON_PROTOCOL_VERSIONS).toContain(1018)
   })
 
   it('never lists the current version as previous', () => {

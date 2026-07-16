@@ -5,7 +5,7 @@
 //! live to the client (dropped when detached — the reattach snapshot restores it).
 
 use crate::pending_output::PendingOutput;
-use crate::protocol::{rpc_err, rpc_ok};
+use crate::protocol::{rpc_err, rpc_ok, SUBSCRIBER_READ_ONLY_ERROR};
 use crate::registry::{Registry, SessionEngine, SessionEntry};
 use crate::shell_ready_barrier::{
     GateTimer, ShellReadyBarrier, POST_READY_FLUSH_DELAY_MS, POST_READY_FLUSH_FALLBACK_MS,
@@ -72,6 +72,13 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
             // is needed. A `.to_string()` here would re-copy up to 16MB on every
             // paste, the exact per-write cost the borrow-not-clone note above avoids.
             let session_id = sid();
+            // v1019 subscribers are read-only mirrors: no write authority.
+            if registry.is_read_only_subscriber(&session_id, client_id) {
+                return rpc_err(
+                    id,
+                    &format!("{SUBSCRIBER_READ_ONLY_ERROR}: subscribers cannot write"),
+                );
+            }
             let data = field_str(payload, "data");
             match session_write(registry, &session_id, data) {
                 Some(Ok(())) => void_ack(id),
@@ -81,6 +88,16 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         }
         "resize" => {
             let session_id = sid();
+            // v1019 subscribers are DENIED resize — this is load-bearing, not
+            // politeness: followers pin to the owner's grid. A follower-driven
+            // resize would push new dims to the live PTY (kernel SIGWINCH),
+            // bouncing the owner's TUI — the placeholder-grid/SIGWINCH lesson.
+            if registry.is_read_only_subscriber(&session_id, client_id) {
+                return rpc_err(
+                    id,
+                    &format!("{SUBSCRIBER_READ_ONLY_ERROR}: subscribers cannot resize"),
+                );
+            }
             let cols = field_u16(payload, "cols", 80);
             let rows = field_u16(payload, "rows", 24);
             match registry.with_session(&session_id, |e| {
@@ -136,6 +153,30 @@ pub fn dispatch_request(request: &Value, registry: &Arc<Registry>, client_id: &s
         }
         // The session already survives control-socket close, so detach is a no-op ack.
         "detach" => void_ack(id),
+        // v1019: register a read-only fan-out subscriber on a live session WITHOUT
+        // rebinding ownership (unlike createOrAttach, which steals the stream).
+        // The reply carries the same engine-serialize hydration a reattach gets,
+        // so the follower repaints before its live data events start.
+        "subscribe" => {
+            let session_id = sid();
+            match registry.add_subscriber(&session_id, client_id) {
+                Some((engine, shell_state)) => {
+                    let snapshot = build_snapshot(&mut engine.lock().unwrap().terminal);
+                    let pid = registry.session_pid(&session_id);
+                    rpc_ok(
+                        id,
+                        json!({ "snapshot": snapshot, "pid": pid, "shellState": shell_state }),
+                    )
+                }
+                None => rpc_err(id, "unknown session"),
+            }
+        }
+        // Idempotent, like detach: dropping a registration that isn't there is fine.
+        // (A full disconnect purges subscriptions via the stream teardown instead.)
+        "unsubscribe" => {
+            registry.remove_subscriber(&sid(), client_id);
+            void_ack(id)
+        }
         // The incremental checkpoint batch: typed records + monotonic seq + overflow
         // flag, and (when requested) a snapshot serialized in the same atomic turn.
         // Mirrors the Node daemon's TakePendingOutputResult (types.ts) — the client

@@ -51,6 +51,11 @@ pub struct SessionEntry {
 struct Inner {
     sessions: HashMap<String, SessionEntry>,
     streams: HashMap<String, Sender<String>>,
+    /// v1019 read-only fan-out: `sessionId → subscriber clientIds` that mirror a
+    /// session's data/exit events without owning it. Kept beside (not inside)
+    /// `SessionEntry` so a disconnecting client is purged across all sessions in
+    /// one pass (`remove_subscriber_from_all`).
+    subscribers: HashMap<String, Vec<String>>,
 }
 
 #[derive(Default)]
@@ -93,10 +98,79 @@ impl Registry {
         session_id: &str,
         new_client_id: &str,
     ) -> Option<(Arc<Mutex<SessionEngine>>, &'static str)> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut guard = self.inner.lock().unwrap();
+        let inner = &mut *guard;
         let entry = inner.sessions.get_mut(session_id)?;
         entry.client_id = new_client_id.to_string();
+        // A subscriber that reattaches is PROMOTED to owner: drop its read-only
+        // registration so it isn't double-delivered and authority keys off
+        // ownership alone.
+        if let Some(subs) = inner.subscribers.get_mut(session_id) {
+            subs.retain(|c| c != new_client_id);
+            if subs.is_empty() {
+                inner.subscribers.remove(session_id);
+            }
+        }
         Some((Arc::clone(&entry.engine), shell_state_of(entry)))
+    }
+
+    /// Register `client_id` as a read-only subscriber of a live session (v1019).
+    /// Deliberately does NOT touch `entry.client_id`: mirroring must not steal the
+    /// owner's stream (only createOrAttach rebinds). Returns the engine handle +
+    /// shell state so the caller can build the hydration snapshot; `None` if the
+    /// id is unknown. Idempotent per (session, client).
+    pub fn add_subscriber(
+        &self,
+        session_id: &str,
+        client_id: &str,
+    ) -> Option<(Arc<Mutex<SessionEngine>>, &'static str)> {
+        let mut guard = self.inner.lock().unwrap();
+        let inner = &mut *guard;
+        let entry = inner.sessions.get(session_id)?;
+        let subs = inner.subscribers.entry(session_id.to_string()).or_default();
+        if !subs.iter().any(|c| c == client_id) {
+            subs.push(client_id.to_string());
+        }
+        Some((Arc::clone(&entry.engine), shell_state_of(entry)))
+    }
+
+    /// Drop one subscriber registration. A no-op for an unknown session or a
+    /// client that never subscribed (unsubscribe is idempotent, like detach).
+    pub fn remove_subscriber(&self, session_id: &str, client_id: &str) {
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(subs) = inner.subscribers.get_mut(session_id) {
+            subs.retain(|c| c != client_id);
+            if subs.is_empty() {
+                inner.subscribers.remove(session_id);
+            }
+        }
+    }
+
+    /// Purge a disconnecting client from every session's subscriber set — stream
+    /// teardown calls this so a vanished follower never lingers as a fan-out
+    /// target. The owner (and every other subscriber) is untouched.
+    pub fn remove_subscriber_from_all(&self, client_id: &str) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.subscribers.retain(|_, subs| {
+            subs.retain(|c| c != client_id);
+            !subs.is_empty()
+        });
+    }
+
+    /// True when `client_id` may only READ this session: it is a registered
+    /// subscriber and not the current owner (an owner that also subscribed keeps
+    /// write authority — ownership wins).
+    pub fn is_read_only_subscriber(&self, session_id: &str, client_id: &str) -> bool {
+        let inner = self.inner.lock().unwrap();
+        let subscribed = inner
+            .subscribers
+            .get(session_id)
+            .is_some_and(|subs| subs.iter().any(|c| c == client_id));
+        subscribed
+            && inner
+                .sessions
+                .get(session_id)
+                .map_or(true, |e| e.client_id != client_id)
     }
 
     /// Dispose a session outright (drop its PTY + engine). Used to clear a dead entry
@@ -113,22 +187,41 @@ impl Registry {
         self.inner.lock().unwrap().streams.remove(client_id);
     }
 
-    /// Deliver one PTY output chunk to the owning client's stream if attached; drop
-    /// it otherwise. A detached session isn't replayed raw — its reattach snapshot
-    /// (built from the engine, which the pump keeps current) is authoritative.
+    /// Deliver one PTY output chunk to the owning client's stream (if attached) and
+    /// fan it out to the session's subscribers (v1019); drop it for absent targets.
+    /// A detached session isn't replayed raw — its reattach snapshot (built from
+    /// the engine, which the pump keeps current) is authoritative.
     pub fn route_output(&self, session_id: &str, data: &str) {
-        // Resolve the target Sender under the lock (a cheap Arc clone), then encode
-        // the up-to-64KB JSON line + send OUTSIDE it, so the global mutex isn't held
-        // across serialization on every PTY read.
-        let tx = {
+        // Resolve every target Sender under the lock (cheap Arc clones), then encode
+        // the up-to-64KB JSON line ONCE + send OUTSIDE it, so the global mutex isn't
+        // held across serialization on every PTY read. Each target drains through
+        // its own channel + socket thread, so a slow subscriber queues on its own
+        // stream and never delays the owner's delivery.
+        let txs = {
             let inner = self.inner.lock().unwrap();
             let Some(entry) = inner.sessions.get(session_id) else {
                 return;
             };
-            inner.streams.get(&entry.client_id).cloned()
+            let mut targets: Vec<&str> = vec![entry.client_id.as_str()];
+            if let Some(subs) = inner.subscribers.get(session_id) {
+                for c in subs {
+                    // Dedupe: an owner that also subscribed must not get doubled bytes.
+                    if !targets.contains(&c.as_str()) {
+                        targets.push(c.as_str());
+                    }
+                }
+            }
+            targets
+                .iter()
+                .filter_map(|c| inner.streams.get(*c).cloned())
+                .collect::<Vec<_>>()
         };
-        if let Some(tx) = tx {
-            let _ = tx.send(encode_ndjson_line(&data_event(session_id, data)));
+        if txs.is_empty() {
+            return;
+        }
+        let line = encode_ndjson_line(&data_event(session_id, data));
+        for tx in txs {
+            let _ = tx.send(line.clone());
         }
     }
 
@@ -253,22 +346,40 @@ impl Registry {
 
     /// EOF on a session's PTY: REMOVE the session from the map (matching the Node
     /// daemon's reapSession — no zombies, no leaked engine), reap the child for its
-    /// real exit code, and deliver an `exit` event to the owning client's stream.
+    /// real exit code, and deliver an `exit` event to the owning client's stream
+    /// and to every subscriber's (their mirrors must close too).
     /// The entry is removed UNDER the lock but `wait()`ed OUTSIDE it, so a child that
     /// hit master EOF while still alive (e.g. it closed its own slave fd) can't wedge
     /// the whole daemon on a blocking wait.
     pub fn reap_and_mark_exited(&self, session_id: &str) {
-        let (mut entry, tx) = {
-            let mut inner = self.inner.lock().unwrap();
+        let (mut entry, txs) = {
+            let mut guard = self.inner.lock().unwrap();
+            let inner = &mut *guard;
             let Some(entry) = inner.sessions.remove(session_id) else {
                 return;
             };
-            let tx = inner.streams.get(&entry.client_id).cloned();
-            (entry, tx)
+            // Subscribers get the exit too (their mirror must close with the
+            // session), and the session's fan-out set dies with its entry.
+            let mut targets: Vec<String> = vec![entry.client_id.clone()];
+            if let Some(subs) = inner.subscribers.remove(session_id) {
+                for c in subs {
+                    if !targets.contains(&c) {
+                        targets.push(c);
+                    }
+                }
+            }
+            let txs: Vec<Sender<String>> = targets
+                .iter()
+                .filter_map(|c| inner.streams.get(c).cloned())
+                .collect();
+            (entry, txs)
         };
         let code = entry.pty.wait().map(|c| c as i64).unwrap_or(0);
-        if let Some(tx) = tx {
-            let _ = tx.send(encode_ndjson_line(&exit_event(session_id, code)));
+        if !txs.is_empty() {
+            let line = encode_ndjson_line(&exit_event(session_id, code));
+            for tx in txs {
+                let _ = tx.send(line.clone());
+            }
         }
         // `entry` (PTY + headless engine) is dropped here, off the lock.
     }

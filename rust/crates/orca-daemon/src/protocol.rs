@@ -7,14 +7,28 @@
 
 use serde_json::{json, Value};
 
-/// Must equal `PROTOCOL_VERSION` in `src/main/daemon/types.ts`. A client hello at
-/// a different version is rejected with a `hello` error.
+/// Must equal `PROTOCOL_VERSION` in `src/main/daemon/types.ts`. A client hello is
+/// accepted at this version or at `MIN_SUPPORTED_PROTOCOL_VERSION`; anything else
+/// is rejected with a `hello` error.
 ///
-/// Why 1018 (not 19): the fork reserves the 1000+ namespace so its daemon
-/// endpoints (`daemon-v1018.*`, keyed off this number) never collide with a
+/// Why 10xx (not 19): the fork reserves the 1000+ namespace so its daemon
+/// endpoints (`daemon-v10xx.*`, keyed off this number) never collide with a
 /// public Orca install — a public build (v18, or any future public bump) must
 /// never handshake with this daemon, and vice versa (see types.ts).
-pub const PROTOCOL_VERSION: u64 = 1018;
+///
+/// 1019 adds the read-only SUBSCRIBER role (`subscribe`/`unsubscribe` RPCs +
+/// per-session output fan-out) — purely additive over 1018.
+pub const PROTOCOL_VERSION: u64 = 1019;
+
+/// Oldest hello still accepted. 1019 only ADDS RPCs, so a 1018 client (an app
+/// build predating the subscriber rev, or the parity harness' back-compat leg)
+/// stays fully functional against this daemon.
+pub const MIN_SUPPORTED_PROTOCOL_VERSION: u64 = 1018;
+
+/// Typed error-code prefix for subscriber write/resize denial (v1019).
+/// Clients match on this prefix; must equal `SUBSCRIBER_READ_ONLY_ERROR` in
+/// `src/main/daemon/types.ts`.
+pub const SUBSCRIBER_READ_ONLY_ERROR: &str = "subscriber-read-only";
 
 /// The first line on every socket: `{ type:'hello', version, token, clientId, role }`.
 pub struct Hello {

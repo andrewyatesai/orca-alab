@@ -2,7 +2,9 @@
 //! the stream (events) role for its client. Faithful to the Node daemon, where
 //! each client opens a control socket and a stream socket correlated by clientId.
 
-use crate::protocol::{hello_err, hello_ok, parse_hello, PROTOCOL_VERSION};
+use crate::protocol::{
+    hello_err, hello_ok, parse_hello, MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION,
+};
 use crate::registry::Registry;
 use crate::rpc::dispatch_request;
 use orca_net::{encode_ndjson_line, NdjsonEvent, NdjsonSplitter, NDJSON_MAX_LINE_BYTES};
@@ -154,7 +156,9 @@ pub fn handle_connection<S: DaemonStream>(
         let _ = writer.write_all(encode_ndjson_line(&hello_err("Expected hello")).as_bytes());
         return;
     };
-    if hello.version != PROTOCOL_VERSION {
+    // v1019 is additive over v1018 (subscribe/unsubscribe only), so both hellos
+    // are accepted — a pre-subscriber client keeps its full behavior.
+    if hello.version != PROTOCOL_VERSION && hello.version != MIN_SUPPORTED_PROTOCOL_VERSION {
         let _ = writer
             .write_all(encode_ndjson_line(&hello_err("Protocol version mismatch")).as_bytes());
         return;
@@ -234,6 +238,9 @@ fn serve_stream<S: DaemonStream>(
     // closes, then tear down — dropping the registry's sender ends the drain thread.
     while reader.next_line().is_some() {}
     registry.unregister_stream(&client_id);
+    // A dropped follower must not linger as a fan-out target: its subscriptions
+    // die with its stream. Owners (and other subscribers) are untouched.
+    registry.remove_subscriber_from_all(&client_id);
     let _ = drain.join();
 }
 

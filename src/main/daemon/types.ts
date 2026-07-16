@@ -3,6 +3,7 @@ import type {
   ConfirmForegroundProcessRequest,
   GetForegroundProcessRequest
 } from './daemon-foreground-process-protocol'
+import type { SubscriberSessionRequest } from './daemon-subscriber-protocol'
 
 export type {
   ConfirmForegroundProcessRequest,
@@ -12,30 +13,10 @@ export type {
 // ─── Protocol Version ────────────────────────────────────────────────
 import type { StartupCommandDelivery } from '../../shared/codex-startup-delivery'
 import type { TuiAgent } from '../../shared/types'
-// Why: daemons can survive app updates. Bump for IPC wire-shape changes, or
-// when daemon-baked behavior cannot be delivered by on-disk wrapper refresh.
-// Why: bump when adding daemon wire behavior so same-version old daemons do
-// not silently accept the handshake and then reject new RPCs.
-// Why 1018: the fork reserves the 1000+ namespace. Socket/token/pid names key
-// off this number (daemon-spawner.ts), so the fork's Rust daemon and any
-// public Orca install (v18–v22) get disjoint endpoints — a public build can
-// never adopt the fork daemon after a downgrade, and the fork never
-// impersonates the public Node daemon at its socket. Must equal
-// PROTOCOL_VERSION in rust/crates/orca-daemon/src/protocol.rs.
-export const PROTOCOL_VERSION = 1018
-// Min attached-daemon protocol that implements the git-credential-guard HOST
-// compose (upstream #7986). Only a public Node daemon at this version (or newer)
-// completes the deferred git-config; the fork's own Rust daemon passes env
-// verbatim, so daemon-pty-adapter gates the fork daemon out (see
-// supportsGitCredentialGuardHost).
-export const GIT_CREDENTIAL_GUARD_HOST_PROTOCOL_VERSION = 22
-// Why 18–22 are listed: a live public Node daemon (with running agent
-// sessions) found at daemon-v18..v22.* is attached via the legacy-adapter path
-// instead of being killed or impersonated, so installing the fork over public
-// Orca preserves in-flight terminals across the public protocol range (upstream
-// v1.4.142 ships public protocol 22).
-// prettier-ignore
-export const PREVIOUS_DAEMON_PROTOCOL_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22] as const
+// The version constants (PROTOCOL_VERSION, the fork 1000+ namespace boundary,
+// guard-host min, previous-version list) live in daemon-protocol-versions.ts —
+// re-exported so this stays the one wire-shape entry point.
+export * from './daemon-protocol-versions'
 
 // ─── Session State Machine ──────────────────────────────────────────
 export type SessionState = 'created' | 'spawning' | 'running' | 'exiting' | 'exited'
@@ -241,6 +222,11 @@ export type DetachRequest = {
   }
 }
 
+// The v1019+ read-only subscriber wire shapes (subscribe/unsubscribe, typed
+// read-only denial code) live in daemon-subscriber-protocol.ts — re-exported
+// so this stays the one wire-shape entry point.
+export * from './daemon-subscriber-protocol'
+
 export type GetCwdRequest = {
   id: string
   type: 'getCwd'
@@ -353,6 +339,7 @@ export type DaemonRequest =
   | SignalRequest
   | ListSessionsRequest
   | DetachRequest
+  | SubscriberSessionRequest
   | GetCwdRequest
   | GetForegroundProcessRequest
   | ConfirmForegroundProcessRequest

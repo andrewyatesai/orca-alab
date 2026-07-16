@@ -263,6 +263,7 @@ describe('configureElectronNetworkCompatibility', () => {
 describe('enableMainProcessGpuFeatures', () => {
   const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
   const originalE2EUserDataDir = process.env.ORCA_E2E_USER_DATA_DIR
+  const originalBenchRuntimeFlags = process.env.ORCA_BENCH_RUNTIME_FLAGS
 
   function setPlatform(platform: NodeJS.Platform): void {
     Object.defineProperty(process, 'platform', {
@@ -280,6 +281,11 @@ describe('enableMainProcessGpuFeatures', () => {
     } else {
       process.env.ORCA_E2E_USER_DATA_DIR = originalE2EUserDataDir
     }
+    if (originalBenchRuntimeFlags === undefined) {
+      delete process.env.ORCA_BENCH_RUNTIME_FLAGS
+    } else {
+      process.env.ORCA_BENCH_RUNTIME_FLAGS = originalBenchRuntimeFlags
+    }
   })
 
   it('appends VS Code-style GPU channel flags without unsafe WebGPU/Vulkan opt-ins', async () => {
@@ -292,9 +298,26 @@ describe('enableMainProcessGpuFeatures', () => {
 
     expect(app.commandLine.appendSwitch).toHaveBeenCalledWith(
       'enable-features',
-      'EarlyEstablishGpuChannel,EstablishGpuChannelAsync'
+      'SharedArrayBuffer,EarlyEstablishGpuChannel,EstablishGpuChannelAsync'
     )
     expect(app.commandLine.appendSwitch).not.toHaveBeenCalledWith('enable-unsafe-webgpu')
+  })
+
+  it('composes SharedArrayBuffer into the single enable-features value on the normal path', async () => {
+    const { app } = await import('electron')
+    const { enableMainProcessGpuFeatures } = await import('./configure-process')
+
+    delete process.env.ORCA_E2E_USER_DATA_DIR
+    vi.mocked(app.commandLine.appendSwitch).mockClear()
+    enableMainProcessGpuFeatures()
+
+    // Why: Chromium last-write-wins on --enable-features, so SAB must land in
+    // the one composed value rather than a second appendSwitch call.
+    const enableFeaturesCalls = vi
+      .mocked(app.commandLine.appendSwitch)
+      .mock.calls.filter(([switchName]) => switchName === 'enable-features')
+    expect(enableFeaturesCalls).toHaveLength(1)
+    expect(enableFeaturesCalls[0]?.[1]?.split(',')).toContain('SharedArrayBuffer')
   })
 
   it('raises the WebGL context budget above the 16-context Blink default', async () => {
@@ -394,7 +417,7 @@ describe('enableMainProcessGpuFeatures', () => {
     expect(app.commandLine.appendSwitch).not.toHaveBeenCalledWith('disable-gpu-sandbox')
     expect(app.commandLine.appendSwitch).toHaveBeenCalledWith(
       'enable-features',
-      'EarlyEstablishGpuChannel,EstablishGpuChannelAsync'
+      'SharedArrayBuffer,EarlyEstablishGpuChannel,EstablishGpuChannelAsync'
     )
   })
 
@@ -454,9 +477,15 @@ describe('enableMainProcessGpuFeatures', () => {
 
     expect(app.disableHardwareAcceleration).toHaveBeenCalledTimes(1)
     expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu')
+    // Why: the SAB feature must survive the Linux-E2E software-GPU early
+    // return — only the GPU-channel flags are skipped on that path.
+    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith(
+      'enable-features',
+      'SharedArrayBuffer'
+    )
     expect(app.commandLine.appendSwitch).not.toHaveBeenCalledWith(
       'enable-features',
-      expect.any(String)
+      expect.stringContaining('EarlyEstablishGpuChannel')
     )
     expect(app.commandLine.appendSwitch).not.toHaveBeenCalledWith(
       'max-active-webgl-contexts',
@@ -475,7 +504,7 @@ describe('enableMainProcessGpuFeatures', () => {
 
     expect(app.commandLine.appendSwitch).toHaveBeenCalledWith(
       'enable-features',
-      'EarlyEstablishGpuChannel,EstablishGpuChannelAsync,ExistingFeature'
+      'SharedArrayBuffer,EarlyEstablishGpuChannel,EstablishGpuChannelAsync,ExistingFeature'
     )
   })
 
@@ -503,6 +532,37 @@ describe('enableMainProcessGpuFeatures', () => {
     }
 
     expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu-sandbox')
-    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('enable-features', 'ExistingFeature')
+    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith(
+      'enable-features',
+      'SharedArrayBuffer,ExistingFeature'
+    )
+  })
+
+  it('appends the bench-only frame pacing flags when ORCA_BENCH_RUNTIME_FLAGS=1', async () => {
+    const { app } = await import('electron')
+    const { enableMainProcessGpuFeatures } = await import('./configure-process')
+
+    delete process.env.ORCA_E2E_USER_DATA_DIR
+    process.env.ORCA_BENCH_RUNTIME_FLAGS = '1'
+    vi.mocked(app.commandLine.appendSwitch).mockClear()
+
+    enableMainProcessGpuFeatures()
+
+    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('disable-frame-rate-limit')
+    expect(app.commandLine.appendSwitch).toHaveBeenCalledWith('disable-gpu-vsync')
+  })
+
+  it('never appends the bench-only frame pacing flags by default', async () => {
+    const { app } = await import('electron')
+    const { enableMainProcessGpuFeatures } = await import('./configure-process')
+
+    delete process.env.ORCA_E2E_USER_DATA_DIR
+    delete process.env.ORCA_BENCH_RUNTIME_FLAGS
+    vi.mocked(app.commandLine.appendSwitch).mockClear()
+
+    enableMainProcessGpuFeatures()
+
+    expect(app.commandLine.appendSwitch).not.toHaveBeenCalledWith('disable-frame-rate-limit')
+    expect(app.commandLine.appendSwitch).not.toHaveBeenCalledWith('disable-gpu-vsync')
   })
 })

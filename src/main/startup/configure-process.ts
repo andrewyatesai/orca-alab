@@ -296,7 +296,30 @@ export function installDevParentSignalQuit(isDev: boolean): void {
   process.once('SIGTERM', onSignal)
 }
 
+function appendComposedEnableFeatures(featureFlags: string[]): void {
+  // Why: Chromium keeps only the last --enable-features value, so every feature
+  // must be composed into one appendSwitch call alongside pre-existing flags.
+  const features = [...featureFlags, app.commandLine.getSwitchValue('enable-features')]
+    .filter(Boolean)
+    .join(',')
+  if (features) {
+    app.commandLine.appendSwitch('enable-features', features)
+  }
+}
+
 export function enableMainProcessGpuFeatures(): void {
+  // Why: unlocks the SAB byte ring (renderer->worker) without COOP/COEP on the
+  // file:// renderer; consumers must keep a typeof SharedArrayBuffer runtime
+  // fallback since the Chromium flag carries deprecation TODOs upstream.
+  const featureFlags = ['SharedArrayBuffer']
+
+  if (process.env.ORCA_BENCH_RUNTIME_FLAGS === '1') {
+    // Why: bench-only ceiling measurements for the latency rig need uncapped
+    // frame pacing; never enabled by default.
+    app.commandLine.appendSwitch('disable-frame-rate-limit')
+    app.commandLine.appendSwitch('disable-gpu-vsync')
+  }
+
   if (process.platform === 'linux' && getMainE2EConfig().userDataDir) {
     // Why: Ubuntu/Xvfb runners can fail Electron startup with
     // "GPU process isn't usable" before Playwright sees the first window.
@@ -304,6 +327,7 @@ export function enableMainProcessGpuFeatures(): void {
     // software path instead of retrying around a crashed app process.
     app.disableHardwareAcceleration()
     app.commandLine.appendSwitch('disable-gpu')
+    appendComposedEnableFeatures(featureFlags)
     return
   }
 
@@ -331,19 +355,13 @@ export function enableMainProcessGpuFeatures(): void {
     app.commandLine.appendSwitch('disable-gpu-sandbox')
   }
 
-  const existingFeatures = app.commandLine.getSwitchValue('enable-features')
-  const features = [
-    // Why: mirror VS Code's conservative Electron GPU-channel startup flags
-    // instead of opting into Vulkan/SkiaGraphite/unsafe WebGPU globally.
-    // Terminal acceleration is controlled by the aterm WebGL2 drawer in the
-    // renderer, behind the terminalGpuAcceleration setting. On Linux Wayland
-    // the eager GPU channel can wedge (#5319), so establish it lazily there.
-    ...(isLinuxWaylandSession ? [] : ['EarlyEstablishGpuChannel', 'EstablishGpuChannelAsync']),
-    existingFeatures
-  ]
-    .filter(Boolean)
-    .join(',')
-  if (features) {
-    app.commandLine.appendSwitch('enable-features', features)
+  // Why: mirror VS Code's conservative Electron GPU-channel startup flags
+  // instead of opting into Vulkan/SkiaGraphite/unsafe WebGPU globally.
+  // Terminal acceleration is controlled by the aterm WebGL2 drawer in the
+  // renderer, behind the terminalGpuAcceleration setting. On Linux Wayland
+  // the eager GPU channel can wedge (#5319), so establish it lazily there.
+  if (!isLinuxWaylandSession) {
+    featureFlags.push('EarlyEstablishGpuChannel', 'EstablishGpuChannelAsync')
   }
+  appendComposedEnableFeatures(featureFlags)
 }

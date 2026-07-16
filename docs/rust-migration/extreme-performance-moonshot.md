@@ -366,12 +366,17 @@ decreases e`, first-class HIR, verified in `rustc_ast`/`rustc_parse`) — so it 
 are missing, not the check; BUT loop verification is SLOW — a minimal bounded counter loop TIMED OUT at
 2 min under trustc, so many loop kernels likely hit the driver's 180s cap (a TIMEOUT NOT-TRUSTED, not a
 clean precision-fail). And the `invariant` keyword is a trustc extension that won't parse under the
-stock-rustc W2 build, so using it needs a harness change (W2-via-trustc). (b) Some narrow-int "faithful"
-misses are GENUINE bugs trustc correctly rejects: `countWhitespace -> u32` overflows past 4.29 B chars
-where TS `number` (f64) would not — W2's bounded fuzz can't reach that input, so *W2-equivalent ≠ faithful
-at the extremes*. Net: the reservoir is a MIX of loop-timeouts, real narrowing bugs, and true precision
-gaps — the honest lever is loop-invariant *synthesis + perf* and nonlinear theory, plus auditing the
-narrow-int ports for real overflow. That is the true Goal A ceiling: the 54 TRUSTED are the straight-line
+stock-rustc W2 build, so using it needs a harness change (W2-via-trustc). (b) W2-equivalent ≠ faithful at the
+extremes: `countWhitespace -> u32` overflows past 4.29 B chars where TS `number` (f64) would not, and W2's
+bounded fuzz can't reach it — so trustc's W1 rejection is CORRECT there, not a false miss. **But the
+narrow-int overflow AUDIT (ran it 2026-07-16) came back essentially clean:** across the whole corpus, the
+ONLY genuine non-saturating narrow accumulator is that `countWhitespace -> u32` (and it already has a u64
+twin, `countws_fix`); every other narrow-return `+`/`*` kernel is either a `_naive` bug-control or
+provably bounded and TRUSTED (trustc proves `min(depth,6)*10+10`). So real narrowing bugs are ~1,
+negligible — the 165 are OVERWHELMINGLY genuine verifier limitations, NOT port bugs (this *strengthens*
+the faithful-miss reservoir claim and corrects my own earlier overcaution). Net: the reservoir is
+loop-timeouts + true precision gaps; the honest lever is loop-invariant *synthesis + verification perf*
+and nonlinear/bounds theory — a narrow-int audit is NOT needed (done, clean). That is the true Goal A ceiling: the 54 TRUSTED are the straight-line
 linear no-loop kernels; the 165 are dominated by loops/division awaiting those capabilities.
 **QUANTIFIED (reliable loop-detection over comment/string-stripped source): 104 of the 165 (~63%) contain
 a loop/iterator → LOOP-INVARIANT SYNTHESIS is the single highest-ROI trustc investment; the other 61 are

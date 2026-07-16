@@ -306,7 +306,7 @@ deepens Goal A — capability bought in Trust pays on every campaign; an externa
 
 | Rung | Trust work item | What it unlocks |
 |---|---|---|
-| T-A | Package/distribute `ay` + `ty` (prebuilt per-OS, or seed-bootstrap in `verify.sh`) | public one-command re-check; paper artifact evaluation |
+| T-A | Package/distribute `ay` + `ty` — **assessed 2026-07-16 [recorded]**: both binaries fully standalone (system libs only, verified under `env -i` from `/`), Apache-2.0 with LICENSE/NOTICE/THIRD_PARTY, byte-copied `ay` discharged 4 real orca-git obligations. Design: `ay-<ver>-<triple>.tar.zst` (binary+licenses+manifest w/ build.commit) + SHA256SUMS; orc pins hashes fail-closed; `verify.sh --bootstrap` fetches→verifies→caches→exports AY into the ladder; linux musl static via ay's existing `build_linux_static.sh`; stock-cargo-at-pinned-rev as the documented fallback rung (minutes, vs the private 479MB macOS-only seed). **Blocker = publication decision (Andrew): flip the ay public mirror (release machinery exists) vs interim orc release assets.** Ship `ty` when a bundle consumes it. | public one-command re-check; paper artifact evaluation |
 | T-B | wasm32-unknown-unknown std under trustc (`-Zbuild-std` class) | obligations derived from the **shipped blob's** MIR — "the artifact you run is the MIR we proved"; licenses guard deletion in wasm |
 | T-C | Certified-by-default: headline bundles reconstruct through trust-certify (§7.4 typed-equality reconstruction where needed) | the homemade-solver defense; the Certified rung as the public face |
 | T-D | v128/SIMD lane theory + trust-mc modeling gaps (MaybeUninit, Vec, multi-variant enums) | verified SIMD scanners beyond scalar models (Campaign 1) |
@@ -339,8 +339,14 @@ never shipped. The factory = fuse them.
   through the existing one-export orca-dispatch seam. Inventory honesty: 141/203 TRUSTED today, not 247.
 - **Port targets by measured heat:** P1 the onPtyData chunk-ingest core as one Rust scan pass
   (**UTF-16 code-unit seam mandatory** — napi string conversion replaces lone surrogates and PTY chunks
-  split astral pairs; re-baseline heat on current main first). P2 wire the shipped-but-unused
-  `RustNdjsonParser` (0 production instantiations today [recorded]), then binary frames. P3 the PTY
+  split astral pairs; re-baseline heat on current main first). P2 — **re-scoped by measurement
+  2026-07-16**: the napi-string `RustNdjsonParser` cutover was implemented, proven wire-identical
+  (parity green), benched, and REJECTED — ~30% slower end-to-end than the TS parser (458 vs 657 MB/s
+  full pipeline; split-only 810 MB/s vs 4.5 GB/s) because per-line UTF-16⇄UTF-8 FFI copies dominate
+  while V8 substrings are copy-free [recorded]. The old parity-test comment predicted exactly this;
+  the bench gate held. P2 is therefore **binary frames with Buffer payloads only** (near-zero-copy
+  napi externals) — string-shaped FFI on hot paths is a proven dead end; the manifest rule: no Rust
+  cutover on a hot path without a same-day bench win. P3 the PTY
   flow-control machine as a **decisions-only Rust handle** (payload bytes stay in TS; the handle owns
   counters/gates and answers enqueue/flush/ack/heal with scalars) — safety invariants (in-flight never
   negative, caps never exceeded) as ay bundles on the orca-git precedent; liveness reformulated as
@@ -452,7 +458,8 @@ behavior-neutral on the 26-case corpus; v128 scanners remain upstream work)* · 
 queue, wearing Orca's design system — the Goal-2 product starts here, before the records; needs only
 owner-attach, not even the subscriber rev) · binary daemon frames · utilityProcess pump spike ·
 dirty-band CPU present · `orca://` migration + codeCache · parser spec-table + delta ledger gate ·
-F1 provenance gate · F2 trace corpora · P2 RustNdjsonParser wiring · orc-electron fork infra (repo,
+F1 provenance gate · F2 trace corpora · P2 binary frames (napi-string NDJSON cutover measured 30%
+slower and rejected — Buffer payloads only) · orc-electron fork infra (repo,
 sccache, no-op rebuild ×3 OS) · daemon subscriber protocol rev (1018→1019).
 
 **Wave 3 — needs Wave 2's protocol/runtime footholds (L):** byte ACK re-base · verified transport

@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { PTY_SESSION_ID_SEPARATOR } from '../../shared/pty-session-id-format'
 import { getDaemonSessionStoreRoot } from './history-store-layout'
 import { getHistorySessionDirName } from './history-paths'
+import { planSessionHistoryGc } from './daemon-session-history-gc-plan'
 
 // Retention constants (documented; scrollback is secret-bearing, so every
 // bound below is a privacy bound as much as a disk bound):
@@ -153,68 +154,71 @@ export function runDaemonSessionHistoryGc(
       ? null
       : new Set([...opts.liveSessionIds].map(getHistorySessionDirName))
 
-  const survivors: ScannedSessionDir[] = []
-  let survivorBytes = 0
+  // Scan the store, then let the pure planner decide age-expiry + size eviction
+  // (proven correct + TS↔Rust parity-checked in orca-session-gc); the fs work —
+  // scanning and the rmSyncs, with their best-effort error handling — stays here.
+  const scanned: ScannedSessionDir[] = []
   for (const entry of entries) {
     if (!entry.isDirectory()) {
       continue
     }
     const dir = scanSessionDir(sessionsRoot, entry.name)
-    if (!dir) {
-      continue
+    if (dir) {
+      scanned.push(dir)
     }
-    result.scanned++
-    const age = now - dir.lastActivityMs
-    const isLive = liveDirNames?.has(dir.name) ?? false
-    if (isLive || age < GC_MIN_DIR_AGE_MS) {
-      survivorBytes += dir.totalBytes
-      continue
-    }
-    const retention =
-      dir.endedAt !== null
-        ? ENDED_SESSION_RETENTION_MS
-        : liveDirNames === null
-          ? // Liveness unknown: a not-ended dir might belong to a live daemon
-            // session that simply has not been reattached yet — never expire it.
-            Number.POSITIVE_INFINITY
-          : UNRESTORED_SESSION_RETENTION_MS
-    if (age > retention) {
-      try {
-        rmSync(dir.path, { recursive: true, force: true })
-        result.expired++
-        continue
-      } catch {
-        // Fall through: an undeletable dir still counts toward the size total.
-      }
-    }
-    survivors.push(dir)
-    survivorBytes += dir.totalBytes
   }
+  result.scanned = scanned.length
 
-  // Size cap: evict oldest-first among dead-or-unattached survivors. Live
-  // dirs (and, when liveness is unknown, restorable endedAt=null dirs) are
-  // exempt — the cap trades old recoverable scrollback for disk, never a
-  // running session's recovery data.
-  if (survivorBytes > maxTotalBytes) {
-    const evictable = survivors
-      .filter((dir) => dir.endedAt !== null || liveDirNames !== null)
-      .sort((a, b) => a.lastActivityMs - b.lastActivityMs)
-    for (const dir of evictable) {
-      if (survivorBytes <= maxTotalBytes) {
-        break
+  const plan = planSessionHistoryGc({
+    dirs: scanned.map((dir) => ({
+      name: dir.name,
+      totalBytes: dir.totalBytes,
+      lastActivityMs: dir.lastActivityMs,
+      isEnded: dir.endedAt !== null
+    })),
+    now,
+    maxTotalBytes,
+    livenessUnknown: liveDirNames === null,
+    liveDirNames,
+    thresholds: {
+      minDirAgeMs: GC_MIN_DIR_AGE_MS,
+      endedRetentionMs: ENDED_SESSION_RETENTION_MS,
+      unrestoredRetentionMs: UNRESTORED_SESSION_RETENTION_MS
+    }
+  })
+
+  const pathByName = new Map(scanned.map((dir) => [dir.name, dir.path]))
+  const deleted = new Set<string>()
+  const applyDeletions = (names: string[], onSuccess: () => void): void => {
+    for (const name of names) {
+      const path = pathByName.get(name)
+      if (path === undefined) {
+        continue
       }
       try {
-        rmSync(dir.path, { recursive: true, force: true })
-        survivorBytes -= dir.totalBytes
-        result.evictedForSize++
+        rmSync(path, { recursive: true, force: true })
+        deleted.add(name)
+        onSuccess()
       } catch {
-        // Non-fatal; retried on the next GC pass.
+        // Best-effort: an undeletable dir still counts toward the size total and
+        // is retried on the next GC pass (same as the pre-planner behavior).
       }
     }
   }
-  result.remainingBytes = survivorBytes
+  applyDeletions(plan.expire, () => {
+    result.expired++
+  })
+  applyDeletions(plan.evictForSize, () => {
+    result.evictedForSize++
+  })
+  // Remaining = every scanned dir still on disk. On the happy path this equals the
+  // plan's remainingBytes; on a failed rmSync the undeleted dir stays counted.
+  result.remainingBytes = scanned.reduce(
+    (sum, dir) => (deleted.has(dir.name) ? sum : sum + dir.totalBytes),
+    0
+  )
   console.log(
-    `[history:retention:gc] scanned=${result.scanned} expired=${result.expired} evicted=${result.evictedForSize} remainingKB=${Math.ceil(survivorBytes / 1024)}`
+    `[history:retention:gc] scanned=${result.scanned} expired=${result.expired} evicted=${result.evictedForSize} remainingKB=${Math.ceil(result.remainingBytes / 1024)}`
   )
   return result
 }

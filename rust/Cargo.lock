@@ -810,6 +810,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "orca-session-gc"
+version = "0.0.1"
+
+[[package]]
 name = "orca-ssh"
 version = "0.0.1"
 

@@ -476,6 +476,22 @@ never shipped. The factory = fuse them.
   change (`export nextSafeSplitIndex`). Gate auto-enforced: **7 certificate crates / 51 obligations / 5
   parity corpora.** SIX units, FIVE subsystems, SIX invariant families — scalar decisions AND a string
   algorithm, pure functions AND stateful machines, all gated.
+  **✅ 7th E1 unit LANDED 2026-07-16** (`orca-session-gc`) — the meatiest unit: a real production REFACTOR
+  (not just a lift), the daemon **history-retention** subsystem, and a 7th invariant family
+  (budget-respecting multi-class eviction with liveness exemptions). Extracted a pure
+  `planSessionHistoryGc` from `runDaemonSessionHistoryGc` (`src/main/daemon/history-retention.ts`) — the fs
+  scan + rmSyncs stay in the executor, the age-expiry + oldest-first size eviction become a pure planner
+  the executor applies; all **12 existing history-retention integration tests still pass** (behavior
+  preserved). `proofs/ay/ex1..ex3` prove the privacy-critical retention guarantees (a LIVE dir is never
+  expired; the TOCTOU floor; unknown-liveness not-ended → ∞ retention), `ev1..ev_step` the eviction
+  guarantees (remaining ≥ non-evictable floor so live/recoverable bytes are never traded for disk; reaches
+  budget when enough evictable; each step monotone); `ex_c1/ev_c1` (SAT) non-vacuity. Flags as Bools,
+  byte totals as free ints → QF_LIA; verify.sh 8/8. Parity corpus is 12 cases (every expiry branch +
+  oldest-first, spare-live, liveness-unknown-evictability, tie-break, combined expiry+eviction, empty).
+  3 Rust + 1 TS (13 w/ integration) green, clippy+oxlint+typecheck clean. Gate auto-enforced: **8
+  certificate crates / 59 obligations / 6 parity corpora.** SEVEN units, SIX subsystems (PTY /
+  rate-limits / crash-recovery / startup / daemon-transport / daemon-retention), SEVEN invariant families
+  — the first with a behavior-preserving production refactor as its lift.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

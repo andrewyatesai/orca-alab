@@ -1,0 +1,17 @@
+[package]
+name = "orca-session-gc"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Daemon session-history GC planning core (age-expiry + budget-respecting oldest-first eviction, ported from src/main/daemon/history-retention.ts)."
+
+# Deliberately zero-dependency (std only): the pure planner (scanned dirs + config
+# -> {expire, evictForSize, remaining}); the fs scan and rmSync stay in the TS
+# executor. Every retention bound is a privacy bound (scrollback is secret-bearing),
+# so the "never lose a live/recoverable session" invariants are proven in proofs/ay.
+# Same E1 pair as orca-flow-control.
+
+[lints.rust]
+unsafe_code = "forbid"

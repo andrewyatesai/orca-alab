@@ -1,0 +1,41 @@
+# Daemon session-history GC planner TS↔Rust differential parity corpus (E1 unit).
+#
+# ONE shared oracle, run by BOTH implementations:
+#   - Rust: orca-session-gc::plan_session_history_gc (include_str! this file)
+#   - TS:   planSessionHistoryGc (src/main/daemon/daemon-session-history-gc-plan.ts)
+# Divergence on any case fails one side.
+#
+# Fixed thresholds (ms): minDirAge=10, endedRetention=100, unrestoredRetention=1000.
+#
+# Format: `<now> <maxBytes> <lu> <live> | <dirs> => <expire> <evict> <remaining>`
+#   lu    = livenessUnknown (1 => liveDirNames is null)
+#   live  = comma dir names known live (only when lu=0), or `-`
+#   dirs  = `name:totalBytes:lastActivityMs:isEnded(0|1)` semicolon-separated
+#   expire/evict = comma names in plan order, or `-`
+#
+# --- age-expiry decision branches ---
+# ended past retention -> expire:
+1000 99999 0 - | a:100:800:1 => a - 0
+# ended within retention -> keep:
+1000 99999 0 - | a:100:950:1 => - - 100
+# younger than the TOCTOU floor -> exempt, keep (even ended):
+1000 99999 0 - | a:100:995:1 => - - 100
+# not-ended, liveness KNOWN, past unrestored retention -> expire:
+2000 99999 0 - | a:100:500:0 => a - 0
+# not-ended, liveness UNKNOWN -> never expire (might be live-unreattached):
+2000 99999 1 - | a:100:500:0 => - - 100
+# live dir -> exempt, never expire no matter how old:
+2000 99999 0 a | a:100:500:1 => - - 100
+# expire preserves scan order:
+2000 99999 0 - | x:100:500:1;y:100:1950:1;z:100:400:1 => x,z - 100
+# --- size-cap eviction ---
+# oldest-first, sparing the live dir (L counted but never evicted):
+1000 150 0 L | L:200:100:1;a:100:905:1;b:100:915:1 => - a,b 200
+# liveness unknown: only ended dirs are evictable (b not-ended is spared):
+1000 150 1 - | a:100:905:1;b:100:915:0;c:100:925:1 => - a,c 100
+# ties on last-activity keep scan order (stable sort):
+1000 150 0 - | p:100:900:1;q:100:900:1;r:100:900:1 => - p,q 100
+# expiry AND eviction together:
+2000 150 0 - | old:100:500:1;a:100:1905:1;b:100:1915:1 => old a 100
+# empty store:
+1000 99999 0 - |  => - - 0

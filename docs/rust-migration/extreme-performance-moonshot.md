@@ -366,11 +366,16 @@ count of individually-verified kernels touched, below.)
   `…_undef_0` in an evaluable theory position; default-value completion … did not strictly verify"), so
   strict mode takes the worse verdict and rejects the native proof as "lacked exact kernel/native proof
   authority." It fires on EVERY form — raw-guarded (`if d==0`), `checked_div().unwrap_or`, AND
-  divide-by-`max(1,_)` — so there is **no recipe workaround**; only a fix in
-  `first-party/ay/crates/ay-chc/src/smt/check_sat` (constrain/eliminate the div `_undef_` in the guarded
-  case) or in the native-proof authority reconciliation (`compiler/rustc_mir_transform/src/trust_verify.rs`)
-  unblocks it. Sound fix = deep, slow (stage2 rebuild) — genuinely out-of-session, but now *actionable*
-  (exact crates + mechanism), not vague. So the E1 cores that TRUST today are the compare-only /
+  divide-by-`max(1,_)` — so there is **no recipe workaround**. **DEEPER 2026-07-16** (read
+  `trust_verify.rs:16344-16382`): the native "Proved" is downgraded to `unknown` by a *deliberate
+  fail-closed soundness guard* — a `Proved` result counts ONLY if the exact-proof `authority` object
+  `permits_static_proved_transport_for(index,vc,binding)`; a solver's/native's bare Proved LABEL
+  intentionally carries no authority ("missing/misaligned exact authority fails closed"). So the tempting
+  shortcut — "just accept the native trust-mc proof" — is *architecturally forbidden*: the sound fix MUST
+  make `ay-chc` actually discharge the division VC so it mints the authority artifact, i.e. fix the
+  division `_undef_` VC encoding / guard-propagation in `first-party/ay/crates/ay-chc/src/smt` (NOT a flag
+  in `trust_verify.rs`). Verified genuine SMT/encoding work + slow stage2 rebuild — out-of-session, but now
+  *actionable to the exact function + confirmed no shortcut exists*, not vague. So the E1 cores that TRUST today are the compare-only /
   saturating-total-ops ones; division kernels (keep-tail), f64 (renderer-heap) and `&[u16]` (stream-split)
   cores wait on that capability. Recipe to advance cheaply meanwhile: mine landed E1 pure cores, prefer
   saturating/compare/total-ops formulations (NOT `checked_div` — it hits the same wall).

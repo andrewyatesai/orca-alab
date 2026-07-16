@@ -1004,6 +1004,22 @@ export class AtermTerminal {
         wasm.atermterminal_set_cell_pixel_size(this.__wbg_ptr, width, height);
     }
     /**
+     * Window-chrome for WINDOW-SPACE effects in an embedder: interior padding
+     * (`pad`, px per edge) plus a top-only rise band (`head`, px) around the
+     * grid — the `[head][pad][grid][pad]` frame aterm-render composes. The
+     * framebuffer grows accordingly (`width`/`height` report the padded frame;
+     * the host re-reads them and offsets its canvas by `-pad,-(pad+head)` so
+     * the grid stays put) and effect emissions (glow, trail, fire) become
+     * window-absolute, escaping the grid into the chrome instead of clipping
+     * at the cell edge. `0/0` (the default) is byte-identical to the
+     * historical exact-fit frame.
+     * @param {number} pad
+     * @param {number} head
+     */
+    set_chrome(pad, head) {
+        wasm.atermterminal_set_chrome(this.__wbg_ptr, pad, head);
+    }
+    /**
      * Push the host OS color scheme into the engine. `dark = true` selects a dark
      * appearance, `false` light. When the scheme CHANGES and the app enabled DEC mode
      * 2031, the engine queues an unsolicited `CSI ? 997 ; Ps n` (1=dark, 2=light);
@@ -1025,7 +1041,7 @@ export class AtermTerminal {
     /**
      * Configure the LUMEN cursor aurora (additive light in the cursor's
      * wake). Mirrors the native knobs + clamps: `style` ∈
-     * `lumen|phaser|nyan|sparkle|fire|laser|water` (unknown → lumen);
+     * `lumen|phaser|nyan|sparkle|fire|laser|beam|water` (unknown → lumen);
      * `color`/`accent` omitted derive from the theme cursor (accent = color
      * brightened 1.5×) exactly like the native app; `duration_ms` clamps
      * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),

@@ -1030,6 +1030,21 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_set_cell_pixel_size(this.__wbg_ptr, width, height);
     }
     /**
+     * Window-chrome for WINDOW-SPACE effects in an embedder: interior padding
+     * (`pad`, px per edge) plus a top-only rise band (`head`, px) — the
+     * `[head][pad][grid][pad]` frame layout. The swapchain resizes to the
+     * padded frame (the host re-reads the canvas dims and offsets it by
+     * `-pad,-(pad+head)` so the grid stays put) and effect emissions become
+     * window-absolute. Set on both the CPU fallback face and the live GPU
+     * renderer (pad/head parity is gated by aterm-gpu's CPU==GPU suite);
+     * `0/0` (the default) is byte-identical to the exact-fit frame.
+     * @param {number} pad
+     * @param {number} head
+     */
+    set_chrome(pad, head) {
+        wasm.atermgputerminal_set_chrome(this.__wbg_ptr, pad, head);
+    }
+    /**
      * Push the host OS color scheme into the engine. `dark = true` selects a dark
      * appearance, `false` light. When the scheme CHANGES and the app enabled DEC mode
      * 2031, the engine queues an unsolicited `CSI ? 997 ; Ps n`; drain it via
@@ -1050,7 +1065,7 @@ export class AtermGpuTerminal {
     /**
      * Configure the LUMEN cursor aurora (additive light in the cursor's
      * wake). Mirrors the native knobs + clamps: `style` ∈
-     * `lumen|phaser|nyan|sparkle|fire|laser|water` (unknown → lumen);
+     * `lumen|phaser|nyan|sparkle|fire|laser|beam|water` (unknown → lumen);
      * `color`/`accent` omitted derive from the theme cursor (accent = color
      * brightened 1.5×) exactly like the native app; `duration_ms` clamps
      * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),

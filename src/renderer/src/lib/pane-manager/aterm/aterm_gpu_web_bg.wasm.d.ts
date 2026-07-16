@@ -87,6 +87,7 @@ export const atermgputerminal_set_background_opacity: (a: number, b: number) => 
 export const atermgputerminal_set_bold_font: (a: number, b: number, c: number) => [number, number];
 export const atermgputerminal_set_bold_font_registered: (a: number, b: number) => [number, number];
 export const atermgputerminal_set_cell_pixel_size: (a: number, b: number, c: number) => void;
+export const atermgputerminal_set_chrome: (a: number, b: number, c: number) => void;
 export const atermgputerminal_set_color_scheme: (a: number, b: number) => void;
 export const atermgputerminal_set_cursor_blink_phase: (a: number, b: number) => void;
 export const atermgputerminal_set_cursor_glow: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => void;

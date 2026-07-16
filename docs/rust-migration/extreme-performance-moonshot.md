@@ -401,6 +401,15 @@ never shipped. The factory = fuse them.
   theorems proved ∀ (anti-flap, reassert-gated, strict low/high edges) + 2 controls (non-vacuity,
   catches off-by-one). Spec proved correct (ay) + implementations proved equivalent (parity corpus) =
   the E1 claim, demonstrated end-to-end on a shipped unit.
+  **✅ 2nd E1 unit LANDED 2026-07-16** (`13f4546a8`) — the E1 recipe proven REUSABLE: keep-tail sizing
+  (`orca-flow-control::keep_tail`, ported from `daemon-stream-keep-tail-drop.ts`) gets the same full
+  pair. Certificate `proofs/ay/kt1..kt3` (UNSAT) prove `keep_tail ∈ [64K,512K]`, `drop_cap = 2·keep_tail
+  ∈ [128K,1M]`, clamp order-preservation — the division `floor(2M/max(1,n))` abstracted as a free `x≥0`
+  so the bounds hold ∀n (not sampled); `kt_c1/kt_c2` (SAT) prove both band edges are reached (tight).
+  `verify.sh` now discharges **11/11**. Parity `keep-tail-parity-corpus.txt` is one shared oracle run by
+  BOTH sides (Rust `matches_shared_parity_corpus` + TS `daemon-stream-keep-tail-drop.test.ts`). 19 Rust +
+  11 TS green. Two shipped units now carry the full certificate+parity pair; the recipe scales to any
+  scalar-decision port.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

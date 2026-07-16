@@ -460,6 +460,17 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   **54 TRUSTED / 218 gate-runnable** / 243 corpus pairs — NOT a padded 247, and NOT the long-tracked
   "146/208" (which never matched the reproducible gate); `pnpm gauntlet:autoformalize` is the numerator,
   not a hand-tally.
+  - **First seam promotion LANDED 2026-07-16 (63e53d894):** the E1-certified,
+    autoformalize-TRUSTED `orca-provider-backoff` core (capped-exponential refetch throttle) now flows
+    through the production orca-dispatch registry as parity module `provider-backoff` — live TS adapter
+    vs Rust twin over 11 vectors, TS==Rust==golden, dispatch-missing 0 (parity now 1417 cases / golden
+    1410). **Additive only:** the shipping throttle stays TS; no hot-path call site is cut over (the
+    manifest's no-cutover-without-a-same-day-bench-win rule holds — the seam wiring carries no perf
+    risk, the cutover is a separate, owner-gated decision). Both factory gates absorbed it: F1
+    provenance pins TS↔Rust twin (and gained a general fix — the resolver now maps single-file crates
+    that define their API directly in `lib.rs`, the shape of every small E1 core, so future promotions
+    resolve cleanly); F2 corpus ratchet 1510→1521. This is the end-to-end proof the promote leg works;
+    the remaining `[L]` is the *unattended* classify→port→verify→promote automation, not the seam.
 - **Port targets by measured heat:** P1 the onPtyData chunk-ingest core as one Rust scan pass
   (**UTF-16 code-unit seam mandatory** — napi string conversion replaces lone surrogates and PTY chunks
   split astral pairs; re-baseline heat on current main first). P2 — **re-scoped by measurement

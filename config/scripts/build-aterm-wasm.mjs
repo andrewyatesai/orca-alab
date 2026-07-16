@@ -39,8 +39,12 @@ const WASM_OPT_FEATURES = [
   '--enable-nontrapping-float-to-int',
   '--enable-sign-ext',
   '--enable-mutable-globals',
-  '--enable-reference-types'
+  '--enable-reference-types',
+  '--enable-simd'
 ]
+// simd128 is the prerequisite for aterm's v128 scanners (upstream work) and already
+// activates memchr's wasm-simd paths + LLVM autovectorization; scalar behavior unchanged.
+const WASM_SIMD_RUSTFLAG = '-C target-feature=+simd128'
 
 const CRATES = {
   cpu: { dir: 'rust/aterm/crates/aterm-wasm', stem: 'aterm_wasm' },
@@ -140,8 +144,21 @@ function buildCrate(key, wasmBindgen) {
     // Pin to stable (aterm's rust-toolchain.toml channel): the machine's global rustup
     // default may be an older nightly that lacks the wasm32-unknown-unknown target (or
     // violates aterm's rust-version). RUSTUP_TOOLCHAIN is a belt-and-suspenders for the
-    // no-rustup fallback path.
-    { env: { ...process.env, CARGO_NET_OFFLINE: 'false', RUSTUP_TOOLCHAIN: 'stable' } }
+    // no-rustup fallback path. The simd flag is target-scoped so host proc-macro builds
+    // stay untouched (plain RUSTFLAGS would leak into them).
+    {
+      env: {
+        ...process.env,
+        CARGO_NET_OFFLINE: 'false',
+        RUSTUP_TOOLCHAIN: 'stable',
+        CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: [
+          process.env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS,
+          WASM_SIMD_RUSTFLAG
+        ]
+          .filter(Boolean)
+          .join(' ')
+      }
+    }
   )
 
   const wasm = join(WASM_TARGET_DIR, `${stem}.wasm`)

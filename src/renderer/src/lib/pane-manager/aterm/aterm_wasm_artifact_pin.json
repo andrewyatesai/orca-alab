@@ -11,8 +11,8 @@
       "sha256": "38a4955960bc6cc33afb36049c8ab2eeab4407802eaf49e26a3df59a6f76e7c4"
     },
     "aterm_wasm_bg.wasm": {
-      "bytes": 3437158,
-      "sha256": "a6e8da35e3ccb4b0fb504e14fbb418c54d5c65d6b099ff500ee7c42b45cdb82e"
+      "bytes": 3494262,
+      "sha256": "6810c35657cec0b30ff1126de4caa10201c4ab9e7e4938ea081a049cb9470a03"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 13163,
@@ -27,8 +27,8 @@
       "sha256": "742b62cab3605a8cec3d9d9010bedd1fe205cb67348d1c6e47b43076ce01957e"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 5941171,
-      "sha256": "8e8cc28cad41ea1d2d0cd27fef60a4906eb47c1fb156f80a89abe5c80f30fc9c"
+      "bytes": 5961696,
+      "sha256": "ec500bc291d725db0da2ebcc61a2f4ec0b5b74e79511f285d28c79562511496a"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
       "bytes": 14133,

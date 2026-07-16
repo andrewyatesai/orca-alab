@@ -458,6 +458,15 @@ async function closeFeatureTips(page: Page): Promise<void> {
   })
 }
 
+// Why: cursor glow (default-on) grants the canvas window-space effects chrome,
+// which pads the framebuffer around the grid. These goldens assert GRID
+// geometry, so pin glow off — the live settings change reaches open panes.
+async function disableTerminalGlowChrome(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    await window.__store?.getState().updateSettings({ terminalEffectsCursorGlow: false })
+  })
+}
+
 test.describe('Terminal raw emoji table scroll restore repro', () => {
   test.beforeEach(async ({ orcaPage }) => {
     await orcaPage.evaluate(() => {
@@ -487,6 +496,7 @@ test.describe('Terminal raw emoji table scroll restore repro', () => {
     orcaPage
   }) => {
     await waitForSessionReady(orcaPage)
+    await disableTerminalGlowChrome(orcaPage)
     await closeFeatureTips(orcaPage)
     await ensureTerminalVisible(orcaPage)
     await waitForActiveTerminalManager(orcaPage, 30_000)
@@ -526,6 +536,7 @@ test.describe('Terminal raw emoji table scroll restore repro', () => {
     testRepoPath
   }, testInfo: TestInfo) => {
     await waitForSessionReady(orcaPage)
+    await disableTerminalGlowChrome(orcaPage)
     await closeFeatureTips(orcaPage)
     const firstWorktreeId = await waitForActiveWorktree(orcaPage)
     const secondWorktreeId = (await getAllWorktreeIds(orcaPage)).find(

@@ -333,10 +333,8 @@ export async function loadAtermWorkerEngine(
     post({ type: 'setEffectsFocused', focused })
   backed.term.set_chrome = (pad: number, head: number): void =>
     post({ type: 'setChrome', pad, head })
-  // The effects-apply seam enables window chrome ONLY on targets carrying this
-  // marker: the in-process drawers pin the canvas box with no offset, so they
-  // must never see a padded frame — the worker path is the only one that may.
-  Object.assign(backed.term, { windowChromeCapable: true })
+  // The windowChromeCapable marker gating chrome application is attached by the
+  // pane wiring (all real render paths' drawers offset the canvas box now).
   // The worker owns the pane canvas, so search highlights + the link underline paint on
   // a main-thread stacked overlay driven by the snapshot (works for CPU + GPU worker).
   overlay = createAtermWorkerOverlay(

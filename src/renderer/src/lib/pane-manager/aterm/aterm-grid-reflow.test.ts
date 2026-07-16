@@ -73,7 +73,8 @@ afterEach(() => {
 function attach(
   term: ReturnType<typeof makeTerm>,
   metrics: AtermMetrics,
-  getFontPx: () => number
+  getFontPx: () => number,
+  syncDependents: () => void = () => {}
 ): ReturnType<typeof attachAtermGridReflow> {
   let grid = { cols: 80, rows: 24 }
   return attachAtermGridReflow({
@@ -87,7 +88,7 @@ function attach(
       grid = { cols, rows }
     },
     isDisposed: () => false,
-    syncDependents: () => {},
+    syncDependents,
     scheduleDraw: () => {}
   })
 }
@@ -145,6 +146,31 @@ describe('attachAtermGridReflow.reconcileIfNeeded', () => {
     reflow.reconcileIfNeeded()
 
     expect(term.setPxCalls).toContain(36) // round(18 * 2)
+    reflow.dispose()
+  })
+
+  it('notifies syncDependents on every cell-metrics change (chrome re-derivation seam)', () => {
+    // The wiring re-derives the window-space effects chrome (sized from
+    // cell_height) inside syncDependents; both metrics paths must fire it.
+    setDpr(1)
+    const term = makeTerm()
+    let fontPx = 14
+    const metrics: AtermMetrics = {
+      dpr: 1,
+      cellWidth: term.cell_width,
+      cellHeight: term.cell_height
+    }
+    const syncDependents = vi.fn()
+    const reflow = attach(term, metrics, () => fontPx, syncDependents)
+
+    // In-process live font-size change: reapplyMetrics → syncDependents.
+    fontPx = 18
+    reflow.reconcileIfNeeded()
+    expect(syncDependents).toHaveBeenCalledTimes(1)
+
+    // Primary-font swap / worker metrics push: forceReflow → syncDependents.
+    reflow.forceReflow()
+    expect(syncDependents).toHaveBeenCalledTimes(2)
     reflow.dispose()
   })
 })

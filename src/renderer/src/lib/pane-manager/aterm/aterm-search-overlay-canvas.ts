@@ -58,8 +58,16 @@ export function createAtermSearchOverlayCanvas(
       }
       // Match the grid canvas's device-pixel buffer + CSS size so overlay device
       // coords align 1:1 with the grid's, and the rect math (device px) is exact.
-      const width = gridCanvas.width
-      const height = gridCanvas.height
+      // Subtract the window-space effects chrome (the grid canvas is margin-
+      // shifted so its GRID sits at the container origin — where this un-shifted
+      // overlay's (0,0) is): grid-coord rects align with no offset, and the
+      // overlay never overhangs the pane. `?? 0` tolerates artifact skew.
+      const chromePad = deps.term.chrome_pad ?? 0
+      const width = gridCanvas.width - 2 * chromePad
+      const height = gridCanvas.height - 2 * chromePad - (deps.term.chrome_head ?? 0)
+      if (width <= 0 || height <= 0) {
+        return
+      }
       if (overlay.width !== width || overlay.height !== height) {
         overlay.width = width
         overlay.height = height

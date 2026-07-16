@@ -96,6 +96,13 @@ export async function loadAtermGpuDrawer(
         isDisposed: () => binding.isDisposed() || contextLost
       })
 
+      // Memoized CSS box (incl. the window-chrome margins): drawFrame runs every
+      // frame, so only touch CSSOM when the frame box / chrome actually changed.
+      let lastCssW = -1
+      let lastCssH = -1
+      let lastChromePad = -1
+      let lastChromeHead = -1
+
       const drawFrame = (): void => {
         if (binding.isDisposed() || contextLost || !binding.drawScheduler.isScheduled()) {
           return
@@ -118,12 +125,33 @@ export async function loadAtermGpuDrawer(
           return
         }
         // wgpu sizes the canvas DRAWING buffer (canvas.width/height) to the
-        // swapchain; set the CSS size so it displays at logical px (device/dpr),
-        // mirroring the CPU painter. Read dpr live so a DPI move updates it.
+        // swapchain (chrome-padded when window chrome is on — the engine resizes
+        // the swapchain itself on set_chrome); set the CSS size so it displays at
+        // logical px (device/dpr), mirroring the CPU painter, and pull the box
+        // up-left by the grid's in-frame offset so the grid stays put and only
+        // the chrome overhangs. Read dpr live so a DPI move updates it.
         const dpr = binding.getDpr()
         if (canvas.width > 0 && canvas.height > 0) {
-          canvas.style.width = `${canvas.width / dpr}px`
-          canvas.style.height = `${canvas.height / dpr}px`
+          const chromePad = gpuTerm.chrome_pad ?? 0
+          const chromeHead = gpuTerm.chrome_head ?? 0
+          const cssW = canvas.width / dpr
+          const cssH = canvas.height / dpr
+          if (
+            cssW !== lastCssW ||
+            cssH !== lastCssH ||
+            chromePad !== lastChromePad ||
+            chromeHead !== lastChromeHead
+          ) {
+            canvas.style.width = `${cssW}px`
+            canvas.style.height = `${cssH}px`
+            // Written explicitly both ways so toggling chrome off restores 0px.
+            canvas.style.marginLeft = `${-(chromePad / dpr)}px`
+            canvas.style.marginTop = `${-((chromePad + chromeHead) / dpr)}px`
+            lastCssW = cssW
+            lastCssH = cssH
+            lastChromePad = chromePad
+            lastChromeHead = chromeHead
+          }
         }
         lazyFonts.poll()
       }

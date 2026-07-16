@@ -35,6 +35,13 @@ export type AtermFramePainterDeps = {
 export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void {
   const { canvas, term, drawScheduler, searchController, isDisposed, getDpr, getRows } = deps
 
+  // Memoized CSS box (incl. the window-chrome margins): the painter runs every
+  // frame, so only touch CSSOM when the frame box / chrome actually changed.
+  let lastCssW = -1
+  let lastCssH = -1
+  let lastChromePad = -1
+  let lastChromeHead = -1
+
   return (): void => {
     const ctx = deps.ctx
     if (isDisposed() || !drawScheduler.isScheduled() || !ctx) {
@@ -60,8 +67,29 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
     // CSS size in logical pixels so the device-pixel framebuffer maps 1:1; reads
     // dpr live so a DPI move (M2) updates the on-screen size on the next frame.
     const dpr = getDpr()
-    canvas.style.width = `${width / dpr}px`
-    canvas.style.height = `${height / dpr}px`
+    // Window-space effects chrome (0/0 when off): the frame grows AROUND the
+    // grid, so pull the box up-left by the grid's in-frame offset — the grid
+    // stays put and only the chrome overhangs. `?? 0` tolerates artifact skew.
+    const chromePad = term.chrome_pad ?? 0
+    const chromeHead = term.chrome_head ?? 0
+    const cssW = width / dpr
+    const cssH = height / dpr
+    if (
+      cssW !== lastCssW ||
+      cssH !== lastCssH ||
+      chromePad !== lastChromePad ||
+      chromeHead !== lastChromeHead
+    ) {
+      canvas.style.width = `${cssW}px`
+      canvas.style.height = `${cssH}px`
+      // Written explicitly both ways so toggling chrome off restores 0px.
+      canvas.style.marginLeft = `${-(chromePad / dpr)}px`
+      canvas.style.marginTop = `${-((chromePad + chromeHead) / dpr)}px`
+      lastCssW = cssW
+      lastCssH = cssH
+      lastChromePad = chromePad
+      lastChromeHead = chromeHead
+    }
     // Zero-copy blit: view the engine's framebuffer directly in wasm linear memory
     // (no copy out of wasm at all — rgba_ptr returns the byte offset). Read the ptr
     // right after render() and use it synchronously before any other engine call:
@@ -74,6 +102,10 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
     // misplace the overlay rects below.
     const cellWidth = term.cell_width
     const cellHeight = term.cell_height
+    // Overlays are computed in grid coords; the grid sits at (pad, pad+head)
+    // inside the chrome-padded frame, so shift them onto the grid.
+    ctx.save()
+    ctx.translate(chromePad, chromePad + chromeHead)
     // Overlay search highlights last so they sit above the rendered glyphs.
     paintAtermSearchHighlights(ctx, deps.getSearchMatches(), deps.getSearchActiveIndex(), {
       term,
@@ -87,5 +119,6 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
       cellHeight,
       dpr
     })
+    ctx.restore()
   }
 }

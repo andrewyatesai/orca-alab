@@ -153,7 +153,19 @@ test.describe('aterm effects (sparkle words + cursor glow)', () => {
           if (pane?.container?.dataset?.ptyId === ptyId && pane.atermController) {
             const dpr = window.devicePixelRatio || 1
             const cellDeviceH = pane.atermController.cellSizeCss().height * dpr
-            const y = Math.max(0, Math.round((pane.atermController.cursorY() - 2) * cellDeviceH))
+            // Glow is ON here, so the frame carries window-space chrome and the
+            // grid starts at (pad, pad+head). Read the vertical offset back from
+            // the canvas's negative marginTop so the band stays cursor-anchored.
+            const canvas = pane.container.querySelector(
+              '[data-testid="aterm-canvas"]'
+            ) as HTMLCanvasElement | null
+            const chromeTopDevice = Math.round(
+              -Number.parseFloat(canvas?.style.marginTop || '0') * dpr || 0
+            )
+            const y = Math.max(
+              0,
+              Math.round((pane.atermController.cursorY() - 2) * cellDeviceH + chromeTopDevice)
+            )
             return { y, h: Math.round(cellDeviceH * 5) }
           }
         }

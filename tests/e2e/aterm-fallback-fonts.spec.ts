@@ -99,6 +99,11 @@ test.describe('aterm non-Latin fallback fonts', () => {
       // are the same on the GPU path (parity proven in aterm-webgl.spec.ts).
       ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true
     })
+    // Cursor glow (default-on) grants window-space chrome that pads the frame around
+    // the grid; this spec scans grid-origin-anchored row bands, so pin glow off.
+    await orcaPage.evaluate(async () => {
+      await window.__store?.getState().updateSettings({ terminalEffectsCursorGlow: false })
+    })
 
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage

@@ -68,6 +68,11 @@ test.describe('aterm selection foreground', () => {
       // selection_fg paint is shared with the GPU path (parity proven in Rust).
       ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true
     })
+    // Cursor glow (default-on) grants window-space chrome that pads the frame around
+    // the grid; this spec scans a grid-origin-anchored glyph band, so pin glow off.
+    await orcaPage.evaluate(async () => {
+      await window.__store?.getState().updateSettings({ terminalEffectsCursorGlow: false })
+    })
 
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage

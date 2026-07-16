@@ -20,6 +20,7 @@ import { createAtermPanePresenter } from './aterm-pane-present'
 import { applyTerminalPrimaryFontThenReflow } from './inject-terminal-primary-font'
 import { attachAtermCanvasFocus } from './aterm-canvas-focus'
 import { applyAtermEngineSettings } from './aterm-engine-settings-apply'
+import { wireAtermWindowChrome } from './aterm-effects-settings'
 import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermPendingStrategy } from './aterm-strategy-select'
 import type { AtermThemeColors } from './aterm-theme-colors'
@@ -92,24 +93,21 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // rest off `readers`.
   const readers = createAtermControllerOptionReaders(controllerOptions)
   const { getFontPx, getLineHeight, getFontFamily, getFontWeight } = readers
-  const initialDpr = window.devicePixelRatio || 1
+  // Mutable metrics shared with the input-handler deps: a later host DPI change
+  // re-rasterizes the engine (term.set_px) and updates these in place via the grid
+  // reflow, so the grid + overlays resize instead of freezing at construction dpr.
+  const metrics: AtermMetrics = { dpr: window.devicePixelRatio || 1, cellWidth: 0, cellHeight: 0 }
   // `pending` was rasterized at the dpr captured when the strategy STARTED loading;
   // the async load (GPU init can take seconds) gives the window time to settle to a
   // different dpr (e.g. a headless window born at 2 settling to 1), which would leave
   // cell metrics frozen at the load-time dpr → wrong column count. Re-rasterize to the
   // live dpr now (set_px is a no-op when unchanged) so metrics + dpr agree from frame 1.
-  term.set_px(Math.round(getFontPx() * initialDpr))
+  term.set_px(Math.round(getFontPx() * metrics.dpr))
   // Apply the user's line-height before reading cell metrics so the grid is sized to
   // the real (scaled) cell height from frame 1; set_px re-applies it on later changes.
   term.set_line_height(getLineHeight())
-  // Mutable metrics shared with the input-handler deps: a later host DPI change
-  // re-rasterizes the engine (term.set_px) and updates these in place via the grid
-  // reflow, so the grid + overlays resize instead of freezing at construction dpr.
-  const metrics: AtermMetrics = {
-    dpr: initialDpr,
-    cellWidth: term.cell_width,
-    cellHeight: term.cell_height
-  }
+  metrics.cellWidth = term.cell_width
+  metrics.cellHeight = term.cell_height
   let disposed = false
 
   // Grid state + reflow + the explicit resize override live in the sizing module;
@@ -220,8 +218,11 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getFontPx,
     getLineHeight,
     resizeSink,
-    // Refresh the pointer/scroll/link handlers' cached metrics after a DPR change.
-    syncDependents: syncDpr,
+    // Refresh the pointer/scroll/link handlers' cached metrics + re-derive the
+    // window chrome (this also marks the wired engine chrome-capable — every
+    // real drawer offsets the canvas box): every cell-metrics re-rasterization
+    // funnels through this seam (reapplyMetrics + forceReflow, on both paths).
+    syncDependents: wireAtermWindowChrome(term, syncDpr),
     scheduleDraw,
     isDisposed: () => disposed
   })

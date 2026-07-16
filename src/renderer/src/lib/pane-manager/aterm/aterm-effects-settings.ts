@@ -20,8 +20,9 @@ export type AtermEffectsTarget = AtermMatrixRainTarget & {
   /** Window-space effects chrome (pad per edge + top head band, device px).
    *  Optional while orc and aterm generated artifacts roll independently. */
   set_chrome?: (pad: number, head: number) => void
-  /** Set ONLY on the worker-backed facade: the in-process drawers pin the canvas
-   *  box without offsets, so chrome must never be applied to a bare engine. */
+  /** Set by the pane wiring on real render paths only: their drawers pin the
+   *  canvas box WITH chrome offsets (worker loader, frame painter, GPU drawer).
+   *  Bare engines (e.g. the settings demo) have no offset handling — no marker. */
   windowChromeCapable?: boolean
   set_sparkle_words_enabled: (on: boolean) => void
   set_sparkle_classes: (
@@ -205,12 +206,12 @@ export function applyAtermCursorGlowConfig(
   applyAtermWindowChrome(term, cfg)
 }
 
-/** Give the FIRE cursor style window-space chrome: flames rise above the cursor
- *  row, so the frame needs a head band (~2 cells) plus a breathing pad, letting
- *  emissions escape the grid instead of clipping at the cell edge. Gated to the
- *  worker path via `windowChromeCapable` (the in-process drawers pin the canvas
- *  box without offsets) and to the fire style — every other config sets 0/0, so
- *  default rendering stays byte-identical. */
+/** Give ANY active cursor-glow style window-space chrome: every glow/trail
+ *  emission (fire flames, water droplets, lumen bloom, ...) escapes the cell box
+ *  and clips at the frame edge without a head band (~2 cells) plus a breathing
+ *  pad. Gated via `windowChromeCapable` (only render paths whose drawers offset
+ *  the canvas box); glow off / reduced motion sets 0/0, so effects-off rendering
+ *  stays byte-identical. */
 export function applyAtermWindowChrome(
   term: Pick<AtermEffectsTarget, 'cell_height' | 'set_chrome' | 'windowChromeCapable'>,
   cfg: AtermEffectsConfig
@@ -218,11 +219,29 @@ export function applyAtermWindowChrome(
   if (term.windowChromeCapable !== true || typeof term.set_chrome !== 'function') {
     return
   }
-  const fire = cfg.cursorGlow && !cfg.reducedMotion && cfg.cursorGlowStyle === 'fire'
+  const glowing = cfg.cursorGlow && !cfg.reducedMotion
   const ch = term.cell_height
-  if (fire && ch > 0) {
+  if (glowing && ch > 0) {
     term.set_chrome(Math.ceil(ch * 0.75), Math.ceil(ch * 2))
   } else {
     term.set_chrome(0, 0)
+  }
+}
+
+/** Wire window chrome for a REAL render-path engine — only the pane wiring may
+ *  call this: every real drawer pins the canvas box WITH chrome offsets (worker
+ *  loader, frame painter, GPU drawer), while bare engines (the settings demo)
+ *  must stay unmarked. Returns the wiring's cell-metrics-change hook: run the
+ *  given dependents sync, then re-derive chrome from the LIVE config — chrome is
+ *  sized from cell_height at apply time, so a font-size/line-height/dpr/
+ *  primary-font change would otherwise leave stale headroom. */
+export function wireAtermWindowChrome(
+  term: Pick<AtermEffectsTarget, 'cell_height' | 'set_chrome' | 'windowChromeCapable'>,
+  syncDependents: () => void
+): () => void {
+  term.windowChromeCapable = true
+  return () => {
+    syncDependents()
+    applyAtermWindowChrome(term, readAtermEffectsConfig())
   }
 }

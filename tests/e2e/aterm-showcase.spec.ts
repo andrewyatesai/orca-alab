@@ -68,6 +68,11 @@ test.describe('aterm showcase', () => {
     await orcaPage.evaluate(() => {
       ;(window as unknown as { __atermGpuDisabled?: boolean }).__atermGpuDisabled = true
     })
+    // Cursor glow (default-on) grants window-space chrome that pads the frame around
+    // the grid; this spec's band scans assume grid-anchored x/y, so pin glow off.
+    await orcaPage.evaluate(async () => {
+      await window.__store?.getState().updateSettings({ terminalEffectsCursorGlow: false })
+    })
     await orcaPage.getByRole('button', { name: 'New tab' }).click()
     await orcaPage
       .getByRole('menuitem', { name: /New Terminal/i })

@@ -342,13 +342,18 @@ deepens Goal A — capability bought in Trust pays on every campaign; an externa
 hand-ports with verbatim test translation, parity corpora (1,406 dispatch-parity cases — measured), ay safety bundles, and a proven
 promotion recipe (parity → napi/wasm via orca-dispatch → shadow cutover → delete the TS twin — orca-git
 landed this way: 137 tests, 10 SMT obligations, TS deleted 2026-07-06). Track 2 (unpromoted): the
-ts2rust two-witness autoformalizer — W1 `trustc` ∀-safety, W2 Node-TS differential fuzzing — TRUSTED on
-real orc code, gate-measured by `pnpm gauntlet:autoformalize` (the reproducible census; **243 ported
-`.ts`/`.rs` pairs, 240 auto-runnable, 3 declined** — measured 2026-07-16, up from the stale hand-counted
-"208" as parallel sessions grew the corpus). Outputs sit in `~/trust/tools/ts2rust/orca`, never shipped.
-The factory = fuse them. (The full 231→240-pair numerator is gate-reproducible but re-verifying every
-pair is ~1–2h of cargo rebuilds, so it is NOT re-run each session; the honest per-session metric is the
-count of individually-verified kernels touched, below.)
+ts2rust two-witness autoformalizer — W1 `trustc` ∀-safety, W2 Node-TS differential fuzzing.
+**GATE-MEASURED, FULL CENSUS RUN 2026-07-16** (`pnpm gauntlet:autoformalize`, warm shared cargo target
+→ ~8 min, not the feared hours): **54 TRUSTED / 218 auto-runnable** (243 corpus pairs − 22 arg-declined
+− 3 skipped; +1 from a compare-form flip after the run). **This SUPERSEDES the long-tracked "146–151/208"
+— that number never matched the reproducible gate** (it counted a broader hand-tally / W2-equivalence, not
+strict W1∧W2 TRUSTED). Ground truth: **0 soundness-breaks** (no `_bug` kernel passed) and **165
+faithful-misses** — ports that are W2-*equivalent* (0 divergences) but W1-INCOMPLETE. Those 165 are the
+real reservoir: a small pure-predicate slice is recipe-fixable (range-contains → compare-form flipped
+`isEcmaTrimWhitespace` + `isDecorativeTitleWhitespace`), but MOST carry deeper trustc obligations —
+counter-overflow on `n += 1`, string-index bounds, char-boundary, division `_undef_` — that need a trustc
+*capability*, not a rewrite (verified: the compare-form transform did NOT flip the counter/string/parse
+kernels). Outputs sit in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
   decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from
   landed E1 units, spanning 4 of the 6 E1 crates — each W1 `trustc` VERIFIED + W2 0 divergences:
@@ -390,8 +395,8 @@ count of individually-verified kernels touched, below.)
   **Session total: 10 new TRUSTED kernels** (5 E1-derived + 5 mined), each W1 VERIFIED + W2 0-divergence.
   **✅ Auto-census coverage widened 2026-07-16** (`0754d20f3`): the `autoformalize` gate DECLINED every
   kernel with a `u16`/`i16` arg (real orc types the Trust fuzzer already models) — adding them recovered
-  **9** already-ported decision cores whose only blocker was the arg type (231→240 runnable), all
-  verified TRUSTED (`computeRestoreTargetLine`, `isAtBottom`, workspace-name whitespace/word-sep
+  **9** already-ported decision cores whose only blocker was the arg type (~209→218 gate-runnable, the
+  measured count), all verified TRUSTED (`computeRestoreTargetLine`, `isAtBottom`, workspace-name whitespace/word-sep
   predicates, `toLowerAsciiCode`, …); one (`isEcmaTrimWhitespace`) was `RangeInclusive::contains`
   (trustc-runtime-checked) → rewritten to compare form for W1 (`~/trust` `<local>`). A bare-tuple-return
   guard (`-> (i32,i32)`) declines the 2 kernels W2 can't diff, so no REVIEW noise.
@@ -422,9 +427,10 @@ count of individually-verified kernels touched, below.)
 - **F4 Close the loop** [L]: unattended classify→port→verify→promote for in-fragment kernels **whose
   signature matches the live export** (the verifier's key restriction — TRUSTED kernels with narrowed
   types can't ship as-is); promotion re-runs autoformalize against the real module source; ships
-  through the existing one-export orca-dispatch seam. Inventory honesty: 243 ported pairs / 240
-  gate-runnable (measured), NOT a padded 247; the exact TRUSTED numerator is whatever
-  `pnpm gauntlet:autoformalize` computes, not a hand-tally.
+  through the existing one-export orca-dispatch seam. Inventory honesty (full census 2026-07-16):
+  **54 TRUSTED / 218 gate-runnable** / 243 corpus pairs — NOT a padded 247, and NOT the long-tracked
+  "146/208" (which never matched the reproducible gate); `pnpm gauntlet:autoformalize` is the numerator,
+  not a hand-tally.
 - **Port targets by measured heat:** P1 the onPtyData chunk-ingest core as one Rust scan pass
   (**UTF-16 code-unit seam mandatory** — napi string conversion replaces lone surrogates and PTY chunks
   split astral pairs; re-baseline heat on current main first). P2 — **re-scoped by measurement

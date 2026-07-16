@@ -1,0 +1,22 @@
+# Background-session keep-tail TS↔Rust differential parity corpus (2nd E1 unit).
+#
+# ONE shared oracle, run by BOTH implementations:
+#   - Rust: orca-flow-control::keep_tail (include_str! this file)
+#   - TS:   backgroundSessionKeepTailChars / backgroundSessionDropCapChars
+#           (src/main/daemon/daemon-stream-keep-tail-drop.ts)
+# keepTail(n) = clamp(2097152 / max(1,n), [65536, 524288]); dropCap = keepTail * 2.
+#
+# Format: `<n> => <keepTail> <dropCap>`
+0    => 524288 1048576
+1    => 524288 1048576
+2    => 524288 1048576
+3    => 524288 1048576
+4    => 524288 1048576
+5    => 419430 838860
+8    => 262144 524288
+16   => 131072 262144
+31   => 67650 135300
+32   => 65536 131072
+33   => 65536 131072
+64   => 65536 131072
+1000 => 65536 131072

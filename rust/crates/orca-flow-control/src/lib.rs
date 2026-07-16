@@ -21,6 +21,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod keep_tail;
+
 use std::collections::HashMap;
 
 /// Past this many renderer-pending chars, an unpaused PTY is paused. Mirrors

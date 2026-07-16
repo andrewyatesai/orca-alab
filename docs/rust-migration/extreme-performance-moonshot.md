@@ -384,6 +384,16 @@ never shipped. The factory = fuse them.
   counters/gates and answers enqueue/flush/ack/heal with scalars) — safety invariants (in-flight never
   negative, caps never exceeded) as ay bundles on the orca-git precedent; liveness reformulated as
   safety/enabledness until Trust's temporal lane lands.
+  **P3 stage 1 LANDED 2026-07-16** (`8a9dadc08`): new zero-dep crate `orca-flow-control` ports the
+  producer flow-control decision core from `src/main/ipc/pty-producer-flow-control.ts` — the per-PTY
+  hysteresis machine (pause past HIGH=256KB, resume below LOW=32KB, 5s failsafe re-assert). Pure core:
+  `update(id, pending_chars, now_ms) -> Pause|Resume|None`, clock + transport injected, so it is
+  deterministic and napi-ready (flow events fire at watermark crossings, never per byte — no per-chunk
+  C++ hop, unlike the rejected `pty:data` cutover). 12 cargo tests prove the invariants empirically
+  (exact boundaries, once-only edges, no band-flap, reassert-only-after-interval-AND-flooding, per-PTY
+  independence, a full flood→drain→reflood emitting exactly [Pause, Resume, Pause]). Remaining: Stage 2
+  napi binding + wiring at the pause/resume decision points with a TS↔Rust parity test; Stage 3 the ay
+  invariant bundle.
 - **T1 Equality escalation** [XL, the deepest lever]: the scalar equality-`ensures` lane **already
   landed 2026-07-04** [recorded, `~/trust/reports/`]; the open remainder is interprocedural
   `assert!(candidate(x) == spec(x))` — wire the existing whole_program.rs callee-summary lane into

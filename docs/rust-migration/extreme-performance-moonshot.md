@@ -94,7 +94,14 @@ Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The en
   regardless of engine speed — the ≥260 record attempt needs raw-mode termios, Linux, or multi-stream
   aggregation, and claim №1 is stated as "saturates the kernel PTY floor" wherever the floor binds.
   Pending: raw-mode leg, Linux, ConPTY, daemon-read leg.
-- **Key→photon rig, tiered honestly** (per `rust/aterm/docs/FASTER_THAN_GHOSTTY_PLAN.md` tiers):
+- **Key→photon rig, tiered honestly** (per `rust/aterm/docs/FASTER_THAN_GHOSTTY_PLAN.md` tiers).
+  **First tier-(c) row recorded 2026-07-16** (`tests/e2e/aterm-echo-latency.spec.ts`, n=120/condition,
+  in-process render path): keydown→echo-visible **idle median 6.2ms / p95 9.3 / p99 10.2**; under a
+  sustained 256KB/s flood **median 6.3ms / p99 9.9 — load-invariant** [recorded]. Scope: includes pty
+  round-trip + transport + parse + first rAF tick; excludes OS input, GPU present, compositor,
+  scanout — NOT typometer-comparable. Consequence: the app-internal path already fits in ~6ms, so the
+  compositor/present pipeline is the dominant remaining term for the typometer-class claim — exactly
+  the rung-1 bench flags + desynchronized-canvas territory. Remaining tiers:
   typometer on all platforms; 240fps camera ground truth only on the pinned M4 Max session; an
   Electron `contentTracing` input-category gate in the **gauntlet** (this repo has no CI by design).
   Keys injected via OS-level events, never PTY-direct.

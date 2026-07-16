@@ -33,6 +33,8 @@ import {
   type EngineSettingSetters,
   type PaneRuntime
 } from './aterm-worker-pane-dispatch'
+import { createAtermWorkerSpillCompositor } from './aterm-worker-spill-compositor'
+import { isAtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
 import type {
   AtermWorkerInit,
   AtermWorkerMessage,
@@ -86,9 +88,25 @@ function reportMissingFontClasses(pane: PaneRuntime): void {
   ctx.postMessage({ type: 'missingFontClasses', classes })
 }
 
-// ONE rAF loop for every pane's frame scheduler (see createSharedWorkerRafLoop).
+// The worker-global cross-pane spill compositor: composites every pane's
+// chrome-band export onto ONE transferred overlay canvas, riding the shared
+// rAF flush epilogue + the eager-paint tails (zero clocks of its own).
+const spillCompositor = createAtermWorkerSpillCompositor({
+  resolvePane: (paneId) => {
+    const pane = panes.get(paneId)
+    return pane?.engine
+      ? { engine: pane.engine, memory: pane.engineMemory, chrome: pane.chrome }
+      : null
+  },
+  // Bounded retry for a skipped pass: one render-only frame re-marks the pane.
+  requestRenderRetry: (paneId) => panes.get(paneId)?.frameScheduler.schedule(false)
+})
+
+// ONE rAF loop for every pane's frame scheduler (see createSharedWorkerRafLoop);
+// the flush epilogue runs the coalesced spill pass for that frame's paints.
 const sharedRaf = createSharedWorkerRafLoop(
-  ctx.requestAnimationFrame ? (cb) => ctx.requestAnimationFrame?.(cb) : undefined
+  ctx.requestAnimationFrame ? (cb) => ctx.requestAnimationFrame?.(cb) : undefined,
+  () => spillCompositor.runSpillPass()
 )
 
 function createPane(paneId: number): PaneRuntime {
@@ -98,6 +116,7 @@ function createPane(paneId: number): PaneRuntime {
     engineSetters: null,
     engine: null,
     engineKind: null,
+    engineMemory: null,
     storedInit: null,
     canvas: null,
     fellBackToCpu: false,
@@ -113,7 +132,11 @@ function createPane(paneId: number): PaneRuntime {
         // recorded reach the manager while the pane is still on glass (E1).
         reportMissingFontClasses(pane)
       },
-      raf: sharedRaf
+      raf: sharedRaf,
+      spill: {
+        markPaneDirty: () => spillCompositor.markPaneDirty(paneId),
+        runPassNow: () => spillCompositor.runSpillPass()
+      }
     }),
     serializeCache: createWorkerSerializeCache({
       getTerm: () => pane.term,
@@ -131,6 +154,7 @@ function startTerminal(pane: PaneRuntime, handle: EngineHandle): void {
   pane.engineSetters = handle.engine as unknown as EngineSettingSetters
   pane.engine = handle.engine
   pane.engineKind = handle.kind
+  pane.engineMemory = handle.memory
   // A rebuild (GPU→CPU fallback) constructs a fresh chrome-less engine; re-apply
   // the pane's stored chrome so the effect frame survives the swap.
   if (pane.chrome.pad !== 0 || pane.chrome.head !== 0) {
@@ -216,6 +240,9 @@ function handleDispose(paneId: number): void {
   if (!pane) {
     return
   }
+  // A pane closing mid-burn must clear its overlay strips (needs the retained
+  // scratch registry, not the engine — safe before the frees below).
+  spillCompositor.handlePaneDisposed(paneId)
   pane.disposed = true // a still-building engine is freed when its build resolves
   pane.frameScheduler.dispose()
   pane.serializeCache.dispose()
@@ -224,6 +251,7 @@ function handleDispose(paneId: number): void {
   pane.engineSetters = null
   pane.engine = null
   pane.engineKind = null
+  pane.engineMemory = null
   pane.storedInit = null
   pane.canvas = null
   panes.delete(paneId)
@@ -281,6 +309,13 @@ function dispatch(msg: AtermWorkerRequest): void {
         pane.frameScheduler.schedule(false)
       }
     }
+    return
+  }
+  // Spill state is worker-global (one overlay canvas for all panes): route the
+  // family before the per-pane dispatch so a racing pane dispose can never
+  // drop a canvas transfer or a strip-clearing unregister.
+  if (isAtermWorkerSpillCommand(msg)) {
+    spillCompositor.dispatch(msg)
     return
   }
   if (msg.type === 'init') {

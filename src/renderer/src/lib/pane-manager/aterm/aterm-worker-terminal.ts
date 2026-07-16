@@ -7,6 +7,7 @@
 // and reports search/hover so the UI stays correct.
 
 import { workerWasmHeapBytes, type EngineHandle } from './aterm-worker-engine-build'
+import { hasAtermSpillExports } from './aterm-spill-engine-read'
 import { createWorkerSearch } from './aterm-worker-search'
 import { createAtermDirtyRowTracker } from './aterm-worker-dirty-rows'
 import { createAtermWorkerEffectsTick } from './aterm-worker-effects-tick'
@@ -114,6 +115,9 @@ export function createWorkerTerminal(
   dispose: () => void
 } {
   const e = handle.engine
+  // Computed once per engine: the loader flips the cross-pane spill seam live
+  // from the FIRST snapshot's echo of this (both artifacts share one pin).
+  const spillExportCapable = hasAtermSpillExports(e)
   let rows = 0
   let cols = 0
 
@@ -135,12 +139,6 @@ export function createWorkerTerminal(
   // Effects clock (extracted): the frame scheduler drives it per rendered frame.
   const effectsTick = createAtermWorkerEffectsTick(e)
 
-  const followBottomAfter = (wasAtBottom: boolean): void => {
-    if (wasAtBottom && e.display_offset !== 0) {
-      e.scroll_to_bottom()
-    }
-  }
-
   return {
     processBytes: (data) => {
       const wasAtBottom = e.display_offset === 0
@@ -148,7 +146,10 @@ export function createWorkerTerminal(
       // this chunk changes encoding for the very next keystroke.
       const keyboardModeBitsBefore = e.keyboard_mode_bits
       handle.process(data)
-      followBottomAfter(wasAtBottom)
+      // Follow the bottom on new output ONLY if already at the bottom.
+      if (wasAtBottom && e.display_offset !== 0) {
+        e.scroll_to_bottom()
+      }
       // Mark dirty, don't re-index: WorkerSearch coalesces the full-scrollback
       // re-index to the first read per frame (buildState), not once per PTY chunk.
       search.markDirty()
@@ -223,6 +224,7 @@ export function createWorkerTerminal(
         searchActiveIndex: search.activeIndex(),
         searchActiveRect: search.activeRect(),
         searchMatchRects: search.visibleRects(),
+        spillExportCapable,
         dirtyRows: dirtyRowTracker.build(rows, cols)
       }
     },

@@ -16,6 +16,13 @@ import { spawn } from 'node:child_process'
 //   - terminal-osc-color-queries — OSC 10/11/4 color-query round-trip via pty:write spy
 //   - aterm-window-chrome      — effects window chrome: STATE chromePad/Head + canvas
 //                                margin offsets + grid-intact logical reads
+//   - aterm-spill-overlay      — cross-pane spill on the WORKER compositor (stage 4):
+//                                head-band pixels past the clip via placeholder
+//                                drawImage readback, seam continuity, click-through,
+//                                pane-close strip clear, worker-restart epoch re-init.
+//                                Its in-process describe self-skips under this gate
+//                                (that slice runs in the default suite), keeping the
+//                                gate a worker gate: 13 → 14 tests.
 // EXCLUDED (in-process-only assertion surfaces — the worker owns the transferred
 // canvas, so main-thread getContext/toDataURL throw; do not add back without a
 // worker-compatible assertion path):
@@ -38,6 +45,7 @@ const CURATED_SPECS = [
   'tests/e2e/terminal-tui-wheel-reports.spec.ts',
   'tests/e2e/terminal-osc-color-queries.spec.ts',
   'tests/e2e/aterm-window-chrome.spec.ts',
+  'tests/e2e/aterm-spill-overlay.spec.ts',
   'tests/e2e/aterm-worker-render.spec.ts',
   'tests/e2e/aterm-worker-gpu-render.spec.ts',
   'tests/e2e/aterm-worker-search.spec.ts'

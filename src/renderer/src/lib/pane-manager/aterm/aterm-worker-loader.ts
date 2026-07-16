@@ -11,6 +11,8 @@ import type { AtermDrawStrategy } from './aterm-draw-strategy'
 import type { AtermWorkerState } from './aterm-render-worker-protocol'
 import { attachAtermWorkerRainFacade } from './aterm-worker-rain-facade'
 import { chromeCssMargins } from './aterm-chrome-box'
+import { probeAtermSpillWorkerCompositing } from './aterm-spill-worker-probe'
+import type { AtermEffectsTarget } from './aterm-effects-settings'
 
 // Per-pane client of the SHARED render worker (aterm-shared-render-worker): acquires
 // a paneId slot, transfers the pane's OffscreenCanvas, awaits the pane's first STATE,
@@ -335,6 +337,20 @@ export async function loadAtermWorkerEngine(
     post({ type: 'setEffectsFocused', focused })
   backed.term.set_chrome = (pad: number, head: number): void =>
     post({ type: 'setChrome', pad, head })
+  // Cross-pane spill (stage 4): the worker computes hasAtermSpillExports over
+  // the REAL engine and echoes it in STATE — cleanest capability signal, since
+  // the loader already awaits the first snapshot and a GPU→CPU fallback
+  // rebuilds from the same pinned artifacts (capability can't flip). Marking
+  // the facade + attaching this pane's post flips the stage-2 registration
+  // seam live; geometry/canvas messages then ride this channel to the
+  // worker-global compositor. Probe result lands on the diagnostic surface.
+  if (initial.spillExportCapable) {
+    const spillTerm = backed.term as typeof backed.term &
+      Pick<AtermEffectsTarget, 'spillExportCapable' | 'spillWorkerChannel'>
+    spillTerm.spillExportCapable = true
+    spillTerm.spillWorkerChannel = { post }
+    probeAtermSpillWorkerCompositing()
+  }
   // The windowChromeCapable marker gating chrome application is attached by the
   // pane wiring (all real render paths' drawers offset the canvas box now).
   // The worker owns the pane canvas, so search highlights + the link underline paint on

@@ -5,12 +5,25 @@ import type { AtermDeviceRect } from './aterm-chrome-box'
 // geometry adoption and blit math over it. Retention is load-bearing — neighbor
 // recovery after another pane's clear is a pure drawImage from here, never a
 // forced engine re-render. Packing stores only band pixels (~0.28MP/pane worst
-// case), never a frame-sized buffer.
+// case), never a frame-sized buffer. Canvas types are unions so the SAME math
+// serves the main-thread compositor (stage 3) and the worker one (stage 4).
 
 /** Registration input: the pane's window-chrome extents in device px. */
 export type SpillPaneRecord = {
   chromePadPx: number
   chromeHeadPx: number
+}
+
+/** A retained scratch surface: DOM canvas in-process, OffscreenCanvas worker-side. */
+export type SpillScratchCanvas = HTMLCanvasElement | OffscreenCanvas
+/** Either surface's 2d context (identical drawing surface for this module's ops). */
+export type SpillCanvas2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
+export type CreateSpillScratchCanvas = (width: number, height: number) => SpillScratchCanvas
+
+/** Both canvas kinds expose getContext('2d'); the union confuses TS's overload
+ *  resolution, so route through one narrowed signature. */
+export function getSpill2dContext(canvas: SpillScratchCanvas): SpillCanvas2D | null {
+  return (canvas.getContext as (contextId: '2d') => SpillCanvas2D | null)('2d')
 }
 
 /** Overlay-space integer-device-px geometry pushed by the geometry tracker. */
@@ -35,17 +48,17 @@ export type SpillStripSlot = {
 
 /** Refreshes a pane's retained scratch from the engine's spill export and
  *  returns overlay-space dirty rects (null/[] = band unchanged, skip the blit).
- *  Stage 3 wires the wasm read; stage 4's worker compositor mirrors the shape. */
+ *  Built by createAtermSpillScratchReader; both compositors share the shape. */
 export type SpillScratchReader = (target: {
-  ctx: CanvasRenderingContext2D
+  ctx: SpillCanvas2D
   strips: readonly SpillStripSlot[]
 }) => readonly AtermDeviceRect[] | null
 
 export type SpillPaneState = {
   record: SpillPaneRecord
   geometry: SpillPaneGeometry | null
-  scratch: HTMLCanvasElement | null
-  scratchCtx: CanvasRenderingContext2D | null
+  scratch: SpillScratchCanvas | null
+  scratchCtx: SpillCanvas2D | null
   stripSlots: SpillStripSlot[]
   /** Owning strip slot per outsideRect (each lies wholly inside one strip). */
   outsideStripIndex: number[]
@@ -127,17 +140,23 @@ function packedScratchSize(pane: SpillPaneState): { width: number; height: numbe
 }
 
 /** Lazily (re)builds the packed scratch to the current strip layout. Returns
- *  false when there is nothing to draw into (no strips or no 2d context). */
-export function ensureSpillScratch(pane: SpillPaneState): boolean {
+ *  false when there is nothing to draw into (no strips or no 2d context).
+ *  `createCanvas` defaults to a DOM canvas; the worker passes OffscreenCanvas. */
+export function ensureSpillScratch(
+  pane: SpillPaneState,
+  createCanvas?: CreateSpillScratchCanvas
+): boolean {
   const size = packedScratchSize(pane)
   if (size.width <= 0 || size.height <= 0) {
     return false
   }
   if (!pane.scratch) {
-    pane.scratch = document.createElement('canvas')
+    pane.scratch = createCanvas
+      ? createCanvas(size.width, size.height)
+      : document.createElement('canvas')
     pane.scratch.width = size.width
     pane.scratch.height = size.height
-    pane.scratchCtx = pane.scratch.getContext('2d')
+    pane.scratchCtx = getSpill2dContext(pane.scratch)
   } else if (pane.scratch.width !== size.width || pane.scratch.height !== size.height) {
     pane.scratch.width = size.width
     pane.scratch.height = size.height
@@ -182,7 +201,7 @@ export function adoptSpillPaneGeometry(pane: SpillPaneState, geometry: SpillPane
  *  Each outsideRect maps into its owning strip's slot; anything the caller
  *  wants excluded must already be clipped on `target`. */
 export function blitSpillOutsideRects(
-  target: CanvasRenderingContext2D,
+  target: SpillCanvas2D,
   pane: SpillPaneState,
   geometry: SpillPaneGeometry
 ): void {
@@ -206,5 +225,75 @@ export function blitSpillOutsideRects(
       rect.width,
       rect.height
     )
+  }
+}
+
+/** Clear `rects`, then re-blit every pane whose outsideRects intersect them,
+ *  clipped to the cleared region (architecture graft #1: overlapping clears are
+ *  idempotent, and a neighbor's settled ring is restored from its retained
+ *  scratch — never erased by another pane's clear). */
+export function clearSpillRectsAndReblit(
+  ctx: SpillCanvas2D,
+  rects: readonly AtermDeviceRect[],
+  panes: Iterable<SpillPaneState>
+): void {
+  if (rects.length === 0) {
+    return
+  }
+  for (const u of rects) {
+    ctx.clearRect(u.x, u.y, u.width, u.height)
+  }
+  ctx.save()
+  ctx.beginPath()
+  for (const u of rects) {
+    ctx.rect(u.x, u.y, u.width, u.height)
+  }
+  ctx.clip()
+  for (const other of panes) {
+    const otherGeometry = other.geometry
+    if (!otherGeometry?.visible || !other.scratch || otherGeometry.outsideRects.length === 0) {
+      continue
+    }
+    if (!otherGeometry.outsideRects.some((rect) => rects.some((u) => spillRectsOverlap(rect, u)))) {
+      continue
+    }
+    blitSpillOutsideRects(ctx, other, otherGeometry)
+    other.prevDrawnRects = otherGeometry.outsideRects
+  }
+  ctx.restore()
+}
+
+/** One pane's post-scratch-refresh pass: intersect its dirty rects with its
+ *  outsideRects, union with its previous paint, clear + intersect-expansion
+ *  re-blit. Shared by the in-process and worker compositors. */
+export function runSpillClearUnionPass(
+  ctx: SpillCanvas2D,
+  pane: SpillPaneState,
+  geometry: SpillPaneGeometry,
+  dirty: readonly AtermDeviceRect[],
+  panes: Iterable<SpillPaneState>
+): void {
+  const dirtyOutside: AtermDeviceRect[] = []
+  for (const d of dirty) {
+    for (const outside of geometry.outsideRects) {
+      pushSpillRectIntersection(d, outside, dirtyOutside)
+    }
+  }
+  const clearUnion =
+    pane.prevDrawnRects.length > 0 ? [...pane.prevDrawnRects, ...dirtyOutside] : dirtyOutside
+  clearSpillRectsAndReblit(ctx, clearUnion, panes)
+}
+
+/** Full recomposite (canvas adopt / geometry push / box resize): re-blit every
+ *  visible pane from its retained scratch onto an already-cleared overlay. */
+export function reblitAllSpillPanes(ctx: SpillCanvas2D, panes: Iterable<SpillPaneState>): void {
+  for (const pane of panes) {
+    const geometry = pane.geometry
+    if (!geometry?.visible || !pane.scratch || geometry.outsideRects.length === 0) {
+      pane.prevDrawnRects = EMPTY_SPILL_RECTS
+      continue
+    }
+    blitSpillOutsideRects(ctx, pane, geometry)
+    pane.prevDrawnRects = geometry.outsideRects
   }
 }

@@ -121,4 +121,32 @@ describe('applyAtermWindowChrome spill registration seam', () => {
     expect(setChrome).not.toHaveBeenCalled()
     expect(atermSpillOverlay.getPaneCount()).toBe(0)
   })
+
+  it('a worker-backed target (spillWorkerChannel) binds to the bridge and unbinds at 0/0', () => {
+    const posts: { type: string }[] = []
+    const { target } = makeTarget({ spillExportCapable: true, spillPaneKey: PANE_KEY })
+    const workerTarget = {
+      ...target,
+      spillWorkerChannel: { post: (cmd: { type: string }) => posts.push(cmd) }
+    }
+    applyAtermWindowChrome(workerTarget, cfg())
+    expect(atermSpillOverlay.getPaneCount()).toBe(1)
+    // Geometry pushed through the shared registry routes to the worker channel
+    // (coalesced): the delegation proves the bridge bind happened.
+    atermSpillOverlay.updateGeometry(PANE_KEY, {
+      frameOrigin: { x: 0, y: 0 },
+      clipRect: { x: 0, y: 40, width: 100, height: 100 },
+      stripRects: [{ x: 0, y: 0, width: 100, height: 40 }],
+      outsideRects: [{ x: 0, y: 0, width: 100, height: 40 }],
+      visible: true
+    })
+    return Promise.resolve().then(() => {
+      expect(posts.some((cmd) => cmd.type === 'spillPaneRects')).toBe(true)
+      applyAtermWindowChrome(workerTarget, cfg({ cursorGlow: false }))
+      expect(atermSpillOverlay.getPaneCount()).toBe(0)
+      // The worker clears the pane's strips and releases the (never-attached)
+      // canvas generation with the last binding.
+      expect(posts.some((cmd) => cmd.type === 'spillUnregister')).toBe(true)
+    })
+  })
 })

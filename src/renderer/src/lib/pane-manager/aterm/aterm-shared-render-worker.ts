@@ -24,12 +24,14 @@
 // recreates a fresh one. Retirement is one-shot per generation.
 
 import { loadAterm } from './load-aterm'
+import { e2eConfig } from '@/lib/e2e-config'
 import type {
   AtermFontClass,
   AtermWorkerMessage,
   AtermWorkerPaneCommand,
   AtermWorkerPaneEvent
 } from './aterm-render-worker-protocol'
+import type { AtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
 
 /** The boot font payload for the worker engines. E1 LAZY FONTS: primary only
  *  (~264KB bundled JetBrains Mono) — the multi-hundred-MB OS fallback classes are
@@ -62,8 +64,9 @@ function transferableBytes(bytes: Uint8Array): Uint8Array {
  *  pane is released or the worker generation was retired (crash/boot-wedge). */
 export type AtermSharedWorkerPane = {
   paneId: number
-  /** Post a pane command; the manager stamps this pane's paneId on the wire. */
-  post: (cmd: AtermWorkerPaneCommand, transfer?: Transferable[]) => void
+  /** Post a pane command (or a pane-stamped spill-compositor command); the
+   *  manager stamps this pane's paneId on the wire. */
+  post: (cmd: AtermWorkerPaneCommand | AtermWorkerSpillCommand, transfer?: Transferable[]) => void
   /** Subscribe to this pane's events (state/reply/osc/bell/queryResult/…). */
   onEvent: (handler: (event: AtermWorkerPaneEvent) => void) => void
   /** Subscribe to a worker-fatal crash (fires once; the worker is already retired). */
@@ -117,6 +120,18 @@ export function createAtermSharedWorkerHost(deps: SharedWorkerHostDeps): AtermSh
   }
   let current: Generation | null = null
   let nextPaneId = 1
+
+  // e2e-only worker-restart lever: drives the REAL retire path (same as a wasm
+  // crash), so the spill respawn spec can prove every pane rebuilds and the
+  // overlay re-establishes on a fresh worker generation + canvas epoch.
+  if (e2eConfig.exposeStore && typeof window !== 'undefined') {
+    const w = window as unknown as { __atermRetireSharedRenderWorker?: () => void }
+    w.__atermRetireSharedRenderWorker = () => {
+      if (current) {
+        retire(current, 'e2e forced worker retire')
+      }
+    }
+  }
 
   const retire = (gen: Generation, message: string): void => {
     // One-shot per generation; a second signal (error event after the crash message)

@@ -58,6 +58,8 @@ export type PaneRuntime = {
    *  missing-font-class drain and late 'fontClass' application (E1 lazy fonts). */
   engine: WorkerEngine | null
   engineKind: 'cpu' | 'gpu' | null
+  /** The engine module's linear memory (the spill compositor's byte source). */
+  engineMemory: WebAssembly.Memory | null
   storedInit: StoredInit | null
   canvas: OffscreenCanvas | null
   /** Don't fall back twice if more than one init error is posted for this pane. */

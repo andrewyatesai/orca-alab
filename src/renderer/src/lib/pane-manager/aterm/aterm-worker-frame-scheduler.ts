@@ -35,9 +35,13 @@ type SchedulerTerminal = {
  *  callback here and a single rAF services all dirty panes in that frame (N panes must
  *  not book N competing rAF callbacks). Callbacks are deduped per flush — a pane's own
  *  scheduler already coalesces, so at most one entry per pane per frame. Without a
- *  native rAF (test envs) it runs synchronously, matching the per-pane fallback. */
+ *  native rAF (test envs) it runs synchronously, matching the per-pane fallback.
+ *  `onFlushEnd` is the spill compositor's pass epilogue: ONE pass per flush no matter
+ *  how many panes painted (eager presentNow paints outside the flush run their own
+ *  tail pass; the swap-cleared dirty array keeps the pair idempotent). */
 export function createSharedWorkerRafLoop(
-  raf: ((cb: () => void) => void) | undefined
+  raf: ((cb: () => void) => void) | undefined,
+  onFlushEnd?: () => void
 ): (cb: () => void) => void {
   const pending: (() => void)[] = []
   let scheduled = false
@@ -48,6 +52,7 @@ export function createSharedWorkerRafLoop(
     for (const cb of run) {
       cb()
     }
+    onFlushEnd?.()
   }
   return (cb) => {
     pending.push(cb)
@@ -72,6 +77,11 @@ export function createWorkerFrameScheduler(deps: {
   /** rAF-shaped scheduler — in the shared worker this is the ONE shared rAF loop
    *  (createSharedWorkerRafLoop); undefined → run synchronously. */
   raf: ((cb: () => void) => void) | undefined
+  /** Cross-pane spill hooks (stage 4), injected so this module stays decoupled
+   *  from the compositor: markPaneDirty right after each render; runPassNow at
+   *  the tail of the EAGER paints (presentNow/postNow), which run OUTSIDE the
+   *  shared-rAF flush and would otherwise lag its pass epilogue by one flush. */
+  spill?: { markPaneDirty: () => void; runPassNow: () => void }
 }): {
   /** Schedule a coalesced draw. `postState` (default true) marks that this frame must post
    *  a STATE; blink/hollow pass false for a render-only frame. */
@@ -156,6 +166,10 @@ export function createWorkerFrameScheduler(deps: {
     // engine clock. Include render + timer lateness in the next timer charge.
     const effectsAdvancedAtMs = performance.now()
     term.render()
+    // Spill dirty-mark rides every painted frame (rev-gated inside; no-op when
+    // chrome is 0 or the band is unchanged) — deadline-timer rain frames and
+    // eager echo paints funnel through here too, so no extra clock exists.
+    deps.spill?.markPaneDirty()
     if (needStatePost) {
       needStatePost = false
       postState(term)
@@ -279,6 +293,9 @@ export function createWorkerFrameScheduler(deps: {
     requestedDraw++
     eagerPresentedThisFrame = true
     drawNow()
+    // Eager paints run OUTSIDE the shared-rAF flush: run the spill pass at the
+    // tail so the echo frame carries its ring in the SAME frame (plan risk 5).
+    deps.spill?.runPassNow()
     // Re-open the eager gate at the next frame boundary (a harmless one-shot even when
     // no other draw is armed; without a native rAF each echo just presents synchronously).
     if (deps.raf) {
@@ -297,6 +314,8 @@ export function createWorkerFrameScheduler(deps: {
       needStatePost = true
       requestedDraw++
       drawNow()
+      // Synchronous first-frame paint, also outside the flush — same tail rule.
+      deps.spill?.runPassNow()
     },
     setSuspended: (next) => {
       suspended = next

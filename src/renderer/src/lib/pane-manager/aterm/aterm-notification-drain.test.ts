@@ -88,6 +88,8 @@ function makeNotificationHandle(pendingJson: () => string | undefined): {
   const handle = {
     kind: 'cpu',
     engine: engine as unknown as EngineHandle['engine'],
+    // Spill compositor byte source; unused — these fakes export no spill surface.
+    memory: { buffer: new ArrayBuffer(0) } as unknown as WebAssembly.Memory,
     process: () => undefined,
     render: () => undefined,
     framebuffer: () => ({ width: 0, height: 0 }),
@@ -164,6 +166,7 @@ function makeWorkerState(overrides: Partial<AtermWorkerState> = {}): AtermWorker
     searchActiveIndex: 0,
     searchActiveRect: null,
     searchMatchRects: [],
+    spillExportCapable: false,
     dirtyRows: [],
     ...overrides
   }

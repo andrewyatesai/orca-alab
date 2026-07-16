@@ -18,6 +18,7 @@
 
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermWorkerRainCommand } from './aterm-worker-rain-protocol'
+import type { AtermWorkerSpillCommand } from './aterm-worker-spill-protocol'
 import type {
   AtermFontClass,
   AtermWorkerFontClass,
@@ -306,11 +307,13 @@ export type AtermWorkerPaneRuntimeCommand = Exclude<
   AtermWorkerPaneLifecycle
 >
 
-/** Everything the main thread posts to the worker (the wire union). */
+/** Everything the main thread posts to the worker (the wire union). The spill
+ *  family (aterm-worker-spill-protocol) rides pane-stamped but is routed to the
+ *  worker-global compositor BEFORE the per-pane dispatch. */
 export type AtermWorkerRequest =
   | AtermWorkerFonts
   | AtermWorkerFontClass
-  | (AtermWorkerPaneCommand & { paneId: number })
+  | ((AtermWorkerPaneCommand | AtermWorkerSpillCommand) & { paneId: number })
 
 // ── Events (worker → main) ────────────────────────────────────────────────────────
 
@@ -404,6 +407,9 @@ export type AtermWorkerState = {
   searchCount: number
   searchActiveIndex: number
   searchActiveRect: { x: number; y: number; width: number; height: number } | null
+  /** The engine exports the spill surface (spill_rev/spill_ptr/...): the loader
+   *  reads the FIRST snapshot's value to flip the cross-pane spill seam live. */
+  spillExportCapable: boolean
   /** Device-pixel rects of all ON-SCREEN matches for the main-thread overlay (the
    *  worker owns the match set); `active` flags the one painted in the stronger tone. */
   searchMatchRects: { x: number; y: number; width: number; height: number; active: boolean }[]

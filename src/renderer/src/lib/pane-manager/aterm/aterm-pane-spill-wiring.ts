@@ -7,15 +7,17 @@ import { createAtermSpillBlit, hasAtermSpillExports } from './aterm-spill-blit'
 import { atermSpillOverlay } from './aterm-spill-overlay'
 import type { AtermTerminal } from './aterm_wasm.js'
 
-// Cross-pane spill wiring for one IN-PROCESS pane (stage 3): marks a REAL
+// Cross-pane spill wiring for one pane. IN-PROCESS (stage 3): marks a REAL
 // engine that exports the spill surface as capable — flipping stage 2's
 // fail-closed registration seam live — and owns the per-paint blit plus the
-// late paneKey bind and teardown. The worker-backed term has neither the
-// synchronous exports nor a linear-memory handle, so the seam stays dark there
-// (its compositor is stage 4). Split from aterm-pane-wiring to keep it focused.
+// late paneKey bind and teardown. WORKER path (stage 4): the loader already
+// marked the facade (from the worker's STATE capability echo) and attached its
+// spill message channel; this wiring only owns the paneKey bind + teardown —
+// compositing runs worker-side, so there is no main-thread blit.
 
 export type AtermPaneSpillWiring = {
-  /** Presenter dep: the per-paint spill pass; undefined when not capable. */
+  /** Presenter dep: the per-paint spill pass; undefined when not capable OR on
+   *  the worker path (its compositor rides the worker frame scheduler). */
   spillBlit: (() => void) | undefined
   /** Controller seam: late-bind the durable overlay identity (attach edge). */
   bindSpillPaneKey: (paneKey: string) => void
@@ -35,18 +37,21 @@ export function wireAtermPaneSpill(
 ): AtermPaneSpillWiring {
   const spillTarget = term as typeof term &
     Pick<AtermEffectsTarget, 'spillExportCapable' | 'spillPaneKey'>
-  const capable = memory !== undefined && hasAtermSpillExports(term)
-  if (capable) {
+  const inProcessCapable = memory !== undefined && hasAtermSpillExports(term)
+  if (inProcessCapable) {
     spillTarget.spillExportCapable = true
+  }
+  // Worker facade terms arrive pre-marked by the loader (STATE echo); either
+  // capability kind binds/unregisters identically — only the blit differs.
+  const capable = inProcessCapable || spillTarget.spillExportCapable === true
+  if (capable && shared.spillPaneKey !== null) {
     // A context-loss rebuild already knows its overlay identity; fresh panes get
     // theirs at the controller-attach edge via bindSpillPaneKey.
-    if (shared.spillPaneKey !== null) {
-      spillTarget.spillPaneKey = shared.spillPaneKey
-    }
+    spillTarget.spillPaneKey = shared.spillPaneKey
   }
   return {
     spillBlit:
-      capable && memory !== undefined
+      inProcessCapable && memory !== undefined
         ? createAtermSpillBlit({
             term,
             memory,

@@ -199,7 +199,7 @@ describe('spill pass clear-union + intersect-expansion', () => {
   ): HTMLCanvasElement {
     let scratch: HTMLCanvasElement | null = null
     overlay.runSpillPassInProcess(paneKey, (target) => {
-      scratch = target.ctx.canvas
+      scratch = target.ctx.canvas as HTMLCanvasElement
       return dirty
     })
     if (!scratch) {
@@ -260,7 +260,7 @@ describe('spill pass clear-union + intersect-expansion', () => {
     overlayCtx.ops.length = 0
     let scratch: HTMLCanvasElement | null = null
     overlay.runSpillPassInProcess('tab:a', (target) => {
-      scratch = target.ctx.canvas
+      scratch = target.ctx.canvas as HTMLCanvasElement
       expect(target.strips).toEqual([
         { overlayRect: rect(300, 100, 40, 200), scratchOrigin: { x: 0, y: 0 } }
       ])

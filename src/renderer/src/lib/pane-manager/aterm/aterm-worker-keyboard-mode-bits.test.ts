@@ -30,6 +30,8 @@ function makeModeBitsHandle(): { handle: EngineHandle; engine: { keyboard_mode_b
   const handle = {
     kind: 'cpu',
     engine: engine as unknown as EngineHandle['engine'],
+    // Spill compositor byte source; unused — these fakes export no spill surface.
+    memory: { buffer: new ArrayBuffer(0) } as unknown as WebAssembly.Memory,
     // The chunk itself drives the mode flip, like a parsed CSI = 1 u would.
     process: (data: string) => {
       if (data === '\x1b[=1u') {
@@ -129,6 +131,7 @@ function makeWorkerState(overrides: Partial<AtermWorkerState> = {}): AtermWorker
     searchActiveIndex: 0,
     searchActiveRect: null,
     searchMatchRects: [],
+    spillExportCapable: false,
     dirtyRows: [],
     ...overrides
   }

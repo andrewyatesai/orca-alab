@@ -6,6 +6,7 @@ import {
   setAtermMatrixRainActivity
 } from './aterm-effects-activity-gate'
 import { atermSpillOverlay } from './aterm-spill-overlay'
+import { atermSpillWorkerBridge, type AtermSpillWorkerChannel } from './aterm-spill-worker-bridge'
 
 // The aterm effects settings surface: one host-side config snapshot (read live from
 // the store, like the other engine-settings readers) and one applier that maps it
@@ -25,13 +26,17 @@ export type AtermEffectsTarget = AtermMatrixRainTarget & {
    *  canvas box WITH chrome offsets (worker loader, frame painter, GPU drawer).
    *  Bare engines (e.g. the settings demo) have no offset handling — no marker. */
   windowChromeCapable?: boolean
-  /** Set by the (stage-3) pane wiring ONLY when the pinned engine artifact
-   *  exports the spill surface (spill_rev/spill_ptr/...). No engine sets it
-   *  yet, so the cross-pane spill overlay fails closed to the clipped ring. */
+  /** Set ONLY when the pinned engine artifact exports the spill surface
+   *  (spill_rev/spill_ptr/...): by the stage-3 pane wiring in-process, and by
+   *  the worker loader from the worker's STATE echo. Unset fails closed to
+   *  today's clipped ring. */
   spillExportCapable?: boolean
   /** Durable overlay identity (makePaneKey tabId:leafId), attached by the same
    *  wiring; spill registration is keyed by it. */
   spillPaneKey?: string
+  /** Worker path only (stage 4): the pane's spill message channel — set by the
+   *  worker loader; its presence routes compositing to the render worker. */
+  spillWorkerChannel?: AtermSpillWorkerChannel
   set_sparkle_words_enabled: (on: boolean) => void
   set_sparkle_classes: (
     profanity: boolean,
@@ -196,6 +201,7 @@ export function applyAtermCursorGlowConfig(
     | 'windowChromeCapable'
     | 'spillExportCapable'
     | 'spillPaneKey'
+    | 'spillWorkerChannel'
   >,
   cfg: AtermEffectsConfig,
   cursorColor?: number
@@ -228,7 +234,12 @@ export function applyAtermCursorGlowConfig(
 export function applyAtermWindowChrome(
   term: Pick<
     AtermEffectsTarget,
-    'cell_height' | 'set_chrome' | 'windowChromeCapable' | 'spillExportCapable' | 'spillPaneKey'
+    | 'cell_height'
+    | 'set_chrome'
+    | 'windowChromeCapable'
+    | 'spillExportCapable'
+    | 'spillPaneKey'
+    | 'spillWorkerChannel'
   >,
   cfg: AtermEffectsConfig
 ): void {
@@ -250,11 +261,13 @@ export function applyAtermWindowChrome(
 
 /** Cross-pane spill registration seam (spill stage 2): a pane joins the
  *  window-space overlay only while its chrome is nonzero AND the wiring marked
- *  the engine spill-export capable — no engine sets that marker yet, so this
- *  fails closed and today's clipped-ring behavior is byte-identical. Zero
- *  chrome always unregisters, which clears the pane's strips once. */
+ *  the engine spill-export capable; unmarked engines fail closed to today's
+ *  clipped-ring behavior byte-identically. Zero chrome always unregisters,
+ *  which clears the pane's strips once. Worker-backed panes (stage 4) also
+ *  bind to the bridge, which routes their geometry + pixels to the render
+ *  worker's compositor instead of the main-thread canvas. */
 function syncSpillOverlayRegistration(
-  term: Pick<AtermEffectsTarget, 'spillExportCapable' | 'spillPaneKey'>,
+  term: Pick<AtermEffectsTarget, 'spillExportCapable' | 'spillPaneKey' | 'spillWorkerChannel'>,
   chromePadPx: number,
   chromeHeadPx: number
 ): void {
@@ -268,6 +281,9 @@ function syncSpillOverlayRegistration(
   }
   if (term.spillExportCapable === true) {
     atermSpillOverlay.register(paneKey, { chromePadPx, chromeHeadPx })
+    if (term.spillWorkerChannel) {
+      atermSpillWorkerBridge.bindPane(paneKey, term.spillWorkerChannel)
+    }
   }
 }
 
@@ -281,7 +297,12 @@ function syncSpillOverlayRegistration(
 export function wireAtermWindowChrome(
   term: Pick<
     AtermEffectsTarget,
-    'cell_height' | 'set_chrome' | 'windowChromeCapable' | 'spillExportCapable' | 'spillPaneKey'
+    | 'cell_height'
+    | 'set_chrome'
+    | 'windowChromeCapable'
+    | 'spillExportCapable'
+    | 'spillPaneKey'
+    | 'spillWorkerChannel'
   >,
   syncDependents: () => void
 ): () => void {

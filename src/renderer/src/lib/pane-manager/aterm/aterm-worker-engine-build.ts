@@ -140,6 +140,9 @@ export type WorkerEngine = Pick<
 export type EngineHandle = {
   kind: 'cpu' | 'gpu'
   engine: WorkerEngine
+  /** The engine module's linear memory — the spill compositor reads the
+   *  chrome-band export straight out of it (rgba_ptr discipline). */
+  memory: WebAssembly.Memory
   /** Feed bytes (CPU: process_str; GPU: process(encode)). */
   process: (data: string) => void
   /** Render the current grid to the OffscreenCanvas (CPU: rasterize→2d blit; GPU:
@@ -253,6 +256,7 @@ export async function buildCpuEngine(
   return {
     kind: 'cpu',
     engine: t,
+    memory,
     process: (data) => t.process_str(data),
     render,
     framebuffer: () => ({ width, height }),
@@ -310,6 +314,7 @@ export async function buildGpuEngine(
   return {
     kind: 'gpu',
     engine,
+    memory: gpuOut.memory,
     process: (data) => t.process(textEncoder.encode(data)),
     render: () => t.render(),
     // The presented swapchain canvas carries the framebuffer size; fall back to grid-

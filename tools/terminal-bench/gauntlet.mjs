@@ -324,12 +324,17 @@ function safety() {
 // from the candidate's signature, and runs W1 (trustc ∀-safety) + W2 (Node-TS diff).
 // SKIPs (never fakes) when the Trust harness or the trustc toolchain isn't present.
 const TS2RUST = join(process.env.HOME || '', 'trust', 'tools', 'ts2rust')
-const PRIM = new Set(['u32', 'i32', 'u64', 'i64', 'bool'])
+// u16/i16 are real orc arg types (terminal cols/rows, UTF-16 code units, viewport
+// coords) and the Trust fuzzer already models them — including them here recovers
+// decision cores whose ONLY blocker was the arg type, not the ported logic.
+const PRIM = new Set(['u32', 'i32', 'u64', 'i64', 'u16', 'i16', 'bool'])
 const SLICE = {
   '&[u32]': 'u32[]',
   '&[i32]': 'i32[]',
   '&[u64]': 'u64[]',
   '&[i64]': 'i64[]',
+  '&[u16]': 'u16[]',
+  '&[i16]': 'i16[]',
   '&[&str]': 'str[]'
 }
 
@@ -385,6 +390,13 @@ function discoverCorpus(orcaDir) {
     const src = readFileSync(join(orcaDir, rs), 'utf8')
     const sig = src.match(/pub\s+fn\s+(\w+)\s*\(([^)]*)\)/u)
     if (!sig) {
+      continue
+    }
+    // A bare-tuple return (`-> (i32, i32)`) has no single differential-oracle value
+    // for W2 to diff, so skip it rather than emit a false NOT-TRUSTED. (Struct/Vec/
+    // Option returns DO serialize to one JSON value and are handled.)
+    const ret = src.match(/pub\s+fn\s+\w+\s*\([\s\S]*?\)\s*->\s*([^{]+)\{/u)
+    if (ret && ret[1].trim().startsWith('(')) {
       continue
     }
     const params = sig[2].trim()

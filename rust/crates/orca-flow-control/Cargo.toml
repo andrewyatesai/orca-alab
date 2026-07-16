@@ -1,0 +1,16 @@
+[package]
+name = "orca-flow-control"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Producer-side PTY flow-control decision core (pure hysteresis state machine ported from src/main/ipc/pty-producer-flow-control.ts)."
+
+# Deliberately zero-dependency: this is the pure scalar decision core, kept free
+# of PTY/IO/serde so it stays trivially testable and can later be exposed via
+# napi (rare pause/resume events, never a per-byte hot path) without dragging a
+# transport crate along.
+
+[lints.rust]
+unsafe_code = "forbid"

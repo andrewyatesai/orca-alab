@@ -20,6 +20,7 @@ members = [
     "crates/orca-daemon",
     "crates/orca-dispatch",
     "crates/orca-ffi",
+    "crates/orca-flow-control",
     "crates/orca-git",
     "crates/orca-net",
     "crates/orca-parity",

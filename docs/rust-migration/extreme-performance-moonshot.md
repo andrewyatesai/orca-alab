@@ -20,8 +20,8 @@ instruments before it is ever published).
 Nobody else in the terminal space holds even one of these; orc holds all three.
 
 1. **Own the engine.** aterm: a hand-written ~40-crate Rust workspace with a conformance oracle,
-   SMT/CHC proof bundles, and 822 MiB/s native ASCII parse [recorded] / ~193 MB/s on-glass — 1.5×
-   Alacritty [recorded, `rust/aterm/README.md:142`].
+   SMT/CHC proof bundles, and ~776 MiB/s native ASCII parse (~599 CJK / ~340 SGR) [recorded,
+   `rust/aterm/README.md:134`] / ~193 MB/s on-glass — 1.5× Alacritty [recorded, `README.md:142`].
 2. **Own the compiler between the product language and verified Rust.** Trust (`~/trust`): trustc/tcargo
    ∀-safety proofs, the ts2rust two-witness harness (141/203 TRUSTED on real orc code [recorded]), the
    `ay` SMT/CHC solver, a kernel-Certified spine (86/86 [recorded]).
@@ -41,7 +41,7 @@ The full audit of the byte path (PTY → daemon → main → renderer → worker
 
 | | |
 |---|---|
-| Engine parse, native ASCII | **822 MiB/s** [recorded] |
+| Engine parse, native | **~776 MiB/s** ascii (~599 CJK / ~340 SGR) [recorded] |
 | Engine on-glass | **~193 MB/s** [recorded] — already 1.5× Alacritty's 125 [external] |
 | App end-to-end ingest | **2–15 MB/s** [recorded] — the pipe, not the engine |
 | Current public record (Ghostty nightly) | **~260 MB/s** ingest [external] |
@@ -61,7 +61,7 @@ Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The en
 
 | Axis | Record to beat | orc position |
 |---|---|---|
-| Ingest throughput | Ghostty nightly ~260 MB/s; kitty 121.8 MB/s ASCII; Casey Muratori's "reasonable floor" 0.5–2 GB/s (termbench/refterm) [external] | engine 822 native / app 2–15 [recorded] |
+| Ingest throughput | Ghostty nightly ~260 MB/s; kitty 121.8 MB/s ASCII; Casey Muratori's "reasonable floor" 0.5–2 GB/s (termbench/refterm) [external] | engine ~776 native / app 2–15 [recorded] |
 | Typometer latency | xterm 5.3ms · Alacritty 6.9ms · kitty-tuned 10.7ms · Ghostty ~24ms · **VS Code 31.2ms · Hyper 39.8ms** (the Electron incumbents) [external] | unmeasured — Campaign 0 |
 | Camera key→photon | foot 15.0 · alacritty 16.7 · kitty 18.3 · ghostty 38.3 [external] | Chromium adds 1–2 vsync stages; sub-10ms camera claims are physically implausible at 60Hz — never publish one |
 | Memory | foot 43MB steady [external]; Ghostty 70–90% scrollback compression [external] | engine cell budget 74,020B observed / 96KiB ceiling gate [recorded]; marginal pane 9.1MB [recorded] |
@@ -98,6 +98,10 @@ Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The en
 - **Ledger discipline**: every published number cites a ledger entry (`rust/aterm/tools/perf-arena/`),
   never a remembered figure. The 5.6× gauntlet ratio and the ~193 MB/s on-glass are the currently
   recorded truths; anything else is [target] until re-run.
+- **Generated census**: `tools/repo-census.mjs` regenerates every inventory number (LOC by area, IPC
+  channel counts, design tokens, the reliability-shim deletion manifest, largest files) at HEAD —
+  docs cite the census, never hand counts. Built 2026-07-15 after an external review caught
+  hand-count drift; candidate gauntlet axis.
 
 ---
 
@@ -105,7 +109,11 @@ Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The en
 
 Verifier-adjusted scope (the "with-changes" versions are the plan of record):
 
-1. **SIMD128 in the shipped wasm** [M]. The build has no `+simd128` today. Plumb
+1. **SIMD128 in the shipped wasm** [M]. The build has no `+simd128` today — and the flag alone does
+   NOT vectorize the parser: aterm's explicit SIMD paths are x86-64/AArch64 only and wasm takes the
+   scalar fallback (`aterm-parser/src/simd.rs:462` [recorded, review-verified]). The deliverable is a
+   real wasm v128 scanner family; the flag is its prerequisite (vendored memchr's wasm-simd paths do
+   activate for free). Plumb
    `CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS='-C target-feature=+simd128'` (target-scoped) in
    `config/scripts/build-aterm-wasm.mjs` + `--enable-simd` in `WASM_OPT_FEATURES`, both cpu and gpu
    crates. Vectorized plain-text/OSC scanners + ASCII cell blast. Expected 2–4× on scanner-bound
@@ -127,10 +135,14 @@ Verifier-adjusted scope (the "with-changes" versions are the plan of record):
    pty.ts watermarks/reserves, runtime `sequenceChars`, SSH `seq`/`rawLength`, the renderer ack gate,
    keep-tail caps, e2e hooks all flip atomically. Cross-lane ordering via explicit sequence barriers
    (the `seq`/`startSeq` fields already exist).
-5. **Parse once** [L]. Daemon emulator remains the model authority. Main's second headless emulator and
-   the ~8 per-chunk JS regex scans (the wait-blocked scan alone measured ~85% of onPtyData cost before
-   throttling [recorded]) are replaced by Rust-emitted events from the daemon parse. −33% steady-state
-   parse CPU; one full grid+scrollback model per session off the main heap [target].
+5. **Three parses → two** [L] (the honest scope; "parse once" was review-refuted as this item's title).
+   Daemon emulator remains the model authority. Main's second headless emulator and the ~8 per-chunk
+   JS regex scans (the wait-blocked scan alone measured ~85% of onPtyData cost before throttling
+   [recorded]) are replaced by Rust-emitted events from the daemon parse — that is the −33%
+   steady-state parse CPU [target] and one full grid+scrollback model per session off the main heap.
+   **True one-parse** — the daemon shipping semantic grid/damage deltas plus keyboard-mode, scrollback,
+   search, selection, and a11y side-state to a *passive* renderer — is its own XL protocol project:
+   it is the coordinator/verified-transport endgame (Wave 4), never a rider on this item.
 
 **Proof of win:** `cat` a gigabyte into a visible pane at `min(kernel PTY floor, ~300 MB/s)` on local
 macOS/Linux [target] — above Ghostty's published ~260 [external], from inside Electron. SSH keeps the
@@ -155,7 +167,10 @@ binary-frame codec at parity.
    Theorem (provable by construction): *the speculative overlay is display-only; reconcile never mutates
    confirmed grid state* — plus a conformance gate: final grids with speculation ON == OFF.
    Gain: SSH at 50–300ms RTT → ~8ms perceived [target]; mosh's bar is >70% of keystrokes instant
-   [external] — match it, then add the theorem mosh never had.
+   [external] — match it, then add the theorem mosh never had. Confidentiality caveat (review-found):
+   Always-mode can paint unechoed secrets for up to 250ms by design — ship Adaptive-only defaults,
+   keep the password-epoch gate, and state the theorem as *display isolation*; grid-equivalence does
+   not prove confidentiality.
 4. **Cold start**: `orca://` codeCache (V8 measured 20–40% off parse+compile of warm loads [external])
    applied to the ~3.5MB entry; V8 context snapshot swap (no rebuild required; ~1,000ms-class savings
    precedent on apps of this class [external]).
@@ -260,8 +275,14 @@ reusable artifacts any Electron app could adopt.
    (~1,000+ lines of pty.ts's trickiest code); (b) Rust daemon binary frames (macOS/Linux);
    (c) SSH relay binding. Model two delivery modes — lossless-visible and lossy-background with
    explicit gap markers (preserving keep-tail semantics) — and state the theorem as
-   **no-silent-loss / no-wedge / bounded-memory**. Ship or document building the `ty` checker for
-   public re-checks.
+   **no-silent-loss / no-wedge / bounded-memory**. Policy pinned (review-forced choice): for an
+   unbounded producer with a stalled *visible* client, lossless mode resolves the trilemma by
+   **producer backpressure** (block the child at the kernel; never unbounded memory, never silent
+   drop); background mode resolves it with explicit gaps. The reliability residue that legitimately
+   survives (credits, reconnect generations, snapshot hydration, slow-consumer policy) lives as this
+   ONE spec'd mechanism — what dies is the ad-hoc compensator class. The abstract-model→shipped-binding
+   refinement gap stays declared until T-G. Ship or document building the `ty` checker for public
+   re-checks.
 5. **Byte-path safety campaign** [XL]: milestone 1 = get `aterm-parser` through `targo trust check` at
    all (ROADMAP WS-H scope [recorded]). wasm32 width story: build wasm32 std under trustc (T-B) or require
    dual-width (32/64) instantiation of every derived obligation (the A1 bundle's width-uniform theorem
@@ -342,14 +363,17 @@ never shipped. The factory = fuse them.
 
 ## 10. Campaign 6 — Native Photons + libaterm (the endgame)
 
-1. **Daemon subscriber role** (protocol v18→19): read-only fan-out alongside owner attach — snapshot
-   hydration, resize denied (the placeholder-grid SIGWINCH-bounce lesson is codified: followers pin to
-   the owner's grid). This is the hidden prerequisite for every two-frontend story.
-2. **Detach-to-native wedge → aterm-gui workspace mode**: two frontends, one daemon. A working
-   native macOS SwiftUI shell demo already exists unshipped (`native/orca-macos` [recorded]). Native
-   cold start plausibly <100ms vs Electron's 552ms [recorded baseline]; keypress→photon at the
-   WindowServer floor — the Chromium compositor tax (~1 frame+) simply exits the equation. Local-only
-   at first; native SSH parity is its own phase gated on the orca-ssh transport port.
+1. **Daemon subscriber role** (fork protocol 1018→1019 — the fork namespace is deliberately away from
+   public v18–22 [review-corrected]): read-only fan-out alongside owner attach — snapshot hydration,
+   resize denied (the placeholder-grid SIGWINCH-bounce lesson is codified: followers pin to the
+   owner's grid). This is the hidden prerequisite for every two-frontend story.
+2. **Detach-to-native wedge → aterm-gui workspace mode**: two frontends, one daemon. Honesty note
+   (review-corrected): the `native/orca-macos` SwiftUI spike is a 30fps-polling toy (nested Text
+   cells, direct shell spawn) — it proves appetite, not architecture; the wedge starts from aterm-gui,
+   not from it. Native cold start plausibly <100ms vs Electron's 552ms [recorded baseline];
+   keypress→photon at the WindowServer floor — the Chromium compositor tax (~1 frame+) exits the
+   equation. Local-only at first; native SSH parity is its own phase gated on the orca-ssh transport
+   port.
 3. **libaterm** [M]: the embeddable **proof-carrying** terminal engine — the libghostty strategy with a
    moat Ghostty structurally cannot copy quickly (certificates travel with the library). The wasm
    competitor is already real: ghostty-web (~400KB, xterm.js-compatible, "not yet optimized"
@@ -402,26 +426,68 @@ window or an agent**. Identity policy:
 
 ---
 
-## 12. Sequencing
+## 12. Sequencing — dependency waves, not calendar time
 
-**This week (S):** SAB flag + flag sweep (rung 1) · package `ay`+`ty` into verify.sh (T-A: prebuilt or
-seed-bootstrap) · SIMD128 build flags · kernel-PTY-floor + typometer instruments.
+The work is agent-executed; ordering is by prerequisite and gate, never by weeks. Effort tags (S–XL)
+size the work, not its date.
 
-**This month (M):** binary daemon frames · utilityProcess pump spike · dirty-band CPU present ·
-`orca://` migration + codeCache · parser spec-table + delta ledger gate · F1 provenance gate ·
-F2 trace corpora · P2 RustNdjsonParser wiring · **stand up the orc-electron fork infra** (repo, sccache,
-first no-op rebuild on all three OSes) · daemon subscriber protocol rev (18→19).
+**Wave 1 — unblocked now (S):** SAB flag + flag sweep (rung 1) · package `ay`+`ty` into verify.sh
+(T-A) · SIMD128 build flags · kernel-PTY-floor + typometer instruments · census in the gauntlet.
 
-**This quarter (L):** byte ACK re-base · verified transport phase (a) (renderer plane) · predict.rs
-extraction + echo theorem + remote gate · crossOriginIsolated + wasm threads (via the origin-isolation
-patch in orc-electron, retiring the webview COEP risk) · first orc-electron patch set (isolation +
-macOS low-latency canvas) · F3 swc/oxc front-end · F4 factory loop · P1/P3 ports · detach-to-native
-wedge · scoreboard v1 (browser race + latency table + DECRQCRA prerequisite for the esctest leg).
+**Wave 2 — needs Wave 1's instruments (M):** **coordinator v0** (attach → session grid → attention
+queue, wearing Orca's design system — the Goal-2 product starts here, before the records; needs only
+owner-attach, not even the subscriber rev) · binary daemon frames · utilityProcess pump spike ·
+dirty-band CPU present · `orca://` migration + codeCache · parser spec-table + delta ledger gate ·
+F1 provenance gate · F2 trace corpora · P2 RustNdjsonParser wiring · orc-electron fork infra (repo,
+sccache, no-op rebuild ×3 OS) · daemon subscriber protocol rev (1018→1019).
 
-**Ongoing (XL):** byte-path Trust campaign (milestone: aterm-parser through `targo trust check`) ·
-Trust ladder T-B..T-G · one-verified-transport phases (b)(c) · coordinator v0 → primary surface ·
-libaterm · component stripping + PGO/pointer-compression variants in orc-electron · custom Viz surface
-once bench evidence localizes the compositor tax.
+**Wave 3 — needs Wave 2's protocol/runtime footholds (L):** byte ACK re-base · verified transport
+binding (a) (renderer plane) · predict.rs extraction + echo theorem + remote gate ·
+crossOriginIsolated + wasm threads (via the origin-isolation patch, retiring the webview COEP risk) ·
+first orc-electron patch set (isolation + macOS low-latency canvas) · F3 swc/oxc front-end ·
+F4 factory loop · P1/P3 ports · detach-to-native wedge · scoreboard v1 (browser race + latency table +
+DECRQCRA prerequisite for the esctest leg).
+
+**Wave 4 — gated on capability rungs and Wave 3 evidence (XL):** byte-path Trust campaign (milestone:
+aterm-parser through `targo trust check`) · Trust ladder T-B..T-G · verified-transport bindings (b)(c) ·
+coordinator → primary surface + true one-parse protocol · libaterm · component stripping +
+PGO/pointer-compression variants · custom Viz surface once bench evidence localizes the compositor tax.
+
+---
+
+## 14. External review triage (2026-07-15 — codex gpt-5.6-sol/ultra primary, gpt-5.5/xhigh secondary)
+
+Both reviews ran with repo access against these docs. Verdicts said "don't green-light as written";
+the program's answer is: **facts adopted, deflation rejected** — ambition stands, sequencing and claims
+got honest. Adopted (and applied above):
+
+- "One parse" was false as scoped → Campaign 1 item 5 retitled **3→2**; true one-parse is the Wave-4
+  protocol endgame. `+simd128` alone doesn't vectorize (wasm scalar fallback at `simd.rs:462`) → the
+  v128 scanner family is the deliverable. Predictor claim narrowed to display-isolation (Always-mode
+  secret-paint caveat). Verified-transport stalled-visible-client policy pinned to producer
+  backpressure. Fork protocol numbering corrected (1018, not v18). Windows daemon status precised:
+  named-pipe source exists but is uncompiled/unpackaged (`build-rust-daemon.mjs:9` skips it) with
+  security gaps (winpipe default security attributes; token file lacks owner-only DACL) — now explicit
+  Windows-lane work items. `native/orca-macos` demoted from "de-risks endgame" to appetite spike.
+  The 411ms longtask was a *renderer* tab-create measurement, not main-process-stall evidence — the
+  utilityProcess pump keeps its rationale (protocol hygiene + isolation) minus that citation.
+- **New gates adopted**: per-hop throughput budget in Campaign 0 (PTY floor → daemon → socket → port →
+  wasm, each measured before any composite ≥260 MB/s claim); a wasm **bundle-size gate** on the
+  scoreboard (shipped blobs are 3.4/5.9MB vs ghostty-web's ~400KB); a **daemon threat model** work item
+  (per-client authz, revocation, redaction, protocol fuzzing, isolation-patch implications); Goal-1
+  **acceptance gates** (e.g. ≥2 upstream-merged PRs, an upstream sponsor for the next slice) so
+  "upstream-adoptable" is measured, not asserted; per-campaign **kill criteria**.
+- **Priority inversion fixed**: coordinator v0 moved to Wave 2 (it needs only owner-attach); its
+  product gates live in the blueprint (attention queue, one-click resume, approvals, recovery,
+  time-to-first-success) — a grid of terminals is infrastructure, not the product.
+
+Rejected, with reasons: "park everything except a coordinator mode inside the existing client" —
+rejects the sovereign-stack logic and the owner's explicit ambition directive; the campaigns are
+agent-executed waves with gates, not a solo engineer's quarter. "Team-of-one capacity" — execution is
+by agent fleets gated by the gauntlet (this program's standing operating model); kill criteria adopted
+instead. "Upstream won't adopt the factory/proofs" — they were never for upstream; they are Goal 1 as
+a business (client #1: Orca) and the publishable moat. Review artifacts: session scratchpad
+`moonshot/codex-review-56-ultra.md` and `codex-review-final.md`.
 
 ---
 

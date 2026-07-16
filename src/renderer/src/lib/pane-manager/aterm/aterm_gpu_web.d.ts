@@ -580,10 +580,13 @@ export class AtermGpuTerminal {
     set_px(px: number): void;
     /**
      * Set the engine's scrollback line limit (history lines retained behind the live
-     * viewport). `lines == 0` means unlimited (bounded only by the memory budget).
-     * Shrinking truncates the oldest lines immediately; growing keeps history and lets
-     * it grow. Applies to both the main and alternate screens and re-clamps the scroll
-     * position. Without this the engine keeps its 100k-line default on every pane.
+     * viewport). `lines == 0` means unlimited (bounded only by host memory). This
+     * engine is ring-only (no tiered store), so the limit re-caps the retention ring
+     * itself: shrinking evicts the oldest lines immediately, growing extends retention
+     * lazily (no eager allocation). Targets the primary-content grid — reaching the
+     * saved primary through an alt screen; the alt buffer keeps its spec'd zero
+     * scrollback — and re-clamps the scroll position. Without this the engine keeps
+     * its construction default (a 10k-line ring) on every pane.
      */
     set_scrollback_limit(lines: number): void;
     /**

@@ -342,9 +342,13 @@ deepens Goal A — capability bought in Trust pays on every campaign; an externa
 hand-ports with verbatim test translation, parity corpora (1,149 cases), ay safety bundles, and a proven
 promotion recipe (parity → napi/wasm via orca-dispatch → shadow cutover → delete the TS twin — orca-git
 landed this way: 137 tests, 10 SMT obligations, TS deleted 2026-07-06). Track 2 (unpromoted): the
-ts2rust two-witness autoformalizer — W1 `trustc` ∀-safety, W2 Node-TS differential fuzzing —
-**149/208 TRUSTED** on real orc code [recorded], outputs sitting in `~/trust/tools/ts2rust/orca`,
-never shipped. The factory = fuse them.
+ts2rust two-witness autoformalizer — W1 `trustc` ∀-safety, W2 Node-TS differential fuzzing — TRUSTED on
+real orc code, gate-measured by `pnpm gauntlet:autoformalize` (the reproducible census; **243 ported
+`.ts`/`.rs` pairs, 240 auto-runnable, 3 declined** — measured 2026-07-16, up from the stale hand-counted
+"208" as parallel sessions grew the corpus). Outputs sit in `~/trust/tools/ts2rust/orca`, never shipped.
+The factory = fuse them. (The full 231→240-pair numerator is gate-reproducible but re-verifying every
+pair is ~1–2h of cargo rebuilds, so it is NOT re-run each session; the honest per-session metric is the
+count of individually-verified kernels touched, below.)
   **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
   decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from
   landed E1 units, spanning 4 of the 6 E1 crates — each W1 `trustc` VERIFIED + W2 0 divergences:
@@ -360,12 +364,22 @@ never shipped. The factory = fuse them.
   f64 (renderer-heap) and `&[u16]` (stream-split) cores wait on a trustc/argspec capability. Concrete
   recipe to advance the count cheaply: mine the landed E1 pure cores, prefer saturating/checked/compare
   formulations.
-  **✅ Non-E1 kernels 2026-07-16** (`~/trust` `97a1c02e9`, `3060c5edc`): the recipe generalizes past the
-  E1 cores — **+3 TRUSTED** mined straight from production orca src with no E1 backing: `b_tocmaxwidth`
-  (`computeMaxMarkdownTocPanelWidth`, markdown-toc-panel-width.ts — the lone subtraction widened to i64
-  so trustc discharges it, 0/13), `b_prechecktimeout` (`normalizeAutomationPrecheckTimeoutSeconds`,
-  automation-precheck.ts, 0/13), `b_recoverablesignals` (`aiVaultSessionRecoverableSignalCount`,
-  ai-vault-types.ts — a new *clamped-sum* family, 0/59). **146 → 149/208.**
+  **✅ Non-E1 kernels 2026-07-16** (`~/trust` `97a1c02e9`, `3060c5edc`, `1d3582c34`): the recipe
+  generalizes past the E1 cores — **+5 TRUSTED** mined straight from production orca src with no E1
+  backing: `b_tocmaxwidth` (`computeMaxMarkdownTocPanelWidth`, markdown-toc-panel-width.ts — the lone
+  subtraction widened to i64 so trustc discharges it, 0/13), `b_prechecktimeout`
+  (`normalizeAutomationPrecheckTimeoutSeconds`, automation-precheck.ts, 0/13), `b_recoverablesignals`
+  (`aiVaultSessionRecoverableSignalCount`, ai-vault-types.ts — a new *clamped-sum* family, 0/59),
+  `b_workercount` (`boundedWorkerCount`, map-with-concurrency.ts — a *bounded-fan-out* transport-safety
+  clamp, 0/59), `b_termcols` (`clampTerminalCols`, orca-runtime.ts — PTY dimension bound, 0/13).
+  **Session total: 10 new TRUSTED kernels** (5 E1-derived + 5 mined), each W1 VERIFIED + W2 0-divergence.
+  **✅ Auto-census coverage widened 2026-07-16** (`0754d20f3`): the `autoformalize` gate DECLINED every
+  kernel with a `u16`/`i16` arg (real orc types the Trust fuzzer already models) — adding them recovered
+  **9** already-ported decision cores whose only blocker was the arg type (231→240 runnable), all
+  verified TRUSTED (`computeRestoreTargetLine`, `isAtBottom`, workspace-name whitespace/word-sep
+  predicates, `toLowerAsciiCode`, …); one (`isEcmaTrimWhitespace`) was `RangeInclusive::contains`
+  (trustc-runtime-checked) → rewritten to compare form for W1 (`~/trust` `<local>`). A bare-tuple-return
+  guard (`-> (i32,i32)`) declines the 2 kernels W2 can't diff, so no REVIEW noise.
 
 - **✅ F1 Provenance gate** [M] — **DONE, and now covers the E1 tier** (`93d835a4e`): every TS→Rust port
   pinned to its source hash (`tools/port-provenance.mjs` → `port-provenance.json`, enforced by the
@@ -385,7 +399,9 @@ never shipped. The factory = fuse them.
 - **F4 Close the loop** [L]: unattended classify→port→verify→promote for in-fragment kernels **whose
   signature matches the live export** (the verifier's key restriction — TRUSTED kernels with narrowed
   types can't ship as-is); promotion re-runs autoformalize against the real module source; ships
-  through the existing one-export orca-dispatch seam. Inventory honesty: 149/208 TRUSTED today, not 247.
+  through the existing one-export orca-dispatch seam. Inventory honesty: 243 ported pairs / 240
+  gate-runnable (measured), NOT a padded 247; the exact TRUSTED numerator is whatever
+  `pnpm gauntlet:autoformalize` computes, not a hand-tally.
 - **Port targets by measured heat:** P1 the onPtyData chunk-ingest core as one Rust scan pass
   (**UTF-16 code-unit seam mandatory** — napi string conversion replaces lone surrogates and PTY chunks
   split astral pairs; re-baseline heat on current main first). P2 — **re-scoped by measurement

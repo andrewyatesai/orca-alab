@@ -3,10 +3,6 @@ const { execFileSync } = require('node:child_process')
 const { join, resolve } = require('node:path')
 const electronBuilderNativeRebuild = require('./scripts/electron-builder-native-rebuild.cjs')
 const {
-  assertPackagedDaemonEntryExists,
-  verifyPackagedDaemonEntryBoots
-} = require('./scripts/verify-packaged-daemon-entry.cjs')
-const {
   createPackagedRuntimeNodeModuleResources,
   prunePackagedRuntimeNodeModules,
   verifyPackagedMainRuntimeDeps
@@ -162,8 +158,6 @@ module.exports = {
   // from out/shared/ and local hook mutators from out/main/. These paths must be
   // unpacked so that Node's require() can resolve the cross-directory imports
   // when the CLI runs outside the asar archive.
-  // Why: daemon-entry.js is forked as a separate Node.js process and must be
-  // accessible on disk (not inside the asar archive) for child_process.fork().
   // Why: the CLI is compiled by tsc (not bundled), so its runtime imports
   // resolve at runtime via Node's normal module lookup. The shim launches
   // the CLI with ELECTRON_RUN_AS_NODE, which bypasses Electron's asar
@@ -192,7 +186,6 @@ module.exports = {
     'out/main/grok/**',
     'out/main/hermes/**',
     'out/main/win32-utils.js',
-    'out/main/daemon-entry.js',
     'out/main/computer-sidecar.js',
     'out/main/parcel-watcher-process-entry.js',
     'out/main/chunks/**',
@@ -227,24 +220,6 @@ module.exports = {
     })
     prunePackagedRuntimeNodeModules(resourcesDir, context.electronPlatformName, context.arch)
     verifyPackagedMainRuntimeDeps(resourcesDir)
-    // Why: boot the packaged daemon-entry under plain Node, but only for the
-    // slice matching the packaging host's arch — daemon-entry.js is JS, yet it
-    // require()s the native (N-API) node-pty for the TARGET arch, which the host
-    // Node cannot load cross-arch. `Arch` enum: ia32=0, x64=1, armv7l=2,
-    // arm64=3, universal=4 (universal contains the host slice, so run it).
-    const archEnumByNodeArch = { ia32: 0, x64: 1, armv7l: 2, arm64: 3 }
-    const hostArchEnum = archEnumByNodeArch[process.arch]
-    if (context.arch === hostArchEnum || context.arch === 4) {
-      verifyPackagedDaemonEntryBoots(resourcesDir)
-    } else {
-      // Why: a cross-arch slice can't be booted by the host Node, but the
-      // unpacked entry must still exist — its absence is a layout regression
-      // regardless of arch, so only the boot is skipped, not the check.
-      assertPackagedDaemonEntryExists(resourcesDir)
-      console.log(
-        `[verify-packaged-daemon-entry] skipped boot on cross-arch slice (target ${context.arch}, host ${process.arch})`
-      )
-    }
     chmodUnixCliLaunchers(resourcesDir, context.electronPlatformName)
     chmodMacServeSimHelpers(resourcesDir, context.electronPlatformName)
     for (const filename of readdirSync(resourcesDir)) {

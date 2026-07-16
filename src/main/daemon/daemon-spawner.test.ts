@@ -8,7 +8,7 @@ import {
   getDaemonSocketPath,
   getDaemonTokenPath
 } from './daemon-spawner'
-import { startDaemon, type DaemonHandle } from './daemon-main'
+import { DaemonServer } from './daemon-server'
 import { DaemonClient } from './client'
 import type { SubprocessHandle } from './session'
 import { PROTOCOL_VERSION } from './types'
@@ -38,7 +38,7 @@ function createMockSubprocess(): SubprocessHandle {
 describe('DaemonSpawner', () => {
   let dir: string
   let spawner: DaemonSpawner
-  let activeDaemons: DaemonHandle[]
+  let activeDaemons: DaemonServer[]
 
   beforeEach(() => {
     dir = createTestDir()
@@ -57,13 +57,17 @@ describe('DaemonSpawner', () => {
     spawner = new DaemonSpawner({
       runtimeDir: dir,
       launcher: async (socketPath, tokenPath) => {
-        const handle = await startDaemon({
+        // startDaemon was a thin new DaemonServer(...).start() wrapper; inline it
+        // now that the Node daemon fork glue (daemon-main) is gone and DaemonServer
+        // stays only as the in-process controllable double for the daemon tests.
+        const server = new DaemonServer({
           socketPath,
           tokenPath,
           spawnSubprocess: () => createMockSubprocess()
         })
-        activeDaemons.push(handle)
-        return { shutdown: () => handle.shutdown() }
+        await server.start()
+        activeDaemons.push(server)
+        return { shutdown: () => server.shutdown() }
       }
     })
     return spawner

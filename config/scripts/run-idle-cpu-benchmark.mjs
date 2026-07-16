@@ -301,7 +301,7 @@ function classify(row, rootPid) {
   if (row.pid === rootPid) {
     return 'main'
   }
-  if (command.includes('daemon-entry')) {
+  if (command.includes('orca-daemon')) {
     return 'daemon'
   }
   if (command.includes('--type=gpu-process')) {

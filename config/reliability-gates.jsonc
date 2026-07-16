@@ -1735,7 +1735,7 @@
       "oracle": "The issue #8048 slice asserts one node-pty ConPTY close for a graceful-then-force sequence, atomically seeds recovered history before fresh shell output and re-anchoring, preserves recovery after seed failure plus adapter restart, and runs 25 built-daemon close races while checking victim session/PID reaping, a stable daemon PID, and a live witness PTY. A broader Windows live gate still needs shell input, resize, cursor, and CJK/wide-glyph pixel evidence.",
       "commands": [
         "pnpm vitest run src/main/daemon/pty-subprocess.test.ts src/main/daemon/daemon-pty-adapter.test.ts",
-        "pnpm build:electron-vite && node config/scripts/windows-daemon-workspace-close-repro.mjs",
+        "pnpm build:rust-daemon && node config/scripts/windows-daemon-workspace-close-repro.mjs",
         "node config/scripts/windows-daemon-workspace-close-repro.mjs"
       ],
       "testFiles": [

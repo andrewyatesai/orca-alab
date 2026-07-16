@@ -5,7 +5,7 @@
  * graceful-then-immediate kill pair emitted when Orca closes a workspace.
  * The daemon PID and witness session must survive every iteration.
  */
-import { fork } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { connect } from 'node:net'
@@ -13,7 +13,17 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const projectDir = resolve(import.meta.dirname, '../..')
-const entryPath = join(projectDir, 'out', 'main', 'daemon-entry.js')
+// The Rust orca-daemon binary replaces the retired Node daemon-entry.js fork.
+const daemonBinExt = process.platform === 'win32' ? '.exe' : ''
+function resolveDaemonBinary() {
+  for (const variant of ['release', 'debug']) {
+    const candidate = join(projectDir, 'rust', 'target', variant, `orca-daemon${daemonBinExt}`)
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
 const iterations = Number(process.env.ORCA_WINDOWS_DAEMON_CLOSE_ITERATIONS ?? 25)
 const requestTimeoutMs = 15_000
 
@@ -117,25 +127,27 @@ function createRpcClient(socketPath, tokenPath) {
   }
 }
 
-function waitForReady(child, stderr) {
-  return new Promise((resolveReady, rejectReady) => {
-    const timer = setTimeout(
-      () => rejectReady(new Error(`Daemon readiness timed out.\n${stderr()}`)),
-      requestTimeoutMs
-    )
-    child.on('message', (message) => {
-      if (message?.type === 'ready') {
-        clearTimeout(timer)
-        resolveReady()
-      }
-    })
-    child.once('exit', (code, signal) => {
-      clearTimeout(timer)
-      rejectReady(
-        new Error(`Daemon exited before readiness (code=${code}, signal=${signal}).\n${stderr()}`)
+async function waitForReady(socketPath, tokenPath, child, stderr) {
+  // The Rust daemon has no IPC ready channel (the production launcher polls
+  // health the same way), so poll a hello + listSessions round-trip until the
+  // daemon answers on the pipe or the child dies.
+  const deadline = Date.now() + requestTimeoutMs
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(
+        `Daemon exited before readiness (code=${child.exitCode}, signal=${child.signalCode}).\n${stderr()}`
       )
-    })
-  })
+    }
+    try {
+      const probe = createRpcClient(socketPath, tokenPath)
+      await probe.request('listSessions')
+      probe.close()
+      return
+    } catch {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 150))
+    }
+  }
+  throw new Error(`Daemon readiness timed out.\n${stderr()}`)
 }
 
 async function stopChild(child) {
@@ -187,23 +199,19 @@ async function main() {
     log('SKIP: Windows ConPTY is required')
     return
   }
-  if (!existsSync(entryPath)) {
-    throw new Error(`Missing ${entryPath}; run pnpm build:electron-vite first`)
+  const binPath = resolveDaemonBinary()
+  if (!binPath) {
+    throw new Error(`Missing orca-daemon${daemonBinExt}; run pnpm build:rust-daemon first`)
   }
 
   const scratch = mkdtempSync(join(tmpdir(), 'orca-windows-daemon-close-'))
   const socketPath = `\\\\.\\pipe\\orca-daemon-close-${process.pid}-${randomUUID()}`
   const tokenPath = join(scratch, 'daemon.token')
-  const daemonLogPath = join(scratch, 'daemon.log')
-  const child = fork(
-    entryPath,
-    ['--socket', socketPath, '--token', tokenPath, '--log-file', daemonLogPath],
-    {
-      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-      windowsHide: true,
-      env: { ...process.env, ORCA_USER_DATA_PATH: scratch }
-    }
-  )
+  const child = spawn(binPath, ['--socket', socketPath, '--token', tokenPath], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    windowsHide: true,
+    env: { ...process.env, ORCA_USER_DATA_PATH: scratch }
+  })
   const daemonPid = child.pid
   let stderr = ''
   child.stderr?.on('data', (chunk) => {
@@ -212,7 +220,7 @@ async function main() {
   let rpc
 
   try {
-    await waitForReady(child, () => stderr)
+    await waitForReady(socketPath, tokenPath, child, () => stderr)
     rpc = createRpcClient(socketPath, tokenPath)
     const witnessId = `repro-witness@@${randomUUID().slice(0, 8)}`
     await rpc.request('createOrAttach', {
@@ -256,8 +264,7 @@ async function main() {
       `PASS: ${iterations} victim sessions/PIDs were reaped while daemon ${daemonPid} and the witness PTY survived`
     )
   } catch (error) {
-    const daemonLog = existsSync(daemonLogPath) ? readFileSync(daemonLogPath, 'utf8') : ''
-    throw new Error(`${error.message}\nstderr:\n${stderr}\ndaemon.log:\n${daemonLog}`)
+    throw new Error(`${error.message}\nstderr:\n${stderr}`)
   } finally {
     rpc?.close()
     await stopChild(child)

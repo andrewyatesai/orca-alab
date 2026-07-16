@@ -49,10 +49,10 @@ export type ShellReadySignal = {
 // ── Shell wrapper files ─────────────────────────────────────────────
 
 function getShellReadyWrapperRoot(): string {
-  // Why: bundled into daemon-entry.js (a plain-node fork with no electron
-  // require), so this must not import electron. Main canonicalizes
-  // ORCA_USER_DATA_PATH to its own userData at startup (configureOrcaUserDataPathEnv)
-  // and the daemon fork sets it explicitly, so the env value matches this root.
+  // Why: loaded by the in-process PTY path and the daemon test double, neither of
+  // which should depend on electron, so this must not import electron. Main
+  // canonicalizes ORCA_USER_DATA_PATH to its own userData at startup
+  // (configureOrcaUserDataPathEnv), so the env value matches this root.
   const userDataPath = process.env.ORCA_USER_DATA_PATH ?? tmpdir()
   return `${userDataPath}/shell-ready`
 }

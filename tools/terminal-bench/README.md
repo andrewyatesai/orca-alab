@@ -78,8 +78,12 @@ pnpm gauntlet:perf            # MB/s medians + grid-parity
   VT/ECMA-48 spec is a win to triage — see `tools/aterm-vs-xterm/GOAL-B-HANDOFF.md`.
 - **perf** — best-of-N medians via `xterm-bench.mjs` / `addon-bench.mjs`, plus a
   grid-parity fingerprint check.
-- **safety** — discharges the orca-git SMT obligations when `~/.cargo/bin/ay` is
-  present; `SKIP` (never fail) when the Trust toolchain is absent.
+- **safety** — discharges the orca-git SMT obligations with `ay`, resolved via the
+  ladder in `rust/crates/orca-git/proofs/ay/resolve-solver.sh` (`$AY` → PATH →
+  `~/.cargo/bin/ay` → trust build dirs); `SKIP` (never fail) when the Trust
+  toolchain is absent. `verify.sh --solver z3` re-checks the same bundles with
+  stock z3 as an independent portability check — ay remains the toolchain of
+  record, so the gauntlet itself never substitutes z3.
 - **autoformalize** (Goal A) — reuses the Trust repo's `~/trust/tools/ts2rust`
   two-witness gate (W1 `trustc -Z trust-verify-full` ∀-safety + W2 Node-TS
   differential). It auto-discovers the already-ported `.ts`/`.rs` pairs under

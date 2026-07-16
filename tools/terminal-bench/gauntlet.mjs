@@ -15,8 +15,11 @@
 //                   and god-object regret class may only shrink; growth is REVIEW to triage
 //                   (update census-ratchet.json knowingly), and every run snapshots the full
 //                   inventory into the report so drift history accrues.
+//   • provenance  — every TS→Rust ported module pinned to its source hashes
+//                   (tools/port-provenance.mjs vs port-provenance.json): upstream TS drift
+//                   is REVIEW with a structured re-port task, not a reactive parity surprise.
 //
-// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|all>
+// An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|census|provenance|all>
 // Exit 0 = every gate green · 1 = a real FAIL · 2 = REVIEW (divergence to triage).
 // For `all`, a SKIP is NOT a pass: any skipped gate exits 2 so an environment that
 // can't run an axis never reads as green. A single-gate invocation may exit 0 on
@@ -247,18 +250,59 @@ function perf(trials = 5) {
 }
 
 // --- safety: Trust-proved obligations; runnable only where the toolchain exists --
+// Same ladder as proofs/ay/resolve-solver.sh: $AY → PATH → the canonical cargo
+// symlink → in-tree trust bootstrap outputs.
+function locateAy() {
+  const home = process.env.HOME || ''
+  if (process.env.AY && existsSync(process.env.AY)) {
+    return process.env.AY
+  }
+  try {
+    const onPath = sh('bash', ['-lc', 'command -v ay']).trim()
+    if (onPath) {
+      return onPath
+    }
+  } catch {
+    // not on PATH — fall through to the known build locations
+  }
+  const candidates = [
+    join(home, '.cargo', 'bin', 'ay'),
+    join(home, 'trust', 'build', 'host', 'stage2', 'bin', 'ay'),
+    join(
+      home,
+      'trust',
+      'build',
+      'aarch64-apple-darwin',
+      'stage3-tools-bin',
+      'aarch64-apple-darwin',
+      'ay'
+    ),
+    join(
+      home,
+      'trust',
+      'build',
+      'aarch64-apple-darwin',
+      'stage2-tools-bin',
+      'aarch64-apple-darwin',
+      'ay'
+    )
+  ]
+  return candidates.find((c) => existsSync(c)) ?? null
+}
+
 function safety() {
-  const ay = join(process.env.HOME || '', '.cargo', 'bin', 'ay')
+  const ay = locateAy()
   const verify = join(repo, 'rust', 'crates', 'orca-git', 'proofs', 'ay', 'verify.sh')
-  if (!existsSync(ay)) {
+  if (!ay) {
     return skip('Trust solver `ay` not found (~/.cargo/bin/ay) — safety axis unavailable here')
   }
   if (!existsSync(verify)) {
     return skip('orca-git proof bundle (proofs/ay/verify.sh) not found')
   }
   try {
-    const out = sh('bash', [verify], { cwd: dirname(verify) })
-    const discharged = (out.match(/DISCHARGED/g) || []).length
+    // Pin the bundles to the resolved binary via the ladder's $AY step.
+    const out = sh('bash', [verify], { cwd: dirname(verify), env: { ...process.env, AY: ay } })
+    const discharged = (out.match(/^\s*PASS\s/gm) || []).length
     const clean = /DISCHARGED/.test(out) && !/\b(FAIL|UNKNOWN|error)\b/i.test(out)
     return {
       status: clean ? 'PASS' : 'REVIEW',
@@ -475,8 +519,56 @@ function census() {
   }
 }
 
+// --- provenance: every TS→Rust port pinned to its source hashes -------------------
+// Drift in a ported module's TS reference (or its Rust twin) must fail loudly with
+// a structured re-port task (moonshot F1) — parity only catches it reactively.
+function provenance() {
+  let out
+  let code = 0
+  try {
+    out = sh('node', [join(repo, 'tools', 'port-provenance.mjs'), '--json'])
+  } catch (e) {
+    code = e.status ?? 1
+    out = `${e.stdout ?? ''}`
+  }
+  let report
+  try {
+    report = JSON.parse(out)
+  } catch {
+    return { status: 'FAIL', detail: `port-provenance checker emitted no JSON (exit ${code})` }
+  }
+  const metrics = { ...report.stats, drifts: report.drifts.length }
+  if (code === 0) {
+    return {
+      status: 'PASS',
+      metrics,
+      detail: 'every ported module matches its pinned TS/Rust source hashes'
+    }
+  }
+  if (code === 2) {
+    const tasks = report.drifts.map((d) =>
+      [
+        `${d.kind}: ${d.module}`,
+        d.file,
+        d.rustTwins?.length ? `re-port ${d.rustTwins.join(', ')}` : null,
+        d.vectors ? `re-verify ${d.vectors}` : null
+      ]
+        .filter(Boolean)
+        .join(' — ')
+    )
+    const shown = tasks.slice(0, 6).join(' · ')
+    return {
+      status: 'REVIEW',
+      metrics,
+      detail: tasks.length > 6 ? `${shown} · +${tasks.length - 6} more (see report)` : shown,
+      drifts: report.drifts
+    }
+  }
+  return { status: 'FAIL', detail: `port-provenance checker broke (exit ${code})` }
+}
+
 // --- driver ----------------------------------------------------------------------
-const GATES = { bootstrap, conformance, perf, safety, autoformalize, census }
+const GATES = { bootstrap, conformance, perf, safety, autoformalize, census, provenance }
 const mark = (s) =>
   ({
     PASS: `${C.g}✓ PASS${C.x}`,
@@ -489,7 +581,7 @@ async function main() {
   const cmd = process.argv[2] || 'all'
   const names =
     cmd === 'all'
-      ? ['bootstrap', 'census', 'conformance', 'perf', 'safety', 'autoformalize']
+      ? ['bootstrap', 'census', 'provenance', 'conformance', 'perf', 'safety', 'autoformalize']
       : [cmd]
   if (!names.every((n) => GATES[n])) {
     console.error(`unknown gate "${cmd}". use: ${Object.keys(GATES).join(' | ')} | all`)

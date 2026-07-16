@@ -304,4 +304,60 @@ mod tests {
             ]
         );
     }
+
+    /// Run the SHARED parity corpus (`parity-corpus.txt`) — the exact same
+    /// oracle the TS `PtyProducerFlowController` runs in its own test suite. If
+    /// the Rust spec and the TS production path ever disagree on a step, one of
+    /// the two tests fails. This is the cross-language differential parity
+    /// certificate (P3 stage 2): production stays in TS (the flow-control
+    /// `update` is per-chunk hot-path, so a napi hop would regress it like the
+    /// rejected pty:data cutover), while this Rust core is the machine-checkable
+    /// spec proven equivalent to it.
+    #[test]
+    fn matches_shared_parity_corpus() {
+        let corpus = include_str!("../parity-corpus.txt");
+        let mut fc = ProducerFlowController::new(100, 10, 5_000);
+        for (idx, raw) in corpus.lines().enumerate() {
+            let line = raw.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let (lhs, rhs) = line
+                .split_once("=>")
+                .unwrap_or_else(|| panic!("line {}: missing =>", idx + 1));
+            let mut expected: Vec<String> = rhs.split_whitespace().map(str::to_string).collect();
+            expected.sort();
+
+            let toks: Vec<&str> = lhs.split_whitespace().collect();
+            let mut got: Vec<String> = Vec::new();
+            match toks.as_slice() {
+                ["update", id, pending, now] => {
+                    let action = fc.update(id, pending.parse().unwrap(), now.parse().unwrap());
+                    match action {
+                        FlowAction::Pause => got.push(format!("pause:{id}")),
+                        FlowAction::Resume => got.push(format!("resume:{id}")),
+                        FlowAction::None => {}
+                    }
+                }
+                ["release", id] => {
+                    if fc.release(id) == FlowAction::Resume {
+                        got.push(format!("resume:{id}"));
+                    }
+                }
+                ["releaseAll"] => {
+                    for id in fc.release_all() {
+                        got.push(format!("resume:{id}"));
+                    }
+                }
+                other => panic!("line {}: unknown op {other:?}", idx + 1),
+            }
+            got.sort();
+            assert_eq!(
+                got,
+                expected,
+                "parity mismatch at line {}: `{line}`",
+                idx + 1
+            );
+        }
+    }
 }

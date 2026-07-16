@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   PRODUCER_FLOW_HIGH_WATERMARK_CHARS,
@@ -133,5 +135,59 @@ describe('PtyProducerFlowController', () => {
     expect(resumeProducer).toHaveBeenCalledTimes(1)
     expect(controller.isPaused('pty-1')).toBe(false)
     expect(controller.isPaused('pty-2')).toBe(true)
+  })
+})
+
+// The cross-language parity certificate (P3 stage 2): this TS production
+// controller and the Rust `orca-flow-control` spec run the SAME shared corpus and
+// must emit identical pause/resume actions. Production stays in TS because
+// `update` is per-chunk hot-path (a napi hop would regress it like the rejected
+// pty:data cutover); the Rust core is the machine-checkable, ay-provable spec
+// proven equivalent to it here.
+describe('PtyProducerFlowController shared parity corpus', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('matches the Rust orca-flow-control corpus step for step', () => {
+    const corpusPath = fileURLToPath(
+      new URL('../../../rust/crates/orca-flow-control/parity-corpus.txt', import.meta.url)
+    )
+    const corpus = readFileSync(corpusPath, 'utf8')
+    const actions: string[] = []
+    // Compact watermarks matching the corpus header (high=100 low=10 reassert=5000).
+    const fc = new PtyProducerFlowController(
+      {
+        pauseProducer: (id) => actions.push(`pause:${id}`),
+        resumeProducer: (id) => actions.push(`resume:${id}`)
+      },
+      { highWatermarkChars: 100, lowWatermarkChars: 10, reassertIntervalMs: 5000 }
+    )
+    let lineNo = 0
+    for (const raw of corpus.split('\n')) {
+      lineNo++
+      const line = raw.trim()
+      if (line === '' || line.startsWith('#')) {
+        continue
+      }
+      const [lhs, rhs = ''] = line.split('=>')
+      const expected = rhs.trim().split(/\s+/).filter(Boolean).sort()
+      const toks = lhs.trim().split(/\s+/)
+      const before = actions.length
+      if (toks[0] === 'update') {
+        // Drive Date.now() (the reassert clock) to the corpus timestamp.
+        vi.setSystemTime(Number(toks[3]))
+        fc.update(toks[1], Number(toks[2]))
+      } else if (toks[0] === 'release') {
+        fc.release(toks[1])
+      } else if (toks[0] === 'releaseAll') {
+        fc.releaseAll()
+      } else {
+        throw new Error(`line ${lineNo}: unknown op ${toks[0]}`)
+      }
+      const got = actions.slice(before).sort()
+      expect(got, `parity mismatch at line ${lineNo}: ${line}`).toEqual(expected)
+    }
+    // The corpus must actually exercise the machine, not silently no-op.
+    expect(actions.length).toBeGreaterThanOrEqual(8)
   })
 })

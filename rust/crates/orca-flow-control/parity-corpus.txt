@@ -1,0 +1,32 @@
+# Producer flow-control TS↔Rust differential parity corpus (P3 stage 2).
+#
+# ONE shared oracle, run by BOTH implementations:
+#   - Rust: orca-flow-control (rust/crates/orca-flow-control, include_str! this file)
+#   - TS:   PtyProducerFlowController (src/main/ipc/pty-producer-flow-control.ts)
+# Each asserts the emitted pause/resume actions equal the `=>` expectation. If the
+# TS production path and the Rust spec ever diverge, one side fails — the parity
+# certificate the moonshot's "regression-gated behavioral parity corpora" rests on.
+#
+# Format: `<op> <args...> => <action:id>...`  (expectations sorted; empty = no action)
+#   watermarks: high=100 low=10 reassertMs=5000  (compact so the numbers read clearly)
+#
+# --- flood → reassert → drain, one PTY ---
+update A 50 0 =>
+update A 150 1 => pause:A
+update A 500 2 =>
+update A 500 5001 => pause:A
+update A 50 5002 =>
+update A 5 5003 => resume:A
+# --- a second PTY is tracked independently ---
+update B 200 6 => pause:B
+release A =>
+release B => resume:B
+# --- both paused, then a wholesale release ---
+update A 300 7 => pause:A
+update B 300 7 => pause:B
+releaseAll => resume:A resume:B
+# --- exact-boundary behavior (strict > HIGH to pause, strict < LOW to resume) ---
+update C 100 8 =>
+update C 101 9 => pause:C
+update C 10 10 =>
+update C 9 11 => resume:C

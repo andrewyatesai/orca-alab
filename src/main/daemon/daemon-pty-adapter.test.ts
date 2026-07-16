@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { DaemonClient } from './client'
 import { DaemonProtocolError } from './daemon-errors'
-import { DaemonPtyAdapter, isSessionAlreadyGoneError } from './daemon-pty-adapter'
+import { DaemonPtyAdapter, isDaemonGoneError, isSessionAlreadyGoneError } from './daemon-pty-adapter'
 import { DaemonServer } from './daemon-server'
 import { HeadlessEmulator } from './headless-emulator'
 import { getHistorySessionDirName } from './history-paths'
@@ -2400,5 +2400,32 @@ describe('isSessionAlreadyGoneError', () => {
     expect(isSessionAlreadyGoneError(new Error('Connection lost'))).toBe(false)
     expect(isSessionAlreadyGoneError(new Error('Not connected'))).toBe(false)
     expect(isSessionAlreadyGoneError('Session not found')).toBe(false)
+  })
+})
+
+describe('isDaemonGoneError', () => {
+  function connectErrno(code: string): NodeJS.ErrnoException {
+    return Object.assign(new Error(`connect ${code}`), { code, syscall: 'connect' })
+  }
+
+  it('matches dead-socket connect errnos', () => {
+    expect(isDaemonGoneError(connectErrno('ENOENT'))).toBe(true)
+    expect(isDaemonGoneError(connectErrno('ECONNREFUSED'))).toBe(true)
+  })
+
+  it('matches EBUSY connect errors (Windows ERROR_PIPE_BUSY escaping the client retry)', () => {
+    expect(isDaemonGoneError(connectErrno('EBUSY'))).toBe(true)
+  })
+
+  it('does not match the same errnos outside the connect syscall', () => {
+    expect(isDaemonGoneError(Object.assign(new Error('EBUSY'), { code: 'EBUSY' }))).toBe(false)
+    expect(isDaemonGoneError(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }))).toBe(false)
+  })
+
+  it('matches the daemon-lost message shapes and rejects non-Errors', () => {
+    expect(isDaemonGoneError(new Error('Connection lost'))).toBe(true)
+    expect(isDaemonGoneError(new Error('Not connected'))).toBe(true)
+    expect(isDaemonGoneError(new Error('Hello response timed out'))).toBe(true)
+    expect(isDaemonGoneError('Connection lost')).toBe(false)
   })
 })

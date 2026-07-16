@@ -36,6 +36,7 @@ const {
   isDaemonStaleForCurrentBundleMock,
   killStaleDaemonMock,
   getProcessStartedAtMsMock,
+  queryWindowsProcessIdentityMock,
   parseDaemonPidFileMock,
   daemonClientMock,
   spawnerInstances,
@@ -57,7 +58,7 @@ const {
   // Why: readFileSync throws by default so legacyDaemonProcessMayBeAlive's
   // catch treats every legacy pid file as unreadable — matching the pre-fix
   // cleanup behavior every existing test was written against.
-  const readFileSyncMock = vi.fn((): string => {
+  const readFileSyncMock = vi.fn((..._args: unknown[]): string => {
     throw new Error('ENOENT')
   })
   const unlinkSyncMock = vi.fn()
@@ -101,6 +102,9 @@ const {
   const isDaemonStaleForCurrentBundleMock = vi.fn(() => false)
   const killStaleDaemonMock = vi.fn(async () => true)
   const getProcessStartedAtMsMock = vi.fn((): number | null => 1_000_000)
+  const queryWindowsProcessIdentityMock = vi.fn(
+    async (): Promise<{ commandLine: string; startedAtMs: number | null } | null> => null
+  )
   const parseDaemonPidFileMock = vi.fn(
     (): { pid: number; startedAtMs: number | null } | null => null
   )
@@ -178,6 +182,7 @@ const {
     isDaemonStaleForCurrentBundleMock,
     killStaleDaemonMock,
     getProcessStartedAtMsMock,
+    queryWindowsProcessIdentityMock,
     parseDaemonPidFileMock,
     daemonClientMock,
     spawnerInstances,
@@ -261,6 +266,7 @@ vi.mock('./daemon-health', () => ({
   isDaemonStaleForCurrentBundle: isDaemonStaleForCurrentBundleMock,
   killStaleDaemon: killStaleDaemonMock,
   getProcessStartedAtMs: getProcessStartedAtMsMock,
+  queryWindowsProcessIdentity: queryWindowsProcessIdentityMock,
   parseDaemonPidFile: parseDaemonPidFileMock
 }))
 
@@ -388,6 +394,19 @@ function makeFakeSpawnChild(): {
   return child
 }
 
+// Force process.platform for win32-only launcher behaviors (pid-file start-time
+// backfill). Returns a restore fn — callers must invoke it (finally) so the real
+// platform is put back.
+function stubPlatform(value: NodeJS.Platform): () => void {
+  const original = Object.getOwnPropertyDescriptor(process, 'platform')
+  Object.defineProperty(process, 'platform', { value, configurable: true })
+  return () => {
+    if (original) {
+      Object.defineProperty(process, 'platform', original)
+    }
+  }
+}
+
 async function importFresh() {
   vi.resetModules()
   // Why: the macOS/Linux launcher resolves the Rust daemon binary; point it at a
@@ -434,6 +453,8 @@ async function importFresh() {
   parseDaemonPidFileMock.mockReturnValue(null)
   getProcessStartedAtMsMock.mockReset()
   getProcessStartedAtMsMock.mockReturnValue(1_000_000)
+  queryWindowsProcessIdentityMock.mockReset()
+  queryWindowsProcessIdentityMock.mockResolvedValue(null)
   // Why: importing daemon-init *after* resetModules means the module-level
   // `spawner`/`adapter`/`restartInFlight` start fresh for every test, which is
   // the only way to reliably exercise the "first-time init" path and the
@@ -1350,6 +1371,26 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
     }
   }
 
+  // Why: a net.connect stub whose 'error' fires with code EBUSY — models Windows
+  // ERROR_PIPE_BUSY (every pipe instance held by a LIVE daemon).
+  function stubBusyPipeConnect() {
+    const handlers: Record<string, ((err?: Error) => void)[]> = { connect: [], error: [] }
+    return {
+      on(event: string, cb: (err?: Error) => void) {
+        handlers[event]?.push(cb)
+        if (event === 'error') {
+          queueMicrotask(() => cb(Object.assign(new Error('connect EBUSY'), { code: 'EBUSY' })))
+        }
+        return this
+      },
+      removeListener(event: string, cb: (err?: Error) => void) {
+        handlers[event] = handlers[event]?.filter((handler) => handler !== cb) ?? []
+        return this
+      },
+      destroy() {}
+    }
+  }
+
   it('adopts a transiently wedged daemon that drains and reports live sessions within the grace window', async () => {
     // Why: the Windows update-relaunch case — post-install disk/AV load wedges
     // the daemon past the first hello budget, but it drains within seconds and
@@ -1567,6 +1608,138 @@ describe('daemon-init: runRestartDaemon (7-step sequence)', () => {
 
     expect(killStaleDaemonMock).not.toHaveBeenCalled()
     expect(forkMock).not.toHaveBeenCalled()
+  })
+
+  it('treats an EBUSY pipe as a live daemon during the wedge grace loop', async () => {
+    // Why: EBUSY (Windows ERROR_PIPE_BUSY) means every pipe instance is held by
+    // a LIVE daemon mid-burst. probeSocket must report alive so the grace loop
+    // keeps probing — treating it as dead replaced a healthy daemon (killing its
+    // sessions) on the first busy dial.
+    const mod = await importFresh()
+    await mod.initDaemonPtyProvider()
+
+    // First probe times out (daemon busy); the grace retry drains and reports a
+    // live session — so the daemon must be PRESERVED, not replaced.
+    daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
+      return {
+        ensureConnected: vi.fn(async () => {
+          throw new Error('Hello response timed out')
+        }),
+        request: vi.fn(),
+        disconnect: vi.fn()
+      }
+    })
+    daemonClientMock.mockImplementationOnce(function MockDaemonClient() {
+      return {
+        ensureConnected: vi.fn(async () => {}),
+        request: vi.fn(async () => ({ sessions: [{ sessionId: 'wt-1@@live', isAlive: true }] })),
+        disconnect: vi.fn()
+      }
+    })
+
+    const launcher = spawnerInstances[0].launcher as (
+      socketPath: string,
+      tokenPath: string
+    ) => Promise<{ shutdown(): Promise<void> }>
+    checkDaemonHealthMock.mockResolvedValueOnce('unreachable')
+    probeSocketExistsMock.mockReturnValue(true)
+    netConnectMock.mockImplementation(stubBusyPipeConnect)
+
+    await launcher('/fake/socket', '/fake/token')
+
+    expect(killStaleDaemonMock).not.toHaveBeenCalled()
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
+  it('backfills the win32 pid-file start time from the CIM identity query', async () => {
+    // Why: win32 has no cheap sync start-time source and the Rust daemon has no
+    // IPC ready message to self-report one (the old Node daemon's mechanism), so
+    // the launcher writes startedAtMs null and backfills it asynchronously —
+    // arming the pid-recycling guard that otherwise fails open.
+    const restorePlatform = stubPlatform('win32')
+    try {
+      const mod = await importFresh()
+      await mod.initDaemonPtyProvider()
+
+      checkDaemonHealthMock.mockResolvedValueOnce('unreachable')
+      // win32 truth: the sync OS query has no answer.
+      getProcessStartedAtMsMock.mockReturnValue(null)
+      queryWindowsProcessIdentityMock.mockResolvedValue({
+        commandLine: 'orca-daemon --socket /fake/socket --token /fake/token',
+        startedAtMs: 1_700_000_123_456
+      })
+      // The backfill re-reads the pid file to confirm it still describes this pid.
+      readFileSyncMock.mockImplementation((path: unknown) => {
+        if (String(path).endsWith('.pid')) {
+          return '{"pid":12345}'
+        }
+        throw new Error('ENOENT')
+      })
+      parseDaemonPidFileMock.mockReturnValue({ pid: 12345, startedAtMs: null })
+
+      const launcher = spawnerInstances[0].launcher as (
+        socketPath: string,
+        tokenPath: string
+      ) => Promise<{ shutdown(): Promise<void> }>
+      await launcher('/fake/socket', '/fake/token')
+
+      await vi.waitFor(() => {
+        expect(writeFileSyncMock).toHaveBeenCalledTimes(2)
+      })
+      expect(queryWindowsProcessIdentityMock).toHaveBeenCalledWith(12345)
+      expect(writeFileSyncMock).toHaveBeenLastCalledWith(
+        `/fake/daemon/daemon-v${PROTOCOL_VERSION}.pid`,
+        JSON.stringify({
+          pid: 12345,
+          startedAtMs: 1_700_000_123_456,
+          entryPath: FAKE_RUST_DAEMON_BIN,
+          appVersion: '1.2.3'
+        }),
+        { mode: 0o600 }
+      )
+    } finally {
+      restorePlatform()
+    }
+  })
+
+  it('skips the win32 start-time backfill when the pid file was replaced meanwhile', async () => {
+    // Why: a replacement daemon launched during the 300-800ms CIM query owns the
+    // pid file now — backfilling the OLD pid's start time would poison the new
+    // daemon's identity record.
+    const restorePlatform = stubPlatform('win32')
+    try {
+      const mod = await importFresh()
+      await mod.initDaemonPtyProvider()
+
+      checkDaemonHealthMock.mockResolvedValueOnce('unreachable')
+      getProcessStartedAtMsMock.mockReturnValue(null)
+      queryWindowsProcessIdentityMock.mockResolvedValue({
+        commandLine: 'orca-daemon --socket /fake/socket --token /fake/token',
+        startedAtMs: 1_700_000_123_456
+      })
+      readFileSyncMock.mockImplementation((path: unknown) => {
+        if (String(path).endsWith('.pid')) {
+          return '{"pid":99999}'
+        }
+        throw new Error('ENOENT')
+      })
+      // The pid file now belongs to a different (replacement) daemon.
+      parseDaemonPidFileMock.mockReturnValue({ pid: 99999, startedAtMs: null })
+
+      const launcher = spawnerInstances[0].launcher as (
+        socketPath: string,
+        tokenPath: string
+      ) => Promise<{ shutdown(): Promise<void> }>
+      await launcher('/fake/socket', '/fake/token')
+
+      await vi.waitFor(() => {
+        expect(queryWindowsProcessIdentityMock).toHaveBeenCalledWith(12345)
+      })
+      // Only the initial write — no backfill rewrite for a superseded pid.
+      expect(writeFileSyncMock).toHaveBeenCalledTimes(1)
+    } finally {
+      restorePlatform()
+    }
   })
 
   it('keeps legacy daemon pid/token files when the probe fails but the pid-file process is alive', async () => {

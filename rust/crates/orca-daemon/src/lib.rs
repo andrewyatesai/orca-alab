@@ -96,7 +96,10 @@ pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
 /// runtime on a real Windows host has not yet been exercised.
 #[cfg(windows)]
 pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
-    let listener = orca_winpipe::NamedPipeListener::bind(socket_path)?;
+    // bind() pre-creates the first pipe instance, and accept() pre-arms the next
+    // one on every connection — so a dialing client practically never sees
+    // ERROR_PIPE_BUSY (the JS clients retry the residual window).
+    let mut listener = orca_winpipe::NamedPipeListener::bind(socket_path)?;
 
     let expected_token: Option<Arc<str>> = match token_path {
         Some(path) => {

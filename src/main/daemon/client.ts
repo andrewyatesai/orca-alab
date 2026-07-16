@@ -17,6 +17,30 @@ import { addNodePtyRecoveryHint } from './node-pty-error-hints'
 const CONNECT_TIMEOUT_MS = 5000
 const REQUEST_TIMEOUT_MS = 30000
 
+// Why the EBUSY retry: the Windows named-pipe daemon pre-arms a spare pipe
+// instance, but a dial can still land in the single-CreateNamedPipeW window (or
+// a multi-client burst) where every instance is taken — libuv surfaces that
+// ERROR_PIPE_BUSY as EBUSY. It clears as soon as the accept loop re-arms, so a
+// short bounded backoff beats failing the connection. Unix socket connects never
+// produce EBUSY, so this is inert off Windows.
+const PIPE_BUSY_RETRY_DELAYS_MS = [25, 50]
+
+export async function connectWithPipeBusyRetry(dial: () => Promise<Socket>): Promise<Socket> {
+  let attempt = 0
+  for (;;) {
+    try {
+      return await dial()
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code !== 'EBUSY' || attempt >= PIPE_BUSY_RETRY_DELAYS_MS.length) {
+        throw err
+      }
+      await new Promise((resolve) => setTimeout(resolve, PIPE_BUSY_RETRY_DELAYS_MS[attempt]))
+      attempt += 1
+    }
+  }
+}
+
 // v1020 binary stream plane: request raw-byte frames on the stream socket by
 // default. It's always safe — the daemon only switches formats when it echoes
 // the grant, so a daemon that doesn't support it (or has it disabled) leaves
@@ -221,6 +245,10 @@ export class DaemonClient {
   }
 
   private connectSocket(): Promise<Socket> {
+    return connectWithPipeBusyRetry(() => this.connectSocketOnce())
+  }
+
+  private connectSocketOnce(): Promise<Socket> {
     return new Promise((resolve, reject) => {
       const socket = connect(this.socketPath)
       const cleanup = (): void => {

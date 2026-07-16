@@ -388,9 +388,9 @@ export function getProcessStartedAtMs(pid: number): number | null {
 
   if (process.platform === 'win32') {
     // Why: the only OS source is a CIM query costing a powershell spawn —
-    // too slow for this sync path. Windows pid files instead carry the
-    // daemon's self-reported start time from its ready message, and
-    // isDaemonProcess verifies it against CIM CreationDate asynchronously.
+    // too slow for this sync path. The launcher instead backfills the pid
+    // file's start time asynchronously via queryWindowsProcessIdentity after
+    // spawn, and isDaemonProcess verifies against CIM CreationDate the same way.
     return null
   }
 
@@ -461,7 +461,9 @@ export function parseWindowsProcessIdentityJson(stdout: string): WindowsProcessI
 // CreationDate rides along in the same spawn so start-time verification adds
 // zero extra process launches. Timed under ORCA_STARTUP_DIAGNOSTICS so the
 // cold-start benchmark can attribute startup cost to these checks.
-async function queryWindowsProcessIdentity(pid: number): Promise<WindowsProcessIdentity | null> {
+export async function queryWindowsProcessIdentity(
+  pid: number
+): Promise<WindowsProcessIdentity | null> {
   const startedAt = performance.now()
   try {
     const { stdout } = await execFileAsync(

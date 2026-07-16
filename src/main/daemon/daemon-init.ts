@@ -35,7 +35,8 @@ import {
   checkDaemonHealth,
   isDaemonStaleForCurrentBundle,
   killStaleDaemon,
-  parseDaemonPidFile
+  parseDaemonPidFile,
+  queryWindowsProcessIdentity
 } from './daemon-health'
 import { DegradedDaemonPtyProvider } from './degraded-daemon-pty-provider'
 import {
@@ -167,8 +168,11 @@ function probeSocket(socketPath: string): Promise<boolean> {
       finish(true, { destroy: true })
     }
 
-    function onError(): void {
-      finish(false)
+    function onError(err?: NodeJS.ErrnoException): void {
+      // EBUSY (Windows ERROR_PIPE_BUSY) means every pipe instance is taken — a
+      // LIVE daemon is holding them, so the socket is alive, not dead. Treating
+      // it as dead would let reconcile kill a healthy daemon mid-burst.
+      finish(err?.code === 'EBUSY')
     }
 
     timer = setTimeout(() => {
@@ -494,9 +498,42 @@ async function launchRustDaemon(
 
   if (child.pid) {
     writeDaemonPidFile(runtimeDir, child.pid, binPath)
+    // win32: the pid file above has startedAtMs null (no cheap sync OS query, and
+    // the Rust daemon has no IPC ready message to self-report like the old Node
+    // daemon) — backfill it asynchronously so the pid-recycling guard is armed.
+    void backfillWin32DaemonPidFileStartTime(runtimeDir, child.pid, binPath)
   }
   child.unref()
   return makeDaemonSigtermHandle(child.pid)
+}
+
+// Fire-and-forget: keeps the 300-800ms powershell CIM spawn off the launch path;
+// until it lands (or if it fails) the guard just stays fail-open on null, which
+// was the previous steady state on win32 for the Rust daemon.
+async function backfillWin32DaemonPidFileStartTime(
+  runtimeDir: string,
+  pid: number,
+  entryPath: string
+): Promise<void> {
+  if (process.platform !== 'win32') {
+    // Unix start times resolve synchronously inside writeDaemonPidFile.
+    return
+  }
+  try {
+    const startedAtMs = (await queryWindowsProcessIdentity(pid))?.startedAtMs ?? null
+    if (startedAtMs === null) {
+      return
+    }
+    // Only rewrite while the pid file still describes THIS daemon — a
+    // replacement launched during the query must not be clobbered.
+    const current = parseDaemonPidFile(readFileSync(getDaemonPidPath(runtimeDir), 'utf8'))
+    if (current?.pid !== pid) {
+      return
+    }
+    writeDaemonPidFile(runtimeDir, pid, entryPath, startedAtMs)
+  } catch {
+    // Best-effort: a missing/unreadable pid file keeps the fail-open null.
+  }
 }
 
 function createOutOfProcessLauncher(runtimeDir: string): DaemonLauncher {

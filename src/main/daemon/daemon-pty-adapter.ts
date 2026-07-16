@@ -1532,12 +1532,18 @@ export function isSessionAlreadyGoneError(err: unknown): boolean {
 // grace-bounded launcher, which drains a transient wedge or replaces a
 // permanent one instead of failing every terminal forever. All indicate the
 // daemon is unusable and a respawn should be attempted.
-function isDaemonGoneError(err: unknown): boolean {
+export function isDaemonGoneError(err: unknown): boolean {
   if (!(err instanceof Error)) {
     return false
   }
   const errno = err as NodeJS.ErrnoException
-  if ((errno.code === 'ENOENT' || errno.code === 'ECONNREFUSED') && errno.syscall === 'connect') {
+  // EBUSY: Windows ERROR_PIPE_BUSY escaping the client's bounded connect retry —
+  // transient, and the respawn path lands in reconcile, which adopts the (live)
+  // daemon and retries the op rather than killing it.
+  if (
+    (errno.code === 'ENOENT' || errno.code === 'ECONNREFUSED' || errno.code === 'EBUSY') &&
+    errno.syscall === 'connect'
+  ) {
     return true
   }
   const msg = err.message

@@ -4,7 +4,7 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
-import { DaemonClient } from './client'
+import { DaemonClient, connectWithPipeBusyRetry } from './client'
 import { encodeNdjson } from './ndjson'
 import type { HelloMessage, DaemonRequest, DaemonEvent } from './types'
 import { getDaemonSocketPath } from './daemon-spawner'
@@ -500,5 +500,47 @@ describe('DaemonClient', () => {
       expect(msg.id).toMatch(/^notify_/)
       expect(msg.type).toBe('write')
     })
+  })
+})
+
+describe('connectWithPipeBusyRetry', () => {
+  function ebusy(): NodeJS.ErrnoException {
+    return Object.assign(new Error('connect EBUSY'), { code: 'EBUSY', syscall: 'connect' })
+  }
+
+  it('retries EBUSY dials and returns the eventual socket', async () => {
+    // Why EBUSY exists at all: the Windows pipe server pre-arms a spare
+    // instance, but a dial can land in the single-CreateNamedPipeW re-arm window.
+    const socket = {} as Socket
+    let attempts = 0
+    const dial = vi.fn(async () => {
+      attempts += 1
+      if (attempts < 3) {
+        throw ebusy()
+      }
+      return socket
+    })
+
+    await expect(connectWithPipeBusyRetry(dial)).resolves.toBe(socket)
+    expect(dial).toHaveBeenCalledTimes(3)
+  })
+
+  it('gives up after the bounded retry budget', async () => {
+    const dial = vi.fn(async (): Promise<Socket> => {
+      throw ebusy()
+    })
+
+    await expect(connectWithPipeBusyRetry(dial)).rejects.toMatchObject({ code: 'EBUSY' })
+    // 1 initial dial + one per backoff step.
+    expect(dial).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not retry non-EBUSY errors', async () => {
+    const dial = vi.fn(async (): Promise<Socket> => {
+      throw Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' })
+    })
+
+    await expect(connectWithPipeBusyRetry(dial)).rejects.toMatchObject({ code: 'ECONNREFUSED' })
+    expect(dial).toHaveBeenCalledTimes(1)
   })
 })

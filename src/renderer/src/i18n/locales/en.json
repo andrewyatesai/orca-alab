@@ -70,7 +70,8 @@
     "openWorktreePalette": "Open Worktree Palette",
     "window": "Window",
     "help": "Help",
-    "paste": "Paste"
+    "paste": "Paste",
+    "coordinator": "Coordinator"
   },
   "tray": {
     "openOrca": "Open Orca",

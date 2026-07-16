@@ -254,6 +254,14 @@ export default defineConfig({
     build: {
       externalizeDeps: {
         exclude: ['@electron-toolkit/preload']
+      },
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          // Coordinator v0: the single-channel-pair daemon byte tunnel — kept
+          // separate so that window never loads the legacy IPC surface.
+          coordinator: resolve('src/preload/coordinator.ts')
+        }
       }
     }
   },
@@ -267,7 +275,15 @@ export default defineConfig({
     // ~halves it (measured 52%). Safe: no constructor.name/function.name
     // reflection in the renderer — every `.name` compare is on a data field.
     build: {
-      minify: 'esbuild'
+      minify: 'esbuild',
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          // Coordinator v0's own entry (docs/rust-migration/coordinator-v0-design.md):
+          // a second page, zero coupling to the main renderer's store/IPC wiring.
+          coordinator: resolve('src/renderer/coordinator.html')
+        }
+      }
     },
     resolve: {
       alias: {

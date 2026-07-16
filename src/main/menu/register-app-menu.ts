@@ -7,6 +7,7 @@ import {
 } from '../../shared/keybindings'
 import type { UpdateCheckOptions } from '../../shared/types'
 import { translateMain } from '../i18n/main-i18n'
+import { openCoordinatorWindow } from '../coordinator-window'
 
 export type AppearanceMenuState = {
   showTasksButton: boolean
@@ -281,7 +282,17 @@ function buildAndApplyMenu(options: RegisterAppMenuOptions): void {
 
   const windowMenu: Electron.MenuItemConstructorOptions = {
     label: translateMain('menu.window', 'Window'),
-    submenu: [{ role: 'minimize' }, { role: 'zoom' }]
+    submenu: [
+      { role: 'minimize' },
+      { role: 'zoom' },
+      { type: 'separator' },
+      {
+        // Why a main-side menu item: coordinator v0 must not touch the legacy
+        // renderer store/IPC, so its only entry point lives here.
+        label: translateMain('menu.coordinator', 'Coordinator'),
+        click: () => openCoordinatorWindow()
+      }
+    ]
   }
 
   const helpMenu: Electron.MenuItemConstructorOptions = {

@@ -96,6 +96,18 @@ function getRuntimeDir(): string {
   return dir
 }
 
+/** The current-protocol daemon endpoint (socket + token file), resolved the
+ *  same way init/health resolve it. For thin daemon-socket clients (the
+ *  coordinator window's byte tunnel) that speak the wire directly instead of
+ *  going through the PTY adapter. */
+export function getDaemonEndpointPaths(): { socketPath: string; tokenPath: string } {
+  const runtimeDir = getRuntimeDir()
+  return {
+    socketPath: getDaemonSocketPath(runtimeDir),
+    tokenPath: getDaemonTokenPath(runtimeDir)
+  }
+}
+
 function getHistoryDir(): string {
   // Why the layout module: daemon session history lives in a daemon-owned
   // subdir of terminal-history (0o700/ACL-hardened, with a one-time migration

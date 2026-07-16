@@ -15,24 +15,25 @@
 #   line_scan_nonvacuity_sat         sat    start==nl collapses end to start (guard needed)
 #   line_scan_catches_false_strip_sat sat   end==nl reachable w/o CR (false "always strip" caught)
 set -u
-AY=""
-for c in \
-  "$HOME/.cargo/bin/ay" \
-  "$HOME/trust/build/host/stage2/bin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage3-tools-bin/aarch64-apple-darwin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage2-tools-bin/aarch64-apple-darwin/ay" ; do
-  if "$c" --version >/dev/null 2>&1; then AY="$c"; break; fi
-done
-[ -n "$AY" ] || { echo "SKIP: no runnable ay found (line_scan_bounds not checked)"; exit 0; }
-echo "ay = $AY"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Solver ladder + the opt-in AY_SOLVER=z3 portability mode live in ../resolve-solver.sh.
+. "$DIR/../resolve-solver.sh"
+if [ -z "$SOLVER_BIN" ]; then
+  if [ "$SOLVER_KIND" = "z3" ]; then
+    echo "FAIL: AY_SOLVER=z3 requested but no runnable z3"
+    exit 1
+  fi
+  echo "SKIP: no runnable ay found (line_scan_bounds not checked)"
+  exit 0
+fi
+solver_banner
 expect() { # <file> <sat|unsat>
   local f="$DIR/$1" want="$2" got
-  got=$("$AY" solve "$f" -t:120000 2>/dev/null | grep -iE '^(sat|unsat|unknown)$' | head -1 | tr '[:upper:]' '[:lower:]')
+  got=$(solve_verdict "$f")
   if [ "$got" = "$want" ]; then printf '  PASS  %-38s %s\n' "$1" "$got"; return 0
   else printf '  FAIL  %-38s got=%s want=%s\n' "$1" "${got:-<none>}" "$want"; return 1; fi
 }
-echo "line_scan_bounds — single-scan line-split index arithmetic (ay):"
+echo "line_scan_bounds — single-scan line-split index arithmetic ($SOLVER_KIND):"
 rc=0
 expect line_scan_in_bounds.smt2               unsat || rc=1
 expect line_scan_nonvacuity_sat.smt2          sat   || rc=1

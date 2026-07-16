@@ -15,24 +15,25 @@
 #   decode_octal_mask_matches_uint8 unsat  (v&0xFF) == (v mod 256) (byte-identical to the TS)
 #   decode_octal_wrap_reachable_sat sat    v>255 reachable & the mask wraps (non-vacuity)
 set -u
-AY=""
-for c in \
-  "$HOME/.cargo/bin/ay" \
-  "$HOME/trust/build/host/stage2/bin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage3-tools-bin/aarch64-apple-darwin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage2-tools-bin/aarch64-apple-darwin/ay" ; do
-  if "$c" --version >/dev/null 2>&1; then AY="$c"; break; fi
-done
-[ -n "$AY" ] || { echo "SKIP: no runnable ay found (decode_total not checked)"; exit 0; }
-echo "ay = $AY"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Solver ladder + the opt-in AY_SOLVER=z3 portability mode live in ../resolve-solver.sh.
+. "$DIR/../resolve-solver.sh"
+if [ -z "$SOLVER_BIN" ]; then
+  if [ "$SOLVER_KIND" = "z3" ]; then
+    echo "FAIL: AY_SOLVER=z3 requested but no runnable z3"
+    exit 1
+  fi
+  echo "SKIP: no runnable ay found (decode_total not checked)"
+  exit 0
+fi
+solver_banner
 expect() { # <file> <sat|unsat>
   local f="$DIR/$1" want="$2" got
-  got=$("$AY" solve "$f" -t:120000 2>/dev/null | grep -iE '^(sat|unsat|unknown)$' | head -1 | tr '[:upper:]' '[:lower:]')
+  got=$(solve_verdict "$f")
   if [ "$got" = "$want" ]; then printf '  PASS  %-42s %s\n' "$1" "$got"; return 0
   else printf '  FAIL  %-42s got=%s want=%s\n' "$1" "${got:-<none>}" "$want"; return 1; fi
 }
-echo "decode_total — octal escape decode is total (ay):"
+echo "decode_total — octal escape decode is total ($SOLVER_KIND):"
 rc=0
 expect decode_octal_total.smt2                    unsat || rc=1
 expect decode_octal_mask_matches_uint8.smt2       unsat || rc=1

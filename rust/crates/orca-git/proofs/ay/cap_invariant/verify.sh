@@ -15,24 +15,25 @@
 #   cap_nonvacuity_sat             sat    c=limit,k=2 reaches limit+2 (bound is tight)
 #   cap_catches_false_tight_sat    sat    buffer > limit+1 reachable (false limit+1 bound caught)
 set -u
-AY=""
-for c in \
-  "$HOME/.cargo/bin/ay" \
-  "$HOME/trust/build/host/stage2/bin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage3-tools-bin/aarch64-apple-darwin/ay" \
-  "$HOME/trust/build/aarch64-apple-darwin/stage2-tools-bin/aarch64-apple-darwin/ay" ; do
-  if "$c" --version >/dev/null 2>&1; then AY="$c"; break; fi
-done
-[ -n "$AY" ] || { echo "SKIP: no runnable ay found (cap_invariant not checked)"; exit 0; }
-echo "ay = $AY"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Solver ladder + the opt-in AY_SOLVER=z3 portability mode live in ../resolve-solver.sh.
+. "$DIR/../resolve-solver.sh"
+if [ -z "$SOLVER_BIN" ]; then
+  if [ "$SOLVER_KIND" = "z3" ]; then
+    echo "FAIL: AY_SOLVER=z3 requested but no runnable z3"
+    exit 1
+  fi
+  echo "SKIP: no runnable ay found (cap_invariant not checked)"
+  exit 0
+fi
+solver_banner
 expect() { # <file> <sat|unsat>
   local f="$DIR/$1" want="$2" got
-  got=$("$AY" solve "$f" -t:120000 2>/dev/null | grep -iE '^(sat|unsat|unknown)$' | head -1 | tr '[:upper:]' '[:lower:]')
+  got=$(solve_verdict "$f")
   if [ "$got" = "$want" ]; then printf '  PASS  %-34s %s\n' "$1" "$got"; return 0
   else printf '  FAIL  %-34s got=%s want=%s\n' "$1" "${got:-<none>}" "$want"; return 1; fi
 }
-echo "cap_invariant — parser emits <= limit, buffers <= limit+2 (ay):"
+echo "cap_invariant — parser emits <= limit, buffers <= limit+2 ($SOLVER_KIND):"
 rc=0
 expect cap_emit_le_limit.smt2           unsat || rc=1
 expect cap_buffer_le_limit_plus_2.smt2  unsat || rc=1

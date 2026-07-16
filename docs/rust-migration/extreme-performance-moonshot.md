@@ -353,7 +353,20 @@ never shipped. The factory = fuse them.
   while V8 substrings are copy-free [recorded]. The old parity-test comment predicted exactly this;
   the bench gate held. P2 is therefore **binary frames with Buffer payloads only** (near-zero-copy
   napi externals) — string-shaped FFI on hot paths is a proven dead end; the manifest rule: no Rust
-  cutover on a hot path without a same-day bench win. P3 the PTY
+  cutover on a hot path without a same-day bench win. **P2 LANDED 2026-07-16** as the daemon→client
+  **v1020 binary stream plane** (opt-in `streamFormat:'binary'` on the stream hello; NDJSON stays the
+  negotiated default, so a non-granting daemon keeps both ends on NDJSON by construction). PTY output
+  rides as raw `[type:u8][len:u32BE][sidLen:u8][sessionId][raw bytes]` frames — no per-chunk
+  `JSON.stringify`/`parse`, no `\uXXXX` control-byte expansion; non-data events ride as their
+  NDJSON-identical JSON text in an Event frame so the client keeps ONE parser. **Same-day bench win
+  cleared** (opposite of the napi cutover — this REMOVES work and sends fewer bytes, so the win
+  survives the socket): end-to-end over a real Unix socket, REAL Rust-mirroring encoders + REAL TS
+  parsers, best-of-5 @64MB/corpus — typical-shell **1.80×** (1214 vs 673 MB/s, wire −3.6%),
+  control-heavy TUI **2.80×** (777 vs 277 MB/s, wire −29.4%); decoded PTY bytes byte-identical both
+  ways (parity). The daughter's Claude-Code/TUI case is control-heavy — biggest win. Verified: daemon
+  Rust 37/37 tests (4 frame/negotiation), TS 40 tests incl. an always-on wire-parity test, node+web
+  typecheck clean; committed reproducibles `daemon-binary-stream-protocol.test.ts` (parity) +
+  `daemon-stream-frame-throughput.bench.test.ts` (real Rust sender, gated). P3 the PTY
   flow-control machine as a **decisions-only Rust handle** (payload bytes stay in TS; the handle owns
   counters/gates and answers enqueue/flush/ack/heal with scalars) — safety invariants (in-flight never
   negative, caps never exceeded) as ay bundles on the orca-git precedent; liveness reformulated as
@@ -461,13 +474,13 @@ behavior-neutral on the 26-case corpus; v128 scanners remain upstream work)* · 
 *landed 2026-07-16 (macOS ~119 MB/s recorded)* + typometer instruments · census in the gauntlet ✅
 *landed 2026-07-16 (`pnpm gauntlet:census`, regret-class ratchet)*.
 
-**Wave 2 — needs Wave 1's instruments (M):** **coordinator v0** (attach → session grid → attention
-queue, wearing Orca's design system — the Goal-2 product starts here, before the records; needs only
-owner-attach, not even the subscriber rev) · binary daemon frames · utilityProcess pump spike ·
-dirty-band CPU present · `orca://` migration + codeCache · parser spec-table + delta ledger gate ·
-F1 provenance gate · F2 trace corpora · P2 binary frames (napi-string NDJSON cutover measured 30%
-slower and rejected — Buffer payloads only) · orc-electron fork infra (repo,
-sccache, no-op rebuild ×3 OS) · daemon subscriber protocol rev (1018→1019).
+**Wave 2 — needs Wave 1's instruments (M):** ✅ **coordinator v0** (attach → session grid → attention
+queue → read-only aterm tiles in the focused view, wearing Orca's design system — the Goal-2 product;
+milestones A+B landed) · ✅ **P2 binary daemon frames** (v1020 opt-in binary stream plane; napi-string
+NDJSON cutover was measured 30% slower and rejected, Buffer-payload frames landed 1.8–2.8× end-to-end)
+· utilityProcess pump spike · dirty-band CPU present · `orca://` migration + codeCache · parser
+spec-table + delta ledger gate · F1 provenance gate · F2 trace corpora · orc-electron fork infra
+(repo, sccache, no-op rebuild ×3 OS) · ✅ daemon subscriber protocol rev (1018→1019→1020).
 
 **Wave 3 — needs Wave 2's protocol/runtime footholds (L):** byte ACK re-base · verified transport
 binding (a) (renderer plane) · predict.rs extraction + echo theorem + remote gate ·

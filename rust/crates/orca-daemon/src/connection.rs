@@ -3,7 +3,8 @@
 //! each client opens a control socket and a stream socket correlated by clientId.
 
 use crate::protocol::{
-    hello_err, hello_ok, parse_hello, MIN_SUPPORTED_PROTOCOL_VERSION, PROTOCOL_VERSION,
+    hello_err, hello_ok, hello_ok_binary_stream, parse_hello, MIN_SUPPORTED_PROTOCOL_VERSION,
+    PROTOCOL_VERSION,
 };
 use crate::registry::Registry;
 use crate::rpc::dispatch_request;
@@ -156,9 +157,10 @@ pub fn handle_connection<S: DaemonStream>(
         let _ = writer.write_all(encode_ndjson_line(&hello_err("Expected hello")).as_bytes());
         return;
     };
-    // v1019 is additive over v1018 (subscribe/unsubscribe only), so both hellos
-    // are accepted — a pre-subscriber client keeps its full behavior.
-    if hello.version != PROTOCOL_VERSION && hello.version != MIN_SUPPORTED_PROTOCOL_VERSION {
+    // v1019 (subscriber role) and v1020 (opt-in binary stream) are additive
+    // over v1018, so the whole range is accepted — older clients keep their
+    // full behavior.
+    if !(MIN_SUPPORTED_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&hello.version) {
         let _ = writer
             .write_all(encode_ndjson_line(&hello_err("Protocol version mismatch")).as_bytes());
         return;
@@ -171,8 +173,17 @@ pub fn handle_connection<S: DaemonStream>(
             return;
         }
     }
+    // v1020: grant binary stream frames ONLY when the hello asked for them —
+    // the echoed streamFormat is what flips the client's parser, so a plain
+    // hello_ok always means NDJSON on both ends.
+    let binary_stream = hello.requests_binary_stream();
+    let hello_reply = if binary_stream {
+        hello_ok_binary_stream()
+    } else {
+        hello_ok()
+    };
     if writer
-        .write_all(encode_ndjson_line(&hello_ok()).as_bytes())
+        .write_all(encode_ndjson_line(&hello_reply).as_bytes())
         .is_err()
     {
         return;
@@ -180,7 +191,7 @@ pub fn handle_connection<S: DaemonStream>(
 
     match hello.role.as_str() {
         "control" => serve_control(&mut reader, &mut writer, &registry, &hello.client_id),
-        "stream" => serve_stream(&mut reader, writer, &registry, hello.client_id),
+        "stream" => serve_stream(&mut reader, writer, &registry, hello.client_id, binary_stream),
         _ => {}
     }
 }
@@ -217,23 +228,25 @@ fn serve_control<S: Read + Write>(
 
 fn serve_stream<S: DaemonStream>(
     reader: &mut LineReader<S>,
-    mut writer: S,
+    writer: S,
     registry: &Arc<Registry>,
     client_id: String,
+    binary_stream: bool,
 ) {
-    let (tx, rx) = channel::<String>();
     // Drain queued events to the socket on a dedicated thread so the read side can
-    // block on close detection independently.
-    let drain = thread::spawn(move || {
-        while let Ok(line) = rx.recv() {
-            if writer.write_all(line.as_bytes()).is_err() {
-                break;
-            }
-        }
-    });
+    // block on close detection independently. The channel's item type follows the
+    // negotiated wire format (JSON lines vs encoded binary frames).
     // Install the sender. Detached-while-idle output isn't buffered for raw replay —
     // the reattach snapshot (built from the engine) restores state instead.
-    registry.register_stream(client_id.clone(), tx);
+    let drain = if binary_stream {
+        let (tx, rx) = channel::<Vec<u8>>();
+        registry.register_stream_binary(client_id.clone(), tx);
+        spawn_stream_drain(writer, rx)
+    } else {
+        let (tx, rx) = channel::<String>();
+        registry.register_stream(client_id.clone(), tx);
+        spawn_stream_drain(writer, rx)
+    };
     // A stream socket is daemon→client; the client rarely sends. Block until it
     // closes, then tear down — dropping the registry's sender ends the drain thread.
     while reader.next_line().is_some() {}
@@ -242,6 +255,22 @@ fn serve_stream<S: DaemonStream>(
     // die with its stream. Owners (and other subscribers) are untouched.
     registry.remove_subscriber_from_all(&client_id);
     let _ = drain.join();
+}
+
+/// The stream socket's writer thread, generic over the channel item so both
+/// wire formats (String lines / Vec<u8> frames) share one drain loop.
+fn spawn_stream_drain<S, T>(mut writer: S, rx: std::sync::mpsc::Receiver<T>) -> thread::JoinHandle<()>
+where
+    S: Write + Send + 'static,
+    T: AsRef<[u8]> + Send + 'static,
+{
+    thread::spawn(move || {
+        while let Ok(item) = rx.recv() {
+            if writer.write_all(item.as_ref()).is_err() {
+                break;
+            }
+        }
+    })
 }
 
 #[cfg(test)]

@@ -4,17 +4,31 @@ import { readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
 import { encodeNdjson, createNdjsonParser } from './ndjson'
-import { PROTOCOL_VERSION, NOTIFY_PREFIX, DaemonProtocolError } from './types'
+import {
+  PROTOCOL_VERSION,
+  BINARY_STREAM_PROTOCOL_VERSION,
+  NOTIFY_PREFIX,
+  DaemonProtocolError
+} from './types'
 import type { HelloMessage, HelloResponse, RpcResponse, DaemonEvent } from './types'
+import { STREAM_FORMAT_BINARY, createBinaryStreamParser } from './daemon-binary-stream-protocol'
 import { addNodePtyRecoveryHint } from './node-pty-error-hints'
 
 const CONNECT_TIMEOUT_MS = 5000
 const REQUEST_TIMEOUT_MS = 30000
 
+// v1020 binary stream plane: request raw-byte frames on the stream socket by
+// default. It's always safe — the daemon only switches formats when it echoes
+// the grant, so a daemon that doesn't support it (or has it disabled) leaves
+// both ends on NDJSON. Kill-switch: ORCA_DAEMON_STREAM_NDJSON=1 forces NDJSON.
+const BINARY_STREAM_DEFAULT = process.env.ORCA_DAEMON_STREAM_NDJSON !== '1'
+
 export type DaemonClientOptions = {
   socketPath: string
   tokenPath: string
   protocolVersion?: number
+  // Opt out of the binary stream plane (defaults to BINARY_STREAM_DEFAULT).
+  preferBinaryStream?: boolean
 }
 
 type PendingRequest = {
@@ -27,6 +41,7 @@ export class DaemonClient {
   private socketPath: string
   private tokenPath: string
   private protocolVersion: number
+  private preferBinaryStream: boolean
   private clientId = randomUUID()
 
   private controlSocket: Socket | null = null
@@ -53,6 +68,7 @@ export class DaemonClient {
     this.socketPath = opts.socketPath
     this.tokenPath = opts.tokenPath
     this.protocolVersion = opts.protocolVersion ?? PROTOCOL_VERSION
+    this.preferBinaryStream = opts.preferBinaryStream ?? BINARY_STREAM_DEFAULT
   }
 
   isConnected(): boolean {
@@ -88,12 +104,19 @@ export class DaemonClient {
       // Sequential: control first, then stream. Feed each hello's residual bytes into
       // the matching parser so events/responses coalesced into the hello packet survive.
       this.controlSocket = await this.connectSocket()
-      const controlResidual = await this.sendHello(this.controlSocket, token, 'control')
-      pendingListenerCleanups.push(this.setupControlParser(this.controlSocket, controlResidual))
+      const control = await this.sendHello(this.controlSocket, token, 'control')
+      pendingListenerCleanups.push(this.setupControlParser(this.controlSocket, control.residual))
 
       this.streamSocket = await this.connectSocket()
-      const streamResidual = await this.sendHello(this.streamSocket, token, 'stream')
-      pendingListenerCleanups.push(this.setupStreamParser(this.streamSocket, streamResidual))
+      // Only request binary frames when the negotiated version knows them; a
+      // hello asking a pre-1020 daemon for streamFormat would just be ignored,
+      // but gating keeps the handshake honest about what it expects.
+      const requestBinary =
+        this.preferBinaryStream && this.protocolVersion >= BINARY_STREAM_PROTOCOL_VERSION
+      const stream = await this.sendHello(this.streamSocket, token, 'stream', requestBinary)
+      pendingListenerCleanups.push(
+        this.setupStreamParser(this.streamSocket, stream.grantedBinaryStream, stream.residual)
+      )
 
       this.connected = true
       this.disconnectArmed = true
@@ -228,14 +251,21 @@ export class DaemonClient {
   // the daemon can write hello_ok and the first stream data/exit events in one write,
   // so on a busy stream socket they coalesce into one read. The caller must feed this
   // residual into the parser or that terminal output is lost.
-  private sendHello(socket: Socket, token: string, role: 'control' | 'stream'): Promise<Buffer> {
+  private sendHello(
+    socket: Socket,
+    token: string,
+    role: 'control' | 'stream',
+    requestBinaryStream = false
+  ): Promise<{ residual: Buffer; grantedBinaryStream: boolean }> {
     return new Promise((resolve, reject) => {
       const hello: HelloMessage = {
         type: 'hello',
         version: this.protocolVersion,
         token,
         clientId: this.clientId,
-        role
+        role,
+        // Only stream-role hellos carry this; the daemon echoes it to grant.
+        ...(requestBinaryStream ? { streamFormat: STREAM_FORMAT_BINARY } : {})
       }
 
       let buffer: Buffer = Buffer.alloc(0)
@@ -250,7 +280,7 @@ export class DaemonClient {
         socket.removeListener('error', onError)
         socket.removeListener('close', onClose)
       }
-      const finish = (error?: Error, residual?: Buffer): void => {
+      const finish = (error?: Error, residual?: Buffer, grantedBinaryStream = false): void => {
         if (settled) {
           return
         }
@@ -260,7 +290,7 @@ export class DaemonClient {
           reject(error)
           return
         }
-        resolve(residual ?? Buffer.alloc(0))
+        resolve({ residual: residual ?? Buffer.alloc(0), grantedBinaryStream })
       }
       // Why: buffer raw BYTES and split on the '\n' byte (0x0A never occurs inside a
       // multibyte UTF-8 sequence), so the hello line decodes cleanly AND the residual
@@ -280,7 +310,9 @@ export class DaemonClient {
         try {
           const response = JSON.parse(line) as HelloResponse
           if (response.ok) {
-            finish(undefined, residual)
+            // The daemon grants binary frames ONLY by echoing streamFormat; its
+            // absence (any older daemon, or one that declined) keeps NDJSON.
+            finish(undefined, residual, response.streamFormat === STREAM_FORMAT_BINARY)
           } else {
             finish(
               new DaemonProtocolError(addNodePtyRecoveryHint(response.error ?? 'Hello rejected'))
@@ -341,23 +373,39 @@ export class DaemonClient {
     return () => socket.off('data', onData)
   }
 
-  private setupStreamParser(socket: Socket, initial?: Buffer): () => void {
+  private setupStreamParser(socket: Socket, binary: boolean, initial?: Buffer): () => void {
+    const dispatch = (event: DaemonEvent): void => {
+      if (event.type === 'event') {
+        for (const listener of this.eventListeners) {
+          listener(event)
+        }
+      }
+    }
+
+    if (binary) {
+      // Binary frames are raw bytes: feed the socket Buffer straight in — a
+      // StringDecoder would corrupt frame bytes. The daemon pre-decodes each
+      // chunk to complete UTF-8 before framing, so per-frame decode never
+      // strands a partial multibyte tail; the frame parser handles frames split
+      // across socket packets.
+      const parser = createBinaryStreamParser(dispatch, () => {})
+      const onData = (chunk: Buffer): void => parser.feed(chunk)
+      if (initial && initial.length > 0) {
+        parser.feed(initial)
+      }
+      socket.on('data', onData)
+      return () => socket.off('data', onData)
+    }
+
     // Why: PTY output streams include emoji/box-drawing tables; socket chunks
     // can split those UTF-8 sequences across packets.
     const decoder = new StringDecoder('utf8')
     const parser = createNdjsonParser(
-      (msg) => {
-        const event = msg as DaemonEvent
-        if (event.type === 'event') {
-          for (const listener of this.eventListeners) {
-            listener(event)
-          }
-        }
-      },
+      (msg) => dispatch(msg as DaemonEvent),
       () => {} // Ignore parse errors on stream socket
     )
 
-    const onData = (chunk: Buffer) => parser.feed(decoder.write(chunk))
+    const onData = (chunk: Buffer): void => parser.feed(decoder.write(chunk))
     // Drain the post-hello residual BEFORE attaching the live listener so the first
     // coalesced data/exit event isn't lost on a busy-session reconnect.
     if (initial && initial.length > 0) {

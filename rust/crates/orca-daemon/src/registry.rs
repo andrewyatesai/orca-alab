@@ -13,7 +13,7 @@
 //! `takePendingOutput` can drain records + serialize a snapshot atomically.
 
 use crate::pending_output::PendingOutput;
-use crate::protocol::{data_event, exit_event};
+use crate::protocol::{data_event, data_frame, event_frame, exit_event};
 use crate::shell_ready_barrier::ShellReadyBarrier;
 use orca_net::encode_ndjson_line;
 use orca_pty::PtySession;
@@ -47,10 +47,20 @@ pub struct SessionEntry {
     pub barrier: Option<Arc<Mutex<ShellReadyBarrier>>>,
 }
 
+/// One client's stream-socket sender in its negotiated wire format. NDJSON
+/// senders carry whole JSON lines; binary (v1020) senders carry encoded
+/// frames. Kept as an enum (not a flag beside one channel type) so a legacy
+/// line can never be written to a binary socket by construction.
+#[derive(Clone)]
+pub enum StreamSender {
+    Ndjson(Sender<String>),
+    Binary(Sender<Vec<u8>>),
+}
+
 #[derive(Default)]
 struct Inner {
     sessions: HashMap<String, SessionEntry>,
-    streams: HashMap<String, Sender<String>>,
+    streams: HashMap<String, StreamSender>,
     /// v1019 read-only fan-out: `sessionId → subscriber clientIds` that mirror a
     /// session's data/exit events without owning it. Kept beside (not inside)
     /// `SessionEntry` so a disconnecting client is purged across all sessions in
@@ -179,8 +189,24 @@ impl Registry {
         self.inner.lock().unwrap().sessions.remove(id);
     }
 
+    /// Register a legacy NDJSON stream sender (every pre-1020 client, and any
+    /// v1020 client that didn't request binary frames).
     pub fn register_stream(&self, client_id: String, tx: Sender<String>) {
-        self.inner.lock().unwrap().streams.insert(client_id, tx);
+        self.inner
+            .lock()
+            .unwrap()
+            .streams
+            .insert(client_id, StreamSender::Ndjson(tx));
+    }
+
+    /// Register a v1020 binary-frame stream sender (hello negotiated
+    /// `streamFormat:'binary'`).
+    pub fn register_stream_binary(&self, client_id: String, tx: Sender<Vec<u8>>) {
+        self.inner
+            .lock()
+            .unwrap()
+            .streams
+            .insert(client_id, StreamSender::Binary(tx));
     }
 
     pub fn unregister_stream(&self, client_id: &str) {
@@ -192,11 +218,11 @@ impl Registry {
     /// A detached session isn't replayed raw — its reattach snapshot (built from
     /// the engine, which the pump keeps current) is authoritative.
     pub fn route_output(&self, session_id: &str, data: &str) {
-        // Resolve every target Sender under the lock (cheap Arc clones), then encode
-        // the up-to-64KB JSON line ONCE + send OUTSIDE it, so the global mutex isn't
-        // held across serialization on every PTY read. Each target drains through
-        // its own channel + socket thread, so a slow subscriber queues on its own
-        // stream and never delays the owner's delivery.
+        // Resolve every target Sender under the lock (cheap Sender clones), then
+        // encode each wire format AT MOST ONCE + send OUTSIDE it, so the global
+        // mutex isn't held across serialization on every PTY read. Each target
+        // drains through its own channel + socket thread, so a slow subscriber
+        // queues on its own stream and never delays the owner's delivery.
         let txs = {
             let inner = self.inner.lock().unwrap();
             let Some(entry) = inner.sessions.get(session_id) else {
@@ -216,12 +242,23 @@ impl Registry {
                 .filter_map(|c| inner.streams.get(*c).cloned())
                 .collect::<Vec<_>>()
         };
-        if txs.is_empty() {
-            return;
-        }
-        let line = encode_ndjson_line(&data_event(session_id, data));
+        // Lazily built per format: mixed fan-out (a legacy follower beside a
+        // binary owner) pays each encoding once, single-format fan-out never
+        // builds the other.
+        let mut line: Option<String> = None;
+        let mut frame: Option<Vec<u8>> = None;
         for tx in txs {
-            let _ = tx.send(line.clone());
+            match tx {
+                StreamSender::Ndjson(tx) => {
+                    let line =
+                        line.get_or_insert_with(|| encode_ndjson_line(&data_event(session_id, data)));
+                    let _ = tx.send(line.clone());
+                }
+                StreamSender::Binary(tx) => {
+                    let frame = frame.get_or_insert_with(|| data_frame(session_id, data));
+                    let _ = tx.send(frame.clone());
+                }
+            }
         }
     }
 
@@ -237,7 +274,7 @@ impl Registry {
     pub fn route_exit_to_client(&self, client_id: &str, session_id: &str, code: i64) {
         let tx = self.inner.lock().unwrap().streams.get(client_id).cloned();
         if let Some(tx) = tx {
-            let _ = tx.send(encode_ndjson_line(&exit_event(session_id, code)));
+            send_exit(&tx, session_id, code);
         }
     }
 
@@ -368,18 +405,15 @@ impl Registry {
                     }
                 }
             }
-            let txs: Vec<Sender<String>> = targets
+            let txs: Vec<StreamSender> = targets
                 .iter()
                 .filter_map(|c| inner.streams.get(c).cloned())
                 .collect();
             (entry, txs)
         };
         let code = entry.pty.wait().map(|c| c as i64).unwrap_or(0);
-        if !txs.is_empty() {
-            let line = encode_ndjson_line(&exit_event(session_id, code));
-            for tx in txs {
-                let _ = tx.send(line.clone());
-            }
+        for tx in txs {
+            send_exit(&tx, session_id, code);
         }
         // `entry` (PTY + headless engine) is dropped here, off the lock.
     }
@@ -415,6 +449,21 @@ impl Registry {
             })
             .collect();
         json!({ "sessions": sessions })
+    }
+}
+
+/// Deliver one exit event in the target's negotiated wire format: the NDJSON
+/// line for legacy sockets, the same JSON wrapped in an Event frame for v1020
+/// binary sockets.
+fn send_exit(tx: &StreamSender, session_id: &str, code: i64) {
+    let json = exit_event(session_id, code);
+    match tx {
+        StreamSender::Ndjson(tx) => {
+            let _ = tx.send(encode_ndjson_line(&json));
+        }
+        StreamSender::Binary(tx) => {
+            let _ = tx.send(event_frame(&json));
+        }
     }
 }
 

@@ -82,12 +82,20 @@ export type HelloMessage = {
   token: string
   clientId: string
   role: 'control' | 'stream'
+  // v1020: a stream-role hello may request the binary stream plane by setting
+  // this to STREAM_FORMAT_BINARY. Absent on control sockets and pre-1020
+  // clients (NDJSON, the default). See daemon-binary-stream-protocol.ts.
+  streamFormat?: string
 }
 
 export type HelloResponse = {
   type: 'hello'
   ok: boolean
   error?: string
+  // v1020: echoed back as STREAM_FORMAT_BINARY ONLY when the daemon granted the
+  // binary stream plane. Its presence is what flips the client's stream parser,
+  // so a plain hello_ok always means NDJSON on both ends.
+  streamFormat?: string
 }
 
 // ─── RPC Requests (Client → Daemon, on control socket) ─────────────
@@ -415,22 +423,9 @@ export type DaemonSessionInfo = SessionInfo & {
 // existing importers keep one types entry point.
 export * from './daemon-stream-events'
 
-// ─── Binary Frame Protocol (Daemon ↔ PTY Subprocess) ────────────────
-//
-// 5-byte header: [type:1][length:4 big-endian]
-// Followed by `length` bytes of payload.
-
-export const enum FrameType {
-  Data = 0x01,
-  Resize = 0x02,
-  Exit = 0x03,
-  Error = 0x04,
-  Kill = 0x05,
-  Signal = 0x06
-}
-
-export const FRAME_HEADER_SIZE = 5
-export const FRAME_MAX_PAYLOAD = 1024 * 1024 // 1MB
+// Binary frame protocol (FrameType, FRAME_HEADER_SIZE, FRAME_MAX_PAYLOAD) lives
+// in daemon-frame-types.ts; re-exported so importers keep one types entry point.
+export * from './daemon-frame-types'
 
 // ─── Notify prefix ──────────────────────────────────────────────────
 // Requests with IDs starting with this prefix are fire-and-forget:

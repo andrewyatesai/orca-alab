@@ -12,11 +12,20 @@
 // impersonates the public Node daemon at its socket. Must equal
 // PROTOCOL_VERSION in rust/crates/orca-daemon/src/protocol.rs.
 // Why 1019: adds the read-only SUBSCRIBER role (subscribe/unsubscribe +
-// output fan-out; see daemon-subscriber-protocol.ts). Additive only — the
-// Rust daemon still accepts a 1018 hello, and a preserved 1018 daemon keeps
-// working via the legacy-adapter path (1018 is listed as a previous version
-// below), so nothing on the TS side requires 1019.
-export const PROTOCOL_VERSION = 1019
+// output fan-out; see daemon-subscriber-protocol.ts). Additive only.
+// Why 1020: adds the OPT-IN binary stream plane (streamFormat:'binary' on the
+// stream hello; see daemon-binary-stream-protocol.ts). Additive only — the
+// Rust daemon still accepts a 1018 hello, a hello that doesn't request binary
+// keeps NDJSON, and a preserved older daemon keeps working via the
+// legacy-adapter path (1018/1019 listed as previous versions below), so
+// nothing on the TS side requires 1020.
+export const PROTOCOL_VERSION = 1020
+
+// The protocol version at which the binary stream plane exists. A client only
+// requests it when negotiating at >= this version; the daemon only grants at
+// >=. Must equal BINARY_STREAM_PROTOCOL_VERSION in
+// rust/crates/orca-daemon/src/protocol.rs.
+export const BINARY_STREAM_PROTOCOL_VERSION = 1020
 
 // Fork daemon protocol versions live at 1000+; public Orca versions sit below.
 // Gates that mean "an attached PUBLIC daemon" (not just "not current") must
@@ -36,7 +45,8 @@ export const GIT_CREDENTIAL_GUARD_HOST_PROTOCOL_VERSION = 22
 // instead of being killed or impersonated, so installing the fork over public
 // Orca preserves in-flight terminals across the public protocol range (upstream
 // v1.4.142 ships public protocol 22).
-// Why 1018 is listed: a fork daemon preserved across the 1019 app update keeps
-// its sessions via the same legacy-adapter path (it lives at daemon-v1018.*).
+// Why 1018/1019 are listed: a fork daemon preserved across an app update to
+// 1020 keeps its sessions via the same legacy-adapter path (it lives at
+// daemon-v1018.* / daemon-v1019.*).
 // prettier-ignore
-export const PREVIOUS_DAEMON_PROTOCOL_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 1018] as const
+export const PREVIOUS_DAEMON_PROTOCOL_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 1018, 1019] as const

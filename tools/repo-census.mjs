@@ -166,11 +166,17 @@ const shimManifest = shimBasenames.flatMap((base) =>
 )
 const shimTotal = shimManifest.reduce((a, b) => a + b.lines, 0)
 
+// Ratchet-watched files: the god object and the delivery-shim host — the rebuild
+// thesis says these only shrink; the gauntlet census axis enforces the direction.
+const watched = ['src/main/runtime/orca-runtime.ts', 'src/main/ipc/pty.ts']
+const watchedFiles = Object.fromEntries(watched.map((f) => [f, lines(f)]))
+
 const census = {
   generatedBy: 'tools/repo-census.mjs',
   gitHead: execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo }).toString().trim(),
   areas,
   ipc,
+  watchedFiles,
   designSystem: {
     mainCssLines: lines(mainCss),
     designTokens,

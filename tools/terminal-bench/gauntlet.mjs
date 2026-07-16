@@ -11,6 +11,10 @@
 //   • safety      — Trust-proved obligations (skipped, not failed, when the toolchain is absent).
 //   • autoformalize — Goal A: reuse the Trust ts2rust two-witness gate (~/trust/tools/ts2rust)
 //                   to prove the orc corpus's Rust ports refine their TS (skipped if trustc absent).
+//   • census      — generated inventory ratchet (tools/repo-census.mjs): the delivery-shim
+//                   and god-object regret class may only shrink; growth is REVIEW to triage
+//                   (update census-ratchet.json knowingly), and every run snapshots the full
+//                   inventory into the report so drift history accrues.
 //
 // An agent runs:  node tools/terminal-bench/gauntlet.mjs <bootstrap|conformance|perf|safety|autoformalize|all>
 // Exit 0 = every gate green · 1 = a real FAIL · 2 = REVIEW (divergence to triage).
@@ -419,8 +423,60 @@ function autoformalize() {
   }
 }
 
+// --- census: generated inventory ratchet — the regret class only shrinks ---------
+// Raw inventory legitimately drifts with every feature/upstream merge, so this gate
+// enforces DIRECTION, not values: the delivery-reliability shim and the watched god
+// objects must never grow. Growth is REVIEW (an upstream merge may grow them for a
+// legitimate reason) — the agent triages and updates the baseline knowingly.
+const CENSUS_BASELINE = join(here, 'census-ratchet.json')
+
+function census() {
+  mkdirSync(BENCH_DIR, { recursive: true })
+  const out = join(BENCH_DIR, 'census.json')
+  sh('node', [join(repo, 'tools', 'repo-census.mjs'), '--json', out])
+  const snap = JSON.parse(readFileSync(out, 'utf8'))
+  const current = {
+    shimWholeFileLoc: snap.deliveryReliabilityShim.wholeFileTotalLoc,
+    ...snap.watchedFiles
+  }
+  if (!existsSync(CENSUS_BASELINE)) {
+    return {
+      status: 'REVIEW',
+      metrics: current,
+      detail: `no ratchet baseline — review these numbers, then commit them as ${CENSUS_BASELINE}`
+    }
+  }
+  const baseline = JSON.parse(readFileSync(CENSUS_BASELINE, 'utf8'))
+  const grew = []
+  const shrank = []
+  for (const [k, limit] of Object.entries(baseline)) {
+    const cur = current[k]
+    if (typeof cur !== 'number') {
+      grew.push(`${k}: missing from census output`)
+    } else if (cur > limit) {
+      grew.push(`${k}: ${cur} > baseline ${limit}`)
+    } else if (cur < limit) {
+      shrank.push(`${k}: ${cur} < baseline ${limit} — ratchet can tighten`)
+    }
+  }
+  return {
+    status: grew.length ? 'REVIEW' : 'PASS',
+    metrics: { ...current, head: snap.gitHead },
+    detail:
+      [
+        grew.length
+          ? `regret class GREW (intentional? update census-ratchet.json knowingly): ${grew.join('; ')}`
+          : null,
+        shrank.length ? shrank.join('; ') : null
+      ]
+        .filter(Boolean)
+        .join(' · ') || 'regret class did not grow',
+    censusSnapshot: snap
+  }
+}
+
 // --- driver ----------------------------------------------------------------------
-const GATES = { bootstrap, conformance, perf, safety, autoformalize }
+const GATES = { bootstrap, conformance, perf, safety, autoformalize, census }
 const mark = (s) =>
   ({
     PASS: `${C.g}✓ PASS${C.x}`,
@@ -432,7 +488,9 @@ const mark = (s) =>
 async function main() {
   const cmd = process.argv[2] || 'all'
   const names =
-    cmd === 'all' ? ['bootstrap', 'conformance', 'perf', 'safety', 'autoformalize'] : [cmd]
+    cmd === 'all'
+      ? ['bootstrap', 'census', 'conformance', 'perf', 'safety', 'autoformalize']
+      : [cmd]
   if (!names.every((n) => GATES[n])) {
     console.error(`unknown gate "${cmd}". use: ${Object.keys(GATES).join(' | ')} | all`)
     process.exit(64)

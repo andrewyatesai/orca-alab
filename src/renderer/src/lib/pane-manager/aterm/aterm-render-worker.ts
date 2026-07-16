@@ -102,6 +102,7 @@ function createPane(paneId: number): PaneRuntime {
     canvas: null,
     fellBackToCpu: false,
     disposed: false,
+    chrome: { pad: 0, head: 0 },
     // Both per-pane by design: dirty/suspend state and the serialize-cache timers
     // must be isolated so one pane's dispose/suspend can't touch another's.
     frameScheduler: createWorkerFrameScheduler({
@@ -126,10 +127,15 @@ function createPane(paneId: number): PaneRuntime {
 /** Wrap a built engine in the worker terminal and size it. Cursor focus/blink state
  *  arrives shortly after via commands from the main-thread blink timer. */
 function startTerminal(pane: PaneRuntime, handle: EngineHandle): void {
-  pane.term = createWorkerTerminal(handle)
+  pane.term = createWorkerTerminal(handle, () => pane.chrome)
   pane.engineSetters = handle.engine as unknown as EngineSettingSetters
   pane.engine = handle.engine
   pane.engineKind = handle.kind
+  // A rebuild (GPU→CPU fallback) constructs a fresh chrome-less engine; re-apply
+  // the pane's stored chrome so the effect frame survives the swap.
+  if (pane.chrome.pad !== 0 || pane.chrome.head !== 0) {
+    pane.engineSetters.set_chrome(pane.chrome.pad, pane.chrome.head)
+  }
   if (pane.storedInit) {
     pane.term.resize(pane.storedInit.rows, pane.storedInit.cols)
   }

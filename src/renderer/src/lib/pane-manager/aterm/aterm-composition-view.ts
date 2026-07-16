@@ -62,12 +62,17 @@ export function createAtermCompositionView(deps: AtermCompositionViewDeps): Ater
   }
 
   // The grid canvas's CSS box (its buffer may be worker/OffscreenCanvas-owned
-  // and unreadable here) → device px via the live dpr.
+  // and unreadable here) → device px via the live dpr. The box includes the
+  // window-space effects chrome when on (worker facade getters; 0 in-process) —
+  // subtract it so the anchor clamp bounds stay grid-only.
+  const chromeTerm = term as AtermTerminal & { chrome_pad?: number; chrome_head?: number }
   const gridDeviceSize = (): { width: number; height: number } => {
     const dpr = metrics.dpr || 1
+    const pad = chromeTerm.chrome_pad ?? 0
+    const head = chromeTerm.chrome_head ?? 0
     return {
-      width: Math.max(1, Math.round(canvas.clientWidth * dpr)),
-      height: Math.max(1, Math.round(canvas.clientHeight * dpr))
+      width: Math.max(1, Math.round(canvas.clientWidth * dpr) - 2 * pad),
+      height: Math.max(1, Math.round(canvas.clientHeight * dpr) - 2 * pad - head)
     }
   }
 

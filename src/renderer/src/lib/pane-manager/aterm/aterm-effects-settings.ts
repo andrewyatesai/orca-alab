@@ -14,6 +14,15 @@ import {
 
 /** The engine effects setters both wasm bindings (and the worker facade) expose. */
 export type AtermEffectsTarget = AtermMatrixRainTarget & {
+  /** Device-px cell height (both engines + the worker facade expose the getter);
+   *  sizes the window-space chrome for effects that escape the grid. */
+  readonly cell_height: number
+  /** Window-space effects chrome (pad per edge + top head band, device px).
+   *  Optional while orc and aterm generated artifacts roll independently. */
+  set_chrome?: (pad: number, head: number) => void
+  /** Set ONLY on the worker-backed facade: the in-process drawers pin the canvas
+   *  box without offsets, so chrome must never be applied to a bare engine. */
+  windowChromeCapable?: boolean
   set_sparkle_words_enabled: (on: boolean) => void
   set_sparkle_classes: (
     profanity: boolean,
@@ -170,7 +179,10 @@ export function applyAtermMatrixRainConfig(
  *  (engine cursor_color); unset → the engine derives the colour from the theme
  *  cursor exactly like the native app. Accent always stays theme-derived. */
 export function applyAtermCursorGlowConfig(
-  term: Pick<AtermEffectsTarget, 'set_cursor_glow'>,
+  term: Pick<
+    AtermEffectsTarget,
+    'set_cursor_glow' | 'cell_height' | 'set_chrome' | 'windowChromeCapable'
+  >,
   cfg: AtermEffectsConfig,
   cursorColor?: number
 ): void {
@@ -188,4 +200,29 @@ export function applyAtermCursorGlowConfig(
     d.ring
   )
   setAtermCursorGlowActivity(term, enabled)
+  // Both apply paths (full effects config + glow-only) end here, so chrome
+  // follows every style/enable/reduced-motion change through one seam.
+  applyAtermWindowChrome(term, cfg)
+}
+
+/** Give the FIRE cursor style window-space chrome: flames rise above the cursor
+ *  row, so the frame needs a head band (~2 cells) plus a breathing pad, letting
+ *  emissions escape the grid instead of clipping at the cell edge. Gated to the
+ *  worker path via `windowChromeCapable` (the in-process drawers pin the canvas
+ *  box without offsets) and to the fire style — every other config sets 0/0, so
+ *  default rendering stays byte-identical. */
+export function applyAtermWindowChrome(
+  term: Pick<AtermEffectsTarget, 'cell_height' | 'set_chrome' | 'windowChromeCapable'>,
+  cfg: AtermEffectsConfig
+): void {
+  if (term.windowChromeCapable !== true || typeof term.set_chrome !== 'function') {
+    return
+  }
+  const fire = cfg.cursorGlow && !cfg.reducedMotion && cfg.cursorGlowStyle === 'fire'
+  const ch = term.cell_height
+  if (fire && ch > 0) {
+    term.set_chrome(Math.ceil(ch * 0.75), Math.ceil(ch * 2))
+  } else {
+    term.set_chrome(0, 0)
+  }
 }

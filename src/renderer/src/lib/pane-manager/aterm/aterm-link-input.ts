@@ -43,6 +43,9 @@ export type AtermLinkDeps = {
   /** Hover tooltip sink (main-thread DOM overlay, see aterm-link-tooltip.ts).
    *  Optional so tests exercising only hit-testing/cursor logic can omit it. */
   linkTooltip?: Pick<AtermLinkTooltip, 'hoverLink' | 'leave'>
+  /** Live window-space chrome offsets (device px) when the worker frame carries
+   *  effects chrome; undefined/0 in-process (the canvas rect IS the grid). */
+  getChrome?: () => { pad: number; head: number }
 }
 
 export type AtermLinkInput = {
@@ -76,8 +79,11 @@ function tooltipKindForEngineLink(kind: number): AtermLinkTooltipKind | null {
 // is already display-offset-inclusive.
 function pointToCell(event: MouseEvent, deps: AtermLinkDeps): { col: number; row: number } {
   const rect = deps.canvas.getBoundingClientRect()
-  const deviceX = (event.clientX - rect.left) * deps.metrics.dpr
-  const deviceY = (event.clientY - rect.top) * deps.metrics.dpr
+  // Effects chrome shifts the canvas rect up-left of the grid (negative margins);
+  // subtract the grid's in-frame offset so link hit-testing stays grid-relative.
+  const chrome = deps.getChrome?.() ?? { pad: 0, head: 0 }
+  const deviceX = (event.clientX - rect.left) * deps.metrics.dpr - chrome.pad
+  const deviceY = (event.clientY - rect.top) * deps.metrics.dpr - chrome.pad - chrome.head
   const col = Math.max(0, Math.floor(deviceX / deps.metrics.cellWidth))
   const row = Math.max(0, Math.floor(deviceY / deps.metrics.cellHeight))
   return { col, row }
@@ -138,7 +144,10 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
   // This row's cell segment of a (possibly wrapped multi-row) provider link.
   const providerLinkSpanFor = (link: ILink, row: number): AtermHoveredLinkSpan => {
     const line = absoluteLineFor(row)
-    const gridCols = Math.max(1, Math.round(canvas.width / deps.metrics.cellWidth))
+    // canvas.width is the FRAME (chrome-padded when effects chrome is on) — take
+    // the grid-only width so a wrapped span's end column isn't over-counted.
+    const gridWidth = canvas.width - 2 * (deps.getChrome?.().pad ?? 0)
+    const gridCols = Math.max(1, Math.round(gridWidth / deps.metrics.cellWidth))
     return {
       row,
       // range is 1-based inclusive; the span is 0-based with an exclusive end.

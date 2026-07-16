@@ -20,6 +20,9 @@ export type AtermEventReportingDeps = {
   isDisposed: () => boolean
   /** Latest terminalTuiScrollSensitivity (wheel-report count multiplier). */
   getTuiScrollMultiplier?: () => number
+  /** Live window-space chrome offsets (device px); threaded to mouse-report
+   *  hit-testing so a padded worker frame doesn't skew the clicked cell. */
+  getChrome?: () => { pad: number; head: number }
 }
 
 export type AtermEventReportingInput = {
@@ -48,6 +51,7 @@ export function attachAtermEventReportingInput(
     getRows,
     isDisposed,
     getTuiScrollMultiplier: deps.getTuiScrollMultiplier,
+    getChrome: deps.getChrome,
     inputSink: (data: string) => {
       // e2e hook: record the last forwarded report so a test can prove a mouse
       // event reached the PTY without depending on shell echo under a hidden

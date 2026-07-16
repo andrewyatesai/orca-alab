@@ -44,6 +44,7 @@ export type EngineSettingSetters = AtermWorkerRainTarget & {
     ring: boolean
   ) => void
   set_effects_focused: (focused: boolean) => void
+  set_chrome: (pad: number, head: number) => void
 }
 
 /** Everything the worker keeps for ONE pane. Deliberately per-pane: the serialize
@@ -63,6 +64,9 @@ export type PaneRuntime = {
   fellBackToCpu: boolean
   /** Set by 'dispose' — an engine still building when it flips is freed on arrival. */
   disposed: boolean
+  /** Window-space effects chrome (device px; 0/0 = none). Stored on the pane so a
+   *  GPU→CPU rebuild re-applies it and every STATE snapshot echoes it. */
+  chrome: { pad: number; head: number }
   frameScheduler: WorkerFrameScheduler
   serializeCache: { schedule: () => void; dispose: () => void }
   /** Post a pane event to main; the entry stamps this pane's paneId on it. */
@@ -191,6 +195,13 @@ export function dispatchPaneCommand(pane: PaneRuntime, msg: AtermWorkerPaneRunti
     case 'setEffectsFocused':
       pane.engineSetters?.set_effects_focused(msg.focused)
       scheduleDraw(false)
+      return
+    case 'setChrome':
+      // Chrome resizes the framebuffer, so post a STATE (not render-only): the
+      // loader must re-pin the canvas CSS box + margins from the new dims.
+      pane.chrome = { pad: msg.pad, head: msg.head }
+      pane.engineSetters?.set_chrome(msg.pad, msg.head)
+      scheduleDraw()
       return
     case 'setDefaultCursorStyle':
       term?.setDefaultCursorStyle(msg.param)

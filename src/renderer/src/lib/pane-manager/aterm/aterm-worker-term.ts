@@ -222,6 +222,14 @@ export function createWorkerBackedTerm(deps: {
     get cursor_color() {
       return state.cursorColor ?? undefined
     },
+    // Window-space chrome (device px; 0 = none) — pointer/geometry consumers
+    // subtract these so cell math stays grid-relative under a padded frame.
+    get chrome_pad() {
+      return state.chromePadPx
+    },
+    get chrome_head() {
+      return state.chromeHeadPx
+    },
 
     // ── grid-content reads (rolling visible-grid mirror) ──
     row_text: (row: number) => grid.row(row)?.text,

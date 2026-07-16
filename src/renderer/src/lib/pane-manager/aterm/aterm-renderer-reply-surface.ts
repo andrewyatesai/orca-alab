@@ -27,11 +27,17 @@ export function buildAtermRendererReplySurface(deps: {
   return {
     // term.width/height are the last-rendered framebuffer device px; before the
     // first render they're 0, so fall back to cell*grid for a startup-race query.
+    // The frame includes the window-space effects chrome when on (worker facade
+    // getters; in-process has none → 0) — CSI 14t must report the TEXT AREA, so
+    // subtract it.
     pixelSize: () => {
       const { cols, rows } = getGrid()
+      const chromeTerm = term as typeof term & { chrome_pad?: number; chrome_head?: number }
+      const pad = chromeTerm.chrome_pad ?? 0
+      const head = chromeTerm.chrome_head ?? 0
       return {
-        width: term.width || metrics.cellWidth * cols,
-        height: term.height || metrics.cellHeight * rows,
+        width: term.width ? term.width - 2 * pad : metrics.cellWidth * cols,
+        height: term.height ? term.height - 2 * pad - head : metrics.cellHeight * rows,
         cellWidth: metrics.cellWidth,
         cellHeight: metrics.cellHeight
       }

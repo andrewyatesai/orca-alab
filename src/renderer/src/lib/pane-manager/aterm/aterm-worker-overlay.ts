@@ -50,9 +50,13 @@ export function createAtermWorkerOverlay(
       if (!ctx) {
         return
       }
-      // Match the worker framebuffer's device-pixel size (CSS = device/dpr) so the
-      // rects — already in device px from the worker — land on the right cells.
-      const { width, height } = state
+      // Match the GRID's device-pixel size (CSS = device/dpr) so the rects — already
+      // GRID-relative device px from the worker — land on the right cells. The frame
+      // dims include the effects chrome, but this overlay anchors at the parent
+      // origin (= the grid origin; the pane canvas takes the negative margins), so
+      // it must stay grid-only or every rect would skew by the chrome offset.
+      const width = state.width - 2 * state.chromePadPx
+      const height = state.height - 2 * state.chromePadPx - state.chromeHeadPx
       if (width <= 0 || height <= 0) {
         return
       }

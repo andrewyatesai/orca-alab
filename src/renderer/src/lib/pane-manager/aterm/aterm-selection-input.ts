@@ -22,6 +22,9 @@ export type AtermSelectionDeps = {
    *  shells). The facade dedupes by range, so worker-path snapshot lag only
    *  delays — never doubles — the emit. */
   onSelectionChanged?: () => void
+  /** Live window-space chrome offsets (device px) when the worker frame carries
+   *  effects chrome; undefined/0 in-process (the canvas rect IS the grid). */
+  getChrome?: () => { pad: number; head: number }
 }
 
 export type AtermSelectionInput = {
@@ -37,8 +40,11 @@ export type AtermSelectionInput = {
 // via display_offset), so the visible row index maps 1:1.
 function pointToCell(event: MouseEvent, deps: AtermSelectionDeps): { col: number; row: number } {
   const rect = deps.canvas.getBoundingClientRect()
-  const deviceX = (event.clientX - rect.left) * deps.dpr
-  const deviceY = (event.clientY - rect.top) * deps.dpr
+  // Effects chrome shifts the canvas rect up-left of the grid (negative margins);
+  // subtract the grid's in-frame offset so cell math stays grid-relative.
+  const chrome = deps.getChrome?.() ?? { pad: 0, head: 0 }
+  const deviceX = (event.clientX - rect.left) * deps.dpr - chrome.pad
+  const deviceY = (event.clientY - rect.top) * deps.dpr - chrome.pad - chrome.head
   const col = Math.max(0, Math.floor(deviceX / deps.cellWidth))
   const row = Math.max(0, Math.floor(deviceY / deps.cellHeight))
   return { col, row }

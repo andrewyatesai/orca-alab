@@ -97,6 +97,8 @@ function makeWorkerState(overrides: Partial<AtermWorkerState> = {}): AtermWorker
     wasmHeapBytes: 0,
     width: 0,
     height: 0,
+    chromePadPx: 0,
+    chromeHeadPx: 0,
     cols: 80,
     rows: 24,
     cellWidth: 8,

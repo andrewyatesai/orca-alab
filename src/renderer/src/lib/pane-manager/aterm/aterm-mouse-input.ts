@@ -18,6 +18,9 @@ export type AtermMouseDeps = {
   isDisposed: () => boolean
   /** Latest terminalTuiScrollSensitivity (wheel-report count multiplier). */
   getTuiScrollMultiplier?: () => number
+  /** Live window-space chrome offsets (device px) when the worker frame carries
+   *  effects chrome; undefined/0 in-process (the canvas rect IS the grid). */
+  getChrome?: () => { pad: number; head: number }
 }
 
 export type AtermMouseInput = {
@@ -52,8 +55,11 @@ export function shouldForwardMouse(term: AtermTerminal, event: { shiftKey: boole
 // The engine encoders add the protocol's +1, so 0-based is correct here.
 function pointToCell(event: MouseEvent, deps: AtermMouseDeps): { col: number; row: number } {
   const rect = deps.canvas.getBoundingClientRect()
-  const deviceX = (event.clientX - rect.left) * deps.metrics.dpr
-  const deviceY = (event.clientY - rect.top) * deps.metrics.dpr
+  // Effects chrome shifts the canvas rect up-left of the grid (negative margins);
+  // subtract the grid's in-frame offset so a report points at the clicked cell.
+  const chrome = deps.getChrome?.() ?? { pad: 0, head: 0 }
+  const deviceX = (event.clientX - rect.left) * deps.metrics.dpr - chrome.pad
+  const deviceY = (event.clientY - rect.top) * deps.metrics.dpr - chrome.pad - chrome.head
   const col = Math.max(0, Math.floor(deviceX / deps.metrics.cellWidth))
   const row = Math.max(0, Math.floor(deviceY / deps.metrics.cellHeight))
   return { col, row }

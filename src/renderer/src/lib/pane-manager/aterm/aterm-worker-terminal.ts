@@ -40,7 +40,12 @@ export type WorkerSideChannels = {
   keyboardModeBits: number | undefined
 }
 
-export function createWorkerTerminal(handle: EngineHandle): {
+export function createWorkerTerminal(
+  handle: EngineHandle,
+  /** The pane's stored window-space chrome (device px), echoed into every STATE so
+   *  the main side can offset the canvas box + pointer math; default = none. */
+  getChrome: () => { pad: number; head: number } = () => ({ pad: 0, head: 0 })
+): {
   processBytes: (data: string) => WorkerSideChannels
   render: () => void
   /** Advance the clockless effects before a frame; returns true while an effect is
@@ -163,6 +168,7 @@ export function createWorkerTerminal(handle: EngineHandle): {
     advanceEffectsBy: effectsTick.advanceBy,
     buildState: () => {
       const fb = handle.framebuffer()
+      const chrome = getChrome()
       const range = e.selection_range()
       // Re-materialize + clone the selection text ONLY when the range changed; otherwise
       // omit it (undefined) and the main side keeps the prior value. A large active
@@ -182,6 +188,8 @@ export function createWorkerTerminal(handle: EngineHandle): {
         wasmHeapBytes: workerWasmHeapBytes(),
         width: fb.width,
         height: fb.height,
+        chromePadPx: chrome.pad,
+        chromeHeadPx: chrome.head,
         cols,
         rows,
         cellWidth: e.cell_width,

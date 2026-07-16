@@ -18,50 +18,22 @@
 
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermWorkerRainCommand } from './aterm-worker-rain-protocol'
+import type {
+  AtermFontClass,
+  AtermWorkerFontClass,
+  AtermWorkerFonts
+} from './aterm-worker-font-protocol'
 
 // ── Worker-scoped requests (main → worker, no paneId) ─────────────────────────────
 
-/** The font faces every engine in this worker seeds from, sent ONCE per worker
- *  generation BEFORE the first pane init. E1 LAZY FONTS: at boot this carries the
- *  ~264KB primary ONLY — the multi-hundred-MB OS fallback classes arrive later via
- *  'fontClass', and only when an engine actually reports a glyph miss for them
- *  (the 'missingFontClasses' worker event). The worker keeps faces resident so
- *  per-pane inits carry no font bytes at all; the engine-side content-keyed intern
- *  registry then dedupes the bytes across engines within each wasm module. */
-export type AtermWorkerFonts = {
-  type: 'fonts'
-  /** JetBrains-Mono bytes — the engines' built-in primary face. */
-  primary: Uint8Array
-  /** Optional CJK + non-Latin fallback faces (same bytes the main path injects via
-   *  set_fallback_font/add_fallback_font — the MONOCHROME glyph path). */
-  fallbacks: Uint8Array[]
-  /** Optional OS colour-emoji face (set_emoji_font — the sbix/COLR colour path). Kept
-   *  separate from `fallbacks` because the fallback chain renders monochrome. */
-  emoji?: Uint8Array
-  /** Optional monochrome SYMBOL face (set_symbol_font — the media/technical-glyph tier,
-   *  ⏸⏹⏺). Consulted after the fallback chain misses; parity with the native engine. */
-  symbol?: Uint8Array
-}
-
-/** The injectable font classes the aterm engine reports misses for (mirrors the
- *  engine's MISSING_FONT_CLASS_TEXT/EMOJI bits): 'text' = the monochrome faces
- *  (CJK + script chain + symbol), 'emoji' = the colour emoji face. */
-export type AtermFontClass = 'text' | 'emoji'
-
-/** A lazily delivered font CLASS (E1): posted by the manager after the worker's
- *  'missingFontClasses' event, once per class per generation. The worker registers
- *  the faces on every live wasm module and applies them to every live engine —
- *  previously `.notdef` cells re-render through the new faces on the next frame. */
-export type AtermWorkerFontClass = {
-  type: 'fontClass'
-  class: AtermFontClass
-  /** 'text': CJK-first + script chain (set_fallback_font, then add_fallback_font). */
-  fallbacks?: Uint8Array[]
-  /** 'text': the monochrome symbol tier (set_symbol_font). */
-  symbol?: Uint8Array
-  /** 'emoji': the colour face (set_emoji_font). */
-  emoji?: Uint8Array
-}
+// The once-per-generation font delivery + lazy font-class types live in
+// aterm-worker-font-protocol; re-exported so this file stays the wire contract's
+// single entry point.
+export type {
+  AtermFontClass,
+  AtermWorkerFontClass,
+  AtermWorkerFonts
+} from './aterm-worker-font-protocol'
 
 // ── Pane-scoped commands (main → worker; wire form adds `paneId`) ─────────────────
 
@@ -149,6 +121,10 @@ export type AtermWorkerSetCursorGlow = {
   radius: number
   ring: boolean
 }
+/** Window-space effects chrome (device px): interior pad per edge + a top-only head
+ *  band, so cursor effects (fire) can escape the grid into the chrome. 0/0 restores
+ *  the byte-identical exact-fit frame. */
+export type AtermWorkerSetChrome = { type: 'setChrome'; pad: number; head: number }
 /** Pane focus for the effects idle one-shots (an unfocused pane fires no blinks). */
 export type AtermWorkerSetEffectsFocused = { type: 'setEffectsFocused'; focused: boolean }
 export type AtermWorkerScrollLines = { type: 'scrollLines'; delta: number }
@@ -290,6 +266,7 @@ export type AtermWorkerPaneCommand =
   | AtermWorkerSetSparkleReducedMotion
   | AtermWorkerRainCommand
   | AtermWorkerSetCursorGlow
+  | AtermWorkerSetChrome
   | AtermWorkerSetEffectsFocused
   | AtermWorkerScrollLines
   | AtermWorkerScrollToBottom
@@ -372,9 +349,15 @@ export type AtermWorkerState = {
    *  marginal growth per pane from here: wasm memory only grows, so the signal
    *  is deterministic where process RSS drowns in GC noise. */
   wasmHeapBytes: number
-  /** Framebuffer device-pixel size after the last render. */
+  /** Framebuffer device-pixel size after the last render. INCLUDES the chrome
+   *  below when it's non-zero (the frame is [head][pad][grid][pad]). */
   width: number
   height: number
+  /** Window-space effects chrome (device px; 0 when none): the grid renders at
+   *  offset (pad, pad+head) inside the frame — grid-relative consumers must
+   *  subtract these from the frame dims / pointer coords. */
+  chromePadPx: number
+  chromeHeadPx: number
   cols: number
   rows: number
   cellWidth: number

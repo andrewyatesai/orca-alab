@@ -114,6 +114,7 @@ export type WorkerEngine = Pick<
   | 'set_matrix_rain_reduced_motion'
   | 'note_matrix_rain_alt_scroll'
   | 'set_cursor_glow'
+  | 'set_chrome'
   | 'set_fallback_font'
   | 'add_fallback_font'
   | 'set_emoji_font'

@@ -88,6 +88,8 @@ export async function loadAtermWorkerEngine(
   // renders crisp-but-small instead of blurry. Reconciled dpr via overlayGetDpr.
   let lastCanvasCssW = -1
   let lastCanvasCssH = -1
+  let lastChromePad = -1
+  let lastChromeHead = -1
   const syncPaneCanvasCssBox = (s: AtermWorkerState): void => {
     if (s.width <= 0 || s.height <= 0) {
       return
@@ -95,13 +97,26 @@ export async function loadAtermWorkerEngine(
     const dpr = overlayGetDpr() || 1
     const cssW = s.width / dpr
     const cssH = s.height / dpr
-    if (cssW === lastCanvasCssW && cssH === lastCanvasCssH) {
+    // Chrome is memoed too: a chrome-only change keeps width/height/margins honest.
+    if (
+      cssW === lastCanvasCssW &&
+      cssH === lastCanvasCssH &&
+      s.chromePadPx === lastChromePad &&
+      s.chromeHeadPx === lastChromeHead
+    ) {
       return
     }
     canvas.style.width = `${cssW}px`
     canvas.style.height = `${cssH}px`
+    // Window-space chrome grows the frame AROUND the grid; pull the box up-left by
+    // the grid's offset so the grid stays put and only the chrome overhangs.
+    // Written explicitly both ways so toggling chrome off restores 0px.
+    canvas.style.marginLeft = `${-(s.chromePadPx / dpr)}px`
+    canvas.style.marginTop = `${-((s.chromePadPx + s.chromeHeadPx) / dpr)}px`
     lastCanvasCssW = cssW
     lastCanvasCssH = cssH
+    lastChromePad = s.chromePadPx
+    lastChromeHead = s.chromeHeadPx
   }
 
   // Shared-worker crash (a wasm RuntimeError poisons the module for EVERY engine in
@@ -316,6 +331,12 @@ export async function loadAtermWorkerEngine(
   }
   backed.term.set_effects_focused = (focused: boolean): void =>
     post({ type: 'setEffectsFocused', focused })
+  backed.term.set_chrome = (pad: number, head: number): void =>
+    post({ type: 'setChrome', pad, head })
+  // The effects-apply seam enables window chrome ONLY on targets carrying this
+  // marker: the in-process drawers pin the canvas box with no offset, so they
+  // must never see a padded frame — the worker path is the only one that may.
+  Object.assign(backed.term, { windowChromeCapable: true })
   // The worker owns the pane canvas, so search highlights + the link underline paint on
   // a main-thread stacked overlay driven by the snapshot (works for CPU + GPU worker).
   overlay = createAtermWorkerOverlay(

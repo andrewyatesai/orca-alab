@@ -81,6 +81,9 @@ function makeTerm(): RecordingTerm & {
     get cursor_color(): number | undefined {
       return term.liveCursorColor
     },
+    // Required by AtermEffectsTarget (window-chrome sizing); this fake carries no
+    // windowChromeCapable marker, so chrome application stays a no-op here.
+    cell_height: 16,
     set_sparkle_words_enabled: (on: boolean) => calls.sparkleMasters.push(on),
     set_sparkle_classes: (profanity: boolean, feline: boolean, orca: boolean, emphasis: boolean) =>
       calls.sparkleClasses.push([profanity, feline, orca, emphasis]),

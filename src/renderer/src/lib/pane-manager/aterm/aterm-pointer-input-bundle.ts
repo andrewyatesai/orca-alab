@@ -54,6 +54,15 @@ export function attachAtermPointerInputs({
   linkTooltip: ReturnType<typeof createAtermLinkTooltip>
   syncDpr: () => void
 } {
+  // Window-space effects chrome offsets, live from the worker facade's snapshot
+  // getters so a style toggle re-aims pointer math immediately; the in-process
+  // engines expose no chrome getters → always 0/0 (byte-identical behavior).
+  const chromeTerm = term as AtermTerminal & { chrome_pad?: number; chrome_head?: number }
+  const getChrome = (): { pad: number; head: number } => ({
+    pad: chromeTerm.chrome_pad ?? 0,
+    head: chromeTerm.chrome_head ?? 0
+  })
+
   const selectionDeps = {
     canvas,
     term,
@@ -64,7 +73,8 @@ export function attachAtermPointerInputs({
     isDisposed,
     onCopy: copyAtermSelectionToClipboard,
     getCopyOnSelect: controllerOptions?.getCopyOnSelect,
-    onSelectionChanged
+    onSelectionChanged,
+    getChrome
   }
   const selectionInput = attachAtermSelectionInput(selectionDeps)
 
@@ -91,7 +101,8 @@ export function attachAtermPointerInputs({
     getRows,
     inputSink,
     isDisposed,
-    getTuiScrollMultiplier: controllerOptions?.getTuiScrollMultiplier
+    getTuiScrollMultiplier: controllerOptions?.getTuiScrollMultiplier,
+    getChrome
   })
 
   // URL/file-path openers are held in `shared` so a GPU→CPU rebuild keeps the
@@ -118,7 +129,8 @@ export function attachAtermPointerInputs({
     openUrl,
     getFileLinkOpener: () => shared.fileLinkOpener,
     getLinkProviders: () => shared.linkProviderSource?.() ?? [],
-    linkTooltip
+    linkTooltip,
+    getChrome
   })
 
   return {

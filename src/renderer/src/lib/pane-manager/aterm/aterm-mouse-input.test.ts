@@ -57,7 +57,7 @@ type Harness = {
 
 // Mount the mouse forwarder AND the selection input over one canvas so the test
 // proves the gate end-to-end: a forwarded press must NOT start a selection.
-function mount(state: FakeTermState): Harness {
+function mount(state: FakeTermState, getChrome?: () => { pad: number; head: number }): Harness {
   const canvas = document.createElement('canvas')
   document.body.appendChild(canvas)
   // happy-dom gives a 0x0 rect; cell sizes are arbitrary (col/row land at 0).
@@ -69,7 +69,8 @@ function mount(state: FakeTermState): Harness {
     metrics: { dpr: 1, cellWidth: 8, cellHeight: 16 },
     getRows: () => 24,
     inputSink,
-    isDisposed: () => false
+    isDisposed: () => false,
+    getChrome
   })
   const selection = attachAtermSelectionInput({
     canvas,
@@ -79,7 +80,8 @@ function mount(state: FakeTermState): Harness {
     cellHeight: 16,
     redraw: () => {},
     isDisposed: () => false,
-    onCopy: () => {}
+    onCopy: () => {},
+    getChrome
   })
   return {
     canvas,
@@ -194,5 +196,47 @@ describe('aterm mouse forwarding gate', () => {
     expect(shouldForwardMouse(term, { shiftKey: true })).toBe(false)
     const { term: off } = fakeTerm({ tracking: false })
     expect(shouldForwardMouse(off, { shiftKey: false })).toBe(false)
+  })
+})
+
+describe('pointToCell window-chrome subtraction', () => {
+  // With effects chrome the canvas rect origin sits up-left of the grid by
+  // (pad, pad+head) device px (the loader's negative margins) — a click at the
+  // GRID origin's screen position must still map to cell (0,0).
+  const CHROME = { pad: 12, head: 24 }
+  // happy-dom rects are 0x0 at the origin; dpr 1, so the grid origin's screen
+  // position is (pad, pad + head) = (12, 36). Without the subtraction this
+  // click would land on col 1 (12/8) and row 2 (36/16).
+  const gridOriginClick = (type: string): MouseEvent => {
+    const event = new MouseEvent(type, { button: 0, bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'clientX', { value: 12, configurable: true })
+    Object.defineProperty(event, 'clientY', { value: 36, configurable: true })
+    return event
+  }
+
+  it('selection maps a grid-origin click to cell (0,0) under chrome', () => {
+    const h = mount({ tracking: false }, () => CHROME)
+    h.canvas.dispatchEvent(gridOriginClick('mousedown'))
+    expect(h.selectionStart).toHaveBeenCalledTimes(1)
+    // selection_start(row, col)
+    expect(h.selectionStart).toHaveBeenCalledWith(0, 0)
+    h.dispose()
+  })
+
+  it('mouse forwarding reports the grid-origin cell as 1;1 under chrome', () => {
+    const h = mount({ tracking: true }, () => CHROME)
+    h.canvas.dispatchEvent(gridOriginClick('mousedown'))
+    expect(h.inputSink).toHaveBeenCalledTimes(1)
+    // SGR coords are 1-based: cell (0,0) → "1;1".
+    expect(h.inputSink.mock.calls[0][0]).toBe(`${ESC}[<0;1;1M`)
+    h.dispose()
+  })
+
+  it('no getChrome dep leaves the mapping unchanged (in-process path)', () => {
+    const h = mount({ tracking: false })
+    h.canvas.dispatchEvent(gridOriginClick('mousedown'))
+    // Same click, no chrome: (12,36) → col 1, row 2.
+    expect(h.selectionStart).toHaveBeenCalledWith(2, 1)
+    h.dispose()
   })
 })

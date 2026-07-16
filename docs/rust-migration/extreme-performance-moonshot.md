@@ -43,14 +43,20 @@ The full audit of the byte path (PTY → daemon → main → renderer → worker
 |---|---|
 | Engine parse, native | **~776 MiB/s** ascii (~599 CJK / ~340 SGR) [recorded] |
 | Engine on-glass | **~193 MB/s** [recorded] — already 1.5× Alacritty's 125 [external] |
-| App end-to-end ingest | **2–15 MB/s** [recorded] — the pipe, not the engine |
+| Daemon-leg ingest (aterm headless + pending + fanout) | **161–236 MB/s** [recorded 2026-07-16, `session-ingest-throughput.bench.test.ts`: ascii-log 236, agent-tui 161] — the aterm migration already fixed the OLD 2–15 daemon share; the daemon leg is NOT the bottleneck |
+| Daemon→client stream transport | binary frames **1.8–2.8× over NDJSON** end-to-end [recorded 2026-07-16, LANDED as the v1020 binary stream plane] |
+| App end-to-end ingest | **2–15 MB/s** [recorded] — with the daemon leg now ≥161 MB/s and transport binary, the residual pipe cost is DOWNSTREAM of the daemon: `pty:data` main→renderer IPC + the renderer present path (needs the typometer rig to bench cleanly) |
 | Current public record (Ghostty nightly) | **~260 MB/s** ingest [external] |
 
 Per chunk today [recorded, data-path dive]: **4 process/thread hops, 3 full terminal parses** (daemon
 headless emulator, main headless emulator, worker wasm), **~6 UTF-8⇄UTF-16 transcodes, ~16 buffer
-copies, 4 independent batching queues, 4 distinct backpressure systems**, bytes riding **NDJSON JSON
-strings**. A binary length-prefixed frame codec exists in-tree and is unused
-(`src/main/daemon/binary-frame.ts`). The Rust daemon already owns PTYs by default on macOS/Linux
+copies, 4 independent batching queues, 4 distinct backpressure systems**. The daemon→client leg no
+longer rides NDJSON JSON strings when both ends are the fork's own daemon (v1020 binary stream plane,
+landed 2026-07-16 — the in-tree `src/main/daemon/binary-frame.ts` codec is now wired via
+`daemon-binary-stream-protocol.ts`). The remaining NDJSON leg is the coordinator SUBSCRIBER path
+(`src/shared/daemon-protocol-client.ts` — its byte transport is string-typed, so binary there needs a
+string→byte migration across the coordinator IPC tunnel; scoped, lower priority than the active
+terminal). The Rust daemon already owns PTYs by default on macOS/Linux
 (`src/main/daemon/daemon-init.ts:282-291`).
 
 Everything in Campaign 1 exists to close the gap between 2–15 and ~300. The engine is already there.

@@ -8,6 +8,11 @@ import { useSyncExternalStore } from 'react'
 import { DaemonProtocolClient, type DaemonStreamEvent } from '../../shared/daemon-protocol-client'
 import { openCoordinatorDaemonTransport } from './daemon-tunnel-transport'
 import { appendBoundedTail } from './terminal-text-preview'
+import {
+  createSessionByteTaps,
+  seedForEngineReplay,
+  type RawByteSink
+} from './coordinator-raw-byte-tap'
 
 export type CoordinatorSessionView = {
   sessionId: string
@@ -39,7 +44,17 @@ type SessionInfoLine = {
 }
 
 type SubscribePayload = {
-  snapshot: { snapshotAnsi: string; scrollbackAnsi: string; lastTitle?: string } | null
+  snapshot: {
+    snapshotAnsi: string
+    scrollbackAnsi: string
+    /** Mode re-seed sequences (DECSET etc.) the engine replay needs before the
+     *  live frame; the text preview strips them, so both consumers share one tail. */
+    rehydrateSequences?: string
+    /** Dangling mid-escape tail; replayed LAST so the next live chunk completes
+     *  it instead of it printing literally (Bug E / #7329 ordering). */
+    pendingEscapeTailAnsi?: string
+    lastTitle?: string
+  } | null
 }
 
 const LIST_POLL_MS = 2000
@@ -54,9 +69,15 @@ class CoordinatorSessionFeed {
   #connection: CoordinatorConnection = { state: 'connecting' }
   #listeners = new Set<() => void>()
   #client: DaemonProtocolClient | null = null
-  #snapshot: CoordinatorFeedSnapshot = { connection: this.#connection, sessions: [] }
+  #snapshot: CoordinatorFeedSnapshot = {
+    connection: this.#connection,
+    sessions: []
+  }
   #started = false
   #timers: ReturnType<typeof setTimeout>[] = []
+  // Live raw-byte fan-out for focused aterm tiles; retention stays the ONE
+  // bounded ansiTail — a tap only seeds from it and then streams pass-through.
+  #byteTaps = createSessionByteTaps()
 
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener)
@@ -100,7 +121,10 @@ class CoordinatorSessionFeed {
       // The daemon (or tunnel) went away: drop and re-enter the connect loop —
       // the daemon owns the sessions, so reconnect IS the recovery flow.
       this.#client = null
-      this.#setConnection({ state: 'error', message: 'daemon connection lost — reconnecting' })
+      this.#setConnection({
+        state: 'error',
+        message: 'daemon connection lost — reconnecting'
+      })
       this.#timers.push(setTimeout(() => void this.#connectLoop(), RECONNECT_DELAY_MS))
     })
     this.#setConnection({ state: 'connected' })
@@ -163,16 +187,19 @@ class CoordinatorSessionFeed {
 
   async #hydrateSubscription(client: DaemonProtocolClient, sessionId: string): Promise<void> {
     try {
-      const response = await client.rpc<SubscribePayload>('subscribe', { sessionId })
+      const response = await client.rpc<SubscribePayload>('subscribe', {
+        sessionId
+      })
       if (!response.ok) {
         this.#subscribed.delete(sessionId)
         return
       }
       const snapshot = response.payload.snapshot
       if (snapshot) {
-        // Scrollback first, then the live screen — the same replay order the
-        // reattach path uses, so the tail reads in stream order.
-        const hydrated = `${snapshot.scrollbackAnsi}\n${snapshot.snapshotAnsi}`
+        // Engine replay order (mirrors the reattach path): history, mode
+        // re-seed, live frame, dangling escape tail LAST — the next live data
+        // chunk carries its continuation bytes.
+        const hydrated = `${snapshot.scrollbackAnsi}\n${snapshot.rehydrateSequences ?? ''}${snapshot.snapshotAnsi}${snapshot.pendingEscapeTailAnsi ?? ''}`
         this.#patch(sessionId, {
           ansiTail: appendBoundedTail('', hydrated, ANSI_TAIL_MAX_CHARS),
           ...(snapshot.lastTitle ? { title: snapshot.lastTitle } : {})
@@ -198,7 +225,9 @@ class CoordinatorSessionFeed {
           { sessionId: view.sessionId }
         )
         if (response.ok) {
-          this.#patch(view.sessionId, { foregroundProcess: response.payload.foregroundProcess })
+          this.#patch(view.sessionId, {
+            foregroundProcess: response.payload.foregroundProcess
+          })
         }
       } catch {
         break
@@ -221,13 +250,31 @@ class CoordinatorSessionFeed {
         ansiTail: appendBoundedTail(view.ansiTail, data, ANSI_TAIL_MAX_CHARS),
         lastActivityAt: Date.now()
       })
+      // Retention first, then fan-out: a tap's seed (the tail) + its live
+      // stream then always compose the same byte order the tail retained.
+      this.#byteTaps.deliver(event.sessionId, data)
       this.#emit()
     } else if (event.event === 'exit') {
       const code = typeof event.payload?.code === 'number' ? event.payload.code : null
       this.#subscribed.delete(event.sessionId)
-      this.#patch(event.sessionId, { isAlive: false, exitCode: code, lastActivityAt: Date.now() })
+      this.#patch(event.sessionId, {
+        isAlive: false,
+        exitCode: code,
+        lastActivityAt: Date.now()
+      })
       this.#emit()
     }
+  }
+
+  tapSessionBytes(sessionId: string, sink: RawByteSink): () => void {
+    // Seed with the bounded retained tail (resynced if it was ever sliced) so
+    // the engine paints history immediately; live chunks continue the stream.
+    const view = this.#sessions.get(sessionId)
+    const seed = view ? seedForEngineReplay(view.ansiTail, ANSI_TAIL_MAX_CHARS) : ''
+    if (seed) {
+      sink(seed)
+    }
+    return this.#byteTaps.add(sessionId, sink)
   }
 
   #patch(sessionId: string, patch: Partial<CoordinatorSessionView>): void {
@@ -259,4 +306,10 @@ const feed = new CoordinatorSessionFeed()
 
 export function useCoordinatorSessionFeed(): CoordinatorFeedSnapshot {
   return useSyncExternalStore(feed.subscribe, feed.getSnapshot)
+}
+
+/** Tap a session's raw PTY byte stream for a focused aterm tile: seeds with the
+ *  bounded retained tail, then forwards live chunks. Returns the untap disposer. */
+export function tapCoordinatorSessionBytes(sessionId: string, sink: RawByteSink): () => void {
+  return feed.tapSessionBytes(sessionId, sink)
 }

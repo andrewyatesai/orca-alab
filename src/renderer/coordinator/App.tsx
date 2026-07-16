@@ -63,7 +63,14 @@ export function App(): React.JSX.Element {
         </span>
       </header>
       {focused ? (
-        <FocusedSessionView session={focused} nowMs={nowMs} onBack={() => setFocusedId(null)} />
+        // Keyed so refocusing a different session rebuilds the aterm tile (one
+        // engine per focused session; its state can't be re-seeded in place).
+        <FocusedSessionView
+          key={focused.sessionId}
+          session={focused}
+          nowMs={nowMs}
+          onBack={() => setFocusedId(null)}
+        />
       ) : (
         <>
           <AttentionQueue sessions={queue} onFocus={setFocusedId} />

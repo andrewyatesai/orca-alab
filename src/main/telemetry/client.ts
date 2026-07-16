@@ -29,7 +29,7 @@
 import { randomUUID } from 'node:crypto'
 import { arch as osArch, platform as osPlatform, release as osRelease } from 'node:os'
 import { app } from 'electron'
-import { PostHog } from 'posthog-node'
+import type { PostHog } from 'posthog-node'
 import type { CommonProps, EventName, EventProps, OptInVia } from '../../shared/telemetry-events'
 import type { Store } from '../persistence'
 import { consumeBurstToken, resetBurstCapsForSession } from './burst-cap'
@@ -167,6 +167,20 @@ export function initTelemetry(store: Store): void {
     return
   }
 
+  // Load posthog-node lazily so its ~19ms require() (parse+exec) is off the
+  // startup critical path; non-official builds (which returned above) never
+  // load it at all. Fire-and-forget — track() console-mirrors during the brief
+  // load window, and app_opened is gated on banner resolution well past it.
+  void initPostHogTransport(resolveConsent(settings))
+}
+
+async function initPostHogTransport(consent: ReturnType<typeof resolveConsent>): Promise<void> {
+  const { PostHog } = await import('posthog-node')
+  // A will-quit during the load window already set the gate; don't build a
+  // transport shutdownTelemetry() has already passed (it would never flush).
+  if (shuttingDown) {
+    return
+  }
   posthog = new PostHog(WRITE_KEY as string, {
     host: 'https://us.i.posthog.com',
     flushAt: 20,
@@ -182,8 +196,7 @@ export function initTelemetry(store: Store): void {
     // across any conceivable offline duration.
     maxQueueSize: 5000
   })
-
-  if (shouldOptOutSdkAtInit(resolveConsent(settings))) {
+  if (shouldOptOutSdkAtInit(consent)) {
     posthog.optOut()
   }
 }

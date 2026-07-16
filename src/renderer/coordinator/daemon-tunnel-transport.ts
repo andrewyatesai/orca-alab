@@ -30,7 +30,7 @@ export function openCoordinatorDaemonTransport(
   const bridge = window.coordinatorDaemonTunnel
   const socketId = nextSocketId++
   return new Promise((resolve, reject) => {
-    let dataListener: ((chunk: string) => void) | null = null
+    let dataListener: ((chunk: Uint8Array) => void) | null = null
     let closeListener: (() => void) | null = null
     let opened = false
     const unsubscribe = bridge.onMessage((message: CoordinatorTunnelEvent) => {

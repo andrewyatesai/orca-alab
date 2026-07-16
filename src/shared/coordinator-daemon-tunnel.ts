@@ -15,11 +15,15 @@ export type CoordinatorTunnelRequest =
   | { op: 'close'; socketId: number }
 
 /** Main → renderer. `open-ok` carries the daemon auth main resolved (token
- *  file + current protocol) so the renderer can send the hello itself. */
+ *  file + current protocol) so the renderer can send the hello itself. `data`
+ *  is RAW BYTES (structured-cloned across IPC) — the stream socket may carry
+ *  v1020 binary frames, which a utf8 relay would corrupt; the client decodes
+ *  per negotiated format. (The renderer→main `data` request stays a string:
+ *  it only ever carries hello/RPC lines.) */
 export type CoordinatorTunnelEvent =
   | { op: 'open-ok'; socketId: number; token: string; protocolVersion: number }
   | { op: 'open-error'; socketId: number; error: string }
-  | { op: 'data'; socketId: number; data: string }
+  | { op: 'data'; socketId: number; data: Uint8Array }
   | { op: 'close'; socketId: number }
 
 /** The preload-exposed bridge (window.coordinatorDaemonTunnel). */

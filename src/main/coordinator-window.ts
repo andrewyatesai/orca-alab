@@ -108,7 +108,9 @@ function openTunnelSocket(socketId: number): void {
     })
   })
   socket.on('data', (chunk) => {
-    sendTunnelEvent({ op: 'data', socketId, data: chunk.toString('utf8') })
+    // Relay RAW BYTES (structured-cloned across IPC), not a utf8 string: the
+    // stream socket may carry v1020 binary frames a decode would corrupt.
+    sendTunnelEvent({ op: 'data', socketId, data: chunk })
   })
   socket.once('error', (error) => {
     // Pre-connect failures ack as open-error; post-connect ones surface via

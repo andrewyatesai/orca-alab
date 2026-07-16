@@ -8,13 +8,24 @@
 // can run it over the preload byte tunnel while main-process/harness callers
 // run it over node:net (daemon-socket-transport.ts).
 
+import {
+  STREAM_FORMAT_BINARY,
+  BINARY_STREAM_PROTOCOL_VERSION,
+  createBinaryFrameReader,
+  splitFirstLine,
+  type DecodedStreamFrame
+} from './daemon-binary-frame'
+
 export type DaemonSocketRole = 'control' | 'stream'
 
-/** One duplex byte channel to the daemon socket. The client attaches exactly
- *  one data listener and one close listener. */
+/** One duplex byte channel to the daemon socket. Sends are small JSON control
+ *  lines (hello/RPC) so `send` stays string; receives are RAW BYTES so the
+ *  stream socket can carry the v1020 binary frame plane (which a UTF-8 decode
+ *  would corrupt) — the NDJSON path decodes them itself. The client attaches
+ *  exactly one data listener and one close listener. */
 export type DaemonByteTransport = {
   send: (data: string) => void
-  onData: (listener: (chunk: string) => void) => void
+  onData: (listener: (chunk: Uint8Array) => void) => void
   onClose: (listener: () => void) => void
   close: () => void
 }
@@ -47,7 +58,17 @@ export type DaemonStreamEvent = {
   payload?: Record<string, unknown>
 }
 
-type HelloReplyLine = { type?: unknown; ok?: unknown; error?: unknown }
+type HelloReplyLine = { type?: unknown; ok?: unknown; error?: unknown; streamFormat?: unknown }
+
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  if (a.length === 0) {
+    return b
+  }
+  const out = new Uint8Array(a.length + b.length)
+  out.set(a, 0)
+  out.set(b, a.length)
+  return out
+}
 
 /** Split a socket's byte stream into JSON objects on newline boundaries —
  *  mirrors the daemon's resync-on-newline framing (orca-net::ndjson /
@@ -89,6 +110,11 @@ export type DaemonProtocolClientOptions = {
   token?: string
   protocolVersion?: number
   timeoutMs?: number
+  /** Request the v1020 binary stream plane on the stream socket (default true).
+   *  Safe: the daemon only switches formats when it echoes the grant, so a
+   *  daemon that doesn't support it leaves this client on NDJSON. Ignored when
+   *  the negotiated version is below BINARY_STREAM_PROTOCOL_VERSION. */
+  preferBinaryStream?: boolean
 }
 
 export class DaemonProtocolClient {
@@ -102,6 +128,7 @@ export class DaemonProtocolClient {
   readonly #clientId: string
   readonly #openTransport: DaemonTransportFactory
   readonly #timeoutMs: number
+  readonly #preferBinaryStream: boolean
   #token: string | undefined
   #protocolVersion: number | undefined
 
@@ -111,6 +138,7 @@ export class DaemonProtocolClient {
     this.#token = options.token
     this.#protocolVersion = options.protocolVersion
     this.#timeoutMs = options.timeoutMs ?? 8000
+    this.#preferBinaryStream = options.preferBinaryStream ?? true
   }
 
   get clientId(): string {
@@ -188,6 +216,14 @@ export class DaemonProtocolClient {
         'daemon auth unresolved: pass token/protocolVersion or a transport that supplies them'
       )
     }
+    // Only the stream socket negotiates binary frames, and only when the version
+    // knows them. The daemon still replies hello_ok as an NDJSON line either
+    // way, echoing streamFormat to grant.
+    const requestBinary =
+      role === 'stream' &&
+      this.#preferBinaryStream &&
+      this.#protocolVersion >= BINARY_STREAM_PROTOCOL_VERSION
+
     let settleHello: ((error: Error | null) => void) | null = null
     const helloReply = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(
@@ -204,21 +240,71 @@ export class DaemonProtocolClient {
         }
       }
     })
-    // One reader per socket: it consumes the hello reply first, then hands
-    // every later line to the role's router.
-    const reader = makeNdjsonLineReader((line) => {
-      if (settleHello) {
-        const reply = line as HelloReplyLine
-        if (reply.type === 'hello') {
-          settleHello(
-            reply.ok === true ? null : new Error(`hello rejected: ${reply.error ?? 'unknown'}`)
-          )
-        }
+
+    // The negotiated body reader (NDJSON lines or v1020 binary frames). A binary
+    // Data frame is routed as the SAME data-event object shape the NDJSON path
+    // yields, so downstream consumers are format-agnostic.
+    const bodyDecoder = new TextDecoder('utf-8')
+    const ndjsonBody = makeNdjsonLineReader((line) => route(line))
+    const binaryBody = createBinaryFrameReader((frame: DecodedStreamFrame) => {
+      if (frame.kind === 'data') {
+        route({
+          type: 'event',
+          event: 'data',
+          sessionId: frame.sessionId,
+          payload: { data: frame.data }
+        })
         return
       }
-      route(line)
+      try {
+        route(JSON.parse(frame.json))
+      } catch {
+        // Resync: the daemon never emits a partial Event frame.
+      }
     })
-    transport.onData(reader)
+
+    // Bytes before the hello newline are the (ASCII JSON) hello line; bytes
+    // after are the body — binary frames when granted, else NDJSON. Split at the
+    // BYTE level so binary residual reaches the frame reader uncorrupted.
+    let granted = false
+    let greeted = false
+    let helloBuffer = new Uint8Array(0)
+    const feedBody = (bytes: Uint8Array): void => {
+      if (bytes.length === 0) {
+        return
+      }
+      if (granted) {
+        binaryBody.feed(bytes)
+      } else {
+        ndjsonBody(bodyDecoder.decode(bytes, { stream: true }))
+      }
+    }
+    transport.onData((chunk) => {
+      if (greeted) {
+        feedBody(chunk)
+        return
+      }
+      helloBuffer = concatBytes(helloBuffer, chunk)
+      const split = splitFirstLine(helloBuffer)
+      if (!split) {
+        return
+      }
+      greeted = true
+      let reply: HelloReplyLine
+      try {
+        reply = JSON.parse(split.line) as HelloReplyLine
+      } catch {
+        settleHello?.(new Error(`invalid hello (${role}) reply`))
+        return
+      }
+      granted = requestBinary && reply.streamFormat === STREAM_FORMAT_BINARY
+      if (reply.type === 'hello') {
+        settleHello?.(
+          reply.ok === true ? null : new Error(`hello rejected: ${reply.error ?? 'unknown'}`)
+        )
+      }
+      feedBody(split.rest)
+    })
     transport.onClose(() => {
       settleHello?.(new Error(`daemon ${role} socket closed during hello`))
       this.#teardown(new Error(`daemon ${role} socket closed`))
@@ -229,7 +315,8 @@ export class DaemonProtocolClient {
         version: this.#protocolVersion,
         token: this.#token,
         clientId: this.#clientId,
-        role
+        role,
+        ...(requestBinary ? { streamFormat: STREAM_FORMAT_BINARY } : {})
       })
     )
     try {

@@ -61,15 +61,19 @@ const terminalAddonResource = {
   to: 'orca_node.node'
 }
 
-// Why: the Rust daemon is THE terminal daemon on macOS/Linux, resolved from
-// process.resourcesPath/orca-daemon in packaged apps (getRustDaemonBinPath in
+// Why: the Rust daemon is THE terminal daemon on every platform, resolved from
+// process.resourcesPath/orca-daemon(.exe) in packaged apps (getRustDaemonBinPath in
 // daemon-init.ts) with NO Node fallback — so the binary MUST ship. electron-builder
-// fails the build if this `from` is missing, which is the guarantee we want.
-// Unix-only (mac + linux); Windows keeps the Node named-pipe daemon (the Rust
-// daemon's transport is Unix-socket).
+// fails the build if this `from` is missing, which is the guarantee we want. Windows
+// cargo emits orca-daemon.exe, so the win variant keeps the .exe on both from/to to
+// match the resolver's platform-specific binName.
 const rustDaemonResource = {
   from: 'rust/target/release/orca-daemon',
   to: 'orca-daemon'
+}
+const rustDaemonResourceWin = {
+  from: 'rust/target/release/orca-daemon.exe',
+  to: 'orca-daemon.exe'
 }
 
 // Why: the OFL fonts and the Rust-built binaries (wasm blobs + orca_node.node)
@@ -275,6 +279,7 @@ module.exports = {
     extraResources: [
       ...commonExtraResources,
       winSpeechNativeResource,
+      rustDaemonResourceWin,
       {
         from: 'resources/win32/bin/orca.cmd',
         to: 'bin/orca.cmd'

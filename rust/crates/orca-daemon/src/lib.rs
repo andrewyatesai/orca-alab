@@ -84,15 +84,16 @@ pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
     Ok(())
 }
 
-/// Windows transport: the Node daemon uses a named pipe, and the client dials the
-/// exact pipe path the spawner passes us (`\\?\pipe\orca-terminal-host-v…`), so
-/// this mirrors the unix `serve` with a named-pipe listener instead of a
-/// `UnixListener`. The unsafe winapi FFI is isolated in `orca-winpipe` so this
-/// crate stays `unsafe_code = "forbid"`. Each accepted pipe instance is handled on
-/// its own thread via the shared, transport-generic `handle_connection`.
+/// Windows transport: the client dials the exact pipe path the spawner passes us
+/// (`\\?\pipe\orca-terminal-host-v…`), so this mirrors the unix `serve` with a
+/// named-pipe listener instead of a `UnixListener`. The unsafe winapi FFI is
+/// isolated in `orca-winpipe` so this crate stays `unsafe_code = "forbid"`. Each
+/// accepted pipe instance is handled on its own thread via the shared,
+/// transport-generic `handle_connection`.
 ///
-/// Unverified on the build host (no Windows toolchain); the wire protocol,
-/// handshake, and threading model are identical to the unix path.
+/// Cross-compile-verified for x86_64-pc-windows (lib + tests); the wire protocol,
+/// handshake, and threading model are identical to the unix path. End-to-end
+/// runtime on a real Windows host has not yet been exercised.
 #[cfg(windows)]
 pub fn serve(socket_path: &str, token_path: Option<&str>) -> io::Result<()> {
     let listener = orca_winpipe::NamedPipeListener::bind(socket_path)?;

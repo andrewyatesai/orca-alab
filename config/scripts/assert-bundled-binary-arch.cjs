@@ -107,9 +107,11 @@ function readBinaryArchNames(filePath, electronPlatformName) {
 }
 
 function bundledCargoBinaryNames(electronPlatformName) {
-  // Windows ships no Rust daemon (Unix-socket transport); the terminal addon
-  // ships everywhere.
-  return electronPlatformName === 'win32' ? ['orca_node.node'] : ['orca-daemon', 'orca_node.node']
+  // The Rust daemon and the terminal addon ship on every platform; Windows carries
+  // the .exe-suffixed daemon (cargo emits orca-daemon.exe there).
+  return electronPlatformName === 'win32'
+    ? ['orca-daemon.exe', 'orca_node.node']
+    : ['orca-daemon', 'orca_node.node']
 }
 
 function assertBundledBinaryArchitectures({ resourcesDir, electronPlatformName, arch }) {

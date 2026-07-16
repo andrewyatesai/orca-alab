@@ -9,7 +9,7 @@ change cannot leave them drifting out of sync. */
 import { join } from 'node:path'
 import { app } from 'electron'
 import { mkdirSync, existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { fork, spawn } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
 import {
   DaemonSpawner,
@@ -37,11 +37,6 @@ import {
   killStaleDaemon,
   parseDaemonPidFile
 } from './daemon-health'
-import {
-  collectPinnedDaemonVersions,
-  materializeRelocatedDaemonHost,
-  pruneOldDaemonHosts
-} from './daemon-host-relocation'
 import { DegradedDaemonPtyProvider } from './degraded-daemon-pty-provider'
 import {
   getLocalPtyProvider,
@@ -53,7 +48,6 @@ import { setDaemonRuntimeStatus } from '../ipc/daemon-status-registry'
 import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from '../startup/startup-diagnostics'
 import { prepareDaemonSessionStoreRoot } from './history-store-layout'
 import { scheduleDaemonSessionHistoryGc } from './history-retention'
-import { getDaemonLogFilePath } from '../observability/logs-directory'
 import {
   confirmSeededClaudeLivePtys,
   hasSeededUnconfirmedClaudePtys
@@ -129,62 +123,6 @@ async function collectDaemonLiveSessionIdsForHistoryGc(): Promise<Set<string> | 
   } catch {
     return null
   }
-}
-
-function getDaemonEntryPath(): string {
-  const appPath = app.getAppPath()
-  // Why: electron-builder unpacks daemon-entry.js so child_process.fork() can
-  // execute it from disk. In packaged apps app.getAppPath() points at
-  // app.asar, so redirect to the unpacked sibling before joining the script.
-  const basePath = app.isPackaged ? appPath.replace('app.asar', 'app.asar.unpacked') : appPath
-  const directEntryPath = join(basePath, 'daemon-entry.js')
-  if (existsSync(directEntryPath)) {
-    return directEntryPath
-  }
-  return join(basePath, 'out', 'main', 'daemon-entry.js')
-}
-
-/**
- * Resolve the Rust (aterm) terminal-engine native addon for the daemon.
- *
- * Why: the daemon is forked with `cwd: userData` (so it survives worktree
- * deletion), so the addon loader's `process.cwd()/native/...` candidate never
- * resolves — and aterm is now the sole headless engine (no TypeScript fallback),
- * so a daemon that can't find the addon fails to construct its emulator. The main
- * process knows the app root, so it resolves the addon here and passes an absolute
- * path to the daemon via ORCA_RUST_TERMINAL_ADDON.
- * Returns null if the addon isn't present (dev tree without a built .node).
- */
-function getRustTerminalAddonPath(): string | null {
-  const explicit = process.env.ORCA_RUST_TERMINAL_ADDON
-  if (explicit && existsSync(explicit)) {
-    return explicit
-  }
-  // Try every plausible root: app.getAppPath() (repo root or out/main depending
-  // on launch), the main process cwd (repo root under `pnpm dev`/playwright),
-  // and the packaged resources dir. The main process — unlike the forked daemon
-  // — has a valid cwd at the repo root in dev.
-  const devName = join('native', 'orca-node', 'orca_node.node')
-  const candidates = [
-    join(app.getAppPath(), devName),
-    join(app.getAppPath(), '..', devName),
-    join(process.cwd(), devName),
-    join(process.resourcesPath ?? '', 'orca_node.node')
-  ]
-  return candidates.find((p) => existsSync(p)) ?? null
-}
-
-// Why: the detached Node daemon (Windows) writes lifecycle events to a rotated
-// file so field failures are diagnosable from a bundle. Honor the same hard
-// privacy switch the local trace sink honors (ORCA_DIAGNOSTICS_DISABLED);
-// absence of the arg is fully supported, so gating it off is safe and
-// adoption-neutral. Not passed to the Rust daemon, which has no --log-file.
-function daemonLogArgs(): string[] {
-  const disabled = (process.env.ORCA_DIAGNOSTICS_DISABLED ?? '').trim().toLowerCase()
-  if (disabled === '1' || disabled === 'true') {
-    return []
-  }
-  return ['--log-file', getDaemonLogFilePath()]
 }
 
 // Why: before spawning a new daemon, check if an existing one is alive by
@@ -279,24 +217,21 @@ async function shouldPreserveDaemonWithLiveSessions(
   return true
 }
 
-// The pure-Rust daemon (rust/crates/orca-daemon) is THE terminal daemon on
-// macOS/Linux — no opt-in flag. Windows is the sole exception: the Rust daemon's
-// transport is Unix-socket only (its Windows `serve` is a not(unix) stub), so
-// Windows keeps the Node named-pipe daemon until that transport lands. On Unix
-// there is no Node fallback: a missing binary or startup timeout makes
-// launchRustDaemon throw, which propagates through DaemonSpawner.ensureRunning
-// and degrades the app to the in-process, non-persistent LocalPtyProvider.
-function rustDaemonEnabled(): boolean {
-  return process.platform !== 'win32'
-}
-
-// Resolve the orca-daemon binary. ORCA_RUST_DAEMON_BIN overrides.
+// Resolve the orca-daemon binary. ORCA_RUST_DAEMON_BIN overrides. The Rust daemon
+// is THE terminal daemon on every platform — its Windows transport is a real
+// named-pipe `serve` (orca-winpipe), and there is no Node fallback anywhere: a
+// missing binary or startup timeout makes launchRustDaemon throw, which propagates
+// through DaemonSpawner.ensureRunning and degrades the app to the in-process,
+// non-persistent LocalPtyProvider.
 function getRustDaemonBinPath(): string | null {
   const explicit = process.env.ORCA_RUST_DAEMON_BIN
   if (explicit && existsSync(explicit)) {
     return explicit
   }
-  const binName = 'orca-daemon'
+  // Cargo emits orca-daemon.exe on Windows; match it in the packaged resource
+  // name and every dev candidate, else existsSync misses the binary and we strand
+  // on the in-process LocalPtyProvider.
+  const binName = process.platform === 'win32' ? 'orca-daemon.exe' : 'orca-daemon'
   // Packaged: the binary is shipped to the resources root (electron-builder
   // rustDaemonResource). NEVER probe app.getAppPath()-relative paths here — in a
   // packaged app that is `…/app.asar` (a file), so a candidate inside it can pass
@@ -552,186 +487,9 @@ async function launchRustDaemon(
   return makeDaemonSigtermHandle(child.pid)
 }
 
-// Windows only: the Rust daemon's transport is Unix-socket, so Windows runs the
-// Node named-pipe daemon (its own platform implementation — not a fallback). It
-// forks daemon-entry.js and waits for an IPC {type:'ready'} handshake.
-async function launchNodeDaemon(
-  runtimeDir: string,
-  socketPath: string,
-  tokenPath: string
-): Promise<DaemonProcessHandle> {
-  const entryPath = getDaemonEntryPath()
-  const rustTerminalAddonPath = getRustTerminalAddonPath()
-
-  const reused = await reconcileExistingDaemon(runtimeDir, socketPath, tokenPath, entryPath)
-  if (reused) {
-    return reused
-  }
-  // Why: a raw socket can outlive a broken or wedged daemon. Kill by PID
-  // before respawn so the new daemon does not race the stale process.
-  await killStaleDaemon(runtimeDir, socketPath, tokenPath)
-
-  const userDataPath = app.getPath('userData')
-  // Why: on win32 packaged, fork from a copy of the Electron runtime staged
-  // in userData so the daemon's image + loaded modules escape the install dir
-  // the NSIS updater deletes and force-closes. Staged here (not at app start)
-  // so the one-time copy stays off the first-paint path and is skipped on
-  // launches that adopt a live daemon. Fail-open: null → in-dir host, below.
-  const relocatedHost = materializeRelocatedDaemonHost()
-  // Fork the relocated entry when available; otherwise the install-dir entry.
-  const forkEntryPath = relocatedHost ? relocatedHost.entryPath : entryPath
-  const child = fork(
-    forkEntryPath,
-    ['--socket', socketPath, '--token', tokenPath, ...daemonLogArgs()],
-    {
-      // Why: detached daemons can outlive dev worktrees. Starting from
-      // userData keeps process.cwd() valid after a repo/worktree is deleted.
-      cwd: userDataPath,
-      // Why: detached + unref lets the daemon outlive the Electron process.
-      // stdout stays 'ignore' so the child never holds the parent's stdout
-      // open (which would block Electron exit); stderr is 'pipe' so a
-      // module-load crash during startup is captured instead of discarded
-      // (v1.4.129-rc.1 shipped a daemon that only logged "exited with code 1"
-      // because stderr was thrown away). The pipe is destroyed on readiness.
-      detached: true,
-      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
-      // Why: run the relocated Orca.exe copy instead of the install-dir one.
-      // It is byte-identical, so run-as-node behavior is unchanged; only the
-      // image path moves out of the updater's kill zone.
-      ...(relocatedHost ? { execPath: relocatedHost.execPath } : {}),
-      // Why: ELECTRON_RUN_AS_NODE makes the forked process run as a plain
-      // Node.js process instead of an Electron renderer/main process. Without
-      // it, Electron's GPU/display initialization can interfere with native
-      // module operations like node-pty's posix_spawn of the spawn-helper.
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: '1',
-        // Why: the detached daemon is plain Node and cannot call Electron's
-        // app.getPath(), but shell-ready rcfiles must live outside swept tmp.
-        ORCA_USER_DATA_PATH: userDataPath,
-        // Why: the daemon's cwd is userData, so the addon loader's cwd-relative
-        // candidate can't find the Rust (aterm) engine — resolve it absolutely here
-        // and pass it as ORCA_RUST_TERMINAL_ADDON so the daemon loads the sole
-        // headless engine (there is no TS-emulator fallback). Omitted when no addon
-        // is present (dev tree without a built .node), where the daemon throws.
-        ...(rustTerminalAddonPath ? { ORCA_RUST_TERMINAL_ADDON: rustTerminalAddonPath } : {})
-      }
-    }
-  )
-
-  // Why: keep only the startup-window stderr tail so a crash cause is
-  // visible without unbounded memory if the daemon spews before dying.
-  const STARTUP_STDERR_MAX_BYTES = 8192
-  let startupStderr = ''
-  let collectingStderr = true
-  const onStartupStderr = (chunk: Buffer): void => {
-    if (!collectingStderr) {
-      return
-    }
-    startupStderr += chunk.toString('utf8')
-    if (startupStderr.length > STARTUP_STDERR_MAX_BYTES) {
-      startupStderr = startupStderr.slice(-STARTUP_STDERR_MAX_BYTES)
-    }
-  }
-  child.stderr?.on('data', onStartupStderr)
-  // Why: once the daemon is up (or has failed) the parent must not keep a
-  // live handle on the detached daemon's stderr — a piped stream would ref
-  // the parent event loop and prevent Electron from exiting cleanly.
-  const releaseStderr = (): void => {
-    collectingStderr = false
-    child.stderr?.off('data', onStartupStderr)
-    child.stderr?.destroy()
-  }
-
-  // Wait for the daemon to signal readiness via IPC
-  await new Promise<void>((resolve, reject) => {
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let settled = false
-    function cleanupStartupListeners(): void {
-      if (timer) {
-        clearTimeout(timer)
-      }
-      child.off('message', onReadyMessage)
-      child.off('error', onStartupError)
-      child.off('exit', onStartupExit)
-    }
-    function fail(error: Error): void {
-      if (settled) {
-        return
-      }
-      settled = true
-      cleanupStartupListeners()
-      // Why: stderr was previously discarded, so a startup crash surfaced only
-      // as "exited with code 1". Attach the captured tail to the thrown error
-      // (which the fallback path reports) and log it so the real cause shows.
-      const stderrTail = startupStderr.trim()
-      if (stderrTail) {
-        console.warn(`[daemon] startup failed; captured stderr tail:\n${stderrTail}`)
-      }
-      releaseStderr()
-      killPidBestEffort(child.pid)
-      reject(
-        stderrTail ? new Error(`${error.message}\nDaemon stderr (tail):\n${stderrTail}`) : error
-      )
-    }
-    function onReadyMessage(msg: unknown): void {
-      if (msg && typeof msg === 'object' && (msg as { type?: string }).type === 'ready') {
-        if (settled) {
-          return
-        }
-        settled = true
-        // Why: the daemon process is detached after readiness; leaving
-        // startup listeners attached retains this launch promise closure.
-        cleanupStartupListeners()
-        if (child.pid) {
-          // Why the ready-message start-time fallback: Windows has no cheap OS
-          // query for start time, so the daemon self-reports it in the ready
-          // message — without this the pid-recycling guard was inert on win32.
-          const selfReported = (msg as { startedAtMs?: unknown }).startedAtMs
-          writeDaemonPidFile(
-            runtimeDir,
-            child.pid,
-            entryPath,
-            typeof selfReported === 'number' && Number.isFinite(selfReported) ? selfReported : null
-          )
-        }
-        // Why: disconnect IPC channel, release the stderr pipe, and unref so
-        // Electron can exit without waiting for the daemon. The daemon keeps
-        // running detached.
-        releaseStderr()
-        child.disconnect()
-        child.unref()
-        resolve()
-      }
-    }
-
-    function onStartupError(err: Error): void {
-      fail(err)
-    }
-
-    function onStartupExit(code: number | null): void {
-      fail(new Error(`Daemon exited during startup with code ${code}`))
-    }
-
-    timer = setTimeout(() => {
-      fail(new Error('Daemon startup timed out'))
-    }, 10000)
-
-    child.on('message', onReadyMessage)
-    child.on('error', onStartupError)
-    child.on('exit', onStartupExit)
-  })
-
-  return makeDaemonSigtermHandle(child.pid)
-}
-
 function createOutOfProcessLauncher(runtimeDir: string): DaemonLauncher {
-  // macOS/Linux: the Rust daemon is THE daemon — no Node fallback. Windows keeps
-  // the Node named-pipe daemon until the Rust transport lands there.
-  return async (socketPath, tokenPath) =>
-    rustDaemonEnabled()
-      ? launchRustDaemon(runtimeDir, socketPath, tokenPath)
-      : launchNodeDaemon(runtimeDir, socketPath, tokenPath)
+  // The Rust daemon is THE terminal daemon on every platform — no Node fallback.
+  return async (socketPath, tokenPath) => launchRustDaemon(runtimeDir, socketPath, tokenPath)
 }
 
 // Why: when the daemon process dies (e.g. killed by a signal, OOM, or cascading
@@ -795,10 +553,6 @@ async function runInitDaemonPtyProvider(signal?: AbortSignal): Promise<DaemonPro
   // throws, a stale spawner would prevent shutdownDaemon() from cleaning up
   // correctly on retry.
   const info = await newSpawner.ensureRunning()
-  // Reclaim superseded daemon-host copies on EVERY launch, not just on a fresh
-  // spawn: surviving daemons make spawns rare, so a spawn-only sweep would let
-  // old-version copies accumulate. Current + live-daemon-pinned versions stay.
-  pruneOldDaemonHosts(collectPinnedDaemonVersions(runtimeDir))
   const launchMode = newSpawner.getHandle()?.mode
   logDaemonMilestone('daemon-current-ready')
   if (signal?.aborted) {

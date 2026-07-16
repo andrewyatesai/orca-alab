@@ -110,8 +110,9 @@ describe('assert-bundled-binary-arch', () => {
     })
   })
 
-  it('skips the rust daemon on Windows but still checks the addon', async () => {
+  it('checks the rust daemon and the addon arch on Windows', async () => {
     await withTempDir(async (dir) => {
+      await writeFile(join(dir, 'orca-daemon.exe'), peHeader(0xaa64)) // arm64 daemon
       await writeFile(join(dir, 'orca_node.node'), peHeader(0xaa64)) // arm64 addon
       expect(() =>
         assertBundledBinaryArchitectures({
@@ -120,6 +121,19 @@ describe('assert-bundled-binary-arch', () => {
           arch: 1 // electron-builder Arch.x64
         })
       ).toThrow(/requires x64/)
+    })
+  })
+
+  it('throws when the rust daemon is missing from the Windows bundle', async () => {
+    await withTempDir(async (dir) => {
+      await writeFile(join(dir, 'orca_node.node'), peHeader(0x8664)) // x64 addon only
+      expect(() =>
+        assertBundledBinaryArchitectures({
+          resourcesDir: dir,
+          electronPlatformName: 'win32',
+          arch: 1 // electron-builder Arch.x64
+        })
+      ).toThrow(/orca-daemon\.exe/)
     })
   })
 

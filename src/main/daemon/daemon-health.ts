@@ -297,12 +297,13 @@ function commandLineMatchesDaemon(
   socketPath: string,
   tokenPath: string
 ): boolean {
-  // The Node daemon (Windows) runs `daemon-entry.js`; the Rust daemon (macOS/Linux
-  // default) runs the `orca-daemon` binary. Accept either marker —
-  // without this, isDaemonProcess/killStaleDaemon/getDaemonLaunchIdentity never
-  // recognize a live Rust daemon (its cmdline lacks 'daemon-entry'), so a stale
-  // Rust daemon is neither killed nor identity-checked. The (per-daemon unique)
-  // socket + token paths keep the match specific.
+  // The Rust daemon (every platform) runs the `orca-daemon` binary — that is the
+  // live marker. The `daemon-entry` marker is retained SOLELY for cross-upgrade
+  // recognition: a user upgrading from a pre-Rust (Node named-pipe daemon) build
+  // may still have a `daemon-entry.js` daemon running on the pipe, and
+  // isDaemonProcess/killStaleDaemon/getDaemonLaunchIdentity must still recognize it
+  // to kill/replace it — otherwise the upgraded app can't reclaim the socket. The
+  // (per-daemon unique) socket + token paths keep the match specific.
   return (
     (commandLine.includes('daemon-entry') || commandLine.includes('orca-daemon')) &&
     commandLine.includes(socketPath) &&

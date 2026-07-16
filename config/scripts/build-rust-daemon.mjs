@@ -1,13 +1,12 @@
 #!/usr/bin/env node
 
-// Build the release orca-daemon binary (rust/target/release/orca-daemon). The
-// Rust daemon is THE terminal daemon on macOS/Linux with NO Node fallback, so its
-// binary is a REQUIRED build artifact: electron-builder bundles it to
-// Resources/orca-daemon (rustDaemonResource) and fails the build if it is missing.
-// This step produces it, guaranteeing "one correct solution that always works".
-//
-// Windows is skipped — there the Rust daemon's Unix-socket transport does not
-// exist, so Windows ships the Node named-pipe daemon and never bundles this binary.
+// Build the release orca-daemon binary (rust/target/release/orca-daemon, or
+// orca-daemon.exe on Windows). The Rust daemon is THE terminal daemon on every
+// platform with NO Node fallback, so its binary is a REQUIRED build artifact:
+// electron-builder bundles it to Resources/orca-daemon(.exe) (rustDaemonResource /
+// rustDaemonResourceWin) and fails the build if it is missing. This step produces
+// it, guaranteeing "one correct solution that always works". On Windows the
+// named-pipe transport (orca-winpipe) resolves fully offline via rust/vendor.
 //
 // Toolchain: the orca-crates workspace needs rustc 1.96, but the machine default
 // cargo can be a Homebrew 1.95 shadow that also shadows its child rustc. Pin BOTH
@@ -25,14 +24,11 @@ import {
   resolveMacBuildArches
 } from './mac-build-arches.mjs'
 
-if (process.platform === 'win32') {
-  console.log('[build-rust-daemon] skipped on Windows (Node daemon is the Windows implementation)')
-  process.exit(0)
-}
-
 const projectDir = resolve(import.meta.dirname, '../..')
 const manifest = resolve(projectDir, 'rust/Cargo.toml')
-const binPath = resolve(projectDir, 'rust/target/release/orca-daemon')
+// Cargo appends .exe on Windows; the packaged resource + resolver expect the same.
+const binExt = process.platform === 'win32' ? '.exe' : ''
+const binPath = resolve(projectDir, `rust/target/release/orca-daemon${binExt}`)
 
 function rustupBin(tool) {
   const r = spawnSync('rustup', ['which', tool, '--toolchain', 'stable'], { encoding: 'utf8' })

@@ -159,6 +159,67 @@ export class AtermTerminal {
      */
     note_matrix_rain_signal(code: number, weight: number): void;
     /**
+     * Register a Backspace: cancels our OWN trailing guess only (erasing
+     * already-committed real content is left to the program's echo). Returns
+     * whether state changed.
+     */
+    predict_backspace(): boolean;
+    /**
+     * Register a printable character the host just wrote to the PTY (the
+     * keydown seam — call beside `encode_key`). The guess anchors at the
+     * engine's live cursor, extends pending type-ahead, and never crosses the
+     * right margin. Returns whether a guess is now TRACKED — display is a
+     * separate gate (see [`predict_overlay`](Self::predict_overlay)).
+     */
+    predict_char(ch: string): boolean;
+    /**
+     * Register a plain Enter (the SUBMIT boundary — call when the host writes
+     * the line terminator to the PTY). Ends the confirmation epoch: the NEXT
+     * line must re-confirm an echo before `adaptive` displays anything.
+     * LOAD-BEARING for password safety on a terminal scrolled to the bottom,
+     * where the cursor REUSES one physical row across logical lines: without
+     * it, a non-echoing password prompt landing on the same row as a just-
+     * confirmed command would inherit that confirmation and flash the secret
+     * (the native `note_line_submit` seam). Cheap no-op when nothing pends.
+     */
+    predict_line_submit(): void;
+    /**
+     * Milliseconds until the oldest pending guess self-expires (the glitch
+     * flush), or `undefined` when none is pending. Arm ONE timer for this and
+     * call [`predict_overlay`](Self::predict_overlay) + repaint there, so a
+     * stale ghost is erased even when no further input or output arrives.
+     */
+    predict_next_deadline_ms(): number | undefined;
+    /**
+     * The ghost cells to paint THIS frame, as flat `[row, col, codepoint]`
+     * triples (a `Uint32Array` in JS). The host renders them tentatively
+     * (dim/underline) and may advance its DRAWN cursor past the last one,
+     * mosh-style. Runs the expiry self-heal first, then the display gate:
+     * `always` ⇒ all pending; `adaptive` ⇒ all pending the moment an echo is
+     * confirmed on this line (instant epoch-gated echo — no link-speed
+     * threshold). Empty while scrolled into history (guesses are active-grid
+     * coords; the viewport is not).
+     */
+    predict_overlay(): Uint32Array;
+    /**
+     * Reconcile pending guesses against the grid — call after `process()`
+     * applies a PTY chunk. Confirmed leading guesses retire (arming the
+     * epoch's display gate), any divergence flushes the set, and a no-echo
+     * context refuses prediction outright — the alternate screen (vim/less/
+     * htop) OR kitty REPORT_ALL_KEYS_AS_ESC, whose apps never receive echoing
+     * text (the native gate). While scrolled into history only the expiry
+     * self-heal runs: guesses live in ACTIVE-grid coords, so the scrollback
+     * view is never reconciled against them (the native discipline).
+     */
+    predict_reconcile(): void;
+    /**
+     * Drop all in-flight guesses — the coordinate space changed (`resize`
+     * calls this automatically; the host calls it on pane swaps). The
+     * confirmation epoch is forgotten too, so `adaptive` re-confirms an echo
+     * before displaying again.
+     */
+    predict_reset(): void;
+    /**
      * Feed raw PTY output bytes into the engine.
      */
     process(bytes: Uint8Array): void;
@@ -560,6 +621,15 @@ export class AtermTerminal {
      * defaults. Per-cell truecolor SGR still flows independently.
      */
     set_palette_color(index: number, r: number, g: number, b: number): void;
+    /**
+     * Set the predictive-echo display mode: `"off"` (the default) |
+     * `"adaptive"` (instant epoch-gated echo: show the moment one guess has
+     * been confirmed on the current line, proving the app line-echoes — the
+     * recommended setting) | `"always"` (power users / demos). Case-
+     * insensitive; unknown strings fail safe to `off` — the native
+     * `predictive_echo` domain.
+     */
+    set_predictive_echo(mode: string): void;
     /**
      * Swap the PRIMARY face (the host's `terminalFontFamily`) from font bytes and
      * re-rasterize. The host re-reads cell_width/cell_height + recomputes the grid
@@ -1107,6 +1177,12 @@ export interface InitOutput {
     readonly atermterminal_note_matrix_rain_alt_scroll: (a: number) => void;
     readonly atermterminal_note_matrix_rain_bell: (a: number) => void;
     readonly atermterminal_note_matrix_rain_signal: (a: number, b: number, c: number) => void;
+    readonly atermterminal_predict_backspace: (a: number) => number;
+    readonly atermterminal_predict_char: (a: number, b: number) => number;
+    readonly atermterminal_predict_line_submit: (a: number) => void;
+    readonly atermterminal_predict_next_deadline_ms: (a: number) => [number, number];
+    readonly atermterminal_predict_overlay: (a: number) => [number, number];
+    readonly atermterminal_predict_reconcile: (a: number) => void;
     readonly atermterminal_process: (a: number, b: number, c: number) => void;
     readonly atermterminal_process_str: (a: number, b: number, c: number) => void;
     readonly atermterminal_pump_reflow: (a: number) => number;
@@ -1169,6 +1245,7 @@ export interface InitOutput {
     readonly atermterminal_set_matrix_rain_reduced_motion: (a: number, b: number) => void;
     readonly atermterminal_set_minimum_contrast: (a: number, b: number) => void;
     readonly atermterminal_set_palette_color: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly atermterminal_set_predictive_echo: (a: number, b: number, c: number) => void;
     readonly atermterminal_set_primary_font: (a: number, b: number, c: number) => [number, number];
     readonly atermterminal_set_px: (a: number, b: number) => void;
     readonly atermterminal_set_scrollback_limit: (a: number, b: number) => void;
@@ -1214,6 +1291,7 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
+    readonly atermterminal_predict_reset: (a: number) => void;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

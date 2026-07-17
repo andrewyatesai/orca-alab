@@ -609,6 +609,94 @@ export class AtermGpuTerminal {
         wasm.atermgputerminal_note_matrix_rain_signal(this.__wbg_ptr, code, weight);
     }
     /**
+     * Register a Backspace: cancels our OWN trailing guess only (erasing
+     * already-committed real content is left to the program's echo). Returns
+     * whether state changed.
+     * @returns {boolean}
+     */
+    predict_backspace() {
+        const ret = wasm.atermgputerminal_predict_backspace(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Register a printable character the host just wrote to the PTY (the
+     * keydown seam — call beside `encode_key`). The guess anchors at the
+     * engine's live cursor, extends pending type-ahead, and never crosses the
+     * right margin. Returns whether a guess is now TRACKED — display is a
+     * separate gate (see [`predict_overlay`](Self::predict_overlay)).
+     * @param {string} ch
+     * @returns {boolean}
+     */
+    predict_char(ch) {
+        const char0 = ch.codePointAt(0);
+        _assertChar(char0);
+        const ret = wasm.atermgputerminal_predict_char(this.__wbg_ptr, char0);
+        return ret !== 0;
+    }
+    /**
+     * Register a plain Enter (the SUBMIT boundary — call when the host writes
+     * the line terminator to the PTY). Ends the confirmation epoch: the NEXT
+     * line must re-confirm an echo before `adaptive` displays anything.
+     * LOAD-BEARING for password safety on a terminal scrolled to the bottom,
+     * where the cursor REUSES one physical row across logical lines: without
+     * it, a non-echoing password prompt landing on the same row as a just-
+     * confirmed command would inherit that confirmation and flash the secret
+     * (the native `note_line_submit` seam). Cheap no-op when nothing pends.
+     */
+    predict_line_submit() {
+        wasm.atermgputerminal_predict_line_submit(this.__wbg_ptr);
+    }
+    /**
+     * Milliseconds until the oldest pending guess self-expires (the glitch
+     * flush), or `undefined` when none is pending. Arm ONE timer for this and
+     * call [`predict_overlay`](Self::predict_overlay) + repaint there, so a
+     * stale ghost is erased even when no further input or output arrives.
+     * @returns {number | undefined}
+     */
+    predict_next_deadline_ms() {
+        const ret = wasm.atermgputerminal_predict_next_deadline_ms(this.__wbg_ptr);
+        return ret[0] === 0 ? undefined : ret[1];
+    }
+    /**
+     * The ghost cells to paint THIS frame, as flat `[row, col, codepoint]`
+     * triples (a `Uint32Array` in JS). The host renders them tentatively
+     * (dim/underline) and may advance its DRAWN cursor past the last one,
+     * mosh-style. Runs the expiry self-heal first, then the display gate:
+     * `always` ⇒ all pending; `adaptive` ⇒ all pending the moment an echo is
+     * confirmed on this line (instant epoch-gated echo — no link-speed
+     * threshold). Empty while scrolled into history (guesses are active-grid
+     * coords; the viewport is not).
+     * @returns {Uint32Array}
+     */
+    predict_overlay() {
+        const ret = wasm.atermgputerminal_predict_overlay(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * Reconcile pending guesses against the grid — call after `process()`
+     * applies a PTY chunk. Confirmed leading guesses retire (arming the
+     * epoch's display gate), any divergence flushes the set, and a no-echo
+     * context refuses prediction outright — the alternate screen (vim/less/
+     * htop) OR kitty REPORT_ALL_KEYS_AS_ESC, whose apps never receive echoing
+     * text (the native gate). While scrolled into history only the expiry
+     * self-heal runs: guesses live in ACTIVE-grid coords, so the scrollback
+     * view is never reconciled against them (the native discipline).
+     */
+    predict_reconcile() {
+        wasm.atermgputerminal_predict_reconcile(this.__wbg_ptr);
+    }
+    /**
+     * Drop all in-flight guesses — the coordinate space changed (`resize`
+     * calls this automatically; the host calls it on pane swaps). The
+     * confirmation epoch is forgotten too, so `adaptive` re-confirms an echo
+     * before displaying again.
+     */
+    predict_reset() {
+        wasm.atermgputerminal_predict_line_submit(this.__wbg_ptr);
+    }
+    /**
      * Feed raw PTY output bytes into the engine.
      * @param {Uint8Array} bytes
      */
@@ -1345,6 +1433,20 @@ export class AtermGpuTerminal {
      */
     set_palette_color(index, r, g, b) {
         wasm.atermgputerminal_set_palette_color(this.__wbg_ptr, index, r, g, b);
+    }
+    /**
+     * Set the predictive-echo display mode: `"off"` (the default) |
+     * `"adaptive"` (instant epoch-gated echo: show the moment one guess has
+     * been confirmed on the current line, proving the app line-echoes — the
+     * recommended setting) | `"always"` (power users / demos). Case-
+     * insensitive; unknown strings fail safe to `off` — the native
+     * `predictive_echo` domain.
+     * @param {string} mode
+     */
+    set_predictive_echo(mode) {
+        const ptr0 = passStringToWasm0(mode, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.atermgputerminal_set_predictive_echo(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * Swap the PRIMARY face (the host's `terminalFontFamily`) from font bytes and

@@ -466,11 +466,14 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   signature matches the live export** (the verifier's key restriction — TRUSTED kernels with narrowed
   types can't ship as-is); promotion re-runs autoformalize against the real module source; ships
   through the existing one-export orca-dispatch seam. Inventory honesty (full census 2026-07-16, after
-  the discovery-coverage fix): **63 TRUSTED / 243 runnable / 0 declined / 0 soundness breaks** — the
-  numerator moved 54→63 purely by recovering kernels a mechanical discovery bug was dropping, NOT by
-  re-tallying; `pnpm gauntlet:autoformalize` is the numerator, not a hand-count. (Caveat: the 6
-  `_bug`/`_naive` soundness controls are twin-less and skipped, so "0 soundness breaks" = no control
-  ran, not a control passing — a separate coverage gap.)
+  the discovery-coverage fix + soundness-control twins): **63 TRUSTED / 249 runnable / 0 declined / 6
+  controls refuted / 0 soundness breaks** — the numerator moved 54→63 purely by recovering kernels a
+  mechanical discovery bug was dropping, NOT by re-tallying; `pnpm gauntlet:autoformalize` is the
+  numerator, not a hand-count. The 6 `_bug`/`_naive` controls now have correct `.ts` twins, so they RUN
+  and are all rejected — W1 catches the unchecked cast/add/u64-accumulate (countws/fontsize/csiparams),
+  W2 the semantic divergence (packrgb/unpackrgb/sumpos) — so "0 soundness breaks" now means every bad
+  port was caught, closing the earlier vacuous-control gap. (The census depends on the local
+  `~/trust/tools/ts2rust` corpus, not reproducible from the orc repo alone.)
   - **First seam promotion LANDED 2026-07-16 (63e53d894):** the E1-certified,
     autoformalize-TRUSTED `orca-provider-backoff` core (capped-exponential refetch throttle) now flows
     through the production orca-dispatch registry as parity module `provider-backoff` — live TS adapter

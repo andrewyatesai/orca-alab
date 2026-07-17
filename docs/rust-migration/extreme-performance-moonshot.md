@@ -412,17 +412,18 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   in ~2s with no invariant (recovered countLinesEmptyAsZero, 73). Net census **54→73**.
   **↳ REPRODUCIBLE blocker breakdown (`pnpm blocker-census`, `tools/autoformalize-blocker-census.mjs`,
   2026-07-16):** the manual per-kernel analysis above is now a machine-run classifier — it re-runs each
-  kernel's W1 (the driver's serde-stripped lib wrap) and buckets every UNPROVEN obligation. Full corpus:
-  **249 kernels · 75 W1-verified · 174 W1-incomplete · 24 formulation-recoverable · 150 solver-residue.**
-  By blocker class (kernels carrying it): `unsupported-mir-drop` 115 (owned-String builders — the dominant
-  residue), `absent-callee-iter` 45, `absent-callee-other` 38, `unsupported-mir-arith` 28,
-  `absent-callee-alloc` 23, `timeout` 12, `unsupported-mir-bounds` 12, `other` 11. The **24
-  formulation-recoverable** (only absent-callee alloc/iter, no drop/arith/division) are an UPPER BOUND on
-  further &str/byte-scan harvest — the faithful subset is smaller (a `chars` iterator over a broad-Unicode
-  predicate like `contains_braille` is NOT byte-safe; controls like `countws_bug` must stay refuted). This
-  finding corrects my own "the vein is thin (1/5)": automation surfaces MORE candidates than the manual
-  `-> String` scan did (it also catches bool-returning `chars`-predicate kernels). The residue split is
-  now a reproducible number, not a hand-estimate.
+  kernel's W1 (the driver's serde-stripped lib wrap) and buckets every UNPROVEN obligation. Corpus at the
+  start of the harvest: 249 · 75 W1-verified · 174 incomplete · 24 formulation-recoverable · 150 residue.
+  **After the harvest (re-run 2026-07-17): 249 kernels · 89 W1-verified · 160 W1-incomplete · 10
+  formulation-recoverable · 150 solver-residue** — 14 of the 24 recoverable candidates were harvested
+  (recoverable 24→10), and the residue is now cleanly dominated by owned-String builders. By blocker class
+  (kernels carrying it): `unsupported-mir-drop` 115 (owned-String builders — the residue), `absent-callee-
+  other` 38, `absent-callee-iter` 35, `unsupported-mir-arith` 28, `absent-callee-alloc` 19, `timeout` 12,
+  `unsupported-mir-bounds` 12, `other` 11. The remaining **10 formulation-recoverable** are an UPPER BOUND
+  (the faithful subset is smaller — char-level NFAs with non-ASCII semantics, broad-Unicode predicates like
+  `contains_braille`, and nested split+closure scans are NOT behaviour-preservingly recoverable). The
+  residue split is a reproducible number, not a hand-estimate; the 115 owned-String builders are the
+  soundness-model-gated class (see the verified-root-cause note above).
   **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
   decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from
   landed E1 units, spanning 4 of the 6 E1 crates — each W1 `trustc` VERIFIED + W2 0 divergences:

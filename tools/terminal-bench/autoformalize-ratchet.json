@@ -1,7 +1,7 @@
 {
-  "minTrusted": 54,
+  "minTrusted": 63,
   "measured": "2026-07-16",
-  "total": 218,
-  "faithfulMiss": 165,
-  "note": "pnpm gauntlet:autoformalize; drop = a kernel stopped verifying"
+  "total": 243,
+  "faithfulMiss": 180,
+  "note": "pnpm gauntlet:autoformalize; drop = a kernel stopped verifying. 63/243 after the discovery-coverage fix (trailing-comma param, generic/lifetime sig, lifetime-stripped argspec) recovered 25 runnable / +9 TRUSTED over the prior 54/218. The 6 _bug/_naive soundness controls are currently twin-less -> skipped, so 'no soundness break' means no control RAN, not that a control passed (separate coverage gap)."
 }

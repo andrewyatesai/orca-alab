@@ -360,7 +360,9 @@ function locateTrustc() {
 }
 
 function rustTypeToArgspec(ty, src) {
-  const t = ty.replace(/\s+/gu, '')
+  // Strip lifetime annotations (`&'a str`, `&[&'a str]`) before matching — they are
+  // invisible to the fuzz argspec, which cares only about the value shape.
+  const t = ty.replace(/'[a-z_]\w*\b/gu, '').replace(/\s+/gu, '')
   if (PRIM.has(t)) {
     return t
   }
@@ -392,21 +394,27 @@ function discoverCorpus(orcaDir) {
       continue // the driver needs a same-named .ts reference kernel
     }
     const src = readFileSync(join(orcaDir, rs), 'utf8')
-    const sig = src.match(/pub\s+fn\s+(\w+)\s*\(([^)]*)\)/u)
+    // Allow a generic/lifetime clause between the fn name and the arg list
+    // (`pub fn f<'a>(…)`) — the shape of the &str-slice kernels.
+    const sig = src.match(/pub\s+fn\s+(\w+)\s*(?:<[^>]*>)?\s*\(([^)]*)\)/u)
     if (!sig) {
       continue
     }
-    // A bare-tuple return (`-> (i32, i32)`) has no single differential-oracle value
-    // for W2 to diff, so skip it rather than emit a false NOT-TRUSTED. (Struct/Vec/
-    // Option returns DO serialize to one JSON value and are handled.)
-    const ret = src.match(/pub\s+fn\s+\w+\s*\([\s\S]*?\)\s*->\s*([^{]+)\{/u)
-    if (ret && ret[1].trim().startsWith('(')) {
-      continue
-    }
+    // A tuple return (`-> (u16, u16)`) serializes to ONE JSON array via serde,
+    // matching a TS twin that returns `[a, b]` — the W2 harness diffs it fine
+    // (verified: b11_gridsize/b11_pointcell are TRUSTED), so it is NOT skipped.
     const params = sig[2].trim()
     const specs = []
     let ok = true
-    for (const p of params ? params.split(',') : []) {
+    // Filter empties so a trailing comma in a multi-line signature
+    // (`cell_height: u16,\n)`) does not split into a phantom empty param that
+    // falsely declines an otherwise-runnable kernel.
+    for (const p of params
+      ? params
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : []) {
       const a = rustTypeToArgspec(p.split(':').slice(1).join(':'), src)
       if (!a) {
         ok = false

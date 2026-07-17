@@ -395,6 +395,21 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   THREE classes: allocation-formulation (bounded-recoverable, now mostly harvested — last scan 1/5),
   loop-invariant-synthesis (~the 104), and nonlinear/division (the residue). Only the last two are genuinely
   research-scope. The rank-ordering above still holds for the *solver* residue.
+  **↳ VERIFIED ROOT CAUSE of the absent-callee wall + why the residue is owner-gated (read the trustc
+  source, 2026-07-16):** the "absent callee may panic" obligation is emitted by a DELIBERATE,
+  soundness-critical, **ABI-gated fail-closed** boundary (`trust_verify.rs:10473-10516`,
+  `extern_abi_is_non_unwinding` — comment: "The soundness-critical ABI whitelist … stay fail-closed").
+  trustc discharges an out-of-bundle call's panic-freedom ONLY when the callee's ABI is a non-unwinding
+  C-family boundary (a panic there ABORTS, can't unwind into the caller) or it is `#[trust::skip]`'d. Std
+  methods like `to_string`/`chars`/`collect` are `extern "Rust"` (CAN unwind — allocation OOM-panics), so
+  trustc CORRECTLY refuses to assume them panic-free. So the `&str`/byte-scan recoveries are the *sound*
+  move — they REMOVE the panicking callee, not assume it away. The residue that genuinely NEEDS allocation
+  (string builders) or a code-unit iterator can only be discharged by a **soundness-model decision**
+  (axiomatize std/alloc panic-freedom via `#[trust::ensures]` contracts or bundle std) — which changes what
+  TRUSTED *guarantees* (OOM-panic in scope or not) and is therefore an OWNER call + a stage2 rebuild, not a
+  bounded fix. Later loop diagnosis (`f853ee7b5`): the ~104 "loop kernels" are ALSO not uniformly
+  invariant-gated — a byte-scan (`as_bytes()`+`.get()`+saturating) clears the ASCII-single-code subclass
+  in ~2s with no invariant (recovered countLinesEmptyAsZero, 73). Net census **54→73**.
   **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
   decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from
   landed E1 units, spanning 4 of the 6 E1 crates — each W1 `trustc` VERIFIED + W2 0 divergences:

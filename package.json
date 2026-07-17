@@ -125,7 +125,9 @@
     "corpus:metrics": "node tools/parity-corpus-metrics.mjs",
     "corpus:check": "node tools/parity-corpus-metrics.mjs --check",
     "blocker-census": "node tools/autoformalize-blocker-census.mjs",
-    "spec:flow-control": "node tools/specs/check-pty-flow-control.mjs"
+    "spec:flow-control": "node tools/specs/check-pty-flow-control.mjs",
+    "spec:exit-delivery": "node tools/specs/check-pty-exit-delivery.mjs",
+    "spec:protocols": "node tools/specs/check-pty-flow-control.mjs && node tools/specs/check-pty-exit-delivery.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

@@ -453,13 +453,24 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
 - **F3 Real TS front-end** [L]: vendor swc/oxc — inferred argspecs, auto-extracted oracles, generated
   Rust skeletons; agents only fill `todo!()` bodies. Target: an order-of-magnitude drop in
   agent-minutes-per-TRUSTED-pair.
+  - **Discovery-coverage fix LANDED 2026-07-16 (602515a19):** the census's Rust-signature→argspec
+    inference (the argspec half of F3, already in `gauntlet.mjs`) was silently declining/skipping 25
+    already-ported kernels for three MECHANICAL reasons — a trailing comma in a multi-line signature
+    splitting into a phantom empty param (22), a generic/lifetime clause (`fn f<'a>(…)`) breaking the
+    sig regex, and lifetime annotations (`&'a str`) missing the argspec table — plus a needless
+    bare-tuple-return skip (a tuple serializes to one JSON array, so W2 diffs it fine). Fixing all four:
+    **63 TRUSTED / 243 runnable / 0 declined** (was 54/218), ratchet floor 54→63. So argspec inference
+    now covers 100% of the ported corpus; the remaining F3 `[L]` is the swc/oxc auto-EXTRACTION of NEW
+    kernels + skeleton generation, not the argspec derivation.
 - **F4 Close the loop** [L]: unattended classify→port→verify→promote for in-fragment kernels **whose
   signature matches the live export** (the verifier's key restriction — TRUSTED kernels with narrowed
   types can't ship as-is); promotion re-runs autoformalize against the real module source; ships
-  through the existing one-export orca-dispatch seam. Inventory honesty (full census 2026-07-16):
-  **54 TRUSTED / 218 gate-runnable** / 243 corpus pairs — NOT a padded 247, and NOT the long-tracked
-  "146/208" (which never matched the reproducible gate); `pnpm gauntlet:autoformalize` is the numerator,
-  not a hand-tally.
+  through the existing one-export orca-dispatch seam. Inventory honesty (full census 2026-07-16, after
+  the discovery-coverage fix): **63 TRUSTED / 243 runnable / 0 declined / 0 soundness breaks** — the
+  numerator moved 54→63 purely by recovering kernels a mechanical discovery bug was dropping, NOT by
+  re-tallying; `pnpm gauntlet:autoformalize` is the numerator, not a hand-count. (Caveat: the 6
+  `_bug`/`_naive` soundness controls are twin-less and skipped, so "0 soundness breaks" = no control
+  ran, not a control passing — a separate coverage gap.)
   - **First seam promotion LANDED 2026-07-16 (63e53d894):** the E1-certified,
     autoformalize-TRUSTED `orca-provider-backoff` core (capped-exponential refetch throttle) now flows
     through the production orca-dispatch registry as parity module `provider-backoff` — live TS adapter

@@ -1,6 +1,6 @@
 /* oxlint-disable max-lines */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { DaemonClient } from './client'
@@ -1348,6 +1348,46 @@ describe('DaemonPtyAdapter (IPtyProvider)', () => {
         cols: 120,
         rows: 40
       })
+    })
+
+    it('repairs legacy hostname UNC cwd for WSL spawn and cold-restore metadata', async () => {
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      try {
+        const sessionId = 'wsl-legacy-cwd'
+        const sessionDir = join(historyDir, getHistorySessionDirName(sessionId))
+        mkdirSync(sessionDir, { recursive: true })
+        writeFileSync(
+          join(sessionDir, 'meta.json'),
+          JSON.stringify({
+            cwd: `\\\\${hostname()}\\home\\jin`,
+            cols: 80,
+            rows: 24,
+            startedAt: '2026-04-15T10:00:00Z',
+            endedAt: null,
+            exitCode: null
+          })
+        )
+        writeFileSync(join(sessionDir, 'scrollback.bin'), 'legacy WSL output\r\n')
+        historyAdapter = new DaemonPtyAdapter({ socketPath, tokenPath, historyPath: historyDir })
+
+        const result = await historyAdapter.spawn({
+          cols: 80,
+          rows: 24,
+          cwd: '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo',
+          terminalWindowsWslDistro: 'Debian',
+          sessionId
+        })
+
+        const repaired = '\\\\wsl.localhost\\Ubuntu\\home\\jin'
+        expect(lastSpawnOpts?.cwd).toBe(repaired)
+        expect(result.coldRestore?.cwd).toBe(repaired)
+        expect(result.wslDistro).toBe('Ubuntu')
+      } finally {
+        if (platform) {
+          Object.defineProperty(process, 'platform', platform)
+        }
+      }
     })
 
     it('returns cold restore OSC link ranges from checkpoint history', async () => {

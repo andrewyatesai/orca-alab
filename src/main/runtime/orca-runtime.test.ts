@@ -8648,6 +8648,7 @@ describe('OrcaRuntimeService', () => {
   it('keeps SSH OSC7 cwd POSIX when the desktop runtime is on Windows', async () => {
     setPlatform('win32')
     const runtime = new OrcaRuntimeService(store)
+    runtime.preparePtyExecutionContext('pty-ssh', 'Ubuntu', { resetIncarnation: true })
     runtime.registerPty('pty-ssh', TEST_WORKTREE_ID, 'ssh-conn-1')
 
     runtime.onPtyData('pty-ssh', '\x1b]7;file://remote-host/home/me/repo/src\x07', 123)
@@ -8655,9 +8656,78 @@ describe('OrcaRuntimeService', () => {
     const internals = runtime as unknown as {
       terminalCwdByPtyId: Map<string, string>
       terminalFileUriHostnameByPtyId: Map<string, string>
+      wslDistroByPtyId: Map<string, string>
     }
     expect(internals.terminalCwdByPtyId.get('pty-ssh')).toBe('/home/me/repo/src')
     expect(internals.terminalFileUriHostnameByPtyId.get('pty-ssh')).toBe('remote-host')
+    expect(internals.wslDistroByPtyId.has('pty-ssh')).toBe(false)
+  })
+
+  it('uses per-incarnation WSL context before registration and across simultaneous distros', () => {
+    setPlatform('win32')
+    const runtime = new OrcaRuntimeService(store)
+    runtime.preparePtyExecutionContext('pty-ubuntu', 'Ubuntu', { resetIncarnation: true })
+    runtime.preparePtyExecutionContext('pty-debian', 'Debian', { resetIncarnation: true })
+    runtime.registerPty('pty-ubuntu', TEST_WORKTREE_ID)
+    runtime.registerPty('pty-debian', TEST_WORKTREE_ID)
+
+    runtime.onPtyData('pty-ubuntu', '\x1b]7;file://DESKTOP/home/me/repo\x07', 1)
+    runtime.onPtyData('pty-debian', '\x1b]7;file://DESKTOP/home/me/repo\x07', 1)
+
+    const cwds = (runtime as unknown as { terminalCwdByPtyId: Map<string, string> })
+      .terminalCwdByPtyId
+    expect(cwds.get('pty-ubuntu')).toBe('\\\\wsl.localhost\\Ubuntu\\home\\me\\repo')
+    expect(cwds.get('pty-debian')).toBe('\\\\wsl.localhost\\Debian\\home\\me\\repo')
+  })
+
+  it('does not retain WSL context when a PTY id is reused', () => {
+    setPlatform('win32')
+    const runtime = new OrcaRuntimeService(store)
+    runtime.preparePtyExecutionContext('pty-reused', 'Ubuntu', { resetIncarnation: true })
+    runtime.registerPty('pty-reused', TEST_WORKTREE_ID)
+    runtime.onPtyExit('pty-reused', 0)
+
+    runtime.preparePtyExecutionContext('pty-reused', null, { resetIncarnation: true })
+    runtime.registerPty('pty-reused', TEST_WORKTREE_ID)
+    runtime.onPtyData('pty-reused', '\x1b]7;file://server/share/repo\x07', 1)
+
+    const cwds = (runtime as unknown as { terminalCwdByPtyId: Map<string, string> })
+      .terminalCwdByPtyId
+    expect(cwds.get('pty-reused')).toBe('\\\\server\\share\\repo')
+  })
+
+  it('preserves immutable context while a live daemon attach is unresolved', () => {
+    setPlatform('win32')
+    const runtime = new OrcaRuntimeService(store)
+    runtime.preparePtyExecutionContext('pty-attached', 'Ubuntu', { resetIncarnation: true })
+    runtime.registerPty('pty-attached', TEST_WORKTREE_ID)
+
+    const changed = runtime.preparePtyExecutionContext('pty-attached', 'Debian', {
+      preserveExisting: true
+    })
+    runtime.onPtyData('pty-attached', '\x1b]7;file://DESKTOP/home/me/repo\x07', 1)
+
+    const cwd = (
+      runtime as unknown as { terminalCwdByPtyId: Map<string, string> }
+    ).terminalCwdByPtyId.get('pty-attached')
+    expect(changed).toBe(false)
+    expect(cwd).toBe('\\\\wsl.localhost\\Ubuntu\\home\\me\\repo')
+  })
+
+  it('infers local reconstructed WSL context from a WSL UNC worktree', () => {
+    setPlatform('win32')
+    const runtime = new OrcaRuntimeService(store)
+    runtime.registerPty(
+      'pty-reconstructed',
+      `${TEST_REPO_ID}::\\\\wsl.localhost\\Ubuntu\\home\\me\\repo`
+    )
+
+    runtime.onPtyData('pty-reconstructed', '\x1b]7;file://DESKTOP/home/me/repo/src\x07', 1)
+
+    const cwd = (
+      runtime as unknown as { terminalCwdByPtyId: Map<string, string> }
+    ).terminalCwdByPtyId.get('pty-reconstructed')
+    expect(cwd).toBe('\\\\wsl.localhost\\Ubuntu\\home\\me\\repo\\src')
   })
 
   it('clears stale terminal file URI hostnames after empty-host OSC7 cwd updates', () => {

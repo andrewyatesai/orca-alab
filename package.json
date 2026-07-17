@@ -121,7 +121,8 @@
     "gauntlet:bootstrap": "node tools/terminal-bench/gauntlet.mjs bootstrap",
     "gauntlet:corpus": "node tools/terminal-bench/gauntlet.mjs corpus",
     "corpus:metrics": "node tools/parity-corpus-metrics.mjs",
-    "corpus:check": "node tools/parity-corpus-metrics.mjs --check"
+    "corpus:check": "node tools/parity-corpus-metrics.mjs --check",
+    "blocker-census": "node tools/autoformalize-blocker-census.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

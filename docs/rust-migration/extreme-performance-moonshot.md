@@ -383,6 +383,18 @@ a loop/iterator → LOOP-INVARIANT SYNTHESIS is the single highest-ROI trustc in
 straight-line (string/char index-bounds + nonlinear/division).** So the capability spend is rank-ordered:
 invariant synthesis first (unblocks ~104), then nonlinear/bounds theory (~61). Outputs sit
 in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
+  **⚠️ CORRECTION (later 2026-07-16) — "54 is the ceiling / the 61 straight-line are index-bounds +
+  nonlinear/division" was PARTLY WRONG.** Per-obligation probing (`trustc -Z trust-verify-output=json`)
+  of the simplest straight-line misses showed a THIRD blocker class the loop/division framing missed:
+  **allocation.** A kernel whose value is a borrowed substring or a string literal but that calls
+  `to_string()`/`String::from()`/`collect()` trips an absent-callee `may panic` assumption (the callee
+  body isn't in trustc's lowered bundle) — a *formulation* issue, not a solver gap. Returning the borrowed
+  `&str` (via the lowered `strip_*`/`trim`/`split_once`) or a `&'static str` literal clears it with zero
+  allocation. Recovered the census 54→72: **+9 discovery-coverage** (a mechanical decline bug, see F4
+  section) and **+9 allocation-gated** rewrites. So the ceiling was never 54, and the reservoir is a MIX of
+  THREE classes: allocation-formulation (bounded-recoverable, now mostly harvested — last scan 1/5),
+  loop-invariant-synthesis (~the 104), and nonlinear/division (the residue). Only the last two are genuinely
+  research-scope. The rank-ordering above still holds for the *solver* residue.
   **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
   decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from
   landed E1 units, spanning 4 of the 6 E1 crates — each W1 `trustc` VERIFIED + W2 0 divergences:
@@ -466,7 +478,7 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   signature matches the live export** (the verifier's key restriction — TRUSTED kernels with narrowed
   types can't ship as-is); promotion re-runs autoformalize against the real module source; ships
   through the existing one-export orca-dispatch seam. Inventory honesty (full census 2026-07-16, after
-  the discovery-coverage fix + soundness-control twins + the allocation-recovery pass): **71 TRUSTED /
+  the discovery-coverage fix + soundness-control twins + the allocation-recovery pass): **72 TRUSTED /
   249 runnable / 0 declined / 6 controls refuted / 0 soundness breaks** — the numerator moved 54→72 by
   recovering kernels, NOT re-tallying; `pnpm gauntlet:autoformalize` is the numerator, not a hand-count.
   The 6 `_bug`/`_naive` controls now have correct `.ts` twins, so they RUN and are all rejected — W1

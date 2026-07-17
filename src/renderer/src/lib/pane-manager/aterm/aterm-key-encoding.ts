@@ -17,6 +17,11 @@
 // REPORT_EVENT_TYPES releases); the engine emits nothing for them in legacy
 // mode. See aterm-textarea-input.ts.
 
+import {
+  isGenuineWindowsCtrlAltChord,
+  shouldRepairWindowsCtrlAltChords
+} from '../terminal-windows-ctrl-alt-chord-classification'
+
 /** Engine `Modifiers` bitfield (SHIFT=1 ALT=2 CTRL=4 SUPER=8). */
 export const ATERM_KEY_MOD_SHIFT = 1
 export const ATERM_KEY_MOD_ALT = 2
@@ -150,9 +155,17 @@ export function encodeKeyEventToBytes(
     }
     // Ctrl+Alt on a printable is AltGr composition on Windows/Linux layouts
     // ('@' on German). Only letter / C0-symbol chords are terminal input; other
-    // composed glyphs stay on the input path.
+    // composed glyphs stay on the input path — EXCEPT when Chromium's AltGraph
+    // rewrite proves this Windows Ctrl+Alt press cannot compose (#8810): a
+    // genuine chord must reach the engine encoder instead of going dead.
     if (event.ctrlKey && event.altKey && !/^[a-zA-Z[\]\\_ ]$/.test(key)) {
-      return null
+      const chordCannotCompose =
+        typeof navigator !== 'undefined' &&
+        shouldRepairWindowsCtrlAltChords(navigator.userAgent) &&
+        isGenuineWindowsCtrlAltChord(event)
+      if (!chordCannotCompose) {
+        return null
+      }
     }
   }
 

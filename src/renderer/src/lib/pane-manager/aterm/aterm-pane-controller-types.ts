@@ -69,6 +69,9 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  term_/task_ handles). Link hit-testing consults them when the engine reports
    *  no link at the hovered/clicked cell. */
   setLinkProviderSource: (source: AtermLinkProviderSource) => void
+  /** Invalidate the link-input's last-hovered-cell cache so the next mousemove
+   *  re-evaluates links even on an unchanged cell (pane reveal recovery). */
+  resetLinkHoverCache: () => void
   /** Late-bind the pane's durable cross-pane-spill overlay identity (makePaneKey
    *  tabId:leafId). Resolved at the controller-attach edge — the tab id is not
    *  knowable earlier — and retained across context-loss rebuilds. No-op unless

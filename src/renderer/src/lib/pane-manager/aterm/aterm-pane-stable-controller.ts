@@ -39,6 +39,7 @@ export function createStableAtermPaneController(
     setFileLinkOpener: (fn) => current().setFileLinkOpener(fn),
     setUrlLinkContext: (context) => current().setUrlLinkContext(context),
     setLinkProviderSource: (source) => current().setLinkProviderSource(source),
+    resetLinkHoverCache: () => current().resetLinkHoverCache(),
     bindSpillPaneKey: (paneKey) => current().bindSpillPaneKey(paneKey),
     onSelectionMutation: options.onSelectionMutation,
     updateTheme: (colors) => current().updateTheme(colors),

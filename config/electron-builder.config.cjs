@@ -35,6 +35,12 @@ const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
   to: 'onboarding/feature-wall'
 }
+// Why: freshness detection needs immutable identity metadata from this exact
+// app build, but never needs the skill package bytes or a runtime network read.
+const skillFreshnessResources = {
+  from: 'resources/skills',
+  to: 'skills'
+}
 // Why: SSH relay deploy resolves bundles from process.resourcesPath in packaged
 // apps. Keeping relay assets as extraResources makes them real directories
 // instead of paths hidden inside app.asar.
@@ -94,7 +100,8 @@ const commonExtraResources = [
   relayExtraResource,
   terminalAddonResource,
   ...thirdPartyLicenseResources,
-  ...packagedRuntimeNodeModuleResources
+  ...packagedRuntimeNodeModuleResources,
+  skillFreshnessResources
 ]
 const macSpeechNativeResource = {
   from: 'node_modules/sherpa-onnx-darwin-${arch}',
@@ -143,6 +150,10 @@ module.exports = {
     // authoring sources too would duplicate content without a runtime consumer.
     '!skill-guides{,/**/*}',
     '!tests{,/**/*}',
+    // Why: pr-evidence/ is a local e2e screenshot output (ORCA_CAPTURE_EVIDENCE);
+    // it is gitignored, but exclude it defensively so a stray local capture at
+    // package time never bloats app.asar.
+    '!pr-evidence{,/**/*}',
     '!Casks{,/**/*}',
     '!{AGENTS.md,CLAUDE.md,DEVELOPING.md,THIRD-PARTY-NOTICES.md,bundle-size-progress.md}',
     '!out/**/*.test.js',
@@ -152,7 +163,8 @@ module.exports = {
     '!tsconfig.json',
     // Why: feature-wall media is copied via extraResources so runtime can read
     // it from process.resourcesPath; exclude the source copy from app.asar.
-    '!resources/onboarding/feature-wall/**'
+    '!resources/onboarding/feature-wall/**',
+    '!resources/skills/**'
   ],
   // Why: the CLI entry-point lives in out/cli/ but imports shared modules
   // from out/shared/ and local hook mutators from out/main/. These paths must be

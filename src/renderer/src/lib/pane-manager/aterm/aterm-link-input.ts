@@ -53,6 +53,10 @@ export type AtermLinkInput = {
    *  The draw paths read this each frame to paint the hover underline; it's
    *  cleared whenever the pointer leaves the link / a non-link cell / alt-screen. */
   hoveredSpan: () => AtermHoveredLinkSpan | null
+  /** Invalidate the last-hovered-cell cache so the NEXT mousemove re-evaluates
+   *  links even when the pointer returns to the same cell (reveal recovery —
+   *  buffer content may have changed while the pane was hidden). */
+  resetHoverCache: () => void
   dispose: () => void
 }
 
@@ -365,6 +369,12 @@ export function attachAtermLinkInput(deps: AtermLinkDeps): AtermLinkInput {
 
   return {
     hoveredSpan: () => hovered,
+    resetHoverCache: () => {
+      // Only the same-cell short-circuit is dropped; the current hover/underline
+      // stays until the next mousemove re-evaluates it (mirrors upstream #9061).
+      lastCol = -1
+      lastRow = -1
+    },
     dispose: () => {
       // Cancel a queued hover frame so evaluateHover can't run after teardown.
       if (hoverRafId !== null) {

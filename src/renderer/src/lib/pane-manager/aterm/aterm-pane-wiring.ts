@@ -338,6 +338,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     setFileLinkOpener: (fn: AtermFileLinkOpener) => void (shared.fileLinkOpener = fn),
     setUrlLinkContext: (context: AtermLinkContext) => void (shared.activeLinkContext = context),
     setLinkProviderSource: (src: AtermLinkProviderSource) => void (shared.linkProviderSource = src),
+    resetLinkHoverCache: () => linkInput.resetHoverCache(),
     bindSpillPaneKey: spill.bindSpillPaneKey,
     onSelectionMutation: (handler: () => void) => void selectionMutationListeners.add(handler),
     resize: (nextCols: number, nextRows: number) => gridSizing.resize(nextCols, nextRows),

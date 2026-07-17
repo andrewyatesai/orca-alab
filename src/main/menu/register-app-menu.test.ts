@@ -19,6 +19,13 @@ vi.mock('electron', () => ({
   }
 }))
 
+// Why: the coordinator window pulls in @electron-toolkit/utils, whose real ESM
+// import of the CJS electron stub fails under vitest; the menu only needs the
+// open entry point.
+vi.mock('../coordinator-window', () => ({
+  openCoordinatorWindow: vi.fn()
+}))
+
 import { getNextDefaultOnAppearanceSettingValue, registerAppMenu } from './register-app-menu'
 
 const isMac = process.platform === 'darwin'

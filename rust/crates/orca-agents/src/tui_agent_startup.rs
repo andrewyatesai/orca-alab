@@ -13,6 +13,12 @@
 //! That helper has not been ported yet, so it is intentionally not re-exported
 //! here (the plan builders do not depend on it); add the re-export once the
 //! source function lands.
+//!
+//! Session options (upstream #9085): the native-chat per-model picker flags are
+//! layered over this core's option-free plan by the TS wrappers
+//! (`tui-agent-session-option-splice.ts`) — the catalogs are TS closures, and
+//! this core's resolved command IS `commandWithoutSessionOptions` (what the
+//! launch-config snapshot must keep), so the base plan here stays unchanged.
 
 use crate::tui_agent_config::{tui_agent_config, AgentPromptInjectionMode, TuiAgentConfig};
 use crate::tui_agent_startup_shell::{clear_env_command, command_separator};

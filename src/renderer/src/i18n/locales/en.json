@@ -25,12 +25,16 @@
         "geminiToggleDescription": "Show Gemini token and cost usage for the active workspace.",
         "opencodeGoToggleDescription": "Show OpenCode Go token and cost usage for the active workspace.",
         "kimiToggleDescription": "Show Kimi subscription usage for the active workspace.",
+        "minimaxToggleDescription": "Show MiniMax subscription usage for the active workspace.",
         "sshToggleDescription": "Show configured SSH and remote Orca hosts when any are available.",
         "resourceUsageToggleDescription": "Show the Resource Manager. Click it for CPU, memory, sessions, daemon controls, and workspace disk scans.",
         "portsToggleDescription": "Show live workspace ports. Click it for workspace-scoped ports and external listeners.",
-        "minimaxToggleDescription": "Show MiniMax subscription usage for the active workspace.",
         "antigravityToggleDescription": "Show Antigravity subscription usage for the active workspace.",
         "grokToggleDescription": "Show Grok subscription credit usage when signed in via Grok CLI."
+      },
+      "menuBarIcon": {
+        "title": "Show Menu Bar Icon",
+        "description": "Keep an Orca shortcut and activity indicator in the macOS menu bar."
       }
     },
     "about": {
@@ -78,15 +82,16 @@
     "quit": "Quit",
     "minimizeNotice": {
       "body": "Orca is still running in the system tray"
-    }
+    },
+    "activityWaiting": "Orca - activity waiting"
   },
   "worktreeJumpPalette": {
     "matchLabel": {
       "comment": "Comment",
       "issue": "Issue",
+      "mr": "MR",
       "port": "Port",
-      "pr": "PR",
-      "mr": "MR"
+      "pr": "PR"
     }
   },
   "auto": {
@@ -151,6 +156,9 @@
         "e3bcd082ac": "Connect to Orca",
         "mobileScopeRejected": "This QR code grants limited (mobile) access. To use the full web app, open the browser access link from Settings → Runtime Environments → Share this Orca server → New Link."
       },
+      "webPreloadApi": {
+        "aiVaultUnavailableForHost": "Agent Session History is not available for this execution host."
+      },
       "web": {
         "preload": {
           "api": {
@@ -177,9 +185,6 @@
             "07f788de83": "WebSocket"
           }
         }
-      },
-      "webPreloadApi": {
-        "aiVaultUnavailableForHost": "Agent Session History is not available for this execution host."
       }
     },
     "store": {
@@ -711,11 +716,11 @@
         "devSearchKeywordSonner": "sonner",
         "devSearchKeywordError": "error",
         "devSearchKeywordNotification": "notification",
+        "projectHostsSummary": "{{value0}} hosts",
         "terminalEngine": {
           "title": "Terminal Engine",
           "description": "Engine effects, rendering, text shaping, scrollback, input, and clipboard security."
-        },
-        "projectHostsSummary": "{{value0}} hosts"
+        }
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "Paste is too large."
@@ -746,6 +751,8 @@
       "GitHubItemDialog": {
         "3ab6ac0fc8": "Preview and edit the selected GitHub issue or pull request.",
         "3cd5ae5b7b": "No files changed.",
+        "filesUnavailable": "Couldn't load changed files.",
+        "filesRetry": "Retry",
         "999b5ad7d9": "Files",
         "4bd1f5b055": "Checks",
         "e30a5470c9": "Conversation",
@@ -937,9 +944,7 @@
           "activity": "Activity",
           "noActivity": "No activity yet."
         },
-        "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked.",
-        "filesUnavailable": "Couldn't load changed files.",
-        "filesRetry": "Retry"
+        "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
       },
       "GitLabItemDialog": {
         "65e784c1f1": "Reopen",
@@ -1243,6 +1248,8 @@
         "2560588245": "Failed to request reviewer",
         "3450247584": "Comment",
         "6ad2c1ab9c": "No files changed.",
+        "filesUnavailable": "Couldn't load changed files.",
+        "filesRetry": "Retry",
         "4d18310d55": "Files changed",
         "94d95cf1f7": "Checks",
         "9e8d45700e": "Conversation",
@@ -1411,9 +1418,7 @@
         "8ff5ae8866": "Assignees",
         "82c87eceb9": "Edit assignees",
         "1ff5d979df": "No one assigned",
-        "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked.",
-        "filesUnavailable": "Couldn't load changed files.",
-        "filesRetry": "Retry"
+        "checkActionRequiredHint": "This check needs a manual action on GitHub (for example, approving the workflow run) before merging is unblocked."
       },
       "QuickOpen": {
         "1dbd3f59ff": "Move",
@@ -2577,10 +2582,10 @@
             "0a917b591a": "Paste",
             "f3eeb1de13": "Copy",
             "c2f0b72b8d": "Insert",
-            "openLinkDefaultBrowser": "Open in Default Browser",
             "925f49f210": "Expand Pane",
             "df766809e0": "Collapse Pane",
-            "cff67afad1": "Copy Context"
+            "cff67afad1": "Copy Context",
+            "openLinkDefaultBrowser": "Open in Default Browser"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "Restart daemon",
@@ -2716,10 +2721,10 @@
             "localWorkspacesOnly": "Resume from history is only available in local workspaces.",
             "openLocalWorkspace": "Open a local workspace before resuming a session.",
             "sessionQueued": "Session queued",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
             "openSupportedWorkspace": "Open a workspace before resuming a session.",
+            "sessionHostMismatchUnsupported": "This session belongs to a different host. Drop it onto a workspace on the same host.",
             "localSessionSshWorkspaceUnsupported": "This session's history is stored on this machine, so it can't resume in an SSH workspace. Drop it onto a local workspace instead.",
-            "sessionHostMismatchUnsupported": "This session belongs to a different host. Drop it onto a workspace on the same host."
+            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces."
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "New split"
@@ -3236,7 +3241,11 @@
             "42fdd4da1d": "Claude sign-in is being refreshed. Agent sessions may still be signed in.",
             "c06c1d215d": "Claude usage could not be refreshed because the network request failed.",
             "cabdc2a9e0": "Claude sign-in credentials could not be read.",
-            "a7517cccb6": "Claude usage is unavailable right now."
+            "a7517cccb6": "Claude usage is unavailable right now.",
+            "e2c6a4f917": "Run Grok to refresh",
+            "d1b7f509ac": "Run grok in a terminal on the computer running Orca and wait for it to start. If prompted, complete sign-in, then retry usage. You do not need to send a chat message.",
+            "f90b3d7a16": "Run Kimi to refresh",
+            "a37e8c15d4": "Run kimi in a terminal on the computer running Orca and wait for it to start, then retry usage."
           },
           "SshTargetStatusRow": {
             "sshHost": "SSH Host"
@@ -3613,6 +3622,64 @@
           "cd7893fbc1": "Scanning skills",
           "35b9a724a0": "Available",
           "0c74e7ff34": "Local"
+        },
+        "SkillFreshnessNudge": {
+          "titleOne": "An installed Orca skill is out of date",
+          "titleMany": "{{value0}} installed Orca skills are out of date",
+          "description": "Update {{value0}} so agents follow the current instructions for this version of Orca.",
+          "updateOne": "Update skill",
+          "updateMany": "Update skills"
+        },
+        "SkillFreshnessRow": {
+          "statusUpdateAvailable": "Update available",
+          "statusCantUpdate": "Skipped",
+          "cantUpdateReason": "Orca left this skill out of the update command.",
+          "skippedReasonUnrecognized": "The copy here doesn’t match the official version — it may be modified, or a different skill with the same name. Orca left it out of the update so it won’t overwrite it. Remove it if you want Orca to update this skill.",
+          "skippedReasonReadOnly": "This copy is in a read-only location, so Orca left it out of the update. Change its permissions to let Orca update it.",
+          "skippedReasonInaccessible": "Orca couldn’t read this copy, so it left the skill out of the update.",
+          "skippedReasonInRepo": "This is a project skill, not a global one — Orca only updates your global skills, so it left this out of the update.",
+          "skippedReasonPluginCache": "A plugin manages this skill, so Orca left it out of the update — update the plugin instead.",
+          "skippedReasonExternalLink": "This copy is a shortcut pointing outside Orca’s skill folders, so Orca left it out of the update.",
+          "skippedReasonBrokenLink": "This copy is a shortcut to something that no longer exists, so Orca left it out — you can safely delete it.",
+          "chipCurrent": "Current",
+          "chipUnrecognized": "Unrecognized",
+          "chipInaccessible": "Inaccessible",
+          "chipDuplicate": "Duplicate",
+          "chipExternalLink": "External link",
+          "chipBrokenLink": "Broken link",
+          "chipReadOnly": "Read only",
+          "chipInRepo": "In a repo",
+          "chipPluginCache": "Plugin cache",
+          "tipCurrent": "This copy matches the current official version.",
+          "tipUnrecognized": "This copy doesn’t match any official version — it may be modified, or a different skill with the same name.",
+          "tipInaccessible": "Orca couldn’t read this copy (a permissions or file error).",
+          "tipDuplicate": "A separate copy of this skill, installed apart from the main one.",
+          "tipExternalLink": "A shortcut pointing outside Orca’s skill folders.",
+          "tipBrokenLink": "A shortcut to something that no longer exists.",
+          "tipReadOnly": "This copy is in a read-only location.",
+          "tipInRepo": "This copy lives inside a project, not your global skills.",
+          "tipPluginCache": "This copy is managed by a plugin."
+        },
+        "SkillFreshnessUpdateDialog": {
+          "title": "Update skills",
+          "checking": "Checking installed Orca skills…",
+          "none": "No installed Orca skills found.",
+          "updateOne": "1 skill can be updated safely",
+          "updateMany": "{{value0}} skills can be updated safely",
+          "success": "All installed Orca skills are up to date.",
+          "attention": "Some installed Orca skills were left out of the update.",
+          "attentionDescription": "Open Update details to see why each one was skipped.",
+          "details": "Update details",
+          "terminalTitle": "Update Orca skills",
+          "terminalDescription": "Review the pre-filled command, then press Enter to run it.",
+          "terminalAria": "Orca skill update terminal",
+          "checkNow": "Re-check",
+          "close": "Close"
+        },
+        "SkillFreshnessStatusPill": {
+          "updateAvailable": "Update available",
+          "upToDate": "Up to date",
+          "installed": "Installed"
         }
       },
       "sidebar": {
@@ -4772,6 +4839,7 @@
           "ae3b21eb6c": "opencode.ai/workspace/wrk_…/go",
           "51c9104e13": "Find this in the URL after logging into opencode.ai (e.g.",
           "b398b834c9": "Clear",
+          "316ca4e610": "Forget cookie",
           "a122332371": "wrk_… (leave blank for automatic lookup)",
           "dbdb0b0bd8": "Workspace ID override",
           "d70a5287a4": "Optional workspace ID override if the automatic lookup fails.",
@@ -4838,7 +4906,6 @@
           "b11078a9c2": "wsl",
           "350b2a1aa7": "Use your current",
           "e05d0ff737": "Use your current {{value0}} Claude login.",
-          "316ca4e610": "Forget cookie",
           "2f24f244a4": "MiniMax cookie is required.",
           "8e6f0cb1d8": "MiniMax cookie was not saved.",
           "8d61637a77": "MiniMax cookie saved.",
@@ -5030,7 +5097,11 @@
           "windowSidebarSummary": "Sidebar, status bar, and file explorer",
           "statusBarCount": "{{value0}} indicators visible.",
           "gitIgnoredGlossary": "Files matched by .gitignore.",
-          "statusBarDescription": "Choose which indicators appear in the status bar."
+          "statusBarDescription": "Choose which indicators appear in the status bar.",
+          "showPinnedWorktreesInGroups": {
+            "title": "Also show pinned worktrees in their original lists",
+            "description": "Pinned worktrees stay in Pinned and also appear in All, Project, Status, and PR."
+          }
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -7251,6 +7322,11 @@
             "40e5c3c285": "kimi",
             "c927a155d5": "Show Kimi subscription usage in the status bar.",
             "3a6c028ea8": "Kimi Usage",
+            "25e51b62ee": "rate limit",
+            "d9e7cef86f": "cookie",
+            "d16378a88f": "minimax",
+            "e46178eb1b": "Show MiniMax subscription usage in the status bar.",
+            "0f08f6b483": "MiniMax Usage",
             "edbf0f63a0": "cost",
             "afbb6a3767": "tokens",
             "d77537b580": "opencode-go",
@@ -7289,11 +7365,6 @@
               "workspaceOptions": "workspace options",
               "detailed": "detailed"
             },
-            "25e51b62ee": "rate limit",
-            "d9e7cef86f": "cookie",
-            "d16378a88f": "minimax",
-            "e46178eb1b": "Show MiniMax subscription usage in the status bar.",
-            "0f08f6b483": "MiniMax Usage",
             "antigravityUsageTitle": "Antigravity Usage",
             "antigravityUsageDescription": "Show Antigravity subscription usage in the status bar.",
             "antigravityKeyword": "antigravity",
@@ -7302,7 +7373,11 @@
             "d6c0a9e2f4": "grok",
             "c5b9f8d1e3": "xai",
             "usagePercentageDisplayTitle": "Usage percentages",
-            "usagePercentageDisplayDescription": "Choose whether provider limits show the percentage used or remaining."
+            "usagePercentageDisplayDescription": "Choose whether provider limits show the percentage used or remaining.",
+            "showPinnedWorktreesInGroups": {
+              "title": "Also show pinned worktrees in their original lists",
+              "description": "Pinned worktrees stay in Pinned and also appear in All, Project, Status, and PR."
+            }
           }
         },
         "auto": {
@@ -8743,7 +8818,9 @@
                 "fe9231215b": "Checking Linear access before showing setup actions.",
                 "e1f5e6424c": "{{value0}} workspace{{value1}} connected",
                 "disconnect_all": "Disconnect",
-                "account_scope_prefix": "Account scope"
+                "account_scope_prefix": "Account scope",
+                "2d60ec7921": "Connect a Jira Cloud site with an API token, or a self-hosted Jira with a personal access token or username and password. Credentials are sent to the selected remote runtime and stored there with runtime-supported encryption.",
+                "977e360b71": "Connect a Jira Cloud site with an API token, or a self-hosted Jira with a personal access token or username and password. Credentials are stored locally and encrypted when local runtime storage supports it."
               }
             }
           }
@@ -9048,6 +9125,115 @@
           "description": "Shows setup controls and workspace run targets for repo-owned, on-demand environments.",
           "toggleLabel": "Toggle per-workspace environments"
         },
+        "SourceControlActionRepoOverrideNote": {
+          "agent": "Agent",
+          "agentArgs": "CLI arguments",
+          "commandTemplate": "Command template",
+          "more": "+{{count}} more",
+          "plural": "Global saves won't change {{count}} repositories with their own recipes.",
+          "recipe": "Recipe",
+          "review": "Review",
+          "reviewFirst": "Review first",
+          "singular": "Global saves won't change 1 repository with its own recipe.",
+          "tooltipTitle": "Repository overrides"
+        },
+        "linear": {
+          "agent": {
+            "skill": {
+              "install": {
+                "cta": {
+                  "copiedCommand": "Copied command.",
+                  "copyFailed": "Failed to copy command.",
+                  "skillLabel": "Agent skill:",
+                  "checking": "Checking...",
+                  "installed": "Installed",
+                  "notInstalled": "Not installed",
+                  "recheck": "Re-check",
+                  "installedDescription": "Agent skill installed. To update it, run:",
+                  "description": "Let your agents read and edit Linear tasks.",
+                  "copyCommand": "Copy command"
+                }
+              }
+            }
+          }
+        },
+        "GrokAccountsSection": {
+          "a1b2c3d4e5": "Grok (xAI)",
+          "f6e5d4c3b2": "Shows weekly credit usage from your Grok CLI sign-in (session file ~/.grok/auth.json).",
+          "0d8e77bc40": "Grok CLI docs",
+          "ad47a33f72": "Loading…",
+          "b2c3d4e5f6": "Signed in",
+          "c3d4e5f6a7": "Signed in. Orca only reads that file on disk — run grok login again if usage fails.",
+          "d4e5f6a7b8": "Session expired — run grok login in a terminal to refresh.",
+          "e5f6a7b8c9": "Not signed in to Grok CLI",
+          "f6a7b8c9d0": "In a terminal, run grok login, then click Refresh usage here.",
+          "3325d996cb": "Refresh usage",
+          "a8f3e2c1b4": "Weekly credits",
+          "b7e2d9f0a3": "Same weekly credit % as the grok /usage screen in the terminal.",
+          "c6d1a8f4e2": "Resets {{when}}",
+          "e6dadc1e2b": "Monthly usage",
+          "75e396bf42": "Included monthly usage for Grok unified-billing accounts.",
+          "b36fa2c908": "Signed in. Orca reads the Grok CLI session stored on disk.",
+          "f08c41de73": "Session expired — run grok on the computer running Orca and wait for it to start. If prompted, complete sign-in, then click Refresh usage. No chat message is needed."
+        },
+        "AppearanceWindowSidebarSection": {
+          "usagePercentageDisplayUsed": "Used",
+          "usagePercentageDisplayRemaining": "Remaining"
+        },
+        "TerminalInteractionSection": {
+          "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
+          "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
+        },
+        "MobileRelayStatusSection": {
+          "registered": "Registered",
+          "connecting": "Connecting",
+          "reconnecting": "Reconnecting",
+          "offline": "Offline",
+          "title": "Orca Relay",
+          "automatic": "Connect from anywhere when a phone is paired",
+          "signInPrompt": "Sign in on this desktop to connect from anywhere",
+          "directStillAvailable": "LAN and Tailscale connections remain available.",
+          "directNeedsNoAccount": "LAN and Tailscale pairing still work without an account.",
+          "signIn": "Sign in",
+          "unavailable": "Unavailable",
+          "standby": "Standby — no relay devices"
+        },
+        "MobilePairingConnectionOptions": {
+          "ready": "Ready",
+          "connecting": "Connecting",
+          "available": "Available",
+          "reconnecting": "Reconnecting",
+          "unavailable": "Unavailable",
+          "title": "How should the new phone connect?",
+          "anywhere": "Connect with Orca Relay",
+          "recommended": "Recommended",
+          "automaticDescription": "Orca uses a direct connection when available and Relay otherwise.",
+          "signInDescription": "Sign in on this desktop to use Orca Relay.",
+          "signIn": "Sign in",
+          "localOnly": "Local network only",
+          "localShort": "LAN or Tailscale",
+          "localDescription": "Uses LAN or Tailscale without connecting this phone through Orca Relay."
+        },
+        "MobilePairingSetupSection": {
+          "title": "Pair a phone",
+          "automaticDescription": "The pairing code includes direct access and encrypted Orca Relay fallback.",
+          "localDescription": "The pairing code connects only through the local network address below.",
+          "regenerate": "Regenerate",
+          "generate": "Generate QR Code",
+          "localSettings": "Local connection settings",
+          "localAddressDescription": "Choose the LAN or private-network address that Orca Mobile can use to reach this computer directly.",
+          "refresh": "Refresh network interfaces",
+          "tailnet": "Connect with your own tailnet",
+          "tailnetDescription": "Install Tailscale on this computer and your phone, sign in to the same tailnet, then select its 100.x.y.z address above.",
+          "getTailscale": "Get Tailscale"
+        },
+        "MobileRelayBetaAvailability": {
+          "about": "About the Orca Relay beta",
+          "beta": "Beta",
+          "availability": "Available on",
+          "testFlight": "TestFlight",
+          "androidApk": "Android APK"
+        },
         "TerminalEnginePane": {
           "scrollback": {
             "title": "Scrollback",
@@ -9192,113 +9378,6 @@
               "note": "The engine automatically loads your OS’s CJK and color-emoji faces as fallbacks, so non-Latin text and emoji render without configuration."
             }
           }
-        },
-        "SourceControlActionRepoOverrideNote": {
-          "agent": "Agent",
-          "agentArgs": "CLI arguments",
-          "commandTemplate": "Command template",
-          "more": "+{{count}} more",
-          "plural": "Global saves won't change {{count}} repositories with their own recipes.",
-          "recipe": "Recipe",
-          "review": "Review",
-          "reviewFirst": "Review first",
-          "singular": "Global saves won't change 1 repository with its own recipe.",
-          "tooltipTitle": "Repository overrides"
-        },
-        "linear": {
-          "agent": {
-            "skill": {
-              "install": {
-                "cta": {
-                  "copiedCommand": "Copied command.",
-                  "copyFailed": "Failed to copy command.",
-                  "skillLabel": "Agent skill:",
-                  "checking": "Checking...",
-                  "installed": "Installed",
-                  "notInstalled": "Not installed",
-                  "recheck": "Re-check",
-                  "installedDescription": "Agent skill installed. To update it, run:",
-                  "description": "Let your agents read and edit Linear tasks.",
-                  "copyCommand": "Copy command"
-                }
-              }
-            }
-          }
-        },
-        "GrokAccountsSection": {
-          "a1b2c3d4e5": "Grok (xAI)",
-          "f6e5d4c3b2": "Shows weekly credit usage from your Grok CLI sign-in (session file ~/.grok/auth.json).",
-          "0d8e77bc40": "Grok CLI docs",
-          "ad47a33f72": "Loading…",
-          "b2c3d4e5f6": "Signed in",
-          "c3d4e5f6a7": "Signed in. Orca only reads that file on disk — run grok login again if usage fails.",
-          "d4e5f6a7b8": "Session expired — run grok login in a terminal to refresh.",
-          "e5f6a7b8c9": "Not signed in to Grok CLI",
-          "f6a7b8c9d0": "In a terminal, run grok login, then click Refresh usage here.",
-          "3325d996cb": "Refresh usage",
-          "a8f3e2c1b4": "Weekly credits",
-          "b7e2d9f0a3": "Same weekly credit % as the grok /usage screen in the terminal.",
-          "c6d1a8f4e2": "Resets {{when}}",
-          "e6dadc1e2b": "Monthly usage",
-          "75e396bf42": "Included monthly usage for Grok unified-billing accounts."
-        },
-        "AppearanceWindowSidebarSection": {
-          "usagePercentageDisplayUsed": "Used",
-          "usagePercentageDisplayRemaining": "Remaining"
-        },
-        "TerminalInteractionSection": {
-          "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
-          "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
-        },
-        "MobileRelayStatusSection": {
-          "registered": "Registered",
-          "connecting": "Connecting",
-          "reconnecting": "Reconnecting",
-          "offline": "Offline",
-          "title": "Orca Relay",
-          "automatic": "Connect from anywhere when a phone is paired",
-          "signInPrompt": "Sign in on this desktop to connect from anywhere",
-          "directStillAvailable": "LAN and Tailscale connections remain available.",
-          "directNeedsNoAccount": "LAN and Tailscale pairing still work without an account.",
-          "signIn": "Sign in",
-          "unavailable": "Unavailable",
-          "standby": "Standby — no relay devices"
-        },
-        "MobilePairingConnectionOptions": {
-          "ready": "Ready",
-          "connecting": "Connecting",
-          "available": "Available",
-          "reconnecting": "Reconnecting",
-          "unavailable": "Unavailable",
-          "title": "How should the new phone connect?",
-          "anywhere": "Connect with Orca Relay",
-          "recommended": "Recommended",
-          "automaticDescription": "Orca uses a direct connection when available and Relay otherwise.",
-          "signInDescription": "Sign in on this desktop to use Orca Relay.",
-          "signIn": "Sign in",
-          "localOnly": "Local network only",
-          "localShort": "LAN or Tailscale",
-          "localDescription": "Uses LAN or Tailscale without connecting this phone through Orca Relay."
-        },
-        "MobilePairingSetupSection": {
-          "title": "Pair a phone",
-          "automaticDescription": "The pairing code includes direct access and encrypted Orca Relay fallback.",
-          "localDescription": "The pairing code connects only through the local network address below.",
-          "regenerate": "Regenerate",
-          "generate": "Generate QR Code",
-          "localSettings": "Local connection settings",
-          "localAddressDescription": "Choose the LAN or private-network address that Orca Mobile can use to reach this computer directly.",
-          "refresh": "Refresh network interfaces",
-          "tailnet": "Connect with your own tailnet",
-          "tailnetDescription": "Install Tailscale on this computer and your phone, sign in to the same tailnet, then select its 100.x.y.z address above.",
-          "getTailscale": "Get Tailscale"
-        },
-        "MobileRelayBetaAvailability": {
-          "about": "About the Orca Relay beta",
-          "beta": "Beta",
-          "availability": "Available on",
-          "testFlight": "TestFlight",
-          "androidApk": "Android APK"
         }
       },
       "right": {
@@ -10156,6 +10235,9 @@
               }
             }
           },
+          "fileExplorerOperationOwner": {
+            "unresolved": "Couldn't determine which host owns this workspace. Check the connection and try again."
+          },
           "useFileDeletion": {
             "72691dfebc": "Failed to {{value0}} '{{value1}}'.",
             "96affe1302": "'{{value0}}' moved to {{value1}}",
@@ -10218,11 +10300,11 @@
             "logPath": "Log path",
             "originalPaneUnavailable": "Original pane is no longer available.",
             "worktreeUnavailable": "Worktree is no longer available.",
-            "runtimeBrowseLocalHistory": "Runtime-hosted workspaces can browse local history. Resume actions are available in local and SSH workspaces.",
-            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces.",
             "openSupportedWorkspace": "Open a workspace before resuming a session.",
+            "sessionHostMismatchUnsupported": "This session belongs to a different host. Open a workspace on the same host to resume it.",
             "localSessionSshWorkspaceUnsupported": "This session's history is stored on this machine, so it can't resume in an SSH workspace. Open a local workspace instead.",
-            "sessionHostMismatchUnsupported": "This session belongs to a different host. Open a workspace on the same host to resume it."
+            "runtimeBrowseLocalHistory": "Runtime-hosted workspaces can browse local history. Resume actions are available in local and SSH workspaces.",
+            "runtimeWorkspacesUnsupported": "Resume from history is not available in runtime-hosted workspaces."
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",
@@ -10259,6 +10341,12 @@
             "originalAsk": "Original ask",
             "latestTurns": "Latest turns",
             "noPreviewAvailable": "No conversation preview available",
+            "conversationNotSaved": "Conversation not saved",
+            "recoverableEmptyDetail": "This session has no saved conversation, but {{value0}} recoverable item(s) survive.",
+            "recoverableEmptyOpenLogHint": "Open the log to recover them.",
+            "emptyConversationDetail": "This session has no saved conversation and cannot be resumed.",
+            "queuedMessages": "{{value0}} queued message(s)",
+            "subagentTranscripts": "{{value0}} subagent transcript(s)",
             "messageCount": "{{value0}} msgs",
             "updated": "Updated",
             "created": "Created",
@@ -10305,16 +10393,11 @@
             "sessionRole": "Session",
             "jumpToOriginalPane": "Jump to Original Pane",
             "worktree": "Worktree",
-            "jumpToWorktree": "Jump to Worktree",
-            "conversationNotSaved": "Conversation not saved",
-            "recoverableEmptyDetail": "This session has no saved conversation, but {{value0}} recoverable item(s) survive.",
-            "recoverableEmptyOpenLogHint": "Open the log to recover them.",
-            "emptyConversationDetail": "This session has no saved conversation and cannot be resumed.",
-            "queuedMessages": "{{value0}} queued message(s)",
-            "subagentTranscripts": "{{value0}} subagent transcript(s)"
+            "jumpToWorktree": "Jump to Worktree"
           },
           "AiVaultSessionRow": {
             "noPreviewAvailable": "No conversation preview available",
+            "recoverableBadge": "Not saved",
             "dragToResume": "Drag to resume in a new tab",
             "resumeAgentSession": "Resume {{value0}} session",
             "resumeInNewTab": "Resume in New Tab",
@@ -10338,7 +10421,6 @@
             "sessionRole": "Session",
             "jumpToOriginalPane": "Jump to Original Pane",
             "jumpToWorktree": "Jump to Worktree",
-            "recoverableBadge": "Not saved",
             "subagentCountSingular": "1 subagent",
             "subagentCountPlural": "{{value0}} subagents"
           },
@@ -10395,9 +10477,6 @@
             "archivedJumpUnavailable": "This session is in an archived worktree.",
             "noActiveWorktreeMatch": "No active worktree matches this session.",
             "noActiveWorktreeTarget": "No active worktree is available."
-          },
-          "fileExplorerOperationOwner": {
-            "unresolved": "Couldn't determine which host owns this workspace. Check the connection and try again."
           },
           "AiVaultSessionSubagents": {
             "subagentsCount": "Subagents ({{value0}})",
@@ -10991,9 +11070,9 @@
           },
           "FloatingTerminalToggleButton": {
             "3b04b065b5": "Show floating workspace",
+            "4cb418b991": "Show floating workspace, new activity",
             "5785dd9148": "Minimize floating workspace",
-            "bfe7809a70": "{{value0}} floating workspace ({{value1}})",
-            "4cb418b991": "Show floating workspace, new activity"
+            "bfe7809a70": "{{value0}} floating workspace ({{value1}})"
           },
           "FloatingTerminalWindowControls": {
             "2f6054342c": "Minimize",
@@ -12908,7 +12987,24 @@
             "70fcd360c4": "https://example.atlassian.net",
             "e176f9d0c5": "Jira Cloud site URL",
             "d785c42b8b": "Use a Jira Cloud site URL, Atlassian email, and API token to browse issues.",
-            "8388bdea2b": "Connect Jira site"
+            "8388bdea2b": "Connect Jira site",
+            "2e2b69e48e": "Use a self-hosted Jira base URL and a personal access token to browse issues.",
+            "b67e919bd5": "Jira instance type",
+            "17787d6e4b": "Atlassian Cloud",
+            "bc7a831773": "Self-hosted",
+            "3489e186d6": "Jira site URL",
+            "cbc27fa599": "https://jira.example.com",
+            "730d973bae": "Personal access token",
+            "8b9c7b9e7b": "Jira personal access token",
+            "ccfb086d3e": "Create a personal access token in your Jira profile under Personal Access Tokens.",
+            "1d947a07ab": "Use a self-hosted Jira base URL, username, and password to browse issues.",
+            "f49708c369": "Jira authentication method",
+            "84a810dd0e": "Username & password",
+            "8d1223fa5c": "Username",
+            "be9eba0a1b": "username",
+            "70035652d7": "Password",
+            "c50abbf340": "Jira account password",
+            "d8737db691": "Use your Jira Server or Data Center account username and password."
           }
         }
       },
@@ -13063,25 +13159,6 @@
       "nativeChat": {
         "contextMenu": {
           "copy": "Copy"
-        }
-      },
-      "daemon": {
-        "status": {
-          "copy": {
-            "failedTitle": "Terminal persistence unavailable",
-            "failedDescription": "The terminal daemon didn’t start. New terminals run in-process and won’t survive quitting Orca.",
-            "retryAction": "Retry",
-            "degradedTitle": "Terminal persistence degraded",
-            "timeoutDescription": "The terminal daemon didn’t finish starting in time, so new terminals won’t survive quitting Orca. Retrying closes open terminal panes.",
-            "degradedDescription": "Existing terminals keep working, but new terminals won’t survive quitting Orca. Restarting the daemon closes open terminal panes.",
-            "restartAction": "Restart daemon",
-            "restoredMessage": "Terminal persistence restored.",
-            "retryFailedTitle": "Daemon restart failed.",
-            "indicatorLabel": "Terminal persistence off",
-            "indicatorFailedTooltip": "The terminal daemon isn’t running, so new terminals won’t survive quitting Orca. Open Manage Sessions to restart it.",
-            "indicatorDegradedTooltip": "New terminals are running without daemon persistence. Open Manage Sessions to restart the daemon.",
-            "indicatorAriaLabel": "Terminal daemon status: persistence off"
-          }
         }
       },
       "orca": {
@@ -13296,6 +13373,25 @@
           "undo": "Undo",
           "widthOption": "{{value0}} px"
         }
+      },
+      "daemon": {
+        "status": {
+          "copy": {
+            "failedTitle": "Terminal persistence unavailable",
+            "failedDescription": "The terminal daemon didn’t start. New terminals run in-process and won’t survive quitting Orca.",
+            "retryAction": "Retry",
+            "degradedTitle": "Terminal persistence degraded",
+            "timeoutDescription": "The terminal daemon didn’t finish starting in time, so new terminals won’t survive quitting Orca. Retrying closes open terminal panes.",
+            "degradedDescription": "Existing terminals keep working, but new terminals won’t survive quitting Orca. Restarting the daemon closes open terminal panes.",
+            "restartAction": "Restart daemon",
+            "restoredMessage": "Terminal persistence restored.",
+            "retryFailedTitle": "Daemon restart failed.",
+            "indicatorLabel": "Terminal persistence off",
+            "indicatorFailedTooltip": "The terminal daemon isn’t running, so new terminals won’t survive quitting Orca. Open Manage Sessions to restart it.",
+            "indicatorDegradedTooltip": "New terminals are running without daemon persistence. Open Manage Sessions to restart the daemon.",
+            "indicatorAriaLabel": "Terminal daemon status: persistence off"
+          }
+        }
       }
     },
     "i18n": {
@@ -13331,7 +13427,30 @@
         "pastedImageLabel": "Pasted image",
         "imagePasteFailed": "Image paste failed.",
         "worktreeNotReady": "Worktree not ready — try again in a moment.",
-        "uploadingAttachments": "Uploading {{value0}} file(s) to remote…"
+        "uploadingAttachments": "Uploading {{value0}} file(s) to remote…",
+        "model": "Model",
+        "modelWithValue": "Model: {{value0}}",
+        "effort": "Effort",
+        "effortWithValue": "Effort: {{value0}}",
+        "fastMode": "Fast mode",
+        "thinking": "Thinking",
+        "options": "Options",
+        "sessionOptions": "Session options",
+        "chooseInAgentPicker": "Choose in agent picker…",
+        "toggleOption": "Toggle {{value0}}",
+        "sentNotConfirmed": "Sent to the agent — not confirmed",
+        "setWhenSessionStarts": "Set when the session starts.",
+        "availableAfterSessionStarts": "Available after the session starts.",
+        "optionUpdateFailed": "Could not update option",
+        "optionValue": {
+          "fast": "Fast",
+          "minimal": "Minimal",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "xhigh": "Extra high",
+          "max": "Max"
+        }
       },
       "tool": {
         "running": "Running…",
@@ -13361,7 +13480,8 @@
         "empty": {
           "title": "Start a chat with {{value0}}",
           "subtitle": "Ask {{value0}} to inspect code, explain output, or make a change."
-        }
+        },
+        "pairHost": "Pair a host to view agent chat history."
       },
       "stop": "Stop the agent",
       "copyMessage": {
@@ -13406,6 +13526,29 @@
           "githubPullRequestNumber": "PR #{{value0}}"
         }
       }
+    }
+  },
+  "browser": {
+    "loadFailure": {
+      "connectionNotSecure": "Connection isn't secure",
+      "cantReachHost": "Can't reach {{value0}}",
+      "cantLoadPage": "Can't load this page",
+      "certificateNameMismatch": "The certificate doesn't match {{value0}}.",
+      "certificateDateInvalid": "The certificate for {{value0}} isn't valid at the current date and time.",
+      "certificateAuthorityInvalid": "Orca doesn't trust the authority that issued the certificate for {{value0}}.",
+      "certificateVerificationFailed": "Orca couldn't verify the certificate for {{value0}}.",
+      "trustedCertificateGuidance": "For local development, use a trusted local certificate when possible.",
+      "retry": "Retry",
+      "copyAddress": "Copy Address",
+      "addressCopied": "Copied the current page address.",
+      "openExternally": "Open Externally",
+      "tryHttps": "Try HTTPS",
+      "proceedUnsafe": "Proceed Anyway (Unsafe)",
+      "connecting": "Connecting…",
+      "certificateChallengeExpired": "This certificate approval expired. Retry the page to request a new one.",
+      "certificateChallengeChanged": "The certificate request changed. Retry the page and review the new warning.",
+      "certificateChallengeUnavailable": "This certificate request is no longer available. Retry the page to request a new one.",
+      "certificateProceedFailed": "Orca could not approve this certificate request. Retry the page and try again."
     }
   }
 }

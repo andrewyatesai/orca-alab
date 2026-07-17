@@ -290,6 +290,8 @@ export function createAtermTerminalFacade(deps: AtermFacadeDeps): AtermTerminalF
       controller?.clearSelection()
       maybeEmitSelectionChange()
     },
+    // Pre-attach there is no hover state yet — nothing to invalidate.
+    resetLinkHoverCache: () => void controller?.resetLinkHoverCache(),
     getSelectionPosition() {
       const range = controller?.selectionRange()
       if (!range) {

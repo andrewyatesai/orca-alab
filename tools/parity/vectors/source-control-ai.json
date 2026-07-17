@@ -59,7 +59,7 @@
         },
         "actionOverrides": {
           "pullRequest": { "commandInputTemplate": "{basePrompt}" },
-          "branchName": { "commandInputTemplate": "{basePrompt}\n\nbranch style" }
+          "branchName": { "commandInputTemplate": "branch style\n\n{basePrompt}" }
         },
         "prCreationDefaults": { "draft": true, "useTemplate": null, "openAfterCreate": false }
       }

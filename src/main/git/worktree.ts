@@ -12,6 +12,7 @@ import type {
 } from '../../shared/types'
 import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree-removal'
 import { requireRustGitBinding } from '../daemon/rust-git-addon'
+import { isSubmoduleWorktreeRemovalRefusal } from '../../shared/worktree-submodule-removal'
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import {
@@ -1132,7 +1133,21 @@ async function performRemoveWorktree(
     args.push('--force')
   }
   args.push(worktreePath)
-  await gitExecFileAsync(args, gitExecOptions(repoPath, options))
+  try {
+    await gitExecFileAsync(args, gitExecOptions(repoPath, options))
+  } catch (error) {
+    if (force || !isSubmoduleWorktreeRemovalRefusal(error)) {
+      throw error
+    }
+    // Why: Git refuses non-force removal of any worktree with an initialised
+    // submodule even when everything is clean. Re-prove cleanliness (parent
+    // status reports dirty submodule content as ` M <sub>`), then --force.
+    await assertWorktreeCleanForRemoval(worktreePath, false, options)
+    await gitExecFileAsync(
+      ['worktree', 'remove', '--force', worktreePath],
+      gitExecOptions(repoPath, options)
+    )
+  }
 
   if (!branchName) {
     return {}

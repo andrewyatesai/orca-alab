@@ -5,9 +5,12 @@ import type {
 } from '../../lib/pane-manager/aterm/terminal-types'
 import type { AtermTerminalFacade as Terminal } from '@/lib/pane-manager/aterm/aterm-terminal-facade'
 import { openHttpLink } from '@/lib/http-link-routing'
-import { buildCandidateLogicalLinesForBufferPosition } from './terminal-file-link-hit-testing'
+import { buildEdgeWrappedHttpLogicalLineCandidates } from './edge-wrapped-terminal-http-links'
+import { buildHardWrappedHttpLogicalLineCandidates } from './hard-wrapped-terminal-http-links'
+import { dedupeLogicalLines } from './terminal-file-link-hit-testing'
 import { isTerminalLinkActivation } from './terminal-link-activation'
-import { rangeForParsedFileLink } from './wrapped-terminal-link-ranges'
+import { TERMINAL_HTTP_URL_MAX_LENGTH } from './terminal-http-link-limits'
+import { buildWrappedLogicalLine, rangeForParsedFileLink } from './wrapped-terminal-link-ranges'
 
 type UrlLinkHitTestDeps = {
   worktreeId: string
@@ -31,7 +34,7 @@ type ParsedTerminalHttpLink = {
 }
 
 const HTTP_SCHEME_PREFIXES = ['https://', 'http://'] as const
-export const TERMINAL_HTTP_URL_MAX_LENGTH = 2048
+export { TERMINAL_HTTP_URL_MAX_LENGTH } from './terminal-http-link-limits'
 
 export function extractTerminalHttpLinks(lineText: string): ParsedTerminalHttpLink[] {
   const links: ParsedTerminalHttpLink[] = []
@@ -271,7 +274,20 @@ export function openHttpLinkAtBufferPosition(
   terminalColumns: number,
   deps: UrlLinkHitTestDeps
 ): boolean {
-  const logicalLines = buildCandidateLogicalLinesForBufferPosition(buffer, position.y)
+  // Why: path hard-wrap reconstruction (#8339) glues label rows onto a URL
+  // ending in `/` (#8832), so HTTP hit-testing consumes only soft-wrap,
+  // framed hard-wrap HTTP, and edge-wrap candidates — never path candidates.
+  const nativeWrappedLogicalLine = buildWrappedLogicalLine(buffer, position.y)
+  const logicalLines = dedupeLogicalLines([
+    ...(nativeWrappedLogicalLine && nativeWrappedLogicalLine.rows.length > 1
+      ? [nativeWrappedLogicalLine]
+      : []),
+    ...buildHardWrappedHttpLogicalLineCandidates(buffer, position.y),
+    ...buildEdgeWrappedHttpLogicalLineCandidates(buffer, position.y),
+    ...(nativeWrappedLogicalLine && nativeWrappedLogicalLine.rows.length === 1
+      ? [nativeWrappedLogicalLine]
+      : [])
+  ])
   if (logicalLines.length === 0) {
     return false
   }
@@ -288,6 +304,17 @@ export function openHttpLinkAtBufferPosition(
   }
 
   return false
+}
+
+function rangeContainsBufferPosition(
+  range: IBufferRange,
+  position: { x: number; y: number },
+  terminalColumns: number
+): boolean {
+  const lower = range.start.y * terminalColumns + range.start.x
+  const upper = range.end.y * terminalColumns + range.end.x
+  const current = position.y * terminalColumns + position.x
+  return lower <= current && current <= upper
 }
 
 export function openTerminalHttpLink(url: string, deps: UrlLinkHitTestDeps): void {
@@ -315,15 +342,4 @@ export function openTerminalHttpLink(url: string, deps: UrlLinkHitTestDeps): voi
     .catch(() => {
       openHttpLink(url, { worktreeId: deps.worktreeId, forceSystemBrowser: true })
     })
-}
-
-function rangeContainsBufferPosition(
-  range: IBufferRange,
-  position: { x: number; y: number },
-  terminalColumns: number
-): boolean {
-  const lower = range.start.y * terminalColumns + range.start.x
-  const upper = range.end.y * terminalColumns + range.end.x
-  const current = position.y * terminalColumns + position.x
-  return lower <= current && current <= upper
 }

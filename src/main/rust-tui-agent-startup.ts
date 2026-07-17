@@ -6,10 +6,14 @@
 import { requireRustGitBinding } from './daemon/rust-git-addon'
 import type { AgentDraftLaunchPlan, AgentStartupPlan } from '../shared/tui-agent-startup'
 import type { AgentStartupShell } from '../shared/tui-agent-startup-shell'
+import type { SessionOptionValue } from '../shared/native-chat-session-options'
+import { spliceSessionOptionsIntoPlan } from '../shared/tui-agent-session-option-splice'
 import type { TuiAgent } from '../shared/types'
 
 function op<T>(fn: string, input: unknown): T | null {
-  return JSON.parse(requireRustGitBinding().tuiAgentStartupOp(fn, JSON.stringify(input))) as T | null
+  return JSON.parse(
+    requireRustGitBinding().tuiAgentStartupOp(fn, JSON.stringify(input))
+  ) as T | null
 }
 
 export function buildAgentStartupPlan(args: {
@@ -21,9 +25,13 @@ export function buildAgentStartupPlan(args: {
   allowEmptyPromptLaunch?: boolean
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
+  sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
 }): AgentStartupPlan | null {
-  return op<AgentStartupPlan>('buildAgentStartupPlan', args)
+  const plan = op<AgentStartupPlan>('buildAgentStartupPlan', args)
+  // Layer the native-chat session-option flags (upstream #9085) over the Rust
+  // plan; a no-catalog agent or absent options is an identity pass.
+  return plan ? spliceSessionOptionsIntoPlan(plan, args) : plan
 }
 
 export function buildAgentDraftLaunchPlan(args: {
@@ -34,7 +42,9 @@ export function buildAgentDraftLaunchPlan(args: {
   shell?: AgentStartupShell
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
+  sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
 }): AgentDraftLaunchPlan | null {
-  return op<AgentDraftLaunchPlan>('buildAgentDraftLaunchPlan', args)
+  const plan = op<AgentDraftLaunchPlan>('buildAgentDraftLaunchPlan', args)
+  return plan ? spliceSessionOptionsIntoPlan(plan, args) : plan
 }

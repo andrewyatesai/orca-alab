@@ -25,12 +25,16 @@
         "geminiToggleDescription": "アクティブなワークスペースの Gemini トークンとコストの使用状況を表示します。",
         "opencodeGoToggleDescription": "アクティブなワークスペースの OpenCode Go トークンと使用コストを表示します。",
         "kimiToggleDescription": "Kimi サブスクリプション",
+        "minimaxToggleDescription": "アクティブなワークスペースの MiniMax サブスクリプション使用状況を表示します。",
         "sshToggleDescription": "設定済み SSH ホストとリモート Orca ホストがある場合に表示します。",
         "resourceUsageToggleDescription": "リソースマネージャーを表示します。これをクリックすると、CPU、メモリ、セッション、デーモン コントロール、およびワークスペース ディスク スキャンが行われます。",
         "portsToggleDescription": "ライブワークスペースポートを表示します。ワークスペーススコープのポートと外部リスナーの場合はこれをクリックします。",
-        "minimaxToggleDescription": "アクティブなワークスペースの MiniMax サブスクリプション使用状況を表示します。",
         "antigravityToggleDescription": "アクティブなワークスペースの Antigravity サブスクリプション使用量を表示します。",
         "grokToggleDescription": "Grok CLI でサインインしている場合に Grok サブスクリプションのクレジット使用量を表示します。"
+      },
+      "menuBarIcon": {
+        "title": "メニューバーアイコンを表示",
+        "description": "macOS メニューバーに Orca のショートカットとアクティビティインジケーターを表示します。"
       }
     },
     "about": {
@@ -78,15 +82,16 @@
     "quit": "終了",
     "minimizeNotice": {
       "body": "Orcaはシステムトレイで実行中です"
-    }
+    },
+    "activityWaiting": "Orca - アクティビティ待機中"
   },
   "worktreeJumpPalette": {
     "matchLabel": {
       "comment": "コメント",
       "issue": "Issue",
+      "mr": "MR",
       "port": "ポート",
-      "pr": "PR",
-      "mr": "MR"
+      "pr": "PR"
     }
   },
   "auto": {
@@ -151,6 +156,9 @@
         "e3bcd082ac": "Orca に接続",
         "mobileScopeRejected": "この QR コードは制限付き（モバイル）アクセスを許可します。完全な Web アプリを使うには、設定 → リモート Orca サーバー → この Orca サーバーを共有する → 新規リンク からブラウザー用アクセスリンクを開いてください。"
       },
+      "webPreloadApi": {
+        "aiVaultUnavailableForHost": "この実行ホストでは Agent セッション履歴を使用できません。"
+      },
       "web": {
         "preload": {
           "api": {
@@ -177,9 +185,6 @@
             "07f788de83": "ウェブソケット"
           }
         }
-      },
-      "webPreloadApi": {
-        "aiVaultUnavailableForHost": "この実行ホストでは Agent セッション履歴を使用できません。"
       }
     },
     "store": {
@@ -711,11 +716,11 @@
         "devSearchKeywordSonner": "sonner",
         "devSearchKeywordError": "エラー",
         "devSearchKeywordNotification": "通知",
+        "projectHostsSummary": "{{value0}} 台のホスト",
         "terminalEngine": {
           "title": "ターミナルエンジン",
           "description": "エンジンのエフェクト、レンダリング、テキスト整形、Scrollback、入力、クリップボードのセキュリティ。"
-        },
-        "projectHostsSummary": "{{value0}} 台のホスト"
+        }
       },
       "useAppMenuPaste": {
         "pasteTooLarge": "貼り付け内容が大きすぎます。"
@@ -727,9 +732,9 @@
     "components": {
       "CodexRestartChip": {
         "9132779820": "閉じる",
-        "a4c8e1b2f7": "Codex はまだ {{value0}} としてサインインしています",
         "c72a5fb234": "再起動",
         "9263e75f49": "Codex は前のアカウントを使用しています",
+        "a4c8e1b2f7": "Codex はまだ {{value0}} としてサインインしています",
         "d3e8a1f4b2": "アカウントを切り替えました",
         "e9b2c7d1a5": "{{value0}} を使用するにはこのセッションを再起動してください。現在のアカウントで作業を続けるには折りたたんでください。",
         "f1a6c8e3b4": "折りたたむ"
@@ -746,6 +751,8 @@
       "GitHubItemDialog": {
         "3ab6ac0fc8": "選択した GitHub Issue または PR をプレビュー・編集します。",
         "3cd5ae5b7b": "ファイルは変更されませんでした。",
+        "filesUnavailable": "変更されたファイルを読み込めませんでした。",
+        "filesRetry": "再試行",
         "999b5ad7d9": "ファイル",
         "4bd1f5b055": "チェック",
         "e30a5470c9": "会話",
@@ -937,9 +944,7 @@
           "activity": "アクティビティ",
           "noActivity": "まだアクティビティはありません。"
         },
-        "checkActionRequiredHint": "このチェックでは、マージのブロックを解除する前に GitHub での手動操作（たとえば、ワークフロー実行の承認）が必要です。",
-        "filesUnavailable": "変更されたファイルを読み込めませんでした。",
-        "filesRetry": "再試行"
+        "checkActionRequiredHint": "このチェックでは、マージのブロックを解除する前に GitHub での手動操作（たとえば、ワークフロー実行の承認）が必要です。"
       },
       "GitLabItemDialog": {
         "65e784c1f1": "再度開く",
@@ -1165,9 +1170,6 @@
         "commentTooLarge": "コメントが大きすぎるため安全に送信できません。"
       },
       "NewWorkspaceComposerCard": {
-        "reuseExistingBranch": "ブランチを再利用",
-        "reuseExistingBranchHint": "既存のブランチから新しいブランチを作成せず、そのブランチをチェックアウトします。",
-        "createMultiple": "さらに作成",
         "cbb47ee0dc": "ローカル Git プロジェクトでのみ使用できます。",
         "d861de981b": "まばらなチェックアウト",
         "090cfedeb4": "メモを書く",
@@ -1195,11 +1197,19 @@
         "f660aa1454": "接続中",
         "7711ad5122": "ローカルセットアップコマンド",
         "e5db1b0419": "組み合わせセットアップコマンド",
-        "runOn": "実行先",
         "addProjectBeforeWorkspace": "ワークスペースを作成する前にプロジェクトを追加します。",
         "connectProjectFirst": "先にこのプロジェクトに接続してください",
         "connectSourceLookup": "接続",
         "reconnectSourceLookup": "再接続",
+        "sshNotConnected": "SSH 未接続",
+        "connectingSsh": "SSH に接続中...",
+        "sshAuthenticationFailed": "SSH 認証に失敗しました",
+        "preparingSshConnection": "SSH 接続を準備中...",
+        "connected": "接続済み",
+        "reconnectingSsh": "SSH に再接続中...",
+        "sshReconnectionFailed": "SSH 再接続に失敗しました",
+        "notConnected": "未接続",
+        "runOn": "実行先",
         "setupHostExistingFolderTitle": "{{value0}} を設定",
         "cloneProjectOnHost": "プロジェクトをクローン",
         "cloneUrlPlaceholder": "https://github.com/owner/repo.git",
@@ -1213,15 +1223,10 @@
         "setupHostExistingFolderHelp": "そこに既に存在するチェックアウトをリンクし、そのホスト上にこのワークスペースを作成します。",
         "importingHostSetup": "インポート中...",
         "importHostSetup": "インポート",
-        "sshNotConnected": "SSH 未接続",
-        "connectingSsh": "SSH に接続中...",
-        "sshAuthenticationFailed": "SSH 認証に失敗しました",
-        "preparingSshConnection": "SSH 接続を準備中...",
-        "connected": "接続済み",
-        "reconnectingSsh": "SSH に再接続中...",
-        "sshReconnectionFailed": "SSH 再接続に失敗しました",
-        "notConnected": "未接続",
         "notePasteTooLarge": "メモ欄への貼り付け内容が大きすぎます。",
+        "reuseExistingBranch": "ブランチを再利用",
+        "reuseExistingBranchHint": "既存のブランチから新しいブランチを作成せず、そのブランチをチェックアウトします。",
+        "createMultiple": "さらに作成",
         "waitForSetupBeforeAgent": "セットアップが完了するまで待ってから agent を開始してください",
         "waitForSetupBeforeAgentHelp": "セットアップによって、起動時に agent に必要な依存関係、MCP サーバー、または構成ファイルがインストールされるときに、これをオンにします。",
         "destroyDisabled": "破壊は無効です",
@@ -1247,8 +1252,6 @@
         "94d95cf1f7": "チェック",
         "9e8d45700e": "会話",
         "e6996f4024": "· 更新されました",
-        "dd5d9a4f17": "{{value0}}に更新",
-        "71a3c0f9d2": "ワークスペースを開始",
         "00b7b82329": "ヘッドブランチ",
         "e1f3641bfd": "から",
         "c44b70352b": "ベースブランチ",
@@ -1412,6 +1415,8 @@
         "82c87eceb9": "担当者を編集",
         "1ff5d979df": "担当者なし",
         "checkActionRequiredHint": "マージを解除するには、このチェックにGitHub上で手動アクション（例：ワークフロー実行の承認）が必要です。",
+        "dd5d9a4f17": "{{value0}}に更新",
+        "71a3c0f9d2": "ワークスペースを開始",
         "filesUnavailable": "Couldn't load changed files.",
         "filesRetry": "Retry"
       },
@@ -2577,10 +2582,10 @@
             "0a917b591a": "ペースト",
             "f3eeb1de13": "コピー",
             "c2f0b72b8d": "入れる",
-            "openLinkDefaultBrowser": "既定のブラウザで開く",
             "925f49f210": "ペインを展開する",
             "df766809e0": "ペインを折りたたむ",
-            "cff67afad1": "コンテキストをコピー"
+            "cff67afad1": "コンテキストをコピー",
+            "openLinkDefaultBrowser": "既定のブラウザで開く"
           },
           "TerminalErrorToast": {
             "e4aa243f8c": "デーモンを再起動します",
@@ -2716,10 +2721,10 @@
             "localWorkspacesOnly": "履歴からの再開はローカルワークスペースでのみ利用できます。",
             "openLocalWorkspace": "セッションを再開する前にローカルワークスペースを開いてください。",
             "sessionQueued": "セッションをキューに追加しました",
-            "runtimeWorkspacesUnsupported": "ランタイムでホストされるワークスペースでは、履歴からの再開は利用できません。",
             "openSupportedWorkspace": "セッションを再開する前に、ローカルまたは SSH のワークスペースを開いてください。",
             "localSessionSshWorkspaceUnsupported": "このセッションの履歴はこのマシンに保存されているため、SSH ワークスペースでは再開できません。代わりにローカルワークスペースにドロップしてください。",
-            "sessionHostMismatchUnsupported": "このセッションは別のホストに属しています。同じホスト上のワークスペースにドロップしてください。"
+            "sessionHostMismatchUnsupported": "このセッションは別のホストに属しています。同じホスト上のワークスペースにドロップしてください。",
+            "runtimeWorkspacesUnsupported": "ランタイムでホストされるワークスペースでは、履歴からの再開は利用できません。"
           },
           "TabGroupDropOverlay": {
             "paneColumnLabel": "新しい分割"
@@ -3236,7 +3241,11 @@
             "42fdd4da1d": "Claude サインインを更新中です。エージェントセッションはまだサインイン済みの場合があります。",
             "c06c1d215d": "ネットワークリクエストに失敗したため、Claude 使用量を更新できませんでした。",
             "cabdc2a9e0": "Claude サインイン認証情報を読み取れませんでした。",
-            "a7517cccb6": "Claude 使用量は現在利用できません。"
+            "a7517cccb6": "Claude 使用量は現在利用できません。",
+            "e2c6a4f917": "Run Grok to refresh",
+            "d1b7f509ac": "Run grok in a terminal on the computer running Orca and wait for it to start. If prompted, complete sign-in, then retry usage. You do not need to send a chat message.",
+            "f90b3d7a16": "Run Kimi to refresh",
+            "a37e8c15d4": "Run kimi in a terminal on the computer running Orca and wait for it to start, then retry usage."
           },
           "SshTargetStatusRow": {
             "sshHost": "SSH ホスト"
@@ -3613,28 +3622,67 @@
           "cd7893fbc1": "スキャンスキル",
           "35b9a724a0": "利用可能",
           "0c74e7ff34": "ローカル"
+        },
+        "SkillFreshnessNudge": {
+          "titleOne": "インストール済みの Orca スキルが古くなっています",
+          "titleMany": "インストール済みの Orca スキル {{value0}} 件が古くなっています",
+          "updateOne": "スキルを更新",
+          "updateMany": "スキルを更新",
+          "description": "Agents がこのバージョンの Orca の最新の手順に従うように、{{value0}} を更新してください。"
+        },
+        "SkillFreshnessRow": {
+          "statusUpdateAvailable": "更新あり",
+          "statusCantUpdate": "更新できません",
+          "cantUpdateReason": "このスキルは Orca が安全に更新できない場所にインストールされているため、npx skills update コマンドは変更しません。",
+          "chipCurrent": "最新",
+          "chipUnrecognized": "未認識",
+          "chipInaccessible": "アクセス不可",
+          "chipDuplicate": "重複",
+          "chipExternalLink": "外部リンク",
+          "chipBrokenLink": "リンク切れ",
+          "chipReadOnly": "読み取り専用",
+          "chipInRepo": "リポジトリ内",
+          "chipPluginCache": "プラグインキャッシュ",
+          "tipCurrent": "ここのスキルはすでに最新です。更新しても変更されません。",
+          "tipUnrecognized": "ここのスキルの内容が公式バージョンのいずれとも一致しないため、Orca は安全に更新できません。更新を許可するには、ここにあるものを削除または置き換えてください。",
+          "tipInaccessible": "Orca はここのスキルを読み取れなかったため（権限またはファイルのエラー）、確認も更新もできません。",
+          "tipDuplicate": "このスキルはメインとは別に、ここにもインストールされています。そのため npx skills update コマンドは到達できません。更新を許可するには削除してください。",
+          "tipExternalLink": "これは Orca のスキルフォルダーの外を指すショートカットです。更新では追跡されません。",
+          "tipBrokenLink": "これは存在しないものを指すショートカットです。削除しても問題ありません。",
+          "tipReadOnly": "ここのスキルは読み取り専用の場所にあるため、権限を変更するまで更新できません。",
+          "tipInRepo": "ここのスキルはグローバルスキルではなくプロジェクト内にあります。Orca はグローバルなものだけを更新します。",
+          "tipPluginCache": "ここのスキルはプラグインによって管理されています。代わりにプラグインを更新してください。",
+          "skippedReasonUnrecognized": "The copy here doesn’t match the official version — it may be modified, or a different skill with the same name. Orca left it out of the update so it won’t overwrite it. Remove it if you want Orca to update this skill.",
+          "skippedReasonReadOnly": "This copy is in a read-only location, so Orca left it out of the update. Change its permissions to let Orca update it.",
+          "skippedReasonInaccessible": "Orca couldn’t read this copy, so it left the skill out of the update.",
+          "skippedReasonInRepo": "This is a project skill, not a global one — Orca only updates your global skills, so it left this out of the update.",
+          "skippedReasonPluginCache": "A plugin manages this skill, so Orca left it out of the update — update the plugin instead.",
+          "skippedReasonExternalLink": "This copy is a shortcut pointing outside Orca’s skill folders, so Orca left it out of the update.",
+          "skippedReasonBrokenLink": "This copy is a shortcut to something that no longer exists, so Orca left it out — you can safely delete it."
+        },
+        "SkillFreshnessUpdateDialog": {
+          "title": "スキルを更新",
+          "checking": "インストール済みの Orca スキルを確認中…",
+          "none": "インストール済みの Orca スキルは見つかりませんでした。",
+          "updateOne": "1 件のスキルを安全に更新できます",
+          "updateMany": "{{value0}} 件のスキルを安全に更新できます",
+          "success": "インストール済みの Orca スキルはすべて最新です。",
+          "attention": "一部のインストール済み Orca スキルは自動的に更新できません。",
+          "attentionDescription": "更新できない理由は、更新の詳細を開いて確認してください。",
+          "details": "更新の詳細",
+          "terminalTitle": "Orca スキルを更新",
+          "terminalDescription": "入力済みのコマンドを確認し、Enter キーを押して実行してください。",
+          "terminalAria": "Orca スキル更新ターミナル",
+          "checkNow": "今すぐ確認",
+          "close": "閉じる"
+        },
+        "SkillFreshnessStatusPill": {
+          "updateAvailable": "更新があります",
+          "upToDate": "最新です",
+          "installed": "インストール済み"
         }
       },
       "sidebar": {
-        "local": {
-          "base": {
-            "ref": {
-              "suggestion": {
-                "toast": {
-                  "670864ab52": "ローカル {{value0}} を最新の状態に保つ",
-                  "84c62e4d7f": "{{value0}} をオンにできませんでした",
-                  "442552c656": "設定を開いてもう一度お試しください。",
-                  "f15fd80989": "新規ワークツリーは最新ですが、ローカル {{value0}} は {{value1}} {{value2}} 遅れているため、AI diff が古い履歴と比較する可能性があります。Orca が自動で最新状態を保つようにできます。これはいつでもここで変更できます",
-                  "3d260e1a5d": "設定 › {{value0}}",
-                  "34a03a6565": "{{value0}} を最新の状態に保つ",
-                  "4a18052018": "ローカル {{value0}} は {{value1}} より遅れています",
-                  "commit": "commit",
-                  "commits": "commits"
-                }
-              }
-            }
-          }
-        },
         "AddProjectFromFolderDialog": {
           "7d1f51678c": "プロジェクトを追加",
           "7726a16374": "キャンセル",
@@ -3645,6 +3693,11 @@
           "0ae45b8238": "私のプロジェクト",
           "a8149a3a5a": "名前",
           "11fd2a7db8": "Git repo",
+          "5e97f0c4b9": "プロジェクトが作成されました",
+          "2c12db1511": "プロジェクトはすでに追加されています",
+          "875dda0995": "サーバーの親パスを入力します。",
+          "45b7c26034": "プロジェクトの作成",
+          "85085d74d2": "作成中…",
           "c7b9f94456": "新規プロジェクトを作成",
           "b100311784": "名前を付けると、Orca が適切な既定値で実際のプロジェクトを作成します。",
           "685b5eefe1": "{{parent}} の {{kind}}",
@@ -3653,27 +3706,7 @@
           "c234df77f7": "作成する前に、サーバーの親フォルダを選択または入力してください。",
           "3a13f6e88b": "場所が選択されていません",
           "6ed14c0281": "サーバーフォルダが選択されていません",
-          "5e97f0c4b9": "プロジェクトが作成されました",
-          "2c12db1511": "プロジェクトはすでに追加されています",
-          "875dda0995": "サーバーの親パスを入力します。",
-          "ssh_parent_manual": "SSH の親パスを入力してください。",
-          "45b7c26034": "プロジェクトの作成",
-          "85085d74d2": "作成中…"
-        },
-        "AddRepoHostSelector": {
-          "host": "ホスト",
-          "local": "ローカル",
-          "runtime": "Server",
-          "ssh": "SSH",
-          "connecting": "接続中",
-          "connect": "接続",
-          "addSshHost": "SSH ホストの追加",
-          "addRemoteServer": "リモートサーバーを追加する",
-          "addRemoteHost": "リモートホストの追加",
-          "addRemoteHostTooltip": "ログインできるマシンには SSH を選択し、Orca サーバーにはリモート サーバーを選択します。",
-          "addSshHostDetail": "SSH 経由で既存のマシンを使用します。",
-          "addRemoteServerDetail": "別のコンピューターで実行されている Orca とペアリングします。",
-          "addRemoteHostDetail": "SSH ホストまたは Orca サーバー"
+          "ssh_parent_manual": "SSH の親パスを入力してください。"
         },
         "AddRepoNestedImportStep": {
           "496f68cf8c": "repos をスキャンしています。クリックして停止します。",
@@ -3736,12 +3769,12 @@
           "0f8aba944c": "ディレクトリに移動し、「選択」をクリックして選択します。"
         },
         "AddRepoStartSteps": {
-          "87596c1446": "その他の追加方法",
           "acf895cb42": "Orca の使用を開始するには、プロジェクトを追加します。",
           "d13757911c": "プロジェクトを追加する",
           "d301db1c9a": "repos をスキャンしています。クリックして停止します。",
           "69ea7f8dc4": "スキャンを停止する",
-          "9906cae183": "スキャンの停止"
+          "9906cae183": "スキャンの停止",
+          "87596c1446": "その他の追加方法"
         },
         "AddRepoStepIndicator": {
           "3bb655c117": "戻る"
@@ -3958,12 +3991,12 @@
           "automationCreated": "自動化で作成されたワークスペースを非表示"
         },
         "SidebarHeader": {
-          "25a95899c9": "プロジェクトを追加",
           "92154beb7e": "新規ワークスペース",
           "49f62c5665": "ワークスペースボード",
           "5c9c7c16aa": "プロジェクトを追加してワークスペースを作成する",
           "ca6f729da2": "新規ワークスペース ({{value0}})",
-          "a30e34eb5c": "ワークスペースボードを閉じる"
+          "a30e34eb5c": "ワークスペースボードを閉じる",
+          "25a95899c9": "プロジェクトを追加"
         },
         "SidebarNav": {
           "80611a8b10": "検索",
@@ -4008,11 +4041,11 @@
           "c4f8e1b72a": "X"
         },
         "SidebarToolbar": {
+          "19e32d0e5f": "フォルダーピッカーを開いてプロジェクトを追加します",
+          "abc62b6328": "プロジェクトを追加",
           "87d0064026": "ワークスペースボードは下部バーに移動しました",
           "a30e34eb5c": "ワークスペースボードを閉じる",
-          "49f62c5665": "ワークスペースボード",
-          "19e32d0e5f": "フォルダーピッカーを開いてプロジェクトを追加します",
-          "abc62b6328": "プロジェクトを追加"
+          "49f62c5665": "ワークスペースボード"
         },
         "SidebarWorkspaceFilterSection": {
           "c3fa13dc2e": "デフォルトのブランチを非表示にする",
@@ -4020,21 +4053,7 @@
           "82594419ba": "フィルター",
           "automationCreated": "自動化で作成されたワークスペースを非表示"
         },
-        "sidebarHostOptions": {
-          "3e102f111c": "All hosts",
-          "visibleHostsCount": "{{value0}} hosts"
-        },
-        "SidebarHostScopeStrip": {
-          "scopedTo": "{{value0}} visible",
-          "backToAll": "All hosts"
-        },
         "SidebarWorkspaceOptionsMenu": {
-          "hosts": "ホスト",
-          "allHostsDetail": "すべてのホストを表示",
-          "configuredSshHost": "設定済み SSH",
-          "projectSshHost": "プロジェクト SSH",
-          "activeRuntimeHost": "アクティブサーバー",
-          "projectRuntimeHost": "プロジェクトサーバー",
           "95c9754653": "Agent アクティビティのレイアウト",
           "3d4b9c4997": "ホバー",
           "ba87080fb7": "プロパティを表示する",
@@ -4045,7 +4064,6 @@
           "09faabd875": "プロジェクトの順序",
           "7bada3b1ab": "並べ替え",
           "dc0bb670bc": "グループ化",
-          "631b97eea9": "ホストスコープ",
           "9919ae1082": "ワークスペースのオプション",
           "bc96dbd041": "ワークスペース オプション ({{value0}})",
           "af9249c505": "最新のワークスペースアクティビティ",
@@ -4060,7 +4078,6 @@
           "2a81e07366": "完全なリスト",
           "25105b28cb": "コンパクト",
           "d7084e8bc8": "Agent のアクティビティ",
-          "automation": "自動化",
           "b64d8bcca0": "ポート",
           "26c71e536c": "注意事項",
           "b8dcc6f321": "PR/MR リンク",
@@ -4074,6 +4091,13 @@
           "c2c7a45cda": "なし",
           "680043342f": "コンパクト",
           "c7591b6014": "repo",
+          "hosts": "ホスト",
+          "allHostsDetail": "すべてのホストを表示",
+          "configuredSshHost": "設定済み SSH",
+          "projectSshHost": "プロジェクト SSH",
+          "activeRuntimeHost": "アクティブサーバー",
+          "projectRuntimeHost": "プロジェクトサーバー",
+          "631b97eea9": "ホストスコープ",
           "2d4f0eb933": "デフォルト",
           "1a0eec0d35": "ステータス",
           "b5536d5a88": "タスク",
@@ -4081,6 +4105,7 @@
           "2d74665a56": "ポート",
           "65a9820bd1": "Agent ステータス",
           "219ebf1961": "ブランチ名",
+          "automation": "自動化",
           "folderPathIdentity": "ブランチ / フォルダパス"
         },
         "SshDisconnectedDialog": {
@@ -4166,8 +4191,8 @@
           "1b0a156717": "エージェント"
         },
         "WorktreeCardReviewDetailSection": {
-          "copyLink": "リンクをコピー",
-          "reviewHeader": "{{value0}} #{{value1}}"
+          "reviewHeader": "{{value0}} #{{value1}}",
+          "copyLink": "リンクをコピー"
         },
         "WorktreeCardMeta": {
           "3e65e11cc6": "ワークスペースのメタデータ",
@@ -4183,12 +4208,6 @@
           "807b13b9ec": "Issue を編集する",
           "b22f058067": "GitHub で見る",
           "e97d8f2876": "Issue #{{value0}}",
-          "moreIssueActions": "その他の issue 操作",
-          "copyLink": "リンクをコピー",
-          "copyLinkSuccess": "{{value0}} をコピーしました",
-          "copyLinkFailure": "リンクのコピーに失敗しました",
-          "issueLinkLabel": "Issue リンク",
-          "reviewLinkLabel": "{{value0}} リンク",
           "3ea2702e62": "リンク済み {{value0}} #{{value1}}",
           "b105fd3057": "リンク Linear {{value0}}",
           "3f2649eeb8": "リンクされた Issue #{{value0}}",
@@ -4200,7 +4219,13 @@
           "checkingAutomationAvailability": "自動化の利用可否を確認中...",
           "automationMissing": "自動化は利用できなくなりました。",
           "automationRunMissing": "実行履歴は利用できなくなりました。",
-          "automationAvailabilityUnavailable": "自動化の利用可否を確認できませんでした。"
+          "automationAvailabilityUnavailable": "自動化の利用可否を確認できませんでした。",
+          "moreIssueActions": "その他の issue 操作",
+          "copyLink": "リンクをコピー",
+          "copyLinkSuccess": "{{value0}} をコピーしました",
+          "copyLinkFailure": "リンクのコピーに失敗しました",
+          "issueLinkLabel": "Issue リンク",
+          "reviewLinkLabel": "{{value0}} リンク"
         },
         "WorktreeCardMetadataStatusBadges": {
           "fe188062a1": "状態: オープン",
@@ -4253,9 +4278,6 @@
           "deleteWorktree": "ワークツリーを削除"
         },
         "WorktreeList": {
-          "7a8b9c0d1e": "更新が必要です",
-          "hostAuthNeeded": "認証が必要です",
-          "hostDisconnected": "切断済み",
           "d880ea0744": "グループを作成し、このプロジェクトをそのグループに移動します。",
           "bc1460beb3": "サイドバーに表示されるグループ名を更新します。",
           "13757c053c": "新規プロジェクトグループ",
@@ -4292,6 +4314,9 @@
           "f94466bc39": "グループ削除後も、含まれていたプロジェクト{{value2}} {{value1}} 件中 {{value0}} 件が残りました。",
           "groupDeleteFailed": "グループの削除に失敗しました",
           "groupDeleteFailedDesc": "グループ削除中に問題が発生しました。プロジェクトは削除されませんでした。",
+          "7a8b9c0d1e": "更新が必要です",
+          "hostAuthNeeded": "認証が必要です",
+          "hostDisconnected": "切断済み",
           "failedNestWorkspace": "ワークスペースをネストできませんでした",
           "sidebarRowMissing": "対象はもう存在しません",
           "failedUnnestWorkspace": "ワークスペースのネスト解除に失敗しました"
@@ -4351,10 +4376,10 @@
                   "5f9ffac036": "リモート Git repos のクローンを作成する",
                   "7edb8ebe24": "URLからクローンを作成する",
                   "a6c20dca96": "SSH ターゲットからプロジェクトを開く",
-                  "sshCreateUnavailable": "Not available for SSH hosts yet",
                   "3d162cc76f": "リモートプロジェクト",
                   "fb4fc5380e": "ローカルプロジェクト、Git repo、または多数の repos を含むフォルダー",
                   "2281fdc8c7": "フォルダを参照する",
+                  "sshCreateUnavailable": "Not available for SSH hosts yet",
                   "sshBrowseTitle": "Open project on SSH host",
                   "sshBrowseDescription": "Existing Git repository or folder on this SSH host",
                   "runtimeBrowseDescription": "Existing Git repository or folder on this host"
@@ -4507,47 +4532,24 @@
         "index": {
           "b826a98b6f": "忙しい"
         },
-        "HostRemoveDialog": {
-          "1a2b3c4d5e": "Removed {{value0}}",
-          "2b3c4d5e6f": "Failed to remove host",
-          "3c4d5e6f7a": "Remove {{value0}}?",
-          "4d5e6f7a8b": "This opens the Orca servers settings where you can remove this server.",
-          "5e6f7a8b9c": "This removes the saved SSH host and its credentials from this computer. Remote files are not deleted.",
-          "6f7a8b9c0d": "キャンセル",
-          "7a8b9c0d1e": "Open settings",
-          "8b9c0d1e2f": "ホストを削除",
-          "workspacesFailed": "このホストの {{count}} 個のワークスペースを削除できませんでした。ホストは保持されたので、再試行できます。",
-          "oneWorkspace": "1つのワークスペース",
-          "manyWorkspaces": "{{count}} 個のワークスペース",
-          "hostHasWorkspacesDefault": "このコンピュータから {{value0}} とその認証情報を削除します。{{value1}} は Orca に残ります — リモートファイルは変更されません。",
-          "alsoDeleteRemote": "また、{{value1}} のこれらの {{value0}} も削除",
-          "alsoForgetLocal": "また、Orca からこれらの {{value0}} も削除",
-          "advanced": "詳細設定",
-          "alsoDeleteRemoteHint": "リモートGitワークスペースとそのブランチを完全に削除します。この操作は取り消せません。",
-          "alsoForgetLocalHint": "Orcaからのみクリアします。リモートファイル、ワークスペース、ブランチはそのまま残ります。"
-        },
-        "HostRenameDialog": {
-          "1a2b3c4d5e": "Rename host",
-          "2b3c4d5e6f": "This label is shown only on this computer. Leave it blank to use the default name.",
-          "3c4d5e6f7a": "Display name",
-          "4d5e6f7a8b": "Reset to default",
-          "5e6f7a8b9c": "キャンセル",
-          "6f7a8b9c0d": "保存"
-        },
-        "HostSectionHeaderMenu": {
-          "5b8b4b6a01": "Update server required",
-          "9b3c1d2e44": "Update client required",
-          "2c29e2de68": "Connection failed",
-          "bf07aee59e": "切断に失敗しました",
-          "7f1a2b3c4d": "{{value0}} is reachable",
-          "4f2c8a9b10": "Host actions for {{value0}}",
-          "6b7c8d9e10": "Host actions",
-          "8d1e2f3a4b": "Rename…",
-          "63f36455cc": "Reconnect",
-          "59b553e2aa": "切断",
-          "2d3e4f5a6b": "Check connection",
-          "3c4d5e6f7a": "ホストを管理…",
-          "6e7f8a9b0c": "Remove host…"
+        "local": {
+          "base": {
+            "ref": {
+              "suggestion": {
+                "toast": {
+                  "670864ab52": "ローカル {{value0}} を最新の状態に保つ",
+                  "84c62e4d7f": "{{value0}} をオンにできませんでした",
+                  "442552c656": "設定を開いてもう一度お試しください。",
+                  "f15fd80989": "新規ワークツリーは最新ですが、ローカル {{value0}} は {{value1}} {{value2}} 遅れているため、AI diff が古い履歴と比較する可能性があります。Orca が自動で最新状態を保つようにできます。これはいつでもここで変更できます",
+                  "3d260e1a5d": "設定 › {{value0}}",
+                  "34a03a6565": "{{value0}} を最新の状態に保つ",
+                  "4a18052018": "ローカル {{value0}} は {{value1}} より遅れています",
+                  "commit": "commit",
+                  "commits": "commits"
+                }
+              }
+            }
+          }
         },
         "LinearAgentSkillSetupPrompt": {
           "missingCliAndSkill": "Orca CLI と Linear agent スキルがありません。",
@@ -4601,6 +4603,71 @@
           "822ff300ad": "閉じる",
           "b7e3a91c4f": "プロジェクトヘッダーをドラッグして並べ替えるか、",
           "e8c1f4a2b9": "をワークスペースオプションで選択してください。"
+        },
+        "AddRepoHostSelector": {
+          "host": "ホスト",
+          "local": "ローカル",
+          "runtime": "Server",
+          "ssh": "SSH",
+          "connecting": "接続中",
+          "connect": "接続",
+          "addSshHost": "SSH ホストの追加",
+          "addRemoteServer": "リモートサーバーを追加する",
+          "addRemoteHost": "リモートホストの追加",
+          "addRemoteHostTooltip": "ログインできるマシンには SSH を選択し、Orca サーバーにはリモート サーバーを選択します。",
+          "addSshHostDetail": "SSH 経由で既存のマシンを使用します。",
+          "addRemoteServerDetail": "別のコンピューターで実行されている Orca とペアリングします。",
+          "addRemoteHostDetail": "SSH ホストまたは Orca サーバー"
+        },
+        "sidebarHostOptions": {
+          "3e102f111c": "All hosts",
+          "visibleHostsCount": "{{value0}} hosts"
+        },
+        "SidebarHostScopeStrip": {
+          "scopedTo": "{{value0}} visible",
+          "backToAll": "All hosts"
+        },
+        "HostRemoveDialog": {
+          "1a2b3c4d5e": "Removed {{value0}}",
+          "2b3c4d5e6f": "Failed to remove host",
+          "3c4d5e6f7a": "Remove {{value0}}?",
+          "4d5e6f7a8b": "This opens the Orca servers settings where you can remove this server.",
+          "5e6f7a8b9c": "This removes the saved SSH host and its credentials from this computer. Remote files are not deleted.",
+          "6f7a8b9c0d": "キャンセル",
+          "7a8b9c0d1e": "Open settings",
+          "8b9c0d1e2f": "ホストを削除",
+          "workspacesFailed": "このホストの {{count}} 個のワークスペースを削除できませんでした。ホストは保持されたので、再試行できます。",
+          "oneWorkspace": "1つのワークスペース",
+          "manyWorkspaces": "{{count}} 個のワークスペース",
+          "hostHasWorkspacesDefault": "このコンピュータから {{value0}} とその認証情報を削除します。{{value1}} は Orca に残ります — リモートファイルは変更されません。",
+          "alsoDeleteRemote": "また、{{value1}} のこれらの {{value0}} も削除",
+          "alsoForgetLocal": "また、Orca からこれらの {{value0}} も削除",
+          "advanced": "詳細設定",
+          "alsoDeleteRemoteHint": "リモートGitワークスペースとそのブランチを完全に削除します。この操作は取り消せません。",
+          "alsoForgetLocalHint": "Orcaからのみクリアします。リモートファイル、ワークスペース、ブランチはそのまま残ります。"
+        },
+        "HostRenameDialog": {
+          "1a2b3c4d5e": "Rename host",
+          "2b3c4d5e6f": "This label is shown only on this computer. Leave it blank to use the default name.",
+          "3c4d5e6f7a": "Display name",
+          "4d5e6f7a8b": "Reset to default",
+          "5e6f7a8b9c": "キャンセル",
+          "6f7a8b9c0d": "保存"
+        },
+        "HostSectionHeaderMenu": {
+          "5b8b4b6a01": "Update server required",
+          "9b3c1d2e44": "Update client required",
+          "2c29e2de68": "Connection failed",
+          "bf07aee59e": "切断に失敗しました",
+          "7f1a2b3c4d": "{{value0}} is reachable",
+          "4f2c8a9b10": "Host actions for {{value0}}",
+          "6b7c8d9e10": "Host actions",
+          "8d1e2f3a4b": "Rename…",
+          "63f36455cc": "Reconnect",
+          "59b553e2aa": "切断",
+          "2d3e4f5a6b": "Check connection",
+          "3c4d5e6f7a": "ホストを管理…",
+          "6e7f8a9b0c": "Remove host…"
         },
         "WorkspaceKanbanDrawer": {
           "1975a4e480": "タスクステータスの同期に失敗しました",
@@ -4677,7 +4744,6 @@
           "port": "ポート",
           "identityFile": "アイデンティティファイル",
           "identityFilePlaceholder": "~/.ssh/id_ed25519 (オプション)",
-          "sshPersistenceDefault": "このホスト上のリモートターミナルは、終了するかリレーをリセットするまで動作し続けます。",
           "serverName": "サーバー名",
           "serverNamePlaceholder": "開発マシン",
           "pairingCode": "ペアリングコード",
@@ -4689,7 +4755,8 @@
           "sshImportSynced": "{{value0}} ホスト{{value1}} を同期しました。",
           "sshImportFailed": "SSH 構成のインポートに失敗しました。",
           "importing": "インポート中...",
-          "importSshConfig": "~/.ssh/config をインポートします"
+          "importSshConfig": "~/.ssh/config をインポートします",
+          "sshPersistenceDefault": "このホスト上のリモートターミナルは、終了するかリレーをリセットするまで動作し続けます。"
         },
         "ForgetSshWorkspaceDialog": {
           "reconnectFailed": "再接続に失敗しました",
@@ -4747,21 +4814,6 @@
         }
       },
       "settings": {
-        "keep": {
-          "local": {
-            "main": {
-              "up": {
-                "to": {
-                  "date": {
-                    "setting": {
-                      "f8bda25f29": "ローカル main を最新の状態に保つ"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
         "AccountsPane": {
           "c2d2751587": "アカウントの削除",
           "dbb9626ed1": "キャンセル",
@@ -4772,6 +4824,7 @@
           "ae3b21eb6c": "opencode.ai/workspace/wrk_…/go",
           "51c9104e13": "opencode.ai にログインした後、URL でこれを見つけます (例:",
           "b398b834c9": "クリア",
+          "316ca4e610": "Cookie を削除",
           "a122332371": "wrk_… (自動検索の場合は空白のままにします)",
           "dbdb0b0bd8": "ワークスペースIDのオーバーライド",
           "d70a5287a4": "自動検索が失敗した場合は、オプションのワークスペース ID をオーバーライドします。",
@@ -4838,7 +4891,6 @@
           "b11078a9c2": "wsl",
           "350b2a1aa7": "Use your current",
           "e05d0ff737": "現在の {{value0}} Claude ログインを使用します。",
-          "316ca4e610": "Cookie を削除",
           "2f24f244a4": "MiniMax Cookie が必要です。",
           "8e6f0cb1d8": "MiniMax Cookie は保存されませんでした。",
           "8d61637a77": "MiniMax Cookie を保存しました。",
@@ -4976,9 +5028,6 @@
         },
         "AppearancePane": {
           "3057983501": "未割り当て",
-          "872af9556e": "システムトレイ",
-          "2edf606c46": "閉じるときにトレイへ最小化",
-          "b707773a0d": "有効にすると、ウィンドウを閉じてもOrcaは終了せず、システムトレイで実行を続けます。",
           "0cd9b8228f": "Dock とウィンドウのスイッチャーに表示されるアプリのアイコンを選択します。",
           "ca1590d42f": "アプリアイコン",
           "61d842eca0": "Orca Mobile のショートカットをサイドバーに表示します。ツールボックスから引き続き利用できます。",
@@ -5022,6 +5071,9 @@
             "tintOpacityDescription": "サイドバーに色合いをどの程度強く混ぜるかを調整します。"
           },
           "workspaceCardLayoutGuidance": "ワークスペースサイドバーで管理されます。",
+          "872af9556e": "システムトレイ",
+          "2edf606c46": "閉じるときにトレイへ最小化",
+          "b707773a0d": "有効にすると、ウィンドウを閉じてもOrcaは終了せず、システムトレイで実行を続けます。",
           "interfaceDefaultFont": "デフォルトフォント",
           "terminalDefaultFont": "デフォルトフォント",
           "interfaceTitle": "インターフェイス",
@@ -5030,7 +5082,11 @@
           "windowSidebarSummary": "サイドバー、ステータスバー、ファイルエクスプローラー",
           "statusBarCount": "{{value0}} 個のインジケーターが表示中。",
           "gitIgnoredGlossary": ".gitignore に一致するファイル。",
-          "statusBarDescription": "ステータスバーに表示するインジケーターを選択します。"
+          "statusBarDescription": "ステータスバーに表示するインジケーターを選択します。",
+          "showPinnedWorktreesInGroups": {
+            "title": "ピン留めしたワークツリーを元のリストにも表示",
+            "description": "ピン留めしたワークツリーを Pinned に残したまま、すべて、プロジェクト、ステータス、PR にも表示します。"
+          }
         },
         "AutoRenameBranchFromWorkSetting": {
           "1626524572": "Nautilus",
@@ -5105,10 +5161,6 @@
           "612f7f6861": "プロファイルの作成に失敗しました。",
           "8f22b7580d": "プロファイル「{{value0}}」が作成されました。",
           "8481ee0331": "新規ブラウザプロファイル",
-          "c0f85056d9": "Browser profiles on this Orca server.",
-          "86b7c83fee": "This computer",
-          "6480776a03": "Browser profiles for the selected host.",
-          "5e19a692f7": "ホスト",
           "6f2584b39e": "プロファイルの追加",
           "e4aaf8051b": "ツールバーのメニュー。",
           "cd47bc9622": "新規ブラウザタブのデフォルトプロファイルを選択します。 Cookie をインポートし、タブごとにプロファイルを切り替えます。",
@@ -5122,7 +5174,11 @@
           "64898ecdab": "作成",
           "7b649a578a": "作成…",
           "4399c77caa": "デフォルト",
-          "4af9a17947": "kagi"
+          "4af9a17947": "kagi",
+          "c0f85056d9": "Browser profiles on this Orca server.",
+          "86b7c83fee": "This computer",
+          "6480776a03": "Browser profiles for the selected host.",
+          "5e19a692f7": "ホスト"
         },
         "BrowserProfileRow": {
           "8e636cae25": "プロファイル「{{value0}}」が削除されました。",
@@ -5193,6 +5249,8 @@
           "8671e406f0": "キャンセル",
           "a4aafe46e3": "ターゲットパス:",
           "e8012c03a1": "agents が Orca ワークスペース、terminal、進捗コマンドを使用できるようにします。",
+          "cliSkillTerminalTitle": "CLI スキルのセットアップ",
+          "cliSkillTerminalAria": "CLI スキルのインストール terminal",
           "6053cf736c": "CLIスキル",
           "36a6f919ba": "agents に Orca 対応のワークスペース、terminal、および進行状況のワークフローを提供します。",
           "04873eea3e": "Agent のスキル",
@@ -5221,9 +5279,7 @@
           "14444243ba": "PATH から {{value0}} を削除しますか?",
           "5d432fe44d": "インストールされています",
           "8a9b784c60": "古い",
-          "d363e5929b": "CLI の登録を確認しています…",
-          "cliSkillTerminalTitle": "CLI スキルのセットアップ",
-          "cliSkillTerminalAria": "CLI スキルのインストール terminal"
+          "d363e5929b": "CLI の登録を確認しています…"
         },
         "CliSkillRuntimeSetup": {
           "04325573f8": "WSL",
@@ -5340,6 +5396,9 @@
           "0277901cf7": "完了した Agents、ブロック中の質問、未読状態、ワークツリー作成イベントのスレッドワークツリーフィード付き Agents 項目を左サイドバーに追加します。実験的機能 — イベントモデルと UI は変更される場合があります。",
           "a05bcdaf57": "Agents ビュー",
           "f63ea281e3": "agent の完了とブロック状態を示すスレッド化された左側のサイドバー フィード。",
+          "ca2219fe5e": "右下隅に固定された小さなアニメーションのペットを表示します。キャラクター (Claudino、OpenCode、Gremlin) を選択するか、ステータス バーのペット メニューから独自の PNG、APNG、GIF、WebP、JPG、または SVG をアップロードします。この設定を無効にしなくても、同じメニューからいつでも非表示にできます。",
+          "dd6f0a1d45": "ペット",
+          "0e89a574ae": "右下隅に浮かぶアニメーションのペット。",
           "agentHibernation": {
             "copy": "設定したアイドル時間が経過したバックグラウンド agent terminals を停止し、対応しているセッションは再度開いたときに再開します。Agent のスリープは、Orca から起動した agent の起動オプションを保持します。手動で起動した agent は、現在の Orca のデフォルトで再開される場合があります。安全モデルを調整中の実験的機能です。",
             "description": "設定したアイドル時間が経過したバックグラウンド agent terminals を停止し、対応しているセッションは再度開いたときに再開します。",
@@ -5355,9 +5414,6 @@
             "title": "新しいカードスタイル",
             "toggleLabel": "新しいカードスタイルを切り替え"
           },
-          "ca2219fe5e": "右下隅に固定された小さなアニメーションのペットを表示します。キャラクター (Claudino、OpenCode、Gremlin) を選択するか、ステータス バーのペット メニューから独自の PNG、APNG、GIF、WebP、JPG、または SVG をアップロードします。この設定を無効にしなくても、同じメニューからいつでも非表示にできます。",
-          "dd6f0a1d45": "ペット",
-          "0e89a574ae": "右下隅に浮かぶアニメーションのペット。",
           "nativeChat": {
             "title": "ネイティブチャット",
             "description": "対応エージェントのターミナルセッション用デスクトップチャット画面をプレビューします。",
@@ -6158,6 +6214,7 @@
           "0909e5d650": "プロジェクトの削除",
           "ee5a290616": "フォルダーとして開きます。このワークスペースでは Git 機能を使用できません。",
           "323debba71": "タイプ：",
+          "499a437335": "身元",
           "availableHosts": "Available Hosts",
           "availableHostsDescription": "Hosts where this project is set up.",
           "availableHostsHelp": "Project paths and worktree settings are host-specific; creating a workspace can target any ready setup.",
@@ -6188,7 +6245,6 @@
           "cloneHost": "クローン",
           "creatingPendingSetup": "Creating...",
           "createPendingSetup": "Track setup",
-          "499a437335": "身元",
           "hostSetupCheckingCapability": "Checking host capabilities",
           "hostAvailability": "Host availability",
           "hostAvailabilityHelp": "Add this same project on another connected host.",
@@ -6278,13 +6334,6 @@
           "05e0fc3ebf": "切り替え先",
           "b2290ed203": "Orca はこのホストにフォーカスして、そのプロジェクトを読み込みます。他のホスト上の既存の terminals とブラウザータブは動作したままです。",
           "d570c35a99": "サーバーを切り替え",
-          "f3a3d6d834": "{{value0}} の機能",
-          "0ef838094a": "プロトコル {{value0}}",
-          "9a91c4a0eb": "互換性あり",
-          "86ed75bec8": "サーバーを更新",
-          "62ac182a27": "クライアントを更新",
-          "c8791efc45": "ステータスを取得できません",
-          "5120beaac6": "確認中…",
           "84b9b2be05": "ブラウザまたは別の Orca クライアントが接続できるように、取り消し可能なアクセス許可を作成します。",
           "6e1280ca55": "この Orca サーバーを共有する",
           "9a3758d983": "保存されたサーバーはありません。",
@@ -6318,6 +6367,13 @@
           "8cf8790697": "保存済みサーバーは、ペアリング済みの Orca ランタイム経由でこのブラウザーをルーティングします。",
           "f75ce1c7a5": "ローカルでは現在のデスクトップ動作を維持します。保存済みサーバーは、対応しているクライアント呼び出しをリモートランタイム経由でルーティングします。",
           "d25f0688b1": "削除",
+          "f3a3d6d834": "{{value0}} の機能",
+          "0ef838094a": "プロトコル {{value0}}",
+          "9a91c4a0eb": "互換性あり",
+          "86ed75bec8": "サーバーを更新",
+          "62ac182a27": "クライアントを更新",
+          "c8791efc45": "ステータスを取得できません",
+          "5120beaac6": "確認中…",
           "4b5c6d7e8f": "報告された機能はありません",
           "hostModelCapabilityUnknown": "ホストモデル対応: サーバー機能を確認中",
           "hostModelCapabilitySupported": "ホストモデル対応: 準備完了",
@@ -6626,8 +6682,6 @@
           "106bd57f4a": "SSH パスワード"
         },
         "SshTargetCard": {
-          "a883f5a00f": "terminal タイムアウト: {{value0}}",
-          "8ce71262f4": "リセットまでの terminals",
           "ec6543cee9": "接続",
           "0e53e9f8e8": "テスト",
           "1810b51482": "接続中",
@@ -6641,7 +6695,9 @@
           "c77f1abfe3": "リモート terminals の終了",
           "18968ede9e": "エラー",
           "f0871e6bfb": "接続",
-          "47e94bd6ba": "接続されています"
+          "47e94bd6ba": "接続されています",
+          "a883f5a00f": "terminal タイムアウト: {{value0}}",
+          "8ce71262f4": "リセットまでの terminals"
         },
         "SshTargetDestructiveActions": {
           "7e66942808": "これにより、この SSH ターゲット上のアクティブな terminal セッションが停止されます。再接続しても復元されません。",
@@ -6654,8 +6710,6 @@
         "SshTargetForm": {
           "fea9cb402e": "キャンセル",
           "1b19b00e93": "制限付きタイムアウトは 60 秒から 7 日間にする必要があります。",
-          "7c13f58c91": "リセットまで",
-          "55c56cf2c7": "切断後のタイムアウト（秒）",
           "137e88ce8d": "Orca がこのホストから切断された後も、リモートターミナルは実行を続けます。",
           "b574994adc": "停止したい場合は「リモートターミナルを終了」または「リレーをリセット」を使用してください。",
           "71fc546097": "リセットするまでターミナルを維持",
@@ -6680,6 +6734,8 @@
           "a62b4cb39a": "変更を保存",
           "29af933cd5": "新規 SSH ターゲット",
           "f2331ce599": "SSH ターゲットの編集",
+          "7c13f58c91": "リセットまで",
+          "55c56cf2c7": "切断後のタイムアウト（秒）",
           "4a342f44c1": "詳細接続",
           "e9609ddca6": "プロキシ、ジャンプホスト、接続の再利用",
           "8c922dffba": "より速いセットアップのため SSH 接続を再利用",
@@ -6953,7 +7009,6 @@
           "c2c64b24d0": "リセット"
         },
         "VoicePane": {
-          "6fa734ed95": "{{value0}} を削除",
           "68de13f72c": "モデルの削除に失敗しました。",
           "1ba81c0ff0": "推奨",
           "cfde55c7b0": "モデルのダウンロードに失敗しました。",
@@ -6982,7 +7037,8 @@
           "ad5d036ecc": "マイクの許可を要求できませんでした。音声ディクテーションが有効になっていませんでした。",
           "f9a9cf6928": "音声ディクテーションを有効にする前に、マイクの許可が必要です。",
           "1eac933202": "macOS のプライバシーとセキュリティを開きました。アクセスを許可した後、ディクテーションを再度有効にします。",
-          "cd9fe37556": "マイクの許可が与えられました"
+          "cd9fe37556": "マイクの許可が与えられました",
+          "6fa734ed95": "{{value0}} を削除"
         },
         "WorktreeSymlinksSection": {
           "1c1e35b219": "{{value0}} を削除",
@@ -7163,8 +7219,6 @@
         },
         "appearance": {
           "search": {
-            "9a115966d3": "閉じるときにトレイへ最小化",
-            "4d5b9427b5": "有効にすると、ウィンドウを閉じてもOrcaは終了せず、システムトレイで実行を続けます。",
             "468448bba4": "水彩",
             "f586abfa35": "青",
             "651f35b2c6": "スイッチャー",
@@ -7251,6 +7305,11 @@
             "40e5c3c285": "kimi",
             "c927a155d5": "ステータス バーに Kimi サブスクリプションの使用状況を表示します。",
             "3a6c028ea8": "Kimi 使用量",
+            "25e51b62ee": "レート制限",
+            "d9e7cef86f": "Cookie",
+            "d16378a88f": "minimax",
+            "e46178eb1b": "ステータスバーに MiniMax サブスクリプションの使用状況を表示します。",
+            "0f08f6b483": "MiniMax 使用量",
             "edbf0f63a0": "料金",
             "afbb6a3767": "トークン",
             "d77537b580": "opencode-go",
@@ -7289,11 +7348,8 @@
               "workspaceOptions": "ワークスペースオプション",
               "detailed": "詳細"
             },
-            "25e51b62ee": "レート制限",
-            "d9e7cef86f": "Cookie",
-            "d16378a88f": "minimax",
-            "e46178eb1b": "ステータスバーに MiniMax サブスクリプションの使用状況を表示します。",
-            "0f08f6b483": "MiniMax 使用量",
+            "9a115966d3": "閉じるときにトレイへ最小化",
+            "4d5b9427b5": "有効にすると、ウィンドウを閉じてもOrcaは終了せず、システムトレイで実行を続けます。",
             "antigravityUsageTitle": "Antigravity の使用状況",
             "antigravityUsageDescription": "ステータスバーに Antigravity サブスクリプションの使用量を表示します。",
             "antigravityKeyword": "antigravity",
@@ -7302,7 +7358,11 @@
             "d6c0a9e2f4": "grok",
             "c5b9f8d1e3": "xai",
             "usagePercentageDisplayTitle": "使用率",
-            "usagePercentageDisplayDescription": "プロバイダーの制限を使用済みまたは残りの割合で表示するかを選択します。"
+            "usagePercentageDisplayDescription": "プロバイダーの制限を使用済みまたは残りの割合で表示するかを選択します。",
+            "showPinnedWorktreesInGroups": {
+              "title": "ピン留めしたワークツリーを元のリストにも表示",
+              "description": "ピン留めしたワークツリーを Pinned に残したまま、すべて、プロジェクト、ステータス、PR にも表示します。"
+            }
           }
         },
         "auto": {
@@ -7548,6 +7608,23 @@
             "9bb3bd5098": "ターミナル",
             "11877246fc": "terminal ベルおよび agent 完了イベントの永続的なペインのハイライト。",
             "9e4ddf776d": "Terminal アテンション",
+            "fe5688b761": "サイドバー",
+            "ca5d1f3f46": "タイムライン",
+            "d01b3882ba": "通知",
+            "244a0ecd3d": "アクティビティ",
+            "92a9357d1f": "agents ビュー",
+            "fa72e71f05": "エージェント",
+            "4d63251595": "agent の完了とブロック状態を示すスレッド化された左側のサイドバー フィード。",
+            "ccc5548ac5": "Agents ビュー",
+            "9af7a518db": "キャラクター",
+            "791fefc0b0": "コーナー",
+            "65df471ab2": "アニメーション化された",
+            "9f5609bfb8": "かぶせる",
+            "2a33975d72": "マスコット",
+            "b54cea709b": "相棒",
+            "051203d37c": "ペット",
+            "6b5a56ac35": "右下隅に浮かぶアニメーションのペット。",
+            "87d99e634b": "ペット",
             "agentHibernation": {
               "agent": "agent",
               "agents": "エージェント",
@@ -7568,23 +7645,6 @@
               "worktree": "worktree",
               "worktrees": "worktrees"
             },
-            "fe5688b761": "サイドバー",
-            "ca5d1f3f46": "タイムライン",
-            "d01b3882ba": "通知",
-            "244a0ecd3d": "アクティビティ",
-            "92a9357d1f": "agents ビュー",
-            "fa72e71f05": "エージェント",
-            "4d63251595": "agent の完了とブロック状態を示すスレッド化された左側のサイドバー フィード。",
-            "ccc5548ac5": "Agents ビュー",
-            "9af7a518db": "キャラクター",
-            "791fefc0b0": "コーナー",
-            "65df471ab2": "アニメーション化された",
-            "9f5609bfb8": "かぶせる",
-            "2a33975d72": "マスコット",
-            "b54cea709b": "相棒",
-            "051203d37c": "ペット",
-            "6b5a56ac35": "右下隅に浮かぶアニメーションのペット。",
-            "87d99e634b": "ペット",
             "nativeChat": {
               "title": "ネイティブチャット",
               "description": "対応エージェントのターミナルセッション用デスクトップチャット画面をプレビューします。",
@@ -7810,15 +7870,15 @@
             "compareAgainstUpstreamTitle": "既定の比較ベース",
             "compareAgainstUpstreamDescription": "ソース管理がコミット済み変更の比較に既定で使うベースを選択します。ブランチの上流は現在のブランチに自動的に追従し、上流がない場合はリポジトリの既定ブランチにフォールバックします。比較ベースは各 worktree の Git パネルから worktree ごとに変更できます。Pull Request やリベースの対象は変更されません。",
             "compareBase": "比較基準",
-            "defaultCompareBase": "既定の比較ベース",
-            "defaultBranch": "既定ブランチ",
-            "repositoryDefault": "リポジトリ既定",
-            "branchUpstream": "ブランチ上流",
             "currentBranch": "現在のブランチ",
             "upstream": "上流",
             "localChanges": "ローカルの変更",
             "originMaster": "origin/master",
-            "committedChanges": "コミット済みの変更"
+            "committedChanges": "コミット済みの変更",
+            "defaultCompareBase": "既定の比較ベース",
+            "defaultBranch": "既定ブランチ",
+            "repositoryDefault": "リポジトリ既定",
+            "branchUpstream": "ブランチ上流"
           }
         },
         "input": {
@@ -8195,9 +8255,6 @@
             "f1c53f2820": "ワークツリー",
             "7e228fc439": "シンボリックリンク",
             "c06adcf136": "シンボリックリンク",
-            "copy": "copy",
-            "clone": "clone",
-            "apfs": "apfs",
             "ed885e589f": "プライマリ チェックアウトから新しく作成されたワークツリーへ配置するパス。",
             "01b3377ebc": "ワークツリー共有パス",
             "fff8834983": "プロンプト",
@@ -8211,12 +8268,6 @@
             "a47f51127e": "ソース管理",
             "6cc5c65e64": "プロジェクト固有の git 生成のオーバーライド。",
             "eec3995dc6": "Git AI Author",
-            "availableHosts": "Available Hosts",
-            "availableHostsDescription": "Hosts where this project is set up.",
-            "host": "host",
-            "ssh": "ssh",
-            "remote": "remote",
-            "vm": "vm",
             "cc876ca5f2": "repos",
             "6469de5368": "プロジェクト",
             "3067595d82": "削除",
@@ -8255,10 +8306,19 @@
             "92af66c7ce": "プロジェクト名",
             "883aad2801": "サイドバーとタブのプロジェクト固有の表示詳細。",
             "7e1e456a95": "表示名",
+            "availableHosts": "Available Hosts",
+            "availableHostsDescription": "Hosts where this project is set up.",
+            "host": "host",
+            "ssh": "ssh",
+            "remote": "remote",
+            "vm": "vm",
             "keepForkUpToDate": "フォークを最新に保つ",
             "keepForkUpToDateDescription": "このフォークを upstream から安全に fast-forward します。",
             "projectRuntime": "Project Runtime",
-            "projectRuntimeDescription": "Choose whether this project runs on Windows or WSL."
+            "projectRuntimeDescription": "Choose whether this project runs on Windows or WSL.",
+            "copy": "copy",
+            "clone": "clone",
+            "apfs": "apfs"
           }
         },
         "runtime": {
@@ -8670,14 +8730,6 @@
             }
           }
         },
-        "WorkspaceDirectorySetting": {
-          "1a2b3c4d5e": "クライアントのデフォルト",
-          "2b3c4d5e6f": "適用先",
-          "3c4d5e6f7a": "クライアントのデフォルトを上書き",
-          "4d5e6f7a8b": "クライアントのデフォルトを継承",
-          "5e6f7a8b9c": "リセット",
-          "6f7a8b9cad": "相対パス（例: .orca/worktrees）を指定するとプロジェクトごとの場所になり、絶対パスを指定すると全プロジェクトで 1 つのフォルダーを共有します。"
-        },
         "agent-awake-copy": {
           "e5995ce268": "agents 作業中はコンピューターを起きたままにする",
           "95d3031db2": "agents が作業している間、このコンピューターとディスプレイを起きたままにします。蓋を閉じたときの動作は、このデバイスの電源設定に従います。",
@@ -8690,6 +8742,21 @@
         "agent-generated-tab-title-copy": {
           "19ad21615a": "タブタイトルを自動生成",
           "b036c7a409": "最初に判明した agent のプロンプトから、短く安定したタブ名を生成します。手動での名前変更が常に優先されます。"
+        },
+        "keep": {
+          "local": {
+            "main": {
+              "up": {
+                "to": {
+                  "date": {
+                    "setting": {
+                      "f8bda25f29": "ローカル main を最新の状態に保つ"
+                    }
+                  }
+                }
+              }
+            }
+          }
         },
         "cli": {
           "source": {
@@ -8743,7 +8810,9 @@
                 "fe9231215b": "Checking Linear access before showing setup actions.",
                 "e1f5e6424c": "{{value0}} workspace{{value1}} connected",
                 "disconnect_all": "切断",
-                "account_scope_prefix": "Account scope"
+                "account_scope_prefix": "Account scope",
+                "2d60ec7921": "Connect a Jira Cloud site with an API token, or a self-hosted Jira with a personal access token or username and password. Credentials are sent to the selected remote runtime and stored there with runtime-supported encryption.",
+                "977e360b71": "Connect a Jira Cloud site with an API token, or a self-hosted Jira with a personal access token or username and password. Credentials are stored locally and encrypted when local runtime storage supports it."
               }
             }
           }
@@ -8790,22 +8859,30 @@
             }
           }
         },
-        "ProviderHostScopeControl": {
-          "scope_label": "{{value0}}: {{value1}}",
-          "change_host": "Open Remote Servers"
-        },
-        "computerUseSkillRuntime": {
-          "thisDevice": "This device"
-        },
         "computerUseSummary": {
+          "permissionsRequired": "{{value0}} permission{{value1}} required before agents can operate app windows.",
           "checkingTitle": "Checking Computer Use access.",
           "checkingDescription": "Orca is checking macOS privacy permissions for the Computer Use helper.",
           "unavailableTitle": "Computer Use is unavailable.",
           "unavailableDescription": "Computer Use permissions are unavailable because {{value0}}.",
           "readyTitle": "Computer Use is ready.",
           "readyDescription": "Agents can inspect and operate app windows when you ask.",
-          "permissionsTitle": "Finish setup to use local apps.",
-          "permissionsRequired": "{{value0}} permission{{value1}} required before agents can operate app windows."
+          "permissionsTitle": "Finish setup to use local apps."
+        },
+        "computerUseSkillRuntime": {
+          "thisDevice": "This device"
+        },
+        "WorkspaceDirectorySetting": {
+          "1a2b3c4d5e": "クライアントのデフォルト",
+          "2b3c4d5e6f": "適用先",
+          "3c4d5e6f7a": "クライアントのデフォルトを上書き",
+          "4d5e6f7a8b": "クライアントのデフォルトを継承",
+          "5e6f7a8b9c": "リセット",
+          "6f7a8b9cad": "相対パス（例: .orca/worktrees）を指定するとプロジェクトごとの場所になり、絶対パスを指定すると全プロジェクトで 1 つのフォルダーを共有します。"
+        },
+        "ProviderHostScopeControl": {
+          "scope_label": "{{value0}}: {{value1}}",
+          "change_host": "Open Remote Servers"
         },
         "providerAccountScope": {
           "remoteServer": "Remote server: {{value0}}",
@@ -9048,6 +9125,115 @@
           "description": "repo が所有するオンデマンド環境のセットアップ コントロールとワークスペース実行ターゲットを示します。",
           "toggleLabel": "ワークスペースごとの環境を切り替える"
         },
+        "SourceControlActionRepoOverrideNote": {
+          "agent": "エージェント",
+          "agentArgs": "CLI引数",
+          "commandTemplate": "コマンドテンプレート",
+          "more": "+{{count}} 件",
+          "plural": "グローバルの保存は、独自のレシピを持つ{{count}}個のリポジトリを変更しません。",
+          "recipe": "レシピ",
+          "review": "レビュー",
+          "reviewFirst": "最初にレビュー",
+          "singular": "グローバルの保存は、独自のレシピを持つ1つのリポジトリを変更しません。",
+          "tooltipTitle": "リポジトリのオーバーライド"
+        },
+        "linear": {
+          "agent": {
+            "skill": {
+              "install": {
+                "cta": {
+                  "copiedCommand": "コマンドをコピーしました。",
+                  "copyFailed": "コマンドのコピーに失敗しました。",
+                  "skillLabel": "エージェントスキル：",
+                  "checking": "確認中...",
+                  "installed": "インストール済み",
+                  "notInstalled": "未インストール",
+                  "recheck": "再確認",
+                  "installedDescription": "エージェントスキルがインストールされました。更新するには以下を実行してください：",
+                  "description": "エージェントにLinearタスクの読み取りと編集を許可します。",
+                  "copyCommand": "コマンドをコピー"
+                }
+              }
+            }
+          }
+        },
+        "GrokAccountsSection": {
+          "a1b2c3d4e5": "Grok (xAI)",
+          "f6e5d4c3b2": "Grok CLI サインインから週次クレジット使用量を表示します (セッションファイル ~/.grok/auth.json)。",
+          "0d8e77bc40": "Grok CLI ドキュメント",
+          "ad47a33f72": "読み込み中…",
+          "b2c3d4e5f6": "サインイン済み",
+          "c3d4e5f6a7": "サインイン済みです。Orca はディスク上のそのファイルだけを読み取ります。使用状況の取得に失敗する場合は grok login を再実行してください。",
+          "d4e5f6a7b8": "セッションの有効期限が切れました。ターミナルで grok login を実行して更新してください。",
+          "e5f6a7b8c9": "Grok CLI にサインインしていません",
+          "f6a7b8c9d0": "ターミナルで grok login を実行してから、ここで「使用状況を更新」をクリックしてください。",
+          "3325d996cb": "使用状況を更新",
+          "a8f3e2c1b4": "週次クレジット",
+          "b7e2d9f0a3": "ターミナルの grok /usage 画面と同じ週次クレジット率です。",
+          "c6d1a8f4e2": "{{when}} にリセット",
+          "e6dadc1e2b": "Monthly usage",
+          "75e396bf42": "Included monthly usage for Grok unified-billing accounts.",
+          "b36fa2c908": "Signed in. Orca reads the Grok CLI session stored on disk.",
+          "f08c41de73": "Session expired — run grok on the computer running Orca and wait for it to start. If prompted, complete sign-in, then click Refresh usage. No chat message is needed."
+        },
+        "AppearanceWindowSidebarSection": {
+          "usagePercentageDisplayUsed": "使用済み",
+          "usagePercentageDisplayRemaining": "残り"
+        },
+        "TerminalInteractionSection": {
+          "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
+          "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
+        },
+        "MobileRelayStatusSection": {
+          "registered": "Registered",
+          "connecting": "Connecting",
+          "reconnecting": "Reconnecting",
+          "offline": "Offline",
+          "title": "Orca Relay",
+          "automatic": "Connect from anywhere when a phone is paired",
+          "signInPrompt": "Sign in on this desktop to connect from anywhere",
+          "directStillAvailable": "LAN and Tailscale connections remain available.",
+          "directNeedsNoAccount": "LAN and Tailscale pairing still work without an account.",
+          "signIn": "Sign in",
+          "unavailable": "Unavailable",
+          "standby": "Standby — no relay devices"
+        },
+        "MobilePairingConnectionOptions": {
+          "ready": "準備完了",
+          "connecting": "接続中",
+          "available": "利用可能",
+          "reconnecting": "再接続中",
+          "unavailable": "利用不可",
+          "title": "新しいスマートフォンをどのように接続しますか？",
+          "anywhere": "Orca Relay で接続",
+          "recommended": "推奨",
+          "automaticDescription": "利用可能な場合は直接接続し、それ以外ではOrca Relayを使用します。",
+          "signInDescription": "Orca Relayを使用するには、このデスクトップでサインインしてください。",
+          "signIn": "サインイン",
+          "localOnly": "ローカルネットワークのみ",
+          "localShort": "LAN または Tailscale",
+          "localDescription": "このスマートフォンをOrca Relayに接続せず、LANまたはTailscaleを使用します。"
+        },
+        "MobilePairingSetupSection": {
+          "title": "スマートフォンをペアリング",
+          "automaticDescription": "ペアリングコードには、直接接続と暗号化されたOrca Relayのフォールバックが含まれます。",
+          "localDescription": "ペアリングコードは、下のローカルネットワークアドレスだけを使用します。",
+          "regenerate": "再生成",
+          "generate": "QRコードを生成",
+          "localSettings": "ローカル接続設定",
+          "localAddressDescription": "Orca Mobileからこのコンピューターへ直接接続できるLANまたはプライベートネットワークのアドレスを選択します。",
+          "refresh": "ネットワークインターフェースを更新",
+          "tailnet": "自分のtailnetで接続",
+          "tailnetDescription": "このコンピューターとスマートフォンにTailscaleをインストールし、同じtailnetにサインインして、上で100.x.y.zアドレスを選択します。",
+          "getTailscale": "Tailscaleを入手"
+        },
+        "MobileRelayBetaAvailability": {
+          "about": "Orca Relay ベータについて",
+          "beta": "ベータ",
+          "availability": "利用可能:",
+          "testFlight": "TestFlight",
+          "androidApk": "Android APK"
+        },
         "TerminalEnginePane": {
           "scrollback": {
             "title": "Scrollback",
@@ -9192,113 +9378,6 @@
               "note": "エンジンは OS の CJK・カラー絵文字フェイスを自動でフォールバックとして読み込むため、非ラテン文字や絵文字は設定なしで表示されます。"
             }
           }
-        },
-        "SourceControlActionRepoOverrideNote": {
-          "agent": "エージェント",
-          "agentArgs": "CLI引数",
-          "commandTemplate": "コマンドテンプレート",
-          "more": "+{{count}} 件",
-          "plural": "グローバルの保存は、独自のレシピを持つ{{count}}個のリポジトリを変更しません。",
-          "recipe": "レシピ",
-          "review": "レビュー",
-          "reviewFirst": "最初にレビュー",
-          "singular": "グローバルの保存は、独自のレシピを持つ1つのリポジトリを変更しません。",
-          "tooltipTitle": "リポジトリのオーバーライド"
-        },
-        "linear": {
-          "agent": {
-            "skill": {
-              "install": {
-                "cta": {
-                  "copiedCommand": "コマンドをコピーしました。",
-                  "copyFailed": "コマンドのコピーに失敗しました。",
-                  "skillLabel": "エージェントスキル：",
-                  "checking": "確認中...",
-                  "installed": "インストール済み",
-                  "notInstalled": "未インストール",
-                  "recheck": "再確認",
-                  "installedDescription": "エージェントスキルがインストールされました。更新するには以下を実行してください：",
-                  "description": "エージェントにLinearタスクの読み取りと編集を許可します。",
-                  "copyCommand": "コマンドをコピー"
-                }
-              }
-            }
-          }
-        },
-        "GrokAccountsSection": {
-          "a1b2c3d4e5": "Grok (xAI)",
-          "f6e5d4c3b2": "Grok CLI サインインから週次クレジット使用量を表示します (セッションファイル ~/.grok/auth.json)。",
-          "0d8e77bc40": "Grok CLI ドキュメント",
-          "ad47a33f72": "読み込み中…",
-          "b2c3d4e5f6": "サインイン済み",
-          "c3d4e5f6a7": "サインイン済みです。Orca はディスク上のそのファイルだけを読み取ります。使用状況の取得に失敗する場合は grok login を再実行してください。",
-          "d4e5f6a7b8": "セッションの有効期限が切れました。ターミナルで grok login を実行して更新してください。",
-          "e5f6a7b8c9": "Grok CLI にサインインしていません",
-          "f6a7b8c9d0": "ターミナルで grok login を実行してから、ここで「使用状況を更新」をクリックしてください。",
-          "3325d996cb": "使用状況を更新",
-          "a8f3e2c1b4": "週次クレジット",
-          "b7e2d9f0a3": "ターミナルの grok /usage 画面と同じ週次クレジット率です。",
-          "c6d1a8f4e2": "{{when}} にリセット",
-          "e6dadc1e2b": "Monthly usage",
-          "75e396bf42": "Included monthly usage for Grok unified-billing accounts."
-        },
-        "AppearanceWindowSidebarSection": {
-          "usagePercentageDisplayUsed": "使用済み",
-          "usagePercentageDisplayRemaining": "残り"
-        },
-        "TerminalInteractionSection": {
-          "567633ff50": "Right-click pastes the clipboard into the terminal. Control-click to open the context menu.",
-          "c64497148a": "Right-click pastes the clipboard. Control-click opens the context menu."
-        },
-        "MobileRelayStatusSection": {
-          "registered": "Registered",
-          "connecting": "Connecting",
-          "reconnecting": "Reconnecting",
-          "offline": "Offline",
-          "title": "Orca Relay",
-          "automatic": "Connect from anywhere when a phone is paired",
-          "signInPrompt": "Sign in on this desktop to connect from anywhere",
-          "directStillAvailable": "LAN and Tailscale connections remain available.",
-          "directNeedsNoAccount": "LAN and Tailscale pairing still work without an account.",
-          "signIn": "Sign in",
-          "unavailable": "Unavailable",
-          "standby": "Standby — no relay devices"
-        },
-        "MobilePairingConnectionOptions": {
-          "ready": "準備完了",
-          "connecting": "接続中",
-          "available": "利用可能",
-          "reconnecting": "再接続中",
-          "unavailable": "利用不可",
-          "title": "新しいスマートフォンをどのように接続しますか？",
-          "anywhere": "Orca Relay で接続",
-          "recommended": "推奨",
-          "automaticDescription": "利用可能な場合は直接接続し、それ以外ではOrca Relayを使用します。",
-          "signInDescription": "Orca Relayを使用するには、このデスクトップでサインインしてください。",
-          "signIn": "サインイン",
-          "localOnly": "ローカルネットワークのみ",
-          "localShort": "LAN または Tailscale",
-          "localDescription": "このスマートフォンをOrca Relayに接続せず、LANまたはTailscaleを使用します。"
-        },
-        "MobilePairingSetupSection": {
-          "title": "スマートフォンをペアリング",
-          "automaticDescription": "ペアリングコードには、直接接続と暗号化されたOrca Relayのフォールバックが含まれます。",
-          "localDescription": "ペアリングコードは、下のローカルネットワークアドレスだけを使用します。",
-          "regenerate": "再生成",
-          "generate": "QRコードを生成",
-          "localSettings": "ローカル接続設定",
-          "localAddressDescription": "Orca Mobileからこのコンピューターへ直接接続できるLANまたはプライベートネットワークのアドレスを選択します。",
-          "refresh": "ネットワークインターフェースを更新",
-          "tailnet": "自分のtailnetで接続",
-          "tailnetDescription": "このコンピューターとスマートフォンにTailscaleをインストールし、同じtailnetにサインインして、上で100.x.y.zアドレスを選択します。",
-          "getTailscale": "Tailscaleを入手"
-        },
-        "MobileRelayBetaAvailability": {
-          "about": "Orca Relay ベータについて",
-          "beta": "ベータ",
-          "availability": "利用可能:",
-          "testFlight": "TestFlight",
-          "androidApk": "Android APK"
         }
       },
       "right": {
@@ -9711,7 +9790,6 @@
             "77afaa8152": "全て",
             "d6fb1df5fe": "{{value0}} はすでに開いています",
             "05838cfdeb": "{{value0}} コンフリクト",
-            "d206117f90": "{{value0}} コンフリクト ({{value1}})",
             "0b5b8c234c": "{{value0}} ({{value1}}) を開く",
             "d97ef8f221": "{{value0}}-{{value1}} 行",
             "6f8bfa0eb9": "{{value0}} 行",
@@ -9724,6 +9802,7 @@
             "5b176fa431": "双方で削除",
             "31f6d46278": "未解決",
             "2c417432b7": "ローカルで解決済み",
+            "d206117f90": "{{value0}} コンフリクト ({{value1}})",
             "f3a8b2c1d0e5": "{{value0}} のタイトルを入力。",
             "e2b7a1c0d9f4": "{{value0}} の作成に失敗しました",
             "hugeRepoIgnorePrompt": "この repos にはアクティブな変更が多すぎます。「{{value0}}」を .gitignore に追加しますか？",
@@ -9788,22 +9867,14 @@
           "SourceControlAgentActionDialog": {
             "8e856842d1": "選択した agent を開始できませんでした。",
             "c075d00de1": "ワークスペース接続を解決できません。",
-            "38b899cc02": "すべての repos",
             "808cfe0a3b": "この repos のみに保存",
-            "994cddd1f7": "保存しないでください"
+            "994cddd1f7": "保存しないでください",
+            "38b899cc02": "すべての repos"
           },
           "SourceControlAgentActionDialogForm": {
-            "013c9ac04a": "保存対象",
-            "1bb611240f": "Use {basePrompt} for Orca's default prompt.",
-            "23280cbab1": "This template does not include {basePrompt}, so the agent will not receive Orca's default prompt.",
-            "5421a96acb": "保存して agent を開始",
-            "6cefcdfba1": "You can change it later in Source Control AI settings.",
-            "c29f9cf266": "Save this prompt and don't show this review next time",
-            "d8f40128ee": "{basePrompt} is Orca's default prompt.",
-            "ea4788705e": "キャンセル",
+            "1bc0bdbb5e": "起動：",
             "7ec6abbf2a": "リセット",
             "f4f3c9ca4a": "コマンドテンプレート",
-            "1bc0bdbb5e": "起動：",
             "fe119187bb": "--モデルソネット",
             "bc8dc39f4b": "CLI 引数",
             "b99c33cec5": "設定",
@@ -9812,6 +9883,14 @@
             "74168d7ada": "idle",
             "1d47db9bf0": "有効な agents がありません",
             "c7ff8cef11": "agents を検出中...",
+            "013c9ac04a": "保存対象",
+            "1bb611240f": "Use {basePrompt} for Orca's default prompt.",
+            "23280cbab1": "This template does not include {basePrompt}, so the agent will not receive Orca's default prompt.",
+            "5421a96acb": "保存して agent を開始",
+            "6cefcdfba1": "You can change it later in Source Control AI settings.",
+            "c29f9cf266": "Save this prompt and don't show this review next time",
+            "d8f40128ee": "{basePrompt} is Orca's default prompt.",
+            "ea4788705e": "キャンセル",
             "b0da3a4d3e": "起動レシピはすでに保存されています",
             "bff4795a6d": "保存済みのレシピを更新するには、agent、引数、またはプロンプトテンプレートを変更してください。",
             "5c75b24735": "Orca が起動する前に agent が受け取る内容をカスタマイズします。",
@@ -9882,7 +9961,6 @@
                 "fd46a70f1a": "開始しました",
                 "a54ae21c6f": "状態：",
                 "e4e3af15ee": "詳細を表示",
-                "b8c4e2a1f7": "View full logs",
                 "2524d1fb83": "ログテールで詳細を確認できます。",
                 "a2fb3f4408": "最初の 100 件のジョブを表示しています",
                 "df137989b3": "最初の 20 個の注釈を表示",
@@ -9923,6 +10001,7 @@
                 "a6de3e5a20": "キュー内のコメントをクリア",
                 "49ea0937e4": "コメントを解決リストに追加",
                 "9fecebb29d": "追加",
+                "b8c4e2a1f7": "View full logs",
                 "f8a2c91d04": "Queue for agent",
                 "b4e8a1c902": "Queued",
                 "7c1f0a2b11": "開く",
@@ -10156,6 +10235,9 @@
               }
             }
           },
+          "fileExplorerOperationOwner": {
+            "unresolved": "このワークスペースを所有しているホストを特定できませんでした。接続を確認して、もう一度お試しください。"
+          },
           "useFileDeletion": {
             "72691dfebc": "{{value0}} '{{value1}}' に失敗しました。",
             "96affe1302": "「{{value0}}」は {{value1}} に移動されました",
@@ -10203,9 +10285,7 @@
             "localWorkspacesOnly": "履歴からの再開はローカルワークスペースでのみ利用できます。",
             "agentSessionQueued": "{{value0}} session queued",
             "sessionHistory": "Agent Session History",
-            "agents": "エージェント",
             "shownRecent": "{{value0}} shown · {{value1}} recent",
-            "sessionsShownCompact": "{{value0}} 件表示",
             "resumePastSessions": "Resume past sessions",
             "refreshSessionHistory": "Refresh Session History",
             "searchSessions": "Search sessions",
@@ -10216,13 +10296,15 @@
             "noSessionsMatchFilters": "No sessions match the current filters",
             "sessionId": "セッション ID",
             "logPath": "ログパス",
+            "agents": "エージェント",
+            "sessionsShownCompact": "{{value0}} 件表示",
             "originalPaneUnavailable": "元のペインは利用できなくなりました。",
             "worktreeUnavailable": "ワークツリーは利用できなくなりました。",
-            "runtimeBrowseLocalHistory": "ランタイムでホストされるワークスペースではローカル履歴を閲覧できます。再開アクションはローカルおよび SSH のワークスペースで利用できます。",
-            "runtimeWorkspacesUnsupported": "ランタイムでホストされるワークスペースでは、履歴からの再開は利用できません。",
             "openSupportedWorkspace": "セッションを再開する前に、ローカルまたは SSH のワークスペースを開いてください。",
             "localSessionSshWorkspaceUnsupported": "このセッションの履歴はこのマシンに保存されているため、SSH ワークスペースでは再開できません。代わりにローカルワークスペースを開いてください。",
-            "sessionHostMismatchUnsupported": "このセッションは別のホストに属しています。再開するには同じホスト上のワークスペースを開いてください。"
+            "sessionHostMismatchUnsupported": "このセッションは別のホストに属しています。再開するには同じホスト上のワークスペースを開いてください。",
+            "runtimeBrowseLocalHistory": "ランタイムでホストされるワークスペースではローカル履歴を閲覧できます。再開アクションはローカルおよび SSH のワークスペースで利用できます。",
+            "runtimeWorkspacesUnsupported": "ランタイムでホストされるワークスペースでは、履歴からの再開は利用できません。"
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",
@@ -10256,10 +10338,6 @@
             "host": "ホスト"
           },
           "AiVaultSessionDetails": {
-            "originalAsk": "最初の依頼",
-            "latestTurns": "最新のやり取り",
-            "noPreviewAvailable": "会話プレビューはありません",
-            "messageCount": "{{value0}} 件のメッセージ",
             "updated": "更新日時",
             "created": "作成日時",
             "workingDir": "作業ディレクトリ",
@@ -10270,7 +10348,6 @@
             "usageValue": "{{value0}} 件のメッセージ{{value1}}",
             "tokenSuffix": " · {{value0}} tok",
             "session": "セッション",
-            "sessionId": "セッション ID",
             "copyDetailValue": "{{value0}}をコピー",
             "latestLog": "最新のログ",
             "noReadablePreview": "この履歴には読み取り可能なメッセージプレビューがありません。",
@@ -10298,6 +10375,11 @@
             "daysAgo": "{{value0}} 日前",
             "monthsAgo": "{{value0}} か月前",
             "yearsAgo": "{{value0}} 年前",
+            "sessionId": "セッション ID",
+            "originalAsk": "最初の依頼",
+            "latestTurns": "最新のやり取り",
+            "noPreviewAvailable": "会話プレビューはありません",
+            "messageCount": "{{value0}} 件のメッセージ",
             "userRole": "あなた",
             "agentRole": "エージェント",
             "toolRole": "ツール",
@@ -10314,11 +10396,8 @@
             "subagentTranscripts": "サブエージェントの履歴 {{value0}} 件"
           },
           "AiVaultSessionRow": {
-            "noPreviewAvailable": "会話プレビューはありません",
-            "dragToResume": "新しいタブで再開するにはドラッグ",
             "resumeAgentSession": "{{value0}} セッションを再開",
             "resumeInNewTab": "新しいタブで再開",
-            "toggleSessionDetails": "{{value0}} のセッション詳細",
             "copyResumeCommand": "再開コマンドをコピー",
             "openLog": "ログを開く",
             "revealLog": "ログを表示",
@@ -10327,10 +10406,13 @@
             "copyLogPath": "ログパスをコピー",
             "messageCount": "{{value0}} 件のメッセージ",
             "tokenCount": "{{value0}} トークン",
+            "toggleSessionDetails": "{{value0}} のセッション詳細",
             "hideDetails": "詳細を非表示",
             "showDetails": "詳細を表示",
             "moreSessionActions": "セッションのその他の操作",
             "moreActions": "その他の操作",
+            "noPreviewAvailable": "会話プレビューはありません",
+            "dragToResume": "新しいタブで再開するにはドラッグ",
             "userRole": "あなた",
             "agentRole": "エージェント",
             "toolRole": "ツール",
@@ -10395,9 +10477,6 @@
             "archivedJumpUnavailable": "このセッションはアーカイブされたワークツリーにあります。",
             "noActiveWorktreeMatch": "このセッションに一致するアクティブなワークツリーはありません。",
             "noActiveWorktreeTarget": "利用可能なアクティブなワークツリーはありません。"
-          },
-          "fileExplorerOperationOwner": {
-            "unresolved": "このワークスペースを所有しているホストを特定できませんでした。接続を確認して、もう一度お試しください。"
           },
           "AiVaultSessionSubagents": {
             "subagentsCount": "サブエージェント ({{value0}})",
@@ -10991,9 +11070,9 @@
           },
           "FloatingTerminalToggleButton": {
             "3b04b065b5": "フローティングワークスペースを表示",
+            "4cb418b991": "フローティングワークスペースを表示、新しいアクティビティ",
             "5785dd9148": "フローティングワークスペースを最小限に抑える",
-            "bfe7809a70": "{{value0}} フローティング ワークスペース ({{value1}})",
-            "4cb418b991": "フローティングワークスペースを表示、新しいアクティビティ"
+            "bfe7809a70": "{{value0}} フローティング ワークスペース ({{value1}})"
           },
           "FloatingTerminalWindowControls": {
             "2f6054342c": "最小化",
@@ -12123,7 +12202,6 @@
           "d098e5529a": "出力",
           "f2fe8a4e8f": "注釈",
           "cdbfda4dec": "Annotation",
-          "5e2a9c3f88": "この行でファイルを開く",
           "066fedd446": "失敗したジョブ",
           "49731703ea": "ジョブ",
           "ee07b33924": "unknown",
@@ -12135,14 +12213,8 @@
           "d5a8c2f1b9": "既定の AI エージェントでこのチェックを修正",
           "e2b4d7c8a1": "このチェックのエージェントを選択",
           "f1c9e3a6d4": "チェックを修正するエージェントを選択",
+          "5e2a9c3f88": "この行でファイルを開く",
           "actionRequired": "操作が必要です"
-        },
-        "CheckRunJobs": {
-          "1c0a4d7e02": "成功しました",
-          "2d3b8f1a55": "スキップしました",
-          "3e6c9a2b71": "保留中",
-          "4f7d0c3e88": "失敗したステップ",
-          "5a8e1d4f23": " · "
         },
         "check": {
           "run": {
@@ -12163,6 +12235,13 @@
         },
         "richMarkdownLargeTextPaste": {
           "tooLarge": "貼り付け内容が大きすぎます。"
+        },
+        "CheckRunJobs": {
+          "1c0a4d7e02": "成功しました",
+          "2d3b8f1a55": "スキップしました",
+          "3e6c9a2b71": "保留中",
+          "4f7d0c3e88": "失敗したステップ",
+          "5a8e1d4f23": " · "
         },
         "ExternalFileChangeBanner": {
           "7c41e90d12": "未保存の編集中にこのファイルがディスク上で変更されました。保存すると新しいディスク内容に上書きされます。",
@@ -12908,7 +12987,24 @@
             "70fcd360c4": "https://example.atlassian.net",
             "e176f9d0c5": "Jira Cloud site URL",
             "d785c42b8b": "Use a Jira Cloud site URL, Atlassian email, and API token to browse issues.",
-            "8388bdea2b": "Connect Jira site"
+            "8388bdea2b": "Connect Jira site",
+            "2e2b69e48e": "Use a self-hosted Jira base URL and a personal access token to browse issues.",
+            "b67e919bd5": "Jira instance type",
+            "17787d6e4b": "Atlassian Cloud",
+            "bc7a831773": "Self-hosted",
+            "3489e186d6": "Jira site URL",
+            "cbc27fa599": "https://jira.example.com",
+            "730d973bae": "Personal access token",
+            "8b9c7b9e7b": "Jira personal access token",
+            "ccfb086d3e": "Create a personal access token in your Jira profile under Personal Access Tokens.",
+            "1d947a07ab": "Use a self-hosted Jira base URL, username, and password to browse issues.",
+            "f49708c369": "Jira authentication method",
+            "84a810dd0e": "Username & password",
+            "8d1223fa5c": "Username",
+            "be9eba0a1b": "username",
+            "70035652d7": "Password",
+            "c50abbf340": "Jira account password",
+            "d8737db691": "Use your Jira Server or Data Center account username and password."
           }
         }
       },
@@ -12978,24 +13074,20 @@
             "dialog": {
               "badge": "Terminal リンク",
               "preview": "プレビュー",
-              "keep": {
-                "title": "terminal のリンクを Orca のブラウザで開き続けますか？",
-                "description": "またはシステムブラウザを既定で使用します。",
-                "orca": {
-                  "button": "Orca のままにする"
-                }
-              },
               "title": "terminal のリンクを Orca のブラウザで開きますか？",
               "description": "terminal のリンクを Orca のブラウザで開くか、システムブラウザを使い続けます。",
-              "link": {
-                "label": "リンク"
-              },
               "orca": {
-                "note": "Orca はインポート済み Cookie を使ってログイン済みサイトを開けます。",
-                "button": "Orca で開く"
+                "button": "Orca で開く",
+                "note": "Orca はインポート済み Cookie を使ってログイン済みサイトを開けます。"
               },
               "settings": {
                 "note": "後で 設定 → ブラウザ から変更できます。"
+              },
+              "system": {
+                "button": "システムブラウザを使用"
+              },
+              "link": {
+                "label": "リンク"
               },
               "shortcut": {
                 "note": {
@@ -13003,8 +13095,12 @@
                   "suffix": "クリックで今回だけシステムブラウザで開きます。"
                 }
               },
-              "system": {
-                "button": "システムブラウザを使用"
+              "keep": {
+                "title": "terminal のリンクを Orca のブラウザで開き続けますか？",
+                "description": "またはシステムブラウザを既定で使用します。",
+                "orca": {
+                  "button": "Orca のままにする"
+                }
               }
             }
           }
@@ -13063,25 +13159,6 @@
       "nativeChat": {
         "contextMenu": {
           "copy": "コピー"
-        }
-      },
-      "daemon": {
-        "status": {
-          "copy": {
-            "failedTitle": "Terminal persistence unavailable",
-            "failedDescription": "The terminal daemon didn’t start. New terminals run in-process and won’t survive quitting Orca.",
-            "retryAction": "Retry",
-            "degradedTitle": "Terminal persistence degraded",
-            "timeoutDescription": "The terminal daemon didn’t finish starting in time, so new terminals won’t survive quitting Orca. Retrying closes open terminal panes.",
-            "degradedDescription": "Existing terminals keep working, but new terminals won’t survive quitting Orca. Restarting the daemon closes open terminal panes.",
-            "restartAction": "Restart daemon",
-            "restoredMessage": "Terminal persistence restored.",
-            "retryFailedTitle": "Daemon restart failed.",
-            "indicatorLabel": "Terminal persistence off",
-            "indicatorFailedTooltip": "The terminal daemon isn’t running, so new terminals won’t survive quitting Orca. Open Manage Sessions to restart it.",
-            "indicatorDegradedTooltip": "New terminals are running without daemon persistence. Open Manage Sessions to restart the daemon.",
-            "indicatorAriaLabel": "Terminal daemon status: persistence off"
-          }
         }
       },
       "orca": {
@@ -13296,6 +13373,25 @@
           "undo": "元に戻す",
           "widthOption": "{{value0}} px"
         }
+      },
+      "daemon": {
+        "status": {
+          "copy": {
+            "failedTitle": "Terminal persistence unavailable",
+            "failedDescription": "The terminal daemon didn’t start. New terminals run in-process and won’t survive quitting Orca.",
+            "retryAction": "Retry",
+            "degradedTitle": "Terminal persistence degraded",
+            "timeoutDescription": "The terminal daemon didn’t finish starting in time, so new terminals won’t survive quitting Orca. Retrying closes open terminal panes.",
+            "degradedDescription": "Existing terminals keep working, but new terminals won’t survive quitting Orca. Restarting the daemon closes open terminal panes.",
+            "restartAction": "Restart daemon",
+            "restoredMessage": "Terminal persistence restored.",
+            "retryFailedTitle": "Daemon restart failed.",
+            "indicatorLabel": "Terminal persistence off",
+            "indicatorFailedTooltip": "The terminal daemon isn’t running, so new terminals won’t survive quitting Orca. Open Manage Sessions to restart it.",
+            "indicatorDegradedTooltip": "New terminals are running without daemon persistence. Open Manage Sessions to restart the daemon.",
+            "indicatorAriaLabel": "Terminal daemon status: persistence off"
+          }
+        }
       }
     },
     "i18n": {
@@ -13331,7 +13427,30 @@
         "pastedImageLabel": "貼り付けた画像",
         "imagePasteFailed": "画像の貼り付けに失敗しました。",
         "worktreeNotReady": "Worktreeが準備できていません — しばらくしてから再試行してください。",
-        "uploadingAttachments": "{{value0}}個のファイルをリモートにアップロード中…"
+        "uploadingAttachments": "{{value0}}個のファイルをリモートにアップロード中…",
+        "model": "モデル",
+        "modelWithValue": "モデル: {{value0}}",
+        "effort": "推論レベル",
+        "effortWithValue": "推論レベル: {{value0}}",
+        "fastMode": "高速モード",
+        "thinking": "思考",
+        "options": "オプション",
+        "sessionOptions": "セッションオプション",
+        "chooseInAgentPicker": "エージェントの選択画面で選ぶ…",
+        "toggleOption": "{{value0}}を切り替える",
+        "sentNotConfirmed": "エージェントに送信済み — 未確認",
+        "setWhenSessionStarts": "セッション開始時に設定してください。",
+        "availableAfterSessionStarts": "セッション開始後に利用できます。",
+        "optionUpdateFailed": "オプションを更新できませんでした",
+        "optionValue": {
+          "fast": "高速",
+          "minimal": "最小",
+          "low": "低",
+          "medium": "中",
+          "high": "高",
+          "xhigh": "最高",
+          "max": "最大"
+        }
       },
       "tool": {
         "running": "実行中…",
@@ -13361,7 +13480,8 @@
         "empty": {
           "title": "{{value0}} とチャットを開始する",
           "subtitle": "{{value0}} にコードの検査、出力の説明、または変更を依頼してください。"
-        }
+        },
+        "pairHost": "ホストをペアリングして、エージェントのチャット履歴を表示します。"
       },
       "stop": "エージェントを停止",
       "copyMessage": {
@@ -13406,6 +13526,29 @@
           "githubPullRequestNumber": "PR #{{value0}}"
         }
       }
+    }
+  },
+  "browser": {
+    "loadFailure": {
+      "connectionNotSecure": "Connection isn't secure",
+      "cantReachHost": "Can't reach {{value0}}",
+      "cantLoadPage": "Can't load this page",
+      "certificateNameMismatch": "The certificate doesn't match {{value0}}.",
+      "certificateDateInvalid": "The certificate for {{value0}} isn't valid at the current date and time.",
+      "certificateAuthorityInvalid": "Orca doesn't trust the authority that issued the certificate for {{value0}}.",
+      "certificateVerificationFailed": "Orca couldn't verify the certificate for {{value0}}.",
+      "trustedCertificateGuidance": "For local development, use a trusted local certificate when possible.",
+      "retry": "Retry",
+      "copyAddress": "Copy Address",
+      "addressCopied": "Copied the current page address.",
+      "openExternally": "Open Externally",
+      "tryHttps": "Try HTTPS",
+      "proceedUnsafe": "Proceed Anyway (Unsafe)",
+      "connecting": "Connecting…",
+      "certificateChallengeExpired": "This certificate approval expired. Retry the page to request a new one.",
+      "certificateChallengeChanged": "The certificate request changed. Retry the page and review the new warning.",
+      "certificateChallengeUnavailable": "This certificate request is no longer available. Retry the page to request a new one.",
+      "certificateProceedFailed": "Orca could not approve this certificate request. Retry the page and try again."
     }
   }
 }

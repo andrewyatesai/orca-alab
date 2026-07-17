@@ -340,6 +340,34 @@ fn command_template_from_instruction(instruction: &str) -> String {
     }
 }
 
+/// `commandTemplateFromOperationInstruction` (upstream #9088): branch naming
+/// instructions define naming style, so they must PRECEDE the general built-in
+/// prompt; other operations retain their released order.
+fn command_template_from_operation_instruction(operation: &str, instruction: &str) -> String {
+    let trimmed = instruction.trim();
+    if trimmed.is_empty() {
+        return "{basePrompt}".to_string();
+    }
+    if operation == "branchName" {
+        format!("{trimmed}\n\n{{basePrompt}}")
+    } else {
+        command_template_from_instruction(trimmed)
+    }
+}
+
+/// `isLegacyBranchInstructionTemplate` (upstream #9088): reorder only the exact
+/// template older settings derived automatically; a user-authored command
+/// template remains authoritative.
+fn is_legacy_branch_instruction_template(
+    operation: &str,
+    instruction: &str,
+    template: Option<&str>,
+) -> bool {
+    operation == "branchName"
+        && !instruction.trim().is_empty()
+        && template == Some(command_template_from_instruction(instruction).as_str())
+}
+
 /// `normalizeSourceControlActionRecipe` + the repo-override null sentinels:
 /// `agentId` keeps null / a known TuiAgent / the custom-agent id; the two
 /// template/args fields keep a string or an explicit `null` (drop otherwise).
@@ -415,12 +443,22 @@ pub fn normalize_repo_source_control_ai_overrides(
             continue;
         };
         let key = operation.as_str();
-        let template_absent = action_overrides
-            .get(key)
-            .map_or(true, |entry| entry.command_input_template.is_none());
-        if template_absent {
-            action_overrides.entry(key.to_string()).or_default().command_input_template =
-                Some(Some(command_template_from_instruction(instruction)));
+        // Migrate when the template is absent, or when it is exactly the
+        // auto-derived legacy branch template (upstream #9088 reorder); an
+        // explicit null sentinel and user-authored templates survive.
+        let should_migrate = action_overrides.get(key).map_or(true, |entry| {
+            match &entry.command_input_template {
+                None => true,
+                Some(Some(existing)) => {
+                    is_legacy_branch_instruction_template(key, instruction, Some(existing))
+                }
+                Some(None) => false,
+            }
+        });
+        if should_migrate {
+            action_overrides.entry(key.to_string()).or_default().command_input_template = Some(
+                Some(command_template_from_operation_instruction(key, instruction)),
+            );
         }
     }
     Some(RepoSourceControlAiOverrides {
@@ -2140,7 +2178,8 @@ mod tests {
         instructions.insert(BranchName, Some("branch style".to_string()));
 
         // A null commit instruction skips migration; the "" PR instruction yields
-        // the bare {basePrompt}; the branch instruction is appended below it.
+        // the bare {basePrompt}; the branch instruction LEADS the built-in
+        // prompt (naming style owns the prompt — upstream #9088).
         let mut action_overrides = BTreeMap::new();
         action_overrides.insert(
             "pullRequest".to_string(),
@@ -2152,7 +2191,7 @@ mod tests {
         action_overrides.insert(
             "branchName".to_string(),
             RepoSourceControlActionOverride {
-                command_input_template: Some(Some("{basePrompt}\n\nbranch style".to_string())),
+                command_input_template: Some(Some("branch style\n\n{basePrompt}".to_string())),
                 ..Default::default()
             },
         );

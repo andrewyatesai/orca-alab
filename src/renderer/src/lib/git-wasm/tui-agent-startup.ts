@@ -16,6 +16,8 @@ import {
   type AgentStartupShell
 } from '../../../../shared/tui-agent-startup-shell'
 import { planHermesStartupQuery } from '../../../../shared/hermes-startup-query'
+import { spliceSessionOptionsIntoPlan } from '../../../../shared/tui-agent-session-option-splice'
+import type { SessionOptionValue } from '../../../../shared/native-chat-session-options'
 import type {
   AgentProviderSessionMetadata,
   ResumableTuiAgent
@@ -38,6 +40,7 @@ export function buildAgentStartupPlan(args: {
   allowEmptyPromptLaunch?: boolean
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
+  sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
 }): AgentStartupPlan | null {
   const plan = op<AgentStartupPlan>('buildAgentStartupPlan', args)
@@ -71,7 +74,9 @@ export function buildAgentStartupPlan(args: {
       launchConfig: { ...plan.launchConfig, agentCommand: baseCommand }
     }
   }
-  return plan
+  // Layer the native-chat session-option flags (upstream #9085) over the Rust
+  // plan; a no-catalog agent or absent options is an identity pass.
+  return plan ? spliceSessionOptionsIntoPlan(plan, args) : plan
 }
 
 export function buildAgentResumeStartupPlan(args: {
@@ -83,6 +88,9 @@ export function buildAgentResumeStartupPlan(args: {
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
   agentCommand?: string | null
+  /** Accepted for call-site parity; resume restores the provider session's own
+   * state, so picker flags are never replayed (matches upstream). */
+  sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
 }): AgentStartupPlan | null {
   return op<AgentStartupPlan>('buildAgentResumeStartupPlan', args)
@@ -96,7 +104,9 @@ export function buildAgentDraftLaunchPlan(args: {
   shell?: AgentStartupShell
   agentArgs?: string | null
   agentEnv?: Record<string, string> | null
+  sessionOptions?: Record<string, SessionOptionValue>
   isRemote?: boolean
 }): AgentDraftLaunchPlan | null {
-  return op<AgentDraftLaunchPlan>('buildAgentDraftLaunchPlan', args)
+  const plan = op<AgentDraftLaunchPlan>('buildAgentDraftLaunchPlan', args)
+  return plan ? spliceSessionOptionsIntoPlan(plan, args) : plan
 }

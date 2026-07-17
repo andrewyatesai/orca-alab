@@ -8,9 +8,10 @@
 use crate::js_string::trim_js;
 use crate::marine_creatures::MARINE_CREATURES;
 
-/// Two-to-four words is the sweet spot the feature targets.
+/// Post-generation sanitization still bounds the leaf so a long model dump
+/// cannot become an unreadable branch. The *prompt* stays general — users can
+/// override naming style via Source Control AI instructions / templates.
 pub const MAX_BRANCH_NAME_WORDS: usize = 4;
-const MIN_BRANCH_NAME_WORDS: usize = 2;
 
 /// Strip a single trailing `-<digits>` collision suffix (`-2`, `-17`, …).
 fn strip_collision_suffix(s: &str) -> &str {
@@ -51,8 +52,8 @@ pub fn sanitize_branch_slug_default(raw: &str) -> String {
     sanitize_branch_slug(raw, MAX_BRANCH_NAME_WORDS)
 }
 
-/// Drop a leading prefix segment the model prepended despite the "no prefixes"
-/// rule. Strips only when the leading segment matches the *configured* prefix
+/// Drop a leading prefix segment the model sometimes prepends.
+/// Strips only when the leading segment matches the *configured* prefix
 /// (normalised like the slug, but uncapped), so a work-derived name that merely
 /// starts with a real word survives. Prefix-only output yields `""` so the caller
 /// skips the rename instead of double-prefixing (`tmchow/tmchow`).
@@ -101,21 +102,31 @@ pub struct BranchNameWorkContext {
     pub assistant_message: Option<String>,
 }
 
-/// Build the text-generation prompt asking the agent to summarise the work into
-/// a branch name. Kept identical across local and SSH generation targets.
+/// Build the text-generation prompt asking the agent to name the work. Kept
+/// identical across local and SSH generation targets.
+///
+/// The shipped default stays general (upstream #9088): a custom prompt leads so
+/// the user's override owns naming style; git-safety (kebab, length) is
+/// enforced after generation by `sanitize_branch_slug`.
 pub fn build_branch_name_prompt(context: &BranchNameWorkContext, custom_prompt: &str) -> String {
-    let mut sections: Vec<String> = vec![
-        "Generate a git branch name that summarizes the coding task described below.".to_string(),
-        "Rules:".to_string(),
-        format!("- Use between {MIN_BRANCH_NAME_WORDS} and {MAX_BRANCH_NAME_WORDS} words."),
-        "- Lowercase kebab-case only (words joined by single hyphens).".to_string(),
-        "- No slashes, no prefixes, no quotes, no trailing punctuation.".to_string(),
-        "- Describe the work itself, not the agent or the repository.".to_string(),
-        "- Output ONLY the branch name on a single line, nothing else.".to_string(),
-        String::new(),
-        "User request:".to_string(),
-        trim_js(&context.first_prompt).to_string(),
-    ];
+    let mut sections: Vec<String> = Vec::new();
+    let prompt = trim_js(custom_prompt);
+    if !prompt.is_empty() {
+        sections.push(prompt.to_string());
+        sections.push(String::new());
+    }
+    sections.push(
+        if prompt.is_empty() {
+            "Generate a short git branch name that summarizes the coding task described below."
+        } else {
+            "Generate a git branch name that summarizes the coding task described below."
+        }
+        .to_string(),
+    );
+    sections.push("Output ONLY the branch name on a single line, nothing else.".to_string());
+    sections.push(String::new());
+    sections.push("User request:".to_string());
+    sections.push(trim_js(&context.first_prompt).to_string());
     if let Some(assistant) = context.assistant_message.as_deref() {
         let assistant = trim_js(assistant);
         if !assistant.is_empty() {
@@ -123,12 +134,6 @@ pub fn build_branch_name_prompt(context: &BranchNameWorkContext, custom_prompt: 
             sections.push("Agent's initial response:".to_string());
             sections.push(assistant.to_string());
         }
-    }
-    let prompt = trim_js(custom_prompt);
-    if !prompt.is_empty() {
-        sections.push(String::new());
-        sections.push("Additional user prompt:".to_string());
-        sections.push(prompt.to_string());
     }
     sections.join("\n")
 }
@@ -255,7 +260,7 @@ mod tests {
     }
 
     #[test]
-    fn prompt_appends_custom_branch_name_prompt_when_present() {
+    fn prompt_leads_with_custom_branch_name_prompt_when_present() {
         let prompt = build_branch_name_prompt(
             &BranchNameWorkContext {
                 first_prompt: "Add a logout button".to_string(),
@@ -263,7 +268,26 @@ mod tests {
             },
             "Prefer product nouns.",
         );
-        assert!(prompt.contains("Additional user prompt:"));
-        assert!(prompt.contains("Prefer product nouns."));
+        // The user's override leads and owns naming style (upstream #9088).
+        assert!(prompt.starts_with("Prefer product nouns.\n\n"));
+        assert!(prompt
+            .contains("Generate a git branch name that summarizes the coding task described"));
+    }
+
+    #[test]
+    fn prompt_default_stays_general_and_short_variant_without_custom_prompt() {
+        let prompt = build_branch_name_prompt(
+            &BranchNameWorkContext {
+                first_prompt: "Add a logout button".to_string(),
+                assistant_message: None,
+            },
+            "",
+        );
+        assert!(prompt.starts_with(
+            "Generate a short git branch name that summarizes the coding task described below."
+        ));
+        // The prescriptive rule list is gone — style belongs to the user override.
+        assert!(!prompt.contains("Rules:"));
+        assert!(!prompt.contains("kebab-case"));
     }
 }

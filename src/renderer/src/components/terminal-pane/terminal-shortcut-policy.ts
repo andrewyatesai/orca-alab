@@ -56,6 +56,7 @@ export type TerminalShortcutAction =
       mods: { alt?: boolean; super?: boolean }
       fallback: string
     }
+  | { type: 'switchInputSource' }
 
 /** The un-shifted ASCII character for a physical key code (letters, digits,
  *  and the punctuation map above), or undefined for unmapped codes. */
@@ -110,6 +111,13 @@ export function resolveTerminalShortcutAction(
   isWindowsTerminalHost: () => boolean = () => isWindows
 ): TerminalShortcutAction | null {
   const platform: NodeJS.Platform = isMac ? 'darwin' : isWindows ? 'win32' : 'linux'
+
+  // Why: native-only chords must be captured even on repeat without blocking
+  // the OS default that performs the input-source switch.
+  if (keybindingMatchesAction('terminal.switchInputSource', event, platform, keybindings)) {
+    return { type: 'switchInputSource' }
+  }
+
   if (!event.repeat) {
     if (keybindingMatchesAction('terminal.copySelection', event, platform, keybindings)) {
       return { type: 'copySelection' }
@@ -266,7 +274,7 @@ export function resolveTerminalShortcutAction(
     !event.ctrlKey &&
     event.altKey &&
     !event.shiftKey &&
-    event.key === 'Backspace'  &&
+    event.key === 'Backspace' &&
     !kittyKeyboardActive()
   ) {
     // Readline-compat delete-word (backward); kitty-gated because the engine
@@ -279,7 +287,7 @@ export function resolveTerminalShortcutAction(
     !event.ctrlKey &&
     event.altKey &&
     !event.shiftKey &&
-    (event.key === 'ArrowLeft' || event.key === 'ArrowRight')  &&
+    (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
     !kittyKeyboardActive()
   ) {
     // Why: the legacy encoding for option/alt+arrow is \e[1;3D / \e[1;3C, which
@@ -298,7 +306,7 @@ export function resolveTerminalShortcutAction(
     event.ctrlKey &&
     !event.altKey &&
     !event.shiftKey &&
-    (event.key === 'ArrowLeft' || event.key === 'ArrowRight')  &&
+    (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
     !kittyKeyboardActive()
   ) {
     // Why: local Windows ConPTY shells (PowerShell/cmd via PSReadLine) already

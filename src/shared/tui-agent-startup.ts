@@ -10,6 +10,7 @@ import { isShellProcess } from './agent-detection'
 import type { SleepingAgentLaunchConfig } from './agent-session-resume'
 import type { StartupCommandDelivery } from './codex-startup-delivery'
 import type { TuiAgent } from './types'
+import type { SessionOptionValue } from './native-chat-session-options'
 
 export type AgentStartupPlan = {
   agent: TuiAgent
@@ -21,6 +22,9 @@ export type AgentStartupPlan = {
   draftPrompt?: string | null
   env?: Record<string, string>
   startupCommandDelivery?: StartupCommandDelivery
+  /** Values actually emitted into this launch command, kept as base model ids
+   * so the native-chat surface can render only launch-backed state. */
+  sessionOptions?: Record<string, SessionOptionValue>
 }
 
 export type AgentDraftLaunchPlan = {
@@ -30,6 +34,7 @@ export type AgentDraftLaunchPlan = {
   launchConfig: SleepingAgentLaunchConfig
   env?: Record<string, string>
   startupCommandDelivery?: StartupCommandDelivery
+  sessionOptions?: Record<string, SessionOptionValue>
 }
 
 export { isShellProcess }

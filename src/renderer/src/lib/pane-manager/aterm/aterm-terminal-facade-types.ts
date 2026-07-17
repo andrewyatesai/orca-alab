@@ -65,6 +65,10 @@ export type AtermTerminalFacade = {
   getSelection(): string
   hasSelection(): boolean
   clearSelection(): void
+  /** aterm extra (no xterm equivalent): invalidate the link hover cell cache so
+   *  the next mousemove re-evaluates link_at/providers even on an unchanged cell.
+   *  Called on pane reveal — buffer content may have changed while hidden. */
+  resetLinkHoverCache(): void
   getSelectionPosition(): { start: { x: number; y: number }; end: { x: number; y: number } } | null
   onData(handler: (data: string) => void): IDisposable
   onResize(handler: (size: { cols: number; rows: number }) => void): IDisposable

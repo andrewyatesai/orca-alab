@@ -23,6 +23,7 @@ describe('buildOnboardingFolderAgentStartup', () => {
         agentArgs: '--dangerously-bypass-approvals-and-sandbox',
         agentEnv: {}
       },
+      sessionOptions: undefined,
       telemetry: {
         agent_kind: 'codex',
         launch_source: 'onboarding',
@@ -106,6 +107,7 @@ describe('buildOnboardingFolderAgentStartup', () => {
         agentArgs: '--dangerously-bypass-approvals-and-sandbox',
         agentEnv: {}
       },
+      sessionOptions: undefined,
       telemetry: {
         agent_kind: 'codex',
         launch_source: 'onboarding',

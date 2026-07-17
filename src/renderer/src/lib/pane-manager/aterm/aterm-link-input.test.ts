@@ -176,3 +176,42 @@ describe('attachAtermLinkInput tooltip notifications', () => {
     expect(linkTooltip.leave.mock.calls.length).toBeGreaterThan(leaveCalls)
   })
 })
+
+describe('attachAtermLinkInput resetHoverCache', () => {
+  it('re-evaluates the SAME cell after a reset (reveal recovery), and only then', async () => {
+    const canvas = document.createElement('canvas')
+    document.body.appendChild(canvas)
+    const linkAt = vi.fn(() => undefined)
+    const term = {
+      is_alt_screen: false,
+      is_mouse_tracking: false,
+      display_origin_absolute: 0,
+      link_at: linkAt
+    } as unknown as AtermTerminal
+    const input = attachAtermLinkInput({
+      canvas,
+      term,
+      metrics: { dpr: 1, cellWidth: CELL_W, cellHeight: CELL_H },
+      redraw: vi.fn(),
+      isDisposed: () => false,
+      openUrl: vi.fn(),
+      getFileLinkOpener: () => null
+    })
+
+    canvas.dispatchEvent(mouseEventAtCell('mousemove', 2, 0))
+    await settleHover()
+    expect(linkAt).toHaveBeenCalledTimes(1)
+
+    // Same cell again: the short-circuit skips re-evaluation.
+    canvas.dispatchEvent(mouseEventAtCell('mousemove', 2, 0))
+    await settleHover()
+    expect(linkAt).toHaveBeenCalledTimes(1)
+
+    // After a reveal-recovery reset the same cell is re-evaluated.
+    input.resetHoverCache()
+    canvas.dispatchEvent(mouseEventAtCell('mousemove', 2, 0))
+    await settleHover()
+    expect(linkAt).toHaveBeenCalledTimes(2)
+    input.dispose()
+  })
+})

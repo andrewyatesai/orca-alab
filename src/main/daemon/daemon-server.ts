@@ -601,6 +601,12 @@ export class DaemonServer {
         }
         process.nextTick(() => this.shutdown())
         return {}
+
+      case 'subscribe':
+      case 'unsubscribe':
+        // Why: the subscriber role (fork protocol 1019) is served by the Rust
+        // daemon; the Node differential daemon does not implement fan-out.
+        throw new Error(`Unsupported request type: ${request.type}`)
     }
     throw new Error(`Unknown request type: ${(request as { type: string }).type}`)
   }

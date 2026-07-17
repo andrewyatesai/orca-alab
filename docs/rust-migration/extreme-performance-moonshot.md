@@ -506,8 +506,8 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   signature matches the live export** (the verifier's key restriction — TRUSTED kernels with narrowed
   types can't ship as-is); promotion re-runs autoformalize against the real module source; ships
   through the existing one-export orca-dispatch seam. Inventory honesty (full census 2026-07-16, after
-  the discovery-coverage fix + soundness-control twins + the allocation-recovery pass): **73 TRUSTED /
-  249 runnable / 0 declined / 6 controls refuted / 0 soundness breaks** — the numerator moved 54→73 by
+  the discovery-coverage fix + soundness-control twins + the allocation-recovery pass): **80 TRUSTED /
+  249 runnable / 0 declined / 6 controls refuted / 0 soundness breaks** — the numerator moved 54→80 by
   recovering kernels, NOT re-tallying; `pnpm gauntlet:autoformalize` is the numerator, not a hand-count.
   The 6 `_bug`/`_naive` controls now have correct `.ts` twins, so they RUN and are all rejected — W1
   catches the unchecked cast/add/u64-accumulate (countws/fontsize/csiparams), W2 the semantic divergence

@@ -75,13 +75,21 @@ TS char/code-unit logic **for all inputs**, not just the fuzzed ones:
 - **Counting/positioning a SPECIFIC ASCII code** ('\n', ' ', '.', '/', digits) is
   safe — that byte never appears inside a UTF-8 multibyte sequence.
 - **Substring search / equality against a valid-UTF-8 needle** is safe — UTF-8
-  self-synchronizes, so a byte match is a char-boundary match.
-- **NOT safe**: broad-Unicode predicates (JS `\s` spans U+00A0/U+3000; a whitespace
-  set, `.trim()`), non-ASCII targets (braille U+2800, `π`), and code-unit *length
-  caps* on non-ASCII (`.take(N)` code units ≠ N bytes). These genuinely need
-  char-level iteration — leave them for the verifier capability, don't force a
-  byte rewrite. `_bug`/`_naive` soundness controls must stay NOT-TRUSTED — never
-  "recover" them.
+  self-synchronizes, so a byte match is a char-boundary match. This includes
+  **non-ASCII needles**: UTF-8 is deterministic, so a specific char/range is an
+  exact byte pattern (braille U+2800–28FF = `E2 A0..A3 80..BF`; `"π - "` =
+  `CF 80 20 2D 20`). Corrected 2026-07-17 — an earlier revision wrongly listed
+  non-ASCII targets as unsafe; probing recovered all of them.
+- **Slicing is fine via `str::get(range)`** — it returns `Option` and generates
+  ZERO obligations (probed; it's on the lowered list), so substring-returning and
+  scalar-count-truncation kernels (`get(..byte_idx)` after a lead-byte count) are
+  recoverable too.
+- **Still genuinely char-level**: semantics that depend on UTF-16 *code-unit
+  counts* where inputs can be non-ASCII (`.length` caps compared against
+  code-unit positions), and broad-Unicode *classes* you can't enumerate cheaply
+  (JS `\s` is enumerable but large — weigh effort vs a spec). When unsure:
+  attempt it — W2 refutes an unfaithful rewrite; revert on NOT-TRUSTED.
+  `_bug`/`_naive` soundness controls must stay NOT-TRUSTED — never "recover" them.
 
 ## The residue this playbook does NOT clear (owner-gated / research-scope)
 

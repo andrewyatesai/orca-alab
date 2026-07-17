@@ -401,13 +401,20 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   `extern_abi_is_non_unwinding` — comment: "The soundness-critical ABI whitelist … stay fail-closed").
   trustc discharges an out-of-bundle call's panic-freedom ONLY when the callee's ABI is a non-unwinding
   C-family boundary (a panic there ABORTS, can't unwind into the caller) or it is `#[trust::skip]`'d. Std
-  methods like `to_string`/`chars`/`collect` are `extern "Rust"` (CAN unwind — allocation OOM-panics), so
-  trustc CORRECTLY refuses to assume them panic-free. So the `&str`/byte-scan recoveries are the *sound*
-  move — they REMOVE the panicking callee, not assume it away. The residue that genuinely NEEDS allocation
-  (string builders) or a code-unit iterator can only be discharged by a **soundness-model decision**
-  (axiomatize std/alloc panic-freedom via `#[trust::ensures]` contracts or bundle std) — which changes what
-  TRUSTED *guarantees* (OOM-panic in scope or not) and is therefore an OWNER call + a stage2 rebuild, not a
-  bounded fix. Later loop diagnosis (`f853ee7b5`): the ~104 "loop kernels" are ALSO not uniformly
+  methods like `to_string`/`chars`/`collect` are `extern "Rust"` with bodies outside the lowered bundle,
+  so trustc stays fail-closed — it cannot see that they don't panic. **CORRECTION 2026-07-17 (owner
+  called out the earlier gloss):** default-Rust allocation failure ABORTS (`handle_alloc_error`), it does
+  not unwind, and `str::to_string` has essentially no other panic path — so the earlier "CAN unwind —
+  OOM-panics" parenthetical was wrong, and the earlier "axiomatizing changes what TRUSTED guarantees"
+  framing was overheated: trusted std specs are STANDARD verifier practice (Verus/Creusot/Kani all ship
+  them); the real questions are TCB documentation + which spec mechanism. Probed 2026-07-17:
+  `#[trust::skip]` exists (tool attribute on a locally-compiled callee; a `#[trust::skip]` wrapper around
+  `to_string` demotes the caller's VC to `[trust-expected-absent-callee-assumption]`) but is
+  **advisory-mode only** — under the driver's strict W1 it fail-closed ABORTS (`UserOptOut` rejected;
+  "every Level 0 obligation must be statically proved"). So the builder class needs either a documented
+  conditional-TRUSTED tier (lame-mode W1 with the assumption ledger) or a strict-compatible trusted-spec
+  path — likely the E2/E9 `ensures`-discharge machinery landed upstream 2026-07-17 (+415 commits pulled,
+  stage2 rebuilding). Later loop diagnosis (`f853ee7b5`): the ~104 "loop kernels" are ALSO not uniformly
   invariant-gated — a byte-scan (`as_bytes()`+`.get()`+saturating) clears the ASCII-single-code subclass
   in ~2s with no invariant (recovered countLinesEmptyAsZero, 73). Net census **54→73**.
   **↳ REPRODUCIBLE blocker breakdown (`pnpm blocker-census`, `tools/autoformalize-blocker-census.mjs`,
@@ -419,11 +426,17 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   (recoverable 24→10), and the residue is now cleanly dominated by owned-String builders. By blocker class
   (kernels carrying it): `unsupported-mir-drop` 115 (owned-String builders — the residue), `absent-callee-
   other` 38, `absent-callee-iter` 35, `unsupported-mir-arith` 28, `absent-callee-alloc` 19, `timeout` 12,
-  `unsupported-mir-bounds` 12, `other` 11. The remaining **10 formulation-recoverable** are an UPPER BOUND
-  (the faithful subset is smaller — char-level NFAs with non-ASCII semantics, broad-Unicode predicates like
-  `contains_braille`, and nested split+closure scans are NOT behaviour-preservingly recoverable). The
-  residue split is a reproducible number, not a hand-estimate; the 115 owned-String builders are the
-  soundness-model-gated class (see the verified-root-cause note above).
+  `unsupported-mir-bounds` 12, `other` 11. **CORRECTION 2026-07-17 (probed after the owner pushed back):
+  the "faithful subset is smaller — non-ASCII/NFA/nested scans are NOT recoverable" claim was a FALSE
+  UNIVERSAL, refuted 5/5 by actually probing.** `str::get(range)` generates ZERO obligations (Option
+  return — now on the known-LOWERED list), unlocking slice-returning rewrites; and UTF-8 is deterministic,
+  so byte patterns exactly match specific non-ASCII sequences (braille U+2800–28FF = `E2 A0..A3 80..BF`;
+  `"π - "` = `CF 80 20 2D 20`). All five previously-written-off kernels probe TRUSTED:
+  command_token_basename (backward scan + `get(idx+1..)`), b5_tablesep (indexed cells + `get(range)` +
+  lowered trim), contains_braille + is_pi_agent_title (byte patterns), cap_opencode_text (lead-byte scalar
+  count + `get(..idx)`, String→&str). Pending re-verification under the rebuilt stage2 toolchain before
+  adoption (the census will move 90→95). The residue split is a reproducible number; the 115 owned-String
+  builders remain the spec-gated class (see the corrected note above).
   **✅ E1 → Goal A cross-connection 2026-07-16** (`~/trust` `86bc1b56f`, `108f9f753`): this session's E1
   decision cores are prime autoformalize candidates. Added **+5 TRUSTED kernels** derived straight from
   landed E1 units, spanning 4 of the 6 E1 crates — each W1 `trustc` VERIFIED + W2 0 divergences:

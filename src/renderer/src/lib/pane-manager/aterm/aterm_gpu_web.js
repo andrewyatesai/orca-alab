@@ -128,8 +128,10 @@ export class AtermGpuTerminal {
         return ret >>> 0;
     }
     /**
-     * Whether the cell at `row`/`col` is a wide (double-width) character;
-     * `None` when out of range.
+     * Whether the DISPLAY cell at `row`/`col` is a wide (double-width)
+     * character; `None` when out of range. Resolved through the same
+     * display-offset-aware row view as `cell_text` so a host's per-cell walk
+     * sees one coherent row.
      * @param {number} row
      * @param {number} col
      * @returns {boolean | undefined}
@@ -139,9 +141,11 @@ export class AtermGpuTerminal {
         return ret === 0xFFFFFF ? undefined : ret !== 0;
     }
     /**
-     * Grapheme text at visible cell `row`/`col` — base char plus complex
-     * cluster and combining marks. Empty string for a blank cell, a
-     * wide-continuation spacer, or out-of-range coords.
+     * Grapheme text at DISPLAY cell `row`/`col` (display_offset-aware, like
+     * `row_text`) — base char plus complex cluster and combining marks. Empty
+     * string for a blank cell, a wide-continuation spacer, or out-of-range
+     * coords. Hosts rebuild scrolled-back rows per-cell from this, so it must
+     * track the scroll position; the live-frame reader is `get_line_text`.
      * @param {number} row
      * @param {number} col
      * @returns {string}

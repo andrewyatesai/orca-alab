@@ -1,8 +1,8 @@
 {
-  "minTrusted": 63,
+  "minTrusted": 67,
   "measured": "2026-07-16",
   "total": 249,
-  "faithfulMiss": 180,
+  "faithfulMiss": 176,
   "soundnessControls": 6,
-  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 63 TRUSTED / 249 runnable / 0 declined / 180 faithful-miss / 6 controls refuted / 0 soundness breaks. The 6 _bug/_naive controls now have correct .ts twins, so they RUN and are all rejected (W1 catches the unchecked cast/add/u64-accumulate in countws/fontsize/csiparams; W2 catches the semantic divergence in packrgb/unpackrgb/sumpos) — 'no soundness break' now means every control was caught, not that none ran. Numbers assume the local ~/trust/tools/ts2rust corpus (the whole census depends on it; not reproducible from the orc repo alone)."
+  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 67 TRUSTED / 249 runnable / 0 declined / 176 faithful-miss / 6 controls refuted / 0 soundness breaks. The faithful-misses are a MIX, not all solver-gated: one recoverable class is ALLOCATION-gated — a substring-returning kernel calling to_string()/collect() hits an absent-callee 'may panic' assumption; returning the borrowed &str via the lowered strip_*/trim/split_once methods clears it (recovered stripGitSuffix/optionName/trimRuntimePathTrailingSlash/stripGrokUserQueryWrapper, 63->67). The residue is genuinely loop-invariant-synthesis / division-VC gated (trustc/ay-chc, research-scope). The 6 _bug/_naive controls run + are all rejected (W1 catches unchecked cast/add/u64-accumulate; W2 catches semantic divergence). Numbers assume the local ~/trust/tools/ts2rust corpus (not reproducible from the orc repo alone)."
 }

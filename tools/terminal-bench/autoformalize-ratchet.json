@@ -1,8 +1,8 @@
 {
-  "minTrusted": 89,
+  "minTrusted": 90,
   "measured": "2026-07-17",
   "total": 249,
-  "faithfulMiss": 154,
+  "faithfulMiss": 153,
   "soundnessControls": 6,
   "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 71 TRUSTED / 249 runnable / 0 declined / 172 faithful-miss / 6 controls refuted / 0 soundness breaks. The faithful-misses are a MIX, not all solver-gated: one recoverable class is ALLOCATION-gated — a kernel whose value is a borrowed substring or a string literal but that calls to_string()/String::from()/collect() hits an absent-callee 'may panic' assumption (the callee body isn't in trustc's lowered bundle). Returning the borrowed &str (via the lowered strip_*/trim/split_once methods) or a &'static str literal clears it with no allocation. Recovered 54->71 across the discovery-coverage fix (+9) and this allocation class (+8: stripGitSuffix/optionName/trimRuntimePathTrailingSlash/stripGrokUserQueryWrapper as &str; getLocalExecutionHostLabel/getOrcaCliCommandNameForPlatform/mobileDiffLinePrefix/parseStatusChar as &'static str). NOT recoverable this way: string BUILDERS (push/collect/char-Vec + loop), owned-struct-param borrows, fn-pointer/closure predicates (rsplit(|c|)/trim_matches(fn) are also absent callees). A SECOND recoverable class is ABSENT-ITERATOR loop kernels: `for c in s.chars()` trips the absent-callee `chars()`/`encode_utf16()`, and a byte-indexed `while` loop over `as_bytes()` with `.get()` (no bounds-check obligation) + saturating index/counter proves clean in ~2s (no invariant, no timeout) — recovered countLinesEmptyAsZero (73). Only sound where byte-scanning provably equals the TS char/code-unit logic for ALL inputs (a SINGLE ASCII code like '\n'/space, never a broad-Unicode set or a code-unit-count cap). The residue is genuinely loop-invariant-synthesis / division-VC gated (ay-chc/src/smt, research-scope). The 6 _bug/_naive controls run + are all rejected. Numbers assume the local ~/trust/tools/ts2rust corpus (not reproducible from the orc repo alone)."
 }

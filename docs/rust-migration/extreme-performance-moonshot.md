@@ -466,8 +466,8 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   signature matches the live export** (the verifier's key restriction — TRUSTED kernels with narrowed
   types can't ship as-is); promotion re-runs autoformalize against the real module source; ships
   through the existing one-export orca-dispatch seam. Inventory honesty (full census 2026-07-16, after
-  the discovery-coverage fix + soundness-control twins + the &str-recovery pass): **67 TRUSTED / 249
-  runnable / 0 declined / 6 controls refuted / 0 soundness breaks** — the numerator moved 54→67 by
+  the discovery-coverage fix + soundness-control twins + the allocation-recovery pass): **71 TRUSTED /
+  249 runnable / 0 declined / 6 controls refuted / 0 soundness breaks** — the numerator moved 54→71 by
   recovering kernels, NOT re-tallying; `pnpm gauntlet:autoformalize` is the numerator, not a hand-count.
   The 6 `_bug`/`_naive` controls now have correct `.ts` twins, so they RUN and are all rejected — W1
   catches the unchecked cast/add/u64-accumulate (countws/fontsize/csiparams), W2 the semantic divergence
@@ -475,11 +475,14 @@ in `~/trust/tools/ts2rust/orca`, never shipped. The factory = fuse them.
   to the faithful-miss diagnosis:** they are a MIX, not uniformly loop/division-gated. A distinct
   recoverable class is ALLOCATION-gated — a substring-returning kernel calling `to_string()`/`collect()`
   trips an absent-callee "may panic" assumption (the callee body isn't in trustc's lowered bundle);
-  returning the borrowed `&str` via the lowered `strip_*`/`trim`/`split_once` methods clears it with no
-  allocation (recovered stripGitSuffix, optionName, trimRuntimePathTrailingSlash, stripGrokUserQueryWrapper,
-  63→67). The residue is genuinely loop-invariant-synthesis / division-VC gated (`ay-chc/src/smt`,
-  research-scope). (The census depends on the local `~/trust/tools/ts2rust` corpus, not reproducible from
-  the orc repo alone.)
+  returning the borrowed `&str` (lowered `strip_*`/`trim`/`split_once`) or a `&'static str` literal clears
+  it with no allocation — recovered 8: stripGitSuffix/optionName/trimRuntimePathTrailingSlash/
+  stripGrokUserQueryWrapper (`&str`) and getLocalExecutionHostLabel/getOrcaCliCommandNameForPlatform/
+  mobileDiffLinePrefix/parseStatusChar (`&'static str`). NOT recoverable this way: string builders
+  (push/collect/char-Vec + loop), owned-struct-param borrows, and fn-pointer/closure predicates
+  (`rsplit(|c|)`/`trim_matches(fn)` are themselves absent callees). The residue is genuinely
+  loop-invariant-synthesis / division-VC gated (`ay-chc/src/smt`, research-scope). (The census depends on
+  the local `~/trust/tools/ts2rust` corpus, not reproducible from the orc repo alone.)
   - **First seam promotion LANDED 2026-07-16 (63e53d894):** the E1-certified,
     autoformalize-TRUSTED `orca-provider-backoff` core (capped-exponential refetch throttle) now flows
     through the production orca-dispatch registry as parity module `provider-backoff` — live TS adapter

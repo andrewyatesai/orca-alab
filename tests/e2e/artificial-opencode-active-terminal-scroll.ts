@@ -190,8 +190,30 @@ export async function scrollActiveTerminalToText(page: Page, text: string): Prom
     // a screen to center it (clamped to the oldest retained line).
     const centeredLine = Math.max(0, targetLine - Math.floor(rows / 2))
     pane.terminal.scrollToLine(centeredLine)
-    const viewport = pane.container.querySelector<HTMLElement>('.xterm-viewport')
-    viewport?.dispatchEvent(new Event('scroll', { bubbles: true }))
+    // Why: the engine scroll above bypasses every production intent seam (a real
+    // wheel/scrollbar/keyboard scroll marks the scrolled-off-bottom viewport as
+    // pinned user intent). Without that pin a later visibility/wake enforce snaps
+    // the viewport back to the live bottom before the golden reads geometry. So
+    // reproduce a real upward wheel: dispatch a 'wheel' on the same host element the
+    // scroll-intent tracker listens on (capture) — its onWheel records the pinned
+    // viewport through the ACTUAL production path (markTerminalPinnedViewport).
+    // Dispatching on the host (not the canvas) never reaches aterm's own scroll
+    // handler, so the centered position is preserved (no double-scroll), yet the
+    // intent-tracking capture listener still fires.
+    let intentWheelDelivered = false
+    const confirmIntentWheel = (): void => {
+      intentWheelDelivered = true
+    }
+    pane.container.addEventListener('wheel', confirmIntentWheel, { capture: true })
+    pane.container.dispatchEvent(
+      new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -120 })
+    )
+    pane.container.removeEventListener('wheel', confirmIntentWheel, { capture: true })
+    // Fail loud (not flaky) if the tracker's capture 'wheel' listener never runs —
+    // that would mean the pin was silently skipped and the restore would flake.
+    if (!intentWheelDelivered) {
+      throw new Error('scroll-intent wheel listener did not receive the pinning wheel event')
+    }
     pane.terminal.focus()
   }, text)
 }

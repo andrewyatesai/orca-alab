@@ -186,6 +186,12 @@ async function waitForResumedTerminalSettled(page: Page): Promise<void> {
     }
     await page.waitForTimeout(120)
   }
+  // Fail on the real cause: if the serialize never held steady, do NOT return and
+  // inject the live frame into an unsettled terminal (the SIGWINCH redraw would
+  // then wipe it and mis-attribute the failure to a later finalMarker timeout).
+  throw new Error(
+    'resumed terminal serialize never settled (5 stable reads) before injecting live frame'
+  )
 }
 
 async function injectPaneData(

@@ -888,6 +888,48 @@ describe('terminal scroll intent', () => {
     disposable.dispose()
   })
 
+  // Search-jump twin of the e2e scroll-restore bug: aterm-search's scrollToMatch
+  // calls scroll_search_line_into_view (moves the viewport off the bottom) WITHOUT
+  // marking scroll intent, so the stored intent stays followOutput. These prove the
+  // wake/visibility/resume path (terminal-visibility-resume) keeps the search match
+  // on screen because it runs syncTerminalViewportIntents (sync) BEFORE
+  // enforceTerminalViewportIntents (enforce).
+  describe('search-jump scroll-intent twin', () => {
+    it('preserves a search-jumped viewport across a wake (resume syncs intent before enforcing)', () => {
+      const terminal = createTerminal({ viewportY: 400, baseY: 400 })
+      markTerminalFollowOutput(terminal)
+
+      // Search jump scrolls the engine up into scrollback with no intent write.
+      terminal.buffer.active.viewportY = 120
+
+      // Resume/wake ordering: syncTerminalViewportIntents THEN enforceTerminalViewportIntents.
+      syncTerminalScrollIntentFromViewport(terminal)
+      // A lagged/disturbed viewport read during the resume flush must not win.
+      terminal.buffer.active.viewportY = 0
+      enforceTerminalCurrentScrollIntent(terminal)
+      // A second enforce models the resume's deferred re-anchor ticks (2 rAF + 80ms).
+      enforceTerminalCurrentScrollIntent(terminal)
+
+      expect(terminal.scrollToBottom).not.toHaveBeenCalled()
+      expect(terminal.scrollToLine).toHaveBeenLastCalledWith(120)
+      expect(terminal.buffer.active.viewportY).toBe(120)
+      expect(getTerminalScrollIntentKind(terminal)).toBe('pinnedViewport')
+    })
+
+    it('would snap the search jump to the bottom if enforce ran without the resume sync (the sync is load-bearing)', () => {
+      const terminal = createTerminal({ viewportY: 400, baseY: 400 })
+      markTerminalFollowOutput(terminal)
+
+      // Search jump off the bottom; intent stays followOutput (search never syncs).
+      terminal.buffer.active.viewportY = 120
+      // A bare enforce with no preceding sync follows live output to the bottom —
+      // exactly why the resume path syncs the viewport into a pin first.
+      enforceTerminalCurrentScrollIntent(terminal)
+
+      expect(terminal.scrollToBottom).toHaveBeenCalledTimes(1)
+    })
+  })
+
   function createTerminalWithInputCapture(args: { viewportY: number; baseY: number }) {
     const capturedInput: { listener: ((data: string) => void) | null } = { listener: null }
     const capturedUserInput: { listener: (() => void) | null } = { listener: null }

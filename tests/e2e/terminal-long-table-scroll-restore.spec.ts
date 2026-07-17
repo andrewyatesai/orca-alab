@@ -419,7 +419,19 @@ test.describe('Terminal long table scroll restore repro', () => {
 
     try {
       await sendToTerminal(orcaPage, ptyId, `${nodeTerminalCommand([scriptPath])}\r`)
-      await orcaPage.waitForTimeout(80)
+      // Why: a blind timeout races the node spawn — under load the switch captures an
+      // empty buffer (silent coverage loss: the table regenerates live post-switch
+      // instead of restoring from the snapshot). Poll for the marker before switching,
+      // the same fix test3 already uses.
+      await expect
+        .poll(
+          async () => stripSerializedControlSequences(await getTerminalContent(orcaPage, 30_000)),
+          {
+            timeout: 20_000,
+            message: 'long table marker was not written before workspace switch'
+          }
+        )
+        .toContain(marker)
       await switchToWorktree(orcaPage, secondWorktreeId)
       await waitForActiveTerminalManager(orcaPage, 30_000)
       await orcaPage.waitForTimeout(1_500)
@@ -435,14 +447,23 @@ test.describe('Terminal long table scroll restore repro', () => {
 
       await scrollActiveTerminalLikeUser(orcaPage)
       await closeFeatureTips(orcaPage)
-      const diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+      let diagnostics = await readTerminalRenderDiagnostics(orcaPage)
       const hiddenDebug = await orcaPage.evaluate(() =>
         (window as LongTableDebugWindow).__terminalPtyOutputDebug?.snapshot()
       )
       expect(hiddenDebug?.hiddenRendererSkipCount).toBe(0)
       const restoredPane = diagnostics.allPaneStates.find((paneState) => paneState.hasMarker)
       expect(restoredPane).toBeDefined()
-      expect(diagnostics.cursorHidden).toBe(false)
+      // Why: the aterm controller reattaches asynchronously after a worktree switch
+      // (cursorHidden reads null until then) and a transient ESC[?25l during the
+      // restore redraw can momentarily set it. Poll to settle like the sibling goldens.
+      await expect
+        .poll(
+          async () =>
+            (diagnostics = await readTerminalRenderDiagnostics(orcaPage)).cursorHidden === false,
+          { timeout: 15_000, message: 'terminal cursorHidden did not settle to false after restore' }
+        )
+        .toBe(true)
       await orcaPage.waitForTimeout(100)
       const screenshotPath = testInfo.outputPath('long-table-after-switch-scroll.png')
       await orcaPage.screenshot({ path: screenshotPath, fullPage: true })
@@ -488,7 +509,19 @@ test.describe('Terminal long table scroll restore repro', () => {
 
     try {
       await sendToTerminal(orcaPage, ptyId, `${nodeTerminalCommand([scriptPath])}\r`)
-      await orcaPage.waitForTimeout(80)
+      // Why: a blind timeout races the node spawn — under load the switch captures an
+      // empty buffer (silent coverage loss: the table regenerates live post-switch
+      // instead of restoring from the snapshot). Poll for the marker before switching,
+      // the same fix test3 already uses.
+      await expect
+        .poll(
+          async () => stripSerializedControlSequences(await getTerminalContent(orcaPage, 30_000)),
+          {
+            timeout: 20_000,
+            message: 'narrow signer table marker was not written before workspace switch'
+          }
+        )
+        .toContain(marker)
       await switchToWorktree(orcaPage, secondWorktreeId)
       await waitForActiveTerminalManager(orcaPage, 30_000)
       await orcaPage.waitForTimeout(1_000)
@@ -504,7 +537,7 @@ test.describe('Terminal long table scroll restore repro', () => {
 
       await scrollActiveTerminalLikeUser(orcaPage)
       await closeFeatureTips(orcaPage)
-      const diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+      let diagnostics = await readTerminalRenderDiagnostics(orcaPage)
       const hiddenDebug = await orcaPage.evaluate(() =>
         (window as LongTableDebugWindow).__terminalPtyOutputDebug?.snapshot()
       )
@@ -512,7 +545,16 @@ test.describe('Terminal long table scroll restore repro', () => {
       // Why: renderer cell metrics can land one column wider in headless runs;
       // the content and screenshot assertions below cover the actual regression.
       expect(diagnostics.cols).toBeLessThanOrEqual(112)
-      expect(diagnostics.cursorHidden).toBe(false)
+      // Why: the aterm controller reattaches asynchronously after a worktree switch
+      // (cursorHidden reads null until then) and a transient ESC[?25l during the
+      // restore redraw can momentarily set it. Poll to settle like the sibling goldens.
+      await expect
+        .poll(
+          async () =>
+            (diagnostics = await readTerminalRenderDiagnostics(orcaPage)).cursorHidden === false,
+          { timeout: 15_000, message: 'terminal cursorHidden did not settle to false after restore' }
+        )
+        .toBe(true)
 
       const content = await getTerminalContent(orcaPage, 30_000)
       expect(content).toContain('Signer')
@@ -634,7 +676,7 @@ test.describe('Terminal long table scroll restore repro', () => {
           message: `${retainedEmojiCell} row fragment should be visible before screenshot`
         })
         .toContain(retainedEmojiCell)
-      const diagnostics = await readTerminalRenderDiagnostics(orcaPage)
+      let diagnostics = await readTerminalRenderDiagnostics(orcaPage)
       const overpaint = await readTerminalRightEdgeOverpaint(orcaPage)
       const wrapDiagnostics = await readTerminalBoxTableWrapDiagnostics(orcaPage)
       const hiddenDebug = await orcaPage.evaluate(() =>
@@ -643,7 +685,16 @@ test.describe('Terminal long table scroll restore repro', () => {
       expect(hiddenDebug?.hiddenRendererSkipCount).toBe(0)
       expect(diagnostics.cols).toBeLessThanOrEqual(NARROW_TERMINAL_MAX_COLS)
       expect(wrapDiagnostics.cols).toBeGreaterThanOrEqual(generatedTableWidth)
-      expect(diagnostics.cursorHidden).toBe(false)
+      // Why: the aterm controller reattaches asynchronously after a worktree switch
+      // (cursorHidden reads null until then) and a transient ESC[?25l during the
+      // restore redraw can momentarily set it. Poll to settle like the sibling goldens.
+      await expect
+        .poll(
+          async () =>
+            (diagnostics = await readTerminalRenderDiagnostics(orcaPage)).cursorHidden === false,
+          { timeout: 15_000, message: 'terminal cursorHidden did not settle to false after restore' }
+        )
+        .toBe(true)
       testInfo.annotations.push({
         type: 'real-emoji-table-overpaint',
         description: JSON.stringify(overpaint)

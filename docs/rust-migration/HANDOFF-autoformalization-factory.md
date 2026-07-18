@@ -11,11 +11,19 @@ and the memory `orc-goals-and-gauntlet.md` for the full frame; this doc is the o
 
 ## State of the world (verified, committed, pushed)
 
-- **Gauntlet census: 293/299 TRUSTED** (last FULL census confirmed 273/279; +20 additive kernels since,
-  each individually W1+W2-verified, with a full-census re-confirm in flight), i.e.
-  **100% of all non-control kernels** carry a trustc ∀-safety proof (W1) **and** a 0-divergence
-  differential (W2). The **6 `_bug`/`_naive` soundness controls stay refused** (computeEditorFontSize,
-  countWhitespace, packRgb, parseCsiParams, sumPositive, unpackRgb). 0 declined, 0 residual, 0 breaks.
+- **Corpus: 320 individually-verified TRUSTED kernels** (last FULL census confirmed **302/308**, 0
+  residual; +18 additive light kernels since, final consolidating census in flight at handoff time —
+  bump the ratchet to its result), i.e. **100% of all non-control kernels** carry a trustc ∀-safety
+  proof (W1) **and** a 0-divergence differential (W2). The **6 `_bug`/`_naive` soundness controls stay
+  refused** (computeEditorFontSize, countWhitespace, packRgb, parseCsiParams, sumPositive, unpackRgb).
+  0 declined, 0 residual, 0 breaks. **Campaign 5's factory-breadth demonstration is COMPLETE**: ~77
+  fresh real-orc functions proven past the original 100%, spanning every class — shell-injection
+  quoters, credential scrubbing, JS/HTML/paste sanitizers, CSI/VT500 escape parsers, git-domain
+  parsers, session-path parsers, dispatch parsers, clamps/predicates. The remaining moonshot fronts
+  are XL (F3 swc/oxc auto-parsing, kernel promotion to shipped napi/wasm, the scoped T-D Shr fix) or
+  gated on Andrew (ay/ty publication, Electron fork) — a fresh session should pick ONE, not more breadth.
+  Methodological refinement the agents converged on (adopt it): a **discrimination control** — run a
+  deliberate no-op port against the seed corpus and require divergences — proves W2 non-hollowness.
 - Ratchet: `tools/terminal-bench/autoformalize-ratchet.json` (`minTrusted`). It is the regression gate.
 - Reproduce: `cd ~/orc && pnpm gauntlet:autoformalize`. NOTE: a full census is now **~1 hour** (serial
   over ~299 kernels; the CSI/seed-heavy kernels are slow), not ~10 min. **Cadence:** an ADDITIVE

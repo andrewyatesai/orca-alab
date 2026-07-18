@@ -1,8 +1,8 @@
 {
-  "minTrusted": 101,
+  "minTrusted": 175,
   "measured": "2026-07-17",
   "total": 249,
-  "faithfulMiss": 142,
+  "faithfulMiss": 68,
   "soundnessControls": 6,
-  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 101 TRUSTED / 249 / 0 declined / 142 faithful-miss / 6 controls refuted / 0 breaks. 54->101 this session: +9 discovery-coverage, +14 allocation/iterator formulation recoveries, +13 str::get/byte-pattern recoveries (incl the falsely-written-off class), +6 organic from the 2026-07-17 trust toolchain rebuild (+415 upstream solver commits, rustc 7c9400456). Assumes the local ~/trust corpus + stage2 toolchain."
+  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 175 TRUSTED / 249 / 0 declined / 68 faithful-miss / 6 controls refuted / 0 breaks. 101->175 this session: the trait-tail callee matcher fix (<X as A::B::Trait>::method now resolves to Trait::method) revived the whole lazy-adapter + alloc-conversion + Deref allowlist that strip_generics had been silently deleting, dissolving the absent-callee-iter/alloc/other frontier. Sound-gate green: 6 _bug/_naive controls all NOT-TRUSTED + index/sum/div panic-probes each >0 unproven (allowlist excludes count/sum/product/index/eager-consumers to avoid the cast-obligation-drop unsoundness). 39 of the 68 residual are W2-clean (0-divergence, W1-only miss). Assumes the local ~/trust corpus + stage2 toolchain (rustc 1.99.0-dev 4c9dc90f4)."
 }

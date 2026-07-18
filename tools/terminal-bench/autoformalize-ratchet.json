@@ -1,8 +1,8 @@
 {
-  "minTrusted": 175,
-  "measured": "2026-07-17",
+  "minTrusted": 230,
+  "measured": "2026-07-18",
   "total": 249,
-  "faithfulMiss": 68,
+  "faithfulMiss": 13,
   "soundnessControls": 6,
-  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 175 TRUSTED / 249 / 0 declined / 68 faithful-miss / 6 controls refuted / 0 breaks. 101->175 this session: the trait-tail callee matcher fix (<X as A::B::Trait>::method now resolves to Trait::method) revived the whole lazy-adapter + alloc-conversion + Deref allowlist that strip_generics had been silently deleting, dissolving the absent-callee-iter/alloc/other frontier. Sound-gate green: 6 _bug/_naive controls all NOT-TRUSTED + index/sum/div panic-probes each >0 unproven (allowlist excludes count/sum/product/index/eager-consumers to avoid the cast-obligation-drop unsoundness). 39 of the 68 residual are W2-clean (0-divergence, W1-only miss). Assumes the local ~/trust corpus + stage2 toolchain (rustc 1.99.0-dev 4c9dc90f4)."
+  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 230 TRUSTED / 249 / 0 declined / 13 faithful-miss / 6 controls refuted / 0 breaks. 175->230 this session: +38 diagnostic-first reformulations of the string/numeric W1-residue (eager-consumer->byte-loop, trim_matches->explicit-trim, index->.get(), arith->widen/saturate, timeout->simplify) and +~17 struct-arg kernels unblocked by the gauntlet struct-argspec fix (field TYPES + serde rename_all camelCase keys, so the differential fuzzer stops feeding u32 into bool/str fields). Controls all NOT-TRUSTED (computeEditorFontSize 14/83, packRgb 8/23, sumPositive 30/53, unpackRgb 13/18, countWhitespace/parseCsiParams W1-refuted). 13 residual: 1 ENOBUFS (buildAtermRowCells, verify.mjs maxBuffer bump lands next census), 1 CPU-contention transient (getFirstCommandToken), ~11 W1-incomplete struct string-builders (all W2-clean 0/N). Assumes the local ~/trust corpus + stage2 toolchain (rustc 1.99.0-dev 4c9dc90f4)."
 }

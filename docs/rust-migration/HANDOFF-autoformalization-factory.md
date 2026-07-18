@@ -79,11 +79,19 @@ claim TRUSTED on a hollow W2.
    near-miss; the port is correct, the verifier couldn't discharge one obligation. Files were removed
    (uncommitted). Retry with a reform pass on that one obligation, or after the toolchain gap below.
 2. **`encodePowerShellCommand` (base64)** — W1 INCOMPLETE with 4 `unsupported MIR
-   FullVerification::ArithmeticSafety: shift overflow (Shr)` unknowns (base64's constant bit-shifts,
-   provably < bit-width but the verifier can't model Shr-overflow), PLUS a W2 build error. Files removed.
-   **This is a real T-D toolchain gap**: right-shift-overflow modeling. Fixing it (recognize
-   constant/bounded shift amounts as overflow-free, like the drop-glue fix did for String/Vec) would
-   unlock the whole bit-manipulation kernel class (base64/hashing/packing). Needs a trustc change + rebuild.
+   FullVerification::ArithmeticSafety: shift overflow (Shr)` unknowns (base64's bit-shifts), PLUS a W2
+   build error. Files removed. **This is a real T-D toolchain gap**: right-shift-overflow modeling.
+   **SCOPED 2026-07-18**: the ShiftOverflow VC is EMITTED in the MAIN TREE at
+   `crates/trust-ir-bridge/src/lower.rs:7611` (`reconstruct_assert_vc_kind`, the `Overflow(Shl|Shr)` arm →
+   `VcKind::ShiftOverflow{op, operand_ty, shift_ty}`) from rustc's inserted `assert(shift_amount <
+   bit_width)`; the native trust-mc lane then times out trying to discharge it. Candidate fix (rebuild-
+   able without the submodule): in that arm, read the `amount` operand — if it is a MIR CONSTANT and its
+   value < the `value` type's bit-width, the shift is trivially overflow-free, so return `None`/skip the
+   VC (mirrors how a constant divisor discharges div-by-zero). CAVEAT before doing it: confirm base64's
+   shifts reach here as MIR constants (rustc may already const-fold the fully-constant case via
+   `known_panics_lint.rs:350`, in which case the timeout is on a SYMBOLIC shift and this fix won't help —
+   inspect the actual port's MIR first). Needs a trustc change + ~45min rebuild + soundgate + census.
+   Unlocks the bit-manipulation class (base64/hashing/packing) IF the shifts are const.
 3. **ICE fix (uncommitted)** — `~/trust/first-party/trust-mc/.../direct_smt_cex.rs:~364`
    `SmtValue::Int(i)` → `i.to_string()` (i128 bignum witnesses trip serde_json "number out of range").
    Applied in the trust-mc SUBMODULE working tree but NOT committed: the submodule is in a tangled

@@ -40,6 +40,7 @@ import { tmpdir } from 'node:os'
 import { loadCorpus, loadJsonlCorpus } from '../aterm-vs-xterm/corpus-bytes.mjs'
 import { certificatesGate } from './gauntlet-certificates.mjs'
 import { corpusGate } from './gauntlet-corpus.mjs'
+import { rustTypeToArgspec } from './rust-type-to-argspec.mjs'
 
 const here = import.meta.dirname
 const repo = resolve(here, '..', '..')
@@ -331,17 +332,6 @@ const TS2RUST = join(process.env.HOME || '', 'trust', 'tools', 'ts2rust')
 // u16/i16 are real orc arg types (terminal cols/rows, UTF-16 code units, viewport
 // coords) and the Trust fuzzer already models them — including them here recovers
 // decision cores whose ONLY blocker was the arg type, not the ported logic.
-const PRIM = new Set(['u32', 'i32', 'u64', 'i64', 'u16', 'i16', 'bool'])
-const SLICE = {
-  '&[u32]': 'u32[]',
-  '&[i32]': 'i32[]',
-  '&[u64]': 'u64[]',
-  '&[i64]': 'i64[]',
-  '&[u16]': 'u16[]',
-  '&[i16]': 'i16[]',
-  '&[&str]': 'str[]'
-}
-
 function locateTrustc() {
   const candidates = [
     process.env.TRUSTC,
@@ -357,27 +347,6 @@ function locateTrustc() {
   } catch {
     return null
   }
-}
-
-function rustTypeToArgspec(ty, src) {
-  // Strip lifetime annotations (`&'a str`, `&[&'a str]`) before matching — they are
-  // invisible to the fuzz argspec, which cares only about the value shape.
-  const t = ty.replace(/'[a-z_]\w*\b/gu, '').replace(/\s+/gu, '')
-  if (PRIM.has(t)) {
-    return t
-  }
-  if (t === '&str') {
-    return 'str'
-  }
-  if (SLICE[t]) {
-    return SLICE[t]
-  }
-  if (/^[A-Z]\w*$/u.test(t)) {
-    const m = src.match(new RegExp(`struct\\s+${t}\\s*\\{([^}]*)\\}`, 'u'))
-    const fields = m ? [...m[1].matchAll(/(?:pub\s+)?(\w+)\s*:/gu)].map((x) => x[1]) : []
-    return fields.length ? `${t}{${fields.join(',')}}` : null
-  }
-  return null
 }
 
 function discoverCorpus(orcaDir) {

@@ -10,3 +10,17 @@ directory = "vendor"
 
 [net]
 offline = true
+
+# COMPILE WITH TRUST. The Trust toolchain (repo-root rust-toolchain, or the
+# machine default) compiles this workspace. In-compilation verification is
+# fail-closed by default; until the Trust-Std campaign turns orc's vendored
+# dependency surface green it is switched off HERE and nowhere else — mirroring
+# ~/aterm/.cargo/config.toml. `targo trust check` is the strict driver meanwhile.
+#
+# (2026-07-18: verification-during-compile hung trustc for 4h+ on vendored
+# `memchr` built with feature="std" — a non-cooperative pre-dispatch loop in
+# the verifier pass that never checks the 120s function budget; tracked as a
+# Trust verifier-termination bug. This opt-out is the correct config for an
+# app workspace regardless.)
+[target.aarch64-apple-darwin]
+rustflags = ["-Zno-trust-verify=yes"]

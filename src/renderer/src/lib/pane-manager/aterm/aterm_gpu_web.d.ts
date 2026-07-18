@@ -490,7 +490,8 @@ export class AtermGpuTerminal {
     /**
      * Configure the LUMEN cursor aurora (additive light in the cursor's
      * wake). Mirrors the native knobs + clamps: `style` ∈
-     * `lumen|phaser|nyan|sparkle|fire|laser|beam|water` (unknown → lumen);
+     * `lumen|phaser|nyan|sparkle|fire|laser|beam|water|comet` (unknown →
+     * lumen; `rainbow` = the Nyan banded ribbon);
      * `color`/`accent` omitted derive from the theme cursor (accent = color
      * brightened 1.5×) exactly like the native app; `duration_ms` clamps
      * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),
@@ -517,6 +518,14 @@ export class AtermGpuTerminal {
      * the native app (chosen by style); the embedder decides here.
      */
     set_cursor_trail(enabled: boolean, duration_ms: number, length: number, color?: number | null): void;
+    /**
+     * Arm (or clear) a **Trail Pack** — user-generated cursor trails as data.
+     * Pass the pack's TOML source (`trail_pack::compile_trail_pack_toml`);
+     * `undefined` clears any live pack. On a compile ERROR the prior pack is
+     * LEFT INTACT and the joined diagnostics are RETURNED (never silently
+     * dropped); `Ok` returns `undefined`.
+     */
+    set_cursor_trail_pack(toml?: string | null): string | undefined;
     set_default_background(r: number, g: number, b: number): void;
     /**
      * Set the host-preferred DEFAULT cursor style (shape used before any DECSCUSR and
@@ -1235,6 +1244,7 @@ export interface InitOutput {
     readonly atermgputerminal_set_cursor_hollow: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_opacity: (a: number, b: number) => void;
     readonly atermgputerminal_set_cursor_trail: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly atermgputerminal_set_cursor_trail_pack: (a: number, b: number, c: number) => [number, number];
     readonly atermgputerminal_set_default_background: (a: number, b: number, c: number, d: number) => void;
     readonly atermgputerminal_set_default_cursor_style: (a: number, b: number) => void;
     readonly atermgputerminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;

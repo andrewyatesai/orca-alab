@@ -1150,7 +1150,8 @@ export class AtermTerminal {
     /**
      * Configure the LUMEN cursor aurora (additive light in the cursor's
      * wake). Mirrors the native knobs + clamps: `style` ∈
-     * `lumen|phaser|nyan|sparkle|fire|laser|beam|water` (unknown → lumen);
+     * `lumen|phaser|nyan|sparkle|fire|laser|beam|water|comet` (unknown →
+     * lumen; `rainbow` = the Nyan banded ribbon);
      * `color`/`accent` omitted derive from the theme cursor (accent = color
      * brightened 1.5×) exactly like the native app; `duration_ms` clamps
      * 30..=2000, `length` (cells) 1..=512, `intensity` 0..=1 (0 = off),
@@ -1200,6 +1201,27 @@ export class AtermTerminal {
      */
     set_cursor_trail(enabled, duration_ms, length, color) {
         wasm.atermterminal_set_cursor_trail(this.__wbg_ptr, enabled, duration_ms, length, isLikeNone(color) ? 0x100000001 : (color) >>> 0);
+    }
+    /**
+     * Arm (or clear) a **Trail Pack** — user-generated cursor trails as data.
+     * Pass the pack's TOML source (`trail_pack::compile_trail_pack_toml`);
+     * `undefined` clears any live pack. On a compile ERROR the prior pack is
+     * LEFT INTACT and the joined diagnostics are RETURNED (never silently
+     * dropped — the `set_sparkle_custom_specs` gap this closes); `Ok` returns
+     * `undefined`.
+     * @param {string | null} [toml]
+     * @returns {string | undefined}
+     */
+    set_cursor_trail_pack(toml) {
+        var ptr0 = isLikeNone(toml) ? 0 : passStringToWasm0(toml, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        var len0 = WASM_VECTOR_LEN;
+        const ret = wasm.atermterminal_set_cursor_trail_pack(this.__wbg_ptr, ptr0, len0);
+        let v2;
+        if (ret[0] !== 0) {
+            v2 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v2;
     }
     /**
      * @param {number} r

@@ -102,6 +102,7 @@ export const atermgputerminal_set_cursor_glow: (a: number, b: number, c: number,
 export const atermgputerminal_set_cursor_hollow: (a: number, b: number) => void;
 export const atermgputerminal_set_cursor_opacity: (a: number, b: number) => void;
 export const atermgputerminal_set_cursor_trail: (a: number, b: number, c: number, d: number, e: number) => void;
+export const atermgputerminal_set_cursor_trail_pack: (a: number, b: number, c: number) => [number, number];
 export const atermgputerminal_set_default_background: (a: number, b: number, c: number, d: number) => void;
 export const atermgputerminal_set_default_cursor_style: (a: number, b: number) => void;
 export const atermgputerminal_set_default_foreground: (a: number, b: number, c: number, d: number) => void;

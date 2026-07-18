@@ -128,7 +128,8 @@
     "spec:flow-control": "node tools/specs/check-pty-flow-control.mjs",
     "spec:exit-delivery": "node tools/specs/check-pty-exit-delivery.mjs",
     "spec:keep-tail": "node tools/specs/check-keep-tail-drop.mjs",
-    "spec:protocols": "node tools/specs/check-pty-flow-control.mjs && node tools/specs/check-pty-exit-delivery.mjs && node tools/specs/check-keep-tail-drop.mjs"
+    "spec:protocols": "node tools/specs/check-pty-flow-control.mjs && node tools/specs/check-pty-exit-delivery.mjs && node tools/specs/check-keep-tail-drop.mjs",
+    "fork:killcheck": "node tools/orc-electron/run-killcheck.mjs"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

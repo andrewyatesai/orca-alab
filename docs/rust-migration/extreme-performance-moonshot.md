@@ -23,8 +23,9 @@ Nobody else in the terminal space holds even one of these; orc holds all three.
    SMT/CHC proof bundles, and ~776 MiB/s native ASCII parse (~599 CJK / ~340 SGR) [recorded,
    `rust/aterm/README.md:134`] / ~193 MB/s on-glass — 1.5× Alacritty [recorded, `README.md:142`].
 2. **Own the compiler between the product language and verified Rust.** Trust (`~/trust`): trustc/tcargo
-   ∀-safety proofs, the ts2rust two-witness harness (141/203 TRUSTED on real orc code [recorded]), the
-   `ay` SMT/CHC solver, a kernel-Certified spine (86/86 [recorded]).
+   ∀-safety proofs, the ts2rust two-witness harness (**243/243 non-control kernels TRUSTED = 100%, 6
+   soundness controls refused, 2026-07-18 [recorded]** — see §9), the `ay` SMT/CHC solver, a
+   kernel-Certified spine (86/86 [recorded]).
 3. **Own the runtime (as far as the evidence justifies).** Electron is itself a ~248-patch overlay on
    Chromium [external] — adding orc patches is a supported workflow, entered rung by rung on profiler
    evidence, never on faith.
@@ -337,6 +338,14 @@ deepens Goal A — capability bought in Trust pays on every campaign; an externa
 ---
 
 ## 9. Campaign 5 — The Autoformalization Factory (the paper nobody else can write)
+
+**✅ CENSUS HIT 100% — 2026-07-18 (`pnpm gauntlet:autoformalize`): 243/249 TRUSTED = ALL 243 non-control kernels W1-proved (trustc ∀-safety) AND W2-0-divergence; the 6 `_bug`/`_naive` soundness controls stay refused; 0 declined, 0 faithful-miss, 0 breaks.** This SUPERSEDES the "54 TRUSTED / 165 faithful-misses" census below and, importantly, **corrects that section's root-cause diagnosis with measured reality.** The 165 reservoir did NOT close via the predicted heavy toolchain investment (nonlinear/division theory + loop-invariant *synthesis*). It closed via four narrower, higher-leverage fixes — each dissolved a whole obligation class — plus reformulation:
+1. **A trait-callee matching bug** (`trust-ir-bridge/lower.rs`): `strip_generics` deleted the `<Recv as Trait>` qualifier, so trait-dispatched spellings (`<Chars as Iterator>::map`, `<String as PartialEq<str>>::ne`, `ToString::to_string`, `From::from`, `Deref::deref`) collapsed to a bare method name that NEVER matched the flat panic-free allowlist — the whole lazy-adapter/alloc-conversion/Deref frontier was silently dead. Added `TRUSTED_PANIC_FREE_TRAIT_TAILS` (SOUND: eager consumers `all`/`any`/`find`/`collect`/`fold`, `count`/`sum`/`product`, and `Index` EXCLUDED — the soundgate caught the unsound version, which dropped the Undef-result cast obligation). **101 → 175.**
+2. **The +415-solver-commit rebuild** of latest trust (rustc `1.99.0-dev 4c9dc90f4`) — `is_panic_free_drop_ext` now recognizes String/Vec/Option/Result/MaybeUninit drop-glue as panic-free, organically dissolving the 115-kernel `unsupported-mir-drop` class. **90 → 101.**
+3. **Differential-harness fixes** (the W2 side was silently failing correct ports): the census fuzzed struct fields as bare names → all `u32` → serde rejected `bool`/`str`/`Option` fields (`invalid type`) and camelCase structs (`missing field`); `verify.mjs` maxBuffer was Node's 1 MiB default → large-output kernels ENOBUFS'd; and a TS `field?` optional must be fuzzed as an **omitted key** (serde `None` = TS `undefined`), not JSON `null` (`null !== undefined` is true in TS). **~+17 struct kernels + the last 2 optional kernels.**
+4. **~78 diagnostic-first reformulations** (the `reform-v2` workflow: each agent runs the driver, reads the EXACT obligation, applies the matching behavior-preserving pattern). Crucially, **many "loop/counter" kernels the diagnosis flagged for loop-invariant synthesis were instead rewritten to saturating byte-scans / factored sums** that carry NO loop-invariant or overflow obligation at all — sidestepping the predicted gap rather than paying it down. **175 → 243.**
+
+**Consequence for the factory:** the reservoir the section below theorizes about is now a PROVEN 243-kernel equivalence corpus (W1 ∀-safety ∧ W2 0-divergence), and the honest lever was **matching/allowlist correctness + harness fidelity + reformulation**, not (primarily) nonlinear/loop-invariant theory (those remain real T-D/T-E investments for the harder shipped ports, but were NOT the bottleneck for the corpus). Ratchet floor `tools/terminal-bench/autoformalize-ratchet.json` = 243. Raw material for F4/P-ports is ready; the open work is **promotion** (proven kernel → shipped napi/wasm shadow), not proving. Historical diagnosis retained below for provenance.
 
 **The audit's key discovery:** two tracks exist and have never been fused. Track 1 (shipped): LLM-agent
 hand-ports with verbatim test translation, parity corpora (1,406 dispatch-parity cases — measured), ay safety bundles, and a proven

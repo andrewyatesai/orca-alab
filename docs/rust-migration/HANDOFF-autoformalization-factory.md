@@ -11,15 +11,23 @@ and the memory `orc-goals-and-gauntlet.md` for the full frame; this doc is the o
 
 ## State of the world (verified, committed, pushed)
 
-- **Gauntlet census: 273/279 TRUSTED** (pending final re-confirm — see "Open loop" below), i.e.
+- **Gauntlet census: 293/299 TRUSTED** (last FULL census confirmed 273/279; +20 additive kernels since,
+  each individually W1+W2-verified, with a full-census re-confirm in flight), i.e.
   **100% of all non-control kernels** carry a trustc ∀-safety proof (W1) **and** a 0-divergence
   differential (W2). The **6 `_bug`/`_naive` soundness controls stay refused** (computeEditorFontSize,
   countWhitespace, packRgb, parseCsiParams, sumPositive, unpackRgb). 0 declined, 0 residual, 0 breaks.
 - Ratchet: `tools/terminal-bench/autoformalize-ratchet.json` (`minTrusted`). It is the regression gate.
-- Reproduce: `cd ~/orc && pnpm gauntlet:autoformalize` (~10 min, warm shared cargo target).
+- Reproduce: `cd ~/orc && pnpm gauntlet:autoformalize`. NOTE: a full census is now **~1 hour** (serial
+  over ~299 kernels; the CSI/seed-heavy kernels are slow), not ~10 min. **Cadence:** an ADDITIVE
+  grow-corpus wave changes no existing kernel and no toolchain file, so the controls + existing kernels
+  cannot regress — ratchet on the wave's per-kernel TRUSTED verdicts + a spot-verify, and run the full
+  census only as a PERIODIC checkpoint (every ~3 waves) and after any TOOLCHAIN change. Never skip the
+  full census + soundgate after a trustc/verify.mjs/fuzz.mjs/gauntlet.mjs change.
 - Toolchain: the LOCAL `~/trust` stage2 build (`~/trust/build/host/stage2/bin/trustc`,
   rustc `1.99.0-dev 4c9dc90f4`). Corpus is LOCAL-only at `~/trust/tools/ts2rust/orca/*.{ts,rs,seed.jsonl}`.
-- Session arc: **54 → 101 → 175 → 230 → 243 (100%) → 258 → 273**.
+- Session arc: **54 → 101 → 175 → 230 → 243 (100%) → 258 → 273 → 293** (+50 fresh real-orc kernels past
+  100%). The grow-corpus loop's honest SKIP pattern: functions needing a runtime object (`new URL()` +
+  IDNA/Punycode) are correctly declined, not forced — ~5 SKIPs so far, all URL-runtime.
 
 ### The invariant you must never break
 `soundgate.sh` (in the prev session's scratchpad; re-derive if gone): the 6 controls MUST be

@@ -26,6 +26,7 @@ export function createStableAtermPaneController(
     selectionText: () => current().selectionText(),
     clearSelection: () => current().clearSelection(),
     selectionRange: () => current().selectionRange(),
+    restoreSelectionRange: (range) => current().restoreSelectionRange(range),
     linkAt: (row, col) => current().linkAt(row, col),
     findMatches: (query, caseSensitive, isRegex) =>
       current().findMatches(query, caseSensitive, isRegex),

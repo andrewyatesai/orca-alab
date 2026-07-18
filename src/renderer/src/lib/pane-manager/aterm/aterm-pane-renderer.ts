@@ -9,6 +9,7 @@ import {
   type AtermWiredPane
 } from './aterm-pane-wiring'
 import { e2eConfig } from '@/lib/e2e-config'
+import { enforceTerminalCurrentScrollIntent } from '../terminal-scroll-intent'
 import type { AtermLinkContext } from './aterm-url-link-routing'
 import type {
   AtermPaneController,
@@ -247,6 +248,10 @@ export async function createAtermPaneController(
     swapping = true
     swapGap.begin()
     console.warn('[aterm] draw path lost; swapping pane to the in-process CPU renderer')
+    // Capture the live selection BEFORE teardown frees the engine — serialize() (the
+    // seed below) carries no selection, so a scrolled-back or selected pane would lose
+    // its highlight on the rebuild. Re-applied after the scroll intent is enforced.
+    const preSwapSelection = wired.controller.selectionRange()
     wired.teardown()
     if (e2eConfig.exposeStore) {
       // The GPU path is gone; drop its e2e proof hooks so they can't be probed.
@@ -323,6 +328,20 @@ export async function createAtermPaneController(
         // Paint the fresh engine now so the recovered pane shows its current state
         // even if no buffered/live bytes followed the swap.
         wired.controller.scheduleDraw()
+        // Restore the pre-loss reading position: the serialize seed replayed to the
+        // BOTTOM, so without this a scrolled-back pane visibly jumps to bottom. The pin
+        // survives in storage keyed by the stable facade, so enforce it on the rebuilt
+        // engine (must run after the content replay so the buffer geometry is current).
+        const intentTarget = controllerOptions?.getScrollIntentTarget?.()
+        if (intentTarget) {
+          enforceTerminalCurrentScrollIntent(intentTarget)
+        }
+        // Best-effort selection restore (display-cell coords are viewport-relative, so
+        // this must follow the scroll enforce). Skip when live output was buffered
+        // mid-swap: it advanced the content past the captured coordinates.
+        if (preSwapSelection && buffered.output.length === 0) {
+          wired.controller.restoreSelectionRange(preSwapSelection)
+        }
         swapping = false
       })
       .catch((err) => {

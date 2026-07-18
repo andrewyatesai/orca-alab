@@ -143,7 +143,23 @@ function engageReplayGuard(
       release('parsed')
       return
     }
-    void settled.finally(() => release('parsed'))
+    // Why the discriminant: settle() resolves FALSE on the worker's flush-fence
+    // timeout / dispose — the engine is alive-but-behind and may STILL parse
+    // replayed query bytes (DA1/CPR/OSC) afterward. Releasing then ('parsed')
+    // would clear the armed probe-certified stall timer and let those auto-replies
+    // leak to the fresh prompt as stray input — the exact time-based release the
+    // guard forbids. Only a TRUE (real 'flush' reply) resolution is parse-certified;
+    // on false, HOLD the guard and let the still-armed stall path arbitrate.
+    void settled.then(
+      (parseCertified) => {
+        if (parseCertified) {
+          release('parsed')
+        }
+      },
+      () => {
+        // A rejected fence is likewise uncertified: hold and let the stall path win.
+      }
+    )
   }
   const armWedgeDeadline = (quietSinceGeneration: number): void => {
     timer = setTimeout(() => {

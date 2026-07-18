@@ -9,6 +9,11 @@ import {
   shouldNoteAtermMatrixRainActivity
 } from './aterm-effects-activity-gate'
 import { ATERM_RAIN_SIGNAL_CODES } from '../../../../../shared/aterm-rain-signal'
+import {
+  markTerminalPinnedViewport,
+  syncTerminalScrollIntentFromViewport,
+  type TerminalScrollIntentTarget
+} from '../terminal-scroll-intent'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
 
@@ -62,6 +67,11 @@ export type AtermTextareaInputDeps = {
   getRows: () => number
   /** Repaint after a keyboard-driven scrollback move. */
   redraw: () => void
+  /** The pane's scroll-intent target (facade). Shift+PageUp/Down scrolls the engine
+   *  directly, so it must record intent through this seam — mirroring the keyboard
+   *  handlers' Cmd+Up/Down path — or a later keyed remount snaps the viewport to the
+   *  bottom and loses the reading position. Absent → no intent tracking (tests). */
+  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
   /** Send encoded bytes (typing/IME) to the PTY raw. */
   inputSink: (data: string) => void
   /** Send PASTED text to the PTY; wraps with \e[200~..\e[201~ when the app has
@@ -111,7 +121,7 @@ export type AtermTextareaInputDeps = {
 export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispose: () => void } {
   const { textarea, term, canvas, metrics, themeColors, getRows, redraw } = deps
   const { inputSink, pasteSink, copySelection, getMacOptionIsMeta } = deps
-  const { getCustomKeyEventHandler } = deps
+  const { getCustomKeyEventHandler, getScrollIntentTarget } = deps
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
   const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
   let composing = false
@@ -188,6 +198,16 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     // Positive aterm delta reveals older history (up).
     term.scroll_lines(event.key === 'PageUp' ? page : -page)
     redraw()
+    // Record scroll intent on the facade — the same seam keyboard-handlers'
+    // Cmd+Up/Down uses. Without it a keyed remount / workspace-switch restores to
+    // followOutput and snaps the viewport to the bottom (lost reading position).
+    // mark-then-sync: sync reclassifies to followOutput when the page lands at the
+    // bottom (PageDown), or keeps the pin when it reveals history (PageUp).
+    const intentTarget = getScrollIntentTarget?.()
+    if (intentTarget) {
+      markTerminalPinnedViewport(intentTarget)
+      syncTerminalScrollIntentFromViewport(intentTarget)
+    }
     return true
   }
 

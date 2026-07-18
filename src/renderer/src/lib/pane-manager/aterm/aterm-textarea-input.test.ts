@@ -7,13 +7,25 @@ import {
   setAtermCursorGlowActivity,
   setAtermMatrixRainActivity
 } from './aterm-effects-activity-gate'
+import {
+  markTerminalPinnedViewport,
+  syncTerminalScrollIntentFromViewport
+} from '../terminal-scroll-intent'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent'
 
 // The module under test imports the wasm glue for the worker-path free-function
 // encoder; keep these DOM tests off the real (uninitialized) wasm module.
 vi.mock('./aterm_wasm.js', () => ({
   encode_key_with_mode: vi.fn(() => new Uint8Array([0x1b, 0x4f, 0x41]))
+}))
+
+// Spy the scroll-intent seam so we can assert Shift+PageUp/Down records intent on the
+// facade (the direct engine scroll must not skip the seam a keyed remount restores).
+vi.mock('../terminal-scroll-intent', () => ({
+  markTerminalPinnedViewport: vi.fn(),
+  syncTerminalScrollIntentFromViewport: vi.fn()
 }))
 
 type FakeTermOverrides = {
@@ -68,7 +80,8 @@ type Harness = {
 function mount(
   termOverrides: FakeTermOverrides = {},
   getMacOptionIsMeta?: () => boolean,
-  getCustomKeyEventHandler?: () => ((event: KeyboardEvent) => boolean) | null
+  getCustomKeyEventHandler?: () => ((event: KeyboardEvent) => boolean) | null,
+  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
 ): Harness {
   const wrapper = document.createElement('div')
   const screen = document.createElement('div')
@@ -102,7 +115,8 @@ function mount(
     pasteSink,
     copySelection,
     getMacOptionIsMeta,
-    getCustomKeyEventHandler
+    getCustomKeyEventHandler,
+    getScrollIntentTarget
   })
   return {
     textarea,
@@ -557,5 +571,42 @@ describe('attachAtermTextareaInput', () => {
     fireKeydown(allow.textarea, 'PageUp', { shiftKey: true })
     expect(allow.scrollLines).toHaveBeenCalledWith(23)
     allow.dispose()
+  })
+
+  it('records scroll intent on the facade after a Shift+PageUp/Down page (keyed-remount restore)', () => {
+    // The Shift+PageUp/Down page scrolls the engine directly; without recording intent
+    // through the facade seam, a keyed remount / workspace-switch snaps the viewport to
+    // the bottom and loses the reading position (the sibling of the Cmd+Up/Down bug).
+    vi.mocked(markTerminalPinnedViewport).mockClear()
+    vi.mocked(syncTerminalScrollIntentFromViewport).mockClear()
+    const target = {} as TerminalScrollIntentTarget
+    const h = mount({}, undefined, undefined, () => target)
+
+    fireKeydown(h.textarea, 'PageUp', { shiftKey: true })
+    expect(h.scrollLines).toHaveBeenCalledWith(23)
+    // mark-then-sync, mirroring keyboard-handlers' Cmd+Up path — the exact same seam.
+    expect(markTerminalPinnedViewport).toHaveBeenCalledWith(target)
+    expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledWith(target)
+
+    fireKeydown(h.textarea, 'PageDown', { shiftKey: true })
+    expect(markTerminalPinnedViewport).toHaveBeenCalledTimes(2)
+    expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledTimes(2)
+    h.dispose()
+  })
+
+  it('does not record scroll intent when the page is handled by the engine (alt screen)', () => {
+    // On the alternate screen the chord falls through to the engine encoder (TUIs own
+    // paging), so there is no scrollback move and no intent to record.
+    vi.mocked(markTerminalPinnedViewport).mockClear()
+    vi.mocked(syncTerminalScrollIntentFromViewport).mockClear()
+    const target = {} as TerminalScrollIntentTarget
+    const encodeKey = vi.fn(() => new Uint8Array([0x1b, 0x5b, 0x35, 0x3b, 0x32, 0x7e]))
+    const h = mount({ encodeKey, isAltScreen: true }, undefined, undefined, () => target)
+
+    fireKeydown(h.textarea, 'PageUp', { shiftKey: true })
+    expect(h.scrollLines).not.toHaveBeenCalled()
+    expect(markTerminalPinnedViewport).not.toHaveBeenCalled()
+    expect(syncTerminalScrollIntentFromViewport).not.toHaveBeenCalled()
+    h.dispose()
   })
 })

@@ -49,6 +49,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // rest off `readers`.
   const readers = createAtermControllerOptionReaders(controllerOptions)
   const { getFontPx, getLineHeight, getFontFamily, getFontWeight } = readers
+  // The pane's scroll-intent target (the facade). The direct-scroll input paths
+  // (Shift+PageUp/Down paging, scrollbar thumb-drag) record intent through it so a
+  // later keyed remount restores the reading position instead of snapping to bottom.
+  const getScrollIntentTarget = controllerOptions?.getScrollIntentTarget
   // Mutable metrics shared with the input-handler deps: a later host DPI change
   // re-rasterizes the engine (term.set_px) and updates these in place via the grid
   // reflow, so the grid + overlays resize instead of freezing at construction dpr.
@@ -161,6 +165,7 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getCols: () => gridSizing.grid().cols,
     getHoveredLinkSpan: () => linkInput.hoveredSpan(),
     getFgColor: () => themeColors.fg,
+    getScrollIntentTarget,
     scheduleDraw,
     isDisposed: () => disposed
   })
@@ -252,7 +257,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     copySelection: () => selectionInput.copySelection(),
     getMacOptionIsMeta: controllerOptions?.getMacOptionIsMeta,
     getCustomKeyEventHandler: controllerOptions?.getCustomKeyEventHandler,
-    getImeAnchor: controllerOptions?.getImeAnchor
+    getImeAnchor: controllerOptions?.getImeAnchor,
+    getScrollIntentTarget
   })
 
   // Blink the cursor (focused) + draw it hollow (unfocused); the engine paints the
@@ -381,8 +387,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     // post-process() drain is already synchronous + current).
     onEngineSideChannel: (handler: () => void) => strategy.onSideChannel?.(handler),
     // Parse fence for the replay guard: worker parsing is async, so the guard stays
-    // open until the fence resolves; in-process parse is synchronous → immediate.
-    settle: () => strategy.settle?.() ?? Promise.resolve(),
+    // open until the fence resolves TRUE; in-process parse is synchronous, so the
+    // fence is genuinely certified → resolve true immediately.
+    settle: () => strategy.settle?.() ?? Promise.resolve(true),
     // Gate BOTH the main-thread scheduler (in-process draws + overlay) and, on the
     // worker path, the worker's autonomous render loop — it draws on its own rAF, so
     // suspension must be posted across the seam (no-op for in-process strategies).

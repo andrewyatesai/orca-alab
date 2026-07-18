@@ -52,10 +52,14 @@ export type AtermWorkerQueryChannel = {
   serializeScrollbackAsync: (maxRows?: number) => Promise<string>
   selectionTextAsync: () => Promise<string>
   linkAtAsync: (row: number, col: number) => Promise<AtermWorkerLinkHit | null>
-  /** Parse fence: resolves once the worker has handled every message posted before
-   *  it — all prior 'process' bytes parsed AND their auto-replies already delivered
-   *  (postMessage ordering). The replay guard holds its drop window open on this. */
-  settleAsync: () => Promise<void>
+  /** Parse fence: resolves TRUE once the worker has handled every message posted
+   *  before it — all prior 'process' bytes parsed AND their auto-replies already
+   *  delivered (postMessage ordering). Resolves FALSE when the fence itself timed
+   *  out or the channel was disposed (no real 'flush' reply): the worker is merely
+   *  behind, so its replayed-query auto-replies (DA1/CPR/OSC) may not have parsed
+   *  yet. The replay guard must only treat a TRUE (real-reply) resolution as
+   *  parse-certified; a false one keeps the guard held. */
+  settleAsync: () => Promise<boolean>
 }
 
 // A dropped 'queryResult' (terminated/wedged worker) must not leave an awaiter hanging;
@@ -70,42 +74,51 @@ export function createAtermWorkerQueryChannel(
   // burning the full timeout — a replay guard settling against a torn-down pane
   // would otherwise hold its drop window open for QUERY_TIMEOUT_MS.
   let disposed = false
+  // byReply discriminates a real worker 'queryResult' (true) from a timeout/dispose
+  // settle (false) — the replay guard's parse-certification depends on it (see
+  // settleAsync). value stays the reply payload for the content/serialize queries.
+  type QuerySettlement = { value: string | number | boolean | null; byReply: boolean }
   type Pending = {
-    resolve: (value: string | number | boolean | null) => void
+    resolve: (settlement: QuerySettlement) => void
     timer: ReturnType<typeof setTimeout>
   }
   const pending = new Map<number, Pending>()
 
-  const settle = (id: number, value: string | number | boolean | null): void => {
+  const settle = (
+    id: number,
+    value: string | number | boolean | null,
+    byReply = true
+  ): void => {
     const entry = pending.get(id)
     if (!entry) {
       return
     }
     pending.delete(id)
     clearTimeout(entry.timer)
-    entry.resolve(value)
+    entry.resolve({ value, byReply })
   }
 
   const send = (
     kind: AtermWorkerQuery['kind'],
     arg?: number,
     arg2?: number
-  ): Promise<string | number | boolean | null> =>
+  ): Promise<QuerySettlement> =>
     new Promise((resolve) => {
       if (disposed) {
-        resolve(null)
+        resolve({ value: null, byReply: false })
         return
       }
       const id = nextQueryId++
-      // Per-query timeout: a never-arriving reply settles to null rather than hang.
-      const timer = setTimeout(() => settle(id, null), QUERY_TIMEOUT_MS)
+      // Per-query timeout: a never-arriving reply settles to null (byReply=false)
+      // rather than hang — NOT a real reply, so the fence stays uncertified.
+      const timer = setTimeout(() => settle(id, null, false), QUERY_TIMEOUT_MS)
       pending.set(id, { resolve, timer })
       post({ type: 'query', id, kind, arg, arg2 })
     })
 
   const asString = async (kind: AtermWorkerQuery['kind'], arg?: number): Promise<string> => {
-    const v = await send(kind, arg)
-    return typeof v === 'string' ? v : ''
+    const { value } = await send(kind, arg)
+    return typeof value === 'string' ? value : ''
   }
 
   return {
@@ -113,26 +126,30 @@ export function createAtermWorkerQueryChannel(
     dispose: () => {
       disposed = true
       // Deleting the current key during Map iteration is well-defined (it just won't be
-      // revisited), so settle each in-flight query in place.
+      // revisited), so settle each in-flight query in place. byReply=false: a dispose
+      // is not a real reply, so a settleAsync fence resolves uncertified (false).
       for (const id of pending.keys()) {
-        settle(id, null)
+        settle(id, null, false)
       }
     },
     serializeAsync: (scrollbackRows) => asString('serialize', scrollbackRows),
     serializeScrollbackAsync: (maxRows) => asString('serializeScrollback', maxRows),
     selectionTextAsync: () => asString('selectionText'),
     settleAsync: async () => {
-      // The value is irrelevant — resolution (real reply, timeout, or dispose)
-      // means no more replies from bytes posted before this fence can arrive.
-      await send('flush')
+      // Discriminant: TRUE only when the worker's real 'flush' queryResult arrives —
+      // postMessage FIFO then proves every prior 'process' byte parsed AND its
+      // auto-replies were already delivered. A 5s timeout or dispose resolves FALSE:
+      // an alive-but->5s-behind worker may still parse replayed query bytes
+      // (DA1/CPR/OSC) after this, so the replay guard must NOT treat it as certified.
+      return (await send('flush')).byReply
     },
     linkAtAsync: async (row, col) => {
-      const v = await send('linkAt', row, col)
-      if (typeof v !== 'string') {
+      const { value } = await send('linkAt', row, col)
+      if (typeof value !== 'string') {
         return null
       }
       try {
-        return JSON.parse(v) as AtermWorkerLinkHit
+        return JSON.parse(value) as AtermWorkerLinkHit
       } catch {
         return null
       }

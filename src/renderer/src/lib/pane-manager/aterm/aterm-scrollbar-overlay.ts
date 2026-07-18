@@ -1,3 +1,8 @@
+import {
+  markTerminalPinnedViewport,
+  syncTerminalScrollIntentFromViewport,
+  type TerminalScrollIntentTarget
+} from '../terminal-scroll-intent'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 /** The engine slice the scrollbar reads/drives. Both the in-process engines and
@@ -12,6 +17,12 @@ export type AtermScrollbarOverlayDeps = {
   getRows: () => number
   redraw: () => void
   isDisposed: () => boolean
+  /** The pane's scroll-intent target (facade). A thumb-drag scrolls the engine
+   *  directly and the thumb carries no .xterm class, so dom-tracking's pointer gate
+   *  never arms and the canvas emits no DOM scroll event — this is the only place
+   *  the drag can record intent. Without it a keyed remount snaps to the bottom.
+   *  Absent → no intent tracking (tests / pre-wire). */
+  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
 }
 
 export type AtermScrollbarOverlay = {
@@ -38,8 +49,20 @@ export function createAtermScrollbarOverlay(
   canvas: HTMLCanvasElement,
   deps: AtermScrollbarOverlayDeps
 ): AtermScrollbarOverlay {
-  const { term, getRows, redraw, isDisposed } = deps
+  const { term, getRows, redraw, isDisposed, getScrollIntentTarget } = deps
   const host = canvas.parentElement
+
+  // Record scroll intent on the facade after a thumb-driven scroll — the same seam
+  // keyboard-handlers' Cmd+Up/Down and the wheel path use. mark-then-sync so a drag
+  // that lands back at the bottom reclassifies to followOutput, and one that rests in
+  // history keeps the pin, so a later keyed remount restores the reading position.
+  const recordDragScrollIntent = (): void => {
+    const intentTarget = getScrollIntentTarget?.()
+    if (intentTarget) {
+      markTerminalPinnedViewport(intentTarget)
+      syncTerminalScrollIntentFromViewport(intentTarget)
+    }
+  }
 
   const thumb = document.createElement('div')
   thumb.dataset.testid = 'aterm-scrollbar-thumb' // e2e locator
@@ -174,6 +197,7 @@ export function createAtermScrollbarOverlay(
       predictedOffset = target
       term.scroll_lines(delta)
       redraw()
+      recordDragScrollIntent()
     }
     event.preventDefault()
   }
@@ -185,6 +209,9 @@ export function createAtermScrollbarOverlay(
     dragging = false
     window.removeEventListener('mousemove', onDragMove)
     window.removeEventListener('mouseup', onDragEnd)
+    // Settle the final intent at drag release (a last no-delta move records nothing,
+    // and this is the moment the reading position is committed).
+    recordDragScrollIntent()
     armFade()
   }
 

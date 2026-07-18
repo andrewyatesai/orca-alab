@@ -3,6 +3,7 @@ import type { AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermRainPulse } from '../../../../../shared/aterm-rain-signal'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent'
 
 /** Base cell font size in CSS px; scaled by devicePixelRatio for device-px
  *  rendering. Shared home so the wiring (dpr re-rasterize) and the pane renderer
@@ -92,12 +93,14 @@ export type AtermPaneController = AtermRendererReplySurface & {
    *  so the facade drains it immediately instead of a chunk late. Unset/no-op for the
    *  in-process strategies, whose post-process() drain is already synchronous. */
   onEngineSideChannel?: (handler: () => void) => void
-  /** Parse fence: resolves once the engine has parsed every process() byte fed
-   *  before this call — so any auto-replies (DA/CPR) those bytes generated have
-   *  already been delivered. In-process parsing is synchronous (resolves
-   *  immediately); the worker path round-trips a fence message. The replay guard
-   *  holds its drop window open on this. */
-  settle: () => Promise<void>
+  /** Parse fence: resolves TRUE once the engine has parsed every process() byte
+   *  fed before this call — so any auto-replies (DA/CPR) those bytes generated have
+   *  already been delivered. In-process parsing is synchronous (resolves true
+   *  immediately); the worker path round-trips a fence message and resolves FALSE
+   *  on its timeout/dispose (the worker is merely behind, NOT parse-certified). The
+   *  replay guard holds its drop window open until this resolves true, never on a
+   *  time-based false — a false release could leak still-unparsed query replies. */
+  settle: () => Promise<boolean>
   /** Live engine KeyboardMode bitfield (kitty flags / modifyOtherKeys / DECCKM…).
    *  Lets window-level shortcut policy stand its readline-compat rewrites down
    *  once the pane's app negotiated an enhanced key protocol. Worker path reads
@@ -238,6 +241,15 @@ export type AtermPaneController = AtermRendererReplySurface & {
   takeNotifications: () => string | undefined
   /** Current selection range in display cell coords, or null when none. */
   selectionRange: () => { startX: number; startY: number; endX: number; endY: number } | null
+  /** Re-apply a character selection from a captured display-cell range (the inverse
+   *  of selectionRange). Used to carry the live selection across a GPU→CPU renderer
+   *  rebuild, which serializes only content, not the selection. */
+  restoreSelectionRange: (range: {
+    startX: number
+    startY: number
+    endX: number
+    endY: number
+  }) => void
   /** Clear the active selection (removes highlight). */
   clearSelection: () => void
   /** The aterm `.xterm` DOM wrapper (mirrors xterm's element for hit-testing). */
@@ -318,4 +330,10 @@ export type AtermPaneControllerOptions = {
     url: string,
     openLinkHint: string
   ) => string | null | undefined | Promise<string | null | undefined>
+  /** The pane's scroll-intent target — the SAME facade keyboard-handlers records
+   *  intent against. Threaded so the input paths that scroll the engine directly
+   *  (Shift+PageUp/Down, scrollbar thumb-drag) and the context-loss renderer
+   *  rebuild can record/enforce scroll intent through the shared seam, instead of
+   *  leaving a keyed remount to snap the viewport to the bottom. */
+  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
 }

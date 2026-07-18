@@ -88,16 +88,22 @@ function makeFakePane(paneId: number): { pane: ManagedPane; terminal: FakeTermin
 }
 
 /** Attach a fake ASYNC controller (the worker engine path): settle() resolves only
- *  when the test releases it, mimicking the worker's later-task parse completion. */
-function attachAsyncController(pane: ManagedPane): { settleEngine: () => void } {
-  let resolveSettle: () => void = () => undefined
-  const settled = new Promise<void>((resolve) => {
+ *  when the test releases it, mimicking the worker's later-task parse completion.
+ *  `certified` is the discriminant settle resolves with — TRUE for a real 'flush'
+ *  reply (parse-certified → release), FALSE for the fence timeout/dispose (worker
+ *  alive-but-behind → the guard must HOLD and let the stall path arbitrate). */
+function attachAsyncController(
+  pane: ManagedPane,
+  certified = true
+): { settleEngine: () => void } {
+  let resolveSettle: (parseCertified: boolean) => void = () => undefined
+  const settled = new Promise<boolean>((resolve) => {
     resolveSettle = resolve
   })
   ;(pane as { atermController?: unknown }).atermController = {
     settle: () => settled
   }
-  return { settleEngine: resolveSettle }
+  return { settleEngine: () => resolveSettle(certified) }
 }
 
 const drainMicrotasks = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
@@ -496,6 +502,40 @@ describe('replay-guard stall handling (probe-certified release)', () => {
 
     vi.advanceTimersByTime(120_000)
     expect(ref.current.has(1)).toBe(false)
+  })
+
+  it('HOLDS the guard when the worker settle fence resolves false (>5s-behind worker) — no time-based leak', async () => {
+    // Regression for the settle-fence discriminant: an alive-but->5s-behind worker's
+    // flush fence times out and settle() resolves FALSE. Releasing on that (the old
+    // `.finally(release)`) would clear the still-armed probe-certified stall timer and
+    // open the guard BEFORE the worker parses the replayed DA1 query — leaking its
+    // auto-reply as stray input. The guard must stay engaged and let the stall path win.
+    vi.useFakeTimers()
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const ref = makeRef()
+      const { pane, terminal } = makeFakePane(1)
+      // settle() resolves FALSE — the fence timed out, not a real 'flush' reply.
+      const { settleEngine } = attachAsyncController(pane, false)
+
+      // Replayed bytes embed a DA1 query the >5s-behind worker hasn't parsed yet.
+      replayIntoTerminal(pane, ref, '\x1b[c', { stallCheckMs: 1_000 })
+      terminal.flush() // write ack → onParsed → releaseWhenEngineSettles → settle()
+      settleEngine() // the flush fence "times out" (resolves false)
+      await Promise.resolve() // let the settle .then run
+
+      // A false (time-based) settle is NOT parse-certified → the guard HOLDS.
+      expect(isPaneReplaying(ref, 1)).toBe(true)
+
+      // The still-armed stall path arbitrates: its probe never parses (no further
+      // flush) → wedged release after the probe + quiet windows, never earlier.
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(isPaneReplaying(ref, 1)).toBe(false)
+      expect(ref.current.has(1)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+      errorSpy.mockRestore()
+    }
   })
 
   it('releases when the probe parses but the replay completion was lost, and reports it', () => {

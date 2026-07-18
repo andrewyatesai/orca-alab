@@ -183,6 +183,11 @@ function buildAtermPaneController(
     // copy-on-select reads app settings live (default false).
     {
       getMacOptionIsMeta: () => pane.terminal.options.macOptionIsMeta === true,
+      // The pane facade IS the scroll-intent target keyboard-handlers records
+      // against; hand it to the input paths that scroll the engine directly
+      // (Shift+PageUp/Down, scrollbar drag) and the context-loss rebuild so they
+      // record/enforce intent through the same seam instead of losing the position.
+      getScrollIntentTarget: () => pane.terminal,
       // The lifecycle's attachCustomKeyEventHandler hook (interrupt/IME/JIS-yen);
       // read live so it works however registration and pane-open interleave.
       getCustomKeyEventHandler: () => pane.terminal.__customKeyEventHandler,

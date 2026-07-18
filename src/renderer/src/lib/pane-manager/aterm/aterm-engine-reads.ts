@@ -30,6 +30,9 @@ type EngineReads = Pick<
   | 'take_notifications'
   | 'selection_text'
   | 'selection_range'
+  | 'selection_start'
+  | 'selection_extend'
+  | 'selection_finish'
   | 'selection_clear'
   | 'scroll_lines'
   | 'scroll_to_bottom'
@@ -68,6 +71,7 @@ export type AtermEngineReadMembers = Pick<
   | 'takeNotifications'
   | 'selectionText'
   | 'selectionRange'
+  | 'restoreSelectionRange'
   | 'clearSelection'
   | 'scrollLines'
   | 'scrollToBottom'
@@ -135,6 +139,15 @@ export function buildAtermEngineReads(
         ? { startX: range.start_x, startY: range.start_y, endX: range.end_x, endY: range.end_y }
         : null
     },
+    // Re-drive a captured display-cell range through the same start/extend/finish
+    // primitives a mouse drag uses (the engine clamps out-of-viewport coords), so a
+    // GPU→CPU rebuild can restore the selection its serialize seed doesn't carry.
+    restoreSelectionRange: (range) =>
+      guardedDraw(() => {
+        term.selection_start(range.startY, range.startX)
+        term.selection_extend(range.endY, range.endX)
+        term.selection_finish()
+      }),
     clearSelection: () => guardedDraw(() => term.selection_clear()),
     scrollLines: (delta) => guardedDraw(() => term.scroll_lines(delta)),
     scrollToBottom: () => guardedDraw(() => term.scroll_to_bottom()),

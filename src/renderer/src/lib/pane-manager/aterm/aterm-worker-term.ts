@@ -70,11 +70,13 @@ export type WorkerBackedTerm = {
    *  off-screen history; the synchronous shutdown path is served separately.) */
   serializeAsync: (scrollbackRows?: number) => Promise<string>
   serializeScrollbackAsync: (maxRows?: number) => Promise<string>
-  /** Parse fence for the replay guard: resolves once the worker engine has parsed
-   *  every process() byte posted before this call, so any auto-replies (DA/CPR)
-   *  those bytes generated have ALREADY been pushed to the main thread and hit the
-   *  guard while it was still open. */
-  settle: () => Promise<void>
+  /** Parse fence for the replay guard: resolves TRUE once the worker engine has
+   *  parsed every process() byte posted before this call, so any auto-replies
+   *  (DA/CPR) those bytes generated have ALREADY been pushed to the main thread and
+   *  hit the guard while it was still open. Resolves FALSE on the fence timeout /
+   *  dispose (the worker is alive-but-behind, NOT parse-certified — the guard must
+   *  keep holding). */
+  settle: () => Promise<boolean>
   /** Settle every in-flight async query to null + clear timers; the loader calls this
    *  BEFORE worker.terminate() so serialize/selectionText awaiters (pty-connection
    *  save/hydrate, terminal-agent-session-fork) can't hang on a reply that never comes. */

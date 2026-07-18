@@ -3,6 +3,7 @@ import { createAtermScrollbarOverlay } from './aterm-scrollbar-overlay'
 import { createAtermA11yMirror } from './aterm-a11y-mirror'
 import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 type PaneCanvasAdjunctDeps = {
@@ -19,6 +20,8 @@ type PaneCanvasAdjunctDeps = {
   getCols: () => number
   getHoveredLinkSpan: () => AtermHoveredLinkSpan | null
   getFgColor: () => number
+  /** The pane's scroll-intent target (facade) for the scrollbar's thumb-drag path. */
+  getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
   scheduleDraw: () => void
   isDisposed: () => boolean
 }
@@ -50,7 +53,8 @@ export function mountAtermPaneCanvasAdjuncts(deps: PaneCanvasAdjunctDeps): {
     term,
     getRows,
     redraw: scheduleDraw,
-    isDisposed
+    isDisposed,
+    getScrollIntentTarget: deps.getScrollIntentTarget
   })
 
   const a11yMirror = createAtermA11yMirror({

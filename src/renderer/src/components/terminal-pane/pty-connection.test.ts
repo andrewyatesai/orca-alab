@@ -906,7 +906,16 @@ describe('connectPanePty', () => {
     globalThis.cancelAnimationFrame = vi.fn()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Why: pane foreground-agent trackers run async foreground-confirm reads
+    // (`confirmForegroundProcess`) whose continuations settle on the microtask
+    // queue, not on fake timers. A test that ends with one still in flight
+    // leaks it into the NEXT test, where it resolves against that test's fresh
+    // store mock and calls e.g. clearAgentLaunchConfig with THIS test's pane
+    // key — a flaky cross-test call-count failure (seen in CI). Drain pending
+    // microtasks while this test still owns the store mock, before fake timers
+    // are torn down, so each test absorbs its own async fallout.
+    await flushAsyncTicks()
     vi.useRealTimers()
     if (originalRequestAnimationFrame) {
       globalThis.requestAnimationFrame = originalRequestAnimationFrame

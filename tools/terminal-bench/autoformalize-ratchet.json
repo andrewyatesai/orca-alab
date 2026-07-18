@@ -1,8 +1,8 @@
 {
-  "minTrusted": 243,
+  "minTrusted": 251,
   "measured": "2026-07-18",
-  "total": 249,
+  "total": 257,
   "faithfulMiss": 0,
   "soundnessControls": 6,
-  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 243 TRUSTED / 249 / 0 declined / 0 faithful-miss / 6 controls refuted / 0 breaks. 100% of the 243 non-control kernels are TRUSTED (W1 trustc forall-safety proof + W2 0-divergence differential); the 6 _bug/_naive soundness controls stay refused (computeEditorFontSize 14/83, packRgb 8/23, sumPositive 30/53, unpackRgb 13/18, countWhitespace/parseCsiParams W1-refuted). 230->243 this session closed the residual via: +11 struct string-builder reformulations (uninhabited-enum for unlinked serde_json, sum-factoring to break solver path-explosion, Clone/Copy derive strip), the verify.mjs 1MiB->512MiB maxBuffer fix (buildAtermRowCells ENOBUFS), and the fuzzer optional-field omit-key mode (a TS `field?` optional is undefined-not-null: omit the key so serde None matches TS undefined, not a spurious null!==undefined divergence). Assumes the local ~/trust corpus + stage2 toolchain (rustc 1.99.0-dev 4c9dc90f4)."
+  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 251 TRUSTED / 257 / 0 declined / 0 faithful-miss / 6 controls refuted / 0 breaks. 100% of the 251 non-control kernels TRUSTED (W1 trustc forall-safety + W2 0-divergence); 6 _bug/_naive controls stay refused. 243->251 = +8 FRESH real-orc functions formalized into the corpus via the autoformalization-factory manual loop (grow-corpus): getClipboardTextByteLength, isSlashCommandDraft, isLegacyPiCompatibleTitle, wslUncToLinuxPath, foldWslUncPathCaseInsensitiveParts, buildAgentFeatureSkillUpdateCommand, isEligibleLocalCertificateHost, buildNativeChatSubscriptionId — demonstrating the pipeline generalizes to orc code the curated corpus never saw. 2 honest SKIPs (filesystemPathHrefToFileUri needs the WHATWG URL runtime + IDNA/Punycode + throwing behavior; getDecorativeAgentTitleSignature) — not forced. Assumes the local ~/trust corpus + stage2 toolchain (rustc 1.99.0-dev 4c9dc90f4)."
 }

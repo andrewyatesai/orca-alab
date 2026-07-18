@@ -125,6 +125,7 @@
     "corpus:metrics": "node tools/parity-corpus-metrics.mjs",
     "corpus:check": "node tools/parity-corpus-metrics.mjs --check",
     "blocker-census": "node tools/autoformalize-blocker-census.mjs",
+    "autoformalize:candidates": "node tools/autoformalize-candidate-scanner.mjs",
     "spec:flow-control": "node tools/specs/check-pty-flow-control.mjs",
     "spec:exit-delivery": "node tools/specs/check-pty-exit-delivery.mjs",
     "spec:keep-tail": "node tools/specs/check-keep-tail-drop.mjs",

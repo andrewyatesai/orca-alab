@@ -264,12 +264,55 @@ test.describe('Workspace Back/Forward Navigation', () => {
       .toBe('settings')
 
     const idBefore = await getActiveWorktreeId(orcaPage)
+
+    // Why: install a capture-phase keydown probe that runs AFTER the app's own
+    // window capture handler (registered at mount). That handler processes the
+    // shortcut synchronously and, on the nav path, mutates activeWorktreeId +
+    // the history index in the same tick (goBackWorktree → activateAndReveal →
+    // setActiveWorktree). Waiting for this deterministic "shortcut keydown fully
+    // handled" signal — instead of a blind timeout an erroneous nav could
+    // outlast — lets us then assert nothing navigated. If the settings-view
+    // guard were removed, the nav would have landed synchronously before the
+    // probe fires, so the assertions below deterministically catch it.
+    await orcaPage.evaluate(() => {
+      const w = window as unknown as {
+        __navShortcutHandled?: number
+        __navShortcutProbe?: (event: KeyboardEvent) => void
+      }
+      w.__navShortcutHandled = 0
+      const probe = (event: KeyboardEvent): void => {
+        if (event.code === 'ArrowLeft') {
+          w.__navShortcutHandled = (w.__navShortcutHandled ?? 0) + 1
+        }
+      }
+      w.__navShortcutProbe = probe
+      window.addEventListener('keydown', probe, { capture: true })
+    })
+
     await orcaPage.evaluate(() => document.body.focus())
     await orcaPage.keyboard.press(`${mod}+Alt+ArrowLeft`)
 
-    // Give any erroneous nav a beat to land, then assert the active worktree
-    // and the slice index both stayed put.
-    await orcaPage.waitForTimeout(150)
+    await expect
+      .poll(
+        () =>
+          orcaPage.evaluate(
+            () =>
+              (window as unknown as { __navShortcutHandled?: number }).__navShortcutHandled ?? 0
+          ),
+        { message: 'settings-view nav shortcut keydown was never observed as handled' }
+      )
+      .toBeGreaterThan(0)
+
+    await orcaPage.evaluate(() => {
+      const w = window as unknown as { __navShortcutProbe?: (event: KeyboardEvent) => void }
+      if (w.__navShortcutProbe) {
+        window.removeEventListener('keydown', w.__navShortcutProbe, { capture: true })
+        delete w.__navShortcutProbe
+      }
+    })
+
+    // The keydown has been fully handled; the guard must have kept both the
+    // active worktree and the slice index put.
     expect(await getActiveWorktreeId(orcaPage)).toBe(idBefore)
     const snapshot = await getNavHistorySnapshot(orcaPage)
     expect(snapshot.index).toBe(1)

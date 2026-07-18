@@ -510,6 +510,34 @@ function geometryLooksCorrupted(geometry: TabTerminalGeometry): string | null {
   return null
 }
 
+// Why: the overlay refit runs on a 50ms timer + a rAF, so a single "settled"
+// sample right after activation races the refit — it can catch a mid-refit
+// transient (false corruption) or miss phase-shifted corruption. Poll a short
+// window instead: a healthy sample anywhere in the window proves the geometry
+// converged (mid-refit transients are ignored), while geometry that never
+// converges within the window is a persistent corruption that is still
+// reported — the detection is kept, only the single-shot race is removed.
+async function readSettledGeometryCorruption(
+  page: Page,
+  tabId: string,
+  runId: string
+): Promise<string | null> {
+  const deadline = Date.now() + 400
+  let lastIssue: string | null = null
+  for (;;) {
+    const sample = await readTabTerminalGeometry(page, tabId, runId)
+    const issue = geometryLooksCorrupted(sample)
+    if (!issue) {
+      return null
+    }
+    lastIssue = issue
+    if (Date.now() >= deadline) {
+      return lastIssue
+    }
+    await page.waitForTimeout(20)
+  }
+}
+
 async function captureTabScreenshot(
   page: Page,
   tabId: string,
@@ -574,9 +602,11 @@ test.describe('Terminal tab switch visual restore', () => {
         )
       }
 
-      await orcaPage.waitForTimeout(60)
-      const settled = await readTabTerminalGeometry(orcaPage, firstTabId, runId)
-      const settledIssue = geometryLooksCorrupted(settled)
+      // Poll a short window for the geometry to converge rather than sampling
+      // once after a fixed 60ms, which raced the overlay's 50ms + rAF refit.
+      // Only geometry that never converges within the window is settled
+      // corruption; the immediate read above still catches frame-0 corruption.
+      const settledIssue = await readSettledGeometryCorruption(orcaPage, firstTabId, runId)
       if (settledIssue) {
         corruptionReports.push(`cycle ${cycle} settled: ${settledIssue}`)
         await captureTabScreenshot(

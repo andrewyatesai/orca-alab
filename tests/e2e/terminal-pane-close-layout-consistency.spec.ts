@@ -334,7 +334,18 @@ test.describe('terminal pane close vs hidden/park lifecycle keeps layout consist
     // The setup-script analog: the split's shell ends on its own while the
     // tab is hidden-but-mounted.
     await sendToTerminal(orcaPage, splitPtyId, 'exit\r')
-    await orcaPage.waitForTimeout(PARKING_DELAY_MS / 2)
+    // Why: poll that the split shell's PTY actually exited (main-process
+    // authoritative hasPty → false) while the tab is STILL hidden-but-mounted,
+    // before activating. A blind wait could let the exit land during reveal
+    // instead — the exit-while-revealing path — while the final consistency
+    // assert passes either way, silently skipping the hidden-exit path this test
+    // targets. A genuinely stuck exit never registers and now fails here.
+    await expect
+      .poll(() => orcaPage.evaluate((id) => window.api.pty.hasPty(id), splitPtyId), {
+        timeout: PARKING_DELAY_MS,
+        message: 'split pane PTY did not exit while the tab was hidden-but-mounted'
+      })
+      .toBe(false)
     await activateTerminalTab(orcaPage, tabId)
     await waitForTabRemounted(orcaPage, tabId)
     await expectLayoutConsistent(orcaPage, tabId, 1, 'shell-exit-while-hidden-mounted', splitPtyId)

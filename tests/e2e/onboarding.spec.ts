@@ -583,10 +583,52 @@ test.describe('Onboarding flow', () => {
     const isMac = await orcaPage.evaluate(() => navigator.userAgent.includes('Mac'))
     const accelerator = isMac ? 'Meta+Enter' : 'Control+Enter'
     const input = orcaPage.getByPlaceholder('https://github.com/user/repo.git')
+
+    // Why: install a capture-phase keydown probe that runs AFTER the app's
+    // window capture handler, giving a deterministic "the Cmd/Ctrl+Enter keydown
+    // was fully handled" signal instead of a blind timeout a late handler could
+    // outlast. The guarded regression (the capture handler must bail via
+    // isEditableTarget) is synchronous, so if it were removed the erroneous
+    // global action would have run before the probe fires and the assertions
+    // below — the dialog must still be open — would catch it.
+    await orcaPage.evaluate(() => {
+      const w = window as unknown as {
+        __cloneEnterHandled?: number
+        __cloneEnterProbe?: (event: KeyboardEvent) => void
+      }
+      w.__cloneEnterHandled = 0
+      const probe = (event: KeyboardEvent): void => {
+        if (event.key === 'Enter') {
+          w.__cloneEnterHandled = (w.__cloneEnterHandled ?? 0) + 1
+        }
+      }
+      w.__cloneEnterProbe = probe
+      window.addEventListener('keydown', probe, { capture: true })
+    })
+
     await input.click()
     await input.press(accelerator)
-    // Brief wait so any (incorrect) handler firing would have already happened.
-    await orcaPage.waitForTimeout(250)
+
+    await expect
+      .poll(
+        () =>
+          orcaPage.evaluate(
+            () => (window as unknown as { __cloneEnterHandled?: number }).__cloneEnterHandled ?? 0
+          ),
+        { message: 'clone-url Cmd/Ctrl+Enter keydown was never observed as handled' }
+      )
+      .toBeGreaterThan(0)
+
+    await orcaPage.evaluate(() => {
+      const w = window as unknown as { __cloneEnterProbe?: (event: KeyboardEvent) => void }
+      if (w.__cloneEnterProbe) {
+        window.removeEventListener('keydown', w.__cloneEnterProbe, { capture: true })
+        delete w.__cloneEnterProbe
+      }
+    })
+
+    // The keydown was fully handled; the editable-target bail must have kept the
+    // Clone dialog open and unsubmitted.
     await expect(orcaPage.getByRole('heading', { name: /Clone from URL/i })).toBeVisible()
     await expect(input).toBeVisible()
     expect((await getOnboardingState(orcaPage)).closedAt).not.toBeNull()

@@ -350,20 +350,35 @@ test.describe('OpenCode emoji table terminal rendering', () => {
       // the probe cursor colour onto the canvas and prove the cursor is painted (i.e.
       // not hidden) by detecting its raster cells — the aterm-native "cursor visible".
       await forceCursorProbeTheme(orcaPage)
-      await orcaPage.waitForTimeout(50)
       const cursorTarget = await readActiveTerminalRasterTarget(orcaPage)
-      const cursorCells = analyzeRasterCursorCells(
-        Buffer.from(await orcaPage.screenshot()),
-        cursorTarget,
-        orcaPage.viewportSize() ?? undefined
-      )
+      // Why: the probe-cursor recolor repaints on a rAF, so a single screenshot
+      // after a fixed 50ms races the repaint and can capture zero probe cells
+      // (false fail). Poll the screenshot + raster analysis until the painted
+      // cursor cells appear; a genuinely hidden cursor never paints and still
+      // fails the guard.
+      let paintedCursorCellCount = 0
+      await expect
+        .poll(
+          async () => {
+            paintedCursorCellCount = analyzeRasterCursorCells(
+              Buffer.from(await orcaPage.screenshot()),
+              cursorTarget,
+              orcaPage.viewportSize() ?? undefined
+            ).length
+            return paintedCursorCellCount
+          },
+          {
+            timeout: 10_000,
+            message: 'probe cursor was never painted onto the terminal canvas raster'
+          }
+        )
+        .toBeGreaterThan(0)
 
       const renderState = await readActiveTerminalRenderState(orcaPage)
       testInfo.annotations.push({
         type: 'real-opencode-demo-rendering',
-        description: JSON.stringify({ renderState, paintedCursorCellCount: cursorCells.length })
+        description: JSON.stringify({ renderState, paintedCursorCellCount })
       })
-      expect(cursorCells.length).toBeGreaterThan(0)
     } finally {
       await sendToTerminal(orcaPage, ptyId, '\x03').catch(() => undefined)
     }

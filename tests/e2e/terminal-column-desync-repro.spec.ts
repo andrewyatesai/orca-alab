@@ -105,6 +105,65 @@ async function readColumnSnapshot(page: Page, ptyId: string): Promise<ColumnSnap
   return { xtermCols, ptyCols }
 }
 
+// Why: the resize chain (ResizeObserver → rAF fit → PTY resize IPC) needs longer
+// than a fixed wait under loaded CI, and the two columns are sampled
+// non-atomically. Poll until they converge for the ACTIVE pane — a genuinely
+// dropped resize never converges and still fails, so this keeps the regression
+// guard while removing the single-shot-after-transition flake.
+async function expectColumnsInSync(page: Page, ptyId: string, label: string): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const snap = await readColumnSnapshot(page, ptyId)
+        return snap.ptyCols === snap.xtermCols
+          ? 'synced'
+          : `pty=${snap.ptyCols} xterm=${snap.xtermCols}`
+      },
+      { timeout: 30_000, message: `${label}: PTY cols should converge to xterm cols` }
+    )
+    .toBe('synced')
+}
+
+// Same convergence poll, but for a SPECIFIC split pane resolved by its PTY id
+// (readRenderedColsForPty), so post-split per-pane fits are given time to settle
+// instead of being read once mid-reconcile.
+async function expectPaneColumnsInSync(page: Page, ptyId: string, label: string): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const ptyCols = await readPtyCols(page, ptyId)
+        const xtermCols = await readRenderedColsForPty(page, ptyId)
+        return ptyCols === xtermCols ? 'synced' : `pty=${ptyCols} xterm=${xtermCols}`
+      },
+      { timeout: 30_000, message: `${label}: pane ${ptyId} PTY cols should converge to xterm cols` }
+    )
+    .toBe('synced')
+}
+
+// Poll a split pane to column equality and distinguish "still reconciling" from
+// "permanently pinned": returns null once it converges (no desync), or the last
+// observed mismatch if it never converges within the window (a real desync).
+// This keeps genuine desync detection while dropping the false positive from
+// capturing a transient mid-reconcile skew after a fixed wait.
+async function findPersistentPaneDesync(
+  page: Page,
+  ptyId: string,
+  timeoutMs: number
+): Promise<{ ptyCols: number; xtermCols: number } | null> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const ptyCols = await readPtyCols(page, ptyId)
+    const xtermCols = await readRenderedColsForPty(page, ptyId)
+    if (ptyCols === xtermCols) {
+      return null
+    }
+    if (Date.now() >= deadline) {
+      return { ptyCols, xtermCols }
+    }
+    await page.waitForTimeout(100)
+  }
+}
+
 async function closeRightSidebarAndFeatureTips(page: Page): Promise<void> {
   await page.evaluate(() => {
     const store = window.__store
@@ -134,34 +193,16 @@ test.describe('Terminal column desync repro', () => {
     await ensureTerminalVisible(orcaPage)
     const ptyId = await settleTerminal(orcaPage)
 
-    // Why: the resize chain (ResizeObserver → rAF fit → PTY resize IPC) needs
-    // longer than a fixed wait under loaded CI, and the two columns are sampled
-    // non-atomically. Poll until they converge — a genuinely dropped resize
-    // never converges and still fails, so this keeps the regression guard.
-    const expectColumnsInSync = async (label: string): Promise<void> => {
-      await expect
-        .poll(
-          async () => {
-            const snap = await readColumnSnapshot(orcaPage, ptyId)
-            return snap.ptyCols === snap.xtermCols
-              ? 'synced'
-              : `pty=${snap.ptyCols} xterm=${snap.xtermCols}`
-          },
-          { timeout: 30_000, message: `${label}: PTY cols should converge to xterm cols` }
-        )
-        .toBe('synced')
-    }
-
     // Baseline: a freshly fit terminal should agree with its PTY.
-    await expectColumnsInSync('baseline')
+    await expectColumnsInSync(orcaPage, ptyId, 'baseline')
 
     // Shrink the window while the terminal is visible, then widen it. xterm
     // reflows via the ResizeObserver; the PTY must follow.
     await orcaPage.setViewportSize({ width: 760, height: 800 })
-    await expectColumnsInSync('after shrink')
+    await expectColumnsInSync(orcaPage, ptyId, 'after shrink')
 
     await orcaPage.setViewportSize({ width: 1280, height: 800 })
-    await expectColumnsInSync('after widen')
+    await expectColumnsInSync(orcaPage, ptyId, 'after widen')
   })
 
   // Why: guards the applied-size IPC contract the desync fix relies on. The
@@ -215,10 +256,7 @@ test.describe('Terminal column desync repro', () => {
     await ensureTerminalVisible(orcaPage)
     const ptyId = await settleTerminal(orcaPage)
     await orcaPage.setViewportSize({ width: 1280, height: 800 })
-    await orcaPage.waitForTimeout(400)
-
-    const baseline = await readColumnSnapshot(orcaPage, ptyId)
-    expect(baseline.ptyCols).toBe(baseline.xtermCols)
+    await expectColumnsInSync(orcaPage, ptyId, 'baseline before hidden resize')
 
     // Hide the terminal by switching worktrees, resize the window narrow while
     // it is in the background (so isRendererPtyResizeAuthoritative() is false
@@ -230,14 +268,12 @@ test.describe('Terminal column desync repro', () => {
     await switchToWorktree(orcaPage, homeWorktreeId)
     await ensureTerminalVisible(orcaPage)
     await waitForActiveTerminalManager(orcaPage, 30_000)
-    await orcaPage.waitForTimeout(600)
 
-    const afterReturn = await readColumnSnapshot(orcaPage, ptyId)
-    expect(
-      afterReturn.ptyCols,
-      `after hidden resize + return, PTY cols (${afterReturn.ptyCols}) should equal xterm cols ` +
-        `(${afterReturn.xtermCols}); a stale PTY width is the column-desync bug`
-    ).toBe(afterReturn.xtermCols)
+    // Poll to convergence rather than sampling once after a fixed wait: the
+    // reveal-time safeFit + SIGWINCH resize round-trip can outlast a blind wait
+    // under load, but a genuinely stale PTY width never converges and still
+    // fails — the column-desync bug is kept guarded.
+    await expectColumnsInSync(orcaPage, ptyId, 'after hidden resize + return')
   })
 
   test('PTY columns re-sync after repeated background resizes', async ({ orcaPage }) => {
@@ -269,14 +305,10 @@ test.describe('Terminal column desync repro', () => {
       await switchToWorktree(orcaPage, homeWorktreeId)
       await ensureTerminalVisible(orcaPage)
       await waitForActiveTerminalManager(orcaPage, 30_000)
-      await orcaPage.waitForTimeout(500)
 
-      const snapshot = await readColumnSnapshot(orcaPage, ptyId)
-      expect(
-        snapshot.ptyCols,
-        `cycle ${index} (width ${width}): PTY cols (${snapshot.ptyCols}) should equal xterm cols ` +
-          `(${snapshot.xtermCols})`
-      ).toBe(snapshot.xtermCols)
+      // Poll to convergence per width instead of a single read after a fixed
+      // wait; each cycle still fails if the PTY stays pinned at a stale count.
+      await expectColumnsInSync(orcaPage, ptyId, `cycle ${index} (width ${width})`)
     }
   })
 
@@ -292,8 +324,7 @@ test.describe('Terminal column desync repro', () => {
     await orcaPage.waitForTimeout(300)
     const firstPtyId = await settleTerminal(orcaPage)
 
-    const baseline = await readColumnSnapshot(orcaPage, firstPtyId)
-    expect(baseline.ptyCols).toBe(baseline.xtermCols)
+    await expectColumnsInSync(orcaPage, firstPtyId, 'baseline before split')
 
     // Splitting halves the width of the original pane: xterm reflows to ~half
     // the columns. The PTY must follow, otherwise the existing shell keeps
@@ -318,12 +349,11 @@ test.describe('Terminal column desync repro', () => {
       if (!ptyId) {
         continue
       }
-      const ptyCols = await readPtyCols(orcaPage, ptyId)
-      const xtermCols = await readRenderedColsForPty(orcaPage, ptyId)
-      expect(
-        ptyCols,
-        `after split, pane ${ptyId} PTY cols (${ptyCols}) should equal its xterm cols (${xtermCols})`
-      ).toBe(xtermCols)
+      // Poll each pane to column equality: the split-fit resize round-trip can
+      // still be settling right after the two PTY bindings appear, so a single
+      // read here raced the fit. A pane whose PTY stays full-width never
+      // converges and still fails.
+      await expectPaneColumnsInSync(orcaPage, ptyId, 'after split')
     }
   })
 
@@ -376,8 +406,6 @@ test.describe('Terminal column desync repro', () => {
       await orcaPage.waitForTimeout(300)
 
       const snapshot = await waitForPaneIdentitySnapshot(orcaPage, 2)
-      // Let layout equalize and the (current) reconcile window run to completion.
-      await orcaPage.waitForTimeout(900)
 
       for (const pane of snapshot.panes) {
         const ptyId = pane.ptyId
@@ -385,10 +413,14 @@ test.describe('Terminal column desync repro', () => {
         if (!ptyId) {
           continue
         }
-        const ptyCols = await readPtyCols(orcaPage, ptyId)
-        const xtermCols = await readRenderedColsForPty(orcaPage, ptyId)
-        if (ptyCols !== xtermCols) {
-          desyncs.push({ attempt, ptyId, ptyCols, xtermCols })
+        // Poll each pane to equality instead of one read after a fixed 900ms:
+        // an over-900ms reconcile (still-reconciling) or a time-skewed single
+        // read produced spurious desyncs. Only a pane that NEVER converges
+        // within the window — a permanently-pinned stale width — is recorded as
+        // a real desync, so genuine desync detection is preserved.
+        const desync = await findPersistentPaneDesync(orcaPage, ptyId, 15_000)
+        if (desync) {
+          desyncs.push({ attempt, ptyId, ptyCols: desync.ptyCols, xtermCols: desync.xtermCols })
         }
       }
     }

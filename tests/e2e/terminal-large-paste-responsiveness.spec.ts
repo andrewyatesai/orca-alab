@@ -140,10 +140,17 @@ test.describe('large terminal paste responsiveness', () => {
         )
         .toBeGreaterThan(1)
 
+      // Why: poll until the renderer heartbeat advances rather than measuring a
+      // delta over a fixed 150ms window — a janky-but-not-blocked runner can
+      // yield zero rAF ticks in any single window (false fail), while a truly
+      // blocked renderer never advances and still fails the guard.
       const heartbeatBefore = await readRendererHeartbeat(orcaPage)
-      await orcaPage.waitForTimeout(150)
-      const heartbeatAfter = await readRendererHeartbeat(orcaPage)
-      expect(heartbeatAfter).toBeGreaterThan(heartbeatBefore)
+      await expect
+        .poll(() => readRendererHeartbeat(orcaPage), {
+          timeout: 5_000,
+          message: 'renderer heartbeat did not advance while chunked PTY writes were pending'
+        })
+        .toBeGreaterThan(heartbeatBefore)
 
       await pasteKey
       await waitForTerminalOutput(orcaPage, doneLine, 20_000, 12_000)

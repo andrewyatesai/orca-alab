@@ -40,7 +40,9 @@ export function rustTypeToArgspec(ty, src) {
   // that needs a fuzzer `?`-suffix mode.)
   const opt = t.match(/^Option<(.+)>$/u)
   if (opt) {
-    return rustTypeToArgspec(opt[1], src)
+    const inner = rustTypeToArgspec(opt[1], src)
+    // `?` tells the fuzzer to interleave JSON null so the absent path is exercised.
+    return inner ? `${inner}?` : null
   }
   if (/^[A-Z]\w*$/u.test(t)) {
     const structIdx = src.search(new RegExp(`struct\\s+${t}\\s*\\{`, 'u'))

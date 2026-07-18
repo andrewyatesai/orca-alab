@@ -1,8 +1,8 @@
 {
-  "minTrusted": 251,
+  "minTrusted": 256,
   "measured": "2026-07-18",
-  "total": 257,
+  "total": 262,
   "faithfulMiss": 0,
   "soundnessControls": 6,
-  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 251 TRUSTED / 257 / 0 declined / 0 faithful-miss / 6 controls refuted / 0 breaks. 100% of the 251 non-control kernels TRUSTED (W1 trustc forall-safety + W2 0-divergence); 6 _bug/_naive controls stay refused. 243->251 = +8 FRESH real-orc functions formalized into the corpus via the autoformalization-factory manual loop (grow-corpus): getClipboardTextByteLength, isSlashCommandDraft, isLegacyPiCompatibleTitle, wslUncToLinuxPath, foldWslUncPathCaseInsensitiveParts, buildAgentFeatureSkillUpdateCommand, isEligibleLocalCertificateHost, buildNativeChatSubscriptionId — demonstrating the pipeline generalizes to orc code the curated corpus never saw. 2 honest SKIPs (filesystemPathHrefToFileUri needs the WHATWG URL runtime + IDNA/Punycode + throwing behavior; getDecorativeAgentTitleSignature) — not forced. Assumes the local ~/trust corpus + stage2 toolchain (rustc 1.99.0-dev 4c9dc90f4)."
+  "note": "pnpm gauntlet:autoformalize; drop below minTrusted = a kernel stopped verifying. 256 TRUSTED / 262 / 0 declined / 0 faithful-miss / 6 controls refuted / 0 breaks. 100% of the 256 non-control kernels TRUSTED (W1 trustc forall-safety + W2 0-divergence); 6 _bug/_naive controls stay refused. Session arc 54->256 via 4 toolchain fixes (trait-tail callee matching, struct-argspec typing+rename, verify.mjs maxBuffer, fuzzer optional omit-key), ~78 diagnostic-first reformulations, and +13 FRESH real-orc functions formalized via the factory manual loop. FACTORY BOUNDARY (honest, evidenced by principled SKIPs stripCredentialsFromMessage/isChromiumCertificateErrorCode/hasCompatibleAgentTitleIdentity): the GENERIC fuzzer's fixed STR/number corpus cannot exercise domain-specific logic (credential patterns scheme://user:pass@, magic error codes -219..-200, title-shaped inputs) -> W2 degenerates to a hollow identity==identity 0-divergence that cannot distinguish a faithful port from a no-op, so the factory correctly SKIPs rather than claim a vacuous TRUSTED. Closing that class needs domain-aware / trace-derived corpora (moonshot F2). Assumes the local ~/trust corpus + stage2 toolchain (rustc 1.99.0-dev 4c9dc90f4)."
 }

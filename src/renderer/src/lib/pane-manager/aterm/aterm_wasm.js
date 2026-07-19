@@ -651,7 +651,7 @@ export class AtermTerminal {
      * before displaying again.
      */
     predict_reset() {
-        wasm.atermterminal_predict_line_submit(this.__wbg_ptr);
+        wasm.atermterminal_predict_reset(this.__wbg_ptr);
     }
     /**
      * Feed raw PTY output bytes into the engine.

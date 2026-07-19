@@ -82,7 +82,8 @@ export async function loadAtermCpuDrawer(
         getSearchActiveIndex: binding.getSearchActiveIndex,
         takeSearchRefresh: binding.takeSearchRefresh,
         getHoveredLinkSpan: binding.getHoveredLinkSpan,
-        getFgColor: binding.getFgColor
+        getFgColor: binding.getFgColor,
+        getPredictionCells: binding.getPredictionCells
       })
       // E1 lazy fonts: drain the engine's missing-font classes after each frame
       // and inject only what a render actually missed.

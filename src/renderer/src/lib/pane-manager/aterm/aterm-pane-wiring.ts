@@ -25,6 +25,7 @@ import { wireAtermPaneSpill } from './aterm-pane-spill-wiring'
 import type { AtermPaneWiringConfig, AtermWiredPane } from './aterm-pane-wiring-types'
 import type { AtermPaneController } from './aterm-pane-controller-types'
 import { createAtermControllerOptionReaders } from './aterm-controller-option-readers'
+import { createAtermPredictionEcho } from './aterm-prediction-echo'
 import { driveAtermRainPulse } from './aterm-rain-pulse'
 
 // The wiring seam types (config in, wired pane out, context-loss-surviving late
@@ -92,6 +93,17 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     }
   }
 
+  // Mosh-style predictive echo. Bound to the in-process engine's predict seam (the
+  // worker facade has none → the controller runs inert). Owns the ONE glitch-expiry
+  // timer; teardown disposes it so no armed timer outlives the pane (the native
+  // stranded-deadline 100%-CPU lesson). Repaints via presentNow (late-bound below)
+  // so the ghost lands this frame — the whole point is beating the PTY round-trip.
+  const prediction = createAtermPredictionEcho({
+    term,
+    requestPaint: () => presentNow(),
+    isDisposed: () => disposed
+  })
+
   // Cross-pane spill (stage 3, in-process only): flips stage 2's fail-closed
   // capability seam live + builds the presenter's rev-gated per-paint blit.
   const spill = wireAtermPaneSpill(term, pending.memory, shared, scheduleDraw, () => disposed)
@@ -115,6 +127,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     emitTitleIfChanged: titleChannel.emitIfChanged,
     hasActiveSearchQuery: () => searchState.searchController.hasActiveQuery(),
     markSearchRefresh: searchState.markSearchRefresh,
+    // Reconcile speculative guesses right after the grid absorbs this chunk.
+    predictReconcile: prediction.reconcile,
     syncCursorColor: () => syncCursorColorEffects(),
     // Present a keystroke echo immediately (coalesced to once per frame) instead of
     // waiting a full rAF — see presentNow. Bulk output still coalesces onto rAF.
@@ -150,6 +164,10 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     takeSearchRefresh: searchState.takeSearchRefresh,
     getHoveredLinkSpan: () => linkInput.hoveredSpan(),
     getFgColor: () => themeColors.fg,
+    // Reads the engine overlay (runs its expiry self-heal) + re-arms the glitch
+    // timer; the CPU drawer paints these on the grid, the GPU drawer ignores it
+    // (its predictions paint on the stacked overlay adjunct below).
+    getPredictionCells: () => prediction.overlayCells(),
     onContextLoss: (seedAnsi?: string) => config.onContextLoss(seedAnsi)
   })
 
@@ -165,6 +183,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getCols: () => gridSizing.grid().cols,
     getHoveredLinkSpan: () => linkInput.hoveredSpan(),
     getFgColor: () => themeColors.fg,
+    // GPU path: predictions paint on the stacked 2d overlay (webgl2 grid can't).
+    getPredictionCells: () => prediction.overlayCells(),
     getScrollIntentTarget,
     scheduleDraw,
     isDisposed: () => disposed
@@ -258,7 +278,8 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     getMacOptionIsMeta: controllerOptions?.getMacOptionIsMeta,
     getCustomKeyEventHandler: controllerOptions?.getCustomKeyEventHandler,
     getImeAnchor: controllerOptions?.getImeAnchor,
-    getScrollIntentTarget
+    getScrollIntentTarget,
+    predictionEcho: prediction
   })
 
   // Blink the cursor (focused) + draw it hollow (unfocused); the engine paints the
@@ -284,7 +305,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
     inputSink,
     isDisposed: () => disposed,
     scheduleDraw,
-    refreshCursorBlink: cursorBlink.refresh
+    refreshCursorBlink: cursorBlink.refresh,
+    // Default 'adaptive' on init; a live settings change re-applies through reapply.
+    setPredictiveEcho: prediction.setMode
   })
   syncCursorColorEffects = engineSettings.syncCursorColor
 
@@ -312,6 +335,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
       return
     }
     disposed = true
+    // Clear the predictive-echo glitch timer FIRST so no armed deadline outlives the
+    // pane (the stranded-deadline 100%-CPU invariant).
+    prediction.dispose()
     drawScheduler.dispose()
     effectsDrive.dispose()
     a11yMirror.dispose()

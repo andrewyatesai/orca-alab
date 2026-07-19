@@ -20,6 +20,9 @@ type PaneCanvasAdjunctDeps = {
   getCols: () => number
   getHoveredLinkSpan: () => AtermHoveredLinkSpan | null
   getFgColor: () => number
+  /** Predictive-echo ghost cells for the GPU-path stacked overlay (empty on the CPU
+   *  path, which paints them in-frame, and when off / not predict-capable). */
+  getPredictionCells: () => Uint32Array
   /** The pane's scroll-intent target (facade) for the scrollbar's thumb-drag path. */
   getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
   scheduleDraw: () => void
@@ -43,7 +46,8 @@ export function mountAtermPaneCanvasAdjuncts(deps: PaneCanvasAdjunctDeps): {
         metrics,
         getRows,
         getHoveredLinkSpan: deps.getHoveredLinkSpan,
-        getFgColor: deps.getFgColor
+        getFgColor: deps.getFgColor,
+        getPredictionCells: deps.getPredictionCells
       })
     : null
 

@@ -4,6 +4,7 @@ import {
 } from './aterm-pane-controller-types'
 import { buildDefaultTerminalOptions } from '../pane-terminal-options'
 import { readAtermEffectsConfig, type AtermEffectsConfig } from './aterm-effects-settings'
+import type { AtermPredictionEchoMode } from './aterm-prediction-echo'
 import { useAppStore } from '@/store'
 
 /** The live settings readers the wiring uses (font size / line-height / family /
@@ -39,6 +40,8 @@ export type AtermControllerOptionReaders = {
   /** Live effects config (sparkle words / cursor glow / reduced motion); defaults
    *  keep every effect OFF, matching the engine's byte-identical default. */
   getEffectsConfig: () => AtermEffectsConfig
+  /** Predictive-echo display mode (terminalPredictiveEcho); default 'adaptive'. */
+  getPredictiveEcho: () => AtermPredictionEchoMode
 }
 
 /** Clamp a stored opacity setting to the engine's 0..=1 domain; anything unset or
@@ -76,6 +79,9 @@ export function createAtermControllerOptionReaders(
     getKittyKeyboardEnabled: () => options?.getKittyKeyboardEnabled?.() ?? true,
     // Read the store live (like word separators) so effect toggles re-apply to
     // open panes via reapplyEngineSettings without a pane rebuild.
-    getEffectsConfig: readAtermEffectsConfig
+    getEffectsConfig: readAtermEffectsConfig,
+    // Read live (like the effects config) so a mode change re-applies to open
+    // panes via reapplyEngineSettings; default 'adaptive' (the self-gating mode).
+    getPredictiveEcho: () => useAppStore.getState().settings?.terminalPredictiveEcho ?? 'adaptive'
   }
 }

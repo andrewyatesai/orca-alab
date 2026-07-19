@@ -43,6 +43,12 @@ export type AtermPainterBinding = {
   /** Theme fg (0x00RRGGBB) — the hover underline color. A getter so a live
    *  re-theme (updateTheme) is reflected without rebinding the painter. */
   getFgColor: () => number
+  /** The predictive-echo ghost cells to paint THIS frame (`[row, col, codepoint]`
+   *  triples). Reads the engine overlay (runs its expiry self-heal) + re-arms the
+   *  glitch timer; empty when predictions are off / the pane isn't predict-capable.
+   *  The CPU drawer paints these on the grid context; the GPU drawer's webgl2 grid
+   *  can't, so its predictions paint on the stacked 2d overlay instead. */
+  getPredictionCells: () => Uint32Array
   /** Called when the draw path dies: WebGL2 context lost (GPU drawer) or the render
    *  worker crashed (worker loader) — the controller disposes the dead strategy and
    *  swaps to the in-process CPU path. A worker crash passes its last serialized

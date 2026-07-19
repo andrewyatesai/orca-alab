@@ -1,5 +1,6 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
 import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
+import { paintAtermPredictionOverlay } from './aterm-prediction-overlay'
 import { chromeCssMargins } from './aterm-chrome-box'
 import { recordAtermPresent } from './aterm-present-latency-probe'
 import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
@@ -29,6 +30,9 @@ export type AtermFramePainterDeps = {
   /** Theme fg (0x00RRGGBB) — the hover underline color. Read live each frame so
    *  a re-theme (updateTheme) recolors the underline without a painter rebind. */
   getFgColor: () => number
+  /** Predictive-echo ghost cells for this frame (`[row, col, codepoint]` triples);
+   *  painted dim/underlined over the glyphs. Empty when off / not predict-capable. */
+  getPredictionCells: () => Uint32Array
 }
 
 /** Build the draw() callback that renders one frame: re-index search (coalesced),
@@ -121,6 +125,14 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
       cellWidth,
       cellHeight,
       dpr
+    })
+    // Predictive-echo ghosts last: they sit above the real glyphs (display-only,
+    // in active-grid coords like search/link — inside the same chrome translate).
+    paintAtermPredictionOverlay(ctx, deps.getPredictionCells(), {
+      cellWidth,
+      cellHeight,
+      dpr,
+      fgColor: deps.getFgColor()
     })
     ctx.restore()
     // e2e latency probe: the putImageData above is the real CPU present, so

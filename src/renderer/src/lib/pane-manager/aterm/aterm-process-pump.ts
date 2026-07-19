@@ -25,6 +25,10 @@ type ProcessPumpDeps = {
   hasActiveSearchQuery: () => boolean
   /** Mark that the next draw must refresh search highlights. */
   markSearchRefresh: () => void
+  /** Reconcile predictive-echo guesses against the freshly-applied grid (confirmed
+   *  ones retire, divergence/alt-screen flushes). No-op when the pane isn't
+   *  predict-capable (worker path) or predictions are off. */
+  predictReconcile?: () => void
   scheduleDraw: () => void
 }
 
@@ -50,6 +54,9 @@ export function createAtermProcessPump(deps: ProcessPumpDeps): (data: string) =>
     // no-op in production) so the present that draws this chunk can be correlated
     // to the keystroke that caused it.
     bumpAtermContentGen()
+    // Reconcile speculative-echo guesses against the grid this chunk just produced —
+    // display-only, so it never changes the parsed output (conformance-safe).
+    deps.predictReconcile?.()
     // aterm is the authoritative query responder — drain + forward its replies.
     drainAtermReplies(deps.term, deps.inputSink)
     deps.emitTitleIfChanged()

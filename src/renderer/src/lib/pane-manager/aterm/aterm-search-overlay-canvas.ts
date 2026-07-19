@@ -1,5 +1,6 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
 import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
+import { paintAtermPredictionOverlay } from './aterm-prediction-overlay'
 import type { AtermSearchMatch } from './aterm-search'
 import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -33,6 +34,10 @@ export function createAtermSearchOverlayCanvas(
     /** Theme fg (0x00RRGGBB) — the hover underline color. Read live each paint so
      *  a re-theme (updateTheme) recolors the underline without recreating the pane. */
     getFgColor: () => number
+    /** Predictive-echo ghost cells for this frame (`[row, col, codepoint]` triples).
+     *  The GPU grid canvas is webgl2-only, so predictions paint here on the stacked
+     *  2d overlay. Empty when off / not predict-capable. */
+    getPredictionCells: () => Uint32Array
   }
 ): AtermSearchOverlayCanvas {
   const overlay = document.createElement('canvas')
@@ -88,6 +93,14 @@ export function createAtermSearchOverlayCanvas(
         cellWidth,
         cellHeight,
         dpr
+      })
+      // Predictive-echo ghosts on the GPU path's stacked overlay (grid coords, like
+      // the highlights above — the overlay is un-shifted so no chrome translate).
+      paintAtermPredictionOverlay(ctx, deps.getPredictionCells(), {
+        cellWidth,
+        cellHeight,
+        dpr,
+        fgColor: deps.getFgColor()
       })
     },
     dispose: () => {

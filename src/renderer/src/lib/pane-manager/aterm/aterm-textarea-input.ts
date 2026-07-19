@@ -15,6 +15,7 @@ import {
   type TerminalScrollIntentTarget
 } from '../terminal-scroll-intent'
 import { encode_key_with_mode } from './aterm_wasm.js'
+import type { AtermPredictionEcho } from './aterm-prediction-echo'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 /** The engine encoder for a live/worker-backed term: `term.encode_key` when the
@@ -72,6 +73,11 @@ export type AtermTextareaInputDeps = {
    *  handlers' Cmd+Up/Down path — or a later keyed remount snaps the viewport to the
    *  bottom and loses the reading position. Absent → no intent tracking (tests). */
   getScrollIntentTarget?: () => TerminalScrollIntentTarget | null
+  /** Predictive-echo controller — fed on the SAME keystroke seam that writes to
+   *  the PTY (printable → char, Backspace → backspace, plain Enter → submit) so the
+   *  speculative ghost paints ~1 RTT before the echo. Inert when not predict-capable
+   *  (worker path) or off; display-only, so it never changes what's sent. */
+  predictionEcho?: AtermPredictionEcho
   /** Send encoded bytes (typing/IME) to the PTY raw. */
   inputSink: (data: string) => void
   /** Send PASTED text to the PTY; wraps with \e[200~..\e[201~ when the app has
@@ -120,7 +126,7 @@ export type AtermTextareaInputDeps = {
  *  main thread) before this wiring runs. */
 export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispose: () => void } {
   const { textarea, term, canvas, metrics, themeColors, getRows, redraw } = deps
-  const { inputSink, pasteSink, copySelection, getMacOptionIsMeta } = deps
+  const { inputSink, pasteSink, copySelection, getMacOptionIsMeta, predictionEcho } = deps
   const { getCustomKeyEventHandler, getScrollIntentTarget } = deps
   // Platform-correct copy modifier: Cmd on macOS, Ctrl elsewhere.
   const isMac = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac')
@@ -261,6 +267,14 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
       event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey
     noteEffectsKeystroke(isUnmodifiedSubmit)
     inputSink(bytes)
+    // Predictive echo on the non-text keys this handler owns: submit ends the
+    // confirmation epoch (password-prompt safety), plain Backspace cancels our own
+    // trailing guess. Modified Backspace (word-delete) is left to the app's echo.
+    if (isUnmodifiedSubmit) {
+      predictionEcho?.noteSubmit()
+    } else if (event.key === 'Backspace' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      predictionEcho?.noteBackspace()
+    }
     // Clear so the sink-bound textarea never accumulates the typed characters.
     textarea.value = ''
   }
@@ -326,6 +340,14 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
         pasteSink(data)
       } else {
         noteEffectsKeystroke()
+        // Predictive echo: track each typed printable as a speculative ghost (the
+        // engine declines non-printables/wraps itself). Skipped for paste (bulk,
+        // not per-key echo) and IME (committed via compositionend, not here).
+        if (predictionEcho) {
+          for (const ch of data) {
+            predictionEcho.noteChar(ch)
+          }
+        }
         inputSink(data)
       }
     }

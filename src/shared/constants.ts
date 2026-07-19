@@ -264,6 +264,9 @@ export function getDefaultSettings(homedir: string): GlobalSettings {
     // Literal Matrix Rain is opt-in. When enabled, its glyphs come from the
     // pane's live terminal output rather than a decorative character set.
     terminalMatrixRainEnabled: false,
+    // Predictive echo defaults to the self-gating 'adaptive' mode: invisible on
+    // fast-local + non-echoing apps, instant local echo on high-latency SSH.
+    terminalPredictiveEcho: 'adaptive',
     // One-time upgrade stamp: existing profiles persisted the old lumen glow,
     // which {...defaults, ...parsed} would otherwise preserve forever. The
     // persistence migration flips the inherited lumen default to water once.

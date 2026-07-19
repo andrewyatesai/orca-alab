@@ -42,6 +42,10 @@ export function applyAtermEngineSettings(deps: {
    *  otherwise only read on focus events, so a live toggle would skip the focused
    *  pane until the next blur/focus. */
   refreshCursorBlink: () => void
+  /** Apply the live predictive-echo mode to the pane's prediction controller (it
+   *  owns the engine `set_predictive_echo` call + the glitch-expiry timer, so 'off'
+   *  disarms cleanly). Runs on init + every reapply, so a live toggle takes hold. */
+  setPredictiveEcho: (mode: ReturnType<AtermControllerOptionReaders['getPredictiveEcho']>) => void
 }): { dispose: () => void; reapply: () => void; syncCursorColor: () => void } {
   const { term, readers } = deps
   // The cursor colour last folded into the glow config, so the per-chunk follow
@@ -68,6 +72,9 @@ export function applyAtermEngineSettings(deps: {
     // the live OSC 12 cursor colour (unset → theme-derived, native-app parity).
     appliedCursorColor = term.cursor_color
     applyAtermEffectsConfig(term, readers.getEffectsConfig(), appliedCursorColor)
+    // Mosh-style predictive echo (default 'adaptive'). Routed through the pane's
+    // prediction controller so the engine mode + its expiry timer stay in lockstep.
+    deps.setPredictiveEcho(readers.getPredictiveEcho())
   }
   apply()
   // Kitty keyboard capability: per-pane STATIC policy (local Windows ConPTY panes

@@ -139,6 +139,7 @@ function makeReaders(
       cursorGlowStyle: 'lumen' as const,
       reducedMotion: false
     }),
+    getPredictiveEcho: () => 'adaptive',
     ...overrides
   }
 }
@@ -152,7 +153,8 @@ describe('applyAtermEngineSettings', () => {
       inputSink: () => undefined,
       isDisposed: () => false,
       scheduleDraw: () => undefined,
-      refreshCursorBlink: () => undefined
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: () => undefined
     })
     expect(term.contrasts).toEqual([4.5])
     expect(term.separators).toEqual([` ()[]{}'"`])
@@ -166,7 +168,8 @@ describe('applyAtermEngineSettings', () => {
       inputSink: () => undefined,
       isDisposed: () => false,
       scheduleDraw: () => undefined,
-      refreshCursorBlink: () => undefined
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: () => undefined
     })
     expect(term.bgOpacities).toEqual([0.85])
     expect(term.cursorOpacities).toEqual([0.4])
@@ -180,7 +183,8 @@ describe('applyAtermEngineSettings', () => {
       inputSink: () => undefined,
       isDisposed: () => false,
       scheduleDraw: () => undefined,
-      refreshCursorBlink: () => undefined
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: () => undefined
     })
     expect(term.kittyEnabled).toEqual([false])
     // A live settings change must NOT re-drive the static capability toggle.
@@ -206,7 +210,8 @@ describe('applyAtermEngineSettings', () => {
       inputSink: () => undefined,
       isDisposed: () => false,
       scheduleDraw,
-      refreshCursorBlink: () => undefined
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: () => undefined
     })
     ratio = 1
     seps = ' ,;'
@@ -242,7 +247,8 @@ describe('applyAtermEngineSettings', () => {
       inputSink: () => undefined,
       isDisposed: () => false,
       scheduleDraw: () => undefined,
-      refreshCursorBlink: () => undefined
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: () => undefined
     })
     // Everything-off construction: master off, glow off (engine byte-identical default).
     expect(term.sparkleMasters).toEqual([false])
@@ -301,7 +307,8 @@ describe('applyAtermEngineSettings', () => {
       inputSink: () => undefined,
       isDisposed: () => false,
       scheduleDraw,
-      refreshCursorBlink: () => undefined
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: () => undefined
     })
     // Construction folds the live colour in.
     expect(term.glows.at(-1)).toEqual({ enabled: true, style: 'lumen', color: 0x00ff00 })
@@ -327,12 +334,32 @@ describe('applyAtermEngineSettings', () => {
       inputSink: () => undefined,
       isDisposed: () => false,
       scheduleDraw: () => undefined,
-      refreshCursorBlink: () => undefined
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: () => undefined
     })
     const glowsAfterApply = term.glows.length
     term.liveCursorColor = 0x123456
     syncCursorColor()
     expect(term.glows).toHaveLength(glowsAfterApply)
+  })
+
+  it('applies the predictive-echo mode on construction + live reapply', () => {
+    const term = makeTerm()
+    let mode: 'adaptive' | 'always' | 'off' = 'adaptive'
+    const applied: string[] = []
+    const { reapply } = applyAtermEngineSettings({
+      term,
+      readers: makeReaders({ getPredictiveEcho: () => mode }),
+      inputSink: () => undefined,
+      isDisposed: () => false,
+      scheduleDraw: () => undefined,
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: (m) => applied.push(m)
+    })
+    expect(applied).toEqual(['adaptive'])
+    mode = 'off'
+    reapply()
+    expect(applied).toEqual(['adaptive', 'off'])
   })
 
   it('skips a reapply after dispose', () => {
@@ -344,7 +371,8 @@ describe('applyAtermEngineSettings', () => {
       inputSink: () => undefined,
       isDisposed: () => disposed,
       scheduleDraw: () => undefined,
-      refreshCursorBlink: () => undefined
+      refreshCursorBlink: () => undefined,
+      setPredictiveEcho: () => undefined
     })
     disposed = true
     reapply()

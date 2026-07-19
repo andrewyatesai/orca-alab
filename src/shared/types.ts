@@ -2646,6 +2646,11 @@ export type GlobalSettings = {
   /** Literal Matrix Rain effect. Glyphs are sampled from live terminal output;
    *  default false so an unset profile does not load or render the effect. */
   terminalMatrixRainEnabled?: boolean
+  /** Mosh-style predictive echo (speculative local echo). Display-only overlay,
+   *  never mutates the grid. Default 'adaptive' (self-gating: invisible on
+   *  fast-local + non-line-echoing apps, instant on high-latency SSH); 'always'
+   *  for power users/demos; 'off' disables it. */
+  terminalPredictiveEcho?: 'adaptive' | 'always' | 'off'
   /** One-time stamp: the persistence loader flipped the inherited lumen/sparkle-on
    *  defaults to the native-Orca water trail / sparkle-off once. Guards re-running. */
   terminalEffectsNativeOrcaMigrated?: boolean

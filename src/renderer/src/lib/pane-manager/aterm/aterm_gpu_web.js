@@ -698,7 +698,7 @@ export class AtermGpuTerminal {
      * before displaying again.
      */
     predict_reset() {
-        wasm.atermgputerminal_predict_line_submit(this.__wbg_ptr);
+        wasm.atermgputerminal_predict_reset(this.__wbg_ptr);
     }
     /**
      * Feed raw PTY output bytes into the engine.

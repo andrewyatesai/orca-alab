@@ -61,6 +61,32 @@ are the actual justification for carrying `orc-electron`, in value order:
 (depot_tools + electron at the pinned tag + gclient sync + sccache). It is a
 multi-hour, ~30–60GB operation — **kicked deliberately, gauntlet-gated, never blindly.**
 
+## ⇒ The honest next runtime step: Rung-2 in-app serving (scoped 2026-07-18)
+
+The kill-check proved the prize (durable SAB + wasm threads) is reachable on stock Electron 43 via
+rung-2 — no fork rebuild. Turning that on in the REAL app is a bounded, gauntlet-testable change:
+
+1. **Serve the renderer from a privileged `orca://` scheme instead of `file://`.** Today it loads via
+   `loadFile` (e.g. `src/main/coordinator-window.ts:54`, the main window similarly). Add
+   `protocol.registerSchemesAsPrivileged([{scheme:'orca', privileges:{standard,secure,supportFetchAPI,
+   corsEnabled,stream,codeCache:true}}])` before app-ready and `protocol.handle('orca', …)` over
+   `out/renderer`, then `loadURL('orca://app/index.html')`. Serve `.js`/`.wasm` with strict MIME.
+2. **Fix the two `file://`-hardcoded sender-trust gates** — they currently reject any non-`file://`
+   sender, so an `orca://` renderer would lose clipboard + browser IPC:
+   - `src/main/window/clipboard-ipc-handlers.ts:245` — `senderUrl.startsWith('file://')`
+   - `src/main/ipc/browser.ts:167` — `isTrustedBrowserRenderer` → `senderUrl.startsWith('file://')`
+   Replace with an `isTrustedAppOrigin(senderUrl)` helper accepting the `orca://app` origin (keep
+   `file://` during migration for the dev-server path / rollback).
+3. **Then COOP:same-origin + COEP:credentialless on the `orca://` responses** → `crossOriginIsolated`
+   → durable/growable SAB + high-res timers + **wasm threads** (+1.8–2.9× on parallelizable stages).
+4. **In-app Phase-0 confirm** (the kill-check caveat): verify the app's REAL `<webview>` guests (browser
+   tabs, their partitions + preload) LOAD — not just attach — under COEP before enabling in prod. If a
+   real guest breaks, that flips the fork verdict to `FORK-PATCH-JUSTIFIED` for the origin-isolation
+   patch after all.
+
+Risk: invasive (serving + IPC trust). Gate every step on `pnpm gauntlet` + the existing e2e; ship
+behind a flag; keep the `file://` path as rollback. This is product-surface work, not a fork rebuild.
+
 ## The treadmill (standing ops)
 
 Electron carries ~248 patches; majors every 8 weeks; local release build ≈37min–1h49m

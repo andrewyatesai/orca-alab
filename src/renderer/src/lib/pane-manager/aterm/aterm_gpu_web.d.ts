@@ -1201,6 +1201,7 @@ export interface InitOutput {
     readonly atermgputerminal_predict_next_deadline_ms: (a: number) => [number, number];
     readonly atermgputerminal_predict_overlay: (a: number) => [number, number];
     readonly atermgputerminal_predict_reconcile: (a: number) => void;
+    readonly atermgputerminal_predict_reset: (a: number) => void;
     readonly atermgputerminal_process: (a: number, b: number, c: number) => void;
     readonly atermgputerminal_pump_reflow: (a: number) => number;
     readonly atermgputerminal_pump_reflow_budget: (a: number, b: number) => void;
@@ -1309,7 +1310,6 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly atermgputerminal_predict_reset: (a: number) => void;
     readonly wasm_bindgen__closure__destroy__h1a0100ca1d7e7abb: (a: number, b: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__h1290c91c1f20d598: (a: number, b: number, c: any, d: any) => void;
     readonly wasm_bindgen__convert__closures_____invoke__h6eb3e922626803da: (a: number, b: number, c: any) => void;

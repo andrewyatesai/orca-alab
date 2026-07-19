@@ -1197,6 +1197,7 @@ export interface InitOutput {
     readonly atermterminal_predict_next_deadline_ms: (a: number) => [number, number];
     readonly atermterminal_predict_overlay: (a: number) => [number, number];
     readonly atermterminal_predict_reconcile: (a: number) => void;
+    readonly atermterminal_predict_reset: (a: number) => void;
     readonly atermterminal_process: (a: number, b: number, c: number) => void;
     readonly atermterminal_process_str: (a: number, b: number, c: number) => void;
     readonly atermterminal_pump_reflow: (a: number) => number;
@@ -1306,7 +1307,6 @@ export interface InitOutput {
     readonly selectionrange_end_y: (a: number) => number;
     readonly selectionrange_start_x: (a: number) => number;
     readonly selectionrange_start_y: (a: number) => number;
-    readonly atermterminal_predict_reset: (a: number) => void;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

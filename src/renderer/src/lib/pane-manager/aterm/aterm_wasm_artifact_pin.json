@@ -1,38 +1,38 @@
 {
   "schema": 1,
-  "sourceCommit": "772250480f72b405e2f8ce9535f8ea54b5981b6f",
+  "sourceCommit": "76c276dd93f1f25a37e64004a68830a279a12c85",
   "artifacts": {
     "aterm_wasm.js": {
-      "bytes": 100568,
-      "sha256": "5ee0b85c36252ddd9814735ff09d06d2ed13899bab2bee37aa0535824f7361fe"
+      "bytes": 100562,
+      "sha256": "c3dc340f3ad77e09cb446e5aeb93bad9978b8ad8f5a034b44311dcfb0e7c4f16"
     },
     "aterm_wasm.d.ts": {
       "bytes": 72649,
-      "sha256": "272c3e966b8d869fbac1ea03c4fa0c21920b813f65416af6427554028a2ff883"
+      "sha256": "ee49e6a45b5ad8b271770ba1b9d2b606d0e3f834964bd547a4d70ac94ad79e85"
     },
     "aterm_wasm_bg.wasm": {
-      "bytes": 3725905,
-      "sha256": "e4206f16e59172849ecc16b21874f180b893e417e675d97a0abf89c639057387"
+      "bytes": 3741191,
+      "sha256": "07192684d8793a39899d3d5cbc04bb3151e54d62fb1120a5d1c6e3ebc79c3e43"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 14267,
-      "sha256": "2b1b1dd08b84bfb4d084ead897299b0a7a14d6c7d55952efaf9e03e6aa1aa06c"
+      "sha256": "90764879998de4548460de003f5fd10022826114e2960bb0960b9c3216129f6a"
     },
     "aterm_gpu_web.js": {
-      "bytes": 158352,
-      "sha256": "2c85d3679642a4b6b3b0935044a05a0f3583789ac1f79472e8ce117d2eba2c00"
+      "bytes": 158346,
+      "sha256": "2a485cb49e7999ba7e64c5e0b847d2a5461e9f02f1b7644a319842931911562c"
     },
     "aterm_gpu_web.d.ts": {
       "bytes": 72438,
-      "sha256": "675cae17573eca54c92f31806e88afec5bf8546664a015dbfeaec2151d261741"
+      "sha256": "321c276432930c299171f5479a8d81134d00b7b41c4d73dfae5bca3182af8897"
     },
     "aterm_gpu_web_bg.wasm": {
-      "bytes": 6200440,
-      "sha256": "76f19ba1baf563d015e9d0a0307c1946769b7a04dbe1ebb228367ff51547a485"
+      "bytes": 6215670,
+      "sha256": "8dfe9b01298f3c40c9e100b3bbb38c5007788880f88034a35be53cebc4682a7d"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
       "bytes": 15282,
-      "sha256": "6e34523cd4d64da446ab780a4fc4b1f0743d1a879d02485a448ec794f932ff62"
+      "sha256": "a7b1366534c9c07e6df4c213eb3a2441f0e75aa4534c58529287d3138ddb701f"
     }
   }
 }

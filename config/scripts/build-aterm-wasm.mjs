@@ -178,6 +178,28 @@ function buildCrate(key, wasmBindgen) {
       `(-${(((before - after) * 100) / before).toFixed(1)}% via wasm-opt)`
   )
 
+  // Glue-parity gate: identical Rust shim bodies get folded by LLVM
+  // MergeFunctions, after which wasm-bindgen binds two JS methods to ONE
+  // surviving export (observed: predict_reset silently calling
+  // predict_line_submit). The engine carries black_box ICF barriers, but a
+  // regression here misroutes calls with zero build error — so assert every
+  // simple `name() { wasm.<...>_name(...) }` method calls its OWN export.
+  const glue = readFileSync(join(pkg, `${stem}.js`), 'utf8')
+  const misbound = []
+  for (const m of glue.matchAll(
+    /^\s{4}(\w+)\(\) \{\n\s*wasm\.\w*?terminal_(\w+)\(this\.__wbg_ptr\);/gm
+  )) {
+    if (m[1] !== m[2]) {
+      misbound.push(`${m[1]}() -> ${m[2]}`)
+    }
+  }
+  if (misbound.length > 0) {
+    console.error(
+      `[aterm-wasm] FATAL: ${stem} glue cross-binding (merged exports?): ${misbound.join(', ')}`
+    )
+    process.exit(1)
+  }
+
   for (const ext of ['.js', '.d.ts', '_bg.wasm', '_bg.wasm.d.ts']) {
     copyFileSync(join(pkg, `${stem}${ext}`), join(DEST, `${stem}${ext}`))
   }

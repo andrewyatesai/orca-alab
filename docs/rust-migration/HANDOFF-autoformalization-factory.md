@@ -9,6 +9,28 @@ and the memory `orc-goals-and-gauntlet.md` for the full frame; this doc is the o
 
 ---
 
+## Update 2026-07-18 (later) — F3 scanner shipped + ultracode burst + Electron fork kill-check
+
+- **F3 candidate scanner is live** (`tools/autoformalize-candidate-scanner.mjs`, `pnpm
+  autoformalize:candidates`): AST walk classifies every exported fn by purity → **392 pure +
+  396 needs-inline** candidates, dup-flagged + security-ranked. This REPLACED hand-grep scouting and
+  is now the factory's engine. Workflow: regenerate the JSON, pull the top N `pure-self-contained &&
+  !ported` (dedup by existing `g_*.rs`), feed `grow-corpus`.
+- **Ultracode burst**: 4 scanner-driven waves of ~20, **74/74 TRUSTED** (near-100% first-drive because
+  candidates are pre-vetted pure). Corpus grew ~302 → **~413 `.rs` files**. Cadence used: commit each
+  wave immediately; DON'T run a census mid-burst (it starves the waves — one hit 95 min contended and
+  was killed); pause and run ONE clean census to bump the floor. **A consolidating census (census13)
+  is running now — bump the ratchet to its result; if a heavy kernel flakes (30+ obligations near the
+  solver budget, cf. g_titleframechg), defer it and set the census-confirmed floor.**
+- **Electron fork (Campaign 3): green-lit, but measure-first RETIRED the marquee patch.** The Rung-2
+  Phase-0 kill-check (`pnpm fork:killcheck`, `tools/orc-electron/`) found **STOCK-RUNG-2-SUFFICES** on
+  Electron 43: `crossOriginIsolated` + durable SAB + `<webview>`-attaches-under-COEP all work on the
+  stock binary → the origin-isolation fork patch is unnecessary; ship rung-2 (`orca://` + COOP/COEP)
+  instead, no Chromium rebuild. The fork's remaining value (macOS low-latency canvas, component
+  stripping, V8 snapshot, PGO) is `--i-mean-it`-gated in `bootstrap-fork.sh`. **The honest high-value
+  next runtime step is in-app rung-2 serving** (doc §7 rung 2: no `orca://` scheme exists yet; two
+  `file://`-hardcoded sender-trust gates to fix; then COOP/COEP → durable SAB + wasm threads).
+
 ## State of the world (verified, committed, pushed)
 
 - **Corpus: 320 individually-verified TRUSTED kernels** (last FULL census confirmed **302/308**, 0

@@ -1,5 +1,6 @@
 import { loadAtermGpu } from './load-aterm-gpu'
 import { createLazyFallbackFontInjector } from './inject-terminal-fallback-fonts'
+import { recordAtermPresent } from './aterm-present-latency-probe'
 import { seedAtermPalette, seedAtermReplyDefaults } from './aterm-theme-colors'
 import { MIN_GRID_COLS, MIN_GRID_ROWS } from './aterm-grid-size'
 import { chromeCssMargins } from './aterm-chrome-box'
@@ -129,6 +130,10 @@ export async function loadAtermGpuDrawer(
           }
           return
         }
+        // e2e latency probe: render() has queued the WebGL2 present of this
+        // content (the live path issues no gl.finish, so this is the tightest
+        // software-visible present point). Flag-gated, no-op in production.
+        recordAtermPresent()
         // wgpu sizes the canvas DRAWING buffer (canvas.width/height) to the
         // swapchain (chrome-padded when window chrome is on — the engine resizes
         // the swapchain itself on set_chrome); set the CSS size so it displays at

@@ -1,5 +1,6 @@
 import type { AtermTerminal } from './aterm_wasm'
 import { drainAtermReplies } from './aterm-reply-drain'
+import { bumpAtermContentGen } from './aterm-present-latency-probe'
 
 // Reused for the GPU engine's byte feed (it has no process_str). One shared encoder
 // avoids a per-chunk allocation on the (less common) GPU in-process path.
@@ -45,6 +46,10 @@ export function createAtermProcessPump(deps: ProcessPumpDeps): (data: string) =>
     } else {
       deps.term.process(processPumpEncoder.encode(data))
     }
+    // e2e latency probe: mark that the grid content just advanced (flag-gated,
+    // no-op in production) so the present that draws this chunk can be correlated
+    // to the keystroke that caused it.
+    bumpAtermContentGen()
     // aterm is the authoritative query responder — drain + forward its replies.
     drainAtermReplies(deps.term, deps.inputSink)
     deps.emitTitleIfChanged()

@@ -1,6 +1,7 @@
 import { paintAtermSearchHighlights } from './aterm-search-overlay'
 import { paintAtermLinkUnderline, type AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
 import { chromeCssMargins } from './aterm-chrome-box'
+import { recordAtermPresent } from './aterm-present-latency-probe'
 import type { AtermSearchController, AtermSearchMatch } from './aterm-search'
 import type { AtermDrawScheduler } from './aterm-draw-scheduler'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -122,5 +123,9 @@ export function createAtermFramePainter(deps: AtermFramePainterDeps): () => void
       dpr
     })
     ctx.restore()
+    // e2e latency probe: the putImageData above is the real CPU present, so
+    // stamp it here — only reached on a frame that actually blitted (the early
+    // returns above skip no-op coalesced frames). Flag-gated, no-op otherwise.
+    recordAtermPresent()
   }
 }

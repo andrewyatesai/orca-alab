@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
-import type { GlobalSettings } from '../../shared/types'
+import type { CodexRateLimitAccountsState, GlobalSettings } from '../../shared/types'
 import { buildWslCodexAvailabilityArgs, buildWslCodexLoginArgs } from './wsl-codex-command'
 
 const testState = {
@@ -654,6 +654,179 @@ describe('CodexAccountService config sync', () => {
     warnSpy.mockRestore()
   })
 
+  it.each([
+    {
+      label: 'the active account',
+      accountId: 'account-1',
+      outcome: 'success',
+      expectedActiveAccountId: 'account-1',
+      expectedUpdateCount: 2
+    },
+    {
+      label: 'a different account',
+      accountId: 'account-2',
+      outcome: 'success',
+      expectedActiveAccountId: 'account-1',
+      expectedUpdateCount: 2
+    },
+    {
+      label: 'a login that fails',
+      accountId: 'account-1',
+      outcome: 'login-failure',
+      expectedActiveAccountId: null,
+      expectedUpdateCount: 1
+    },
+    {
+      label: 'credentials rejected by runtime validation',
+      accountId: 'account-1',
+      outcome: 'runtime-validation-failure',
+      expectedActiveAccountId: null,
+      expectedUpdateCount: 3
+    }
+  ])('keeps host selection semantics when reauthenticating $label', async (testCase) => {
+    vi.resetModules()
+
+    const hostAccounts = ['account-1', 'account-2'].map((id, index) => ({
+      id,
+      email: `${id}@example.com`,
+      managedHomePath: createManagedHome(
+        testState.userDataDir,
+        id,
+        '',
+        createCodexAuthJson(`${id}@example.com`, `provider-${id}`, `refresh-${id}`)
+      ),
+      providerAccountId: `provider-${id}`,
+      workspaceLabel: null,
+      workspaceAccountId: `provider-${id}`,
+      createdAt: index + 1,
+      updatedAt: index + 1,
+      lastAuthenticatedAt: index + 1
+    }))
+    const wslAccount = {
+      id: 'account-wsl',
+      email: 'account-wsl@example.com',
+      managedHomePath: createManagedHome(
+        testState.userDataDir,
+        'account-wsl',
+        '',
+        createCodexAuthJson('account-wsl@example.com', 'provider-wsl', 'refresh-wsl')
+      ),
+      managedHomeRuntime: 'wsl' as const,
+      wslDistro: 'Ubuntu',
+      wslLinuxHomePath: '/home/test/.local/share/orca/codex-accounts/account-wsl/home',
+      providerAccountId: 'provider-wsl',
+      workspaceLabel: null,
+      workspaceAccountId: 'provider-wsl',
+      createdAt: 3,
+      updatedAt: 3,
+      lastAuthenticatedAt: 3
+    }
+    const settings = createSettings({
+      codexManagedAccounts: [...hostAccounts, wslAccount],
+      activeCodexManagedAccountId: 'account-1',
+      activeCodexManagedAccountIdsByRuntime: {
+        host: 'account-1',
+        wsl: { Ubuntu: 'account-wsl' }
+      }
+    })
+    const store = createStore(settings)
+    const runtimeHome = createRuntimeHome()
+    const spawnMock = vi.fn(
+      (_command: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+        const child = new EventEmitter() as EventEmitter & {
+          stdout: PassThrough
+          stderr: PassThrough
+          kill: () => void
+        }
+        child.stdout = new PassThrough()
+        child.stderr = new PassThrough()
+        child.kill = vi.fn()
+        const current = store.getSettings()
+        store.updateSettings({
+          activeCodexManagedAccountId: null,
+          activeCodexManagedAccountIdsByRuntime: {
+            ...current.activeCodexManagedAccountIdsByRuntime!,
+            host: null,
+            wsl: { Ubuntu: null }
+          }
+        })
+        if (testCase.outcome === 'login-failure') {
+          queueMicrotask(() => child.emit('close', 1))
+          return child
+        }
+        writeFileSync(
+          join(options.env.CODEX_HOME!, 'auth.json'),
+          createCodexAuthJson('reauthenticated@example.com', 'provider-new', 'refresh-new'),
+          'utf-8'
+        )
+        queueMicrotask(() => child.emit('close', 0))
+        return child
+      }
+    )
+    vi.doMock('node:child_process', () => ({
+      execFileSync: vi.fn(),
+      spawn: spawnMock
+    }))
+    vi.doMock('../codex-cli/command', () => ({
+      resolveCodexCommand: () => 'codex'
+    }))
+
+    runtimeHome.syncForCurrentSelection.mockImplementation(() => {
+      if (testCase.outcome !== 'runtime-validation-failure') {
+        return
+      }
+      const current = store.getSettings()
+      store.updateSettings({
+        activeCodexManagedAccountId: null,
+        activeCodexManagedAccountIdsByRuntime: {
+          ...current.activeCodexManagedAccountIdsByRuntime!,
+          host: null
+        }
+      })
+    })
+    const rateLimits = createRateLimits()
+    const { CodexAccountService } = await import('./service')
+    const service = new CodexAccountService(
+      store as never,
+      rateLimits as never,
+      runtimeHome as never
+    )
+
+    let result: CodexRateLimitAccountsState | null = null
+    if (testCase.outcome === 'login-failure') {
+      await expect(service.reauthenticateAccount(testCase.accountId)).rejects.toThrow(
+        'Codex login exited with code 1.'
+      )
+    } else {
+      result = await service.reauthenticateAccount(testCase.accountId)
+    }
+
+    expect(result?.activeAccountId ?? null).toBe(testCase.expectedActiveAccountId)
+    if (result) {
+      expect(result.activeAccountIdsByRuntime).toEqual({
+        host: testCase.expectedActiveAccountId,
+        wsl: { Ubuntu: null }
+      })
+    }
+    expect(store.getSettings()).toMatchObject({
+      activeCodexManagedAccountId: testCase.expectedActiveAccountId,
+      activeCodexManagedAccountIdsByRuntime: {
+        host: testCase.expectedActiveAccountId,
+        wsl: { Ubuntu: null }
+      }
+    })
+    const completedLogin = testCase.outcome !== 'login-failure'
+    expect(runtimeHome.syncForCurrentSelection).toHaveBeenCalledTimes(completedLogin ? 1 : 0)
+    if (completedLogin) {
+      expect(runtimeHome.syncForCurrentSelection).toHaveBeenCalledWith({ runtime: 'host' })
+      expect(rateLimits.refreshForCodexAccountChange).toHaveBeenCalledWith(undefined, {
+        runtime: 'host'
+      })
+    }
+    expect(rateLimits.refreshForCodexAccountChange).toHaveBeenCalledTimes(completedLogin ? 1 : 0)
+    expect(store.updateSettings).toHaveBeenCalledTimes(testCase.expectedUpdateCount)
+  })
+
   it('does not recreate a missing managed home at a different account path', async () => {
     vi.resetModules()
     const managedHomePath = join(testState.userDataDir, 'codex-accounts', 'other-account', 'home')
@@ -968,6 +1141,7 @@ describe('CodexAccountService config sync', () => {
       }
       return ''
     })
+    let clearSelectionDuringLogin = (): void => {}
     const spawnMock = vi.fn((command: string, args: string[]) => {
       expect(command).toBe('wsl.exe')
       expect(args).toEqual(buildWslCodexLoginArgs('Ubuntu', wslLinuxHomePath))
@@ -979,6 +1153,7 @@ describe('CodexAccountService config sync', () => {
       child.stdout = new PassThrough()
       child.stderr = new PassThrough()
       child.kill = vi.fn()
+      clearSelectionDuringLogin()
       writeFileSync(
         join(wslManagedHomePath, 'auth.json'),
         JSON.stringify({
@@ -1023,9 +1198,22 @@ describe('CodexAccountService config sync', () => {
           lastAuthenticatedAt: 1
         }
       ],
-      activeCodexManagedAccountId: 'account-1'
+      activeCodexManagedAccountId: null,
+      activeCodexManagedAccountIdsByRuntime: {
+        host: null,
+        wsl: { Ubuntu: 'account-1' }
+      }
     })
     const store = createStore(settings)
+    clearSelectionDuringLogin = () => {
+      const current = store.getSettings()
+      store.updateSettings({
+        activeCodexManagedAccountIdsByRuntime: {
+          ...current.activeCodexManagedAccountIdsByRuntime!,
+          wsl: { Ubuntu: null }
+        }
+      })
+    }
     const rateLimits = createRateLimits()
     const runtimeHome = createRuntimeHome()
 
@@ -1044,7 +1232,20 @@ describe('CodexAccountService config sync', () => {
         managedHomeRuntime: 'wsl',
         wslDistro: 'Ubuntu'
       })
-      expect(runtimeHome.syncForCurrentSelection).toHaveBeenCalled()
+      expect(result.activeAccountId).toBe(null)
+      expect(result.activeAccountIdsByRuntime).toEqual({
+        host: null,
+        wsl: { Ubuntu: 'account-1' }
+      })
+      expect(runtimeHome.syncForCurrentSelection).toHaveBeenCalledWith({
+        runtime: 'wsl',
+        wslDistro: 'Ubuntu'
+      })
+      expect(rateLimits.refreshForCodexAccountChange).toHaveBeenCalledWith(undefined, {
+        runtime: 'wsl',
+        wslDistro: 'Ubuntu'
+      })
+      expect(store.updateSettings).toHaveBeenCalledTimes(2)
     } finally {
       Object.defineProperty(process, 'platform', {
         configurable: true,

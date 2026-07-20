@@ -178,6 +178,11 @@ export class CodexAccountService {
   private async doReauthenticateAccount(accountId: string): Promise<CodexRateLimitAccountsState> {
     const account = this.requireAccount(accountId)
     const managedHomePath = this.ensureManagedHomeForReauthentication(account)
+    const accountTarget = getCodexSelectionTargetForAccount(account)
+    const selectedAccountId = getSelectedCodexAccountIdForTarget(
+      this.store.getSettings(),
+      accountTarget
+    )
 
     this.safeSyncCanonicalConfigIntoManagedHome(managedHomePath)
     await this.runCodexLogin(managedHomePath)
@@ -201,19 +206,24 @@ export class CodexAccountService {
           }
         : entry
     )
+    const activeSelection = setSelectedCodexAccountIdForTarget(
+      normalizeCodexRuntimeSelection(settings),
+      selectedAccountId,
+      accountTarget
+    )
 
+    // Why: login can transiently clear this runtime's selection; unrelated runtime validation must remain authoritative.
     this.store.updateSettings({
-      codexManagedAccounts: updatedAccounts
+      codexManagedAccounts: updatedAccounts,
+      activeCodexManagedAccountId: activeSelection.host,
+      activeCodexManagedAccountIdsByRuntime: activeSelection
     })
     this.safeSyncCanonicalConfigToManagedHomes()
     this.runtimeHome.clearLastWrittenAuthJson(accountId)
-    this.runtimeHome.syncForCurrentSelection(getCodexSelectionTargetForAccount(account))
+    this.runtimeHome.syncForCurrentSelection(accountTarget)
 
     // Why: re-auth can change the underlying Codex identity, so force a fresh read to avoid showing stale quota.
-    await this.rateLimits.refreshForCodexAccountChange(
-      undefined,
-      getCodexSelectionTargetForAccount(account)
-    )
+    await this.rateLimits.refreshForCodexAccountChange(undefined, accountTarget)
     return this.getSnapshot()
   }
 

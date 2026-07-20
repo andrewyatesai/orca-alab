@@ -17,8 +17,10 @@ portable-pty = { version = "0.8", default-features = false }
 # `kill(signal)`). Unix-only: `nix` is an empty crate on Windows, which has no
 # POSIX signals — the Rust daemon that delivers them runs on Unix only. Already in
 # the graph via portable-pty; `signal`+`process` are the only features we use.
+# signal+process: kill(2) for named signals. fs+poll: the O_NONBLOCK gather
+# drain (fcntl/read) + its refill bridge and the EAGAIN-safe write retry (poll).
 [target.'cfg(unix)'.dependencies]
-nix = { version = "0.25", default-features = false, features = ["signal", "process"] }
+nix = { version = "0.25", default-features = false, features = ["signal", "process", "fs", "poll"] }
 
 [lints.rust]
 unsafe_code = "forbid"

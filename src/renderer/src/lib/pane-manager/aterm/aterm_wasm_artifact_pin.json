@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceCommit": "73cd82916dbfd813fc020f05c0df6e75167dbbf1",
+  "sourceCommit": "a7ef0b33eae6963b90a709dc7e89dd83cc52cc5a",
   "artifacts": {
     "aterm_wasm.js": {
       "bytes": 100562,
@@ -12,7 +12,7 @@
     },
     "aterm_wasm_bg.wasm": {
       "bytes": 3744355,
-      "sha256": "2bb0153451b171a5821b6dd412b622973b39c2cf2847b1e8bb30ddf569ef0827"
+      "sha256": "7cbf92548c11727c7a318a0a57554efb00a729bd9526f4424a2c9e8cc9ad7c65"
     },
     "aterm_wasm_bg.wasm.d.ts": {
       "bytes": 14267,
@@ -28,7 +28,7 @@
     },
     "aterm_gpu_web_bg.wasm": {
       "bytes": 6216802,
-      "sha256": "d79f53be7a3db34b8adcfc2594074a7a9dd7c3ec51463bd9609546d354d5b0e5"
+      "sha256": "dffa322532369b2df1f9725d15b7e3a97a36e0c4f19abb20965fca1cb52f93d5"
     },
     "aterm_gpu_web_bg.wasm.d.ts": {
       "bytes": 15282,

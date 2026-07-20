@@ -130,15 +130,20 @@ byte). Results (quiet M5 Max, 524 MB corpus, 5 trials, tight):
   from the reverted gather: keep the fine-grained drain (it already pipelines),
   and cut the DOWNSTREAM frame rate.
 
-**Shippable form (next):** an interactive-safe version must flush the coalesced
-buffer at the size cap OR when the burst pauses, so a prompt/echo isn't delayed
-until the cap fills. The clean way (no O_NONBLOCK, so no write-path change):
-`poll(master_fd, POLLIN, 0)` before each blocking read — if not ready, the burst
-ended, flush now (echo delivers immediately); during a flood it fills the cap
-and flushes by size. macOS main already batches PTY output on a ~2 ms / 16 KiB
-window (`src/main/ipc/pty.ts:1684,2484`), so a bounded daemon-side coalesce adds
-no more perceptible latency than already exists. `ORCA_PUMP_FRAME_KIB` stays a
-default-off instrument until that interactive-safe flush + a review land.
+**Shippable form (next) — the poll approach was tried and REJECTED.** An
+interactive-safe version must flush the coalesced buffer at the size cap OR when
+a burst pauses, so a prompt/echo isn't held until the cap fills. The obvious
+in-loop way — `poll(master_fd, POLLIN, timeout)` before each blocking read,
+flush on timeout — was implemented and MEASURED: it drops the flood to ~137 MB/s
+(WORSE than the 156 baseline) at both `timeout=0` and `timeout=2ms`. A poll per
+read can't distinguish a flood's ~1 KiB refill gap (and, under load, `cat`'s
+scheduling gaps) from a real interactive pause, so it false-flushes and stalls.
+The robust design is a **separate flush-timer** (a lightweight thread or the
+existing event machinery that flushes `route_acc` under a mutex every ~2 ms),
+decoupled from the read loop — mirroring what macOS main already does on its PTY
+output (`src/main/ipc/pty.ts:1684,2484`, ~2 ms / 16 KiB), so the added latency is
+no worse than today. `ORCA_PUMP_FRAME_KIB` stays a default-off, size-cap-only
+instrument (it proves the +58% ceiling) until that timer flush + a review land.
 
 ## Reproduce
 

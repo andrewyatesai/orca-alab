@@ -1,14 +1,16 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright 2026 Andrew Yates -->
-# Daemon PTY drain: a 64 KiB inline gather regresses the embed pump's read+engine loop
+# Embed cat-flood: the bottleneck is the socket fan-out, not the PTY drain
 
-**Date:** 2026-07-20. **Status:** the invasive 64 KiB inline gather was
+**Date:** 2026-07-20. **Status:** RESOLVED. The drain-focused gather graft was
 prototyped, measured against the read+engine loop, and **REVERTED**
-(`b78a5d0ff` → reverted `548b56997`); an external gpt-5.6/ultra review
-reproduced the numbers and confirmed the revert while narrowing the claim (this
-doc reflects its corrections). Whether a *small bounded* gather helps the *full*
-production path is **still open** — see "Open question". The knowledge is the
-deliverable.
+(`b78a5d0ff` → `548b56997`); an external gpt-5.6/ultra review reproduced the
+numbers, confirmed the revert, and redirected me to measure the *full* path. A
+receiver-timed end-to-end measurement then found the real bottleneck is the
+**socket fan-out** (~152 MB/s full-path vs 337 read+engine), and **coalescing
+`route_output` frames lifts the embed flood +58% (156 → 248 MB/s)** with the
+fast blocking drain untouched. See "RESOLVED" below. The `ORCA_PUMP_FRAME_KIB`
+knob is a default-off instrument pending the interactive-safe flush + review.
 
 ## Hypothesis
 
@@ -104,18 +106,39 @@ a separate lever, but its ideal ceiling is only ~378 (~7–10% over 337) before
 channel/recycle overhead, so it likely isn't worth the per-session machinery
 unless the full-path fanout shows large-batch gains.
 
-### Highest-value next experiment
+### RESOLVED: the bottleneck is the socket FAN-OUT, and coalescing frames wins
 
-A production-path, **attached-v1020, receiver-timed** batch-cap sweep: blocking
-vs bounded 4/8/16/64 KiB gathers through the *real* decoder + barrier + engine
-mutex + pending record + `route_output` + channel + socket writer + binary
-parser; ABBA-randomized; timed until the receiving client **consumes and
-verifies the final byte** (not pump EOF, which hides socket backlog); recording
-read sizes, batch histograms, EAGAIN/spin/poll counts, per-stage time, and
-socket-queue backlog; with attached AND detached arms to isolate fanout cost.
-That answers both open questions: whether the omitted production work reverses
-337-vs-240, and whether a small single-thread gather beats blocking without a
-thread split.
+I built the receiver-timed harness the review recommended
+(`scratchpad/daemon-flood-timed.mjs`: launch the real daemon, attach a v1020
+binary stream, flood `cat`, time until the client consumes+verifies the last
+byte). Results (quiet M5 Max, 524 MB corpus, 5 trials, tight):
+
+- **Full production path, current per-read routing: ~152–156 MB/s.** That is
+  *less than half* the read+engine loop's 337 — so the socket fan-out
+  (`route_output` → channel → writer thread → v1020 frame per ~1 KiB read), NOT
+  the drain or the engine, is the real bottleneck. The drain was a red herring.
+- **Coalescing `route_output` into ~N KiB frames** (bench knob
+  `ORCA_PUMP_FRAME_KIB`, `rpc.rs`; keeps the fast blocking read+engine loop
+  untouched — no O_NONBLOCK, no write-path change):
+
+  | frame KiB | 0 | 4 | 8 | 16 | 32 | 64 |
+  |---|---|---|---|---|---|---|
+  | MB/s | 156 | 174 | 176 | 212 | **248** | 246 |
+
+  **~32 KiB lifts the embed's end-to-end flood +58% (156 → 248)**, recovering
+  most of the gap toward the 337 read+engine ceiling. This is the opposite lever
+  from the reverted gather: keep the fine-grained drain (it already pipelines),
+  and cut the DOWNSTREAM frame rate.
+
+**Shippable form (next):** an interactive-safe version must flush the coalesced
+buffer at the size cap OR when the burst pauses, so a prompt/echo isn't delayed
+until the cap fills. The clean way (no O_NONBLOCK, so no write-path change):
+`poll(master_fd, POLLIN, 0)` before each blocking read — if not ready, the burst
+ended, flush now (echo delivers immediately); during a flood it fills the cap
+and flushes by size. macOS main already batches PTY output on a ~2 ms / 16 KiB
+window (`src/main/ipc/pty.ts:1684,2484`), so a bounded daemon-side coalesce adds
+no more perceptible latency than already exists. `ORCA_PUMP_FRAME_KIB` stays a
+default-off instrument until that interactive-safe flush + a review land.
 
 ## Reproduce
 

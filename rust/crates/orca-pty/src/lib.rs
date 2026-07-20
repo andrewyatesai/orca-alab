@@ -9,5 +9,3 @@
 pub mod session;
 
 pub use session::{PtyCommand, PtySession, PtySize};
-#[cfg(unix)]
-pub use session::{gather_drain, MasterReadFd};

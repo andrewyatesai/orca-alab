@@ -15,8 +15,6 @@ use crate::utf8_stream_decoder::Utf8StreamDecoder;
 use orca_pty::{PtyCommand, PtySession, PtySize};
 use orca_terminal::{HeadlessTerminal, MouseTracking, DEFAULT_SCROLLBACK};
 use serde_json::{json, Value};
-// Read is the windows pump's blocking source; unix drives gather_drain by fd.
-#[cfg(windows)]
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -385,17 +383,7 @@ fn create_or_attach(
         Err(e) => return rpc_err(id, &format!("spawn failed: {e}")),
     };
     let pid = pty.process_id();
-    // unix: an owned nonblocking dup of the master (drives gather_drain, and flips
-    // the master's writer to the EAGAIN-safe path via the shared OFD). windows: a
-    // plain blocking reader clone. Taken BEFORE `pty` moves into the registry; the
-    // dup / reader keeps the master OFD alive independently.
-    #[cfg(unix)]
-    let pump_source = match pty.clone_read_fd() {
-        Ok(f) => f,
-        Err(e) => return rpc_err(id, &format!("master read-fd clone failed: {e}")),
-    };
-    #[cfg(windows)]
-    let pump_source = match pty.try_clone_reader() {
+    let reader = match pty.try_clone_reader() {
         Ok(r) => r,
         Err(e) => return rpc_err(id, &format!("reader clone failed: {e}")),
     };
@@ -484,7 +472,7 @@ fn create_or_attach(
     // moves into the registry entry.
     let pump_registry = registry.clone();
     let pump_session = session_id.clone();
-    thread::spawn(move || pump_output(pump_source, pump_registry, pump_session, engine, barrier));
+    thread::spawn(move || pump_output(reader, pump_registry, pump_session, engine, barrier));
     // Interactive-spawn sessions get their startup command through stdin (queued
     // behind the barrier when one is armed) — terminal-host.ts createOrAttach.
     // Legacy `-lc` spawns already carry it in argv.
@@ -761,118 +749,77 @@ fn spawn_ready_timeout(
     });
 }
 
-/// Feed ONE drained batch (`raw`) through the barrier scan, the engine (VT parser
-/// + checkpoint records, atomically under one lock), and the live stream. Shared
-/// by the unix gather loop and the windows blocking loop so both platforms run
-/// byte-identical fan-out — the VT parser is a streaming state machine, so a
-/// 64 KiB gathered batch is equivalent to the per-1 KiB chunks it replaces.
-fn feed_batch(
-    raw: &[u8],
-    decoder: &mut Utf8StreamDecoder,
-    barrier: &Option<Arc<Mutex<ShellReadyBarrier>>>,
-    engine: &Arc<Mutex<SessionEngine>>,
-    registry: &Arc<Registry>,
-    session_id: &str,
-) {
-    // Barrier-less sessions feed the engine RAW bytes (its VT parser is
-    // byte-accurate and buffers incomplete sequences), but the checkpoint records
-    // + live stream are text, so decode with a boundary-carrying decoder: a
-    // multibyte char split across two reads is completed on the next batch
-    // instead of becoming U+FFFD, which would desync the stream/records from the
-    // (correct) engine grid.
-    let data = decoder.decode(raw);
-    // While the barrier scans for the ready marker, the SCANNED text (marker
-    // stripped, partial prefix withheld) replaces the batch everywhere downstream
-    // — engine, records, and stream — matching session.ts, where scanning runs
-    // before all fan-out. Once readiness resolves, the barrier only observes
-    // batches for its post-ready flush gate.
-    let (scanned, timer) = match barrier {
-        Some(b) => {
-            let mut b = b.lock().unwrap();
-            if b.is_scanning() {
-                let (text, timer) = b.process_output(&data);
-                (Some(text), timer)
-            } else {
-                (None, b.notify_output())
-            }
-        }
-        None => (None, None),
-    };
-    let text = scanned.as_deref().unwrap_or(&data);
-    // Feed the engine ATOMICALLY: bytes into the VT parser AND the same batch into
-    // the checkpoint record log, under one lock so a concurrent takePendingOutput
-    // can't see the terminal updated but the record missing (which would duplicate
-    // bytes on cold restore). A fully-withheld batch (all bytes held by the marker
-    // scanner) feeds nothing, like session.ts's empty-output early return.
-    if scanned.is_none() || !text.is_empty() {
-        if let Ok(mut engine) = engine.lock() {
-            // Barrier sessions keep the DECODED engine feed for their whole
-            // lifetime: the decoder can hold a split multibyte char as carry across
-            // the scan→post-scan boundary, so switching back to raw bytes there
-            // would hand the engine orphan continuation bytes and corrupt one glyph
-            // in its grid vs the records/stream.
-            if barrier.is_some() {
-                engine.terminal.process(text.as_bytes());
-            } else {
-                engine.terminal.process(raw);
-            }
-            engine.pending.record_output(text);
-        }
-        // Stream the same boundary-safe copy live to the attached client (dropped
-        // if detached — the reattach snapshot restores it).
-        registry.route_output(session_id, text);
-    }
-    if let Some(timer) = timer {
-        spawn_gate_timer(
-            registry.clone(),
-            session_id.to_string(),
-            Arc::clone(barrier.as_ref().expect("timer implies barrier")),
-            timer,
-        );
-    }
-}
-
 fn pump_output(
-    // unix: an owned nonblocking dup driving the gather drain (batches past the
-    // ~1 KiB macOS read cap, ~2x flood throughput). windows: the blocking reader
-    // (ConPTY has no per-read cap, so gathering buys nothing there).
-    #[cfg(unix)] read_fd: orca_pty::MasterReadFd,
-    #[cfg(windows)] mut reader: Box<dyn Read + Send>,
+    mut reader: Box<dyn Read + Send>,
     registry: Arc<Registry>,
     session_id: String,
     engine: Arc<Mutex<SessionEngine>>,
     barrier: Option<Arc<Mutex<ShellReadyBarrier>>>,
 ) {
     let mut buf = [0u8; 65536];
+    // Barrier-less sessions feed the engine RAW bytes (its VT parser is
+    // byte-accurate and buffers incomplete sequences), but the checkpoint records
+    // + live stream are text, so decode with a boundary-carrying decoder: a
+    // multibyte char split across two reads is completed on the next chunk
+    // instead of becoming U+FFFD, which would desync the stream/records from the
+    // (correct) engine grid.
     let mut decoder = Utf8StreamDecoder::new();
-    #[cfg(unix)]
-    {
-        let fd = read_fd.as_raw_fd();
-        loop {
-            // Gather a batch (drain-to-EAGAIN, bounded to min(64 KiB, 3 ms of
-            // refill-gap bridging)), then ONE fan-out — instead of a fan-out per
-            // ~1 KiB read (the lockstep the old blocking loop paid). A sustained
-            // flood fills the 64 KiB buf; EOF/hard-error ends the pump; EAGAIN never
-            // does. NOTE: feed_batch holds the engine lock for the whole batch, so a
-            // flood raises the per-feed engine-lock hold from ~1 KiB to ~64 KiB.
-            let (filled, eof) = orca_pty::gather_drain(fd, &mut buf);
-            if filled > 0 {
-                feed_batch(&buf[..filled], &mut decoder, &barrier, &engine, &registry, &session_id);
-            }
-            if eof {
-                break;
-            }
-        }
-        // Close the dup only after the loop: it kept the master OFD alive so the
-        // gather never read/polled a recycled fd during a concurrent teardown.
-        drop(read_fd);
-    }
-    #[cfg(windows)]
     loop {
         match reader.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
-                feed_batch(&buf[..n], &mut decoder, &barrier, &engine, &registry, &session_id)
+                let data = decoder.decode(&buf[..n]);
+                // While the barrier scans for the ready marker, the SCANNED text
+                // (marker stripped, partial prefix withheld) replaces the chunk
+                // everywhere downstream — engine, records, and stream — matching
+                // session.ts, where scanning runs before all fan-out. Once
+                // readiness resolves, the barrier only observes chunks for its
+                // post-ready flush gate.
+                let (scanned, timer) = match &barrier {
+                    Some(b) => {
+                        let mut b = b.lock().unwrap();
+                        if b.is_scanning() {
+                            let (text, timer) = b.process_output(&data);
+                            (Some(text), timer)
+                        } else {
+                            (None, b.notify_output())
+                        }
+                    }
+                    None => (None, None),
+                };
+                let text = scanned.as_deref().unwrap_or(&data);
+                // Feed the engine ATOMICALLY: bytes into the VT parser AND the
+                // same chunk into the checkpoint record log, under one lock so a
+                // concurrent takePendingOutput can't see the terminal updated but
+                // the record missing (which would duplicate bytes on cold restore).
+                // A fully-withheld chunk (all bytes held by the marker scanner)
+                // feeds nothing, like session.ts's empty-output early return.
+                if scanned.is_none() || !text.is_empty() {
+                    if let Ok(mut engine) = engine.lock() {
+                        // Barrier sessions keep the DECODED engine feed for their whole
+                        // lifetime: the decoder can hold a split multibyte char as carry
+                        // across the scan→post-scan boundary, so switching back to raw
+                        // bytes there would hand the engine orphan continuation bytes
+                        // and corrupt one glyph in its grid vs the records/stream.
+                        if barrier.is_some() {
+                            engine.terminal.process(text.as_bytes());
+                        } else {
+                            engine.terminal.process(&buf[..n]);
+                        }
+                        engine.pending.record_output(text);
+                    }
+                    // Stream the same boundary-safe copy live to the attached client
+                    // (dropped if detached — the reattach snapshot restores it).
+                    registry.route_output(&session_id, text);
+                }
+                if let Some(timer) = timer {
+                    spawn_gate_timer(
+                        registry.clone(),
+                        session_id.clone(),
+                        Arc::clone(barrier.as_ref().expect("timer implies barrier")),
+                        timer,
+                    );
+                }
             }
         }
     }

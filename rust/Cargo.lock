@@ -705,6 +705,7 @@ dependencies = [
 name = "orca-daemon"
 version = "0.0.1"
 dependencies = [
+ "nix",
  "orca-net",
  "orca-pty",
  "orca-terminal",

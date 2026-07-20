@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceCommit": "9c2b917a906b11b47c0abbcddae9923cf20ae24f",
+  "sourceCommit": "e6b5332554fed036c8e600e22f320c5bf3328c46",
   "artifacts": {
     "aterm_wasm.js": {
       "bytes": 100562,

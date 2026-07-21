@@ -403,6 +403,71 @@ function gcStaleWorktreeMeta(state: PersistedState): number {
   return removed
 }
 
+function gcOrphanedRepoState(state: PersistedState): number {
+  const liveOwnerIds = new Set([
+    ...state.repos.map((repo) => repo.id),
+    ...(state.projects ?? []).map((project) => project.id)
+  ])
+  // Why: an unexpectedly empty owner list must not turn one anomalous load into a full state wipe.
+  if (liveOwnerIds.size === 0) {
+    return 0
+  }
+  const ownerIdOf = (key: string): string | null => {
+    const scope = parseWorkspaceKey(key)
+    if (scope?.type === 'folder') {
+      return null
+    }
+    const worktreeId = scope?.type === 'worktree' ? scope.worktreeId : key
+    const separator = worktreeId.indexOf('::')
+    return separator === -1 ? null : worktreeId.slice(0, separator)
+  }
+  const isOrphanKey = (key: string): boolean => {
+    const ownerId = ownerIdOf(key)
+    return ownerId !== null && !liveOwnerIds.has(ownerId)
+  }
+
+  let removed = 0
+  for (const key of Object.keys(state.worktreeMeta)) {
+    if (isOrphanKey(key)) {
+      delete state.worktreeMeta[key]
+      removed++
+    }
+  }
+  for (const [childId, lineage] of Object.entries(state.worktreeLineageById)) {
+    if (isOrphanKey(childId) || isOrphanKey(lineage.parentWorktreeId)) {
+      delete state.worktreeLineageById[childId]
+      removed++
+    }
+  }
+  for (const [childKey, lineage] of Object.entries(state.workspaceLineageByChildKey)) {
+    const childScope = parseWorkspaceKey(childKey)
+    const parentScope = parseWorkspaceKey(lineage.parentWorkspaceKey)
+    if (
+      (childScope?.type === 'worktree' && isOrphanKey(childScope.worktreeId)) ||
+      (parentScope?.type === 'worktree' && isOrphanKey(parentScope.worktreeId))
+    ) {
+      delete state.workspaceLineageByChildKey[childKey as WorkspaceKey]
+      removed++
+    }
+  }
+  const localSession = gcOrphanedWorkspaceSessionOwners(
+    state.workspaceSession,
+    liveOwnerIds,
+    isOrphanKey
+  )
+  state.workspaceSession = localSession.session
+  removed += localSession.removed
+  for (const [partitionHostId, session] of Object.entries(state.workspaceSessionsByHostId ?? {})) {
+    if (!session) {
+      continue
+    }
+    const partition = gcOrphanedWorkspaceSessionOwners(session, liveOwnerIds, isOrphanKey)
+    state.workspaceSessionsByHostId![partitionHostId as ExecutionHostId] = partition.session
+    removed += partition.removed
+  }
+  return removed
+}
+
 function readGithubCacheSnapshot(dataFile: string): PersistedState['githubCache'] | null {
   try {
     const parsed = JSON.parse(readFileSync(getGithubCacheFile(dataFile), 'utf-8')) as unknown
@@ -2358,14 +2423,45 @@ function cloneWorkspaceSessionState(session: WorkspaceSessionState): WorkspaceSe
   return structuredClone(session)
 }
 
-function removeWorkspaceSessionOwner(
-  session: WorkspaceSessionState | undefined,
-  ownerKey: string
-): WorkspaceSessionState | undefined {
-  if (!session) {
-    return session
+const WORKSPACE_SESSION_OWNER_RECORD_KEYS = [
+  'tabsByWorktree',
+  'openFilesByWorktree',
+  'activeFileIdByWorktree',
+  'browserTabsByWorktree',
+  'activeBrowserTabIdByWorktree',
+  'activeTabTypeByWorktree',
+  'activeTabIdByWorktree',
+  'unifiedTabs',
+  'tabGroups',
+  'tabGroupLayouts',
+  'activeGroupIdByWorktree',
+  'lastVisitedAtByWorktreeId',
+  'defaultTerminalTabsAppliedByWorktreeId'
+] as const satisfies readonly (keyof WorkspaceSessionState)[]
+
+function collectWorkspaceSessionOwnerKeys(session: WorkspaceSessionState): Set<string> {
+  const ownerKeys = new Set<string>()
+  for (const recordKey of WORKSPACE_SESSION_OWNER_RECORD_KEYS) {
+    for (const ownerKey of Object.keys(session[recordKey] ?? {})) {
+      ownerKeys.add(ownerKey)
+    }
   }
-  const next = cloneWorkspaceSessionState(session)
+  if (session.activeWorkspaceKey) {
+    ownerKeys.add(session.activeWorkspaceKey)
+  }
+  if (session.activeWorktreeId) {
+    ownerKeys.add(session.activeWorktreeId)
+  }
+  for (const worktreeId of session.activeWorktreeIdsOnShutdown ?? []) {
+    ownerKeys.add(worktreeId)
+  }
+  for (const record of Object.values(session.sleepingAgentSessionsByPaneKey ?? {})) {
+    ownerKeys.add(record.worktreeId)
+  }
+  return ownerKeys
+}
+
+function removeWorkspaceSessionOwnerInPlace(next: WorkspaceSessionState, ownerKey: string): void {
   const removedTerminalTabs = next.tabsByWorktree?.[ownerKey] ?? []
   if (next.tabsByWorktree) {
     delete next.tabsByWorktree[ownerKey]
@@ -2374,6 +2470,9 @@ function removeWorkspaceSessionOwner(
     delete next.terminalLayoutsByTabId[tab.id]
     if (next.activeTabId === tab.id) {
       next.activeTabId = null
+    }
+    if (next.remoteSessionIdsByTabId) {
+      delete next.remoteSessionIdsByTabId[tab.id]
     }
   }
 
@@ -2435,7 +2534,44 @@ function removeWorkspaceSessionOwner(
   next.activeWorktreeIdsOnShutdown = next.activeWorktreeIdsOnShutdown?.filter(
     (worktreeId) => worktreeId !== ownerKey
   )
+}
+
+function removeWorkspaceSessionOwners(
+  session: WorkspaceSessionState | undefined,
+  ownerKeys: ReadonlySet<string>
+): WorkspaceSessionState | undefined {
+  if (!session || ownerKeys.size === 0) {
+    return session
+  }
+  const next = cloneWorkspaceSessionState(session)
+  for (const ownerKey of ownerKeys) {
+    removeWorkspaceSessionOwnerInPlace(next, ownerKey)
+  }
   return next
+}
+
+function removeWorkspaceSessionOwner(
+  session: WorkspaceSessionState | undefined,
+  ownerKey: string
+): WorkspaceSessionState | undefined {
+  return removeWorkspaceSessionOwners(session, new Set([ownerKey]))
+}
+
+function gcOrphanedWorkspaceSessionOwners(
+  session: WorkspaceSessionState,
+  liveOwnerIds: ReadonlySet<string>,
+  isOrphanKey: (key: string) => boolean
+): { session: WorkspaceSessionState; removed: number } {
+  const orphanOwnerKeys = new Set(
+    [...collectWorkspaceSessionOwnerKeys(session)].filter(isOrphanKey)
+  )
+  let removed = orphanOwnerKeys.size
+  const next = removeWorkspaceSessionOwners(session, orphanOwnerKeys) ?? session
+  if (next.activeRepoId && !liveOwnerIds.has(next.activeRepoId)) {
+    next.activeRepoId = null
+    removed++
+  }
+  return { session: next, removed }
 }
 
 function inferFolderScopeConnectionIdForMigration(args: {
@@ -3414,6 +3550,11 @@ export class Store {
     result = folderScopeConnectionMigration.state
 
     if (gcStaleWorktreeMeta(result) > 0) {
+      this.loadNeedsSave = true
+    }
+
+    // Why: a crashed/partial repo removal can leave session state that recreates a duplicate workspace on restart.
+    if (gcOrphanedRepoState(result) > 0) {
       this.loadNeedsSave = true
     }
 

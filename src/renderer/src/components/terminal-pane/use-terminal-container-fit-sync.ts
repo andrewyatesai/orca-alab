@@ -1,6 +1,9 @@
 import { useEffect } from 'react'
 import { SYNC_FIT_PANES_EVENT } from '@/constants/terminal'
 import type { PaneManager } from '@/lib/pane-manager/pane-manager'
+import { getFitOverrideForPty } from '@/lib/pane-manager/mobile-fit-overrides'
+import { holdPtyResizesForPaneSubtrees } from '@/lib/pane-manager/pane-pty-resize-hold'
+import { beginTerminalContainerResizeSettle } from '@/lib/pane-manager/terminal-container-resize-settle'
 import { fitPanes } from './pane-helpers'
 
 type UseTerminalContainerFitSyncArgs = {
@@ -8,6 +11,56 @@ type UseTerminalContainerFitSyncArgs = {
   isSyncFitEnabled: boolean
   managerRef: React.RefObject<PaneManager | null>
   containerRef: React.RefObject<HTMLDivElement | null>
+}
+
+export const TERMINAL_CONTAINER_RESIZE_DEBOUNCE_MS = 150
+export const TERMINAL_CONTAINER_RESIZE_MAX_SETTLE_MS = 1000
+export const TERMINAL_CONTAINER_RESIZE_LEADING_FIT_MAX_SCROLLBACK_ROWS = 1000
+
+type ManagedPaneView = ReturnType<PaneManager['getPanes']>[number]
+
+function canFitImmediatelyDuringContainerResize(manager: PaneManager): boolean {
+  const panes = manager.getPanes()
+  if (panes.length === 0) {
+    return false
+  }
+  return panes.every((pane) => {
+    const activeBuffer = pane.terminal.buffer?.active
+    if (!activeBuffer) {
+      return false
+    }
+    if (activeBuffer.type === 'alternate') {
+      return true
+    }
+    return (
+      getNormalScrollbackRows(pane) <= TERMINAL_CONTAINER_RESIZE_LEADING_FIT_MAX_SCROLLBACK_ROWS
+    )
+  })
+}
+
+function getNormalScrollbackRows(pane: ManagedPaneView): number {
+  const baseY = pane.terminal.buffer?.active?.baseY
+  return typeof baseY === 'number' ? baseY : Number.POSITIVE_INFINITY
+}
+
+function fitRowsWithoutColumnReflow(manager: PaneManager): void {
+  for (const pane of manager.getPanes()) {
+    const ptyId = pane.container.dataset.ptyId
+    if (ptyId && getFitOverrideForPty(ptyId)) {
+      continue
+    }
+    try {
+      const dims = pane.fitAddon.proposeDimensions()
+      if (!dims || dims.rows === pane.terminal.rows || pane.terminal.cols <= 0) {
+        continue
+      }
+      // Why: xterm scrollback reflow is column-driven. During a heavy resize
+      // settle, keep columns frozen but let the viewport height track live.
+      pane.terminal.resize(pane.terminal.cols, dims.rows)
+    } catch {
+      // Container may not have dimensions yet.
+    }
+  }
 }
 
 export function useTerminalContainerFitSync({
@@ -21,9 +74,9 @@ export function useTerminalContainerFitSync({
   // terminal fits synchronously with the new container size, eliminating the
   // ~16ms "old cols, new container width" flash that a deferred
   // ResizeObserver rAF would otherwise produce. The subsequent per-pane
-  // ResizeObserver rAF and the 150ms debounced global fit become no-ops
-  // because proposeDimensions() will match current cols/rows (early-return
-  // branch in safeFit). Hidden display:none panes cannot be measured
+  // ResizeObserver rAF and trailing debounced global fit become no-ops because
+  // proposeDimensions() will match current cols/rows (early-return branch in
+  // safeFit). Hidden display:none panes cannot be measured
   // accurately, so they skip this global path and refit on visibility resume.
   useEffect(() => {
     if (!isSyncFitEnabled) {
@@ -53,26 +106,139 @@ export function useTerminalContainerFitSync({
     // the viewport scroll position. On Windows, a single reflow of 10 000
     // scrollback lines can block the renderer for 500 ms-2 s, freezing the
     // UI while a sidebar opens or a window resizes.
-    const RESIZE_DEBOUNCE_MS = 150
     let timerId: ReturnType<typeof setTimeout> | null = null
-    const resizeObserver = new ResizeObserver(() => {
+    let maxSettleTimerId: ReturnType<typeof setTimeout> | null = null
+    let releaseResizeSettle: (() => void) | null = null
+    let ptyResizeHold: ReturnType<typeof holdPtyResizesForPaneSubtrees> | null = null
+    function clearTimer(): void {
       if (timerId !== null) {
         clearTimeout(timerId)
+        timerId = null
       }
+    }
+    function clearMaxSettleTimer(): void {
+      if (maxSettleTimerId !== null) {
+        clearTimeout(maxSettleTimerId)
+        maxSettleTimerId = null
+      }
+    }
+    function armMaxSettleTimer(): void {
+      if (maxSettleTimerId !== null) {
+        return
+      }
+      maxSettleTimerId = setTimeout(() => {
+        maxSettleTimerId = null
+        finishResizeSettle(true)
+      }, TERMINAL_CONTAINER_RESIZE_MAX_SETTLE_MS)
+    }
+    function fitLeadingResizeIfCheap(): void {
+      const manager = managerRef.current
+      if (!manager || !canFitImmediatelyDuringContainerResize(manager)) {
+        return
+      }
+      fitPanes(manager)
+    }
+    function fitRowsDuringResizeSettle(): void {
+      const manager = managerRef.current
+      if (!manager) {
+        return
+      }
+      fitRowsWithoutColumnReflow(manager)
+    }
+    function beginResizeSettle({
+      armMaxTimer = true,
+      allowLeadingFit = false
+    }: { armMaxTimer?: boolean; allowLeadingFit?: boolean } = {}): void {
+      const isNewSettle = !releaseResizeSettle
+      if (isNewSettle) {
+        releaseResizeSettle = beginTerminalContainerResizeSettle()
+        ptyResizeHold = holdPtyResizesForPaneSubtrees([container])
+      }
+      if (isNewSettle && allowLeadingFit) {
+        // Why: low-scrollback panes can absorb one immediate fit so ordinary
+        // terminals stay responsive; large scrollback keeps the settle-only path.
+        fitLeadingResizeIfCheap()
+      }
+      // Why: resize observers can keep firing during a long drag or platform
+      // window animation. A hard cap keeps suppression from starving the final
+      // xterm fit if the quiet-period debounce never gets a turn.
+      if (armMaxTimer) {
+        armMaxSettleTimer()
+      }
+    }
+    function releasePendingResizeSettle(flush: boolean): void {
+      releaseResizeSettle?.()
+      releaseResizeSettle = null
+      const hold = ptyResizeHold
+      ptyResizeHold = null
+      if (!hold) {
+        return
+      }
+      if (flush) {
+        hold.flush()
+      } else {
+        hold.cancel()
+      }
+    }
+    function finishResizeSettle(flush: boolean): void {
+      clearTimer()
+      clearMaxSettleTimer()
+      const hasActiveSettle = releaseResizeSettle !== null || ptyResizeHold !== null
+      if (!hasActiveSettle) {
+        return
+      }
+      const manager = managerRef.current
+      if (flush && manager) {
+        // Why: while the outer terminal container is resizing, per-pane
+        // observers skip heavy xterm reflows and PTY resize forwarding is
+        // held. Fit once after the drag settles, then flush the final
+        // SIGWINCH-sized grid instead of every transient grid.
+        try {
+          fitPanes(manager)
+        } finally {
+          releasePendingResizeSettle(true)
+        }
+        return
+      }
+      // Why: a transiently unavailable manager should only skip the local fit;
+      // the held final PTY grid still needs to reach the backend.
+      releasePendingResizeSettle(flush)
+    }
+    function scheduleFinalResizeSettle({
+      allowLeadingFit = true,
+      allowRowOnlyFit = true
+    }: { allowLeadingFit?: boolean; allowRowOnlyFit?: boolean } = {}): void {
+      beginResizeSettle({ allowLeadingFit })
+      if (allowRowOnlyFit) {
+        fitRowsDuringResizeSettle()
+      }
+      clearTimer()
       timerId = setTimeout(() => {
         timerId = null
-        const manager = managerRef.current
-        if (manager) {
-          fitPanes(manager)
-        }
-      }, RESIZE_DEBOUNCE_MS)
+        finishResizeSettle(true)
+      }, TERMINAL_CONTAINER_RESIZE_DEBOUNCE_MS)
+    }
+    const unsubscribeMinimizedChanged = window.api.ui.onMinimizedChanged((isMinimized) => {
+      if (isMinimized) {
+        // Why: minimized windows can report hidden/intermediate geometry for a
+        // long time. Keep fits and PTY resizes held until restore provides a
+        // measurable final layout.
+        beginResizeSettle({ armMaxTimer: false })
+        clearTimer()
+        clearMaxSettleTimer()
+        return
+      }
+      scheduleFinalResizeSettle({ allowLeadingFit: false, allowRowOnlyFit: false })
+    })
+    const resizeObserver = new ResizeObserver(() => {
+      scheduleFinalResizeSettle()
     })
     resizeObserver.observe(container)
     return () => {
+      unsubscribeMinimizedChanged()
       resizeObserver.disconnect()
-      if (timerId !== null) {
-        clearTimeout(timerId)
-      }
+      clearTimer()
+      finishResizeSettle(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible])

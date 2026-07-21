@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   foldWslUncPathCaseInsensitiveParts,
   isWslUncPath,
+  mapPosixPathToWslWorktreeUncPath,
   parseWslUncPath,
   toWindowsWslPath
 } from './wsl-paths'
@@ -63,5 +64,37 @@ describe('foldWslUncPathCaseInsensitiveParts', () => {
     expect(foldWslUncPathCaseInsensitiveParts('C:\\Users\\jin')).toBeNull()
     expect(foldWslUncPathCaseInsensitiveParts('//server/share/x')).toBeNull()
     expect(foldWslUncPathCaseInsensitiveParts('/home/jin')).toBeNull()
+  })
+})
+
+describe('mapPosixPathToWslWorktreeUncPath', () => {
+  it('rebases a POSIX path onto the WSL worktree UNC share', () => {
+    expect(
+      mapPosixPathToWslWorktreeUncPath(
+        '/home/jin/repo/src/app.ts',
+        '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo'
+      )
+    ).toBe('\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\src\\app.ts')
+  })
+
+  it('preserves the legacy wsl$ share spelling of the worktree', () => {
+    expect(
+      mapPosixPathToWslWorktreeUncPath('/etc/hosts', '\\\\wsl$\\Debian\\home\\jin')
+    ).toBe('\\\\wsl$\\Debian\\etc\\hosts')
+  })
+
+  it('maps paths outside the worktree, including drvfs mounts', () => {
+    expect(
+      mapPosixPathToWslWorktreeUncPath('/mnt/c/logs/out.txt', '\\\\wsl.localhost\\Ubuntu\\repo')
+    ).toBe('\\\\wsl.localhost\\Ubuntu\\mnt\\c\\logs\\out.txt')
+  })
+
+  it('returns null for non-POSIX paths and non-WSL worktrees', () => {
+    const wslWorktree = '\\\\wsl.localhost\\Ubuntu\\repo'
+    expect(mapPosixPathToWslWorktreeUncPath('C:\\Users\\jin\\a.ts', wslWorktree)).toBeNull()
+    expect(mapPosixPathToWslWorktreeUncPath('\\\\wsl$\\Ubuntu\\repo\\a.ts', wslWorktree)).toBeNull()
+    expect(mapPosixPathToWslWorktreeUncPath('//server/share/a.ts', wslWorktree)).toBeNull()
+    expect(mapPosixPathToWslWorktreeUncPath('/home/jin/a.ts', 'C:\\repo')).toBeNull()
+    expect(mapPosixPathToWslWorktreeUncPath('/home/jin/a.ts', '/home/jin/repo')).toBeNull()
   })
 })

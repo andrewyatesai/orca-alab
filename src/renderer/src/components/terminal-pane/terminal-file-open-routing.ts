@@ -10,6 +10,7 @@ import {
 import { settingsForRuntimeOwner } from '@/runtime/runtime-rpc-client'
 import { useAppStore } from '@/store'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
+import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-paths'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
 
 type TerminalFileOpenDeps = {
@@ -86,12 +87,16 @@ function schedulePendingEditorReveal(callback: () => void): void {
 }
 
 export function openDetectedFilePath(
-  filePath: string,
+  detectedFilePath: string,
   line: number | null,
   column: number | null,
   deps: TerminalFileOpenDeps
 ): void {
   const { openWithSystemDefault = false, runtimeEnvironmentId, worktreeId, worktreePath } = deps
+  // Why (issue #8156): WSL terminals emit POSIX paths (detected links, OSC 8)
+  // the Windows host cannot stat or open; rebase onto the worktree's UNC share.
+  const filePath =
+    mapPosixPathToWslWorktreeUncPath(detectedFilePath, worktreePath) ?? detectedFilePath
   const requestId = ++latestOpenDetectedFilePathRequestId
   cancelPendingEditorRevealFrames()
 

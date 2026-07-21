@@ -2983,6 +2983,7 @@ export type PreloadApi = {
     onSystemResumed: (callback: () => void) => () => void
     readClipboardText: (options?: ReadClipboardTextOptions) => Promise<string>
     readSelectionClipboardText: (options?: ReadClipboardTextOptions) => Promise<string>
+    readClipboardFilePaths: () => Promise<string[]>
     saveClipboardImageAsTempFile: (args?: {
       connectionId?: string | null
       runtimeEnvironmentId?: string | null
@@ -3011,6 +3012,7 @@ export type PreloadApi = {
       callback: (payload: RichMarkdownContextMenuCommandPayload) => void
     ) => () => void
     onFullscreenChanged: (callback: (isFullScreen: boolean) => void) => () => void
+    onMinimizedChanged: (callback: (isMinimized: boolean) => void) => () => void
     minimize: () => void
     maximize: () => void
     isMaximized: () => Promise<boolean>

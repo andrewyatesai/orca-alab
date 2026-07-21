@@ -426,6 +426,14 @@ export function createMainWindow(
     mainWindow.webContents.send('window:fullscreen-changed', false)
   })
 
+  mainWindow.on('minimize', () => {
+    mainWindow.webContents.send('window:minimized-changed', true)
+  })
+  mainWindow.on('restore', () => {
+    // Why: macOS restore repaint is handled by installMacosVisibilityRepaint; only the minimized-state relay lives here.
+    mainWindow.webContents.send('window:minimized-changed', false)
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     const externalUrl = normalizeExternalBrowserUrl(details.url)
     if (externalUrl) {

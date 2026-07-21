@@ -9,6 +9,10 @@ import {
   beginTerminalScrollIntentBufferRebuild,
   endTerminalScrollIntentBufferRebuild
 } from './terminal-scroll-intent-rebuild'
+import {
+  beginTerminalContainerResizeSettle,
+  resetTerminalContainerResizeSettleForTests
+} from './terminal-container-resize-settle'
 import { safeFitAndThen } from './pane-tree-ops'
 
 type ResizeObserverCallbackLike = ConstructorParameters<typeof ResizeObserver>[0]
@@ -99,6 +103,7 @@ describe('attachPaneFitResizeObserver', () => {
   })
 
   afterEach(() => {
+    resetTerminalContainerResizeSettleForTests()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -214,6 +219,35 @@ describe('attachPaneFitResizeObserver', () => {
 
     expect(requestAnimationFrame).not.toHaveBeenCalled()
     expect(pane.fitAddon.fit).not.toHaveBeenCalled()
+  })
+
+  it('skips observed fits while an outer terminal container resize is settling', () => {
+    const releaseResizeSettle = beginTerminalContainerResizeSettle()
+    const pane = createPane()
+
+    attachPaneFitResizeObserver(pane)
+    mockResizeObservers[0]?.trigger()
+
+    expect(requestAnimationFrame).not.toHaveBeenCalled()
+    expect(pane.fitAddon.fit).not.toHaveBeenCalled()
+
+    releaseResizeSettle()
+    mockResizeObservers[0]?.trigger()
+    flushAnimationFrames()
+
+    expect(pane.fitAddon.fit).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels a queued observed fit if an outer container resize starts first', () => {
+    const pane = createPane()
+
+    attachPaneFitResizeObserver(pane)
+    mockResizeObservers[0]?.trigger()
+    beginTerminalContainerResizeSettle()
+    flushAnimationFrames()
+
+    expect(pane.fitAddon.fit).not.toHaveBeenCalled()
+    expect(pane.pendingObservedFitRafId).toBeNull()
   })
 
   it('throttles an endlessly unstable grid instead of fitting every frame', () => {

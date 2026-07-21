@@ -2,8 +2,13 @@ import type { IBufferLine, IBufferRange } from '../../lib/pane-manager/aterm/ter
 import { extractTerminalFileLinkCandidates, resolveTerminalFileLink } from '@/lib/terminal-links'
 import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-client'
 import { getTerminalFileContext, openDetectedFilePath } from './terminal-file-open-routing'
-import { getTerminalPathExistsCacheKey } from './terminal-path-exists-cache'
+import {
+  getTerminalPathExistsCacheKey,
+  readTerminalPathExistsCache,
+  type TerminalPathExistsCache
+} from './terminal-path-exists-cache'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
+import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-paths'
 import {
   buildHardWrappedPathLogicalLineCandidates,
   buildWrappedLogicalLine,
@@ -17,7 +22,7 @@ type FileLinkHitTestDeps = {
   worktreeId: string
   worktreePath: string
   runtimeEnvironmentId?: string | null
-  pathExistsCache?: Map<string, boolean>
+  pathExistsCache?: TerminalPathExistsCache
   openWithSystemDefault?: boolean
 }
 
@@ -48,6 +53,11 @@ export function openFilePathLinkAtBufferPosition(
       if (!resolved) {
         continue
       }
+      // Why (issue #8156): WSL terminals print POSIX paths the Windows host
+      // cannot stat; rebase onto the worktree's UNC share.
+      const absolutePath =
+        mapPosixPathToWslWorktreeUncPath(resolved.absolutePath, deps.worktreePath) ??
+        resolved.absolutePath
       const range = rangeForParsedFileLink(logicalLine, parsed.startIndex, parsed.endIndex)
       if (!range || !rangeContainsBufferPosition(range, position, terminalColumns)) {
         continue
@@ -58,21 +68,23 @@ export function openFilePathLinkAtBufferPosition(
         deps.runtimeEnvironmentId
       )
       const cacheKey = getTerminalPathExistsCacheKey({
-        absolutePath: resolved.absolutePath,
+        absolutePath,
         connectionId: fileContext.connectionId,
-        isRemoteRuntimePath: isRemoteRuntimeFileOperation(fileContext, resolved.absolutePath),
+        isRemoteRuntimePath: isRemoteRuntimeFileOperation(fileContext, absolutePath),
         runtimeEnvironmentId: deps.runtimeEnvironmentId
       })
-      const isKnownWorktreeRoot = Boolean(resolveKnownWorktreeRootPathLink(resolved.absolutePath))
+      const isKnownWorktreeRoot = Boolean(resolveKnownWorktreeRootPathLink(absolutePath))
       if (/[\\/]$/.test(parsed.pathText) && !isKnownWorktreeRoot) {
         continue
       }
       matches.push({
-        absolutePath: resolved.absolutePath,
+        absolutePath,
         line: resolved.line,
         column: resolved.column,
         pathText: parsed.pathText,
-        cachedExists: deps.pathExistsCache?.get(cacheKey),
+        cachedExists: deps.pathExistsCache
+          ? readTerminalPathExistsCache(deps.pathExistsCache, cacheKey)
+          : undefined,
         isKnownWorktreeRoot
       })
     }

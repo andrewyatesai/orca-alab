@@ -1,5 +1,6 @@
 import type { ManagedPane, ManagedPaneInternal } from './pane-manager-types'
 import { cancelPendingSafeFitContinuations, safeFitAndThen } from './pane-tree-ops'
+import { isTerminalContainerResizeSettling } from './terminal-container-resize-settle'
 
 type ProposedDimensions = {
   cols: number
@@ -102,6 +103,12 @@ export function requestStablePaneFit(pane: StableFitPane, onSettled?: () => void
     setPendingObservedFitRafId(
       pane,
       requestAnimationFrame(() => {
+        // Why: a settle window took over mid-loop; park any callbacks so the
+        // post-settle fit flushes them instead of fighting the drag frame rate.
+        if (isTerminalContainerResizeSettling()) {
+          setPendingObservedFitRafId(pane, null)
+          return
+        }
         if (!hasVisibleFitGeometry(pane)) {
           setPendingObservedFitRafId(pane, null)
           stableFitCallbacks.delete(pane)
@@ -146,6 +153,11 @@ export function attachPaneFitResizeObserver(pane: ManagedPaneInternal): void {
   }
 
   const observer = new ResizeObserver(() => {
+    // Why: during continuous container resizes the settle window owns fitting;
+    // the debounced settle fit re-fits every pane once the size stops changing.
+    if (isTerminalContainerResizeSettling()) {
+      return
+    }
     requestStablePaneFit(pane)
   })
 

@@ -27,7 +27,8 @@ import {
 import {
   getTerminalPathExistsCacheKey,
   readTerminalPathExistsCache,
-  writeTerminalPathExistsCache
+  writeTerminalPathExistsCache,
+  type TerminalPathExistsCache
 } from './terminal-path-exists-cache'
 import {
   getTerminalHtmlFileOpenHint,
@@ -37,6 +38,7 @@ import {
   getTerminalUrlOpenHint
 } from './terminal-link-open-hints'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
+import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-paths'
 import { isTerminalLinkActivation } from './terminal-link-activation'
 import { getBufferPositionForTerminalMouseEvent } from './terminal-mouse-buffer-position'
 
@@ -52,7 +54,7 @@ export type LinkHandlerDeps = {
   getPaneLinkCwd?: (paneId: number) => string | null
   managerRef: React.RefObject<PaneManager | null>
   linkProviderDisposablesRef: React.RefObject<Map<number, IDisposable>>
-  pathExistsCache: Map<string, boolean>
+  pathExistsCache: TerminalPathExistsCache
   runtimeEnvironmentId?: string | null
   terminalHomePath?: string | null
   getRuntimeEnvironmentIdForPane?: (paneId: number) => string | null
@@ -134,6 +136,11 @@ export function createFilePathLinkProvider(
               if (!resolved) {
                 return null
               }
+              // Why (issue #8156): WSL terminals print POSIX paths the Windows
+              // host cannot stat; rebase onto the worktree's UNC share.
+              const absolutePath =
+                mapPosixPathToWslWorktreeUncPath(resolved.absolutePath, worktreePath) ??
+                resolved.absolutePath
               const range = rangeForParsedFileLink(logicalLine, parsed.startIndex, parsed.endIndex)
               if (!range) {
                 return null
@@ -146,17 +153,14 @@ export function createFilePathLinkProvider(
                 worktreePath,
                 runtimeEnvironmentId
               )
-              const isRemoteRuntimePath = isRemoteRuntimeFileOperation(
-                fileContext,
-                resolved.absolutePath
-              )
+              const isRemoteRuntimePath = isRemoteRuntimeFileOperation(fileContext, absolutePath)
               const cacheKey = getTerminalPathExistsCacheKey({
-                absolutePath: resolved.absolutePath,
+                absolutePath,
                 connectionId: fileContext.connectionId,
                 isRemoteRuntimePath,
                 runtimeEnvironmentId
               })
-              const worktreeRootLink = resolveKnownWorktreeRootPathLink(resolved.absolutePath)
+              const worktreeRootLink = resolveKnownWorktreeRootPathLink(absolutePath)
               if (/[\\/]$/.test(parsed.pathText) && !worktreeRootLink) {
                 return null
               }
@@ -167,9 +171,13 @@ export function createFilePathLinkProvider(
                 const exists =
                   cachedExists ??
                   (fileContext.connectionId || isRemoteRuntimePath
-                    ? await runtimePathExists(fileContext, resolved.absolutePath)
-                    : await window.api.shell.pathExists(resolved.absolutePath))
-                writeTerminalPathExistsCache(pathExistsCache, cacheKey, exists)
+                    ? await runtimePathExists(fileContext, absolutePath)
+                    : await window.api.shell.pathExists(absolutePath))
+                // Why: refreshing a cached negative's timestamp on every hover
+                // would keep frequently scanned missing paths stale forever.
+                if (cachedExists === undefined) {
+                  writeTerminalPathExistsCache(pathExistsCache, cacheKey, exists)
+                }
                 if (!exists) {
                   return null
                 }
@@ -184,7 +192,7 @@ export function createFilePathLinkProvider(
                     if (!isTerminalLinkActivation(event)) {
                       return
                     }
-                    openDetectedFilePath(resolved.absolutePath, resolved.line, resolved.column, {
+                    openDetectedFilePath(absolutePath, resolved.line, resolved.column, {
                       worktreeId,
                       worktreePath,
                       runtimeEnvironmentId,
@@ -196,16 +204,16 @@ export function createFilePathLinkProvider(
                     // default escape hatch; remote paths may not exist locally.
                     const canOpenWithSystemDefault = shouldOpenTerminalFileWithSystemDefault(
                       fileContext,
-                      resolved.absolutePath
+                      absolutePath
                     )
                     const hint = worktreeRootLink
                       ? getTerminalWorktreePathOpenHint(canOpenWithSystemDefault)
                       : canOpenWithSystemDefault
-                        ? isHtmlFilePath(resolved.absolutePath)
+                        ? isHtmlFilePath(absolutePath)
                           ? getTerminalHtmlFileOpenHint()
                           : openLinkHint
                         : getTerminalOrcaFileOpenHint()
-                    linkTooltip.textContent = `${resolved.absolutePath} (${hint})`
+                    linkTooltip.textContent = `${absolutePath} (${hint})`
                     linkTooltip.style.display = ''
                   },
                   leave: () => {

@@ -58,8 +58,13 @@ export function beginSplitResizeDrag({
     cancelFrame
   })
 
+  // Why: WSLg's RDP input path presses as `mouse` but streams motion as a `pen`
+  // pointer with a different pointerId; any primary pointer continues the drag.
+  const isActiveDragPointer = (e: PointerEvent): boolean =>
+    e.pointerId === pointerId || e.isPrimary
+
   const onPointerMove = (moveEvent: PointerEvent): void => {
-    if (!handle.hasPointerCapture(pointerId)) {
+    if (!handle.hasPointerCapture(pointerId) || !isActiveDragPointer(moveEvent)) {
       return
     }
     const rect = container.getBoundingClientRect()

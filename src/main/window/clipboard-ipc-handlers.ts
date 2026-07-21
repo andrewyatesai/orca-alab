@@ -29,11 +29,13 @@ import {
   type ClipboardFileDeps,
   type ClipboardFileResult
 } from './clipboard-file-copy'
+import { readClipboardFilePaths, type ClipboardFileReadDeps } from './clipboard-file-read'
 import {
   cleanupExpiredRemoteClipboardFiles,
   writeRemoteFileToClipboard
 } from './clipboard-remote-file-copy'
 import { saveClipboardImageBufferInRuntime } from './clipboard-runtime-image-upload'
+import { readWindowsClipboardImageFileAsPng } from './clipboard-windows-image-file'
 
 let trustedClipboardRendererWebContentsId: number | null = null
 
@@ -71,6 +73,23 @@ function runCommand(command: string, args: string[], stdin?: string): Promise<vo
   })
 }
 
+// Like runCommand, but captures stdout — the read path needs the helper's
+// output (e.g. PowerShell's newline-separated file paths). Resolves only on a
+// clean exit so callers can treat any failure as "no file on the clipboard".
+function runCommandForOutput(command: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'] })
+    let stdout = ''
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString('utf8')
+    })
+    child.on('error', reject)
+    child.on('exit', (code) =>
+      code === 0 ? resolve(stdout) : reject(new Error(`${command} exited with ${code}`))
+    )
+  })
+}
+
 export function registerClipboardHandlers(store: Store): void {
   ipcMain.removeHandler('clipboard:readText')
   ipcMain.removeHandler('clipboard:readSelectionText')
@@ -78,6 +97,7 @@ export function registerClipboardHandlers(store: Store): void {
   ipcMain.removeHandler('clipboard:writeSelectionText')
   ipcMain.removeHandler('clipboard:writeImage')
   ipcMain.removeHandler('clipboard:writeFile')
+  ipcMain.removeHandler('clipboard:readFilePaths')
   ipcMain.removeHandler('clipboard:saveImageAsTempFile')
 
   void cleanupExpiredRemoteClipboardFiles()
@@ -102,7 +122,13 @@ export function registerClipboardHandlers(store: Store): void {
       assertTrustedClipboardSender(event)
       const image = clipboard.readImage()
       if (image.isEmpty()) {
-        return null
+        const copiedFilePng = await readWindowsClipboardImageFileAsPng({
+          platform: process.platform,
+          readClipboardFormatBuffer: (format) => clipboard.readBuffer(format),
+          statFile: stat,
+          createImageFromPath: (filePath) => nativeImage.createFromPath(filePath)
+        })
+        return copiedFilePng ? saveClipboardImageBufferForTarget(copiedFilePng, args) : null
       }
       assertClipboardImageDimensionsWithinLimit(image.getSize())
       return saveClipboardImageBufferForTarget(image.toPNG(), args)
@@ -140,6 +166,15 @@ export function registerClipboardHandlers(store: Store): void {
       return writeFileToClipboard(request.filePath, deps)
     }
   )
+  // Why: a file OS-copied in Finder/Explorer/a file manager should paste its
+  // full shell-escaped path into a terminal (like a drop), not the display name
+  // the OS synthesizes as clipboard text. Returns the copied files' absolute
+  // paths, or [] when the clipboard holds no file reference. These are paths the
+  // user themselves copied, so no path-authorization is applied.
+  ipcMain.handle('clipboard:readFilePaths', (event): Promise<string[]> => {
+    assertTrustedClipboardSender(event)
+    return readClipboardFilePaths(makeClipboardFileReadDeps())
+  })
   ipcMain.handle('clipboard:writeText', async (event, text: string) => {
     assertTrustedClipboardSender(event)
     return clipboard.writeText(await assertClipboardTextWriteWithinLimitWithYield(text))
@@ -216,6 +251,16 @@ function makeClipboardFileDeps(
     resolveFilePath,
     writeBuffer: (format, buffer) => clipboard.writeBuffer(format, buffer),
     runCommand
+  }
+}
+
+function makeClipboardFileReadDeps(): ClipboardFileReadDeps {
+  return {
+    platform: process.platform,
+    desktop: process.env.XDG_CURRENT_DESKTOP,
+    readFormat: (format) => clipboard.read(format),
+    readBuffer: (format) => clipboard.readBuffer(format),
+    runCommand: runCommandForOutput
   }
 }
 

@@ -123,7 +123,11 @@ import {
   closeWebRuntimeTerminal,
   updateWebRuntimePaneLayout
 } from '@/runtime/web-runtime-session'
-import { isPrimarySelectionEnabled, readPrimarySelectionText } from '@/lib/primary-selection'
+import {
+  armPrimarySelectionNativePasteSuppression,
+  isPrimarySelectionEnabled,
+  readPrimarySelectionText
+} from '@/lib/primary-selection'
 import { APP_MENU_PASTE_EVENT } from '@/lib/app-menu-paste'
 import { WORKSPACE_FILE_PATH_MIME, WORKSPACE_FILE_PATHS_MIME } from '@/lib/workspace-file-drag'
 import { isTerminalSessionStateSaveFailure } from '../../../../shared/terminal-session-state-save-failure'
@@ -176,6 +180,7 @@ import {
 import { formatTerminalPasteExecutionError } from './terminal-paste-errors'
 import { resolveTerminalPasteRuntime } from './terminal-paste-runtime'
 import { getTerminalPasteSshRemotePlatform } from './terminal-paste-ssh-platform'
+import { resolveTerminalPasteTargetShell } from './terminal-paste-target-shell'
 import {
   isTerminalPanePasteFocusCurrent,
   isTerminalPanePasteTargetCurrent
@@ -2095,7 +2100,9 @@ export default function TerminalPane({
       const activeElementAtDispatch = document.activeElement
       void pasteTerminalClipboard({
         readClipboardText: window.api.ui.readClipboardText,
+        readClipboardFilePaths: () => window.api.ui.readClipboardFilePaths(),
         saveClipboardImageAsTempFile: window.api.ui.saveClipboardImageAsTempFile,
+        targetShell: resolveTerminalPasteTargetShell({ worktreeId, fallbackCwd: cwd }),
         connectionId,
         runtimeEnvironmentId,
         forceBracketedMultilineTextPaste,
@@ -2228,7 +2235,9 @@ export default function TerminalPane({
       )
       void pasteTerminalClipboard({
         readClipboardText: window.api.ui.readClipboardText,
+        readClipboardFilePaths: () => window.api.ui.readClipboardFilePaths(),
         saveClipboardImageAsTempFile: window.api.ui.saveClipboardImageAsTempFile,
+        targetShell: resolveTerminalPasteTargetShell({ worktreeId, fallbackCwd: cwd }),
         connectionId,
         runtimeEnvironmentId,
         forceBracketedMultilineTextPaste,
@@ -2710,6 +2719,10 @@ export default function TerminalPane({
       }
       event.preventDefault()
       event.stopPropagation()
+      // Why: preventDefault on mousedown does not stop Chromium's native X11
+      // middle-click primary paste (fired on release), so arm the shared window
+      // to swallow it and avoid inserting the selection into the PTY twice.
+      armPrimarySelectionNativePasteSuppression()
       clickedPane.terminal.focus()
       void readPrimarySelectionText().then(async (text) => {
         if (!text) {

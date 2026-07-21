@@ -3689,6 +3689,7 @@ const api = {
       ipcRenderer.invoke('clipboard:readText', options),
     readSelectionClipboardText: (options?: ReadClipboardTextOptions): Promise<string> =>
       ipcRenderer.invoke('clipboard:readSelectionText', options),
+    readClipboardFilePaths: (): Promise<string[]> => ipcRenderer.invoke('clipboard:readFilePaths'),
     saveClipboardImageAsTempFile: (args?: {
       connectionId?: string | null
       runtimeEnvironmentId?: string | null
@@ -3752,6 +3753,12 @@ const api = {
       const listener = () => callback()
       ipcRenderer.on('system:resumed', listener)
       return () => ipcRenderer.removeListener('system:resumed', listener)
+    },
+    onMinimizedChanged: (callback: (isMinimized: boolean) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, isMinimized: boolean) =>
+        callback(isMinimized)
+      ipcRenderer.on('window:minimized-changed', listener)
+      return () => ipcRenderer.removeListener('window:minimized-changed', listener)
     },
     /** Desktop custom titlebar only: minimize via renderer-drawn window controls. */
     minimize: (): void => {

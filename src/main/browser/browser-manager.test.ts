@@ -117,6 +117,7 @@ describe('browserManager', () => {
     const guest = {
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -144,6 +145,7 @@ describe('browserManager', () => {
       id: 103,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -222,6 +224,7 @@ describe('browserManager', () => {
       id: 140,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -258,6 +261,7 @@ describe('browserManager', () => {
       id: 141,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -347,6 +351,7 @@ describe('browserManager', () => {
       id: 142,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -417,6 +422,7 @@ describe('browserManager', () => {
       id: 150,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -515,6 +521,7 @@ describe('browserManager', () => {
       id: 106,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -563,6 +570,7 @@ describe('browserManager', () => {
       id: 104,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -628,6 +636,7 @@ describe('browserManager', () => {
       id: 105,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -664,6 +673,7 @@ describe('browserManager', () => {
       id: 707,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -718,6 +728,7 @@ describe('browserManager', () => {
       id: 1707,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -769,6 +780,7 @@ describe('browserManager', () => {
       id: 1708,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -823,6 +835,7 @@ describe('browserManager', () => {
       id: 1709,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -887,6 +900,7 @@ describe('browserManager', () => {
       id: 708,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -944,6 +958,7 @@ describe('browserManager', () => {
       id: 709,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1002,6 +1017,7 @@ describe('browserManager', () => {
       id: 7091,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1060,6 +1076,7 @@ describe('browserManager', () => {
       id: 710,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1101,6 +1118,7 @@ describe('browserManager', () => {
       id: 104,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1152,6 +1170,7 @@ describe('browserManager', () => {
     const guest = {
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1177,6 +1196,7 @@ describe('browserManager', () => {
       id: 101,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1247,6 +1267,7 @@ describe('browserManager', () => {
       id: 777,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1270,6 +1291,7 @@ describe('browserManager', () => {
       id: 303,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1300,6 +1322,7 @@ describe('browserManager', () => {
       id: 4040,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: childSetBackgroundThrottlingMock,
       setWindowOpenHandler: childSetWindowOpenHandlerMock,
       on: childOnMock,
@@ -1310,6 +1333,7 @@ describe('browserManager', () => {
       id: 404,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1487,6 +1511,7 @@ describe('browserManager', () => {
       id: 304,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1517,6 +1542,7 @@ describe('browserManager', () => {
       id: 305,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1573,6 +1599,7 @@ describe('browserManager', () => {
       id: 404,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1649,6 +1676,7 @@ describe('browserManager', () => {
       id: 407,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1700,6 +1728,7 @@ describe('browserManager', () => {
       id: 405,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1742,6 +1771,7 @@ describe('browserManager', () => {
       id: 406,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1793,6 +1823,7 @@ describe('browserManager', () => {
       id: 407,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1863,6 +1894,7 @@ describe('browserManager', () => {
       id: 408,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1933,6 +1965,7 @@ describe('browserManager', () => {
       id: 409,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -1975,6 +2008,7 @@ describe('browserManager', () => {
       id: 412,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2005,6 +2039,7 @@ describe('browserManager', () => {
       id: 410,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2049,6 +2084,7 @@ describe('browserManager', () => {
       id: 411,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2102,6 +2138,7 @@ describe('browserManager', () => {
       id: 501,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: oldGuestOnMock,
@@ -2113,6 +2150,7 @@ describe('browserManager', () => {
       id: 502,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: newGuestOnMock,
@@ -2193,6 +2231,7 @@ describe('browserManager', () => {
       id: 405,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2286,6 +2325,7 @@ describe('browserManager', () => {
       id: 406,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2437,6 +2477,7 @@ describe('browserManager', () => {
       id: 407,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2541,6 +2582,7 @@ describe('browserManager', () => {
       id: 407,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2610,6 +2652,7 @@ describe('browserManager', () => {
       id: 408,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2686,6 +2729,7 @@ describe('browserManager', () => {
       id: 808,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2733,6 +2777,7 @@ describe('browserManager', () => {
       id: 809,
       isDestroyed: vi.fn(() => false),
       getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
       setBackgroundThrottling: guestSetBackgroundThrottlingMock,
       setWindowOpenHandler: guestSetWindowOpenHandlerMock,
       on: guestOnMock,
@@ -2772,6 +2817,59 @@ describe('browserManager', () => {
     expect(debuggerAttachMock).toHaveBeenCalledTimes(1)
   })
 
+  it('closes a still-live guest web contents on unregister so its media session dies', () => {
+    const guestCloseMock = vi.fn()
+    const guest = {
+      id: 811,
+      isDestroyed: vi.fn(() => false),
+      getType: vi.fn(() => 'webview'),
+      close: guestCloseMock,
+      setBackgroundThrottling: guestSetBackgroundThrottlingMock,
+      setWindowOpenHandler: guestSetWindowOpenHandlerMock,
+      on: guestOnMock,
+      off: guestOffMock,
+      openDevTools: guestOpenDevToolsMock
+    }
+    webContentsFromIdMock.mockReturnValue(guest)
+
+    browserManager.attachGuestPolicies(guest as never)
+    browserManager.registerGuest({
+      browserPageId: 'browser-media',
+      webContentsId: 811,
+      rendererWebContentsId
+    })
+    browserManager.unregisterGuest('browser-media')
+
+    expect(guestCloseMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not close an already-destroyed guest on unregister', () => {
+    const guestCloseMock = vi.fn()
+    const guest = {
+      id: 812,
+      isDestroyed: vi.fn(() => false),
+      getType: vi.fn(() => 'webview'),
+      close: guestCloseMock,
+      setBackgroundThrottling: guestSetBackgroundThrottlingMock,
+      setWindowOpenHandler: guestSetWindowOpenHandlerMock,
+      on: guestOnMock,
+      off: guestOffMock,
+      openDevTools: guestOpenDevToolsMock
+    }
+    webContentsFromIdMock.mockReturnValue(guest)
+
+    browserManager.attachGuestPolicies(guest as never)
+    browserManager.registerGuest({
+      browserPageId: 'browser-dead',
+      webContentsId: 812,
+      rendererWebContentsId
+    })
+    guest.isDestroyed = vi.fn(() => true)
+    browserManager.unregisterGuest('browser-dead')
+
+    expect(guestCloseMock).not.toHaveBeenCalled()
+  })
+
   describe('setViewportOverride', () => {
     function makeGuest(id: number): {
       guest: Record<string, unknown>
@@ -2786,6 +2884,7 @@ describe('browserManager', () => {
         id,
         isDestroyed: vi.fn(() => false),
         getType: vi.fn(() => 'webview'),
+      close: vi.fn(),
         getUserAgent: vi.fn(
           () =>
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) orca/1.0.0 Chrome/134.0.0.0 Electron/30.0.0 Safari/537.36'

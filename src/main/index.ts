@@ -842,7 +842,8 @@ function openMainWindow(): BrowserWindow {
     throw new Error('Keybinding service must be initialized before opening the main window')
   }
 
-  // Why: Chromium's BrowserWindow ctor resets userData to a Protected DACL, breaking writes; re-grant ACEs (marker-gated to avoid a ~60s startup stall).
+  // Why: Chromium's BrowserWindow ctor resets userData to a Protected DACL, breaking writes; re-grant ACEs
+  // in the background (marker-gated, boot-deferred, idle-priority — see startup/windows-user-data-acl.ts).
   if (process.platform === 'win32') {
     logStartupMilestone('acl-grant-start')
     ensureWindowsUserDataAclGrant(app.getPath('userData'), {

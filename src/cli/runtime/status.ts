@@ -1,12 +1,14 @@
 import type { CliStatusResult, RuntimeStatus } from '../../shared/runtime-types'
 import { findTransport } from '../../shared/runtime-bootstrap'
 import { tryReadMetadata } from './metadata'
+import { getLocalDaemonStatus } from './local-daemon-sessions'
 import { sendRequest } from './transport'
 import { RuntimeRpcFailureError, type RuntimeRpcSuccess } from './types'
 
 export async function getCliStatus(
   userDataPath: string
 ): Promise<RuntimeRpcSuccess<CliStatusResult>> {
+  const daemon = await getLocalDaemonStatus(userDataPath)
   const metadata = tryReadMetadata(userDataPath)
   const transport = metadata ? findTransport(metadata, 'unix', 'named-pipe') : null
   if (!transport || !metadata?.authToken) {
@@ -25,7 +27,8 @@ export async function getCliStatus(
       },
       graph: {
         state: 'not_running'
-      }
+      },
+      daemon
     })
   }
 
@@ -49,7 +52,8 @@ export async function getCliStatus(
       },
       graph: {
         state: graphState
-      }
+      },
+      daemon
     })
   } catch {
     const running = isProcessRunning(metadata.pid)
@@ -65,7 +69,8 @@ export async function getCliStatus(
       },
       graph: {
         state: running ? 'starting' : 'not_running'
-      }
+      },
+      daemon
     })
   }
 }

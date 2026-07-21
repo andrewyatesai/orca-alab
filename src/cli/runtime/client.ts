@@ -47,6 +47,10 @@ export class RuntimeClient {
     return this.remotePairing !== null
   }
 
+  getLocalUserDataPath(): string {
+    return this.userDataPath
+  }
+
   async call<TResult>(
     method: string,
     params?: unknown,

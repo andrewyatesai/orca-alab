@@ -37,6 +37,7 @@ import { recognizeAgentProcessFromCommandLine } from '../../shared/agent-process
 import { shouldUseShellReadyStartupDelivery } from '../../shared/codex-startup-delivery'
 import type { TerminalOscLinkRange } from '../../shared/terminal-osc-link-ranges'
 import { resolveSafePtyDefaultCwd } from '../providers/pty-default-cwd'
+import { prepareMacosTccLoginShell } from '../providers/macos-tcc-login-shell'
 import {
   captureDescendantSnapshot,
   terminateDescendantSnapshot
@@ -319,16 +320,21 @@ export class DaemonPtyAdapter implements IPtyProvider {
     // sleep/wake respawn. Public legacy keeps the plain opts passthrough; a
     // fork daemon at ANY rev (1018+) honors shellArgs, so a preserved
     // previous-rev fork daemon keeps the full interactive launch.
-    const posixLaunch =
-      this.protocolVersion >= FORK_DAEMON_PROTOCOL_NAMESPACE_START
-        ? buildPosixDaemonShellLaunch({
-            shellOverride: opts.shellOverride,
-            env: opts.env,
-            envToDelete: opts.envToDelete,
-            command: opts.command,
-            startupCommandDelivery: opts.startupCommandDelivery
-          })
-        : null
+    const buildForkPosixLaunch = this.protocolVersion >= FORK_DAEMON_PROTOCOL_NAMESPACE_START
+    if (buildForkPosixLaunch) {
+      // Why: the TCC login(1) wrap engages only after the PAM preflight resolves; the adapter is the fork's
+      // spawn boundary (twin of upstream daemon-entry's preparePtySpawn), and #9404 keeps transient failures retryable.
+      await prepareMacosTccLoginShell()
+    }
+    const posixLaunch = buildForkPosixLaunch
+      ? buildPosixDaemonShellLaunch({
+          shellOverride: opts.shellOverride,
+          env: opts.env,
+          envToDelete: opts.envToDelete,
+          command: opts.command,
+          startupCommandDelivery: opts.startupCommandDelivery
+        })
+      : null
 
     const createOrAttach = (historySeed: string | null) =>
       this.client.request<CreateOrAttachResult>('createOrAttach', {

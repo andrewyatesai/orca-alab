@@ -37,6 +37,12 @@ vi.mock('../pty-descendant-termination', async (importOriginal) => {
   }
 })
 
+// Why: the adapter awaits the PAM preflight before building launch config; unit tests must not spawn a real login(1).
+vi.mock('../providers/macos-tcc-login-shell', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../providers/macos-tcc-login-shell')>()
+  return { ...actual, prepareMacosTccLoginShell: vi.fn(async () => {}) }
+})
+
 const itOnPosix = process.platform === 'win32' ? it.skip : it
 
 vi.mock('./daemon-health', async (importOriginal) => {

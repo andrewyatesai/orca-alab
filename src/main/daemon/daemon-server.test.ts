@@ -49,6 +49,7 @@ function createMockSubprocess(): SubprocessHandle & {
 
 type DaemonServerPrivate = {
   server: Server | null
+  pendingPtySpawnPreparations: Map<string, Set<unknown>>
   host: {
     kill: (sessionId: string, opts?: { immediate?: boolean }) => void | Promise<void>
   }
@@ -311,6 +312,54 @@ describe('DaemonServer', () => {
       await canceledCreate
       await shutdown
       expect(spawnSubprocess).not.toHaveBeenCalled()
+    })
+
+    it('cancels a pending subprocess when its control client disconnects', async () => {
+      let finishPreparation!: () => void
+      const preparation = new Promise<void>((resolve) => {
+        finishPreparation = resolve
+      })
+      const preparePtySpawn = vi.fn().mockImplementationOnce(() => preparation)
+      const spawnSubprocess = vi.fn(() => createMockSubprocess())
+      server = new DaemonServer({ socketPath, tokenPath, preparePtySpawn, spawnSubprocess })
+      await server.start()
+      const c = await connectClient()
+      const daemon = server as unknown as DaemonServerPrivate
+
+      const create = c.request('createOrAttach', {
+        sessionId: 'disconnected-preparation',
+        cols: 80,
+        rows: 24
+      })
+      const disconnectedCreate = expect(create).rejects.toThrow('Disconnected')
+      await vi.waitFor(() => expect(preparePtySpawn).toHaveBeenCalledOnce())
+
+      // Why: the fork daemon retires (unlinking its token) when the last authenticated
+      // client leaves; hold a second client so the reconnect below targets the same daemon.
+      const keepAlive = new DaemonClient({ socketPath, tokenPath })
+      await keepAlive.ensureConnected()
+
+      c.disconnect()
+      await disconnectedCreate
+      // Why 1, not 0: keepAlive stays connected so the fork daemon does not retire on empty.
+      await vi.waitFor(() => expect(daemon.clients.size).toBe(1))
+      finishPreparation()
+      await vi.waitFor(() => expect(daemon.pendingPtySpawnPreparations.size).toBe(0))
+      expect(spawnSubprocess).not.toHaveBeenCalled()
+
+      try {
+        await c.ensureConnected()
+        await expect(
+          c.request('createOrAttach', {
+            sessionId: 'disconnected-preparation',
+            cols: 80,
+            rows: 24
+          })
+        ).resolves.toMatchObject({ isNew: true })
+        expect(spawnSubprocess).toHaveBeenCalledOnce()
+      } finally {
+        keepAlive.disconnect()
+      }
     })
 
     it('persists only an allowlisted launch identity across reattach', async () => {

@@ -920,13 +920,15 @@ function normalizeWorkItemPage(page: number | undefined): number {
   return typeof page === 'number' && Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1
 }
 
-function buildWorkItemListRequest(args: {
-  kind: 'issue' | 'pr'
-  ownerRepo: OwnerRepo | null
-  limit: number
-  query: ParsedTaskQuery
-  page: number
-}): WorkItemListRequest {
+// Why: an issue request requires a resolved OwnerRepo at the type level — gh api
+// search/issues ignores cwd/--repo, so a repo-less issue query would search all
+// of GitHub (#9202, #9553). PR requests may fall back to gh's cwd resolution.
+function buildWorkItemListRequest(
+  args: { limit: number; query: ParsedTaskQuery; page: number } & (
+    | { kind: 'issue'; ownerRepo: OwnerRepo }
+    | { kind: 'pr'; ownerRepo: OwnerRepo | null }
+  )
+): WorkItemListRequest {
   const { kind, ownerRepo, limit, query, page } = args
   const searchParts: string[] = []
 
@@ -1085,13 +1087,18 @@ async function listRecentWorkItems(
   const requiresExplicitRepo = Boolean(connectionId)
   assertSshRepoHasResolvedGitHubSource({ connectionId, issueOwnerRepo, prOwnerRepo })
   const recentQuery = parseTaskQuery('is:open')
-  const issueRequest = buildWorkItemListRequest({
-    kind: 'issue',
-    ownerRepo: issueOwnerRepo,
-    limit,
-    query: recentQuery,
-    page
-  })
+  // Why: gh api search/issues ignores cwd/--repo, so a repo-less issue query
+  // silently searches all of GitHub and stamps foreign issues onto this project
+  // (#9202, #9553 for git:-remote projects). Never even build one unscoped.
+  const issueRequest = issueOwnerRepo
+    ? buildWorkItemListRequest({
+        kind: 'issue',
+        ownerRepo: issueOwnerRepo,
+        limit,
+        query: recentQuery,
+        page
+      })
+    : null
   const prRequest = buildWorkItemListRequest({
     kind: 'pr',
     ownerRepo: prOwnerRepo,
@@ -1099,16 +1106,13 @@ async function listRecentWorkItems(
     query: recentQuery,
     page
   })
-  if (noCache) {
+  if (noCache && issueRequest) {
     issueRequest.args.splice(1, 2)
   }
   if (issueOwnerRepo || prOwnerRepo || requiresExplicitRepo) {
     // Why: allSettled so a 403 on the issue side doesn't zero the PR half — partial results + banner (parent doc §2).
     const [issuesSettled, prsSettled] = await Promise.allSettled([
-      // Why: gh api search/issues ignores cwd/--repo, so a repo-less issue query
-      // silently searches all of GitHub. Only run it with a resolved owner/repo;
-      // otherwise scope issues to empty rather than leaking foreign issues (#9202).
-      issueOwnerRepo
+      issueRequest
         ? ghExecFileAsync(issueRequest.args, ghOptions)
         : Promise.resolve({ stdout: '[]' }),
       prOwnerRepo

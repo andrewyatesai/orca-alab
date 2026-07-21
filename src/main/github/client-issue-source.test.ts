@@ -48,6 +48,7 @@ vi.mock('./rate-limit', () => ({
 }))
 
 import { countWorkItems, getWorkItem, listWorkItems, _resetOwnerRepoCache } from './client'
+import { _resetGhCwdRepoNegativeCache } from './gh-cwd-repo-negative-cache'
 
 const PR_LIST_FIELDS =
   'number,title,state,url,labels,updatedAt,author,isDraft,headRefName,baseRefName,headRefOid,headRepositoryOwner,reviewRequests'
@@ -256,6 +257,54 @@ describe('GitHub issue source split', () => {
     expect(ranIssueSearch).toBe(false)
     expect(result.items).toEqual([])
     expect(result.sources.issues).toBeNull()
+  })
+
+  it('never runs a global issue search for a git: project with only a self-hosted remote (recent)', async () => {
+    // #9553: a self-hosted (e.g. Gitea) origin yields no GitHub source on either
+    // side. The old fallback still spawned a repo-less search/issues, showing a
+    // firehose of foreign public issues stamped with the project's name.
+    _resetGhCwdRepoNegativeCache()
+    getIssueOwnerRepoMock.mockResolvedValue(null)
+    getOwnerRepoMock.mockResolvedValue(null)
+    ghExecFileAsyncMock.mockRejectedValue(
+      Object.assign(new Error('Command failed: gh pr list'), {
+        stderr:
+          'none of the git remotes configured for this repository point to a known GitHub host'
+      })
+    )
+
+    await expect(listWorkItems('/gitea-project', 10)).rejects.toThrow('gh pr list')
+
+    // Only the cwd-resolved PR list ran; no search/issues call ever spawned.
+    expect(ghExecFileAsyncMock).toHaveBeenCalledTimes(1)
+    const ranIssueSearch = ghExecFileAsyncMock.mock.calls.some((call) =>
+      (call[0] as string[]).some((arg) => arg.startsWith('search/issues?'))
+    )
+    expect(ranIssueSearch).toBe(false)
+    _resetGhCwdRepoNegativeCache()
+  })
+
+  it('never runs a global issue search for a git: project with only a self-hosted remote (queried)', async () => {
+    // #9553: the explicit-query path returns empty instead of a global search.
+    _resetGhCwdRepoNegativeCache()
+    getIssueOwnerRepoMock.mockResolvedValue(null)
+    getOwnerRepoMock.mockResolvedValue(null)
+    ghExecFileAsyncMock.mockRejectedValue(
+      Object.assign(new Error('Command failed: gh pr list'), {
+        stderr:
+          'none of the git remotes configured for this repository point to a known GitHub host'
+      })
+    )
+
+    const result = await listWorkItems('/gitea-project', 10, 'is:issue is:open')
+
+    const ranIssueSearch = ghExecFileAsyncMock.mock.calls.some((call) =>
+      (call[0] as string[]).some((arg) => arg.startsWith('search/issues?'))
+    )
+    expect(ranIssueSearch).toBe(false)
+    expect(result.items).toEqual([])
+    expect(result.sources.issues).toBeNull()
+    _resetGhCwdRepoNegativeCache()
   })
 
   it('uses upstream for issue-only queries and origin for PR-only queries', async () => {

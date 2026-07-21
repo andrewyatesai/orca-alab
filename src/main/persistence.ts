@@ -4968,6 +4968,23 @@ export class Store {
     delete this.state.worktreeMeta[worktreeId]
     delete this.state.worktreeLineageById[worktreeId]
     delete this.state.workspaceLineageByChildKey[worktreeWorkspaceKey(worktreeId)]
+    // Why: dangling session state re-spawns a terminal in the deleted worktree's gone
+    // directory on restore. State is keyed by both the workspace key and the raw worktree
+    // id across every host partition, so clear both forms everywhere (cf. migrateWorktreeIdentity).
+    const dropWorktreeOwners = (
+      session: WorkspaceSessionState | undefined
+    ): WorkspaceSessionState =>
+      removeWorkspaceSessionOwner(
+        removeWorkspaceSessionOwner(session, worktreeWorkspaceKey(worktreeId)),
+        worktreeId
+      )!
+    this.state.workspaceSession = dropWorktreeOwners(this.state.workspaceSession)
+    const sessionsByHost = this.state.workspaceSessionsByHostId
+    if (sessionsByHost) {
+      for (const hostId of Object.keys(sessionsByHost)) {
+        sessionsByHost[hostId] = dropWorktreeOwners(sessionsByHost[hostId])
+      }
+    }
     this.scheduleSave()
   }
 

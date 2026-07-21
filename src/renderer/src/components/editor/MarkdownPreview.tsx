@@ -2,6 +2,7 @@
 search, and viewport state for the preview surface in one place so markdown
 behavior stays coherent across split panes and preview tabs. */
 /* oxlint-disable react-doctor/no-adjust-state-on-prop-change -- Why: search match state is synchronized with DOM highlights inserted into the rendered markdown body. */
+import '../../assets/markdown-preview-highlights.css'
 import React, {
   useCallback,
   useEffect,

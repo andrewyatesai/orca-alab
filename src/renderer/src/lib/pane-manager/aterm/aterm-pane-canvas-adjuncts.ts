@@ -3,7 +3,7 @@ import { createAtermScrollbarOverlay } from './aterm-scrollbar-overlay'
 import { createAtermA11yMirror } from './aterm-a11y-mirror'
 import type { AtermMetrics } from './aterm-grid-reflow'
 import type { AtermHoveredLinkSpan } from './aterm-link-underline-overlay'
-import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 import type { AtermTerminal } from './aterm_wasm.js'
 
 type PaneCanvasAdjunctDeps = {

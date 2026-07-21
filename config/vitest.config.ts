@@ -1,7 +1,13 @@
+import { availableParallelism } from 'node:os'
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
-const windowsTestWorkerOptions = process.platform === 'win32' ? { maxWorkers: 4 } : {}
+// Why: a Vitest worker is not this suite's unit of concurrency. Many files also
+// start git, HTTP, watcher, and native-addon child processes, so using Vitest's
+// CPU-count default can exhaust process/file-descriptor headroom on developer
+// machines and CI. Four workers keeps those nested fixtures concurrent without
+// the nine-fork startup/termination failures seen on a 10-core host.
+const maxTestWorkers = Math.max(1, Math.min(4, availableParallelism()))
 
 export default defineConfig({
   define: {
@@ -19,6 +25,7 @@ export default defineConfig({
     // The seam setup binds the Rust dispatch core so cut-over src/shared modules
     // work without each surface's production bootstrap.
     setupFiles: [
+      resolve('config/vitest-warning-filter.ts'),
       resolve('config/vitest-dom-storage-polyfill.ts'),
       resolve('config/vitest-orca-dispatch-seam.ts')
     ],
@@ -32,8 +39,6 @@ export default defineConfig({
     // the Vitest 5s defaults are too tight for the slowest integration cases.
     hookTimeout: 60_000,
     testTimeout: 30_000,
-    // Why: Windows process and shell startup are slower under full-suite load;
-    // macOS/Linux keep Vitest's default worker parallelism.
-    ...windowsTestWorkerOptions
+    maxWorkers: maxTestWorkers
   }
 })

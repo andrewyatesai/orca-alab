@@ -401,7 +401,7 @@ export class SshConnection {
         sftp.on('error', swallowLateSftpError)
         sftp.once('close', () => sftp.removeListener('error', swallowLateSftpError))
         try {
-          const { uploadDirectory } = await import('./ssh-relay-deploy-helpers')
+          const { uploadDirectory } = await import('./ssh-connection-relay-upload-deferred')
           await raceSftpFileTransferWithAbort(
             uploadDirectory(sftp, localDir, remoteDir),
             linkedSignal.signal,
@@ -433,7 +433,7 @@ export class SshConnection {
     if (!this.useSystemSshTransport) {
       const sftp = await this.sftp()
       try {
-        const { fastGetViaSftp } = await import('../providers/ssh-filesystem-provider-sftp')
+        const { fastGetViaSftp } = await import('./ssh-connection-sftp-download-deferred')
         await fastGetViaSftp(sftp, remotePath, localPath)
       } finally {
         sftp.end()
@@ -450,7 +450,7 @@ export class SshConnection {
   async openFileUploadSession(options?: SshRemoteFileOptions): Promise<FileUploadSession> {
     if (!this.useSystemSshTransport) {
       const sftp = await this.sftp()
-      const { uploadFile } = await import('./sftp-upload')
+      const { uploadFile } = await import('./ssh-connection-sftp-upload-deferred')
       return {
         uploadFile: (localPath, remotePath, uploadOptions) =>
           uploadFile(sftp, localPath, remotePath, uploadOptions),
@@ -554,7 +554,7 @@ export class SshConnection {
     if (!this.useSystemSshTransport) {
       const sftp = await this.sftp()
       try {
-        const { uploadBuffer } = await import('./sftp-upload')
+        const { uploadBuffer } = await import('./ssh-connection-sftp-upload-deferred')
         await uploadBuffer(sftp, contents, remotePath, options)
       } finally {
         sftp.end()

@@ -37,6 +37,7 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
   }
 
   const [appVersion, setAppVersion] = useState<string | null>(null)
+  const [appName, setAppName] = useState('Orca: ALab Edition')
   const updateCheckHint = getUpdateCheckHint()
 
   useEffect(() => {
@@ -46,6 +47,14 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
         setAppVersion(version)
       }
     })
+    void window.api.app.getIdentity().then(
+      (identity) => {
+        if (!cancelled) {
+          setAppName(identity.name)
+        }
+      },
+      () => undefined
+    )
     return () => {
       cancelled = true
     }
@@ -250,9 +259,7 @@ export function GeneralUpdateSettingsSection(): React.JSX.Element {
           )}
         />
         <dl className="grid grid-cols-[7.5rem_1fr] gap-x-4 gap-y-1.5 text-xs">
-          <dt className="text-muted-foreground">
-            {translate('settings.about.build.orca', 'Orca')}
-          </dt>
+          <dt className="text-muted-foreground">{appName}</dt>
           <dd className="font-mono">
             {ORCA_BUILD_INFO.orcaVersion} · {ORCA_BUILD_INFO.orcaCommit}
           </dd>

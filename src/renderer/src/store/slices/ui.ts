@@ -1136,7 +1136,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
             }
           : s
       )
-      const { toast } = await import('sonner')
+      const { toast } = await import('./ui-toast-deferred')
       if (!stillCurrent()) {
         return false
       }
@@ -1149,7 +1149,10 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
       return false
     }
 
-    const [{ toast }, { track }] = await Promise.all([import('sonner'), import('@/lib/telemetry')])
+    const [{ toast }, { track }] = await Promise.all([
+      import('./ui-toast-deferred'),
+      import('./ui-telemetry-deferred')
+    ])
     if (!stillCurrent()) {
       return false
     }

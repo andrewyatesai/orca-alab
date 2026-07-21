@@ -12,6 +12,7 @@ import { build } from 'esbuild'
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { relaySyncOnlyWasmGluePlugin } from './relay-sync-only-wasm-glue-plugin.mjs'
 
 const __dirname = import.meta.dirname
 // Why: the script lives under config/scripts, so go two levels up to reach the repo root.
@@ -44,6 +45,7 @@ for (const platform of PLATFORMS) {
     // Native addons cannot be bundled — they must exist on the remote host.
     // The relay gracefully degrades when they are absent.
     external: ['node-pty', '@parcel/watcher', 'electron'],
+    plugins: [relaySyncOnlyWasmGluePlugin()],
     sourcemap: false,
     minify: true,
     define: {
@@ -63,12 +65,7 @@ for (const platform of PLATFORMS) {
     minify: true,
     define: {
       'process.env.NODE_ENV': '"production"'
-    },
-    // The orca-git wasm glue's UNUSED default init (`__wbg_init`) references
-    // `import.meta.url`; the relay drives it via `initSync` with embedded base64
-    // bytes (git-wasm.ts) and never calls that path, so silence the CJS
-    // import.meta warning rather than let it mask real ones.
-    logOverride: { 'empty-import-meta': 'silent' }
+    }
   })
 
   // Why: include a content hash so the deploy check detects code changes

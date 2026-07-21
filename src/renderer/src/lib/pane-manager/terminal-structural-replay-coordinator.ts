@@ -1,8 +1,8 @@
 import {
   captureTerminalStructuralScrollIntent,
-  restoreTerminalStructuralScrollIntent,
-  type TerminalScrollIntentTarget
+  restoreTerminalStructuralScrollIntent
 } from './terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from './terminal-scroll-intent-types'
 import {
   beginTerminalScrollIntentBufferRebuild,
   cancelTerminalScrollIntentBufferRebuildCompletions,

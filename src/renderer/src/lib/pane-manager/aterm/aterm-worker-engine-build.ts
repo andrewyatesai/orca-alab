@@ -227,7 +227,7 @@ export async function buildCpuEngine(
   p: StoredInit,
   canvas: OffscreenCanvas
 ): Promise<EngineHandle> {
-  const out = await (cpuInitPromise ??= init(wasmUrl))
+  const out = await (cpuInitPromise ??= init({ module_or_path: wasmUrl }))
   const memory = out.memory
   cpuWasmMemory = memory
   // Register the worker-resident faces ONCE per module; this and every later
@@ -291,7 +291,7 @@ export async function buildGpuEngine(
   p: StoredInit,
   canvas: OffscreenCanvas
 ): Promise<EngineHandle> {
-  const gpuOut = await (gpuInitPromise ??= gpuInit(gpuWasmUrl))
+  const gpuOut = await (gpuInitPromise ??= gpuInit({ module_or_path: gpuWasmUrl }))
   gpuWasmMemory = gpuOut.memory
   const rows = p.rows
   const cols = p.cols

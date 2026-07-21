@@ -16,7 +16,12 @@ export function parseSceneNamesCsv(csv: string): string[] {
 
 // Feature-detected: the currently vendored engine build ships no scene
 // registry export at all, which is exactly the "no scenes" answer.
-const sceneNamesCsv = (atermWasm as { scene_names_csv?: () => string }).scene_names_csv
+// Reflect.get is intentional: this is an optional wasm-bindgen export, not a
+// static import. Rollup can then preserve the runtime capability check without
+// treating today's absent export as a broken named import.
+const optionalSceneNamesCsv = Reflect.get(atermWasm, 'scene_names_csv') as unknown
+const sceneNamesCsv =
+  typeof optionalSceneNamesCsv === 'function' ? (optionalSceneNamesCsv as () => string) : undefined
 
 let namesPromise: Promise<readonly string[]> | null = null
 

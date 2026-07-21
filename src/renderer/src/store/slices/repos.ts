@@ -2721,7 +2721,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       await get().fetchWorktrees(repo.id)
       const folderWorktree = get().worktreesByRepo[repo.id]?.[0]
       if (folderWorktree) {
-        const { activateAndRevealWorktree } = await import('../../lib/worktree-activation')
+        const { activateAndRevealWorktree } = await import('../../lib/worktree-activation-deferred')
         const onboarding = await window.api.onboarding.get().catch(() => null)
         // Why: a new user can dismiss the wizard, then immediately add their
         // first folder from Landing. That path skips onboarding's completeRepo

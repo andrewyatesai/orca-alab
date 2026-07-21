@@ -1,4 +1,3 @@
-#!/usr/bin/env npx tsx
 import { performance } from 'node:perf_hooks'
 import { createMockRepos, createMockWorktrees, readScenarioNumber } from './mobile-lag-scenario'
 import { areWorktreeListsEqual } from '../src/worktree/worktree-list-snapshot'

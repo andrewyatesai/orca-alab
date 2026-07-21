@@ -18,11 +18,14 @@
 
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
 
 const projectDir = resolve(import.meta.dirname, '../..')
+const require = createRequire(import.meta.url)
 const vectorsDir = resolve(projectDir, 'tools/parity/vectors')
 const outputsFile = resolve(projectDir, 'tools/parity/rust_outputs.json')
+const vitestCli = resolve(dirname(require.resolve('vitest/package.json')), 'vitest.mjs')
 
 function rustupBin(tool) {
   const r = spawnSync('rustup', ['which', tool, '--toolchain', 'stable'], { encoding: 'utf8' })
@@ -78,5 +81,10 @@ if (rustStatus !== 0) {
 }
 
 // Leg 2: the TS differential driver.
-const vitestStatus = run('npx', ['vitest', 'run', '--config', 'config/vitest.parity.config.ts'])
+const vitestStatus = run(process.execPath, [
+  vitestCli,
+  'run',
+  '--config',
+  'config/vitest.parity.config.ts'
+])
 process.exit(vitestStatus)

@@ -11,9 +11,9 @@ import {
 import { ATERM_RAIN_SIGNAL_CODES } from '../../../../../shared/aterm-rain-signal'
 import {
   markTerminalPinnedViewport,
-  syncTerminalScrollIntentFromViewport,
-  type TerminalScrollIntentTarget
+  syncTerminalScrollIntentFromViewport
 } from '../terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermPredictionEcho } from './aterm-prediction-echo'
 import type { AtermTerminal } from './aterm_wasm.js'
@@ -212,7 +212,7 @@ export function attachAtermTextareaInput(deps: AtermTextareaInputDeps): { dispos
     const intentTarget = getScrollIntentTarget?.()
     if (intentTarget) {
       markTerminalPinnedViewport(intentTarget)
-      syncTerminalScrollIntentFromViewport(intentTarget)
+      syncTerminalScrollIntentFromViewport(intentTarget, { userInteraction: true })
     }
     return true
   }

@@ -268,7 +268,7 @@ async function refreshWebRuntimeSessionTabsSnapshot(
       response as RuntimeRpcResponse<RuntimeMobileSessionTabsResult>
     )
     const { applyFreshWebSessionTabsSnapshot, applyWebSessionTabsStorePatch } =
-      await import('./web-session-tabs-sync')
+      await import('./web-session-tabs-sync-deferred')
     applyWebSessionTabsStorePatch((state) => {
       // Why: eager refreshes can resolve after the user has selected another
       // worktree; session parity should update tabs without stealing focus.
@@ -358,7 +358,8 @@ export async function moveWebRuntimeSessionTab(
   }
 
   try {
-    const { resolveHostSessionTabIdForWebSessionTab } = await import('./web-session-tabs-sync')
+    const { resolveHostSessionTabIdForWebSessionTab } =
+      await import('./web-session-tabs-sync-deferred')
     const state = useAppStore.getState()
     const resolveHostBackedTabId = (tabId: string): string | null =>
       resolveHostSessionTabIdForWebSessionTab(state, {
@@ -463,7 +464,8 @@ async function callWebRuntimeSessionTabMethod(
   }
 
   try {
-    const { resolveHostSessionTabIdForWebSessionTab } = await import('./web-session-tabs-sync')
+    const { resolveHostSessionTabIdForWebSessionTab } =
+      await import('./web-session-tabs-sync-deferred')
     const state = useAppStore.getState()
     const hostTabId =
       resolveHostSessionTabIdForWebSessionTab(state, {
@@ -715,7 +717,7 @@ export function setWebRuntimeTabProps(args: {
     return false
   }
   const state = useAppStore.getState()
-  void import('./web-session-tabs-sync')
+  void import('./web-session-tabs-sync-deferred')
     .then(({ resolveHostSessionTabIdForWebSessionTab }) => {
       const hostTabId =
         resolveHostSessionTabIdForWebSessionTab(state, {

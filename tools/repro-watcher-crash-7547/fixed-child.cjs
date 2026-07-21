@@ -28,16 +28,24 @@ if (isMainThread) {
     !fs.existsSync(bundlePath) ||
     fs.statSync(bundlePath).mtimeMs < fs.statSync(clientSrc).mtimeMs
   ) {
-    require('node:child_process').execSync(
-      `npx esbuild ${JSON.stringify(clientSrc)} --bundle --platform=node --format=cjs ` +
-        `--external:electron --external:@parcel/watcher --outfile=${JSON.stringify(bundlePath)}`,
+    require('node:child_process').execFileSync(
+      require.resolve('esbuild/bin/esbuild'),
+      [
+        clientSrc,
+        '--bundle',
+        '--platform=node',
+        '--format=cjs',
+        '--external:electron',
+        '--external:@parcel/watcher',
+        `--outfile=${bundlePath}`
+      ],
       { cwd: REPO_ROOT, stdio: 'inherit' }
     )
   }
   const entry = path.join(process.cwd(), 'out', 'main', 'parcel-watcher-process-entry.js')
   if (!fs.existsSync(entry)) {
     process.stderr.write(
-      `[fixed-harness] missing ${entry}\nRun from the repo root after building (npx electron-vite build).\n`
+      `[fixed-harness] missing ${entry}\nRun from the repo root after building (pnpm build:electron-vite).\n`
     )
     process.exit(2)
   }

@@ -167,6 +167,7 @@ export async function scrollActiveTerminalToText(page: Page, text: string): Prom
       return null
     }
     pane.terminal.scrollToTop()
+    const oldestRetainedLine = buffer.viewportY
     let targetLine = findVisible()
     // Step down a near-full page (overlap one row so a match split across the page
     // boundary isn't skipped) until found or the viewport reaches the live bottom.
@@ -188,7 +189,7 @@ export async function scrollActiveTerminalToText(page: Page, text: string): Prom
     // Why: center the target for the subsequent DOM-based visual assertion. The
     // engine places an ABSOLUTE line at/near the top visible row, so subtract half
     // a screen to center it (clamped to the oldest retained line).
-    const centeredLine = Math.max(0, targetLine - Math.floor(rows / 2))
+    const centeredLine = Math.max(oldestRetainedLine, targetLine - Math.floor(rows / 2))
     pane.terminal.scrollToLine(centeredLine)
     // Why: the engine scroll above bypasses every production intent seam (a real
     // wheel/scrollbar/keyboard scroll marks the scrolled-off-bottom viewport as

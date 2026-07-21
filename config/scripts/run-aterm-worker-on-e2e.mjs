@@ -1,4 +1,7 @@
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { dirname, resolve } from 'node:path'
+import { normalizeChildColorEnv } from './child-process-color-env.mjs'
 
 // Worker-ON e2e mode: run a curated core subset against the SHIPPED aterm default —
 // the shared render worker left ON. ORCA_E2E_ATERM_WORKER=1 tells the orca-app
@@ -51,7 +54,8 @@ const CURATED_SPECS = [
   'tests/e2e/aterm-worker-search.spec.ts'
 ]
 
-const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+const require = createRequire(import.meta.url)
+const playwrightCli = resolve(dirname(require.resolve('@playwright/test/package.json')), 'cli.js')
 
 const extraArgs = process.argv.slice(2)
 if (extraArgs[0] === '--') {
@@ -59,9 +63,9 @@ if (extraArgs[0] === '--') {
 }
 
 const child = spawn(
-  npxCommand,
+  process.execPath,
   [
-    'playwright',
+    playwrightCli,
     'test',
     ...CURATED_SPECS,
     '--config',
@@ -73,7 +77,7 @@ const child = spawn(
   ],
   {
     stdio: 'inherit',
-    env: { ...process.env, ORCA_E2E_ATERM_WORKER: '1' }
+    env: { ...normalizeChildColorEnv(), ORCA_E2E_ATERM_WORKER: '1' }
   }
 )
 

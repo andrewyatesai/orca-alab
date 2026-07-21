@@ -52,19 +52,26 @@ test.describe('aterm screen-reader accessibility', () => {
       expect(r.hidden, 'the live region must be off-screen, NOT display:none').toBe(false)
     }
 
-    // Run a command whose output carries a unique marker, then assert SOME aterm
+    // Run a command whose OUTPUT carries a unique marker, then assert this pane's
     // live region mirrors it — i.e. the rendered grid was mirrored for screen
-    // readers. We scan all live regions because the active pane (whose mirror gets
-    // the output) isn't necessarily the document-order-first aterm canvas.
-    await execInTerminal(orcaPage, ptyId, `printf "${MARKER}\\n"`)
+    // readers. The placeholder keeps the complete marker out of the command echo,
+    // so only printf's real output can satisfy the assertion.
+    await execInTerminal(orcaPage, ptyId, 'printf "aterm-a11y-marker-%s\\n" ZQX')
 
     await expect
       .poll(
         async () =>
-          orcaPage.evaluate(() =>
-            Array.from(document.querySelectorAll('.xterm [role="log"]')).some((el) =>
-              (el.textContent ?? '').includes('aterm-a11y-marker-ZQX')
-            )
+          orcaPage.evaluate(
+            ({ id, marker }) => {
+              const pane = Array.from(document.querySelectorAll<HTMLElement>('[data-pty-id]')).find(
+                (el) => el.dataset.ptyId === id
+              )
+              const region = pane?.querySelector('.xterm [role="log"]')
+              return Array.from(region?.children ?? []).some(
+                (child) => (child.textContent ?? '').trim() === marker
+              )
+            },
+            { id: ptyId, marker: MARKER }
           ),
         {
           timeout: 20_000,
@@ -100,18 +107,30 @@ test.describe('aterm screen-reader accessibility', () => {
     const ptyId = await waitForActivePanePtyId(orcaPage)
     await waitForAtermControllerByPtyId(orcaPage, ptyId)
 
-    // First command: three ordered, distinctive lines.
+    // First command: three ordered, distinctive lines. Keep each complete marker
+    // OUT of the echoed command: otherwise the echo itself can satisfy the poll
+    // before printf's output reaches the worker-backed mirror.
     const A = ['A1-aterm-log-line-alpha', 'A2-aterm-log-line-bravo', 'A3-aterm-log-line-charlie']
-    await execInTerminal(orcaPage, ptyId, `printf "${A.join('\\n')}\\n"`)
+    await execInTerminal(
+      orcaPage,
+      ptyId,
+      'printf "A%d-aterm-log-line-%s\\n" 1 alpha 2 bravo 3 charlie'
+    )
     await expect
       .poll(
         async () =>
           orcaPage.evaluate(
-            (needle) =>
-              Array.from(document.querySelectorAll('.xterm [role="log"]')).some((el) =>
-                (el.textContent ?? '').includes(needle)
-              ),
-            A[2]
+            ({ id, markers }) => {
+              const pane = Array.from(document.querySelectorAll<HTMLElement>('[data-pty-id]')).find(
+                (el) => el.dataset.ptyId === id
+              )
+              const region = pane?.querySelector('.xterm [role="log"]')
+              const childTexts = Array.from(region?.children ?? []).map((child) =>
+                (child.textContent ?? '').trim()
+              )
+              return markers.every((marker) => childTexts.includes(marker))
+            },
+            { id: ptyId, markers: A }
           ),
         { timeout: 20_000, message: 'first command output should reach the live region' }
       )
@@ -119,16 +138,26 @@ test.describe('aterm screen-reader accessibility', () => {
 
     // Second command: three more ordered lines printed AFTER the first.
     const B = ['B1-aterm-log-line-delta', 'B2-aterm-log-line-echo', 'B3-aterm-log-line-foxtrot']
-    await execInTerminal(orcaPage, ptyId, `printf "${B.join('\\n')}\\n"`)
+    await execInTerminal(
+      orcaPage,
+      ptyId,
+      'printf "B%d-aterm-log-line-%s\\n" 1 delta 2 echo 3 foxtrot'
+    )
     await expect
       .poll(
         async () =>
           orcaPage.evaluate(
-            (needle) =>
-              Array.from(document.querySelectorAll('.xterm [role="log"]')).some((el) =>
-                (el.textContent ?? '').includes(needle)
-              ),
-            B[2]
+            ({ id, markers }) => {
+              const pane = Array.from(document.querySelectorAll<HTMLElement>('[data-pty-id]')).find(
+                (el) => el.dataset.ptyId === id
+              )
+              const region = pane?.querySelector('.xterm [role="log"]')
+              const childTexts = Array.from(region?.children ?? []).map((child) =>
+                (child.textContent ?? '').trim()
+              )
+              return markers.every((marker) => childTexts.includes(marker))
+            },
+            { id: ptyId, markers: B }
           ),
         { timeout: 20_000, message: 'second command output should append to the live region' }
       )
@@ -140,37 +169,45 @@ test.describe('aterm screen-reader accessibility', () => {
     // (4) the first command's lines come BEFORE the second's (append-only, the
     // overlap-diff didn't drop or reorder history).
     const all = [...A, ...B]
-    const report = await orcaPage.evaluate((markers) => {
-      const regions = Array.from(document.querySelectorAll('.xterm [role="log"]'))
-      const region = regions.find((el) => (el.textContent ?? '').includes(markers[0]))
-      if (!region) {
-        return null
-      }
-      const text = region.textContent ?? ''
-      // Each line must be present.
-      const present = markers.map((m) => text.includes(m))
-      // Order: the index of each marker in the accumulated text must be ascending.
-      const positions = markers.map((m) => text.indexOf(m))
-      let ordered = true
-      for (let i = 1; i < positions.length; i++) {
-        if (positions[i] <= positions[i - 1]) {
-          ordered = false
+    const report = await orcaPage.evaluate(
+      ({ id, markers }) => {
+        const pane = Array.from(document.querySelectorAll<HTMLElement>('[data-pty-id]')).find(
+          (el) => el.dataset.ptyId === id
+        )
+        const region = pane?.querySelector('.xterm [role="log"]')
+        if (!region) {
+          return null
         }
-      }
-      // Each marker should land in its OWN discrete child div (line-granular review).
-      const childTexts = Array.from(region.children).map((c) => c.textContent ?? '')
-      const eachMarkerHasOwnDiv = markers.every((m) => childTexts.some((ct) => ct.includes(m)))
-      const childTagsAllDiv = Array.from(region.children).every(
-        (c) => c.tagName.toLowerCase() === 'div'
-      )
-      return {
-        present,
-        ordered,
-        eachMarkerHasOwnDiv,
-        childTagsAllDiv,
-        childCount: region.children.length
-      }
-    }, all)
+        const childTexts = Array.from(region.children).map((child) =>
+          (child.textContent ?? '').trim()
+        )
+        // Exact node equality proves printf OUTPUT landed in the mirror. A substring
+        // match would let a long echoed command node impersonate several output rows.
+        const positions = markers.map((marker) => childTexts.indexOf(marker))
+        const present = positions.map((position) => position >= 0)
+        let ordered = true
+        for (let i = 1; i < positions.length; i++) {
+          if (positions[i] <= positions[i - 1]) {
+            ordered = false
+          }
+        }
+        // Every marker must occur exactly once, in its own discrete child div.
+        const eachMarkerHasOwnDiv = markers.every(
+          (marker) => childTexts.filter((text) => text === marker).length === 1
+        )
+        const childTagsAllDiv = Array.from(region.children).every(
+          (c) => c.tagName.toLowerCase() === 'div'
+        )
+        return {
+          present,
+          ordered,
+          eachMarkerHasOwnDiv,
+          childTagsAllDiv,
+          childCount: region.children.length
+        }
+      },
+      { id: ptyId, markers: all }
+    )
 
     expect(report, 'a live region containing our output should exist').not.toBeNull()
     expect(report!.present.every(Boolean), 'every printed line must be mirrored').toBe(true)

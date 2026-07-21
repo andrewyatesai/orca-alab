@@ -130,6 +130,7 @@ describe('RelayFilesystemWatchRegistry', () => {
   })
 
   it('notifies each owning client when bounded recovery terminates a live watch', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     await registry.watch('/repo', context(1), 101)
     await registry.watch('/repo', context(2), 202)
     const first = pool.installed[0]
@@ -154,6 +155,9 @@ describe('RelayFilesystemWatchRegistry', () => {
       watchId: 202,
       message: 'quarantine recovery failed'
     })
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[relay] File watcher disabled after bounded recovery for /repo: quarantine recovery failed\n'
+    )
   })
 
   it('aborts a pending crawl only after the last same-root client leaves', async () => {
@@ -306,6 +310,7 @@ describe('RelayFilesystemWatchRegistry', () => {
   })
 
   it('retains pending-setup teardown failure until the child physically exits', async () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     let resolveSubscribe: (subscription: WatcherProcessSubscription) => void = () => undefined
     let resolvePhysicalExit: () => void = () => undefined
     const physicalExit = new Promise<void>((resolve) => {
@@ -340,6 +345,9 @@ describe('RelayFilesystemWatchRegistry', () => {
 
     await expect(registry.unwatchAndWait('/repo', context(1))).resolves.toBeUndefined()
     expect(pool.forgetRoot).toHaveBeenCalledWith('/repo')
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[relay] File watcher not available for /repo: file watcher process did not exit after termination deadline\n'
+    )
   })
 })
 

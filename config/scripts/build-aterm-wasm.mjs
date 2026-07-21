@@ -25,11 +25,22 @@ import {
   writeFileSync
 } from 'node:fs'
 import { join, delimiter } from 'node:path'
+import {
+  assertAtermWasmSourcePatchApplies,
+  expectedAtermWasmSourcePatch,
+  withPatchedAtermWorktree
+} from './aterm-wasm-source-patch.mjs'
+import { CargoCommandFailure, runStreamedCargoCommand } from './stream-cargo-command.mjs'
+import { assertNoEmbeddedLocalBuildPaths, wasmPathRemapRustflags } from './wasm-build-paths.mjs'
 
 const ROOT = join(import.meta.dirname, '..', '..')
 const DEST = join(ROOT, 'src/renderer/src/lib/pane-manager/aterm')
-const WASM_TARGET_DIR = join(ROOT, 'rust/aterm/target/wasm32-unknown-unknown/release')
-const GLUE_OUT = join(ROOT, 'rust/aterm/target/aterm-web-glue')
+const ATERM_SOURCE = join(ROOT, 'rust/aterm')
+// Cargo output remains shared with the normal submodule build even though the
+// patched source is compiled from a detached temporary worktree.
+const CARGO_TARGET_DIR = join(ATERM_SOURCE, 'target')
+const WASM_TARGET_DIR = join(CARGO_TARGET_DIR, 'wasm32-unknown-unknown/release')
+const GLUE_OUT = join(CARGO_TARGET_DIR, 'aterm-web-glue')
 const WB_VERSION = '0.2.108'
 const WB_DIR = join(ROOT, 'config/.tooling', `wasm-bindgen-${WB_VERSION}`)
 const ARTIFACT_PIN = 'aterm_wasm_artifact_pin.json'
@@ -47,8 +58,8 @@ const WASM_OPT_FEATURES = [
 const WASM_SIMD_RUSTFLAG = '-C target-feature=+simd128'
 
 const CRATES = {
-  cpu: { dir: 'rust/aterm/crates/aterm-wasm', stem: 'aterm_wasm' },
-  gpu: { dir: 'rust/aterm/crates/aterm-gpu-web', stem: 'aterm_gpu_web' }
+  cpu: { dir: 'crates/aterm-wasm', stem: 'aterm_wasm' },
+  gpu: { dir: 'crates/aterm-gpu-web', stem: 'aterm_gpu_web' }
 }
 const ARTIFACTS = Object.values(CRATES).flatMap(({ stem }) => [
   `${stem}.js`,
@@ -91,14 +102,27 @@ function rustupStableBin(bin) {
 // cargo spawns a BARE `rustc` resolved from PATH (Homebrew's 1.95, no wasm32) unless
 // RUSTC is pinned. So we invoke stable's cargo by absolute path WITH RUSTC pinned to
 // stable's rustc. Falls back to plain cargo (+ RUSTUP_TOOLCHAIN) when rustup is absent.
-function runWasmCargo(args, opts = {}) {
+async function runWasmCargo(args, opts = {}) {
   const baseEnv = opts.env ?? process.env
   if (which('rustup')) {
     const cargo = rustupStableBin('cargo')
     const rustc = rustupStableBin('rustc')
-    run(cargo, args, { ...opts, env: { ...baseEnv, RUSTC: rustc } })
+    await runStreamedCargoCommand({
+      command: cargo,
+      args,
+      cwd: opts.cwd ?? ROOT,
+      env: { ...baseEnv, RUSTC: rustc },
+      label: 'aterm-wasm'
+    })
   } else {
-    run('cargo', args, opts)
+    await runStreamedCargoCommand({
+      command: 'cargo',
+      args,
+      cwd: opts.cwd ?? ROOT,
+      env: baseEnv,
+      label: 'aterm-wasm',
+      shell: process.platform === 'win32'
+    })
   }
 }
 
@@ -122,7 +146,7 @@ function resolveWasmBindgen() {
   return cached
 }
 
-function buildCrate(key, wasmBindgen) {
+async function buildCrate(key, wasmBindgen, atermSource) {
   const { dir, stem } = CRATES[key]
   console.log(`\n[aterm-wasm] building ${key} (${dir}) …`)
   // Build from ROOT (online ancestry) via --manifest-path so the web deps
@@ -132,14 +156,14 @@ function buildCrate(key, wasmBindgen) {
   // path), so hot-loop speed drives animation smoothness — a size-opt override
   // (opt-level="z") made the wasm visibly chunkier than the native opt-3 build.
   // A few MB more download is a non-issue; smoothness is the product.
-  runWasmCargo(
+  await runWasmCargo(
     [
       'build',
       '--release',
       '--target',
       'wasm32-unknown-unknown',
       '--manifest-path',
-      join(dir, 'Cargo.toml')
+      join(atermSource, dir, 'Cargo.toml')
     ],
     // Pin to stable (aterm's rust-toolchain.toml channel): the machine's global rustup
     // default may be an older nightly that lacks the wasm32-unknown-unknown target (or
@@ -149,11 +173,13 @@ function buildCrate(key, wasmBindgen) {
     {
       env: {
         ...process.env,
+        CARGO_TARGET_DIR,
         CARGO_NET_OFFLINE: 'false',
         RUSTUP_TOOLCHAIN: 'stable',
         CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS: [
           process.env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS,
-          WASM_SIMD_RUSTFLAG
+          WASM_SIMD_RUSTFLAG,
+          ...wasmPathRemapRustflags({ root: ROOT, atermSource })
         ]
           .filter(Boolean)
           .join(' ')
@@ -172,6 +198,11 @@ function buildCrate(key, wasmBindgen) {
   // -O3 (speed), NOT -Oz (size): match the native opt-3 profile so wasm-opt's
   // pass reinforces the cargo speed build instead of trading it back for bytes.
   run('wasm-opt', ['-O3', ...WASM_OPT_FEATURES, '-o', bg, bg])
+  assertNoEmbeddedLocalBuildPaths(readFileSync(bg), {
+    root: ROOT,
+    atermSource,
+    label: `${stem}_bg.wasm`
+  })
   const after = statSync(bg).size
   console.log(
     `[aterm-wasm] ${stem}_bg.wasm ${before} -> ${after} bytes ` +
@@ -206,10 +237,7 @@ function buildCrate(key, wasmBindgen) {
   console.log(`[aterm-wasm] copied ${stem} glue → src/renderer/.../aterm/`)
 }
 
-function writeArtifactPin() {
-  const sourceCommit = execFileSync('git', ['-C', join(ROOT, 'rust/aterm'), 'rev-parse', 'HEAD'], {
-    encoding: 'utf8'
-  }).trim()
+function writeArtifactPin(sourceCommit, sourcePatch) {
   const artifacts = {}
   for (const file of ARTIFACTS) {
     const bytes = readFileSync(join(DEST, file))
@@ -220,14 +248,17 @@ function writeArtifactPin() {
   }
   writeFileSync(
     join(DEST, ARTIFACT_PIN),
-    `${JSON.stringify({ schema: 1, sourceCommit, artifacts }, null, 2)}\n`
+    `${JSON.stringify({ schema: 2, sourceCommit, sourcePatch, artifacts }, null, 2)}\n`
   )
-  console.log(`[aterm-wasm] pinned ${ARTIFACTS.length} artifacts to ${sourceCommit}`)
+  console.log(
+    `[aterm-wasm] pinned ${ARTIFACTS.length} artifacts to ${sourceCommit} + ` +
+      `${sourcePatch.path}@${sourcePatch.sha256.slice(0, 12)}`
+  )
 }
 
 function atermSourceIsClean() {
   return (
-    execFileSync('git', ['-C', join(ROOT, 'rust/aterm'), 'status', '--porcelain'], {
+    execFileSync('git', ['-C', ATERM_SOURCE, 'status', '--porcelain'], {
       encoding: 'utf8'
     }).trim().length === 0
   )
@@ -246,18 +277,43 @@ if (!which('wasm-opt')) {
 const wasmBindgen = resolveWasmBindgen()
 const flags = process.argv.slice(2)
 const keys = flags.length ? flags.map((f) => f.replace(/^--/, '')) : ['cpu', 'gpu']
-for (const k of keys) {
-  if (!CRATES[k]) {
-    console.error(`[aterm-wasm] unknown target "${k}" (use --cpu and/or --gpu)`)
-    process.exit(1)
+try {
+  for (const k of keys) {
+    if (!CRATES[k]) {
+      console.error(`[aterm-wasm] unknown target "${k}" (use --cpu and/or --gpu)`)
+      process.exit(1)
+    }
   }
-  buildCrate(k, wasmBindgen)
+  if (!atermSourceIsClean()) {
+    throw new Error(
+      'rust/aterm has uncommitted source changes; refusing to build artifacts with ambiguous provenance'
+    )
+  }
+  const sourceCommit = execFileSync('git', ['-C', ATERM_SOURCE, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8'
+  }).trim()
+  const sourcePatch = expectedAtermWasmSourcePatch(ROOT)
+  assertAtermWasmSourcePatchApplies(ROOT, ATERM_SOURCE)
+
+  await withPatchedAtermWorktree(
+    { root: ROOT, atermSource: ATERM_SOURCE, sourceCommit },
+    async (patchedAtermSource) => {
+      for (const k of keys) {
+        await buildCrate(k, wasmBindgen, patchedAtermSource)
+      }
+    }
+  )
+
+  if (Object.keys(CRATES).every((key) => keys.includes(key))) {
+    writeArtifactPin(sourceCommit, sourcePatch)
+  } else {
+    console.log(`[aterm-wasm] partial build: ${ARTIFACT_PIN} intentionally left unchanged`)
+  }
+  console.log('\n[aterm-wasm] done.')
+} catch (error) {
+  if (!(error instanceof CargoCommandFailure)) {
+    throw error
+  }
+  console.error(`[aterm-wasm] ${error.message}`)
+  process.exitCode = error.exitCode
 }
-if (Object.keys(CRATES).every((key) => keys.includes(key)) && atermSourceIsClean()) {
-  writeArtifactPin()
-} else if (Object.keys(CRATES).every((key) => keys.includes(key))) {
-  console.log(`[aterm-wasm] dirty aterm source: ${ARTIFACT_PIN} intentionally left unchanged`)
-} else {
-  console.log(`[aterm-wasm] partial build: ${ARTIFACT_PIN} intentionally left unchanged`)
-}
-console.log('\n[aterm-wasm] done.')

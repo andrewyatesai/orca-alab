@@ -2184,14 +2184,13 @@ private struct WindowCapture {
     }
 
     private static func captureImage(windowId: CGWindowID, bounds: CGRect) -> CapturedImage? {
-        if ProcessInfo.processInfo.environment["ORCA_COMPUTER_USE_SCK_SCREENSHOTS"] == "1",
-           let image = captureImageWithScreenCaptureKit(windowId: windowId, bounds: bounds) {
-            return CapturedImage(image: image, engine: "screenCaptureKit")
+        // macOS 14 deprecated the CoreGraphics single-window capture API. The
+        // helper's minimum is macOS 14, so ScreenCaptureKit is the supported
+        // path for every request and still returns the same CGImage payload.
+        guard let image = captureImageWithScreenCaptureKit(windowId: windowId, bounds: bounds) else {
+            return nil
         }
-        if let image = CGWindowListCreateImage(.null, [.optionIncludingWindow], windowId, [.boundsIgnoreFraming, .bestResolution]) {
-            return CapturedImage(image: image, engine: "cgWindowList")
-        }
-        return nil
+        return CapturedImage(image: image, engine: "screenCaptureKit")
     }
 
     private static func captureImageWithScreenCaptureKit(windowId: CGWindowID, bounds: CGRect) -> CGImage? {
@@ -3606,6 +3605,7 @@ private func isTrustedOrcaApplication(_ pid: pid_t) -> Bool {
     // Why: dev validation runs from per-worktree wrapper apps with stable
     // Orca-owned bundle ids; the sidecar peer check must still authorize them.
     return bundleId == "com.stablyai.orca" ||
+        bundleId == "com.stablyai.orca.dev" ||
         bundleId.hasPrefix("com.stablyai.orca.dev.") ||
         bundleId == "com.github.Electron"
 }
@@ -3648,8 +3648,6 @@ private func runAgent(socketPath: String, token: String?) {
     let app = NSApplication.shared
     let delegate = AgentRuntime(socketPath: socketPath, token: token)
     app.delegate = delegate
-    // Why: SCK is reliable once this code runs as a signed app with a real TCC identity.
-    setenv("ORCA_COMPUTER_USE_SCK_SCREENSHOTS", "1", 1)
     app.run()
 }
 

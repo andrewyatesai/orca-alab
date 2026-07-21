@@ -3,6 +3,11 @@
 import { spawnSync } from 'node:child_process'
 import { accessSync, constants, existsSync, realpathSync, statSync } from 'node:fs'
 import path from 'node:path'
+import {
+  isManagedDevElectronExecutable,
+  prepareMacDevElectronApp,
+  seedDevInstanceIdentityEnv
+} from './dev-electron-app.mjs'
 
 const scriptPath = realpathSync(import.meta.filename)
 const scriptDir = path.dirname(scriptPath)
@@ -17,8 +22,21 @@ if (!existsSync(cliEntry)) {
 
 process.env.ORCA_USER_DATA_PATH = process.env.ORCA_DEV_USER_DATA_PATH ?? getDefaultDevUserDataPath()
 
-const electronExecutable = getElectronExecutable()
-if (!process.env.ORCA_APP_EXECUTABLE && isRunnableFile(electronExecutable)) {
+seedDevInstanceIdentityEnv(repoRoot)
+
+let electronExecutable = process.env.ORCA_APP_EXECUTABLE
+const cliCanLaunchApp = process.argv.slice(2).some((arg) => arg === 'open' || arg === 'serve')
+const useManagedElectronExecutable = isManagedDevElectronExecutable(repoRoot, electronExecutable)
+if (
+  cliCanLaunchApp &&
+  process.env.ORCA_DEV_STABLE_NAME !== '1' &&
+  process.env.ORCA_SKIP_DEV_ELECTRON_APP_PREPARE !== '1' &&
+  useManagedElectronExecutable
+) {
+  electronExecutable = prepareMacDevElectronApp(repoRoot) ?? electronExecutable
+}
+electronExecutable ||= getElectronExecutable()
+if (useManagedElectronExecutable && isRunnableFile(electronExecutable)) {
   process.env.ORCA_APP_EXECUTABLE = electronExecutable
   process.env.ORCA_APP_EXECUTABLE_NEEDS_APP_ROOT = '1'
 }

@@ -3,7 +3,7 @@ import type { AtermLinkContext } from './aterm-url-link-routing'
 import type { AtermRendererReplySurface } from './aterm-renderer-reply-surface'
 import type { AtermThemeColors } from './aterm-theme-colors'
 import type { AtermRainPulse } from '../../../../../shared/aterm-rain-signal'
-import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 
 /** Base cell font size in CSS px; scaled by devicePixelRatio for device-px
  *  rendering. Shared home so the wiring (dpr re-rasterize) and the pane renderer

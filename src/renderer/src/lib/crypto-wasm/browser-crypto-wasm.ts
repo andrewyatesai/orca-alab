@@ -24,7 +24,7 @@ let startPromise: Promise<void> | null = null
 /** Kick off the async wasm init (idempotent). Called once from the renderer
  *  bootstrap so the crypto is compiled long before any remote handshake. */
 export function startCryptoWasm(): Promise<void> {
-  startPromise ??= initCryptoWasm(wasmUrl).then(() => {
+  startPromise ??= initCryptoWasm({ module_or_path: wasmUrl }).then(() => {
     ready = true
   })
   return startPromise

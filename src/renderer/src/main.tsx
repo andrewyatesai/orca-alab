@@ -15,9 +15,11 @@ import { startCryptoWasm } from './lib/crypto-wasm/browser-crypto-wasm'
 import { shouldEnableReactGrab } from './lib/react-grab-dev-gate'
 import { I18nProvider } from './i18n/I18nProvider'
 import { translate } from './i18n/i18n'
+import { applyAppDocumentTitle } from './startup/app-document-title'
 
 recordRendererCrashBreadcrumb('renderer_bootstrap_started', { dev: import.meta.env.DEV })
 installRendererCrashDiagnostics()
+void applyAppDocumentTitle(() => window.api.app.getIdentity(), document)
 // Compile the orca-git wasm eagerly. It backs the Rust agent-startup plan
 // builders (session auto-resume / cold-restore run these imperatively on boot,
 // with no ready-subscription), so gate the first render on it below — otherwise

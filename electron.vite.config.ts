@@ -5,6 +5,10 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { createPlainNodeEntryGuardPlugin } from './build-plugins/plain-node-entry-guard'
+import {
+  createRendererChunkBudgetPlugin,
+  createRendererWorkerChunkBudgetPlugin
+} from './build-plugins/renderer-chunk-budget'
 
 // Build provenance for the About section, baked in at build time (a packaged app
 // has no git repo / rust/aterm tree to read at runtime). Best-effort: any piece
@@ -275,6 +279,10 @@ export default defineConfig({
     // reflection in the renderer — every `.name` compare is on a data field.
     build: {
       minify: 'esbuild',
+      // Vite's built-in warning treats every large lazy feature bundle as a
+      // startup problem. The plugin below fails at 2.25 MiB per eager file,
+      // 4.25 MiB per entry's full static closure, and 4.75 MiB per lazy file.
+      chunkSizeWarningLimit: 5_000,
       rollupOptions: {
         input: {
           index: resolve('src/renderer/index.html'),
@@ -290,9 +298,12 @@ export default defineConfig({
         '@': resolve('src/renderer/src')
       }
     },
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), createRendererChunkBudgetPlugin('desktop')],
     worker: {
-      format: 'es'
+      format: 'es',
+      // Worker builds are separate Rollup children and do not inherit renderer
+      // plugins. Monaco's 6.69 MiB TS worker has a 7.25 MiB file/closure ratchet.
+      plugins: () => [createRendererWorkerChunkBudgetPlugin()]
     }
   }
 })

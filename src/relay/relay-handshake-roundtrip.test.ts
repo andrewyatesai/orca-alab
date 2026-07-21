@@ -34,6 +34,7 @@ describe('handshake round-trip over a real Socket pair', () => {
   let sockPath: string
   let tmpDir: string
   let exitSpy: ReturnType<typeof vi.spyOn>
+  let stderrWrite: ReturnType<typeof vi.spyOn>
 
   let uncaughtHandler: (err: Error) => void
 
@@ -43,6 +44,13 @@ describe('handshake round-trip over a real Socket pair', () => {
     exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new ExitCalled(code ?? 0)
     }) as never)
+    stderrWrite = vi.spyOn(process.stderr, 'write').mockImplementation(((...args: unknown[]) => {
+      const callback = args.find((arg) => typeof arg === 'function') as
+        | ((error?: Error | null) => void)
+        | undefined
+      callback?.(null)
+      return true
+    }) as typeof process.stderr.write)
     // Why: process.exit is called from inside async callbacks
     // (process.stderr.write flush callback) which would otherwise surface
     // as an uncaughtException after the test resolves and tear down the
@@ -60,6 +68,7 @@ describe('handshake round-trip over a real Socket pair', () => {
   afterEach(async () => {
     process.off('uncaughtException', uncaughtHandler)
     exitSpy.mockRestore()
+    stderrWrite.mockRestore()
     for (const s of liveServerSockets) {
       s.destroy()
     }
@@ -116,6 +125,10 @@ describe('handshake round-trip over a real Socket pair', () => {
 
     await vi.waitFor(() => expect(acceptedCb).toHaveBeenCalledTimes(1))
     expect(acceptedCb.mock.calls[0][0].length).toBe(0)
+    expect(stderrWrite.mock.calls.map(([line]) => line)).toEqual([
+      '[relay] Handshake OK from version=0.1.0+match\n',
+      '[relay-connect] Handshake OK at version=0.1.0+match\n'
+    ])
 
     bridgeSock.destroy()
   })
@@ -143,6 +156,9 @@ describe('handshake round-trip over a real Socket pair', () => {
     dec.feed(leftover)
     expect(seen).toHaveLength(1)
     expect(seen[0].type).toBe(MessageType.Regular)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[relay] Handshake OK from version=0.1.0+match\n'
+    )
 
     bridgeSock.destroy()
   })
@@ -185,6 +201,9 @@ describe('handshake round-trip over a real Socket pair', () => {
     dec.feed(leftover)
     expect(seen).toHaveLength(1)
     expect(seen[0].type).toBe(MessageType.Regular)
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[relay-connect] Handshake OK at version=0.1.0+match\n'
+    )
 
     bridgeSock.destroy()
   })
@@ -201,6 +220,13 @@ describe('handshake round-trip over a real Socket pair', () => {
     await vi.waitFor(() => expect(exitSpy).toHaveBeenCalled())
     expect(exitSpy).toHaveBeenCalledWith(EXIT_CODE_VERSION_MISMATCH)
     expect(acceptedCb).not.toHaveBeenCalled()
+    expect(stderrWrite).toHaveBeenCalledTimes(2)
+    expect(stderrWrite.mock.calls[0][0]).toMatch(
+      /^\d{4}-\d{2}-\d{2}T[^ ]+ \[relay\] Handshake mismatch: own=0\.1\.0\+server-version, client=0\.1\.0\+different; closing socket\n$/
+    )
+    expect(stderrWrite.mock.calls[1][0]).toBe(
+      '[relay-connect] Handshake mismatch: expected=0.1.0+server-version, daemon=0.1.0+different; exiting 42\n'
+    )
 
     bridgeSock.destroy()
   })
@@ -222,6 +248,7 @@ describe('handshake round-trip over a real Socket pair', () => {
 
     await new Promise((r) => setTimeout(r, 100))
     expect(acceptedCb).not.toHaveBeenCalled()
+    expect(stderrWrite).not.toHaveBeenCalled()
 
     bridgeSock.destroy()
   })

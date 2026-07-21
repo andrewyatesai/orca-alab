@@ -10,14 +10,14 @@ data and why it can no longer leak to the public vendor.
 Telemetry transmits only when BOTH compile-time constants are injected at
 the electron-vite build step (`electron.vite.config.ts` `define` block):
 
-| Env var at build time | Value | Effect |
-| --- | --- | --- |
-| `ORCA_POSTHOG_WRITE_KEY` | fork PostHog project key (`phc_…`) | enables transport |
-| `ORCA_BUILD_IDENTITY` | `rc` (staging) or `stable` | tags `orca_channel`, unlocks `IS_OFFICIAL_BUILD` |
+| Env var at build time    | Value                              | Effect                                           |
+| ------------------------ | ---------------------------------- | ------------------------------------------------ |
+| `ORCA_POSTHOG_WRITE_KEY` | fork PostHog project key (`phc_…`) | enables transport                                |
+| `ORCA_BUILD_IDENTITY`    | `rc` (staging) or `stable`         | tags `orca_channel`, unlocks `IS_OFFICIAL_BUILD` |
 
 Unset → literal `null` is compiled in and every `track()` is a no-op
 (compile-out). **That no-key behavior is intentional and preserved** for
-contributor/dev builds. What is no longer possible is *accidentally*
+contributor/dev builds. What is no longer possible is _accidentally_
 shipping a dark staging artifact:
 
 ### The staging preflight gate
@@ -33,6 +33,10 @@ Logic lives in `config/scripts/telemetry-staging-preflight.mjs`:
 - **Staging build without `ORCA_POSTHOG_WRITE_KEY`:** **fails the build
   loudly**, unless `ORCA_ALLOW_NO_TELEMETRY=1` explicitly opts into a
   "dark staging" artifact (logged as a WARNING).
+- **Local contributor build:** `ORCA_LOCAL_BUILD=1 pnpm build` guarantees the
+  telemetry key and build identity are absent, then permits compile-out without
+  a staging warning. The preflight rejects this mode in CI and whenever
+  `ORCA_MAC_RELEASE=1`, so release jobs cannot use the contributor escape hatch.
 - **Staging build with a key:** the key must match `phc_[A-Za-z0-9_-]+`,
   `ORCA_BUILD_IDENTITY` must be `rc`/`stable`, and — once the fork PostHog
   project exists — set `ORCA_FORK_POSTHOG_KEY_PREFIX` in the release runner
@@ -86,12 +90,12 @@ Schemas: `src/shared/fork-reliability-telemetry.ts`, registered in
 `eventSchemas` (`src/shared/telemetry-events.ts`). All payloads are closed
 enums — no free-form strings can carry paths, PII, or terminal content.
 
-| Event | Props | Emitted from |
-| --- | --- | --- |
-| `terminal_gpu_downgrade` | `from: worker\|gpu`, `to: in_process\|cpu`, `reason: worker_init_failed\|gpu_init_failed\|gpu_init_timeout` | **wired** — `aterm-strategy-select.ts` (both fallback warn sites) |
-| `renderer_process_gone` | `reason:` snake_cased Electron reason (`clean_exit`…`integrity_failure`, `unknown`) | **wired** — `createMainWindow.ts` `render-process-gone` handler (window-close teardown noise excluded) |
-| `daemon_launch_failed` | `error_class: binary_missing\|not_executable\|spawn_failed\|handshake_timeout\|socket_error\|unsupported_platform\|unknown` | **helper exported, hook pending** (below) |
-| `daemon_degraded_fallback` | `reason: launch_failed\|preserved_unhealthy\|socket_lost\|unknown` | **helper exported, hook pending** (below) |
+| Event                      | Props                                                                                                                       | Emitted from                                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `terminal_gpu_downgrade`   | `from: worker\|gpu`, `to: in_process\|cpu`, `reason: worker_init_failed\|gpu_init_failed\|gpu_init_timeout`                 | **wired** — `aterm-strategy-select.ts` (both fallback warn sites)                                      |
+| `renderer_process_gone`    | `reason:` snake_cased Electron reason (`clean_exit`…`integrity_failure`, `unknown`)                                         | **wired** — `createMainWindow.ts` `render-process-gone` handler (window-close teardown noise excluded) |
+| `daemon_launch_failed`     | `error_class: binary_missing\|not_executable\|spawn_failed\|handshake_timeout\|socket_error\|unsupported_platform\|unknown` | **helper exported, hook pending** (below)                                                              |
+| `daemon_degraded_fallback` | `reason: launch_failed\|preserved_unhealthy\|socket_lost\|unknown`                                                          | **helper exported, hook pending** (below)                                                              |
 
 Emit helpers: `src/main/telemetry/fork-reliability-events.ts`
 (`trackDaemonLaunchFailed`, `trackDaemonDegradedFallback`,

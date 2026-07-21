@@ -56,12 +56,10 @@ async function runRelaunch(): Promise<RelaunchDaemonResult> {
     // Why dynamic import: ./pty is the heavy PTY IPC module (native deps);
     // loading it lazily keeps this status module importable by lightweight
     // consumers and unit tests without stubbing the whole PTY surface.
-    const { getLocalPtyProvider } = await import('./pty')
+    const { getLocalPtyProvider } = await import('./daemon-status-pty-deferred')
     const local = getLocalPtyProvider()
     const processes = await local.listProcesses()
-    await Promise.allSettled(
-      processes.map((proc) => local.shutdown(proc.id, { immediate: true }))
-    )
+    await Promise.allSettled(processes.map((proc) => local.shutdown(proc.id, { immediate: true })))
     await initDaemonPtyProvider()
     return { success: true }
   } catch (error) {

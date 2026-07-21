@@ -6,6 +6,7 @@ import type * as ElectronModule from 'electron'
 import type { AppIdentity } from '../../shared/app-identity'
 
 const BASE_APP_NAME = 'Orca'
+const DEV_EDITION_APP_NAME = 'Orca: ALab Edition'
 const BASE_APP_USER_MODEL_ID = 'com.stablyai.orca'
 // Why: fork staging builds need a distinct AUMID so Windows taskbar grouping,
 // notifications, and shortcuts never collide with an installed public Orca
@@ -103,8 +104,7 @@ export function getDevInstanceIdentity(
     cleanEnvValue(env.ORCA_DEV_WORKTREE_NAME) ??
     cleanEnvValue(path.basename(repoRoot ?? process.cwd()))
   const devLabel = cleanEnvValue(env.ORCA_DEV_INSTANCE_LABEL) ?? formatLabel(branch, worktreeName)
-  const dockTitle =
-    cleanEnvValue(env.ORCA_DEV_DOCK_TITLE) ?? `${BASE_APP_NAME}: ${branch ?? devLabel ?? 'dev'}`
+  const dockTitle = cleanEnvValue(env.ORCA_DEV_DOCK_TITLE) ?? DEV_EDITION_APP_NAME
 
   return {
     name: dockTitle,

@@ -83,7 +83,11 @@ function buildAppIfNeeded() {
     console.log('[wayland-gpu] SKIP_BUILD=1 and out/main/index.js exists; skipping build.')
     return
   }
-  run('npx', ['electron-vite', 'build', '--mode', 'e2e'])
+  run(process.execPath, [
+    path.join(rootDir, 'config/scripts/run-electron-vite-build.mjs'),
+    '--mode',
+    'e2e'
+  ])
 }
 
 function createGitRepo() {

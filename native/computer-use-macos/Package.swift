@@ -32,5 +32,6 @@ let package = Package(
             dependencies: ["OrcaComputerUseMacOSCore"],
             path: "Tests/OrcaComputerUseMacOSTests"
         )
-    ]
+    ],
+    swiftLanguageModes: [.v6]
 )

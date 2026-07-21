@@ -13,7 +13,7 @@ import {
 } from '../terminal-scroll-intent'
 import { encode_key_with_mode } from './aterm_wasm.js'
 import type { AtermTerminal } from './aterm_wasm.js'
-import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent'
+import type { TerminalScrollIntentTarget } from '../terminal-scroll-intent-types'
 
 // The module under test imports the wasm glue for the worker-path free-function
 // encoder; keep these DOM tests off the real (uninitialized) wasm module.
@@ -586,7 +586,9 @@ describe('attachAtermTextareaInput', () => {
     expect(h.scrollLines).toHaveBeenCalledWith(23)
     // mark-then-sync, mirroring keyboard-handlers' Cmd+Up path — the exact same seam.
     expect(markTerminalPinnedViewport).toHaveBeenCalledWith(target)
-    expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledWith(target)
+    expect(syncTerminalScrollIntentFromViewport).toHaveBeenCalledWith(target, {
+      userInteraction: true
+    })
 
     fireKeydown(h.textarea, 'PageDown', { shiftKey: true })
     expect(markTerminalPinnedViewport).toHaveBeenCalledTimes(2)

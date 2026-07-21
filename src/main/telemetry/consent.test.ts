@@ -178,6 +178,7 @@ describe('resolveConsent', () => {
   })
 
   it('treats a misconfigured DO_NOT_TRACK=0 as unset (not truthy)', () => {
+    const stderrWrite = vi.spyOn(process.stderr, 'write').mockReturnValue(true)
     // This is the skills.sh regression called out in the plan doc: `=0` must
     // not count as truthy. Without the parse guard, a stringly-truthy check
     // would disable telemetry for anyone who types `DO_NOT_TRACK=0` expecting
@@ -192,6 +193,10 @@ describe('resolveConsent', () => {
         })
       )
     ).toEqual({ effective: 'enabled' })
+    expect(stderrWrite).toHaveBeenCalledExactlyOnceWith(
+      '[telemetry] DO_NOT_TRACK="0" is not a recognized truthy value (expected "1" or "true"); treating as unset.\n'
+    )
+    stderrWrite.mockRestore()
   })
 
   // ── Persisted preference ────────────────────────────────────────────

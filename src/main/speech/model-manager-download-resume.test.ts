@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -44,9 +44,16 @@ type ScriptedResponse = {
   headers?: Record<string, string>
   chunks?: Buffer[]
   failWith?: string
+  beforeFailure?: () => Promise<void>
 }
 
 type ScriptedResponseFactory = (sentHeaders: Record<string, string>) => ScriptedResponse
+
+const FILE_PERSIST_TIMEOUT_MS = 5_000
+
+function toError(cause: unknown): Error {
+  return cause instanceof Error ? cause : new Error(String(cause))
+}
 
 // Emulates Electron's ClientRequest/IncomingMessage closely enough for the
 // download pipeline: a real Readable body so stream.pipeline semantics
@@ -61,6 +68,12 @@ function scriptRequest(factory: ScriptedResponseFactory): {
     const set = listeners.get(event) ?? new Set()
     set.add(cb)
     listeners.set(event, set)
+  }
+  const emitRequestError = (cause: unknown): void => {
+    const error = toError(cause)
+    for (const cb of listeners.get('error') ?? []) {
+      cb(error)
+    }
   }
   const abortMock = vi.fn(() => request)
   const request = {
@@ -78,7 +91,16 @@ function scriptRequest(factory: ScriptedResponseFactory): {
     abort: abortMock,
     end: vi.fn(() => {
       queueMicrotask(() => {
-        const spec = factory(sentHeaders)
+        let spec: ScriptedResponse
+        try {
+          spec = factory(sentHeaders)
+        } catch (error) {
+          // Why: a failed scripted expectation represents a request failure;
+          // surfacing it through ClientRequest's error event makes the test
+          // reject promptly instead of leaving it waiting for a response.
+          emitRequestError(error)
+          return
+        }
         const response = Object.assign(new Readable({ read() {} }), {
           statusCode: spec.statusCode,
           headers: spec.headers ?? {}
@@ -90,8 +112,17 @@ function scriptRequest(factory: ScriptedResponseFactory): {
           for (const chunk of spec.chunks ?? []) {
             response.push(chunk)
           }
-          // Why: fail on a later tick so pushed chunks flush to the file
-          // stream first, mirroring a transfer that dies mid-body.
+          if (spec.failWith && spec.beforeFailure) {
+            // Why: a disk-state condition is stronger than an arbitrary delay
+            // and remains deterministic when the full suite saturates file I/O.
+            void spec.beforeFailure().then(
+              () => response.destroy(new Error(spec.failWith)),
+              (error: unknown) => response.destroy(toError(error))
+            )
+            return
+          }
+          // Preserve normal stream event separation for scripts that do not
+          // need an explicit persistence condition.
           setTimeout(() => {
             if (spec.failWith) {
               response.destroy(new Error(spec.failWith))
@@ -108,6 +139,27 @@ function scriptRequest(factory: ScriptedResponseFactory): {
   return { sentHeaders, abortMock }
 }
 
+async function waitForFileSize(path: string, expectedSize: number): Promise<void> {
+  const deadline = Date.now() + FILE_PERSIST_TIMEOUT_MS
+  let actualSize = 0
+  for (;;) {
+    try {
+      actualSize = statSync(path).size
+      if (actualSize >= expectedSize) {
+        return
+      }
+    } catch {
+      // The destination is created asynchronously after the response arrives.
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out waiting ${FILE_PERSIST_TIMEOUT_MS}ms for ${expectedSize} bytes at ${path}; found ${actualSize}`
+      )
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 1))
+  }
+}
+
 const PAYLOAD = Buffer.from('0123456789abcdefghij')
 
 describe('ModelManager download resume', () => {
@@ -122,12 +174,17 @@ describe('ModelManager download resume', () => {
 
   it('resumes an interrupted download with a Range request and assembles the full file', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
+    const archivePath = join(dir, 'model.tar.bz2')
     try {
       scriptRequest(() => ({
         statusCode: 200,
         headers: { 'content-length': String(PAYLOAD.length) },
         chunks: [PAYLOAD.subarray(0, 10)],
-        failWith: 'net::ERR_CONTENT_LENGTH_MISMATCH'
+        failWith: 'net::ERR_CONTENT_LENGTH_MISMATCH',
+        // Why: a Range retry can only resume bytes that reached disk. Waiting
+        // on that state models an interruption after persistence without a
+        // timing assumption about filesystem throughput under full-suite load.
+        beforeFailure: () => waitForFileSize(archivePath, 10)
       }))
       const second = scriptRequest((sentHeaders) => {
         expect(sentHeaders.range).toBe('bytes=10-')
@@ -141,7 +198,6 @@ describe('ModelManager download resume', () => {
         }
       })
       const manager = new ModelManager(dir) as unknown as ModelManagerInternals
-      const archivePath = join(dir, 'model.tar.bz2')
 
       await manager.downloadArchiveWithRetry(
         'https://example.com/model.tar.bz2',
@@ -155,6 +211,57 @@ describe('ModelManager download resume', () => {
       expect(netRequestMock).toHaveBeenCalledTimes(2)
       expect(second.sentHeaders.range).toBe('bytes=10-')
       expect(readFileSync(archivePath)).toEqual(PAYLOAD)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('propagates scripted response factory failures through the request error event', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
+    try {
+      scriptRequest(() => {
+        throw new Error('scripted response failed')
+      })
+      const manager = new ModelManager(dir) as unknown as ModelManagerInternals
+
+      await expect(
+        manager.downloadFile(
+          'https://example.com/model.tar.bz2',
+          join(dir, 'model.tar.bz2'),
+          PAYLOAD.length,
+          'm',
+          () => false
+        )
+      ).rejects.toThrow('scripted response failed')
+
+      expect(netRequestMock).toHaveBeenCalledTimes(1)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('propagates scripted pre-failure synchronization errors through the response', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orca-model-resume-'))
+    try {
+      scriptRequest(() => ({
+        statusCode: 200,
+        chunks: [PAYLOAD.subarray(0, 1)],
+        failWith: 'unused transport failure',
+        beforeFailure: () => Promise.reject(new Error('persistence check failed'))
+      }))
+      const manager = new ModelManager(dir) as unknown as ModelManagerInternals
+
+      await expect(
+        manager.downloadFile(
+          'https://example.com/model.tar.bz2',
+          join(dir, 'model.tar.bz2'),
+          PAYLOAD.length,
+          'm',
+          () => false
+        )
+      ).rejects.toThrow('persistence check failed')
+
+      expect(netRequestMock).toHaveBeenCalledTimes(1)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

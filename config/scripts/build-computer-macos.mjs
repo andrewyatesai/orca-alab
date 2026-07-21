@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { prepareSwiftPmManifestApiWorkaround } from './swiftpm-manifest-api-workaround.mjs'
 
 const repoRoot = path.resolve(import.meta.dirname, '../..')
 const packagePath = path.join(repoRoot, 'native', 'computer-use-macos')
@@ -23,13 +24,31 @@ if (process.platform !== 'darwin') {
   process.exit(0)
 }
 
+const swiftPmWorkaround = process.env.SWIFTPM_CUSTOM_LIBS_DIR
+  ? null
+  : prepareSwiftPmManifestApiWorkaround({
+      cacheRoot: path.join(packagePath, '.build', 'orca-swiftpm-manifest-api')
+    })
+const swiftBuildEnvironment = swiftPmWorkaround
+  ? { ...process.env, SWIFTPM_CUSTOM_LIBS_DIR: swiftPmWorkaround.customLibsDir }
+  : undefined
+if (swiftPmWorkaround) {
+  console.log(
+    `[build-computer-macos] Using an isolated SwiftPM ManifestAPI because ${swiftPmWorkaround.incompatiblePrivateInterfaces.join(', ')} does not match its public interface.`
+  )
+}
+
 buildUniversalBinary()
 chmodSync(binaryPath, 0o755)
 createHelperApp()
 
 function buildUniversalBinary() {
   const builtBinaries = universalTriples.map((triple) => {
-    run('swift', ['build', '-c', 'release', '--package-path', packagePath, '--triple', triple])
+    run(
+      'swift',
+      ['build', '-c', 'release', '--package-path', packagePath, '--triple', triple],
+      swiftBuildEnvironment
+    )
     return path.join(packagePath, '.build', triple, 'release', 'orca-computer-use-macos')
   })
   mkdirSync(path.dirname(binaryPath), { recursive: true })
@@ -83,8 +102,8 @@ function resolveSigningIdentity() {
   return releaseMatch?.[1] ?? developmentMatch?.[1] ?? '-'
 }
 
-function run(command, args) {
-  const result = spawnSync(command, args, { stdio: 'inherit' })
+function run(command, args, env) {
+  const result = spawnSync(command, args, { stdio: 'inherit', ...(env ? { env } : {}) })
   if (result.signal) {
     process.kill(process.pid, result.signal)
   }

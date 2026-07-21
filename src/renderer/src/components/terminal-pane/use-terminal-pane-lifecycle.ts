@@ -114,7 +114,7 @@ import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
 import { isPaneReplaying, type ReplayingPanesRef } from './replay-guard'
 import { fitAndFocusPanes, fitPanes } from './pane-helpers'
 import { attachTerminalScrollIntentTracking } from '@/lib/pane-manager/terminal-scroll-intent-dom-tracking'
-import { markTerminalPinnedViewport } from '@/lib/pane-manager/terminal-scroll-intent'
+import { markTerminalPinnedViewportFromUserInteraction } from '@/lib/pane-manager/terminal-scroll-intent'
 import { syncTerminalScrollIntentSoon } from '@/lib/pane-manager/terminal-scroll-intent-settle'
 import { registerRuntimeTerminalTab, scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { captureParkedTerminalPaneCandidates } from './terminal-parked-tab-watchers'
@@ -1214,13 +1214,15 @@ export function useTerminalPaneLifecycle({
                 ?.getPanes()
                 .some((candidate) => candidate.terminal === pane.terminal) === true
             if (e.key === 'PageUp' || e.key === 'Home') {
-              markTerminalPinnedViewport(pane.terminal)
+              markTerminalPinnedViewportFromUserInteraction(pane.terminal)
               syncTerminalScrollIntentSoon(pane.terminal, {
                 preservePinnedAtBottom: true,
+                userInteraction: true,
                 shouldSync: shouldSyncCurrentTerminal
               })
             } else if (e.key === 'PageDown' || e.key === 'End') {
               syncTerminalScrollIntentSoon(pane.terminal, {
+                userInteraction: true,
                 shouldSync: shouldSyncCurrentTerminal
               })
             }

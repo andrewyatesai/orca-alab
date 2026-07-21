@@ -64,11 +64,13 @@ describe('key releases are silent without kitty REPORT_EVENT_TYPES (real wasm)',
     )
   })
 
-  it('with REPORT_EVENT_TYPES negotiated, releases carry the :3 marker', () => {
-    // Releases ARE reported in this mode — and must never be press-identical.
-    expect(encode('a', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe(
-      '\x1b[97;1:3u'
-    )
+  it('with REPORT_EVENT_TYPES negotiated, only escaped releases carry the :3 marker', () => {
+    // Plain text has no distinct release representation unless REPORT_ALL_KEYS_AS_ESC is
+    // negotiated, while a Ctrl chord already uses CSI-u and can carry the release marker.
+    expect(encode('a', 0, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)).toBe('')
+    expect(
+      encode('a', ATERM_KEY_MOD_CTRL, ATERM_KEY_EVENT_RELEASE, MODE_DISAMBIGUATE_AND_EVENT_TYPES)
+    ).toBe('\x1b[97;5:3u')
   })
 })
 

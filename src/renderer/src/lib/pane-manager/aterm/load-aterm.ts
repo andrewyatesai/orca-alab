@@ -18,7 +18,10 @@ let loadPromise: Promise<LoadedAterm> | null = null
 async function loadAtermOnce(): Promise<LoadedAterm> {
   // Share the font fetch with the GPU loader so a GPU→CPU context-loss swap never
   // re-fetches the face (that duplicate fetch was observed to hang in the swap).
-  const [initOutput, fontBytes] = await Promise.all([init(wasmUrl), loadAtermFontBytes()])
+  const [initOutput, fontBytes] = await Promise.all([
+    init({ module_or_path: wasmUrl }),
+    loadAtermFontBytes()
+  ])
   return { AtermTerminal, fontBytes, memory: initOutput.memory }
 }
 

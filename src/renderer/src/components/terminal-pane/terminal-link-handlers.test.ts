@@ -1533,6 +1533,57 @@ describe('createFilePathLinkProvider range bounds', () => {
     now.mockRestore()
   })
 
+  it('probes WSL worktree POSIX links via the UNC share so they go live', async () => {
+    const shellPathExists = vi.mocked(window.api.shell.pathExists)
+    const { provider, linkTooltip } = createProviderSetup(
+      [makeBufferLine('/home/jin/repo/src/app.ts')],
+      new Map(),
+      {
+        worktreePath: '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo',
+        startupCwd: '/home/jin/repo'
+      }
+    )
+
+    const links = await new Promise<ILink[]>((resolve) => {
+      provider.provideLinks(1, (provided) => resolve(provided ?? []))
+    })
+
+    expect(shellPathExists).toHaveBeenCalledWith(
+      '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\src\\app.ts'
+    )
+    expect(links.map((link) => link.text)).toEqual(['/home/jin/repo/src/app.ts'])
+    links[0]!.hover?.({} as MouseEvent, links[0]!.text)
+    expect(linkTooltip.textContent).toContain(
+      '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\src\\app.ts'
+    )
+  })
+
+  it('opens a WSL worktree POSIX link at its UNC share path from direct fallback', async () => {
+    setPlatform('Windows')
+    const opened = openFilePathLinkAtBufferPosition(
+      makeBuffer([makeBufferLine('/home/jin/repo/notes.md')]),
+      { x: 5, y: 1 },
+      80,
+      {
+        startupCwd: '/home/jin/repo',
+        worktreeId: 'wt-1',
+        worktreePath: '\\\\wsl$\\Ubuntu\\home\\jin\\repo',
+        runtimeEnvironmentId: null,
+        pathExistsCache: makeExistsCache()
+      }
+    )
+    await flushAsyncWork()
+
+    expect(opened).toBe(true)
+    expect(openFileMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: '\\\\wsl$\\Ubuntu\\home\\jin\\repo\\notes.md',
+        relativePath: 'notes.md'
+      }),
+      { forceContentReload: true }
+    )
+  })
+
   it('switches to a known worktree root from direct fallback even when cache says missing', async () => {
     setPlatform('Macintosh')
     storeState.worktreesByRepo = {

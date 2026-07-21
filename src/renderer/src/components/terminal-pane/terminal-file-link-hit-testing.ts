@@ -8,6 +8,7 @@ import {
   type TerminalPathExistsCache
 } from './terminal-path-exists-cache'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
+import { mapPosixPathToWslWorktreeUncPath } from '../../../../shared/wsl-paths'
 import {
   buildHardWrappedPathLogicalLineCandidates,
   buildWrappedLogicalLine,
@@ -52,6 +53,11 @@ export function openFilePathLinkAtBufferPosition(
       if (!resolved) {
         continue
       }
+      // Why (issue #8156): WSL terminals print POSIX paths the Windows host
+      // cannot stat; rebase onto the worktree's UNC share.
+      const absolutePath =
+        mapPosixPathToWslWorktreeUncPath(resolved.absolutePath, deps.worktreePath) ??
+        resolved.absolutePath
       const range = rangeForParsedFileLink(logicalLine, parsed.startIndex, parsed.endIndex)
       if (!range || !rangeContainsBufferPosition(range, position, terminalColumns)) {
         continue
@@ -62,17 +68,17 @@ export function openFilePathLinkAtBufferPosition(
         deps.runtimeEnvironmentId
       )
       const cacheKey = getTerminalPathExistsCacheKey({
-        absolutePath: resolved.absolutePath,
+        absolutePath,
         connectionId: fileContext.connectionId,
-        isRemoteRuntimePath: isRemoteRuntimeFileOperation(fileContext, resolved.absolutePath),
+        isRemoteRuntimePath: isRemoteRuntimeFileOperation(fileContext, absolutePath),
         runtimeEnvironmentId: deps.runtimeEnvironmentId
       })
-      const isKnownWorktreeRoot = Boolean(resolveKnownWorktreeRootPathLink(resolved.absolutePath))
+      const isKnownWorktreeRoot = Boolean(resolveKnownWorktreeRootPathLink(absolutePath))
       if (/[\\/]$/.test(parsed.pathText) && !isKnownWorktreeRoot) {
         continue
       }
       matches.push({
-        absolutePath: resolved.absolutePath,
+        absolutePath,
         line: resolved.line,
         column: resolved.column,
         pathText: parsed.pathText,

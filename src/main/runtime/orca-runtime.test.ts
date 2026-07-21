@@ -26793,6 +26793,30 @@ describe('OrcaRuntimeService', () => {
     expect(listWorktrees).toHaveBeenCalledTimes(1)
   })
 
+  it('hides agent scratch created inside a linked checkout from runtime listings', async () => {
+    const linkedCheckoutPath = '/tmp/worktree-a'
+    const scratchPath = `${linkedCheckoutPath}/.claude/worktrees/agent-a04ccaaa`
+    vi.mocked(listWorktrees).mockClear()
+    vi.mocked(listWorktrees).mockResolvedValue([
+      makeWorktreeInfo(TEST_REPO_PATH),
+      makeWorktreeInfo(linkedCheckoutPath),
+      makeWorktreeInfo(scratchPath)
+    ])
+    const runtime = createRuntime()
+
+    const detected = await runtime.listDetectedManagedWorktrees(`id:${TEST_REPO_ID}`)
+    const listed = await runtime.listManagedWorktrees(`id:${TEST_REPO_ID}`)
+
+    expect(detected.worktrees.find((worktree) => worktree.path === scratchPath)).toMatchObject({
+      ownership: 'agent-scratch',
+      visible: false
+    })
+    expect(listed.worktrees.map((worktree) => worktree.path)).toEqual([
+      TEST_REPO_PATH,
+      linkedCheckoutPath
+    ])
+  })
+
   it('does not prune lineage when an SSH runtime provider is unavailable', async () => {
     const remoteRepo = {
       id: 'remote-repo',

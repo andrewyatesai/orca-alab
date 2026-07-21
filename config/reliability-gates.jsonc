@@ -2917,19 +2917,21 @@
         "session resume"
       ],
       "platforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "providers": [
         "daemon",
         "wsl"
       ],
       "coveredPlatforms": [
-        "windows"
+        "windows",
+        "macos"
       ],
       "coveredProviders": [
         "daemon"
       ],
-      "coverageNotes": "Deterministic unit coverage for the guard (join/hold/flush/ESC-disambiguation/cap) plus a real-ConPTY integration oracle that documents the raw defect (split CSI head swallowed, tail typed) and proves guarded whole-sequence delivery. WSL sessions share the daemon write path but have no dedicated live run.",
+      "coverageNotes": "The ConPTY hazard is Windows-only; macos is in scope solely because the deterministic guard unit suite (join/hold/flush/ESC-disambiguation/cap) runs and passed there at port time. The real-ConPTY integration oracle that documents the raw defect (split CSI head swallowed, tail typed) and proves guarded whole-sequence delivery runs on Windows only. WSL sessions share the daemon write path but have no dedicated live run.",
       "motivatingLinks": [
         "https://github.com/stablyai/orca/pull/9259"
       ],
@@ -2944,18 +2946,47 @@
         "src/main/daemon/conin-atomic-sequence-writer.conpty.integration.test.ts",
         "src/main/daemon/session.test.ts"
       ],
-      "assertionRefs": [],
-      "evidenceRuns": [],
+      "assertionRefs": [
+        {
+          "file": "src/main/daemon/session.test.ts",
+          "assertions": [
+            "joins an escape sequence split across writes into one conin write",
+            "flushes a held partial on the flush window instead of holding forever",
+            "leaves non-Windows write granularity untouched"
+          ]
+        },
+        {
+          "file": "src/main/daemon/conin-atomic-sequence-writer.test.ts",
+          "assertions": [
+            "joins a CSI split across two writes into one atomic write",
+            "joins a split bracketed-paste end marker",
+            "flushes a bare ESC keypress after the short window",
+            "does not fuse ESC with a following independent keypress into an Alt-chord",
+            "stops guarding past the partial-tail cap"
+          ]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-07-21",
+          "runner": "local",
+          "platform": "macos",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/daemon/conin-atomic-sequence-writer.test.ts src/main/daemon/session.test.ts",
+          "result": "passed",
+          "durationSeconds": 0.72,
+          "summary": "2 files and 87 tests passed at port time (upstream #9396 into the aterm fork): writer join/hold/flush/ESC-disambiguation/cap coverage plus the Session win32 conin guard wiring and non-Windows passthrough."
+        }
+      ],
       "runtimeBudget": {
         "p95Seconds": 30,
         "scope": "unit suite everywhere; real-ConPTY integration on Windows only"
       },
       "flakeHistory": {
         "status": "not-started",
-        "evidence": "New gate; integration oracle ran green on Windows 11 26200 at authoring time."
+        "evidence": "New gate; integration oracle ran green on Windows 11 26200 at upstream authoring time."
       },
       "redGreenEvidence": {
-        "status": "captured",
+        "status": "complete",
         "evidence": "The integration file's first test asserts the raw ConPTY defect (split \\x1b[?997;1 + n delivers literal n); the second asserts guarded whole-sequence delivery through the same ConPTY."
       },
       "performanceBudget": {

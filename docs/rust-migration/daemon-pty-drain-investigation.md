@@ -8,9 +8,12 @@ prototyped, measured against the read+engine loop, and **REVERTED**
 numbers, confirmed the revert, and redirected me to measure the *full* path. A
 receiver-timed end-to-end measurement then found the real bottleneck is the
 **socket fan-out** (~152 MB/s full-path vs 337 read+engine), and **coalescing
-`route_output` frames lifts the embed flood +58% (156 → 248 MB/s)** with the
-fast blocking drain untouched. See "RESOLVED" below. The `ORCA_PUMP_FRAME_KIB`
-knob is a default-off instrument pending the interactive-safe flush + review.
+`route_output` frames lifts the embed flood +47–58%** with the fast blocking
+drain untouched. Two reviews (workflow + gpt-5.6/ultra) rejected default-on-ing
+the *pump-side* coalescing (frame reorder + reattach duplication); the correct
+form batches in the connection writer (recipient bound per-read) — to build +
+review on its own. The `ORCA_PUMP_FRAME_KIB` knob stays default-off (proves the
++58%). See "Shippable form" below.
 
 ## Hypothesis
 
@@ -130,20 +133,38 @@ byte). Results (quiet M5 Max, 524 MB corpus, 5 trials, tight):
   from the reverted gather: keep the fine-grained drain (it already pipelines),
   and cut the DOWNSTREAM frame rate.
 
-**Shippable form (next) — the poll approach was tried and REJECTED.** An
-interactive-safe version must flush the coalesced buffer at the size cap OR when
-a burst pauses, so a prompt/echo isn't held until the cap fills. The obvious
-in-loop way — `poll(master_fd, POLLIN, timeout)` before each blocking read,
-flush on timeout — was implemented and MEASURED: it drops the flood to ~137 MB/s
-(WORSE than the 156 baseline) at both `timeout=0` and `timeout=2ms`. A poll per
-read can't distinguish a flood's ~1 KiB refill gap (and, under load, `cat`'s
-scheduling gaps) from a real interactive pause, so it false-flushes and stalls.
-The robust design is a **separate flush-timer** (a lightweight thread or the
-existing event machinery that flushes `route_acc` under a mutex every ~2 ms),
-decoupled from the read loop — mirroring what macOS main already does on its PTY
-output (`src/main/ipc/pty.ts:1684,2484`, ~2 ms / 16 KiB), so the added latency is
-no worse than today. `ORCA_PUMP_FRAME_KIB` stays a default-off, size-cap-only
-instrument (it proves the +58% ceiling) until that timer flush + a review land.
+**Shippable form — TWO reviews (adversarial workflow + gpt-5.6/ultra) both said
+DO-NOT-default-ON the pump-side design; the correct fix is writer-side.** The
+size-cap knob (`ORCA_PUMP_FRAME_KIB`, default 0) stays a default-off instrument
+that proves the +58% ceiling. What was tried and why it's not the shipping form:
+
+- **Pump-side per-session flush timer (built, measured +47%, then REJECTED).** A
+  second thread flushing a shared `Arc<Mutex<String>>` every 2 ms REORDERS
+  frames: both flush sites `mem::take` under the lock but call `route_output`
+  *outside* it, so a later prefix can reach the client's channel before an
+  earlier one → terminal corruption (both reviewers, independently — a blocker).
+  Reworking it to a single condvar-driven emitter fixes ordering, but the deeper
+  flaw remains: batching in the pump DEFERS recipient selection, so a reattaching
+  client gets pre-snapshot bytes in *both* its snapshot AND its deferred live
+  tail (no seq/watermark to dedup — `pty-connection.ts:7346`, `protocol.rs:114`)
+  — a duplication the reattach test's contract forbids. Plus a thread/session and
+  a control-heavy-TUI latency risk (a redraw coalesced past main's 16 KiB
+  immediate-path threshold pays main's extra 2 ms — `pty.ts:2022`).
+- **In-loop `poll(fd, POLLIN, timeout)` burst-flush: REJECTED** — dropped the
+  flood to ~137 MB/s (a poll per read can't tell a flood's ~1 KiB refill gap from
+  a real pause).
+
+**The correct design (gpt-5.6/ultra, to implement): batch in the connection
+writer, not the pump.** `route_output` binds recipients *immediately* per read
+(so NO reattach dup) and enqueues a *semantic* `Data{session, text}` item; the
+existing per-client writer thread (`connection.rs::spawn_stream_drain`) owns the
+coalescing — `recv_timeout(2 ms)`, concatenate adjacent same-session data to
+~32 KiB, flush before control/exit events, block indefinitely when idle. That is
+one emitter (order-safe), zero new threads, zero idle polling, and no snapshot/
+stream duplication. Requires changing `StreamSender`/the channel item from
+pre-encoded frames to the semantic enum + moving encoding into the writer — a
+contained streaming-layer change, but on every terminal's live-output path, so
+it gets built + reviewed on its own rather than rushed.
 
 ## Reproduce
 

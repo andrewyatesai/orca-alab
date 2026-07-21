@@ -2,7 +2,11 @@ import type { IBufferLine, IBufferRange } from '../../lib/pane-manager/aterm/ter
 import { extractTerminalFileLinkCandidates, resolveTerminalFileLink } from '@/lib/terminal-links'
 import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-client'
 import { getTerminalFileContext, openDetectedFilePath } from './terminal-file-open-routing'
-import { getTerminalPathExistsCacheKey } from './terminal-path-exists-cache'
+import {
+  getTerminalPathExistsCacheKey,
+  readTerminalPathExistsCache,
+  type TerminalPathExistsCache
+} from './terminal-path-exists-cache'
 import { resolveKnownWorktreeRootPathLink } from './terminal-worktree-path-link'
 import {
   buildHardWrappedPathLogicalLineCandidates,
@@ -17,7 +21,7 @@ type FileLinkHitTestDeps = {
   worktreeId: string
   worktreePath: string
   runtimeEnvironmentId?: string | null
-  pathExistsCache?: Map<string, boolean>
+  pathExistsCache?: TerminalPathExistsCache
   openWithSystemDefault?: boolean
 }
 
@@ -72,7 +76,9 @@ export function openFilePathLinkAtBufferPosition(
         line: resolved.line,
         column: resolved.column,
         pathText: parsed.pathText,
-        cachedExists: deps.pathExistsCache?.get(cacheKey),
+        cachedExists: deps.pathExistsCache
+          ? readTerminalPathExistsCache(deps.pathExistsCache, cacheKey)
+          : undefined,
         isKnownWorktreeRoot
       })
     }

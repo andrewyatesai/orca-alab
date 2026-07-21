@@ -1,5 +1,19 @@
-import type { TuiAgent } from './types'
+import type { CustomAgentProfile, TuiAgent } from './types'
 import { isTuiAgent } from './tui-agent-config'
+
+/** Collapse a saved `defaultTuiAgent` preference to its built-in base for
+ *  consumers that only understand built-ins: a `{ kind: 'custom', id }` entry
+ *  resolves to the profile's baseAgent, or to null (auto) when the profile no
+ *  longer exists / no roster was provided. */
+export function collapseDefaultTuiAgentToBuiltin(
+  pref: TuiAgent | 'blank' | { kind: 'custom'; id: string } | null | undefined,
+  customAgents?: readonly CustomAgentProfile[] | null
+): TuiAgent | 'blank' | null | undefined {
+  if (pref && typeof pref === 'object') {
+    return customAgents?.find((profile) => profile.id === pref.id)?.baseAgent ?? null
+  }
+  return pref
+}
 
 // Keep this order in sync with the desktop agent catalog. It defines the
 // automatic fallback priority when the user has not chosen a default agent.

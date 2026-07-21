@@ -148,6 +148,7 @@ export async function launchSourceControlRecoveryAgentWithDefault({
   const agent = pickSourceControlLaunchAgent({
     savedAgent,
     defaultAgent: store.settings?.defaultTuiAgent,
+    customAgents: store.settings?.customAgents,
     detectedAgents,
     disabledAgents: store.settings?.disabledTuiAgents
   })

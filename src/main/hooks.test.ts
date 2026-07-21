@@ -4,7 +4,7 @@ import type * as GitRunner from './git/runner'
 
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { getDefaultTabsLaunch, parseOrcaYaml } from './hooks'
+import { getDefaultTabsLaunch, getEffectiveHooksFromConfig, parseOrcaYaml } from './hooks'
 
 // Mock fs and path used by loadHooks
 vi.mock('fs', () => ({
@@ -49,6 +49,17 @@ describe('parseOrcaYaml', () => {
     expect(result).toEqual({
       scripts: {
         setup: 'echo "setting up"\nnpm install'
+      }
+    })
+  })
+
+  it('parses YAML with a preCreate script', () => {
+    const yaml = `scripts:\n  preCreate: git-crypt lock\n  setup: npm install\n`
+    const result = parseOrcaYaml(yaml)
+    expect(result).toEqual({
+      scripts: {
+        preCreate: 'git-crypt lock',
+        setup: 'npm install'
       }
     })
   })
@@ -291,6 +302,44 @@ describe('parseOrcaYaml', () => {
         { index: 5, message: 'Recipe entry must be a mapping.' }
       ]
     })
+  })
+})
+
+describe('getEffectiveHooksFromConfig preCreate', () => {
+  const repoBase = {
+    id: 'repo-1',
+    path: '/repo',
+    displayName: 'repo',
+    badgeColor: '#000',
+    addedAt: 0
+  } as unknown as Repo
+
+  it('passes a yaml preCreate hook through with default source policy', async () => {
+    // Why: policy resolution loads the rust addon via (mocked) existsSync; keep it discoverable.
+    const fs = await import('node:fs')
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    const result = getEffectiveHooksFromConfig(repoBase, {
+      scripts: { preCreate: 'git-crypt lock' }
+    })
+    expect(result).toEqual({ scripts: { preCreate: 'git-crypt lock' } })
+  })
+
+  it("keeps the yaml preCreate hook under a 'local' source policy with no local script", async () => {
+    const fs = await import('node:fs')
+    vi.mocked(fs.existsSync).mockReturnValue(true)
+    const repo = {
+      ...repoBase,
+      hookSettings: {
+        mode: 'auto',
+        commandSourcePolicy: 'local',
+        scripts: { setup: '', archive: '' }
+      }
+    } as unknown as Repo
+    // Why: policy resolution refuses local-only when no local script exists (a
+    // dead hook), so the shared yaml preCreate still applies — same as setup.
+    expect(getEffectiveHooksFromConfig(repo, { scripts: { preCreate: 'git-crypt lock' } })).toEqual(
+      { scripts: { preCreate: 'git-crypt lock' } }
+    )
   })
 })
 

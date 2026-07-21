@@ -157,6 +157,7 @@ describe('launchAgentInNewTab', () => {
     store.openFiles = []
     store.browserTabsByWorktree = {}
     store.tabBarOrderByWorktree = {}
+    store.activeWorktreeId = 'wt-1'
     store.terminalLayoutsByTabId = {}
     store.ptyIdsByTabId = {}
     mockCreateTab.mockReturnValue({ id: 'tab-1' })

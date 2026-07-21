@@ -163,12 +163,35 @@ function QuickTabBody({
   const [quickAgentOverride, setQuickAgentOverride] = useState<TuiAgent | null | undefined>(
     undefined
   )
+  const [quickCustomAgentOverride, setQuickCustomAgentOverride] = useState<
+    string | null | undefined
+  >(undefined)
+  const preferredQuickCustomProfile = useMemo(() => {
+    const pref = settings?.defaultTuiAgent
+    if (pref && typeof pref === 'object' && pref.kind === 'custom') {
+      return (settings?.customAgents ?? []).find((p) => p.id === pref.id) ?? null
+    }
+    return null
+  }, [settings?.defaultTuiAgent, settings?.customAgents])
   const preferredQuickAgent = useMemo<TuiAgent | null>(() => {
     const pref = settings?.defaultTuiAgent
+    // Why: a custom default participates as its baseAgent so detection/disabled
+    // filtering still applies; a stale custom id degrades to auto-pick.
+    const effectivePref =
+      pref && typeof pref === 'object' ? (preferredQuickCustomProfile?.baseAgent ?? null) : pref
     // Why: detection can still be pending when quick-create submits; keep the
     // prior catalog fallback while filtering disabled agents out of that choice.
-    return pickQuickWorkspaceAgent(pref, cardProps.detectedAgentIds, settings?.disabledTuiAgents)
-  }, [cardProps.detectedAgentIds, settings?.defaultTuiAgent, settings?.disabledTuiAgents])
+    return pickQuickWorkspaceAgent(
+      effectivePref,
+      cardProps.detectedAgentIds,
+      settings?.disabledTuiAgents
+    )
+  }, [
+    cardProps.detectedAgentIds,
+    settings?.defaultTuiAgent,
+    settings?.disabledTuiAgents,
+    preferredQuickCustomProfile
+  ])
   const resolvedQuickAgentSelection = resolveQuickWorkspaceAgentSelection({
     quickAgentOverride,
     preferredQuickAgent,
@@ -181,14 +204,35 @@ function QuickTabBody({
     setQuickAgentOverride(resolvedQuickAgentSelection.quickAgentOverride)
   }
   const quickAgent = resolvedQuickAgentSelection.quickAgent
+  const preferredQuickCustomAgentId =
+    preferredQuickCustomProfile && preferredQuickAgent === preferredQuickCustomProfile.baseAgent
+      ? preferredQuickCustomProfile.id
+      : null
+  const rawQuickCustomAgentId =
+    quickCustomAgentOverride === undefined ? preferredQuickCustomAgentId : quickCustomAgentOverride
+  const rawQuickCustomProfile =
+    (settings?.customAgents ?? []).find((p) => p.id === rawQuickCustomAgentId) ?? null
+  // Why: agent repair can retarget quickAgent away from the profile's baseAgent;
+  // drop the custom id then so we never launch a mismatched profile.
+  const quickCustomAgentId =
+    rawQuickCustomProfile && rawQuickCustomProfile.baseAgent === quickAgent
+      ? rawQuickCustomProfile.id
+      : null
 
   const handleQuickAgentChange = useCallback((agent: TuiAgent | null) => {
     setQuickAgentOverride(agent)
+    // Why: switching to a built-in or blank explicitly clears any active
+    // custom selection. Mirrors how onValueChange in AgentCombobox sends
+    // both updates together for a custom → builtin transition.
+    setQuickCustomAgentOverride(null)
+  }, [])
+  const handleQuickCustomAgentChange = useCallback((id: string | null) => {
+    setQuickCustomAgentOverride(id)
   }, [])
 
   const handleCreate = useCallback(async (): Promise<void> => {
-    await submitQuick(quickAgent)
-  }, [quickAgent, submitQuick])
+    await submitQuick(quickAgent, quickCustomAgentId)
+  }, [quickAgent, quickCustomAgentId, submitQuick])
   // Why: Add Project layers over the composer as a nested dialog instead of
   // replacing it in the activeModal slot — closing the composer mid-flow (and
   // losing the typed name/prompt) was the old, abrupt behavior. Once opened it
@@ -318,6 +362,8 @@ function QuickTabBody({
         nameInputRef={nameInputRef}
         quickAgent={quickAgent}
         onQuickAgentChange={handleQuickAgentChange}
+        quickCustomAgentId={quickCustomAgentId}
+        onQuickCustomAgentChange={handleQuickCustomAgentChange}
         {...cardProps}
         primaryActionLabel={primaryActionLabel}
         onOpenAgentSettings={() => setAgentSettingsOpen(true)}

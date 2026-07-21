@@ -5,6 +5,7 @@ import {
   buildAgentStartupPlan,
   type AgentStartupPlan
 } from '@/lib/tui-agent-startup'
+import { findCustomAgentProfile } from '@/lib/custom-agent-resolve'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
 import { getAgentLaunchPlatformForRepo } from '@/lib/agent-launch-platform'
 import { reconcileTabOrder } from '@/components/tab-bar/reconcile-order'
@@ -24,6 +25,10 @@ import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-te
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
 import { seedCommandCodeSubmittedPromptStatus } from '@/lib/command-code-prompt-status-seed'
+import {
+  buildPersonalizedAgentPrompt,
+  resolveAgentPersonalizationPrompt
+} from '../../../shared/agent-personalization'
 import type { TuiAgent } from '../../../shared/types'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import { translate } from '@/i18n/i18n'
@@ -50,6 +55,9 @@ export type LaunchAgentInNewTabArgs = {
   launchPlatform?: NodeJS.Platform
   /** Called after the prompt is actually delivered to the agent input path. */
   onPromptDelivered?: () => void
+  /** Optional custom-agent profile id. When set, the launch uses the
+   *  profile's command + env vars instead of the catalog default for `agent`. */
+  customAgentId?: string | null
 }
 
 export type LaunchAgentInNewTabResult = {
@@ -80,9 +88,11 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     launchSource,
     quickCommandLabel,
     launchPlatform,
-    onPromptDelivered
+    onPromptDelivered,
+    customAgentId = null
   } = args
   const store = useAppStore.getState()
+  const customProfile = findCustomAgentProfile(store.settings, customAgentId)
   const worktree = store.allWorktrees?.().find((entry: { id: string }) => entry.id === worktreeId)
   const repo = worktree ? store.repos?.find((entry) => entry.id === worktree.repoId) : null
   const resolvedLaunchPlatform =
@@ -106,6 +116,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       ? agentArgs
       : resolveTuiAgentLaunchArgs(agent, store.settings?.agentDefaultArgs)
   const agentEnv = resolveTuiAgentLaunchEnv(agent, store.settings?.agentDefaultEnv)
+  const personalizationPrompt = resolveAgentPersonalizationPrompt(store.settings, agent)
   const startupPlanBase = {
     agent,
     cmdOverrides,
@@ -117,10 +128,17 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     sessionOptions: resolveNativeChatSessionOptionDefaults(
       store.settings?.nativeChatSessionOptions,
       agent
-    )
+    ),
+    customProfile,
+    personalizationPrompt
   }
   const trimmedPrompt = prompt?.trim() ?? ''
   const hasPrompt = trimmedPrompt.length > 0
+  // Why: pasted-first-turn prompts get the same custom-instructions wrapper the
+  // plan builders apply to argv prompts, so delivery mode can't drop them.
+  const personalizedPrompt = hasPrompt
+    ? buildPersonalizedAgentPrompt({ prompt: trimmedPrompt, personalizationPrompt })
+    : ''
   const isFollowupPath = TUI_AGENT_CONFIG[agent].promptInjectionMode === 'stdin-after-start'
   // argv/flag agents fold the prompt into the launch command; followup/generated launches deliver it via post-launch paste.
   let startupPlan: AgentStartupPlan | null = null
@@ -136,7 +154,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       prompt: '',
       allowEmptyPromptLaunch: true
     })
-    pasteDraftAfterLaunch = trimmedPrompt
+    pasteDraftAfterLaunch = personalizedPrompt
     submitPastedPrompt = true
     forcePasteAfterLaunch = true
   } else if (hasPrompt && promptDelivery === 'draft') {
@@ -165,7 +183,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
         prompt: '',
         allowEmptyPromptLaunch: true
       })
-      pasteDraftAfterLaunch = trimmedPrompt
+      pasteDraftAfterLaunch = personalizedPrompt
     }
   } else if (hasPrompt && isFollowupPath) {
     startupPlan = buildAgentStartupPlan({
@@ -173,7 +191,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       prompt: '',
       allowEmptyPromptLaunch: true
     })
-    pasteDraftAfterLaunch = trimmedPrompt
+    pasteDraftAfterLaunch = personalizedPrompt
   } else {
     startupPlan = buildAgentStartupPlan({
       ...startupPlanBase,

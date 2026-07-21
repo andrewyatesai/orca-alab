@@ -18,6 +18,10 @@ import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { buildAgentDraftLaunchPlan, buildAgentStartupPlan } from '@/lib/tui-agent-startup'
 import { filterEnabledTuiAgents, isTuiAgentEnabled } from '../../../shared/tui-agent-selection'
+import {
+  buildPersonalizedAgentPrompt,
+  resolveAgentPersonalizationPrompt
+} from '../../../shared/agent-personalization'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
 import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
 import { resolveNativeChatSessionOptionDefaults } from '../../../shared/native-chat-session-option-defaults'
@@ -299,6 +303,12 @@ export type ComposerCardProps = {
   onSelectLinkedItem: (item: GitHubWorkItem) => void
   tuiAgent: TuiAgent
   onTuiAgentChange: (value: TuiAgent) => void
+  /** Currently selected custom-agent profile id, or null when a built-in is
+   *  selected. The picker treats this as a parallel selection — setting it
+   *  also updates `tuiAgent` to the profile's `baseAgent` so prompt-injection
+   *  mode and telemetry stay valid. */
+  customAgentId: string | null
+  onCustomAgentChange: (id: string | null) => void
   detectedAgentIds: Set<TuiAgent> | null
   onOpenAgentSettings: () => void
   advancedOpen: boolean
@@ -362,7 +372,7 @@ export type UseComposerStateResult = {
   promptTextareaRef: React.RefObject<HTMLTextAreaElement | null>
   nameInputRef: React.RefObject<HTMLInputElement | null>
   submit: () => Promise<void>
-  submitQuick: (agent: TuiAgent | null) => Promise<void>
+  submitQuick: (agent: TuiAgent | null, customAgentId?: string | null) => Promise<void>
   /** Invoked by the Enter handler to re-check whether submission should fire. */
   createDisabled: boolean
   /** Selects the repo a nested Add Project flow just added, clearing any folder-group target so the composer lands on it. */
@@ -1069,14 +1079,31 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       ),
     [disabledTuiAgents]
   )
+  // Why: a saved custom-profile default surfaces as its baseAgent (kept only
+  // while that base stays enabled); a stale/hidden one degrades to auto-pick.
+  const defaultPrefCustomProfile = (() => {
+    const pref = settings?.defaultTuiAgent
+    if (pref && typeof pref === 'object' && pref.kind === 'custom') {
+      const profile = (settings?.customAgents ?? []).find((p) => p.id === pref.id) ?? null
+      return profile && isTuiAgentEnabled(profile.baseAgent, disabledTuiAgents) ? profile : null
+    }
+    return null
+  })()
   const fallbackDefaultAgent: TuiAgent =
-    settings?.defaultTuiAgent &&
+    defaultPrefCustomProfile?.baseAgent ??
+    (settings?.defaultTuiAgent &&
     settings.defaultTuiAgent !== 'blank' &&
+    typeof settings.defaultTuiAgent !== 'object' &&
     isTuiAgentEnabled(settings.defaultTuiAgent, disabledTuiAgents)
       ? settings.defaultTuiAgent
-      : (enabledCatalogAgents[0] ?? 'claude')
+      : (enabledCatalogAgents[0] ?? 'claude'))
   const [tuiAgent, setTuiAgent] = useState<TuiAgent>(
     persistDraft ? (newWorkspaceDraft?.agent ?? fallbackDefaultAgent) : fallbackDefaultAgent
+  )
+  const [customAgentId, setCustomAgentId] = useState<string | null>(
+    persistDraft
+      ? (newWorkspaceDraft?.customAgentId ?? defaultPrefCustomProfile?.id ?? null)
+      : (defaultPrefCustomProfile?.id ?? null)
   )
   // Why: for a repo on an SSH host or runtime env, read the per-host agent list so the dialog shows the host's installed agents, not local.
   const connectionId = selectedRepoConnectionId
@@ -1554,6 +1581,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       linkedWorkItem,
       taskSourceContext,
       agent: tuiAgent,
+      customAgentId,
       linkedIssue,
       linkedPR,
       linkedGitLabIssue,
@@ -1579,7 +1607,8 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     selectedWorkspaceTarget,
     setNewWorkspaceDraft,
     taskSourceContext,
-    tuiAgent
+    tuiAgent,
+    customAgentId
   ])
 
   // Auto-pick the first eligible repo if we somehow start with none selected.
@@ -3135,6 +3164,23 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     [updateWorktreeMeta]
   )
 
+  const resolvePersonalizationPrompt = useCallback(
+    (agent: TuiAgent): string =>
+      resolveAgentPersonalizationPrompt(
+        {
+          personalizationPrompt: settings?.personalizationPrompt,
+          personalizationPromptMode: settings?.personalizationPromptMode,
+          agentPersonalizationPrompts: settings?.agentPersonalizationPrompts
+        },
+        agent
+      ),
+    [
+      settings?.agentPersonalizationPrompts,
+      settings?.personalizationPrompt,
+      settings?.personalizationPromptMode
+    ]
+  )
+
   const folderCreateDisabled =
     creating ||
     !selectedProjectGroup?.parentPath ||
@@ -3430,6 +3476,9 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         agent: tuiAgent,
         prompt: submitStartupPrompt,
         cmdOverrides: settings?.agentCmdOverrides ?? {},
+        customProfile:
+          (customAgentId && settings?.customAgents?.find((p) => p.id === customAgentId)) || null,
+        personalizationPrompt: resolvePersonalizationPrompt(tuiAgent),
         agentArgs: resolveTuiAgentLaunchArgs(tuiAgent, settings?.agentDefaultArgs),
         agentEnv: resolveTuiAgentLaunchEnv(tuiAgent, settings?.agentDefaultEnv),
         sessionOptions: resolveNativeChatSessionOptionDefaults(
@@ -3609,6 +3658,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     resolvePendingSmartGitHubSubmit,
     resolvedSetupDecision,
     resolvedInitialWorkspaceStatus,
+    resolvePersonalizationPrompt,
     selectedRepo,
     selectedRepoAgentLaunchPlatform,
     selectedRepoIsRemote,
@@ -3621,6 +3671,8 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     settings?.agentDefaultEnv,
     settings?.autoRenameBranchFromWork,
     settings?.nativeChatSessionOptions,
+    settings?.customAgents,
+    customAgentId,
     smartNameMode,
     setSidebarOpen,
     setupDecision,
@@ -3663,7 +3715,10 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
   }, [])
 
   const submitQuick = useCallback(
-    async (requestedAgent: TuiAgent | null): Promise<void> => {
+    async (
+      requestedAgent: TuiAgent | null,
+      quickCustomAgentId: string | null = null
+    ): Promise<void> => {
       if (isProjectGroupTarget) {
         await submitFolderTarget(requestedAgent)
         return
@@ -3700,6 +3755,17 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
           requestedAgent && isTuiAgentEnabled(requestedAgent, disabledTuiAgents)
             ? requestedAgent
             : null
+        // Why: the profile only applies while the launch agent is its baseAgent;
+        // a repaired/disabled selection must not launch a mismatched profile.
+        const requestedCustomProfile =
+          (quickCustomAgentId &&
+            settings?.customAgents?.find((p) => p.id === quickCustomAgentId)) ||
+          null
+        const customProfile =
+          requestedCustomProfile && requestedCustomProfile.baseAgent === agent
+            ? requestedCustomProfile
+            : null
+        const personalizationPrompt = agent === null ? '' : resolvePersonalizationPrompt(agent)
         const submitLinkedIssueNumber =
           smartGitHubResolution.kind === 'none'
             ? parsedLinkedIssueNumber
@@ -3847,6 +3913,8 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
                 agent,
                 draft: quickDraftPrompt,
                 cmdOverrides: settings?.agentCmdOverrides ?? {},
+                customProfile,
+                personalizationPrompt,
                 agentArgs: resolveTuiAgentLaunchArgs(agent, settings?.agentDefaultArgs),
                 agentEnv: resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv),
                 sessionOptions: resolveNativeChatSessionOptionDefaults(
@@ -3879,6 +3947,8 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
             agent,
             prompt: quickPrompt,
             cmdOverrides: settings?.agentCmdOverrides ?? {},
+            customProfile,
+            personalizationPrompt,
             agentArgs: resolveTuiAgentLaunchArgs(agent, settings?.agentDefaultArgs),
             agentEnv: resolveTuiAgentLaunchEnv(agent, settings?.agentDefaultEnv),
             sessionOptions: resolveNativeChatSessionOptionDefaults(
@@ -3891,7 +3961,10 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
             allowEmptyPromptLaunch: true
           })
           if (startupPlan && quickDraftPrompt) {
-            startupPlan.draftPrompt = quickDraftPrompt
+            startupPlan.draftPrompt = buildPersonalizedAgentPrompt({
+              prompt: quickDraftPrompt,
+              personalizationPrompt
+            })
           }
         }
 
@@ -4056,6 +4129,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       resolvePendingSmartGitHubSubmit,
       resolvedSetupDecision,
       resolvedInitialWorkspaceStatus,
+      resolvePersonalizationPrompt,
       selectedRepo,
       selectedRepoAgentLaunchPlatform,
       selectedRepoIsRemote,
@@ -4072,6 +4146,7 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
       settings?.agentDefaultEnv,
       settings?.autoRenameBranchFromWork,
       settings?.nativeChatSessionOptions,
+      settings?.customAgents,
       smartNameMode,
       disabledTuiAgents,
       setupDecision,
@@ -4172,6 +4247,8 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
     onSelectLinkedItem: handleSelectLinkedItem,
     tuiAgent,
     onTuiAgentChange: setTuiAgent,
+    customAgentId,
+    onCustomAgentChange: setCustomAgentId,
     detectedAgentIds: isProjectGroupTarget ? folderDetectedAgentIds : detectedAgentIds,
     onOpenAgentSettings: handleOpenAgentSettings,
     advancedOpen,

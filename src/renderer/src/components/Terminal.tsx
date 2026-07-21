@@ -1,6 +1,7 @@
 /* eslint-disable max-lines */
 
 import React, { useEffect, useCallback, useMemo, useRef, useState, Suspense } from 'react'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../shared/tui-agent-selection'
 import { lazyWithRetry as lazy } from '@/lib/lazy-with-retry'
 import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
@@ -1665,7 +1666,10 @@ function Terminal(): React.JSX.Element | null {
           const connectionId = getConnectionId(activeWorktreeId)
           agentActionId = 'tab.newAgent'
           agentToLaunch = resolveDefaultAgentForNewTab({
-            defaultTuiAgent: state.settings?.defaultTuiAgent,
+            defaultTuiAgent: collapseDefaultTuiAgentToBuiltin(
+              state.settings?.defaultTuiAgent,
+              state.settings?.customAgents
+            ),
             detectedAgentIds:
               typeof connectionId === 'string'
                 ? state.remoteDetectedAgentIds[connectionId]

@@ -2683,7 +2683,8 @@ export default function ChecksPanel(): React.JSX.Element {
     pickDefaultSourceControlAgent(
       settings?.defaultTuiAgent,
       detectedAgentsForAI,
-      settings?.disabledTuiAgents
+      settings?.disabledTuiAgents,
+      settings?.customAgents
     ) == null
   const aiActionDisabledReason = !activeWorktreeId
     ? 'Select a workspace before launching an AI action.'

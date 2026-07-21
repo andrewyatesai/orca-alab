@@ -36,6 +36,15 @@ function buildAgentSettingsKeywords(): string[] {
     { key: 'auto.components.settings.agents.search.yolo', fallback: 'yolo', englishOnly: true },
     { key: 'auto.components.settings.agents.search.manual', fallback: 'manual' },
     {
+      key: 'auto.components.settings.agents.search.customInstructions',
+      fallback: 'custom instructions'
+    },
+    {
+      key: 'auto.components.settings.agents.search.personalization',
+      fallback: 'personalization'
+    },
+    { key: 'auto.components.settings.agents.search.systemPrompt', fallback: 'system prompt' },
+    {
       key: 'auto.components.settings.agents.search.e2b7c0dcd7',
       fallback: 'github',
       englishOnly: true

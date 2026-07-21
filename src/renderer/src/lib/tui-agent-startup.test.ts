@@ -243,6 +243,54 @@ describe('buildAgentStartupPlan', () => {
     ).toBeNull()
   })
 
+  it('prepends custom instructions to CLI argument prompts', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'claude',
+        prompt: 'Fix the bug',
+        personalizationPrompt: 'Keep the patch small.',
+        cmdOverrides: {},
+        platform: 'darwin'
+      })
+    ).toEqual({
+      agent: 'claude',
+      launchCommand: "claude 'Custom instructions:\nKeep the patch small.\n\nTask:\nFix the bug'",
+      expectedProcess: 'claude',
+      followupPrompt: null,
+      launchConfig: emptyLaunchConfig('claude')
+    })
+  })
+
+  it('prepends custom instructions to follow-up prompt agents', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'aider',
+        prompt: 'Refactor the parser',
+        personalizationPrompt: 'Prefer pure functions.',
+        cmdOverrides: {},
+        platform: 'linux'
+      })
+    ).toEqual({
+      agent: 'aider',
+      launchCommand: 'aider',
+      expectedProcess: 'aider',
+      followupPrompt: 'Custom instructions:\nPrefer pure functions.\n\nTask:\nRefactor the parser',
+      launchConfig: emptyLaunchConfig('aider')
+    })
+  })
+
+  it('does not launch solely because a custom instruction prompt is configured', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'codex',
+        prompt: '   ',
+        personalizationPrompt: 'Keep changes small.',
+        cmdOverrides: {},
+        platform: 'darwin'
+      })
+    ).toBeNull()
+  })
+
   it('uses -i flag for copilot to start an interactive session with initial prompt', () => {
     expect(
       buildAgentStartupPlan({
@@ -259,6 +307,49 @@ describe('buildAgentStartupPlan', () => {
       launchConfig: emptyLaunchConfig('copilot')
     })
   })
+
+  it('uses customProfile command + env shell prefix and ignores per-agent cmdOverrides', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'claude',
+        prompt: 'Fix the bug',
+        cmdOverrides: { claude: '/should/be/ignored' },
+        platform: 'darwin',
+        customProfile: {
+          id: 'p1',
+          label: 'Claude (zai)',
+          baseAgent: 'claude',
+          command: 'claude',
+          env: { ANTHROPIC_BASE_URL: 'http://localhost:1234' }
+        }
+      })
+    ).toEqual({
+      agent: 'claude',
+      launchCommand: "ANTHROPIC_BASE_URL='http://localhost:1234' claude 'Fix the bug'",
+      expectedProcess: 'claude',
+      followupPrompt: null,
+      launchConfig: emptyLaunchConfig("ANTHROPIC_BASE_URL='http://localhost:1234' claude")
+    })
+  })
+
+  it('quotes single quotes in env values via the POSIX close-reopen trick', () => {
+    expect(
+      buildAgentStartupPlan({
+        agent: 'claude',
+        prompt: '',
+        cmdOverrides: {},
+        platform: 'linux',
+        allowEmptyPromptLaunch: true,
+        customProfile: {
+          id: 'p2',
+          label: 'Claude (tricky)',
+          baseAgent: 'claude',
+          command: 'claude',
+          env: { TOKEN: "a'b" }
+        }
+      })?.launchCommand
+    ).toBe("TOKEN='a'\\''b' claude")
+  })
 })
 
 describe('buildAgentDraftLaunchPlan', () => {
@@ -273,6 +364,24 @@ describe('buildAgentDraftLaunchPlan', () => {
     ).toEqual({
       agent: 'claude',
       launchCommand: "claude --prefill 'https://github.com/acme/repo/issues/42'",
+      expectedProcess: 'claude',
+      launchConfig: emptyLaunchConfig('claude')
+    })
+  })
+
+  it('prepends custom instructions to native draft prefill prompts', () => {
+    expect(
+      buildAgentDraftLaunchPlan({
+        agent: 'claude',
+        draft: 'https://github.com/acme/repo/issues/42',
+        personalizationPrompt: 'Focus on accessibility.',
+        cmdOverrides: {},
+        platform: 'darwin'
+      })
+    ).toEqual({
+      agent: 'claude',
+      launchCommand:
+        "claude --prefill 'Custom instructions:\nFocus on accessibility.\n\nTask:\nhttps://github.com/acme/repo/issues/42'",
       expectedProcess: 'claude',
       launchConfig: emptyLaunchConfig('claude')
     })
@@ -351,6 +460,29 @@ describe('buildAgentDraftLaunchPlan', () => {
       launchCommand: "openclaude --prefill 'review this'",
       expectedProcess: 'openclaude',
       launchConfig: emptyLaunchConfig('openclaude')
+    })
+  })
+
+  it('uses customProfile command + env shell prefix for the prefill flag', () => {
+    expect(
+      buildAgentDraftLaunchPlan({
+        agent: 'claude',
+        draft: 'review this',
+        cmdOverrides: { claude: '/should/be/ignored' },
+        platform: 'linux',
+        customProfile: {
+          id: 'p1',
+          label: 'Claude (zai)',
+          baseAgent: 'claude',
+          command: 'claude',
+          env: { ANTHROPIC_BASE_URL: 'http://localhost:1234' }
+        }
+      })
+    ).toEqual({
+      agent: 'claude',
+      launchCommand: "ANTHROPIC_BASE_URL='http://localhost:1234' claude --prefill 'review this'",
+      expectedProcess: 'claude',
+      launchConfig: emptyLaunchConfig("ANTHROPIC_BASE_URL='http://localhost:1234' claude")
     })
   })
 })

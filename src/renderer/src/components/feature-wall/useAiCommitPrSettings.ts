@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
 import type { CommitMessageAiSettings, TuiAgent } from '../../../../shared/types'
 import {
   CUSTOM_AGENT_ID,
@@ -44,9 +45,13 @@ export function useAiCommitPrSettings(): AiCommitPrSettingsViewModel {
   }, [])
 
   const config = settings ? readCommitMessageAiSettings(settings) : EMPTY_COMMIT_MESSAGE_AI_SETTINGS
+  const collapsedDefaultTuiAgent = collapseDefaultTuiAgentToBuiltin(
+    settings?.defaultTuiAgent,
+    settings?.customAgents
+  )
   const resolvedAgentId = resolveCommitMessageAgentChoice(
     config.agentId,
-    settings?.defaultTuiAgent,
+    collapsedDefaultTuiAgent,
     settings?.disabledTuiAgents
   )
   const isCustom = isCustomAgentId(resolvedAgentId)
@@ -74,9 +79,9 @@ export function useAiCommitPrSettings(): AiCommitPrSettingsViewModel {
   const unsupportedDefaultAgent =
     resolvedAgentId === null &&
     !config.agentId &&
-    settings?.defaultTuiAgent &&
-    settings.defaultTuiAgent !== 'blank'
-      ? settings.defaultTuiAgent
+    collapsedDefaultTuiAgent &&
+    collapsedDefaultTuiAgent !== 'blank'
+      ? collapsedDefaultTuiAgent
       : null
   const unsupportedDefaultAgentLabel = unsupportedDefaultAgent
     ? (getAgentCatalog().find((a) => a.id === unsupportedDefaultAgent)?.label ??
@@ -99,7 +104,7 @@ export function useAiCommitPrSettings(): AiCommitPrSettingsViewModel {
     }
     const seedAgentId = resolveCommitMessageAgentChoice(
       config.agentId,
-      settings?.defaultTuiAgent,
+      collapsedDefaultTuiAgent,
       settings?.disabledTuiAgents
     )
     if (!seedAgentId) {

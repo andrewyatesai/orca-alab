@@ -414,7 +414,9 @@ describe('launchWorkItemDirect', () => {
       agentEnv: {},
       sessionOptions: undefined,
       platform: 'win32',
-      isRemote: false
+      isRemote: false,
+      customProfile: null,
+      personalizationPrompt: ''
     })
     expect(buildAgentStartupPlan).not.toHaveBeenCalledWith(
       expect.objectContaining({
@@ -538,7 +540,9 @@ describe('launchWorkItemDirect', () => {
       agentEnv: {},
       sessionOptions: undefined,
       platform: 'linux',
-      isRemote: true
+      isRemote: true,
+      customProfile: null,
+      personalizationPrompt: ''
     })
     expect(buildAgentStartupPlan).toHaveBeenCalledWith({
       agent: 'cursor',
@@ -549,7 +553,9 @@ describe('launchWorkItemDirect', () => {
       sessionOptions: undefined,
       platform: 'linux',
       isRemote: true,
-      allowEmptyPromptLaunch: true
+      allowEmptyPromptLaunch: true,
+      customProfile: null,
+      personalizationPrompt: ''
     })
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith(
       'wt-ssh',
@@ -721,6 +727,42 @@ describe('launchWorkItemDirect', () => {
       expect.objectContaining({
         agent: 'codex',
         platform: 'linux'
+      })
+    )
+  })
+
+  it('prepends custom instructions to work item draft paste paths', async () => {
+    mocks.ensureDetectedAgents.mockResolvedValue(['codex'])
+    mocks.store.settings = {
+      ...(mocks.store.settings as Record<string, unknown>),
+      personalizationPrompt: 'Prefer small, reviewed patches.',
+      personalizationPromptMode: 'global',
+      agentPersonalizationPrompts: {}
+    }
+
+    await expect(
+      launchWorkItemDirect({
+        repoId: 'repo-1',
+        launchSource: 'sidebar',
+        openModalFallback: vi.fn(),
+        item: {
+          type: 'issue',
+          number: 42,
+          title: 'Fix regression',
+          url: 'https://github.com/acme/repo/issues/42'
+        }
+      })
+    ).resolves.toBe(true)
+
+    // Why: draft delivery rides the startup-owned draftPrompt channel, so the
+    // custom-instructions wrapper must land there, not in a post-ready paste.
+    expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith(
+      'repo-1::/repo/worktree',
+      expect.objectContaining({
+        startup: expect.objectContaining({
+          draftPrompt:
+            'Custom instructions:\nPrefer small, reviewed patches.\n\nTask:\nhttps://github.com/acme/repo/issues/42'
+        })
       })
     )
   })

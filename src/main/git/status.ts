@@ -32,7 +32,13 @@ import {
 import { parseNumstatNative } from './rust-numstat'
 import { requireRustGitBinding } from '../daemon/rust-git-addon'
 import { isNoUpstreamError } from './rust-git-remote-error'
-import { gitExecFileAsync, gitExecFileAsyncBuffer, gitOptionalLocksDisabledEnv } from './runner'
+import { patchTouchesOnlyPath } from '../../shared/git-hunk-patch'
+import {
+  gitExecFileAsync,
+  gitExecFileAsyncBuffer,
+  gitExecFileWithStdin,
+  gitOptionalLocksDisabledEnv
+} from './runner'
 import { streamGitStatus } from './git-status-stream'
 import { untrackedAdditionsCounter } from './untracked-additions-counter'
 import { DEFAULT_GIT_STATUS_LIMIT } from '../../shared/git-status-limit'
@@ -1952,6 +1958,52 @@ export async function unstageFile(
   } finally {
     invalidateGitReadCaches()
   }
+}
+
+/** Raw unified diff for one file (staged = index-vs-HEAD, else worktree-vs-index). */
+export async function getFileDiffPatch(
+  worktreePath: string,
+  filePath: string,
+  staged: boolean,
+  options: GitRuntimeOptions = {}
+): Promise<string> {
+  const { stdout } = await gitExecFileAsync(
+    [
+      // Why: emit paths literally (no octal-quoting of non-ASCII) so the patch's
+      // file headers match the validated path; git quotes unicode otherwise.
+      '-c',
+      'core.quotePath=false',
+      'diff',
+      ...(staged ? ['--cached'] : []),
+      '--no-color',
+      '--no-ext-diff',
+      '--',
+      literalPathspec(filePath, options)
+    ],
+    { ...gitOptionsForWorktree(worktreePath, options), maxBuffer: MAX_GIT_SHOW_BYTES }
+  )
+  return stdout
+}
+
+/** Apply a unified patch to the index only (reverse unstages). git apply is
+ * atomic, so a stale patch fails cleanly instead of corrupting the index. */
+export async function applyIndexPatch(
+  worktreePath: string,
+  filePath: string,
+  patch: string,
+  reverse: boolean,
+  options: GitRuntimeOptions = {}
+): Promise<void> {
+  // Why: git apply honors every file header in the patch, so reject one that
+  // targets anything other than the validated path before it reaches the index.
+  if (!patchTouchesOnlyPath(patch, filePath)) {
+    throw new Error(`Patch does not match the expected path "${filePath}"`)
+  }
+  await gitExecFileWithStdin(
+    ['apply', '--cached', ...(reverse ? ['--reverse'] : [])],
+    gitOptionsForWorktree(worktreePath, options),
+    patch
+  )
 }
 
 export async function getStagedCommitContext(

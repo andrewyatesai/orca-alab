@@ -24,7 +24,7 @@ import {
 } from '../diff-comments/diff-comment-popover-position'
 import { applyDiffEditorLineNumberOptions } from './diff-editor-line-number-options'
 import { DiffSectionHeader } from './DiffSectionHeader'
-import type { DiffSection } from './diff-section-types'
+import type { DiffSection, DiffSectionCommentPopoverAnchor } from './diff-section-types'
 import type { DiffComment } from '../../../../shared/types'
 import { isDiffComment } from '@/lib/diff-comment-compat'
 import { installEditorSaveShortcut, installMonacoEditorFindShortcut } from './editor-shortcuts'
@@ -34,6 +34,7 @@ import { disposeUnattachedMonacoModelPaths } from './diff-monaco-model-disposal'
 import { getLiveDiffSectionRenderLimit } from './diff-section-live-render-limit'
 import { useDiffSectionFallbackCleanup } from './useDiffSectionFallbackCleanup'
 import { submitDiffSectionComment } from './diff-section-comment-submit'
+import { useDiffSectionHunkStaging, type DiffSectionHunkStaging } from './useDiffSectionHunkStaging'
 
 export function DiffSectionItem({
   section,
@@ -58,7 +59,8 @@ export function DiffSectionItem({
   setSectionHeights,
   setSections,
   modifiedEditorsRef,
-  handleSectionSaveRef
+  handleSectionSaveRef,
+  hunkStaging
 }: {
   section: DiffSection
   index: number
@@ -95,6 +97,7 @@ export function DiffSectionItem({
   setSections: React.Dispatch<React.SetStateAction<DiffSection[]>>
   modifiedEditorsRef: MutableRefObject<Map<number, monacoEditor.IStandaloneCodeEditor>>
   handleSectionSaveRef: MutableRefObject<(index: number) => Promise<void>>
+  hunkStaging?: DiffSectionHunkStaging
 }): React.JSX.Element {
   const editorFontZoomLevel = useAppStore((s) => s.editorFontZoomLevel)
   const addDiffComment = useAppStore((s) => s.addDiffComment)
@@ -129,14 +132,9 @@ export function DiffSectionItem({
   const diffEditorRef = useRef<monacoEditor.IStandaloneDiffEditor | null>(null)
   const sectionBodyRef = useRef<HTMLDivElement | null>(null)
   const lineNumberOptionsSubRef = useRef<{ dispose: () => void } | null>(null)
-  const [popover, setPopover] = useState<{
-    lineNumber: number
-    startLine?: number
-    top: number
-    left?: number
-    lineHeight: number
-  } | null>(null)
+  const [popover, setPopover] = useState<DiffSectionCommentPopoverAnchor | null>(null)
   const hasLineCommentAction = Boolean(worktreeId || onAddLineComment)
+  useDiffSectionHunkStaging({ section, worktreeId, modifiedEditor, hunkStaging })
 
   const disposeDiffModels = useCallback(() => {
     window.setTimeout(() => {

@@ -2039,6 +2039,7 @@ export type LinearTeam = {
 // ─── Hooks (orca.yaml) ──────────────────────────────────────────────
 export type OrcaHooks = {
   scripts: {
+    preCreate?: string // Runs in the primary repo before `git worktree add` (#4566, e.g. git-crypt lock)
     setup?: string // Runs after worktree is created
     archive?: string // Runs before worktree is archived
   }
@@ -2465,6 +2466,28 @@ export type TuiAgent =
   | 'devin' // Devin CLI
   | 'ante' // Ante (Antigma Labs)
 
+/** A user-defined CLI agent profile — a named variant of a built-in TuiAgent
+ *  with its own launch command and optional env vars. Surfaced in the agent
+ *  picker alongside built-ins; resolved by `id` at launch time. */
+export type CustomAgentProfile = {
+  /** Stable opaque id (uuid). Referenced by `defaultTuiAgent` and composer state. */
+  id: string
+  /** Display label shown in the picker, e.g. "Claude (zai)". */
+  label: string
+  /** Built-in agent this profile inherits prompt-injection mode, icon, and
+   *  telemetry kind from. The profile's `command` replaces the catalog
+   *  `launchCmd` for this profile only. */
+  baseAgent: TuiAgent
+  /** Full launch command, e.g. `claude --dangerously-skip-permissions`.
+   *  May include shell metacharacters; runs in the user's interactive shell
+   *  via the existing startup-command path. */
+  command: string
+  /** Optional env vars merged into the launch as a `KEY='value' …` shell
+   *  prefix. Stored as a record so the settings UI can edit individual keys
+   *  without parsing arbitrary shell. */
+  env?: Record<string, string>
+}
+
 export type TaskViewPresetId = 'all' | 'issues' | 'review' | 'my-issues' | 'my-prs' | 'prs'
 
 /** Where the repo setup script runs when a worktree is created.
@@ -2589,6 +2612,9 @@ export type GlobalSettings = {
   /** One-shot migration guard for the default-on rollout. Existing profiles
    *  without the guard are flipped on once; later explicit opt-outs stick. */
   autoRenameBranchFromWorkDefaultedOn?: boolean
+  /** When true, new worktree branches are immediately pushed to origin and
+   *  configured to track their matching remote branch. */
+  publishRemoteBranchOnWorktreeCreate: boolean
   branchPrefix: 'git-username' | 'custom' | 'none'
   branchPrefixCustom: string
   enableGitHubAttribution: boolean
@@ -2815,12 +2841,21 @@ export type GlobalSettings = {
   /** Which agent to pre-select in the new-workspace composer.
    *  - null: auto (first detected agent)
    *  - 'blank': blank terminal (no agent launched)
-   *  - TuiAgent: a specific agent id */
-  defaultTuiAgent: TuiAgent | 'blank' | null
+   *  - TuiAgent: a specific built-in agent id
+   *  - { kind: 'custom', id }: a user-defined custom agent profile (see
+   *    `customAgents`). Resolved by id at launch; if the id no longer
+   *    exists the picker falls back to auto. */
+  defaultTuiAgent: TuiAgent | 'blank' | { kind: 'custom'; id: string } | null
   /** Agents hidden from picker/auto-launch; detection stays a raw PATH snapshot. */
   disabledTuiAgents: TuiAgent[]
   /** One-shot guard: start Claude Agent Teams hidden for existing profiles without overriding later opt-ins. */
   claudeAgentTeamsDefaultDisabledMigrated?: boolean
+  /** Global custom instructions prepended to agent task prompts. */
+  personalizationPrompt: string
+  /** Whether all agents use the global prompt or each agent can override it. */
+  personalizationPromptMode: 'global' | 'per-agent'
+  /** Per-agent custom instruction overrides used when personalizationPromptMode is per-agent. */
+  agentPersonalizationPrompts: Partial<Record<TuiAgent, string>>
   /** Why: worktree deletion is destructive (rm -rf of the working dir), so confirm by default. */
   skipDeleteWorktreeConfirm: boolean
   /** Why: closing a terminal with child processes kills foreground work; keep this skip separate from other confirmations. */
@@ -2829,6 +2864,16 @@ export type GlobalSettings = {
   skipDeleteAutomationConfirm: boolean
   /** Why: a Codex rate-limit reset spends a scarce credit on the live account; keep this skip separate from local confirmations. */
   skipCodexRateLimitResetConfirm: boolean
+  /** Why: when true, Orca auto-runs the standard delete-worktree flow as soon as
+   *  a worktree's linked PR/MR transitions to `merged`. Default false because the
+   *  deletion is destructive and users may want to keep the worktree around
+   *  after merge (e.g. to verify CI on main, cherry-pick to a release branch).
+   *  Enabling this setting is itself the user's standing confirmation, so the
+   *  auto-close path skips the usual delete-worktree dialog and goes straight
+   *  through `runWorktreeDeleteWithToast`. Non-forced: if the worktree has
+   *  uncommitted changes the toast surfaces a "Force Delete" recovery action
+   *  instead of wiping local work silently. */
+  autoCloseAfterMerge: boolean
   /** Default preset in the new-workspace GitHub task view. */
   defaultTaskViewPreset: TaskViewPresetId
   /** Persisted last-used task source so Tasks reopens to the same provider instead of defaulting to GitHub. */
@@ -2855,6 +2900,12 @@ export type GlobalSettings = {
   geminiCliOAuthEnabled: boolean
   /** Per-agent CLI command overrides. A missing key means use the catalog default binary name. */
   agentCmdOverrides: Partial<Record<TuiAgent, string>>
+  /** User-defined CLI agent profiles. Each profile is a named variant of a
+   *  built-in `baseAgent` with its own launch command and optional env vars,
+   *  e.g. "Claude (zai)" pointing the same `claude` binary at a different
+   *  ANTHROPIC_BASE_URL. Inherits the base agent's prompt-injection mode,
+   *  icon, and telemetry kind so the launch flow stays unchanged. */
+  customAgents: CustomAgentProfile[]
   /** Custom CODEX_HOME for Codex session-history discovery (defaults to ~/.codex).
    *  History-only: does not change which account/config/hooks Orca uses. */
   codexSessionSourceHome?: {

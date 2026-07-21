@@ -139,6 +139,7 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
   }
 
   const scriptsRecord = asRecord(record.scripts)
+  const preCreate = scriptsRecord ? asTrimmedString(scriptsRecord.preCreate) : undefined
   const setup = scriptsRecord ? asTrimmedString(scriptsRecord.setup) : undefined
   const archive = scriptsRecord ? asTrimmedString(scriptsRecord.archive) : undefined
   const issueCommand = asTrimmedString(record.issueCommand)
@@ -148,6 +149,7 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
   const environmentRecipeDiagnostics = environmentRecipeParse.diagnostics
 
   if (
+    !preCreate &&
     !setup &&
     !archive &&
     !issueCommand &&
@@ -160,6 +162,7 @@ export function parseOrcaYaml(content: string): OrcaHooks | null {
 
   return {
     scripts: {
+      ...(preCreate ? { preCreate } : {}),
       ...(setup ? { setup } : {}),
       ...(archive ? { archive } : {})
     },

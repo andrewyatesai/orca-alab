@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
 import type { FeatureWallWorkflowId } from '../../../../shared/feature-wall-workflows'
 import type { AgentsStepId } from '../../../../shared/agents-orchestration-steps'
 import type { WorkbenchStepId } from '../../../../shared/workbench-steps'
@@ -55,7 +56,7 @@ export function useFeatureWallCompletion(
     settings && commitMessageAi?.enabled === true
       ? resolveCommitMessageAgentChoice(
           commitMessageAi.agentId,
-          settings.defaultTuiAgent,
+          collapseDefaultTuiAgentToBuiltin(settings.defaultTuiAgent, settings.customAgents),
           settings.disabledTuiAgents
         )
       : null

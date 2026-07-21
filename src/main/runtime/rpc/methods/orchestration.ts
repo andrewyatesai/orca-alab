@@ -456,6 +456,7 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           coordinatorHandle: params.from ?? 'coordinator',
           workerHandle: params.to ?? 'worker',
           devMode: params.devMode,
+          personalizationPrompt: await runtime.getPersonalizationPrompt(params.to),
           ...(params.to
             ? { cliCommand: runtime.getTerminalOrchestrationCliCommand(params.to) }
             : {})
@@ -498,6 +499,7 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         coordinatorHandle: params.from ?? 'coordinator',
         workerHandle: to,
         devMode: params.devMode,
+        personalizationPrompt: await runtime.getPersonalizationPrompt(to),
         cliCommand: runtime.getTerminalOrchestrationCliCommand(to)
       })
 
@@ -523,7 +525,7 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
   defineMethod({
     name: 'orchestration.dispatchShow',
     params: DispatchShowParams,
-    handler: (params, { runtime }) => {
+    handler: async (params, { runtime }) => {
       const db = runtime.getOrchestrationDb()
       if (!params.task) {
         throw new Error('Missing --task')
@@ -545,6 +547,9 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           coordinatorHandle: params.from ?? 'coordinator',
           workerHandle,
           devMode: params.devMode,
+          personalizationPrompt: await runtime.getPersonalizationPrompt(
+            ctx?.assignee_handle ?? undefined
+          ),
           ...(ctx ? { cliCommand: runtime.getTerminalOrchestrationCliCommand(workerHandle) } : {})
         })
         return { dispatch: ctx ?? null, preamble }

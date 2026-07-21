@@ -68,7 +68,7 @@ import { getGitCloneFailureMessage } from '../../shared/git-clone-failure-messag
 import { GIT_FETCH_SKIP_AUTO_MAINTENANCE_CONFIG_ARGS } from '../../shared/git-fetch-auto-maintenance'
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { isAbsolute, join, posix, resolve, win32 } from 'node:path'
 import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { resolveWorktreeCreateBase } from '../worktree-create-base'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
@@ -240,6 +240,7 @@ import {
   isTuiAgent,
   TUI_AGENT_CONFIG
 } from '../../shared/tui-agent-config'
+import { resolveAgentPersonalizationPrompt } from '../../shared/agent-personalization'
 import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
 import { detectInstalledAgentsWithShellPathHydration, detectRemoteAgents } from '../ipc/preflight'
 import {
@@ -669,6 +670,7 @@ import {
   removeWorktree
 } from '../git/worktree'
 import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
+import { gitPush } from '../git/remote'
 import { isENOENT } from '../ipc/filesystem-auth'
 import {
   createSetupRunnerScript,
@@ -895,6 +897,7 @@ type RuntimeStore = {
     nestWorkspaces: boolean
     refreshLocalBaseRefOnWorktreeCreate: boolean
     localBaseRefSuggestionDismissed?: boolean
+    publishRemoteBranchOnWorktreeCreate: boolean
     branchPrefix: string
     branchPrefixCustom: string
     defaultTuiAgent?: GlobalSettings['defaultTuiAgent']
@@ -927,6 +930,9 @@ type RuntimeStore = {
     terminalMainSideEffectAuthority?: GlobalSettings['terminalMainSideEffectAuthority']
     terminalHiddenDeliveryGate?: GlobalSettings['terminalHiddenDeliveryGate']
     terminalModelQueryAuthority?: GlobalSettings['terminalModelQueryAuthority']
+    personalizationPrompt?: GlobalSettings['personalizationPrompt']
+    personalizationPromptMode?: GlobalSettings['personalizationPromptMode']
+    agentPersonalizationPrompts?: GlobalSettings['agentPersonalizationPrompts']
   }
   // Why: narrow to `unknown` return so test mocks can return void without
   // a cast. The runtime never reads the return value — the persisted value
@@ -990,6 +996,34 @@ function hasRuntimeAutomationUpdateValue<K extends keyof RuntimeAutomationUpdate
   key: K
 ): boolean {
   return Object.hasOwn(updates, key) && updates[key] !== undefined
+}
+
+function appendCreateWarning(
+  current: string | undefined,
+  next: string | undefined
+): string | undefined {
+  if (!next) {
+    return current
+  }
+  return current ? `${current}\n${next}` : next
+}
+
+function formatPublishRemoteBranchWarning(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return `Workspace created, but Orca could not publish its branch to origin: ${message}`
+}
+
+async function publishCreatedBranchToOrigin(
+  publish: () => Promise<void>
+): Promise<string | undefined> {
+  try {
+    await publish()
+    return undefined
+  } catch (error) {
+    // Why: the runtime caller may be headless. Keep the created worktree and
+    // return a warning instead of reporting the entire create as failed.
+    return formatPublishRemoteBranchWarning(error)
+  }
 }
 
 type RuntimeLeafRecord = RuntimeSyncedLeaf & {
@@ -6044,6 +6078,10 @@ export class OrcaRuntimeService {
     this.gitCommands.stageRuntimeGitPath.bind(this.gitCommands)
   unstageRuntimeGitPath: RuntimeGitCommands['unstageRuntimeGitPath'] =
     this.gitCommands.unstageRuntimeGitPath.bind(this.gitCommands)
+  getRuntimeGitFileDiffPatch: RuntimeGitCommands['getRuntimeGitFileDiffPatch'] =
+    this.gitCommands.getRuntimeGitFileDiffPatch.bind(this.gitCommands)
+  applyRuntimeGitIndexPatch: RuntimeGitCommands['applyRuntimeGitIndexPatch'] =
+    this.gitCommands.applyRuntimeGitIndexPatch.bind(this.gitCommands)
   bulkStageRuntimeGitPaths: RuntimeGitCommands['bulkStageRuntimeGitPaths'] =
     this.gitCommands.bulkStageRuntimeGitPaths.bind(this.gitCommands)
   bulkUnstageRuntimeGitPaths: RuntimeGitCommands['bulkUnstageRuntimeGitPaths'] =
@@ -10175,6 +10213,31 @@ export class OrcaRuntimeService {
       return null
     }
     return Math.min(Math.max(raw, MOBILE_AUTO_RESTORE_FIT_MIN_MS), MOBILE_AUTO_RESTORE_FIT_MAX_MS)
+  }
+
+  private async getTuiAgentForTerminalHandle(handle?: string): Promise<TuiAgent | null> {
+    if (!handle) {
+      return null
+    }
+    try {
+      const { leaf } = this.getLiveLeafForHandle(handle)
+      if (!leaf.ptyId || !this.ptyController) {
+        return null
+      }
+      const processName = await this.ptyController.getForegroundProcess(leaf.ptyId)
+      return processName ? resolveTuiAgentFromProcessName(processName) : null
+    } catch {
+      return null
+    }
+  }
+
+  async getPersonalizationPrompt(terminalHandle?: string): Promise<string> {
+    const settings = this.store?.getSettings()
+    if (!settings) {
+      return ''
+    }
+    const agent = await this.getTuiAgentForTerminalHandle(terminalHandle)
+    return resolveAgentPersonalizationPrompt(settings, agent)
   }
 
   // Why: invoked when the user changes mobileAutoRestoreFitMs to `null`
@@ -16769,6 +16832,20 @@ export class OrcaRuntimeService {
       ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
     }
     const defaultAddWorktreeOption = addProjectGitOptions()
+    // Why (#4566): same pre-`git worktree add` prep slot as renderer creates
+    // (e.g. git-crypt lock); runtime callers opt in via the same hook decision.
+    const preCreateScript = getEffectiveHooks(repo)?.scripts.preCreate
+    const preCreateDecision = args.runHooks ? 'run' : (args.setupDecision ?? 'inherit')
+    if (preCreateScript && shouldRunSetupForCreate(repo, preCreateDecision)) {
+      const hookResult = await runHook('preCreate', repo.path, repo, repo.path, {
+        wslDistro: defaultAddWorktreeOption?.wslDistro ?? null
+      })
+      if (!hookResult.success) {
+        throw new Error(
+          `orca.yaml preCreate hook failed; worktree was not created.\n${hookResult.output}`.trim()
+        )
+      }
+    }
     const addResult: AddWorktreeResult =
       (await (sparseDirectories.length > 0
         ? checkoutExistingBranch
@@ -16965,6 +17042,12 @@ export class OrcaRuntimeService {
 
     let setup: CreateWorktreeResult['setup']
     let warning: string | undefined
+    if (settings.publishRemoteBranchOnWorktreeCreate) {
+      warning = appendCreateWarning(
+        warning,
+        await publishCreatedBranchToOrigin(() => gitPush(created.path, true))
+      )
+    }
     // Why: CLI-created worktrees do not have a renderer preview to mismatch
     // against. Trust is granted by the direct CLI invocation (`--run-hooks`),
     // so loading the setup hook from the created worktree is intentional here.
@@ -17018,7 +17101,10 @@ export class OrcaRuntimeService {
       }
     } else if (hooks?.scripts.setup && effectiveDecision !== 'skip') {
       // Runtime RPC calls have no renderer trust prompt, so hooks require explicit CLI opt-in.
-      warning = `orca.yaml setup hook skipped for ${worktreePath}; pass --setup run to run it.`
+      warning = appendCreateWarning(
+        warning,
+        `orca.yaml setup hook skipped for ${worktreePath}; pass --setup run to run it.`
+      )
       console.warn(`[hooks] ${warning}`)
     }
 
@@ -28717,6 +28803,29 @@ function findResolvedWorktreeIdForPath(
     .filter((worktree) => isPathInsideOrEqual(worktree.path, cwd))
     .sort((left, right) => right.path.length - left.path.length)
   return matches[0]?.id ?? null
+}
+
+function normalizeForegroundProcessName(processName: string): string {
+  return win32
+    .basename(posix.basename(processName.trim()))
+    .replace(/\.exe$/i, '')
+    .toLowerCase()
+}
+
+function resolveTuiAgentFromProcessName(processName: string): TuiAgent | null {
+  const normalized = normalizeForegroundProcessName(processName)
+  for (const [agent, config] of Object.entries(TUI_AGENT_CONFIG) as [
+    TuiAgent,
+    (typeof TUI_AGENT_CONFIG)[TuiAgent]
+  ][]) {
+    if (
+      normalized === normalizeForegroundProcessName(config.expectedProcess) ||
+      normalized === normalizeForegroundProcessName(config.detectCmd)
+    ) {
+      return agent
+    }
+  }
+  return null
 }
 
 function getLeafWorktreeStatus(

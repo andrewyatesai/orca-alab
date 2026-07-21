@@ -10,7 +10,7 @@ describe('AgentCombobox', () => {
     const markup = renderToStaticMarkup(
       <AgentCombobox
         agents={AGENT_CATALOG}
-        value="copilot"
+        value={{ kind: 'builtin', agent: 'copilot' }}
         onValueChange={vi.fn()}
         triggerClassName="h-9 w-full min-w-0"
       />

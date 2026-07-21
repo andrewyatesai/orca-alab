@@ -1,4 +1,5 @@
 import type { GlobalSettings, TuiAgent } from '../../../../shared/types'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
 
 export type OnboardingSettingsHydrationUpdate = {
   settingsHydrated: boolean
@@ -33,10 +34,11 @@ export function resolveOnboardingSettingsHydration({
     update.theme = settings.theme
   }
 
-  const settingsAgent =
-    settings.defaultTuiAgent && settings.defaultTuiAgent !== 'blank'
-      ? settings.defaultTuiAgent
-      : null
+  const collapsedAgent = collapseDefaultTuiAgentToBuiltin(
+    settings.defaultTuiAgent,
+    settings.customAgents
+  )
+  const settingsAgent = collapsedAgent && collapsedAgent !== 'blank' ? collapsedAgent : null
   if (!agentInteracted && settingsAgent !== null && currentAgent !== settingsAgent) {
     update.selectedAgent = settingsAgent
   }

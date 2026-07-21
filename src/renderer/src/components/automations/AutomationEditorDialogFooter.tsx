@@ -226,9 +226,10 @@ export function AutomationEditorDialogFooter({
             >
               <AgentCombobox
                 agents={visibleAgents}
-                value={draft.agentId}
-                onValueChange={(agentId) =>
-                  agentId && onDraftChange((current) => ({ ...current, agentId }))
+                value={{ kind: 'builtin', agent: draft.agentId }}
+                onValueChange={(selection) =>
+                  selection.kind === 'builtin' &&
+                  onDraftChange((current) => ({ ...current, agentId: selection.agent }))
                 }
                 defaultAgent={settings?.defaultTuiAgent ?? null}
                 triggerClassName={`h-9 w-full min-w-0 ${pickerTriggerClassName}`}

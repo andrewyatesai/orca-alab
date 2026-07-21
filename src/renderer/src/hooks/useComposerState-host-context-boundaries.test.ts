@@ -665,7 +665,9 @@ describe('useComposerState host-context boundaries', () => {
       'const createGateInput'
     )
     expect(quickSubmit).toContain('agent === null || !quickDraftPrompt')
-    expect(quickSubmit).toContain('startupPlan.draftPrompt = quickDraftPrompt')
+    // Why: upstream #1776 wraps the routed draft with custom instructions; the routing itself is unchanged.
+    expect(quickSubmit).toContain('startupPlan.draftPrompt = buildPersonalizedAgentPrompt({')
+    expect(quickSubmit).toContain('prompt: quickDraftPrompt,')
   })
 
   it('gates per-workspace environment recipe discovery behind the experimental setting', () => {

@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
 import type React from 'react'
 import type { Repo } from '../../../../shared/types'
 import { normalizeSourceControlAiSettings } from '../../../../shared/source-control-ai'
@@ -96,7 +97,10 @@ export function RepositorySourceControlAiSection({
         repoId={repo.id}
         repoAi={displayRepoAi}
         source={source}
-        defaultTuiAgent={settings?.defaultTuiAgent}
+        defaultTuiAgent={collapseDefaultTuiAgentToBuiltin(
+          settings?.defaultTuiAgent,
+          settings?.customAgents
+        )}
         savingActionIds={savingActionIds}
         actionDirtyById={actionDirtyById}
         onActionModeChange={updateActionMode}

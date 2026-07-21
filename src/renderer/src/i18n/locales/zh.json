@@ -622,6 +622,17 @@
             "triageFollowupsPrompt": "Use {{value0}} to triage the linked Linear issue — set priority and estimate — and create a parented follow-up ticket for the deferred cleanup."
           }
         }
+      },
+      "pane": {
+        "manager": {
+          "aterm": {
+            "aterm": {
+              "render": {
+                "worker": {}
+              }
+            }
+          }
+        }
       }
     },
     "hooks": {
@@ -5670,7 +5681,11 @@
           "compareAgainstUpstreamTitle": "默认对比基准",
           "compareAgainstUpstreamDescription": "选择源代码管理在比较已提交变更时默认使用的基准。分支上游会自动跟随当前分支；如果没有上游，则回退到仓库默认分支。你仍然可以在对应 worktree 的 Git 面板中按 worktree 更改对比基准。Pull Request 和变基目标不会改变。",
           "compareBaseRepositoryDefault": "仓库默认",
-          "compareBaseBranchUpstream": "分支上游"
+          "compareBaseBranchUpstream": "分支上游",
+          "publishRemoteBranchTitle": "Publish New Workspace Branches",
+          "publishRemoteBranchDescription": "Push newly-created worktree branches to origin and set upstream tracking.",
+          "publishRemoteBranchBodyLead": "When enabled, Orca runs",
+          "publishRemoteBranchBodyTail": "after creating a workspace so terminal pushes target the workspace branch."
         },
         "HiddenExperimentalGroup": {
           "d0f914a528": "占位符切换",
@@ -7831,7 +7846,13 @@
             "7fe71eb34c": "typing",
             "0b6c2fd17b": "ime",
             "47246d06a5": "keyboard",
-            "f1eb2a2473": "experimental"
+            "f1eb2a2473": "experimental",
+            "1caacdda65": "合并后自动关闭",
+            "bdb7f0fd9b": "当拉取请求或合并请求被合并后，自动删除工作区。",
+            "9df22f196a": "自动",
+            "65464c31b2": "合并",
+            "64e1e1cbe1": "pr",
+            "ecfb9f08f0": "清理"
           }
         },
         "git": {
@@ -7893,7 +7914,9 @@
             "defaultCompareBase": "默认对比基准",
             "defaultBranch": "默认分支",
             "repositoryDefault": "仓库默认",
-            "branchUpstream": "分支上游"
+            "branchUpstream": "分支上游",
+            "publishRemoteBranchTitle": "Publish New Workspace Branches",
+            "publishRemoteBranchDescription": "Push newly-created worktree branches to origin and set upstream tracking."
           }
         },
         "input": {
@@ -9477,6 +9500,55 @@
           "searchDescription": "Choose the default shell for new terminal panes on macOS and Linux.",
           "systemOption": "System",
           "systemOptionAria": "System login shell"
+        },
+        "CustomAgentsSection": {
+          "b4903769af": "Based on",
+          "f7ada76050": "Add",
+          "fb32b3444c": "Save",
+          "0f12fd331d": "Add variable",
+          "6d18282737": "Environment variables",
+          "4e2b76d091": "Shell command used to launch the agent. Env vars below are prepended as a shell prefix (POSIX quoting) before this command.",
+          "9c9f93700f": "Command",
+          "6d6b6383c2": "Inherits prompt-injection mode, icon, and trust preflight from this built-in agent.",
+          "db6ffcf46c": "Base agent",
+          "ca98ab9d85": "Delete profile",
+          "5d88f2e239": "Edit",
+          "8054ef4458": "Done",
+          "8e6e786c9a": "no command",
+          "4ba5122112": "Unnamed",
+          "37ce37fd95": "e.g. Claude (zai)",
+          "eeaceac120": "ANTHROPIC_BASE_URL",
+          "eee34f329b": "to define one — for example, a Claude profile pointed at a self-hosted endpoint via",
+          "ae2e07a0bc": "No custom agents yet. Click",
+          "cdcae0f619": "(env prefix uses POSIX shell quoting; on Windows wrap with `cmd /c …` if needed)",
+          "576a6eedaa": "Named variants of a built-in agent with their own command and env vars",
+          "916fc48436": "Custom Agents",
+          "e1d70fd5a1": "Remove env var",
+          "f0e1d2c3b4": "Default agent",
+          "a5b6c7d8e9": "Set as default",
+          "1a2b3c4d5e": "Default",
+          "6f7a8b9c0d": "Set default"
+        },
+        "TerminalEngineTextSection": {},
+        "CustomAgentProfileEditor": {
+          "6c0fb2434a": "value",
+          "0a09ab825e": "KEY",
+          "520ba5f307": "claude"
+        },
+        "PublishRemoteBranchSetting": {
+          "cd5221266b": "git push -u origin HEAD"
+        },
+        "AgentPersonalizationSection": {
+          "b3163542c3": "Refresh agent detection to customize per-agent prompts.",
+          "9ac19080b8": "Leave blank to use the shared prompt.",
+          "1ed8549fcf": "Blank agent prompts use the shared prompt above.",
+          "8dc1e0edf9": "Example: Keep changes small, add tests for behavior changes, and call out security-sensitive assumptions.",
+          "0a28f09406": "Used when per-agent prompts are blank.",
+          "208b416a1a": "Shared prompt",
+          "a1beb3cce7": "Turn this off to customize prompts for individual detected agents.",
+          "cefb760cfa": "Use the same prompt for every agent",
+          "b42ab80fa9": "Prepended to agent task prompts and Orca orchestration dispatches. Stored locally and may appear in terminal launch surfaces; do not include secrets.",
+          "a74419da1e": "Custom Instructions"
         }
       },
       "right": {
@@ -12549,6 +12621,10 @@
         },
         "richMarkdownSourceOwningCutFeedback": {
           "selectLessContent": "请选择较少的内容，或使用代码模式剪切保留的 HTML 引用。"
+        },
+        "useDiffSectionHunkStaging": {
+          "c07665f012": "Failed to stage hunk",
+          "f26f45ed02": "Failed to unstage hunk"
         }
       },
       "diff": {

@@ -1,4 +1,5 @@
 import type { OrchestrationCliCommand } from './cli-command'
+import { buildPersonalizationPreambleSection } from '../../../shared/agent-personalization'
 
 export type PreambleParams = {
   taskId: string
@@ -15,6 +16,7 @@ export type PreambleParams = {
   // Why: packaged WSL panes install the scoped launcher as `orca-ide`;
   // other execution hosts keep their existing bare `orca` bridge.
   cliCommand?: OrchestrationCliCommand
+  personalizationPrompt?: string | null
   // Why: populated by the coordinator's dispatch pre-flight (§3.1) only
   // when the target worktree is behind its tracking remote. When absent
   // or when `behind === 0`, the preamble emits no drift section. Callers
@@ -132,8 +134,9 @@ ${postDoneInstructions}`
   // of discovering it via stale line numbers in artifacts later.
   const drift =
     params.baseDrift && params.baseDrift.behind > 0 ? buildDriftSection(params.baseDrift) : ''
+  const personalization = buildPersonalizationPreambleSection(params.personalizationPrompt)
 
-  return `${header}${drift}
+  return `${header}${drift}${personalization}
 
 === TASK ===
 ${params.taskSpec}`

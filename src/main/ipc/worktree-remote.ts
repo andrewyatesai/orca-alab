@@ -37,6 +37,7 @@ import { validateGitPushTarget } from '../git/push-target-validation'
 import { assertGitPushTargetShape } from '../../shared/git-push-target-validation'
 import { gitExecFileAsync } from '../git/runner'
 import { parseGitHubOwnerRepo } from '../github/gh-utils'
+import { gitPush } from '../git/remote'
 import type { OrcaRuntimeService } from '../runtime/orca-runtime'
 import type { RemoteFetchResult, RemoteTrackingBase } from '../runtime/orca-runtime'
 import { getProjectHostSetupWorktreeMeta } from '../../shared/project-host-setup-projection'
@@ -50,6 +51,7 @@ import {
   getSetupRunnerEnvVars,
   loadHooks,
   parseOrcaYaml,
+  runHook,
   shouldRunSetupForCreate
 } from '../hooks'
 import { requireSshGitProvider } from '../providers/ssh-git-dispatch'
@@ -1526,6 +1528,27 @@ export function emitCreateWorktreeProgress(
   }
 }
 
+// Why: matches HOOK_TIMEOUT in hooks.ts — pre-create prep (e.g. git-crypt lock) is quick; don't stall create indefinitely.
+const PRE_CREATE_HOOK_TIMEOUT_MS = 120_000
+
+function formatPublishRemoteBranchWarning(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return `Workspace created, but Orca could not publish its branch to origin: ${message}`
+}
+
+async function publishCreatedBranchToOrigin(
+  publish: () => Promise<void>
+): Promise<string | undefined> {
+  try {
+    await publish()
+    return undefined
+  } catch (error) {
+    // Why: publishing is a post-create convenience. If auth or network fails,
+    // keep the real local/SSH worktree visible and surface the publish failure.
+    return formatPublishRemoteBranchWarning(error)
+  }
+}
+
 export async function createRemoteWorktree(
   args: CreateWorktreeArgsWithSystemProvenance,
   repo: Repo,
@@ -1724,6 +1747,26 @@ export async function createRemoteWorktree(
     if (primaryHooks?.scripts.setup) {
       shouldRunSetupForCreate(repo, args.setupDecision)
     }
+    // Why (#4566): same pre-`git worktree add` prep slot as local creates; SSH
+    // hosts run the hook headlessly in the primary repo via the relay.
+    const preCreateScript = primaryHooks?.scripts.preCreate
+    if (preCreateScript && shouldRunSetupForCreate(repo, args.setupDecision)) {
+      await timing.time('pre_create_hook', async () => {
+        // Why: SSH remotes are POSIX hosts in Orca's relay model; `bash -lc`
+        // matches how remote setup runner scripts execute.
+        const hookResult = await provider.execNonInteractive(
+          'bash',
+          ['-lc', preCreateScript],
+          repo.path,
+          PRE_CREATE_HOOK_TIMEOUT_MS
+        )
+        if (hookResult.exitCode !== 0) {
+          throw new Error(
+            `orca.yaml preCreate hook failed; worktree was not created.\n${`${hookResult.stdout}\n${hookResult.stderr}`.trim()}`.trim()
+          )
+        }
+      })
+    }
   }
 
   let preparedPushTarget: GitPushTarget | undefined
@@ -1863,6 +1906,11 @@ export async function createRemoteWorktree(
     return { worktree: mergeWorktree(repo.id, created, meta) }
   })
   const workspaceLineage = recordWorkspaceLineageForCreatedWorktree(store, args, worktree, now)
+  const publishWarning = settings.publishRemoteBranchOnWorktreeCreate
+    ? await timing.time('publish_remote_branch', () =>
+        publishCreatedBranchToOrigin(() => provider.pushBranch(created.path, true))
+      )
+    : undefined
 
   // Why: shared/symlink paths are local-only; remote (SSH) support needs a new relay method + auth surface, so configured symlinkPaths are ignored here.
 
@@ -1915,6 +1963,7 @@ export async function createRemoteWorktree(
     ...(defaultTabs ? { defaultTabs } : {}),
     ...(localBaseRefRefresh ? { localBaseRefRefresh } : {}),
     ...(localBaseRefUpdateSuggestion ? { localBaseRefUpdateSuggestion } : {}),
+    ...(publishWarning ? { warning: publishWarning } : {}),
     timing: timing.finish()
   }
 }
@@ -2273,6 +2322,22 @@ export async function createLocalWorktree(
     ...remoteTrackingBaseOption,
     ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
   }
+  // Why (#4566): repos using git-crypt or similar need prep in the PRIMARY repo
+  // before `git worktree add` — the checkout's smudge filter can abort the add,
+  // so the post-create setup hook is too late. Same trust gate as setup.
+  const preCreateScript = getEffectiveHooks(repo)?.scripts.preCreate
+  if (preCreateScript && shouldRunSetupForCreate(repo, args.setupDecision)) {
+    await timing.time('pre_create_hook', async () => {
+      const hookResult = await runHook('preCreate', repo.path, repo, repo.path, {
+        wslDistro: localWorktreeGitOptions.wslDistro ?? null
+      })
+      if (!hookResult.success) {
+        throw new Error(
+          `orca.yaml preCreate hook failed; worktree was not created.\n${hookResult.output}`.trim()
+        )
+      }
+    })
+  }
   const addResult: AddWorktreeResult =
     (await timing.time('git_worktree_add', async () => {
       if (sparseDirectories.length > 0) {
@@ -2449,6 +2514,11 @@ export async function createLocalWorktree(
     repo.path,
     ...gitWorktrees.map((worktree) => worktree.path)
   ])
+  const publishWarning = settings.publishRemoteBranchOnWorktreeCreate
+    ? await timing.time('publish_remote_branch', () =>
+        publishCreatedBranchToOrigin(() => gitPush(created.path, true))
+      )
+    : undefined
 
   // Why: link user-configured shared paths (e.g. `node_modules`, `.env`) before setup runs so setup scripts see them in place.
   const symlinkPaths = repo.symlinkPaths ?? []
@@ -2512,6 +2582,8 @@ export async function createLocalWorktree(
   )
 
   notifyWorktreesChanged(mainWindow, repo.id)
+  const combinedWarning =
+    [stagedStartup.warning, publishWarning].filter(Boolean).join('\n') || undefined
   return {
     worktree: { ...worktree, workspaceLineage },
     ...(workspaceLineage ? { workspaceLineage } : {}),
@@ -2528,7 +2600,7 @@ export async function createLocalWorktree(
       ? { localBaseRefUpdateSuggestion: addResult.localBaseRefUpdateSuggestion }
       : {}),
     ...(stagedStartup.startupTerminal ? { startupTerminal: stagedStartup.startupTerminal } : {}),
-    ...(stagedStartup.warning ? { warning: stagedStartup.warning } : {}),
+    ...(combinedWarning ? { warning: combinedWarning } : {}),
     timing: timing.finish()
   }
 }

@@ -1,5 +1,6 @@
 import type { AgentCatalogEntry } from '@/lib/agent-catalog'
 import { isClipboardTextByteLengthOverLimit } from '../../../shared/clipboard-text'
+import type { CustomAgentProfile } from '../../../shared/types'
 
 type RankedAgent = {
   agent: AgentCatalogEntry
@@ -22,12 +23,18 @@ export function getAgentPickerCommandValue({
   blankMatchesQuery,
   currentValue,
   filteredAgents,
+  filteredCustomAgentValues = [],
   rawQuery
 }: {
   blankValue: string
   blankMatchesQuery: boolean
-  currentValue: AgentCatalogEntry['id'] | null
+  /** cmdk item value of the current selection: a builtin agent id or a
+   *  custom-profile row key (`custom:<id>`). */
+  currentValue: string | null
   filteredAgents: readonly AgentCatalogEntry[]
+  /** cmdk item values of custom-profile rows matching the query; used as the
+   *  highlight fallback when no builtin row matches. */
+  filteredCustomAgentValues?: readonly string[]
   rawQuery: string
 }): string {
   const query = getAgentPickerSearchQuery(rawQuery)
@@ -40,7 +47,7 @@ export function getAgentPickerCommandValue({
   if (blankMatchesQuery) {
     return blankValue
   }
-  return filteredAgents[0]?.id ?? ''
+  return filteredAgents[0]?.id ?? filteredCustomAgentValues[0] ?? ''
 }
 
 export function searchAgentPickerEntries(
@@ -65,6 +72,35 @@ export function searchAgentPickerEntries(
 
   matches.sort((a, b) => a.score - b.score || a.index - b.index)
   return matches.map((m) => m.agent)
+}
+
+export function searchAgentPickerCustomProfiles(
+  customAgents: readonly CustomAgentProfile[],
+  rawQuery: string
+): CustomAgentProfile[] {
+  const query = getAgentPickerSearchQuery(rawQuery)
+  if (query === null) {
+    return []
+  }
+  if (!query) {
+    return [...customAgents]
+  }
+
+  const matches: { profile: CustomAgentProfile; score: number; index: number }[] = []
+  customAgents.forEach((profile, index) => {
+    // Why: same score tiers as builtins (label first, id-ish second) so mixed
+    // builtin/custom result ordering feels consistent in the picker.
+    const score = Math.min(
+      scoreCandidate(query, profile.label, 0),
+      scoreCandidate(query, profile.baseAgent, 600)
+    )
+    if (score !== NO_MATCH) {
+      matches.push({ profile, score, index })
+    }
+  })
+
+  matches.sort((a, b) => a.score - b.score || a.index - b.index)
+  return matches.map((m) => m.profile)
 }
 
 export function agentPickerBlankTerminalMatches(rawQuery: string): boolean {

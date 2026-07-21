@@ -411,6 +411,24 @@ export class SshGitProvider implements IGitProvider {
     }
   }
 
+  async getFileDiffPatch(worktreePath: string, filePath: string, staged: boolean): Promise<string> {
+    const result = (await this.mux.request('git.diffPatch', {
+      worktreePath,
+      filePath,
+      staged
+    })) as { patch: string }
+    return result.patch
+  }
+
+  async applyIndexPatch(
+    worktreePath: string,
+    filePath: string,
+    patch: string,
+    reverse: boolean
+  ): Promise<void> {
+    await this.mux.request('git.applyPatch', { worktreePath, filePath, patch, reverse })
+  }
+
   async bulkStageFiles(worktreePath: string, filePaths: string[]): Promise<void> {
     this.gitDiffReadDedupe.clear()
     try {

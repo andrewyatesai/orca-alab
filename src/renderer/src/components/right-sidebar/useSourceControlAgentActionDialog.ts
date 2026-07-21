@@ -118,6 +118,7 @@ export function useSourceControlAgentActionDialog({
           pickSourceControlLaunchAgent({
             savedAgent: savedAgentId,
             defaultAgent: settings?.defaultTuiAgent,
+            customAgents: settings?.customAgents,
             detectedAgents: nextAgents,
             disabledAgents
           })
@@ -136,7 +137,8 @@ export function useSourceControlAgentActionDialog({
     savedAgentArgs,
     savedCommandInputTemplate,
     repoId,
-    settings?.defaultTuiAgent
+    settings?.defaultTuiAgent,
+    settings?.customAgents
   ])
 
   const closeDialog = useCallback(() => onOpenChange(false), [onOpenChange])

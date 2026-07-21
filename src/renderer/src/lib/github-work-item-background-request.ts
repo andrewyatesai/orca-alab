@@ -6,6 +6,7 @@ import {
 } from '@/lib/tui-agent-startup'
 import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-context'
 import { pickQuickWorkspaceAgent } from '@/lib/quick-workspace-agent-selection'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../shared/tui-agent-selection'
 import type {
   PendingWorktreeCreation,
   WorktreeCreationRequest
@@ -45,6 +46,7 @@ export type GitHubWorkItemBackgroundStoreSnapshot = {
           | 'agentDefaultArgs'
           | 'agentDefaultEnv'
           | 'terminalWindowsShell'
+          | 'customAgents'
         >
       >
     | null
@@ -134,7 +136,7 @@ export async function resolvePreferredQuickAgentForGitHubWorkItem(
         ? await store.ensureRuntimeDetectedAgents(host.environmentId)
         : await store.ensureDetectedAgents()
   return pickQuickWorkspaceAgent(
-    store.settings?.defaultTuiAgent,
+    collapseDefaultTuiAgentToBuiltin(store.settings?.defaultTuiAgent, store.settings?.customAgents),
     detectedAgents,
     store.settings?.disabledTuiAgents
   )

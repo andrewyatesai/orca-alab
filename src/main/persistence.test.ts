@@ -555,6 +555,7 @@ describe('Store', () => {
     expect(settings.branchPrefix).toBe('git-username')
     expect(settings.refreshLocalBaseRefOnWorktreeCreate).toBe(false)
     expect(settings.sourceControlGroupOrder).toBe('changes-first')
+    expect(settings.publishRemoteBranchOnWorktreeCreate).toBe(false)
     expect(settings.theme).toBe('system')
     expect(settings.appIcon).toBe('classic')
     expect(settings.appFontFamily).toBe('Geist')
@@ -2348,6 +2349,7 @@ describe('Store', () => {
     expect(store.getSettings().editorAutoSave).toBe(false)
     expect(store.getSettings().editorAutoSaveDelayMs).toBe(1000)
     expect(store.getSettings().refreshLocalBaseRefOnWorktreeCreate).toBe(false)
+    expect(store.getSettings().publishRemoteBranchOnWorktreeCreate).toBe(false)
     expect(store.getSettings().rightSidebarOpenByDefault).toBe(true)
     expect(store.getSettings().sourceControlViewMode).toBe('list')
     expect(store.getSettings().showGitIgnoredFiles).toBe(true)
@@ -5175,6 +5177,24 @@ describe('Store', () => {
     expect(updated.terminalFontWeight).toBe(600)
     // Other fields preserved
     expect(updated.branchPrefix).toBe('git-username')
+  })
+
+  it('defaults agent personalization settings for existing profiles', async () => {
+    writeDataFile({
+      schemaVersion: 1,
+      repos: [],
+      settings: {
+        theme: 'dark'
+      }
+    })
+
+    const store = await createStore()
+
+    expect(store.getSettings()).toMatchObject({
+      personalizationPrompt: '',
+      personalizationPromptMode: 'global',
+      agentPersonalizationPrompts: {}
+    })
   })
 
   it('normalizes bot-author overrides on load and every settings write', async () => {

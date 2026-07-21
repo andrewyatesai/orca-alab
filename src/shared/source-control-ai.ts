@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- Why: defaults, migration compatibility, and
    operation resolution stay together so source-control AI precedence rules
    cannot drift across commit-message, PR, repo, local, SSH, and runtime paths. */
+import { collapseDefaultTuiAgentToBuiltin } from './tui-agent-selection'
 import {
   CUSTOM_AGENT_ID,
   getCommitMessageAgentSpec,
@@ -71,7 +72,7 @@ type ResolveSourceControlAiInput = {
     GlobalSettings,
     'defaultTuiAgent' | 'agentCmdOverrides' | 'commitMessageAi' | 'sourceControlAi'
   > &
-    Partial<Pick<GlobalSettings, 'disabledTuiAgents'>>
+    Partial<Pick<GlobalSettings, 'disabledTuiAgents' | 'customAgents'>>
   repo?: Pick<Repo, 'sourceControlAi'> | null
   operation: SourceControlAiOperation
   discoveryHostKey?: string
@@ -1217,7 +1218,7 @@ export function resolveSourceControlAiForOperation(
   const preferredAgent = hasActionAgentRecipe(actionRecipe) ? actionRecipe.agentId : source.agentId
   const agentChoice = resolveCommitMessageAgentChoice(
     preferredAgent,
-    input.settings.defaultTuiAgent,
+    collapseDefaultTuiAgentToBuiltin(input.settings.defaultTuiAgent, input.settings.customAgents),
     input.settings.disabledTuiAgents
   )
   if (!agentChoice) {
@@ -1265,7 +1266,10 @@ export function resolveSourceControlAiForOperation(
       ? agentId
       : resolveCommitMessageAgentChoice(
           actionAgentId,
-          input.settings.defaultTuiAgent,
+          collapseDefaultTuiAgentToBuiltin(
+            input.settings.defaultTuiAgent,
+            input.settings.customAgents
+          ),
           input.settings.disabledTuiAgents
         )
   if (!resolvedActionAgentId || isCustomAgentId(resolvedActionAgentId)) {

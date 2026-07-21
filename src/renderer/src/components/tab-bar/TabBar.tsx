@@ -66,6 +66,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Button } from '@/components/ui/button'
 import type { TabCreateEntryArgs } from './tab-create-entry-action'
 import { buildTabAgentLaunchOptions, orderTabLaunchAgents } from './tab-agent-launch-options'
+import { collapseDefaultTuiAgentToBuiltin } from '../../../../shared/tui-agent-selection'
 import { buildTabCreateMenuOptions, type TabCreateMenuOption } from './tab-create-menu-options'
 import { MobileEmulatorTabIntroCallout } from '../emulator-pane/MobileEmulatorTabIntroCallout'
 import { shouldShowMobileEmulatorTabIntro } from '../emulator-pane/mobile-emulator-tab-intro-visibility'
@@ -321,7 +322,11 @@ function TabBarInner({
     }
     return s.sshConnectionStates.get(worktreeConnectionId)?.remotePlatform ?? null
   })
-  const defaultAgent = useAppStore((s) => s.settings?.defaultTuiAgent)
+  // Why: tab launch options are builtin-shaped; collapse a custom-profile
+  // default to its baseAgent for ordering.
+  const defaultAgent = useAppStore((s) =>
+    collapseDefaultTuiAgentToBuiltin(s.settings?.defaultTuiAgent, s.settings?.customAgents)
+  )
   const agentCmdOverrides = useAppStore(
     (s) => s.settings?.agentCmdOverrides ?? EMPTY_AGENT_CMD_OVERRIDES
   )

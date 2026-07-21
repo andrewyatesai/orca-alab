@@ -1,8 +1,13 @@
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
+import { resolveDefaultTuiAgentPreference } from '@/lib/custom-agent-resolve'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection'
+import {
+  buildPersonalizedAgentPrompt,
+  resolveAgentPersonalizationPrompt
+} from '../../../shared/agent-personalization'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { CLIENT_PLATFORM, getWorkspaceIntentName, getWorkspaceSeedName } from '@/lib/new-workspace'
 import {
@@ -14,7 +19,12 @@ import {
 } from '@/lib/launch-work-item-direct-messages'
 import { ensureHooksConfirmed } from '@/lib/ensure-hooks-confirmed'
 import { getConnectionId } from '@/lib/connection-context'
-import type { GitPushTarget, SetupDecision, TuiAgent } from '../../../shared/types'
+import type {
+  CustomAgentProfile,
+  GitPushTarget,
+  SetupDecision,
+  TuiAgent
+} from '../../../shared/types'
 import { getLinearIssueWorkspaceName } from '@/lib/git-wasm/workspace-name'
 import { resolveGitHubWorkItemIdentity } from '@/lib/github-work-item-identity'
 import {
@@ -156,6 +166,7 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   let primaryTabId: string | null
   let startupPlan = null as ReturnType<typeof buildDirectWorkItemAgentStartupPlan>['startupPlan']
   let effectiveAgent: TuiAgent | null = null
+  let effectiveCustomProfile: CustomAgentProfile | null = null
   let draftLaunchedNatively = false
   const draftContent = await getDirectWorkItemDraftContent(item, repoConnectionId)
   let startupPlanFailed = false
@@ -231,11 +242,24 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
             ? await latestStore.ensureRemoteDetectedAgents(launchConnectionId)
             : await latestStore.ensureDetectedAgents()
       const detectedIds = new Set(detectedAgents)
-      effectiveAgent = pickTuiAgent(
-        settings?.defaultTuiAgent,
-        detectedIds,
-        settings?.disabledTuiAgents
-      )
+      // Why: a custom-profile default participates as its baseAgent; keep the
+      // profile only when that base survives detection/disabled filtering.
+      const resolvedDefault = resolveDefaultTuiAgentPreference(settings)
+      if (
+        resolvedDefault.kind === 'custom' &&
+        detectedIds.has(resolvedDefault.agent) &&
+        isTuiAgentEnabled(resolvedDefault.agent, settings?.disabledTuiAgents)
+      ) {
+        effectiveAgent = resolvedDefault.agent
+        effectiveCustomProfile = resolvedDefault.profile
+      } else {
+        const defaultPref = settings?.defaultTuiAgent
+        effectiveAgent = pickTuiAgent(
+          defaultPref && typeof defaultPref === 'object' ? null : defaultPref,
+          detectedIds,
+          settings?.disabledTuiAgents
+        )
+      }
     }
     if (effectiveAgent) {
       // Why: direct task launch creates and starts the workspace in separate
@@ -276,6 +300,8 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
         promptDelivery,
         settings,
         launchPlatform,
+        customProfile: effectiveCustomProfile,
+        personalizationPrompt: resolveAgentPersonalizationPrompt(settings, effectiveAgent),
         // Why: SSH hosts run the plain `orca` shim, so the Linux-only `orca-ide`
         // rename must not be applied for remote launches.
         isRemote: typeof launchConnectionId === 'string'
@@ -324,7 +350,10 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
   void pasteDirectWorkItemDraftWhenAgentReady({
     primaryTabId,
     startupPlan,
-    content: draftContent,
+    content: buildPersonalizedAgentPrompt({
+      prompt: draftContent,
+      personalizationPrompt: resolveAgentPersonalizationPrompt(settings, effectiveAgent)
+    }),
     submit: promptDelivery === 'submit-after-ready',
     forcePaste: promptDelivery === 'submit-after-ready'
   })

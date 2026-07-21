@@ -48,7 +48,10 @@ function resolveAgentArgsPlaceholderAgent(
   if (selectedAgent && !isCustomAgentId(selectedAgent)) {
     return selectedAgent
   }
-  return defaultTuiAgent && defaultTuiAgent !== 'blank' ? defaultTuiAgent : null
+  // Why: a custom-profile default reaches here only if the caller didn't collapse it; treat as no default.
+  return defaultTuiAgent && defaultTuiAgent !== 'blank' && typeof defaultTuiAgent !== 'object'
+    ? defaultTuiAgent
+    : null
 }
 
 export function SourceControlActionRecipeRow({

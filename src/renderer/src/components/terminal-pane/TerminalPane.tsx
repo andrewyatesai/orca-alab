@@ -1711,6 +1711,7 @@ export default function TerminalPane({
       isVisibleRef,
       onPtyExitRef,
       onPtyErrorRef,
+      onAgentExitedRef,
       onPaneProcessDied: handlePaneProcessDied,
       clearTabPtyId,
       consumeSuppressedPtyExit: useAppStore.getState().consumeSuppressedPtyExit,

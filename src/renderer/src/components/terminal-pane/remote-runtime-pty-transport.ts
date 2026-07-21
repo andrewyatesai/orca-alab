@@ -32,6 +32,7 @@ import {
   createRemoteRuntimePtyTextBatcher,
   createRemoteRuntimeViewportBatcher
 } from './remote-runtime-pty-batching'
+import { splitRemoteAltScreenSnapshot } from './remote-runtime-pty-alt-screen-snapshot'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { replaceFitOverridePtyId, setFitOverride } from '@/lib/pane-manager/mobile-fit-overrides'
 import { replaceDriverPtyId, setDriverForPty } from '@/lib/pane-manager/mobile-driver-state'
@@ -1002,7 +1003,8 @@ export function createRemoteRuntimePtyTransport(
       if (!connected || !handle) {
         return null
       }
-      return getCurrentMultiplexedStream(handle)?.serializeBuffer(opts) ?? null
+      const snapshot = (await getCurrentMultiplexedStream(handle)?.serializeBuffer(opts)) ?? null
+      return snapshot ? splitRemoteAltScreenSnapshot(snapshot) : null
     },
 
     destroy() {

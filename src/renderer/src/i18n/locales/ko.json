@@ -10691,13 +10691,6 @@
                   "cfafa92509": "보낼 해결되지 않은 충돌이 없습니다."
                 }
               }
-            },
-            "hosted": {
-              "review": {
-                "actions": {
-                  "e475c29b17": "This will merge the {{value0}}."
-                }
-              }
             }
           },
           "fileExplorerOperationOwner": {

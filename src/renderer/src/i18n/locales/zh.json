@@ -10691,13 +10691,6 @@
                   "cfafa92509": "没有未解决的冲突需要发送。"
                 }
               }
-            },
-            "hosted": {
-              "review": {
-                "actions": {
-                  "e475c29b17": "This will merge the {{value0}}."
-                }
-              }
             }
           },
           "fileExplorerOperationOwner": {

@@ -18,7 +18,8 @@ import { translate } from '@/i18n/i18n'
 import {
   getLandingPreflightIssues,
   hasGitHubBackedProject,
-  type PreflightIssue
+  type PreflightIssue,
+  type LandingPreflightStatus
 } from './landing-preflight-issues'
 
 type ShortcutItem = {
@@ -28,6 +29,16 @@ type ShortcutItem = {
 }
 
 const ORCA_STARGAZERS_URL = 'https://github.com/stablyai/orca/stargazers'
+
+async function checkLandingPreflight(force = false): Promise<LandingPreflightStatus | null> {
+  try {
+    return await window.api.preflight.check(force ? { force: true } : undefined)
+  } catch (error) {
+    // Why: an offline remote runtime should retain the last-known banner state.
+    console.warn('[Landing] preflight check unavailable:', error)
+    return null
+  }
+}
 
 type StarState = 'loading' | 'starred' | 'not-starred' | 'web-fallback' | 'hidden'
 
@@ -243,8 +254,8 @@ export default function Landing(): React.JSX.Element {
   useEffect(() => {
     let cancelled = false
     const refreshPreflight = (force = false): void => {
-      void window.api.preflight.check(force ? { force: true } : undefined).then((status) => {
-        if (cancelled) {
+      void checkLandingPreflight(force).then((status) => {
+        if (cancelled || !status) {
           return
         }
         setPreflightIssues(
@@ -288,8 +299,8 @@ export default function Landing(): React.JSX.Element {
     // so pausing while hidden loses nothing.
     const stop = installWindowVisibilityInterval({
       run: () => {
-        void window.api.preflight.check({ force: true }).then((status) => {
-          if (cancelled) {
+        void checkLandingPreflight(true).then((status) => {
+          if (cancelled || !status) {
             return
           }
           setPreflightIssues(

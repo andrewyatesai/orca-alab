@@ -6,6 +6,7 @@ import TabGroupPanel from './TabGroupPanel'
 import TabDragPreview from '../tab-bar/TabDragPreview'
 import { TabDragProvider } from './tab-drag-context'
 import TabPaneColumnSplitDragOverlay from './TabPaneColumnSplitDragOverlay'
+import { useRefitOnSplitCollapse } from './use-refit-on-split-collapse'
 import { type HoveredTabInsertion, useTabDragSplit } from './useTabDragSplit'
 import { beginSplitResizeDrag, type SplitResizeDragCleanup } from './tab-group-split-resize-drag'
 
@@ -203,6 +204,9 @@ export default function TabGroupSplitLayout({
 }): React.JSX.Element {
   const dragSplit = useTabDragSplit({ worktreeId, enabled: isWorktreeActive })
   const hasSplits = layout.type === 'split'
+
+  // Why: reflow the surviving group's terminal when a split collapses (#6154).
+  useRefitOnSplitCollapse(layout, isWorktreeActive)
 
   return (
     <TabDragProvider

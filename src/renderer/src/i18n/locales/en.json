@@ -9434,6 +9434,13 @@
         },
         "MobileRelayBetaNotice": {
           "notice": "Orca Relay is in beta."
+        },
+        "GitAutoFetchSetting": {
+          "title": "Automatic Git Fetch",
+          "description": "Periodically fetch remotes for local repositories so ahead/behind counts stay accurate for you and your agents. Failing repositories back off automatically.",
+          "intervalLabel": "Fetch interval",
+          "intervalDescription": "Minutes between background fetches per repository.",
+          "intervalSuffix": "min"
         }
       },
       "right": {

@@ -454,13 +454,20 @@ export class Session {
     this.pendingOutputRecords = []
     this.pendingOutputBytes = 0
     this.pendingOutputOverflowed = false
-    this.pendingOutputSeq += 1
+    const returnedRecords: PendingOutputRecord[] = includeSnapshot
+      ? releasedHeldBytes
+        ? [{ kind: 'output', data: releasedHeldBytes }]
+        : []
+      : records
+    // Why: only a take whose records reach the disk log may consume a batch
+    // seq. An empty/write-only take that burned one would leave the next
+    // appended batch non-contiguous (k, k+2), and the log reader treats that
+    // gap as a lost batch and discards the entire log on cold restore.
+    if (returnedRecords.length > 0) {
+      this.pendingOutputSeq += 1
+    }
     return {
-      records: includeSnapshot
-        ? releasedHeldBytes
-          ? [{ kind: 'output', data: releasedHeldBytes }]
-          : []
-        : records,
+      records: returnedRecords,
       seq: this.pendingOutputSeq,
       overflowed,
       snapshot: includeSnapshot ? this.getSnapshot() : null

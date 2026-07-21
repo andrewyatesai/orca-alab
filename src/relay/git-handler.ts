@@ -652,8 +652,9 @@ export class GitHandler {
       }
 
       if (tracked) {
+        // Why: restore from the index, not HEAD, so a discard keeps staged content.
         await this.git(
-          ['restore', '--worktree', '--source=HEAD', '--', this.literalPathspec(filePath)],
+          ['restore', '--worktree', '--', this.literalPathspec(filePath)],
           worktreePath
         )
         return
@@ -707,14 +708,9 @@ export class GitHandler {
         async () => {
           for (let i = 0; i < trackedPaths.length; i += BULK_CHUNK_SIZE) {
             const chunk = trackedPaths.slice(i, i + BULK_CHUNK_SIZE)
+            // Why: restore from the index, not HEAD (see discard()).
             await this.git(
-              [
-                'restore',
-                '--worktree',
-                '--source=HEAD',
-                '--',
-                ...chunk.map((p) => this.literalPathspec(p))
-              ],
+              ['restore', '--worktree', '--', ...chunk.map((p) => this.literalPathspec(p))],
               worktreePath
             )
           }

@@ -99,8 +99,9 @@ export function wireAtermPane(config: AtermPaneWiringConfig): AtermWiredPane {
   // ghost on its stacked overlay, and reflects the glitch deadline back (armed below via
   // strategy.onPredictDeadline). Owns the ONE glitch-expiry timer; teardown disposes it so
   // no armed timer outlives the pane (the native stranded-deadline 100%-CPU lesson).
-  // Repaints via presentNow (late-bound below) so the ghost lands this frame — the whole
-  // point is beating the PTY round-trip.
+  // Repaints via presentNow (late-bound below): in-process the ghost lands this frame;
+  // on the worker path it lands one worker round-trip later (post command → run predictor
+  // → reflect STATE → paint) — still far under the PTY/SSH round-trip this beats.
   const prediction = createAtermPredictionEcho({
     term,
     requestPaint: () => presentNow(),

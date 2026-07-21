@@ -24,7 +24,41 @@ export type WorkerPredictor = {
   deadlineMs: () => number | null
 }
 
+/** An inert predictor: every seam is a no-op, no ghost, no deadline. Used when the
+ *  engine lacks the predict_* exports so a mismatched/older wasm blob degrades to
+ *  no-prediction rather than crashing the shared worker on the first keystroke —
+ *  the same graceful-degradation the in-process controller's capability probe gives. */
+function inertWorkerPredictor(): WorkerPredictor {
+  return {
+    setMode: () => {},
+    char: () => {},
+    backspace: () => {},
+    submit: () => {},
+    reset: () => {},
+    reconcile: () => {},
+    overlay: () => EMPTY_PREDICT_OVERLAY,
+    deadlineMs: () => null
+  }
+}
+
 export function createWorkerPredictor(e: WorkerEngine): WorkerPredictor {
+  // Capability guard: the predict_* exports are typed as present (the pinned blob
+  // has them), but a runtime blob/type mismatch must NOT crash the whole shared
+  // worker — degrade to inert, matching the in-process probe (aterm-prediction-echo).
+  const probe = e as unknown as {
+    predict_char?: unknown
+    predict_overlay?: unknown
+    set_predictive_echo?: unknown
+    predict_next_deadline_ms?: unknown
+  }
+  if (
+    typeof probe.predict_char !== 'function' ||
+    typeof probe.predict_overlay !== 'function' ||
+    typeof probe.set_predictive_echo !== 'function' ||
+    typeof probe.predict_next_deadline_ms !== 'function'
+  ) {
+    return inertWorkerPredictor()
+  }
   // Enabled (mode != off) gates the per-frame overlay/deadline reflect + per-chunk
   // reconcile so an off predictor crosses the wasm boundary zero times.
   let enabled = false

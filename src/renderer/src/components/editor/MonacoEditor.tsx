@@ -38,6 +38,7 @@ import {
 } from './monaco-markdown-doc-link-decorations'
 import { buildGitConflictDecorations, hasGitConflictMarkers } from './monaco-conflict-decorations'
 import { selectWorktreeDiffComments } from '@/store/worktree-diff-comments-selector'
+import { resolveEditorEditContextEnabled } from './monaco-input-mode'
 import type { DiffComment } from '../../../../shared/types'
 import { isMarkdownComment } from '@/lib/diff-comment-compat'
 import { formatMarkdownReviewNotes, type MarkdownReviewNote } from '@/lib/markdown-review-notes'
@@ -162,6 +163,7 @@ export default function MonacoEditor({
   )
   const editorFontFamily = settings?.terminalFontFamily || 'monospace'
   const editorWordWrap = settings?.editorWordWrap
+  const editContextEnabled = resolveEditorEditContextEnabled(settings?.editorExperimentalInput)
   const estimatedAutoHeight = useMemo(() => {
     if (!autoHeight) {
       return null
@@ -752,9 +754,12 @@ export default function MonacoEditor({
     editorRef.current.updateOptions({
       fontSize: editorFontSize,
       fontFamily: editorFontFamily,
+      // Why: Monaco swaps its input controller live when editContext changes,
+      // so toggling the setting recovers a wedged editor without a remount.
+      editContext: editContextEnabled,
       ...buildFileEditorWordWrapOptions(editorWordWrap)
     })
-  }, [editorFontFamily, editorFontSize, editorWordWrap])
+  }, [editContextEnabled, editorFontFamily, editorFontSize, editorWordWrap])
 
   useEffect(() => {
     markdownDocLinkDecorationsRef.current?.refresh()
@@ -883,6 +888,7 @@ export default function MonacoEditor({
           automaticLayout: true,
           tabSize: 2,
           readOnly,
+          editContext: editContextEnabled,
           scrollbar: autoHeight
             ? {
                 vertical: autoHeightUsesInternalScroll ? 'auto' : 'hidden',

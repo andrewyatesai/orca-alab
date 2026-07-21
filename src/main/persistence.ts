@@ -4331,9 +4331,52 @@ export class Store {
       hostMembership.set(key, result)
       return result
     }
+    // Why: unpruned session owner keys re-materialize a deleted project's worktrees
+    // as an "unknown" workspace on next launch. Owner keys carry no host, so collect
+    // all prefix matches (before worktreeMeta deletion) and host-gate per partition below.
+    const ownerKeysToPrune = new Set<string>()
+    const collectPrefixedKeys = (keys: Iterable<string>): void => {
+      for (const key of keys) {
+        if (key.startsWith(prefix)) {
+          ownerKeysToPrune.add(key)
+        }
+      }
+    }
+    collectPrefixedKeys(Object.keys(this.state.worktreeMeta))
+    collectPrefixedKeys(Object.keys(this.state.workspaceSession?.lastVisitedAtByWorktreeId ?? {}))
+    for (const session of Object.values(this.state.workspaceSessionsByHostId ?? {})) {
+      collectPrefixedKeys(Object.keys(session?.lastVisitedAtByWorktreeId ?? {}))
+    }
+
     for (const key of Object.keys(this.state.worktreeMeta)) {
       if (belongsToHost(key)) {
         delete this.state.worktreeMeta[key]
+      }
+    }
+    // Why: a host-scoped prune must only touch that host's session partition (legacy
+    // blob = local); clearing all partitions would wipe a surviving host's state for a
+    // shared repo id/path. Full removal (hostId === null) still clears every host.
+    const pruneLegacyLocalSession = hostId === null || hostId === LOCAL_EXECUTION_HOST_ID
+    const pruneAllHostPartitions = hostId === null
+    for (const ownerKey of ownerKeysToPrune) {
+      if (pruneLegacyLocalSession) {
+        this.state.workspaceSession = removeWorkspaceSessionOwner(
+          this.state.workspaceSession,
+          ownerKey
+        )!
+      }
+      if (this.state.workspaceSessionsByHostId) {
+        for (const [partitionHostId, session] of Object.entries(
+          this.state.workspaceSessionsByHostId
+        )) {
+          if (!pruneAllHostPartitions && partitionHostId !== hostId) {
+            continue
+          }
+          const pruned = removeWorkspaceSessionOwner(session, ownerKey)
+          if (pruned) {
+            this.state.workspaceSessionsByHostId[partitionHostId] = pruned
+          }
+        }
       }
     }
     for (const [childId, lineage] of Object.entries(this.state.worktreeLineageById)) {
